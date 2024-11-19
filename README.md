@@ -54,7 +54,7 @@ The corresponding public key used for verifying signatures is known to all other
 
 ### Rounds and roles:
 
-A node progresses in monotonously increasing and successive rounds.
+A node progresses in monotonically increasing and successive rounds.
 Each round has a (different) leader node designated to propose blocks and disseminate them to the rest of the nodes.
 Once a leader node proposes a block, it participates in the remaining steps of the round as if it was a non-leader node.
 Except from the step in which the leader broadcasts a block, every other step involves a node broadcasting a signed message. 
