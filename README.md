@@ -198,9 +198,11 @@ type Metadata struct {
     Digest []byte
     // Epoch returns the epoch in which the block was proposed
     Epoch uint64
-    // Round returns the round number in which the block was proposed
+    // Round returns the round number in which the block was proposed. 
+    // Can also be an empty block.
     Round uint64
-    // Seq returns the round number in which the block was proposed
+    // Seq returns the round number in which the block was finalized.
+    // Cannot be an empty block.
     Seq uint64
     // Prev returns the digest of the previous data block
     Prev []byte
