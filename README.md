@@ -72,7 +72,8 @@ The flow of the protocol is as follows:
 3. For each node, one of the two mutually exclusive events happen:
    1. If the node collects votes on `<vote, i, H(b)>` from a quorum of nodes within time `T`, the node then considers the block `b` of round `i` as notarized, and moves to participate in the next round `i+1`.
    2. Else, the node does not collect a quorum of votes on `b` within time `T`, and it then broadcasts a vote for an empty block `<vote, i, ⊥>`  and waits to either collect a quorum of votes of the form `<vote, i, ⊥>` or `<vote, i, H(b)>` after which it moves to the next round `i+1`.
-4. Starting from round `i+1`, each node that did not vote for `<vote, i, ⊥>` (due to a timeout), broadcasts a finalization message `<finalize, i, H(b)>`.
+4. Upon collecting a quorum of votes  of the form `<vote, i, ⊥>` or `<vote, i, H(b)>`, broadcast it before moving to round `i+1`.
+5. Starting from round `i+1`, each node that did not vote for `<vote, i, ⊥>` (due to a timeout), broadcasts a finalization message `<finalize, i, H(b)>`.
 5. Each node that collects a quorum of finalization messages considers the block `b` as finalized, and can deliver it to the application.
 
 In our adaptation of Simplex, a node might also vote for the empty block if the application that uses it, considers
@@ -663,3 +664,8 @@ type Communication interface {
 ```
 
 [1] https://eprint.iacr.org/2023/463
+
+
+## Acknowledgements
+
+Thanks to Stephen Buttolph for invaluable feedback on this specification.
