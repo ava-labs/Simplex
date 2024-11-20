@@ -56,6 +56,7 @@ The corresponding public key used for verifying signatures is known to all other
 
 A node progresses in monotonically increasing and successive rounds.
 Each round has a (different) leader node designated to propose blocks and disseminate them to the rest of the nodes.
+Nodes only respond to the first block they see from the leader of that round.
 Once a leader node proposes a block, it participates in the remaining steps of the round as if it was a non-leader node.
 Except from the step in which the leader broadcasts a block, every other step involves a node broadcasting a signed message. 
 All nodes can verify whether a node indeed signed the message or not.
