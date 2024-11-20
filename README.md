@@ -74,7 +74,7 @@ The flow of the protocol is as follows:
    2. Else, the node does not collect a quorum of votes within time `T`, and it then broadcasts a vote for an empty block `<vote, i, ⊥>` and waits to either collect a quorum of votes of the form `<vote, i, ⊥>` or `<vote, i, H(b)>` after which it moves to the next round `i+1`.
 4. Upon collecting a quorum of votes  of the form `<vote, i, ⊥>` or `<vote, i, H(b)>`, the node broadcasts it before moving to round `i+1`.
 5. Starting from round `i+1`, each node that did not vote for `<vote, i, ⊥>` (due to a timeout) or collect a quorum of votes on `<vote, i, ⊥>` broadcasts a finalization message `<finalize, i, H(b)>`.
-5. Each node that collects a quorum of finalization messages considers the block `b` as finalized, and can deliver it to the application.
+6. Each node that collects a quorum of finalization messages considers the block `b` as finalized, and can deliver it to the application.
 
 In our adaptation of Simplex, a node might also vote for the empty block if the application that uses it, considers
 the leader to be faulty. An example in which the application may consider the leader is faulty, is if the leader hasn't proposed
