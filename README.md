@@ -640,6 +640,18 @@ type Verifier interface {
 ```
 A `Verifier` can be configured to verify the next epoch by consuming the last block of an epoch.
 
+In order to detect whether a commit of a block would cause the current epoch to end,
+we define the following API:
+
+```go
+type EpochEnder interface {
+	// EndsEpoch returns whether the given block ends the epoch.
+	EndsEpoch(SimplexBlock) bool
+}
+
+```
+
+
 In order to send messages to the members of the network, a communication object
 which also can be configured on an epoch basis, is defined:
 
