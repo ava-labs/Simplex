@@ -165,8 +165,8 @@ Simplex will assume an abstract and pluggable block storage with two basic opera
 
 ```go
 type Storage interface {  
-   Retrieve(uint64) Block  
-   Index(uint64, Block)   
+   Retrieve(seq uint64) Block  
+   Index(seq uint64, block Block)   
 }
 ```
 
@@ -202,7 +202,7 @@ type Metadata struct {
     // Round returns the round number in which the block was proposed. 
     // Can also be an empty block.
     Round uint64
-    // Seq returns the round number in which the block was finalized.
+    // Seq is the order of the block among all blocks in the blockchain.
     // Cannot be an empty block.
     Seq uint64
     // Prev returns the digest of the previous data block
@@ -608,8 +608,8 @@ type BlockBuilder interface {
 
 ```go
 type Storage interface {
-    Retrieve(uint64) Block
-    Index(uint64, Block)
+    Retrieve(seq uint64) Block
+    Index(seq uint64, block Block)
 }
 ```
 
