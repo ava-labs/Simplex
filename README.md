@@ -439,16 +439,10 @@ The synchronization mechanism is divided into two independent aspects:
 1. Detection of the straggler node that it needs to synchronize
 2. The straggler node synchronizing
 
-In order to detect that a node is straggling behind, nodes periodically send each other a message containing the current epoch and round number.
+In order to detect that a node is straggling behind, nodes send each other a message containing the current epoch and round number when they establish communication.
 
-````protobuf
-Heartbeat {
-  epoch uint64
-  round uint64
-}
-````
-
-A node considers itself behind if a majority of nodes are in a higher round than it.
+A node considers itself behind if another node can convince it that a higher round or epoch number exists.
+When a node connects to another node who is straggling behind, it sends it a finalization or a notarization which proves that a quorum of nodes progressed further.
 
 If a node discovers it is behind, there are two mutually exclusive scenarios:
 
@@ -584,6 +578,8 @@ type Consensus interface {
     // Suspect conveys the application suspects a node with the given ID is faulty.
     Suspect(ID bytes)
 
+    // Metadata returns the latest metadata known to this instance.
+    Metadata() Metadata
 }
 
 ```
