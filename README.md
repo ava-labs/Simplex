@@ -162,7 +162,7 @@ By looking at the sequence numbers and the round numbers of the two data blocks,
 
 ### Storage of blocks and protocol state
 
-Simplex will assume an abstract and pluggable block storage with two basic operations of retrieval of a block by its round number, and indexing a block by its round number.
+Simplex will assume an abstract and pluggable block storage with two basic operations of retrieval of a block by its sequence, and indexing a block by its sequence.
 
 ```go
 type Storage interface {  
