@@ -384,8 +384,14 @@ SignedFinalization {
 </table>
 
 
-A finalization message is written to the WAL only if the last 
-Unlike the rest of the messages, a finalization message isn’t written into the WAL, but instead written into the storage atomically with the block.
+A finalization message of epoch `e` for sequence `i` is written to the WAL only if 
+there exists a block with sequence `f > e` that caused an epoch change from `e` to `f` and `i ≥ f`.
+In other words, we persist to the WAL all finalizations of epoch `e` starting from the block that ends the epoch `e` and only those.
+The reason is that we may not be able to obtain a finalization for the block with sequence `f` until we finalize some descendant blocks
+in epoch `e`, but as per our configuration protocol, these blocks contain no transactions, so they cannot be made part of the blockchain.
+Therefore, in order to retain crash fault tolerance, we persist these finalizations to the WAL.
+
+All other finalization messages (corresponding to blocks before the block that changes the epoch) aren't written to the WAL, but instead written into the storage atomically with the block.
 
 In case the signature algorithm allows aggregation of signatures, we define the following messages:
 
