@@ -77,23 +77,23 @@ The flow of the protocol is as follows:
 5. Starting from round `i+1`, each node that did not vote for `<vote, i, ⊥>` (due to a timeout) or collect a quorum of votes on `<vote, i, ⊥>` broadcasts a finalization message `<finalize, i, H(b)>`.
 6. Each node that collects a quorum of finalization messages considers the block `b` as finalized, and can deliver it to the application.
 
-In our adaptation of Simplex, a node might also vote for the empty block if the application that uses it, considers
-the leader to be faulty. An example in which the application may consider the leader is faulty, is if the leader hasn't proposed
-a block, while the memory pool contains transactions.
 
-It is up to the application to ensure that transactions should arrive to the leader in a timely manner.
-A straight-forward way of ensuring this, is having nodes gossip transactions among each other.
+### Avoiding excessive block production
 
-If the application disseminates transactions via gossip, then correct nodes successfully notarize an empty block if and only if the leader is faulty: 
+In official Simplex protocol, a leader node must propose a block within a timely manner:
 
-1. If the leader is correct, the empty block is not notarized:
-   1. If the transaction is sent by a client to at least $f+1$ nodes, it will be disseminated to all correct nodes, so an empty block will be voted on by at most $f$ nodes.
-   2. Else, the transaction is sent by a client at most $f$ nodes, so at most $f$ nodes will vote on the empty block, which is insufficient to notarize it.
-2. If the leader is faulty and a transaction reached a correct node, then it will be gossipped to at least a quorum of correct nodes, and an empty vote will be notarized for that round. 
+> if, during some iteration, a process detects no progress (i.e. due to a faulty leader or network), it will timeout and vote for the dummy block.
 
+While this fits a setting where there is constant user activity, it can be quite wasteful.
 
-Similarly, the application may choose to monitor the connectivity to the leader node and make Simplex vote for the empty block
-if it deems the leader as disconnected.
+For example, in a network where most users are in the same country or continent, there are at least 6 hours in each 24 hours when very little activity is expected to take place.
+
+Rotating a leader every few seconds carries a network bandwidth, disk I/O and CPU overhead that should be avoided if possible.
+
+To that end, in our adaptation of Simplex, the application can hint to the consensus layer whether it expects a block to be proposed.
+Indeed, nodes of our adaptation of Simplex will only vote on the empty block if the application hints that a block should be proposed by the leader.
+
+It is up to the application to ensure that transactions arrive to the leader and to most of the nodes.
 
 ## Reconfiguring Simplex
 
@@ -145,10 +145,14 @@ Hereafter we call the series of blocks  {`b, d, …, d’, b’`}  an *Epoch Cha
 
 In practice, reconfiguration would work as follows:
 
-1. Once a node finalizes a block `b` containing a reconfiguration event in round `i` at epoch `e`, it signals its current instance of Simplex to stop voting for non-empty blocks, and to refuse finalizing any descendant block of `b` to ensure `b` is the last finalized block in epoch `e`.
-2. The node then spawns a new Simplex instance for epoch `e’>e`.
-3. Once the node finalizes two blocks in epoch `e’`, it terminates the Simplex instance of epoch `e`. At this point, at least a quorum of nodes started epoch `e’`, and finalized at least one block in epoch `e’`. 
-Therefore, at most `f` nodes are in the previous epoch `e`, so there is no need for the corresponding Simplex instance.
+1. Once a node notarizes a block `b` containing a reconfiguration event, in round `i` at epoch `e`, it refuses to vote for any descendant block of `b` in epoch `e`
+   that contains any transactions. Such blocks are treated as regular blocks, but they only contain the metadata and not the block data.
+2. Since it is impossible to hand over these blocks and their corresponding finalizations to the application, the finalizations are written to the WAL along with the metadata
+   to ensure proper restoration of the protocol state in case of a crash.
+3. Once the block of round `i` is finalized, a new simplex instance for epoch `e'` is spawned. The previous instance for epoch `e` does not terminate yet, to assist nodes that still remain in that epoch.
+4. The Simplex instance of epoch `e` remains active until a block has been finalized in epoch `e'`. 
+   This ensures that at least `f+1` correct nodes have moved to epoch `e'` and thus any nodes (at most `f`) remaining in epoch `e` can replicate the last data block of epoch `e`.
+
 
 ### Structuring the blockchain:
 
@@ -196,6 +200,8 @@ Where `Metadata` is defined as:
 
 ```go
 type Metadata struct {
+    // Version defines the version of the protocol this block was created with.
+    Version uint32
     // Digest returns a collision resistant short representation of the block's bytes
     Digest []byte
     // Epoch returns the epoch in which the block was proposed
@@ -230,6 +236,7 @@ Where Record is defined as:
 
 ```protobuf
 Record {  
+   version bytes
    size uint32  
    type uint32  
    payload bytes  
@@ -240,11 +247,13 @@ Record {
 
 The type corresponds to which message is recorded in the record, and each type corresponds to a serialization of one of the following messages:
 
-- The proposed message is written to the WAL once a node receives a proposal from the leader. It contains the block in its raw form, without finalizations.
+- The proposal message is written to the WAL once a node receives a proposal from the leader. It contains the block in its raw form, without finalizations.
+It also contains the protocol metadata associated to that block.
 
 ```protobuf
-Proposed {  
+Proposal {  
   block bytes  
+  metadata bytes
 }
 ```
 
@@ -375,6 +384,7 @@ SignedFinalization {
 </table>
 
 
+A finalization message is written to the WAL only if the last 
 Unlike the rest of the messages, a finalization message isn’t written into the WAL, but instead written into the storage atomically with the block.
 
 In case the signature algorithm allows aggregation of signatures, we define the following messages:
