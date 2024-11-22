@@ -575,9 +575,6 @@ type Consensus interface {
     // HandleMessage notifies the engine about a reception of a message.
     HandleMessage(Message)
 	
-    // Suspect conveys the application suspects a node with the given ID is faulty.
-    Suspect(ID bytes)
-
     // Metadata returns the latest metadata known to this instance.
     Metadata() Metadata
 }
@@ -595,8 +592,14 @@ are an API to build blocks and as mentioned before, an API to store and retrieve
 
 ```go
 type BlockBuilder interface {
-    BuildBlock() SimplexBlock	
+    // BuildBlock blocks until some transactions are available to be batched into a block,
+    // in which case a block and true are returned.
+    // When the given context is cancelled by the caller, returns false.
+    BuildBlock(ctx Context) (SimplexBlock, bool)
 	
+    // IncomingBlock returns when either the given context is cancelled,
+    // or when the application signals that a block should be built.
+    IncomingBlock(ctx Context)
 }
 ```
 
