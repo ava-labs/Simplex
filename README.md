@@ -204,7 +204,7 @@ type Metadata struct {
     // Can also be an empty block.
     Round uint64
     // Seq is the order of the block among all blocks in the blockchain.
-    // Cannot be an empty block.
+    // Cannot correspond to an empty block.
     Seq uint64
     // Prev returns the digest of the previous data block
     Prev []byte
