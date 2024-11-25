@@ -33,15 +33,25 @@ type Logger interface {
 	Verbo(msg string, fields ...zap.Field)
 }
 
+type BlockDigester interface {
+	Digest(block Block) []byte
+}
+
 type BlockBuilder interface {
 	// BuildBlock blocks until some transactions are available to be batched into a block,
 	// in which case a block and true are returned.
 	// When the given context is cancelled by the caller, returns false.
-	BuildBlock(ctx context.Context) (Block, bool)
+	BuildBlock(ctx context.Context, metadata ProtocolMetadata) (Block, bool)
 
 	// IncomingBlock returns when either the given context is cancelled,
 	// or when the application signals that a block should be built.
 	IncomingBlock(ctx context.Context)
+}
+
+type Storage interface {
+	Height() uint64
+	Retrieve(seq uint64) (Block, FinalizationCertificate, bool)
+	Index(seq uint64, block Block, certificate FinalizationCertificate)
 }
 
 type Communication interface {
@@ -52,8 +62,25 @@ type Communication interface {
 	// SendMessage sends a message to the given destination node
 	SendMessage(msg *Message, destination NodeID)
 
-	// Broadcast broadcasts the given message to all nodes
+	// Broadcast broadcasts the given message to all nodes.
+	// Does not send it to yourself.
 	Broadcast(msg *Message)
+}
+
+type Signer interface {
+	Sign(message []byte) ([]byte, error)
+}
+
+type SignatureVerifier interface {
+	Verify(message []byte, signature []byte, signers ...NodeID) error
+}
+
+type SignatureAggregator interface {
+	Aggregate([][]byte) []byte
+}
+
+type BlockVerifier interface {
+	VerifyBlock(block Block) error
 }
 
 type WriteAheadLog interface {

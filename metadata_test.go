@@ -21,12 +21,14 @@ func TestMetadata(t *testing.T) {
 	require.NoError(t, err)
 
 	md := Metadata{
-		Version: 1,
-		Round:   2,
-		Seq:     3,
-		Epoch:   4,
-		Prev:    prev,
-		Digest:  digest,
+		ProtocolMetadata: ProtocolMetadata{
+			Version: 1,
+			Round:   2,
+			Seq:     3,
+			Epoch:   4,
+			Prev:    prev,
+		},
+		Digest: digest,
 	}
 
 	var md2 Metadata
@@ -41,12 +43,14 @@ func FuzzMetadata(f *testing.F) {
 		digest := sha256.Sum256(digestPreimage)
 
 		md := Metadata{
-			Version: version,
-			Round:   round,
-			Seq:     seq,
-			Epoch:   epoch,
-			Prev:    prev[:],
-			Digest:  digest[:],
+			ProtocolMetadata: ProtocolMetadata{
+				Version: version,
+				Round:   round,
+				Seq:     seq,
+				Epoch:   epoch,
+				Prev:    prev[:],
+			},
+			Digest: digest[:],
 		}
 
 		var md2 Metadata
