@@ -12,6 +12,7 @@ import (
 
 const (
 	recordChecksumLen = 8
+	recordSizeLen     = 4
 	recordVersionLen  = 1
 	recordTypeLen     = 2
 
@@ -21,6 +22,7 @@ const (
 type Record struct {
 	Version uint8
 	Type    uint16
+	Size    uint32
 	Payload []byte
 }
 
@@ -28,7 +30,7 @@ func (r *Record) Bytes() []byte {
 
 	payloadLen := len(r.Payload)
 
-	buff := make([]byte, recordVersionLen+recordTypeLen+payloadLen+recordChecksumLen)
+	buff := make([]byte, recordVersionLen+recordTypeLen+payloadLen+recordSizeLen+recordChecksumLen)
 
 	var pos int
 
@@ -37,6 +39,9 @@ func (r *Record) Bytes() []byte {
 
 	binary.BigEndian.PutUint16(buff[pos:], r.Type)
 	pos += 2
+
+	binary.BigEndian.PutUint32(buff[pos:], r.Size)
+	pos += 4
 
 	copy(buff[pos:], r.Payload)
 	pos += len(r.Payload)
@@ -72,7 +77,7 @@ func (r *Record) FromBytes(buff []byte) error {
 		return fmt.Errorf(errInvalidCRC)
 	}
 
-	lengthWithoutChecksumAndPayload := recordVersionLen + recordTypeLen
+	lengthWithoutChecksumAndPayload := recordVersionLen + recordTypeLen + recordSizeLen
 	if dataLen < lengthWithoutChecksumAndPayload {
 		return fmt.Errorf("record too short, expected at least additional %d bytes", lengthWithoutChecksumAndPayload)
 	}
@@ -91,10 +96,14 @@ func (r *Record) FromBytes(buff []byte) error {
 	recType := binary.BigEndian.Uint16(buff[pos : pos+2])
 	pos += 2
 
+	recSize := binary.BigEndian.Uint32(buff[pos : pos+4])
+	pos += 4
+
 	payload := buff[pos : pos+payloadLen]
 
 	r.Version = version
 	r.Type = recType
+	r.Size = recSize
 	r.Payload = payload
 
 	return nil

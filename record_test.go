@@ -14,6 +14,7 @@ func TestRecord(t *testing.T) {
 	r := Record{
 		Version: 1,
 		Type:    2,
+		Size:    3,
 		Payload: []byte{3, 4, 5},
 	}
 
@@ -29,10 +30,11 @@ func TestRecord(t *testing.T) {
 }
 
 func FuzzRecord(f *testing.F) {
-	f.Fuzz(func(t *testing.T, version uint8, recType uint16, payload []byte, badCRC uint64) {
+	f.Fuzz(func(t *testing.T, version uint8, recType uint16, recSize uint32, payload []byte, badCRC uint64) {
 		r := Record{
 			Version: version,
 			Type:    recType,
+			Size:    recSize,
 			Payload: payload,
 		}
 
