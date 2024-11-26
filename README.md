@@ -201,7 +201,7 @@ Where `Metadata` is defined as:
 ```go
 type Metadata struct {
     // Version defines the version of the protocol this block was created with.
-    Version uint32
+    Version uint8
     // Digest returns a collision resistant short representation of the block's bytes
     Digest []byte
     // Epoch returns the epoch in which the block was proposed
@@ -236,7 +236,7 @@ Where Record is defined as:
 
 ```protobuf
 Record {  
-   version bytes
+   version uint8
    size uint32  
    type uint32  
    payload bytes  
@@ -267,7 +267,7 @@ Proposal {
 
 ```protobuf
 Vote {  
-   version uint32  
+   version uint8  
    digest bytes  
    digest_algorithm uint32  
    seq uint64  
@@ -313,7 +313,7 @@ Notarization {
 
 ```protobuf
 EmptyVote {  
-   version uint32  
+   version uint8  
    round uint64  
    epoch uint64  
 
@@ -354,7 +354,7 @@ EmptyNotarization {
 
 ```protobuf
 Finalization {  
-   version uint16  
+   version uint8  
    digest bytes  
    digest_algorithm uint32  
    seq uint64  
