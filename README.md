@@ -237,7 +237,6 @@ Where Record is defined as:
 ```protobuf
 Record {  
    version uint8
-   size uint32  
    type uint32  
    payload bytes  
    checksum bytes   
