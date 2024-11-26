@@ -4,6 +4,7 @@
 package simplex
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 )
@@ -19,11 +20,13 @@ const (
 	metadataLen = metadataVersionLen + metadataDigestLen + metadataEpochLen + metadataRoundLen + metadataSeqLen + metadataPrevLen
 )
 
-type Metadata struct {
+const (
+	digestFormatSize = 10
+)
+
+type ProtocolMetadata struct {
 	// Version defines the version of the protocol this block was created with.
 	Version uint8
-	// Digest returns a collision resistant short representation of the block's bytes
-	Digest []byte
 	// Epoch returns the epoch in which the block was proposed
 	Epoch uint64
 	// Round returns the round number in which the block was proposed.
@@ -34,6 +37,24 @@ type Metadata struct {
 	Seq uint64
 	// Prev returns the digest of the previous data block
 	Prev []byte
+}
+
+type Metadata struct {
+	ProtocolMetadata
+	// Digest returns a collision resistant short representation of the block's bytes
+	Digest Digest
+}
+
+type Digest []byte
+
+func (d Digest) String() string {
+	return fmt.Sprintf("%x", []byte(d)[:digestFormatSize])
+}
+
+func (m *Metadata) Equals(other *Metadata) bool {
+	return bytes.Equal(m.Digest, other.Digest) &&
+		bytes.Equal(m.Prev, other.Prev) && m.Epoch == other.Epoch &&
+		m.Round == other.Round && m.Seq == other.Seq && m.Version == other.Version
 }
 
 func (m *Metadata) Bytes() []byte {

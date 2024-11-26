@@ -32,6 +32,10 @@ type Record struct {
 	Payload []byte
 }
 
+func (r *Record) Length() int {
+	return recordVersionLen + recordTypeLen + len(r.Payload) + recordSizeLen + recordChecksumLen
+}
+
 func (r *Record) Bytes() []byte {
 
 	payloadLen := len(r.Payload)
