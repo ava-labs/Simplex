@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"hash/crc64"
+	"io"
 )
 
 const (
@@ -17,6 +18,8 @@ const (
 	recordTypeLen     = 2
 
 	errInvalidCRC = "invalid CRC checksum"
+
+	maxBlockSize = 100_000_000 // ~ 100MB
 )
 
 type Record struct {
@@ -55,56 +58,64 @@ func (r *Record) Bytes() []byte {
 	return buff
 }
 
-func (r *Record) FromBytes(buff []byte) error {
-	if len(buff) == 0 {
-		return fmt.Errorf("record empty")
-	}
+func (r *Record) FromBytes(in io.Reader) (int, error) {
+	versionTypeSizeBuff := make([]byte, recordVersionLen+recordTypeLen+recordSizeLen)
 
-	if len(buff) < 8 {
-		return fmt.Errorf("record too short, expected 8 bytes for CRC")
-	}
-
-	dataLen := len(buff) - 8
-
-	crc := crc64.New(crc64.MakeTable(crc64.ECMA))
-	if _, err := crc.Write(buff[:dataLen]); err != nil {
-		panic(fmt.Sprintf("CRC checksum failed: %v", err))
-	}
-
-	checksum := buff[dataLen:]
-
-	if !bytes.Equal(checksum, crc.Sum(nil)) {
-		return fmt.Errorf(errInvalidCRC)
-	}
-
-	lengthWithoutChecksumAndPayload := recordVersionLen + recordTypeLen + recordSizeLen
-	if dataLen < lengthWithoutChecksumAndPayload {
-		return fmt.Errorf("record too short, expected at least additional %d bytes", lengthWithoutChecksumAndPayload)
-	}
-
-	payloadLen := dataLen - lengthWithoutChecksumAndPayload
-
-	if payloadLen == 0 {
-		return fmt.Errorf("record too short, expected at least 1 byte for payload")
+	n, err := io.ReadFull(in, versionTypeSizeBuff)
+	if err != nil {
+		return n, err
 	}
 
 	var pos int
 
-	version := buff[0]
+	version := versionTypeSizeBuff[0]
 	pos++
 
-	recType := binary.BigEndian.Uint16(buff[pos : pos+2])
+	recType := binary.BigEndian.Uint16(versionTypeSizeBuff[pos : pos+2])
 	pos += 2
 
-	recSize := binary.BigEndian.Uint32(buff[pos : pos+4])
+	dataLen := binary.BigEndian.Uint32(versionTypeSizeBuff[pos : pos+4])
 	pos += 4
 
-	payload := buff[pos : pos+payloadLen]
+	if dataLen > maxBlockSize {
+		return 0, fmt.Errorf("record indicates payload is %d bytes long", dataLen)
+	}
+
+	if dataLen == 0 {
+		return 0, fmt.Errorf("record indicates payload is 0 bytes")
+	}
+
+	payload := make([]byte, dataLen)
+	n, err = io.ReadFull(in, payload)
+	if err != nil {
+		return n, err
+	}
+
+	checksum := make([]byte, recordChecksumLen)
+	n, err = io.ReadFull(in, checksum)
+	if err != nil {
+		return n, err
+	}
+
+	crc := crc64.New(crc64.MakeTable(crc64.ECMA))
+	if _, err := crc.Write(versionTypeSizeBuff); err != nil {
+		panic(fmt.Sprintf("CRC checksum failed: %v", err))
+	}
+	if _, err := crc.Write(payload); err != nil {
+		panic(fmt.Sprintf("CRC checksum failed: %v", err))
+	}
+	expectedChecksum := crc.Sum(nil)
+
+	if !bytes.Equal(checksum, expectedChecksum) {
+		return 0, fmt.Errorf(errInvalidCRC)
+	}
 
 	r.Version = version
 	r.Type = recType
-	r.Size = recSize
+	r.Size = dataLen
 	r.Payload = payload
 
-	return nil
+	totalSize := len(versionTypeSizeBuff) + len(payload) + len(checksum)
+
+	return totalSize, nil
 }

@@ -21,20 +21,23 @@ func TestRecord(t *testing.T) {
 	buff := r.Bytes()
 
 	var r2 Record
-	require.NoError(t, r2.FromBytes(buff))
+	_, err := r2.FromBytes(bytes.NewBuffer(buff))
+	require.NoError(t, err)
 	require.Equal(t, r, r2)
 
 	// Corrupt the CRC of the buffer
 	copy(buff[len(buff)-8:], []byte{0, 1, 2, 3, 4, 5, 6, 7})
-	require.EqualError(t, r2.FromBytes(buff), errInvalidCRC)
+	_, err = r2.FromBytes(bytes.NewBuffer(buff))
+	require.EqualError(t, err, errInvalidCRC)
 }
 
 func FuzzRecord(f *testing.F) {
-	f.Fuzz(func(t *testing.T, version uint8, recType uint16, recSize uint32, payload []byte, badCRC uint64) {
+	f.Fuzz(func(t *testing.T, version uint8, recType uint16, payload []byte, badCRC uint64) {
+		recSize := len(payload)
 		r := Record{
 			Version: version,
 			Type:    recType,
-			Size:    recSize,
+			Size:    uint32(recSize),
 			Payload: payload,
 		}
 
@@ -45,7 +48,8 @@ func FuzzRecord(f *testing.F) {
 		}
 
 		var r2 Record
-		require.NoError(t, r2.FromBytes(buff))
+		_, err := r2.FromBytes(bytes.NewBuffer(buff))
+		require.NoError(t, err)
 		require.Equal(t, r, r2)
 
 		crc := make([]byte, 8)
@@ -57,6 +61,8 @@ func FuzzRecord(f *testing.F) {
 
 		// Corrupt the CRC of the buffer
 		copy(buff[len(buff)-8:], crc)
-		require.EqualError(t, r2.FromBytes(buff), errInvalidCRC)
+
+		_, err = r2.FromBytes(bytes.NewBuffer(buff))
+		require.EqualError(t, err, errInvalidCRC)
 	})
 }
