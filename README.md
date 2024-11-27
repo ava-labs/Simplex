@@ -147,7 +147,7 @@ In practice, reconfiguration would work as follows:
 
 1. Once a node notarizes a block `b` containing a reconfiguration event, in round `i` at epoch `e`, it refuses to vote for any descendant block of `b` in epoch `e`
    that contains any transactions. Such blocks are treated as regular blocks, but they only contain the metadata and not the block data.
-2. Since it is impossible to hand over these blocks and their corresponding finalizations to the application, the finalizations are written to the WAL along with the metadata
+2. Since it is impossible to hand over these blocks and their corresponding finalizations to the application, the finalizations are written to the Write-Ahead-Log (WAL) along with the metadata
    to ensure proper restoration of the protocol state in case of a crash.
 3. Once the block of round `i` is finalized, a new simplex instance for epoch `e'` is spawned. The previous instance for epoch `e` does not terminate yet, to assist nodes that still remain in that epoch.
 4. The Simplex instance of epoch `e` remains active until a block has been finalized in epoch `e'`. 
@@ -222,14 +222,20 @@ type Metadata struct {
 Besides long term persistent storage, Simplex will also utilize a Write-Ahead-Log (WAL).   
 A WAL is used to write intermediate steps in the consensus protocol’s operation.  
 It’s needed for preserving consistency in the presence of crashes. Essentially, each node uses the WAL to save its current step in the protocol execution before it moves to the next step. If the node crashes, it uses the WAL to find at which step in the protocol it crashed and knows how to resume its operation from that step.  
-The WAL will be implemented as an append-only file which will be pruned only upon a finalization of a block. The WAL interface will be as follows:
+The WAL will be implemented as an append-only file which will be pruned only upon a finalization of a data block. The WAL interface will be as follows:
 
 ```go
 type WriteAheadLog interface {  
    Append(Record)  
    ReadAll() []Record  
+   MaybePrune()
 }
 ```
+
+The `MaybePrune()` function indicates to the WAL that it is safe to prune the entirety of the content of the WAL.
+In practice, whether the WAL prunes the entire data is up to implementation. 
+Some implementations may only prune the WAL once it grows beyond a certain size,
+for efficiency reasons. 
 
 
 Where Record is defined as:
