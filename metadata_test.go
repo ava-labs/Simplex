@@ -36,7 +36,7 @@ func TestMetadata(t *testing.T) {
 
 func FuzzMetadata(f *testing.F) {
 	f.Fuzz(func(t *testing.T, version uint8, round uint64, seq uint64, epoch uint64, prevPreimage []byte, digestPreimage []byte) {
-
+		t.Fail()
 		prev := sha256.Sum256(prevPreimage)
 		digest := sha256.Sum256(digestPreimage)
 
