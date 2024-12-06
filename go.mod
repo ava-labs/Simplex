@@ -1,4 +1,4 @@
-module sniplex
+module simplex
 
 go 1.23
 
