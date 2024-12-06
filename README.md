@@ -169,76 +169,98 @@ By looking at the sequence numbers and the round numbers of the two data blocks,
 Simplex will assume an abstract and pluggable block storage with two basic operations of retrieval of a block by its sequence, and indexing a block by its sequence.
 
 ```go
-type Storage interface {  
-   Retrieve(seq uint64) Block  
+type Storage interface {
+   // Height returns how many blocks have been accepted so far.
+   Height() uint64
+   
+   // Retrieve retrieves the block and corresponding finalization
+   // certificate from the storage, and returns false if it fails to do so.
+   Retrieve(seq uint64) (Block, FinalizationCertificate, bool) 
+   
+   // Index persists the given block to stable storage and associates it with the given sequence.
    Index(seq uint64, block Block)   
 }
 ```
 
-Where `Block` is defined as:
+The `FinalizationCertificate` message is defined later on, and `Block` is defined as follows:
 
 ```go
-type Block struct {
-	InnerBlock SimplexBlock
-	Finalization []SignedFinalization
-}
-```
-
-The `Finalization` message is defined later on, and `SimplexBlock` is defined as follows:
-
-```go
-type SimplexBlock interface {
+type Block interface {
     // Metadata is the consensus specific metadata for the block
-	Metadata() Metadata
+    Metadata() Metadata
 	
-	// Bytes returns a byte encoding of the block
-	Bytes() []byte
+    // Bytes returns a byte encoding of the block
+    Bytes() []byte
 }
 ```
 
-Where `Metadata` is defined as:
+Where `Metadata` is defined as a digest and the `ProtocolMetadata`:
 
 ```go
 type Metadata struct {
-    // Version defines the version of the protocol this block was created with.
-    Version uint8
+    // ProtocolMetadata is the state of the protocol after
+    // committing a corresponding block.
+    ProtocolMetadata ProtocolMetadata
+
     // Digest returns a collision resistant short representation of the block's bytes
     Digest []byte
-    // Epoch returns the epoch in which the block was proposed
-    Epoch uint64
-    // Round returns the round number in which the block was proposed. 
-    // Can also be an empty block.
-    Round uint64
-    // Seq is the order of the block among all blocks in the blockchain.
-    // Cannot correspond to an empty block.
-    Seq uint64
-    // Prev returns the digest of the previous data block
-    Prev []byte
 }
+```
+
+The `ProtocolMetadata` is defined below and is computed by the block proposer before the block is proposed.
+The `Digest` of the block is then computed over the entire block's byte representation which
+should also include the `ProtocolMetadata`. The Metadata plays a vital part of the protocol's runtime,
+as its `Digest` plays the role of a short binding commitment to the block built by the leader and disseminated to all nodes, and the `ProtocolMetadata`
+is essentially a configuration of Simplex in a given round.
+
+```go
+// ProtocolMetadata is the state of the protocol after
+// committing a block that corresponds to this metadata.
+type ProtocolMetadata struct {
+   // Version defines the version of the protocol this block was created with.
+   Version uint8
+   // Epoch returns the epoch in which the block was proposed
+   Epoch uint64
+   // Round returns the round number in which the block was proposed. 
+   // Can also be an empty block.
+   Round uint64
+   // Seq is the order of the block among all blocks in the blockchain.
+   // Cannot correspond to an empty block.
+   Seq uint64
+   // Prev returns the digest of the previous data block
+   Prev []byte
+}
+
 ```
 
 ### Persisting protocol state to disk
 
-Besides long term persistent storage, Simplex will also utilize a Write-Ahead-Log (WAL).   
-A WAL is used to write intermediate steps in the consensus protocol’s operation.  
-It’s needed for preserving consistency in the presence of crashes. Essentially, each node uses the WAL to save its current step in the protocol execution before it moves to the next step. If the node crashes, it uses the WAL to find at which step in the protocol it crashed and knows how to resume its operation from that step.  
+Besides long term persistent storage, Simplex will also utilize a Write-Ahead-Log (WAL). 
+
+A WAL is used to write intermediate steps in the consensus protocol’s operation. It’s needed for preserving consistency in the presence of crashes. 
+Essentially, each node uses the WAL to save its current step in the protocol execution before it moves to the next step. If the node crashes, it uses the WAL to find at which step in the protocol it crashed and knows how to resume its operation from that step.  
 The WAL will be implemented as an append-only file which will be pruned only upon a finalization of a data block. The WAL interface will be as follows:
 
 ```go
-type WriteAheadLog interface {  
-   Append(Record)  
+type WriteAheadLog interface {
+   // Append appends the given record to the WAL,
+   // and if prune is true, then the content of the WAL
+   // may contain only the given record afterward.
+   Append(record Record, prune bool)  
+   // ReadAll() returns all records in the WAL
    ReadAll() []Record  
-   MaybePrune()
 }
 ```
 
-The `MaybePrune()` function indicates to the WAL that it is safe to prune the entirety of the content of the WAL.
+The `prune` parameter indicates to the WAL that it is safe to prune the content of the WAL.
 In practice, whether the WAL prunes the entire data is up to implementation. 
 Some implementations may only prune the WAL once it grows beyond a certain size,
-for efficiency reasons. 
+for efficiency reasons.
+It is important for the append operation to be atomic with high probability.
+Therefore, a checksum mechanism is employed to detect if Simplex crashed mid-write.
 
 
-Where Record is defined as:
+A Record written by a WAL is defined as:
 
 ```protobuf
 Record {  
@@ -253,22 +275,33 @@ Record {
 
 The type corresponds to which message is recorded in the record, and each type corresponds to a serialization of one of the following messages:
 
-- The proposal message is written to the WAL once a node receives a proposal from the leader. It contains the block in its raw form, without finalizations.
+- The `Proposal` message is written to the WAL once a node receives a proposal from the leader. It contains the block in its raw form.
 It also contains the protocol metadata associated to that block.
+- Once a node collects a quorum of vote messages from distinct signers, it persists a `Notarization` message to the WAL.
+- Of course, it might be that it’s not possible to collect a quorum of Vote messages, and in that case the node times out until it collects a quorum of `EmptyVote` messages and persists an `EmptyNotarization` message to the WAL.
+- Finally, a node eventually collects a quorum of `Finalization` messages for a block. If all prior blocks have been indexed in the `Storage`,
+a `FinalizationCertificate` is passed to the application along with the corresponding `Block`. Otherwise, the `FinalizationCertificate` is written to the WAL to prevent it being lost.
+
+The messages saved in the WAL and the messages they transitively contain are defined as follows:
+
+<table>
+<tr>
+
+<td>
 
 ```protobuf
 Proposal {  
   block bytes  
   metadata bytes
 }
+
+
+
+
+
 ```
 
-- A vote message is sent by a node right after it persists the Proposed message to the WAL. The signature is over the ASN1 encoding of a Vote message.
-
-<table>
-<tr>
-</tr>
-<tr>
+</td>
 <td>
 
 ```protobuf
@@ -282,7 +315,9 @@ Vote {
    prev bytes
 }
 ```
+
 </td>
+
 <td>
 
 ```protobuf
@@ -298,23 +333,28 @@ SignedVote {
 ```
 
 </td>
-</tr>
-</table>
 
-- Once a node collects a quorum of vote messages from distinct signers, it persists the following message to the WAL:
+<td>
 
 ```protobuf
-Notarization {  
-  repeated votes SignedVote  
+Notarization {
+  vote Vote
+  signature_algorithm uint32
+  repeated signer bytes
+  repeated signature bytes
 }
+
+
+
 ```
 
+</td>
 
-- Of course, it might be that it’s not possible to collect a quorum of Vote messages, and in that case the node times out until it collects a quorum of EmptyVote messages:
-
-
-<table>
+</tr>
 <tr>
+
+
+
 <td>
 
 ```protobuf
@@ -324,9 +364,13 @@ EmptyVote {
    epoch uint64  
 
 }
+
+
+
 ```
 
 </td>
+
 <td>
 
 ```protobuf
@@ -336,26 +380,29 @@ SignedEmptyVote {
    signer bytes  
    signature bytes  
 }
+
+
+
 ```
 
 </td>
-</tr>
-</table>
 
-- The node then writes the EmptyNotarization message into the WAL.
-
+<td>
 
 ```protobuf
-EmptyNotarization {  
-   repeated empty_votes SignedEmptyVote  
+EmptyNotarization {
+        empty_vote EmptyVote
+        signature_algorithm uint32
+        repeated signer bytes
+        repeated signature bytes  
 }
+
+
+
 ```
 
+</td>
 
-- The last message that is related to totally ordering blocks, is the Finalization message:
-
-<table>
-<tr>
 <td>
 
 ```protobuf
@@ -371,6 +418,15 @@ Finalization {
 ```
 
 </td>
+
+</tr>
+</table>
+
+
+
+<table>
+<tr>
+
 <td>
 
 ```protobuf
@@ -386,15 +442,41 @@ SignedFinalization {
 ```
 
 </td>
+
+<td>
+
+```go
+type FinalizationCertificate struct {
+        signature_algorithm uint32
+	Finalization         Finalization
+        repeated signer bytes
+        repeated signature bytes
+}
+
+
+
+```
+
+</td>
+
 </tr>
 </table>
 
 
-A finalization message of epoch `e` for sequence `i` is not written to the WAL if it corresponds to a block that is an ancestor of a block with sequence `f` that changes the current epoch.
-Instead, they are written into the storage atomically with the block.
 
-A finalization message of any other block for that epoch, is written to the WAL.
-In other words, we persist to the WAL all finalizations of epoch `e` starting from the block that ends the epoch `e` and only those.
+
+<table>
+
+</table>
+
+#### Finalization certificates and epoch changes
+
+A finalization certificate message of epoch `e` for sequence `i` is not written to the WAL if it corresponds to a block that is an ancestor of a block with sequence `f` that changes the current epoch,
+unless sequences previous to `i` have not been committed.
+If all sequences prior to `i` have been committed, and sequences `e, ..., i` are all not epoch change blocks, the finalization certificate for sequence `i` is written to the  storage atomically with the block.
+
+A finalization certificate message of any other block for that epoch, is written to the WAL.
+In other words, we persist to the WAL all finalizations of epoch `e` starting from the block that ends the epoch `e`.
 The reason is that we may not be able to obtain a finalization for the block with sequence `f` until we finalize some descendant blocks
 in epoch `e`, but as per our configuration protocol, these blocks contain no transactions, so they cannot be made part of the blockchain.
 Therefore, in order to retain crash fault tolerance, we persist these finalizations to the WAL.
@@ -551,6 +633,9 @@ BlockResponse {
 </tr>
 </table>
 
+
+
+
 ## Simplex API
 
 In order for the consensus protocol to be part of an application, such as avalanchego, 
@@ -595,10 +680,10 @@ type Consensus interface {
     AdvanceTime(time.Duration)
     
     // HandleMessage notifies the engine about a reception of a message.
-    HandleMessage(Message)
+    HandleMessage(msg Message, from NodeID)
 	
-    // Metadata returns the latest metadata known to this instance.
-    Metadata() Metadata
+    // Metadata returns the latest protocol metadata known to this instance.
+    Metadata() ProtocolMetadata
 }
 
 ```
@@ -617,21 +702,11 @@ type BlockBuilder interface {
     // BuildBlock blocks until some transactions are available to be batched into a block,
     // in which case a block and true are returned.
     // When the given context is cancelled by the caller, returns false.
-    BuildBlock(ctx Context) (SimplexBlock, bool)
+    BuildBlock(ctx Context, metadata ProtocolMetadata) (Block, bool)
 	
     // IncomingBlock returns when either the given context is cancelled,
     // or when the application signals that a block should be built.
     IncomingBlock(ctx Context)
-}
-```
-
-</td>
-<td>
-
-```go
-type Storage interface {
-    Retrieve(seq uint64) Block
-    Index(seq uint64, block Block)
 }
 ```
 
@@ -641,9 +716,19 @@ type Storage interface {
 
 
 Whenever a Simplex instance recognizes it is its turn to propose a block, it calls
-into the application in order to build a block. Similarly, when it has collected enough finalizations for a block,
+into the application in order to build a block via the `BlockBuilder`. 
+Similarly, when it has collected enough finalizations for a block,
 it passes the block and the finalizations to the application layer, which in turn, is responsible
 not only for indexing the block, but also removing the transactions of the block from the memory pool.
+
+After receiving a block from the leader node, Simplex only votes on a succinct representation of the block's bytes.
+Therefore, Simplex calls into the application to compute the digest on a block:
+
+```go
+type BlockDigester interface {
+	Digest(block Block) []byte
+}
+```
 
 In order for signatures on notarizations or finalizations to be verified, we define the following verification object:
 
@@ -656,7 +741,7 @@ type Verifier interface {
     // SetEpochChange sets the epoch to correspond with the epoch
     // that is the result of committing this block.
     // If the block doesn't cause an epoch change, this is a no-op.
-    SetEpochChange(SimplexBlock) error
+    SetEpochChange(Block) error
 	
 }
 ```
@@ -665,15 +750,6 @@ A `Verifier` can be configured to verify the next epoch by consuming the last bl
 In order to detect whether a commit of a block would cause the current epoch to end,
 we define the following API:
 
-```go
-type EpochEnder interface {
-	// EndsEpoch returns whether the given block ends the epoch.
-	EndsEpoch(SimplexBlock) bool
-}
-
-```
-
-
 In order to send messages to the members of the network, a communication object
 which also can be configured on an epoch basis, is defined:
 
@@ -681,10 +757,10 @@ which also can be configured on an epoch basis, is defined:
 type Communication interface {
 	
     // ListNodes returns all nodes known to the application.
-    ListNodes() []bytes
+    ListNodes() []NodeID
 	
     // SendMessage sends a message to the given destination node
-    SendMessage(msg Message, destination bytes)
+    SendMessage(msg Message, destination NodeID)
     
     // Broadcast broadcasts the given message to all nodes 
     Broadcast(msg Message)
@@ -692,7 +768,7 @@ type Communication interface {
     // SetEpochChange sets the epoch to correspond with the epoch
     // that is the result of committing this block.
     // If the block doesn't cause an epoch change, this is a no-op.
-    SetEpochChange(SimplexBlock) error
+    SetEpochChange(Block) error
 	
 }
 ```
