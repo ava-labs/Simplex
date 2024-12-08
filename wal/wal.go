@@ -2,6 +2,7 @@ package wal
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"simplex"
 	"sync"
@@ -12,8 +13,24 @@ var (
 )
 
 type WriteAheadLog struct {
+	file *os.File
+
 	// one writer multiple readers lock
 	rwMutex sync.RWMutex
+
+}
+
+func New() (*WriteAheadLog, error) {
+	filename := WalFilename + WalExtension
+	file, err := os.OpenFile(filename, WalFlags, WalPermissions)
+	if err != nil {
+		return nil, err
+	}
+
+	return &WriteAheadLog{
+		file: file,
+		rwMutex: sync.RWMutex{},
+	}, nil
 }
 
 // Appends a record to the write ahead log 
@@ -24,40 +41,58 @@ func (w *WriteAheadLog) Append(r *simplex.Record) error {
 	w.rwMutex.Lock()
 	defer w.rwMutex.Unlock()
 
-	filename := filename + extension
-	file, err := os.OpenFile(filename, os.O_APPEND | os.O_CREATE | os.O_WRONLY, 0666)
+	
+	// write will append
+	amount, err := w.file.Write(bytes)
 	if err != nil {
 		return err
 	}
+	fmt.Printf("Wrote %d bytes \n", amount)
 
-	defer file.Close()
-	amount, err := file.Write(bytes)
-	if err != nil {
-		return err
-	}
-	fmt.Printf("Wrote %d bytes", amount)
-
-
-	// TODO: flush file
-	return nil
+	// ensure file gets written to SSD
+	return w.file.Sync()
 }
 
 func (w *WriteAheadLog) ReadAll() ([]simplex.Record, error) {
+	err := w.seekToStart()
+	if err != nil {
+		return []simplex.Record{}, fmt.Errorf("error seeking to start %w", err)
+	}
+
 	w.rwMutex.RLock()
 	defer w.rwMutex.RUnlock()
 
-	file, err := os.Open(filename + extension)
-	if err != nil {
-		return []simplex.Record{}, err
-	}
-	defer file.Close()
+	records := []simplex.Record{}
+	for {
+		var record simplex.Record
+		n, err := record.FromBytes(w.file)
+		fmt.Printf("num bytes read %d \n", n)
 
-	var record simplex.Record
-	n, err := record.FromBytes(file)
-	fmt.Printf("num bytes read %d", n)
-	if err != nil {
-		return []simplex.Record{}, err
+		// finished reading
+		if err == io.EOF {
+			break
+		} else if err != nil {
+			// if we error here, we need to ensure the next write will be at the end of the file
+			return []simplex.Record{}, ErrReadingRecord
+		}
+
+		records = append(records, record)
 	}
 
-	return []simplex.Record{record}, nil
+	// do we need to reset the os.File ptr?
+	return records, nil
+}
+
+func (w *WriteAheadLog) Close() error {
+	return w.file.Close()
+}
+
+// We can either ensure to seek to the start of the file before reading or writing,
+// or have two file ptrs one for reading and another for writing
+func (w *WriteAheadLog) seekToStart() error {
+	w.rwMutex.Lock()
+	defer w.rwMutex.Unlock()
+
+	_, err := w.file.Seek(0, io.SeekStart)
+	return err
 }
