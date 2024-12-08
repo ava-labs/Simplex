@@ -42,11 +42,10 @@ func (w *WriteAheadLog) Append(r *simplex.Record) error {
 	defer w.rwMutex.Unlock()
 
 	// write will append
-	amount, err := w.file.Write(bytes)
+	_, err := w.file.Write(bytes)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Wrote %d bytes \n", amount)
 
 	// ensure file gets written to SSD
 	return w.file.Sync()
@@ -64,30 +63,39 @@ func (w *WriteAheadLog) ReadAll() ([]simplex.Record, error) {
 	records := []simplex.Record{}
 	for {
 		var record simplex.Record
-		n, err := record.FromBytes(w.file)
-		fmt.Printf("num bytes read %d \n", n)
+		_, err := record.FromBytes(w.file)
 
 		// finished reading
 		if err == io.EOF {
 			break
 		} else if err != nil {
-			// if we error here, we need to ensure the next write will be at the end of the file
+			// no need to reset os.File ptr since writes are always appended at the end
 			return []simplex.Record{}, ErrReadingRecord
 		}
 
 		records = append(records, record)
 	}
 
-	// do we need to reset the os.File ptr?
 	return records, nil
+}
+
+// Truncates the write ahead log
+func (w *WriteAheadLog) Truncate() error {
+	w.rwMutex.Lock()
+	defer w.rwMutex.Unlock()
+
+	err := w.file.Truncate(0)
+	if err != nil {
+		return err
+	}
+
+	return w.file.Sync()
 }
 
 func (w *WriteAheadLog) Close() error {
 	return w.file.Close()
 }
 
-// We can either ensure to seek to the start of the file before reading or writing,
-// or have two file ptrs one for reading and another for writing
 func (w *WriteAheadLog) seekToStart() error {
 	w.rwMutex.Lock()
 	defer w.rwMutex.Unlock()

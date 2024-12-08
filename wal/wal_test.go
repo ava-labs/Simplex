@@ -204,3 +204,74 @@ func TestCorruptedFile(t *testing.T) {
 	require.ErrorIs(err, ErrReadingRecord)
 	require.Len(records, 0)
 }
+
+func TestTruncate(t *testing.T) {
+	require := require.New(t)
+
+	record := simplex.Record{
+		Version: 1,
+		Type:    2,
+		Size:    3,
+		Payload: []byte{3, 4, 5},
+	}
+
+	wal, err := New()
+	require.NoError(err)
+
+	defer func() {
+		err := wal.Close()
+		require.NoError(err)
+	}()
+
+	err = wal.Append(&record)
+	require.NoError(err)
+
+	err = wal.Truncate()
+	require.NoError(err)
+
+	records, err := wal.ReadAll()
+	require.NoError(err)
+	require.Len(records, 0)
+}
+
+func TestReadWriteAfterTruncate(t *testing.T) {
+	require := require.New(t)
+
+	record := simplex.Record{
+		Version: 1,
+		Type:    2,
+		Size:    3,
+		Payload: []byte{3, 4, 5},
+	}
+
+	wal, err := New()
+	require.NoError(err)
+
+	defer func() {
+		err := wal.Close()
+		require.NoError(err)
+	}()
+
+	err = wal.Append(&record)
+	require.NoError(err)
+
+	records, err := wal.ReadAll()
+	require.NoError(err)
+	require.Len(records, 1)
+	require.Equal(record, records[0])
+
+	err = wal.Truncate()
+	require.NoError(err)
+
+	records, err = wal.ReadAll()
+	require.NoError(err)
+	require.Len(records, 0)
+
+	err = wal.Append(&record)
+	require.NoError(err)
+
+	records, err = wal.ReadAll()
+	require.NoError(err)
+	require.Len(records, 1)
+	require.Equal(record, records[0])
+}
