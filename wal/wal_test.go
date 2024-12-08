@@ -21,11 +21,10 @@ func TestWalSingleRw(t *testing.T) {
 	wal, err := New()
 	require.NoError(err)
 
-	defer func(){
+	defer func() {
 		err := wal.Close()
 		require.NoError(err)
 	}()
-	
 
 	err = wal.Append(&record)
 	require.NoError(err)
@@ -56,11 +55,10 @@ func TestWalMultipleRws(t *testing.T) {
 	wal, err := New()
 	require.NoError(err)
 
-	defer func(){
+	defer func() {
 		err := wal.Close()
 		require.NoError(err)
 	}()
-
 
 	err = wal.Append(&record1)
 	require.NoError(err)
@@ -95,11 +93,10 @@ func TestWalMultipleReads(t *testing.T) {
 	wal, err := New()
 	require.NoError(err)
 
-	defer func(){
+	defer func() {
 		err := wal.Close()
 		require.NoError(err)
 	}()
-
 
 	err = wal.Append(&record1)
 	require.NoError(err)
@@ -140,11 +137,10 @@ func TestWalAppendAfterRead(t *testing.T) {
 	wal, err := New()
 	require.NoError(err)
 
-	defer func(){
+	defer func() {
 		err := wal.Close()
 		require.NoError(err)
 	}()
-
 
 	err = wal.Append(&record1)
 	require.NoError(err)
@@ -178,11 +174,10 @@ func TestCorruptedFile(t *testing.T) {
 	wal, err := New()
 	require.NoError(err)
 
-	defer func(){
+	defer func() {
 		err := wal.Close()
 		require.NoError(err)
 	}()
-
 
 	err = wal.Append(&record)
 	require.NoError(err)
@@ -191,7 +186,6 @@ func TestCorruptedFile(t *testing.T) {
 	require.NoError(err)
 	require.Len(records, 1)
 	require.Equal(record, records[0])
-		
 
 	// Corrupt the file
 	err = wal.file.Truncate(1)

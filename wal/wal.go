@@ -15,11 +15,11 @@ var (
 type WriteAheadLog struct {
 	file *os.File
 
-	// one writer multiple readers lock
+	// allow one writer multiple readers
 	rwMutex sync.RWMutex
-
 }
 
+// Ensure to call Close() on the WriteAheadLog to ensure the file is closed
 func New() (*WriteAheadLog, error) {
 	filename := WalFilename + WalExtension
 	file, err := os.OpenFile(filename, WalFlags, WalPermissions)
@@ -28,20 +28,19 @@ func New() (*WriteAheadLog, error) {
 	}
 
 	return &WriteAheadLog{
-		file: file,
+		file:    file,
 		rwMutex: sync.RWMutex{},
 	}, nil
 }
 
-// Appends a record to the write ahead log 
+// Appends a record to the write ahead log
 // Must flush the OS cache on every append to ensure consistency
 func (w *WriteAheadLog) Append(r *simplex.Record) error {
 	bytes := r.Bytes()
-	
+
 	w.rwMutex.Lock()
 	defer w.rwMutex.Unlock()
 
-	
 	// write will append
 	amount, err := w.file.Write(bytes)
 	if err != nil {

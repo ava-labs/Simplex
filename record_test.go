@@ -60,7 +60,6 @@ func TestMultipleFromBytes(t *testing.T) {
 	require.Equal(t, r2, r)
 }
 
-
 func FuzzRecord(f *testing.F) {
 	f.Fuzz(func(t *testing.T, version uint8, recType uint16, payload []byte, badCRC uint64) {
 		recSize := len(payload)
