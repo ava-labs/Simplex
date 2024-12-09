@@ -1,3 +1,6 @@
+// Copyright (C) 2019-2024, Ava Labs, Inc. All rights reserved.
+// See the file LICENSE for licensing terms.
+
 package wal
 
 import (
@@ -6,6 +9,13 @@ import (
 	"os"
 	"simplex"
 	"sync"
+)
+
+const (
+	WalExtension = ".wal"
+	WalFilename = "temp"
+	WalFlags       = os.O_APPEND | os.O_CREATE | os.O_RDWR 
+	WalPermissions = 0666
 )
 
 var (
@@ -69,7 +79,6 @@ func (w *WriteAheadLog) ReadAll() ([]simplex.Record, error) {
 		if err == io.EOF {
 			break
 		} else if err != nil {
-			// no need to reset os.File ptr since writes are always appended at the end
 			return []simplex.Record{}, ErrReadingRecord
 		}
 
@@ -79,7 +88,7 @@ func (w *WriteAheadLog) ReadAll() ([]simplex.Record, error) {
 	return records, nil
 }
 
-// Truncates the write ahead log
+// Truncate truncates the write ahead log
 func (w *WriteAheadLog) Truncate() error {
 	w.rwMutex.Lock()
 	defer w.rwMutex.Unlock()
