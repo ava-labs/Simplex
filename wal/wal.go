@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"simplex"
-	"sync"
 )
 
 const (
@@ -24,12 +23,10 @@ var (
 
 type WriteAheadLog struct {
 	file *os.File
-
-	// allow one writer multiple readers
-	rwMutex sync.RWMutex
 }
 
-// Ensure to call Close() on the WriteAheadLog to ensure the file is closed
+// New opens a write ahead log file, creating one if necessary.
+// Call Close() on the WriteAheadLog to ensure the file is closed after use.
 func New() (*WriteAheadLog, error) {
 	filename := WalFilename + WalExtension
 	file, err := os.OpenFile(filename, WalFlags, WalPermissions)
@@ -39,7 +36,6 @@ func New() (*WriteAheadLog, error) {
 
 	return &WriteAheadLog{
 		file:    file,
-		rwMutex: sync.RWMutex{},
 	}, nil
 }
 
@@ -48,41 +44,43 @@ func New() (*WriteAheadLog, error) {
 func (w *WriteAheadLog) Append(r *simplex.Record) error {
 	bytes := r.Bytes()
 
-	w.rwMutex.Lock()
-	defer w.rwMutex.Unlock()
-
 	// write will append
 	_, err := w.file.Write(bytes)
 	if err != nil {
 		return err
 	}
 
-	// ensure file gets written to SSD
+	// ensure file gets written to persistent storage
 	return w.file.Sync()
 }
 
 func (w *WriteAheadLog) ReadAll() ([]simplex.Record, error) {
-	err := w.seekToStart()
+	_, err := w.file.Seek(0, io.SeekStart)
 	if err != nil {
 		return []simplex.Record{}, fmt.Errorf("error seeking to start %w", err)
 	}
 
-	w.rwMutex.RLock()
-	defer w.rwMutex.RUnlock()
-
 	records := []simplex.Record{}
-	for {
-		var record simplex.Record
-		_, err := record.FromBytes(w.file)
+	fileInfo, err := w.file.Stat()
+	if err != nil {
+		return []simplex.Record{}, fmt.Errorf("error getting file info %w", err)
+	}
+	bytesToRead := fileInfo.Size()
 
-		// finished reading
-		if err == io.EOF {
-			break
-		} else if err != nil {
-			return []simplex.Record{}, ErrReadingRecord
+	for bytesToRead > 0 {
+		var record simplex.Record
+		bytesRead, err := record.FromBytes(w.file)
+		if err != nil {
+			return records, err
 		}
 
+		bytesToRead -= int64(bytesRead)
 		records = append(records, record)
+	}
+
+	// should never happen
+	if bytesToRead != 0 {
+		return records, fmt.Errorf("read more bytes than expected")
 	}
 
 	return records, nil
@@ -90,9 +88,6 @@ func (w *WriteAheadLog) ReadAll() ([]simplex.Record, error) {
 
 // Truncate truncates the write ahead log
 func (w *WriteAheadLog) Truncate() error {
-	w.rwMutex.Lock()
-	defer w.rwMutex.Unlock()
-
 	err := w.file.Truncate(0)
 	if err != nil {
 		return err
@@ -103,12 +98,4 @@ func (w *WriteAheadLog) Truncate() error {
 
 func (w *WriteAheadLog) Close() error {
 	return w.file.Close()
-}
-
-func (w *WriteAheadLog) seekToStart() error {
-	w.rwMutex.Lock()
-	defer w.rwMutex.Unlock()
-
-	_, err := w.file.Seek(0, io.SeekStart)
-	return err
 }

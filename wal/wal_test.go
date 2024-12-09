@@ -4,6 +4,8 @@
 package wal
 
 import (
+	"io"
+	"os"
 	"simplex"
 	"testing"
 
@@ -12,6 +14,7 @@ import (
 
 func TestWalSingleRw(t *testing.T) {
 	require := require.New(t)
+	deleteWal()
 
 	record := simplex.Record{
 		Version: 1,
@@ -40,6 +43,7 @@ func TestWalSingleRw(t *testing.T) {
 
 func TestWalMultipleRws(t *testing.T) {
 	require := require.New(t)
+	deleteWal()
 
 	record1 := simplex.Record{
 		Version: 1,
@@ -70,50 +74,6 @@ func TestWalMultipleRws(t *testing.T) {
 	require.NoError(err)
 
 	records, err := wal.ReadAll()
-	require.NoError(err)
-	require.Len(records, 2)
-	require.Equal(record1, records[0])
-	require.Equal(record2, records[1])
-}
-
-func TestWalMultipleReads(t *testing.T) {
-	require := require.New(t)
-
-	record1 := simplex.Record{
-		Version: 1,
-		Type:    2,
-		Size:    3,
-		Payload: []byte{3, 4, 5},
-	}
-
-	record2 := simplex.Record{
-		Version: 3,
-		Type:    3,
-		Size:    3,
-		Payload: []byte{1, 2, 3},
-	}
-
-	wal, err := New()
-	require.NoError(err)
-
-	defer func() {
-		err := wal.Close()
-		require.NoError(err)
-	}()
-
-	err = wal.Append(&record1)
-	require.NoError(err)
-
-	err = wal.Append(&record2)
-	require.NoError(err)
-
-	records, err := wal.ReadAll()
-	require.NoError(err)
-	require.Len(records, 2)
-	require.Equal(record1, records[0])
-	require.Equal(record2, records[1])
-
-	records, err = wal.ReadAll()
 	require.NoError(err)
 	require.Len(records, 2)
 	require.Equal(record1, records[0])
@@ -122,6 +82,7 @@ func TestWalMultipleReads(t *testing.T) {
 
 func TestWalAppendAfterRead(t *testing.T) {
 	require := require.New(t)
+	deleteWal()
 
 	record1 := simplex.Record{
 		Version: 1,
@@ -166,6 +127,7 @@ func TestWalAppendAfterRead(t *testing.T) {
 // write -> corrupt -> read -> write -> read
 func TestCorruptedFile(t *testing.T) {
 	require := require.New(t)
+	deleteWal()
 
 	record := simplex.Record{
 		Version: 1,
@@ -195,7 +157,7 @@ func TestCorruptedFile(t *testing.T) {
 	require.NoError(err)
 
 	records, err = wal.ReadAll()
-	require.ErrorIs(err, ErrReadingRecord)
+	require.ErrorIs(err, io.ErrUnexpectedEOF)
 	require.Len(records, 0)
 
 	// Append a new record
@@ -204,12 +166,13 @@ func TestCorruptedFile(t *testing.T) {
 
 	// Should still fail
 	records, err = wal.ReadAll()
-	require.ErrorIs(err, ErrReadingRecord)
+	require.ErrorIs(err, io.ErrUnexpectedEOF)
 	require.Len(records, 0)
 }
 
 func TestTruncate(t *testing.T) {
 	require := require.New(t)
+	deleteWal()
 
 	record := simplex.Record{
 		Version: 1,
@@ -239,6 +202,7 @@ func TestTruncate(t *testing.T) {
 
 func TestReadWriteAfterTruncate(t *testing.T) {
 	require := require.New(t)
+	deleteWal()
 
 	record := simplex.Record{
 		Version: 1,
@@ -277,4 +241,10 @@ func TestReadWriteAfterTruncate(t *testing.T) {
 	require.NoError(err)
 	require.Len(records, 1)
 	require.Equal(record, records[0])
+}
+
+// deleteWal removes the wal file. It is used for testing purposes to ensure
+// the wal file is empty before each test.
+func deleteWal() error {
+	return os.Remove(WalFilename + WalExtension)
 }
