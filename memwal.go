@@ -6,17 +6,18 @@ package simplex
 import (
 	"bytes"
 	"fmt"
+	"sniplex/record"
 )
 
 type InMemWAL bytes.Buffer
 
-func (wal *InMemWAL) Append(record *Record) {
+func (wal *InMemWAL) Append(record *record.Record) {
 	w := (*bytes.Buffer)(wal)
 	w.Write(record.Bytes())
 }
 
-func (wal *InMemWAL) ReadAll() []Record {
-	res := make([]Record, 0, 100)
+func (wal *InMemWAL) ReadAll() []record.Record {
+	res := make([]record.Record, 0, 100)
 
 	r := (*bytes.Buffer)(wal)
 	var bytesRead int
@@ -24,7 +25,7 @@ func (wal *InMemWAL) ReadAll() []Record {
 	total := r.Len()
 
 	for bytesRead < total {
-		var record Record
+		var record record.Record
 		n, err := record.FromBytes(r)
 		if err != nil {
 			panic(fmt.Sprintf("failed reading record: %v", err))

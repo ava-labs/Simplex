@@ -4,19 +4,21 @@
 package simplex
 
 import (
-	"github.com/stretchr/testify/require"
+	"sniplex/record"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestInMemWAL(t *testing.T) {
-	r1 := Record{
+	r1 := record.Record{
 		Version: 1,
 		Type:    2,
 		Size:    3,
 		Payload: []byte{4, 5, 6},
 	}
 
-	r2 := Record{
+	r2 := record.Record{
 		Version: 7,
 		Type:    8,
 		Size:    3,
@@ -27,5 +29,5 @@ func TestInMemWAL(t *testing.T) {
 	wal.Append(&r1)
 	wal.Append(&r2)
 
-	require.Equal(t, []Record{r1, r2}, wal.ReadAll())
+	require.Equal(t, []record.Record{r1, r2}, wal.ReadAll())
 }

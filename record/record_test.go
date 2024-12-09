@@ -1,13 +1,14 @@
 // Copyright (C) 2019-2024, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
-package simplex
+package record
 
 import (
 	"bytes"
 	"encoding/binary"
-	"github.com/stretchr/testify/require"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestRecord(t *testing.T) {
@@ -28,7 +29,7 @@ func TestRecord(t *testing.T) {
 	// Corrupt the CRC of the buffer
 	copy(buff[len(buff)-8:], []byte{0, 1, 2, 3, 4, 5, 6, 7})
 	_, err = r2.FromBytes(bytes.NewBuffer(buff))
-	require.EqualError(t, err, errInvalidCRC)
+	require.ErrorIs(t, err, ErrInvalidCRC)
 }
 
 func FuzzRecord(f *testing.F) {
@@ -63,6 +64,6 @@ func FuzzRecord(f *testing.F) {
 		copy(buff[len(buff)-8:], crc)
 
 		_, err = r2.FromBytes(bytes.NewBuffer(buff))
-		require.EqualError(t, err, errInvalidCRC)
+		require.ErrorIs(t, err, ErrInvalidCRC)
 	})
 }
