@@ -4,7 +4,6 @@
 package wal
 
 import (
-	"io"
 	"os"
 	"simplex"
 	"testing"
@@ -124,17 +123,10 @@ func TestWalAppendAfterRead(t *testing.T) {
 	require.Equal(record2, records[1])
 }
 
-// write -> corrupt -> read -> write -> read
+// Write 3 records, corrupt 4th
 func TestCorruptedFile(t *testing.T) {
 	require := require.New(t)
 	deleteWal()
-
-	record := simplex.Record{
-		Version: 1,
-		Type:    2,
-		Size:    3,
-		Payload: []byte{3, 4, 5},
-	}
 
 	wal, err := New()
 	require.NoError(err)
@@ -144,30 +136,43 @@ func TestCorruptedFile(t *testing.T) {
 		require.NoError(err)
 	}()
 
-	err = wal.Append(&record)
+	n := 4
+
+	records := make([]simplex.Record, n)
+	for i := 0; i < n; i++ {
+		records[i] = simplex.Record{
+			Version: uint8(i),
+			Type:    uint16(i),
+			Size:    3,
+			Payload: []byte{byte(i), byte(i), byte(i)},
+		}
+
+		err = wal.Append(&records[i])
+		require.NoError(err)
+	}
+
+	records, err = wal.ReadAll()
+	require.NoError(err)
+	require.Len(records, n)
+
+	// Corrupt k records
+	file, err := os.OpenFile(WalFilename+WalExtension, os.O_RDWR, 0666)
 	require.NoError(err)
 
-	records, err := wal.ReadAll()
+	recordSize := len(records[0].Bytes())
+	_, err = file.WriteAt([]byte{0, 1, 2}, int64(3*recordSize))
 	require.NoError(err)
-	require.Len(records, 1)
-	require.Equal(record, records[0])
 
-	// Corrupt the file
-	err = wal.file.Truncate(1)
+	err = file.Close()
 	require.NoError(err)
 
 	records, err = wal.ReadAll()
-	require.ErrorIs(err, io.ErrUnexpectedEOF)
-	require.Len(records, 0)
-
-	// Append a new record
-	err = wal.Append(&record)
 	require.NoError(err)
+	require.Len(records, n-1)
 
-	// Should still fail
-	records, err = wal.ReadAll()
-	require.ErrorIs(err, io.ErrUnexpectedEOF)
-	require.Len(records, 0)
+	for i := 0; i < n-1; i++ {
+		require.Equal(records[i], records[i])
+	}
 }
 
 func TestTruncate(t *testing.T) {

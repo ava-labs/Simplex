@@ -70,8 +70,10 @@ func (w *WriteAheadLog) ReadAll() ([]simplex.Record, error) {
 	for bytesToRead > 0 {
 		var record simplex.Record
 		bytesRead, err := record.FromBytes(w.file)
+		// record was corrupted in wal
 		if err != nil {
-			return records, err
+			w.truncateAt(fileInfo.Size() - bytesToRead)
+			return records, nil
 		}
 
 		bytesToRead -= int64(bytesRead)
@@ -88,8 +90,12 @@ func (w *WriteAheadLog) ReadAll() ([]simplex.Record, error) {
 
 // Truncate truncates the write ahead log
 func (w *WriteAheadLog) Truncate() error {
+	return w.truncateAt(0)
+}
+
+func (w *WriteAheadLog) truncateAt(offset int64) error {
 	// truncate call is atomic. Ref https://cgi.cse.unsw.edu.au/~cs3231/18s1/os161/man/syscall/ftruncate.html
-	err := w.file.Truncate(0)
+	err := w.file.Truncate(offset)
 	if err != nil {
 		return err
 	}
