@@ -88,6 +88,7 @@ func (w *WriteAheadLog) ReadAll() ([]simplex.Record, error) {
 
 // Truncate truncates the write ahead log
 func (w *WriteAheadLog) Truncate() error {
+	// truncate call is atomic. Ref https://cgi.cse.unsw.edu.au/~cs3231/18s1/os161/man/syscall/ftruncate.html
 	err := w.file.Truncate(0)
 	if err != nil {
 		return err
