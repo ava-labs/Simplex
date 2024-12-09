@@ -17,10 +17,6 @@ const (
 	WalPermissions = 0666
 )
 
-var (
-	_ simplex.WriteAheadLog = &WriteAheadLog{}
-)
-
 type WriteAheadLog struct {
 	file *os.File
 }

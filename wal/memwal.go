@@ -9,8 +9,6 @@ import (
 	"simplex"
 )
 
-var _ simplex.WriteAheadLog = &InMemWAL{}
-
 type InMemWAL bytes.Buffer
 
 func (wal *InMemWAL) Append(record *simplex.Record) error {
