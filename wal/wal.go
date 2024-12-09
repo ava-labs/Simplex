@@ -11,9 +11,9 @@ import (
 )
 
 const (
-	WalExtension = ".wal"
-	WalFilename = "temp"
-	WalFlags       = os.O_APPEND | os.O_CREATE | os.O_RDWR 
+	WalExtension   = ".wal"
+	WalFilename    = "temp"
+	WalFlags       = os.O_APPEND | os.O_CREATE | os.O_RDWR
 	WalPermissions = 0666
 )
 
@@ -35,7 +35,7 @@ func New() (*WriteAheadLog, error) {
 	}
 
 	return &WriteAheadLog{
-		file:    file,
+		file: file,
 	}, nil
 }
 
