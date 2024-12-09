@@ -1,11 +1,12 @@
 // Copyright (C) 2019-2024, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
-package simplex
+package record
 
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"hash/crc64"
 	"io"
@@ -17,9 +18,11 @@ const (
 	recordVersionLen  = 1
 	recordTypeLen     = 2
 
-	errInvalidCRC = "invalid CRC checksum"
-
 	maxBlockSize = 100_000_000 // ~ 100MB
+)
+
+var (
+	ErrInvalidCRC = errors.New("invalid CRC checksum")
 )
 
 type Record struct {
@@ -107,7 +110,7 @@ func (r *Record) FromBytes(in io.Reader) (int, error) {
 	expectedChecksum := crc.Sum(nil)
 
 	if !bytes.Equal(checksum, expectedChecksum) {
-		return 0, fmt.Errorf(errInvalidCRC)
+		return 0, ErrInvalidCRC
 	}
 
 	r.Version = version

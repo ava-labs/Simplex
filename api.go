@@ -5,6 +5,7 @@ package simplex
 
 import (
 	"context"
+	"simplex/record"
 
 	"go.uber.org/zap"
 )
@@ -57,8 +58,8 @@ type Communication interface {
 }
 
 type WriteAheadLog interface {
-	Append(*Record) error
-	ReadAll() ([]Record, error)
+	Append(*record.Record)
+	ReadAll() []record.Record
 }
 
 type Block interface {

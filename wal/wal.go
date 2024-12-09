@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"simplex"
+	"simplex/record"
 )
 
 const (
@@ -37,7 +37,7 @@ func New() (*WriteAheadLog, error) {
 
 // Appends a record to the write ahead log
 // Must flush the OS cache on every append to ensure consistency
-func (w *WriteAheadLog) Append(r *simplex.Record) error {
+func (w *WriteAheadLog) Append(r *record.Record) error {
 	bytes := r.Bytes()
 
 	// write will append
@@ -50,21 +50,21 @@ func (w *WriteAheadLog) Append(r *simplex.Record) error {
 	return w.file.Sync()
 }
 
-func (w *WriteAheadLog) ReadAll() ([]simplex.Record, error) {
+func (w *WriteAheadLog) ReadAll() ([]record.Record, error) {
 	_, err := w.file.Seek(0, io.SeekStart)
 	if err != nil {
-		return []simplex.Record{}, fmt.Errorf("error seeking to start %w", err)
+		return []record.Record{}, fmt.Errorf("error seeking to start %w", err)
 	}
 
-	records := []simplex.Record{}
+	records := []record.Record{}
 	fileInfo, err := w.file.Stat()
 	if err != nil {
-		return []simplex.Record{}, fmt.Errorf("error getting file info %w", err)
+		return []record.Record{}, fmt.Errorf("error getting file info %w", err)
 	}
 	bytesToRead := fileInfo.Size()
 
 	for bytesToRead > 0 {
-		var record simplex.Record
+		var record record.Record
 		bytesRead, err := record.FromBytes(w.file)
 		// record was corrupted in wal
 		if err != nil {

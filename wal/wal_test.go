@@ -5,7 +5,7 @@ package wal
 
 import (
 	"os"
-	"simplex"
+	"simplex/record"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -15,7 +15,7 @@ func TestWalSingleRw(t *testing.T) {
 	require := require.New(t)
 	deleteWal()
 
-	record := simplex.Record{
+	record := record.Record{
 		Version: 1,
 		Type:    2,
 		Size:    3,
@@ -44,14 +44,14 @@ func TestWalMultipleRws(t *testing.T) {
 	require := require.New(t)
 	deleteWal()
 
-	record1 := simplex.Record{
+	record1 := record.Record{
 		Version: 1,
 		Type:    2,
 		Size:    3,
 		Payload: []byte{3, 4, 5},
 	}
 
-	record2 := simplex.Record{
+	record2 := record.Record{
 		Version: 3,
 		Type:    3,
 		Size:    3,
@@ -83,14 +83,14 @@ func TestWalAppendAfterRead(t *testing.T) {
 	require := require.New(t)
 	deleteWal()
 
-	record1 := simplex.Record{
+	record1 := record.Record{
 		Version: 1,
 		Type:    2,
 		Size:    3,
 		Payload: []byte{3, 4, 5},
 	}
 
-	record2 := simplex.Record{
+	record2 := record.Record{
 		Version: 3,
 		Type:    3,
 		Size:    3,
@@ -138,9 +138,9 @@ func TestCorruptedFile(t *testing.T) {
 
 	n := 4
 
-	records := make([]simplex.Record, n)
+	records := make([]record.Record, n)
 	for i := 0; i < n; i++ {
-		records[i] = simplex.Record{
+		records[i] = record.Record{
 			Version: uint8(i),
 			Type:    uint16(i),
 			Size:    3,
@@ -175,7 +175,7 @@ func TestTruncate(t *testing.T) {
 	require := require.New(t)
 	deleteWal()
 
-	record := simplex.Record{
+	record := record.Record{
 		Version: 1,
 		Type:    2,
 		Size:    3,
@@ -205,7 +205,7 @@ func TestReadWriteAfterTruncate(t *testing.T) {
 	require := require.New(t)
 	deleteWal()
 
-	record := simplex.Record{
+	record := record.Record{
 		Version: 1,
 		Type:    2,
 		Size:    3,
