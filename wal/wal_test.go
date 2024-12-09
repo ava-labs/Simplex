@@ -151,10 +151,6 @@ func TestCorruptedFile(t *testing.T) {
 		require.NoError(err)
 	}
 
-	records, err = wal.ReadAll()
-	require.NoError(err)
-	require.Len(records, n)
-
 	// Corrupt k records
 	file, err := os.OpenFile(WalFilename+WalExtension, os.O_RDWR, 0666)
 	require.NoError(err)
@@ -166,12 +162,12 @@ func TestCorruptedFile(t *testing.T) {
 	err = file.Close()
 	require.NoError(err)
 
-	records, err = wal.ReadAll()
+	readRecords, err := wal.ReadAll()
 	require.NoError(err)
-	require.Len(records, n-1)
+	require.Len(readRecords, n-1)
 
 	for i := 0; i < n-1; i++ {
-		require.Equal(records[i], records[i])
+		require.Equal(readRecords[i], records[i])
 	}
 }
 
