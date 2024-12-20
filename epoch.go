@@ -73,6 +73,7 @@ type Epoch struct {
 	ID                  NodeID
 	Signer              Signer
 	Verifier            SignatureVerifier
+	BlockDeserializer   BlockDeserializer
 	BlockDigester       BlockDigester
 	BlockVerifier       BlockVerifier
 	SignatureAggregator SignatureAggregator

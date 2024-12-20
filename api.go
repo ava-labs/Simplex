@@ -96,3 +96,11 @@ type Block interface {
 	// Bytes returns a byte encoding of the block
 	Bytes() []byte
 }
+
+// BlockDeserializer deserializes blocks according to formatting
+// enforced by the application.
+type BlockDeserializer interface {
+	// DeserializeBlock parses the given bytes and initializes a Block.
+	// Returns an error upon failure.
+	DeserializeBlock(bytes []byte) (Block, error)
+}
