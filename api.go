@@ -95,9 +95,6 @@ type Block interface {
 
 	// Bytes returns a byte encoding of the block
 	Bytes() []byte
-
-	// Builds the block from bytes
-	FromBytes([]byte) Block 
 }
 
 // BlockDeserializer deserializes blocks according to formatting

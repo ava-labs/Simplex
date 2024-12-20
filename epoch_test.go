@@ -36,8 +36,8 @@ func TestEpochSimpleFlow(t *testing.T) {
 		Comm:          noopComm([]NodeID{{1}, {2}, {3}, {4}}),
 		BlockBuilder:  bb,
 	}
-
-	e.Start()
+	err := e.Start()
+	require.NoError(t, err)
 
 	for i := 0; i < 100; i++ {
 		leaderID := i%4 + 1

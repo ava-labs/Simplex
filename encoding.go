@@ -38,7 +38,7 @@ func finalizationFromRecord(record Record) ([][]byte, []NodeID, Finalization, er
 	return nr.Signatures, signers, finalization, nil
 }
 
-func quorumRecord(signatures [][]byte, signers []NodeID, rawVote []byte, recordType uint16) Record {
+func quorumRecord(signatures [][]byte, signers []NodeID, rawVote []byte, recordType uint16) (Record, error) {
 	var qr QuorumRecord
 	qr.Signatures = signatures
 	qr.Vote = rawVote
@@ -50,14 +50,14 @@ func quorumRecord(signatures [][]byte, signers []NodeID, rawVote []byte, recordT
 
 	payload, err := asn1.Marshal(qr)
 	if err != nil {
-		panic(err)
+		return Record{}, err
 	}
 
 	return Record{
 		Size:    uint32(len(payload)),
 		Payload: payload,
 		Type:    recordType,
-	}
+	}, nil
 }
 
 func notarizationFromRecord(record Record) ([][]byte, []NodeID, Vote, error) {
