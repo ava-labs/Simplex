@@ -8,7 +8,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	. "simplex/record"
+	"simplex/record"
 )
 
 type QuorumRecord struct {
@@ -17,9 +17,9 @@ type QuorumRecord struct {
 	Vote       []byte
 }
 
-func finalizationFromRecord(record Record) ([][]byte, []NodeID, Finalization, error) {
+func finalizationFromRecord(payload []byte) ([][]byte, []NodeID, Finalization, error) {
 	var nr QuorumRecord
-	_, err := asn1.Unmarshal(record.Payload, &nr)
+	_, err := asn1.Unmarshal(payload, &nr)
 	if err != nil {
 		return nil, nil, Finalization{}, err
 	}
@@ -37,7 +37,7 @@ func finalizationFromRecord(record Record) ([][]byte, []NodeID, Finalization, er
 	return nr.Signatures, signers, finalization, nil
 }
 
-func quorumRecord(signatures [][]byte, signers []NodeID, rawVote []byte, recordType uint16) Record {
+func quorumRecord(signatures [][]byte, signers []NodeID, rawVote []byte, recordType uint16) []byte {
 	var qr QuorumRecord
 	qr.Signatures = signatures
 	qr.Vote = rawVote
@@ -52,16 +52,17 @@ func quorumRecord(signatures [][]byte, signers []NodeID, rawVote []byte, recordT
 		panic(err)
 	}
 
-	return Record{
-		Size:    uint32(len(payload)),
-		Payload: payload,
-		Type:    recordType,
-	}
+	buff := make([]byte, len(payload)+2)
+	binary.BigEndian.PutUint16(buff, recordType)
+	copy(buff[2:], payload)
+
+	return buff
 }
 
-func notarizationFromRecord(record Record) ([][]byte, []NodeID, Vote, error) {
+func notarizationFromRecord(record []byte) ([][]byte, []NodeID, Vote, error) {
+	record = record[2:]
 	var nr QuorumRecord
-	_, err := asn1.Unmarshal(record.Payload, &nr)
+	_, err := asn1.Unmarshal(record, &nr)
 	if err != nil {
 		return nil, nil, Vote{}, err
 	}
@@ -79,7 +80,7 @@ func notarizationFromRecord(record Record) ([][]byte, []NodeID, Vote, error) {
 	return nr.Signatures, signers, vote, nil
 }
 
-func blockRecord(md Metadata, blockData []byte) Record {
+func blockRecord(md Metadata, blockData []byte) []byte {
 	mdBytes := md.Bytes()
 
 	mdSizeBuff := make([]byte, 4)
@@ -88,22 +89,18 @@ func blockRecord(md Metadata, blockData []byte) Record {
 	blockDataSizeBuff := make([]byte, 4)
 	binary.BigEndian.PutUint32(blockDataSizeBuff, uint32(len(blockData)))
 
-	buff := make([]byte, len(mdBytes)+len(blockData)+len(mdSizeBuff)+len(blockDataSizeBuff))
-	copy(buff, mdSizeBuff)
-	copy(buff[4:], blockDataSizeBuff)
-	copy(buff[8:], mdBytes)
-	copy(buff[8+len(mdBytes):], blockData)
+	buff := make([]byte, len(mdBytes)+len(blockData)+len(mdSizeBuff)+len(blockDataSizeBuff)+2)
+	binary.BigEndian.PutUint16(buff, record.BlockRecordType)
+	copy(buff[2:], mdSizeBuff)
+	copy(buff[6:], blockDataSizeBuff)
+	copy(buff[10:], mdBytes)
+	copy(buff[10+len(mdBytes):], blockData)
 
-	return Record{
-		Type:    uint16(blockRecordType),
-		Size:    uint32(len(buff)),
-		Payload: buff,
-	}
+	return buff
 }
 
-func blockFromRecord(r Record) (Metadata, []byte, error) {
-	buff := r.Payload
-
+func blockFromRecord(buff []byte) (Metadata, []byte, error) {
+	buff = buff[2:]
 	if len(buff) < 8 {
 		return Metadata{}, nil, errors.New("buffer too small, expected 8 bytes")
 	}

@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/binary"
 	"fmt"
 	. "simplex"
 	"simplex/wal"
@@ -35,8 +36,8 @@ func TestEpochSimpleFlow(t *testing.T) {
 		Comm:          noopComm([]NodeID{{1}, {2}, {3}, {4}}),
 		BlockBuilder:  bb,
 	}
-
-	e.Start()
+	err := e.Start()
+	require.NoError(t, err)
 
 	for i := 0; i < 100; i++ {
 		leaderID := i%4 + 1
@@ -51,18 +52,19 @@ func TestEpochSimpleFlow(t *testing.T) {
 		block := <-bb
 
 		if !shouldPropose {
-			e.HandleMessage(&Message{
+			err := e.HandleMessage(&Message{
 				BlockMessage: &BlockMessage{
 					Block: block,
 				},
 			}, NodeID{byte(leaderID)})
+			require.NoError(t, err)
 		}
 
-		injectVote(e, block, NodeID{2})
-		injectVote(e, block, NodeID{3})
+		injectVote(t, e, block, NodeID{2})
+		injectVote(t, e, block, NodeID{3})
 
-		injectFinalization(e, block, NodeID{2})
-		injectFinalization(e, block, NodeID{3})
+		injectFinalization(t, e, block, NodeID{2})
+		injectFinalization(t, e, block, NodeID{3})
 
 		committedData := storage[uint64(i)].Block.Bytes()
 		require.Equal(t, block.Bytes(), committedData)
@@ -77,8 +79,8 @@ func makeLogger(t *testing.T) *testLogger {
 	return l
 }
 
-func injectVote(e *Epoch, block *testBlock, id NodeID) {
-	e.HandleMessage(&Message{
+func injectVote(t *testing.T, e *Epoch, block *testBlock, id NodeID) {
+	err := e.HandleMessage(&Message{
 		VoteMessage: &SignedVoteMessage{
 			Signer: id,
 			Vote: Vote{
@@ -86,12 +88,14 @@ func injectVote(e *Epoch, block *testBlock, id NodeID) {
 			},
 		},
 	}, id)
+
+	require.NoError(t, err)
 }
 
-func injectFinalization(e *Epoch, block *testBlock, id NodeID) {
+func injectFinalization(t *testing.T, e *Epoch, block *testBlock, id NodeID) {
 	md := block.Metadata()
 	md.Digest = (blockDigester{}).Digest(block)
-	e.HandleMessage(&Message{
+	err := e.HandleMessage(&Message{
 		Finalization: &SignedFinalizationMessage{
 			Signer: id,
 			Finalization: Finalization{
@@ -99,6 +103,7 @@ func injectFinalization(e *Epoch, block *testBlock, id NodeID) {
 			},
 		},
 	}, id)
+	require.NoError(t, err)
 }
 
 type testLogger struct {
@@ -204,9 +209,10 @@ func (t testBlock) Bytes() []byte {
 
 	mdBuff := md.Bytes()
 
-	buff := make([]byte, len(t.data)+len(mdBuff))
-	copy(buff, t.data)
-	copy(buff[len(t.data):], mdBuff)
+	buff := make([]byte, len(t.data)+len(mdBuff)+4)
+	binary.BigEndian.PutUint32(buff, uint32(len(t.data)))
+	copy(buff[4:], t.data)
+	copy(buff[4+len(t.data):], mdBuff)
 	return buff
 }
 
@@ -248,4 +254,35 @@ func (mem InMemStorage) Index(seq uint64, block Block, certificate FinalizationC
 	}{block,
 		certificate,
 	}
+}
+
+type blockDeserializer struct {
+}
+
+func (b *blockDeserializer) DeserializeBlock(buff []byte) (Block, error) {
+	blockLen := binary.BigEndian.Uint32(buff[:4])
+	md := Metadata{}
+	if err := md.FromBytes(buff[4+blockLen:]); err != nil {
+		return nil, err
+	}
+
+	md.Digest = make([]byte, 32)
+
+	tb := testBlock{
+		data:     buff[4 : 4+blockLen],
+		metadata: md.ProtocolMetadata,
+	}
+
+	var digester blockDigester
+	tb.digest = digester.Digest(&tb)
+	return &tb, nil
+}
+
+func TestBlockDeserializer(t *testing.T) {
+	var blockDeserializer blockDeserializer
+
+	tb := newTestBlock(ProtocolMetadata{Seq: 1, Round: 2, Epoch: 3, Prev: make([]byte, 32)})
+	tb2, err := blockDeserializer.DeserializeBlock(tb.Bytes())
+	require.NoError(t, err)
+	require.Equal(t, tb, tb2)
 }
