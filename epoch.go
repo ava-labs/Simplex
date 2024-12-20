@@ -1044,19 +1044,20 @@ func (e *Epoch) storeProposal(block Block, from NodeID) bool {
 	// Have we already received a block from that node?
 	// If so, it cannot change its mind and send us a different block.
 	round, exists := e.rounds[md.Round]
-	if !exists {
-		round = NewRound(block)
-		e.rounds[md.Round] = round
-		// We might have receied votes and finalizations from future rounds before we received this block.
-		// So load the messages into our round data structure now that we have created it.
-		defer e.maybeLoadFutureMessages(md.Round)
-	} else {
+	if exists {
 		// We have already received a block for this round in the past, refuse receiving an alternative block.
 		// We do this because we may have already voted for a different block.
 		// Refuse processing the block to not be coerced into voting for a different block.
 		e.Logger.Warn("Already received a block for the round", zap.Stringer("NodeID", from), zap.Uint64("round", md.Round))
 		return false
 	}
+
+	round = NewRound(block)
+	e.rounds[md.Round] = round
+	// We might have receied votes and finalizations from future rounds before we received this block.
+	// So load the messages into our round data structure now that we have created it.
+	e.maybeLoadFutureMessages(md.Round)
+
 	return true
 }
 
@@ -1078,7 +1079,7 @@ func leaderForRound(nodes []NodeID, r uint64) NodeID {
 func quorum(n int) int {
 	// Obtained from the equation:
 	// Quorum * 2 = N + F + 1
-	return int(math.Ceil(float64((n + (n-1)/3 + 1) / 2.0)))
+	return int(math.Ceil(float64(n+(n-1)/3+1) / 2.0))
 }
 
 type messagesFromNode map[string]map[uint64]*messagesForRound
