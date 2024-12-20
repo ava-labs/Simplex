@@ -8,7 +8,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	. "sniplex/record"
+	. "simplex/record"
 )
 
 type QuorumRecord struct {
