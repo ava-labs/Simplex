@@ -148,12 +148,12 @@ func (e *Epoch) Start() error {
 	return e.syncFromWal()
 }
 
-// startFromWal start an epoch from the write ahead log. 
+// startFromWal start an epoch from the write ahead log.
 func (e *Epoch) syncFromWal() error {
 	return e.startRound()
 }
 
-// loadLastBlock initializes the epoch with the lastBlock retrieved from storage. 
+// loadLastBlock initializes the epoch with the lastBlock retrieved from storage.
 func (e *Epoch) loadLastBlock() error {
 	block, err := e.retrieveLastBlockFromStorage()
 	if err != nil {
@@ -235,8 +235,8 @@ func (e *Epoch) isFinalizationCertificateValid(fCert *FinalizationCertificate) (
 		if !valid {
 			return false, nil
 		}
-	} 
-	
+	}
+
 	e.Logger.Debug("Received finalization without any signatures in it")
 	return false, nil
 }
@@ -250,7 +250,7 @@ func (e *Epoch) isAggregateSigFinalizationCertValid(fCert *FinalizationCertifica
 		return false, nil
 	}
 	signedTwice, err := e.hasSomeNodeSignedTwice(nil, fCert.AggregatedSignedVote.Signers)
-	if  err != nil {
+	if err != nil {
 		return false, err
 	}
 	if signedTwice {
@@ -275,7 +275,7 @@ func (e *Epoch) isMultiSigFinalizationCertValid(fCert *FinalizationCertificate) 
 	if err != nil {
 		return false, err
 	}
-	if  signedTwice {
+	if signedTwice {
 		return false, nil
 	}
 	for _, sig := range fCert.SignaturesAndSigners {
@@ -656,7 +656,7 @@ func (e *Epoch) handleNotarizationMessage(message *Message, from NodeID) error {
 		if err != nil {
 			return err
 		}
-		if  signedTwice {
+		if signedTwice {
 			return nil
 		}
 		for _, ssp := range msg.SignaturesAndSigners {
