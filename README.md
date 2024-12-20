@@ -91,7 +91,7 @@ For example, in a network where most users are in the same country or continent,
 Rotating a leader every few seconds carries a network bandwidth, disk I/O and CPU overhead that should be avoided if possible.
 
 To that end, in our adaptation of Simplex, the application can hint to the consensus layer whether it expects a block to be proposed.
-Indeed, nodes of our adaptation of Simplex will only vote on the empty block if the application hints that a block should be proposed by the leader.
+Nodes of our adaptation of Simplex will only vote on the empty block if the application hints that a block should be proposed by the leader.
 
 It is up to the application to ensure that transactions arrive to the leader and to most of the nodes.
 
@@ -175,10 +175,10 @@ type Storage interface {
    
    // Retrieve retrieves the block and corresponding finalization
    // certificate from the storage, and returns false if it fails to do so.
-   Retrieve(seq uint64) (Block, FinalizationCertificate, bool) 
+   Retrieve(seq uint64) (Block, FinalizationCertificate, bool, error) 
    
    // Index persists the given block to stable storage and associates it with the given sequence.
-   Index(seq uint64, block Block)   
+   Index(seq uint64, block Block, certificate FinalizationCertificate)   
 }
 ```
 
@@ -191,6 +191,9 @@ type Block interface {
 	
     // Bytes returns a byte encoding of the block
     Bytes() []byte
+	
+	// EndsEpoch returns whether the block causes an epoch change
+	EndsEpoch() bool
 }
 ```
 
@@ -227,7 +230,7 @@ type ProtocolMetadata struct {
    // Seq is the order of the block among all blocks in the blockchain.
    // Cannot correspond to an empty block.
    Seq uint64
-   // Prev returns the digest of the previous data block
+   // Prev returns the digest of the previous block
    Prev []byte
 }
 
@@ -282,192 +285,28 @@ It also contains the protocol metadata associated to that block.
 - Finally, a node eventually collects a quorum of `Finalization` messages for a block. If all prior blocks have been indexed in the `Storage`,
 a `FinalizationCertificate` is passed to the application along with the corresponding `Block`. Otherwise, the `FinalizationCertificate` is written to the WAL to prevent it being lost.
 
-The messages saved in the WAL and the messages they transitively contain are defined as follows:
+The messages saved in the WAL and the messages they transitively contain are as follows:
+
+- [Proposal](#proposal): A proposal is a block received by a leader of some round. It is written to the WAL
+so that if the node crashes and recovers, it will never vote to a different block for that round. 
+- [Notarization](#notarization): When a node collects a quorum of [SignedVote](#signedvote) messages on the same
+  [Vote](#vote) message, it persists a notarization message to the WAL, so that when it recovers from a crash
+it will not vote for the empty block for that round.
+- [EmptyNotarization](#emptyNotarization): Similarly to the notarization, a node also persists an empty notarization
+once it collects a quorum of [SignedEmptyVote](#signedEmptyVote) messages on the same [EmptyVote](#emptyVote) message.
+- [FinalizationCertificate](#finalizationCertificate): Once a node collects a quorum of [SignedFinalization](#signedFinalization) messages
+on the same [Finalization](#finalization), it persists a finalization certificate to the WAL,
+in case the corresponding block cannot be written yet to the storage. 
+
+In case the signature algorithm allows aggregation of signatures, we define the aggregated messages below:
+
+- [AggregatedSignedVote](#aggregatedSignedVote)
+- [AggregatedSignedEmptyVote](#aggregatedSignedEmptyVote)
+- [AggregatedSignedFinalization](#aggregatedSignedFinalization)
+
+These messages then become part of the [Notarization](#notarization), [EmptyNotarization](#emptyNotarization), and [FinalizationCertificate](#finalizationCertificate)
+respectively.
 
-<table>
-<tr>
-
-<td>
-
-```protobuf
-Proposal {  
-  block bytes  
-  metadata bytes
-}
-
-
-
-
-
-```
-
-</td>
-<td>
-
-```protobuf
-Vote {  
-   version uint8  
-   digest bytes  
-   digest_algorithm uint32  
-   seq uint64  
-   round uint64  
-   epoch uint64  
-   prev bytes
-}
-```
-
-</td>
-
-<td>
-
-```protobuf
-SignedVote {
-    vote Vote
-    signature_algorithm uint32
-    signer bytes
-    signature bytes
-}
-    
-    
-    
-```
-
-</td>
-
-<td>
-
-```protobuf
-Notarization {
-  vote Vote
-  signature_algorithm uint32
-  repeated signer bytes
-  repeated signature bytes
-}
-
-
-
-```
-
-</td>
-
-</tr>
-<tr>
-
-
-
-<td>
-
-```protobuf
-EmptyVote {  
-   version uint8  
-   round uint64  
-   epoch uint64  
-
-}
-
-
-
-```
-
-</td>
-
-<td>
-
-```protobuf
-SignedEmptyVote {  
-   empty_vote EmptyVote  
-   signature_algorithm uint16  
-   signer bytes  
-   signature bytes  
-}
-
-
-
-```
-
-</td>
-
-<td>
-
-```protobuf
-EmptyNotarization {
-        empty_vote EmptyVote
-        signature_algorithm uint32
-        repeated signer bytes
-        repeated signature bytes  
-}
-
-
-
-```
-
-</td>
-
-<td>
-
-```protobuf
-Finalization {  
-   version uint8  
-   digest bytes  
-   digest_algorithm uint32  
-   seq uint64  
-   round uint64  
-   epoch uint64  
-   prev bytes  
-}
-```
-
-</td>
-
-</tr>
-</table>
-
-
-
-<table>
-<tr>
-
-<td>
-
-```protobuf
-SignedFinalization {  
-   finalization Finalization  
-   signature_algorithm uint16  
-   signer bytes  
-   signature bytes  
-}
-
-
-
-```
-
-</td>
-
-<td>
-
-```go
-type FinalizationCertificate struct {
-        signature_algorithm uint32
-	Finalization         Finalization
-        repeated signer bytes
-        repeated signature bytes
-}
-
-
-
-```
-
-</td>
-
-</tr>
-</table>
-
-
-
-
-<table>
-
-</table>
 
 #### Finalization certificates and epoch changes
 
@@ -481,49 +320,6 @@ The reason is that we may not be able to obtain a finalization for the block wit
 in epoch `e`, but as per our configuration protocol, these blocks contain no transactions, so they cannot be made part of the blockchain.
 Therefore, in order to retain crash fault tolerance, we persist these finalizations to the WAL.
 
-In case the signature algorithm allows aggregation of signatures, we define the following messages:
-
-<table>
-<tr>
-<td>
-
-```protobuf
-AggregatedSignedVote {  
-    vote Vote  
-    signature_algorithm uint16  
-    signers repeated bytes
-    signature bytes  
-}
-```
-
-</td>
-<td>
-
-```protobuf
-AggregatedSignedEmptyVote {  
-    empty_vote EmptyVote  
-    signature_algorithm uint32
-    signers repeated bytes  
-    signature bytes  
-}
-```
-
-</td>
-
-<td>
-
-```protobuf
-AggregatedSignedFinalization {  
-    finalization Finalization  
-    signature_algorithm uint16  
-    signers repeated bytes  
-    signature bytes  
-}
-```
-
-</td>
-</tr>
-</table>
 
 
 Two useful facts can be deduced from the structure of the messages written to the WAL:
@@ -569,71 +365,11 @@ The blocks and (empty) notarizations are replicated subject to the following rul
 
 In order for a node to synchronize the WAL, we define the following messages:
 
-<table>
-<tr>
-<td>
-
-```protobuf
-NotarizationRequest {
-  seq uint64
-}
-```
-
-</td>
-<td>
-
-```protobuf
-EmptyNotarizationRequest {
-  seq uint64
-}
-```
-
-</td>
-<td>
-
-```protobuf
-BlockRequest {
-  seq uint64
-}
-```
-
-</td>
-</tr>
-</table>
-
-<table>
-<tr>
-<td>
-
-```protobuf
-NotarizationResponse {
-  votes repeated SignedVote
-}
-```
-
-</td>
-<td>
-
-```protobuf
-EmptyNotarizationResponse {
-  votes repeated SignedEmptyVote
-}
-```
-
-</td>
-<td>
-
-```protobuf
-BlockResponse {
-  block Block
-}
-```
-
-</td>
-</tr>
-</table>
-
-
+- [NotarizationRequest](#notarizationRequest): A request inquiring whether a given round has been notarized.
+or notarized via empty votes.
+- [NotarizationResponse](#notarizationResponse): A response that contains either a notarization or an empty notarization.
+- [BlockRequest](#blockRequest): A request inquiring about a block for a given sequence.
+- [BlockResponse](#blockResponse): A response containing the block of the bespoken sequence.
 
 
 ## Simplex API
@@ -693,9 +429,6 @@ type Consensus interface {
 The two most important APIs that an application exposes to Simplex, 
 are an API to build blocks and as mentioned before, an API to store and retrieve them:
 
-<table>
-<tr>
-<td>
 
 ```go
 type BlockBuilder interface {
@@ -710,9 +443,17 @@ type BlockBuilder interface {
 }
 ```
 
-</td>
-</tr>
-</table>
+
+
+```go
+// BlockDeserializer deserializes blocks according to formatting
+// enforced by the application.
+type BlockDeserializer interface {
+	// DeserializeBlock parses the given bytes and initializes a Block.
+	// Returns an error upon failure.
+	DeserializeBlock(bytes []byte) (Block, error)
+}
+```
 
 
 Whenever a Simplex instance recognizes it is its turn to propose a block, it calls
@@ -745,10 +486,18 @@ type Verifier interface {
 	
 }
 ```
-A `Verifier` can be configured to verify the next epoch by consuming the last block of an epoch.
+Blocks are verified using a `BlockVerifier`. It is the responsibility of the application that every block
+is verified while taking into account ancestor blocks of the given block.
 
-In order to detect whether a commit of a block would cause the current epoch to end,
-we define the following API:
+```go
+type BlockVerifier interface {
+	VerifyBlock(block Block) error
+}
+```
+
+In order to detect whether a commit of a `Block` would cause the current epoch to end,
+Simplex invokes its `EndsEpoch` method.
+
 
 In order to send messages to the members of the network, a communication object
 which also can be configured on an epoch basis, is defined:
@@ -779,3 +528,200 @@ type Communication interface {
 ## Acknowledgements
 
 Thanks to Stephen Buttolph for invaluable feedback on this specification.
+
+
+# Appendix
+
+
+## Messages persisted to the Write-Ahead-Log
+
+<a name="proposal"></a>
+```protobuf
+Proposal {  
+  block bytes  
+}
+```
+
+
+<a name="vote"></a>
+
+```protobuf
+Vote {  
+   version uint8  
+   digest bytes  
+   digest_algorithm uint32  
+   seq uint64  
+   round uint64  
+   epoch uint64  
+   prev_hash bytes
+}
+```
+
+<a name="signedvote"></a>
+
+```protobuf
+SignedVote {
+    vote Vote
+    signature_algorithm uint32
+    signer bytes
+    signature bytes
+} 
+```
+
+<a name="notarization"></a>
+
+```protobuf
+Notarization {
+  vote Vote
+  signature_algorithm uint32
+  repeated signer bytes
+  repeated signature bytes
+}
+```
+
+<a name="emptyVote"></a>
+
+```protobuf
+EmptyVote {  
+   version uint8  
+   round uint64  
+   epoch uint64
+}
+```
+
+<a name="signedEmptyVote"></a>
+
+```protobuf
+SignedEmptyVote {  
+   empty_vote EmptyVote  
+   signature_algorithm uint16  
+   signer bytes  
+   signature bytes  
+}
+```
+
+
+<a name="emptyNotarization"></a>
+
+```protobuf
+EmptyNotarization {
+        empty_vote EmptyVote
+        signature_algorithm uint32
+        repeated signer bytes
+        repeated signature bytes  
+}
+```
+
+<a name="finalization"></a>
+
+```protobuf
+Finalization {  
+   version uint8  
+   digest bytes  
+   digest_algorithm uint32  
+   seq uint64  
+   round uint64  
+   epoch uint64  
+   prev bytes  
+}
+```
+
+<a name="signedFinalization"></a>
+
+```protobuf
+SignedFinalization {  
+   finalization Finalization  
+   signature_algorithm uint16  
+   signer bytes  
+   signature bytes  
+}
+```
+
+<a name="finalizationCertificate"></a>
+
+```go
+type FinalizationCertificate struct {
+        signature_algorithm uint32
+	Finalization         Finalization
+        repeated signer bytes
+        repeated signature bytes
+}
+```
+
+
+<a name="aggregatedSignedVote"></a>
+
+```protobuf
+AggregatedSignedVote {  
+    vote Vote  
+    signature_algorithm uint16  
+    signers repeated bytes
+    signature bytes  
+}
+```
+
+<a name="aggregatedSignedEmptyVote"></a>
+
+```protobuf
+AggregatedSignedEmptyVote {  
+    empty_vote EmptyVote  
+    signature_algorithm uint32
+    signers repeated bytes  
+    signature bytes  
+}
+```
+
+<a name="aggregatedSignedFinalization"></a>
+
+```protobuf
+AggregatedSignedFinalization {  
+    finalization Finalization  
+    signature_algorithm uint16  
+    signers repeated bytes  
+    signature bytes  
+}
+```
+
+## Messages intended for peer-to-peer replication
+
+
+<a name="notarizationRequest"></a>
+
+```protobuf
+NotarizationRequest {
+  round uint64
+}
+```
+
+<a name="notarizationResponse"></a>
+
+```protobuf
+NotarizationResponse {
+  oneof {
+      notarization Notarization
+      empty_notarization EmptyNotarization
+    }
+}
+```
+
+<a name="blockRequest"></a>
+
+```protobuf
+BlockRequest {
+  seq uint64
+}
+```
+
+<a name="blockResponse"></a>
+
+```protobuf
+BlockResponse {
+  block Block
+}
+```
+
+
+
+
+
+
