@@ -79,6 +79,7 @@ func notarizationFromRecord(record Record) ([][]byte, []NodeID, Vote, error) {
 	return nr.Signatures, signers, vote, nil
 }
 
+// metadata size + blockdata size + metadata bytes + blockData bytes
 func blockRecord(md Metadata, blockData []byte) Record {
 	mdBytes := md.Bytes()
 
@@ -95,7 +96,7 @@ func blockRecord(md Metadata, blockData []byte) Record {
 	copy(buff[8+len(mdBytes):], blockData)
 
 	return Record{
-		Type:    uint16(blockRecordType),
+		Type:    BlockRecordType,
 		Size:    uint32(len(buff)),
 		Payload: buff,
 	}

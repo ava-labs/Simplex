@@ -12,15 +12,6 @@ import (
 	"io"
 )
 
-const (
-	recordChecksumLen = 8
-	recordSizeLen     = 4
-	recordVersionLen  = 1
-	recordTypeLen     = 2
-
-	maxBlockSize = 100_000_000 // ~ 100MB
-)
-
 var (
 	ErrInvalidCRC = errors.New("invalid CRC checksum")
 )

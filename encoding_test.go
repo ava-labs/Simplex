@@ -6,6 +6,7 @@ package simplex
 import (
 	"crypto/rand"
 	"crypto/sha256"
+	"simplex/record"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -100,7 +101,7 @@ func TestNotarizationRecord(t *testing.T) {
 		signers = append(signers, signer)
 	}
 
-	record := quorumRecord(sigs, signers, vote.Bytes(), uint16(notarizationRecordType))
+	record := quorumRecord(sigs, signers, vote.Bytes(), record.NotarizationRecordType)
 	sigs2, signers2, vote2, err := notarizationFromRecord(record)
 	require.NoError(t, err)
 	require.Equal(t, sigs, sigs2)
@@ -131,7 +132,7 @@ func FuzzNotarizationRecord(f *testing.F) {
 			signers = append(signers, signer)
 		}
 
-		record := quorumRecord([][]byte{sig}, signers, vote.Bytes(), uint16(notarizationRecordType))
+		record := quorumRecord([][]byte{sig}, signers, vote.Bytes(), record.NotarizationRecordType)
 		sigs2, signers2, vote2, err := notarizationFromRecord(record)
 		require.NoError(t, err)
 		require.Equal(t, [][]byte{sig}, sigs2)
