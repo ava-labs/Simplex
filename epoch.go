@@ -8,46 +8,13 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"simplex/record"
 	"time"
 
 	"go.uber.org/zap"
 )
 
-type phase uint8
-
-const (
-	undefinedPhase phase = iota
-	finalized
-	proposed
-	notarized
-	shutdown
-)
-
-func (p phase) String() string {
-	switch p {
-	case finalized:
-		return "finalized"
-	case proposed:
-		return "proposed"
-	case notarized:
-		return "notarized"
-	case shutdown:
-		return "shutdown"
-	default:
-		return "undefined"
-	}
-}
-
-type recordType uint8
-
-const (
-	undefinedRecordType recordType = iota
-	blockRecordType
-	notarizationRecordType
-	finalizationRecordType
-
-	defaultMaxRoundWindow = 10
-)
+const defaultMaxRoundWindow = 10
 
 type Round struct {
 	num           uint64
@@ -90,7 +57,6 @@ type Epoch struct {
 	canReceiveMessages bool
 	finishCtx          context.Context
 	finishFn           context.CancelFunc
-	phase              phase
 	nodes              []NodeID
 	quorumSize         int
 	eligibleNodeIDs    map[string]struct{}
@@ -152,7 +118,6 @@ func (e *Epoch) Start() {
 	}()
 
 	e.finishCtx, e.finishFn = context.WithCancel(context.Background())
-	e.phase = finalized // TODO: restore phase and msgStore from the WAL
 	e.nodes = e.Comm.ListNodes()
 	e.quorumSize = quorum(len(e.nodes))
 	e.round = e.Round
@@ -168,7 +133,43 @@ func (e *Epoch) Start() {
 	}
 	e.now = e.StartTime
 	e.loadLastBlockFromStorage()
-	e.doPhase()
+	e.syncFromWal()
+}
+
+// startFromWal start an epoch from the write ahead log. 
+func (e *Epoch) syncFromWal() error {
+	records := e.WAL.ReadAll()
+
+	// recover state from the records
+	for _, r := range records {
+		switch r.Type {
+		case record.BlockRecordType:
+			metadata, blockBytes, err := blockFromRecord(r)
+			if err != nil {
+				return err
+			}
+			// add a block from bytes to get the block
+			block := BlockFromBytes
+			// change store proposal method. it doesn't need a node id
+			e.storeProposal(block)
+			fmt.Println("block record", metadata, blockBytes)
+		case record.FinalizationRecordType:
+			fmt.Println("finalization record")
+		case record.NotarizationRecordType:
+			signatures, signers, vote, err := NotarizationFromRecord(r)
+			if err != nil {
+				return err
+			}
+			fmt.Println("notarizatino")
+		default:
+			fmt.Println("undefined")
+		}
+	}
+	// e.wal.readall()
+	// switch e.wal.LastPhase{
+	// }
+	e.startRound()
+	return nil
 }
 
 func (e *Epoch) loadLastBlockFromStorage() {
@@ -194,22 +195,6 @@ func (e *Epoch) retrieveLastBlockFromStorage() {
 
 func (e *Epoch) Stop() {
 	e.finishFn()
-	e.phase = shutdown
-}
-
-func (e *Epoch) doPhase() {
-	switch e.phase {
-	case finalized:
-		e.doFinalized()
-	case proposed:
-		e.doProposed()
-	case notarized:
-		e.doNotarized()
-	case shutdown:
-		return
-	case undefinedPhase:
-		panic("programming error: phase is undefined")
-	}
 }
 
 func (e *Epoch) handleFinalizationCertificateMessage(message *Message, from NodeID) {
@@ -489,7 +474,7 @@ func (e *Epoch) persistFinalizationCertificate(fCert FinalizationCertificate) {
 			delete(messagesFromNode, fCert.Finalization.Round)
 		}
 	} else {
-		record := quorumRecord(signatures, signers, fCert.Finalization.Bytes(), uint16(finalizationRecordType))
+		record := quorumRecord(signatures, signers, fCert.Finalization.Bytes(), record.FinalizationRecordType)
 		e.WAL.Append(&record)
 
 		e.Logger.Debug("Persisted finalization certificate to WAL",
@@ -505,8 +490,7 @@ func (e *Epoch) persistFinalizationCertificate(fCert FinalizationCertificate) {
 		zap.Uint64("round", fCert.Finalization.Round),
 		zap.Stringer("digest", fCert.Finalization.Metadata.Digest))
 
-	e.phase = finalized
-	e.doPhase()
+	e.startRound()
 }
 
 func (e *Epoch) maybeCollectNotarization() {
@@ -587,7 +571,7 @@ func (e *Epoch) assembleNotarization(votesForCurrentRound map[string]*SignedVote
 func (e *Epoch) persistNotarization(notarization Notarization, signatures [][]byte, signers []NodeID, vote Vote) {
 	notarizationMessage := &Message{Notarization: &notarization}
 
-	record := quorumRecord(signatures, signers, vote.Bytes(), uint16(notarizationRecordType))
+	record := quorumRecord(signatures, signers, vote.Bytes(), record.NotarizationRecordType)
 
 	e.WAL.Append(&record)
 
@@ -602,9 +586,8 @@ func (e *Epoch) persistNotarization(notarization Notarization, signatures [][]by
 		zap.Uint64("round", notarization.Vote.Round),
 		zap.Stringer("digest", notarization.Vote.Metadata.Digest))
 
-	e.phase = notarized
 	e.rounds[notarization.Vote.Round].notarization = &notarization
-	e.doPhase()
+	e.doNotarized()
 }
 
 func (e *Epoch) handleNotarizationMessage(message *Message, from NodeID) {
@@ -734,7 +717,8 @@ func (e *Epoch) handleBlockMessage(message *Message, from NodeID) {
 		return
 	}
 
-	if !e.storeProposal(block, from) {
+	if !e.storeProposal(block) {
+		e.Logger.Warn("Unable to store proposed block for the round", zap.Stringer("NodeID", from), zap.Uint64("round", md.Round))
 		// TODO: timeout
 	}
 
@@ -752,9 +736,7 @@ func (e *Epoch) handleBlockMessage(message *Message, from NodeID) {
 		e.WAL.Append(&record)
 	}
 
-	e.phase = proposed
-
-	e.doPhase()
+	e.doProposed()
 }
 
 func (e *Epoch) isMetadataValid(block Block) bool {
@@ -918,7 +900,7 @@ func (e *Epoch) Metadata() ProtocolMetadata {
 	return md
 }
 
-func (e *Epoch) doFinalized() {
+func (e *Epoch) startRound() {
 	leaderForCurrentRound := leaderForRound(e.nodes, e.round)
 
 	if e.ID.Equals(leaderForCurrentRound) {
@@ -1027,7 +1009,7 @@ func (e *Epoch) maybeLoadFutureMessages(round uint64) {
 	}
 }
 
-func (e *Epoch) storeProposal(block Block, from NodeID) bool {
+func (e *Epoch) storeProposal(block Block) bool {
 	md := block.Metadata()
 
 	// Don't bother processing blocks from the past
@@ -1042,7 +1024,6 @@ func (e *Epoch) storeProposal(block Block, from NodeID) bool {
 		// We have already received a block for this round in the past, refuse receiving an alternative block.
 		// We do this because we may have already voted for a different block.
 		// Refuse processing the block to not be coerced into voting for a different block.
-		e.Logger.Warn("Already received a block for the round", zap.Stringer("NodeID", from), zap.Uint64("round", md.Round))
 		return false
 	}
 
