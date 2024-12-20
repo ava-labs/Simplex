@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/binary"
 	"fmt"
 	. "simplex"
 	"simplex/wal"
@@ -204,9 +205,10 @@ func (t testBlock) Bytes() []byte {
 
 	mdBuff := md.Bytes()
 
-	buff := make([]byte, len(t.data)+len(mdBuff))
-	copy(buff, t.data)
-	copy(buff[len(t.data):], mdBuff)
+	buff := make([]byte, len(t.data)+len(mdBuff)+4)
+	binary.BigEndian.PutUint32(buff, uint32(len(t.data)))
+	copy(buff[4:], t.data)
+	copy(buff[4+len(t.data):], mdBuff)
 	return buff
 }
 
@@ -248,4 +250,35 @@ func (mem InMemStorage) Index(seq uint64, block Block, certificate FinalizationC
 	}{block,
 		certificate,
 	}
+}
+
+type blockDeserializer struct {
+}
+
+func (b *blockDeserializer) DeserializeBlock(buff []byte) (Block, error) {
+	blockLen := binary.BigEndian.Uint32(buff[:4])
+	md := Metadata{}
+	if err := md.FromBytes(buff[4+blockLen:]); err != nil {
+		return nil, err
+	}
+
+	md.Digest = make([]byte, 32)
+
+	tb := testBlock{
+		data:     buff[4 : 4+blockLen],
+		metadata: md.ProtocolMetadata,
+	}
+
+	var digester blockDigester
+	tb.digest = digester.Digest(&tb)
+	return &tb, nil
+}
+
+func TestBlockDeserializer(t *testing.T) {
+	var blockDeserializer blockDeserializer
+
+	tb := newTestBlock(ProtocolMetadata{Seq: 1, Round: 2, Epoch: 3, Prev: make([]byte, 32)})
+	tb2, err := blockDeserializer.DeserializeBlock(tb.Bytes())
+	require.NoError(t, err)
+	require.Equal(t, tb, tb2)
 }
