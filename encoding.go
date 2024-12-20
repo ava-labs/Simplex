@@ -8,7 +8,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"simplex/record"
 	. "simplex/record"
 )
 
@@ -97,7 +96,7 @@ func blockRecord(md Metadata, blockData []byte) Record {
 	copy(buff[8+len(mdBytes):], blockData)
 
 	return Record{
-		Type:    record.BlockRecordType,
+		Type:    BlockRecordType,
 		Size:    uint32(len(buff)),
 		Payload: buff,
 	}
