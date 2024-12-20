@@ -85,20 +85,19 @@ type Epoch struct {
 	Epoch               uint64
 	StartTime           time.Time
 	// Runtime
-	lastBlock           Block
-	noBlockCommittedYet bool
-	canReceiveMessages  bool
-	finishCtx           context.Context
-	finishFn            context.CancelFunc
-	phase               phase
-	nodes               []NodeID
-	quorumSize          int
-	eligibleNodeIDs     map[string]struct{}
-	now                 time.Time
-	rounds              map[uint64]*Round
-	futureMessages      messagesFromNode
-	round               uint64
-	maxRoundWindow      uint64
+	lastBlock          Block
+	canReceiveMessages bool
+	finishCtx          context.Context
+	finishFn           context.CancelFunc
+	phase              phase
+	nodes              []NodeID
+	quorumSize         int
+	eligibleNodeIDs    map[string]struct{}
+	now                time.Time
+	rounds             map[uint64]*Round
+	futureMessages     messagesFromNode
+	round              uint64
+	maxRoundWindow     uint64
 }
 
 // AdvanceTime hints the engine that the given amount of time has passed.
@@ -172,29 +171,24 @@ func (e *Epoch) Start() {
 }
 
 func (e *Epoch) loadLastBlockFromStorage() {
-	lastBlock, retrieved := e.retrieveLastBlockFromStorage()
-	e.lastBlock, e.noBlockCommittedYet = lastBlock, !retrieved
+	e.retrieveLastBlockFromStorage()
 
 	// Put the last block we committed in the rounds map.
-	if retrieved {
-		round := NewRound(lastBlock)
+	if e.lastBlock != nil {
+		round := NewRound(e.lastBlock)
 		e.rounds[round.num] = round
 	}
 }
 
-func (e *Epoch) retrieveLastBlockFromStorage() (Block, bool) {
-	var lastBlock Block
-	var retrieved bool
-
+func (e *Epoch) retrieveLastBlockFromStorage() {
 	height := e.Storage.Height()
 	if height > 0 {
-		lastBlock, _, retrieved = e.Storage.Retrieve(height - 1)
+		lastBlock, _, retrieved := e.Storage.Retrieve(height - 1)
 		if !retrieved {
 			e.Logger.Fatal("Failed retrieving last block from storage", zap.Uint64("seq", height-1))
 		}
-		return lastBlock, true
+		e.lastBlock = lastBlock
 	}
-	return lastBlock, false
 }
 
 func (e *Epoch) Stop() {
@@ -482,7 +476,6 @@ func (e *Epoch) persistFinalizationCertificate(fCert FinalizationCertificate) {
 			zap.Uint64("round", fCert.Finalization.Round),
 			zap.Uint64("sequence", fCert.Finalization.Seq),
 			zap.Stringer("digest", fCert.Finalization.Metadata.Digest))
-		e.noBlockCommittedYet = false
 		e.lastBlock = block
 
 		// If the round we're committing is too far in the past, don't keep it in the rounds cache.
@@ -907,7 +900,7 @@ func (e *Epoch) proposeBlock() {
 func (e *Epoch) Metadata() ProtocolMetadata {
 	var prev []byte
 	seq := e.Storage.Height()
-	if !e.noBlockCommittedYet {
+	if e.lastBlock != nil {
 		// Build on top of the latest block
 		currMed := e.getHighestRound().block.Metadata()
 		prev = currMed.Digest
@@ -1082,6 +1075,7 @@ func quorum(n int) int {
 	return int(math.Ceil(float64(n+(n-1)/3+1) / 2.0))
 }
 
+// messagesFromNode maps nodeIds to the messages it sent in a given round.
 type messagesFromNode map[string]map[uint64]*messagesForRound
 
 type messagesForRound struct {
