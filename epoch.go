@@ -72,42 +72,50 @@ func (e *Epoch) AdvanceTime(t time.Duration) {
 }
 
 // HandleMessage notifies the engine about a reception of a message.
-func (e *Epoch) HandleMessage(msg *Message, from NodeID) {
+func (e *Epoch) HandleMessage(msg *Message, from NodeID) error {
 	// Guard against receiving messages before we are ready to handle them.
 	if !e.canReceiveMessages {
 		e.Logger.Warn("Cannot receive a message")
-		return
+		return nil
 	}
 
 	// Guard against receiving messages from unknown nodes
 	_, known := e.eligibleNodeIDs[string(from)]
 	if !known {
 		e.Logger.Warn("Received message from an unknown node", zap.Stringer("nodeID", from))
-		return
+		return nil
 	}
 
 	if msg.BlockMessage != nil {
-		e.handleBlockMessage(msg, from)
-		return
+		return e.handleBlockMessage(msg, from)
 	}
 
 	if msg.VoteMessage != nil {
-		e.handleVoteMessage(msg, from)
-		return
+		return e.handleVoteMessage(msg, from)
 	}
 
 	if msg.Notarization != nil {
-		e.handleNotarizationMessage(msg, from)
+		err := e.handleNotarizationMessage(msg, from)
+		if err != nil {
+			return err
+		}
 	}
 
 	if msg.Finalization != nil {
-		e.handleFinalizationMessage(msg, from)
+		err := e.handleFinalizationMessage(msg, from)
+		if err != nil {
+			return err
+		}
 	}
 
 	if msg.FinalizationCertificate != nil {
-		e.handleFinalizationCertificateMessage(msg, from)
+		err := e.handleFinalizationCertificateMessage(msg, from)
+		if err != nil {
+			return err
+		}
 	}
 
+	return nil
 }
 
 func (e *Epoch) Start() error {
@@ -479,10 +487,7 @@ func (e *Epoch) persistFinalizationCertificate(fCert FinalizationCertificate) er
 			delete(messagesFromNode, fCert.Finalization.Round)
 		}
 	} else {
-		record, err := quorumRecord(signatures, signers, fCert.Finalization.Bytes(), record.FinalizationRecordType)
-		if err != nil {
-			return err
-		}
+		record := quorumRecord(signatures, signers, fCert.Finalization.Bytes(), record.FinalizationRecordType)
 		e.WAL.Append(&record)
 
 		e.Logger.Debug("Persisted finalization certificate to WAL",
@@ -582,11 +587,7 @@ func (e *Epoch) assembleNotarization(votesForCurrentRound map[string]*SignedVote
 
 func (e *Epoch) persistNotarization(notarization Notarization, signatures [][]byte, signers []NodeID, vote Vote) error {
 	notarizationMessage := &Message{Notarization: &notarization}
-
-	record, err := quorumRecord(signatures, signers, vote.Bytes(), record.NotarizationRecordType)
-	if err != nil {
-		return err
-	}
+	record := quorumRecord(signatures, signers, vote.Bytes(), record.NotarizationRecordType)
 
 	e.WAL.Append(&record)
 
