@@ -36,8 +36,8 @@ func TestEpochSimpleFlow(t *testing.T) {
 		Comm:          noopComm([]NodeID{{1}, {2}, {3}, {4}}),
 		BlockBuilder:  bb,
 	}
-
-	e.Start()
+	err := e.Start()
+	require.NoError(t, err)
 
 	for i := 0; i < 100; i++ {
 		leaderID := i%4 + 1
@@ -52,18 +52,19 @@ func TestEpochSimpleFlow(t *testing.T) {
 		block := <-bb
 
 		if !shouldPropose {
-			e.HandleMessage(&Message{
+			err := e.HandleMessage(&Message{
 				BlockMessage: &BlockMessage{
 					Block: block,
 				},
 			}, NodeID{byte(leaderID)})
+			require.NoError(t, err)
 		}
 
-		injectVote(e, block, NodeID{2})
-		injectVote(e, block, NodeID{3})
+		injectVote(t, e, block, NodeID{2})
+		injectVote(t, e, block, NodeID{3})
 
-		injectFinalization(e, block, NodeID{2})
-		injectFinalization(e, block, NodeID{3})
+		injectFinalization(t, e, block, NodeID{2})
+		injectFinalization(t, e, block, NodeID{3})
 
 		committedData := storage[uint64(i)].Block.Bytes()
 		require.Equal(t, block.Bytes(), committedData)
@@ -78,8 +79,8 @@ func makeLogger(t *testing.T) *testLogger {
 	return l
 }
 
-func injectVote(e *Epoch, block *testBlock, id NodeID) {
-	e.HandleMessage(&Message{
+func injectVote(t *testing.T, e *Epoch, block *testBlock, id NodeID) {
+	err := e.HandleMessage(&Message{
 		VoteMessage: &SignedVoteMessage{
 			Signer: id,
 			Vote: Vote{
@@ -87,12 +88,14 @@ func injectVote(e *Epoch, block *testBlock, id NodeID) {
 			},
 		},
 	}, id)
+
+	require.NoError(t, err)
 }
 
-func injectFinalization(e *Epoch, block *testBlock, id NodeID) {
+func injectFinalization(t *testing.T, e *Epoch, block *testBlock, id NodeID) {
 	md := block.Metadata()
 	md.Digest = (blockDigester{}).Digest(block)
-	e.HandleMessage(&Message{
+	err := e.HandleMessage(&Message{
 		Finalization: &SignedFinalizationMessage{
 			Signer: id,
 			Finalization: Finalization{
@@ -100,6 +103,7 @@ func injectFinalization(e *Epoch, block *testBlock, id NodeID) {
 			},
 		},
 	}, id)
+	require.NoError(t, err)
 }
 
 type testLogger struct {
