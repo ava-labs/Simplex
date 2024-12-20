@@ -9,7 +9,8 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"fmt"
-	. "sniplex"
+	. "simplex"
+	"simplex/wal"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -27,7 +28,7 @@ func TestEpochSimpleFlow(t *testing.T) {
 		Logger:        l,
 		ID:            NodeID{1},
 		Signer:        &testSigner{},
-		WAL:           &InMemWAL{},
+		WAL:           &wal.InMemWAL{},
 		Verifier:      &testVerifier{},
 		BlockVerifier: &testVerifier{},
 		Storage:       storage,
