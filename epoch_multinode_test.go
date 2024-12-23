@@ -27,8 +27,7 @@ func TestSimplexMultiNodeSimple(t *testing.T) {
 	instances := []*testInstance{n1, n2, n3, n4}
 
 	for _, n := range instances {
-		require.NoError(t, n.e.Start())
-		go n.handleMessages()
+		n.start()
 	}
 
 	for seq := 0; seq < 10; seq++ {
@@ -37,6 +36,11 @@ func TestSimplexMultiNodeSimple(t *testing.T) {
 		}
 		bb.triggerNewBlock()
 	}
+}
+
+func (t *testInstance) start() {
+	require.NoError(t.t, t.e.Start())
+	go t.handleMessages()
 }
 
 func newSimplexNode(t *testing.T, id uint8, net *inMemNetwork, bb BlockBuilder) *testInstance {
