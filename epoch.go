@@ -66,6 +66,10 @@ type Epoch struct {
 	maxRoundWindow     uint64
 }
 
+func(e *Epoch) PrintRound() {
+	fmt.Println("round", e.round)
+}
+
 // AdvanceTime hints the engine that the given amount of time has passed.
 func (e *Epoch) AdvanceTime(t time.Duration) {
 
@@ -1039,8 +1043,7 @@ func (e *Epoch) storeProposal(block Block) bool {
 
 	// Have we already received a block from that node?
 	// If so, it cannot change its mind and send us a different block.
-	round, exists := e.rounds[md.Round]
-	if exists {
+	if _, exists := e.rounds[md.Round]; exists {
 		// We have already received a block for this round in the past, refuse receiving an alternative block.
 		// We do this because we may have already voted for a different block.
 		// Refuse processing the block to not be coerced into voting for a different block.
@@ -1048,7 +1051,7 @@ func (e *Epoch) storeProposal(block Block) bool {
 		return false
 	}
 
-	round = NewRound(block)
+	round := NewRound(block)
 	e.rounds[md.Round] = round
 	// We might have received votes and finalizations from future rounds before we received this block.
 	// So load the messages into our round data structure now that we have created it.
