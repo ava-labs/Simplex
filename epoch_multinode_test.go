@@ -6,7 +6,6 @@ package simplex_test
 import (
 	"bytes"
 	"context"
-	"fmt"
 	. "simplex"
 	"simplex/wal"
 	"testing"
@@ -37,11 +36,6 @@ func TestSimplexMultiNodeSimple(t *testing.T) {
 			n.ledger.waitForBlockCommit(uint64(seq))
 		}
 		bb.triggerNewBlock()
-	}
-
-	fmt.Println("finished waiting for blocks")
-	for _, n := range instances {
-		n.e.PrintRound()
 	}
 }
 
@@ -100,8 +94,6 @@ func (t *testInstance) handleMessages() {
 			return
 		}
 	}
-	
-
 }
 
 type testComm struct {
@@ -156,12 +148,10 @@ func newTestControlledBlockBuilder() *testControlledBlockBuilder {
 }
 
 func (t *testControlledBlockBuilder) triggerNewBlock() {
-	fmt.Println("triggerted new block")
 	t.control <- struct{}{}
 }
 
 func (t *testControlledBlockBuilder) BuildBlock(ctx context.Context, metadata ProtocolMetadata) (Block, bool) {
 	<-t.control
-	fmt.Println("building block")
 	return t.testBlockBuilder.BuildBlock(ctx, metadata)
 }

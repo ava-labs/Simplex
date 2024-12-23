@@ -66,10 +66,6 @@ type Epoch struct {
 	maxRoundWindow     uint64
 }
 
-func(e *Epoch) PrintRound() {
-	fmt.Println("round", e.round)
-}
-
 // AdvanceTime hints the engine that the given amount of time has passed.
 func (e *Epoch) AdvanceTime(t time.Duration) {
 
