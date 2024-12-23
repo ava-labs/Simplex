@@ -12,6 +12,7 @@ import (
 	"fmt"
 	. "simplex"
 	"simplex/wal"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -22,7 +23,7 @@ import (
 func TestEpochSimpleFlow(t *testing.T) {
 	l := makeLogger(t)
 	bb := make(testBlockBuilder, 1)
-	storage := make(InMemStorage)
+	storage := newInMemStorage()
 
 	e := &Epoch{
 		BlockDigester: blockDigester{},
@@ -66,7 +67,7 @@ func TestEpochSimpleFlow(t *testing.T) {
 		injectFinalization(t, e, block, NodeID{2})
 		injectFinalization(t, e, block, NodeID{3})
 
-		committedData := storage[uint64(i)].Block.Bytes()
+		committedData := storage.data[uint64(i)].Block.Bytes()
 		require.Equal(t, block.Bytes(), committedData)
 	}
 }
@@ -226,34 +227,67 @@ func (b blockDigester) Digest(block Block) []byte {
 	return digest[:]
 }
 
-type InMemStorage map[uint64]struct {
-	Block
-	FinalizationCertificate
+type InMemStorage struct {
+	data map[uint64]struct {
+		Block
+		FinalizationCertificate
+	}
+
+	lock   sync.Mutex
+	signal sync.Cond
 }
 
-func (mem InMemStorage) Height() uint64 {
-	return uint64(len(mem))
+func newInMemStorage() *InMemStorage {
+	s := &InMemStorage{
+		data: make(map[uint64]struct {
+			Block
+			FinalizationCertificate
+		}),
+	}
+
+	s.signal = *sync.NewCond(&s.lock)
+
+	return s
 }
 
-func (mem InMemStorage) Retrieve(seq uint64) (Block, FinalizationCertificate, bool) {
-	item, ok := mem[seq]
+func (mem *InMemStorage) waitForBlockCommit(seq uint64) {
+	mem.lock.Lock()
+	defer mem.lock.Unlock()
+
+	for {
+		if _, exists := mem.data[seq]; exists {
+			return
+		}
+
+		mem.signal.Wait()
+	}
+}
+
+func (mem *InMemStorage) Height() uint64 {
+	return uint64(len(mem.data))
+}
+
+func (mem *InMemStorage) Retrieve(seq uint64) (Block, FinalizationCertificate, bool) {
+	item, ok := mem.data[seq]
 	if !ok {
 		return nil, FinalizationCertificate{}, false
 	}
 	return item.Block, item.FinalizationCertificate, true
 }
 
-func (mem InMemStorage) Index(seq uint64, block Block, certificate FinalizationCertificate) {
-	_, ok := mem[seq]
+func (mem *InMemStorage) Index(seq uint64, block Block, certificate FinalizationCertificate) {
+	_, ok := mem.data[seq]
 	if ok {
 		panic(fmt.Sprintf("block with seq %d already indexed!", seq))
 	}
-	mem[seq] = struct {
+	mem.data[seq] = struct {
 		Block
 		FinalizationCertificate
 	}{block,
 		certificate,
 	}
+
+	mem.signal.Signal()
 }
 
 type blockDeserializer struct {
