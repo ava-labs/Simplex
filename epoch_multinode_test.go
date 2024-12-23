@@ -6,10 +6,11 @@ package simplex_test
 import (
 	"bytes"
 	"context"
-	"github.com/stretchr/testify/require"
 	. "simplex"
 	"simplex/wal"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestSimplexMultiNodeSimple(t *testing.T) {
@@ -29,12 +30,17 @@ func TestSimplexMultiNodeSimple(t *testing.T) {
 		n.start()
 	}
 
-	for seq := 0; seq < 1; seq++ {
+	for seq := 0; seq < 10; seq++ {
 		for _, n := range instances {
 			n.ledger.waitForBlockCommit(uint64(seq))
-			bb.triggerNewBlock()
 		}
+		bb.triggerNewBlock()
 	}
+}
+
+func (t *testInstance) start() {
+	require.NoError(t.t, t.e.Start())
+	go t.handleMessages()
 }
 
 func newSimplexNode(t *testing.T, id uint8, net *inMemNetwork, bb BlockBuilder) *testInstance {
@@ -84,20 +90,12 @@ type testInstance struct {
 	t *testing.T
 }
 
-func (t *testInstance) start() {
-	require.NoError(t.t, t.e.Start())
-	go t.run()
-}
-
-func (t *testInstance) run() {
-	for {
-		select {
-		case msg := <-t.ingress:
-			err := t.e.HandleMessage(msg.msg, msg.from)
-			require.NoError(t.t, err)
-			if err != nil {
-				return
-			}
+func (t *testInstance) handleMessages() {
+	for msg := range t.ingress {
+		err := t.e.HandleMessage(msg.msg, msg.from)
+		require.NoError(t.t, err)
+		if err != nil {
+			return
 		}
 	}
 }
