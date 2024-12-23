@@ -1044,12 +1044,13 @@ func (e *Epoch) storeProposal(block Block) bool {
 		// We have already received a block for this round in the past, refuse receiving an alternative block.
 		// We do this because we may have already voted for a different block.
 		// Refuse processing the block to not be coerced into voting for a different block.
+		e.Logger.Warn("Already received block for round", zap.Uint64("round", md.Round))
 		return false
 	}
 
 	round = NewRound(block)
 	e.rounds[md.Round] = round
-	// We might have receied votes and finalizations from future rounds before we received this block.
+	// We might have received votes and finalizations from future rounds before we received this block.
 	// So load the messages into our round data structure now that we have created it.
 	e.maybeLoadFutureMessages(md.Round)
 
