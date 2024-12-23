@@ -21,7 +21,7 @@ import (
 )
 
 func TestEpochSimpleFlow(t *testing.T) {
-	l := makeLogger(t)
+	l := makeLogger(t, 1)
 	bb := make(testBlockBuilder, 1)
 	storage := newInMemStorage()
 
@@ -72,9 +72,11 @@ func TestEpochSimpleFlow(t *testing.T) {
 	}
 }
 
-func makeLogger(t *testing.T) *testLogger {
+func makeLogger(t *testing.T, node int) *testLogger {
 	logger, err := zap.NewDevelopment(zap.AddCallerSkip(1))
 	require.NoError(t, err)
+
+	logger = logger.With(zap.Int("node", node))
 
 	l := &testLogger{Logger: logger}
 	return l
