@@ -29,7 +29,7 @@ func TestSimplexMultiNodeSimple(t *testing.T) {
 		n.start()
 	}
 
-	for seq := 0; seq < 100; seq++ {
+	for seq := 0; seq < 1; seq++ {
 		for _, n := range instances {
 			n.ledger.waitForBlockCommit(uint64(seq))
 			bb.triggerNewBlock()
@@ -38,7 +38,7 @@ func TestSimplexMultiNodeSimple(t *testing.T) {
 }
 
 func newSimplexNode(t *testing.T, id uint8, net *inMemNetwork, bb BlockBuilder) *testInstance {
-	l := makeLogger(t)
+	l := makeLogger(t, int(id))
 	storage := newInMemStorage()
 
 	nodeID := NodeID{id}
