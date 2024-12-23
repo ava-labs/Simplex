@@ -278,6 +278,9 @@ func (mem *InMemStorage) Retrieve(seq uint64) (Block, FinalizationCertificate, b
 }
 
 func (mem *InMemStorage) Index(seq uint64, block Block, certificate FinalizationCertificate) {
+	mem.lock.Lock()
+	defer mem.lock.Unlock()
+	
 	_, ok := mem.data[seq]
 	if ok {
 		panic(fmt.Sprintf("block with seq %d already indexed!", seq))
