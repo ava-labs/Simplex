@@ -18,7 +18,7 @@ func (wal *InMemWAL) Append(record *record.Record) {
 }
 
 func (wal *InMemWAL) ReadAll() []record.Record {
-	r := (*bytes.Buffer)(wal)
+	r := bytes.NewBuffer((*bytes.Buffer)(wal).Bytes())
 	res := make([]record.Record, 0, 100)
 	for r.Len() > 0 {
 		var record record.Record

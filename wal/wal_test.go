@@ -5,6 +5,7 @@ package wal
 
 import (
 	"os"
+	"path/filepath"
 	"simplex/record"
 	"testing"
 
@@ -12,7 +13,7 @@ import (
 )
 
 func new(t *testing.T) *WriteAheadLog {
-	fileName := t.TempDir() + "/simplex.wal"
+	fileName := filepath.Join(t.TempDir(), "simplex.wal")
 	wal, err := New(fileName)
 	require.NoError(t, err)
 	return wal
@@ -114,7 +115,7 @@ func TestWalAppendAfterRead(t *testing.T) {
 func TestCorruptedFile(t *testing.T) {
 	require := require.New(t)
 
-	fileName := t.TempDir() + "/simplex.wal"
+	fileName := filepath.Join(t.TempDir(), "simplex.wal")
 	wal, err := New(fileName)
 	require.NoError(err)
 	defer func() {
