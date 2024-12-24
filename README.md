@@ -356,12 +356,14 @@ Once it has established the latest membership of nodes it needs to interact with
 
 The blocks and (empty) notarizations are replicated subject to the following rules:
 
-1. A notarization in round `i` isn’t fetched if there exists a block in round `j > i` (replicating nodes prefer to replicate blocks over notarizations).
+1. A notarization in round `i` isn’t fetched if there exists a block and a corresponding finalization certificate for round `j > i` that were replicated (replicating nodes prefer to replicate blocks over notarizations).
 2. Blocks (along with the corresponding finalizations) are fetched and written to the storage in-order.
-3. If the last message in the WAL is about round `i` and a block of round `j > i` is fetched, the WAL is pruned.
+3. If the last message in the WAL is about round `i` and a block of round `j > i` is fetched along with its finalization certificate, the message of round `i` is pruned from the WAL.
 4. If a notarization of a regular block is fetched from a remote node, then the block corresponding to the notarization must be fetched as well.
 5. If an empty notarization is fetched from a remote node, then the block for that round needs not to be fetched.
 6. A node that replicated a notarization, writes it to the WAL in the same manner it would have written it during its normal operation.
+7. A notarization for a block in round `i` is regarded as a notarization on a parent block in round `i-1` if the previous hash of the notarization
+of round `i` corresponds to the hash of the block of round `i-1`. This rule can be recursively applied to any block in round `j < i`.
 
 In order for a node to synchronize the WAL, we define the following messages:
 
