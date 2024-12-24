@@ -18,23 +18,14 @@ func (wal *InMemWAL) Append(record *record.Record) {
 }
 
 func (wal *InMemWAL) ReadAll() []record.Record {
-	res := make([]record.Record, 0, 100)
-
 	r := (*bytes.Buffer)(wal)
-	var bytesRead int
-
-	total := r.Len()
-
-	for bytesRead < total {
+	res := make([]record.Record, 0, 100)
+	for r.Len() > 0 {
 		var record record.Record
-		n, err := record.FromBytes(r)
-		if err != nil {
+		if _, err := record.FromBytes(r); err != nil {
 			panic(fmt.Sprintf("failed reading record: %v", err))
 		}
-
-		bytesRead += n
 		res = append(res, record)
 	}
-
 	return res
 }

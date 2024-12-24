@@ -11,8 +11,6 @@ import (
 )
 
 const (
-	WalExtension   = ".wal"
-	WalFilename    = "temp"
 	WalFlags       = os.O_APPEND | os.O_CREATE | os.O_RDWR
 	WalPermissions = 0666
 )
@@ -23,9 +21,8 @@ type WriteAheadLog struct {
 
 // New opens a write ahead log file, creating one if necessary.
 // Call Close() on the WriteAheadLog to ensure the file is closed after use.
-func New() (*WriteAheadLog, error) {
-	filename := WalFilename + WalExtension
-	file, err := os.OpenFile(filename, WalFlags, WalPermissions)
+func New(fileName string) (*WriteAheadLog, error) {
+	file, err := os.OpenFile(fileName, WalFlags, WalPermissions)
 	if err != nil {
 		return nil, err
 	}
@@ -68,8 +65,7 @@ func (w *WriteAheadLog) ReadAll() ([]record.Record, error) {
 		bytesRead, err := record.FromBytes(w.file)
 		// record was corrupted in wal
 		if err != nil {
-			w.truncateAt(fileInfo.Size() - bytesToRead)
-			return records, nil
+			return records, w.truncateAt(fileInfo.Size() - bytesToRead)
 		}
 
 		bytesToRead -= int64(bytesRead)

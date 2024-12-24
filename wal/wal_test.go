@@ -11,11 +11,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func new(t *testing.T) *WriteAheadLog {
+	fileName := t.TempDir() + "/simplex.wal"
+	wal, err := New(fileName)
+	require.NoError(t, err)
+	return wal
+}
+
 func TestWalSingleRw(t *testing.T) {
 	require := require.New(t)
-	deleteWal()
 
-	record := record.Record{
+	r := record.Record{
 		Version: 1,
 		Type:    2,
 		Size:    3,
@@ -23,26 +29,23 @@ func TestWalSingleRw(t *testing.T) {
 	}
 
 	// writes and reads from wal
-	wal, err := New()
-	require.NoError(err)
-
+	wal := new(t)
 	defer func() {
-		err := wal.Close()
-		require.NoError(err)
+		require.NoError(wal.Close())
 	}()
 
-	err = wal.Append(&record)
-	require.NoError(err)
+	require.NoError(wal.Append(&r))
 
-	records, err := wal.ReadAll()
+	readRecords, err := wal.ReadAll()
 	require.NoError(err)
-	require.Len(records, 1)
-	require.Equal(record, records[0])
+	require.Equal(
+		[]record.Record{r},
+		readRecords,
+	)
 }
 
 func TestWalMultipleRws(t *testing.T) {
 	require := require.New(t)
-	deleteWal()
 
 	record1 := record.Record{
 		Version: 1,
@@ -57,31 +60,23 @@ func TestWalMultipleRws(t *testing.T) {
 		Size:    3,
 		Payload: []byte{1, 2, 3},
 	}
+	records := []record.Record{record1, record2}
 
-	wal, err := New()
-	require.NoError(err)
-
+	wal := new(t)
 	defer func() {
-		err := wal.Close()
-		require.NoError(err)
+		require.NoError(wal.Close())
 	}()
 
-	err = wal.Append(&record1)
-	require.NoError(err)
+	require.NoError(wal.Append(&record1))
+	require.NoError(wal.Append(&record2))
 
-	err = wal.Append(&record2)
+	readRecords, err := wal.ReadAll()
 	require.NoError(err)
-
-	records, err := wal.ReadAll()
-	require.NoError(err)
-	require.Len(records, 2)
-	require.Equal(record1, records[0])
-	require.Equal(record2, records[1])
+	require.Equal(records, readRecords)
 }
 
 func TestWalAppendAfterRead(t *testing.T) {
 	require := require.New(t)
-	deleteWal()
 
 	record1 := record.Record{
 		Version: 1,
@@ -89,55 +84,44 @@ func TestWalAppendAfterRead(t *testing.T) {
 		Size:    3,
 		Payload: []byte{3, 4, 5},
 	}
-
 	record2 := record.Record{
 		Version: 3,
 		Type:    3,
 		Size:    3,
 		Payload: []byte{1, 2, 3},
 	}
+	records := []record.Record{record1, record2}
 
-	wal, err := New()
-	require.NoError(err)
-
+	wal := new(t)
 	defer func() {
-		err := wal.Close()
-		require.NoError(err)
+		require.NoError(wal.Close())
 	}()
 
-	err = wal.Append(&record1)
-	require.NoError(err)
+	require.NoError(wal.Append(&record1))
 
-	records, err := wal.ReadAll()
+	readRecords, err := wal.ReadAll()
 	require.NoError(err)
-	require.Len(records, 1)
-	require.Equal(record1, records[0])
+	require.Equal(records[:1], readRecords)
 
-	err = wal.Append(&record2)
-	require.NoError(err)
+	require.NoError(wal.Append(&record2))
 
-	records, err = wal.ReadAll()
+	readRecords, err = wal.ReadAll()
 	require.NoError(err)
-	require.Len(records, 2)
-	require.Equal(record1, records[0])
-	require.Equal(record2, records[1])
+	require.Equal(records, readRecords)
 }
 
 // Write 3 records, corrupt 4th
 func TestCorruptedFile(t *testing.T) {
 	require := require.New(t)
-	deleteWal()
 
-	wal, err := New()
+	fileName := t.TempDir() + "/simplex.wal"
+	wal, err := New(fileName)
 	require.NoError(err)
-
 	defer func() {
-		err := wal.Close()
-		require.NoError(err)
+		require.NoError(wal.Close())
 	}()
 
 	n := 4
-
 	records := make([]record.Record, n)
 	for i := 0; i < n; i++ {
 		records[i] = record.Record{
@@ -146,106 +130,85 @@ func TestCorruptedFile(t *testing.T) {
 			Size:    3,
 			Payload: []byte{byte(i), byte(i), byte(i)},
 		}
-
-		err = wal.Append(&records[i])
-		require.NoError(err)
+		require.NoError(wal.Append(&records[i]))
 	}
 
-	// Corrupt k records
-	file, err := os.OpenFile(WalFilename+WalExtension, os.O_RDWR, 0666)
+	// Corrupt the last record
+	file, err := os.OpenFile(fileName, os.O_RDWR, 0666)
 	require.NoError(err)
 
 	recordSize := len(records[0].Bytes())
 	_, err = file.WriteAt([]byte{0, 1, 2}, int64(3*recordSize))
 	require.NoError(err)
 
-	err = file.Close()
-	require.NoError(err)
+	// Close the file to ensure the changes are flushed
+	require.NoError(file.Close())
 
+	// Because the last record is corrupted, it should not be read
 	readRecords, err := wal.ReadAll()
 	require.NoError(err)
-	require.Len(readRecords, n-1)
-
-	for i := 0; i < n-1; i++ {
-		require.Equal(readRecords[i], records[i])
-	}
+	require.Equal(records[:n-1], readRecords)
 }
 
 func TestTruncate(t *testing.T) {
 	require := require.New(t)
-	deleteWal()
 
-	record := record.Record{
+	r := record.Record{
 		Version: 1,
 		Type:    2,
 		Size:    3,
 		Payload: []byte{3, 4, 5},
 	}
 
-	wal, err := New()
-	require.NoError(err)
-
+	wal := new(t)
 	defer func() {
-		err := wal.Close()
-		require.NoError(err)
+		require.NoError(wal.Close())
 	}()
 
-	err = wal.Append(&record)
-	require.NoError(err)
+	require.NoError(wal.Append(&r))
+	require.NoError(wal.Truncate())
 
-	err = wal.Truncate()
+	readRecords, err := wal.ReadAll()
 	require.NoError(err)
-
-	records, err := wal.ReadAll()
-	require.NoError(err)
-	require.Len(records, 0)
+	require.Empty(readRecords)
 }
 
 func TestReadWriteAfterTruncate(t *testing.T) {
 	require := require.New(t)
-	deleteWal()
 
-	record := record.Record{
+	r := record.Record{
 		Version: 1,
 		Type:    2,
 		Size:    3,
 		Payload: []byte{3, 4, 5},
 	}
 
-	wal, err := New()
-	require.NoError(err)
-
+	wal := new(t)
 	defer func() {
-		err := wal.Close()
-		require.NoError(err)
+		require.NoError(wal.Close())
 	}()
 
-	err = wal.Append(&record)
-	require.NoError(err)
+	require.NoError(wal.Append(&r))
 
-	records, err := wal.ReadAll()
+	readRecords, err := wal.ReadAll()
 	require.NoError(err)
-	require.Len(records, 1)
-	require.Equal(record, records[0])
+	require.Equal(
+		[]record.Record{r},
+		readRecords,
+	)
 
-	err = wal.Truncate()
+	require.NoError(wal.Truncate())
+
+	readRecords, err = wal.ReadAll()
 	require.NoError(err)
+	require.Empty(readRecords)
 
-	records, err = wal.ReadAll()
+	require.NoError(wal.Append(&r))
+
+	readRecords, err = wal.ReadAll()
 	require.NoError(err)
-	require.Len(records, 0)
-
-	err = wal.Append(&record)
-	require.NoError(err)
-
-	records, err = wal.ReadAll()
-	require.NoError(err)
-	require.Len(records, 1)
-	require.Equal(record, records[0])
-}
-
-// deleteWal removes the wal file. It is used for testing purposes to ensure
-// the wal file is empty before each test.
-func deleteWal() error {
-	return os.Remove(WalFilename + WalExtension)
+	require.Equal(
+		[]record.Record{r},
+		readRecords,
+	)
 }
