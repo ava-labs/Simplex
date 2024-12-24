@@ -72,6 +72,60 @@ func TestEpochSimpleFlow(t *testing.T) {
 	}
 }
 
+func TestEpochFinalizeOutOfOrder(t *testing.T) {
+	l := makeLogger(t, 1)
+	bb := make(testBlockBuilder, 1)
+	storage := newInMemStorage()
+
+	e := &Epoch{
+		BlockDigester: blockDigester{},
+		Logger:        l,
+		ID:            NodeID{1},
+		Signer:        &testSigner{},
+		WAL:           &wal.InMemWAL{},
+		Verifier:      &testVerifier{},
+		BlockVerifier: &testVerifier{},
+		Storage:       storage,
+		Comm:          noopComm([]NodeID{{1}, {2}, {3}, {4}}),
+		BlockBuilder:  bb,
+	}
+	err := e.Start()
+	require.NoError(t, err)
+
+	block1 := <-bb
+
+	injectVote(t, e, block1, NodeID{2})
+	injectVote(t, e, block1, NodeID{3})
+
+	md := e.Metadata()
+	_, ok := bb.BuildBlock(context.Background(), md)
+	require.True(t, ok)
+
+	block2 := <-bb
+
+	err = e.HandleMessage(&Message{
+		BlockMessage: &BlockMessage{
+			Block: block2,
+		},
+	}, NodeID{byte(2)})
+	require.NoError(t, err)
+
+	injectVote(t, e, block2, NodeID{2})
+	injectVote(t, e, block2, NodeID{3})
+
+	injectFinalization(t, e, block1, NodeID{2})
+	injectFinalization(t, e, block1, NodeID{3})
+
+	injectFinalization(t, e, block2, NodeID{2})
+	injectFinalization(t, e, block2, NodeID{3})
+
+	committedData := storage.data[0].Block.Bytes()
+	require.Equal(t, block1.Bytes(), committedData)
+
+	committedData = storage.data[1].Block.Bytes()
+	require.Equal(t, block2.Bytes(), committedData)
+}
+
 func makeLogger(t *testing.T, node int) *testLogger {
 	logger, err := zap.NewDevelopment(zap.AddCallerSkip(1))
 	require.NoError(t, err)
