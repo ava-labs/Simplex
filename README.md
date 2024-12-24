@@ -21,9 +21,9 @@ across different nodes and proposes batches in parallel.
 While the argument is correct, a fast consensus protocol isn't enough to guarantee a high end to end throughput for a blockchain.
 To fully utilize parallel block proposers, the VM should also support distributed transaction processing.
 
-As Avalanche's "high throughput" VM of choice is the HyperSDK, the techniques [it plans to employ](https://hackmd.io/@patrickogrady/rys8mdl5p#Integrating-Vryx-with-the-HyperSDK-High-Level-Sketch)
-entail totally ordering only certificates of availability of chunks of transactions,
-which are of small size.
+The HyperSDK, Avalanche's "high throughput" VM of choice, 
+[plans to employ](https://hackmd.io/@patrickogrady/rys8mdl5p#Integrating-Vryx-with-the-HyperSDK-High-Level-Sketch) 
+techniques that totally order certificates of transaction chunk availability, which are of small size.
 
 Since the design of the HyperSDK does not require a high throughput consensus protocol,
 there is no need to invest development time in a parallel block proposer consensus protocol.
@@ -73,7 +73,7 @@ The flow of the protocol is as follows:
 3. For each node, one of the two mutually exclusive events happen:
    1. If the node collects within time `T` a quorum of votes on `b` of the form `<vote, i, H(b)>` or for a quorum of votes on an empty block of the form `<vote, i, ⊥>`, the node then moves to participate in the next round `i+1`.
    2. Else, the node does not collect a quorum of votes within time `T`, and it then broadcasts a vote for an empty block `<vote, i, ⊥>` and waits to either collect a quorum of votes of the form `<vote, i, ⊥>` or `<vote, i, H(b)>` after which it moves to the next round `i+1`.
-4. Upon collecting a quorum of votes  of the form `<vote, i, ⊥>` or `<vote, i, H(b)>`, the node broadcasts it before moving to round `i+1`.
+4. Upon collecting a notarization or an empty notarization on `b` which consists of a quorum of votes of the form `<vote, i, ⊥>` or `<vote, i, H(b)>` respectively, the node broadcasts the notarization (or the empty notarization) before moving to round `i+1`.
 5. Starting from round `i+1`, each node that did not vote for `<vote, i, ⊥>` (due to a timeout) or collect a quorum of votes on `<vote, i, ⊥>` broadcasts a finalization message `<finalize, i, H(b)>`.
 6. Each node that collects a quorum of finalization messages considers the block `b` as finalized, and can deliver it to the application.
 
@@ -93,7 +93,7 @@ Rotating a leader every few seconds carries a network bandwidth, disk I/O and CP
 To that end, in our adaptation of Simplex, the application can hint to the consensus layer whether it expects a block to be proposed.
 Nodes of our adaptation of Simplex will only vote on the empty block if the application hints that a block should be proposed by the leader.
 
-It is up to the application to ensure that transactions arrive to the leader and to most of the nodes.
+It is up to the application to ensure that transactions arrive to the leader and to a quorum of correct nodes.
 
 ## Reconfiguring Simplex
 
@@ -109,7 +109,7 @@ set of nodes running the Simplex consensus protocol.
 
 The only requirements for Simplex are:
 
-1. All nodes participating in consensus must see the reconfiguration event in the same round.
+1. All nodes participating in consensus must apply the reconfiguration event for the same round.
 2. The change must be atomic and not depend on anything but the blockchain (no reliance on external API calls).
 
 Reconfiguring a Simplex protocol while it totally orders transactions poses several challenges:
@@ -145,13 +145,13 @@ Hereafter we call the series of blocks  {`b, d, …, d’, b’`}  an *Epoch Cha
 
 In practice, reconfiguration would work as follows:
 
-1. Once a node notarizes a block `b` containing a reconfiguration event, in round `i` at epoch `e`, it refuses to vote for any descendant block of `b` in epoch `e`
-   that contains any transactions. Such blocks are treated as regular blocks, but they only contain the metadata and not the block data.
+1. For a block `b` containing a reconfiguration event, in round `i` at epoch `e`, any descendant block of `b` in epoch `e` are treated as regular blocks, but they must only contain the metadata and no block data. 
+Any descendant blocks that contain transactions are invalid.
 2. Since it is impossible to hand over these blocks and their corresponding finalizations to the application, the finalizations are written to the Write-Ahead-Log (WAL) along with the metadata
    to ensure proper restoration of the protocol state in case of a crash.
-3. Once the block of round `i` is finalized, a new simplex instance for epoch `e'` is spawned. The previous instance for epoch `e` does not terminate yet, to assist nodes that still remain in that epoch.
-4. The Simplex instance of epoch `e` remains active until a block has been finalized in epoch `e'`. 
-   This ensures that at least `f+1` correct nodes have moved to epoch `e'` and thus any nodes (at most `f`) remaining in epoch `e` can replicate the last data block of epoch `e`.
+3. Once a node finalizes and commits block `b`, it terminates its previous Simplex instance for epoch `e` and instantiates a new Simplex instance for the new epoch.
+Any message regarding epoch `e` sent by a remote node is then responded by the finalization certificate for block `b`, which notifies the remote node about the existence of block `b`,
+assisting it to transition into the new epoch.
 
 
 ### Structuring the blockchain:
