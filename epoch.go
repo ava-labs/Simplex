@@ -903,7 +903,7 @@ func (e *Epoch) proposeBlock() {
 func (e *Epoch) Metadata() ProtocolMetadata {
 	var prev []byte
 	seq := e.Storage.Height()
-	if e.lastBlock != nil {
+	if len(e.rounds) > 0 {
 		// Build on top of the latest block
 		currMed := e.getHighestRound().block.Metadata()
 		prev = currMed.Digest
