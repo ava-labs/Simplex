@@ -14,14 +14,12 @@ func TestInMemWAL(t *testing.T) {
 	r1 := record.Record{
 		Version: 1,
 		Type:    2,
-		Size:    3,
 		Payload: []byte{4, 5, 6},
 	}
 
 	r2 := record.Record{
 		Version: 7,
 		Type:    8,
-		Size:    3,
 		Payload: []byte{10, 11, 12},
 	}
 

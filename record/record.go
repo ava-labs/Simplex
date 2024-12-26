@@ -13,112 +13,87 @@ import (
 )
 
 const (
-	recordChecksumLen = 8
-	recordSizeLen     = 4
 	recordVersionLen  = 1
 	recordTypeLen     = 2
+	recordSizeLen     = 4
+	recordChecksumLen = 8
 
-	maxBlockSize = 100_000_000 // ~ 100MB
+	recordHeaderLen = recordVersionLen + recordTypeLen + recordSizeLen
+
+	recordVersionIndex  = 0
+	recordTypeOffset    = recordVersionLen
+	recordSizeOffset    = recordTypeOffset + recordTypeLen
+	recordPayloadOffset = recordSizeOffset + recordSizeLen
+
+	maxPayloadSize = 100_000_000 // ~ 100MB
 )
 
-var (
-	ErrInvalidCRC = errors.New("invalid CRC checksum")
-)
+var ErrInvalidCRC = errors.New("invalid CRC checksum")
 
 type Record struct {
 	Version uint8
 	Type    uint16
-	Size    uint32
 	Payload []byte
 }
 
 func (r *Record) Bytes() []byte {
-
 	payloadLen := len(r.Payload)
+	buff := make([]byte, recordHeaderLen+payloadLen+recordChecksumLen)
 
-	buff := make([]byte, recordVersionLen+recordTypeLen+payloadLen+recordSizeLen+recordChecksumLen)
-
-	var pos int
-
-	buff[pos] = r.Version
-	pos++
-
-	binary.BigEndian.PutUint16(buff[pos:], r.Type)
-	pos += 2
-
-	binary.BigEndian.PutUint32(buff[pos:], r.Size)
-	pos += 4
-
-	copy(buff[pos:], r.Payload)
-	pos += len(r.Payload)
+	buff[recordVersionIndex] = r.Version
+	binary.BigEndian.PutUint16(buff[recordTypeOffset:], r.Type)
+	binary.BigEndian.PutUint32(buff[recordSizeOffset:], uint32(payloadLen))
+	copy(buff[recordPayloadOffset:], r.Payload)
 
 	crc := crc64.New(crc64.MakeTable(crc64.ECMA))
-	if _, err := crc.Write(buff[:pos]); err != nil {
+	checksumOffset := recordPayloadOffset + payloadLen
+	if _, err := crc.Write(buff[:checksumOffset]); err != nil {
 		panic(fmt.Sprintf("CRC checksum failed: %v", err))
 	}
-	copy(buff[pos:pos+8], crc.Sum(nil))
-
-	return buff
+	return crc.Sum(buff[:checksumOffset])
 }
 
 func (r *Record) FromBytes(in io.Reader) (int, error) {
-	versionTypeSizeBuff := make([]byte, recordVersionLen+recordTypeLen+recordSizeLen)
-
-	n, err := io.ReadFull(in, versionTypeSizeBuff)
-	if err != nil {
-		return n, err
+	versionTypeSizeBuff := make([]byte, recordHeaderLen)
+	if _, err := io.ReadFull(in, versionTypeSizeBuff); err != nil {
+		return 0, err
 	}
 
-	var pos int
-
-	version := versionTypeSizeBuff[0]
-	pos++
-
-	recType := binary.BigEndian.Uint16(versionTypeSizeBuff[pos : pos+2])
-	pos += 2
-
-	dataLen := binary.BigEndian.Uint32(versionTypeSizeBuff[pos : pos+4])
-	pos += 4
-
-	if dataLen > maxBlockSize {
-		return 0, fmt.Errorf("record indicates payload is %d bytes long", dataLen)
+	version := versionTypeSizeBuff[recordVersionIndex]
+	recType := binary.BigEndian.Uint16(versionTypeSizeBuff[recordTypeOffset:])
+	payloadLen := binary.BigEndian.Uint32(versionTypeSizeBuff[recordSizeOffset:])
+	if payloadLen > maxPayloadSize {
+		return 0, fmt.Errorf("record indicates payload is %d bytes long", payloadLen)
 	}
 
-	if dataLen == 0 {
-		return 0, fmt.Errorf("record indicates payload is 0 bytes")
-	}
-
-	payload := make([]byte, dataLen)
-	n, err = io.ReadFull(in, payload)
-	if err != nil {
-		return n, err
+	payload := make([]byte, payloadLen)
+	if _, err := io.ReadFull(in, payload); err != nil {
+		return 0, err
 	}
 
 	checksum := make([]byte, recordChecksumLen)
-	n, err = io.ReadFull(in, checksum)
-	if err != nil {
-		return n, err
+	if _, err := io.ReadFull(in, checksum); err != nil {
+		return 0, err
 	}
 
 	crc := crc64.New(crc64.MakeTable(crc64.ECMA))
 	if _, err := crc.Write(versionTypeSizeBuff); err != nil {
-		panic(fmt.Sprintf("CRC checksum failed: %v", err))
+		return 0, fmt.Errorf("CRC checksum failed: %w", err)
 	}
 	if _, err := crc.Write(payload); err != nil {
-		panic(fmt.Sprintf("CRC checksum failed: %v", err))
+		return 0, fmt.Errorf("CRC checksum failed: %w", err)
 	}
-	expectedChecksum := crc.Sum(nil)
 
+	expectedChecksum := make([]byte, 0, recordChecksumLen)
+	expectedChecksum = crc.Sum(expectedChecksum)
 	if !bytes.Equal(checksum, expectedChecksum) {
 		return 0, ErrInvalidCRC
 	}
 
 	r.Version = version
 	r.Type = recType
-	r.Size = dataLen
 	r.Payload = payload
 
-	totalSize := len(versionTypeSizeBuff) + len(payload) + len(checksum)
-
+	totalSize := recordHeaderLen + recordChecksumLen + len(payload)
 	return totalSize, nil
 }

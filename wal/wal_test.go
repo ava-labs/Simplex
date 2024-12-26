@@ -25,7 +25,6 @@ func TestWalSingleRw(t *testing.T) {
 	r := record.Record{
 		Version: 1,
 		Type:    2,
-		Size:    3,
 		Payload: []byte{3, 4, 5},
 	}
 
@@ -51,14 +50,12 @@ func TestWalMultipleRws(t *testing.T) {
 	record1 := record.Record{
 		Version: 1,
 		Type:    2,
-		Size:    3,
 		Payload: []byte{3, 4, 5},
 	}
 
 	record2 := record.Record{
 		Version: 3,
 		Type:    3,
-		Size:    3,
 		Payload: []byte{1, 2, 3},
 	}
 	records := []record.Record{record1, record2}
@@ -82,13 +79,11 @@ func TestWalAppendAfterRead(t *testing.T) {
 	record1 := record.Record{
 		Version: 1,
 		Type:    2,
-		Size:    3,
 		Payload: []byte{3, 4, 5},
 	}
 	record2 := record.Record{
 		Version: 3,
 		Type:    3,
-		Size:    3,
 		Payload: []byte{1, 2, 3},
 	}
 	records := []record.Record{record1, record2}
@@ -128,7 +123,6 @@ func TestCorruptedFile(t *testing.T) {
 		records[i] = record.Record{
 			Version: uint8(i),
 			Type:    uint16(i),
-			Size:    3,
 			Payload: []byte{byte(i), byte(i), byte(i)},
 		}
 		require.NoError(wal.Append(&records[i]))
@@ -157,7 +151,6 @@ func TestTruncate(t *testing.T) {
 	r := record.Record{
 		Version: 1,
 		Type:    2,
-		Size:    3,
 		Payload: []byte{3, 4, 5},
 	}
 
@@ -180,7 +173,6 @@ func TestReadWriteAfterTruncate(t *testing.T) {
 	r := record.Record{
 		Version: 1,
 		Type:    2,
-		Size:    3,
 		Payload: []byte{3, 4, 5},
 	}
 
