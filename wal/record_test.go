@@ -93,7 +93,7 @@ func BenchmarkReadRecord(b *testing.B) {
 
 	var loopBuffer bytes.Buffer
 	for range b.N {
-		loopBuffer = originalBuffer
+		loopBuffer = originalBuffer // reset the buffer
 		_, _, _ = readRecord(&loopBuffer, math.MaxUint32)
 	}
 }
