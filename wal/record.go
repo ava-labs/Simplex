@@ -21,35 +21,25 @@ var ErrInvalidCRC = errors.New("invalid CRC checksum")
 
 // writeRecord writes a length-prefixed and check-summed record to the writer.
 func writeRecord(w io.Writer, payload []byte) error {
-	const tempSpace = max(recordSizeLen, recordChecksumLen)
-	buff := make([]byte, tempSpace)
+	checksumIndex := recordSizeLen + len(payload)
+	buff := make([]byte, checksumIndex+recordChecksumLen)
 	crc := crc64.New(crc64.MakeTable(crc64.ECMA))
 
-	sizeBuff := buff[:recordSizeLen]
-	binary.BigEndian.PutUint32(sizeBuff, uint32(len(payload)))
-	if _, err := w.Write(sizeBuff); err != nil {
-		return err
-	}
-	if _, err := crc.Write(sizeBuff); err != nil {
+	binary.BigEndian.PutUint32(buff, uint32(len(payload)))
+	copy(buff[recordSizeLen:], payload)
+	if _, err := crc.Write(buff[:checksumIndex]); err != nil {
 		return fmt.Errorf("CRC checksum failed: %w", err)
 	}
 
-	if _, err := w.Write(payload); err != nil {
-		return err
-	}
-	if _, err := crc.Write(payload); err != nil {
-		return fmt.Errorf("CRC checksum failed: %w", err)
-	}
-
-	checksum := crc.Sum(buff[:0])
-	_, err := w.Write(checksum)
+	buff = crc.Sum(buff[:checksumIndex])
+	_, err := w.Write(buff)
 	return err
 }
 
 // readRecord reads a length-prefixed and check-summed record from the reader.
 // If the record is read correctly, the number of bytes read is returned.
 func readRecord(r io.Reader, maxSize uint32) ([]byte, uint32, error) {
-	const tempSpace = max(recordSizeLen, 2*recordChecksumLen)
+	const tempSpace = max(recordSizeLen, recordChecksumLen)
 	buff := make([]byte, tempSpace)
 	crc := crc64.New(crc64.MakeTable(crc64.ECMA))
 
@@ -66,20 +56,17 @@ func readRecord(r io.Reader, maxSize uint32) ([]byte, uint32, error) {
 		return nil, 0, fmt.Errorf("record indicates payload is %d bytes long", payloadLen)
 	}
 
-	payload := make([]byte, payloadLen)
-	if _, err := io.ReadFull(r, payload); err != nil {
+	payloadAndChecksum := make([]byte, payloadLen+recordChecksumLen)
+	if _, err := io.ReadFull(r, payloadAndChecksum); err != nil {
 		return nil, 0, err
 	}
+	payload := payloadAndChecksum[:payloadLen]
 	if _, err := crc.Write(payload); err != nil {
 		return nil, 0, fmt.Errorf("CRC checksum failed: %w", err)
 	}
 
-	checksum := buff[:recordChecksumLen]
-	if _, err := io.ReadFull(r, checksum); err != nil {
-		return nil, 0, err
-	}
-
-	expectedChecksum := crc.Sum(buff[recordChecksumLen:recordChecksumLen])
+	checksum := payloadAndChecksum[payloadLen:]
+	expectedChecksum := crc.Sum(buff[:0])
 	if !bytes.Equal(checksum, expectedChecksum) {
 		return nil, 0, ErrInvalidCRC
 	}
