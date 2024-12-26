@@ -21,7 +21,7 @@ const (
 	recordHeaderLen = recordVersionLen + recordTypeLen + recordSizeLen
 
 	recordVersionIndex  = 0
-	recordTypeOffset    = recordVersionLen
+	recordTypeOffset    = recordVersionIndex + recordVersionLen
 	recordSizeOffset    = recordTypeOffset + recordTypeLen
 	recordPayloadOffset = recordSizeOffset + recordSizeLen
 
