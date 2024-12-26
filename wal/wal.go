@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"simplex/record"
 )
 
 const (
@@ -34,12 +33,9 @@ func New(fileName string) (*WriteAheadLog, error) {
 
 // Appends a record to the write ahead log
 // Must flush the OS cache on every append to ensure consistency
-func (w *WriteAheadLog) Append(r *record.Record) error {
-	bytes := r.Bytes()
-
-	// write will append
-	_, err := w.file.Write(bytes)
-	if err != nil {
+func (w *WriteAheadLog) Append(b []byte) error {
+	// writeRecord will append
+	if err := writeRecord(w.file, b); err != nil {
 		return err
 	}
 
@@ -47,37 +43,36 @@ func (w *WriteAheadLog) Append(r *record.Record) error {
 	return w.file.Sync()
 }
 
-func (w *WriteAheadLog) ReadAll() ([]record.Record, error) {
+func (w *WriteAheadLog) ReadAll() ([][]byte, error) {
 	_, err := w.file.Seek(0, io.SeekStart)
 	if err != nil {
-		return []record.Record{}, fmt.Errorf("error seeking to start %w", err)
+		return nil, fmt.Errorf("error seeking to start %w", err)
 	}
 
-	records := []record.Record{}
 	fileInfo, err := w.file.Stat()
 	if err != nil {
-		return []record.Record{}, fmt.Errorf("error getting file info %w", err)
+		return nil, fmt.Errorf("error getting file info %w", err)
 	}
 	bytesToRead := fileInfo.Size()
 
+	var payloads [][]byte
 	for bytesToRead > 0 {
-		var record record.Record
-		bytesRead, err := record.FromBytes(w.file)
+		payload, bytesRead, err := readRecord(w.file, uint32(bytesToRead))
 		// record was corrupted in wal
 		if err != nil {
-			return records, w.truncateAt(fileInfo.Size() - bytesToRead)
+			return payloads, w.truncateAt(fileInfo.Size() - bytesToRead)
 		}
 
 		bytesToRead -= int64(bytesRead)
-		records = append(records, record)
+		payloads = append(payloads, payload)
 	}
 
 	// should never happen
 	if bytesToRead != 0 {
-		return records, fmt.Errorf("read more bytes than expected")
+		return payloads, fmt.Errorf("read more bytes than expected")
 	}
 
-	return records, nil
+	return payloads, nil
 }
 
 // Truncate truncates the write ahead log

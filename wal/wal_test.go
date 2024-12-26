@@ -6,7 +6,6 @@ package wal
 import (
 	"os"
 	"path/filepath"
-	"simplex/record"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -22,11 +21,7 @@ func new(t *testing.T) *WriteAheadLog {
 func TestWalSingleRw(t *testing.T) {
 	require := require.New(t)
 
-	r := record.Record{
-		Version: 1,
-		Type:    2,
-		Payload: []byte{3, 4, 5},
-	}
+	r := []byte{3, 4, 5}
 
 	// writes and reads from wal
 	wal := new(t)
@@ -34,12 +29,12 @@ func TestWalSingleRw(t *testing.T) {
 		require.NoError(wal.Close())
 	}()
 
-	require.NoError(wal.Append(&r))
+	require.NoError(wal.Append(r))
 
 	readRecords, err := wal.ReadAll()
 	require.NoError(err)
 	require.Equal(
-		[]record.Record{r},
+		[][]byte{r},
 		readRecords,
 	)
 }
@@ -47,26 +42,17 @@ func TestWalSingleRw(t *testing.T) {
 func TestWalMultipleRws(t *testing.T) {
 	require := require.New(t)
 
-	record1 := record.Record{
-		Version: 1,
-		Type:    2,
-		Payload: []byte{3, 4, 5},
-	}
-
-	record2 := record.Record{
-		Version: 3,
-		Type:    3,
-		Payload: []byte{1, 2, 3},
-	}
-	records := []record.Record{record1, record2}
+	r1 := []byte{3, 4, 5}
+	r2 := []byte{1, 2, 3}
+	records := [][]byte{r1, r2}
 
 	wal := new(t)
 	defer func() {
 		require.NoError(wal.Close())
 	}()
 
-	require.NoError(wal.Append(&record1))
-	require.NoError(wal.Append(&record2))
+	require.NoError(wal.Append(r1))
+	require.NoError(wal.Append(r2))
 
 	readRecords, err := wal.ReadAll()
 	require.NoError(err)
@@ -76,30 +62,22 @@ func TestWalMultipleRws(t *testing.T) {
 func TestWalAppendAfterRead(t *testing.T) {
 	require := require.New(t)
 
-	record1 := record.Record{
-		Version: 1,
-		Type:    2,
-		Payload: []byte{3, 4, 5},
-	}
-	record2 := record.Record{
-		Version: 3,
-		Type:    3,
-		Payload: []byte{1, 2, 3},
-	}
-	records := []record.Record{record1, record2}
+	r1 := []byte{3, 4, 5}
+	r2 := []byte{1, 2, 3}
+	records := [][]byte{r1, r2}
 
 	wal := new(t)
 	defer func() {
 		require.NoError(wal.Close())
 	}()
 
-	require.NoError(wal.Append(&record1))
+	require.NoError(wal.Append(r1))
 
 	readRecords, err := wal.ReadAll()
 	require.NoError(err)
 	require.Equal(records[:1], readRecords)
 
-	require.NoError(wal.Append(&record2))
+	require.NoError(wal.Append(r2))
 
 	readRecords, err = wal.ReadAll()
 	require.NoError(err)
@@ -117,22 +95,18 @@ func TestCorruptedFile(t *testing.T) {
 		require.NoError(wal.Close())
 	}()
 
-	n := 4
-	records := make([]record.Record, n)
-	for i := 0; i < n; i++ {
-		records[i] = record.Record{
-			Version: uint8(i),
-			Type:    uint16(i),
-			Payload: []byte{byte(i), byte(i), byte(i)},
-		}
-		require.NoError(wal.Append(&records[i]))
+	const n = 4
+	records := make([][]byte, n)
+	for i := range records {
+		records[i] = []byte{byte(i), byte(i), byte(i)}
+		require.NoError(wal.Append(records[i]))
 	}
 
 	// Corrupt the last record
 	file, err := os.OpenFile(fileName, os.O_RDWR, 0666)
 	require.NoError(err)
 
-	recordSize := len(records[0].Bytes())
+	recordSize := recordSizeLen + len(records[0]) + recordChecksumLen
 	_, err = file.WriteAt([]byte{0, 1, 2}, int64(3*recordSize))
 	require.NoError(err)
 
@@ -148,18 +122,14 @@ func TestCorruptedFile(t *testing.T) {
 func TestTruncate(t *testing.T) {
 	require := require.New(t)
 
-	r := record.Record{
-		Version: 1,
-		Type:    2,
-		Payload: []byte{3, 4, 5},
-	}
+	r := []byte{3, 4, 5}
 
 	wal := new(t)
 	defer func() {
 		require.NoError(wal.Close())
 	}()
 
-	require.NoError(wal.Append(&r))
+	require.NoError(wal.Append(r))
 	require.NoError(wal.Truncate())
 
 	readRecords, err := wal.ReadAll()
@@ -170,23 +140,19 @@ func TestTruncate(t *testing.T) {
 func TestReadWriteAfterTruncate(t *testing.T) {
 	require := require.New(t)
 
-	r := record.Record{
-		Version: 1,
-		Type:    2,
-		Payload: []byte{3, 4, 5},
-	}
+	r := []byte{3, 4, 5}
 
 	wal := new(t)
 	defer func() {
 		require.NoError(wal.Close())
 	}()
 
-	require.NoError(wal.Append(&r))
+	require.NoError(wal.Append(r))
 
 	readRecords, err := wal.ReadAll()
 	require.NoError(err)
 	require.Equal(
-		[]record.Record{r},
+		[][]byte{r},
 		readRecords,
 	)
 
@@ -196,12 +162,12 @@ func TestReadWriteAfterTruncate(t *testing.T) {
 	require.NoError(err)
 	require.Empty(readRecords)
 
-	require.NoError(wal.Append(&r))
+	require.NoError(wal.Append(r))
 
 	readRecords, err = wal.ReadAll()
 	require.NoError(err)
 	require.Equal(
-		[]record.Record{r},
+		[][]byte{r},
 		readRecords,
 	)
 }

@@ -6,26 +6,24 @@ package wal
 import (
 	"bytes"
 	"fmt"
-
-	"simplex/record"
 )
 
 type InMemWAL bytes.Buffer
 
-func (wal *InMemWAL) Append(record *record.Record) {
+func (wal *InMemWAL) Append(b []byte) error {
 	w := (*bytes.Buffer)(wal)
-	w.Write(record.Bytes())
+	return writeRecord(w, b)
 }
 
-func (wal *InMemWAL) ReadAll() []record.Record {
+func (wal *InMemWAL) ReadAll() ([][]byte, error) {
 	r := bytes.NewBuffer((*bytes.Buffer)(wal).Bytes())
-	res := make([]record.Record, 0, 100)
+	var res [][]byte
 	for r.Len() > 0 {
-		var record record.Record
-		if _, err := record.FromBytes(r); err != nil {
-			panic(fmt.Sprintf("failed reading record: %v", err))
+		payload, _, err := readRecord(r, uint32(r.Len()))
+		if err != nil {
+			return nil, fmt.Errorf("failed reading in-memory record: %w", err)
 		}
-		res = append(res, record)
+		res = append(res, payload)
 	}
-	return res
+	return res, nil
 }
