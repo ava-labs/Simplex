@@ -94,6 +94,6 @@ func (r *Record) FromBytes(in io.Reader) (int, error) {
 	r.Type = recType
 	r.Payload = payload
 
-	totalSize := recordHeaderLen + recordChecksumLen + len(payload)
+	totalSize := recordHeaderLen + len(payload) + recordChecksumLen
 	return totalSize, nil
 }
