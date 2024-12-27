@@ -25,7 +25,7 @@ func TestEpochSimpleFlow(t *testing.T) {
 	bb := make(testBlockBuilder, 1)
 	storage := newInMemStorage()
 
-	e := &Epoch{
+	conf := EpochConfig{
 		Logger:       l,
 		ID:           NodeID{1},
 		Signer:       &testSigner{},
@@ -35,8 +35,11 @@ func TestEpochSimpleFlow(t *testing.T) {
 		Comm:         noopComm([]NodeID{{1}, {2}, {3}, {4}}),
 		BlockBuilder: bb,
 	}
-	err := e.Start()
+
+	e, err := NewEpoch(conf)
 	require.NoError(t, err)
+
+	require.NoError(t, e.Start())
 
 	for i := 0; i < 100; i++ {
 		leaderID := i%4 + 1

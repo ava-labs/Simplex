@@ -17,6 +17,8 @@ func TestSimplexMultiNodeSimple(t *testing.T) {
 	bb := newTestControlledBlockBuilder()
 
 	var net inMemNetwork
+	net.nodes = []NodeID{{1}, {2}, {3}, {4}}
+
 	n1 := newSimplexNode(t, 1, &net, bb)
 	n2 := newSimplexNode(t, 2, &net, bb)
 	n3 := newSimplexNode(t, 3, &net, bb)
@@ -39,8 +41,8 @@ func TestSimplexMultiNodeSimple(t *testing.T) {
 }
 
 func (t *testInstance) start() {
-	require.NoError(t.t, t.e.Start())
 	go t.handleMessages()
+	require.NoError(t.t, t.e.Start())
 }
 
 func newSimplexNode(t *testing.T, id uint8, net *inMemNetwork, bb BlockBuilder) *testInstance {
@@ -49,7 +51,7 @@ func newSimplexNode(t *testing.T, id uint8, net *inMemNetwork, bb BlockBuilder) 
 
 	nodeID := NodeID{id}
 
-	e := &Epoch{
+	conf := EpochConfig{
 		Comm: &testComm{
 			from: nodeID,
 			net:  net,
@@ -63,6 +65,9 @@ func newSimplexNode(t *testing.T, id uint8, net *inMemNetwork, bb BlockBuilder) 
 		BlockBuilder: bb,
 	}
 
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+
 	ti := &testInstance{
 		e:      e,
 		t:      t,
@@ -72,7 +77,6 @@ func newSimplexNode(t *testing.T, id uint8, net *inMemNetwork, bb BlockBuilder) 
 			from NodeID
 		}, 100)}
 
-	net.nodes = append(net.nodes, nodeID)
 	net.instances = append(net.instances, ti)
 
 	return ti

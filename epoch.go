@@ -33,8 +33,7 @@ func NewRound(block Block) *Round {
 	}
 }
 
-type Epoch struct {
-	// Config
+type EpochConfig struct {
 	Logger              Logger
 	ID                  NodeID
 	Signer              Signer
@@ -49,6 +48,10 @@ type Epoch struct {
 	Seq                 uint64
 	Epoch               uint64
 	StartTime           time.Time
+}
+
+type Epoch struct {
+	EpochConfig
 	// Runtime
 	lastBlock          Block // latest block commited
 	canReceiveMessages bool
@@ -61,6 +64,13 @@ type Epoch struct {
 	futureMessages     messagesFromNode
 	round              uint64
 	maxRoundWindow     uint64
+}
+
+func NewEpoch(conf EpochConfig) (*Epoch, error) {
+	e := &Epoch{
+		EpochConfig: conf,
+	}
+	return e, e.init()
 }
 
 // AdvanceTime hints the engine that the given amount of time has passed.
@@ -99,8 +109,8 @@ func (e *Epoch) HandleMessage(msg *Message, from NodeID) error {
 	}
 }
 
-func (e *Epoch) Start() error {
-	// Only start receiving messages once you have initialized the data structures required for it.
+func (e *Epoch) init() error {
+	// Only init receiving messages once you have initialized the data structures required for it.
 	defer func() {
 		e.canReceiveMessages = true
 	}()
@@ -126,10 +136,14 @@ func (e *Epoch) Start() error {
 	}
 
 	e.loadLastRound()
+	return nil
+}
+
+func (e *Epoch) Start() error {
 	return e.syncFromWal()
 }
 
-// startFromWal start an epoch from the write ahead log.
+// syncFromWal init an epoch from the write ahead log.
 func (e *Epoch) syncFromWal() error {
 	return e.startRound()
 }
