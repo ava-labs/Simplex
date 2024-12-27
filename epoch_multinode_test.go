@@ -54,15 +54,13 @@ func newSimplexNode(t *testing.T, id uint8, net *inMemNetwork, bb BlockBuilder) 
 			from: nodeID,
 			net:  net,
 		},
-		BlockDigester: blockDigester{},
-		Logger:        l,
-		ID:            nodeID,
-		Signer:        &testSigner{},
-		WAL:           &wal.InMemWAL{},
-		Verifier:      &testVerifier{},
-		BlockVerifier: &testVerifier{},
-		Storage:       storage,
-		BlockBuilder:  bb,
+		Logger:       l,
+		ID:           nodeID,
+		Signer:       &testSigner{},
+		WAL:          &wal.InMemWAL{},
+		Verifier:     &testVerifier{},
+		Storage:      storage,
+		BlockBuilder: bb,
 	}
 
 	ti := &testInstance{

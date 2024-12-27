@@ -26,16 +26,14 @@ func TestEpochSimpleFlow(t *testing.T) {
 	storage := newInMemStorage()
 
 	e := &Epoch{
-		BlockDigester: blockDigester{},
-		Logger:        l,
-		ID:            NodeID{1},
-		Signer:        &testSigner{},
-		WAL:           &wal.InMemWAL{},
-		Verifier:      &testVerifier{},
-		BlockVerifier: &testVerifier{},
-		Storage:       storage,
-		Comm:          noopComm([]NodeID{{1}, {2}, {3}, {4}}),
-		BlockBuilder:  bb,
+		Logger:       l,
+		ID:           NodeID{1},
+		Signer:       &testSigner{},
+		WAL:          &wal.InMemWAL{},
+		Verifier:     &testVerifier{},
+		Storage:      storage,
+		Comm:         noopComm([]NodeID{{1}, {2}, {3}, {4}}),
+		BlockBuilder: bb,
 	}
 	err := e.Start()
 	require.NoError(t, err)
@@ -97,7 +95,6 @@ func injectVote(t *testing.T, e *Epoch, block *testBlock, id NodeID) {
 
 func injectFinalization(t *testing.T, e *Epoch, block *testBlock, id NodeID) {
 	md := block.BlockHeader()
-	md.Digest = (blockDigester{}).Digest(block)
 	err := e.HandleMessage(&Message{
 		Finalization: &SignedFinalizationMessage{
 			Signer: id,
@@ -176,6 +173,10 @@ type testBlock struct {
 	digest   [32]byte
 }
 
+func (tb *testBlock) Verify() error {
+	return nil
+}
+
 func newTestBlock(metadata ProtocolMetadata) *testBlock {
 	tb := testBlock{
 		metadata: metadata,
@@ -187,10 +188,15 @@ func newTestBlock(metadata ProtocolMetadata) *testBlock {
 		panic(err)
 	}
 
-	var digester blockDigester
-	tb.digest = digester.Digest(&tb)
+	tb.computeDigest()
 
 	return &tb
+}
+
+func (tb *testBlock) computeDigest() {
+	var bb bytes.Buffer
+	bb.Write(tb.Bytes())
+	tb.digest = sha256.Sum256(bb.Bytes())
 }
 
 func (t *testBlock) BlockHeader() BlockHeader {
@@ -212,16 +218,6 @@ func (t *testBlock) Bytes() []byte {
 	copy(buff[4:], t.data)
 	copy(buff[4+len(t.data):], mdBuff)
 	return buff
-}
-
-type blockDigester struct {
-}
-
-func (b blockDigester) Digest(block Block) [32]byte {
-	var bb bytes.Buffer
-	bb.Write(block.Bytes())
-	digest := sha256.Sum256(bb.Bytes())
-	return digest
 }
 
 type InMemStorage struct {
@@ -307,8 +303,8 @@ func (b *blockDeserializer) DeserializeBlock(buff []byte) (Block, error) {
 		metadata: bh.ProtocolMetadata,
 	}
 
-	var digester blockDigester
-	tb.digest = digester.Digest(&tb)
+	tb.computeDigest()
+
 	return &tb, nil
 }
 

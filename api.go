@@ -33,10 +33,6 @@ type Logger interface {
 	Verbo(msg string, fields ...zap.Field)
 }
 
-type BlockDigester interface {
-	Digest(block Block) [metadataDigestLen]byte
-}
-
 type BlockBuilder interface {
 	// BuildBlock blocks until some transactions are available to be batched into a block,
 	// in which case a block and true are returned.
@@ -79,10 +75,6 @@ type SignatureAggregator interface {
 	Aggregate([][]byte) []byte
 }
 
-type BlockVerifier interface {
-	VerifyBlock(block Block) error
-}
-
 type WriteAheadLog interface {
 	Append([]byte) error
 	ReadAll() ([][]byte, error)
@@ -94,6 +86,9 @@ type Block interface {
 
 	// Bytes returns a byte encoding of the block
 	Bytes() []byte
+
+	// Verify verifies the block by speculatively executing it on top of its ancestor.
+	Verify() error
 }
 
 // BlockDeserializer deserializes blocks according to formatting

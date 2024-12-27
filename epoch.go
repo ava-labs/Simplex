@@ -40,8 +40,6 @@ type Epoch struct {
 	Signer              Signer
 	Verifier            SignatureVerifier
 	BlockDeserializer   BlockDeserializer
-	BlockDigester       BlockDigester
-	BlockVerifier       BlockVerifier
 	SignatureAggregator SignatureAggregator
 	Comm                Communication
 	Storage             Storage
@@ -747,7 +745,7 @@ func (e *Epoch) handleBlockMessage(message *Message, from NodeID) error {
 	// Else, it's a block that we have received from the leader of this round.
 	// So verify it and store it in the WAL.
 	if !e.ID.Equals(from) {
-		if err := e.BlockVerifier.VerifyBlock(block); err != nil {
+		if err := block.Verify(); err != nil {
 			e.Logger.Debug("Failed verifying block", zap.Error(err))
 			return nil
 		}
@@ -761,8 +759,6 @@ func (e *Epoch) handleBlockMessage(message *Message, from NodeID) error {
 func (e *Epoch) isMetadataValid(block Block) bool {
 	bh := block.BlockHeader()
 
-	expectedDigest := e.BlockDigester.Digest(block)
-
 	if bh.Version != 0 {
 		e.Logger.Debug("Got block message with wrong version number, expected 0", zap.Uint8("version", bh.Version))
 	}
@@ -770,13 +766,6 @@ func (e *Epoch) isMetadataValid(block Block) bool {
 	if e.Epoch != bh.Epoch {
 		e.Logger.Debug("Got block message but the epoch mismatches our epoch",
 			zap.Uint64("our epoch", e.Epoch), zap.Uint64("block epoch", bh.Epoch))
-	}
-
-	if !bytes.Equal(bh.Digest[:], expectedDigest[:]) {
-		e.Logger.Debug("Received block with an incorrect digest",
-			zap.Uint64("round", bh.Round),
-			zap.Stringer("digest", bh.Digest),
-			zap.String("expected digest", fmt.Sprintf("%x", expectedDigest[:10])))
 	}
 
 	if bh.Seq == 0 && e.Storage.Height() > 0 {
@@ -811,8 +800,10 @@ func (e *Epoch) isMetadataValid(block Block) bool {
 			zap.Uint64("expected seq", expectedSeq))
 	}
 
+	digest := block.BlockHeader().Digest
+
 	expectedBH := BlockHeader{
-		Digest: expectedDigest,
+		Digest: digest,
 		ProtocolMetadata: ProtocolMetadata{
 			Round:   e.round,
 			Seq:     expectedSeq,
