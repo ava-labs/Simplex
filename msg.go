@@ -5,8 +5,8 @@ package simplex
 
 import "encoding/asn1"
 
-type Message struct {
-	BlockMessage            *BlockMessage
+type Message[B Block] struct {
+	BlockMessage            *BlockMessage[B]
 	VoteMessage             *SignedVoteMessage
 	Notarization            *Notarization
 	Finalization            *SignedFinalizationMessage
@@ -101,8 +101,8 @@ type AggregatedSignedVote struct {
 	Signature []byte
 }
 
-type BlockMessage struct {
-	Block Block
+type BlockMessage[B Block] struct {
+	Block B
 }
 
 type SignedMessage struct {

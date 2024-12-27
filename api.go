@@ -33,38 +33,37 @@ type Logger interface {
 	Verbo(msg string, fields ...zap.Field)
 }
 
-type BlockDigester interface {
-	Digest(block Block) []byte
+type BlockDigester[B Block] interface {
+	Digest(block B) []byte
 }
 
-type BlockBuilder interface {
+type BlockBuilder[B Block] interface {
 	// BuildBlock blocks until some transactions are available to be batched into a block,
 	// in which case a block and true are returned.
 	// When the given context is cancelled by the caller, returns false.
-	BuildBlock(ctx context.Context, metadata ProtocolMetadata) (Block, bool)
+	BuildBlock(ctx context.Context, metadata ProtocolMetadata) (B, bool)
 
 	// IncomingBlock returns when either the given context is cancelled,
 	// or when the application signals that a block should be built.
 	IncomingBlock(ctx context.Context)
 }
 
-type Storage interface {
+type Storage[B Block] interface {
 	Height() uint64
-	Retrieve(seq uint64) (Block, FinalizationCertificate, bool)
-	Index(seq uint64, block Block, certificate FinalizationCertificate)
+	Retrieve(seq uint64) (B, FinalizationCertificate, bool)
+	Index(seq uint64, block B, certificate FinalizationCertificate)
 }
 
-type Communication interface {
-
+type Communication[B Block] interface {
 	// ListNodes returns all nodes known to the application.
 	ListNodes() []NodeID
 
 	// SendMessage sends a message to the given destination node
-	SendMessage(msg *Message, destination NodeID)
+	SendMessage(msg *Message[B], destination NodeID)
 
 	// Broadcast broadcasts the given message to all nodes.
 	// Does not send it to yourself.
-	Broadcast(msg *Message)
+	Broadcast(msg *Message[B])
 }
 
 type Signer interface {
@@ -79,8 +78,8 @@ type SignatureAggregator interface {
 	Aggregate([][]byte) []byte
 }
 
-type BlockVerifier interface {
-	VerifyBlock(block Block) error
+type BlockVerifier[B Block] interface {
+	VerifyBlock(block B) error
 }
 
 type WriteAheadLog interface {
@@ -98,8 +97,8 @@ type Block interface {
 
 // BlockDeserializer deserializes blocks according to formatting
 // enforced by the application.
-type BlockDeserializer interface {
+type BlockDeserializer[B Block] interface {
 	// DeserializeBlock parses the given bytes and initializes a Block.
 	// Returns an error upon failure.
-	DeserializeBlock(bytes []byte) (Block, error)
+	DeserializeBlock(bytes []byte) (B, error)
 }

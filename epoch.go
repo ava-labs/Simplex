@@ -16,17 +16,17 @@ import (
 
 const defaultMaxRoundWindow = 10
 
-type Round struct {
+type Round[B Block] struct {
 	num           uint64
-	block         Block
+	block         B
 	votes         map[string]*SignedVoteMessage // NodeID --> vote
 	notarization  *Notarization
 	finalizations map[string]*SignedFinalizationMessage // NodeID --> vote
 	fCert         *FinalizationCertificate
 }
 
-func NewRound(block Block) *Round {
-	return &Round{
+func NewRound[B Block](block B) *Round[B] {
+	return &Round[B]{
 		num:           block.Metadata().Round,
 		block:         block,
 		votes:         make(map[string]*SignedVoteMessage),
@@ -34,45 +34,45 @@ func NewRound(block Block) *Round {
 	}
 }
 
-type Epoch struct {
+type Epoch[B Block] struct {
 	// Config
 	Logger              Logger
 	ID                  NodeID
 	Signer              Signer
 	Verifier            SignatureVerifier
-	BlockDeserializer   BlockDeserializer
-	BlockDigester       BlockDigester
-	BlockVerifier       BlockVerifier
+	BlockDeserializer   BlockDeserializer[B]
+	BlockDigester       BlockDigester[B]
+	BlockVerifier       BlockVerifier[B]
 	SignatureAggregator SignatureAggregator
-	Comm                Communication
-	Storage             Storage
+	Comm                Communication[B]
+	Storage             Storage[B]
 	WAL                 WriteAheadLog
-	BlockBuilder        BlockBuilder
+	BlockBuilder        BlockBuilder[B]
 	Round               uint64
 	Seq                 uint64
 	Epoch               uint64
 	StartTime           time.Time
 	// Runtime
-	lastBlock          Block // latest block commited
+	lastBlock          B // latest block commited
 	canReceiveMessages bool
 	finishCtx          context.Context
 	finishFn           context.CancelFunc
 	nodes              []NodeID
 	eligibleNodeIDs    map[string]struct{}
 	quorumSize         int
-	rounds             map[uint64]*Round
-	futureMessages     messagesFromNode
+	rounds             map[uint64]*Round[B]
+	futureMessages     messagesFromNode[B]
 	round              uint64
 	maxRoundWindow     uint64
 }
 
 // AdvanceTime hints the engine that the given amount of time has passed.
-func (e *Epoch) AdvanceTime(t time.Duration) {
+func (e *Epoch[_]) AdvanceTime(t time.Duration) {
 
 }
 
 // HandleMessage notifies the engine about a reception of a message.
-func (e *Epoch) HandleMessage(msg *Message, from NodeID) error {
+func (e *Epoch[B]) HandleMessage(msg *Message[B], from NodeID) error {
 	// Guard against receiving messages before we are ready to handle them.
 	if !e.canReceiveMessages {
 		e.Logger.Warn("Cannot receive a message")
@@ -118,7 +118,7 @@ func (e *Epoch) HandleMessage(msg *Message, from NodeID) error {
 	return nil
 }
 
-func (e *Epoch) Start() error {
+func (e *Epoch[B]) Start() error {
 	// Only start receiving messages once you have initialized the data structures required for it.
 	defer func() {
 		e.canReceiveMessages = true
@@ -128,12 +128,12 @@ func (e *Epoch) Start() error {
 	e.nodes = e.Comm.ListNodes()
 	e.quorumSize = quorum(len(e.nodes))
 	e.round = e.Round
-	e.rounds = make(map[uint64]*Round)
+	e.rounds = make(map[uint64]*Round[B])
 	e.maxRoundWindow = defaultMaxRoundWindow
 	e.eligibleNodeIDs = make(map[string]struct{}, len(e.nodes))
-	e.futureMessages = make(messagesFromNode, len(e.nodes))
+	e.futureMessages = make(messagesFromNode[B], len(e.nodes))
 	for _, node := range e.nodes {
-		e.futureMessages[string(node)] = make(map[uint64]*messagesForRound)
+		e.futureMessages[string(node)] = make(map[uint64]*messagesForRound[B])
 	}
 	for _, node := range e.nodes {
 		e.eligibleNodeIDs[string(node)] = struct{}{}
@@ -149,12 +149,12 @@ func (e *Epoch) Start() error {
 }
 
 // startFromWal start an epoch from the write ahead log.
-func (e *Epoch) syncFromWal() error {
+func (e *Epoch[_]) syncFromWal() error {
 	return e.startRound()
 }
 
 // loadLastBlock initializes the epoch with the lastBlock retrieved from storage.
-func (e *Epoch) loadLastBlock() error {
+func (e *Epoch[_]) loadLastBlock() error {
 	block, err := e.retrieveLastBlockFromStorage()
 	if err != nil {
 		return err
@@ -164,33 +164,33 @@ func (e *Epoch) loadLastBlock() error {
 	return nil
 }
 
-func (e *Epoch) loadLastRound() {
+func (e *Epoch[B]) loadLastRound() {
 	// Put the last block we committed in the rounds map.
-	if e.lastBlock != nil {
-		round := NewRound(e.lastBlock)
-		e.rounds[round.num] = round
-	}
+	// if e.lastBlock != nil {
+	// 	round := NewRound(e.lastBlock)
+	// 	e.rounds[round.num] = round
+	// }
 }
 
 // retrieveLastBlockFromStorage grabs the most latest block from storage
-func (e *Epoch) retrieveLastBlockFromStorage() (Block, error) {
+func (e *Epoch[B]) retrieveLastBlockFromStorage() (B, error) {
 	height := e.Storage.Height()
 	if height == 0 {
-		return nil, nil
+		return zero[B](), nil
 	}
 
 	lastBlock, _, retrieved := e.Storage.Retrieve(height - 1)
 	if !retrieved {
-		return nil, fmt.Errorf("failed retrieving last block from storage with seq %d", height-1)
+		return zero[B](), fmt.Errorf("failed retrieving last block from storage with seq %d", height-1)
 	}
 	return lastBlock, nil
 }
 
-func (e *Epoch) Stop() {
+func (e *Epoch[_]) Stop() {
 	e.finishFn()
 }
 
-func (e *Epoch) handleFinalizationCertificateMessage(message *Message, from NodeID) error {
+func (e *Epoch[B]) handleFinalizationCertificateMessage(message *Message[B], from NodeID) error {
 	fCert := message.FinalizationCertificate
 	round, exists := e.rounds[fCert.Finalization.Round]
 	if !exists {
@@ -218,7 +218,7 @@ func (e *Epoch) handleFinalizationCertificateMessage(message *Message, from Node
 	return e.persistFinalizationCertificate(*fCert)
 }
 
-func (e *Epoch) isFinalizationCertificateValid(fCert *FinalizationCertificate) (bool, error) {
+func (e *Epoch[_]) isFinalizationCertificateValid(fCert *FinalizationCertificate) (bool, error) {
 	if fCert.AggregatedSignedVote != nil {
 		valid, err := e.isAggregateSigFinalizationCertValid(fCert)
 		if err != nil {
@@ -241,7 +241,7 @@ func (e *Epoch) isFinalizationCertificateValid(fCert *FinalizationCertificate) (
 	return false, nil
 }
 
-func (e *Epoch) isAggregateSigFinalizationCertValid(fCert *FinalizationCertificate) (bool, error) {
+func (e *Epoch[_]) isAggregateSigFinalizationCertValid(fCert *FinalizationCertificate) (bool, error) {
 	// Check enough signers signed the finalization certificate
 	if e.quorumSize > len(fCert.AggregatedSignedVote.Signers) {
 		e.Logger.Debug("Finalization certificate signed by insufficient nodes",
@@ -263,7 +263,7 @@ func (e *Epoch) isAggregateSigFinalizationCertValid(fCert *FinalizationCertifica
 	return true, nil
 }
 
-func (e *Epoch) isMultiSigFinalizationCertValid(fCert *FinalizationCertificate) (bool, error) {
+func (e *Epoch[_]) isMultiSigFinalizationCertValid(fCert *FinalizationCertificate) (bool, error) {
 	// Check enough signers signed the finalization certificate
 	if e.quorumSize > len(fCert.SignaturesAndSigners) {
 		e.Logger.Debug("Finalization certificate signed by insufficient nodes",
@@ -286,7 +286,7 @@ func (e *Epoch) isMultiSigFinalizationCertValid(fCert *FinalizationCertificate) 
 	return true, nil
 }
 
-func (e *Epoch) handleFinalizationMessage(message *Message, from NodeID) error {
+func (e *Epoch[B]) handleFinalizationMessage(message *Message[B], from NodeID) error {
 	msg := message.Finalization
 	finalization := msg.Finalization
 
@@ -317,7 +317,7 @@ func (e *Epoch) handleFinalizationMessage(message *Message, from NodeID) error {
 	return e.maybeCollectFinalizationCertificate(round)
 }
 
-func (e *Epoch) handleVoteMessage(message *Message, from NodeID) error {
+func (e *Epoch[B]) handleVoteMessage(message *Message[B], from NodeID) error {
 	msg := message.VoteMessage
 	vote := msg.Vote
 
@@ -348,7 +348,7 @@ func (e *Epoch) handleVoteMessage(message *Message, from NodeID) error {
 	return e.maybeCollectNotarization()
 }
 
-func (e *Epoch) isFinalizationValid(signature []byte, finalization Finalization, from ...NodeID) bool {
+func (e *Epoch[_]) isFinalizationValid(signature []byte, finalization Finalization, from ...NodeID) bool {
 	// First before verifying the signature, check the sequence and digest match what we think it should,
 	// according to the notarized chain of blocks.
 
@@ -359,7 +359,7 @@ func (e *Epoch) isFinalizationValid(signature []byte, finalization Finalization,
 	return true
 }
 
-func (e *Epoch) isVoteValid(signature []byte, vote Vote, from ...NodeID) bool {
+func (e *Epoch[_]) isVoteValid(signature []byte, vote Vote, from ...NodeID) bool {
 	// Ignore votes for previous rounds
 	if vote.Round < e.round {
 		return false
@@ -378,7 +378,7 @@ func (e *Epoch) isVoteValid(signature []byte, vote Vote, from ...NodeID) bool {
 	return true
 }
 
-func (e *Epoch) maybeCollectFinalizationCertificate(round *Round) error {
+func (e *Epoch[B]) maybeCollectFinalizationCertificate(round *Round[B]) error {
 	finalizationCount := len(round.finalizations)
 
 	if finalizationCount < e.quorumSize {
@@ -389,7 +389,7 @@ func (e *Epoch) maybeCollectFinalizationCertificate(round *Round) error {
 	return e.assembleFinalizationCertificate(round)
 }
 
-func (e *Epoch) assembleFinalizationCertificate(round *Round) error {
+func (e *Epoch[B]) assembleFinalizationCertificate(round *Round[B]) error {
 	// Divide finalizations into sets that agree on the same metadata
 	finalizationsByMD := make(map[string][]*SignedFinalizationMessage)
 
@@ -449,7 +449,7 @@ func (e *Epoch) assembleFinalizationCertificate(round *Round) error {
 	return e.persistFinalizationCertificate(fCert)
 }
 
-func (e *Epoch) persistFinalizationCertificate(fCert FinalizationCertificate) error {
+func (e *Epoch[B]) persistFinalizationCertificate(fCert FinalizationCertificate) error {
 	signatures := make([][]byte, 0, e.quorumSize)
 	signers := make([]NodeID, 0, e.quorumSize)
 
@@ -496,7 +496,7 @@ func (e *Epoch) persistFinalizationCertificate(fCert FinalizationCertificate) er
 			zap.Stringer("digest", fCert.Finalization.Metadata.Digest))
 	}
 
-	finalizationCertificate := &Message{FinalizationCertificate: &fCert}
+	finalizationCertificate := &Message[B]{FinalizationCertificate: &fCert}
 	e.Comm.Broadcast(finalizationCertificate)
 
 	e.Logger.Debug("Broadcast finalization certificate",
@@ -506,7 +506,7 @@ func (e *Epoch) persistFinalizationCertificate(fCert FinalizationCertificate) er
 	return e.startRound()
 }
 
-func (e *Epoch) maybeCollectNotarization() error {
+func (e *Epoch[_]) maybeCollectNotarization() error {
 	votesForCurrentRound := e.rounds[e.round].votes
 	voteCount := len(votesForCurrentRound)
 
@@ -537,7 +537,7 @@ func (e *Epoch) maybeCollectNotarization() error {
 	return e.assembleNotarization(votesForCurrentRound, digestWeExpect)
 }
 
-func (e *Epoch) assembleNotarization(votesForCurrentRound map[string]*SignedVoteMessage, digest []byte) error {
+func (e *Epoch[_]) assembleNotarization(votesForCurrentRound map[string]*SignedVoteMessage, digest []byte) error {
 	vote := Vote{
 		Metadata{
 			ProtocolMetadata: ProtocolMetadata{
@@ -585,8 +585,8 @@ func (e *Epoch) assembleNotarization(votesForCurrentRound map[string]*SignedVote
 	return e.persistNotarization(notarization, signatures, signers, vote)
 }
 
-func (e *Epoch) persistNotarization(notarization Notarization, signatures [][]byte, signers []NodeID, vote Vote) error {
-	notarizationMessage := &Message{Notarization: &notarization}
+func (e *Epoch[B]) persistNotarization(notarization Notarization, signatures [][]byte, signers []NodeID, vote Vote) error {
+	notarizationMessage := &Message[B]{Notarization: &notarization}
 	record := quorumRecord(signatures, signers, vote.Bytes(), record.NotarizationRecordType)
 
 	e.WAL.Append(record)
@@ -606,7 +606,7 @@ func (e *Epoch) persistNotarization(notarization Notarization, signatures [][]by
 	return e.doNotarized()
 }
 
-func (e *Epoch) handleNotarizationMessage(message *Message, from NodeID) error {
+func (e *Epoch[B]) handleNotarizationMessage(message *Message[B], from NodeID) error {
 	msg := message.Notarization
 	vote := msg.Vote
 
@@ -678,7 +678,7 @@ func (e *Epoch) handleNotarizationMessage(message *Message, from NodeID) error {
 	return e.persistNotarization(*msg, signatures, signers, vote)
 }
 
-func (e *Epoch) hasSomeNodeSignedTwice(sigSignPairs []*SignatureSignerPair, nodeIDs []NodeID) (bool, error) {
+func (e *Epoch[_]) hasSomeNodeSignedTwice(sigSignPairs []*SignatureSignerPair, nodeIDs []NodeID) (bool, error) {
 	if len(sigSignPairs) > 0 && len(nodeIDs) > 0 {
 		return false, fmt.Errorf("expected either sigSignPairs or nodeIDs to be used but not both")
 	}
@@ -702,12 +702,12 @@ func (e *Epoch) hasSomeNodeSignedTwice(sigSignPairs []*SignatureSignerPair, node
 	return false, nil
 }
 
-func (e *Epoch) handleBlockMessage(message *Message, from NodeID) error {
+func (e *Epoch[B]) handleBlockMessage(message *Message[B], from NodeID) error {
 	block := message.BlockMessage.Block
-	if block == nil {
-		e.Logger.Debug("Got empty block in a BlockMessage")
-		return nil
-	}
+	// if block == nil {
+	// 	e.Logger.Debug("Got empty block in a BlockMessage")
+	// 	return nil
+	// }
 
 	md := block.Metadata()
 
@@ -725,7 +725,7 @@ func (e *Epoch) handleBlockMessage(message *Message, from NodeID) error {
 		e.Logger.Debug("Got block from round too far in the future", zap.Uint64("round", md.Round), zap.Uint64("my round", e.round))
 		msgsForRound, exists := e.futureMessages[string(from)][md.Round]
 		if !exists {
-			msgsForRound = &messagesForRound{}
+			msgsForRound = &messagesForRound[B]{}
 			e.futureMessages[string(from)][md.Round] = msgsForRound
 		}
 		msgsForRound.proposal = message
@@ -759,7 +759,7 @@ func (e *Epoch) handleBlockMessage(message *Message, from NodeID) error {
 	return e.doProposed()
 }
 
-func (e *Epoch) isMetadataValid(block Block) bool {
+func (e *Epoch[B]) isMetadataValid(block B) bool {
 	md := block.Metadata()
 
 	expectedDigest := e.BlockDigester.Digest(block)
@@ -831,42 +831,42 @@ func (e *Epoch) isMetadataValid(block Block) bool {
 // 2) Else, on storage.
 // Compares to the given digest, and if it's the same, returns it.
 // Otherwise, returns false.
-func (e *Epoch) locateBlock(seq uint64, digest []byte) (Block, bool) {
+func (e *Epoch[B]) locateBlock(seq uint64, digest []byte) (B, bool) {
 	// TODO index rounds by digest too to make it quicker
 	round, exists := e.rounds[seq]
 	if exists {
 		if bytes.Equal(round.block.Metadata().Digest, digest) {
 			return round.block, true
 		}
-		return nil, false
+		return zero[B](), false
 	}
 
 	height := e.Storage.Height()
 	// Not in memory, and no block resides in storage.
 	if height == 0 {
-		return nil, false
+		return zero[B](), false
 	}
 
 	// If the given block has a sequence that is higher than the last block we committed to storage,
 	// we don't have the block in our storage.
 	maxSeq := height - 1
 	if maxSeq < seq {
-		return nil, false
+		return zero[B](), false
 	}
 
 	block, _, ok := e.Storage.Retrieve(seq)
 	if !ok {
-		return nil, false
+		return zero[B](), false
 	}
 
 	if bytes.Equal(block.Metadata().Digest, digest) {
 		return block, true
 	}
 
-	return nil, false
+	return zero[B](), false
 }
 
-func (e *Epoch) proposeBlock() {
+func (e *Epoch[B]) proposeBlock() {
 	block, ok := e.BlockBuilder.BuildBlock(e.finishCtx, e.Metadata())
 	if !ok {
 		return
@@ -885,8 +885,8 @@ func (e *Epoch) proposeBlock() {
 		zap.Int("size", len(rawBlock)),
 		zap.Stringer("digest", md.Digest))
 
-	proposal := &Message{
-		BlockMessage: &BlockMessage{
+	proposal := &Message[B]{
+		BlockMessage: &BlockMessage[B]{
 			Block: block,
 		},
 	}
@@ -900,15 +900,15 @@ func (e *Epoch) proposeBlock() {
 	e.handleBlockMessage(proposal, e.ID)
 }
 
-func (e *Epoch) Metadata() ProtocolMetadata {
+func (e *Epoch[_]) Metadata() ProtocolMetadata {
 	var prev []byte
 	seq := e.Storage.Height()
-	if e.lastBlock != nil {
-		// Build on top of the latest block
-		currMed := e.getHighestRound().block.Metadata()
-		prev = currMed.Digest
-		seq = currMed.Seq + 1
-	}
+	// if e.lastBlock != nil {
+	// 	// Build on top of the latest block
+	// 	currMed := e.getHighestRound().block.Metadata()
+	// 	prev = currMed.Digest
+	// 	seq = currMed.Seq + 1
+	// }
 
 	md := ProtocolMetadata{
 		Round:   e.round,
@@ -920,7 +920,7 @@ func (e *Epoch) Metadata() ProtocolMetadata {
 	return md
 }
 
-func (e *Epoch) startRound() error {
+func (e *Epoch[_]) startRound() error {
 	leaderForCurrentRound := leaderForRound(e.nodes, e.round)
 
 	if e.ID.Equals(leaderForCurrentRound) {
@@ -937,7 +937,7 @@ func (e *Epoch) startRound() error {
 	return e.handleBlockMessage(msgsForRound.proposal, leaderForCurrentRound)
 }
 
-func (e *Epoch) doProposed() error {
+func (e *Epoch[B]) doProposed() error {
 	block := e.rounds[e.round].block
 
 	vote := Vote{Metadata: block.Metadata()}
@@ -956,7 +956,7 @@ func (e *Epoch) doProposed() error {
 
 	// We do not write the vote to the WAL as we have written the block itself to the WAL
 	// and we can always restore the block and sign it again if needed.
-	voteMsg := &Message{
+	voteMsg := &Message[B]{
 		VoteMessage: &sv,
 	}
 
@@ -969,12 +969,12 @@ func (e *Epoch) doProposed() error {
 	return e.handleVoteMessage(voteMsg, e.ID)
 }
 
-func (e *Epoch) increaseRound() {
+func (e *Epoch[_]) increaseRound() {
 	e.Logger.Info(fmt.Sprintf("Moving to a new round (%d --> %d", e.round, e.round+1), zap.Uint64("round", e.round+1))
 	e.round++
 }
 
-func (e *Epoch) doNotarized() error {
+func (e *Epoch[B]) doNotarized() error {
 	round := e.rounds[e.round]
 	block := round.block
 
@@ -996,7 +996,7 @@ func (e *Epoch) doNotarized() error {
 		},
 	}
 
-	finalizationMsg := &Message{
+	finalizationMsg := &Message[B]{
 		Finalization: &sf,
 	}
 
@@ -1004,7 +1004,7 @@ func (e *Epoch) doNotarized() error {
 	return e.handleFinalizationMessage(finalizationMsg, e.ID)
 }
 
-func (e *Epoch) storeNotarization(notarization Notarization) error {
+func (e *Epoch[_]) storeNotarization(notarization Notarization) error {
 	round := notarization.Vote.Round
 	r, exists := e.rounds[round]
 	if !exists {
@@ -1015,7 +1015,7 @@ func (e *Epoch) storeNotarization(notarization Notarization) error {
 	return nil
 }
 
-func (e *Epoch) maybeLoadFutureMessages(round uint64) {
+func (e *Epoch[_]) maybeLoadFutureMessages(round uint64) {
 	for from, messagesFromNode := range e.futureMessages {
 		if msgs, exists := messagesFromNode[round]; exists {
 			e.handleVoteMessage(msgs.vote, NodeID(from))
@@ -1029,7 +1029,7 @@ func (e *Epoch) maybeLoadFutureMessages(round uint64) {
 	}
 }
 
-func (e *Epoch) storeProposal(block Block) bool {
+func (e *Epoch[B]) storeProposal(block B) bool {
 	md := block.Metadata()
 
 	// Don't bother processing blocks from the past
@@ -1056,7 +1056,7 @@ func (e *Epoch) storeProposal(block Block) bool {
 	return true
 }
 
-func (e *Epoch) getHighestRound() *Round {
+func (e *Epoch[B]) getHighestRound() *Round[B] {
 	var max uint64
 	for _, round := range e.rounds {
 		if round.num > max {
@@ -1078,10 +1078,14 @@ func quorum(n int) int {
 }
 
 // messagesFromNode maps nodeIds to the messages it sent in a given round.
-type messagesFromNode map[string]map[uint64]*messagesForRound
+type messagesFromNode[B Block] map[string]map[uint64]*messagesForRound[B]
 
-type messagesForRound struct {
-	proposal     *Message
-	vote         *Message
-	finalization *Message
+type messagesForRound[B Block] struct {
+	proposal     *Message[B]
+	vote         *Message[B]
+	finalization *Message[B]
+}
+
+func zero[T any]() (_ T) {
+	return
 }

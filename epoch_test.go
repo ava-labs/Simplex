@@ -25,7 +25,7 @@ func TestEpochSimpleFlow(t *testing.T) {
 	bb := make(testBlockBuilder, 1)
 	storage := newInMemStorage()
 
-	e := &Epoch{
+	e := &Epoch[*testBlock]{
 		BlockDigester: blockDigester{},
 		Logger:        l,
 		ID:            NodeID{1},
@@ -53,8 +53,8 @@ func TestEpochSimpleFlow(t *testing.T) {
 		block := <-bb
 
 		if !shouldPropose {
-			err := e.HandleMessage(&Message{
-				BlockMessage: &BlockMessage{
+			err := e.HandleMessage(&Message[*testBlock]{
+				BlockMessage: &BlockMessage[*testBlock]{
 					Block: block,
 				},
 			}, NodeID{byte(leaderID)})
@@ -67,7 +67,7 @@ func TestEpochSimpleFlow(t *testing.T) {
 		injectFinalization(t, e, block, NodeID{2})
 		injectFinalization(t, e, block, NodeID{3})
 
-		committedData := storage.data[uint64(i)].Block.Bytes()
+		committedData := storage.data[uint64(i)].testBlock.Bytes()
 		require.Equal(t, block.Bytes(), committedData)
 	}
 }
@@ -82,8 +82,8 @@ func makeLogger(t *testing.T, node int) *testLogger {
 	return l
 }
 
-func injectVote(t *testing.T, e *Epoch, block *testBlock, id NodeID) {
-	err := e.HandleMessage(&Message{
+func injectVote(t *testing.T, e *Epoch[*testBlock], block *testBlock, id NodeID) {
+	err := e.HandleMessage(&Message[*testBlock]{
 		VoteMessage: &SignedVoteMessage{
 			Signer: id,
 			Vote: Vote{
@@ -95,10 +95,10 @@ func injectVote(t *testing.T, e *Epoch, block *testBlock, id NodeID) {
 	require.NoError(t, err)
 }
 
-func injectFinalization(t *testing.T, e *Epoch, block *testBlock, id NodeID) {
+func injectFinalization(t *testing.T, e *Epoch[*testBlock], block *testBlock, id NodeID) {
 	md := block.Metadata()
 	md.Digest = (blockDigester{}).Digest(block)
-	err := e.HandleMessage(&Message{
+	err := e.HandleMessage(&Message[*testBlock]{
 		Finalization: &SignedFinalizationMessage{
 			Signer: id,
 			Finalization: Finalization{
@@ -131,7 +131,7 @@ func (t *testSigner) Sign([]byte) ([]byte, error) {
 type testVerifier struct {
 }
 
-func (t *testVerifier) VerifyBlock(Block) error {
+func (t *testVerifier) VerifyBlock(*testBlock) error {
 	return nil
 }
 
@@ -145,17 +145,17 @@ func (n noopComm) ListNodes() []NodeID {
 	return n
 }
 
-func (n noopComm) SendMessage(*Message, NodeID) {
+func (n noopComm) SendMessage(*Message[*testBlock], NodeID) {
 
 }
 
-func (n noopComm) Broadcast(msg *Message) {
+func (n noopComm) Broadcast(msg *Message[*testBlock]) {
 
 }
 
 type testBlockBuilder chan *testBlock
 
-func (t testBlockBuilder) BuildBlock(_ context.Context, metadata ProtocolMetadata) (Block, bool) {
+func (t testBlockBuilder) BuildBlock(_ context.Context, metadata ProtocolMetadata) (*testBlock, bool) {
 	tb := newTestBlock(metadata)
 
 	select {
@@ -222,7 +222,7 @@ func (t testBlock) Bytes() []byte {
 type blockDigester struct {
 }
 
-func (b blockDigester) Digest(block Block) []byte {
+func (b blockDigester) Digest(block *testBlock) []byte {
 	var bb bytes.Buffer
 	bb.Write(block.Bytes())
 	digest := sha256.Sum256(bb.Bytes())
@@ -231,7 +231,7 @@ func (b blockDigester) Digest(block Block) []byte {
 
 type InMemStorage struct {
 	data map[uint64]struct {
-		Block
+		*testBlock
 		FinalizationCertificate
 	}
 
@@ -242,7 +242,7 @@ type InMemStorage struct {
 func newInMemStorage() *InMemStorage {
 	s := &InMemStorage{
 		data: make(map[uint64]struct {
-			Block
+			*testBlock
 			FinalizationCertificate
 		}),
 	}
@@ -269,26 +269,27 @@ func (mem *InMemStorage) Height() uint64 {
 	return uint64(len(mem.data))
 }
 
-func (mem *InMemStorage) Retrieve(seq uint64) (Block, FinalizationCertificate, bool) {
+func (mem *InMemStorage) Retrieve(seq uint64) (*testBlock, FinalizationCertificate, bool) {
 	item, ok := mem.data[seq]
 	if !ok {
 		return nil, FinalizationCertificate{}, false
 	}
-	return item.Block, item.FinalizationCertificate, true
+	return item.testBlock, item.FinalizationCertificate, true
 }
 
-func (mem *InMemStorage) Index(seq uint64, block Block, certificate FinalizationCertificate) {
+func (mem *InMemStorage) Index(seq uint64, block *testBlock, certificate FinalizationCertificate) {
 	mem.lock.Lock()
 	defer mem.lock.Unlock()
-	
+
 	_, ok := mem.data[seq]
 	if ok {
 		panic(fmt.Sprintf("block with seq %d already indexed!", seq))
 	}
 	mem.data[seq] = struct {
-		Block
+		*testBlock
 		FinalizationCertificate
-	}{block,
+	}{
+		block,
 		certificate,
 	}
 

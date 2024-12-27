@@ -43,13 +43,13 @@ func (t *testInstance) start() {
 	go t.handleMessages()
 }
 
-func newSimplexNode(t *testing.T, id uint8, net *inMemNetwork, bb BlockBuilder) *testInstance {
+func newSimplexNode(t *testing.T, id uint8, net *inMemNetwork, bb BlockBuilder[*testBlock]) *testInstance {
 	l := makeLogger(t, int(id))
 	storage := newInMemStorage()
 
 	nodeID := NodeID{id}
 
-	e := &Epoch{
+	e := &Epoch[*testBlock]{
 		Comm: &testComm{
 			from: nodeID,
 			net:  net,
@@ -70,7 +70,7 @@ func newSimplexNode(t *testing.T, id uint8, net *inMemNetwork, bb BlockBuilder) 
 		t:      t,
 		ledger: storage,
 		ingress: make(chan struct {
-			msg  *Message
+			msg  *Message[*testBlock]
 			from NodeID
 		}, 100)}
 
@@ -82,9 +82,9 @@ func newSimplexNode(t *testing.T, id uint8, net *inMemNetwork, bb BlockBuilder) 
 
 type testInstance struct {
 	ledger  *InMemStorage
-	e       *Epoch
+	e       *Epoch[*testBlock]
 	ingress chan struct {
-		msg  *Message
+		msg  *Message[*testBlock]
 		from NodeID
 	}
 	t *testing.T
@@ -109,11 +109,11 @@ func (c *testComm) ListNodes() []NodeID {
 	return c.net.nodes
 }
 
-func (c *testComm) SendMessage(msg *Message, destination NodeID) {
+func (c *testComm) SendMessage(msg *Message[*testBlock], destination NodeID) {
 	for _, instance := range c.net.instances {
 		if bytes.Equal(instance.e.ID, destination) {
 			instance.ingress <- struct {
-				msg  *Message
+				msg  *Message[*testBlock]
 				from NodeID
 			}{msg: msg, from: c.from}
 			return
@@ -121,14 +121,14 @@ func (c *testComm) SendMessage(msg *Message, destination NodeID) {
 	}
 }
 
-func (c *testComm) Broadcast(msg *Message) {
+func (c *testComm) Broadcast(msg *Message[*testBlock]) {
 	for _, instance := range c.net.instances {
 		// Skip sending the message to yourself
 		if bytes.Equal(c.from, instance.e.ID) {
 			continue
 		}
 		instance.ingress <- struct {
-			msg  *Message
+			msg  *Message[*testBlock]
 			from NodeID
 		}{msg: msg, from: c.from}
 	}
@@ -155,7 +155,7 @@ func (t *testControlledBlockBuilder) triggerNewBlock() {
 	t.control <- struct{}{}
 }
 
-func (t *testControlledBlockBuilder) BuildBlock(ctx context.Context, metadata ProtocolMetadata) (Block, bool) {
+func (t *testControlledBlockBuilder) BuildBlock(ctx context.Context, metadata ProtocolMetadata) (*testBlock, bool) {
 	<-t.control
 	return t.testBlockBuilder.BuildBlock(ctx, metadata)
 }
