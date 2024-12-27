@@ -14,7 +14,7 @@ type Message struct {
 }
 
 type Vote struct {
-	Metadata
+	BlockHeader
 }
 
 func (v *Vote) Sign(signer Signer) ([]byte, error) {
@@ -32,7 +32,7 @@ func (v *Vote) Verify(signature []byte, verifier SignatureVerifier, signers ...N
 }
 
 type Finalization struct {
-	Metadata
+	BlockHeader
 }
 
 func (f *Finalization) Sign(signer Signer) ([]byte, error) {

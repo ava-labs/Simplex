@@ -20,7 +20,7 @@ func TestMetadata(t *testing.T) {
 	_, err = rand.Read(digest)
 	require.NoError(t, err)
 
-	md := Metadata{
+	bh := BlockHeader{
 		ProtocolMetadata: ProtocolMetadata{
 			Version: 1,
 			Round:   2,
@@ -31,9 +31,9 @@ func TestMetadata(t *testing.T) {
 		Digest: digest,
 	}
 
-	var md2 Metadata
-	require.NoError(t, md2.FromBytes(md.Bytes()))
-	require.Equal(t, md, md2)
+	var bh2 BlockHeader
+	require.NoError(t, bh2.FromBytes(bh.Bytes()))
+	require.Equal(t, bh, bh2)
 }
 
 func FuzzMetadata(f *testing.F) {
@@ -42,7 +42,7 @@ func FuzzMetadata(f *testing.F) {
 		prev := sha256.Sum256(prevPreimage)
 		digest := sha256.Sum256(digestPreimage)
 
-		md := Metadata{
+		bh := BlockHeader{
 			ProtocolMetadata: ProtocolMetadata{
 				Version: version,
 				Round:   round,
@@ -53,8 +53,8 @@ func FuzzMetadata(f *testing.F) {
 			Digest: digest[:],
 		}
 
-		var md2 Metadata
-		require.NoError(t, md2.FromBytes(md.Bytes()))
-		require.Equal(t, md, md2)
+		var bh2 BlockHeader
+		require.NoError(t, bh2.FromBytes(bh.Bytes()))
+		require.Equal(t, bh, bh2)
 	})
 }

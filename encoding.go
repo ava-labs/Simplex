@@ -80,8 +80,8 @@ func notarizationFromRecord(record []byte) ([][]byte, []NodeID, Vote, error) {
 	return nr.Signatures, signers, vote, nil
 }
 
-func blockRecord(md Metadata, blockData []byte) []byte {
-	mdBytes := md.Bytes()
+func blockRecord(bh BlockHeader, blockData []byte) []byte {
+	mdBytes := bh.Bytes()
 
 	mdSizeBuff := make([]byte, 4)
 	binary.BigEndian.PutUint32(mdSizeBuff, uint32(len(mdBytes)))
@@ -99,10 +99,10 @@ func blockRecord(md Metadata, blockData []byte) []byte {
 	return buff
 }
 
-func blockFromRecord(buff []byte) (Metadata, []byte, error) {
+func blockFromRecord(buff []byte) (BlockHeader, []byte, error) {
 	buff = buff[2:]
 	if len(buff) < 8 {
-		return Metadata{}, nil, errors.New("buffer too small, expected 8 bytes")
+		return BlockHeader{}, nil, errors.New("buffer too small, expected 8 bytes")
 	}
 
 	mdSizeBuff := binary.BigEndian.Uint32(buff)
@@ -113,17 +113,17 @@ func blockFromRecord(buff []byte) (Metadata, []byte, error) {
 	expectedBuffSize := int(mdSizeBuff + blockDataSizeBuff)
 
 	if len(buff) < expectedBuffSize {
-		return Metadata{}, nil, fmt.Errorf("buffer too small, expected %d bytes", expectedBuffSize)
+		return BlockHeader{}, nil, fmt.Errorf("buffer too small, expected %d bytes", expectedBuffSize)
 	}
 
 	mdBuff := buff[:mdSizeBuff]
 
-	var md Metadata
-	if err := md.FromBytes(mdBuff); err != nil {
-		return Metadata{}, nil, fmt.Errorf("failed to deserialize block metadata: %w", err)
+	var bh BlockHeader
+	if err := bh.FromBytes(mdBuff); err != nil {
+		return BlockHeader{}, nil, fmt.Errorf("failed to deserialize block metadata: %w", err)
 	}
 
 	payload := buff[mdSizeBuff:]
 
-	return md, payload, nil
+	return bh, payload, nil
 }

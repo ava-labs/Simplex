@@ -89,8 +89,8 @@ type WriteAheadLog interface {
 }
 
 type Block interface {
-	// Metadata is the consensus specific metadata for the block
-	Metadata() Metadata
+	// BlockHeader encodes a succinct and collision-free representation of a block.
+	BlockHeader() BlockHeader
 
 	// Bytes returns a byte encoding of the block
 	Bytes() []byte

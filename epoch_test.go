@@ -87,7 +87,7 @@ func injectVote(t *testing.T, e *Epoch, block *testBlock, id NodeID) {
 		VoteMessage: &SignedVoteMessage{
 			Signer: id,
 			Vote: Vote{
-				Metadata: block.Metadata(),
+				BlockHeader: block.BlockHeader(),
 			},
 		},
 	}, id)
@@ -96,13 +96,13 @@ func injectVote(t *testing.T, e *Epoch, block *testBlock, id NodeID) {
 }
 
 func injectFinalization(t *testing.T, e *Epoch, block *testBlock, id NodeID) {
-	md := block.Metadata()
+	md := block.BlockHeader()
 	md.Digest = (blockDigester{}).Digest(block)
 	err := e.HandleMessage(&Message{
 		Finalization: &SignedFinalizationMessage{
 			Signer: id,
 			Finalization: Finalization{
-				Metadata: md,
+				BlockHeader: md,
 			},
 		},
 	}, id)
@@ -193,24 +193,24 @@ func newTestBlock(metadata ProtocolMetadata) *testBlock {
 	return &tb
 }
 
-func (t *testBlock) Metadata() Metadata {
-	return Metadata{
+func (t *testBlock) BlockHeader() BlockHeader {
+	return BlockHeader{
 		ProtocolMetadata: t.metadata,
 		Digest:           t.digest,
 	}
 }
 
-func (t testBlock) Bytes() []byte {
-	md := Metadata{
+func (t *testBlock) Bytes() []byte {
+	bh := BlockHeader{
 		ProtocolMetadata: t.metadata,
 		// The only thing an application needs to serialize, is the protocol metadata.
-		// We have an implementation of Bytes() only in Metadata.
+		// We have an implementation of Bytes() only in BlockHeader.
 		// Although it's a hack, we pretend we have a digest in order to be able to persist it.
 		// In a real implementation, it is up to the application to properly serialize the protocol metadata.
 		Digest: make([]byte, 32),
 	}
 
-	mdBuff := md.Bytes()
+	mdBuff := bh.Bytes()
 
 	buff := make([]byte, len(t.data)+len(mdBuff)+4)
 	binary.BigEndian.PutUint32(buff, uint32(len(t.data)))
@@ -300,16 +300,16 @@ type blockDeserializer struct {
 
 func (b *blockDeserializer) DeserializeBlock(buff []byte) (Block, error) {
 	blockLen := binary.BigEndian.Uint32(buff[:4])
-	md := Metadata{}
-	if err := md.FromBytes(buff[4+blockLen:]); err != nil {
+	bh := BlockHeader{}
+	if err := bh.FromBytes(buff[4+blockLen:]); err != nil {
 		return nil, err
 	}
 
-	md.Digest = make([]byte, 32)
+	bh.Digest = make([]byte, 32)
 
 	tb := testBlock{
 		data:     buff[4 : 4+blockLen],
-		metadata: md.ProtocolMetadata,
+		metadata: bh.ProtocolMetadata,
 	}
 
 	var digester blockDigester

@@ -13,7 +13,7 @@ import (
 )
 
 func TestBlockRecord(t *testing.T) {
-	md := Metadata{
+	bh := BlockHeader{
 		ProtocolMetadata: ProtocolMetadata{
 			Version: 1,
 			Round:   2,
@@ -24,20 +24,20 @@ func TestBlockRecord(t *testing.T) {
 		Digest: make([]byte, 32),
 	}
 
-	_, err := rand.Read(md.Prev)
+	_, err := rand.Read(bh.Prev)
 	require.NoError(t, err)
 
-	_, err = rand.Read(md.Digest)
+	_, err = rand.Read(bh.Digest)
 	require.NoError(t, err)
 
 	payload := []byte{11, 12, 13, 14, 15, 16}
 
-	record := blockRecord(md, payload)
+	record := blockRecord(bh, payload)
 
 	md2, payload2, err := blockFromRecord(record)
 	require.NoError(t, err)
 
-	require.Equal(t, md, md2)
+	require.Equal(t, bh, md2)
 	require.Equal(t, payload, payload2)
 }
 
@@ -45,7 +45,7 @@ func FuzzBlockRecord(f *testing.F) {
 	f.Fuzz(func(t *testing.T, version uint8, round, seq, epoch uint64, prevPreimage, digestPreimage []byte, payload []byte) {
 		prev := sha256.Sum256(prevPreimage)
 		digest := sha256.Sum256(digestPreimage)
-		md := Metadata{
+		bh := BlockHeader{
 			ProtocolMetadata: ProtocolMetadata{
 				Version: version,
 				Round:   round,
@@ -56,12 +56,12 @@ func FuzzBlockRecord(f *testing.F) {
 			Digest: digest[:],
 		}
 
-		record := blockRecord(md, payload)
+		record := blockRecord(bh, payload)
 
 		md2, payload2, err := blockFromRecord(record)
 		require.NoError(t, err)
 
-		require.Equal(t, md, md2)
+		require.Equal(t, bh, md2)
 		require.Equal(t, payload, payload2)
 	})
 }
@@ -74,7 +74,7 @@ func TestNotarizationRecord(t *testing.T) {
 	sigs := [][]byte{sig}
 
 	vote := Vote{
-		Metadata{
+		BlockHeader{
 			ProtocolMetadata: ProtocolMetadata{
 				Version: 1,
 				Round:   2,
@@ -115,7 +115,7 @@ func FuzzNotarizationRecord(f *testing.F) {
 		digest := sha256.Sum256(digestPreimage)
 
 		vote := Vote{
-			Metadata{
+			BlockHeader{
 				ProtocolMetadata: ProtocolMetadata{
 					Version: version,
 					Round:   round,

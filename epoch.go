@@ -26,7 +26,7 @@ type Round struct {
 
 func NewRound(block Block) *Round {
 	return &Round{
-		num:           block.Metadata().Round,
+		num:           block.BlockHeader().Round,
 		block:         block,
 		votes:         make(map[string]*SignedVoteMessage),
 		finalizations: make(map[string]*SignedFinalizationMessage),
@@ -473,7 +473,7 @@ func (e *Epoch) persistFinalizationCertificate(fCert FinalizationCertificate) er
 		e.Logger.Info("Committed block",
 			zap.Uint64("round", fCert.Finalization.Round),
 			zap.Uint64("sequence", fCert.Finalization.Seq),
-			zap.Stringer("digest", fCert.Finalization.Metadata.Digest))
+			zap.Stringer("digest", fCert.Finalization.BlockHeader.Digest))
 		e.lastBlock = block
 
 		// If the round we're committing is too far in the past, don't keep it in the rounds cache.
@@ -492,7 +492,7 @@ func (e *Epoch) persistFinalizationCertificate(fCert FinalizationCertificate) er
 		e.Logger.Debug("Persisted finalization certificate to WAL",
 			zap.Int("size", len(recordBytes)),
 			zap.Uint64("round", fCert.Finalization.Round),
-			zap.Stringer("digest", fCert.Finalization.Metadata.Digest))
+			zap.Stringer("digest", fCert.Finalization.BlockHeader.Digest))
 	}
 
 	finalizationCertificate := &Message{FinalizationCertificate: &fCert}
@@ -500,7 +500,7 @@ func (e *Epoch) persistFinalizationCertificate(fCert FinalizationCertificate) er
 
 	e.Logger.Debug("Broadcast finalization certificate",
 		zap.Uint64("round", fCert.Finalization.Round),
-		zap.Stringer("digest", fCert.Finalization.Metadata.Digest))
+		zap.Stringer("digest", fCert.Finalization.BlockHeader.Digest))
 
 	return e.startRound()
 }
@@ -517,7 +517,7 @@ func (e *Epoch) maybeCollectNotarization() error {
 	// TODO: store votes before receiving the block
 
 	block := e.rounds[e.round].block
-	digestWeExpect := block.Metadata().Digest
+	digestWeExpect := block.BlockHeader().Digest
 
 	// Ensure we have enough votes for the same digest
 	var voteCountForOurDigest int
@@ -538,7 +538,7 @@ func (e *Epoch) maybeCollectNotarization() error {
 
 func (e *Epoch) assembleNotarization(votesForCurrentRound map[string]*SignedVoteMessage, digest []byte) error {
 	vote := Vote{
-		Metadata{
+		BlockHeader{
 			ProtocolMetadata: ProtocolMetadata{
 				Epoch: e.Epoch,
 				Round: e.round,
@@ -593,13 +593,13 @@ func (e *Epoch) persistNotarization(notarization Notarization, signatures [][]by
 	e.Logger.Debug("Persisted notarization to WAL",
 		zap.Int("size", len(record)),
 		zap.Uint64("round", notarization.Vote.Round),
-		zap.Stringer("digest", notarization.Vote.Metadata.Digest))
+		zap.Stringer("digest", notarization.Vote.BlockHeader.Digest))
 
 	e.Comm.Broadcast(notarizationMessage)
 
 	e.Logger.Debug("Broadcast notarization",
 		zap.Uint64("round", notarization.Vote.Round),
-		zap.Stringer("digest", notarization.Vote.Metadata.Digest))
+		zap.Stringer("digest", notarization.Vote.BlockHeader.Digest))
 
 	e.rounds[notarization.Vote.Round].notarization = &notarization
 	return e.doNotarized()
@@ -708,7 +708,7 @@ func (e *Epoch) handleBlockMessage(message *Message, from NodeID) error {
 		return nil
 	}
 
-	md := block.Metadata()
+	md := block.BlockHeader()
 
 	// Check that the node is a leader for the round corresponding to the block.
 	if !leaderForRound(e.nodes, md.Round).Equals(from) {
@@ -759,27 +759,27 @@ func (e *Epoch) handleBlockMessage(message *Message, from NodeID) error {
 }
 
 func (e *Epoch) isMetadataValid(block Block) bool {
-	md := block.Metadata()
+	bh := block.BlockHeader()
 
 	expectedDigest := e.BlockDigester.Digest(block)
 
-	if md.Version != 0 {
-		e.Logger.Debug("Got block message with wrong version number, expected 0", zap.Uint8("version", md.Version))
+	if bh.Version != 0 {
+		e.Logger.Debug("Got block message with wrong version number, expected 0", zap.Uint8("version", bh.Version))
 	}
 
-	if e.Epoch != md.Epoch {
+	if e.Epoch != bh.Epoch {
 		e.Logger.Debug("Got block message but the epoch mismatches our epoch",
-			zap.Uint64("our epoch", e.Epoch), zap.Uint64("block epoch", md.Epoch))
+			zap.Uint64("our epoch", e.Epoch), zap.Uint64("block epoch", bh.Epoch))
 	}
 
-	if !bytes.Equal(md.Digest, expectedDigest) {
+	if !bytes.Equal(bh.Digest, expectedDigest) {
 		e.Logger.Debug("Received block with an incorrect digest",
-			zap.Uint64("round", md.Round),
-			zap.Stringer("digest", md.Digest),
+			zap.Uint64("round", bh.Round),
+			zap.Stringer("digest", bh.Digest),
 			zap.String("expected digest", fmt.Sprintf("%x", expectedDigest[:10])))
 	}
 
-	if md.Seq == 0 && e.Storage.Height() > 0 {
+	if bh.Seq == 0 && e.Storage.Height() > 0 {
 		// We have already committed the first block, no need to commit it again.
 		return false
 	}
@@ -790,9 +790,9 @@ func (e *Epoch) isMetadataValid(block Block) bool {
 	// Else, either it's not the first block, or we haven't committed the first block, and it is the first block.
 	// If it's the latter we have nothing else to do.
 	// If it's the former, we need to find the parent of the block and ensure it is correct.
-	if md.Seq > 0 {
+	if bh.Seq > 0 {
 		// TODO: we should cache this data, we don't need the block, just the hash and sequence.
-		_, found := e.locateBlock(md.Seq-1, md.Prev)
+		_, found := e.locateBlock(bh.Seq-1, bh.Prev)
 		if !found {
 			// We could not find the parent block, so no way to verify this proposal.
 			return false
@@ -800,18 +800,18 @@ func (e *Epoch) isMetadataValid(block Block) bool {
 
 		// TODO: we need to take into account dummy blocks!
 
-		expectedSeq = md.Seq
-		expectedPrevDigest = md.Prev
+		expectedSeq = bh.Seq
+		expectedPrevDigest = bh.Prev
 	}
 
-	if md.Seq != expectedSeq {
+	if bh.Seq != expectedSeq {
 		e.Logger.Debug("Received block with an incorrect sequence",
-			zap.Uint64("round", md.Round),
-			zap.Uint64("seq", md.Seq),
+			zap.Uint64("round", bh.Round),
+			zap.Uint64("seq", bh.Seq),
 			zap.Uint64("expected seq", expectedSeq))
 	}
 
-	expectedMD := Metadata{
+	expectedBH := BlockHeader{
 		Digest: expectedDigest,
 		ProtocolMetadata: ProtocolMetadata{
 			Round:   e.round,
@@ -822,7 +822,7 @@ func (e *Epoch) isMetadataValid(block Block) bool {
 		},
 	}
 
-	return expectedMD.Equals(&md)
+	return expectedBH.Equals(&bh)
 }
 
 // locateBlock locates a block:
@@ -834,7 +834,7 @@ func (e *Epoch) locateBlock(seq uint64, digest []byte) (Block, bool) {
 	// TODO index rounds by digest too to make it quicker
 	round, exists := e.rounds[seq]
 	if exists {
-		if bytes.Equal(round.block.Metadata().Digest, digest) {
+		if bytes.Equal(round.block.BlockHeader().Digest, digest) {
 			return round.block, true
 		}
 		return nil, false
@@ -858,7 +858,7 @@ func (e *Epoch) locateBlock(seq uint64, digest []byte) (Block, bool) {
 		return nil, false
 	}
 
-	if bytes.Equal(block.Metadata().Digest, digest) {
+	if bytes.Equal(block.BlockHeader().Digest, digest) {
 		return block, true
 	}
 
@@ -871,13 +871,13 @@ func (e *Epoch) proposeBlock() {
 		return
 	}
 
-	md := block.Metadata()
+	md := block.BlockHeader()
 
 	// Write record to WAL before broadcasting it, so that
 	// if we crash during broadcasting, we know what we sent.
 
 	rawBlock := block.Bytes()
-	record := blockRecord(block.Metadata(), rawBlock)
+	record := blockRecord(block.BlockHeader(), rawBlock)
 	e.WAL.Append(record)
 	e.Logger.Debug("Wrote block to WAL",
 		zap.Uint64("round", md.Round),
@@ -904,7 +904,7 @@ func (e *Epoch) Metadata() ProtocolMetadata {
 	seq := e.Storage.Height()
 	if e.lastBlock != nil {
 		// Build on top of the latest block
-		currMed := e.getHighestRound().block.Metadata()
+		currMed := e.getHighestRound().block.BlockHeader()
 		prev = currMed.Digest
 		seq = currMed.Seq + 1
 	}
@@ -939,7 +939,7 @@ func (e *Epoch) startRound() error {
 func (e *Epoch) doProposed() error {
 	block := e.rounds[e.round].block
 
-	vote := Vote{Metadata: block.Metadata()}
+	vote := Vote{BlockHeader: block.BlockHeader()}
 	sig, err := vote.Sign(e.Signer)
 	if err != nil {
 		return fmt.Errorf("failed signing vote %w", err)
@@ -951,7 +951,7 @@ func (e *Epoch) doProposed() error {
 		Vote:      vote,
 	}
 
-	md := block.Metadata()
+	md := block.BlockHeader()
 
 	// We do not write the vote to the WAL as we have written the block itself to the WAL
 	// and we can always restore the block and sign it again if needed.
@@ -979,9 +979,9 @@ func (e *Epoch) doNotarized() error {
 
 	defer e.increaseRound()
 
-	md := block.Metadata()
+	md := block.BlockHeader()
 
-	f := Finalization{Metadata: md}
+	f := Finalization{BlockHeader: md}
 	signature, err := f.Sign(e.Signer)
 	if err != nil {
 		return fmt.Errorf("failed signing vote %w", err)
@@ -991,7 +991,7 @@ func (e *Epoch) doNotarized() error {
 		Signature: signature,
 		Signer:    e.ID,
 		Finalization: Finalization{
-			Metadata: md,
+			BlockHeader: md,
 		},
 	}
 
@@ -1029,7 +1029,7 @@ func (e *Epoch) maybeLoadFutureMessages(round uint64) {
 }
 
 func (e *Epoch) storeProposal(block Block) bool {
-	md := block.Metadata()
+	md := block.BlockHeader()
 
 	// Don't bother processing blocks from the past
 	if e.round > md.Round {
