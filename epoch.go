@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"math"
 	"simplex/record"
 	"time"
 
@@ -126,7 +125,7 @@ func (e *Epoch) Start() error {
 
 	e.finishCtx, e.finishFn = context.WithCancel(context.Background())
 	e.nodes = e.Comm.ListNodes()
-	e.quorumSize = quorum(len(e.nodes))
+	e.quorumSize = Quorum(len(e.nodes))
 	e.round = e.Round
 	e.rounds = make(map[uint64]*Round)
 	e.maxRoundWindow = defaultMaxRoundWindow
@@ -246,7 +245,7 @@ func (e *Epoch) isAggregateSigFinalizationCertValid(fCert *FinalizationCertifica
 	if e.quorumSize > len(fCert.AggregatedSignedVote.Signers) {
 		e.Logger.Debug("Finalization certificate signed by insufficient nodes",
 			zap.Int("count", len(fCert.SignaturesAndSigners)),
-			zap.Int("quorum", e.quorumSize))
+			zap.Int("Quorum", e.quorumSize))
 		return false, nil
 	}
 	signedTwice, err := e.hasSomeNodeSignedTwice(nil, fCert.AggregatedSignedVote.Signers)
@@ -268,7 +267,7 @@ func (e *Epoch) isMultiSigFinalizationCertValid(fCert *FinalizationCertificate) 
 	if e.quorumSize > len(fCert.SignaturesAndSigners) {
 		e.Logger.Debug("Finalization certificate signed by insufficient nodes",
 			zap.Int("count", len(fCert.SignaturesAndSigners)),
-			zap.Int("quorum", e.quorumSize))
+			zap.Int("Quorum", e.quorumSize))
 		return false, nil
 	}
 	signedTwice, err := e.hasSomeNodeSignedTwice(fCert.SignaturesAndSigners, nil)
@@ -418,7 +417,7 @@ func (e *Epoch) assembleFinalizationCertificate(round *Round) error {
 
 	signers := make([]NodeID, 0, voteCount)
 	signatures := make([][]byte, 0, voteCount)
-	e.Logger.Info("Collected quorum of votes", zap.Uint64("round", e.round), zap.Int("votes", voteCount))
+	e.Logger.Info("Collected Quorum of votes", zap.Uint64("round", e.round), zap.Int("votes", voteCount))
 	for _, vote := range finalizations {
 		// TODO: ensure all finalizations agree on the same metadata!
 		e.Logger.Debug("Collected finalization from node", zap.Stringer("NodeID", vote.Signer))
@@ -552,7 +551,7 @@ func (e *Epoch) assembleNotarization(votesForCurrentRound map[string]*SignedVote
 
 	signers := make([]NodeID, 0, voteCount)
 	signatures := make([][]byte, 0, voteCount)
-	e.Logger.Info("Collected quorum of votes", zap.Uint64("round", e.round), zap.Int("votes", voteCount))
+	e.Logger.Info("Collected Quorum of votes", zap.Uint64("round", e.round), zap.Int("votes", voteCount))
 	for _, vote := range votesForCurrentRound {
 		e.Logger.Debug("Collected vote from node", zap.Stringer("NodeID", vote.Signer))
 		signatures = append(signatures, vote.Signer)
@@ -1071,10 +1070,11 @@ func leaderForRound(nodes []NodeID, r uint64) NodeID {
 	return nodes[r%uint64(n)]
 }
 
-func quorum(n int) int {
+func Quorum(n int) int {
+	f := (n - 1) / 3
 	// Obtained from the equation:
 	// Quorum * 2 = N + F + 1
-	return int(math.Ceil(float64(n+(n-1)/3+1) / 2.0))
+	return (n+f)/2 + 1
 }
 
 // messagesFromNode maps nodeIds to the messages it sent in a given round.

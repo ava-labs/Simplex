@@ -280,7 +280,7 @@ func (mem *InMemStorage) Retrieve(seq uint64) (Block, FinalizationCertificate, b
 func (mem *InMemStorage) Index(seq uint64, block Block, certificate FinalizationCertificate) {
 	mem.lock.Lock()
 	defer mem.lock.Unlock()
-	
+
 	_, ok := mem.data[seq]
 	if ok {
 		panic(fmt.Sprintf("block with seq %d already indexed!", seq))
@@ -324,4 +324,65 @@ func TestBlockDeserializer(t *testing.T) {
 	tb2, err := blockDeserializer.DeserializeBlock(tb.Bytes())
 	require.NoError(t, err)
 	require.Equal(t, tb, tb2)
+}
+
+func TestQuorum(t *testing.T) {
+	for _, testCase := range []struct {
+		n int
+		f int
+		q int
+	}{
+		{
+			n: 1, f: 0,
+			q: 1,
+		},
+		{
+			n: 2, f: 0,
+			q: 2,
+		},
+		{
+			n: 3, f: 0,
+			q: 2,
+		},
+		{
+			n: 4, f: 1,
+			q: 3,
+		},
+		{
+			n: 5, f: 1,
+			q: 4,
+		},
+		{
+			n: 6, f: 1,
+			q: 4,
+		},
+		{
+			n: 7, f: 2,
+			q: 5,
+		},
+		{
+			n: 8, f: 2,
+			q: 6,
+		},
+		{
+			n: 9, f: 2,
+			q: 6,
+		},
+		{
+			n: 10, f: 3,
+			q: 7,
+		},
+		{
+			n: 11, f: 3,
+			q: 8,
+		},
+		{
+			n: 12, f: 3,
+			q: 8,
+		},
+	} {
+		t.Run(fmt.Sprintf("%d", testCase.n), func(t *testing.T) {
+			require.Equal(t, testCase.q, Quorum(testCase.n))
+		})
+	}
 }
