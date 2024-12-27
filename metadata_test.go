@@ -11,13 +11,13 @@ import (
 )
 
 func TestMetadata(t *testing.T) {
-	prev := make([]byte, metadataPrevLen)
-	digest := make([]byte, metadataDigestLen)
+	var prev [metadataPrevLen]byte
+	var digest [metadataDigestLen]byte
 
-	_, err := rand.Read(prev)
+	_, err := rand.Read(prev[:])
 	require.NoError(t, err)
 
-	_, err = rand.Read(digest)
+	_, err = rand.Read(digest[:])
 	require.NoError(t, err)
 
 	bh := BlockHeader{
@@ -48,9 +48,9 @@ func FuzzMetadata(f *testing.F) {
 				Round:   round,
 				Seq:     seq,
 				Epoch:   epoch,
-				Prev:    prev[:],
+				Prev:    prev,
 			},
-			Digest: digest[:],
+			Digest: digest,
 		}
 
 		var bh2 BlockHeader

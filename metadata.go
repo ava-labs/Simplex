@@ -37,7 +37,7 @@ type ProtocolMetadata struct {
 	// Cannot correspond to an empty block.
 	Seq uint64
 	// Prev returns the digest of the previous data block
-	Prev []byte
+	Prev [metadataPrevLen]byte
 }
 
 // BlockHeader encodes a succinct and collision-free representation of a block.
@@ -49,15 +49,15 @@ type BlockHeader struct {
 	Digest Digest
 }
 
-type Digest []byte
+type Digest [metadataDigestLen]byte
 
 func (d Digest) String() string {
-	return fmt.Sprintf("%x", []byte(d)[:digestFormatSize])
+	return fmt.Sprintf("%x...", (d)[:digestFormatSize])
 }
 
 func (bh *BlockHeader) Equals(other *BlockHeader) bool {
-	return bytes.Equal(bh.Digest, other.Digest) &&
-		bytes.Equal(bh.Prev, other.Prev) && bh.Epoch == other.Epoch &&
+	return bytes.Equal(bh.Digest[:], other.Digest[:]) &&
+		bytes.Equal(bh.Prev[:], other.Prev[:]) && bh.Epoch == other.Epoch &&
 		bh.Round == other.Round && bh.Seq == other.Seq && bh.Version == other.Version
 }
 
@@ -73,17 +73,13 @@ func (bh *BlockHeader) Bytes() []byte {
 		panic(fmt.Sprintf("digest is %d bytes, expected %d", len(bh.Prev), metadataPrevLen))
 	}
 
-	if len(bh.Prev) == 0 {
-		bh.Prev = make([]byte, metadataPrevLen)
-	}
-
 	buff := make([]byte, metadataLen)
 	var pos int
 
 	buff[pos] = bh.Version
 	pos++
 
-	copy(buff[pos:], bh.Digest)
+	copy(buff[pos:], bh.Digest[:])
 	pos += metadataDigestLen
 
 	binary.BigEndian.PutUint64(buff[pos:], bh.Epoch)
@@ -95,7 +91,7 @@ func (bh *BlockHeader) Bytes() []byte {
 	binary.BigEndian.PutUint64(buff[pos:], bh.Seq)
 	pos += metadataSeqLen
 
-	copy(buff[pos:], bh.Prev)
+	copy(buff[pos:], bh.Prev[:])
 
 	return buff
 }
@@ -110,7 +106,7 @@ func (bh *BlockHeader) FromBytes(buff []byte) error {
 	bh.Version = buff[pos]
 	pos++
 
-	bh.Digest = buff[pos : pos+metadataDigestLen]
+	copy(bh.Digest[:], buff[pos:pos+metadataDigestLen])
 	pos += metadataDigestLen
 
 	bh.Epoch = binary.BigEndian.Uint64(buff[pos:])
@@ -122,7 +118,7 @@ func (bh *BlockHeader) FromBytes(buff []byte) error {
 	bh.Seq = binary.BigEndian.Uint64(buff[pos:])
 	pos += metadataSeqLen
 
-	bh.Prev = buff[pos : pos+metadataPrevLen]
+	copy(bh.Prev[:], buff[pos:pos+metadataPrevLen])
 
 	return nil
 }

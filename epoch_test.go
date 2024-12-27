@@ -173,7 +173,7 @@ func (t testBlockBuilder) IncomingBlock(ctx context.Context) {
 type testBlock struct {
 	data     []byte
 	metadata ProtocolMetadata
-	digest   []byte
+	digest   [32]byte
 }
 
 func newTestBlock(metadata ProtocolMetadata) *testBlock {
@@ -203,11 +203,6 @@ func (t *testBlock) BlockHeader() BlockHeader {
 func (t *testBlock) Bytes() []byte {
 	bh := BlockHeader{
 		ProtocolMetadata: t.metadata,
-		// The only thing an application needs to serialize, is the protocol metadata.
-		// We have an implementation of Bytes() only in BlockHeader.
-		// Although it's a hack, we pretend we have a digest in order to be able to persist it.
-		// In a real implementation, it is up to the application to properly serialize the protocol metadata.
-		Digest: make([]byte, 32),
 	}
 
 	mdBuff := bh.Bytes()
@@ -222,11 +217,11 @@ func (t *testBlock) Bytes() []byte {
 type blockDigester struct {
 }
 
-func (b blockDigester) Digest(block Block) []byte {
+func (b blockDigester) Digest(block Block) [32]byte {
 	var bb bytes.Buffer
 	bb.Write(block.Bytes())
 	digest := sha256.Sum256(bb.Bytes())
-	return digest[:]
+	return digest
 }
 
 type InMemStorage struct {
@@ -305,8 +300,6 @@ func (b *blockDeserializer) DeserializeBlock(buff []byte) (Block, error) {
 		return nil, err
 	}
 
-	bh.Digest = make([]byte, 32)
-
 	tb := testBlock{
 		data:     buff[4 : 4+blockLen],
 		metadata: bh.ProtocolMetadata,
@@ -320,7 +313,7 @@ func (b *blockDeserializer) DeserializeBlock(buff []byte) (Block, error) {
 func TestBlockDeserializer(t *testing.T) {
 	var blockDeserializer blockDeserializer
 
-	tb := newTestBlock(ProtocolMetadata{Seq: 1, Round: 2, Epoch: 3, Prev: make([]byte, 32)})
+	tb := newTestBlock(ProtocolMetadata{Seq: 1, Round: 2, Epoch: 3})
 	tb2, err := blockDeserializer.DeserializeBlock(tb.Bytes())
 	require.NoError(t, err)
 	require.Equal(t, tb, tb2)

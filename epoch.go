@@ -522,7 +522,7 @@ func (e *Epoch) maybeCollectNotarization() error {
 	// Ensure we have enough votes for the same digest
 	var voteCountForOurDigest int
 	for _, vote := range votesForCurrentRound {
-		if bytes.Equal(digestWeExpect, vote.Vote.Digest) {
+		if bytes.Equal(digestWeExpect[:], vote.Vote.Digest[:]) {
 			voteCountForOurDigest++
 		}
 	}
@@ -536,7 +536,7 @@ func (e *Epoch) maybeCollectNotarization() error {
 	return e.assembleNotarization(votesForCurrentRound, digestWeExpect)
 }
 
-func (e *Epoch) assembleNotarization(votesForCurrentRound map[string]*SignedVoteMessage, digest []byte) error {
+func (e *Epoch) assembleNotarization(votesForCurrentRound map[string]*SignedVoteMessage, digest [metadataDigestLen]byte) error {
 	vote := Vote{
 		BlockHeader{
 			ProtocolMetadata: ProtocolMetadata{
@@ -772,7 +772,7 @@ func (e *Epoch) isMetadataValid(block Block) bool {
 			zap.Uint64("our epoch", e.Epoch), zap.Uint64("block epoch", bh.Epoch))
 	}
 
-	if !bytes.Equal(bh.Digest, expectedDigest) {
+	if !bytes.Equal(bh.Digest[:], expectedDigest[:]) {
 		e.Logger.Debug("Received block with an incorrect digest",
 			zap.Uint64("round", bh.Round),
 			zap.Stringer("digest", bh.Digest),
@@ -785,14 +785,14 @@ func (e *Epoch) isMetadataValid(block Block) bool {
 	}
 
 	var expectedSeq uint64
-	var expectedPrevDigest []byte
+	var expectedPrevDigest [metadataDigestLen]byte
 
 	// Else, either it's not the first block, or we haven't committed the first block, and it is the first block.
 	// If it's the latter we have nothing else to do.
 	// If it's the former, we need to find the parent of the block and ensure it is correct.
 	if bh.Seq > 0 {
 		// TODO: we should cache this data, we don't need the block, just the hash and sequence.
-		_, found := e.locateBlock(bh.Seq-1, bh.Prev)
+		_, found := e.locateBlock(bh.Seq-1, bh.Prev[:])
 		if !found {
 			// We could not find the parent block, so no way to verify this proposal.
 			return false
@@ -834,7 +834,8 @@ func (e *Epoch) locateBlock(seq uint64, digest []byte) (Block, bool) {
 	// TODO index rounds by digest too to make it quicker
 	round, exists := e.rounds[seq]
 	if exists {
-		if bytes.Equal(round.block.BlockHeader().Digest, digest) {
+		dig := round.block.BlockHeader().Digest
+		if bytes.Equal(dig[:], digest) {
 			return round.block, true
 		}
 		return nil, false
@@ -858,7 +859,8 @@ func (e *Epoch) locateBlock(seq uint64, digest []byte) (Block, bool) {
 		return nil, false
 	}
 
-	if bytes.Equal(block.BlockHeader().Digest, digest) {
+	dig := block.BlockHeader().Digest
+	if bytes.Equal(dig[:], digest) {
 		return block, true
 	}
 
@@ -900,7 +902,7 @@ func (e *Epoch) proposeBlock() {
 }
 
 func (e *Epoch) Metadata() ProtocolMetadata {
-	var prev []byte
+	var prev [metadataDigestLen]byte
 	seq := e.Storage.Height()
 	if e.lastBlock != nil {
 		// Build on top of the latest block

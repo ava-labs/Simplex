@@ -19,15 +19,13 @@ func TestBlockRecord(t *testing.T) {
 			Round:   2,
 			Seq:     3,
 			Epoch:   4,
-			Prev:    make([]byte, 32),
 		},
-		Digest: make([]byte, 32),
 	}
 
-	_, err := rand.Read(bh.Prev)
+	_, err := rand.Read(bh.Prev[:])
 	require.NoError(t, err)
 
-	_, err = rand.Read(bh.Digest)
+	_, err = rand.Read(bh.Digest[:])
 	require.NoError(t, err)
 
 	payload := []byte{11, 12, 13, 14, 15, 16}
@@ -51,9 +49,9 @@ func FuzzBlockRecord(f *testing.F) {
 				Round:   round,
 				Seq:     seq,
 				Epoch:   epoch,
-				Prev:    prev[:],
+				Prev:    prev,
 			},
-			Digest: digest[:],
+			Digest: digest,
 		}
 
 		record := blockRecord(bh, payload)
@@ -80,16 +78,14 @@ func TestNotarizationRecord(t *testing.T) {
 				Round:   2,
 				Seq:     3,
 				Epoch:   4,
-				Prev:    make([]byte, 32),
 			},
-			Digest: make([]byte, 32),
 		},
 	}
 
-	_, err = rand.Read(vote.Prev)
+	_, err = rand.Read(vote.Prev[:])
 	require.NoError(t, err)
 
-	_, err = rand.Read(vote.Prev)
+	_, err = rand.Read(vote.Prev[:])
 	require.NoError(t, err)
 
 	var signers []NodeID
@@ -121,9 +117,9 @@ func FuzzNotarizationRecord(f *testing.F) {
 					Round:   round,
 					Seq:     seq,
 					Epoch:   epoch,
-					Prev:    prev[:],
+					Prev:    prev,
 				},
-				Digest: digest[:],
+				Digest: digest,
 			},
 		}
 

@@ -34,7 +34,7 @@ type Logger interface {
 }
 
 type BlockDigester interface {
-	Digest(block Block) []byte
+	Digest(block Block) [metadataDigestLen]byte
 }
 
 type BlockBuilder interface {
