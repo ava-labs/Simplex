@@ -272,9 +272,11 @@ func (mem *InMemStorage) Retrieve(seq uint64) (Block, FinalizationCertificate, b
 	return item.Block, item.FinalizationCertificate, true
 }
 
-func (mem *InMemStorage) Index(seq uint64, block Block, certificate FinalizationCertificate) {
+func (mem *InMemStorage) Index(block Block, certificate FinalizationCertificate) {
 	mem.lock.Lock()
 	defer mem.lock.Unlock()
+
+	seq := block.BlockHeader().Seq
 
 	_, ok := mem.data[seq]
 	if ok {

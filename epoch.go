@@ -469,7 +469,7 @@ func (e *Epoch) persistFinalizationCertificate(fCert FinalizationCertificate) er
 	nextSeqToCommit := e.Storage.Height()
 	if fCert.Finalization.Seq == nextSeqToCommit {
 		block := e.rounds[fCert.Finalization.Round].block
-		e.Storage.Index(fCert.Finalization.Seq, block, fCert)
+		e.Storage.Index(block, fCert)
 		e.Logger.Info("Committed block",
 			zap.Uint64("round", fCert.Finalization.Round),
 			zap.Uint64("sequence", fCert.Finalization.Seq),
