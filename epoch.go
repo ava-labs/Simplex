@@ -83,36 +83,20 @@ func (e *Epoch) HandleMessage(msg *Message, from NodeID) error {
 		return nil
 	}
 
-	if msg.BlockMessage != nil {
+	switch {
+	case msg.BlockMessage != nil:
 		return e.handleBlockMessage(msg, from)
-	}
-
-	if msg.VoteMessage != nil {
+	case msg.VoteMessage != nil:
 		return e.handleVoteMessage(msg, from)
+	case msg.Notarization != nil:
+		return e.handleNotarizationMessage(msg, from)
+	case msg.Finalization != nil:
+		return e.handleFinalizationMessage(msg, from)
+	case msg.FinalizationCertificate != nil:
+		return e.handleFinalizationCertificateMessage(msg, from)
+	default:
+		return fmt.Errorf("invalid message type: %v", msg)
 	}
-
-	if msg.Notarization != nil {
-		err := e.handleNotarizationMessage(msg, from)
-		if err != nil {
-			return err
-		}
-	}
-
-	if msg.Finalization != nil {
-		err := e.handleFinalizationMessage(msg, from)
-		if err != nil {
-			return err
-		}
-	}
-
-	if msg.FinalizationCertificate != nil {
-		err := e.handleFinalizationCertificateMessage(msg, from)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
 }
 
 func (e *Epoch) Start() error {
