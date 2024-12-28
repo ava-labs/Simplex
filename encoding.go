@@ -12,40 +12,29 @@ import (
 )
 
 type QuorumRecord struct {
-	Signatures [][]byte
-	Signers    [][]byte
-	Vote       []byte
+	QC   []byte
+	Vote []byte
 }
 
-func finalizationFromRecord(payload []byte) ([][]byte, []NodeID, Finalization, error) {
+func finalizationFromRecord(payload []byte) ([]byte, Finalization, error) {
 	var nr QuorumRecord
 	_, err := asn1.Unmarshal(payload, &nr)
 	if err != nil {
-		return nil, nil, Finalization{}, err
-	}
-
-	signers := make([]NodeID, 0, len(nr.Signers))
-	for _, signer := range nr.Signers {
-		signers = append(signers, signer)
+		return nil, Finalization{}, err
 	}
 
 	var finalization Finalization
 	if err := finalization.FromBytes(nr.Vote); err != nil {
-		return nil, nil, Finalization{}, err
+		return nil, Finalization{}, err
 	}
 
-	return nr.Signatures, signers, finalization, nil
+	return nr.QC, finalization, nil
 }
 
-func quorumRecord(signatures [][]byte, signers []NodeID, rawVote []byte, recordType uint16) []byte {
+func quorumRecord(qc []byte, rawVote []byte, recordType uint16) []byte {
 	var qr QuorumRecord
-	qr.Signatures = signatures
+	qr.QC = qc
 	qr.Vote = rawVote
-
-	qr.Signers = make([][]byte, 0, len(signers))
-	for _, signer := range signers {
-		qr.Signers = append(qr.Signers, signer)
-	}
 
 	payload, err := asn1.Marshal(qr)
 	if err != nil {
@@ -59,25 +48,20 @@ func quorumRecord(signatures [][]byte, signers []NodeID, rawVote []byte, recordT
 	return buff
 }
 
-func notarizationFromRecord(record []byte) ([][]byte, []NodeID, Vote, error) {
+func notarizationFromRecord(record []byte) ([]byte, Vote, error) {
 	record = record[2:]
 	var nr QuorumRecord
 	_, err := asn1.Unmarshal(record, &nr)
 	if err != nil {
-		return nil, nil, Vote{}, err
-	}
-
-	signers := make([]NodeID, 0, len(nr.Signers))
-	for _, signer := range nr.Signers {
-		signers = append(signers, signer)
+		return nil, Vote{}, err
 	}
 
 	var vote Vote
 	if err := vote.FromBytes(nr.Vote); err != nil {
-		return nil, nil, Vote{}, err
+		return nil, Vote{}, err
 	}
 
-	return nr.Signatures, signers, vote, nil
+	return nr.QC, vote, nil
 }
 
 func blockRecord(bh BlockHeader, blockData []byte) []byte {

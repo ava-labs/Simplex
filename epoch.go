@@ -34,6 +34,7 @@ func NewRound(block Block) *Round {
 }
 
 type EpochConfig struct {
+	QCDeserializer      QCDeserializer
 	Logger              Logger
 	ID                  NodeID
 	Signer              Signer
@@ -214,70 +215,41 @@ func (e *Epoch) handleFinalizationCertificateMessage(message *Message, from Node
 }
 
 func (e *Epoch) isFinalizationCertificateValid(fCert *FinalizationCertificate) (bool, error) {
-	if fCert.AggregatedSignedVote != nil {
-		valid, err := e.isAggregateSigFinalizationCertValid(fCert)
-		if err != nil {
-			return false, err
-		}
-		if !valid {
-			return false, nil
-		}
-	} else if len(fCert.SignaturesAndSigners) == 0 {
-		valid, err := e.isMultiSigFinalizationCertValid(fCert)
-		if err != nil {
-			return false, err
-		}
-		if !valid {
-			return false, nil
-		}
+	valid, err := e.validateFinalizationQC(fCert)
+	if err != nil {
+		return false, err
+	}
+	if !valid {
+		return false, nil
 	}
 
 	e.Logger.Debug("Received finalization without any signatures in it")
 	return false, nil
 }
 
-func (e *Epoch) isAggregateSigFinalizationCertValid(fCert *FinalizationCertificate) (bool, error) {
+func (e *Epoch) validateFinalizationQC(fCert *FinalizationCertificate) (bool, error) {
+	if fCert.QC == nil {
+		return false, nil
+	}
+
 	// Check enough signers signed the finalization certificate
-	if e.quorumSize > len(fCert.AggregatedSignedVote.Signers) {
+	if e.quorumSize > len(fCert.QC.Signers()) {
 		e.Logger.Debug("Finalization certificate signed by insufficient nodes",
-			zap.Int("count", len(fCert.SignaturesAndSigners)),
+			zap.Int("count", len(fCert.QC.Signers())),
 			zap.Int("Quorum", e.quorumSize))
 		return false, nil
 	}
-	signedTwice, err := e.hasSomeNodeSignedTwice(nil, fCert.AggregatedSignedVote.Signers)
-	if err != nil {
-		return false, err
-	}
+
+	signedTwice := e.hasSomeNodeSignedTwice(fCert.QC.Signers())
+
 	if signedTwice {
 		return false, nil
 	}
 
-	if !e.isFinalizationValid(fCert.AggregatedSignedVote.Signature, fCert.Finalization, fCert.AggregatedSignedVote.Signers...) {
+	if err := fCert.Verify(); err != nil {
 		return false, nil
 	}
-	return true, nil
-}
 
-func (e *Epoch) isMultiSigFinalizationCertValid(fCert *FinalizationCertificate) (bool, error) {
-	// Check enough signers signed the finalization certificate
-	if e.quorumSize > len(fCert.SignaturesAndSigners) {
-		e.Logger.Debug("Finalization certificate signed by insufficient nodes",
-			zap.Int("count", len(fCert.SignaturesAndSigners)),
-			zap.Int("Quorum", e.quorumSize))
-		return false, nil
-	}
-	signedTwice, err := e.hasSomeNodeSignedTwice(fCert.SignaturesAndSigners, nil)
-	if err != nil {
-		return false, err
-	}
-	if signedTwice {
-		return false, nil
-	}
-	for _, sig := range fCert.SignaturesAndSigners {
-		if e.isFinalizationValid(sig.Signature, fCert.Finalization, sig.Signer) {
-			return false, nil
-		}
-	}
 	return true, nil
 }
 
@@ -286,8 +258,8 @@ func (e *Epoch) handleFinalizationMessage(message *Message, from NodeID) error {
 	finalization := msg.Finalization
 
 	// Only process a point to point finalization
-	if !from.Equals(msg.Signer) {
-		e.Logger.Debug("Received a finalization signed by a different party than sent it", zap.Stringer("signer", msg.Signer), zap.Stringer("sender", from))
+	if !from.Equals(msg.Signature.Signer) {
+		e.Logger.Debug("Received a finalization signed by a different party than sent it", zap.Stringer("signer", msg.Signature.Signer), zap.Stringer("sender", from))
 		return nil
 	}
 
@@ -303,7 +275,7 @@ func (e *Epoch) handleFinalizationMessage(message *Message, from NodeID) error {
 		return nil
 	}
 
-	if !e.isFinalizationValid(msg.Signature, finalization, from) {
+	if !e.isFinalizationValid(msg.Signature.Value, finalization, from) {
 		return nil
 	}
 
@@ -317,8 +289,8 @@ func (e *Epoch) handleVoteMessage(message *Message, from NodeID) error {
 	vote := msg.Vote
 
 	// Only process point to point votes
-	if !from.Equals(msg.Signer) {
-		e.Logger.Debug("Received a vote signed by a different party than sent it", zap.Stringer("signer", msg.Signer), zap.Stringer("sender", from))
+	if !from.Equals(msg.Signature.Signer) {
+		e.Logger.Debug("Received a vote signed by a different party than sent it", zap.Stringer("signer", msg.Signature.Signer), zap.Stringer("sender", from))
 		return nil
 	}
 
@@ -334,7 +306,12 @@ func (e *Epoch) handleVoteMessage(message *Message, from NodeID) error {
 		return nil
 	}
 
-	if !e.isVoteValid(msg.Signature, vote, from) {
+	if !e.isVoteValid(vote) {
+		return nil
+	}
+
+	if err := vote.Verify(msg.Signature.Value, e.Verifier, from); err != nil {
+		e.Logger.Debug("Vote verification failed", zap.Stringer("NodeID", msg.Signature.Signer), zap.Error(err))
 		return nil
 	}
 
@@ -343,18 +320,15 @@ func (e *Epoch) handleVoteMessage(message *Message, from NodeID) error {
 	return e.maybeCollectNotarization()
 }
 
-func (e *Epoch) isFinalizationValid(signature []byte, finalization Finalization, from ...NodeID) bool {
-	// First before verifying the signature, check the sequence and digest match what we think it should,
-	// according to the notarized chain of blocks.
-
-	if err := finalization.Verify(signature, e.Verifier, from...); err != nil {
+func (e *Epoch) isFinalizationValid(signature []byte, finalization Finalization, from NodeID) bool {
+	if err := finalization.Verify(signature, e.Verifier, from); err != nil {
 		e.Logger.Debug("Received a finalization with an invalid signature", zap.Uint64("round", finalization.Round), zap.Error(err))
 		return false
 	}
 	return true
 }
 
-func (e *Epoch) isVoteValid(signature []byte, vote Vote, from ...NodeID) bool {
+func (e *Epoch) isVoteValid(vote Vote) bool {
 	// Ignore votes for previous rounds
 	if vote.Round < e.round {
 		return false
@@ -367,9 +341,6 @@ func (e *Epoch) isVoteValid(signature []byte, vote Vote, from ...NodeID) bool {
 		return false
 	}
 
-	if err := vote.Verify(signature, e.Verifier, from...); err != nil {
-		return false
-	}
 	return true
 }
 
@@ -411,32 +382,20 @@ func (e *Epoch) assembleFinalizationCertificate(round *Round) error {
 
 	voteCount := len(finalizations)
 
-	signers := make([]NodeID, 0, voteCount)
-	signatures := make([][]byte, 0, voteCount)
+	signatures := make([]Signature, 0, voteCount)
 	e.Logger.Info("Collected Quorum of votes", zap.Uint64("round", e.round), zap.Int("votes", voteCount))
 	for _, vote := range finalizations {
 		// TODO: ensure all finalizations agree on the same metadata!
-		e.Logger.Debug("Collected finalization from node", zap.Stringer("NodeID", vote.Signer))
-		signatures = append(signatures, vote.Signer)
-		signers = append(signers, vote.Signer)
+		e.Logger.Debug("Collected finalization from node", zap.Stringer("NodeID", vote.Signature.Signer))
+		signatures = append(signatures, vote.Signature)
 	}
 
 	var fCert FinalizationCertificate
+	var err error
 	fCert.Finalization = finalization.Finalization
-
-	if e.SignatureAggregator != nil {
-		signatures = [][]byte{e.SignatureAggregator.Aggregate(signatures)}
-		fCert.AggregatedSignedVote = &AggregatedSignedVote{
-			Signers:   signers,
-			Signature: signatures[0],
-		}
-	} else {
-		for _, v := range finalizations {
-			fCert.SignaturesAndSigners = append(fCert.SignaturesAndSigners, &SignatureSignerPair{
-				Signature: v.Signature,
-				Signer:    v.Signer,
-			})
-		}
+	fCert.QC, err = e.SignatureAggregator.Aggregate(signatures)
+	if err != nil {
+		return fmt.Errorf("could not aggregate signatures for finalization certificate: %w", err)
 	}
 
 	round.fCert = &fCert
@@ -445,21 +404,6 @@ func (e *Epoch) assembleFinalizationCertificate(round *Round) error {
 }
 
 func (e *Epoch) persistFinalizationCertificate(fCert FinalizationCertificate) error {
-	signatures := make([][]byte, 0, e.quorumSize)
-	signers := make([]NodeID, 0, e.quorumSize)
-
-	if fCert.AggregatedSignedVote != nil {
-		signatures = [][]byte{fCert.AggregatedSignedVote.Signature}
-		for _, signer := range fCert.AggregatedSignedVote.Signers {
-			signers = append(signers, signer)
-		}
-	} else if len(fCert.SignaturesAndSigners) > 0 {
-		for _, sig := range fCert.SignaturesAndSigners {
-			signers = append(signers, sig.Signer)
-			signatures = append(signatures, sig.Signature)
-		}
-	}
-
 	// Check to see if we should commit this finalization to the storage as part of a block commit,
 	// or otherwise write it to the WAL in order to commit it later.
 	nextSeqToCommit := e.Storage.Height()
@@ -482,7 +426,7 @@ func (e *Epoch) persistFinalizationCertificate(fCert FinalizationCertificate) er
 			delete(messagesFromNode, fCert.Finalization.Round)
 		}
 	} else {
-		recordBytes := quorumRecord(signatures, signers, fCert.Finalization.Bytes(), record.FinalizationRecordType)
+		recordBytes := quorumRecord(fCert.QC.Bytes(), fCert.Finalization.Bytes(), record.FinalizationRecordType)
 		e.WAL.Append(recordBytes)
 
 		e.Logger.Debug("Persisted finalization certificate to WAL",
@@ -545,44 +489,32 @@ func (e *Epoch) assembleNotarization(votesForCurrentRound map[string]*SignedVote
 
 	voteCount := len(votesForCurrentRound)
 
-	signers := make([]NodeID, 0, voteCount)
-	signatures := make([][]byte, 0, voteCount)
+	signatures := make([]Signature, 0, voteCount)
 	e.Logger.Info("Collected Quorum of votes", zap.Uint64("round", e.round), zap.Int("votes", voteCount))
 	for _, vote := range votesForCurrentRound {
-		e.Logger.Debug("Collected vote from node", zap.Stringer("NodeID", vote.Signer))
-		signatures = append(signatures, vote.Signer)
-		signers = append(signers, vote.Signer)
+		e.Logger.Debug("Collected vote from node", zap.Stringer("NodeID", vote.Signature.Signer))
+		signatures = append(signatures, vote.Signature)
 	}
 
 	var notarization Notarization
+	var err error
 	notarization.Vote = vote
-
-	if e.SignatureAggregator != nil {
-		signatures = [][]byte{e.SignatureAggregator.Aggregate(signatures)}
-		notarization.AggregatedSignedVote = &AggregatedSignedVote{
-			Signers:   signers,
-			Signature: signatures[0],
-		}
-	} else {
-		for _, v := range votesForCurrentRound {
-			notarization.SignaturesAndSigners = append(notarization.SignaturesAndSigners, &SignatureSignerPair{
-				Signature: v.Signature,
-				Signer:    v.Signer,
-			})
-		}
+	notarization.QC, err = e.SignatureAggregator.Aggregate(signatures)
+	if err != nil {
+		return fmt.Errorf("could not aggregate signatures for notarization: %w", err)
 	}
 
-	err := e.storeNotarization(notarization)
+	err = e.storeNotarization(notarization)
 	if err != nil {
 		return err
 	}
 
-	return e.persistNotarization(notarization, signatures, signers, vote)
+	return e.persistNotarization(notarization, vote)
 }
 
-func (e *Epoch) persistNotarization(notarization Notarization, signatures [][]byte, signers []NodeID, vote Vote) error {
+func (e *Epoch) persistNotarization(notarization Notarization, vote Vote) error {
 	notarizationMessage := &Message{Notarization: &notarization}
-	record := quorumRecord(signatures, signers, vote.Bytes(), record.NotarizationRecordType)
+	record := quorumRecord(notarization.QC.Bytes(), vote.Bytes(), record.NotarizationRecordType)
 
 	e.WAL.Append(record)
 
@@ -633,68 +565,33 @@ func (e *Epoch) handleNotarizationMessage(message *Message, from NodeID) error {
 		return nil
 	}
 
-	signatures := make([][]byte, 0, e.quorumSize)
-	signers := make([]NodeID, 0, e.quorumSize)
-
-	if msg.AggregatedSignedVote != nil {
-		if !e.isVoteValid(msg.AggregatedSignedVote.Signature, vote, msg.AggregatedSignedVote.Signers...) {
-			e.Logger.Debug("Notarization contains invalid vote",
-				zap.String("NodeIDs", fmt.Sprintf("%s", msg.AggregatedSignedVote.Signers)),
-				zap.Stringer("NodeID", from))
-			return nil
-		}
-		signatures = [][]byte{msg.AggregatedSignedVote.Signature}
-		signers = msg.AggregatedSignedVote.Signers
-	} else if len(msg.SignaturesAndSigners) >= e.quorumSize {
-		// Deduplicate the signed votes - make sure that each node signed only once.
-		signedTwice, err := e.hasSomeNodeSignedTwice(msg.SignaturesAndSigners, nil)
-		if err != nil {
-			return err
-		}
-		if signedTwice {
-			return nil
-		}
-		for _, ssp := range msg.SignaturesAndSigners {
-			if !e.isVoteValid(ssp.Signature, vote, ssp.Signer) {
-				e.Logger.Debug("Notarization contains invalid vote",
-					zap.Stringer("NodeID", ssp.Signer),
-					zap.Stringer("NodeID", from))
-				return nil
-			}
-			signers = append(signers, ssp.Signer)
-			signatures = append(signatures, ssp.Signature)
-		}
-	} else {
-		e.Logger.Debug("Got message that is neither an aggregated signed vote nor contains enough votes",
+	if !e.isVoteValid(vote) {
+		e.Logger.Debug("Notarization contains invalid vote",
 			zap.Stringer("NodeID", from))
 		return nil
 	}
 
-	return e.persistNotarization(*msg, signatures, signers, vote)
+	if err := msg.Verify(); err != nil {
+		e.Logger.Debug("Notarization quorum certificate is invalid",
+			zap.Stringer("NodeID", from), zap.Error(err))
+		return nil
+	}
+
+	return e.persistNotarization(*msg, vote)
 }
 
-func (e *Epoch) hasSomeNodeSignedTwice(sigSignPairs []*SignatureSignerPair, nodeIDs []NodeID) (bool, error) {
-	if len(sigSignPairs) > 0 && len(nodeIDs) > 0 {
-		return false, fmt.Errorf("expected either sigSignPairs or nodeIDs to be used but not both")
-	}
-	seen := make(map[string]struct{}, len(sigSignPairs))
-	for _, ssp := range sigSignPairs {
-		if _, alreadySeen := seen[string(ssp.Signer)]; alreadySeen {
-			e.Logger.Warn("Observed a signature originating at least twice from the same node")
-			return true, nil
-		}
-		seen[string(ssp.Signer)] = struct{}{}
-	}
+func (e *Epoch) hasSomeNodeSignedTwice(nodeIDs []NodeID) bool {
+	seen := make(map[string]struct{}, len(nodeIDs))
 
 	for _, nodeID := range nodeIDs {
 		if _, alreadySeen := seen[string(nodeID)]; alreadySeen {
 			e.Logger.Warn("Observed a signature originating at least twice from the same node")
-			return true, nil
+			return true
 		}
 		seen[string(nodeID)] = struct{}{}
 	}
 
-	return false, nil
+	return false
 }
 
 func (e *Epoch) handleBlockMessage(message *Message, from NodeID) error {
@@ -937,9 +834,11 @@ func (e *Epoch) doProposed() error {
 	}
 
 	sv := SignedVoteMessage{
-		Signature: sig,
-		Signer:    e.ID,
-		Vote:      vote,
+		Signature: Signature{
+			Signer: e.ID,
+			Value:  sig,
+		},
+		Vote: vote,
 	}
 
 	md := block.BlockHeader()
@@ -979,8 +878,10 @@ func (e *Epoch) doNotarized() error {
 	}
 
 	sf := SignedFinalizationMessage{
-		Signature: signature,
-		Signer:    e.ID,
+		Signature: Signature{
+			Signer: e.ID,
+			Value:  signature,
+		},
 		Finalization: Finalization{
 			BlockHeader: md,
 		},

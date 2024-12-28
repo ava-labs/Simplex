@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/asn1"
 	"encoding/binary"
 	"fmt"
 	. "simplex"
@@ -26,14 +27,15 @@ func TestEpochSimpleFlow(t *testing.T) {
 	storage := newInMemStorage()
 
 	conf := EpochConfig{
-		Logger:       l,
-		ID:           NodeID{1},
-		Signer:       &testSigner{},
-		WAL:          &wal.InMemWAL{},
-		Verifier:     &testVerifier{},
-		Storage:      storage,
-		Comm:         noopComm([]NodeID{{1}, {2}, {3}, {4}}),
-		BlockBuilder: bb,
+		Logger:              l,
+		ID:                  NodeID{1},
+		Signer:              &testSigner{},
+		WAL:                 &wal.InMemWAL{},
+		Verifier:            &testVerifier{},
+		Storage:             storage,
+		Comm:                noopComm([]NodeID{{1}, {2}, {3}, {4}}),
+		BlockBuilder:        bb,
+		SignatureAggregator: &testSignatureAggregator{},
 	}
 
 	e, err := NewEpoch(conf)
@@ -86,7 +88,9 @@ func makeLogger(t *testing.T, node int) *testLogger {
 func injectVote(t *testing.T, e *Epoch, block *testBlock, id NodeID) {
 	err := e.HandleMessage(&Message{
 		VoteMessage: &SignedVoteMessage{
-			Signer: id,
+			Signature: Signature{
+				Signer: id,
+			},
 			Vote: Vote{
 				BlockHeader: block.BlockHeader(),
 			},
@@ -100,7 +104,9 @@ func injectFinalization(t *testing.T, e *Epoch, block *testBlock, id NodeID) {
 	md := block.BlockHeader()
 	err := e.HandleMessage(&Message{
 		Finalization: &SignedFinalizationMessage{
-			Signer: id,
+			Signature: Signature{
+				Signer: id,
+			},
 			Finalization: Finalization{
 				BlockHeader: md,
 			},
@@ -121,6 +127,48 @@ func (tl *testLogger) Verbo(msg string, fields ...zap.Field) {
 	tl.Log(zapcore.DebugLevel, msg, fields...)
 }
 
+// TODO: this isn't used, but it is needed for crash recovery
+type testQCDeserializer struct {
+	t *testing.T
+}
+
+func (t *testQCDeserializer) DeserializeQuorumCertificate(bytes []byte) (QuorumCertificate, error) {
+	var qc []Signature
+	rest, err := asn1.Unmarshal(bytes, &qc)
+	require.NoError(t.t, err)
+	require.Empty(t.t, rest)
+	return testQC(qc), err
+}
+
+type testSignatureAggregator struct {
+}
+
+func (t *testSignatureAggregator) Aggregate(signatures []Signature) (QuorumCertificate, error) {
+	return testQC(signatures), nil
+}
+
+type testQC []Signature
+
+func (t testQC) Signers() []NodeID {
+	res := make([]NodeID, 0, len(t))
+	for _, sig := range t {
+		res = append(res, sig.Signer)
+	}
+	return res
+}
+
+func (t testQC) Verify(msg []byte) error {
+	return nil
+}
+
+func (t testQC) Bytes() []byte {
+	bytes, err := asn1.Marshal(t)
+	if err != nil {
+		panic(err)
+	}
+	return bytes
+}
+
 type testSigner struct {
 }
 
@@ -135,7 +183,7 @@ func (t *testVerifier) VerifyBlock(Block) error {
 	return nil
 }
 
-func (t *testVerifier) Verify(_ []byte, _ []byte, _ ...NodeID) error {
+func (t *testVerifier) Verify(_ []byte, _ []byte, _ NodeID) error {
 	return nil
 }
 

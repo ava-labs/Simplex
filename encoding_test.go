@@ -69,8 +69,6 @@ func TestNotarizationRecord(t *testing.T) {
 	_, err := rand.Read(sig)
 	require.NoError(t, err)
 
-	sigs := [][]byte{sig}
-
 	vote := Vote{
 		BlockHeader{
 			ProtocolMetadata: ProtocolMetadata{
@@ -88,20 +86,10 @@ func TestNotarizationRecord(t *testing.T) {
 	_, err = rand.Read(vote.Prev[:])
 	require.NoError(t, err)
 
-	var signers []NodeID
-	for range 4 {
-		signer := make([]byte, 32)
-		_, err = rand.Read(signer)
-		require.NoError(t, err)
-
-		signers = append(signers, signer)
-	}
-
-	record := quorumRecord(sigs, signers, vote.Bytes(), record.NotarizationRecordType)
-	sigs2, signers2, vote2, err := notarizationFromRecord(record)
+	record := quorumRecord([]byte{1, 2, 3}, vote.Bytes(), record.NotarizationRecordType)
+	qc, vote2, err := notarizationFromRecord(record)
 	require.NoError(t, err)
-	require.Equal(t, sigs, sigs2)
-	require.Equal(t, signers, signers2)
+	require.Equal(t, []byte{1, 2, 3}, qc)
 	require.Equal(t, vote, vote2)
 }
 
@@ -128,11 +116,10 @@ func FuzzNotarizationRecord(f *testing.F) {
 			signers = append(signers, signer)
 		}
 
-		record := quorumRecord([][]byte{sig}, signers, vote.Bytes(), record.NotarizationRecordType)
-		sigs2, signers2, vote2, err := notarizationFromRecord(record)
+		record := quorumRecord([]byte{1, 2, 3}, vote.Bytes(), record.NotarizationRecordType)
+		qc, vote2, err := notarizationFromRecord(record)
 		require.NoError(t, err)
-		require.Equal(t, [][]byte{sig}, sigs2)
-		require.Equal(t, signers, signers2)
+		require.Equal(t, []byte{1, 2, 3}, qc)
 		require.Equal(t, vote, vote2)
 	})
 }

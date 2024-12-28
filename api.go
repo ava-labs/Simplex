@@ -68,11 +68,7 @@ type Signer interface {
 }
 
 type SignatureVerifier interface {
-	Verify(message []byte, signature []byte, signers ...NodeID) error
-}
-
-type SignatureAggregator interface {
-	Aggregate([][]byte) []byte
+	Verify(message []byte, signature []byte, signer NodeID) error
 }
 
 type WriteAheadLog interface {
@@ -97,4 +93,25 @@ type BlockDeserializer interface {
 	// DeserializeBlock parses the given bytes and initializes a Block.
 	// Returns an error upon failure.
 	DeserializeBlock(bytes []byte) (Block, error)
+}
+
+// Signature encodes a signature and the node that signed it, without the message it was signed on.
+type Signature struct {
+	// Signer is the NodeID of the creator of the signature.
+	Signer NodeID
+	// Value is the byte representation of the signature.
+	Value []byte
+}
+
+// QCDeserializer deserializes QuorumCertificates according to formatting
+type QCDeserializer interface {
+	// DeserializeQuorumCertificate parses the given bytes and initializes a QuorumCertificate.
+	// Returns an error upon failure.
+	DeserializeQuorumCertificate(bytes []byte) (QuorumCertificate, error)
+}
+
+// SignatureAggregator aggregates signatures into a QuorumCertificate
+type SignatureAggregator interface {
+	// Aggregate aggregates several signatures into a QuorumCertificate
+	Aggregate([]Signature) (QuorumCertificate, error)
 }

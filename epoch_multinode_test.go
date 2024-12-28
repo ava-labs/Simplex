@@ -56,13 +56,14 @@ func newSimplexNode(t *testing.T, id uint8, net *inMemNetwork, bb BlockBuilder) 
 			from: nodeID,
 			net:  net,
 		},
-		Logger:       l,
-		ID:           nodeID,
-		Signer:       &testSigner{},
-		WAL:          &wal.InMemWAL{},
-		Verifier:     &testVerifier{},
-		Storage:      storage,
-		BlockBuilder: bb,
+		Logger:              l,
+		ID:                  nodeID,
+		Signer:              &testSigner{},
+		WAL:                 &wal.InMemWAL{},
+		Verifier:            &testVerifier{},
+		Storage:             storage,
+		BlockBuilder:        bb,
+		SignatureAggregator: &testSignatureAggregator{},
 	}
 
 	e, err := NewEpoch(conf)
