@@ -17,5 +17,3 @@ func (node NodeID) String() string {
 func (node NodeID) Equals(otherNode NodeID) bool {
 	return bytes.Equal(node, otherNode)
 }
-
-type Bytes []byte
