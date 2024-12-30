@@ -6,6 +6,7 @@ package simplex
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"simplex/record"
 	"time"
@@ -284,15 +285,9 @@ func (e *Epoch) handleFinalizationMessage(message *Message, from NodeID) error {
 	return e.maybeCollectFinalizationCertificate(round)
 }
 
-func (e *Epoch) handleVoteMessage(message *Message, from NodeID) error {
+func (e *Epoch) handleVoteMessage(message *Message, _ NodeID) error {
 	msg := message.VoteMessage
 	vote := msg.Vote
-
-	// Only process point to point votes
-	if !from.Equals(msg.Signature.Signer) {
-		e.Logger.Debug("Received a vote signed by a different party than sent it", zap.Stringer("signer", msg.Signature.Signer), zap.Stringer("sender", from))
-		return nil
-	}
 
 	// TODO: what if we've received a vote for a round we didn't instantiate yet?
 	round, exists := e.rounds[vote.Round]
@@ -310,12 +305,16 @@ func (e *Epoch) handleVoteMessage(message *Message, from NodeID) error {
 		return nil
 	}
 
-	if err := vote.Verify(msg.Signature.Value, e.Verifier, from); err != nil {
-		e.Logger.Debug("Vote verification failed", zap.Stringer("NodeID", msg.Signature.Signer), zap.Error(err))
-		return nil
+	// Only verify the vote if we haven't verified it in the past.
+	signature := msg.Signature
+	if _, exists := round.votes[string(signature.Signer)]; !exists {
+		if err := vote.Verify(signature.Value, e.Verifier, signature.Signer); err != nil {
+			e.Logger.Debug("Vote verification failed", zap.Stringer("NodeID", signature.Signer), zap.Error(err))
+			return nil
+		}
 	}
 
-	e.rounds[vote.Round].votes[string(from)] = msg
+	e.rounds[vote.Round].votes[string(signature.Signer)] = msg
 
 	return e.maybeCollectNotarization()
 }
@@ -594,14 +593,23 @@ func (e *Epoch) hasSomeNodeSignedTwice(nodeIDs []NodeID) bool {
 	return false
 }
 
-func (e *Epoch) handleBlockMessage(message *Message, from NodeID) error {
+func (e *Epoch) handleBlockMessage(message *Message, _ NodeID) error {
 	block := message.BlockMessage.Block
 	if block == nil {
 		e.Logger.Debug("Got empty block in a BlockMessage")
 		return nil
 	}
 
+	vote := message.BlockMessage.Vote
+	from := vote.Signature.Signer
+
 	md := block.BlockHeader()
+
+	// Ignore block messages sent by us
+	if e.ID.Equals(from) {
+		e.Logger.Debug("Got a BlockMessage from ourselves or created by us")
+		return nil
+	}
 
 	// Check that the node is a leader for the round corresponding to the block.
 	if !leaderForRound(e.nodes, md.Round).Equals(from) {
@@ -629,26 +637,42 @@ func (e *Epoch) handleBlockMessage(message *Message, from NodeID) error {
 		return nil
 	}
 
+	// Ensure the block was voted on by its block producer:
+
+	// 1) Verify block digest corresponds to the digest voted on
+	if !bytes.Equal(vote.Vote.Digest[:], md.Digest[:]) {
+		e.Logger.Debug("Vote digest mismatches block digest", zap.Stringer("voteDigest", vote.Vote.Digest),
+			zap.Stringer("blockDigest", md.Digest))
+		return nil
+	}
+	// 2) Verify the vote is properly signed
+	if err := vote.Vote.Verify(vote.Signature.Value, e.Verifier, vote.Signature.Signer); err != nil {
+		e.Logger.Debug("Vote verification failed", zap.Stringer("NodeID", vote.Signature.Signer), zap.Error(err))
+		return nil
+	}
+
 	if !e.storeProposal(block) {
 		e.Logger.Warn("Unable to store proposed block for the round", zap.Stringer("NodeID", from), zap.Uint64("round", md.Round))
 		// TODO: timeout
 	}
 
-	// If this is a block we have proposed, don't write it to the WAL
-	// because we have done so right before sending it.
-	// Also, don't bother verifying it.
-	// Else, it's a block that we have received from the leader of this round.
-	// So verify it and store it in the WAL.
-	if !e.ID.Equals(from) {
-		if err := block.Verify(); err != nil {
-			e.Logger.Debug("Failed verifying block", zap.Error(err))
-			return nil
-		}
-		record := blockRecord(md, block.Bytes())
-		e.WAL.Append(record)
+	// Once we have stored the proposal, we have a Round object for the round.
+	// We store the vote to prevent verifying its signature again.
+	round, exists := e.rounds[md.Round]
+	if !exists {
+		// This shouldn't happen, but in case it does, return an error
+		return fmt.Errorf("programming error: round %d not found", md.Round)
 	}
+	round.votes[string(vote.Signature.Signer)] = &vote
 
-	return e.doProposed()
+	if err := block.Verify(); err != nil {
+		e.Logger.Debug("Failed verifying block", zap.Error(err))
+		return nil
+	}
+	record := blockRecord(md, block.Bytes())
+	e.WAL.Append(record)
+
+	return e.doProposed(block, vote)
 }
 
 func (e *Epoch) isMetadataValid(block Block) bool {
@@ -753,10 +777,10 @@ func (e *Epoch) locateBlock(seq uint64, digest []byte) (Block, bool) {
 	return nil, false
 }
 
-func (e *Epoch) proposeBlock() {
+func (e *Epoch) proposeBlock() error {
 	block, ok := e.BlockBuilder.BuildBlock(e.finishCtx, e.Metadata())
 	if !ok {
-		return
+		return errors.New("failed to build block")
 	}
 
 	md := block.BlockHeader()
@@ -772,10 +796,20 @@ func (e *Epoch) proposeBlock() {
 		zap.Int("size", len(rawBlock)),
 		zap.Stringer("digest", md.Digest))
 
+	vote, err := e.voteOnBlock(block)
+	if err != nil {
+		return err
+	}
+
 	proposal := &Message{
 		BlockMessage: &BlockMessage{
 			Block: block,
+			Vote:  vote,
 		},
+	}
+
+	if !e.storeProposal(block) {
+		return errors.New("failed to store block proposed by me")
 	}
 
 	e.Comm.Broadcast(proposal)
@@ -784,7 +818,7 @@ func (e *Epoch) proposeBlock() {
 		zap.Int("size", len(rawBlock)),
 		zap.Stringer("digest", md.Digest))
 
-	e.handleBlockMessage(proposal, e.ID)
+	return e.handleVoteMessage(&Message{VoteMessage: &vote}, e.ID)
 }
 
 func (e *Epoch) Metadata() ProtocolMetadata {
@@ -824,13 +858,38 @@ func (e *Epoch) startRound() error {
 	return e.handleBlockMessage(msgsForRound.proposal, leaderForCurrentRound)
 }
 
-func (e *Epoch) doProposed() error {
-	block := e.rounds[e.round].block
+func (e *Epoch) doProposed(block Block, voteFromLeader SignedVoteMessage) error {
+	vote, err := e.voteOnBlock(block)
+	if err != nil {
+		return err
+	}
 
+	md := block.BlockHeader()
+
+	// We do not write the vote to the WAL as we have written the block itself to the WAL
+	// and we can always restore the block and sign it again if needed.
+	voteMsg := &Message{
+		VoteMessage: &vote,
+	}
+
+	e.Logger.Debug("Broadcasting vote",
+		zap.Uint64("round", md.Round),
+		zap.Stringer("digest", md.Digest))
+
+	e.Comm.Broadcast(voteMsg)
+	// Send yourself a vote message
+	if err := e.handleVoteMessage(voteMsg, e.ID); err != nil {
+		return err
+	}
+
+	return e.handleVoteMessage(&Message{VoteMessage: &voteFromLeader}, e.ID)
+}
+
+func (e *Epoch) voteOnBlock(block Block) (SignedVoteMessage, error) {
 	vote := Vote{BlockHeader: block.BlockHeader()}
 	sig, err := vote.Sign(e.Signer)
 	if err != nil {
-		return fmt.Errorf("failed signing vote %w", err)
+		return SignedVoteMessage{}, fmt.Errorf("failed signing vote %w", err)
 	}
 
 	sv := SignedVoteMessage{
@@ -840,22 +899,7 @@ func (e *Epoch) doProposed() error {
 		},
 		Vote: vote,
 	}
-
-	md := block.BlockHeader()
-
-	// We do not write the vote to the WAL as we have written the block itself to the WAL
-	// and we can always restore the block and sign it again if needed.
-	voteMsg := &Message{
-		VoteMessage: &sv,
-	}
-
-	e.Logger.Debug("Broadcasting vote",
-		zap.Uint64("round", md.Round),
-		zap.Stringer("digest", md.Digest))
-
-	e.Comm.Broadcast(voteMsg)
-	// Send yourself a vote message
-	return e.handleVoteMessage(voteMsg, e.ID)
+	return sv, nil
 }
 
 func (e *Epoch) increaseRound() {

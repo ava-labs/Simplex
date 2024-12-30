@@ -26,6 +26,7 @@ func TestEpochSimpleFlow(t *testing.T) {
 	bb := make(testBlockBuilder, 1)
 	storage := newInMemStorage()
 
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	conf := EpochConfig{
 		Logger:              l,
 		ID:                  NodeID{1},
@@ -33,7 +34,7 @@ func TestEpochSimpleFlow(t *testing.T) {
 		WAL:                 &wal.InMemWAL{},
 		Verifier:            &testVerifier{},
 		Storage:             storage,
-		Comm:                noopComm([]NodeID{{1}, {2}, {3}, {4}}),
+		Comm:                noopComm(nodes),
 		BlockBuilder:        bb,
 		SignatureAggregator: &testSignatureAggregator{},
 	}
@@ -44,8 +45,8 @@ func TestEpochSimpleFlow(t *testing.T) {
 	require.NoError(t, e.Start())
 
 	for i := 0; i < 100; i++ {
-		leaderID := i%4 + 1
-		shouldPropose := leaderID == 1
+		leaderID := nodes[i%4]
+		shouldPropose := leaderID.Equals(NodeID{1})
 
 		if !shouldPropose {
 			md := e.Metadata()
@@ -56,11 +57,20 @@ func TestEpochSimpleFlow(t *testing.T) {
 		block := <-bb
 
 		if !shouldPropose {
+			vote := SignedVoteMessage{
+				Signature: Signature{
+					Signer: nodes[i%4],
+				},
+				Vote: Vote{
+					BlockHeader: block.BlockHeader(),
+				},
+			}
 			err := e.HandleMessage(&Message{
 				BlockMessage: &BlockMessage{
+					Vote:  vote,
 					Block: block,
 				},
-			}, NodeID{byte(leaderID)})
+			}, leaderID)
 			require.NoError(t, err)
 		}
 
