@@ -10,6 +10,7 @@ import (
 	. "simplex"
 	"simplex/record"
 	"simplex/wal"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -40,6 +41,13 @@ func TestSimplexMultiNodeSimple(t *testing.T) {
 		}
 		bb.triggerNewBlock()
 	}
+
+	for seq := 0; seq < 10; seq++ {
+		for _, n := range instances {
+			n.ledger.waitForBlockCommit(uint64(seq))
+		}
+		bb.triggerNewBlock()
+	}
 }
 
 func (t *testInstance) start() {
@@ -53,7 +61,7 @@ func newSimplexNode(t *testing.T, id uint8, net *inMemNetwork, bb BlockBuilder) 
 
 	nodeID := NodeID{id}
 
-	wal := &wal.InMemWAL{}
+	wal := newTestWAL()
 
 	conf := EpochConfig{
 		Comm: &testComm{
@@ -89,7 +97,7 @@ func newSimplexNode(t *testing.T, id uint8, net *inMemNetwork, bb BlockBuilder) 
 }
 
 type testInstance struct {
-	wal     *wal.InMemWAL
+	wal     *testWAL
 	ledger  *InMemStorage
 	e       *Epoch
 	ingress chan struct {
@@ -100,19 +108,27 @@ type testInstance struct {
 }
 
 func (t *testInstance) assertNotarization(round uint64) {
-	rawRecords, err := t.wal.ReadAll()
-	require.NoError(t.t, err)
+	t.wal.lock.Lock()
+	defer t.wal.lock.Unlock()
 
-	for _, rawRecord := range rawRecords {
-		if binary.BigEndian.Uint16(rawRecord[:2]) == record.NotarizationRecordType {
-			_, vote, err := NotarizationFromRecord(rawRecord)
-			require.NoError(t.t, err)
+	for {
+		rawRecords, err := t.wal.ReadAll()
+		require.NoError(t.t, err)
 
-			if vote.Round == round {
-				return
+		for _, rawRecord := range rawRecords {
+			if binary.BigEndian.Uint16(rawRecord[:2]) == record.NotarizationRecordType {
+				_, vote, err := NotarizationFromRecord(rawRecord)
+				require.NoError(t.t, err)
+
+				if vote.Round == round {
+					return
+				}
 			}
 		}
+
+		t.wal.signal.Wait()
 	}
+
 }
 
 func (t *testInstance) handleMessages() {
@@ -123,6 +139,28 @@ func (t *testInstance) handleMessages() {
 			return
 		}
 	}
+}
+
+type testWAL struct {
+	WriteAheadLog
+	lock   sync.Mutex
+	signal sync.Cond
+}
+
+func newTestWAL() *testWAL {
+	var tw testWAL
+	tw.WriteAheadLog = &wal.InMemWAL{}
+	tw.signal = sync.Cond{L: &tw.lock}
+	return &tw
+}
+
+func (tw *testWAL) Append(b []byte) error {
+	tw.lock.Lock()
+	defer tw.lock.Unlock()
+
+	err := tw.WriteAheadLog.Append(b)
+	tw.signal.Signal()
+	return err
 }
 
 type testComm struct {
@@ -177,7 +215,11 @@ func newTestControlledBlockBuilder() *testControlledBlockBuilder {
 }
 
 func (t *testControlledBlockBuilder) triggerNewBlock() {
-	t.control <- struct{}{}
+	select {
+	case t.control <- struct{}{}:
+	default:
+
+	}
 }
 
 func (t *testControlledBlockBuilder) BuildBlock(ctx context.Context, metadata ProtocolMetadata) (Block, bool) {
