@@ -620,7 +620,7 @@ func (e *Epoch) handleBlockMessage(message *Message, _ NodeID) error {
 		return nil
 	}
 
-	if !e.isMetadataValid(block) {
+	if !e.verifyProposalIsPartOfOurChain(block) {
 		e.Logger.Debug("Got invalid block in a BlockMessage")
 		return nil
 	}
@@ -663,7 +663,7 @@ func (e *Epoch) handleBlockMessage(message *Message, _ NodeID) error {
 	return e.doProposed(block, vote)
 }
 
-func (e *Epoch) isMetadataValid(block Block) bool {
+func (e *Epoch) verifyProposalIsPartOfOurChain(block Block) bool {
 	bh := block.BlockHeader()
 
 	if bh.Version != 0 {
