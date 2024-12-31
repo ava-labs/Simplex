@@ -152,7 +152,7 @@ func (e *Epoch) syncFromWal() error {
 
 // loadLastBlock initializes the epoch with the lastBlock retrieved from storage.
 func (e *Epoch) loadLastBlock() error {
-	block, err := e.retrieveLastBlockFromStorage()
+	block, err := RetrieveLastBlockFromStorage(e.Storage)
 	if err != nil {
 		return err
 	}
@@ -167,20 +167,6 @@ func (e *Epoch) loadLastRound() {
 		round := NewRound(e.lastBlock)
 		e.rounds[round.num] = round
 	}
-}
-
-// retrieveLastBlockFromStorage grabs the most latest block from storage
-func (e *Epoch) retrieveLastBlockFromStorage() (Block, error) {
-	height := e.Storage.Height()
-	if height == 0 {
-		return nil, nil
-	}
-
-	lastBlock, _, retrieved := e.Storage.Retrieve(height - 1)
-	if !retrieved {
-		return nil, fmt.Errorf("failed retrieving last block from storage with seq %d", height-1)
-	}
-	return lastBlock, nil
 }
 
 func (e *Epoch) Stop() {
