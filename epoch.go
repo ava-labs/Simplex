@@ -745,7 +745,6 @@ func (e *Epoch) locateBlock(seq uint64, digest []byte) (Block, bool) {
 		if bytes.Equal(dig[:], digest) {
 			return round.block, true
 		}
-		return nil, false
 	}
 
 	height := e.Storage.Height()
