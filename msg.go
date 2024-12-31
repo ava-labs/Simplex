@@ -7,43 +7,43 @@ import "encoding/asn1"
 
 type Message struct {
 	BlockMessage            *BlockMessage
-	VoteMessage             *SignedVoteMessage
+	VoteMessage             *Vote
 	Notarization            *Notarization
-	Finalization            *SignedFinalizationMessage
+	Finalization            *Finalization
 	FinalizationCertificate *FinalizationCertificate
 }
 
-type Vote struct {
+type ToBeSignedVote struct {
 	BlockHeader
 }
 
-func (v *Vote) Sign(signer Signer) ([]byte, error) {
-	context := "Vote"
+func (v *ToBeSignedVote) Sign(signer Signer) ([]byte, error) {
+	context := "ToBeSignedVote"
 	msg := v.Bytes()
 
 	return signContext(signer, msg, context)
 }
 
-func (v *Vote) Verify(signature []byte, verifier SignatureVerifier, signers NodeID) error {
-	context := "Vote"
+func (v *ToBeSignedVote) Verify(signature []byte, verifier SignatureVerifier, signers NodeID) error {
+	context := "ToBeSignedVote"
 	msg := v.Bytes()
 
 	return verifyContext(signature, verifier, msg, context, signers)
 }
 
-type Finalization struct {
+type ToBeSignedFinalization struct {
 	BlockHeader
 }
 
-func (f *Finalization) Sign(signer Signer) ([]byte, error) {
-	context := "Finalization"
+func (f *ToBeSignedFinalization) Sign(signer Signer) ([]byte, error) {
+	context := "ToBeSignedFinalization"
 	msg := f.Bytes()
 
 	return signContext(signer, msg, context)
 }
 
-func (f *Finalization) Verify(signature []byte, verifier SignatureVerifier, signers NodeID) error {
-	context := "Finalization"
+func (f *ToBeSignedFinalization) Verify(signature []byte, verifier SignatureVerifier, signers NodeID) error {
+	context := "ToBeSignedFinalization"
 	msg := f.Bytes()
 
 	return verifyContext(signature, verifier, msg, context, signers)
@@ -77,39 +77,39 @@ func verifyContextQC(qc QuorumCertificate, msg []byte, context string) error {
 	return qc.Verify(toBeSigned)
 }
 
-type SignedVoteMessage struct {
-	Vote      Vote
+type Vote struct {
+	Vote      ToBeSignedVote
 	Signature Signature
 }
 
-type SignedFinalizationMessage struct {
-	Finalization Finalization
+type Finalization struct {
+	Finalization ToBeSignedFinalization
 	Signature    Signature
 }
 
 type FinalizationCertificate struct {
-	Finalization Finalization
+	Finalization ToBeSignedFinalization
 	QC           QuorumCertificate
 }
 
 func (fc *FinalizationCertificate) Verify() error {
-	context := "Finalization"
+	context := "ToBeSignedFinalization"
 	return verifyContextQC(fc.QC, fc.Finalization.Bytes(), context)
 }
 
 type Notarization struct {
-	Vote Vote
+	Vote ToBeSignedVote
 	QC   QuorumCertificate
 }
 
 func (n *Notarization) Verify() error {
-	context := "Vote"
+	context := "ToBeSignedVote"
 	return verifyContextQC(n.QC, n.Vote.Bytes(), context)
 }
 
 type BlockMessage struct {
 	Block Block
-	Vote  SignedVoteMessage
+	Vote  Vote
 }
 
 type SignedMessage struct {

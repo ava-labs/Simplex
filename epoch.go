@@ -19,9 +19,9 @@ const defaultMaxRoundWindow = 10
 type Round struct {
 	num           uint64
 	block         Block
-	votes         map[string]*SignedVoteMessage // NodeID --> vote
+	votes         map[string]*Vote // NodeID --> vote
 	notarization  *Notarization
-	finalizations map[string]*SignedFinalizationMessage // NodeID --> vote
+	finalizations map[string]*Finalization // NodeID --> vote
 	fCert         *FinalizationCertificate
 }
 
@@ -29,8 +29,8 @@ func NewRound(block Block) *Round {
 	return &Round{
 		num:           block.BlockHeader().Round,
 		block:         block,
-		votes:         make(map[string]*SignedVoteMessage),
-		finalizations: make(map[string]*SignedFinalizationMessage),
+		votes:         make(map[string]*Vote),
+		finalizations: make(map[string]*Finalization),
 	}
 }
 
@@ -235,7 +235,7 @@ func (e *Epoch) validateFinalizationQC(fCert *FinalizationCertificate) (bool, er
 
 	// Check enough signers signed the finalization certificate
 	if e.quorumSize > len(fCert.QC.Signers()) {
-		e.Logger.Debug("Finalization certificate signed by insufficient nodes",
+		e.Logger.Debug("ToBeSignedFinalization certificate signed by insufficient nodes",
 			zap.Int("count", len(fCert.QC.Signers())),
 			zap.Int("Quorum", e.quorumSize))
 		return false, nil
@@ -309,7 +309,7 @@ func (e *Epoch) handleVoteMessage(message *Message, _ NodeID) error {
 	signature := msg.Signature
 	if _, exists := round.votes[string(signature.Signer)]; !exists {
 		if err := vote.Verify(signature.Value, e.Verifier, signature.Signer); err != nil {
-			e.Logger.Debug("Vote verification failed", zap.Stringer("NodeID", signature.Signer), zap.Error(err))
+			e.Logger.Debug("ToBeSignedVote verification failed", zap.Stringer("NodeID", signature.Signer), zap.Error(err))
 			return nil
 		}
 	}
@@ -319,7 +319,7 @@ func (e *Epoch) handleVoteMessage(message *Message, _ NodeID) error {
 	return e.maybeCollectNotarization()
 }
 
-func (e *Epoch) isFinalizationValid(signature []byte, finalization Finalization, from NodeID) bool {
+func (e *Epoch) isFinalizationValid(signature []byte, finalization ToBeSignedFinalization, from NodeID) bool {
 	if err := finalization.Verify(signature, e.Verifier, from); err != nil {
 		e.Logger.Debug("Received a finalization with an invalid signature", zap.Uint64("round", finalization.Round), zap.Error(err))
 		return false
@@ -327,7 +327,7 @@ func (e *Epoch) isFinalizationValid(signature []byte, finalization Finalization,
 	return true
 }
 
-func (e *Epoch) isVoteValid(vote Vote) bool {
+func (e *Epoch) isVoteValid(vote ToBeSignedVote) bool {
 	// Ignore votes for previous rounds
 	if vote.Round < e.round {
 		return false
@@ -356,14 +356,14 @@ func (e *Epoch) maybeCollectFinalizationCertificate(round *Round) error {
 
 func (e *Epoch) assembleFinalizationCertificate(round *Round) error {
 	// Divide finalizations into sets that agree on the same metadata
-	finalizationsByMD := make(map[string][]*SignedFinalizationMessage)
+	finalizationsByMD := make(map[string][]*Finalization)
 
 	for _, vote := range round.finalizations {
 		key := string(vote.Finalization.Bytes())
 		finalizationsByMD[key] = append(finalizationsByMD[key], vote)
 	}
 
-	var finalizations []*SignedFinalizationMessage
+	var finalizations []*Finalization
 
 	for _, finalizationsWithTheSameDigest := range finalizationsByMD {
 		if len(finalizationsWithTheSameDigest) >= e.quorumSize {
@@ -475,8 +475,8 @@ func (e *Epoch) maybeCollectNotarization() error {
 	return e.assembleNotarization(votesForCurrentRound, digestWeExpect)
 }
 
-func (e *Epoch) assembleNotarization(votesForCurrentRound map[string]*SignedVoteMessage, digest [metadataDigestLen]byte) error {
-	vote := Vote{
+func (e *Epoch) assembleNotarization(votesForCurrentRound map[string]*Vote, digest [metadataDigestLen]byte) error {
+	vote := ToBeSignedVote{
 		BlockHeader{
 			ProtocolMetadata: ProtocolMetadata{
 				Epoch: e.Epoch,
@@ -511,7 +511,7 @@ func (e *Epoch) assembleNotarization(votesForCurrentRound map[string]*SignedVote
 	return e.persistNotarization(notarization, vote)
 }
 
-func (e *Epoch) persistNotarization(notarization Notarization, vote Vote) error {
+func (e *Epoch) persistNotarization(notarization Notarization, vote ToBeSignedVote) error {
 	notarizationMessage := &Message{Notarization: &notarization}
 	record := quorumRecord(notarization.QC.Bytes(), vote.Bytes(), record.NotarizationRecordType)
 
@@ -643,13 +643,13 @@ func (e *Epoch) handleBlockMessage(message *Message, _ NodeID) error {
 
 	// 1) Verify block digest corresponds to the digest voted on
 	if !bytes.Equal(vote.Vote.Digest[:], md.Digest[:]) {
-		e.Logger.Debug("Vote digest mismatches block digest", zap.Stringer("voteDigest", vote.Vote.Digest),
+		e.Logger.Debug("ToBeSignedVote digest mismatches block digest", zap.Stringer("voteDigest", vote.Vote.Digest),
 			zap.Stringer("blockDigest", md.Digest))
 		return nil
 	}
 	// 2) Verify the vote is properly signed
 	if err := vote.Vote.Verify(vote.Signature.Value, e.Verifier, vote.Signature.Signer); err != nil {
-		e.Logger.Debug("Vote verification failed", zap.Stringer("NodeID", vote.Signature.Signer), zap.Error(err))
+		e.Logger.Debug("ToBeSignedVote verification failed", zap.Stringer("NodeID", vote.Signature.Signer), zap.Error(err))
 		return nil
 	}
 
@@ -857,7 +857,7 @@ func (e *Epoch) startRound() error {
 	return e.handleBlockMessage(msgsForRound.proposal, leaderForCurrentRound)
 }
 
-func (e *Epoch) doProposed(block Block, voteFromLeader SignedVoteMessage) error {
+func (e *Epoch) doProposed(block Block, voteFromLeader Vote) error {
 	vote, err := e.voteOnBlock(block)
 	if err != nil {
 		return err
@@ -884,14 +884,14 @@ func (e *Epoch) doProposed(block Block, voteFromLeader SignedVoteMessage) error 
 	return e.handleVoteMessage(&Message{VoteMessage: &voteFromLeader}, e.ID)
 }
 
-func (e *Epoch) voteOnBlock(block Block) (SignedVoteMessage, error) {
-	vote := Vote{BlockHeader: block.BlockHeader()}
+func (e *Epoch) voteOnBlock(block Block) (Vote, error) {
+	vote := ToBeSignedVote{BlockHeader: block.BlockHeader()}
 	sig, err := vote.Sign(e.Signer)
 	if err != nil {
-		return SignedVoteMessage{}, fmt.Errorf("failed signing vote %w", err)
+		return Vote{}, fmt.Errorf("failed signing vote %w", err)
 	}
 
-	sv := SignedVoteMessage{
+	sv := Vote{
 		Signature: Signature{
 			Signer: e.ID,
 			Value:  sig,
@@ -912,18 +912,18 @@ func (e *Epoch) doNotarized() error {
 
 	md := block.BlockHeader()
 
-	f := Finalization{BlockHeader: md}
+	f := ToBeSignedFinalization{BlockHeader: md}
 	signature, err := f.Sign(e.Signer)
 	if err != nil {
 		return fmt.Errorf("failed signing vote %w", err)
 	}
 
-	sf := SignedFinalizationMessage{
+	sf := Finalization{
 		Signature: Signature{
 			Signer: e.ID,
 			Value:  signature,
 		},
-		Finalization: Finalization{
+		Finalization: ToBeSignedFinalization{
 			BlockHeader: md,
 		},
 	}

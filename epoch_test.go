@@ -57,11 +57,11 @@ func TestEpochSimpleFlow(t *testing.T) {
 		block := <-bb
 
 		if !shouldPropose {
-			vote := SignedVoteMessage{
+			vote := Vote{
 				Signature: Signature{
 					Signer: nodes[i%4],
 				},
-				Vote: Vote{
+				Vote: ToBeSignedVote{
 					BlockHeader: block.BlockHeader(),
 				},
 			}
@@ -97,11 +97,11 @@ func makeLogger(t *testing.T, node int) *testLogger {
 
 func injectVote(t *testing.T, e *Epoch, block *testBlock, id NodeID) {
 	err := e.HandleMessage(&Message{
-		VoteMessage: &SignedVoteMessage{
+		VoteMessage: &Vote{
 			Signature: Signature{
 				Signer: id,
 			},
-			Vote: Vote{
+			Vote: ToBeSignedVote{
 				BlockHeader: block.BlockHeader(),
 			},
 		},
@@ -113,11 +113,11 @@ func injectVote(t *testing.T, e *Epoch, block *testBlock, id NodeID) {
 func injectFinalization(t *testing.T, e *Epoch, block *testBlock, id NodeID) {
 	md := block.BlockHeader()
 	err := e.HandleMessage(&Message{
-		Finalization: &SignedFinalizationMessage{
+		Finalization: &Finalization{
 			Signature: Signature{
 				Signer: id,
 			},
-			Finalization: Finalization{
+			Finalization: ToBeSignedFinalization{
 				BlockHeader: md,
 			},
 		},

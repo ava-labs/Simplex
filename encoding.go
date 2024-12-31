@@ -16,16 +16,16 @@ type QuorumRecord struct {
 	Vote []byte
 }
 
-func finalizationFromRecord(payload []byte) ([]byte, Finalization, error) {
+func finalizationFromRecord(payload []byte) ([]byte, ToBeSignedFinalization, error) {
 	var nr QuorumRecord
 	_, err := asn1.Unmarshal(payload, &nr)
 	if err != nil {
-		return nil, Finalization{}, err
+		return nil, ToBeSignedFinalization{}, err
 	}
 
-	var finalization Finalization
+	var finalization ToBeSignedFinalization
 	if err := finalization.FromBytes(nr.Vote); err != nil {
-		return nil, Finalization{}, err
+		return nil, ToBeSignedFinalization{}, err
 	}
 
 	return nr.QC, finalization, nil
@@ -48,17 +48,17 @@ func quorumRecord(qc []byte, rawVote []byte, recordType uint16) []byte {
 	return buff
 }
 
-func NotarizationFromRecord(record []byte) ([]byte, Vote, error) {
+func NotarizationFromRecord(record []byte) ([]byte, ToBeSignedVote, error) {
 	record = record[2:]
 	var nr QuorumRecord
 	_, err := asn1.Unmarshal(record, &nr)
 	if err != nil {
-		return nil, Vote{}, err
+		return nil, ToBeSignedVote{}, err
 	}
 
-	var vote Vote
+	var vote ToBeSignedVote
 	if err := vote.FromBytes(nr.Vote); err != nil {
-		return nil, Vote{}, err
+		return nil, ToBeSignedVote{}, err
 	}
 
 	return nr.QC, vote, nil

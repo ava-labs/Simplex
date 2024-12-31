@@ -69,7 +69,7 @@ func TestNotarizationRecord(t *testing.T) {
 	_, err := rand.Read(sig)
 	require.NoError(t, err)
 
-	vote := Vote{
+	vote := ToBeSignedVote{
 		BlockHeader{
 			ProtocolMetadata: ProtocolMetadata{
 				Version: 1,
@@ -98,7 +98,7 @@ func FuzzNotarizationRecord(f *testing.F) {
 		prev := sha256.Sum256(prevPreimage)
 		digest := sha256.Sum256(digestPreimage)
 
-		vote := Vote{
+		vote := ToBeSignedVote{
 			BlockHeader{
 				ProtocolMetadata: ProtocolMetadata{
 					Version: version,
