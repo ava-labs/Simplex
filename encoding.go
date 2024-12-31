@@ -48,7 +48,7 @@ func quorumRecord(qc []byte, rawVote []byte, recordType uint16) []byte {
 	return buff
 }
 
-func notarizationFromRecord(record []byte) ([]byte, Vote, error) {
+func NotarizationFromRecord(record []byte) ([]byte, Vote, error) {
 	record = record[2:]
 	var nr QuorumRecord
 	_, err := asn1.Unmarshal(record, &nr)

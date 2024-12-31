@@ -441,7 +441,7 @@ func (e *Epoch) persistFinalizationCertificate(fCert FinalizationCertificate) er
 		zap.Uint64("round", fCert.Finalization.Round),
 		zap.Stringer("digest", fCert.Finalization.BlockHeader.Digest))
 
-	return e.startRound()
+	return nil
 }
 
 func (e *Epoch) maybeCollectNotarization() error {
@@ -529,6 +529,7 @@ func (e *Epoch) persistNotarization(notarization Notarization, vote Vote) error 
 		zap.Stringer("digest", notarization.Vote.BlockHeader.Digest))
 
 	e.rounds[notarization.Vote.Round].notarization = &notarization
+
 	return e.doNotarized()
 }
 
@@ -699,6 +700,9 @@ func (e *Epoch) isMetadataValid(block Block) bool {
 		// TODO: we should cache this data, we don't need the block, just the hash and sequence.
 		_, found := e.locateBlock(bh.Seq-1, bh.Prev[:])
 		if !found {
+			e.Logger.Debug("Could not find parent block with given digest",
+				zap.Uint64("blockSeq", bh.Seq-1),
+				zap.Stringer("digest", bh.Prev))
 			// We could not find the parent block, so no way to verify this proposal.
 			return false
 		}
@@ -841,8 +845,7 @@ func (e *Epoch) startRound() error {
 	leaderForCurrentRound := leaderForRound(e.nodes, e.round)
 
 	if e.ID.Equals(leaderForCurrentRound) {
-		e.proposeBlock()
-		return nil
+		return e.proposeBlock()
 	}
 
 	// If we're not the leader, check if we have received a proposal earlier for this round
@@ -907,8 +910,6 @@ func (e *Epoch) doNotarized() error {
 	round := e.rounds[e.round]
 	block := round.block
 
-	defer e.increaseRound()
-
 	md := block.BlockHeader()
 
 	f := Finalization{BlockHeader: md}
@@ -932,7 +933,13 @@ func (e *Epoch) doNotarized() error {
 	}
 
 	e.Comm.Broadcast(finalizationMsg)
-	return e.handleFinalizationMessage(finalizationMsg, e.ID)
+
+	e.increaseRound()
+
+	err1 := e.startRound()
+	err2 := e.handleFinalizationMessage(finalizationMsg, e.ID)
+
+	return errors.Join(err1, err2)
 }
 
 func (e *Epoch) storeNotarization(notarization Notarization) error {

@@ -37,7 +37,7 @@ type ProtocolMetadata struct {
 	// Cannot correspond to an empty block.
 	Seq uint64
 	// Prev returns the digest of the previous data block
-	Prev [metadataPrevLen]byte
+	Prev Digest
 }
 
 // BlockHeader encodes a succinct and collision-free representation of a block.

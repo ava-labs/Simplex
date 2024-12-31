@@ -6,7 +6,9 @@ package simplex_test
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	. "simplex"
+	"simplex/record"
 	"simplex/wal"
 	"testing"
 
@@ -34,7 +36,7 @@ func TestSimplexMultiNodeSimple(t *testing.T) {
 
 	for seq := 0; seq < 10; seq++ {
 		for _, n := range instances {
-			n.ledger.waitForBlockCommit(uint64(seq))
+			n.assertNotarization(uint64(seq))
 		}
 		bb.triggerNewBlock()
 	}
@@ -51,6 +53,8 @@ func newSimplexNode(t *testing.T, id uint8, net *inMemNetwork, bb BlockBuilder) 
 
 	nodeID := NodeID{id}
 
+	wal := &wal.InMemWAL{}
+
 	conf := EpochConfig{
 		Comm: &testComm{
 			from: nodeID,
@@ -59,7 +63,7 @@ func newSimplexNode(t *testing.T, id uint8, net *inMemNetwork, bb BlockBuilder) 
 		Logger:              l,
 		ID:                  nodeID,
 		Signer:              &testSigner{},
-		WAL:                 &wal.InMemWAL{},
+		WAL:                 wal,
 		Verifier:            &testVerifier{},
 		Storage:             storage,
 		BlockBuilder:        bb,
@@ -70,6 +74,7 @@ func newSimplexNode(t *testing.T, id uint8, net *inMemNetwork, bb BlockBuilder) 
 	require.NoError(t, err)
 
 	ti := &testInstance{
+		wal:    wal,
 		e:      e,
 		t:      t,
 		ledger: storage,
@@ -84,6 +89,7 @@ func newSimplexNode(t *testing.T, id uint8, net *inMemNetwork, bb BlockBuilder) 
 }
 
 type testInstance struct {
+	wal     *wal.InMemWAL
 	ledger  *InMemStorage
 	e       *Epoch
 	ingress chan struct {
@@ -91,6 +97,22 @@ type testInstance struct {
 		from NodeID
 	}
 	t *testing.T
+}
+
+func (t *testInstance) assertNotarization(round uint64) {
+	rawRecords, err := t.wal.ReadAll()
+	require.NoError(t.t, err)
+
+	for _, rawRecord := range rawRecords {
+		if binary.BigEndian.Uint16(rawRecord[:2]) == record.NotarizationRecordType {
+			_, vote, err := NotarizationFromRecord(rawRecord)
+			require.NoError(t.t, err)
+
+			if vote.Round == round {
+				return
+			}
+		}
+	}
 }
 
 func (t *testInstance) handleMessages() {

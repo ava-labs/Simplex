@@ -87,7 +87,7 @@ func TestNotarizationRecord(t *testing.T) {
 	require.NoError(t, err)
 
 	record := quorumRecord([]byte{1, 2, 3}, vote.Bytes(), record.NotarizationRecordType)
-	qc, vote2, err := notarizationFromRecord(record)
+	qc, vote2, err := NotarizationFromRecord(record)
 	require.NoError(t, err)
 	require.Equal(t, []byte{1, 2, 3}, qc)
 	require.Equal(t, vote, vote2)
@@ -117,7 +117,7 @@ func FuzzNotarizationRecord(f *testing.F) {
 		}
 
 		record := quorumRecord([]byte{1, 2, 3}, vote.Bytes(), record.NotarizationRecordType)
-		qc, vote2, err := notarizationFromRecord(record)
+		qc, vote2, err := NotarizationFromRecord(record)
 		require.NoError(t, err)
 		require.Equal(t, []byte{1, 2, 3}, qc)
 		require.Equal(t, vote, vote2)
