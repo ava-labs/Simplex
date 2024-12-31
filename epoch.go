@@ -620,8 +620,9 @@ func (e *Epoch) handleBlockMessage(message *Message, _ NodeID) error {
 	}
 
 	// If this is a message from a more advanced round,
-	// only store it if `maxRoundWindow` ahead.
-	if e.round < md.Round && md.Round-e.round > e.maxRoundWindow {
+	// only store it if it is up to `maxRoundWindow` ahead.
+	// TODO: test this
+	if e.round < md.Round && md.Round-e.round < e.maxRoundWindow {
 		e.Logger.Debug("Got block from round too far in the future", zap.Uint64("round", md.Round), zap.Uint64("my round", e.round))
 		msgsForRound, exists := e.futureMessages[string(from)][md.Round]
 		if !exists {
