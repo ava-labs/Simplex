@@ -681,6 +681,7 @@ func (e *Epoch) isMetadataValid(block Block) bool {
 
 	if bh.Version != 0 {
 		e.Logger.Debug("Got block message with wrong version number, expected 0", zap.Uint8("version", bh.Version))
+		return false
 	}
 
 	if e.Epoch != bh.Epoch {
