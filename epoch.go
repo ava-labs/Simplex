@@ -739,8 +739,8 @@ func (e *Epoch) isMetadataValid(block Block) bool {
 // Otherwise, returns false.
 func (e *Epoch) locateBlock(seq uint64, digest []byte) (Block, bool) {
 	// TODO index rounds by digest too to make it quicker
-	round, exists := e.rounds[seq]
-	if exists {
+	// TODO: optimize this by building an index from digest to round
+	for _, round := range e.rounds {
 		dig := round.block.BlockHeader().Digest
 		if bytes.Equal(dig[:], digest) {
 			return round.block, true
