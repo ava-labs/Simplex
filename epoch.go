@@ -64,7 +64,7 @@ type Epoch struct {
 	quorumSize         int
 	rounds             map[uint64]*Round
 	futureMessages     messagesFromNode
-	round              uint64
+	round              uint64 // The current round we notarize
 	maxRoundWindow     uint64
 }
 
