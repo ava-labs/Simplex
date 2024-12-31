@@ -689,11 +689,6 @@ func (e *Epoch) isMetadataValid(block Block) bool {
 			zap.Uint64("our epoch", e.Epoch), zap.Uint64("block epoch", bh.Epoch))
 	}
 
-	if bh.Seq == 0 && e.Storage.Height() > 0 {
-		// We have already committed the first block, no need to commit it again.
-		return false
-	}
-
 	var expectedSeq uint64
 	var expectedPrevDigest [metadataDigestLen]byte
 
