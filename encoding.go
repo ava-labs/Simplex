@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"simplex/record"
 	. "simplex/record"
 )
 
@@ -17,11 +18,11 @@ type QuorumRecord struct {
 	Vote       []byte
 }
 
-func finalizationFromRecord(record Record) ([][]byte, []NodeID, Finalization, error) {
+func FinalizationCertificateFromRecord(record Record) (FinalizationCertificate, error) {
 	var nr QuorumRecord
 	_, err := asn1.Unmarshal(record.Payload, &nr)
 	if err != nil {
-		return nil, nil, Finalization{}, err
+		return FinalizationCertificate{}, err
 	}
 
 	signers := make([]NodeID, 0, len(nr.Signers))
@@ -29,15 +30,26 @@ func finalizationFromRecord(record Record) ([][]byte, []NodeID, Finalization, er
 		signers = append(signers, signer)
 	}
 
+	var fCert FinalizationCertificate
 	var finalization Finalization
+	// why is the finalization stored in a Vote field?
 	if err := finalization.FromBytes(nr.Vote); err != nil {
-		return nil, nil, Finalization{}, err
+		return FinalizationCertificate{}, err
+	}
+	fCert.Finalization = finalization
+
+	fCert.SignaturesAndSigners = make([]*SignatureSignerPair, 0, len(nr.Signatures))
+	for i, sig := range nr.Signatures {
+		fCert.SignaturesAndSigners = append(fCert.SignaturesAndSigners, &SignatureSignerPair{
+			Signature: sig,
+			Signer:    signers[i],
+		})
 	}
 
-	return nr.Signatures, signers, finalization, nil
+	return fCert, nil
 }
 
-func quorumRecord(signatures [][]byte, signers []NodeID, rawVote []byte, recordType uint16) Record {
+func NewQuorumRecord(signatures [][]byte, signers []NodeID, rawVote []byte, recordType uint16) Record {
 	var qr QuorumRecord
 	qr.Signatures = signatures
 	qr.Vote = rawVote
@@ -59,11 +71,11 @@ func quorumRecord(signatures [][]byte, signers []NodeID, rawVote []byte, recordT
 	}
 }
 
-func notarizationFromRecord(record Record) ([][]byte, []NodeID, Vote, error) {
+func NotarizationFromRecord(record Record) (Notarization, error) {
 	var nr QuorumRecord
 	_, err := asn1.Unmarshal(record.Payload, &nr)
 	if err != nil {
-		return nil, nil, Vote{}, err
+		return Notarization{}, err
 	}
 
 	signers := make([]NodeID, 0, len(nr.Signers))
@@ -73,13 +85,28 @@ func notarizationFromRecord(record Record) ([][]byte, []NodeID, Vote, error) {
 
 	var vote Vote
 	if err := vote.FromBytes(nr.Vote); err != nil {
-		return nil, nil, Vote{}, err
+		return Notarization{}, err
 	}
 
-	return nr.Signatures, signers, vote, nil
+	var notarization Notarization
+	notarization.Vote = vote
+	notarization.AggregatedSignedVote = &AggregatedSignedVote{
+		Signers:   signers,
+		Signature: nr.Signatures[0],
+	}
+	notarization.SignaturesAndSigners = make([]*SignatureSignerPair, 0, len(nr.Signatures))
+	for i, sig := range nr.Signatures {
+		notarization.SignaturesAndSigners = append(notarization.SignaturesAndSigners, &SignatureSignerPair{
+			Signature: sig,
+			Signer:    signers[i],
+		})
+	}
+
+	return  notarization, nil
 }
 
-func blockRecord(md Metadata, blockData []byte) Record {
+// metadata size + blockdata size + metadata bytes + blockData bytes
+func BlockRecord(md Metadata, blockData []byte) Record {
 	mdBytes := md.Bytes()
 
 	mdSizeBuff := make([]byte, 4)
@@ -95,7 +122,7 @@ func blockRecord(md Metadata, blockData []byte) Record {
 	copy(buff[8+len(mdBytes):], blockData)
 
 	return Record{
-		Type:    uint16(blockRecordType),
+		Type:    record.BlockRecordType,
 		Size:    uint32(len(buff)),
 		Payload: buff,
 	}

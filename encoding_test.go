@@ -6,6 +6,7 @@ package simplex
 import (
 	"crypto/rand"
 	"crypto/sha256"
+	"simplex/record"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -31,7 +32,7 @@ func TestBlockRecord(t *testing.T) {
 
 	payload := []byte{11, 12, 13, 14, 15, 16}
 
-	record := blockRecord(md, payload)
+	record := BlockRecord(md, payload)
 
 	md2, payload2, err := blockFromRecord(record)
 	require.NoError(t, err)
@@ -55,7 +56,7 @@ func FuzzBlockRecord(f *testing.F) {
 			Digest: digest[:],
 		}
 
-		record := blockRecord(md, payload)
+		record := BlockRecord(md, payload)
 
 		md2, payload2, err := blockFromRecord(record)
 		require.NoError(t, err)
@@ -100,12 +101,12 @@ func TestNotarizationRecord(t *testing.T) {
 		signers = append(signers, signer)
 	}
 
-	record := quorumRecord(sigs, signers, vote.Bytes(), uint16(notarizationRecordType))
-	sigs2, signers2, vote2, err := notarizationFromRecord(record)
+	record := NewQuorumRecord(sigs, signers, vote.Bytes(), record.NotarizationRecordType)
+	notarization, err := NotarizationFromRecord(record)
 	require.NoError(t, err)
-	require.Equal(t, sigs, sigs2)
-	require.Equal(t, signers, signers2)
-	require.Equal(t, vote, vote2)
+	require.Equal(t, vote, notarization.Vote)
+	require.Equal(t, sigs, [][]byte{notarization.AggregatedSignedVote.Signature})
+	require.Equal(t, signers, notarization.AggregatedSignedVote.Signers)
 }
 
 func FuzzNotarizationRecord(f *testing.F) {
@@ -131,11 +132,11 @@ func FuzzNotarizationRecord(f *testing.F) {
 			signers = append(signers, signer)
 		}
 
-		record := quorumRecord([][]byte{sig}, signers, vote.Bytes(), uint16(notarizationRecordType))
-		sigs2, signers2, vote2, err := notarizationFromRecord(record)
+		record := NewQuorumRecord([][]byte{sig}, signers, vote.Bytes(), record.NotarizationRecordType)
+		notarization, err := NotarizationFromRecord(record)
 		require.NoError(t, err)
-		require.Equal(t, [][]byte{sig}, sigs2)
-		require.Equal(t, signers, signers2)
-		require.Equal(t, vote, vote2)
+		require.Equal(t, vote, notarization.Vote)
+		require.Equal(t, [][]byte{sig}, [][]byte{notarization.AggregatedSignedVote.Signature})
+		require.Equal(t, signers, notarization.AggregatedSignedVote.Signers)
 	})
 }
