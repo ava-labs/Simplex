@@ -606,6 +606,25 @@ func (e *Epoch) handleBlockMessage(message *Message, _ NodeID) error {
 		return nil
 	}
 
+	// Check if we have verified this message in the past:
+	alreadyVerified := e.wasBlockAlreadyVerified(from, md)
+
+	if !alreadyVerified {
+		// Ensure the block was voted on by its block producer:
+
+		// 1) Verify block digest corresponds to the digest voted on
+		if !bytes.Equal(vote.Vote.Digest[:], md.Digest[:]) {
+			e.Logger.Debug("ToBeSignedVote digest mismatches block digest", zap.Stringer("voteDigest", vote.Vote.Digest),
+				zap.Stringer("blockDigest", md.Digest))
+			return nil
+		}
+		// 2) Verify the vote is properly signed
+		if err := vote.Vote.Verify(vote.Signature.Value, e.Verifier, vote.Signature.Signer); err != nil {
+			e.Logger.Debug("ToBeSignedVote verification failed", zap.Stringer("NodeID", vote.Signature.Signer), zap.Error(err))
+			return nil
+		}
+	}
+
 	// If this is a message from a more advanced round,
 	// only store it if it is up to `maxRoundWindow` ahead.
 	// TODO: test this
@@ -622,20 +641,6 @@ func (e *Epoch) handleBlockMessage(message *Message, _ NodeID) error {
 
 	if !e.verifyProposalIsPartOfOurChain(block) {
 		e.Logger.Debug("Got invalid block in a BlockMessage")
-		return nil
-	}
-
-	// Ensure the block was voted on by its block producer:
-
-	// 1) Verify block digest corresponds to the digest voted on
-	if !bytes.Equal(vote.Vote.Digest[:], md.Digest[:]) {
-		e.Logger.Debug("ToBeSignedVote digest mismatches block digest", zap.Stringer("voteDigest", vote.Vote.Digest),
-			zap.Stringer("blockDigest", md.Digest))
-		return nil
-	}
-	// 2) Verify the vote is properly signed
-	if err := vote.Vote.Verify(vote.Signature.Value, e.Verifier, vote.Signature.Signer); err != nil {
-		e.Logger.Debug("ToBeSignedVote verification failed", zap.Stringer("NodeID", vote.Signature.Signer), zap.Error(err))
 		return nil
 	}
 
@@ -661,6 +666,16 @@ func (e *Epoch) handleBlockMessage(message *Message, _ NodeID) error {
 	e.WAL.Append(record)
 
 	return e.doProposed(block, vote)
+}
+
+func (e *Epoch) wasBlockAlreadyVerified(from NodeID, md BlockHeader) bool {
+	var alreadyVerified bool
+	msgsForRound, exists := e.futureMessages[string(from)][md.Round]
+	if exists && msgsForRound.proposal != nil {
+		bh := msgsForRound.proposal.BlockMessage.Block.BlockHeader()
+		alreadyVerified = bh.Equals(&md)
+	}
+	return alreadyVerified
 }
 
 func (e *Epoch) verifyProposalIsPartOfOurChain(block Block) bool {
@@ -942,13 +957,22 @@ func (e *Epoch) storeNotarization(notarization Notarization) error {
 func (e *Epoch) maybeLoadFutureMessages(round uint64) {
 	for from, messagesFromNode := range e.futureMessages {
 		if msgs, exists := messagesFromNode[round]; exists {
-			e.handleVoteMessage(msgs.vote, NodeID(from))
-		}
-	}
+			if msgs.proposal != nil {
+				e.handleBlockMessage(msgs.proposal, NodeID(from))
+				msgs.proposal = nil
+			}
+			if msgs.vote != nil {
+				e.handleVoteMessage(msgs.vote, NodeID(from))
+				msgs.vote = nil
+			}
+			if msgs.finalization != nil {
+				e.handleFinalizationMessage(msgs.finalization, NodeID(from))
+				msgs.finalization = nil
+			}
 
-	for from, messagesFromNode := range e.futureMessages {
-		if msgs, exists := messagesFromNode[round]; exists {
-			e.handleFinalizationMessage(msgs.finalization, NodeID(from))
+			if msgs.proposal == nil && msgs.vote == nil && msgs.finalization == nil {
+				delete(messagesFromNode, round)
+			}
 		}
 	}
 }
