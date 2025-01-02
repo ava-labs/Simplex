@@ -19,7 +19,7 @@ import (
 func TestRecoverFromWALProposed(t *testing.T) {
 	l := makeLogger(t, 1)
 	bb := make(testBlockBuilder, 1)
-	wal := wal.NewMemWAL(t)
+	wal := newTestWAL(t)
 	storage := newInMemStorage()
 	ctx := context.Background()
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
@@ -95,6 +95,8 @@ func TestRecoverFromWALProposed(t *testing.T) {
 		for i := 1; i < quorum; i++ {
 			injectTestFinalization(t, e, block, nodes[i], conf.Signer)
 		}
+
+		storage.waitForBlockCommit(i)
 
 		committedData := storage.data[i].Block.Bytes()
 		require.Equal(t, block.Bytes(), committedData)
@@ -246,11 +248,12 @@ func TestWalCreatedProperly(t *testing.T) {
 	quorum := Quorum(len(nodes))
 	signatureAggregator := &testSignatureAggregator{}
 	qd := &testQCDeserializer{t: t}
+	wal := newTestWAL(t)
 	conf := EpochConfig{
 		Logger:              l,
 		ID:                  nodes[0],
 		Signer:              &testSigner{},
-		WAL:                 wal.NewMemWAL(t),
+		WAL:                 wal,
 		Verifier:            &testVerifier{},
 		Storage:             storage,
 		Comm:                noopComm(nodes),
@@ -271,6 +274,7 @@ func TestWalCreatedProperly(t *testing.T) {
 	require.NoError(t, e.Start())
 
 	// ensure a block record is written to the WAL
+	wal.assertWALSize(1)
 	records, err = e.WAL.ReadAll()
 	require.NoError(t, err)
 	require.Len(t, records, 1)
@@ -312,11 +316,12 @@ func TestWalWritesBlockRecord(t *testing.T) {
 	storage := newInMemStorage()
 	blockDeserializer := &blockDeserializer{}
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	wal := newTestWAL(t)
 	conf := EpochConfig{
 		Logger:              l,
 		ID:                  nodes[1], // nodes[1] is not the leader for the first round
 		Signer:              &testSigner{},
-		WAL:                 wal.NewMemWAL(t),
+		WAL:                 wal,
 		Verifier:            &testVerifier{},
 		Storage:             storage,
 		Comm:                noopComm(nodes),
@@ -356,6 +361,7 @@ func TestWalWritesBlockRecord(t *testing.T) {
 	require.NoError(t, err)
 
 	// ensure a block record is written to the WAL
+	wal.assertWALSize(1)
 	records, err = e.WAL.ReadAll()
 	require.NoError(t, err)
 	require.Len(t, records, 1)
@@ -371,11 +377,12 @@ func TestWalWritesFinalizationCert(t *testing.T) {
 	sigAggregrator := &testSignatureAggregator{}
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	quorum := Quorum(len(nodes))
+	wal := newTestWAL(t)
 	conf := EpochConfig{
 		Logger:              l,
 		ID:                  nodes[0],
 		Signer:              &testSigner{},
-		WAL:                 wal.NewMemWAL(t),
+		WAL:                 wal,
 		Verifier:            &testVerifier{},
 		Storage:             storage,
 		Comm:                noopComm(nodes),
@@ -430,6 +437,8 @@ func TestWalWritesFinalizationCert(t *testing.T) {
 	for i := 1; i < quorum; i++ {
 		injectTestVote(t, e, secondBlock, nodes[i], conf.Signer)
 	}
+
+	wal.assertWALSize(4)
 
 	records, err = e.WAL.ReadAll()
 	require.NoError(t, err)

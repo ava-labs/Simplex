@@ -46,7 +46,6 @@ func TestSimplexMultiNodeSimple(t *testing.T) {
 		for _, n := range instances {
 			n.ledger.waitForBlockCommit(uint64(seq))
 		}
-		bb.triggerNewBlock()
 	}
 }
 
@@ -145,6 +144,22 @@ func (tw *testWAL) Append(b []byte) error {
 	err := tw.WriteAheadLog.Append(b)
 	tw.signal.Signal()
 	return err
+}
+
+func (tw *testWAL) assertWALSize(n int) {
+	tw.lock.Lock()
+	defer tw.lock.Unlock()
+
+	for {
+		rawRecords, err := tw.WriteAheadLog.ReadAll()
+		require.NoError(tw.t, err)
+
+		if len(rawRecords) == n {
+			return
+		}
+
+		tw.signal.Wait()
+	}
 }
 
 func (tw *testWAL) assertNotarization(round uint64) {

@@ -81,7 +81,9 @@ func TestEpochSimpleFlow(t *testing.T) {
 			injectTestFinalization(t, e, block, nodes[i], conf.Signer)
 		}
 
-		committedData := storage.data[i].Block.Bytes()
+		storage.waitForBlockCommit(uint64(i))
+
+		committedData := storage.data[uint64(i)].Block.Bytes()
 		require.Equal(t, block.Bytes(), committedData)
 	}
 }
