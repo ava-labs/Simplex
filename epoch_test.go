@@ -21,7 +21,6 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-
 func TestEpochSimpleFlow(t *testing.T) {
 	l := makeLogger(t, 1)
 	bb := make(testBlockBuilder, 1)
@@ -29,7 +28,6 @@ func TestEpochSimpleFlow(t *testing.T) {
 
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	quorum := Quorum(len(nodes))
-
 	conf := EpochConfig{
 		Logger:              l,
 		ID:                  NodeID{1},
