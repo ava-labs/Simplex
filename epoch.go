@@ -412,7 +412,10 @@ func (e *Epoch) persistFinalizationCertificate(fCert FinalizationCertificate) er
 		}
 	} else {
 		recordBytes := quorumRecord(fCert.QC.Bytes(), fCert.Finalization.Bytes(), record.FinalizationRecordType)
-		e.WAL.Append(recordBytes)
+		if err := e.WAL.Append(recordBytes); err != nil {
+			e.Logger.Error("Failed to append finalization certificate record to WAL", zap.Error(err))
+			return err
+		}
 
 		e.Logger.Debug("Persisted finalization certificate to WAL",
 			zap.Int("size", len(recordBytes)),
@@ -501,7 +504,10 @@ func (e *Epoch) persistNotarization(notarization Notarization, vote ToBeSignedVo
 	notarizationMessage := &Message{Notarization: &notarization}
 	record := quorumRecord(notarization.QC.Bytes(), vote.Bytes(), record.NotarizationRecordType)
 
-	e.WAL.Append(record)
+	if err := e.WAL.Append(record); err != nil {
+		e.Logger.Error("Failed to append notarization record to WAL", zap.Error(err))
+		return err
+	}
 
 	e.Logger.Debug("Persisted notarization to WAL",
 		zap.Int("size", len(record)),
@@ -663,7 +669,10 @@ func (e *Epoch) handleBlockMessage(message *Message, _ NodeID) error {
 		return nil
 	}
 	record := blockRecord(md, block.Bytes())
-	e.WAL.Append(record)
+	if err := e.WAL.Append(record); err != nil {
+		e.Logger.Error("Failed appending block to WAL", zap.Error(err))
+		return err
+	}
 
 	return e.doProposed(block, vote)
 }
@@ -791,7 +800,10 @@ func (e *Epoch) proposeBlock() error {
 
 	rawBlock := block.Bytes()
 	record := blockRecord(block.BlockHeader(), rawBlock)
-	e.WAL.Append(record)
+	if err := e.WAL.Append(record); err != nil {
+		e.Logger.Error("Failed appending block to WAL", zap.Error(err))
+		return err
+	}
 	e.Logger.Debug("Wrote block to WAL",
 		zap.Uint64("round", md.Round),
 		zap.Int("size", len(rawBlock)),
