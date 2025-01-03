@@ -599,7 +599,7 @@ func (e *Epoch) handleBlockMessage(message *Message, _ NodeID) error {
 	}
 
 	// Check that the node is a leader for the round corresponding to the block.
-	if !leaderForRound(e.nodes, md.Round).Equals(from) {
+	if !LeaderForRound(e.nodes, md.Round).Equals(from) {
 		// The block is associated with a round in which the sender is not the leader,
 		// it should not be sending us any block at all.
 		e.Logger.Debug("Got block from a block proposer that is not the leader of the round", zap.Stringer("NodeID", from), zap.Uint64("round", md.Round))
@@ -843,7 +843,7 @@ func (e *Epoch) Metadata() ProtocolMetadata {
 }
 
 func (e *Epoch) startRound() error {
-	leaderForCurrentRound := leaderForRound(e.nodes, e.round)
+	leaderForCurrentRound := LeaderForRound(e.nodes, e.round)
 
 	if e.ID.Equals(leaderForCurrentRound) {
 		return e.proposeBlock()
@@ -1014,7 +1014,7 @@ func (e *Epoch) getHighestRound() *Round {
 	return e.rounds[max]
 }
 
-func leaderForRound(nodes []NodeID, r uint64) NodeID {
+func LeaderForRound(nodes []NodeID, r uint64) NodeID {
 	n := len(nodes)
 	return nodes[r%uint64(n)]
 }

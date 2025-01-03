@@ -27,6 +27,7 @@ func TestEpochSimpleFlow(t *testing.T) {
 	storage := newInMemStorage()
 
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	quorum := Quorum(len(nodes))
 	conf := EpochConfig{
 		Logger:              l,
 		ID:                  NodeID{1},
@@ -44,11 +45,13 @@ func TestEpochSimpleFlow(t *testing.T) {
 
 	require.NoError(t, e.Start())
 
-	for i := 0; i < 100; i++ {
-		leaderID := nodes[i%4]
-		shouldPropose := leaderID.Equals(NodeID{1})
-
-		if !shouldPropose {
+	rounds := uint64(100)
+	for i := uint64(0); i < rounds; i++ {
+		// leader is the proposer of the new block for the given round
+		leader := LeaderForRound(nodes, i)
+		// only create blocks if we are not the node running the epoch
+		isEpochNode := leader.Equals(e.ID)
+		if !isEpochNode {
 			md := e.Metadata()
 			_, ok := bb.BuildBlock(context.Background(), md)
 			require.True(t, ok)
@@ -56,31 +59,27 @@ func TestEpochSimpleFlow(t *testing.T) {
 
 		block := <-bb
 
-		if !shouldPropose {
-			vote := Vote{
-				Signature: Signature{
-					Signer: nodes[i%4],
-				},
-				Vote: ToBeSignedVote{
-					BlockHeader: block.BlockHeader(),
-				},
-			}
-			err := e.HandleMessage(&Message{
+		if !isEpochNode {
+			// send node a message from the leader
+			vote := newVote(block, leader)
+			e.HandleMessage(&Message{
 				BlockMessage: &BlockMessage{
-					Vote:  vote,
+					Vote:  *vote,
 					Block: block,
 				},
-			}, leaderID)
-			require.NoError(t, err)
+			}, leader)
 		}
 
-		injectVote(t, e, block, NodeID{2})
-		injectVote(t, e, block, NodeID{3})
+		// start at one since our node has already voted
+		for i := 1; i < quorum; i++ {
+			injectVote(t, e, block, nodes[i])
+		}
 
-		injectFinalization(t, e, block, NodeID{2})
-		injectFinalization(t, e, block, NodeID{3})
+		for i := 1; i < quorum; i++ {
+			injectFinalization(t, e, block, nodes[i])
+		}
 
-		committedData := storage.data[uint64(i)].Block.Bytes()
+		committedData := storage.data[i].Block.Bytes()
 		require.Equal(t, block.Bytes(), committedData)
 	}
 }
@@ -95,16 +94,20 @@ func makeLogger(t *testing.T, node int) *testLogger {
 	return l
 }
 
+func newVote(block *testBlock, id NodeID) *Vote {
+	return &Vote{
+		Signature: Signature{
+			Signer: id,
+		},
+		Vote: ToBeSignedVote{
+			BlockHeader: block.BlockHeader(),
+		},
+	}
+}
+
 func injectVote(t *testing.T, e *Epoch, block *testBlock, id NodeID) {
 	err := e.HandleMessage(&Message{
-		VoteMessage: &Vote{
-			Signature: Signature{
-				Signer: id,
-			},
-			Vote: ToBeSignedVote{
-				BlockHeader: block.BlockHeader(),
-			},
-		},
+		VoteMessage: newVote(block, id),
 	}, id)
 
 	require.NoError(t, err)
