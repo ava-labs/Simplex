@@ -6,17 +6,28 @@ package wal
 import (
 	"bytes"
 	"fmt"
+	"sync"
 )
 
-type InMemWAL bytes.Buffer
+type InMemWAL struct {
+	mu    sync.Mutex
+	buffer bytes.Buffer
+}
+
 
 func (wal *InMemWAL) Append(b []byte) error {
-	w := (*bytes.Buffer)(wal)
+	wal.mu.Lock()
+	defer wal.mu.Unlock()
+	
+	w := (*bytes.Buffer)(&wal.buffer)
 	return writeRecord(w, b)
 }
 
 func (wal *InMemWAL) ReadAll() ([][]byte, error) {
-	r := bytes.NewBuffer((*bytes.Buffer)(wal).Bytes())
+	wal.mu.Lock()
+	defer wal.mu.Unlock()
+
+	r := bytes.NewBuffer((*bytes.Buffer)(&wal.buffer).Bytes())
 	var res [][]byte
 	for r.Len() > 0 {
 		payload, _, err := readRecord(r, uint32(r.Len()))
