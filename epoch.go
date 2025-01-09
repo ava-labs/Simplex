@@ -6,9 +6,12 @@ package simplex
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"log"
 	"simplex/record"
+	"sync"
 	"time"
 
 	"go.uber.org/zap"
@@ -46,8 +49,6 @@ type EpochConfig struct {
 	Storage             Storage
 	WAL                 WriteAheadLog
 	BlockBuilder        BlockBuilder
-	Round               uint64
-	Seq                 uint64
 	Epoch               uint64
 	StartTime           time.Time
 }
@@ -55,6 +56,7 @@ type EpochConfig struct {
 type Epoch struct {
 	EpochConfig
 	// Runtime
+	lock               sync.Mutex
 	lastBlock          Block // latest block commited
 	canReceiveMessages bool
 	finishCtx          context.Context
@@ -83,10 +85,13 @@ func (e *Epoch) AdvanceTime(t time.Duration) {
 // HandleMessage notifies the engine about a reception of a message.
 func (e *Epoch) HandleMessage(msg *Message, from NodeID) error {
 	// Guard against receiving messages before we are ready to handle them.
+	e.lock.Lock()
 	if !e.canReceiveMessages {
+		e.lock.Unlock()
 		e.Logger.Warn("Cannot receive a message")
 		return nil
 	}
+	e.lock.Unlock()
 
 	// Guard against receiving messages from unknown nodes
 	_, known := e.eligibleNodeIDs[string(from)]
@@ -112,15 +117,9 @@ func (e *Epoch) HandleMessage(msg *Message, from NodeID) error {
 }
 
 func (e *Epoch) init() error {
-	// Only init receiving messages once you have initialized the data structures required for it.
-	defer func() {
-		e.canReceiveMessages = true
-	}()
-
 	e.finishCtx, e.finishFn = context.WithCancel(context.Background())
 	e.nodes = e.Comm.ListNodes()
 	e.quorumSize = Quorum(len(e.nodes))
-	e.round = e.Round
 	e.rounds = make(map[uint64]*Round)
 	e.maxRoundWindow = defaultMaxRoundWindow
 	e.eligibleNodeIDs = make(map[string]struct{}, len(e.nodes))
@@ -136,6 +135,10 @@ func (e *Epoch) init() error {
 	if err != nil {
 		return err
 	}
+	err = e.setMetadataFromStorage()
+	if err != nil {
+		return err
+	}
 
 	e.loadLastRound()
 	return nil
@@ -145,9 +148,153 @@ func (e *Epoch) Start() error {
 	return e.syncFromWal()
 }
 
-// syncFromWal init an epoch from the write ahead log.
+func (e *Epoch) syncBlockRecord(r []byte) error {
+	block, err := BlockFromRecord(e.BlockDeserializer, r)
+	if err != nil {
+		return err
+	}
+	b := e.storeProposal(block)
+	if !b {
+		return fmt.Errorf("failed to store block from WAL")
+	}
+	e.Logger.Info("Block Proposal Recovered From WAL", zap.Uint64("Round", block.BlockHeader().Round), zap.Bool("stored", b))
+	return nil
+}
+
+func (e *Epoch) syncNotarizationRecord(r []byte) error {
+	notarization, err := NotarizationFromRecord(r, e.QCDeserializer)
+	if err != nil {
+		return err
+	}
+	return e.storeNotarization(notarization)
+}
+
+func (e *Epoch) syncFinalizationRecord(r []byte) error {
+	fCert, err := FinalizationCertificateFromRecord(r, e.QCDeserializer)
+	if err != nil {
+		return err
+	}
+	round, ok := e.rounds[fCert.Finalization.Round]
+	if !ok {
+		return fmt.Errorf("round not found for finalization certificate")
+	}
+	round.fCert = &fCert
+	return nil
+}
+
+// resumeFromWal resumes the epoch from the records of the write ahead log.
+func (e *Epoch) resumeFromWal(records [][]byte) error {
+	// Only init receiving messages once you have initialized the data structures required for it.
+	defer func() {
+		e.lock.Lock()
+		e.canReceiveMessages = true
+		e.lock.Unlock()
+	}()
+	if len(records) == 0 {
+		return e.startRound()
+	}
+
+	lastRecord := records[len(records)-1]
+	recordType := binary.BigEndian.Uint16(lastRecord)
+	switch recordType {
+	case record.BlockRecordType:
+		block, err := BlockFromRecord(e.BlockDeserializer, lastRecord)
+		if err != nil {
+			return err
+		}
+		// TODO: handle block message will try to store the block, but we already stored so this will log a warning.
+		if e.ID.Equals(LeaderForRound(e.nodes, block.BlockHeader().Round)) {
+			vote, err := e.voteOnBlock(block)
+			if err != nil {
+				return err
+			}
+			proposal := Message{
+				BlockMessage: &BlockMessage{
+					Block: block,
+					Vote: Vote{
+						Vote: ToBeSignedVote{
+							BlockHeader: block.BlockHeader(),
+						},
+						Signature: Signature{
+							Signer: e.ID,
+						},
+					},
+				},
+			}
+			// broadcast only if we are the leader
+			e.Comm.Broadcast(&proposal)
+			return e.handleVoteMessage(&vote, e.ID)
+		}
+		// no need to do anything, just return and handle vote messages for this block
+		return nil
+	case record.NotarizationRecordType:
+		notarization, err := NotarizationFromRecord(lastRecord, e.QCDeserializer)
+		if err != nil {
+			return err
+		}
+		lastMessage := Message{Notarization: &notarization}
+		e.Comm.Broadcast(&lastMessage)
+		return e.doNotarized()
+	case record.FinalizationRecordType:
+		fCert, err := FinalizationCertificateFromRecord(lastRecord, e.QCDeserializer)
+		if err != nil {
+			return err
+		}
+		lastMessage := Message{FinalizationCertificate: &fCert}
+		e.Comm.Broadcast(&lastMessage)
+		return e.startRound()
+	default:
+		return errors.New("unknown record type")
+	}
+}
+
+func (e *Epoch) setMetadataFromStorage() error {
+	// load from storage if no notarization records
+	block, err := RetrieveLastBlockFromStorage(e.Storage)
+	if err != nil {
+		return err
+	}
+	if block == nil {
+		return nil
+	}
+
+	e.round = block.BlockHeader().Round + 1
+	e.Epoch = block.BlockHeader().Epoch
+	return nil
+}
+
+// syncFromWal initializes an epoch from the write ahead log.
 func (e *Epoch) syncFromWal() error {
-	return e.startRound()
+	records, err := e.WAL.ReadAll()
+	if err != nil {
+		return err
+	}
+	// set the round from the last before syncing from records
+	err = e.setMetadataFromStorage()
+
+	for _, r := range records {
+		if len(r) < 2 {
+			return fmt.Errorf("malformed record")
+		}
+		recordType := binary.BigEndian.Uint16(r)
+		switch recordType {
+		case record.BlockRecordType:
+			err = e.syncBlockRecord(r)
+		case record.NotarizationRecordType:
+			err = e.syncNotarizationRecord(r)
+		case record.FinalizationRecordType:
+			err = e.syncFinalizationRecord(r)
+		default:
+			log.Fatal("undefined record type")
+		}
+		if err != nil {
+			return err
+		}
+	}
+	if err != nil {
+		return err
+	}
+	return e.resumeFromWal(records)
 }
 
 // loadLastBlock initializes the epoch with the lastBlock retrieved from storage.
@@ -337,6 +484,28 @@ func (e *Epoch) maybeCollectFinalizationCertificate(round *Round) error {
 	return e.assembleFinalizationCertificate(round)
 }
 
+func (e *Epoch) NewFinalizationCertificate(finalizations []*Finalization) (FinalizationCertificate, error) {
+	voteCount := len(finalizations)
+
+	signatures := make([]Signature, 0, voteCount)
+	e.Logger.Info("Collected Quorum of votes", zap.Uint64("round", e.round), zap.Int("votes", voteCount))
+	for _, vote := range finalizations {
+		// TODO: ensure all finalizations agree on the same metadata!
+		e.Logger.Debug("Collected finalization from node", zap.Stringer("NodeID", vote.Signature.Signer))
+		signatures = append(signatures, vote.Signature)
+	}
+
+	var fCert FinalizationCertificate
+	var err error
+	fCert.Finalization = finalizations[0].Finalization
+	fCert.QC, err = e.SignatureAggregator.Aggregate(signatures)
+	if err != nil {
+		return FinalizationCertificate{}, fmt.Errorf("could not aggregate signatures for finalization certificate: %w", err)
+	}
+
+	return fCert, nil
+}
+
 func (e *Epoch) assembleFinalizationCertificate(round *Round) error {
 	// Divide finalizations into sets that agree on the same metadata
 	finalizationsByMD := make(map[string][]*Finalization)
@@ -360,28 +529,12 @@ func (e *Epoch) assembleFinalizationCertificate(round *Round) error {
 		return nil
 	}
 
-	finalization := finalizations[0]
-
-	voteCount := len(finalizations)
-
-	signatures := make([]Signature, 0, voteCount)
-	e.Logger.Info("Collected Quorum of votes", zap.Uint64("round", e.round), zap.Int("votes", voteCount))
-	for _, vote := range finalizations {
-		// TODO: ensure all finalizations agree on the same metadata!
-		e.Logger.Debug("Collected finalization from node", zap.Stringer("NodeID", vote.Signature.Signer))
-		signatures = append(signatures, vote.Signature)
-	}
-
-	var fCert FinalizationCertificate
-	var err error
-	fCert.Finalization = finalization.Finalization
-	fCert.QC, err = e.SignatureAggregator.Aggregate(signatures)
+	fCert, err := e.NewFinalizationCertificate(finalizations)
 	if err != nil {
-		return fmt.Errorf("could not aggregate signatures for finalization certificate: %w", err)
+		return err
 	}
 
 	round.fCert = &fCert
-
 	return e.persistFinalizationCertificate(fCert)
 }
 
@@ -391,6 +544,7 @@ func (e *Epoch) persistFinalizationCertificate(fCert FinalizationCertificate) er
 	nextSeqToCommit := e.Storage.Height()
 	if fCert.Finalization.Seq == nextSeqToCommit {
 		block := e.rounds[fCert.Finalization.Round].block
+		// TODO: also index future finalization certificates
 		e.Storage.Index(block, fCert)
 		e.Logger.Info("Committed block",
 			zap.Uint64("round", fCert.Finalization.Round),
@@ -408,7 +562,7 @@ func (e *Epoch) persistFinalizationCertificate(fCert FinalizationCertificate) er
 			delete(messagesFromNode, fCert.Finalization.Round)
 		}
 	} else {
-		recordBytes := quorumRecord(fCert.QC.Bytes(), fCert.Finalization.Bytes(), record.FinalizationRecordType)
+		recordBytes := NewQuorumRecord(fCert.QC.Bytes(), fCert.Finalization.Bytes(), record.FinalizationRecordType)
 		if err := e.WAL.Append(recordBytes); err != nil {
 			e.Logger.Error("Failed to append finalization certificate record to WAL", zap.Error(err))
 			return err
@@ -442,12 +596,12 @@ func (e *Epoch) maybeCollectNotarization() error {
 	// TODO: store votes before receiving the block
 
 	block := e.rounds[e.round].block
-	digestWeExpect := block.BlockHeader().Digest
+	expectedDigest := block.BlockHeader().Digest
 
 	// Ensure we have enough votes for the same digest
 	var voteCountForOurDigest int
 	for _, vote := range votesForCurrentRound {
-		if bytes.Equal(digestWeExpect[:], vote.Vote.Digest[:]) {
+		if bytes.Equal(expectedDigest[:], vote.Vote.Digest[:]) {
 			voteCountForOurDigest++
 		}
 	}
@@ -458,10 +612,15 @@ func (e *Epoch) maybeCollectNotarization() error {
 		return nil
 	}
 
-	return e.assembleNotarization(votesForCurrentRound, digestWeExpect)
+	notarization, err := e.NewNotarization(votesForCurrentRound, expectedDigest)
+	if err != nil {
+		return err
+	}
+
+	return e.persistNotarization(notarization)
 }
 
-func (e *Epoch) assembleNotarization(votesForCurrentRound map[string]*Vote, digest Digest) error {
+func (e *Epoch) NewNotarization(votesForCurrentRound map[string]*Vote, digest [metadataDigestLen]byte) (Notarization, error) {
 	vote := ToBeSignedVote{
 		BlockHeader{
 			ProtocolMetadata: ProtocolMetadata{
@@ -486,38 +645,35 @@ func (e *Epoch) assembleNotarization(votesForCurrentRound map[string]*Vote, dige
 	notarization.Vote = vote
 	notarization.QC, err = e.SignatureAggregator.Aggregate(signatures)
 	if err != nil {
-		return fmt.Errorf("could not aggregate signatures for notarization: %w", err)
+		return Notarization{}, fmt.Errorf("could not aggregate signatures for notarization: %w", err)
 	}
 
-	err = e.storeNotarization(notarization)
-	if err != nil {
-		return err
-	}
-
-	return e.persistNotarization(notarization)
+	return notarization, nil
 }
 
 func (e *Epoch) persistNotarization(notarization Notarization) error {
-	notarizationMessage := &Message{Notarization: &notarization}
-	record := quorumRecord(notarization.QC.Bytes(), notarization.Vote.Bytes(), record.NotarizationRecordType)
+	record := NewQuorumRecord(notarization.QC.Bytes(), notarization.Vote.Bytes(), record.NotarizationRecordType)
 
 	if err := e.WAL.Append(record); err != nil {
 		e.Logger.Error("Failed to append notarization record to WAL", zap.Error(err))
 		return err
 	}
-
 	e.Logger.Debug("Persisted notarization to WAL",
 		zap.Int("size", len(record)),
 		zap.Uint64("round", notarization.Vote.Round),
 		zap.Stringer("digest", notarization.Vote.BlockHeader.Digest))
 
+	err := e.storeNotarization(notarization)
+	if err != nil {
+		return err
+	}
+
+	notarizationMessage := &Message{Notarization: &notarization}
 	e.Comm.Broadcast(notarizationMessage)
 
 	e.Logger.Debug("Broadcast notarization",
 		zap.Uint64("round", notarization.Vote.Round),
 		zap.Stringer("digest", notarization.Vote.BlockHeader.Digest))
-
-	e.rounds[notarization.Vote.Round].notarization = &notarization
 
 	return e.doNotarized()
 }
@@ -595,10 +751,10 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, _ NodeID) error {
 	md := block.BlockHeader()
 
 	// Ignore block messages sent by us
-	if e.ID.Equals(from) {
-		e.Logger.Debug("Got a BlockMessage from ourselves or created by us")
-		return nil
-	}
+	// if e.ID.Equals(from) {
+	// 	e.Logger.Debug("Got a BlockMessage from ourselves or created by us")
+	// 	return nil
+	// }
 
 	// Check that the node is a leader for the round corresponding to the block.
 	if !LeaderForRound(e.nodes, md.Round).Equals(from) {
@@ -664,7 +820,7 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, _ NodeID) error {
 		e.Logger.Debug("Failed verifying block", zap.Error(err))
 		return nil
 	}
-	record := blockRecord(md, block.Bytes())
+	record := BlockRecord(md, block.Bytes())
 	if err := e.WAL.Append(record); err != nil {
 		e.Logger.Error("Failed appending block to WAL", zap.Error(err))
 		return err
@@ -795,7 +951,7 @@ func (e *Epoch) proposeBlock() error {
 	// if we crash during broadcasting, we know what we sent.
 
 	rawBlock := block.Bytes()
-	record := blockRecord(block.BlockHeader(), rawBlock)
+	record := BlockRecord(block.BlockHeader(), rawBlock)
 	if err := e.WAL.Append(record); err != nil {
 		e.Logger.Error("Failed appending block to WAL", zap.Error(err))
 		return err
@@ -951,11 +1107,12 @@ func (e *Epoch) doNotarized() error {
 	return errors.Join(err1, err2)
 }
 
+// stores a notarization in the epoch's memory.
 func (e *Epoch) storeNotarization(notarization Notarization) error {
 	round := notarization.Vote.Round
 	r, exists := e.rounds[round]
 	if !exists {
-		fmt.Errorf("attempted to store notarization of a non existent round %d", round)
+		return fmt.Errorf("attempted to store notarization of a non existent round %d", round)
 	}
 
 	r.notarization = &notarization
@@ -985,6 +1142,8 @@ func (e *Epoch) maybeLoadFutureMessages(round uint64) {
 	}
 }
 
+// storeProposal stores a block in the epochs memory(NOT storage).
+// it creates a new round with the block and stores it in the rounds map.
 func (e *Epoch) storeProposal(block Block) bool {
 	md := block.BlockHeader()
 
@@ -1008,7 +1167,6 @@ func (e *Epoch) storeProposal(block Block) bool {
 	// We might have received votes and finalizations from future rounds before we received this block.
 	// So load the messages into our round data structure now that we have created it.
 	e.maybeLoadFutureMessages(md.Round)
-
 	return true
 }
 

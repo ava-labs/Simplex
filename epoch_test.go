@@ -12,6 +12,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	. "simplex"
+	"simplex/record"
 	"simplex/wal"
 	"sync"
 	"testing"
@@ -30,7 +31,7 @@ func TestEpochSimpleFlow(t *testing.T) {
 	quorum := Quorum(len(nodes))
 	conf := EpochConfig{
 		Logger:              l,
-		ID:                  NodeID{1},
+		ID:                  nodes[0],
 		Signer:              &testSigner{},
 		WAL:                 &wal.InMemWAL{},
 		Verifier:            &testVerifier{},
@@ -61,7 +62,8 @@ func TestEpochSimpleFlow(t *testing.T) {
 
 		if !isEpochNode {
 			// send node a message from the leader
-			vote := newVote(block, leader)
+			vote, err := newVote(block, leader, conf.Signer)
+			require.NoError(t, err)
 			e.HandleMessage(&Message{
 				BlockMessage: &BlockMessage{
 					Vote:  *vote,
@@ -72,7 +74,7 @@ func TestEpochSimpleFlow(t *testing.T) {
 
 		// start at one since our node has already voted
 		for i := 1; i < quorum; i++ {
-			injectVote(t, e, block, nodes[i])
+			injectVote(t, e, block, nodes[i], conf.Signer)
 		}
 
 		for i := 1; i < quorum; i++ {
@@ -84,46 +86,466 @@ func TestEpochSimpleFlow(t *testing.T) {
 	}
 }
 
+// TestRecoverFromWALProposed tests that the epoch can recover from
+// a wal with a single block record written to it(that we have proposed).
+func TestRecoverFromWALProposed(t *testing.T) {
+	l := makeLogger(t, 1)
+	bb := make(testBlockBuilder, 1)
+	wal := &wal.InMemWAL{}
+	storage := newInMemStorage()
+	ctx := context.Background()
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	quorum := Quorum(len(nodes))
+
+	conf := EpochConfig{
+		Logger:              l,
+		ID:                  nodes[0],
+		Signer:              &testSigner{},
+		WAL:                 wal,
+		Verifier:            &testVerifier{},
+		Storage:             storage,
+		Comm:                noopComm(nodes),
+		BlockBuilder:        bb,
+		SignatureAggregator: &testSignatureAggregator{},
+		BlockDeserializer:   &blockDeserializer{},
+		QCDeserializer:      &testQCDeserializer{t: t},
+	}
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+
+	// seems like we duplicate the block metadata here
+	protocolMetadata := e.Metadata()
+	firstBlock, ok := bb.BuildBlock(ctx, protocolMetadata)
+	require.True(t, ok)
+	record := BlockRecord(firstBlock.BlockHeader(), firstBlock.Bytes())
+
+	// write block record to wal
+	wal.Append(record)
+
+	records, err := wal.ReadAll()
+	require.NoError(t, err)
+	require.Len(t, records, 1)
+	require.Equal(t, record, records[0])
+
+	err = e.Start()
+	require.NoError(t, err)
+
+	rounds := uint64(100)
+	for i := uint64(0); i < rounds; i++ {
+		leader := LeaderForRound(nodes, uint64(i))
+		isEpochNode := leader.Equals(e.ID)
+		if !isEpochNode {
+			md := e.Metadata()
+			_, ok := bb.BuildBlock(context.Background(), md)
+			require.True(t, ok)
+		}
+
+		block := <-bb
+		if rounds == 0 {
+			require.Equal(t, firstBlock, block)
+		}
+
+		if !isEpochNode {
+			// send node a message from the leader
+			vote, err := newVote(block, leader, conf.Signer)
+			require.NoError(t, err)
+			e.HandleMessage(&Message{
+				BlockMessage: &BlockMessage{
+					Vote:  *vote,
+					Block: block,
+				},
+			}, leader)
+		}
+
+		// start at one since our node has already voted
+		for i := 1; i < quorum; i++ {
+			injectVote(t, e, block, nodes[i], conf.Signer)
+		}
+
+		for i := 1; i < quorum; i++ {
+			injectFinalization(t, e, block, nodes[i])
+		}
+
+		committedData := storage.data[i].Block.Bytes()
+		require.Equal(t, block.Bytes(), committedData)
+	}
+
+	require.Equal(t, rounds, e.Storage.Height())
+}
+
+// TestRecoverFromWALNotarized tests that the epoch can recover from a wal
+// with a block record written to it, and a notarization record.
+func TestRecoverFromNotarization(t *testing.T) {
+	l := makeLogger(t, 1)
+	bb := make(testBlockBuilder, 1)
+	wal := &wal.InMemWAL{}
+	storage := newInMemStorage()
+	ctx := context.Background()
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	quorum := Quorum(len(nodes))
+	sigAggregrator := &testSignatureAggregator{}
+	conf := EpochConfig{
+		Logger:              l,
+		ID:                  nodes[0],
+		Signer:              &testSigner{},
+		WAL:                 wal,
+		Verifier:            &testVerifier{},
+		Storage:             storage,
+		Comm:                noopComm(nodes),
+		BlockBuilder:        bb,
+		SignatureAggregator: sigAggregrator,
+		BlockDeserializer:   &blockDeserializer{},
+		QCDeserializer:      &testQCDeserializer{t: t},
+	}
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+
+	protocolMetadata := e.Metadata()
+	block, ok := bb.BuildBlock(ctx, protocolMetadata)
+	require.True(t, ok)
+	record := BlockRecord(block.BlockHeader(), block.Bytes())
+
+	// write block record to wal
+	wal.Append(record)
+
+	// lets add some notarizations
+	notarizationRecord, err := newNotarizationRecord(sigAggregrator, block, nodes[0:quorum], conf.Signer)
+	require.NoError(t, err)
+
+	// when we start this we should kickoff the finalization process by broadcasting a finalization message and then waiting for incoming finalization messages
+	wal.Append(notarizationRecord)
+
+	records, err := wal.ReadAll()
+	require.NoError(t, err)
+	require.Len(t, records, 2)
+	require.Equal(t, record, records[0])
+	require.Equal(t, notarizationRecord, records[1])
+
+	require.Equal(t, uint64(0), e.Metadata().Round)
+	err = e.Start()
+	require.NoError(t, err)
+
+	// require the round was incremented(notarization increases round)
+	require.Equal(t, uint64(1), e.Metadata().Round)
+
+	// type assert block to testBlock
+	testBlock := block.(*testBlock)
+	for i := 1; i < quorum; i++ {
+		injectFinalization(t, e, testBlock, nodes[i])
+	}
+
+	committedData := storage.data[0].Block.Bytes()
+	require.Equal(t, block.Bytes(), committedData)
+	require.Equal(t, uint64(1), e.Storage.Height())
+}
+
+// TestRecoverFromWALFinalized tests that the epoch can recover from a wal
+// with a block already stored in the storage
+func TestRecoverFromWalWithStorage(t *testing.T) {
+	l := makeLogger(t, 1)
+	bb := make(testBlockBuilder, 1)
+	wal := &wal.InMemWAL{}
+	storage := newInMemStorage()
+	ctx := context.Background()
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	quorum := Quorum(len(nodes))
+	sigAggregrator := &testSignatureAggregator{}
+	conf := EpochConfig{
+		Logger:              l,
+		ID:                  nodes[0],
+		Signer:              &testSigner{},
+		WAL:                 wal,
+		Verifier:            &testVerifier{},
+		Storage:             storage,
+		Comm:                noopComm(nodes),
+		BlockBuilder:        bb,
+		SignatureAggregator: sigAggregrator,
+		BlockDeserializer:   &blockDeserializer{},
+		QCDeserializer:      &testQCDeserializer{t: t},
+	}
+
+	storage.Index(newTestBlock(ProtocolMetadata{Seq: 0, Round: 0, Epoch: 0}), FinalizationCertificate{})
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	require.Equal(t, uint64(1), e.Metadata().Round)
+
+	protocolMetadata := e.Metadata()
+	block, ok := bb.BuildBlock(ctx, protocolMetadata)
+	require.True(t, ok)
+	record := BlockRecord(block.BlockHeader(), block.Bytes())
+
+	// write block record to wal
+	wal.Append(record)
+
+	// lets add some notarizations
+	notarizationRecord, err := newNotarizationRecord(sigAggregrator, block, nodes[0:quorum], conf.Signer)
+	require.NoError(t, err)
+
+	wal.Append(notarizationRecord)
+
+	records, err := wal.ReadAll()
+	require.NoError(t, err)
+	require.Len(t, records, 2)
+	require.Equal(t, record, records[0])
+	require.Equal(t, notarizationRecord, records[1])
+
+	err = e.Start()
+	require.NoError(t, err)
+
+	// require the round was incremented(notarization increases round)
+	require.Equal(t, uint64(2), e.Metadata().Round)
+
+	testBlock := block.(*testBlock)
+	for i := 1; i < quorum; i++ {
+		// type assert block to testBlock
+		injectFinalization(t, e, testBlock, nodes[i])
+	}
+
+	committedData := storage.data[1].Block.Bytes()
+	require.Equal(t, block.Bytes(), committedData)
+	require.Equal(t, uint64(2), e.Storage.Height())
+}
+
+// TestWalCreated tests that the epoch correctly writes to the WAL
+func TestWalCreatedProperly(t *testing.T) {
+	l := makeLogger(t, 1)
+	bb := make(testBlockBuilder, 1)
+	storage := newInMemStorage()
+
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	quorum := Quorum(len(nodes))
+	signatureAggregator := &testSignatureAggregator{}
+	qd := &testQCDeserializer{t: t}
+	conf := EpochConfig{
+		Logger:              l,
+		ID:                  nodes[0],
+		Signer:              &testSigner{},
+		WAL:                 &wal.InMemWAL{},
+		Verifier:            &testVerifier{},
+		Storage:             storage,
+		Comm:                noopComm(nodes),
+		BlockBuilder:        bb,
+		SignatureAggregator: signatureAggregator,
+		QCDeserializer:      qd,
+	}
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+
+	// ensure no records are written to the WAL
+	records, err := e.WAL.ReadAll()
+	require.NoError(t, err)
+	require.Len(t, records, 0)
+
+	require.NoError(t, e.Start())
+
+	// ensure a block record is written to the WAL
+	records, err = e.WAL.ReadAll()
+	require.NoError(t, err)
+	require.Len(t, records, 1)
+	recordType := binary.BigEndian.Uint16(records[0])
+	require.Equal(t, recordType, record.BlockRecordType)
+
+	block := <-bb
+	// start at one since our node has already voted
+	for i := 1; i < quorum; i++ {
+		injectVote(t, e, block, nodes[i], conf.Signer)
+	}
+
+	records, err = e.WAL.ReadAll()
+	require.NoError(t, err)
+	require.Len(t, records, 2)
+	// expectedNotarizationRecord, err := newNotarizationRecord(signatureAggregator, block, nodes[0:quorum], conf.Signer)
+	// require.NoError(t, err)
+	// require.Equal(t, expectedNotarizationRecord, records[1])
+
+	for i := 1; i < quorum; i++ {
+		injectFinalization(t, e, block, nodes[i])
+	}
+
+	// we do not append the finalization record to the WAL if it for the next expected sequence
+	records, err = e.WAL.ReadAll()
+	require.NoError(t, err)
+	require.Len(t, records, 2)
+
+	committedData := storage.data[0].Block.Bytes()
+	require.Equal(t, block.Bytes(), committedData)
+}
+
+// TestWalWritesBlockRecord tests that the epoch correctly writes to the WAL
+// a block proposed by a node other than the epoch node
+func TestWalWritesBlockRecord(t *testing.T) {
+	l := makeLogger(t, 1)
+	bb := make(testBlockBuilder, 1)
+	storage := newInMemStorage()
+	blockDeserializer := &blockDeserializer{}
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	conf := EpochConfig{
+		Logger:              l,
+		ID:                  nodes[1], // nodes[1] is not the leader for the first round
+		Signer:              &testSigner{},
+		WAL:                 &wal.InMemWAL{},
+		Verifier:            &testVerifier{},
+		Storage:             storage,
+		Comm:                noopComm(nodes),
+		BlockBuilder:        bb,
+		SignatureAggregator: &testSignatureAggregator{},
+		BlockDeserializer:   blockDeserializer,
+	}
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+
+	// ensure no records are written to the WAL
+	records, err := e.WAL.ReadAll()
+	require.NoError(t, err)
+	require.Len(t, records, 0)
+
+	require.NoError(t, e.Start())
+	// ensure no records are written to the WAL
+	records, err = e.WAL.ReadAll()
+	require.NoError(t, err)
+	require.Len(t, records, 0)
+
+	md := e.Metadata()
+	_, ok := bb.BuildBlock(context.Background(), md)
+	require.True(t, ok)
+
+	block := <-bb
+	// send epoch node this block
+	vote, err := newVote(block, nodes[0], &testSigner{})
+	require.NoError(t, err)
+	e.HandleMessage(&Message{
+		BlockMessage: &BlockMessage{
+			Vote:  *vote,
+			Block: block,
+		},
+	}, nodes[0])
+
+	// ensure a block record is written to the WAL
+	records, err = e.WAL.ReadAll()
+	require.NoError(t, err)
+	require.Len(t, records, 1)
+	blockFromWal, err := BlockFromRecord(blockDeserializer, records[0])
+	require.NoError(t, err)
+	require.Equal(t, block, blockFromWal)
+}
+
+// TestWalCreated tests that the epoch correctly writes to the WAL
+func TestWalWritesFinalizationCert(t *testing.T) {
+	l := makeLogger(t, 1)
+	bb := make(testBlockBuilder, 1)
+	storage := newInMemStorage()
+	sigAggregrator := &testSignatureAggregator{}
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	conf := EpochConfig{
+		Logger:              l,
+		ID:                  nodes[1],
+		Signer:              &testSigner{},
+		WAL:                 &wal.InMemWAL{},
+		Verifier:            &testVerifier{},
+		Storage:             storage,
+		Comm:                noopComm(nodes),
+		BlockBuilder:        bb,
+		SignatureAggregator: sigAggregrator,
+	}
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+
+	// ensure no records are written to the WAL
+	records, err := e.WAL.ReadAll()
+	require.NoError(t, err)
+	require.Len(t, records, 0)
+
+	require.NoError(t, e.Start())
+
+	md := e.Metadata()
+	_, ok := bb.BuildBlock(context.Background(), md)
+	require.True(t, ok)
+	block := <-bb
+
+	md2 := md
+	md2.Seq = 1
+	md2.Round = 1
+	md2.Prev = block.BlockHeader().Digest
+	_, ok = bb.BuildBlock(context.Background(), md2)
+	require.True(t, ok)
+	secondBlock := <-bb
+
+	// create the finalization cert for round 2
+	fCert, _, err := newFinalizationRecord(sigAggregrator, secondBlock, nodes[1:])
+	require.NoError(t, err)
+	// send the fcert message
+	fCertMessage := &Message{FinalizationCertificate: &fCert}
+	e.HandleMessage(fCertMessage, nodes[1])
+
+	// TODO: uncomment when https://github.com/ava-labs/Simplex/pull/38 is merged
+	// cannot check here since we currently do not accept fCerts from rounds we do not know
+	// ensure a finalization cert is written to the WAL
+	// records, err = e.WAL.ReadAll()
+	// require.NoError(t, err)
+	// require.Len(t, records, 1)
+	// require.Equal(t, recordBytes, records[0])
+}
+
+// TestRecoverFromMultipleRounds tests that the epoch can recover from a wal with multiple rounds written to it
+func TestRecoverFromMultipleRounds(t *testing.T) {
+	// TODO: implement once rounds are properly incremented(receiving a fCert should increment the round
+}
+
 func makeLogger(t *testing.T, node int) *testLogger {
 	logger, err := zap.NewDevelopment(zap.AddCallerSkip(1))
 	require.NoError(t, err)
 
 	logger = logger.With(zap.Int("node", node))
-
 	l := &testLogger{Logger: logger}
 	return l
 }
 
-func newVote(block *testBlock, id NodeID) *Vote {
+func newVote(block *testBlock, id NodeID, signer Signer) (*Vote, error) {
+	vote := ToBeSignedVote{
+		BlockHeader: block.BlockHeader(),
+	}
+	sig, err := vote.Sign(signer)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Vote{
 		Signature: Signature{
 			Signer: id,
+			Value:  sig,
 		},
-		Vote: ToBeSignedVote{
+		Vote: vote,
+	}, nil
+}
+
+func injectVote(t *testing.T, e *Epoch, block *testBlock, id NodeID, signer Signer) {
+	vote, err := newVote(block, id, signer)
+	require.NoError(t, err)
+	err = e.HandleMessage(&Message{
+		VoteMessage: vote,
+	}, id)
+	require.NoError(t, err)
+}
+
+func newFinalization(block *testBlock, id NodeID) *Finalization {
+	return &Finalization{
+		Signature: Signature{
+			Signer: id,
+		},
+		Finalization: ToBeSignedFinalization{
 			BlockHeader: block.BlockHeader(),
 		},
 	}
 }
 
-func injectVote(t *testing.T, e *Epoch, block *testBlock, id NodeID) {
-	err := e.HandleMessage(&Message{
-		VoteMessage: newVote(block, id),
-	}, id)
-
-	require.NoError(t, err)
-}
-
 func injectFinalization(t *testing.T, e *Epoch, block *testBlock, id NodeID) {
-	md := block.BlockHeader()
 	err := e.HandleMessage(&Message{
-		Finalization: &Finalization{
-			Signature: Signature{
-				Signer: id,
-			},
-			Finalization: ToBeSignedFinalization{
-				BlockHeader: md,
-			},
-		},
+		Finalization: newFinalization(block, id),
 	}, id)
 	require.NoError(t, err)
 }
@@ -216,6 +638,7 @@ func (n noopComm) Broadcast(msg *Message) {
 
 type testBlockBuilder chan *testBlock
 
+// BuildBlock builds a new testblock and sends it to the BlockBuilder channel
 func (t testBlockBuilder) BuildBlock(_ context.Context, metadata ProtocolMetadata) (Block, bool) {
 	tb := newTestBlock(metadata)
 

@@ -29,10 +29,9 @@ func TestBlockRecord(t *testing.T) {
 	require.NoError(t, err)
 
 	payload := []byte{11, 12, 13, 14, 15, 16}
+	record := BlockRecord(bh, payload)
 
-	record := blockRecord(bh, payload)
-
-	md2, payload2, err := blockFromRecord(record)
+	md2, payload2, err := ParseBlockRecord(record)
 	require.NoError(t, err)
 
 	require.Equal(t, bh, md2)
@@ -53,10 +52,9 @@ func FuzzBlockRecord(f *testing.F) {
 			},
 			Digest: digest,
 		}
+		record := BlockRecord(bh, payload)
 
-		record := blockRecord(bh, payload)
-
-		md2, payload2, err := blockFromRecord(record)
+		md2, payload2, err := ParseBlockRecord(record)
 		require.NoError(t, err)
 
 		require.Equal(t, bh, md2)
@@ -86,8 +84,8 @@ func TestNotarizationRecord(t *testing.T) {
 	_, err = rand.Read(vote.Prev[:])
 	require.NoError(t, err)
 
-	record := quorumRecord([]byte{1, 2, 3}, vote.Bytes(), record.NotarizationRecordType)
-	qc, vote2, err := NotarizationFromRecord(record)
+	record := NewQuorumRecord([]byte{1, 2, 3}, vote.Bytes(), record.NotarizationRecordType)
+	qc, vote2, err := ParseNotarizationRecord(record)
 	require.NoError(t, err)
 	require.Equal(t, []byte{1, 2, 3}, qc)
 	require.Equal(t, vote, vote2)
@@ -116,8 +114,8 @@ func FuzzNotarizationRecord(f *testing.F) {
 			signers = append(signers, signer)
 		}
 
-		record := quorumRecord([]byte{1, 2, 3}, vote.Bytes(), record.NotarizationRecordType)
-		qc, vote2, err := NotarizationFromRecord(record)
+		record := NewQuorumRecord([]byte{1, 2, 3}, vote.Bytes(), record.NotarizationRecordType)
+		qc, vote2, err := ParseNotarizationRecord(record)
 		require.NoError(t, err)
 		require.Equal(t, []byte{1, 2, 3}, qc)
 		require.Equal(t, vote, vote2)

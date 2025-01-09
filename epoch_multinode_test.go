@@ -31,9 +31,10 @@ func TestSimplexMultiNodeSimple(t *testing.T) {
 
 	instances := []*testInstance{n1, n2, n3, n4}
 
-	for _, n := range instances {
+	for _, n := range instances[1:] {
 		n.start()
 	}
+	instances[0].start()
 
 	for seq := 0; seq < 10; seq++ {
 		for _, n := range instances {
@@ -117,7 +118,7 @@ func (t *testInstance) assertNotarization(round uint64) {
 
 		for _, rawRecord := range rawRecords {
 			if binary.BigEndian.Uint16(rawRecord[:2]) == record.NotarizationRecordType {
-				_, vote, err := NotarizationFromRecord(rawRecord)
+				_, vote, err := ParseNotarizationRecord(rawRecord)
 				require.NoError(t.t, err)
 
 				if vote.Round == round {
