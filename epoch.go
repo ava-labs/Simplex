@@ -228,7 +228,7 @@ func (e *Epoch) resumeFromWal(records [][]byte) error {
 		}
 		lastMessage := Message{Notarization: &notarization}
 		e.Comm.Broadcast(&lastMessage)
-		return e.doNotarized()
+		return e.doNotarized(e.rounds[e.round -1].block)
 	case record.FinalizationRecordType:
 		fCert, err := FinalizationCertificateFromRecord(lastRecord, e.QCDeserializer)
 		if err != nil {
@@ -687,8 +687,9 @@ func (e *Epoch) persistNotarization(notarization Notarization) error {
 		zap.Uint64("round", notarization.Vote.Round),
 		zap.Stringer("digest", notarization.Vote.BlockHeader.Digest))
 
+	round := e.rounds[e.round]
 	e.increaseRound()
-	return e.doNotarized()
+	return e.doNotarized(round.block)
 }
 
 func (e *Epoch) handleNotarizationMessage(message *Notarization, from NodeID) error {
@@ -1084,9 +1085,8 @@ func (e *Epoch) increaseRound() {
 	e.round++
 }
 
-func (e *Epoch) doNotarized() error {
-	round := e.rounds[e.round]
-	block := round.block
+func (e *Epoch) doNotarized(block Block) error {
+	// block := round.block
 
 	md := block.BlockHeader()
 
