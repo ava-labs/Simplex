@@ -349,7 +349,7 @@ func TestWalCreatedProperly(t *testing.T) {
 	require.NoError(t, err)
 	block := <-bb
 	require.Equal(t, blockFromWal, block)
-	
+
 	// start at one since our node has already voted
 	for i := 1; i < quorum; i++ {
 		injectVote(t, e, block, nodes[i], conf.Signer)
@@ -494,7 +494,13 @@ func TestWalWritesFinalizationCert(t *testing.T) {
 
 // TestRecoverFromMultipleRounds tests that the epoch can recover from a wal with multiple rounds written to it
 func TestRecoverFromMultipleRounds(t *testing.T) {
-	// TODO: implement once rounds are properly incremented(receiving a fCert should increment the round
+	// we are going to write a block + notarization + finalization + block to the WAL
+
+}
+
+// TestRecoveryOutOfOrder tests that the epoch can recover from a wal with out of order records
+// block -> notarization -> notarization round 2 ->
+func TestRecoveryFromWalOutOfOrder(t *testing.T) {
 }
 
 func makeLogger(t *testing.T, node int) *testLogger {

@@ -166,6 +166,8 @@ func (e *Epoch) syncNotarizationRecord(r []byte) error {
 	if err != nil {
 		return err
 	}
+
+	e.increaseRound()
 	return e.storeNotarization(notarization)
 }
 
@@ -190,6 +192,13 @@ func (e *Epoch) resumeFromWal(records [][]byte) error {
 
 	lastRecord := records[len(records)-1]
 	recordType := binary.BigEndian.Uint16(lastRecord)
+
+	// set the round from the last before syncing from records
+	err := e.setMetadataFromRecords(records)
+	if err != nil {
+		return err
+	}
+
 	switch recordType {
 	case record.BlockRecordType:
 		block, err := BlockFromRecord(e.BlockDeserializer, lastRecord)
@@ -220,6 +229,8 @@ func (e *Epoch) resumeFromWal(records [][]byte) error {
 		}
 		lastMessage := Message{Notarization: &notarization}
 		e.Comm.Broadcast(&lastMessage)
+		// decrease the round by one to account for the increase in the increaseRound function
+		e.round--
 		return e.doNotarized()
 	case record.FinalizationRecordType:
 		fCert, err := FinalizationCertificateFromRecord(lastRecord, e.QCDeserializer)
@@ -249,14 +260,30 @@ func (e *Epoch) setMetadataFromStorage() error {
 	return nil
 }
 
+func (e *Epoch) setMetadataFromRecords(records [][]byte) error {
+	// iterate through records to find the last notarization record
+	for i := len(records) - 1; i >= 0; i-- {
+		recordType := binary.BigEndian.Uint16(records[i])
+		if recordType == record.NotarizationRecordType {
+			notarization, err := NotarizationFromRecord(records[i], e.QCDeserializer)
+			if err != nil {
+				return err
+			}
+			e.round = notarization.Vote.Round + 1
+			e.Epoch = notarization.Vote.BlockHeader.Epoch
+			return nil
+		}
+	}
+
+	return nil
+}
+
 // syncFromWal initializes an epoch from the write ahead log.
 func (e *Epoch) syncFromWal() error {
 	records, err := e.WAL.ReadAll()
 	if err != nil {
 		return err
 	}
-	// set the round from the last before syncing from records
-	err = e.setMetadataFromStorage()
 
 	for _, r := range records {
 		if len(r) < 2 {
