@@ -541,7 +541,6 @@ func TestRecoverFromMultipleRounds(t *testing.T) {
 	require.Equal(t, firstBlock.Bytes(), storage.data[0].Block.Bytes())
 }
 
-
 // TestRecoverFromMultipleRounds tests that the epoch can recover from a wal with multiple rounds written to it.
 func TestRecoverFromMultipleNotarizations(t *testing.T) {
 	l := makeLogger(t, 1)
@@ -605,7 +604,6 @@ func TestRecoverFromMultipleNotarizations(t *testing.T) {
 	committedData := storage.data[0].Block.Bytes()
 	require.Equal(t, firstBlock.Bytes(), committedData)
 }
-
 
 // TestRecoveryOutOfOrder tests that the epoch can recover from a wal with out of order records
 // block -> notarization -> notarization round 2 ->

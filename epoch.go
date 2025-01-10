@@ -228,7 +228,7 @@ func (e *Epoch) resumeFromWal(records [][]byte) error {
 		}
 		lastMessage := Message{Notarization: &notarization}
 		e.Comm.Broadcast(&lastMessage)
-		return e.doNotarized(e.rounds[e.round -1].block)
+		return e.doNotarized(e.rounds[e.round-1].block)
 	case record.FinalizationRecordType:
 		fCert, err := FinalizationCertificateFromRecord(lastRecord, e.QCDeserializer)
 		if err != nil {
