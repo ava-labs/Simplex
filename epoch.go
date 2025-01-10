@@ -86,12 +86,11 @@ func (e *Epoch) AdvanceTime(t time.Duration) {
 func (e *Epoch) HandleMessage(msg *Message, from NodeID) error {
 	// Guard against receiving messages before we are ready to handle them.
 	e.lock.Lock()
+	defer e.lock.Unlock()
 	if !e.canReceiveMessages {
-		e.lock.Unlock()
 		e.Logger.Warn("Cannot receive a message")
 		return nil
 	}
-	e.lock.Unlock()
 
 	// Guard against receiving messages from unknown nodes
 	_, known := e.eligibleNodeIDs[string(from)]
@@ -145,6 +144,12 @@ func (e *Epoch) init() error {
 }
 
 func (e *Epoch) Start() error {
+	// Only init receiving messages once you have initialized the data structures required for it.
+	defer func() {
+		e.lock.Lock()
+		e.canReceiveMessages = true
+		e.lock.Unlock()
+	}()
 	return e.syncFromWal()
 }
 
@@ -184,12 +189,6 @@ func (e *Epoch) syncFinalizationRecord(r []byte) error {
 
 // resumeFromWal resumes the epoch from the records of the write ahead log.
 func (e *Epoch) resumeFromWal(records [][]byte) error {
-	// Only init receiving messages once you have initialized the data structures required for it.
-	defer func() {
-		e.lock.Lock()
-		e.canReceiveMessages = true
-		e.lock.Unlock()
-	}()
 	if len(records) == 0 {
 		return e.startRound()
 	}
@@ -202,27 +201,19 @@ func (e *Epoch) resumeFromWal(records [][]byte) error {
 		if err != nil {
 			return err
 		}
-		// TODO: handle block message will try to store the block, but we already stored so this will log a warning.
 		if e.ID.Equals(LeaderForRound(e.nodes, block.BlockHeader().Round)) {
 			vote, err := e.voteOnBlock(block)
 			if err != nil {
 				return err
 			}
-			proposal := Message{
+			proposal := &Message{
 				BlockMessage: &BlockMessage{
 					Block: block,
-					Vote: Vote{
-						Vote: ToBeSignedVote{
-							BlockHeader: block.BlockHeader(),
-						},
-						Signature: Signature{
-							Signer: e.ID,
-						},
-					},
+					Vote:  vote,
 				},
 			}
 			// broadcast only if we are the leader
-			e.Comm.Broadcast(&proposal)
+			e.Comm.Broadcast(proposal)
 			return e.handleVoteMessage(&vote, e.ID)
 		}
 		// no need to do anything, just return and handle vote messages for this block
@@ -751,10 +742,10 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, _ NodeID) error {
 	md := block.BlockHeader()
 
 	// Ignore block messages sent by us
-	// if e.ID.Equals(from) {
-	// 	e.Logger.Debug("Got a BlockMessage from ourselves or created by us")
-	// 	return nil
-	// }
+	if e.ID.Equals(from) {
+		e.Logger.Debug("Got a BlockMessage from ourselves or created by us")
+		return nil
+	}
 
 	// Check that the node is a leader for the round corresponding to the block.
 	if !LeaderForRound(e.nodes, md.Round).Equals(from) {

@@ -87,37 +87,6 @@ func ParseNotarizationRecord(r []byte) ([]byte, ToBeSignedVote, error) {
 	return nr.QC, vote, nil
 }
 
-// ProtocolMetadataFromRecord parses a record and returns the protocol metadata for that record as well as the record type
-func ProtocolMetadataFromRecord(r []byte) (ProtocolMetadata, error) {
-	var md ProtocolMetadata
-
-	recordType := binary.BigEndian.Uint16(r)
-	switch recordType {
-	case record.NotarizationRecordType:
-		_, vote, err := ParseNotarizationRecord(r)
-		if err != nil {
-			return ProtocolMetadata{}, err
-		}
-		md = vote.ProtocolMetadata
-	case record.FinalizationRecordType:
-		_, finalization, err := parseFinalizationRecord(r)
-		if err != nil {
-			return ProtocolMetadata{}, err
-		}
-		md = finalization.ProtocolMetadata
-	case record.BlockRecordType:
-		bh, _, err := ParseBlockRecord(r)
-		if err != nil {
-			return ProtocolMetadata{}, err
-		}
-		md = bh.ProtocolMetadata
-	default:
-		return ProtocolMetadata{}, fmt.Errorf("unknown record type %d", recordType)
-	}
-
-	return md, nil
-}
-
 func NotarizationFromRecord(record []byte, qd QCDeserializer) (Notarization, error) {
 	qcBytes, vote, err := ParseNotarizationRecord(record)
 	if err != nil {
