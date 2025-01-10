@@ -11,7 +11,7 @@ import (
 	"fmt"
 	"log"
 	"simplex/record"
-	"sync"
+	"sync/atomic"
 	"time"
 
 	"go.uber.org/zap"
@@ -56,9 +56,8 @@ type EpochConfig struct {
 type Epoch struct {
 	EpochConfig
 	// Runtime
-	lock               sync.Mutex
 	lastBlock          Block // latest block commited
-	canReceiveMessages bool
+	canReceiveMessages atomic.Bool
 	finishCtx          context.Context
 	finishFn           context.CancelFunc
 	nodes              []NodeID
@@ -85,9 +84,7 @@ func (e *Epoch) AdvanceTime(t time.Duration) {
 // HandleMessage notifies the engine about a reception of a message.
 func (e *Epoch) HandleMessage(msg *Message, from NodeID) error {
 	// Guard against receiving messages before we are ready to handle them.
-	e.lock.Lock()
-	defer e.lock.Unlock()
-	if !e.canReceiveMessages {
+	if !e.canReceiveMessages.Load() {
 		e.Logger.Warn("Cannot receive a message")
 		return nil
 	}
@@ -146,9 +143,7 @@ func (e *Epoch) init() error {
 func (e *Epoch) Start() error {
 	// Only init receiving messages once you have initialized the data structures required for it.
 	defer func() {
-		e.lock.Lock()
-		e.canReceiveMessages = true
-		e.lock.Unlock()
+		e.canReceiveMessages.Store(true)
 	}()
 	return e.syncFromWal()
 }
