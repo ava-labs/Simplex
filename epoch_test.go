@@ -113,7 +113,6 @@ func TestRecoverFromWALProposed(t *testing.T) {
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
 
-	// seems like we duplicate the block metadata here
 	protocolMetadata := e.Metadata()
 	firstBlock, ok := bb.BuildBlock(ctx, protocolMetadata)
 	require.True(t, ok)
@@ -456,7 +455,6 @@ func TestWalWritesFinalizationCert(t *testing.T) {
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
 
-	// ensure no records are written to the WAL
 	records, err := e.WAL.ReadAll()
 	require.NoError(t, err)
 	require.Len(t, records, 0)
@@ -474,8 +472,8 @@ func TestWalWritesFinalizationCert(t *testing.T) {
 	md2.Prev = block.BlockHeader().Digest
 	_, ok = bb.BuildBlock(context.Background(), md2)
 	require.True(t, ok)
-	secondBlock := <-bb
 
+	secondBlock := <-bb
 	// create the finalization cert for round 2
 	fCert, _, err := newFinalizationRecord(sigAggregrator, secondBlock, nodes[1:])
 	require.NoError(t, err)
@@ -494,8 +492,55 @@ func TestWalWritesFinalizationCert(t *testing.T) {
 
 // TestRecoverFromMultipleRounds tests that the epoch can recover from a wal with multiple rounds written to it
 func TestRecoverFromMultipleRounds(t *testing.T) {
-	// we are going to write a block + notarization + finalization + block to the WAL
+	l := makeLogger(t, 1)
+	bb := make(testBlockBuilder, 1)
+	wal := &wal.InMemWAL{}
+	storage := newInMemStorage()
+	ctx := context.Background()
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	quorum := Quorum(len(nodes))
+	sigAggregrator := &testSignatureAggregator{}
+	conf := EpochConfig{
+		Logger:              l,
+		ID:                  nodes[0],
+		Signer:              &testSigner{},
+		WAL:                 wal,
+		Verifier:            &testVerifier{},
+		Storage:             storage,
+		Comm:                noopComm(nodes),
+		BlockBuilder:        bb,
+		SignatureAggregator: sigAggregrator,
+		BlockDeserializer:   &blockDeserializer{},
+		QCDeserializer:      &testQCDeserializer{t: t},
+	}
 
+	// Create first block and write to WAL
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+
+	protocolMetadata := e.Metadata()
+	firstBlock, ok := bb.BuildBlock(ctx, protocolMetadata)
+	require.True(t, ok)
+	record := BlockRecord(firstBlock.BlockHeader(), firstBlock.Bytes())
+	// write block record to wal
+	wal.Append(record)
+
+	// Add notarization for first block
+	firstNotarizationRecord, err := newNotarizationRecord(sigAggregrator, firstBlock, nodes[0:quorum], conf.Signer)
+	require.NoError(t, err)
+	wal.Append(firstNotarizationRecord)
+
+	// Create finalization record for first block
+	_, finalizationRecord, err := newFinalizationRecord(sigAggregrator, firstBlock, nodes[0:quorum])
+	require.NoError(t, err)
+	wal.Append(finalizationRecord)
+
+	// when we start we should recover to round 1
+	err = e.Start()
+	require.NoError(t, err)
+
+	// Verify the epoch recovered to the correct round
+	require.Equal(t, uint64(1), e.Metadata().Round)
 }
 
 // TestRecoveryOutOfOrder tests that the epoch can recover from a wal with out of order records

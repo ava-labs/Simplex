@@ -167,7 +167,6 @@ func (e *Epoch) syncNotarizationRecord(r []byte) error {
 		return err
 	}
 
-	e.increaseRound()
 	return e.storeNotarization(notarization)
 }
 
@@ -229,8 +228,6 @@ func (e *Epoch) resumeFromWal(records [][]byte) error {
 		}
 		lastMessage := Message{Notarization: &notarization}
 		e.Comm.Broadcast(&lastMessage)
-		// decrease the round by one to account for the increase in the increaseRound function
-		e.round--
 		return e.doNotarized()
 	case record.FinalizationRecordType:
 		fCert, err := FinalizationCertificateFromRecord(lastRecord, e.QCDeserializer)
@@ -688,6 +685,7 @@ func (e *Epoch) persistNotarization(notarization Notarization) error {
 		zap.Uint64("round", notarization.Vote.Round),
 		zap.Stringer("digest", notarization.Vote.BlockHeader.Digest))
 
+	e.increaseRound()
 	return e.doNotarized()
 }
 
@@ -1111,9 +1109,6 @@ func (e *Epoch) doNotarized() error {
 	}
 
 	e.Comm.Broadcast(finalizationMsg)
-
-	e.increaseRound()
-
 	err1 := e.startRound()
 	err2 := e.handleFinalizationMessage(&sf, e.ID)
 
