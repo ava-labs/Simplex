@@ -12,7 +12,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	. "simplex"
-	"simplex/record"
 	"simplex/wal"
 	"sync"
 	"testing"
@@ -329,6 +328,7 @@ func TestWalCreatedProperly(t *testing.T) {
 		BlockBuilder:        bb,
 		SignatureAggregator: signatureAggregator,
 		QCDeserializer:      qd,
+		BlockDeserializer:   &blockDeserializer{},
 	}
 
 	e, err := NewEpoch(conf)
@@ -345,10 +345,11 @@ func TestWalCreatedProperly(t *testing.T) {
 	records, err = e.WAL.ReadAll()
 	require.NoError(t, err)
 	require.Len(t, records, 1)
-	recordType := binary.BigEndian.Uint16(records[0])
-	require.Equal(t, recordType, record.BlockRecordType)
-
+	blockFromWal, err := BlockFromRecord(conf.BlockDeserializer, records[0])
+	require.NoError(t, err)
 	block := <-bb
+	require.Equal(t, blockFromWal, block)
+	
 	// start at one since our node has already voted
 	for i := 1; i < quorum; i++ {
 		injectVote(t, e, block, nodes[i], conf.Signer)
