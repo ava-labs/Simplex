@@ -490,8 +490,60 @@ func TestWalWritesFinalizationCert(t *testing.T) {
 	// require.Equal(t, recordBytes, records[0])
 }
 
-// TestRecoverFromMultipleRounds tests that the epoch can recover from a wal with multiple rounds written to it
+// TestRecoverFromMultipleRounds tests that the epoch can recover from a wal with multiple rounds written to it.
 func TestRecoverFromMultipleRounds(t *testing.T) {
+	l := makeLogger(t, 1)
+	bb := make(testBlockBuilder, 1)
+	wal := &wal.InMemWAL{}
+	storage := newInMemStorage()
+	ctx := context.Background()
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	quorum := Quorum(len(nodes))
+	sigAggregrator := &testSignatureAggregator{}
+	conf := EpochConfig{
+		Logger:              l,
+		ID:                  nodes[0],
+		Signer:              &testSigner{},
+		WAL:                 wal,
+		Verifier:            &testVerifier{},
+		Storage:             storage,
+		Comm:                noopComm(nodes),
+		BlockBuilder:        bb,
+		SignatureAggregator: sigAggregrator,
+		BlockDeserializer:   &blockDeserializer{},
+		QCDeserializer:      &testQCDeserializer{t: t},
+	}
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+
+	protocolMetadata := e.Metadata()
+	firstBlock, ok := bb.BuildBlock(ctx, protocolMetadata)
+	require.True(t, ok)
+	record := BlockRecord(firstBlock.BlockHeader(), firstBlock.Bytes())
+	wal.Append(record)
+
+	firstNotarizationRecord, err := newNotarizationRecord(sigAggregrator, firstBlock, nodes[0:quorum], conf.Signer)
+	require.NoError(t, err)
+	wal.Append(firstNotarizationRecord)
+
+	_, finalizationRecord, err := newFinalizationRecord(sigAggregrator, firstBlock, nodes[0:quorum])
+	require.NoError(t, err)
+	wal.Append(finalizationRecord)
+
+	// when we start we should recover to round 1
+	err = e.Start()
+	require.NoError(t, err)
+
+	// Verify the epoch recovered to the correct round
+	require.Equal(t, uint64(1), e.Metadata().Round)
+	require.Equal(t, uint64(1), e.Storage.Height())
+	require.Equal(t, firstBlock.Bytes(), storage.data[0].Block.Bytes())
+}
+
+
+// TestRecoverFromMultipleRounds tests that the epoch can recover from a wal with multiple rounds written to it.
+func TestRecoverFromMultipleNotarizations(t *testing.T) {
 	l := makeLogger(t, 1)
 	bb := make(testBlockBuilder, 1)
 	wal := &wal.InMemWAL{}
@@ -522,26 +574,38 @@ func TestRecoverFromMultipleRounds(t *testing.T) {
 	firstBlock, ok := bb.BuildBlock(ctx, protocolMetadata)
 	require.True(t, ok)
 	record := BlockRecord(firstBlock.BlockHeader(), firstBlock.Bytes())
-	// write block record to wal
 	wal.Append(record)
 
-	// Add notarization for first block
 	firstNotarizationRecord, err := newNotarizationRecord(sigAggregrator, firstBlock, nodes[0:quorum], conf.Signer)
 	require.NoError(t, err)
 	wal.Append(firstNotarizationRecord)
+
+	protocolMetadata.Round = 2
+	secondBlock, ok := bb.BuildBlock(ctx, protocolMetadata)
+	require.True(t, ok)
+	record = BlockRecord(secondBlock.BlockHeader(), secondBlock.Bytes())
+	wal.Append(record)
+
+	// Add notarization for second block
+	secondNotarizationRecord, err := newNotarizationRecord(sigAggregrator, secondBlock, nodes[0:quorum], conf.Signer)
+	require.NoError(t, err)
+	wal.Append(secondNotarizationRecord)
 
 	// Create finalization record for first block
 	_, finalizationRecord, err := newFinalizationRecord(sigAggregrator, firstBlock, nodes[0:quorum])
 	require.NoError(t, err)
 	wal.Append(finalizationRecord)
 
-	// when we start we should recover to round 1
 	err = e.Start()
 	require.NoError(t, err)
 
-	// Verify the epoch recovered to the correct round
-	require.Equal(t, uint64(1), e.Metadata().Round)
+	require.Equal(t, uint64(3), e.Metadata().Round)
+	// require that we correctly persisted block 1 to storage
+	require.Equal(t, uint64(1), e.Storage.Height())
+	committedData := storage.data[0].Block.Bytes()
+	require.Equal(t, firstBlock.Bytes(), committedData)
 }
+
 
 // TestRecoveryOutOfOrder tests that the epoch can recover from a wal with out of order records
 // block -> notarization -> notarization round 2 ->

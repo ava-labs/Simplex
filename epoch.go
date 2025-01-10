@@ -234,8 +234,10 @@ func (e *Epoch) resumeFromWal(records [][]byte) error {
 		if err != nil {
 			return err
 		}
-		lastMessage := Message{FinalizationCertificate: &fCert}
-		e.Comm.Broadcast(&lastMessage)
+		err = e.persistFinalizationCertificate(fCert)
+		if err != nil {
+			return err
+		}
 		return e.startRound()
 	default:
 		return errors.New("unknown record type")

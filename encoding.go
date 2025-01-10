@@ -34,6 +34,7 @@ func FinalizationCertificateFromRecord(record []byte, qd QCDeserializer) (Finali
 }
 
 func parseFinalizationRecord(payload []byte) ([]byte, ToBeSignedFinalization, error) {
+	payload = payload[2:]
 	var nr QuorumRecord
 	_, err := asn1.Unmarshal(payload, &nr)
 	if err != nil {
