@@ -170,13 +170,13 @@ func signContext(signer Signer, msg []byte, context string) ([]byte, error) {
 	return signer.Sign(toBeSigned)
 }
 
-func verifyContext(signature []byte, verifier SignatureVerifier, msg []byte, context string, signers NodeID) error {
+func verifyContext(signature []byte, verifier SignatureVerifier, msg []byte, context string, signer NodeID) error {
 	sm := SignedMessage{
 		Payload: msg,
 		Context: context,
 	}
 	toBeSigned := sm.MarshalCanoto()
-	return verifier.Verify(toBeSigned, signature, signers)
+	return verifier.Verify(toBeSigned, signature, signer)
 }
 
 func verifyContextQC(qc QuorumCertificate, msg []byte, context string) error {
