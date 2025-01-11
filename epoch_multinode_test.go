@@ -63,6 +63,7 @@ func newSimplexNode(t *testing.T, id uint8, net *inMemNetwork, bb BlockBuilder) 
 
 	conf := EpochConfig{
 		Comm: &testComm{
+			t:    t,
 			from: nodeID,
 			net:  net,
 		},
@@ -159,6 +160,7 @@ func (tw *testWAL) Append(b []byte) error {
 }
 
 type testComm struct {
+	t    testing.TB
 	from NodeID
 	net  *inMemNetwork
 }
@@ -180,15 +182,25 @@ func (c *testComm) SendMessage(msg *Message, destination NodeID) {
 }
 
 func (c *testComm) Broadcast(msg *Message) {
+	msgBytes := msg.MarshalCanoto()
+
 	for _, instance := range c.net.instances {
 		// Skip sending the message to yourself
 		if bytes.Equal(c.from, instance.e.ID) {
 			continue
 		}
+
+		// Copy the message before sending it to avoid racy modifications
+		var peerMessage Message
+		require.NoError(c.t, peerMessage.UnmarshalCanoto(msgBytes))
+
 		instance.ingress <- struct {
 			msg  *Message
 			from NodeID
-		}{msg: msg, from: c.from}
+		}{
+			msg:  &peerMessage,
+			from: c.from,
+		}
 	}
 }
 
