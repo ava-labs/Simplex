@@ -370,8 +370,7 @@ func (e *Epoch) isFinalizationCertificateValid(fCert *FinalizationCertificate) (
 		return false, nil
 	}
 
-	e.Logger.Debug("Received finalization without any signatures in it")
-	return false, nil
+	return true, nil
 }
 
 func (e *Epoch) validateFinalizationQC(fCert *FinalizationCertificate) (bool, error) {
@@ -884,7 +883,6 @@ func (e *Epoch) verifyProposalIsPartOfOurChain(block Block) bool {
 		}
 
 		// TODO: we need to take into account dummy blocks!
-
 		expectedSeq = bh.Seq
 		expectedPrevDigest = bh.Prev
 	}
@@ -908,7 +906,6 @@ func (e *Epoch) verifyProposalIsPartOfOurChain(block Block) bool {
 			Version: 0,
 		},
 	}
-
 	return expectedBH.Equals(&bh)
 }
 
