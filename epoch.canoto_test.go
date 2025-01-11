@@ -10,7 +10,7 @@ import (
 	"sync/atomic"
 	"unicode/utf8"
 
-	"github.com/StephenButtolph/canoto"
+	"simplex/internal/canoto"
 )
 
 // Ensure that unused imports do not error

@@ -1,7 +1,7 @@
 // Copyright (C) 2019-2024, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
-//go:generate go run github.com/StephenButtolph/canoto/canoto@v0.10.0 --concurrent=false $GOFILE
+//go:generate go run github.com/StephenButtolph/canoto/canoto@v0.10.0 --library=./internal --concurrent=false --import=simplex/internal/canoto $GOFILE
 
 package simplex
 

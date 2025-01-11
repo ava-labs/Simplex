@@ -3,7 +3,6 @@ module simplex
 go 1.23
 
 require (
-	github.com/StephenButtolph/canoto v0.10.0
 	github.com/stretchr/testify v1.10.0
 	go.uber.org/zap v1.26.0
 )
