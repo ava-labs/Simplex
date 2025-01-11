@@ -15,14 +15,14 @@ func TestRetrieveFromStorage(t *testing.T) {
 	brokenStorage := newInMemStorage()
 	brokenStorage.data[41] = struct {
 		Block
-		FinalizationCertificate
+		Quorum
 	}{Block: newTestBlock(ProtocolMetadata{Seq: 41})}
 
 	block := newTestBlock(ProtocolMetadata{Seq: 0})
 	normalStorage := newInMemStorage()
 	normalStorage.data[0] = struct {
 		Block
-		FinalizationCertificate
+		Quorum
 	}{Block: block}
 
 	for _, testCase := range []struct {

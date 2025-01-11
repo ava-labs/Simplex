@@ -1,6 +1,8 @@
 // Copyright (C) 2019-2024, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
+//go:generate go run github.com/StephenButtolph/canoto/canoto@v0.10.0 --concurrent=false --import=simplex/internal/canoto $GOFILE
+
 package simplex_test
 
 import (
@@ -8,7 +10,6 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
-	"encoding/asn1"
 	"encoding/binary"
 	"fmt"
 	. "simplex"
@@ -27,13 +28,14 @@ func TestEpochSimpleFlow(t *testing.T) {
 	storage := newInMemStorage()
 
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
-	quorum := Quorum(len(nodes))
+	quorum := QuorumSize(len(nodes))
 	conf := EpochConfig{
 		Logger:              l,
 		ID:                  NodeID{1},
 		Signer:              &testSigner{},
 		WAL:                 &wal.InMemWAL{},
 		Verifier:            &testVerifier{},
+		BlockDeserializer:   &blockDeserializer{},
 		Storage:             storage,
 		Comm:                noopComm(nodes),
 		BlockBuilder:        bb,
@@ -63,9 +65,9 @@ func TestEpochSimpleFlow(t *testing.T) {
 			// send node a message from the leader
 			vote := newVote(block, leader)
 			e.HandleMessage(&Message{
-				BlockMessage: &BlockMessage{
+				Proposal: &Proposal{
 					Vote:  *vote,
-					Block: block,
+					Block: block.Bytes(),
 				},
 			}, leader)
 		}
@@ -99,15 +101,13 @@ func newVote(block *testBlock, id NodeID) *Vote {
 		Signature: Signature{
 			Signer: id,
 		},
-		Vote: ToBeSignedVote{
-			BlockHeader: block.BlockHeader(),
-		},
+		Header: block.BlockHeader(),
 	}
 }
 
 func injectVote(t *testing.T, e *Epoch, block *testBlock, id NodeID) {
 	err := e.HandleMessage(&Message{
-		VoteMessage: newVote(block, id),
+		Vote: newVote(block, id),
 	}, id)
 
 	require.NoError(t, err)
@@ -116,13 +116,11 @@ func injectVote(t *testing.T, e *Epoch, block *testBlock, id NodeID) {
 func injectFinalization(t *testing.T, e *Epoch, block *testBlock, id NodeID) {
 	md := block.BlockHeader()
 	err := e.HandleMessage(&Message{
-		Finalization: &Finalization{
+		Finalize: &Vote{
 			Signature: Signature{
 				Signer: id,
 			},
-			Finalization: ToBeSignedFinalization{
-				BlockHeader: md,
-			},
+			Header: md,
 		},
 	}, id)
 	require.NoError(t, err)
@@ -146,25 +144,30 @@ type testQCDeserializer struct {
 }
 
 func (t *testQCDeserializer) DeserializeQuorumCertificate(bytes []byte) (QuorumCertificate, error) {
-	var qc []Signature
-	rest, err := asn1.Unmarshal(bytes, &qc)
+	var tqc testQC
+	err := tqc.UnmarshalCanoto(bytes)
 	require.NoError(t.t, err)
-	require.Empty(t.t, rest)
-	return testQC(qc), err
+	return tqc, err
 }
 
 type testSignatureAggregator struct {
 }
 
 func (t *testSignatureAggregator) Aggregate(signatures []Signature) (QuorumCertificate, error) {
-	return testQC(signatures), nil
+	return testQC{
+		qc: signatures,
+	}, nil
 }
 
-type testQC []Signature
+type testQC struct {
+	qc []Signature `canoto:"repeated value,1"`
+
+	canotoData canotoData_testQC
+}
 
 func (t testQC) Signers() []NodeID {
-	res := make([]NodeID, 0, len(t))
-	for _, sig := range t {
+	res := make([]NodeID, 0, len(t.qc))
+	for _, sig := range t.qc {
 		res = append(res, sig.Signer)
 	}
 	return res
@@ -175,11 +178,7 @@ func (t testQC) Verify(msg []byte) error {
 }
 
 func (t testQC) Bytes() []byte {
-	bytes, err := asn1.Marshal(t)
-	if err != nil {
-		panic(err)
-	}
-	return bytes
+	return t.MarshalCanoto()
 }
 
 type testSigner struct {
@@ -275,7 +274,7 @@ func (t *testBlock) Bytes() []byte {
 		ProtocolMetadata: t.metadata,
 	}
 
-	mdBuff := bh.Bytes()
+	mdBuff := bh.MarshalCanoto()
 
 	buff := make([]byte, len(t.data)+len(mdBuff)+4)
 	binary.BigEndian.PutUint32(buff, uint32(len(t.data)))
@@ -287,7 +286,7 @@ func (t *testBlock) Bytes() []byte {
 type InMemStorage struct {
 	data map[uint64]struct {
 		Block
-		FinalizationCertificate
+		Quorum
 	}
 
 	lock   sync.Mutex
@@ -298,7 +297,7 @@ func newInMemStorage() *InMemStorage {
 	s := &InMemStorage{
 		data: make(map[uint64]struct {
 			Block
-			FinalizationCertificate
+			Quorum
 		}),
 	}
 
@@ -324,15 +323,15 @@ func (mem *InMemStorage) Height() uint64 {
 	return uint64(len(mem.data))
 }
 
-func (mem *InMemStorage) Retrieve(seq uint64) (Block, FinalizationCertificate, bool) {
+func (mem *InMemStorage) Retrieve(seq uint64) (Block, Quorum, bool) {
 	item, ok := mem.data[seq]
 	if !ok {
-		return nil, FinalizationCertificate{}, false
+		return nil, Quorum{}, false
 	}
-	return item.Block, item.FinalizationCertificate, true
+	return item.Block, item.Quorum, true
 }
 
-func (mem *InMemStorage) Index(block Block, certificate FinalizationCertificate) {
+func (mem *InMemStorage) Index(block Block, certificate Quorum) {
 	mem.lock.Lock()
 	defer mem.lock.Unlock()
 
@@ -344,7 +343,7 @@ func (mem *InMemStorage) Index(block Block, certificate FinalizationCertificate)
 	}
 	mem.data[seq] = struct {
 		Block
-		FinalizationCertificate
+		Quorum
 	}{block,
 		certificate,
 	}
@@ -357,8 +356,8 @@ type blockDeserializer struct {
 
 func (b *blockDeserializer) DeserializeBlock(buff []byte) (Block, error) {
 	blockLen := binary.BigEndian.Uint32(buff[:4])
-	bh := BlockHeader{}
-	if err := bh.FromBytes(buff[4+blockLen:]); err != nil {
+	var bh BlockHeader
+	if err := bh.UnmarshalCanoto(buff[4+blockLen:]); err != nil {
 		return nil, err
 	}
 
@@ -381,7 +380,7 @@ func TestBlockDeserializer(t *testing.T) {
 	require.Equal(t, tb, tb2)
 }
 
-func TestQuorum(t *testing.T) {
+func TestQuorumSize(t *testing.T) {
 	for _, testCase := range []struct {
 		n int
 		f int
@@ -437,7 +436,7 @@ func TestQuorum(t *testing.T) {
 		},
 	} {
 		t.Run(fmt.Sprintf("%d", testCase.n), func(t *testing.T) {
-			require.Equal(t, testCase.q, Quorum(testCase.n))
+			require.Equal(t, testCase.q, QuorumSize(testCase.n))
 		})
 	}
 }

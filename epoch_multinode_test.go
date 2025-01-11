@@ -6,9 +6,7 @@ package simplex_test
 import (
 	"bytes"
 	"context"
-	"encoding/binary"
 	. "simplex"
-	"simplex/record"
 	"simplex/wal"
 	"sync"
 	"testing"
@@ -65,6 +63,7 @@ func newSimplexNode(t *testing.T, id uint8, net *inMemNetwork, bb BlockBuilder) 
 
 	conf := EpochConfig{
 		Comm: &testComm{
+			t:    t,
 			from: nodeID,
 			net:  net,
 		},
@@ -73,6 +72,7 @@ func newSimplexNode(t *testing.T, id uint8, net *inMemNetwork, bb BlockBuilder) 
 		Signer:              &testSigner{},
 		WAL:                 wal,
 		Verifier:            &testVerifier{},
+		BlockDeserializer:   &blockDeserializer{},
 		Storage:             storage,
 		BlockBuilder:        bb,
 		SignatureAggregator: &testSignatureAggregator{},
@@ -116,19 +116,15 @@ func (t *testInstance) assertNotarization(round uint64) {
 		require.NoError(t.t, err)
 
 		for _, rawRecord := range rawRecords {
-			if binary.BigEndian.Uint16(rawRecord[:2]) == record.NotarizationRecordType {
-				_, vote, err := NotarizationFromRecord(rawRecord)
-				require.NoError(t.t, err)
-
-				if vote.Round == round {
-					return
-				}
+			var record Record
+			require.NoError(t.t, record.UnmarshalCanoto(rawRecord))
+			if record.Notarization != nil && record.Notarization.Header.Round == round {
+				return
 			}
 		}
 
 		t.wal.signal.Wait()
 	}
-
 }
 
 func (t *testInstance) handleMessages() {
@@ -164,6 +160,7 @@ func (tw *testWAL) Append(b []byte) error {
 }
 
 type testComm struct {
+	t    testing.TB
 	from NodeID
 	net  *inMemNetwork
 }
@@ -185,15 +182,25 @@ func (c *testComm) SendMessage(msg *Message, destination NodeID) {
 }
 
 func (c *testComm) Broadcast(msg *Message) {
+	msgBytes := msg.MarshalCanoto()
+
 	for _, instance := range c.net.instances {
 		// Skip sending the message to yourself
 		if bytes.Equal(c.from, instance.e.ID) {
 			continue
 		}
+
+		// Copy the message before sending it to avoid racy modifications
+		var peerMessage Message
+		require.NoError(c.t, peerMessage.UnmarshalCanoto(msgBytes))
+
 		instance.ingress <- struct {
 			msg  *Message
 			from NodeID
-		}{msg: msg, from: c.from}
+		}{
+			msg:  &peerMessage,
+			from: c.from,
+		}
 	}
 }
 
