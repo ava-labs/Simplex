@@ -63,6 +63,10 @@ func (fc *FinalizationCertificate) Verify() error {
 	return verifyContextQC(fc.QC, fc.Finalization.MarshalCanoto(), finalizationContext)
 }
 
-func (n *Notarization) Verify() error {
-	return verifyContextQC(n.QC, n.Vote.MarshalCanoto(), voteContext)
+func (n *Notarization) Verify(p QCDeserializer) error {
+	qc, err := p.DeserializeQuorumCertificate(n.QC)
+	if err != nil {
+		return err
+	}
+	return verifyContextQC(qc, n.Vote.MarshalCanoto(), voteContext)
 }

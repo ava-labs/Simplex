@@ -1502,6 +1502,7 @@ func (c *Vote) MarshalCanotoInto(w canoto.Writer) canoto.Writer {
 
 const (
 	canoto__Notarization__Vote__tag = "\x0a" // canoto.Tag(1, canoto.Len)
+	canoto__Notarization__QC__tag   = "\x12" // canoto.Tag(2, canoto.Len)
 )
 
 type canotoData_Notarization struct {
@@ -1575,6 +1576,17 @@ func (c *Notarization) UnmarshalCanotoFrom(r canoto.Reader) error {
 			if err != nil {
 				return err
 			}
+		case 2:
+			if wireType != canoto.Len {
+				return canoto.ErrUnexpectedWireType
+			}
+
+			if err := canoto.ReadBytes(&r, &c.QC); err != nil {
+				return err
+			}
+			if len(c.QC) == 0 {
+				return canoto.ErrZeroValue
+			}
 		default:
 			return canoto.ErrUnknownField
 		}
@@ -1613,6 +1625,9 @@ func (c *Notarization) CalculateCanotoCache() {
 	(&c.Vote).CalculateCanotoCache()
 	if fieldSize := (&c.Vote).CachedCanotoSize(); fieldSize != 0 {
 		c.canotoData.size += len(canoto__Notarization__Vote__tag) + canoto.SizeInt(int64(fieldSize)) + fieldSize
+	}
+	if len(c.QC) != 0 {
+		c.canotoData.size += len(canoto__Notarization__QC__tag) + canoto.SizeBytes(c.QC)
 	}
 }
 
@@ -1661,6 +1676,10 @@ func (c *Notarization) MarshalCanotoInto(w canoto.Writer) canoto.Writer {
 		canoto.Append(&w, canoto__Notarization__Vote__tag)
 		canoto.AppendInt(&w, int64(fieldSize))
 		w = (&c.Vote).MarshalCanotoInto(w)
+	}
+	if len(c.QC) != 0 {
+		canoto.Append(&w, canoto__Notarization__QC__tag)
+		canoto.AppendBytes(&w, c.QC)
 	}
 	return w
 }

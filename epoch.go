@@ -489,16 +489,16 @@ func (e *Epoch) assembleNotarization(votesForCurrentRound map[string]*Vote, dige
 		signatures = append(signatures, vote.Signature)
 	}
 
-	var notarization Notarization
-	var err error
-	notarization.Vote = vote
-	notarization.QC, err = e.SignatureAggregator.Aggregate(signatures)
+	qc, err := e.SignatureAggregator.Aggregate(signatures)
 	if err != nil {
 		return fmt.Errorf("could not aggregate signatures for notarization: %w", err)
 	}
 
-	err = e.storeNotarization(notarization)
-	if err != nil {
+	notarization := Notarization{
+		Vote: vote,
+		QC:   qc.Bytes(),
+	}
+	if err := e.storeNotarization(notarization); err != nil {
 		return err
 	}
 
@@ -509,7 +509,7 @@ func (e *Epoch) persistNotarization(notarization Notarization, vote ToBeSignedVo
 	record := Record{
 		Notarization: &QuorumRecord{
 			Header: vote.BlockHeader,
-			QC:     notarization.QC.Bytes(),
+			QC:     notarization.QC,
 		},
 	}
 	recordBytes := record.MarshalCanoto()
@@ -573,7 +573,7 @@ func (e *Epoch) handleNotarizationMessage(message *Message, from NodeID) error {
 		return nil
 	}
 
-	if err := msg.Verify(); err != nil {
+	if err := msg.Verify(e.QCDeserializer); err != nil {
 		e.Logger.Debug("Notarization quorum certificate is invalid",
 			zap.Stringer("NodeID", from), zap.Error(err))
 		return nil

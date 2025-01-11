@@ -61,8 +61,8 @@ type (
 		canotoData canotoData_Vote
 	}
 	Notarization struct {
-		Vote ToBeSignedVote    `canoto:"value,1"`
-		QC   QuorumCertificate // `canoto:"bytes,2"`
+		Vote ToBeSignedVote `canoto:"value,1"`
+		QC   []byte         `canoto:"bytes,2"`
 
 		canotoData canotoData_Notarization
 	}
