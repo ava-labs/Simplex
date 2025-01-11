@@ -5,7 +5,9 @@ package simplex_test
 
 import (
 	"context"
+	"encoding/binary"
 	. "simplex"
+	"simplex/record"
 	"simplex/wal"
 	"testing"
 
@@ -366,9 +368,10 @@ func TestWalWritesFinalizationCert(t *testing.T) {
 	storage := newInMemStorage()
 	sigAggregrator := &testSignatureAggregator{}
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	quorum := Quorum(len(nodes))
 	conf := EpochConfig{
 		Logger:              l,
-		ID:                  nodes[1],
+		ID:                  nodes[0],
 		Signer:              &testSigner{},
 		WAL:                 &wal.InMemWAL{},
 		Verifier:            &testVerifier{},
@@ -376,44 +379,81 @@ func TestWalWritesFinalizationCert(t *testing.T) {
 		Comm:                noopComm(nodes),
 		BlockBuilder:        bb,
 		SignatureAggregator: sigAggregrator,
+		BlockDeserializer:   &blockDeserializer{},
 	}
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
 
+	require.NoError(t, e.Start())
+	firstBlock := <-bb
+	// notarize the first block
+	for i := 1; i < quorum; i++ {
+		injectVote(t, e, firstBlock, nodes[i], conf.Signer)
+	}
 	records, err := e.WAL.ReadAll()
 	require.NoError(t, err)
-	require.Len(t, records, 0)
+	require.Len(t, records, 2)
+	blockFromWal, err := BlockFromRecord(conf.BlockDeserializer, records[0])
+	require.NoError(t, err)
+	require.Equal(t, firstBlock, blockFromWal)
+	// expectedNotarizationRecord, err := newNotarizationRecord(sigAggregrator, firstBlock, nodes[0:quorum], conf.Signer)
+	// require.NoError(t, err)
+	// require.Equal(t, expectedNotarizationRecord, records[1])
 
-	require.NoError(t, e.Start())
-
+	// send and notarize a second block
+	require.Equal(t, uint64(1), e.Metadata().Round)
 	md := e.Metadata()
+	md.Seq++
+	md.Prev = firstBlock.BlockHeader().Digest
 	_, ok := bb.BuildBlock(context.Background(), md)
 	require.True(t, ok)
-	block := <-bb
-
-	md2 := md
-	md2.Seq = 1
-	md2.Round = 1
-	md2.Prev = block.BlockHeader().Digest
-	_, ok = bb.BuildBlock(context.Background(), md2)
-	require.True(t, ok)
-
 	secondBlock := <-bb
-	// create the finalization cert for round 2
-	fCert, _, err := newFinalizationRecord(sigAggregrator, secondBlock, nodes[1:])
-	require.NoError(t, err)
-	// send the fcert message
-	fCertMessage := &Message{FinalizationCertificate: &fCert}
-	e.HandleMessage(fCertMessage, nodes[1])
 
-	// TODO: uncomment when https://github.com/ava-labs/Simplex/pull/38 is merged
-	// cannot check here since we currently do not accept fCerts from rounds we do not know
-	// ensure a finalization cert is written to the WAL
-	// records, err = e.WAL.ReadAll()
+	// increase the round but don't index storage
+	require.Equal(t, uint64(1), e.Metadata().Round)
+	require.Equal(t, uint64(0), e.Storage.Height())
+
+	vote, err := newVote(secondBlock, nodes[1], conf.Signer)
+	require.NoError(t, err)
+	e.HandleMessage(&Message{
+		BlockMessage: &BlockMessage{
+			Vote:  *vote,
+			Block: secondBlock,
+		},
+	}, nodes[1])
+
+	for i := 1; i < quorum; i++ {
+		injectVote(t, e, secondBlock, nodes[i], conf.Signer)
+	}
+
+	records, err = e.WAL.ReadAll()
+	require.NoError(t, err)
+	require.Len(t, records, 4)
+	blockFromWal, err = BlockFromRecord(conf.BlockDeserializer, records[2])
+	require.NoError(t, err)
+	require.Equal(t, secondBlock, blockFromWal)
+	// expectedNotarizationRecord, err = newNotarizationRecord(sigAggregrator, secondBlock, nodes[0:quorum], conf.Signer)
 	// require.NoError(t, err)
-	// require.Len(t, records, 1)
-	// require.Equal(t, recordBytes, records[0])
+	// require.Equal(t, expectedNotarizationRecord, records[3])
+	
+	// finalization for the second block should write to wal
+	for i := 1; i < quorum; i++ {
+		injectFinalization(t, e, secondBlock, nodes[i])
+	}
+
+	records, err = e.WAL.ReadAll()
+	require.NoError(t, err)
+	require.Len(t, records, 5)
+	recordType := binary.BigEndian.Uint16(records[4])
+	require.Equal(t, record.FinalizationRecordType, recordType)
+	// expectedFinalizationRecord, err := newFinalizationRecord(sigAggregrator, secondBlock, nodes[0:quorum])
+	// require.NoError(t, err)
+	// require.Equal(t, expectedFinalizationRecord, records[2])
+
+	// ensure the finalization certificate is not indexed
+	require.Equal(t, uint64(2), e.Metadata().Round)
+	require.Equal(t, uint64(0), e.Storage.Height())
 }
 
 // TestRecoverFromMultipleRounds tests that the epoch can recover from a wal with multiple rounds written to it.
