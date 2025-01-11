@@ -14,69 +14,46 @@ import (
 const (
 	digestLen        = 32
 	digestFormatSize = 10
+
+	VoteContext     = "ToBeSignedVote"
+	FinalizeContext = "ToBeSignedFinalization"
 )
 
 type (
 	Record struct {
-		Block        *BlockRecord  `canoto:"pointer,1,record"`
-		Notarization *QuorumRecord `canoto:"pointer,2,record"`
-		Finalization *QuorumRecord `canoto:"pointer,3,record"`
+		Block        []byte  `canoto:"bytes,1,record"`
+		Notarization *Quorum `canoto:"pointer,2,record"`
+		Finalization *Quorum `canoto:"pointer,3,record"`
 
 		canotoData canotoData_Record
 	}
-	QuorumRecord struct {
-		Header BlockHeader `canoto:"value,1"`
-		QC     []byte      `canoto:"bytes,2"`
-
-		canotoData canotoData_QuorumRecord
-	}
-	BlockRecord struct {
-		// TODO: Do we need to include the Digest? Or should we just include the
-		// ProtocolMetadata?
-		Header  BlockHeader `canoto:"value,1"`
-		Payload []byte      `canoto:"bytes,2"`
-
-		canotoData canotoData_BlockRecord
-	}
 
 	Message struct {
-		Proposal     *BlockMessage            `canoto:"pointer,1,message"`
-		Vote         *Vote                    `canoto:"pointer,2,message"`
-		Notarization *Notarization            `canoto:"pointer,3,message"`
-		Finalize     *Finalization            `canoto:"pointer,4,message"`
-		Finalization *FinalizationCertificate `canoto:"pointer,5,message"`
+		Proposal     *Proposal `canoto:"pointer,1,message"`
+		Vote         *Vote     `canoto:"pointer,2,message"`
+		Notarization *Quorum   `canoto:"pointer,3,message"`
+		Finalize     *Vote     `canoto:"pointer,4,message"`
+		Finalization *Quorum   `canoto:"pointer,5,message"`
 
 		canotoData canotoData_Message
 	}
-	BlockMessage struct {
-		Block Block // `canoto:"bytes,1"`
-		Vote  Vote  `canoto:"value,2"`
+	Proposal struct {
+		Block []byte `canoto:"bytes,1"`
+		Vote  Vote   `canoto:"value,2"`
 
-		canotoData canotoData_BlockMessage
+		canotoData canotoData_Proposal
 	}
 	Vote struct {
-		Vote      ToBeSignedVote `canoto:"value,1"`
-		Signature Signature      `canoto:"value,2"`
+		Header    BlockHeader `canoto:"value,1"`
+		Signature Signature   `canoto:"value,2"`
 
 		canotoData canotoData_Vote
 	}
-	Notarization struct {
-		Vote ToBeSignedVote `canoto:"value,1"`
-		QC   []byte         `canoto:"bytes,2"`
+	Quorum struct {
+		Header BlockHeader `canoto:"value,1"`
+		QC     []byte      `canoto:"bytes,2"`
 
-		canotoData canotoData_Notarization
-	}
-	Finalization struct {
-		Finalization ToBeSignedFinalization `canoto:"value,1"`
-		Signature    Signature              `canoto:"value,2"`
-
-		canotoData canotoData_Finalization
-	}
-	FinalizationCertificate struct {
-		Finalization ToBeSignedFinalization `canoto:"value,1"`
-		QC           QuorumCertificate      // `canoto:"bytes,2"`
-
-		canotoData canotoData_FinalizationCertificate
+		canotoData canotoData_Quorum
 	}
 
 	SignedMessage struct {
@@ -129,6 +106,41 @@ type (
 	NodeID []byte
 )
 
+func (v *Vote) Sign(nodeID NodeID, signer Signer, context string) error {
+	signature, err := signContext(
+		signer,
+		v.Header.MarshalCanoto(),
+		context,
+	)
+	if err != nil {
+		return err
+	}
+
+	v.Signature = Signature{
+		Signer: nodeID,
+		Value:  signature,
+	}
+	return nil
+}
+
+func (v *Vote) Verify(verifier SignatureVerifier, context string) error {
+	return verifyContext(
+		v.Signature.Value,
+		verifier,
+		v.Header.MarshalCanoto(),
+		context,
+		v.Signature.Signer,
+	)
+}
+
+func (q *Quorum) Verify(p QCDeserializer, context string) error {
+	qc, err := p.DeserializeQuorumCertificate(q.QC)
+	if err != nil {
+		return err
+	}
+	return verifyContextQC(qc, q.Header.MarshalCanoto(), context)
+}
+
 func (b *BlockHeader) Equals(o *BlockHeader) bool {
 	return b.Digest == o.Digest && b.ProtocolMetadata.Equals(&o.ProtocolMetadata)
 }
@@ -147,4 +159,31 @@ func (n NodeID) String() string {
 
 func (n NodeID) Equals(o NodeID) bool {
 	return bytes.Equal(n, o)
+}
+
+func signContext(signer Signer, msg []byte, context string) ([]byte, error) {
+	sm := SignedMessage{
+		Payload: msg,
+		Context: context,
+	}
+	toBeSigned := sm.MarshalCanoto()
+	return signer.Sign(toBeSigned)
+}
+
+func verifyContext(signature []byte, verifier SignatureVerifier, msg []byte, context string, signers NodeID) error {
+	sm := SignedMessage{
+		Payload: msg,
+		Context: context,
+	}
+	toBeSigned := sm.MarshalCanoto()
+	return verifier.Verify(toBeSigned, signature, signers)
+}
+
+func verifyContextQC(qc QuorumCertificate, msg []byte, context string) error {
+	sm := SignedMessage{
+		Payload: msg,
+		Context: context,
+	}
+	toBeSigned := sm.MarshalCanoto()
+	return qc.Verify(toBeSigned)
 }

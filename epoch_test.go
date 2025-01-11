@@ -28,13 +28,14 @@ func TestEpochSimpleFlow(t *testing.T) {
 	storage := newInMemStorage()
 
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
-	quorum := Quorum(len(nodes))
+	quorum := QuorumSize(len(nodes))
 	conf := EpochConfig{
 		Logger:              l,
 		ID:                  NodeID{1},
 		Signer:              &testSigner{},
 		WAL:                 &wal.InMemWAL{},
 		Verifier:            &testVerifier{},
+		BlockDeserializer:   &blockDeserializer{},
 		Storage:             storage,
 		Comm:                noopComm(nodes),
 		BlockBuilder:        bb,
@@ -64,9 +65,9 @@ func TestEpochSimpleFlow(t *testing.T) {
 			// send node a message from the leader
 			vote := newVote(block, leader)
 			e.HandleMessage(&Message{
-				Proposal: &BlockMessage{
+				Proposal: &Proposal{
 					Vote:  *vote,
-					Block: block,
+					Block: block.Bytes(),
 				},
 			}, leader)
 		}
@@ -100,9 +101,7 @@ func newVote(block *testBlock, id NodeID) *Vote {
 		Signature: Signature{
 			Signer: id,
 		},
-		Vote: ToBeSignedVote{
-			BlockHeader: block.BlockHeader(),
-		},
+		Header: block.BlockHeader(),
 	}
 }
 
@@ -117,13 +116,11 @@ func injectVote(t *testing.T, e *Epoch, block *testBlock, id NodeID) {
 func injectFinalization(t *testing.T, e *Epoch, block *testBlock, id NodeID) {
 	md := block.BlockHeader()
 	err := e.HandleMessage(&Message{
-		Finalize: &Finalization{
+		Finalize: &Vote{
 			Signature: Signature{
 				Signer: id,
 			},
-			Finalization: ToBeSignedFinalization{
-				BlockHeader: md,
-			},
+			Header: md,
 		},
 	}, id)
 	require.NoError(t, err)
@@ -289,7 +286,7 @@ func (t *testBlock) Bytes() []byte {
 type InMemStorage struct {
 	data map[uint64]struct {
 		Block
-		FinalizationCertificate
+		Quorum
 	}
 
 	lock   sync.Mutex
@@ -300,7 +297,7 @@ func newInMemStorage() *InMemStorage {
 	s := &InMemStorage{
 		data: make(map[uint64]struct {
 			Block
-			FinalizationCertificate
+			Quorum
 		}),
 	}
 
@@ -326,15 +323,15 @@ func (mem *InMemStorage) Height() uint64 {
 	return uint64(len(mem.data))
 }
 
-func (mem *InMemStorage) Retrieve(seq uint64) (Block, FinalizationCertificate, bool) {
+func (mem *InMemStorage) Retrieve(seq uint64) (Block, Quorum, bool) {
 	item, ok := mem.data[seq]
 	if !ok {
-		return nil, FinalizationCertificate{}, false
+		return nil, Quorum{}, false
 	}
-	return item.Block, item.FinalizationCertificate, true
+	return item.Block, item.Quorum, true
 }
 
-func (mem *InMemStorage) Index(block Block, certificate FinalizationCertificate) {
+func (mem *InMemStorage) Index(block Block, certificate Quorum) {
 	mem.lock.Lock()
 	defer mem.lock.Unlock()
 
@@ -346,7 +343,7 @@ func (mem *InMemStorage) Index(block Block, certificate FinalizationCertificate)
 	}
 	mem.data[seq] = struct {
 		Block
-		FinalizationCertificate
+		Quorum
 	}{block,
 		certificate,
 	}
@@ -383,7 +380,7 @@ func TestBlockDeserializer(t *testing.T) {
 	require.Equal(t, tb, tb2)
 }
 
-func TestQuorum(t *testing.T) {
+func TestQuorumSize(t *testing.T) {
 	for _, testCase := range []struct {
 		n int
 		f int
@@ -439,7 +436,7 @@ func TestQuorum(t *testing.T) {
 		},
 	} {
 		t.Run(fmt.Sprintf("%d", testCase.n), func(t *testing.T) {
-			require.Equal(t, testCase.q, Quorum(testCase.n))
+			require.Equal(t, testCase.q, QuorumSize(testCase.n))
 		})
 	}
 }

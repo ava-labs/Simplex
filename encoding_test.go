@@ -11,78 +11,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestBlockRecord(t *testing.T) {
-	bh := BlockHeader{
-		ProtocolMetadata: ProtocolMetadata{
-			Round: 2,
-			Seq:   3,
-			Epoch: 4,
-		},
-	}
-
-	_, err := rand.Read(bh.Prev[:])
-	require.NoError(t, err)
-
-	_, err = rand.Read(bh.Digest[:])
-	require.NoError(t, err)
-
-	payload := []byte{11, 12, 13, 14, 15, 16}
-
-	record := Record{
-		Block: &BlockRecord{
-			Header:  bh,
-			Payload: payload,
-		},
-	}
-	recordBytes := record.MarshalCanoto()
-
-	var parsedRecord Record
-	require.NoError(t, parsedRecord.UnmarshalCanoto(recordBytes))
-	require.True(t, bh.Equals(&parsedRecord.Block.Header))
-	require.Equal(t, payload, parsedRecord.Block.Payload)
-}
-
-func FuzzBlockRecord(f *testing.F) {
-	f.Fuzz(func(t *testing.T, version uint8, round, seq, epoch uint64, prevPreimage, digestPreimage []byte, payload []byte) {
-		prev := sha256.Sum256(prevPreimage)
-		digest := sha256.Sum256(digestPreimage)
-		bh := BlockHeader{
-			ProtocolMetadata: ProtocolMetadata{
-				Round: round,
-				Seq:   seq,
-				Epoch: epoch,
-				Prev:  prev,
-			},
-			Digest: digest,
-		}
-
-		record := Record{
-			Block: &BlockRecord{
-				Header:  bh,
-				Payload: payload,
-			},
-		}
-		recordBytes := record.MarshalCanoto()
-
-		var parsedRecord Record
-		require.NoError(t, parsedRecord.UnmarshalCanoto(recordBytes))
-		require.True(t, bh.Equals(&parsedRecord.Block.Header))
-		require.Equal(t, payload, parsedRecord.Block.Payload)
-	})
-}
-
 func TestNotarizationRecord(t *testing.T) {
 	sig := make([]byte, 64)
 	_, err := rand.Read(sig)
 	require.NoError(t, err)
 
-	vote := ToBeSignedVote{
-		BlockHeader{
-			ProtocolMetadata: ProtocolMetadata{
-				Round: 2,
-				Seq:   3,
-				Epoch: 4,
-			},
+	vote := BlockHeader{
+		ProtocolMetadata: ProtocolMetadata{
+			Round: 2,
+			Seq:   3,
+			Epoch: 4,
 		},
 	}
 
@@ -93,8 +31,8 @@ func TestNotarizationRecord(t *testing.T) {
 	require.NoError(t, err)
 
 	record := Record{
-		Notarization: &QuorumRecord{
-			Header: vote.BlockHeader,
+		Notarization: &Quorum{
+			Header: vote,
 			QC:     []byte{1, 2, 3},
 		},
 	}
@@ -102,7 +40,7 @@ func TestNotarizationRecord(t *testing.T) {
 
 	var parsedRecord Record
 	require.NoError(t, parsedRecord.UnmarshalCanoto(recordBytes))
-	require.True(t, vote.BlockHeader.Equals(&parsedRecord.Notarization.Header))
+	require.True(t, vote.Equals(&parsedRecord.Notarization.Header))
 	require.Equal(t, []byte{1, 2, 3}, parsedRecord.Notarization.QC)
 }
 
@@ -111,21 +49,19 @@ func FuzzNotarizationRecord(f *testing.F) {
 		prev := sha256.Sum256(prevPreimage)
 		digest := sha256.Sum256(digestPreimage)
 
-		vote := ToBeSignedVote{
-			BlockHeader{
-				ProtocolMetadata: ProtocolMetadata{
-					Round: round,
-					Seq:   seq,
-					Epoch: epoch,
-					Prev:  prev,
-				},
-				Digest: digest,
+		vote := BlockHeader{
+			ProtocolMetadata: ProtocolMetadata{
+				Round: round,
+				Seq:   seq,
+				Epoch: epoch,
+				Prev:  prev,
 			},
+			Digest: digest,
 		}
 
 		record := Record{
-			Notarization: &QuorumRecord{
-				Header: vote.BlockHeader,
+			Notarization: &Quorum{
+				Header: vote,
 				QC:     []byte{1, 2, 3},
 			},
 		}
@@ -133,7 +69,7 @@ func FuzzNotarizationRecord(f *testing.F) {
 
 		var parsedRecord Record
 		require.NoError(t, parsedRecord.UnmarshalCanoto(recordBytes))
-		require.True(t, vote.BlockHeader.Equals(&parsedRecord.Notarization.Header))
+		require.True(t, vote.Equals(&parsedRecord.Notarization.Header))
 		require.Equal(t, []byte{1, 2, 3}, parsedRecord.Notarization.QC)
 	})
 }

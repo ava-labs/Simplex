@@ -46,8 +46,8 @@ type BlockBuilder interface {
 
 type Storage interface {
 	Height() uint64
-	Retrieve(seq uint64) (Block, FinalizationCertificate, bool)
-	Index(block Block, certificate FinalizationCertificate)
+	Retrieve(seq uint64) (Block, Quorum, bool)
+	Index(block Block, certificate Quorum)
 }
 
 type Communication interface {

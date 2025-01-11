@@ -71,6 +71,7 @@ func newSimplexNode(t *testing.T, id uint8, net *inMemNetwork, bb BlockBuilder) 
 		Signer:              &testSigner{},
 		WAL:                 wal,
 		Verifier:            &testVerifier{},
+		BlockDeserializer:   &blockDeserializer{},
 		Storage:             storage,
 		BlockBuilder:        bb,
 		SignatureAggregator: &testSignatureAggregator{},
