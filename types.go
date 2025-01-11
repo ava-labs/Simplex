@@ -15,8 +15,8 @@ const (
 	digestLen        = 32
 	digestFormatSize = 10
 
-	VoteContext     = "ToBeSignedVote"
-	FinalizeContext = "ToBeSignedFinalization"
+	VoteContext     = "vote"
+	FinalizeContext = "finalize"
 )
 
 type (
