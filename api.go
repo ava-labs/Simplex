@@ -95,12 +95,15 @@ type BlockDeserializer interface {
 	DeserializeBlock(bytes []byte) (Block, error)
 }
 
-// Signature encodes a signature and the node that signed it, without the message it was signed on.
-type Signature struct {
-	// Signer is the NodeID of the creator of the signature.
-	Signer NodeID
-	// Value is the byte representation of the signature.
-	Value []byte
+// QuorumCertificate is equivalent to a collection of signatures from a quorum of nodes,
+type QuorumCertificate interface {
+	// Signers returns who participated in creating this QuorumCertificate.
+	Signers() []NodeID
+	// Verify checks whether the nodes participated in creating this QuorumCertificate,
+	// signed the given message.
+	Verify(msg []byte) error
+	// Bytes returns a raw representation of the given QuorumCertificate.
+	Bytes() []byte
 }
 
 // QCDeserializer deserializes QuorumCertificates according to formatting

@@ -6,9 +6,7 @@ package simplex_test
 import (
 	"bytes"
 	"context"
-	"encoding/binary"
 	. "simplex"
-	"simplex/record"
 	"simplex/wal"
 	"sync"
 	"testing"
@@ -116,19 +114,15 @@ func (t *testInstance) assertNotarization(round uint64) {
 		require.NoError(t.t, err)
 
 		for _, rawRecord := range rawRecords {
-			if binary.BigEndian.Uint16(rawRecord[:2]) == record.NotarizationRecordType {
-				_, vote, err := NotarizationFromRecord(rawRecord)
-				require.NoError(t.t, err)
-
-				if vote.Round == round {
-					return
-				}
+			var record Record
+			require.NoError(t.t, record.UnmarshalCanoto(rawRecord))
+			if record.Notarization != nil && record.Notarization.Header.Round == round {
+				return
 			}
 		}
 
 		t.wal.signal.Wait()
 	}
-
 }
 
 func (t *testInstance) handleMessages() {

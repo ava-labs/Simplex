@@ -6,13 +6,16 @@ package simplex
 import (
 	"crypto/rand"
 	"crypto/sha256"
-	"github.com/stretchr/testify/require"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestMetadata(t *testing.T) {
-	var prev [metadataPrevLen]byte
-	var digest [metadataDigestLen]byte
+	var (
+		prev   Digest
+		digest Digest
+	)
 
 	_, err := rand.Read(prev[:])
 	require.NoError(t, err)
@@ -22,18 +25,17 @@ func TestMetadata(t *testing.T) {
 
 	bh := BlockHeader{
 		ProtocolMetadata: ProtocolMetadata{
-			Version: 1,
-			Round:   2,
-			Seq:     3,
-			Epoch:   4,
-			Prev:    prev,
+			Round: 2,
+			Seq:   3,
+			Epoch: 4,
+			Prev:  prev,
 		},
 		Digest: digest,
 	}
 
 	var bh2 BlockHeader
-	require.NoError(t, bh2.FromBytes(bh.Bytes()))
-	require.Equal(t, bh, bh2)
+	require.NoError(t, bh2.UnmarshalCanoto(bh.MarshalCanoto()))
+	require.True(t, bh.Equals(&bh2))
 }
 
 func FuzzMetadata(f *testing.F) {
@@ -44,17 +46,16 @@ func FuzzMetadata(f *testing.F) {
 
 		bh := BlockHeader{
 			ProtocolMetadata: ProtocolMetadata{
-				Version: version,
-				Round:   round,
-				Seq:     seq,
-				Epoch:   epoch,
-				Prev:    prev,
+				Round: round,
+				Seq:   seq,
+				Epoch: epoch,
+				Prev:  prev,
 			},
 			Digest: digest,
 		}
 
 		var bh2 BlockHeader
-		require.NoError(t, bh2.FromBytes(bh.Bytes()))
-		require.Equal(t, bh, bh2)
+		require.NoError(t, bh2.UnmarshalCanoto(bh.MarshalCanoto()))
+		require.True(t, bh.Equals(&bh2))
 	})
 }

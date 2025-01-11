@@ -8,7 +8,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"simplex/record"
 	"time"
 
 	"go.uber.org/zap"
@@ -96,15 +95,15 @@ func (e *Epoch) HandleMessage(msg *Message, from NodeID) error {
 	}
 
 	switch {
-	case msg.BlockMessage != nil:
+	case msg.Proposal != nil:
 		return e.handleBlockMessage(msg, from)
-	case msg.VoteMessage != nil:
+	case msg.Vote != nil:
 		return e.handleVoteMessage(msg, from)
 	case msg.Notarization != nil:
 		return e.handleNotarizationMessage(msg, from)
-	case msg.Finalization != nil:
+	case msg.Finalize != nil:
 		return e.handleFinalizationMessage(msg, from)
-	case msg.FinalizationCertificate != nil:
+	case msg.Finalization != nil:
 		return e.handleFinalizationCertificateMessage(msg, from)
 	default:
 		return fmt.Errorf("invalid message type: %v", msg)
@@ -174,7 +173,7 @@ func (e *Epoch) Stop() {
 }
 
 func (e *Epoch) handleFinalizationCertificateMessage(message *Message, from NodeID) error {
-	fCert := message.FinalizationCertificate
+	fCert := message.Finalization
 	round, exists := e.rounds[fCert.Finalization.Round]
 	if !exists {
 		e.Logger.Debug("Received finalization certificate for a non existent round", zap.Int("round", int(fCert.Finalization.Round)))
@@ -241,7 +240,7 @@ func (e *Epoch) validateFinalizationQC(fCert *FinalizationCertificate) (bool, er
 }
 
 func (e *Epoch) handleFinalizationMessage(message *Message, from NodeID) error {
-	msg := message.Finalization
+	msg := message.Finalize
 	finalization := msg.Finalization
 
 	// Only process a point to point finalization
@@ -272,7 +271,7 @@ func (e *Epoch) handleFinalizationMessage(message *Message, from NodeID) error {
 }
 
 func (e *Epoch) handleVoteMessage(message *Message, _ NodeID) error {
-	msg := message.VoteMessage
+	msg := message.Vote
 	vote := msg.Vote
 
 	// TODO: what if we've received a vote for a round we didn't instantiate yet?
@@ -345,7 +344,7 @@ func (e *Epoch) assembleFinalizationCertificate(round *Round) error {
 	finalizationsByMD := make(map[string][]*Finalization)
 
 	for _, vote := range round.finalizations {
-		key := string(vote.Finalization.Bytes())
+		key := string(vote.Finalization.MarshalCanoto())
 		finalizationsByMD[key] = append(finalizationsByMD[key], vote)
 	}
 
@@ -411,7 +410,13 @@ func (e *Epoch) persistFinalizationCertificate(fCert FinalizationCertificate) er
 			delete(messagesFromNode, fCert.Finalization.Round)
 		}
 	} else {
-		recordBytes := quorumRecord(fCert.QC.Bytes(), fCert.Finalization.Bytes(), record.FinalizationRecordType)
+		record := Record{
+			Finalization: &QuorumRecord{
+				Header: fCert.Finalization.BlockHeader,
+				QC:     fCert.QC.Bytes(),
+			},
+		}
+		recordBytes := record.MarshalCanoto()
 		if err := e.WAL.Append(recordBytes); err != nil {
 			e.Logger.Error("Failed to append finalization certificate record to WAL", zap.Error(err))
 			return err
@@ -423,7 +428,7 @@ func (e *Epoch) persistFinalizationCertificate(fCert FinalizationCertificate) er
 			zap.Stringer("digest", fCert.Finalization.BlockHeader.Digest))
 	}
 
-	finalizationCertificate := &Message{FinalizationCertificate: &fCert}
+	finalizationCertificate := &Message{Finalization: &fCert}
 	e.Comm.Broadcast(finalizationCertificate)
 
 	e.Logger.Debug("Broadcast finalization certificate",
@@ -464,7 +469,7 @@ func (e *Epoch) maybeCollectNotarization() error {
 	return e.assembleNotarization(votesForCurrentRound, digestWeExpect)
 }
 
-func (e *Epoch) assembleNotarization(votesForCurrentRound map[string]*Vote, digest [metadataDigestLen]byte) error {
+func (e *Epoch) assembleNotarization(votesForCurrentRound map[string]*Vote, digest Digest) error {
 	vote := ToBeSignedVote{
 		BlockHeader{
 			ProtocolMetadata: ProtocolMetadata{
@@ -501,19 +506,24 @@ func (e *Epoch) assembleNotarization(votesForCurrentRound map[string]*Vote, dige
 }
 
 func (e *Epoch) persistNotarization(notarization Notarization, vote ToBeSignedVote) error {
-	notarizationMessage := &Message{Notarization: &notarization}
-	record := quorumRecord(notarization.QC.Bytes(), vote.Bytes(), record.NotarizationRecordType)
-
-	if err := e.WAL.Append(record); err != nil {
+	record := Record{
+		Notarization: &QuorumRecord{
+			Header: vote.BlockHeader,
+			QC:     notarization.QC.Bytes(),
+		},
+	}
+	recordBytes := record.MarshalCanoto()
+	if err := e.WAL.Append(recordBytes); err != nil {
 		e.Logger.Error("Failed to append notarization record to WAL", zap.Error(err))
 		return err
 	}
 
 	e.Logger.Debug("Persisted notarization to WAL",
-		zap.Int("size", len(record)),
+		zap.Int("size", len(recordBytes)),
 		zap.Uint64("round", notarization.Vote.Round),
 		zap.Stringer("digest", notarization.Vote.BlockHeader.Digest))
 
+	notarizationMessage := &Message{Notarization: &notarization}
 	e.Comm.Broadcast(notarizationMessage)
 
 	e.Logger.Debug("Broadcast notarization",
@@ -587,13 +597,13 @@ func (e *Epoch) hasSomeNodeSignedTwice(nodeIDs []NodeID) bool {
 }
 
 func (e *Epoch) handleBlockMessage(message *Message, _ NodeID) error {
-	block := message.BlockMessage.Block
+	block := message.Proposal.Block
 	if block == nil {
 		e.Logger.Debug("Got empty block in a BlockMessage")
 		return nil
 	}
 
-	vote := message.BlockMessage.Vote
+	vote := message.Proposal.Vote
 	from := vote.Signature.Signer
 
 	md := block.BlockHeader()
@@ -668,8 +678,15 @@ func (e *Epoch) handleBlockMessage(message *Message, _ NodeID) error {
 		e.Logger.Debug("Failed verifying block", zap.Error(err))
 		return nil
 	}
-	record := blockRecord(md, block.Bytes())
-	if err := e.WAL.Append(record); err != nil {
+
+	record := Record{
+		Block: &BlockRecord{
+			Header:  md,
+			Payload: block.Bytes(),
+		},
+	}
+	recordBytes := record.MarshalCanoto()
+	if err := e.WAL.Append(recordBytes); err != nil {
 		e.Logger.Error("Failed appending block to WAL", zap.Error(err))
 		return err
 	}
@@ -681,7 +698,7 @@ func (e *Epoch) wasBlockAlreadyVerified(from NodeID, md BlockHeader) bool {
 	var alreadyVerified bool
 	msgsForRound, exists := e.futureMessages[string(from)][md.Round]
 	if exists && msgsForRound.proposal != nil {
-		bh := msgsForRound.proposal.BlockMessage.Block.BlockHeader()
+		bh := msgsForRound.proposal.Proposal.Block.BlockHeader()
 		alreadyVerified = bh.Equals(&md)
 	}
 	return alreadyVerified
@@ -690,18 +707,13 @@ func (e *Epoch) wasBlockAlreadyVerified(from NodeID, md BlockHeader) bool {
 func (e *Epoch) verifyProposalIsPartOfOurChain(block Block) bool {
 	bh := block.BlockHeader()
 
-	if bh.Version != 0 {
-		e.Logger.Debug("Got block message with wrong version number, expected 0", zap.Uint8("version", bh.Version))
-		return false
-	}
-
 	if e.Epoch != bh.Epoch {
 		e.Logger.Debug("Got block message but the epoch mismatches our epoch",
 			zap.Uint64("our epoch", e.Epoch), zap.Uint64("block epoch", bh.Epoch))
 	}
 
 	var expectedSeq uint64
-	var expectedPrevDigest [metadataDigestLen]byte
+	var expectedPrevDigest Digest
 
 	// Else, either it's not the first block, or we haven't committed the first block, and it is the first block.
 	// If it's the latter we have nothing else to do.
@@ -735,11 +747,10 @@ func (e *Epoch) verifyProposalIsPartOfOurChain(block Block) bool {
 	expectedBH := BlockHeader{
 		Digest: digest,
 		ProtocolMetadata: ProtocolMetadata{
-			Round:   e.round,
-			Seq:     expectedSeq,
-			Epoch:   e.Epoch,
-			Prev:    expectedPrevDigest,
-			Version: 0,
+			Round: e.round,
+			Seq:   expectedSeq,
+			Epoch: e.Epoch,
+			Prev:  expectedPrevDigest,
 		},
 	}
 
@@ -798,15 +809,20 @@ func (e *Epoch) proposeBlock() error {
 	// Write record to WAL before broadcasting it, so that
 	// if we crash during broadcasting, we know what we sent.
 
-	rawBlock := block.Bytes()
-	record := blockRecord(block.BlockHeader(), rawBlock)
-	if err := e.WAL.Append(record); err != nil {
+	record := Record{
+		Block: &BlockRecord{
+			Header:  block.BlockHeader(),
+			Payload: block.Bytes(),
+		},
+	}
+	recordBytes := record.MarshalCanoto()
+	if err := e.WAL.Append(recordBytes); err != nil {
 		e.Logger.Error("Failed appending block to WAL", zap.Error(err))
 		return err
 	}
 	e.Logger.Debug("Wrote block to WAL",
 		zap.Uint64("round", md.Round),
-		zap.Int("size", len(rawBlock)),
+		zap.Int("size", len(record.Block.Payload)),
 		zap.Stringer("digest", md.Digest))
 
 	vote, err := e.voteOnBlock(block)
@@ -815,7 +831,7 @@ func (e *Epoch) proposeBlock() error {
 	}
 
 	proposal := &Message{
-		BlockMessage: &BlockMessage{
+		Proposal: &BlockMessage{
 			Block: block,
 			Vote:  vote,
 		},
@@ -828,14 +844,14 @@ func (e *Epoch) proposeBlock() error {
 	e.Comm.Broadcast(proposal)
 	e.Logger.Debug("Proposal broadcast",
 		zap.Uint64("round", md.Round),
-		zap.Int("size", len(rawBlock)),
+		zap.Int("size", len(record.Block.Payload)),
 		zap.Stringer("digest", md.Digest))
 
-	return e.handleVoteMessage(&Message{VoteMessage: &vote}, e.ID)
+	return e.handleVoteMessage(&Message{Vote: &vote}, e.ID)
 }
 
 func (e *Epoch) Metadata() ProtocolMetadata {
-	var prev [metadataDigestLen]byte
+	var prev Digest
 	seq := e.Storage.Height()
 	if e.lastBlock != nil {
 		// Build on top of the latest block
@@ -845,11 +861,10 @@ func (e *Epoch) Metadata() ProtocolMetadata {
 	}
 
 	md := ProtocolMetadata{
-		Round:   e.round,
-		Seq:     seq,
-		Epoch:   e.Epoch,
-		Prev:    prev,
-		Version: 0,
+		Round: e.round,
+		Seq:   seq,
+		Epoch: e.Epoch,
+		Prev:  prev,
 	}
 	return md
 }
@@ -863,7 +878,7 @@ func (e *Epoch) startRound() error {
 
 	// If we're not the leader, check if we have received a proposal earlier for this round
 	msgsForRound, exists := e.futureMessages[string(leaderForCurrentRound)][e.round]
-	if !exists || msgsForRound.proposal == nil || msgsForRound.proposal.BlockMessage == nil {
+	if !exists || msgsForRound.proposal == nil || msgsForRound.proposal.Proposal == nil {
 		return nil
 	}
 
@@ -881,7 +896,7 @@ func (e *Epoch) doProposed(block Block, voteFromLeader Vote) error {
 	// We do not write the vote to the WAL as we have written the block itself to the WAL
 	// and we can always restore the block and sign it again if needed.
 	voteMsg := &Message{
-		VoteMessage: &vote,
+		Vote: &vote,
 	}
 
 	e.Logger.Debug("Broadcasting vote",
@@ -894,7 +909,7 @@ func (e *Epoch) doProposed(block Block, voteFromLeader Vote) error {
 		return err
 	}
 
-	return e.handleVoteMessage(&Message{VoteMessage: &voteFromLeader}, e.ID)
+	return e.handleVoteMessage(&Message{Vote: &voteFromLeader}, e.ID)
 }
 
 func (e *Epoch) voteOnBlock(block Block) (Vote, error) {
@@ -942,7 +957,7 @@ func (e *Epoch) doNotarized() error {
 	}
 
 	finalizationMsg := &Message{
-		Finalization: &sf,
+		Finalize: &sf,
 	}
 
 	e.Comm.Broadcast(finalizationMsg)

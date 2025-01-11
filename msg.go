@@ -3,32 +3,21 @@
 
 package simplex
 
-import "encoding/asn1"
-
-type Message struct {
-	BlockMessage            *BlockMessage
-	VoteMessage             *Vote
-	Notarization            *Notarization
-	Finalization            *Finalization
-	FinalizationCertificate *FinalizationCertificate
-}
+const (
+	voteContext         = "ToBeSignedVote"
+	finalizationContext = "ToBeSignedFinalization"
+)
 
 type ToBeSignedVote struct {
 	BlockHeader
 }
 
 func (v *ToBeSignedVote) Sign(signer Signer) ([]byte, error) {
-	context := "ToBeSignedVote"
-	msg := v.Bytes()
-
-	return signContext(signer, msg, context)
+	return signContext(signer, v.MarshalCanoto(), voteContext)
 }
 
 func (v *ToBeSignedVote) Verify(signature []byte, verifier SignatureVerifier, signers NodeID) error {
-	context := "ToBeSignedVote"
-	msg := v.Bytes()
-
-	return verifyContext(signature, verifier, msg, context, signers)
+	return verifyContext(signature, verifier, v.MarshalCanoto(), voteContext, signers)
 }
 
 type ToBeSignedFinalization struct {
@@ -36,94 +25,44 @@ type ToBeSignedFinalization struct {
 }
 
 func (f *ToBeSignedFinalization) Sign(signer Signer) ([]byte, error) {
-	context := "ToBeSignedFinalization"
-	msg := f.Bytes()
-
-	return signContext(signer, msg, context)
+	return signContext(signer, f.MarshalCanoto(), finalizationContext)
 }
 
 func (f *ToBeSignedFinalization) Verify(signature []byte, verifier SignatureVerifier, signers NodeID) error {
-	context := "ToBeSignedFinalization"
-	msg := f.Bytes()
-
-	return verifyContext(signature, verifier, msg, context, signers)
+	return verifyContext(signature, verifier, f.MarshalCanoto(), finalizationContext, signers)
 }
 
 func signContext(signer Signer, msg []byte, context string) ([]byte, error) {
-	sm := SignedMessage{Payload: msg, Context: context}
-	toBeSigned, err := asn1.Marshal(sm)
-	if err != nil {
-		return nil, err
+	sm := SignedMessage{
+		Payload: msg,
+		Context: context,
 	}
+	toBeSigned := sm.MarshalCanoto()
 	return signer.Sign(toBeSigned)
 }
 
 func verifyContext(signature []byte, verifier SignatureVerifier, msg []byte, context string, signers NodeID) error {
-	sm := SignedMessage{Payload: msg, Context: context}
-	toBeSigned, err := asn1.Marshal(sm)
-	if err != nil {
-		return err
+	sm := SignedMessage{
+		Payload: msg,
+		Context: context,
 	}
+	toBeSigned := sm.MarshalCanoto()
 	return verifier.Verify(toBeSigned, signature, signers)
 }
 
 func verifyContextQC(qc QuorumCertificate, msg []byte, context string) error {
-	sm := SignedMessage{Payload: msg, Context: context}
-	toBeSigned, err := asn1.Marshal(sm)
-	if err != nil {
-		return err
+	sm := SignedMessage{
+		Payload: msg,
+		Context: context,
 	}
-
+	toBeSigned := sm.MarshalCanoto()
 	return qc.Verify(toBeSigned)
 }
 
-type Vote struct {
-	Vote      ToBeSignedVote
-	Signature Signature
-}
-
-type Finalization struct {
-	Finalization ToBeSignedFinalization
-	Signature    Signature
-}
-
-type FinalizationCertificate struct {
-	Finalization ToBeSignedFinalization
-	QC           QuorumCertificate
-}
-
 func (fc *FinalizationCertificate) Verify() error {
-	context := "ToBeSignedFinalization"
-	return verifyContextQC(fc.QC, fc.Finalization.Bytes(), context)
-}
-
-type Notarization struct {
-	Vote ToBeSignedVote
-	QC   QuorumCertificate
+	return verifyContextQC(fc.QC, fc.Finalization.MarshalCanoto(), finalizationContext)
 }
 
 func (n *Notarization) Verify() error {
-	context := "ToBeSignedVote"
-	return verifyContextQC(n.QC, n.Vote.Bytes(), context)
-}
-
-type BlockMessage struct {
-	Block Block
-	Vote  Vote
-}
-
-type SignedMessage struct {
-	Payload []byte
-	Context string
-}
-
-// QuorumCertificate is equivalent to a collection of signatures from a quorum of nodes,
-type QuorumCertificate interface {
-	// Signers returns who participated in creating this QuorumCertificate.
-	Signers() []NodeID
-	// Verify checks whether the nodes participated in creating this QuorumCertificate,
-	// signed the given message.
-	Verify(msg []byte) error
-	// Bytes returns a raw representation of the given QuorumCertificate.
-	Bytes() []byte
+	return verifyContextQC(n.QC, n.Vote.MarshalCanoto(), voteContext)
 }
