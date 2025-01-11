@@ -6,13 +6,14 @@ package simplex
 import (
 	"crypto/rand"
 	"crypto/sha256"
-	"github.com/stretchr/testify/require"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestMetadata(t *testing.T) {
-	var prev [metadataPrevLen]byte
-	var digest [metadataDigestLen]byte
+	var prev Digest
+	var digest Digest
 
 	_, err := rand.Read(prev[:])
 	require.NoError(t, err)

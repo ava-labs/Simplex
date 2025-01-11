@@ -62,17 +62,6 @@ func (bh *BlockHeader) Equals(other *BlockHeader) bool {
 }
 
 func (bh *BlockHeader) Bytes() []byte {
-	// Sanity check: check that digest and prev are 32 bytes
-
-	if len(bh.Digest) != metadataDigestLen {
-		panic(fmt.Sprintf("digest is %d bytes, expected %d", len(bh.Digest), metadataDigestLen))
-	}
-
-	// Prev block's digest can be nil, or 32 bytes
-	if len(bh.Prev) != 0 && len(bh.Prev) != metadataPrevLen {
-		panic(fmt.Sprintf("digest is %d bytes, expected %d", len(bh.Prev), metadataPrevLen))
-	}
-
 	buff := make([]byte, metadataLen)
 	var pos int
 
