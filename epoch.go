@@ -213,7 +213,7 @@ func (e *Epoch) isFinalizationCertificateValid(finalization *Quorum) (bool, erro
 }
 
 func (e *Epoch) validateFinalizationQC(finalization *Quorum) (bool, error) {
-	qc, err := e.QCDeserializer.DeserializeQuorumCertificate(finalization.QC)
+	qc, err := e.QCDeserializer.DeserializeQuorumCertificate(finalization.Certificate)
 	if err != nil {
 		e.Logger.Debug("FinalizationCertificate QC failed to be parsed",
 			zap.Error(err),
@@ -383,8 +383,8 @@ func (e *Epoch) assembleFinalizationCertificate(round *Round) error {
 	}
 
 	finalization := Quorum{
-		Header: finalize.Header,
-		QC:     qc.Bytes(),
+		Header:      finalize.Header,
+		Certificate: qc.Bytes(),
 	}
 	round.finalization = &finalization
 
@@ -497,8 +497,8 @@ func (e *Epoch) assembleNotarization(votesForCurrentRound map[string]*Vote, dige
 	}
 
 	notarization := Quorum{
-		Header: vote,
-		QC:     qc.Bytes(),
+		Header:      vote,
+		Certificate: qc.Bytes(),
 	}
 	if err := e.storeNotarization(notarization); err != nil {
 		return err

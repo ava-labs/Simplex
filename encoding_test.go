@@ -32,8 +32,8 @@ func TestNotarizationRecord(t *testing.T) {
 
 	record := Record{
 		Notarization: &Quorum{
-			Header: vote,
-			QC:     []byte{1, 2, 3},
+			Header:      vote,
+			Certificate: []byte{1, 2, 3},
 		},
 	}
 	recordBytes := record.MarshalCanoto()
@@ -41,7 +41,7 @@ func TestNotarizationRecord(t *testing.T) {
 	var parsedRecord Record
 	require.NoError(t, parsedRecord.UnmarshalCanoto(recordBytes))
 	require.True(t, vote.Equals(&parsedRecord.Notarization.Header))
-	require.Equal(t, []byte{1, 2, 3}, parsedRecord.Notarization.QC)
+	require.Equal(t, []byte{1, 2, 3}, parsedRecord.Notarization.Certificate)
 }
 
 func FuzzNotarizationRecord(f *testing.F) {
@@ -61,8 +61,8 @@ func FuzzNotarizationRecord(f *testing.F) {
 
 		record := Record{
 			Notarization: &Quorum{
-				Header: vote,
-				QC:     []byte{1, 2, 3},
+				Header:      vote,
+				Certificate: []byte{1, 2, 3},
 			},
 		}
 		recordBytes := record.MarshalCanoto()
@@ -70,6 +70,6 @@ func FuzzNotarizationRecord(f *testing.F) {
 		var parsedRecord Record
 		require.NoError(t, parsedRecord.UnmarshalCanoto(recordBytes))
 		require.True(t, vote.Equals(&parsedRecord.Notarization.Header))
-		require.Equal(t, []byte{1, 2, 3}, parsedRecord.Notarization.QC)
+		require.Equal(t, []byte{1, 2, 3}, parsedRecord.Notarization.Certificate)
 	})
 }

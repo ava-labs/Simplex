@@ -1,7 +1,7 @@
 // Copyright (C) 2019-2024, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
-//go:generate go run github.com/StephenButtolph/canoto/canoto@v0.10.0 --library=./internal --concurrent=false --import=simplex/internal/canoto $GOFILE
+//go:generate go run github.com/StephenButtolph/canoto/canoto@v0.10.0 --concurrent=false --import=simplex/internal/canoto --library=./internal $GOFILE
 
 package simplex
 
@@ -50,8 +50,8 @@ type (
 		canotoData canotoData_Vote
 	}
 	Quorum struct {
-		Header BlockHeader `canoto:"value,1"`
-		QC     []byte      `canoto:"bytes,2"`
+		Header      BlockHeader `canoto:"value,1"`
+		Certificate []byte      `canoto:"bytes,2"`
 
 		canotoData canotoData_Quorum
 	}
@@ -134,7 +134,7 @@ func (v *Vote) Verify(verifier SignatureVerifier, context string) error {
 }
 
 func (q *Quorum) Verify(p QCDeserializer, context string) error {
-	qc, err := p.DeserializeQuorumCertificate(q.QC)
+	qc, err := p.DeserializeQuorumCertificate(q.Certificate)
 	if err != nil {
 		return err
 	}

@@ -1126,8 +1126,8 @@ func (c *Vote) MarshalCanotoInto(w canoto.Writer) canoto.Writer {
 }
 
 const (
-	canoto__Quorum__Header__tag = "\x0a" // canoto.Tag(1, canoto.Len)
-	canoto__Quorum__QC__tag     = "\x12" // canoto.Tag(2, canoto.Len)
+	canoto__Quorum__Header__tag      = "\x0a" // canoto.Tag(1, canoto.Len)
+	canoto__Quorum__Certificate__tag = "\x12" // canoto.Tag(2, canoto.Len)
 )
 
 type canotoData_Quorum struct {
@@ -1206,10 +1206,10 @@ func (c *Quorum) UnmarshalCanotoFrom(r canoto.Reader) error {
 				return canoto.ErrUnexpectedWireType
 			}
 
-			if err := canoto.ReadBytes(&r, &c.QC); err != nil {
+			if err := canoto.ReadBytes(&r, &c.Certificate); err != nil {
 				return err
 			}
-			if len(c.QC) == 0 {
+			if len(c.Certificate) == 0 {
 				return canoto.ErrZeroValue
 			}
 		default:
@@ -1251,8 +1251,8 @@ func (c *Quorum) CalculateCanotoCache() {
 	if fieldSize := (&c.Header).CachedCanotoSize(); fieldSize != 0 {
 		c.canotoData.size += len(canoto__Quorum__Header__tag) + canoto.SizeInt(int64(fieldSize)) + fieldSize
 	}
-	if len(c.QC) != 0 {
-		c.canotoData.size += len(canoto__Quorum__QC__tag) + canoto.SizeBytes(c.QC)
+	if len(c.Certificate) != 0 {
+		c.canotoData.size += len(canoto__Quorum__Certificate__tag) + canoto.SizeBytes(c.Certificate)
 	}
 }
 
@@ -1302,9 +1302,9 @@ func (c *Quorum) MarshalCanotoInto(w canoto.Writer) canoto.Writer {
 		canoto.AppendInt(&w, int64(fieldSize))
 		w = (&c.Header).MarshalCanotoInto(w)
 	}
-	if len(c.QC) != 0 {
-		canoto.Append(&w, canoto__Quorum__QC__tag)
-		canoto.AppendBytes(&w, c.QC)
+	if len(c.Certificate) != 0 {
+		canoto.Append(&w, canoto__Quorum__Certificate__tag)
+		canoto.AppendBytes(&w, c.Certificate)
 	}
 	return w
 }
