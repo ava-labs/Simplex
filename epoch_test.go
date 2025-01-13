@@ -32,7 +32,7 @@ func TestEpochSimpleFlow(t *testing.T) {
 		Logger:              l,
 		ID:                  nodes[0],
 		Signer:              &testSigner{},
-		WAL:                 &wal.InMemWAL{},
+		WAL:                 wal.NewMemWAL(t),
 		Verifier:            &testVerifier{},
 		Storage:             storage,
 		Comm:                noopComm(nodes),
@@ -61,23 +61,25 @@ func TestEpochSimpleFlow(t *testing.T) {
 
 		if !isEpochNode {
 			// send node a message from the leader
-			vote, err := newVote(block, leader, conf.Signer)
+			vote, err := newTestVote(block, leader, conf.Signer)
 			require.NoError(t, err)
-			e.HandleMessage(&Message{
+			err = e.HandleMessage(&Message{
 				BlockMessage: &BlockMessage{
 					Vote:  *vote,
 					Block: block,
 				},
 			}, leader)
+			require.NoError(t, err)
 		}
 
 		// start at one since our node has already voted
 		for i := 1; i < quorum; i++ {
-			injectVote(t, e, block, nodes[i], conf.Signer)
+			injectTestVote(t, e, block, nodes[i], conf.Signer)
 		}
 
 		for i := 1; i < quorum; i++ {
-			injectFinalization(t, e, block, nodes[i], conf.Signer)
+			injectTestFinalization(t, e, block, nodes[i], conf.Signer)
+
 		}
 
 		committedData := storage.data[i].Block.Bytes()
@@ -94,7 +96,7 @@ func makeLogger(t *testing.T, node int) *testLogger {
 	return l
 }
 
-func newVote(block *testBlock, id NodeID, signer Signer) (*Vote, error) {
+func newTestVote(block Block, id NodeID, signer Signer) (*Vote, error) {
 	vote := ToBeSignedVote{
 		BlockHeader: block.BlockHeader(),
 	}
@@ -112,8 +114,8 @@ func newVote(block *testBlock, id NodeID, signer Signer) (*Vote, error) {
 	}, nil
 }
 
-func injectVote(t *testing.T, e *Epoch, block *testBlock, id NodeID, signer Signer) {
-	vote, err := newVote(block, id, signer)
+func injectTestVote(t *testing.T, e *Epoch, block Block, id NodeID, signer Signer) {
+	vote, err := newTestVote(block, id, signer)
 	require.NoError(t, err)
 	err = e.HandleMessage(&Message{
 		VoteMessage: vote,
@@ -121,11 +123,10 @@ func injectVote(t *testing.T, e *Epoch, block *testBlock, id NodeID, signer Sign
 	require.NoError(t, err)
 }
 
-func newFinalization(t *testing.T, block *testBlock, id NodeID, signer Signer) *Finalization {
+func newTestFinalization(t *testing.T, block *testBlock, id NodeID, signer Signer) *Finalization {
 	f := ToBeSignedFinalization{BlockHeader: block.BlockHeader()}
 	sig, err := f.Sign(signer)
 	require.NoError(t, err)
-
 	return &Finalization{
 		Signature: Signature{
 			Signer: id,
@@ -137,9 +138,9 @@ func newFinalization(t *testing.T, block *testBlock, id NodeID, signer Signer) *
 	}
 }
 
-func injectFinalization(t *testing.T, e *Epoch, block *testBlock, id NodeID, signer Signer) {
+func injectTestFinalization(t *testing.T, e *Epoch, block *testBlock, id NodeID, signer Signer) {
 	err := e.HandleMessage(&Message{
-		Finalization: newFinalization(t, block, id, signer),
+		Finalization: newTestFinalization(t, block, id, signer),
 	}, id)
 	require.NoError(t, err)
 }
@@ -156,7 +157,6 @@ func (tl *testLogger) Verbo(msg string, fields ...zap.Field) {
 	tl.Log(zapcore.DebugLevel, msg, fields...)
 }
 
-// TODO: this isn't used, but it is needed for crash recovery
 type testQCDeserializer struct {
 	t *testing.T
 }
