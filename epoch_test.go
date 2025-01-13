@@ -123,7 +123,7 @@ func injectTestVote(t *testing.T, e *Epoch, block Block, id NodeID, signer Signe
 	require.NoError(t, err)
 }
 
-func newTestFinalization(t *testing.T, block *testBlock, id NodeID, signer Signer) *Finalization {
+func newTestFinalization(t *testing.T, block Block, id NodeID, signer Signer) *Finalization {
 	f := ToBeSignedFinalization{BlockHeader: block.BlockHeader()}
 	sig, err := f.Sign(signer)
 	require.NoError(t, err)
@@ -138,7 +138,7 @@ func newTestFinalization(t *testing.T, block *testBlock, id NodeID, signer Signe
 	}
 }
 
-func injectTestFinalization(t *testing.T, e *Epoch, block *testBlock, id NodeID, signer Signer) {
+func injectTestFinalization(t *testing.T, e *Epoch, block Block, id NodeID, signer Signer) {
 	err := e.HandleMessage(&Message{
 		Finalization: newTestFinalization(t, block, id, signer),
 	}, id)

@@ -158,9 +158,8 @@ func TestRecoverFromNotarization(t *testing.T) {
 
 	// require the round was incremented(notarization increases round)
 	require.Equal(t, uint64(1), e.Metadata().Round)
-
 	for i := 1; i < quorum; i++ {
-		injectTestFinalization(t, e, testBlock, nodes[i], conf.Signer)
+		injectTestFinalization(t, e, block, nodes[i], conf.Signer)
 	}
 
 	committedData := storage.data[0].Block.Bytes()
@@ -229,7 +228,7 @@ func TestRecoverFromWalWithStorage(t *testing.T) {
 
 	for i := 1; i < quorum; i++ {
 		// type assert block to testBlock
-		injectTestFinalization(t, e, testBlock, nodes[i], conf.Signer)
+		injectTestFinalization(t, e, block, nodes[i], conf.Signer)
 	}
 
 	committedData := storage.data[1].Block.Bytes()
