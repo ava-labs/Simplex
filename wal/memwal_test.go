@@ -15,7 +15,7 @@ func TestInMemWAL(t *testing.T) {
 	r1 := []byte{4, 5, 6}
 	r2 := []byte{10, 11, 12}
 
-	var wal InMemWAL
+	wal := NewMemWAL(t)
 	require.NoError(wal.Append(r1))
 	require.NoError(wal.Append(r2))
 

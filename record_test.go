@@ -12,8 +12,7 @@ import (
 func newNotarizationRecord(signatureAggregator simplex.SignatureAggregator, block simplex.Block, ids []simplex.NodeID, signer simplex.Signer) ([]byte, error) {
 	votesForCurrentRound := make(map[string]*simplex.Vote)
 	for _, id := range ids {
-		testBlock := block.(*testBlock)
-		vote, err := newVote(testBlock, id, signer)
+		vote, err := newTestVote(block, id, signer)
 		if err != nil {
 			return nil, err
 		}
@@ -64,7 +63,7 @@ func newFinalizationRecord(signatureAggregator simplex.SignatureAggregator, bloc
 	finalizations := make([]*simplex.Finalization, len(ids))
 	for i, id := range ids {
 		testBlock := block.(*testBlock)
-		finalizations[i] = newFinalization(testBlock, id)
+		finalizations[i] = newTestFinalization(testBlock, id)
 	}
 
 	fCert, err := newFinalizationCertificate(signatureAggregator, finalizations)

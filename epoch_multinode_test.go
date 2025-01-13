@@ -61,7 +61,7 @@ func newSimplexNode(t *testing.T, id uint8, net *inMemNetwork, bb BlockBuilder) 
 
 	nodeID := NodeID{id}
 
-	wal := newTestWAL()
+	wal := newTestWAL(t)
 
 	conf := EpochConfig{
 		Comm: &testComm{
@@ -107,6 +107,12 @@ type testInstance struct {
 	t *testing.T
 }
 
+func (t *testInstance) HandleMessage(msg *Message, from NodeID) error {
+	err := t.e.HandleMessage(msg, from)
+	require.NoError(t.t, err)
+	return err
+}
+
 func (t *testInstance) assertNotarization(round uint64) {
 	t.wal.lock.Lock()
 	defer t.wal.lock.Unlock()
@@ -133,7 +139,7 @@ func (t *testInstance) assertNotarization(round uint64) {
 
 func (t *testInstance) handleMessages() {
 	for msg := range t.ingress {
-		err := t.e.HandleMessage(msg.msg, msg.from)
+		err := t.HandleMessage(msg.msg, msg.from)
 		require.NoError(t.t, err)
 		if err != nil {
 			return
@@ -147,9 +153,9 @@ type testWAL struct {
 	signal sync.Cond
 }
 
-func newTestWAL() *testWAL {
+func newTestWAL(t *testing.T) *testWAL {
 	var tw testWAL
-	tw.WriteAheadLog = &wal.InMemWAL{}
+	tw.WriteAheadLog = wal.NewMemWAL(t)
 	tw.signal = sync.Cond{L: &tw.lock}
 	return &tw
 }

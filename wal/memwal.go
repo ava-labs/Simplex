@@ -6,17 +6,30 @@ package wal
 import (
 	"bytes"
 	"fmt"
+	"github.com/stretchr/testify/require"
+	"testing"
 )
 
-type InMemWAL bytes.Buffer
+type InMemWAL struct {
+	bb bytes.Buffer
+	t  *testing.T
+}
+
+func NewMemWAL(t *testing.T) *InMemWAL {
+	return &InMemWAL{
+		t: t,
+	}
+}
 
 func (wal *InMemWAL) Append(b []byte) error {
-	w := (*bytes.Buffer)(wal)
-	return writeRecord(w, b)
+	w := &wal.bb
+	err := writeRecord(w, b)
+	require.NoError(wal.t, err)
+	return err
 }
 
 func (wal *InMemWAL) ReadAll() ([][]byte, error) {
-	r := bytes.NewBuffer((*bytes.Buffer)(wal).Bytes())
+	r := bytes.NewBuffer(wal.bb.Bytes())
 	var res [][]byte
 	for r.Len() > 0 {
 		payload, _, err := readRecord(r, uint32(r.Len()))
