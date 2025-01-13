@@ -31,10 +31,9 @@ func TestSimplexMultiNodeSimple(t *testing.T) {
 
 	instances := []*testInstance{n1, n2, n3, n4}
 
-	for _, n := range instances[1:] {
+	for _, n := range instances {
 		n.start()
 	}
-	instances[0].start()
 
 	for seq := 0; seq < 10; seq++ {
 		for _, n := range instances {
