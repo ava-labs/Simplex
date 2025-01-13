@@ -9,7 +9,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"log"
 	"simplex/record"
 	"sync/atomic"
 	"time"
@@ -299,7 +298,8 @@ func (e *Epoch) syncFromWal() error {
 		case record.FinalizationRecordType:
 			err = e.syncFinalizationRecord(r)
 		default:
-			log.Fatal("undefined record type")
+			e.Logger.Error("undefined record type", zap.Uint16("type", recordType))
+			return fmt.Errorf("undefined record type: %d", recordType)
 		}
 		if err != nil {
 			return err
