@@ -77,7 +77,7 @@ func TestEpochSimpleFlow(t *testing.T) {
 		}
 
 		for i := 1; i < quorum; i++ {
-			injectFinalization(t, e, block, nodes[i])
+			injectFinalization(t, e, block, nodes[i], conf.Signer)
 		}
 
 		committedData := storage.data[i].Block.Bytes()
@@ -121,10 +121,15 @@ func injectVote(t *testing.T, e *Epoch, block *testBlock, id NodeID, signer Sign
 	require.NoError(t, err)
 }
 
-func newFinalization(block *testBlock, id NodeID) *Finalization {
+func newFinalization(t *testing.T, block *testBlock, id NodeID, signer Signer) *Finalization {
+	f := ToBeSignedFinalization{BlockHeader: block.BlockHeader()}
+	sig, err := f.Sign(signer)
+	require.NoError(t, err)
+
 	return &Finalization{
 		Signature: Signature{
 			Signer: id,
+			Value:  sig,
 		},
 		Finalization: ToBeSignedFinalization{
 			BlockHeader: block.BlockHeader(),
@@ -132,9 +137,9 @@ func newFinalization(block *testBlock, id NodeID) *Finalization {
 	}
 }
 
-func injectFinalization(t *testing.T, e *Epoch, block *testBlock, id NodeID) {
+func injectFinalization(t *testing.T, e *Epoch, block *testBlock, id NodeID, signer Signer) {
 	err := e.HandleMessage(&Message{
-		Finalization: newFinalization(block, id),
+		Finalization: newFinalization(t, block, id, signer),
 	}, id)
 	require.NoError(t, err)
 }
