@@ -1036,11 +1036,11 @@ func (e *Epoch) doNotarized(r uint64) error {
 	md := block.BlockHeader()
 
 	f := ToBeSignedFinalization{BlockHeader: md}
-	e.Logger.Info("Signing finalization", zap.Stringer("digest", md.Digest), zap.Stringer("signer", e.ID))
 	signature, err := f.Sign(e.Signer)
 	if err != nil {
 		return fmt.Errorf("failed signing vote %w", err)
 	}
+
 	sf := Finalization{
 		Signature: Signature{
 			Signer: e.ID,

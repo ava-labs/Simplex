@@ -147,8 +147,7 @@ func TestNewFinalizationCertificate(t *testing.T) {
 	}
 }
 
-type alwaysErrorSignatureAggregator struct {
-}
+type alwaysErrorSignatureAggregator struct{}
 
 func (t *alwaysErrorSignatureAggregator) Aggregate(signatures []simplex.Signature) (simplex.QuorumCertificate, error) {
 	return nil, errorSigAggregation

@@ -37,7 +37,7 @@ func newFinalizationRecord(t *testing.T, logger simplex.Logger, signatureAggrega
 	for i, id := range ids {
 		testBlock := block.(*testBlock)
 		finalizations[i] = newTestFinalization(t, testBlock, id, signer)
-  }
+	}
 
 	fCert, err := simplex.NewFinalizationCertificate(logger, signatureAggregator, finalizations)
 	require.NoError(t, err)

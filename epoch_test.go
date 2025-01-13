@@ -79,7 +79,6 @@ func TestEpochSimpleFlow(t *testing.T) {
 
 		for i := 1; i < quorum; i++ {
 			injectTestFinalization(t, e, block, nodes[i], conf.Signer)
-
 		}
 
 		committedData := storage.data[i].Block.Bytes()
