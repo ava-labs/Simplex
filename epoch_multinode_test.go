@@ -29,7 +29,7 @@ func TestSimplexMultiNodeSimple(t *testing.T) {
 
 	bb.triggerNewBlock()
 
-	instances := []*testInstance{n1, n2, n3, n4}
+	instances := []*testInstance{n4, n3, n2, n1}
 
 	for _, n := range instances {
 		n.start()
