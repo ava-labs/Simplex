@@ -42,6 +42,13 @@ func TestNewNotarization(t *testing.T) {
 			expectError:         nil,
 		},
 		{
+			name:                 "no votes",
+			votesForCurrentRound: map[string]*simplex.Vote{},
+			block:                testBlock,
+			signatureAggregator:  &testSignatureAggregator{},
+			expectError:          simplex.ErrorNoVotes,
+		},
+		{
 			name: "error aggregating",
 			votesForCurrentRound: func() map[string]*simplex.Vote {
 				votes := make(map[string]*simplex.Vote)
@@ -54,7 +61,7 @@ func TestNewNotarization(t *testing.T) {
 				return votes
 			}(),
 			block:               testBlock,
-			signatureAggregator: &alwaysErrorSignatureAggregator{},
+			signatureAggregator: &testSignatureAggregator{err: errorSigAggregation},
 			expectError:         errorSigAggregation,
 		},
 	}
@@ -125,8 +132,14 @@ func TestNewFinalizationCertificate(t *testing.T) {
 			finalizations: []*simplex.Finalization{
 				newTestFinalization(t, &testBlock{}, []byte{1}, signer),
 			},
-			signatureAggregator: &alwaysErrorSignatureAggregator{},
+			signatureAggregator: &testSignatureAggregator{err: errorSigAggregation},
 			expectError:         errorSigAggregation,
+		},
+		{
+			name:                "no votes",
+			finalizations:       []*simplex.Finalization{},
+			signatureAggregator: &testSignatureAggregator{},
+			expectError:         simplex.ErrorNoVotes,
 		},
 	}
 
@@ -148,10 +161,4 @@ func TestNewFinalizationCertificate(t *testing.T) {
 			}
 		})
 	}
-}
-
-type alwaysErrorSignatureAggregator struct{}
-
-func (t *alwaysErrorSignatureAggregator) Aggregate(signatures []simplex.Signature) (simplex.QuorumCertificate, error) {
-	return nil, errorSigAggregation
 }

@@ -12,35 +12,35 @@ import (
 	"go.uber.org/zap"
 )
 
-var ErrorInvalidFinalizationDigest = errors.New("finalization digests do not match")
+var (
+	ErrorNoVotes                   = errors.New("no votes to notarize")
+	ErrorInvalidFinalizationDigest = errors.New("finalization digests do not match")
+)
 
 // NewNotarization builds a Notarization for a block described by [blockHeader] from [votesForCurrentRound].
 func NewNotarization(logger Logger, signatureAggregator SignatureAggregator, votesForCurrentRound map[string]*Vote, blockHeader BlockHeader) (Notarization, error) {
-	vote := ToBeSignedVote{
-		BlockHeader{
-			ProtocolMetadata: ProtocolMetadata{
-				Epoch: blockHeader.Epoch,
-				Round: blockHeader.Round,
-			},
-			Digest: blockHeader.Digest,
-		},
-	}
-
 	voteCount := len(votesForCurrentRound)
-
 	signatures := make([]Signature, 0, voteCount)
 	logger.Info("Collected Quorum of votes", zap.Uint64("round", blockHeader.Round), zap.Int("votes", voteCount))
+
+	var toBeSignedVote *ToBeSignedVote
 	for _, vote := range votesForCurrentRound {
 		logger.Debug("Collected vote from node", zap.Stringer("NodeID", vote.Signature.Signer))
 		signatures = append(signatures, vote.Signature)
+		if toBeSignedVote == nil {
+			toBeSignedVote = &vote.Vote
+		}
 	}
 
+	if toBeSignedVote == nil {
+		return Notarization{}, ErrorNoVotes
+	}
 	// sort the signatures by Signer to ensure consistent ordering
 	slices.SortFunc(signatures, compareSignatures)
 
 	var notarization Notarization
 	var err error
-	notarization.Vote = vote
+	notarization.Vote = *toBeSignedVote
 	notarization.QC, err = signatureAggregator.Aggregate(signatures)
 	if err != nil {
 		return Notarization{}, fmt.Errorf("could not aggregate signatures for notarization: %w", err)
@@ -52,6 +52,9 @@ func NewNotarization(logger Logger, signatureAggregator SignatureAggregator, vot
 // NewFinalizationCertificate builds a FinalizationCertificate from [finalizations].
 func NewFinalizationCertificate(logger Logger, signatureAggregator SignatureAggregator, finalizations []*Finalization) (FinalizationCertificate, error) {
 	voteCount := len(finalizations)
+	if voteCount == 0 {
+		return FinalizationCertificate{}, ErrorNoVotes
+	}
 
 	signatures := make([]Signature, 0, voteCount)
 	expectedDigest := finalizations[0].Finalization.Digest

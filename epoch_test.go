@@ -169,10 +169,11 @@ func (t *testQCDeserializer) DeserializeQuorumCertificate(bytes []byte) (QuorumC
 }
 
 type testSignatureAggregator struct {
+	err error
 }
 
 func (t *testSignatureAggregator) Aggregate(signatures []Signature) (QuorumCertificate, error) {
-	return testQC(signatures), nil
+	return testQC(signatures), t.err
 }
 
 type testQC []Signature
