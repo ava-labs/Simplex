@@ -37,7 +37,7 @@ func TestSimplexMultiNodeSimple(t *testing.T) {
 
 	for seq := 0; seq < 10; seq++ {
 		for _, n := range instances {
-			n.assertNotarization(uint64(seq))
+			n.wal.assertNotarization(uint64(seq))
 		}
 		bb.triggerNewBlock()
 	}
@@ -113,30 +113,6 @@ func (t *testInstance) HandleMessage(msg *Message, from NodeID) error {
 	return err
 }
 
-func (t *testInstance) assertNotarization(round uint64) {
-	t.wal.lock.Lock()
-	defer t.wal.lock.Unlock()
-
-	for {
-		rawRecords, err := t.wal.ReadAll()
-		require.NoError(t.t, err)
-
-		for _, rawRecord := range rawRecords {
-			if binary.BigEndian.Uint16(rawRecord[:2]) == record.NotarizationRecordType {
-				_, vote, err := ParseNotarizationRecord(rawRecord)
-				require.NoError(t.t, err)
-
-				if vote.Round == round {
-					return
-				}
-			}
-		}
-
-		t.wal.signal.Wait()
-	}
-
-}
-
 func (t *testInstance) handleMessages() {
 	for msg := range t.ingress {
 		err := t.HandleMessage(msg.msg, msg.from)
@@ -149,6 +125,7 @@ func (t *testInstance) handleMessages() {
 
 type testWAL struct {
 	WriteAheadLog
+	t      *testing.T
 	lock   sync.Mutex
 	signal sync.Cond
 }
@@ -157,6 +134,7 @@ func newTestWAL(t *testing.T) *testWAL {
 	var tw testWAL
 	tw.WriteAheadLog = wal.NewMemWAL(t)
 	tw.signal = sync.Cond{L: &tw.lock}
+	tw.t = t
 	return &tw
 }
 
@@ -167,6 +145,30 @@ func (tw *testWAL) Append(b []byte) error {
 	err := tw.WriteAheadLog.Append(b)
 	tw.signal.Signal()
 	return err
+}
+
+func (tw *testWAL) assertNotarization(round uint64) {
+	tw.lock.Lock()
+	defer tw.lock.Unlock()
+
+	for {
+		rawRecords, err := tw.WriteAheadLog.ReadAll()
+		require.NoError(tw.t, err)
+
+		for _, rawRecord := range rawRecords {
+			if binary.BigEndian.Uint16(rawRecord[:2]) == record.NotarizationRecordType {
+				_, vote, err := ParseNotarizationRecord(rawRecord)
+				require.NoError(tw.t, err)
+
+				if vote.Round == round {
+					return
+				}
+			}
+		}
+
+		tw.signal.Wait()
+	}
+
 }
 
 type testComm struct {
