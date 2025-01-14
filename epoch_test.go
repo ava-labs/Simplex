@@ -78,7 +78,7 @@ func TestEpochSimpleFlow(t *testing.T) {
 		}
 
 		for i := 1; i < quorum; i++ {
-			injectTestFinalization(t, e, block, nodes[i])
+			injectTestFinalization(t, e, block, nodes[i], conf.Signer)
 		}
 
 		committedData := storage.data[i].Block.Bytes()
@@ -122,10 +122,14 @@ func injectTestVote(t *testing.T, e *Epoch, block Block, id NodeID, signer Signe
 	require.NoError(t, err)
 }
 
-func newTestFinalization(block Block, id NodeID) *Finalization {
+func newTestFinalization(t *testing.T, block Block, id NodeID, signer Signer) *Finalization {
+	f := ToBeSignedFinalization{BlockHeader: block.BlockHeader()}
+	sig, err := f.Sign(signer)
+	require.NoError(t, err)
 	return &Finalization{
 		Signature: Signature{
 			Signer: id,
+			Value:  sig,
 		},
 		Finalization: ToBeSignedFinalization{
 			BlockHeader: block.BlockHeader(),
@@ -133,9 +137,9 @@ func newTestFinalization(block Block, id NodeID) *Finalization {
 	}
 }
 
-func injectTestFinalization(t *testing.T, e *Epoch, block Block, id NodeID) {
+func injectTestFinalization(t *testing.T, e *Epoch, block Block, id NodeID, signer Signer) {
 	err := e.HandleMessage(&Message{
-		Finalization: newTestFinalization(block, id),
+		Finalization: newTestFinalization(t, block, id, signer),
 	}, id)
 	require.NoError(t, err)
 }
@@ -165,10 +169,11 @@ func (t *testQCDeserializer) DeserializeQuorumCertificate(bytes []byte) (QuorumC
 }
 
 type testSignatureAggregator struct {
+	err error
 }
 
 func (t *testSignatureAggregator) Aggregate(signatures []Signature) (QuorumCertificate, error) {
-	return testQC(signatures), nil
+	return testQC(signatures), t.err
 }
 
 type testQC []Signature

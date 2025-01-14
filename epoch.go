@@ -495,28 +495,6 @@ func (e *Epoch) maybeCollectFinalizationCertificate(round *Round) error {
 	return e.assembleFinalizationCertificate(round)
 }
 
-func (e *Epoch) NewFinalizationCertificate(finalizations []*Finalization) (FinalizationCertificate, error) {
-	voteCount := len(finalizations)
-
-	signatures := make([]Signature, 0, voteCount)
-	e.Logger.Info("Collected Quorum of votes", zap.Uint64("round", e.round), zap.Int("votes", voteCount))
-	for _, vote := range finalizations {
-		// TODO: ensure all finalizations agree on the same metadata!
-		e.Logger.Debug("Collected finalization from node", zap.Stringer("NodeID", vote.Signature.Signer))
-		signatures = append(signatures, vote.Signature)
-	}
-
-	var fCert FinalizationCertificate
-	var err error
-	fCert.Finalization = finalizations[0].Finalization
-	fCert.QC, err = e.SignatureAggregator.Aggregate(signatures)
-	if err != nil {
-		return FinalizationCertificate{}, fmt.Errorf("could not aggregate signatures for finalization certificate: %w", err)
-	}
-
-	return fCert, nil
-}
-
 func (e *Epoch) assembleFinalizationCertificate(round *Round) error {
 	// Divide finalizations into sets that agree on the same metadata
 	finalizationsByMD := make(map[string][]*Finalization)
@@ -540,7 +518,7 @@ func (e *Epoch) assembleFinalizationCertificate(round *Round) error {
 		return nil
 	}
 
-	fCert, err := e.NewFinalizationCertificate(finalizations)
+	fCert, err := NewFinalizationCertificate(e.Logger, e.SignatureAggregator, finalizations)
 	if err != nil {
 		return err
 	}
@@ -623,43 +601,12 @@ func (e *Epoch) maybeCollectNotarization() error {
 		return nil
 	}
 
-	notarization, err := e.NewNotarization(votesForCurrentRound, expectedDigest)
+	notarization, err := NewNotarization(e.Logger, e.SignatureAggregator, votesForCurrentRound, block.BlockHeader())
 	if err != nil {
 		return err
 	}
 
 	return e.persistNotarization(notarization)
-}
-
-func (e *Epoch) NewNotarization(votesForCurrentRound map[string]*Vote, digest [metadataDigestLen]byte) (Notarization, error) {
-	vote := ToBeSignedVote{
-		BlockHeader{
-			ProtocolMetadata: ProtocolMetadata{
-				Epoch: e.Epoch,
-				Round: e.round,
-			},
-			Digest: digest,
-		},
-	}
-
-	voteCount := len(votesForCurrentRound)
-
-	signatures := make([]Signature, 0, voteCount)
-	e.Logger.Info("Collected Quorum of votes", zap.Uint64("round", e.round), zap.Int("votes", voteCount))
-	for _, vote := range votesForCurrentRound {
-		e.Logger.Debug("Collected vote from node", zap.Stringer("NodeID", vote.Signature.Signer))
-		signatures = append(signatures, vote.Signature)
-	}
-
-	var notarization Notarization
-	var err error
-	notarization.Vote = vote
-	notarization.QC, err = e.SignatureAggregator.Aggregate(signatures)
-	if err != nil {
-		return Notarization{}, fmt.Errorf("could not aggregate signatures for notarization: %w", err)
-	}
-
-	return notarization, nil
 }
 
 func (e *Epoch) persistNotarization(notarization Notarization) error {
