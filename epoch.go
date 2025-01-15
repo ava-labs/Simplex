@@ -425,21 +425,18 @@ func (e *Epoch) handleFinalizationMessage(message *Finalization, from NodeID) er
 	// If we have not received the proposal yet, we won't have a Round object in e.rounds,
 	// yet we may receive the corresponding finalization.
 	// This may happen if we're asynchronously verifying the proposal at the moment.
-	var pendingProposal bool
 	if _, exists := e.rounds[finalization.Round]; !exists && e.round == finalization.Round {
-		pendingProposal = true
+		e.Logger.Debug("Received a finalization for the current round",
+			zap.Uint64("round", finalization.Round), zap.Stringer("from", from))
+		e.storeFutureFinalization(message, from, finalization.Round)
+		return nil
 	}
 
 	// This finalization may correspond to a proposal from a future round, or to the proposal of the current round
 	// which we are still verifying.
-	if (e.round < finalization.Round && finalization.Round-e.round < e.maxRoundWindow) || pendingProposal {
+	if e.round < finalization.Round && finalization.Round-e.round < e.maxRoundWindow {
 		e.Logger.Debug("Got vote from round too far in the future", zap.Uint64("round", finalization.Round), zap.Uint64("my round", e.round))
-		msgsForRound, exists := e.futureMessages[string(from)][finalization.Round]
-		if !exists {
-			msgsForRound = &messagesForRound{}
-			e.futureMessages[string(from)][finalization.Round] = msgsForRound
-		}
-		msgsForRound.finalization = message
+		e.storeFutureFinalization(message, from, finalization.Round)
 		return nil
 	}
 
@@ -462,6 +459,15 @@ func (e *Epoch) handleFinalizationMessage(message *Finalization, from NodeID) er
 	round.finalizations[string(from)] = message
 
 	return e.maybeCollectFinalizationCertificate(round)
+}
+
+func (e *Epoch) storeFutureFinalization(message *Finalization, from NodeID, round uint64) {
+	msgsForRound, exists := e.futureMessages[string(from)][round]
+	if !exists {
+		msgsForRound = &messagesForRound{}
+		e.futureMessages[string(from)][round] = msgsForRound
+	}
+	msgsForRound.finalization = message
 }
 
 func (e *Epoch) handleVoteMessage(message *Vote, from NodeID) error {
