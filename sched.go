@@ -47,6 +47,9 @@ func (as *scheduler) run() {
 		if as.close {
 			return
 		}
+		if len(as.ready) > 0 {
+			continue
+		}
 		as.signal.Wait()
 	}
 }
@@ -60,9 +63,51 @@ func (as *scheduler) maybeExecuteTask() {
 		task, as.ready = as.ready[0], as.ready[1:]
 		as.lock.Unlock()
 		task.f()
-		as.lock.Lock()
 	}
 }
+
+/*
+
+(a) While a task is scheduled, the lock is held and therefore the only instructions that the scheduler thread
+can perform is running 'dispatchTaskAndScheduleDependingTasks', as any other line in 'maybeExecuteTask' requires
+the lock to be held. Inside 'dispatchTaskAndScheduleDependingTasks', the only line that doesn't require the lock
+to be held is executing the task itself. It follows from here, that it is not possible to schedule a new task
+while moving tasks from pending to the ready queue, and vice versa.
+
+(b) The Epoch schedules new tasks under a lock, and computes whether a task is ready or not, under that lock as well.
+Since each task in the Epoch first obtains a lock before proceeding to do anything, if a task A finished its execution before
+the task B that depends on it was scheduled, then it cannot be that B was scheduled with a dependency on A and is not ready,
+because the computation of whether B is ready to be scheduled or not is mutually exclusive with respect to A's execution.
+Therefore, if A finished executing it must be that B is ready to be executed.
+
+(c) If a task is scheduled and is ready to run, it will be executed after a finite set of instructions.
+The reason is that a ready task is entered into the ready queue and then the condition variable is signaled.
+The scheduler goroutine can be either waiting for the signal, in which case it will wake up and execute the task,
+or it can be performing an instruction before waiting for the signal. In the latter case, the only time when
+a lock is not held, is when the task is executed. Afterward, the lock is re-acquired in 'dispatchTaskAndScheduleDependingTasks'.
+It follows from (a) that if the lock is not held by the scheduler goroutine, then it will check for ready tasks one more time
+just before entering the wait for the signal, and therefore even if the signal is given while the scheduler goroutine is not waiting
+for it, a scheduling of a task ready to run will run after a finite set of instructions by the scheduler goroutine.
+
+We will show that it cannot be that there exists a task B such that it is scheduled and is not ready to be executed,
+and B depends on a task A which finishes, but B is never scheduled once A finishes.
+
+We split into two distinct cases:
+
+1) B is scheduled after A
+2) A is scheduled after B
+
+If (1) holds, then when B is scheduled, it is not ready (according to the assumption) and hence it is inserted into pending.
+It follows from (b) that A does not finish before B is inserted into pending (otherwise B was ready to be executed).
+At some point the task A finishes its execution, after which the scheduler goroutine
+enters 'dispatchTaskAndScheduleDependingTasks' where it proceeds to remove the ID of A,
+retrieve B from pending, add B to the ready queue, and perform another iteration inside 'maybeExecuteTask'.
+It will then pop tasks from the ready queue and execute them until it is empty, and one of these tasks will be B.
+
+If (2) holds, then when B is scheduled it is pending on A to finish.
+The rest follows trivially from (1).
+
+*/
 
 func (as *scheduler) Schedule(id Digest, f func(), prev Digest, ready bool) {
 	as.lock.Lock()
@@ -91,10 +136,8 @@ func (as *scheduler) dispatchTaskAndScheduleDependingTasks(id Digest, task func(
 	return func() {
 		task()
 		as.lock.Lock()
-		defer as.lock.Unlock()
 		newlyReadyTasks := as.pending.Remove(id)
 		as.ready = append(as.ready, newlyReadyTasks...)
-		as.signal.Signal()
 	}
 }
 

@@ -5,8 +5,10 @@ package simplex
 
 import (
 	"crypto/rand"
+	rand2 "math/rand"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -77,7 +79,7 @@ func TestAsyncScheduler(t *testing.T) {
 		ticks <- struct{}{}
 	})
 
-	t.Run("Executes several pending tasks concurrently", func(t *testing.T) {
+	t.Run("Executes several pending tasks concurrently in arbitrary order", func(t *testing.T) {
 		as := NewScheduler()
 		defer as.Close()
 
@@ -90,32 +92,45 @@ func TestAsyncScheduler(t *testing.T) {
 		wg.Add(n)
 
 		var prevTask Digest
+		tasks := make([]func(), n)
 
 		for i := 0; i < n; i++ {
 			taskID := makeDigest(t)
-			scheduleTask(&lock, finished, prevTask, taskID, &wg, as, i)
+			tasks[i] = scheduleTask(&lock, finished, prevTask, taskID, &wg, as, i)
 			// Next iteration's previous task ID is current task ID
 			prevTask = taskID
+		}
+
+		seed := time.Now().UnixNano()
+		r := rand2.New(rand2.NewSource(seed))
+
+		for _, index := range r.Perm(n) {
+			tasks[index]()
 		}
 
 		wg.Wait()
 	})
 }
 
-func scheduleTask(lock *sync.Mutex, finished map[Digest]struct{}, dependency Digest, id Digest, wg *sync.WaitGroup, as *scheduler, i int) {
-	lock.Lock()
-	defer lock.Unlock()
+func scheduleTask(lock *sync.Mutex, finished map[Digest]struct{}, dependency Digest, id Digest, wg *sync.WaitGroup, as *scheduler, i int) func() {
+	var dep Digest
+	copy(dep[:], dependency[:])
 
-	_, hasFinished := finished[dependency]
-
-	task := func() {
+	return func() {
 		lock.Lock()
 		defer lock.Unlock()
-		finished[id] = struct{}{}
-		wg.Done()
-	}
 
-	as.Schedule(id, task, dependency, i == 0 || hasFinished)
+		_, hasFinished := finished[dep]
+
+		task := func() {
+			lock.Lock()
+			defer lock.Unlock()
+			finished[id] = struct{}{}
+			wg.Done()
+		}
+
+		as.Schedule(id, task, dep, i == 0 || hasFinished)
+	}
 }
 
 func makeDigest(t *testing.T) Digest {
