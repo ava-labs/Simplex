@@ -793,6 +793,14 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, _ NodeID) error {
 		return nil
 	}
 
+	// The block is for a too high round, we shouldn't handle it as
+	// we have only so much memory.
+	if md.Round-e.round >= e.maxRoundWindow {
+		e.Logger.Debug("Received a block message for a too high round",
+			zap.Uint64("round", md.Round), zap.Uint64("our round", e.round))
+		return nil
+	}
+
 	// Ignore block messages sent by us
 	if e.ID.Equals(from) {
 		e.Logger.Debug("Got a BlockMessage from ourselves or created by us")
