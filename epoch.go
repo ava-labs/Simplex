@@ -422,10 +422,13 @@ func (e *Epoch) handleFinalizationMessage(message *Finalization, from NodeID) er
 		return nil
 	}
 
+	// Have we already finalized this round?
+	round, exists := e.rounds[finalization.Round]
+
 	// If we have not received the proposal yet, we won't have a Round object in e.rounds,
 	// yet we may receive the corresponding finalization.
 	// This may happen if we're asynchronously verifying the proposal at the moment.
-	if _, exists := e.rounds[finalization.Round]; !exists && e.round == finalization.Round {
+	if !exists && e.round == finalization.Round {
 		e.Logger.Debug("Received a finalization for the current round",
 			zap.Uint64("round", finalization.Round), zap.Stringer("from", from))
 		e.storeFutureFinalization(message, from, finalization.Round)
@@ -435,13 +438,12 @@ func (e *Epoch) handleFinalizationMessage(message *Finalization, from NodeID) er
 	// This finalization may correspond to a proposal from a future round, or to the proposal of the current round
 	// which we are still verifying.
 	if e.round < finalization.Round && finalization.Round-e.round < e.maxRoundWindow {
-		e.Logger.Debug("Got vote from round too far in the future", zap.Uint64("round", finalization.Round), zap.Uint64("my round", e.round))
+		e.Logger.Debug("Got finalization for a future round", zap.Uint64("round", finalization.Round), zap.Uint64("my round", e.round))
 		e.storeFutureFinalization(message, from, finalization.Round)
 		return nil
 	}
 
-	// Have we already finalized this round?
-	round, exists := e.rounds[finalization.Round]
+	// Finalization for a future round that is too far in the future
 	if !exists {
 		e.Logger.Debug("Received finalization for an unknown round", zap.Uint64("ourRound", e.round), zap.Uint64("round", finalization.Round))
 		return nil
@@ -487,21 +489,18 @@ func (e *Epoch) handleVoteMessage(message *Vote, from NodeID) error {
 	// If we have not received the proposal yet, we won't have a Round object in e.rounds,
 	// yet we may receive the corresponding vote.
 	// This may happen if we're asynchronously verifying the proposal at the moment.
-	var pendingProposal bool
 	if _, exists := e.rounds[vote.Round]; !exists && e.round == vote.Round {
-		pendingProposal = true
+		e.Logger.Debug("Received a finalization the current round",
+			zap.Uint64("round", vote.Round), zap.Stringer("from", from))
+		e.storeFutureVote(message, from, vote.Round)
+		return nil
 	}
 
 	// This vote may correspond to a proposal from a future round, or to the proposal of the current round
 	// which we are still verifying.
-	if (e.round < vote.Round && vote.Round-e.round < e.maxRoundWindow) || pendingProposal {
+	if e.round < vote.Round && vote.Round-e.round < e.maxRoundWindow {
 		e.Logger.Debug("Got vote from round too far in the future", zap.Uint64("round", vote.Round), zap.Uint64("my round", e.round))
-		msgsForRound, exists := e.futureMessages[string(from)][vote.Round]
-		if !exists {
-			msgsForRound = &messagesForRound{}
-			e.futureMessages[string(from)][vote.Round] = msgsForRound
-		}
-		msgsForRound.vote = message
+		e.storeFutureVote(message, from, vote.Round)
 		return nil
 	}
 
@@ -534,6 +533,15 @@ func (e *Epoch) handleVoteMessage(message *Vote, from NodeID) error {
 	e.rounds[vote.Round].votes[string(signature.Signer)] = message
 
 	return e.maybeCollectNotarization()
+}
+
+func (e *Epoch) storeFutureVote(message *Vote, from NodeID, round uint64) {
+	msgsForRound, exists := e.futureMessages[string(from)][round]
+	if !exists {
+		msgsForRound = &messagesForRound{}
+		e.futureMessages[string(from)][round] = msgsForRound
+	}
+	msgsForRound.vote = message
 }
 
 func (e *Epoch) isFinalizationValid(signature []byte, finalization ToBeSignedFinalization, from NodeID) bool {
