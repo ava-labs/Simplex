@@ -504,7 +504,6 @@ func (e *Epoch) handleVoteMessage(message *Vote, from NodeID) error {
 		return nil
 	}
 
-	// TODO: what if we've received a vote for a round we didn't instantiate yet?
 	round, exists := e.rounds[vote.Round]
 	if !exists {
 		e.Logger.Debug("Received a vote for a non existent round",
@@ -877,7 +876,7 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, _ NodeID) error {
 	}
 
 	// Create a task that will verify the block in the future, after its predecessors have also been verified.
-	task := e.scheduleBlockVerification(block, md, from, vote)
+	task := e.createBlockVerificationTask(block, md, from, vote)
 
 	// isBlockReadyToBeScheduled checks if the block is known to us either from some previous round,
 	// or from storage. If so, then we have verified it in the past, since only verified blocks are saved in memory.
@@ -891,7 +890,7 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, _ NodeID) error {
 	return nil
 }
 
-func (e *Epoch) scheduleBlockVerification(block Block, md BlockHeader, from NodeID, vote Vote) func() {
+func (e *Epoch) createBlockVerificationTask(block Block, md BlockHeader, from NodeID, vote Vote) func() {
 	return func() {
 		e.lock.Lock()
 		defer e.lock.Unlock()
@@ -920,26 +919,22 @@ func (e *Epoch) scheduleBlockVerification(block Block, md BlockHeader, from Node
 		round.votes[string(vote.Signature.Signer)] = &vote
 
 		if err := e.doProposed(block, vote, from); err != nil {
-			e.Logger.Debug("Failed voting on block", zap.Error(err))
+			e.Logger.Warn("Failed voting on block", zap.Error(err))
 		}
 	}
 }
 
 func (e *Epoch) isBlockReadyToBeScheduled(seq uint64, prev Digest) bool {
-	var ready bool
-
 	if seq > 0 {
 		// A block can be scheduled if its predecessor either exists in storage,
 		// or there exists a round object for it.
 		// Since we only create a round object after we verify the block,
 		// it means we have verified this block in the past.
 		_, ok := e.locateBlock(seq-1, prev[:])
-		ready = ok
-	} else {
-		// The first block is always ready to be scheduled
-		ready = true
+		return ok
 	}
-	return ready
+	// The first block is always ready to be scheduled
+	return true
 }
 
 func (e *Epoch) wasBlockAlreadyVerified(from NodeID, md BlockHeader) bool {
@@ -1053,7 +1048,7 @@ func (e *Epoch) locateBlock(seq uint64, digest []byte) (Block, bool) {
 func (e *Epoch) buildBlock() {
 	metadata := e.metadata()
 
-	task := e.scheduleBlockBuilding(metadata)
+	task := e.createBlockBuildingTask(metadata)
 
 	// We set the task ID to be the hash of the previous block, since we don't know the digest
 	// of the block before it is built.
@@ -1067,7 +1062,7 @@ func (e *Epoch) buildBlock() {
 	e.sched.Schedule(taskID, task, metadata.Prev, canBeImmediatelyVerified)
 }
 
-func (e *Epoch) scheduleBlockBuilding(metadata ProtocolMetadata) func() {
+func (e *Epoch) createBlockBuildingTask(metadata ProtocolMetadata) func() {
 	return func() {
 		block, ok := e.BlockBuilder.BuildBlock(e.finishCtx, metadata)
 		if !ok {
