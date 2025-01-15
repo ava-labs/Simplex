@@ -89,6 +89,78 @@ func TestEpochSimpleFlow(t *testing.T) {
 	}
 }
 
+func TestEpochBlockSentTwice(t *testing.T) {
+	l := makeLogger(t, 1)
+
+	var tooFarMsg, alreadyReceivedMsg bool
+
+	l.intercept(func(entry zapcore.Entry) error {
+		if entry.Message == "Got block from round too far in the future" {
+			tooFarMsg = true
+		}
+
+		if entry.Message == "Already received a proposal from this node for the round" {
+			alreadyReceivedMsg = true
+		}
+
+		return nil
+	})
+
+	bb := make(testBlockBuilder, 1)
+	storage := newInMemStorage()
+
+	wal := newTestWAL(t)
+
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	conf := EpochConfig{
+		Logger:              l,
+		ID:                  nodes[1],
+		Signer:              &testSigner{},
+		WAL:                 wal,
+		Verifier:            &testVerifier{},
+		Storage:             storage,
+		Comm:                noopComm(nodes),
+		BlockBuilder:        bb,
+		SignatureAggregator: &testSignatureAggregator{},
+	}
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+
+	require.NoError(t, e.Start())
+
+	md := e.Metadata()
+	md.Round = 2
+
+	block, ok := bb.BuildBlock(context.Background(), md)
+	require.True(t, ok)
+
+	vote, err := newTestVote(block, nodes[2], conf.Signer)
+	require.NoError(t, err)
+	err = e.HandleMessage(&Message{
+		BlockMessage: &BlockMessage{
+			Vote:  *vote,
+			Block: block,
+		},
+	}, nodes[2])
+	require.NoError(t, err)
+
+	wal.assertWALSize(0)
+	require.True(t, tooFarMsg)
+
+	err = e.HandleMessage(&Message{
+		BlockMessage: &BlockMessage{
+			Vote:  *vote,
+			Block: block,
+		},
+	}, nodes[2])
+	require.NoError(t, err)
+
+	wal.assertWALSize(0)
+	require.True(t, alreadyReceivedMsg)
+
+}
+
 func TestEpochBlockTooHighRound(t *testing.T) {
 	l := makeLogger(t, 1)
 

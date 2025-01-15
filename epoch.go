@@ -844,6 +844,15 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, _ NodeID) error {
 			msgsForRound = &messagesForRound{}
 			e.futureMessages[string(from)][md.Round] = msgsForRound
 		}
+
+		// Has this node already sent us a proposal?
+		// If so, it cannot send it again.
+		if msgsForRound.proposal != nil {
+			e.Logger.Debug("Already received a proposal from this node for the round",
+				zap.Stringer("NodeID", from), zap.Uint64("round", md.Round))
+			return nil
+		}
+
 		msgsForRound.proposal = message
 		return nil
 	}
