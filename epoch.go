@@ -117,7 +117,8 @@ func (e *Epoch) HandleMessage(msg *Message, from NodeID) error {
 	case msg.FinalizationCertificate != nil:
 		return e.handleFinalizationCertificateMessage(msg.FinalizationCertificate, from)
 	default:
-		return fmt.Errorf("invalid message type: %v", msg)
+		e.Logger.Warn("Invalid message type", zap.Stringer("from", from))
+		return nil
 	}
 }
 
@@ -345,6 +346,10 @@ func (e *Epoch) Stop() {
 }
 
 func (e *Epoch) handleFinalizationCertificateMessage(message *FinalizationCertificate, from NodeID) error {
+
+	e.Logger.Verbo("Received finalization certificate message",
+		zap.Stringer("from", from), zap.Uint64("round", message.Finalization.Round))
+
 	round, exists := e.rounds[message.Finalization.Round]
 	if !exists {
 		e.Logger.Debug("Received finalization certificate for a non existent round", zap.Int("round", int(message.Finalization.Round)))
@@ -412,6 +417,9 @@ func (e *Epoch) validateFinalizationQC(fCert *FinalizationCertificate) (bool, er
 func (e *Epoch) handleFinalizationMessage(message *Finalization, from NodeID) error {
 	finalization := message.Finalization
 
+	e.Logger.Verbo("Received finalization message",
+		zap.Stringer("from", from), zap.Uint64("round", finalization.Round))
+
 	// Only process a point to point finalizations.
 	// This is needed to prevent a malicious node from sending us a finalization of a different node for a future round.
 	// Since we only verify the finalization when it's due time, this will effectively block us from saving the real finalization
@@ -458,6 +466,7 @@ func (e *Epoch) handleFinalizationMessage(message *Finalization, from NodeID) er
 	}
 
 	round.finalizations[string(from)] = message
+	e.deleteFutureFinalization(from, finalization.Round)
 
 	return e.maybeCollectFinalizationCertificate(round)
 }
@@ -474,6 +483,9 @@ func (e *Epoch) storeFutureFinalization(message *Finalization, from NodeID, roun
 func (e *Epoch) handleVoteMessage(message *Vote, from NodeID) error {
 	vote := message.Vote
 
+	e.Logger.Verbo("Received vote message",
+		zap.Stringer("from", from), zap.Uint64("round", vote.Round))
+
 	// Only process point to point votes.
 	// This is needed to prevent a malicious node from sending us a vote of a different node for a future round.
 	// Since we only verify the vote when it's due time, this will effectively block us from saving the real vote
@@ -489,7 +501,7 @@ func (e *Epoch) handleVoteMessage(message *Vote, from NodeID) error {
 	// yet we may receive the corresponding vote.
 	// This may happen if we're asynchronously verifying the proposal at the moment.
 	if _, exists := e.rounds[vote.Round]; !exists && e.round == vote.Round {
-		e.Logger.Debug("Received a finalization the current round",
+		e.Logger.Debug("Received a vote for the current round",
 			zap.Uint64("round", vote.Round), zap.Stringer("from", from))
 		e.storeFutureVote(message, from, vote.Round)
 		return nil
@@ -498,7 +510,8 @@ func (e *Epoch) handleVoteMessage(message *Vote, from NodeID) error {
 	// This vote may correspond to a proposal from a future round, or to the proposal of the current round
 	// which we are still verifying.
 	if e.round < vote.Round && vote.Round-e.round < e.maxRoundWindow {
-		e.Logger.Debug("Got vote from round too far in the future", zap.Uint64("round", vote.Round), zap.Uint64("my round", e.round))
+		e.Logger.Debug("Got vote from a future round",
+			zap.Uint64("round", vote.Round), zap.Uint64("my round", e.round), zap.Stringer("from", from))
 		e.storeFutureVote(message, from, vote.Round)
 		return nil
 	}
@@ -529,6 +542,7 @@ func (e *Epoch) handleVoteMessage(message *Vote, from NodeID) error {
 	}
 
 	e.rounds[vote.Round].votes[string(signature.Signer)] = message
+	e.deleteFutureVote(from, vote.Round)
 
 	return e.maybeCollectNotarization()
 }
@@ -540,6 +554,30 @@ func (e *Epoch) storeFutureVote(message *Vote, from NodeID, round uint64) {
 		e.futureMessages[string(from)][round] = msgsForRound
 	}
 	msgsForRound.vote = message
+}
+
+func (e *Epoch) deleteFutureVote(from NodeID, round uint64) {
+	msgsForRound, exists := e.futureMessages[string(from)][round]
+	if !exists {
+		return
+	}
+	msgsForRound.vote = nil
+}
+
+func (e *Epoch) deleteFutureProposal(from NodeID, round uint64) {
+	msgsForRound, exists := e.futureMessages[string(from)][round]
+	if !exists {
+		return
+	}
+	msgsForRound.proposal = nil
+}
+
+func (e *Epoch) deleteFutureFinalization(from NodeID, round uint64) {
+	msgsForRound, exists := e.futureMessages[string(from)][round]
+	if !exists {
+		return
+	}
+	msgsForRound.finalization = nil
 }
 
 func (e *Epoch) isFinalizationValid(signature []byte, finalization ToBeSignedFinalization, from NodeID) bool {
@@ -614,23 +652,37 @@ func (e *Epoch) persistFinalizationCertificate(fCert FinalizationCertificate) er
 	// or otherwise write it to the WAL in order to commit it later.
 	nextSeqToCommit := e.Storage.Height()
 	if fCert.Finalization.Seq == nextSeqToCommit {
-		block := e.rounds[fCert.Finalization.Round].block
-		// TODO: also index future finalization certificates
-		e.Storage.Index(block, fCert)
-		e.Logger.Info("Committed block",
-			zap.Uint64("round", fCert.Finalization.Round),
-			zap.Uint64("sequence", fCert.Finalization.Seq),
-			zap.Stringer("digest", fCert.Finalization.BlockHeader.Digest))
-		e.lastBlock = block
+		for {
+			r := fCert.Finalization.Round
+			block := e.rounds[r].block
 
-		// If the round we're committing is too far in the past, don't keep it in the rounds cache.
-		if fCert.Finalization.Round+e.maxRoundWindow < e.round {
-			delete(e.rounds, fCert.Finalization.Round)
-		}
-		// Clean up the future messages - Remove all messages we may have stored for the round
-		// the finalization is about.
-		for _, messagesFromNode := range e.futureMessages {
-			delete(messagesFromNode, fCert.Finalization.Round)
+			e.Storage.Index(block, fCert)
+			e.Logger.Info("Committed block",
+				zap.Uint64("round", fCert.Finalization.Round),
+				zap.Uint64("sequence", fCert.Finalization.Seq),
+				zap.Stringer("digest", fCert.Finalization.BlockHeader.Digest))
+			e.lastBlock = block
+
+			// If the round we're committing is too far in the past, don't keep it in the rounds cache.
+			if fCert.Finalization.Round+e.maxRoundWindow < e.round {
+				delete(e.rounds, fCert.Finalization.Round)
+			}
+			// Clean up the future messages - Remove all messages we may have stored for the round
+			// the finalization is about.
+			for _, messagesFromNode := range e.futureMessages {
+				delete(messagesFromNode, fCert.Finalization.Round)
+			}
+
+			// Check if we can commit the next round
+			r++
+			round, exists := e.rounds[r]
+			if !exists {
+				break
+			}
+			if round.fCert == nil {
+				break
+			}
+			fCert = *round.fCert
 		}
 	} else {
 		recordBytes := NewQuorumRecord(fCert.QC.Bytes(), fCert.Finalization.Bytes(), record.FinalizationRecordType)
@@ -640,9 +692,11 @@ func (e *Epoch) persistFinalizationCertificate(fCert FinalizationCertificate) er
 		}
 
 		e.Logger.Debug("Persisted finalization certificate to WAL",
-			zap.Int("size", len(recordBytes)),
 			zap.Uint64("round", fCert.Finalization.Round),
+			zap.Uint64("height", nextSeqToCommit),
+			zap.Int("size", len(recordBytes)),
 			zap.Stringer("digest", fCert.Finalization.BlockHeader.Digest))
+
 	}
 
 	finalizationCertificate := &Message{FinalizationCertificate: &fCert}
@@ -659,8 +713,14 @@ func (e *Epoch) maybeCollectNotarization() error {
 	votesForCurrentRound := e.rounds[e.round].votes
 	voteCount := len(votesForCurrentRound)
 
+	from := make([]NodeID, 0, voteCount)
+	for _, vote := range votesForCurrentRound {
+		from = append(from, vote.Signature.Signer)
+	}
+
 	if voteCount < e.quorumSize {
-		e.Logger.Verbo("Counting votes", zap.Uint64("round", e.round), zap.Int("votes", voteCount))
+		e.Logger.Verbo("Counting votes", zap.Uint64("round", e.round),
+			zap.Int("votes", voteCount), zap.String("from", fmt.Sprintf("%s", from)))
 		return nil
 	}
 
@@ -717,11 +777,14 @@ func (e *Epoch) persistNotarization(notarization Notarization) error {
 
 	e.increaseRound()
 
-	return e.doNotarized(notarization.Vote.Round)
+	return errors.Join(e.doNotarized(notarization.Vote.Round), e.maybeLoadFutureMessages(e.round))
 }
 
 func (e *Epoch) handleNotarizationMessage(message *Notarization, from NodeID) error {
 	vote := message.Vote
+
+	e.Logger.Verbo("Received notarization message",
+		zap.Stringer("from", from), zap.Uint64("round", vote.Round))
 
 	// Ignore votes for previous rounds
 	if vote.Round < e.round {
@@ -780,12 +843,15 @@ func (e *Epoch) hasSomeNodeSignedTwice(nodeIDs []NodeID) bool {
 	return false
 }
 
-func (e *Epoch) handleBlockMessage(message *BlockMessage, _ NodeID) error {
+func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 	block := message.Block
 	if block == nil {
 		e.Logger.Debug("Got empty block in a BlockMessage")
 		return nil
 	}
+
+	e.Logger.Verbo("Received block message",
+		zap.Stringer("from", from), zap.Uint64("round", block.BlockHeader().Round))
 
 	pendingBlocks := e.sched.Size()
 	if pendingBlocks > e.maxPendingBlocks {
@@ -794,7 +860,7 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, _ NodeID) error {
 	}
 
 	vote := message.Vote
-	from := vote.Signature.Signer
+	from = vote.Signature.Signer
 
 	md := block.BlockHeader()
 
@@ -850,7 +916,7 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, _ NodeID) error {
 	// only store it if it is up to `maxRoundWindow` ahead.
 	// TODO: test this
 	if e.round < md.Round && md.Round-e.round < e.maxRoundWindow {
-		e.Logger.Debug("Got block from round too far in the future", zap.Uint64("round", md.Round), zap.Uint64("my round", e.round))
+		e.Logger.Debug("Got block of a future round", zap.Uint64("round", md.Round), zap.Uint64("my round", e.round))
 		msgsForRound, exists := e.futureMessages[string(from)][md.Round]
 		if !exists {
 			msgsForRound = &messagesForRound{}
@@ -874,6 +940,8 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, _ NodeID) error {
 		return nil
 	}
 
+	defer e.deleteFutureProposal(from, md.Round)
+
 	// Create a task that will verify the block in the future, after its predecessors have also been verified.
 	task := e.createBlockVerificationTask(block, from, vote)
 
@@ -892,6 +960,14 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, _ NodeID) error {
 func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote) func() Digest {
 	return func() Digest {
 		md := block.BlockHeader()
+
+		e.Logger.Debug("Block verification started", zap.Uint64("round", md.Round))
+		start := time.Now()
+		defer func() {
+			elapsed := time.Since(start)
+			e.Logger.Debug("Block verification ended", zap.Uint64("round", md.Round), zap.Duration("elapsed", elapsed))
+		}()
+
 		if err := block.Verify(); err != nil {
 			e.Logger.Debug("Failed verifying block", zap.Error(err))
 			return md.Digest
@@ -909,6 +985,8 @@ func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote)
 			// TODO: timeout
 		}
 
+		e.deleteFutureProposal(from, md.Round)
+
 		// Once we have stored the proposal, we have a Round object for the round.
 		// We store the vote to prevent verifying its signature again.
 		round, exists := e.rounds[md.Round]
@@ -919,7 +997,7 @@ func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote)
 		}
 		round.votes[string(vote.Signature.Signer)] = &vote
 
-		if err := e.doProposed(block, vote); err != nil {
+		if err := e.doProposed(block, vote, from); err != nil {
 			e.Logger.Warn("Failed voting on block", zap.Error(err))
 		}
 
@@ -1113,7 +1191,7 @@ func (e *Epoch) proposeBlock(block Block) error {
 		zap.Int("size", len(rawBlock)),
 		zap.Stringer("digest", md.Digest))
 
-	return e.handleVoteMessage(&vote, e.ID)
+	return errors.Join(e.handleVoteMessage(&vote, e.ID), e.maybeLoadFutureMessages(md.Round))
 }
 
 func (e *Epoch) Metadata() ProtocolMetadata {
@@ -1160,7 +1238,7 @@ func (e *Epoch) startRound() error {
 	return e.handleBlockMessage(msgsForRound.proposal, leaderForCurrentRound)
 }
 
-func (e *Epoch) doProposed(block Block, voteFromLeader Vote) error {
+func (e *Epoch) doProposed(block Block, voteFromLeader Vote, from NodeID) error {
 	vote, err := e.voteOnBlock(block)
 	if err != nil {
 		return err
@@ -1254,27 +1332,44 @@ func (e *Epoch) storeNotarization(notarization Notarization) error {
 	return nil
 }
 
-func (e *Epoch) maybeLoadFutureMessages(round uint64) {
+func (e *Epoch) maybeLoadFutureMessages(round uint64) error {
 	e.Logger.Debug("Loading messages received for this round in the past", zap.Uint64("round", round))
 
-	for from, messagesFromNode := range e.futureMessages {
-		if msgs, exists := messagesFromNode[round]; exists {
-			if msgs.proposal != nil {
-				e.handleBlockMessage(msgs.proposal, NodeID(from))
-				msgs.proposal = nil
-			}
-			if msgs.vote != nil {
-				e.handleVoteMessage(msgs.vote, NodeID(from))
-				msgs.vote = nil
-			}
-			if msgs.finalization != nil {
-				e.handleFinalizationMessage(msgs.finalization, NodeID(from))
-				msgs.finalization = nil
-			}
+	for {
+		round := e.round
+		height := e.Storage.Height()
 
-			if msgs.proposal == nil && msgs.vote == nil && msgs.finalization == nil {
-				delete(messagesFromNode, round)
+		for from, messagesFromNode := range e.futureMessages {
+			if msgs, exists := messagesFromNode[round]; exists {
+				if msgs.proposal != nil {
+					if err := e.handleBlockMessage(msgs.proposal, NodeID(from)); err != nil {
+						return err
+					}
+				}
+				if msgs.vote != nil {
+					if err := e.handleVoteMessage(msgs.vote, NodeID(from)); err != nil {
+						return err
+					}
+				}
+				if msgs.finalization != nil {
+					if err := e.handleFinalizationMessage(msgs.finalization, NodeID(from)); err != nil {
+						return err
+					}
+				}
+
+				if msgs.proposal == nil && msgs.vote == nil && msgs.finalization == nil {
+					e.Logger.Debug("Deleting future messages",
+						zap.Stringer("from", NodeID(from)), zap.Uint64("round", round))
+					delete(messagesFromNode, round)
+				}
+			} else {
+				e.Logger.Debug("No future messages received for this round",
+					zap.Stringer("from", NodeID(from)), zap.Uint64("round", round))
 			}
+		}
+
+		if e.round == round && height == e.Storage.Height() {
+			return nil
 		}
 	}
 }
