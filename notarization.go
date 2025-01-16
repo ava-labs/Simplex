@@ -62,7 +62,7 @@ func NewFinalizationCertificate(logger Logger, signatureAggregator SignatureAggr
 		if vote.Finalization.Digest != expectedDigest {
 			return FinalizationCertificate{}, ErrorInvalidFinalizationDigest
 		}
-		logger.Debug("Collected finalization from node", zap.Stringer("NodeID", vote.Signature.Signer))
+		logger.Debug("Collected finalization from node", zap.Stringer("NodeID", vote.Signature.Signer), zap.Uint64("round", vote.Finalization.Round))
 		signatures = append(signatures, vote.Signature)
 	}
 

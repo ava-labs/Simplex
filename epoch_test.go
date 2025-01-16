@@ -11,20 +11,20 @@ import (
 	"encoding/asn1"
 	"encoding/binary"
 	"fmt"
+	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"math"
+	rand2 "math/rand"
 	. "simplex"
 	"simplex/wal"
 	"sync"
 	"testing"
-
-	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 )
 
 func TestEpochSimpleFlow(t *testing.T) {
 	l := makeLogger(t, 1)
-	bb := make(testBlockBuilder, 1)
+	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
 	storage := newInMemStorage()
 
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
@@ -58,7 +58,7 @@ func TestEpochSimpleFlow(t *testing.T) {
 			require.True(t, ok)
 		}
 
-		block := <-bb
+		block := <-bb.out
 
 		if !isEpochNode {
 			// send node a message from the leader
@@ -89,13 +89,135 @@ func TestEpochSimpleFlow(t *testing.T) {
 	}
 }
 
+func FuzzEpochInterleavingMessages(f *testing.F) {
+	f.Fuzz(func(t *testing.T, seed int64) {
+		testEpochInterleavingMessages(t, seed)
+	})
+}
+
+func TestEpochInterleavingMessages(t *testing.T) {
+	buff := make([]byte, 8)
+
+	for i := 0; i < 100; i++ {
+		_, err := rand.Read(buff)
+		require.NoError(t, err)
+		seed := int64(binary.BigEndian.Uint64(buff))
+		testEpochInterleavingMessages(t, seed)
+	}
+}
+
+func testEpochInterleavingMessages(t *testing.T, seed int64) {
+	l := makeLogger(t, 1)
+	bb := &testBlockBuilder{in: make(chan *testBlock, 10)}
+	storage := newInMemStorage()
+
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	conf := EpochConfig{
+		Logger:              l,
+		ID:                  nodes[0],
+		Signer:              &testSigner{},
+		WAL:                 wal.NewMemWAL(t),
+		Verifier:            &testVerifier{},
+		Storage:             storage,
+		Comm:                noopComm(nodes),
+		BlockBuilder:        bb,
+		SignatureAggregator: &testSignatureAggregator{},
+	}
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+
+	rounds := 10
+
+	var protocolMetadata ProtocolMetadata
+
+	callbacks := createCallbacks(t, rounds, protocolMetadata, nodes, e, conf, bb)
+
+	require.NoError(t, e.Start())
+
+	r := rand2.New(rand2.NewSource(seed))
+	for i, index := range r.Perm(len(callbacks)) {
+		t.Log("Called callback", i, "out of", len(callbacks))
+		callbacks[index]()
+	}
+
+	for i := 0; i < rounds; i++ {
+		t.Log("Waiting for commit of round", i)
+		storage.waitForBlockCommit(uint64(i))
+	}
+}
+
+func createCallbacks(t *testing.T, rounds int, protocolMetadata ProtocolMetadata, nodes []NodeID, e *Epoch, conf EpochConfig, bb *testBlockBuilder) []func() {
+	blocks := make([]Block, 0, rounds)
+
+	callbacks := make([]func(), 0, rounds*4+len(blocks))
+
+	for i := 0; i < rounds; i++ {
+		block := newTestBlock(protocolMetadata)
+		blocks = append(blocks, block)
+
+		protocolMetadata.Seq++
+		protocolMetadata.Round++
+		protocolMetadata.Prev = block.BlockHeader().Digest
+
+		leader := LeaderForRound(nodes, uint64(i))
+
+		if !leader.Equals(e.ID) {
+			vote, err := newTestVote(block, leader, conf.Signer)
+			require.NoError(t, err)
+
+			callbacks = append(callbacks, func() {
+				t.Log("Injecting block", block.BlockHeader().Round)
+				e.HandleMessage(&Message{
+					BlockMessage: &BlockMessage{
+						Block: block,
+						Vote:  *vote,
+					},
+				}, leader)
+			})
+		} else {
+			bb.in <- block
+		}
+
+		for j := 1; j <= 2; j++ {
+			node := nodes[j]
+			vote, err := newTestVote(block, node, conf.Signer)
+			require.NoError(t, err)
+			msg := Message{
+				VoteMessage: vote,
+			}
+
+			callbacks = append(callbacks, func() {
+				t.Log("Injecting vote for round",
+					msg.VoteMessage.Vote.Round, msg.VoteMessage.Vote.Digest, msg.VoteMessage.Signature.Signer)
+				err := e.HandleMessage(&msg, node)
+				require.NoError(t, err)
+			})
+		}
+
+		for j := 1; j <= 2; j++ {
+			node := nodes[j]
+			finalization := newTestFinalization(t, block, node, conf.Signer)
+			msg := Message{
+				Finalization: finalization,
+			}
+			callbacks = append(callbacks, func() {
+				t.Log("Injecting finalization for round", msg.Finalization.Finalization.Round, msg.Finalization.Finalization.Digest)
+				err := e.HandleMessage(&msg, node)
+				require.NoError(t, err)
+			})
+		}
+	}
+	return callbacks
+}
+
 func TestEpochBlockSentTwice(t *testing.T) {
 	l := makeLogger(t, 1)
 
 	var tooFarMsg, alreadyReceivedMsg bool
 
 	l.intercept(func(entry zapcore.Entry) error {
-		if entry.Message == "Got block from round too far in the future" {
+		if entry.Message == "Got block of a future round" {
 			tooFarMsg = true
 		}
 
@@ -106,7 +228,7 @@ func TestEpochBlockSentTwice(t *testing.T) {
 		return nil
 	})
 
-	bb := make(testBlockBuilder, 1)
+	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
 	storage := newInMemStorage()
 
 	wal := newTestWAL(t)
@@ -164,7 +286,7 @@ func TestEpochBlockSentTwice(t *testing.T) {
 func TestEpochBlockTooHighRound(t *testing.T) {
 	l := makeLogger(t, 1)
 
-	bb := make(testBlockBuilder, 1)
+	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
 	storage := newInMemStorage()
 
 	wal := newTestWAL(t)
@@ -394,21 +516,29 @@ func (n noopComm) Broadcast(msg *Message) {
 
 }
 
-type testBlockBuilder chan *testBlock
+type testBlockBuilder struct {
+	out chan *testBlock
+	in  chan *testBlock
+}
 
 // BuildBlock builds a new testblock and sends it to the BlockBuilder channel
-func (t testBlockBuilder) BuildBlock(_ context.Context, metadata ProtocolMetadata) (Block, bool) {
+func (t *testBlockBuilder) BuildBlock(_ context.Context, metadata ProtocolMetadata) (Block, bool) {
+	if len(t.in) > 0 {
+		block := <-t.in
+		return block, true
+	}
+
 	tb := newTestBlock(metadata)
 
 	select {
-	case t <- tb:
+	case t.out <- tb:
 	default:
 	}
 
 	return tb, true
 }
 
-func (t testBlockBuilder) IncomingBlock(ctx context.Context) {
+func (t *testBlockBuilder) IncomingBlock(ctx context.Context) {
 	panic("should not be invoked")
 }
 

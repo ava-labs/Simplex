@@ -233,7 +233,7 @@ type testControlledBlockBuilder struct {
 func newTestControlledBlockBuilder() *testControlledBlockBuilder {
 	return &testControlledBlockBuilder{
 		control:          make(chan struct{}, 1),
-		testBlockBuilder: make(testBlockBuilder, 1),
+		testBlockBuilder: testBlockBuilder{out: make(chan *testBlock, 1)},
 	}
 }
 
