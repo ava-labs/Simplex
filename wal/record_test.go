@@ -59,7 +59,7 @@ func FuzzRecord(f *testing.F) {
 		readPayload, n, err := readRecord(validBuff, math.MaxUint32)
 		require.NoError(err)
 		require.Equal(payload, readPayload)
-		require.Equal(recordSizeLen+len(payload)+recordChecksumLen, n)
+		require.Equal(recordSizeLen+len(payload)+recordChecksumLen, int(n))
 
 		recordBytes := buff.Bytes()
 		crc := recordBytes[len(recordBytes)-recordChecksumLen:]
