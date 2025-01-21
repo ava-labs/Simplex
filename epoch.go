@@ -1163,7 +1163,7 @@ func (e *Epoch) startRound() error {
 	return e.handleBlockMessage(msgsForRound.proposal, leaderForCurrentRound)
 }
 
-func (e *Epoch) doProposed(block Block, voteFromLeader Vote, from NodeID) error {
+func (e *Epoch) doProposed(block Block, voteFromLeader Vote, _ NodeID) error {
 	vote, err := e.voteOnBlock(block)
 	if err != nil {
 		return err
