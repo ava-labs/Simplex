@@ -82,10 +82,9 @@ func TestEpochSimpleFlow(t *testing.T) {
 			injectTestFinalization(t, e, block, nodes[i], conf.Signer)
 		}
 
-		storage.waitForBlockCommit(uint64(i))
+		block2 := storage.waitForBlockCommit(i)
 
-		committedData := storage.data[uint64(i)].Block.Bytes()
-		require.Equal(t, block.Bytes(), committedData)
+		require.Equal(t, block, block2)
 	}
 }
 
@@ -618,13 +617,13 @@ func newInMemStorage() *InMemStorage {
 	return s
 }
 
-func (mem *InMemStorage) waitForBlockCommit(seq uint64) {
+func (mem *InMemStorage) waitForBlockCommit(seq uint64) Block {
 	mem.lock.Lock()
 	defer mem.lock.Unlock()
 
 	for {
-		if _, exists := mem.data[seq]; exists {
-			return
+		if data, exists := mem.data[seq]; exists {
+			return data.Block
 		}
 
 		mem.signal.Wait()
