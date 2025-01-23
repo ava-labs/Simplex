@@ -43,7 +43,7 @@ func (as *scheduler) run() {
 	defer as.lock.Unlock()
 
 	for !as.close {
-		as.maybeExecuteTask()
+		as.executeReadyTasks()
 		if as.close {
 			return
 		}
@@ -54,7 +54,7 @@ func (as *scheduler) run() {
 	}
 }
 
-func (as *scheduler) maybeExecuteTask() {
+func (as *scheduler) executeReadyTasks() {
 	for len(as.ready) > 0 {
 		if as.close {
 			return
@@ -69,7 +69,7 @@ func (as *scheduler) maybeExecuteTask() {
 /*
 
 (a) While a task is scheduled, the lock is held and therefore the only instructions that the scheduler thread
-can perform is running 'dispatchTaskAndScheduleDependingTasks', as any other line in 'maybeExecuteTask' requires
+can perform is running 'dispatchTaskAndScheduleDependingTasks', as any other line in 'executeReadyTasks' requires
 the lock to be held. Inside 'dispatchTaskAndScheduleDependingTasks', the only line that doesn't require the lock
 to be held is executing the task itself. It follows from here, that it is not possible to schedule a new task
 while moving tasks from pending to the ready queue, and vice versa.
@@ -101,7 +101,7 @@ If (1) holds, then when B is scheduled, it is not ready (according to the assump
 It follows from (b) that A does not finish before B is inserted into pending (otherwise B was ready to be executed).
 At some point the task A finishes its execution, after which the scheduler goroutine
 enters 'dispatchTaskAndScheduleDependingTasks' where it proceeds to remove the ID of A,
-retrieve B from pending, add B to the ready queue, and perform another iteration inside 'maybeExecuteTask'.
+retrieve B from pending, add B to the ready queue, and perform another iteration inside 'executeReadyTasks'.
 It will then pop tasks from the ready queue and execute them until it is empty, and one of these tasks will be B.
 
 If (2) holds, then when B is scheduled it is pending on A to finish.
