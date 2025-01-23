@@ -892,13 +892,14 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, _ NodeID) error {
 
 func (e *Epoch) createBlockVerificationTask(block Block, md BlockHeader, from NodeID, vote Vote) func() {
 	return func() {
-		e.lock.Lock()
-		defer e.lock.Unlock()
-
 		if err := block.Verify(); err != nil {
 			e.Logger.Debug("Failed verifying block", zap.Error(err))
 			return
 		}
+
+		e.lock.Lock()
+		defer e.lock.Unlock()
+
 		record := BlockRecord(md, block.Bytes())
 		e.WAL.Append(record)
 
