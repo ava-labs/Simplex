@@ -3,14 +3,57 @@
 
 package simplex
 
-import "encoding/asn1"
+import (
+	"encoding/asn1"
+	"encoding/binary"
+)
 
 type Message struct {
 	BlockMessage            *BlockMessage
+	EmptyBlock              *EmptyBlock
 	VoteMessage             *Vote
 	Notarization            *Notarization
 	Finalization            *Finalization
 	FinalizationCertificate *FinalizationCertificate
+}
+
+type ToBeSignedEmptyVote struct {
+	ProtocolMetadata
+}
+
+func (v *ToBeSignedEmptyVote) Bytes() []byte {
+	buff := make([]byte, protocolMetadataLen)
+	var pos int
+
+	buff[pos] = v.Version
+	pos++
+
+	binary.BigEndian.PutUint64(buff[pos:], v.Epoch)
+	pos += metadataEpochLen
+
+	binary.BigEndian.PutUint64(buff[pos:], v.Round)
+	pos += metadataRoundLen
+
+	binary.BigEndian.PutUint64(buff[pos:], v.Seq)
+	pos += metadataSeqLen
+
+	copy(buff[pos:], v.Prev[:])
+
+	return buff
+}
+
+func (v *ToBeSignedEmptyVote) Sign(signer Signer) ([]byte, error) {
+	context := "ToBeSignedEmptyVote"
+	msg := v.Bytes()
+
+	return signContext(signer, msg, context)
+}
+
+func (v *ToBeSignedEmptyVote) Verify(signature []byte, verifier SignatureVerifier, signers NodeID) error {
+	context := "ToBeSignedEmptyVote"
+	msg := v.Bytes()
+
+	return verifyContext(signature, verifier, msg, context, signers)
 }
 
 type ToBeSignedVote struct {
@@ -82,6 +125,11 @@ type Vote struct {
 	Signature Signature
 }
 
+type EmptyVote struct {
+	Vote      ProtocolMetadata
+	Signature Signature
+}
+
 type Finalization struct {
 	Finalization ToBeSignedFinalization
 	Signature    Signature
@@ -110,6 +158,10 @@ func (n *Notarization) Verify() error {
 type BlockMessage struct {
 	Block Block
 	Vote  Vote
+}
+
+type EmptyBlock struct {
+	Metadata ToBeSignedEmptyVote
 }
 
 type SignedMessage struct {

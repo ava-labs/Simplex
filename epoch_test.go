@@ -367,6 +367,73 @@ func TestEpochBlockTooHighRound(t *testing.T) {
 	})
 }
 
+func TestRotateLeaderDueToTimeout(t *testing.T) {
+	l := makeLogger(t, 1)
+	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
+	storage := newInMemStorage()
+
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	quorum := Quorum(len(nodes))
+	conf := EpochConfig{
+		Logger:              l,
+		ID:                  nodes[0],
+		Signer:              &testSigner{},
+		WAL:                 wal.NewMemWAL(t),
+		Verifier:            &testVerifier{},
+		Storage:             storage,
+		Comm:                noopComm(nodes),
+		BlockBuilder:        bb,
+		SignatureAggregator: &testSignatureAggregator{},
+	}
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+
+	require.NoError(t, e.Start())
+
+	rounds := uint64(100)
+	for i := uint64(0); i < rounds; i++ {
+		// leader is the proposer of the new block for the given round
+		leader := LeaderForRound(nodes, i)
+		// only create blocks if we are not the node running the epoch
+		isEpochNode := leader.Equals(e.ID)
+		if !isEpochNode {
+			md := e.Metadata()
+			_, ok := bb.BuildBlock(context.Background(), md)
+			require.True(t, ok)
+		}
+
+		block := <-bb.out
+
+		if !isEpochNode {
+			// send node a message from the leader
+			vote, err := newTestVote(block, leader, conf.Signer)
+			require.NoError(t, err)
+			err = e.HandleMessage(&Message{
+				BlockMessage: &BlockMessage{
+					Vote:  *vote,
+					Block: block,
+				},
+			}, leader)
+			require.NoError(t, err)
+		}
+
+		// start at one since our node has already voted
+		for i := 1; i < quorum; i++ {
+			injectTestVote(t, e, block, nodes[i], conf.Signer)
+		}
+
+		for i := 1; i < quorum; i++ {
+			injectTestFinalization(t, e, block, nodes[i], conf.Signer)
+		}
+
+		storage.waitForBlockCommit(uint64(i))
+
+		committedData := storage.data[uint64(i)].Block.Bytes()
+		require.Equal(t, block.Bytes(), committedData)
+	}
+}
+
 func makeLogger(t *testing.T, node int) *testLogger {
 	logger, err := zap.NewDevelopment(zap.AddCallerSkip(1))
 	require.NoError(t, err)

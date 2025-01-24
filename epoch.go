@@ -19,7 +19,9 @@ import (
 
 const (
 	defaultMaxRoundWindow   = 10
-	defaultMaxPendingBlocks = 10
+	defaultMaxPendingBlocks = 20
+
+	defaultMaxProposalWaitTime = 5 * time.Second
 )
 
 type Round struct {
@@ -59,20 +61,23 @@ type EpochConfig struct {
 type Epoch struct {
 	EpochConfig
 	// Runtime
-	sched              *scheduler
-	lock               sync.Mutex
-	lastBlock          Block // latest block commited
-	canReceiveMessages atomic.Bool
-	finishCtx          context.Context
-	finishFn           context.CancelFunc
-	nodes              []NodeID
-	eligibleNodeIDs    map[string]struct{}
-	quorumSize         int
-	rounds             map[uint64]*Round
-	futureMessages     messagesFromNode
-	round              uint64 // The current round we notarize
-	maxRoundWindow     uint64
-	maxPendingBlocks   int
+	monitor                    Monitor
+	cancelWaitForBlockBuilding context.CancelFunc
+	sched                      *scheduler
+	lock                       sync.Mutex
+	lastBlock                  Block // latest block commited
+	canReceiveMessages         atomic.Bool
+	finishCtx                  context.Context
+	finishFn                   context.CancelFunc
+	nodes                      []NodeID
+	eligibleNodeIDs            map[string]struct{}
+	quorumSize                 int
+	rounds                     map[uint64]*Round
+	futureMessages             messagesFromNode
+	round                      uint64 // The current round we notarize
+	maxRoundWindow             uint64
+	maxPendingBlocks           int
+	maxProposalWait            time.Duration
 }
 
 func NewEpoch(conf EpochConfig) (*Epoch, error) {
@@ -130,6 +135,8 @@ func (e *Epoch) init() error {
 	e.rounds = make(map[uint64]*Round)
 	e.maxRoundWindow = defaultMaxRoundWindow
 	e.maxPendingBlocks = defaultMaxPendingBlocks
+	e.maxProposalWait = defaultMaxProposalWaitTime
+	e.cancelWaitForBlockBuilding = func() {}
 	e.eligibleNodeIDs = make(map[string]struct{}, len(e.nodes))
 	e.futureMessages = make(messagesFromNode, len(e.nodes))
 	for _, node := range e.nodes {
@@ -580,6 +587,22 @@ func (e *Epoch) deleteFutureFinalization(from NodeID, round uint64) {
 	msgsForRound.finalization = nil
 }
 
+func (e *Epoch) deleteFutureEmptyBlock(from NodeID, round uint64) {
+	msgsForRound, exists := e.futureMessages[string(from)][round]
+	if !exists {
+		return
+	}
+	msgsForRound.emptyBlock = nil
+}
+
+func (e *Epoch) deleteFutureEmptyVote(from NodeID, round uint64) {
+	msgsForRound, exists := e.futureMessages[string(from)][round]
+	if !exists {
+		return
+	}
+	msgsForRound.emptyVote = nil
+}
+
 func (e *Epoch) isFinalizationValid(signature []byte, finalization ToBeSignedFinalization, from NodeID) bool {
 	if err := finalization.Verify(signature, e.Verifier, from); err != nil {
 		e.Logger.Debug("Received a finalization with an invalid signature", zap.Uint64("round", finalization.Round), zap.Error(err))
@@ -762,6 +785,8 @@ func (e *Epoch) persistNotarization(notarization Notarization) error {
 		zap.Int("size", len(record)),
 		zap.Uint64("round", notarization.Vote.Round),
 		zap.Stringer("digest", notarization.Vote.BlockHeader.Digest))
+
+	e.cancelWaitForBlockBuilding()
 
 	err := e.storeNotarization(notarization)
 	if err != nil {
@@ -1221,6 +1246,63 @@ func (e *Epoch) metadata() ProtocolMetadata {
 	return md
 }
 
+func (e *Epoch) triggerProposalWaitTimeExpired(round uint64) {
+
+}
+
+func (e *Epoch) monitorProposalReception(round uint64) {
+	ctx, cancelContext := context.WithCancel(context.Background())
+
+	noop := func() {}
+
+	proposalWaitTimeExpired := func() {
+		e.lock.Lock()
+		defer e.lock.Unlock()
+
+		e.triggerProposalWaitTimeExpired(round)
+	}
+
+	var cancelled atomic.Bool
+
+	blockShouldBeBuiltNotification := func() {
+		// Wait for the block builder to tell us that it thinks it's time to build a new block
+		e.BlockBuilder.IncomingBlock(ctx)
+
+		if cancelled.Load() {
+			return
+		}
+
+		e.Logger.Info("It is time to build a block", zap.Uint64("round", round))
+
+		// Once it's time to build a new block, wait a grace period of 'e.maxProposalWait' time,
+		// and if the monitor isn't cancelled by then, invoke proposalWaitTimeExpired() above
+		// which calls `e.triggerProposalWaitTimeExpired`.
+
+		stop := e.monitor.WaitUntil(e.maxProposalWait, proposalWaitTimeExpired)
+
+		e.lock.Lock()
+		defer e.lock.Unlock()
+
+		e.cancelWaitForBlockBuilding = func() {
+			stop()
+			e.cancelWaitForBlockBuilding = noop
+		}
+	}
+
+	// Registers a wait operation that:
+	// (1) Waits for the block builder to tell us it thinks it's time to build a new block.
+	// (2) Registers a monitor which, if not cancelled earlier, notifies the Epoch about a timeout for this round.
+	e.monitor.WaitFor(blockShouldBeBuiltNotification)
+
+	// If we notarize a block for this round we should cancel the monitor,
+	// so first stop it and then cancel the context.
+	e.cancelWaitForBlockBuilding = func() {
+		cancelled.Store(true)
+		cancelContext()
+		e.cancelWaitForBlockBuilding = noop
+	}
+}
+
 func (e *Epoch) startRound() error {
 	leaderForCurrentRound := LeaderForRound(e.nodes, e.round)
 
@@ -1228,6 +1310,10 @@ func (e *Epoch) startRound() error {
 		e.buildBlock()
 		return nil
 	}
+
+	// We're not the leader, make sure if a block is not notarized within a timely manner,
+	// we will agree on an empty block.
+	e.monitorProposalReception(e.round)
 
 	// If we're not the leader, check if we have received a proposal earlier for this round
 	msgsForRound, exists := e.futureMessages[string(leaderForCurrentRound)][e.round]
@@ -1426,4 +1512,6 @@ type messagesForRound struct {
 	proposal     *BlockMessage
 	vote         *Vote
 	finalization *Finalization
+	emptyBlock   *EmptyBlock
+	emptyVote    *EmptyVote
 }
