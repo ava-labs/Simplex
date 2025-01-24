@@ -6,7 +6,6 @@ package simplex
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -876,7 +875,7 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, _ NodeID) error {
 	}
 
 	// Create a task that will verify the block in the future, after its predecessors have also been verified.
-	task := e.createBlockVerificationTask(block, md, from, vote)
+	task := e.createBlockVerificationTask(block, from, vote)
 
 	// isBlockReadyToBeScheduled checks if the block is known to us either from some previous round,
 	// or from storage. If so, then we have verified it in the past, since only verified blocks are saved in memory.
@@ -885,16 +884,17 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, _ NodeID) error {
 	// Schedule the block to be verified once its direct predecessor have been verified,
 	// or if it can be verified immediately.
 	e.Logger.Debug("Scheduling block verification", zap.Uint64("round", md.Round))
-	e.sched.Schedule(md.Digest, task, md.Prev, canBeImmediatelyVerified)
+	e.sched.Schedule(task, md.Prev, canBeImmediatelyVerified)
 
 	return nil
 }
 
-func (e *Epoch) createBlockVerificationTask(block Block, md BlockHeader, from NodeID, vote Vote) func() {
-	return func() {
+func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote) func() Digest {
+	return func() Digest {
+		md := block.BlockHeader()
 		if err := block.Verify(); err != nil {
 			e.Logger.Debug("Failed verifying block", zap.Error(err))
-			return
+			return md.Digest
 		}
 
 		e.lock.Lock()
@@ -905,7 +905,7 @@ func (e *Epoch) createBlockVerificationTask(block Block, md BlockHeader, from No
 
 		if !e.storeProposal(block) {
 			e.Logger.Warn("Unable to store proposed block for the round", zap.Stringer("NodeID", from), zap.Uint64("round", md.Round))
-			return
+			return md.Digest
 			// TODO: timeout
 		}
 
@@ -915,13 +915,15 @@ func (e *Epoch) createBlockVerificationTask(block Block, md BlockHeader, from No
 		if !exists {
 			// This shouldn't happen, but in case it does, return an error
 			e.Logger.Error("programming error: round not found", zap.Uint64("round", md.Round))
-			return
+			return md.Digest
 		}
 		round.votes[string(vote.Signature.Signer)] = &vote
 
 		if err := e.doProposed(block, vote, from); err != nil {
 			e.Logger.Warn("Failed voting on block", zap.Error(err))
 		}
+
+		return md.Digest
 	}
 }
 
@@ -1051,30 +1053,25 @@ func (e *Epoch) buildBlock() {
 
 	task := e.createBlockBuildingTask(metadata)
 
-	// We set the task ID to be the hash of the previous block, since we don't know the digest
-	// of the block before it is built.
-	// We know, however, that any block before or after the previous block won't
-	// have this digest, under the assumption that the hash function is collision resistant.
-	// TODO: Inject this hash as a dependency and don't use SHA256 as a hardcoded function
-	taskID := sha256.Sum256(metadata.Prev[:])
-
 	e.Logger.Debug("Scheduling block building", zap.Uint64("round", metadata.Round))
 	canBeImmediatelyVerified := e.isBlockReadyToBeScheduled(metadata.Seq, metadata.Prev)
-	e.sched.Schedule(taskID, task, metadata.Prev, canBeImmediatelyVerified)
+	e.sched.Schedule(task, metadata.Prev, canBeImmediatelyVerified)
 }
 
-func (e *Epoch) createBlockBuildingTask(metadata ProtocolMetadata) func() {
-	return func() {
+func (e *Epoch) createBlockBuildingTask(metadata ProtocolMetadata) func() Digest {
+	return func() Digest {
 		block, ok := e.BlockBuilder.BuildBlock(e.finishCtx, metadata)
 		if !ok {
 			e.Logger.Warn("Failed building block")
-			return
+			return Digest{}
 		}
 
 		e.lock.Lock()
 		defer e.lock.Unlock()
 
 		e.proposeBlock(block)
+
+		return block.BlockHeader().Digest
 	}
 }
 
