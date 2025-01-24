@@ -919,7 +919,7 @@ func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote)
 		}
 		round.votes[string(vote.Signature.Signer)] = &vote
 
-		if err := e.doProposed(block, vote, from); err != nil {
+		if err := e.doProposed(block, vote); err != nil {
 			e.Logger.Warn("Failed voting on block", zap.Error(err))
 		}
 
@@ -1054,8 +1054,7 @@ func (e *Epoch) buildBlock() {
 	task := e.createBlockBuildingTask(metadata)
 
 	e.Logger.Debug("Scheduling block building", zap.Uint64("round", metadata.Round))
-	canBeImmediatelyVerified := e.isBlockReadyToBeScheduled(metadata.Seq, metadata.Prev)
-	e.sched.Schedule(task, metadata.Prev, canBeImmediatelyVerified)
+	e.sched.Schedule(task, metadata.Prev, true)
 }
 
 func (e *Epoch) createBlockBuildingTask(metadata ProtocolMetadata) func() Digest {
@@ -1161,7 +1160,7 @@ func (e *Epoch) startRound() error {
 	return e.handleBlockMessage(msgsForRound.proposal, leaderForCurrentRound)
 }
 
-func (e *Epoch) doProposed(block Block, voteFromLeader Vote, _ NodeID) error {
+func (e *Epoch) doProposed(block Block, voteFromLeader Vote) error {
 	vote, err := e.voteOnBlock(block)
 	if err != nil {
 		return err
