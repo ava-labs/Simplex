@@ -13,16 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type testDependsOn []int
-
-func (m testDependsOn) dependsOn() int {
-	return m[1]
-}
-
-func (m testDependsOn) id() int {
-	return m[0]
-}
-
 func TestDependencyTree(t *testing.T) {
 	dt := newDependencies()
 

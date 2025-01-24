@@ -89,11 +89,12 @@ func (as *scheduler) run() {
 			continue         // (3)
 		}
 
-		var task task
-		task, as.ready = as.ready[0], as.ready[1:] // (4)
+		taskToRun := as.ready[0]
+		as.ready[0] = task{}    // Cleanup any object references reachable from the closure of the task
+		as.ready = as.ready[1:] // (4)
 
-		as.lock.Unlock() // (5)
-		id := task.f()   // (6)
+		as.lock.Unlock()    // (5)
+		id := taskToRun.f() // (6)
 		as.lock.Lock()
 
 		newlyReadyTasks := as.pending.Remove(id)        // (7)
