@@ -6,7 +6,7 @@ package simplex
 import "sync"
 
 type scheduler struct {
-	lock    sync.RWMutex
+	lock    sync.Mutex
 	signal  sync.Cond
 	pending dependencies
 	ready   []task
@@ -24,8 +24,8 @@ func NewScheduler() *scheduler {
 }
 
 func (as *scheduler) Size() int {
-	as.lock.RLock()
-	defer as.lock.RUnlock()
+	as.lock.Lock()
+	defer as.lock.Unlock()
 
 	return as.pending.Size() + len(as.ready)
 }
@@ -121,7 +121,7 @@ func (as *scheduler) Schedule(f func() Digest, prev Digest, ready bool) {
 
 	as.ready = append(as.ready, task) // (10)
 
-	as.signal.Signal() // (11)
+	as.signal.Broadcast() // (11)
 }
 
 type task struct {
