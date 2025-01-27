@@ -96,10 +96,9 @@ func TestRecoverFromWALProposed(t *testing.T) {
 			injectTestFinalization(t, e, block, nodes[i], conf.Signer)
 		}
 
-		storage.waitForBlockCommit(i)
+		block2 := storage.waitForBlockCommit(i)
 
-		committedData := storage.data[i].Block.Bytes()
-		require.Equal(t, block.Bytes(), committedData)
+		require.Equal(t, block, block2)
 	}
 
 	require.Equal(t, rounds, e.Storage.Height())
