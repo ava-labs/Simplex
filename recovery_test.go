@@ -26,6 +26,7 @@ func TestRecoverFromWALProposed(t *testing.T) {
 	quorum := Quorum(len(nodes))
 
 	conf := EpochConfig{
+		MaxProposalWait:     DefaultMaxProposalWaitTime,
 		Logger:              l,
 		ID:                  nodes[0],
 		Signer:              &testSigner{},
@@ -117,6 +118,7 @@ func TestRecoverFromNotarization(t *testing.T) {
 	quorum := Quorum(len(nodes))
 	sigAggregrator := &testSignatureAggregator{}
 	conf := EpochConfig{
+		MaxProposalWait:     DefaultMaxProposalWaitTime,
 		Logger:              l,
 		ID:                  nodes[0],
 		Signer:              &testSigner{},
@@ -181,6 +183,7 @@ func TestRecoverFromWalWithStorage(t *testing.T) {
 	quorum := Quorum(len(nodes))
 	sigAggregrator := &testSignatureAggregator{}
 	conf := EpochConfig{
+		MaxProposalWait:     DefaultMaxProposalWaitTime,
 		Logger:              l,
 		ID:                  nodes[0],
 		Signer:              &testSigner{},
@@ -250,6 +253,7 @@ func TestWalCreatedProperly(t *testing.T) {
 	qd := &testQCDeserializer{t: t}
 	wal := newTestWAL(t)
 	conf := EpochConfig{
+		MaxProposalWait:     DefaultMaxProposalWaitTime,
 		Logger:              l,
 		ID:                  nodes[0],
 		Signer:              &testSigner{},
@@ -318,6 +322,7 @@ func TestWalWritesBlockRecord(t *testing.T) {
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	wal := newTestWAL(t)
 	conf := EpochConfig{
+		MaxProposalWait:     DefaultMaxProposalWaitTime,
 		Logger:              l,
 		ID:                  nodes[1], // nodes[1] is not the leader for the first round
 		Signer:              &testSigner{},
@@ -379,6 +384,7 @@ func TestWalWritesFinalizationCert(t *testing.T) {
 	quorum := Quorum(len(nodes))
 	wal := newTestWAL(t)
 	conf := EpochConfig{
+		MaxProposalWait:     DefaultMaxProposalWaitTime,
 		Logger:              l,
 		ID:                  nodes[0],
 		Signer:              &testSigner{},
@@ -481,6 +487,7 @@ func TestRecoverFromMultipleRounds(t *testing.T) {
 	quorum := Quorum(len(nodes))
 	sigAggregrator := &testSignatureAggregator{}
 	conf := EpochConfig{
+		MaxProposalWait:     DefaultMaxProposalWaitTime,
 		Logger:              l,
 		ID:                  nodes[0],
 		Signer:              &testSigner{},
@@ -533,6 +540,7 @@ func TestRecoverFromMultipleNotarizations(t *testing.T) {
 	quorum := Quorum(len(nodes))
 	sigAggregrator := &testSignatureAggregator{}
 	conf := EpochConfig{
+		MaxProposalWait:     DefaultMaxProposalWaitTime,
 		Logger:              l,
 		ID:                  nodes[0],
 		Signer:              &testSigner{},

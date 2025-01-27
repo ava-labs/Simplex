@@ -63,6 +63,7 @@ func newSimplexNode(t *testing.T, id uint8, net *inMemNetwork, bb BlockBuilder) 
 	wal := newTestWAL(t)
 
 	conf := EpochConfig{
+		MaxProposalWait: DefaultMaxProposalWaitTime,
 		Comm: &testComm{
 			from: nodeID,
 			net:  net,

@@ -30,6 +30,7 @@ func TestEpochSimpleFlow(t *testing.T) {
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	quorum := Quorum(len(nodes))
 	conf := EpochConfig{
+		MaxProposalWait:     DefaultMaxProposalWaitTime,
 		Logger:              l,
 		ID:                  nodes[0],
 		Signer:              &testSigner{},
@@ -123,6 +124,7 @@ func testEpochInterleavingMessages(t *testing.T, seed int64) {
 
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	conf := EpochConfig{
+		MaxProposalWait:     DefaultMaxProposalWaitTime,
 		Logger:              l,
 		ID:                  nodes[0],
 		Signer:              &testSigner{},
@@ -243,6 +245,7 @@ func TestEpochBlockSentTwice(t *testing.T) {
 
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	conf := EpochConfig{
+		MaxProposalWait:     DefaultMaxProposalWaitTime,
 		Logger:              l,
 		ID:                  nodes[1],
 		Signer:              &testSigner{},
@@ -310,6 +313,7 @@ func TestEpochBlockTooHighRound(t *testing.T) {
 
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	conf := EpochConfig{
+		MaxProposalWait:     DefaultMaxProposalWaitTime,
 		Logger:              l,
 		ID:                  nodes[1],
 		Signer:              &testSigner{},
@@ -525,8 +529,9 @@ func (n noopComm) Broadcast(msg *Message) {
 }
 
 type testBlockBuilder struct {
-	out chan *testBlock
-	in  chan *testBlock
+	out                chan *testBlock
+	in                 chan *testBlock
+	blockShouldBeBuilt chan struct{}
 }
 
 // BuildBlock builds a new testblock and sends it to the BlockBuilder channel
@@ -547,7 +552,10 @@ func (t *testBlockBuilder) BuildBlock(_ context.Context, metadata ProtocolMetada
 }
 
 func (t *testBlockBuilder) IncomingBlock(ctx context.Context) {
-	panic("should not be invoked")
+	select {
+	case <-t.blockShouldBeBuilt:
+	case <-ctx.Done():
+	}
 }
 
 type testBlock struct {
