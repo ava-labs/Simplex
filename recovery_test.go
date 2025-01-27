@@ -18,7 +18,7 @@ import (
 // a wal with a single block record written to it(that we have proposed).
 func TestRecoverFromWALProposed(t *testing.T) {
 	l := makeLogger(t, 1)
-	bb := make(testBlockBuilder, 1)
+	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
 	wal := newTestWAL(t)
 	storage := newInMemStorage()
 	ctx := context.Background()
@@ -69,7 +69,7 @@ func TestRecoverFromWALProposed(t *testing.T) {
 			require.NotEqual(t, 0, rounds)
 		}
 
-		block := <-bb
+		block := <-bb.out
 		if rounds == 0 {
 			require.Equal(t, firstBlock, block)
 		}
@@ -109,7 +109,7 @@ func TestRecoverFromWALProposed(t *testing.T) {
 // with a block record written to it, and a notarization record.
 func TestRecoverFromNotarization(t *testing.T) {
 	l := makeLogger(t, 1)
-	bb := make(testBlockBuilder, 1)
+	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
 	wal := wal.NewMemWAL(t)
 	storage := newInMemStorage()
 	ctx := context.Background()
@@ -173,7 +173,7 @@ func TestRecoverFromNotarization(t *testing.T) {
 // with a block already stored in the storage
 func TestRecoverFromWalWithStorage(t *testing.T) {
 	l := makeLogger(t, 1)
-	bb := make(testBlockBuilder, 1)
+	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
 	wal := wal.NewMemWAL(t)
 	storage := newInMemStorage()
 	ctx := context.Background()
@@ -241,7 +241,7 @@ func TestRecoverFromWalWithStorage(t *testing.T) {
 // TestWalCreated tests that the epoch correctly writes to the WAL
 func TestWalCreatedProperly(t *testing.T) {
 	l := makeLogger(t, 1)
-	bb := make(testBlockBuilder, 1)
+	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
 	storage := newInMemStorage()
 
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
@@ -280,7 +280,7 @@ func TestWalCreatedProperly(t *testing.T) {
 	require.Len(t, records, 1)
 	blockFromWal, err := BlockFromRecord(conf.BlockDeserializer, records[0])
 	require.NoError(t, err)
-	block := <-bb
+	block := <-bb.out
 	require.Equal(t, blockFromWal, block)
 
 	// start at one since our node has already voted
@@ -312,7 +312,7 @@ func TestWalCreatedProperly(t *testing.T) {
 // a block proposed by a node other than the epoch node
 func TestWalWritesBlockRecord(t *testing.T) {
 	l := makeLogger(t, 1)
-	bb := make(testBlockBuilder, 1)
+	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
 	storage := newInMemStorage()
 	blockDeserializer := &blockDeserializer{}
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
@@ -348,7 +348,7 @@ func TestWalWritesBlockRecord(t *testing.T) {
 	_, ok := bb.BuildBlock(context.Background(), md)
 	require.True(t, ok)
 
-	block := <-bb
+	block := <-bb.out
 	// send epoch node this block
 	vote, err := newTestVote(block, nodes[0], &testSigner{})
 	require.NoError(t, err)
@@ -372,7 +372,7 @@ func TestWalWritesBlockRecord(t *testing.T) {
 
 func TestWalWritesFinalizationCert(t *testing.T) {
 	l := makeLogger(t, 1)
-	bb := make(testBlockBuilder, 1)
+	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
 	storage := newInMemStorage()
 	sigAggregrator := &testSignatureAggregator{}
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
@@ -396,7 +396,7 @@ func TestWalWritesFinalizationCert(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, e.Start())
-	firstBlock := <-bb
+	firstBlock := <-bb.out
 	// notarize the first block
 	for i := 1; i < quorum; i++ {
 		injectTestVote(t, e, firstBlock, nodes[i], conf.Signer)
@@ -418,7 +418,7 @@ func TestWalWritesFinalizationCert(t *testing.T) {
 	md.Prev = firstBlock.BlockHeader().Digest
 	_, ok := bb.BuildBlock(context.Background(), md)
 	require.True(t, ok)
-	secondBlock := <-bb
+	secondBlock := <-bb.out
 
 	// increase the round but don't index storage
 	require.Equal(t, uint64(1), e.Metadata().Round)
@@ -473,7 +473,7 @@ func TestWalWritesFinalizationCert(t *testing.T) {
 // TestRecoverFromMultipleRounds tests that the epoch can recover from a wal with multiple rounds written to it.
 func TestRecoverFromMultipleRounds(t *testing.T) {
 	l := makeLogger(t, 1)
-	bb := make(testBlockBuilder, 1)
+	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
 	wal := wal.NewMemWAL(t)
 	storage := newInMemStorage()
 	ctx := context.Background()
@@ -525,7 +525,7 @@ func TestRecoverFromMultipleRounds(t *testing.T) {
 // Appends to the wal -> block, notarization, second block, notarization block 2, finalization for block 1.
 func TestRecoverFromMultipleNotarizations(t *testing.T) {
 	l := makeLogger(t, 1)
-	bb := make(testBlockBuilder, 1)
+	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
 	wal := wal.NewMemWAL(t)
 	storage := newInMemStorage()
 	ctx := context.Background()
