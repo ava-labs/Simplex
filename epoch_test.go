@@ -108,7 +108,9 @@ func TestEpochInterleavingMessages(t *testing.T) {
 
 func testEpochInterleavingMessages(t *testing.T, seed int64) {
 	l := makeLogger(t, 1)
-	bb := &testBlockBuilder{in: make(chan *testBlock, 10)}
+	rounds := 10
+
+	bb := &testBlockBuilder{in: make(chan *testBlock, rounds)}
 	storage := newInMemStorage()
 
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
@@ -126,8 +128,6 @@ func testEpochInterleavingMessages(t *testing.T, seed int64) {
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
-
-	rounds := 10
 
 	var protocolMetadata ProtocolMetadata
 

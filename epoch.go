@@ -713,12 +713,11 @@ func (e *Epoch) maybeCollectNotarization() error {
 	votesForCurrentRound := e.rounds[e.round].votes
 	voteCount := len(votesForCurrentRound)
 
-	from := make([]NodeID, 0, voteCount)
-	for _, vote := range votesForCurrentRound {
-		from = append(from, vote.Signature.Signer)
-	}
-
 	if voteCount < e.quorumSize {
+		from := make([]NodeID, 0, voteCount)
+		for _, vote := range votesForCurrentRound {
+			from = append(from, vote.Signature.Signer)
+		}
 		e.Logger.Verbo("Counting votes", zap.Uint64("round", e.round),
 			zap.Int("votes", voteCount), zap.String("from", fmt.Sprintf("%s", from)))
 		return nil
