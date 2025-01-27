@@ -3,9 +3,13 @@
 
 package simplex
 
-import "sync"
+import (
+	"go.uber.org/zap"
+	"sync"
+)
 
 type scheduler struct {
+	logger  Logger
 	lock    sync.Mutex
 	signal  sync.Cond
 	pending dependencies
@@ -13,10 +17,11 @@ type scheduler struct {
 	close   bool
 }
 
-func NewScheduler() *scheduler {
+func NewScheduler(logger Logger) *scheduler {
 	var as scheduler
 	as.pending = newDependencies()
 	as.signal = sync.Cond{L: &as.lock}
+	as.logger = logger
 
 	go as.run()
 
@@ -85,20 +90,25 @@ func (as *scheduler) run() {
 	for !as.close {
 
 		if len(as.ready) == 0 { // (1)
+			as.logger.Trace("No ready tasks, going to sleep")
 			as.signal.Wait() // (2)
-			continue         // (3)
+			as.logger.Trace("Woken up from sleep", zap.Int("ready tasks", len(as.ready)))
+			continue // (3)
 		}
 
 		taskToRun := as.ready[0]
 		as.ready[0] = task{}    // Cleanup any object references reachable from the closure of the task
 		as.ready = as.ready[1:] // (4)
 
-		as.lock.Unlock()    // (5)
+		as.lock.Unlock() // (5)
+		as.logger.Debug("Running task", zap.Int("remaining ready tasks", len(as.ready)))
 		id := taskToRun.f() // (6)
+		as.logger.Debug("Task finished execution", zap.Stringer("taskID", id))
 		as.lock.Lock()
 
 		newlyReadyTasks := as.pending.Remove(id)        // (7)
 		as.ready = append(as.ready, newlyReadyTasks...) // (8)
+		as.logger.Trace("Enqueued newly ready tasks", zap.Int("number of ready tasks", len(newlyReadyTasks)))
 	}
 }
 
@@ -116,9 +126,12 @@ func (as *scheduler) Schedule(f func() Digest, prev Digest, ready bool) {
 	}
 
 	if !ready {
+		as.logger.Debug("Scheduling task", zap.Stringer("dependency", prev))
 		as.pending.Insert(task) // (9)
 		return
 	}
+
+	as.logger.Debug("Scheduling new ready task", zap.Stringer("dependency", prev))
 
 	as.ready = append(as.ready, task) // (10)
 

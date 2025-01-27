@@ -6,6 +6,7 @@ package simplex
 import (
 	"crypto/rand"
 	rand2 "math/rand"
+	"simplex/testutil"
 	"sync"
 	"testing"
 	"time"
@@ -34,7 +35,7 @@ func TestDependencyTree(t *testing.T) {
 
 func TestAsyncScheduler(t *testing.T) {
 	t.Run("Executes asynchronously", func(t *testing.T) {
-		as := NewScheduler()
+		as := NewScheduler(testutil.MakeLogger(t))
 		defer as.Close()
 
 		ticks := make(chan struct{})
@@ -56,7 +57,7 @@ func TestAsyncScheduler(t *testing.T) {
 	})
 
 	t.Run("Does not execute when closed", func(t *testing.T) {
-		as := NewScheduler()
+		as := NewScheduler(testutil.MakeLogger(t))
 		ticks := make(chan struct{}, 1)
 
 		as.Close()
@@ -73,7 +74,7 @@ func TestAsyncScheduler(t *testing.T) {
 	})
 
 	t.Run("Executes several pending tasks concurrently in arbitrary order", func(t *testing.T) {
-		as := NewScheduler()
+		as := NewScheduler(testutil.MakeLogger(t))
 		defer as.Close()
 
 		n := 9000
