@@ -47,46 +47,50 @@ func TestEpochSimpleFlow(t *testing.T) {
 	require.NoError(t, e.Start())
 
 	rounds := uint64(100)
-	for i := uint64(0); i < rounds; i++ {
-		// leader is the proposer of the new block for the given round
-		leader := LeaderForRound(nodes, i)
-		// only create blocks if we are not the node running the epoch
-		isEpochNode := leader.Equals(e.ID)
-		if !isEpochNode {
-			md := e.Metadata()
-			_, ok := bb.BuildBlock(context.Background(), md)
-			require.True(t, ok)
-		}
-
-		block := <-bb.out
-
-		if !isEpochNode {
-			// send node a message from the leader
-			vote, err := newTestVote(block, leader)
-			require.NoError(t, err)
-			err = e.HandleMessage(&Message{
-				BlockMessage: &BlockMessage{
-					Vote:  *vote,
-					Block: block,
-				},
-			}, leader)
-			require.NoError(t, err)
-		}
-
-		// start at one since our node has already voted
-		for i := 1; i < quorum; i++ {
-			injectTestVote(t, e, block, nodes[i])
-		}
-
-		for i := 1; i < quorum; i++ {
-			injectTestFinalization(t, e, block, nodes[i])
-		}
-
-		storage.waitForBlockCommit(uint64(i))
-
-		committedData := storage.data[uint64(i)].Block.Bytes()
-		require.Equal(t, block.Bytes(), committedData)
+	for round := uint64(0); round < rounds; round++ {
+		notarizeAndFinalizeRound(t, nodes, round, e, bb, quorum, storage)
 	}
+}
+
+func notarizeAndFinalizeRound(t *testing.T, nodes []NodeID, round uint64, e *Epoch, bb *testBlockBuilder, quorum int, storage *InMemStorage) {
+	// leader is the proposer of the new block for the given round
+	leader := LeaderForRound(nodes, round)
+	// only create blocks if we are not the node running the epoch
+	isEpochNode := leader.Equals(e.ID)
+	if !isEpochNode {
+		md := e.Metadata()
+		_, ok := bb.BuildBlock(context.Background(), md)
+		require.True(t, ok)
+	}
+
+	block := <-bb.out
+
+	if !isEpochNode {
+		// send node a message from the leader
+		vote, err := newTestVote(block, leader)
+		require.NoError(t, err)
+		err = e.HandleMessage(&Message{
+			BlockMessage: &BlockMessage{
+				Vote:  *vote,
+				Block: block,
+			},
+		}, leader)
+		require.NoError(t, err)
+	}
+
+	// start at one since our node has already voted
+	for i := 1; i < quorum; i++ {
+		injectTestVote(t, e, block, nodes[i])
+	}
+
+	for i := 1; i < quorum; i++ {
+		injectTestFinalization(t, e, block, nodes[i])
+	}
+
+	storage.waitForBlockCommit(round)
+
+	committedData := storage.data[round].Block.Bytes()
+	require.Equal(t, block.Bytes(), committedData)
 }
 
 func FuzzEpochInterleavingMessages(f *testing.F) {
@@ -131,7 +135,7 @@ func testEpochInterleavingMessages(t *testing.T, seed int64) {
 
 	var protocolMetadata ProtocolMetadata
 
-	callbacks := createCallbacks(t, rounds, protocolMetadata, nodes, e, conf, bb)
+	callbacks := createCallbacks(t, rounds, protocolMetadata, nodes, e, bb)
 
 	require.NoError(t, e.Start())
 
@@ -147,7 +151,7 @@ func testEpochInterleavingMessages(t *testing.T, seed int64) {
 	}
 }
 
-func createCallbacks(t *testing.T, rounds int, protocolMetadata ProtocolMetadata, nodes []NodeID, e *Epoch, conf EpochConfig, bb *testBlockBuilder) []func() {
+func createCallbacks(t *testing.T, rounds int, protocolMetadata ProtocolMetadata, nodes []NodeID, e *Epoch, bb *testBlockBuilder) []func() {
 	blocks := make([]Block, 0, rounds)
 
 	callbacks := make([]func(), 0, rounds*4+len(blocks))
