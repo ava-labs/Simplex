@@ -286,6 +286,15 @@ func TestEpochBlockSentTwice(t *testing.T) {
 func TestEpochBlockTooHighRound(t *testing.T) {
 	l := makeLogger(t, 1)
 
+	var rejectedBlock bool
+
+	l.intercept(func(entry zapcore.Entry) error {
+		if entry.Message == "Received a block message for a too high round" {
+			rejectedBlock = true
+		}
+		return nil
+	})
+
 	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
 	storage := newInMemStorage()
 
@@ -308,15 +317,6 @@ func TestEpochBlockTooHighRound(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, e.Start())
-
-	var rejectedBlock bool
-
-	l.intercept(func(entry zapcore.Entry) error {
-		if entry.Message == "Received a block message for a too high round" {
-			rejectedBlock = true
-		}
-		return nil
-	})
 
 	t.Run("block from higher round is rejected", func(t *testing.T) {
 		defer func() {
