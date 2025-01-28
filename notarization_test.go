@@ -17,7 +17,6 @@ var errorSigAggregation = errors.New("signature error")
 func TestNewNotarization(t *testing.T) {
 	l := makeLogger(t, 1)
 	testBlock := &testBlock{}
-	testSigner := &testSigner{}
 	tests := []struct {
 		name                 string
 		votesForCurrentRound map[string]*simplex.Vote
@@ -31,7 +30,7 @@ func TestNewNotarization(t *testing.T) {
 				votes := make(map[string]*simplex.Vote)
 				nodeIds := [][]byte{{1}, {2}, {3}, {4}, {5}}
 				for _, nodeId := range nodeIds {
-					vote, err := newTestVote(testBlock, nodeId, testSigner)
+					vote, err := newTestVote(testBlock, nodeId)
 					require.NoError(t, err)
 					votes[string(nodeId)] = vote
 				}
@@ -54,7 +53,7 @@ func TestNewNotarization(t *testing.T) {
 				votes := make(map[string]*simplex.Vote)
 				nodeIds := [][]byte{{1}, {2}, {3}, {4}, {5}}
 				for _, nodeId := range nodeIds {
-					vote, err := newTestVote(testBlock, nodeId, testSigner)
+					vote, err := newTestVote(testBlock, nodeId)
 					require.NoError(t, err)
 					votes[string(nodeId)] = vote
 				}
@@ -86,7 +85,6 @@ func TestNewNotarization(t *testing.T) {
 
 func TestNewFinalizationCertificate(t *testing.T) {
 	l := makeLogger(t, 1)
-	signer := &testSigner{}
 	tests := []struct {
 		name                 string
 		finalizations        []*simplex.Finalization
@@ -98,31 +96,31 @@ func TestNewFinalizationCertificate(t *testing.T) {
 		{
 			name: "valid finalizations in order",
 			finalizations: []*simplex.Finalization{
-				newTestFinalization(t, &testBlock{}, []byte{1}, signer),
-				newTestFinalization(t, &testBlock{}, []byte{2}, signer),
-				newTestFinalization(t, &testBlock{}, []byte{3}, signer),
+				newTestFinalization(t, &testBlock{}, []byte{1}),
+				newTestFinalization(t, &testBlock{}, []byte{2}),
+				newTestFinalization(t, &testBlock{}, []byte{3}),
 			},
 			signatureAggregator:  &testSignatureAggregator{},
-			expectedFinalization: &newTestFinalization(t, &testBlock{}, []byte{1}, signer).Finalization,
+			expectedFinalization: &newTestFinalization(t, &testBlock{}, []byte{1}).Finalization,
 			expectError:          nil,
 		},
 		{
 			name: "unsorted finalizations",
 			finalizations: []*simplex.Finalization{
-				newTestFinalization(t, &testBlock{}, []byte{3}, signer),
-				newTestFinalization(t, &testBlock{}, []byte{1}, signer),
-				newTestFinalization(t, &testBlock{}, []byte{2}, signer),
+				newTestFinalization(t, &testBlock{}, []byte{3}),
+				newTestFinalization(t, &testBlock{}, []byte{1}),
+				newTestFinalization(t, &testBlock{}, []byte{2}),
 			},
 			signatureAggregator:  &testSignatureAggregator{},
-			expectedFinalization: &newTestFinalization(t, &testBlock{}, []byte{1}, signer).Finalization,
+			expectedFinalization: &newTestFinalization(t, &testBlock{}, []byte{1}).Finalization,
 			expectError:          nil,
 		},
 		{
 			name: "finalizations with different digests",
 			finalizations: []*simplex.Finalization{
-				newTestFinalization(t, &testBlock{digest: [32]byte{1}}, []byte{1}, signer),
-				newTestFinalization(t, &testBlock{digest: [32]byte{2}}, []byte{2}, signer),
-				newTestFinalization(t, &testBlock{digest: [32]byte{3}}, []byte{3}, signer),
+				newTestFinalization(t, &testBlock{digest: [32]byte{1}}, []byte{1}),
+				newTestFinalization(t, &testBlock{digest: [32]byte{2}}, []byte{2}),
+				newTestFinalization(t, &testBlock{digest: [32]byte{3}}, []byte{3}),
 			},
 			signatureAggregator: &testSignatureAggregator{},
 			expectError:         simplex.ErrorInvalidFinalizationDigest,
@@ -130,7 +128,7 @@ func TestNewFinalizationCertificate(t *testing.T) {
 		{
 			name: "signature aggregator errors",
 			finalizations: []*simplex.Finalization{
-				newTestFinalization(t, &testBlock{}, []byte{1}, signer),
+				newTestFinalization(t, &testBlock{}, []byte{1}),
 			},
 			signatureAggregator: &testSignatureAggregator{err: errorSigAggregation},
 			expectError:         errorSigAggregation,

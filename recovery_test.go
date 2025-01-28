@@ -76,7 +76,7 @@ func TestRecoverFromWALProposed(t *testing.T) {
 
 		if !isEpochNode {
 			// send node a message from the leader
-			vote, err := newTestVote(block, leader, conf.Signer)
+			vote, err := newTestVote(block, leader)
 			require.NoError(t, err)
 			err = e.HandleMessage(&Message{
 				BlockMessage: &BlockMessage{
@@ -89,11 +89,11 @@ func TestRecoverFromWALProposed(t *testing.T) {
 
 		// start at one since our node has already voted
 		for i := 1; i < quorum; i++ {
-			injectTestVote(t, e, block, nodes[i], conf.Signer)
+			injectTestVote(t, e, block, nodes[i])
 		}
 
 		for i := 1; i < quorum; i++ {
-			injectTestFinalization(t, e, block, nodes[i], conf.Signer)
+			injectTestFinalization(t, e, block, nodes[i])
 		}
 
 		storage.waitForBlockCommit(i)
@@ -142,7 +142,7 @@ func TestRecoverFromNotarization(t *testing.T) {
 	require.NoError(t, wal.Append(blockRecord))
 
 	// lets add some notarizations
-	notarizationRecord, err := newNotarizationRecord(l, sigAggregrator, block, nodes[0:quorum], conf.Signer)
+	notarizationRecord, err := newNotarizationRecord(l, sigAggregrator, block, nodes[0:quorum])
 	require.NoError(t, err)
 
 	// when we start this we should kickoff the finalization process by broadcasting a finalization message and then waiting for incoming finalization messages
@@ -161,7 +161,7 @@ func TestRecoverFromNotarization(t *testing.T) {
 	// require the round was incremented(notarization increases round)
 	require.Equal(t, uint64(1), e.Metadata().Round)
 	for i := 1; i < quorum; i++ {
-		injectTestFinalization(t, e, block, nodes[i], conf.Signer)
+		injectTestFinalization(t, e, block, nodes[i])
 	}
 
 	committedData := storage.data[0].Block.Bytes()
@@ -208,7 +208,7 @@ func TestRecoverFromWalWithStorage(t *testing.T) {
 	require.NoError(t, wal.Append(record))
 
 	// lets add some notarizations
-	notarizationRecord, err := newNotarizationRecord(l, sigAggregrator, block, nodes[0:quorum], conf.Signer)
+	notarizationRecord, err := newNotarizationRecord(l, sigAggregrator, block, nodes[0:quorum])
 	require.NoError(t, err)
 
 	require.NoError(t, wal.Append(notarizationRecord))
@@ -230,7 +230,7 @@ func TestRecoverFromWalWithStorage(t *testing.T) {
 
 	for i := 1; i < quorum; i++ {
 		// type assert block to testBlock
-		injectTestFinalization(t, e, block, nodes[i], conf.Signer)
+		injectTestFinalization(t, e, block, nodes[i])
 	}
 
 	committedData := storage.data[1].Block.Bytes()
@@ -285,18 +285,18 @@ func TestWalCreatedProperly(t *testing.T) {
 
 	// start at one since our node has already voted
 	for i := 1; i < quorum; i++ {
-		injectTestVote(t, e, block, nodes[i], conf.Signer)
+		injectTestVote(t, e, block, nodes[i])
 	}
 
 	records, err = e.WAL.ReadAll()
 	require.NoError(t, err)
 	require.Len(t, records, 2)
-	expectedNotarizationRecord, err := newNotarizationRecord(l, signatureAggregator, block, nodes[0:quorum], conf.Signer)
+	expectedNotarizationRecord, err := newNotarizationRecord(l, signatureAggregator, block, nodes[0:quorum])
 	require.NoError(t, err)
 	require.Equal(t, expectedNotarizationRecord, records[1])
 
 	for i := 1; i < quorum; i++ {
-		injectTestFinalization(t, e, block, nodes[i], conf.Signer)
+		injectTestFinalization(t, e, block, nodes[i])
 	}
 
 	// we do not append the finalization record to the WAL if it for the next expected sequence
@@ -350,7 +350,7 @@ func TestWalWritesBlockRecord(t *testing.T) {
 
 	block := <-bb.out
 	// send epoch node this block
-	vote, err := newTestVote(block, nodes[0], &testSigner{})
+	vote, err := newTestVote(block, nodes[0])
 	require.NoError(t, err)
 	err = e.HandleMessage(&Message{
 		BlockMessage: &BlockMessage{
@@ -399,7 +399,7 @@ func TestWalWritesFinalizationCert(t *testing.T) {
 	firstBlock := <-bb.out
 	// notarize the first block
 	for i := 1; i < quorum; i++ {
-		injectTestVote(t, e, firstBlock, nodes[i], conf.Signer)
+		injectTestVote(t, e, firstBlock, nodes[i])
 	}
 	records, err := e.WAL.ReadAll()
 	require.NoError(t, err)
@@ -407,7 +407,7 @@ func TestWalWritesFinalizationCert(t *testing.T) {
 	blockFromWal, err := BlockFromRecord(conf.BlockDeserializer, records[0])
 	require.NoError(t, err)
 	require.Equal(t, firstBlock, blockFromWal)
-	expectedNotarizationRecord, err := newNotarizationRecord(l, sigAggregrator, firstBlock, nodes[0:quorum], conf.Signer)
+	expectedNotarizationRecord, err := newNotarizationRecord(l, sigAggregrator, firstBlock, nodes[0:quorum])
 	require.NoError(t, err)
 	require.Equal(t, expectedNotarizationRecord, records[1])
 
@@ -424,7 +424,7 @@ func TestWalWritesFinalizationCert(t *testing.T) {
 	require.Equal(t, uint64(1), e.Metadata().Round)
 	require.Equal(t, uint64(0), e.Storage.Height())
 
-	vote, err := newTestVote(secondBlock, nodes[1], conf.Signer)
+	vote, err := newTestVote(secondBlock, nodes[1])
 	require.NoError(t, err)
 	err = e.HandleMessage(&Message{
 		BlockMessage: &BlockMessage{
@@ -435,7 +435,7 @@ func TestWalWritesFinalizationCert(t *testing.T) {
 	require.NoError(t, err)
 
 	for i := 1; i < quorum; i++ {
-		injectTestVote(t, e, secondBlock, nodes[i], conf.Signer)
+		injectTestVote(t, e, secondBlock, nodes[i])
 	}
 
 	wal.assertWALSize(4)
@@ -446,13 +446,13 @@ func TestWalWritesFinalizationCert(t *testing.T) {
 	blockFromWal, err = BlockFromRecord(conf.BlockDeserializer, records[2])
 	require.NoError(t, err)
 	require.Equal(t, secondBlock, blockFromWal)
-	expectedNotarizationRecord, err = newNotarizationRecord(l, sigAggregrator, secondBlock, nodes[0:quorum], conf.Signer)
+	expectedNotarizationRecord, err = newNotarizationRecord(l, sigAggregrator, secondBlock, nodes[0:quorum])
 	require.NoError(t, err)
 	require.Equal(t, expectedNotarizationRecord, records[3])
 
 	// finalization for the second block should write to wal
 	for i := 1; i < quorum; i++ {
-		injectTestFinalization(t, e, secondBlock, nodes[i], conf.Signer)
+		injectTestFinalization(t, e, secondBlock, nodes[i])
 	}
 
 	records, err = e.WAL.ReadAll()
@@ -461,7 +461,7 @@ func TestWalWritesFinalizationCert(t *testing.T) {
 	recordType := binary.BigEndian.Uint16(records[4])
 	require.Equal(t, record.FinalizationRecordType, recordType)
 	_, err = FinalizationCertificateFromRecord(records[4], e.QCDeserializer)
-	_, expectedFinalizationRecord := newFinalizationRecord(t, l, sigAggregrator, secondBlock, nodes[0:quorum], conf.Signer)
+	_, expectedFinalizationRecord := newFinalizationRecord(t, l, sigAggregrator, secondBlock, nodes[0:quorum])
 	require.NoError(t, err)
 	require.Equal(t, expectedFinalizationRecord, records[4])
 
@@ -503,11 +503,11 @@ func TestRecoverFromMultipleRounds(t *testing.T) {
 	record := BlockRecord(firstBlock.BlockHeader(), firstBlock.Bytes())
 	wal.Append(record)
 
-	firstNotarizationRecord, err := newNotarizationRecord(l, sigAggregrator, firstBlock, nodes[0:quorum], conf.Signer)
+	firstNotarizationRecord, err := newNotarizationRecord(l, sigAggregrator, firstBlock, nodes[0:quorum])
 	require.NoError(t, err)
 	wal.Append(firstNotarizationRecord)
 
-	_, finalizationRecord := newFinalizationRecord(t, l, sigAggregrator, firstBlock, nodes[0:quorum], conf.Signer)
+	_, finalizationRecord := newFinalizationRecord(t, l, sigAggregrator, firstBlock, nodes[0:quorum])
 	require.NoError(t, err)
 	wal.Append(finalizationRecord)
 
@@ -556,7 +556,7 @@ func TestRecoverFromMultipleNotarizations(t *testing.T) {
 	record := BlockRecord(firstBlock.BlockHeader(), firstBlock.Bytes())
 	wal.Append(record)
 
-	firstNotarizationRecord, err := newNotarizationRecord(l, sigAggregrator, firstBlock, nodes[0:quorum], conf.Signer)
+	firstNotarizationRecord, err := newNotarizationRecord(l, sigAggregrator, firstBlock, nodes[0:quorum])
 	require.NoError(t, err)
 	wal.Append(firstNotarizationRecord)
 
@@ -567,12 +567,12 @@ func TestRecoverFromMultipleNotarizations(t *testing.T) {
 	wal.Append(record)
 
 	// Add notarization for second block
-	secondNotarizationRecord, err := newNotarizationRecord(l, sigAggregrator, secondBlock, nodes[0:quorum], conf.Signer)
+	secondNotarizationRecord, err := newNotarizationRecord(l, sigAggregrator, secondBlock, nodes[0:quorum])
 	require.NoError(t, err)
 	wal.Append(secondNotarizationRecord)
 
 	// Create finalization record for first block
-	_, finalizationRecord := newFinalizationRecord(t, l, sigAggregrator, firstBlock, nodes[0:quorum], conf.Signer)
+	_, finalizationRecord := newFinalizationRecord(t, l, sigAggregrator, firstBlock, nodes[0:quorum])
 	wal.Append(finalizationRecord)
 
 	err = e.Start()

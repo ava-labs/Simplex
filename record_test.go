@@ -11,10 +11,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func newNotarizationRecord(logger simplex.Logger, signatureAggregator simplex.SignatureAggregator, block simplex.Block, ids []simplex.NodeID, signer simplex.Signer) ([]byte, error) {
+func newNotarizationRecord(logger simplex.Logger, signatureAggregator simplex.SignatureAggregator, block simplex.Block, ids []simplex.NodeID) ([]byte, error) {
 	votesForCurrentRound := make(map[string]*simplex.Vote)
 	for _, id := range ids {
-		vote, err := newTestVote(block, id, signer)
+		vote, err := newTestVote(block, id)
 		if err != nil {
 			return nil, err
 		}
@@ -32,11 +32,11 @@ func newNotarizationRecord(logger simplex.Logger, signatureAggregator simplex.Si
 }
 
 // creates a new finalization certificate
-func newFinalizationRecord(t *testing.T, logger simplex.Logger, signatureAggregator simplex.SignatureAggregator, block simplex.Block, ids []simplex.NodeID, signer simplex.Signer) (simplex.FinalizationCertificate, []byte) {
+func newFinalizationRecord(t *testing.T, logger simplex.Logger, signatureAggregator simplex.SignatureAggregator, block simplex.Block, ids []simplex.NodeID) (simplex.FinalizationCertificate, []byte) {
 	finalizations := make([]*simplex.Finalization, len(ids))
 	for i, id := range ids {
 		testBlock := block.(*testBlock)
-		finalizations[i] = newTestFinalization(t, testBlock, id, signer)
+		finalizations[i] = newTestFinalization(t, testBlock, id)
 	}
 
 	fCert, err := simplex.NewFinalizationCertificate(logger, signatureAggregator, finalizations)

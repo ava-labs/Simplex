@@ -62,7 +62,7 @@ func TestEpochSimpleFlow(t *testing.T) {
 
 		if !isEpochNode {
 			// send node a message from the leader
-			vote, err := newTestVote(block, leader, conf.Signer)
+			vote, err := newTestVote(block, leader)
 			require.NoError(t, err)
 			err = e.HandleMessage(&Message{
 				BlockMessage: &BlockMessage{
@@ -75,11 +75,11 @@ func TestEpochSimpleFlow(t *testing.T) {
 
 		// start at one since our node has already voted
 		for i := 1; i < quorum; i++ {
-			injectTestVote(t, e, block, nodes[i], conf.Signer)
+			injectTestVote(t, e, block, nodes[i])
 		}
 
 		for i := 1; i < quorum; i++ {
-			injectTestFinalization(t, e, block, nodes[i], conf.Signer)
+			injectTestFinalization(t, e, block, nodes[i])
 		}
 
 		storage.waitForBlockCommit(uint64(i))
@@ -163,7 +163,7 @@ func createCallbacks(t *testing.T, rounds int, protocolMetadata ProtocolMetadata
 		leader := LeaderForRound(nodes, uint64(i))
 
 		if !leader.Equals(e.ID) {
-			vote, err := newTestVote(block, leader, conf.Signer)
+			vote, err := newTestVote(block, leader)
 			require.NoError(t, err)
 
 			callbacks = append(callbacks, func() {
@@ -181,7 +181,7 @@ func createCallbacks(t *testing.T, rounds int, protocolMetadata ProtocolMetadata
 
 		for j := 1; j <= 2; j++ {
 			node := nodes[j]
-			vote, err := newTestVote(block, node, conf.Signer)
+			vote, err := newTestVote(block, node)
 			require.NoError(t, err)
 			msg := Message{
 				VoteMessage: vote,
@@ -197,7 +197,7 @@ func createCallbacks(t *testing.T, rounds int, protocolMetadata ProtocolMetadata
 
 		for j := 1; j <= 2; j++ {
 			node := nodes[j]
-			finalization := newTestFinalization(t, block, node, conf.Signer)
+			finalization := newTestFinalization(t, block, node)
 			msg := Message{
 				Finalization: finalization,
 			}
@@ -257,7 +257,7 @@ func TestEpochBlockSentTwice(t *testing.T) {
 	block, ok := bb.BuildBlock(context.Background(), md)
 	require.True(t, ok)
 
-	vote, err := newTestVote(block, nodes[2], conf.Signer)
+	vote, err := newTestVote(block, nodes[2])
 	require.NoError(t, err)
 	err = e.HandleMessage(&Message{
 		BlockMessage: &BlockMessage{
@@ -329,7 +329,7 @@ func TestEpochBlockTooHighRound(t *testing.T) {
 		block, ok := bb.BuildBlock(context.Background(), md)
 		require.True(t, ok)
 
-		vote, err := newTestVote(block, nodes[0], conf.Signer)
+		vote, err := newTestVote(block, nodes[0])
 		require.NoError(t, err)
 		err = e.HandleMessage(&Message{
 			BlockMessage: &BlockMessage{
@@ -352,7 +352,7 @@ func TestEpochBlockTooHighRound(t *testing.T) {
 		block, ok := bb.BuildBlock(context.Background(), md)
 		require.True(t, ok)
 
-		vote, err := newTestVote(block, nodes[0], conf.Signer)
+		vote, err := newTestVote(block, nodes[0])
 		require.NoError(t, err)
 		err = e.HandleMessage(&Message{
 			BlockMessage: &BlockMessage{
@@ -376,11 +376,11 @@ func makeLogger(t *testing.T, node int) *testLogger {
 	return l
 }
 
-func newTestVote(block Block, id NodeID, signer Signer) (*Vote, error) {
+func newTestVote(block Block, id NodeID) (*Vote, error) {
 	vote := ToBeSignedVote{
 		BlockHeader: block.BlockHeader(),
 	}
-	sig, err := vote.Sign(signer)
+	sig, err := vote.Sign(&testSigner{})
 	if err != nil {
 		return nil, err
 	}
@@ -394,8 +394,8 @@ func newTestVote(block Block, id NodeID, signer Signer) (*Vote, error) {
 	}, nil
 }
 
-func injectTestVote(t *testing.T, e *Epoch, block Block, id NodeID, signer Signer) {
-	vote, err := newTestVote(block, id, signer)
+func injectTestVote(t *testing.T, e *Epoch, block Block, id NodeID) {
+	vote, err := newTestVote(block, id)
 	require.NoError(t, err)
 	err = e.HandleMessage(&Message{
 		VoteMessage: vote,
@@ -403,9 +403,9 @@ func injectTestVote(t *testing.T, e *Epoch, block Block, id NodeID, signer Signe
 	require.NoError(t, err)
 }
 
-func newTestFinalization(t *testing.T, block Block, id NodeID, signer Signer) *Finalization {
+func newTestFinalization(t *testing.T, block Block, id NodeID) *Finalization {
 	f := ToBeSignedFinalization{BlockHeader: block.BlockHeader()}
-	sig, err := f.Sign(signer)
+	sig, err := f.Sign(&testSigner{})
 	require.NoError(t, err)
 	return &Finalization{
 		Signature: Signature{
@@ -418,9 +418,9 @@ func newTestFinalization(t *testing.T, block Block, id NodeID, signer Signer) *F
 	}
 }
 
-func injectTestFinalization(t *testing.T, e *Epoch, block Block, id NodeID, signer Signer) {
+func injectTestFinalization(t *testing.T, e *Epoch, block Block, id NodeID) {
 	err := e.HandleMessage(&Message{
-		Finalization: newTestFinalization(t, block, id, signer),
+		Finalization: newTestFinalization(t, block, id),
 	}, id)
 	require.NoError(t, err)
 }
