@@ -80,6 +80,10 @@ func notarizeAndFinalizeRound(t *testing.T, nodes []NodeID, round uint64, e *Epo
 
 	// start at one since our node has already voted
 	for i := 1; i < quorum; i++ {
+		// Skip the vote of the block proposer
+		if leader.Equals(nodes[i]) {
+			continue
+		}
 		injectTestVote(t, e, block, nodes[i])
 	}
 

@@ -996,7 +996,7 @@ func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote)
 		}
 		round.votes[string(vote.Signature.Signer)] = &vote
 
-		if err := e.doProposed(block, vote, from); err != nil {
+		if err := e.doProposed(block); err != nil {
 			e.Logger.Warn("Failed voting on block", zap.Error(err))
 		}
 
@@ -1237,7 +1237,7 @@ func (e *Epoch) startRound() error {
 	return e.handleBlockMessage(msgsForRound.proposal, leaderForCurrentRound)
 }
 
-func (e *Epoch) doProposed(block Block, voteFromLeader Vote, from NodeID) error {
+func (e *Epoch) doProposed(block Block) error {
 	vote, err := e.voteOnBlock(block)
 	if err != nil {
 		return err
@@ -1260,8 +1260,7 @@ func (e *Epoch) doProposed(block Block, voteFromLeader Vote, from NodeID) error 
 	if err := e.handleVoteMessage(&vote, e.ID); err != nil {
 		return err
 	}
-
-	return e.handleVoteMessage(&voteFromLeader, e.ID)
+	return nil
 }
 
 func (e *Epoch) voteOnBlock(block Block) (Vote, error) {
