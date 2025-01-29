@@ -1281,7 +1281,11 @@ func (e *Epoch) voteOnBlock(block Block) (Vote, error) {
 }
 
 func (e *Epoch) increaseRound() {
-	e.Logger.Info(fmt.Sprintf("Moving to a new round (%d --> %d", e.round, e.round+1), zap.Uint64("round", e.round+1))
+	leader := LeaderForRound(e.nodes, e.round)
+	e.Logger.Info("Moving to a new round",
+		zap.Uint64("old round", e.round),
+		zap.Uint64("new round", e.round+1),
+		zap.Stringer("leader", leader))
 	e.round++
 }
 
