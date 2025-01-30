@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"errors"
 	"simplex"
+	"simplex/testutil"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -15,7 +16,7 @@ import (
 var errorSigAggregation = errors.New("signature error")
 
 func TestNewNotarization(t *testing.T) {
-	l := makeLogger(t, 1)
+	l := testutil.MakeLogger(t, 1)
 	testBlock := &testBlock{}
 	tests := []struct {
 		name                 string
@@ -84,7 +85,7 @@ func TestNewNotarization(t *testing.T) {
 }
 
 func TestNewFinalizationCertificate(t *testing.T) {
-	l := makeLogger(t, 1)
+	l := testutil.MakeLogger(t, 1)
 	tests := []struct {
 		name                 string
 		finalizations        []*simplex.Finalization

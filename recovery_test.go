@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	. "simplex"
 	"simplex/record"
+	"simplex/testutil"
 	"simplex/wal"
 	"testing"
 
@@ -17,7 +18,7 @@ import (
 // TestRecoverFromWALProposed tests that the epoch can recover from
 // a wal with a single block record written to it(that we have proposed).
 func TestRecoverFromWALProposed(t *testing.T) {
-	l := makeLogger(t, 1)
+	l := testutil.MakeLogger(t, 1)
 	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
 	wal := newTestWAL(t)
 	storage := newInMemStorage()
@@ -109,7 +110,7 @@ func TestRecoverFromWALProposed(t *testing.T) {
 // TestRecoverFromWALNotarized tests that the epoch can recover from a wal
 // with a block record written to it, and a notarization record.
 func TestRecoverFromNotarization(t *testing.T) {
-	l := makeLogger(t, 1)
+	l := testutil.MakeLogger(t, 1)
 	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
 	wal := wal.NewMemWAL(t)
 	storage := newInMemStorage()
@@ -174,7 +175,7 @@ func TestRecoverFromNotarization(t *testing.T) {
 // TestRecoverFromWALFinalized tests that the epoch can recover from a wal
 // with a block already stored in the storage
 func TestRecoverFromWalWithStorage(t *testing.T) {
-	l := makeLogger(t, 1)
+	l := testutil.MakeLogger(t, 1)
 	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
 	wal := wal.NewMemWAL(t)
 	storage := newInMemStorage()
@@ -243,7 +244,7 @@ func TestRecoverFromWalWithStorage(t *testing.T) {
 
 // TestWalCreated tests that the epoch correctly writes to the WAL
 func TestWalCreatedProperly(t *testing.T) {
-	l := makeLogger(t, 1)
+	l := testutil.MakeLogger(t, 1)
 	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
 	storage := newInMemStorage()
 
@@ -315,7 +316,7 @@ func TestWalCreatedProperly(t *testing.T) {
 // TestWalWritesBlockRecord tests that the epoch correctly writes to the WAL
 // a block proposed by a node other than the epoch node
 func TestWalWritesBlockRecord(t *testing.T) {
-	l := makeLogger(t, 1)
+	l := testutil.MakeLogger(t, 1)
 	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
 	storage := newInMemStorage()
 	blockDeserializer := &blockDeserializer{}
@@ -376,7 +377,7 @@ func TestWalWritesBlockRecord(t *testing.T) {
 }
 
 func TestWalWritesFinalizationCert(t *testing.T) {
-	l := makeLogger(t, 1)
+	l := testutil.MakeLogger(t, 1)
 	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
 	storage := newInMemStorage()
 	sigAggregrator := &testSignatureAggregator{}
@@ -478,7 +479,7 @@ func TestWalWritesFinalizationCert(t *testing.T) {
 
 // TestRecoverFromMultipleRounds tests that the epoch can recover from a wal with multiple rounds written to it.
 func TestRecoverFromMultipleRounds(t *testing.T) {
-	l := makeLogger(t, 1)
+	l := testutil.MakeLogger(t, 1)
 	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
 	wal := wal.NewMemWAL(t)
 	storage := newInMemStorage()
@@ -531,7 +532,7 @@ func TestRecoverFromMultipleRounds(t *testing.T) {
 // TestRecoverFromMultipleRounds tests that the epoch can recover from a wal with multiple rounds written to it.
 // Appends to the wal -> block, notarization, second block, notarization block 2, finalization for block 1.
 func TestRecoverFromMultipleNotarizations(t *testing.T) {
-	l := makeLogger(t, 1)
+	l := testutil.MakeLogger(t, 1)
 	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
 	wal := wal.NewMemWAL(t)
 	storage := newInMemStorage()

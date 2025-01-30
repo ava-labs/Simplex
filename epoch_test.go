@@ -12,18 +12,18 @@ import (
 	"encoding/binary"
 	"fmt"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"math"
 	rand2 "math/rand"
 	. "simplex"
+	"simplex/testutil"
 	"simplex/wal"
 	"sync"
 	"testing"
 )
 
 func TestEpochSimpleFlow(t *testing.T) {
-	l := makeLogger(t, 1)
+	l := testutil.MakeLogger(t, 1)
 	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
 	storage := newInMemStorage()
 
@@ -116,7 +116,7 @@ func TestEpochInterleavingMessages(t *testing.T) {
 }
 
 func testEpochInterleavingMessages(t *testing.T, seed int64) {
-	l := makeLogger(t, 1)
+	l := testutil.MakeLogger(t, 1)
 	rounds := 10
 
 	bb := &testBlockBuilder{in: make(chan *testBlock, rounds)}
@@ -222,11 +222,11 @@ func createCallbacks(t *testing.T, rounds int, protocolMetadata ProtocolMetadata
 }
 
 func TestEpochBlockSentTwice(t *testing.T) {
-	l := makeLogger(t, 1)
+	l := testutil.MakeLogger(t, 1)
 
 	var tooFarMsg, alreadyReceivedMsg bool
 
-	l.intercept(func(entry zapcore.Entry) error {
+	l.Intercept(func(entry zapcore.Entry) error {
 		if entry.Message == "Got block of a future round" {
 			tooFarMsg = true
 		}
@@ -295,11 +295,11 @@ func TestEpochBlockSentTwice(t *testing.T) {
 }
 
 func TestEpochBlockTooHighRound(t *testing.T) {
-	l := makeLogger(t, 1)
+	l := testutil.MakeLogger(t, 1)
 
 	var rejectedBlock bool
 
-	l.intercept(func(entry zapcore.Entry) error {
+	l.Intercept(func(entry zapcore.Entry) error {
 		if entry.Message == "Received a block message for a too high round" {
 			rejectedBlock = true
 		}
@@ -379,15 +379,6 @@ func TestEpochBlockTooHighRound(t *testing.T) {
 	})
 }
 
-func makeLogger(t *testing.T, node int) *testLogger {
-	logger, err := zap.NewDevelopment(zap.AddCallerSkip(1))
-	require.NoError(t, err)
-
-	logger = logger.With(zap.Int("node", node))
-	l := &testLogger{Logger: logger}
-	return l
-}
-
 func newTestVote(block Block, id NodeID) (*Vote, error) {
 	vote := ToBeSignedVote{
 		BlockHeader: block.BlockHeader(),
@@ -435,23 +426,6 @@ func injectTestFinalization(t *testing.T, e *Epoch, block Block, id NodeID) {
 		Finalization: newTestFinalization(t, block, id),
 	}, id)
 	require.NoError(t, err)
-}
-
-type testLogger struct {
-	*zap.Logger
-}
-
-func (t *testLogger) intercept(hook func(entry zapcore.Entry) error) {
-	logger := t.Logger.WithOptions(zap.Hooks(hook))
-	t.Logger = logger
-}
-
-func (tl *testLogger) Trace(msg string, fields ...zap.Field) {
-	tl.Log(zapcore.DebugLevel, msg, fields...)
-}
-
-func (tl *testLogger) Verbo(msg string, fields ...zap.Field) {
-	tl.Log(zapcore.DebugLevel, msg, fields...)
 }
 
 type testQCDeserializer struct {

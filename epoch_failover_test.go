@@ -6,6 +6,7 @@ package simplex_test
 import (
 	"context"
 	. "simplex"
+	"simplex/testutil"
 	"simplex/wal"
 	"sync/atomic"
 	"testing"
@@ -18,8 +19,8 @@ import (
 func TestEpochLeaderFailover(t *testing.T) {
 	timeoutDetected := make(chan struct{})
 
-	l := makeLogger(t, 1)
-	l.intercept(func(entry zapcore.Entry) error {
+	l := testutil.MakeLogger(t, 1)
+	l.Intercept(func(entry zapcore.Entry) error {
 		if entry.Message == `Timed out on block agreement` {
 			close(timeoutDetected)
 		}
@@ -89,8 +90,8 @@ func waitForEvent(start time.Time, e *Epoch, events chan struct{}) {
 func TestEpochLeaderFailoverNotNeeded(t *testing.T) {
 	var timedOut atomic.Bool
 
-	l := makeLogger(t, 1)
-	l.intercept(func(entry zapcore.Entry) error {
+	l := testutil.MakeLogger(t, 1)
+	l.Intercept(func(entry zapcore.Entry) error {
 		if entry.Message == `Timed out on block agreement` {
 			timedOut.Store(true)
 		}

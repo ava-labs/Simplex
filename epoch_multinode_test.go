@@ -9,6 +9,7 @@ import (
 	"encoding/binary"
 	. "simplex"
 	"simplex/record"
+	"simplex/testutil"
 	"simplex/wal"
 	"sync"
 	"testing"
@@ -55,7 +56,7 @@ func (t *testInstance) start() {
 }
 
 func newSimplexNode(t *testing.T, id uint8, net *inMemNetwork, bb BlockBuilder) *testInstance {
-	l := makeLogger(t, int(id))
+	l := testutil.MakeLogger(t, int(id))
 	storage := newInMemStorage()
 
 	nodeID := NodeID{id}
