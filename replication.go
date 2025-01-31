@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
+	"fmt"
 	"slices"
 
 	"go.uber.org/zap"
@@ -29,11 +30,13 @@ type FinalizationCertificateRequest struct {
 	Sequences []uint64
 }
 
+type SequenceData struct {
+	Block Block
+	FCert FinalizationCertificate
+}
+
 type FinalizationCertificateResponse struct {
-	Data []struct{
-		Block Block
-		FCert FinalizationCertificate
-	}
+	Data []SequenceData
 }
 
 type LatestRoundRequest struct {
@@ -62,28 +65,22 @@ func (e *Epoch) HandleRequest(req Request) *Response {
 
 func (e *Epoch) handleFinalizationCertificateRequest(req *FinalizationCertificateRequest) *FinalizationCertificateResponse {
 	// sort the sequences
-	seqs := req.Sequences	
+	seqs := req.Sequences
 	slices.Sort(seqs)
-	data := make([]struct{
-		Block Block
-		FCert FinalizationCertificate
-	}, 0)
-	
-	for _, seq := range seqs[:MaxSeqToSend] {
+	data := make([]SequenceData, len(seqs))
+	for i, seq := range seqs {
 		block, fCert, exists := e.Storage.Retrieve(seq)
+		fmt.Println("block exists ", exists, seq)
 		if !exists {
 			// since we are sorted, we can break early
+			data = data[:i]
 			break
 		}
-		data = append(data, struct{
-			Block Block
-			FCert FinalizationCertificate
-		}{
+		data[i] = SequenceData{
 			Block: block,
 			FCert: fCert,
-		})
+		}
 	}
-
 	return &FinalizationCertificateResponse{
 		Data: data,
 	}

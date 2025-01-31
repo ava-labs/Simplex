@@ -300,7 +300,7 @@ func (e *Epoch) setMetadataFromRecords(records [][]byte) error {
 			e.round = notarization.Vote.Round + 1
 			e.Epoch = notarization.Vote.BlockHeader.Epoch
 			return nil
-		}
+		} 
 	}
 
 	return nil
