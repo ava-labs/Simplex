@@ -155,7 +155,6 @@ func (e *Epoch) storeFutureFinalizationResponse(resp *FinalizationCertificateRes
 		msgsForRound := &messagesForRound{}
 		msgsForRound.proposal = &BlockMessage{
 			Block: resp.Block,
-			// TODO: do we need to add the vote as well?
 		}
 		e.futureMessages[string(from)][resp.Block.BlockHeader().Round] = msgsForRound
 		return
