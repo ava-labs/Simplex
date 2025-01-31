@@ -46,6 +46,9 @@ type BlockBuilder interface {
 
 type Storage interface {
 	Height() uint64
+	// Retrieve returns the block and finalization certificate at the given sequence number.
+	// If the sequence number is not found, returns false.
+	// TODO: i beleive we should add an error as a fourth parameter
 	Retrieve(seq uint64) (Block, FinalizationCertificate, bool)
 	Index(block Block, certificate FinalizationCertificate)
 }

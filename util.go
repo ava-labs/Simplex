@@ -20,3 +20,16 @@ func RetrieveLastBlockFromStorage(s Storage) (Block, error) {
 	}
 	return lastBlock, nil
 }
+
+func RetrieveLastFromStorage(s Storage) (Block, FinalizationCertificate, error) {
+	height := s.Height()
+	if height == 0 {
+		return nil, FinalizationCertificate{}, nil
+	}
+
+	lastBlock, fCert, retrieved := s.Retrieve(height - 1)
+	if !retrieved {
+		return nil, FinalizationCertificate{}, fmt.Errorf("failed retrieving last block from storage with seq %d", height-1)
+	}
+	return lastBlock, fCert, nil
+}

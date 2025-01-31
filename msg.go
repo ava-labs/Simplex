@@ -11,6 +11,8 @@ type Message struct {
 	Notarization            *Notarization
 	Finalization            *Finalization
 	FinalizationCertificate *FinalizationCertificate
+	Response                *Response
+	Request                 *Request
 }
 
 type ToBeSignedVote struct {
