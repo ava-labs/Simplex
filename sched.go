@@ -99,9 +99,10 @@ func (as *scheduler) run() {
 		taskToRun := as.ready[0]
 		as.ready[0] = task{}    // Cleanup any object references reachable from the closure of the task
 		as.ready = as.ready[1:] // (4)
+		numReadyTasks := len(as.ready)
 
 		as.lock.Unlock() // (5)
-		as.logger.Debug("Running task", zap.Int("remaining ready tasks", len(as.ready)))
+		as.logger.Debug("Running task", zap.Int("remaining ready tasks", numReadyTasks))
 		id := taskToRun.f() // (6)
 		as.logger.Debug("Task finished execution", zap.Stringer("taskID", id))
 		as.lock.Lock()
