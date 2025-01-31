@@ -117,21 +117,26 @@ func (e *Epoch) handleFinalizationCertificateResponse(resp *FinalizationCertific
 		return nil
 	}
 
-	// if its the next sequence to commit, we should commit it. continue commiting from fCertsMap if we have the next sequenece
-	// otherwise we will add to the finalization certificate state the finalization message
-	// we may have received a finalization certificate round in the past
+	// if we already have a round object for this round, we should persist the fCert
 	round, ok := e.rounds[resp.Block.BlockHeader().Round]
 	if !ok {
 		e.storeFutureFinalizationResponse(resp, from)
 		return nil
 	}
-
-	// we have already committed this round
 	if round.fCert != nil {
 		return nil
 	}
-	// if we have a round obj that means we have already received a proposal for this round
-	return e.persistFinalizationCertificate(resp.FCert)
+	err := e.persistFinalizationCertificate(resp.FCert)
+	if err != nil {
+		return err
+	}
+
+	if e.round == resp.FCert.Finalization.Seq {
+		e.increaseRound()
+	}
+
+	// handle future messages in case we need to persist more fCerts from the future
+	return e.maybeLoadFutureMessages(e.round)
 }
 
 func (e *Epoch) handleLatestRoundResponse(r *LatestRoundResponse) {
