@@ -78,7 +78,7 @@ func TestHandleLatestRoundRequest(t *testing.T) {
 		Seq: 0,
 	}
 	// now propose a block and we should get a response with just a block for that round
-	block2 := buildAndSendBlock(t, e, bb, nodes[1], conf.Signer)
+	block2 := buildAndSendBlock(t, e, bb, nodes[1])
 	req = simplex.Request{
 		LatestRoundRequest:             &simplex.LatestRoundRequest{},
 		FinalizationCertificateRequest: finalizationRequest,
@@ -288,7 +288,7 @@ func (c *testReplicationComm) Broadcast(msg *simplex.Message) {
 
 // }
 
-func buildAndSendBlock(t *testing.T, e *simplex.Epoch, bb *testBlockBuilder, from simplex.NodeID, signer simplex.Signer) *testBlock {
+func buildAndSendBlock(t *testing.T, e *simplex.Epoch, bb *testBlockBuilder, from simplex.NodeID) *testBlock {
 	md := e.Metadata()
 	_, ok := bb.BuildBlock(context.Background(), md)
 	require.True(t, ok)

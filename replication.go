@@ -4,7 +4,7 @@
 package simplex
 
 import (
-	"fmt"
+	"bytes"
 
 	"go.uber.org/zap"
 )
@@ -156,11 +156,13 @@ func (e *Epoch) storeFutureFinalizationResponse(resp *FinalizationCertificateRes
 		return
 	}
 
+	if msg.proposal != nil && bytes.Equal(msg.proposal.Block.Bytes(), resp.Block.Bytes()) {
+		e.Logger.Error("Proposal does not match the block in the finalization certificate response", zap.String("from", from.String()))
+		return
+	}
 	msg.fCert = &resp.FCert
-	// TODO: maybe good to sanity check rather than setting blindly
 	msg.proposal.Block = resp.Block
 }
-
 
 // SetLastReceivedFCertSeq updates the last received finalization certificate sequence number
 // if [seq] is greater than the current last received sequence number
@@ -174,7 +176,6 @@ func (e *Epoch) setLastReceivedFCertSeq(seq uint64) {
 }
 
 func (e *Epoch) sendFutureCertficatesRequests(start uint64, end uint64, comm Communication) {
-	fmt.Println("SendFutureCertficatesRequests", start, end)
 	if e.lastSequenceRequested >= end {
 		// no need to resend
 		return
