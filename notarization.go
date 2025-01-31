@@ -25,7 +25,7 @@ func NewNotarization(logger Logger, signatureAggregator SignatureAggregator, vot
 
 	var toBeSignedVote *ToBeSignedVote
 	for _, vote := range votesForCurrentRound {
-		// logger.Debug("Collected vote from node", zap.Stringer("NodeID", vote.Signature.Signer))
+		logger.Debug("Collected vote from node", zap.Stringer("NodeID", vote.Signature.Signer))
 		signatures = append(signatures, vote.Signature)
 		if toBeSignedVote == nil {
 			toBeSignedVote = &vote.Vote
