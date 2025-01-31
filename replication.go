@@ -5,9 +5,12 @@ package simplex
 
 import (
 	"bytes"
+	"slices"
 
 	"go.uber.org/zap"
 )
+
+const MaxSeqToSend = 1024
 
 type Request struct {
 	FinalizationCertificateRequest *FinalizationCertificateRequest
@@ -21,12 +24,14 @@ type Response struct {
 
 // request a finalization certificate for the given sequence number
 type FinalizationCertificateRequest struct {
-	Seq uint64
+	Sequences []uint64
 }
 
 type FinalizationCertificateResponse struct {
-	FCert FinalizationCertificate
-	Block Block
+	Data []struct{
+		Block Block
+		FCert FinalizationCertificate
+	}
 }
 
 type LatestRoundRequest struct {
@@ -54,13 +59,31 @@ func (e *Epoch) HandleRequest(req Request) *Response {
 }
 
 func (e *Epoch) handleFinalizationCertificateRequest(req *FinalizationCertificateRequest) *FinalizationCertificateResponse {
-	block, fCert, exists := e.Storage.Retrieve(req.Seq)
-	if !exists {
-		return nil
+	// sort the sequences
+	seqs := req.Sequences	
+	slices.Sort(seqs)
+	data := make([]struct{
+		Block Block
+		FCert FinalizationCertificate
+	}, 0)
+	
+	for _, seq := range seqs[:MaxSeqToSend] {
+		block, fCert, exists := e.Storage.Retrieve(seq)
+		if !exists {
+			// since we are sorted, we can break early
+			break
+		}
+		data = append(data, struct{
+			Block Block
+			FCert FinalizationCertificate
+		}{
+			Block: block,
+			FCert: fCert,
+		})
 	}
+
 	return &FinalizationCertificateResponse{
-		FCert: fCert,
-		Block: block,
+		Data: data,
 	}
 }
 
@@ -111,28 +134,31 @@ func (e *Epoch) handleResponse(resp *Response, from NodeID) {
 }
 
 func (e *Epoch) handleFinalizationCertificateResponse(resp *FinalizationCertificateResponse, from NodeID) error {
-	e.Logger.Debug("Received finalization certificate response", zap.String("from", from.String()), zap.Uint64("seq", resp.FCert.Finalization.Seq))
-	if e.round+e.maxRoundWindow < resp.FCert.Finalization.Seq {
-		// we are too far behind, we should ignore this message
-		return nil
-	}
+	e.Logger.Debug("Received finalization certificate response", zap.String("from", from.String()), zap.Int("num seqs", len(resp.Data)))
 
-	// if we already have a round object for this round, we should persist the fCert
-	round, ok := e.rounds[resp.Block.BlockHeader().Round]
-	if !ok {
-		e.storeFutureFinalizationResponse(resp, from)
-		return nil
-	}
-	if round.fCert != nil {
-		return nil
-	}
-	err := e.persistFinalizationCertificate(resp.FCert)
-	if err != nil {
-		return err
-	}
+	for _, data := range resp.Data {
+		if e.round+e.maxRoundWindow < data.FCert.Finalization.Seq {
+			// we are too far behind, we should ignore this message
+			continue
+		}
 
-	if e.round == resp.FCert.Finalization.Seq {
-		e.increaseRound()
+		// if we already have a round object for this round, we should persist the fCert
+		round, ok := e.rounds[data.Block.BlockHeader().Round]
+		if !ok {
+			e.storeFutureFinalizationResponse(data.FCert, data.Block, from)
+			return nil
+		}
+		if round.fCert != nil {
+			return nil
+		}
+		err := e.persistFinalizationCertificate(data.FCert)
+		if err != nil {
+			return err
+		}
+
+		if e.round == data.FCert.Finalization.Seq {
+			e.increaseRound()
+		}
 	}
 
 	// handle future messages in case we need to persist more fCerts from the future
@@ -149,23 +175,23 @@ func (e *Epoch) handleLatestRoundResponse(r *LatestRoundResponse) {
 	}
 }
 
-func (e *Epoch) storeFutureFinalizationResponse(resp *FinalizationCertificateResponse, from NodeID) {
-	msg, ok := e.futureMessages[string(from)][resp.Block.BlockHeader().Round]
+func (e *Epoch) storeFutureFinalizationResponse(fCert FinalizationCertificate, block Block, from NodeID) {
+	msg, ok := e.futureMessages[string(from)][block.BlockHeader().Round]
 	if !ok {
 		msgsForRound := &messagesForRound{}
 		msgsForRound.proposal = &BlockMessage{
-			Block: resp.Block,
+			Block: block,
 		}
-		e.futureMessages[string(from)][resp.Block.BlockHeader().Round] = msgsForRound
+		e.futureMessages[string(from)][block.BlockHeader().Round] = msgsForRound
 		return
 	}
 
-	if msg.proposal != nil && bytes.Equal(msg.proposal.Block.Bytes(), resp.Block.Bytes()) {
+	if msg.proposal != nil && bytes.Equal(msg.proposal.Block.Bytes(), block.Bytes()) {
 		e.Logger.Error("Proposal does not match the block in the finalization certificate response", zap.String("from", from.String()))
 		return
 	}
-	msg.fCert = &resp.FCert
-	msg.proposal.Block = resp.Block
+	msg.fCert = &fCert
+	msg.proposal.Block = block
 }
 
 // SetLastReceivedFCertSeq updates the last received finalization certificate sequence number
@@ -179,23 +205,26 @@ func (e *Epoch) setLastReceivedFCertSeq(seq uint64) {
 	}
 }
 
-func (e *Epoch) sendFutureCertficatesRequests(start uint64, end uint64, comm Communication) {
+func (e *Epoch) sendFutureCertficatesRequests(start uint64, end uint64) {
 	if e.lastSequenceRequested >= end {
 		// no need to resend
 		return
 	}
 
-	// we want to collect
-	for seq := start; seq <= end; seq++ {
-		// also request latest round in case this fCert is also behind
-		roundRequest := &Request{
-			LatestRoundRequest: &LatestRoundRequest{},
-			FinalizationCertificateRequest: &FinalizationCertificateRequest{
-				Seq: seq,
-			},
-		}
-		msg := &Message{Request: roundRequest}
-		comm.Broadcast(msg)
+	seqs := make([]uint64, end-start)
+	for i := start; i < end; i++ {
+		seqs = append(seqs, i)
 	}
+
+	// also request latest round in case this fCert is also behind
+	roundRequest := &Request{
+		LatestRoundRequest: &LatestRoundRequest{},
+		FinalizationCertificateRequest: &FinalizationCertificateRequest{
+			Sequences: seqs,
+		},
+	}
+	msg := &Message{Request: roundRequest}
+	e.Comm.Broadcast(msg)
+
 	e.lastSequenceRequested = end
 }

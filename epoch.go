@@ -396,13 +396,14 @@ func (e *Epoch) handleFinalizationCertificateMessage(message *FinalizationCertif
 
 func (e *Epoch) collectFutureFinalizationCertificates(fCert *FinalizationCertificate) {
 	fCertRound := fCert.Finalization.Round
+	nextSeqToCommit := e.Storage.Height()
 	endSeq := math.Min(float64(fCertRound), float64(e.maxRoundWindow+e.round))
 	if e.latestRoundKnown.num >= uint64(endSeq) {
 		// we have already sent out messages collecting future finalization certificates
 		return
 	}
 	e.setLastReceivedFCertSeq(fCertRound)
-	e.sendFutureCertficatesRequests(e.round, uint64(endSeq), e.Comm)
+	e.sendFutureCertficatesRequests(nextSeqToCommit, uint64(endSeq))
 }
 
 func (e *Epoch) isFinalizationCertificateValid(fCert *FinalizationCertificate) (bool, error) {
