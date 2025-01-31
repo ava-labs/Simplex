@@ -79,7 +79,13 @@ type Epoch struct {
 	maxPendingBlocks               int
 	monitor                        *Monitor
 	cancelWaitForBlockNotarization context.CancelFunc
-	futureFCerts                   *FinalizationCertificatesState
+
+	// replication state
+	// sequence number of the last known(most future) finalization certificate
+	// we may not be able to store it since this could be greater than maxRoundWindow
+	latestRoundKnown Round
+	// latest seq we requested
+	lastSequenceRequested uint64
 }
 
 func NewEpoch(conf EpochConfig) (*Epoch, error) {
@@ -125,6 +131,7 @@ func (e *Epoch) HandleMessage(msg *Message, from NodeID) error {
 		return e.handleFinalizationCertificateMessage(msg.FinalizationCertificate, from)
 	case msg.Response != nil:
 		e.handleResponse(msg.Response, from)
+		return nil
 	default:
 		e.Logger.Warn("Invalid message type", zap.Stringer("from", from))
 		return nil
@@ -390,12 +397,12 @@ func (e *Epoch) handleFinalizationCertificateMessage(message *FinalizationCertif
 func (e *Epoch) collectFutureFinalizationCertificates(fCert *FinalizationCertificate) {
 	fCertRound := fCert.Finalization.Round
 	endSeq := math.Min(float64(fCertRound), float64(e.maxRoundWindow+e.round))
-	if e.futureFCerts.latestRoundKnown.num >= uint64(endSeq) {
+	if e.latestRoundKnown.num >= uint64(endSeq) {
 		// we have already sent out messages collecting future finalization certificates
 		return
 	}
-	e.futureFCerts.SetLastReceivedFCertSeq(fCertRound)
-	e.futureFCerts.SendFutureCertficatesRequests(e.round, uint64(endSeq), e.Comm)
+	e.setLastReceivedFCertSeq(fCertRound)
+	e.sendFutureCertficatesRequests(e.round, uint64(endSeq), e.Comm)
 }
 
 func (e *Epoch) isFinalizationCertificateValid(fCert *FinalizationCertificate) (bool, error) {

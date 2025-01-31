@@ -3,7 +3,11 @@
 
 package simplex
 
-import "go.uber.org/zap"
+import (
+	"fmt"
+
+	"go.uber.org/zap"
+)
 
 type Request struct {
 	FinalizationCertificateRequest *FinalizationCertificateRequest
@@ -40,7 +44,7 @@ func (e *Epoch) HandleRequest(req Request) *Response {
 	response := &Response{}
 
 	if req.FinalizationCertificateRequest != nil {
-		response.FinalizationCertificateResponse = e.HandleFinalizationCertificateRequest(req.FinalizationCertificateRequest)
+		response.FinalizationCertificateResponse = e.handleFinalizationCertificateRequest(req.FinalizationCertificateRequest)
 	}
 	if req.LatestRoundRequest != nil {
 		response.LatestRoundResponse = e.handleLatestBlockRequest()
@@ -49,7 +53,7 @@ func (e *Epoch) HandleRequest(req Request) *Response {
 	return response
 }
 
-func (e *Epoch) HandleFinalizationCertificateRequest(req *FinalizationCertificateRequest) *FinalizationCertificateResponse {
+func (e *Epoch) handleFinalizationCertificateRequest(req *FinalizationCertificateRequest) *FinalizationCertificateResponse {
 	block, fCert, exists := e.Storage.Retrieve(req.Seq)
 	if !exists {
 		return nil
@@ -99,16 +103,16 @@ func (e *Epoch) handleLatestBlockRequest() *LatestRoundResponse {
 
 func (e *Epoch) handleResponse(resp *Response, from NodeID) {
 	if resp.FinalizationCertificateResponse != nil {
-		e.HandleFinalizationCertificateResponse(resp.FinalizationCertificateResponse, from)
+		e.handleFinalizationCertificateResponse(resp.FinalizationCertificateResponse, from)
 	}
 	if resp.LatestRoundResponse != nil {
-		e.HandleLatestRoundResponse(resp.LatestRoundResponse)
+		e.handleLatestRoundResponse(resp.LatestRoundResponse)
 	}
 }
 
-func (e *Epoch) HandleFinalizationCertificateResponse(resp *FinalizationCertificateResponse, from NodeID) error {
+func (e *Epoch) handleFinalizationCertificateResponse(resp *FinalizationCertificateResponse, from NodeID) error {
 	e.Logger.Debug("Received finalization certificate response", zap.String("from", from.String()), zap.Uint64("seq", resp.FCert.Finalization.Seq))
-	if e.round + e.maxRoundWindow < resp.FCert.Finalization.Seq  {
+	if e.round+e.maxRoundWindow < resp.FCert.Finalization.Seq {
 		// we are too far behind, we should ignore this message
 		return nil
 	}
@@ -118,7 +122,7 @@ func (e *Epoch) HandleFinalizationCertificateResponse(resp *FinalizationCertific
 	// we may have received a finalization certificate round in the past
 	round, ok := e.rounds[resp.Block.BlockHeader().Round]
 	if !ok {
-		e.StoreFutureFinalizationResponse(resp, from)
+		e.storeFutureFinalizationResponse(resp, from)
 		return nil
 	}
 
@@ -130,12 +134,17 @@ func (e *Epoch) HandleFinalizationCertificateResponse(resp *FinalizationCertific
 	return e.persistFinalizationCertificate(resp.FCert)
 }
 
-func (e *Epoch) HandleLatestRoundResponse(resp *LatestRoundResponse) {
+func (e *Epoch) handleLatestRoundResponse(r *LatestRoundResponse) {
 	// if we get a round later than ours, save it fCertReplicationState
-	e.futureFCerts.ProcessLatestRoundResponse(resp)
+	if r.Block.BlockHeader().Round > e.latestRoundKnown.num {
+		e.latestRoundKnown.num = r.Block.BlockHeader().Round
+		e.latestRoundKnown.block = r.Block
+		e.latestRoundKnown.notarization = r.Notarization
+		e.latestRoundKnown.fCert = r.FCert
+	}
 }
 
-func (e *Epoch) StoreFutureFinalizationResponse(resp *FinalizationCertificateResponse, from NodeID) {
+func (e *Epoch) storeFutureFinalizationResponse(resp *FinalizationCertificateResponse, from NodeID) {
 	msg, ok := e.futureMessages[string(from)][resp.Block.BlockHeader().Round]
 	if !ok {
 		msgsForRound := &messagesForRound{}
@@ -150,4 +159,38 @@ func (e *Epoch) StoreFutureFinalizationResponse(resp *FinalizationCertificateRes
 	msg.fCert = &resp.FCert
 	// TODO: maybe good to sanity check rather than setting blindly
 	msg.proposal.Block = resp.Block
+}
+
+
+// SetLastReceivedFCertSeq updates the last received finalization certificate sequence number
+// if [seq] is greater than the current last received sequence number
+func (e *Epoch) setLastReceivedFCertSeq(seq uint64) {
+	if seq > e.latestRoundKnown.num {
+		e.latestRoundKnown.num = seq
+		e.latestRoundKnown.block = nil
+		e.latestRoundKnown.notarization = nil
+		e.latestRoundKnown.fCert = nil
+	}
+}
+
+func (e *Epoch) sendFutureCertficatesRequests(start uint64, end uint64, comm Communication) {
+	fmt.Println("SendFutureCertficatesRequests", start, end)
+	if e.lastSequenceRequested >= end {
+		// no need to resend
+		return
+	}
+
+	// we want to collect
+	for seq := start; seq <= end; seq++ {
+		// also request latest round in case this fCert is also behind
+		roundRequest := &Request{
+			LatestRoundRequest: &LatestRoundRequest{},
+			FinalizationCertificateRequest: &FinalizationCertificateRequest{
+				Seq: seq,
+			},
+		}
+		msg := &Message{Request: roundRequest}
+		comm.Broadcast(msg)
+	}
+	e.lastSequenceRequested = end
 }
