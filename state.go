@@ -11,24 +11,15 @@ type FinalizationCertificatesState struct {
 	lastSequenceRequested uint64
 }
 
-func (fcs *FinalizationCertificatesState) AddFinalizationCertificate() {
-}
-
-func NewFinalizationCertificatesState() *FinalizationCertificatesState {
-	return &FinalizationCertificatesState{}
-}
-
 // SetLastReceivedFCertSeq updates the last received finalization certificate sequence number
-// if the given sequence number is greater than the current last received sequence number
-func (fcs *FinalizationCertificatesState) SetLastReceivedFCertSeq(seq uint64) bool {
+// if [seq] is greater than the current last received sequence number
+func (fcs *FinalizationCertificatesState) SetLastReceivedFCertSeq(seq uint64) {
 	if seq > fcs.latestRoundKnown.num {
 		fcs.latestRoundKnown.num = seq
 		fcs.latestRoundKnown.block = nil
 		fcs.latestRoundKnown.notarization = nil
 		fcs.latestRoundKnown.fCert = nil
-		return false
 	}
-	return true
 }
 
 func (fcs *FinalizationCertificatesState) SendFutureCertficatesRequests(start uint64, end uint64, comm Communication) {

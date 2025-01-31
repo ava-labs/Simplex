@@ -157,8 +157,6 @@ func (e *Epoch) init() error {
 	for _, node := range e.nodes {
 		e.eligibleNodeIDs[string(node)] = struct{}{}
 	}
-	e.futureFCerts = NewFinalizationCertificatesState()
-
 	err := e.loadLastBlock()
 	if err != nil {
 		return err
@@ -400,20 +398,12 @@ func (e *Epoch) handleFinalizationCertificateMessage(message *FinalizationCertif
 func (e *Epoch) collectFutureFinalizationCertificates(fCert *FinalizationCertificate) {
 	fCertRound := fCert.Finalization.Round
 	endSeq := math.Min(float64(fCertRound), float64(e.maxRoundWindow+e.round))
-	alreadyReceived := e.futureFCerts.SetLastReceivedFCertSeq(fCertRound)
-	if alreadyReceived {
+	if e.futureFCerts.latestRoundKnown.num >= uint64(endSeq) {
 		// we have already sent out messages collecting future finalization certificates
-		fmt.Println("Already received")
 		return
 	}
+	e.futureFCerts.SetLastReceivedFCertSeq(fCertRound)
 	e.futureFCerts.SendFutureCertficatesRequests(e.round, uint64(endSeq), e.Comm)
-	// we received a finalization certificate for a round we do not have yet. Begin replication by querying nodes for relevant blocks and notarizations between the current round and the min of (finalization round, max round window). Note the finalization round if its greator than the max round window and initiate a callback to then grab those blocks and notarizations.
-
-	// begin replication. this means we need to grab all the blocks and notarizations we do not have up until the finalization cert round.
-	// psuedocode.
-	// iterate through rounds from current round to finalization cert round
-	// if we don not have the block in the round, or the future messages then we need to request it.
-
 }
 
 func (e *Epoch) isFinalizationCertificateValid(fCert *FinalizationCertificate) (bool, error) {
@@ -695,7 +685,6 @@ func (e *Epoch) persistFinalizationCertificate(fCert FinalizationCertificate) er
 		for {
 			r := fCert.Finalization.Round
 			block := e.rounds[r].block
-			// TODO: also index future finalization certificates
 			e.Storage.Index(block, fCert)
 			e.Logger.Info("Committed block",
 				zap.Uint64("round", fCert.Finalization.Round),
@@ -723,7 +712,6 @@ func (e *Epoch) persistFinalizationCertificate(fCert FinalizationCertificate) er
 				break
 			}
 			fCert = *round.fCert
-			nextSeqToCommit = e.Storage.Height()
 		}
 	} else {
 		recordBytes := NewQuorumRecord(fCert.QC.Bytes(), fCert.Finalization.Bytes(), record.FinalizationRecordType)
