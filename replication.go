@@ -5,6 +5,8 @@ package simplex
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/binary"
 	"slices"
 
 	"go.uber.org/zap"
@@ -224,7 +226,11 @@ func (e *Epoch) sendFutureCertficatesRequests(start uint64, end uint64) {
 		},
 	}
 	msg := &Message{Request: roundRequest}
-	e.Comm.Broadcast(msg)
-
+	
+	hash := sha256.Sum256(e.lastBlock.Bytes())
+	num := binary.BigEndian.Uint64(hash[:8])
+	to := e.nodes[num % uint64(len(e.nodes))]
+	e.Comm.SendMessage(msg, to)
 	e.lastSequenceRequested = end
 }
+
