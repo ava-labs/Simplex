@@ -112,30 +112,23 @@ func (e *Epoch) HandleMessage(msg *Message, from NodeID) error {
 		return nil
 	}
 
-	var err2 error
-
 	switch {
 	case msg.BlockMessage != nil:
-		err2 = e.handleBlockMessage(msg.BlockMessage, from)
+		return e.handleBlockMessage(msg.BlockMessage, from)
 	case msg.VoteMessage != nil:
-		err2 = e.handleVoteMessage(msg.VoteMessage, from)
+		return e.handleVoteMessage(msg.VoteMessage, from)
 	case msg.Notarization != nil:
-		err2 = e.handleNotarizationMessage(msg.Notarization, from)
+		return e.handleNotarizationMessage(msg.Notarization, from)
 	case msg.Finalization != nil:
-		err2 = e.handleFinalizationMessage(msg.Finalization, from)
+		return e.handleFinalizationMessage(msg.Finalization, from)
 	case msg.FinalizationCertificate != nil:
-		err2 = e.handleFinalizationCertificateMessage(msg.FinalizationCertificate, from)
+		return e.handleFinalizationCertificateMessage(msg.FinalizationCertificate, from)
 	case msg.Response != nil:
 		e.handleResponse(msg.Response, from)
 	default:
 		e.Logger.Warn("Invalid message type", zap.Stringer("from", from))
 		return nil
 	}
-
-	err1 := e.maybeLoadFutureMessages(e.round)
-
-	return errors.Join(err1, err2)
-
 }
 
 func (e *Epoch) init() error {
@@ -724,7 +717,6 @@ func (e *Epoch) persistFinalizationCertificate(fCert FinalizationCertificate) er
 			zap.Uint64("height", nextSeqToCommit),
 			zap.Int("size", len(recordBytes)),
 			zap.Stringer("digest", fCert.Finalization.BlockHeader.Digest))
-
 	}
 
 	finalizationCertificate := &Message{FinalizationCertificate: &fCert}
@@ -1437,6 +1429,9 @@ func (e *Epoch) maybeLoadFutureMessages(round uint64) error {
 					}
 					// we dont want to handle any other messages if we have a finalization certificate
 					delete(messagesFromNode, round)
+
+					// we can increase the round since we have a finalization certificate
+					e.increaseRound()
 					continue
 				}
 				if msgs.proposal != nil {

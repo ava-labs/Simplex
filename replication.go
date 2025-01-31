@@ -108,6 +108,11 @@ func (e *Epoch) handleResponse(resp *Response, from NodeID) {
 
 func (e *Epoch) HandleFinalizationCertificateResponse(resp *FinalizationCertificateResponse, from NodeID) error {
 	e.Logger.Debug("Received finalization certificate response", zap.String("from", from.String()), zap.Uint64("seq", resp.FCert.Finalization.Seq))
+	if e.round + e.maxRoundWindow < resp.FCert.Finalization.Seq  {
+		// we are too far behind, we should ignore this message
+		return nil
+	}
+
 	// if its the next sequence to commit, we should commit it. continue commiting from fCertsMap if we have the next sequenece
 	// otherwise we will add to the finalization certificate state the finalization message
 	// we may have received a finalization certificate round in the past
@@ -121,7 +126,7 @@ func (e *Epoch) HandleFinalizationCertificateResponse(resp *FinalizationCertific
 	if round.fCert != nil {
 		return nil
 	}
-
+	// if we have a round obj that means we have already received a proposal for this round
 	return e.persistFinalizationCertificate(resp.FCert)
 }
 
