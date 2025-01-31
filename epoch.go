@@ -982,7 +982,7 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 	// Schedule the block to be verified once its direct predecessor have been verified,
 	// or if it can be verified immediately.
 	e.Logger.Debug("Scheduling block verification", zap.Uint64("round", md.Round))
-	e.sched.Schedule(md.Digest, md.Digest, task, md.Prev, canBeImmediatelyVerified)
+	e.sched.Schedule(task, md.Prev, canBeImmediatelyVerified)
 
 	return nil
 }
@@ -1023,7 +1023,7 @@ func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote)
 		}
 		round.votes[string(vote.Signature.Signer)] = &vote
 
-		if err := e.doProposed(block, vote, from); err != nil {
+		if err := e.doProposed(block); err != nil {
 			e.Logger.Warn("Failed voting on block", zap.Error(err))
 		}
 		return md.Digest

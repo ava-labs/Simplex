@@ -13,30 +13,21 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type testDependsOn []int
-
-func (m testDependsOn) dependsOn() int {
-	return m[1]
-}
-
-func (m testDependsOn) id() int {
-	return m[0]
-}
-
 func TestDependencyTree(t *testing.T) {
-	dt := NewDependencies[int, testDependsOn]()
+	dt := newDependencies()
 
 	for i := 0; i < 5; i++ {
-		// [0] (i+1) depends on [1] (i)
-		dt.Insert([]int{i + 1, i})
+		dt.Insert(task{f: func() Digest {
+			return Digest{uint8(i + 1)}
+		}, parent: Digest{uint8(i)}})
 	}
 
 	require.Equal(t, 5, dt.Size())
 
 	for i := 0; i < 5; i++ {
-		j := dt.Remove(i)
+		j := dt.Remove(Digest{uint8(i)})
 		require.Len(t, j, 1)
-		require.Equal(t, i+1, j[0].id())
+		require.Equal(t, Digest{uint8(i + 1)}, j[0].f())
 	}
 
 }
@@ -54,9 +45,10 @@ func TestAsyncScheduler(t *testing.T) {
 		dig1 := makeDigest(t)
 		dig2 := makeDigest(t)
 
-		as.Schedule(dig2, func() {
+		as.Schedule(func() Digest {
 			defer wg.Done()
 			<-ticks
+			return dig2
 		}, dig1, true)
 
 		ticks <- struct{}{}
@@ -72,8 +64,9 @@ func TestAsyncScheduler(t *testing.T) {
 		dig1 := makeDigest(t)
 		dig2 := makeDigest(t)
 
-		as.Schedule(dig2, func() {
+		as.Schedule(func() Digest {
 			close(ticks)
+			return dig2
 		}, dig1, true)
 
 		ticks <- struct{}{}
@@ -122,14 +115,15 @@ func scheduleTask(lock *sync.Mutex, finished map[Digest]struct{}, dependency Dig
 
 		_, hasFinished := finished[dep]
 
-		task := func() {
+		task := func() Digest {
 			lock.Lock()
 			defer lock.Unlock()
 			finished[id] = struct{}{}
 			wg.Done()
+			return id
 		}
 
-		as.Schedule(id, task, dep, i == 0 || hasFinished)
+		as.Schedule(task, dep, i == 0 || hasFinished)
 	}
 }
 
