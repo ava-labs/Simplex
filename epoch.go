@@ -6,7 +6,6 @@ package simplex
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -983,15 +982,14 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 	// Schedule the block to be verified once its direct predecessor have been verified,
 	// or if it can be verified immediately.
 	e.Logger.Debug("Scheduling block verification", zap.Uint64("round", md.Round))
-	e.sched.Schedule(md.Digest, task, md.Prev, canBeImmediatelyVerified)
+	e.sched.Schedule(md.Digest, md.Digest, task, md.Prev, canBeImmediatelyVerified)
 
 	return nil
 }
 
-func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote) func() {
-	return func() {
-		e.lock.Lock()
-		defer e.lock.Unlock()
+func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote) func() Digest {
+	return func() Digest {
+		md := block.BlockHeader()
 
 		e.Logger.Debug("Block verification started", zap.Uint64("round", md.Round))
 		start := time.Now()
@@ -1002,14 +1000,14 @@ func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote)
 
 		if err := block.Verify(); err != nil {
 			e.Logger.Debug("Failed verifying block", zap.Error(err))
-			return
+			return md.Digest
 		}
 		record := BlockRecord(md, block.Bytes())
 		e.WAL.Append(record)
 
 		if !e.storeProposal(block) {
 			e.Logger.Warn("Unable to store proposed block for the round", zap.Stringer("NodeID", from), zap.Uint64("round", md.Round))
-			return
+			return md.Digest
 			// TODO: timeout
 		}
 
@@ -1021,13 +1019,14 @@ func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote)
 		if !exists {
 			// This shouldn't happen, but in case it does, return an error
 			e.Logger.Error("programming error: round not found", zap.Uint64("round", md.Round))
-			return
+			return md.Digest
 		}
 		round.votes[string(vote.Signature.Signer)] = &vote
 
 		if err := e.doProposed(block, vote, from); err != nil {
 			e.Logger.Warn("Failed voting on block", zap.Error(err))
 		}
+		return md.Digest
 	}
 }
 
@@ -1156,31 +1155,24 @@ func (e *Epoch) buildBlock() {
 	metadata := e.metadata()
 
 	task := e.createBlockBuildingTask(metadata)
-
-	// We set the task ID to be the hash of the previous block, since we don't know the digest
-	// of the block before it is built.
-	// We know, however, that any block before or after the previous block won't
-	// have this digest, under the assumption that the hash function is collision resistant.
-	// TODO: Inject this hash as a dependency and don't use SHA256 as a hardcoded function
-	taskID := sha256.Sum256(metadata.Prev[:])
-
 	e.Logger.Debug("Scheduling block building", zap.Uint64("round", metadata.Round))
-	canBeImmediatelyVerified := e.isBlockReadyToBeScheduled(metadata.Seq, metadata.Prev)
-	e.sched.Schedule(taskID, task, metadata.Prev, canBeImmediatelyVerified)
+	e.sched.Schedule(task, metadata.Prev, true)
 }
 
-func (e *Epoch) createBlockBuildingTask(metadata ProtocolMetadata) func() {
-	return func() {
+func (e *Epoch) createBlockBuildingTask(metadata ProtocolMetadata) func() Digest {
+	return func() Digest {
 		block, ok := e.BlockBuilder.BuildBlock(e.finishCtx, metadata)
 		if !ok {
 			e.Logger.Warn("Failed building block")
-			return
+			return Digest{}
 		}
 
 		e.lock.Lock()
 		defer e.lock.Unlock()
 
 		e.proposeBlock(block)
+
+		return block.BlockHeader().Digest
 	}
 }
 
@@ -1329,13 +1321,11 @@ func (e *Epoch) startRound() error {
 	if !exists || msgsForRound.proposal == nil {
 		return nil
 	}
-	proposal := msgsForRound.proposal
-	msgsForRound.proposal = nil
 
-	return e.handleBlockMessage(proposal, leaderForCurrentRound)
+	return e.handleBlockMessage(msgsForRound.proposal, leaderForCurrentRound)
 }
 
-func (e *Epoch) doProposed(block Block, voteFromLeader Vote, from NodeID) error {
+func (e *Epoch) doProposed(block Block) error {
 	vote, err := e.voteOnBlock(block)
 	if err != nil {
 		return err
@@ -1359,11 +1349,7 @@ func (e *Epoch) doProposed(block Block, voteFromLeader Vote, from NodeID) error 
 		return err
 	}
 
-	err1 := e.handleVoteMessage(&voteFromLeader, from)
-	err2 := e.maybeLoadFutureMessages(md.Round)
-	err3 := e.maybeLoadFutureMessages(md.Round + 1)
-
-	return errors.Join(err1, err2, err3)
+	return nil
 }
 
 func (e *Epoch) voteOnBlock(block Block) (Vote, error) {
@@ -1384,7 +1370,11 @@ func (e *Epoch) voteOnBlock(block Block) (Vote, error) {
 }
 
 func (e *Epoch) increaseRound() {
-	e.Logger.Info(fmt.Sprintf("Moving to a new round (%d --> %d", e.round, e.round+1), zap.Uint64("round", e.round+1))
+	leader := LeaderForRound(e.nodes, e.round)
+	e.Logger.Info("Moving to a new round",
+		zap.Uint64("old round", e.round),
+		zap.Uint64("new round", e.round+1),
+		zap.Stringer("leader", leader))
 	e.round++
 }
 
@@ -1479,8 +1469,6 @@ func (e *Epoch) maybeLoadFutureMessages(round uint64) error {
 			return nil
 		}
 	}
-
-	return nil
 }
 
 // storeProposal stores a block in the epochs memory(NOT storage).
@@ -1494,8 +1482,7 @@ func (e *Epoch) storeProposal(block Block) bool {
 		// We have already received a block for this round in the past, refuse receiving an alternative block.
 		// We do this because we may have already voted for a different block.
 		// Refuse processing the block to not be coerced into voting for a different block.
-		leader := LeaderForRound(e.nodes, md.Round)
-		e.Logger.Warn("Already received block for round", zap.Uint64("round", md.Round), zap.Stringer("leader", leader))
+		e.Logger.Warn("Already received block for round", zap.Uint64("round", md.Round))
 		return false
 	}
 
