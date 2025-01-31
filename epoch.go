@@ -742,12 +742,11 @@ func (e *Epoch) maybeCollectNotarization() error {
 	votesForCurrentRound := e.rounds[e.round].votes
 	voteCount := len(votesForCurrentRound)
 
-	from := make([]NodeID, 0, voteCount)
-	for _, vote := range votesForCurrentRound {
-		from = append(from, vote.Signature.Signer)
-	}
-
 	if voteCount < e.quorumSize {
+		from := make([]NodeID, 0, voteCount)
+		for _, vote := range votesForCurrentRound {
+			from = append(from, vote.Signature.Signer)
+		}
 		e.Logger.Verbo("Counting votes", zap.Uint64("round", e.round),
 			zap.Int("votes", voteCount), zap.String("from", fmt.Sprintf("%s", from)))
 		return nil
@@ -972,18 +971,10 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 		return nil
 	}
 
-	defer func() {
-		messagesFromNode, exists := e.futureMessages[string(from)]
-		if !exists {
-			return
-		}
-		if messagesForRound, exists := messagesFromNode[md.Round]; exists {
-			messagesForRound.proposal = nil
-		}
-	}()
+	defer e.deleteFutureProposal(from, md.Round)
 
 	// Create a task that will verify the block in the future, after its predecessors have also been verified.
-	task := e.createBlockVerificationTask(block, md, from, vote)
+	task := e.createBlockVerificationTask(block, from, vote)
 
 	// isBlockReadyToBeScheduled checks if the block is known to us either from some previous round,
 	// or from storage. If so, then we have verified it in the past, since only verified blocks are saved in memory.
@@ -997,7 +988,7 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 	return nil
 }
 
-func (e *Epoch) createBlockVerificationTask(block Block, md BlockHeader, from NodeID, vote Vote) func() {
+func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote) func() {
 	return func() {
 		e.lock.Lock()
 		defer e.lock.Unlock()
