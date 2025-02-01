@@ -2,6 +2,7 @@ package simplex_test
 
 import (
 	"context"
+	"fmt"
 	"simplex"
 	"simplex/testutil"
 	"simplex/wal"
@@ -115,9 +116,10 @@ func TestHandleFinalizationCertificateRequest(t *testing.T) {
 		QCDeserializer:      &testQCDeserializer{t: t},
 	}
 
+	storage, seqs := newStorage(t, ctx, conf, bb, 10)
+	conf.Storage = storage
 	e, err := simplex.NewEpoch(conf)
 	require.NoError(t, err)
-	seqs := setWal(t, ctx, e, bb, 10)
 	require.NoError(t, e.Start())
 	sequences := []uint64{0, 1, 2, 3}
 	req := simplex.Request{FinalizationCertificateRequest: &simplex.FinalizationCertificateRequest{
@@ -140,22 +142,48 @@ func TestHandleFinalizationCertificateRequest(t *testing.T) {
 }
 
 func TestReplication(t *testing.T) {
-	// l := testutil.MakeLogger(t, 1)
-	// bb := &testBlockBuilder{in: make(chan *testBlock, 10)}
-	// storage := newInMemStorage()
-	// nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
-	// comm := newTestReplicationComm(t, nil, nodes)
-	// conf := simplex.EpochConfig{
-	// 	Logger:              l,
-	// 	ID:                  nodes[0],
-	// 	Signer:              &testSigner{},
-	// 	WAL:                 wal.NewMemWAL(t),
-	// 	Verifier:            &testVerifier{},
-	// 	Storage:             storage,
-	// 	Comm:                comm,
-	// 	BlockBuilder:        bb,
-	// 	SignatureAggregator: &testSignatureAggregator{},
-	// }
+	bb := &testBlockBuilder{}
+	nodes := []simplex.NodeID{{1}, {2}, {3}, []byte("lagging")}
+	net := newInMemNetwork(nodes)
+	startSeq := uint64(10)
+	normalNode := newSimplexNodeWithStorage(t, nodes[0], net, bb, startSeq)
+	normalNode2 := newSimplexNodeWithStorage(t, nodes[1], net, bb, startSeq)
+	normalNode3 := newSimplexNodeWithStorage(t, nodes[2], net, bb, startSeq)
+	laggingNode := newSimplexNode(t, nodes[3], net, bb)
+
+	net.addInstances(t, normalNode, normalNode2, normalNode3, laggingNode)
+	net.startInstances()
+	require.Equal(t, uint64(10), normalNode.storage.Height())
+	require.Equal(t, uint64(10), normalNode2.storage.Height())
+	require.Equal(t, uint64(0), laggingNode.storage.Height())
+	
+	fmt.Println("leader: ", string(simplex.LeaderForRound(nodes, 10)))
+	fmt.Println("proposing block from normal node")
+	block := normalNode3.proposeBlock()
+	time.Sleep(500 * time.Millisecond)
+	fmt.Println("voting on block from normal node")
+	normalNode.voteOnBlock(block)
+	normalNode2.voteOnBlock(block)
+	time.Sleep(500 * time.Millisecond)
+
+	// now the normal node sends fCert for round 10
+	// and the lagging node should replicate up to round 10
+
+	// fCert, _ := newFinalizationRecord(t, normalNode.e.EpochConfig.Logger, normalNode.e.EpochConfig.SignatureAggregator, <-bb.out, nodeIds)
+	// err := normalNode.e.HandleMessage(&simplex.Message{
+	// 	FinalizationCertificate: &fCert,
+	// }, nodeIds[1])
+	// require.NoError(t, err)
+
+
+
+
+
+	// seqs := setStorage(t, ctx, conf, bb, 10)
+	// normalNode := newSimplexNode(t, net.nodes[1], &net, bb)
+	// laggingNode := newSimplexNode(t, net.nodes[0], &net, bb, nil)
+	
+	// normalNode.start()
 
 	// e, err := simplex.NewEpoch(conf)
 	// roundBuilder := newTestRoundBuilder(t, conf)
@@ -216,52 +244,6 @@ func (b *testRoundBuilder) newFinalizationCertificateAndRecord(block simplex.Blo
 	return newFinalizationRecord(b.t, b.l, b.sigAgg, block, b.nodes)
 }
 
-type testReplicationComm struct {
-	t     *testing.T
-	nodes []simplex.NodeID
-	e     *simplex.Epoch
-	// for responses
-	latestRound *simplex.LatestRoundResponse
-	fCerts      map[uint64]*simplex.FinalizationCertificateResponse
-}
-
-func newTestReplicationComm(t *testing.T, e *simplex.Epoch, nodes []simplex.NodeID) *testReplicationComm {
-	return &testReplicationComm{
-		t:      t,
-		nodes:  nodes,
-		e:      e,
-		fCerts: make(map[uint64]*simplex.FinalizationCertificateResponse),
-	}
-}
-
-func (c *testReplicationComm) ListNodes() []simplex.NodeID {
-	return c.nodes
-}
-
-func (c *testReplicationComm) SendMessage(*simplex.Message, simplex.NodeID) {
-
-}
-
-func (c *testReplicationComm) Broadcast(msg *simplex.Message) {
-	// // send a message back to the node calling this broadcast
-	// if msg.Request != nil {
-	// 	resp := &simplex.Response{}
-	// 	// answer the request with responses
-	// 	if msg.Request.LatestRoundRequest != nil {
-	// 		resp.LatestRoundResponse = c.latestRound
-	// 	}
-	// 	if msg.Request.FinalizationCertificateRequest != nil {
-	// 		seq := msg.Request.FinalizationCertificateRequest.Seq
-	// 		resp.FinalizationCertificateResponse = c.fCerts[seq]
-	// 	}
-	// 	for _, node := range c.nodes {
-	// 		c.e.HandleMessage(&simplex.Message{
-	// 			Response: resp,
-	// 		}, node)
-	// 	}
-	// }
-}
-
 // func TestReplicationExceedsMaxRoundWindow() {
 
 // }
@@ -304,14 +286,15 @@ func buildAndSendBlock(t *testing.T, e *simplex.Epoch, bb *testBlockBuilder, fro
 	return block
 }
 
-func setWal(t *testing.T, ctx context.Context, e *simplex.Epoch, bb *testBlockBuilder, seqs uint64) []simplex.SequenceData {	
-	protocolMetadata := e.Metadata()
+func newStorage(t *testing.T, ctx context.Context, eConf simplex.EpochConfig, bb *testBlockBuilder, seqs uint64) (*InMemStorage, []simplex.SequenceData) {	
+	protocolMetadata := simplex.ProtocolMetadata{}
 	data := make([]simplex.SequenceData, 0, seqs)
+	storage := newInMemStorage()
 	for i := uint64(0); i < seqs; i++ {
 		block, ok := bb.BuildBlock(ctx, protocolMetadata)
 		require.True(t, ok)
-		fCert, _ := newFinalizationRecord(t, e.Logger, e.EpochConfig.SignatureAggregator, block, e.Comm.ListNodes())
-		e.Storage.Index(block, fCert)
+		fCert, _ := newFinalizationRecord(t, eConf.Logger, eConf.SignatureAggregator, block, eConf.Comm.ListNodes())
+		storage.Index(block, fCert)
 
 		data = append(data, simplex.SequenceData{
 			Block: block,
@@ -322,5 +305,5 @@ func setWal(t *testing.T, ctx context.Context, e *simplex.Epoch, bb *testBlockBu
 		protocolMetadata.Prev = block.BlockHeader().Digest
 	}
 
-	return data
+	return storage, data
 }

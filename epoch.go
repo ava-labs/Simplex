@@ -282,7 +282,6 @@ func (e *Epoch) setMetadataFromStorage() error {
 	if block == nil {
 		return nil
 	}
-
 	e.round = block.BlockHeader().Round + 1
 	e.Epoch = block.BlockHeader().Epoch
 	return nil
@@ -750,7 +749,7 @@ func (e *Epoch) maybeCollectNotarization() error {
 			zap.Int("votes", voteCount), zap.String("from", fmt.Sprintf("%s", from)))
 		return nil
 	}
-
+	fmt.Println("next step")
 	// TODO: store votes before receiving the block
 
 	block := e.rounds[e.round].block
@@ -1183,7 +1182,6 @@ func (e *Epoch) createBlockBuildingTask(metadata ProtocolMetadata) func() Digest
 
 func (e *Epoch) proposeBlock(block Block) error {
 	md := block.BlockHeader()
-
 	// Write record to WAL before broadcasting it, so that
 	// if we crash during broadcasting, we know what we sent.
 

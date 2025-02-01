@@ -13,7 +13,6 @@ func RetrieveLastBlockFromStorage(s Storage) (Block, error) {
 	if height == 0 {
 		return nil, nil
 	}
-
 	lastBlock, _, retrieved := s.Retrieve(height - 1)
 	if !retrieved {
 		return nil, fmt.Errorf("failed retrieving last block from storage with seq %d", height-1)

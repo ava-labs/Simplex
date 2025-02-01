@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
-	"fmt"
 	"slices"
 
 	"go.uber.org/zap"
@@ -70,7 +69,6 @@ func (e *Epoch) handleFinalizationCertificateRequest(req *FinalizationCertificat
 	data := make([]SequenceData, len(seqs))
 	for i, seq := range seqs {
 		block, fCert, exists := e.Storage.Retrieve(seq)
-		fmt.Println("block exists ", exists, seq)
 		if !exists {
 			// since we are sorted, we can break early
 			data = data[:i]
