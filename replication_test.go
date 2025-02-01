@@ -100,7 +100,6 @@ func TestHandleFinalizationCertificateRequest(t *testing.T) {
 	storage := newInMemStorage()
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
 	signatureAggregator := &testSignatureAggregator{}
-	ctx := context.Background()
 	wal := wal.NewMemWAL(t)
 	conf := simplex.EpochConfig{
 		Logger:              l,
@@ -116,7 +115,7 @@ func TestHandleFinalizationCertificateRequest(t *testing.T) {
 		QCDeserializer:      &testQCDeserializer{t: t},
 	}
 
-	storage, seqs := newStorage(t, ctx, conf, bb, 10)
+	storage, seqs := newStorage(t, l, nodes, bb, 10)
 	conf.Storage = storage
 	e, err := simplex.NewEpoch(conf)
 	require.NoError(t, err)
@@ -142,13 +141,15 @@ func TestHandleFinalizationCertificateRequest(t *testing.T) {
 }
 
 func TestReplication(t *testing.T) {
+	l := testutil.MakeLogger(t, int(0))
 	bb := &testBlockBuilder{}
 	nodes := []simplex.NodeID{{1}, {2}, {3}, []byte("lagging")}
 	net := newInMemNetwork(nodes)
 	startSeq := uint64(10)
-	normalNode := newSimplexNodeWithStorage(t, nodes[0], net, bb, startSeq)
-	normalNode2 := newSimplexNodeWithStorage(t, nodes[1], net, bb, startSeq)
-	normalNode3 := newSimplexNodeWithStorage(t, nodes[2], net, bb, startSeq)
+	storage, _ := newStorage(t, l, nodes, bb, startSeq)
+	normalNode := newSimplexNodeWithStorage(t, nodes[0], net, bb, storage)
+	normalNode2 := newSimplexNodeWithStorage(t, nodes[1], net, bb, storage)
+	normalNode3 := newSimplexNodeWithStorage(t, nodes[2], net, bb, storage)
 	laggingNode := newSimplexNode(t, nodes[3], net, bb)
 
 	net.addInstances(t, normalNode, normalNode2, normalNode3, laggingNode)
@@ -157,11 +158,11 @@ func TestReplication(t *testing.T) {
 	require.Equal(t, uint64(10), normalNode2.storage.Height())
 	require.Equal(t, uint64(0), laggingNode.storage.Height())
 	
-	fmt.Println("leader: ", string(simplex.LeaderForRound(nodes, 10)))
 	fmt.Println("proposing block from normal node")
 	block := normalNode3.proposeBlock()
 	time.Sleep(500 * time.Millisecond)
 	fmt.Println("voting on block from normal node")
+	fmt.Println("digest of block", block.BlockHeader().Digest)
 	normalNode.voteOnBlock(block)
 	normalNode2.voteOnBlock(block)
 	time.Sleep(500 * time.Millisecond)
@@ -286,14 +287,15 @@ func buildAndSendBlock(t *testing.T, e *simplex.Epoch, bb *testBlockBuilder, fro
 	return block
 }
 
-func newStorage(t *testing.T, ctx context.Context, eConf simplex.EpochConfig, bb *testBlockBuilder, seqs uint64) (*InMemStorage, []simplex.SequenceData) {	
+func newStorage(t *testing.T, logger simplex.Logger, nodes []simplex.NodeID, bb *testBlockBuilder, seqs uint64) (*InMemStorage, []simplex.SequenceData) {	
+	ctx := context.Background()
 	protocolMetadata := simplex.ProtocolMetadata{}
 	data := make([]simplex.SequenceData, 0, seqs)
 	storage := newInMemStorage()
 	for i := uint64(0); i < seqs; i++ {
 		block, ok := bb.BuildBlock(ctx, protocolMetadata)
 		require.True(t, ok)
-		fCert, _ := newFinalizationRecord(t, eConf.Logger, eConf.SignatureAggregator, block, eConf.Comm.ListNodes())
+		fCert, _ := newFinalizationRecord(t, logger, &testSignatureAggregator{}, block, nodes)
 		storage.Index(block, fCert)
 
 		data = append(data, simplex.SequenceData{
@@ -303,6 +305,7 @@ func newStorage(t *testing.T, ctx context.Context, eConf simplex.EpochConfig, bb
 		protocolMetadata.Seq++
 		protocolMetadata.Round++
 		protocolMetadata.Prev = block.BlockHeader().Digest
+		fmt.Printf("block digest %+v \n", block.BlockHeader().ProtocolMetadata)
 	}
 
 	return storage, data

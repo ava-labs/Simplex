@@ -754,13 +754,15 @@ func (e *Epoch) maybeCollectNotarization() error {
 
 	block := e.rounds[e.round].block
 	expectedDigest := block.BlockHeader().Digest
-
+	fmt.Println("expectedDigest", expectedDigest)
 	// Ensure we have enough votes for the same digest
 	var voteCountForOurDigest int
 	for _, vote := range votesForCurrentRound {
 		if bytes.Equal(expectedDigest[:], vote.Vote.Digest[:]) {
 			voteCountForOurDigest++
 		}
+		fmt.Println("voteCountForOurDigest", voteCountForOurDigest)
+		fmt.Println("digest", vote.Vote.Digest)
 	}
 
 	if voteCountForOurDigest < e.quorumSize {
@@ -1234,6 +1236,8 @@ func (e *Epoch) metadata() ProtocolMetadata {
 	if e.lastBlock != nil {
 		// Build on top of the latest block
 		currMed := e.getHighestRound().block.BlockHeader()
+		fmt.Printf("getHighestRound %+v \n", currMed)
+		fmt.Println("curr round", e.round)
 		prev = currMed.Digest
 		seq = currMed.Seq + 1
 	}

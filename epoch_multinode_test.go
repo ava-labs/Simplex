@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"fmt"
 	. "simplex"
 	"simplex/record"
 	"simplex/testutil"
@@ -51,9 +52,8 @@ func (t *testNode) start() {
 	require.NoError(t.t, t.e.Start())
 }
 
-func newSimplexNodeWithStorage(t *testing.T, nodeID NodeID, net *inMemNetwork, bb *testBlockBuilder, numSeq uint64) *testNode {
+func newSimplexNodeWithStorage(t *testing.T, nodeID NodeID, net *inMemNetwork, bb *testBlockBuilder, storage *InMemStorage) *testNode {
 	conf := defaultTestNodeEpochConfig(t, nodeID, net, bb)
-	storage, _ := newStorage(t, context.Background(), conf, bb, numSeq)
 	conf.Storage = storage
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
@@ -122,6 +122,7 @@ type testNode struct {
 
 func (t *testNode) proposeBlock() Block{
 	md := t.e.Metadata()
+	fmt.Printf("proposing a block with metadata: %+v\n", md)
 	block, ok := t.e.BlockBuilder.BuildBlock(context.Background(), md)
 	require.True(t.t, ok)
 
