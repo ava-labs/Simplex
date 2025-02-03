@@ -152,6 +152,7 @@ func (e *Epoch) handleFinalizationCertificateResponse(resp *FinalizationCertific
 			continue
 		}
 		if round.fCert != nil {
+			// we should never be here because the round would have been deleted
 			continue
 		}
 		err := e.persistFinalizationCertificate(data.FCert)

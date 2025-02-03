@@ -371,8 +371,13 @@ func (e *Epoch) Stop() {
 
 func (e *Epoch) handleFinalizationCertificateMessage(message *FinalizationCertificate, from NodeID) error {
 	e.Logger.Verbo("Received finalization certificate message",
-		zap.Stringer("from", from), zap.Uint64("round", message.Finalization.Round))
-	
+		zap.Stringer("from", from), zap.Uint64("round", message.Finalization.Round), zap.Uint64("seq", message.Finalization.Seq))
+	nextSeqToCommit := e.Storage.Height()
+	fmt.Println("nextSeqToCommit", nextSeqToCommit, e.ID)
+	if  nextSeqToCommit > message.Finalization.Seq {
+		// this may happen since we delete rounds after finalizing them
+		return nil
+	}
 	valid, err := e.isFinalizationCertificateValid(message)
 	if err != nil {
 		return err
@@ -404,11 +409,6 @@ func (e *Epoch) handleFinalizationCertificateMessage(message *FinalizationCertif
 func (e *Epoch) collectFutureFinalizationCertificates(fCert *FinalizationCertificate) {
 	fCertRound := fCert.Finalization.Round
 	nextSeqToCommit := e.Storage.Height()
-	if fCertRound < nextSeqToCommit {
-		// TODO: move this check to the handleFinalizationCertificateMessage
-		// this may happen when we delete rounds from our round map in memory(due to advancing enough rounds)
-		return
-	}
 	fmt.Println("nextSeqToCommit", nextSeqToCommit)
 	fmt.Println("fCertRound", fCertRound)
 	fmt.Println("e.maxRoundWindow", e.maxRoundWindow)
@@ -416,6 +416,7 @@ func (e *Epoch) collectFutureFinalizationCertificates(fCert *FinalizationCertifi
 	fmt.Println("e.latestRoundKnown.num", e.latestRoundKnown.num)
 	endSeq := math.Min(float64(fCertRound), float64(e.maxRoundWindow+e.round))
 	if e.latestRoundKnown.num >= uint64(endSeq) {
+		e.Logger.Debug("Node is behind, but we have already sent out messages collecting future finalization certificates")
 		// we have alrea dy sent out messages collecting future finalization certificates
 		return
 	}
@@ -730,6 +731,7 @@ func (e *Epoch) persistFinalizationCertificate(fCert FinalizationCertificate) er
 			if round.fCert == nil {
 				break
 			}
+			fmt.Println("continnig with round ", r)
 			fCert = *round.fCert
 		}
 	} else {

@@ -145,7 +145,7 @@ func TestReplication(t *testing.T) {
 	bb := &testBlockBuilder{}
 	nodes := []simplex.NodeID{{1}, {2}, {3}, []byte("lagging")}
 	net := newInMemNetwork(nodes)
-	startSeq := uint64(10)
+	startSeq := uint64(8)
 
 	// initiate a network with 3 nodes. one node is behind by 10 blocks
 	storage, _ := newStorage(t, l, nodes, bb, startSeq)
@@ -156,8 +156,8 @@ func TestReplication(t *testing.T) {
 
 	net.addInstances(t, normalNode1, normalNode2, normalNode3, laggingNode)
 	net.startInstances()
-	require.Equal(t, uint64(10), normalNode1.storage.Height())
-	require.Equal(t, uint64(10), normalNode2.storage.Height())
+	require.Equal(t, startSeq, normalNode1.storage.Height())
+	require.Equal(t, startSeq, normalNode2.storage.Height())
 	require.Equal(t, uint64(0), laggingNode.storage.Height())
 	
 	
@@ -178,7 +178,7 @@ func TestReplication(t *testing.T) {
 	fmt.Println("normalNode2.storage.Height()", normalNode2.storage.Height())
 	fmt.Println("normalNode3.storage.Height()", normalNode3.storage.Height())
 	fmt.Println("laggingNode.storage.Height()", laggingNode.storage.Height())
-	
+
 }
 
 // func newReplicationResponses(b *testRoundBuilder, initialMetadata simplex.ProtocolMetadata, seqs uint64) map[uint64]*simplex.FinalizationCertificateResponse {
