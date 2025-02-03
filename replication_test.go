@@ -115,8 +115,10 @@ func TestHandleFinalizationCertificateRequest(t *testing.T) {
 		QCDeserializer:      &testQCDeserializer{t: t},
 	}
 
-	storage, seqs := newStorage(t, l, nodes, bb, 10)
-	conf.Storage = storage
+	seqs := newStorage(t, l, nodes, bb, 10)
+	for _, data := range seqs {
+		conf.Storage.Index(data.Block, data.FCert)
+	}
 	e, err := simplex.NewEpoch(conf)
 	require.NoError(t, err)
 	require.NoError(t, e.Start())
@@ -148,10 +150,10 @@ func TestReplication(t *testing.T) {
 	startSeq := uint64(8)
 
 	// initiate a network with 3 nodes. one node is behind by 10 blocks
-	storage, _ := newStorage(t, l, nodes, bb, startSeq)
-	normalNode1 := newSimplexNodeWithStorage(t, nodes[0], net, bb, storage)
-	normalNode2 := newSimplexNodeWithStorage(t, nodes[1], net, bb, storage)
-	normalNode3 := newSimplexNodeWithStorage(t, nodes[2], net, bb, storage)
+	storageData := newStorage(t, l, nodes, bb, startSeq)
+	normalNode1 := newSimplexNodeWithStorage(t, nodes[0], net, bb, storageData)
+	normalNode2 := newSimplexNodeWithStorage(t, nodes[1], net, bb, storageData)
+	normalNode3 := newSimplexNodeWithStorage(t, nodes[2], net, bb, storageData)
 	laggingNode := newSimplexNode(t, nodes[3], net, bb)
 
 	net.addInstances(t, normalNode1, normalNode2, normalNode3, laggingNode)
@@ -160,24 +162,37 @@ func TestReplication(t *testing.T) {
 	require.Equal(t, startSeq, normalNode2.storage.Height())
 	require.Equal(t, uint64(0), laggingNode.storage.Height())
 	
-	
 	// propose the block from the leader
 	leader := net.getLeader(startSeq)
-	block := leader.proposeBlock()
+	fmt.Println("leader", leader.e.ID.String())
+	// block := leader.proposeBlock()
 	time.Sleep(100 * time.Millisecond)
-	normalNode1.voteOnBlock(block)
-	normalNode2.voteOnBlock(block)
-	time.Sleep(500 * time.Millisecond)
-	// normal votes send finalization
-	normalNode1.sendFinalization(block)
-	normalNode2.sendFinalization(block)
-	normalNode3.sendFinalization(block)
-	time.Sleep(500 * time.Millisecond)
+	// normalNode2.voteOnBlock(block)
+	// normalNode3.voteOnBlock(block)
+	// time.Sleep(500 * time.Millisecond)
+	// // normal votes send finalization
+	// normalNode1.sendFinalization(block)
+	// normalNode2.sendFinalization(block)
+	// normalNode3.sendFinalization(block)
+	// time.Sleep(500 * time.Millisecond)
 
-	fmt.Println("normalNode1.storage.Height()", normalNode1.storage.Height())
-	fmt.Println("normalNode2.storage.Height()", normalNode2.storage.Height())
-	fmt.Println("normalNode3.storage.Height()", normalNode3.storage.Height())
-	fmt.Println("laggingNode.storage.Height()", laggingNode.storage.Height())
+	// fmt.Println("normalNode1.storage.Height()", normalNode1.storage.Height())
+	// fmt.Println("normalNode2.storage.Height()", normalNode2.storage.Height())
+	// fmt.Println("normalNode3.storage.Height()", normalNode3.storage.Height())
+	// fmt.Println("laggingNode.storage.Height()", laggingNode.storage.Height())
+	// normalNode2.voteOnBlock(block)
+	// normalNode3.voteOnBlock(block)
+	// time.Sleep(500 * time.Millisecond)
+	// // normal votes send finalization
+	// normalNode1.sendFinalization(block)
+	// normalNode2.sendFinalization(block)
+	// normalNode3.sendFinalization(block)
+	// time.Sleep(500 * time.Millisecond)
+
+	// fmt.Println("normalNode1.storage.Height()", normalNode1.storage.Height())
+	// fmt.Println("normalNode2.storage.Height()", normalNode2.storage.Height())
+	// fmt.Println("normalNode3.storage.Height()", normalNode3.storage.Height())
+	// fmt.Println("laggingNode.storage.Height()", laggingNode.storage.Height())
 
 }
 
@@ -268,17 +283,14 @@ func buildAndSendBlock(t *testing.T, e *simplex.Epoch, bb *testBlockBuilder, fro
 	return block
 }
 
-func newStorage(t *testing.T, logger simplex.Logger, nodes []simplex.NodeID, bb *testBlockBuilder, seqs uint64) (*InMemStorage, []simplex.SequenceData) {	
+func newStorage(t *testing.T, logger simplex.Logger, nodes []simplex.NodeID, bb *testBlockBuilder, seqs uint64) []simplex.SequenceData {	
 	ctx := context.Background()
 	protocolMetadata := simplex.ProtocolMetadata{}
 	data := make([]simplex.SequenceData, 0, seqs)
-	storage := newInMemStorage()
 	for i := uint64(0); i < seqs; i++ {
 		block, ok := bb.BuildBlock(ctx, protocolMetadata)
 		require.True(t, ok)
 		fCert, _ := newFinalizationRecord(t, logger, &testSignatureAggregator{}, block, nodes)
-		storage.Index(block, fCert)
-
 		data = append(data, simplex.SequenceData{
 			Block: block,
 			FCert: fCert,
@@ -289,5 +301,5 @@ func newStorage(t *testing.T, logger simplex.Logger, nodes []simplex.NodeID, bb 
 		fmt.Printf("block digest %+v \n", block.BlockHeader().ProtocolMetadata)
 	}
 
-	return storage, data
+	return data
 }

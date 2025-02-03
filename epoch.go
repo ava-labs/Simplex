@@ -705,6 +705,7 @@ func (e *Epoch) persistFinalizationCertificate(fCert FinalizationCertificate) er
 		for {
 			r := fCert.Finalization.Round
 			block := e.rounds[r].block
+			e.Logger.Info("Attempt to index", zap.Uint64("round", fCert.Finalization.Round), zap.Uint64("sequence", fCert.Finalization.Seq), zap.Stringer("digest", fCert.Finalization.BlockHeader.Digest))
 			e.Storage.Index(block, fCert)
 			e.Logger.Info("Committed block",
 				zap.Uint64("round", fCert.Finalization.Round),

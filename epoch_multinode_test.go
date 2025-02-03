@@ -52,16 +52,18 @@ func (t *testNode) start() {
 	require.NoError(t.t, t.e.Start())
 }
 
-func newSimplexNodeWithStorage(t *testing.T, nodeID NodeID, net *inMemNetwork, bb *testBlockBuilder, storage *InMemStorage) *testNode {
+func newSimplexNodeWithStorage(t *testing.T, nodeID NodeID, net *inMemNetwork, bb *testBlockBuilder, storage []SequenceData) *testNode {
 	conf := defaultTestNodeEpochConfig(t, nodeID, net, bb)
-	conf.Storage = storage
+	for _, data := range storage {
+		conf.Storage.Index(data.Block, data.FCert)
+	}
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
 	ti := &testNode{
 		wal:    conf.WAL.(*testWAL),
 		e:      e,
 		t:      t,
-		storage: storage,
+		storage: conf.Storage.(*InMemStorage),
 		ingress: make(chan struct {
 			msg  *Message
 			from NodeID
