@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"simplex"
 	. "simplex"
 	"simplex/record"
 	"simplex/testutil"
@@ -32,23 +31,18 @@ func TestSimplexMultiNodeSimple(t *testing.T) {
 	bb.triggerNewBlock()
 
 	net.startInstances()
-
-	for _, n := range net.instances {
-		n.wal.assertNotarization(uint64(0))
+	for seq := 0; seq < 10; seq++ {
+		for _, n := range net.instances {
+			n.wal.assertNotarization(uint64(seq))
+		}
+		bb.triggerNewBlock()
 	}
 
-	// for seq := 0; seq < 10; seq++ {
-	// 	for _, n := range net.instances {
-	// 		n.wal.assertNotarization(uint64(seq))
-	// 	}
-	// 	bb.triggerNewBlock()
-	// }
-
-	// for seq := 0; seq < 10; seq++ {
-	// 	for _, n := range net.instances {
-	// 		n.storage.waitForBlockCommit(uint64(seq))
-	// 	}
-	// }
+	for seq := 0; seq < 10; seq++ {
+		for _, n := range net.instances {
+			n.storage.waitForBlockCommit(uint64(seq))
+		}
+	}
 }
 
 func (t *testNode) start() {
@@ -124,41 +118,6 @@ type testNode struct {
 		from NodeID
 	}
 	t *testing.T
-}
-
-func (t *testNode) proposeBlock() Block{
-	md := t.e.Metadata()
-	block, ok := t.e.BlockBuilder.BuildBlock(context.Background(), md)
-	require.True(t.t, ok)
-
-	// send node a message from the leader
-	vote, err := newTestVote(block, t.e.ID)
-	require.NoError(t.t, err)
-	msg := &Message{
-		BlockMessage: &BlockMessage{
-			Vote:  *vote,
-			Block: block,
-		},
-	}
-	
-	t.e.Comm.Broadcast(msg)
-	return block
-}
-
-func (t *testNode) sendFinalization(block Block) {
-	msg := &Message{
-		Finalization: newTestFinalization(t.t, block, t.e.ID),
-	}
-	t.e.Comm.Broadcast(msg)
-}
-
-func (t *testNode) voteOnBlock(block Block) {
-	vote, err := newTestVote(block, t.e.ID)
-	require.NoError(t.t, err)
-	msg := &Message{
-		VoteMessage: vote,
-	}
-	t.e.Comm.Broadcast(msg)
 }
 
 func (t *testNode) HandleMessage(msg *Message, from NodeID) error {
@@ -301,23 +260,16 @@ func (n *inMemNetwork) addInstances(t *testing.T, node ...*testNode) {
 	n.instances = append(n.instances, node...)
 }
 
-func (n *inMemNetwork) getLeader(round uint64) *testNode {
-	leaderId := simplex.LeaderForRound(n.nodes, round)
-
-	for _, n := range n.instances {
-		if bytes.Equal(n.e.ID, leaderId) {
-			return n
-		}
-	}
-	return nil
-}
-
+// startInstances starts all instances in the network.
+// The first one is typically the leader, so we make sure to start it last.
 func (n *inMemNetwork) startInstances() {
 	for i := len(n.nodes) - 1; i >= 0; i-- {
 		n.instances[i].start()
 	}
 }
 
+// testControlledBlockBuilder is a test block builder that blocks
+// block building until a trigger is received
 type testControlledBlockBuilder struct {
 	control chan struct{}
 	testBlockBuilder
