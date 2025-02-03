@@ -1177,7 +1177,9 @@ func (e *Epoch) buildBlock() {
 
 func (e *Epoch) createBlockBuildingTask(metadata ProtocolMetadata) func() Digest {
 	return func() Digest {
+		fmt.Println("running createBlockBuildingTask")
 		block, ok := e.BlockBuilder.BuildBlock(e.finishCtx, metadata)
+		fmt.Println("finished createBlockBuildingTask")
 		if !ok {
 			e.Logger.Warn("Failed building block")
 			return Digest{}
