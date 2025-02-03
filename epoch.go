@@ -80,10 +80,6 @@ type Epoch struct {
 	monitor                        *Monitor
 	cancelWaitForBlockNotarization context.CancelFunc
 
-	// replication state
-	// sequence number of the last known(most future) finalization certificate
-	// we may not be able to store it since this could be greater than maxRoundWindow
-	latestRoundKnown Round
 	// latest seq we requested
 	lastSequenceRequested uint64
 }
@@ -409,14 +405,12 @@ func (e *Epoch) collectFutureFinalizationCertificates(fCert *FinalizationCertifi
 	fCertRound := fCert.Finalization.Round
 	nextSeqToCommit := e.Storage.Height()
 	endSeq := math.Min(float64(fCertRound), float64(e.maxRoundWindow+e.round))
-	if e.latestRoundKnown.num >= uint64(endSeq) {
-		e.Logger.Debug("Node is behind, but we have already sent out messages collecting future finalization certificates")
-		// we have alrea dy sent out messages collecting future finalization certificates
+	// Node is behind, but we've already sent messages to collecting future fCerts
+	if e.lastSequenceRequested >= uint64(endSeq) {
 		return
 	}
 
 	e.Logger.Debug("Node is behind, requesting missing finalization certificates", zap.Uint64("round", fCertRound))
-	e.setLastReceivedFCertSeq(fCertRound)
 	e.sendFutureCertficatesRequests(nextSeqToCommit, uint64(endSeq))
 }
 
