@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
-	"fmt"
 	"slices"
 
 	"go.uber.org/zap"
@@ -124,13 +123,10 @@ func (e *Epoch) handleLatestBlockRequest() *LatestRoundResponse {
 }
 
 func (e *Epoch) handleResponse(resp *Response, from NodeID) {
-	fmt.Println("handleResponse")
 	if resp.LatestRoundResponse != nil {
-		fmt.Println("latestRoundResponse")
 		e.handleLatestRoundResponse(resp.LatestRoundResponse)
 	}
 	if resp.FinalizationCertificateResponse != nil {
-		fmt.Println("fCertResponse")
 		e.handleFinalizationCertificateResponse(resp.FinalizationCertificateResponse, from)
 	}
 }
@@ -143,11 +139,9 @@ func (e *Epoch) handleFinalizationCertificateResponse(resp *FinalizationCertific
 			// we are too far behind, we should ignore this message
 			continue
 		}
-		fmt.Println("round got, our current round", data.Block.BlockHeader().Round, e.round)
 		// if we already have a round object for this round, we should persist the fCert
 		round, ok := e.rounds[data.Block.BlockHeader().Round]
 		if !ok {
-			fmt.Println("storing future")
 			e.storeFutureFinalizationResponse(data.FCert, data.Block, from)
 			continue
 		}
@@ -204,12 +198,17 @@ func (e *Epoch) storeFutureFinalizationResponse(fCert FinalizationCertificate, b
 		return
 	}
 
-	if msg.proposal != nil && bytes.Equal(msg.proposal.Block.Bytes(), block.Bytes()) {
+	if msg.proposal != nil && !bytes.Equal(msg.proposal.Block.Bytes(), block.Bytes()) {
 		e.Logger.Error("Proposal does not match the block in the finalization certificate response", zap.String("from", from.String()))
 		return
+	} else if msg.proposal == nil {
+		msg.proposal = &BlockMessage{
+			Block: block,
+		}
+	} else {
+		msg.proposal.Block = block
 	}
 	msg.fCert = &fCert
-	msg.proposal.Block = block
 }
 
 // SetLastReceivedFCertSeq updates the last received finalization certificate sequence number
@@ -228,7 +227,6 @@ func (e *Epoch) sendFutureCertficatesRequests(start uint64, end uint64) {
 		// no need to resend
 		return
 	}
-	fmt.Println("sendFutureCertficatesRequests", start, end)
 	seqs := make([]uint64, end-start)
 	for i := start; i < end; i++ {
 		seqs[i-start] = i

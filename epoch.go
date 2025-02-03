@@ -373,7 +373,6 @@ func (e *Epoch) handleFinalizationCertificateMessage(message *FinalizationCertif
 	e.Logger.Verbo("Received finalization certificate message",
 		zap.Stringer("from", from), zap.Uint64("round", message.Finalization.Round), zap.Uint64("seq", message.Finalization.Seq))
 	nextSeqToCommit := e.Storage.Height()
-	fmt.Println("nextSeqToCommit", nextSeqToCommit, e.ID)
 	if  nextSeqToCommit > message.Finalization.Seq {
 		// this may happen since we delete rounds after finalizing them
 		return nil
@@ -409,11 +408,6 @@ func (e *Epoch) handleFinalizationCertificateMessage(message *FinalizationCertif
 func (e *Epoch) collectFutureFinalizationCertificates(fCert *FinalizationCertificate) {
 	fCertRound := fCert.Finalization.Round
 	nextSeqToCommit := e.Storage.Height()
-	fmt.Println("nextSeqToCommit", nextSeqToCommit)
-	fmt.Println("fCertRound", fCertRound)
-	fmt.Println("e.maxRoundWindow", e.maxRoundWindow)
-	fmt.Println("e.round", e.round)
-	fmt.Println("e.latestRoundKnown.num", e.latestRoundKnown.num)
 	endSeq := math.Min(float64(fCertRound), float64(e.maxRoundWindow+e.round))
 	if e.latestRoundKnown.num >= uint64(endSeq) {
 		e.Logger.Debug("Node is behind, but we have already sent out messages collecting future finalization certificates")
@@ -668,7 +662,6 @@ func (e *Epoch) maybeCollectFinalizationCertificate(round *Round) error {
 func (e *Epoch) assembleFinalizationCertificate(round *Round) error {
 	// Divide finalizations into sets that agree on the same metadata
 	finalizationsByMD := make(map[string][]*Finalization)
-	fmt.Println("Num finalizations", len(round.finalizations))
 	for _, vote := range round.finalizations {
 		key := string(vote.Finalization.Bytes())
 		finalizationsByMD[key] = append(finalizationsByMD[key], vote)
@@ -732,7 +725,6 @@ func (e *Epoch) persistFinalizationCertificate(fCert FinalizationCertificate) er
 			if round.fCert == nil {
 				break
 			}
-			fmt.Println("continnig with round ", r)
 			fCert = *round.fCert
 		}
 	} else {
@@ -772,20 +764,15 @@ func (e *Epoch) maybeCollectNotarization() error {
 			zap.Int("votes", voteCount), zap.String("from", fmt.Sprintf("%s", from)))
 		return nil
 	}
-	fmt.Println("next step")
 	// TODO: store votes before receiving the block
-
 	block := e.rounds[e.round].block
 	expectedDigest := block.BlockHeader().Digest
-	fmt.Println("expectedDigest", expectedDigest)
 	// Ensure we have enough votes for the same digest
 	var voteCountForOurDigest int
 	for _, vote := range votesForCurrentRound {
 		if bytes.Equal(expectedDigest[:], vote.Vote.Digest[:]) {
 			voteCountForOurDigest++
 		}
-		fmt.Println("voteCountForOurDigest", voteCountForOurDigest)
-		fmt.Println("digest", vote.Vote.Digest)
 	}
 
 	if voteCountForOurDigest < e.quorumSize {
@@ -1259,8 +1246,6 @@ func (e *Epoch) metadata() ProtocolMetadata {
 	if e.lastBlock != nil {
 		// Build on top of the latest block
 		currMed := e.getHighestRound().block.BlockHeader()
-		fmt.Printf("getHighestRound %+v \n", currMed)
-		fmt.Println("curr round", e.round)
 		prev = currMed.Digest
 		seq = currMed.Seq + 1
 	}
