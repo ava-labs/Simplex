@@ -7,7 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"fmt"
+	"simplex"
 	. "simplex"
 	"simplex/record"
 	"simplex/testutil"
@@ -122,7 +122,6 @@ type testNode struct {
 
 func (t *testNode) proposeBlock() Block{
 	md := t.e.Metadata()
-	fmt.Printf("proposing a block with metadata: %+v\n", md)
 	block, ok := t.e.BlockBuilder.BuildBlock(context.Background(), md)
 	require.True(t.t, ok)
 
@@ -138,6 +137,13 @@ func (t *testNode) proposeBlock() Block{
 	
 	t.e.Comm.Broadcast(msg)
 	return block
+}
+
+func (t *testNode) sendFinalization(block Block) {
+	msg := &Message{
+		Finalization: newTestFinalization(t.t, block, t.e.ID),
+	}
+	t.e.Comm.Broadcast(msg)
 }
 
 func (t *testNode) voteOnBlock(block Block) {
@@ -287,6 +293,17 @@ func (n *inMemNetwork) addInstances(t *testing.T, node ...*testNode) {
 	}
 	require.True(t, allowed, "node not allowed to join network")
 	n.instances = append(n.instances, node...)
+}
+
+func (n *inMemNetwork) getLeader(round uint64) *testNode {
+	leaderId := simplex.LeaderForRound(n.nodes, round)
+
+	for _, n := range n.instances {
+		if bytes.Equal(n.e.ID, leaderId) {
+			return n
+		}
+	}
+	return nil
 }
 
 func (n *inMemNetwork) startInstances() {

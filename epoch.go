@@ -132,6 +132,14 @@ func (e *Epoch) HandleMessage(msg *Message, from NodeID) error {
 	case msg.Response != nil:
 		e.handleResponse(msg.Response, from)
 		return nil
+	case msg.Request != nil:
+		// todo: move to request method
+		resp := e.HandleRequest(msg.Request, from)
+		msg := &Message{Response: resp}
+		if resp != nil {
+			e.Comm.SendMessage(msg, from)
+		}
+		return nil
 	default:
 		e.Logger.Warn("Invalid message type", zap.Stringer("from", from))
 		return nil
@@ -182,7 +190,7 @@ func (e *Epoch) syncBlockRecord(r []byte) error {
 	if err != nil {
 		return err
 	}
-	b := e.storeProposal(block)
+	b := e.storeProposal(block, false)
 	if !b {
 		return fmt.Errorf("failed to store block from WAL")
 	}
@@ -364,7 +372,7 @@ func (e *Epoch) Stop() {
 func (e *Epoch) handleFinalizationCertificateMessage(message *FinalizationCertificate, from NodeID) error {
 	e.Logger.Verbo("Received finalization certificate message",
 		zap.Stringer("from", from), zap.Uint64("round", message.Finalization.Round))
-
+	
 	valid, err := e.isFinalizationCertificateValid(message)
 	if err != nil {
 		return err
@@ -396,11 +404,23 @@ func (e *Epoch) handleFinalizationCertificateMessage(message *FinalizationCertif
 func (e *Epoch) collectFutureFinalizationCertificates(fCert *FinalizationCertificate) {
 	fCertRound := fCert.Finalization.Round
 	nextSeqToCommit := e.Storage.Height()
-	endSeq := math.Min(float64(fCertRound), float64(e.maxRoundWindow+e.round))
-	if e.latestRoundKnown.num >= uint64(endSeq) {
-		// we have already sent out messages collecting future finalization certificates
+	if fCertRound < nextSeqToCommit {
+		// TODO: move this check to the handleFinalizationCertificateMessage
+		// this may happen when we delete rounds from our round map in memory(due to advancing enough rounds)
 		return
 	}
+	fmt.Println("nextSeqToCommit", nextSeqToCommit)
+	fmt.Println("fCertRound", fCertRound)
+	fmt.Println("e.maxRoundWindow", e.maxRoundWindow)
+	fmt.Println("e.round", e.round)
+	fmt.Println("e.latestRoundKnown.num", e.latestRoundKnown.num)
+	endSeq := math.Min(float64(fCertRound), float64(e.maxRoundWindow+e.round))
+	if e.latestRoundKnown.num >= uint64(endSeq) {
+		// we have alrea dy sent out messages collecting future finalization certificates
+		return
+	}
+
+	e.Logger.Debug("Node is behind, requesting missing finalization certificates", zap.Uint64("round", fCertRound))
 	e.setLastReceivedFCertSeq(fCertRound)
 	e.sendFutureCertficatesRequests(nextSeqToCommit, uint64(endSeq))
 }
@@ -647,7 +667,7 @@ func (e *Epoch) maybeCollectFinalizationCertificate(round *Round) error {
 func (e *Epoch) assembleFinalizationCertificate(round *Round) error {
 	// Divide finalizations into sets that agree on the same metadata
 	finalizationsByMD := make(map[string][]*Finalization)
-
+	fmt.Println("Num finalizations", len(round.finalizations))
 	for _, vote := range round.finalizations {
 		key := string(vote.Finalization.Bytes())
 		finalizationsByMD[key] = append(finalizationsByMD[key], vote)
@@ -1010,7 +1030,7 @@ func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote)
 		record := BlockRecord(md, block.Bytes())
 		e.WAL.Append(record)
 
-		if !e.storeProposal(block) {
+		if !e.storeProposal(block, true) {
 			e.Logger.Warn("Unable to store proposed block for the round", zap.Stringer("NodeID", from), zap.Uint64("round", md.Round))
 			return md.Digest
 			// TODO: timeout
@@ -1210,7 +1230,7 @@ func (e *Epoch) proposeBlock(block Block) error {
 		},
 	}
 
-	if !e.storeProposal(block) {
+	if !e.storeProposal(block, true) {
 		return errors.New("failed to store block proposed by me")
 	}
 
@@ -1439,6 +1459,14 @@ func (e *Epoch) maybeLoadFutureMessages(round uint64) error {
 		for from, messagesFromNode := range e.futureMessages {
 			if msgs, exists := messagesFromNode[round]; exists {
 				if msgs.fCert != nil {
+					// TODO: couple weird things. It would be nice to call `handleBlockMessage` here
+					// however, that function requires a block to be sent from the leader of that round.
+					// Another thing for why we can't call handleBlockMessage: when we aren't guarenteed to have the vote attached to the block message in this instance
+					stored := e.storeProposal(msgs.proposal.Block, false)
+					if !stored {
+						return errors.New("failed to store block proposed by a node")
+					}
+					// set the block for the round
 					if err := e.handleFinalizationCertificateMessage(msgs.fCert, NodeID(from)); err != nil {
 						return err
 					}
@@ -1483,7 +1511,7 @@ func (e *Epoch) maybeLoadFutureMessages(round uint64) error {
 
 // storeProposal stores a block in the epochs memory(NOT storage).
 // it creates a new round with the block and stores it in the rounds map.
-func (e *Epoch) storeProposal(block Block) bool {
+func (e *Epoch) storeProposal(block Block, load bool) bool {
 	md := block.BlockHeader()
 
 	// Have we already received a block from that node?
@@ -1500,7 +1528,9 @@ func (e *Epoch) storeProposal(block Block) bool {
 	e.rounds[md.Round] = round
 	// We might have received votes and finalizations from future rounds before we received this block.
 	// So load the messages into our round data structure now that we have created it.
-	e.maybeLoadFutureMessages(md.Round)
+	if load {
+		e.maybeLoadFutureMessages(md.Round)
+	}
 	return true
 }
 
