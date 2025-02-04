@@ -2,6 +2,7 @@ package simplex_test
 
 import (
 	"context"
+	"fmt"
 	"simplex"
 	"simplex/testutil"
 	"simplex/wal"
@@ -145,7 +146,7 @@ func TestHandleFinalizationCertificateRequest(t *testing.T) {
 func TestReplication(t *testing.T) {
 	bb := newTestControlledBlockBuilder()
 	nodes := []simplex.NodeID{{1}, {2}, {3}, []byte("lagging")}
-	net := newInMemNetwork(nodes)
+	net := newInMemNetwork(t, nodes)
 	startSeq := uint64(8)
 
 	// initiate a network with 4 nodes. one node is behind by 8 blocks
@@ -157,9 +158,9 @@ func TestReplication(t *testing.T) {
 
 	require.Equal(t, startSeq, normalNode1.storage.Height())
 	require.Equal(t, startSeq, normalNode2.storage.Height())
+	require.Equal(t, startSeq, normalNode3.storage.Height())
 	require.Equal(t, uint64(0), laggingNode.storage.Height())
 
-	net.addInstances(t, normalNode1, normalNode2, normalNode3, laggingNode)
 	net.startInstances()
 	bb.triggerNewBlock()
 
@@ -167,6 +168,7 @@ func TestReplication(t *testing.T) {
 	// lagging node starts at round 0, seq 0.
 	// this asserts that the lagging node catches up to the latest round
 	for _, n := range net.instances {
+		fmt.Println(n.storage.Height(), n.e.ID)
 		n.storage.waitForBlockCommit(uint64(startSeq))
 	}
 }
@@ -174,7 +176,7 @@ func TestReplication(t *testing.T) {
 func TestReplicationExceedsMaxRoundWindow(t *testing.T) {
 	bb := newTestControlledBlockBuilder()
 	nodes := []simplex.NodeID{{1}, {2}, {3}, []byte("lagging")}
-	net := newInMemNetwork(nodes)
+	net := newInMemNetwork(t, nodes)
 	startSeq := uint64(simplex.DefaultMaxRoundWindow + 3)
 
 	storageData := createBlocks(t, nodes, &bb.testBlockBuilder, startSeq)
@@ -187,10 +189,8 @@ func TestReplicationExceedsMaxRoundWindow(t *testing.T) {
 	require.Equal(t, startSeq, normalNode3.storage.Height())
 	require.Equal(t, uint64(0), laggingNode.storage.Height())
 
-	net.addInstances(t, normalNode1, normalNode2, normalNode3, laggingNode)
 	net.startInstances()
 	bb.triggerNewBlock()
-
 	for _, n := range net.instances {
 		n.storage.waitForBlockCommit(uint64(startSeq))
 	}
@@ -241,11 +241,11 @@ func createBlocks(t *testing.T, nodes []simplex.NodeID, bb simplex.BlockBuilder,
 	var prev simplex.Digest
 	for i := uint64(0); i < seqCount; i++ {
 		protocolMetadata := simplex.ProtocolMetadata{
-			Seq: i,
+			Seq:   i,
 			Round: i,
-			Prev: prev,
+			Prev:  prev,
 		}
-		
+
 		block, ok := bb.BuildBlock(ctx, protocolMetadata)
 		require.True(t, ok)
 		prev = block.BlockHeader().Digest

@@ -5,8 +5,7 @@ package simplex
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"encoding/binary"
+	"fmt"
 	"slices"
 
 	"go.uber.org/zap"
@@ -135,6 +134,7 @@ func (e *Epoch) handleResponse(resp *Response, from NodeID) error {
 
 func (e *Epoch) handleFinalizationCertificateResponse(resp *FinalizationCertificateResponse, from NodeID) error {
 	e.Logger.Debug("Received finalization certificate response", zap.String("from", from.String()), zap.Int("num seqs", len(resp.Data)))
+	fmt.Println("seqs", resp.Data)
 	for _, data := range resp.Data {
 		if e.round+e.maxRoundWindow < data.FCert.Finalization.Seq {
 			// we are too far behind, we should ignore this message
@@ -215,13 +215,19 @@ func (e *Epoch) sendFutureCertficatesRequests(start uint64, end uint64) {
 	}
 	msg := &Message{Request: roundRequest}
 
-	// todo: find a better way to determine who to send to
-	requestFrom := e.nodes[0]
-	if e.lastBlock != nil {
-		hash := sha256.Sum256(e.lastBlock.Bytes())
-		num := binary.BigEndian.Uint64(hash[:8])
-		requestFrom = e.nodes[num%uint64(len(e.nodes))]
-	}
+	requestFrom := e.requestFrom()
+
 	e.lastSequenceRequested = end
 	e.Comm.SendMessage(msg, requestFrom)
+}
+
+// requestFrom returns a node to send a message request to
+// this is used to ensure that we are not sending a message to ourselves
+func (e *Epoch) requestFrom() NodeID {
+	for _, node := range e.Comm.ListNodes() {
+		if !node.Equals(e.ID) {
+			return node
+		}
+	}
+	return NodeID{}
 }

@@ -21,13 +21,11 @@ func TestSimplexMultiNodeSimple(t *testing.T) {
 	bb := newTestControlledBlockBuilder()
 
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
-	net := newInMemNetwork(nodes)
-	n1 := newSimplexNode(t, nodes[0], net, bb)
-	n2 := newSimplexNode(t, nodes[1], net, bb)
-	n3 := newSimplexNode(t, nodes[2], net, bb)
-	n4 := newSimplexNode(t, nodes[3], net, bb)
-	net.addInstances(t, n1, n2, n3, n4)
-
+	net := newInMemNetwork(t, nodes)
+	newSimplexNode(t, nodes[0], net, bb)
+	newSimplexNode(t, nodes[1], net, bb)
+	newSimplexNode(t, nodes[2], net, bb)
+	newSimplexNode(t, nodes[3], net, bb)
 	bb.triggerNewBlock()
 
 	net.startInstances()
@@ -67,6 +65,7 @@ func newSimplexNodeWithStorage(t *testing.T, nodeID NodeID, net *inMemNetwork, b
 			from NodeID
 		}, 100)}
 
+	net.addNode(ti)
 	return ti
 }
 
@@ -84,6 +83,7 @@ func newSimplexNode(t *testing.T, nodeID NodeID, net *inMemNetwork, bb BlockBuil
 			from NodeID
 		}, 100)}
 
+	net.addNode(ti)
 	return ti
 }
 
@@ -235,34 +235,39 @@ func (c *testComm) Broadcast(msg *Message) {
 }
 
 type inMemNetwork struct {
-	instances []*testNode
+	t         *testing.T
 	nodes     []NodeID
+	instances []*testNode
 }
 
-// must pass all nodeIDs before adding instances to the network
-func newInMemNetwork(nodeIDs []NodeID) *inMemNetwork {
+// newInMemNetwork creates an in-memory network. Node IDs must be provided before
+// adding instances, as nodes require prior knowledge of all participants.
+func newInMemNetwork(t *testing.T, nodes []NodeID) *inMemNetwork {
 	net := &inMemNetwork{
+		t:         t,
+		nodes:     nodes,
 		instances: make([]*testNode, 0),
-		nodes:     nodeIDs,
 	}
 	return net
 }
 
-func (n *inMemNetwork) addInstances(t *testing.T, node ...*testNode) {
+func (n *inMemNetwork) addNode(node *testNode) {
 	allowed := false
-	for _, n := range node {
-		if n.e.ID.Equals(n.e.ID) {
+	for _, id := range n.nodes {
+		if bytes.Equal(id, node.e.ID) {
 			allowed = true
 			break
 		}
 	}
-	require.True(t, allowed, "node not allowed to join network")
-	n.instances = append(n.instances, node...)
+	require.True(node.t, allowed, "node must be declared before adding")
+	n.instances = append(n.instances, node)
 }
 
 // startInstances starts all instances in the network.
 // The first one is typically the leader, so we make sure to start it last.
 func (n *inMemNetwork) startInstances() {
+	require.Equal(n.t, len(n.nodes), len(n.instances))
+
 	for i := len(n.nodes) - 1; i >= 0; i-- {
 		n.instances[i].start()
 	}
