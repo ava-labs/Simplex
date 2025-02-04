@@ -19,17 +19,23 @@ func TestRetrieveFromStorage(t *testing.T) {
 	}{Block: newTestBlock(ProtocolMetadata{Seq: 41})}
 
 	block := newTestBlock(ProtocolMetadata{Seq: 0})
+	fCert := FinalizationCertificate{
+		Finalization: ToBeSignedFinalization{
+			BlockHeader: block.BlockHeader(),
+		},
+	}
 	normalStorage := newInMemStorage()
 	normalStorage.data[0] = struct {
 		Block
 		FinalizationCertificate
-	}{Block: block}
+	}{Block: block, FinalizationCertificate: fCert}
 
 	for _, testCase := range []struct {
 		description   string
 		storage       Storage
 		expectedErr   error
 		expectedBlock Block
+		expectedFCert *FinalizationCertificate
 	}{
 		{
 			description: "no blocks in storage",
@@ -44,12 +50,14 @@ func TestRetrieveFromStorage(t *testing.T) {
 			description:   "normal storage",
 			storage:       normalStorage,
 			expectedBlock: block,
+			expectedFCert: &fCert,
 		},
 	} {
 		t.Run(testCase.description, func(t *testing.T) {
-			block, err := RetrieveLastBlockFromStorage(testCase.storage)
+			block, fCert, err := RetrieveLastIndexFromStorage(testCase.storage)
 			require.Equal(t, testCase.expectedErr, err)
 			require.Equal(t, testCase.expectedBlock, block)
+			require.Equal(t, testCase.expectedFCert, fCert)
 		})
 	}
 }

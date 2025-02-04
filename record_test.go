@@ -11,23 +11,28 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func newNotarizationRecord(logger simplex.Logger, signatureAggregator simplex.SignatureAggregator, block simplex.Block, ids []simplex.NodeID) ([]byte, error) {
+func newNotarization(logger simplex.Logger, signatureAggregator simplex.SignatureAggregator, block simplex.Block, ids []simplex.NodeID) (simplex.Notarization, error) {
 	votesForCurrentRound := make(map[string]*simplex.Vote)
 	for _, id := range ids {
 		vote, err := newTestVote(block, id)
 		if err != nil {
-			return nil, err
+			return simplex.Notarization{}, err
 		}
+
 		votesForCurrentRound[string(id)] = vote
 	}
 
 	notarization, err := simplex.NewNotarization(logger, signatureAggregator, votesForCurrentRound, block.BlockHeader())
+	return notarization, err
+}
+
+func newNotarizationRecord(logger simplex.Logger, signatureAggregator simplex.SignatureAggregator, block simplex.Block, ids []simplex.NodeID) ([]byte, error) {
+	notarization, err := newNotarization(logger, signatureAggregator, block, ids)
 	if err != nil {
 		return nil, err
 	}
 
 	record := simplex.NewQuorumRecord(notarization.QC.Bytes(), notarization.Vote.Bytes(), record.NotarizationRecordType)
-
 	return record, nil
 }
 
