@@ -58,15 +58,15 @@ func newSimplexNodeWithStorage(t *testing.T, nodeID NodeID, net *inMemNetwork, b
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
 	ti := &testNode{
-		wal:    conf.WAL.(*testWAL),
-		e:      e,
-		t:      t,
+		wal:     conf.WAL.(*testWAL),
+		e:       e,
+		t:       t,
 		storage: conf.Storage.(*InMemStorage),
 		ingress: make(chan struct {
 			msg  *Message
 			from NodeID
 		}, 100)}
-			
+
 	return ti
 }
 
@@ -75,9 +75,9 @@ func newSimplexNode(t *testing.T, nodeID NodeID, net *inMemNetwork, bb BlockBuil
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
 	ti := &testNode{
-		wal:    conf.WAL.(*testWAL),
-		e:      e,
-		t:      t,
+		wal:     conf.WAL.(*testWAL),
+		e:       e,
+		t:       t,
 		storage: conf.Storage.(*InMemStorage),
 		ingress: make(chan struct {
 			msg  *Message
@@ -111,7 +111,7 @@ func defaultTestNodeEpochConfig(t *testing.T, nodeID NodeID, net *inMemNetwork, 
 
 type testNode struct {
 	wal     *testWAL
-	storage  *InMemStorage
+	storage *InMemStorage
 	e       *Epoch
 	ingress chan struct {
 		msg  *Message

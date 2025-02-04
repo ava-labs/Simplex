@@ -304,7 +304,7 @@ func (e *Epoch) setMetadataFromRecords(records [][]byte) error {
 			e.round = notarization.Vote.Round + 1
 			e.Epoch = notarization.Vote.BlockHeader.Epoch
 			return nil
-		} 
+		}
 	}
 
 	return nil
@@ -370,7 +370,7 @@ func (e *Epoch) handleFinalizationCertificateMessage(message *FinalizationCertif
 	e.Logger.Verbo("Received finalization certificate message",
 		zap.Stringer("from", from), zap.Uint64("round", message.Finalization.Round), zap.Uint64("seq", message.Finalization.Seq))
 	nextSeqToCommit := e.Storage.Height()
-	if  nextSeqToCommit > message.Finalization.Seq {
+	if nextSeqToCommit > message.Finalization.Seq {
 		// this may happen since we delete rounds after finalizing them
 		return nil
 	}
@@ -431,8 +431,8 @@ func (e *Epoch) shouldCollectFutureFinalizationCertificates() bool {
 	if e.lastSequenceRequested >= e.highestFCertReceived.Finalization.Round {
 		return false
 	}
-	
-	return e.round + e.maxRoundWindow/2 > e.lastSequenceRequested
+
+	return e.round+e.maxRoundWindow/2 > e.lastSequenceRequested
 }
 
 func (e *Epoch) isFinalizationCertificateValid(fCert *FinalizationCertificate) (bool, error) {
@@ -1538,7 +1538,7 @@ func (e *Epoch) storeProposal(block Block) bool {
 
 	round := NewRound(block)
 	e.rounds[md.Round] = round
-	
+
 	return true
 }
 

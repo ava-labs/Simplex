@@ -163,8 +163,8 @@ func TestReplication(t *testing.T) {
 	net.startInstances()
 	bb.triggerNewBlock()
 
-	// all blocks except the lagging node start at round 8, seq 8. 
-	// lagging node starts at round 0, seq 0. 
+	// all blocks except the lagging node start at round 8, seq 8.
+	// lagging node starts at round 0, seq 0.
 	// this asserts that the lagging node catches up to the latest round
 	for _, n := range net.instances {
 		n.wal.assertNotarization(uint64(startSeq))
@@ -241,7 +241,7 @@ func buildAndSendBlock(t *testing.T, e *simplex.Epoch, bb *testBlockBuilder, fro
 	return block
 }
 
-func newStorage(t *testing.T, nodes []simplex.NodeID, bb simplex.BlockBuilder, seqs uint64) []simplex.SequenceData {	
+func newStorage(t *testing.T, nodes []simplex.NodeID, bb simplex.BlockBuilder, seqs uint64) []simplex.SequenceData {
 	logger := testutil.MakeLogger(t, int(0))
 	ctx := context.Background()
 	protocolMetadata := simplex.ProtocolMetadata{}

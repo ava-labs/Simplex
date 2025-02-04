@@ -167,7 +167,7 @@ func (e *Epoch) handleFinalizationCertificateResponse(resp *FinalizationCertific
 }
 
 func (e *Epoch) handleLatestRoundResponse(r *LatestRoundResponse) {
-	
+
 }
 
 func (e *Epoch) storeFutureFinalizationResponse(fCert FinalizationCertificate, block Block, from NodeID) {
@@ -195,7 +195,7 @@ func (e *Epoch) storeFutureFinalizationResponse(fCert FinalizationCertificate, b
 	msg.fCert = &fCert
 }
 
-// sendFutureCertficatesRequests sends requests for future finalization certificates for the 
+// sendFutureCertficatesRequests sends requests for future finalization certificates for the
 // range of sequences [start, end)
 func (e *Epoch) sendFutureCertficatesRequests(start uint64, end uint64) {
 	if e.lastSequenceRequested >= end {
@@ -214,15 +214,14 @@ func (e *Epoch) sendFutureCertficatesRequests(start uint64, end uint64) {
 		},
 	}
 	msg := &Message{Request: roundRequest}
-	
+
 	// todo: find a better way to determine who to send to
 	requestFrom := e.nodes[0]
 	if e.lastBlock != nil {
 		hash := sha256.Sum256(e.lastBlock.Bytes())
 		num := binary.BigEndian.Uint64(hash[:8])
-		requestFrom = e.nodes[num % uint64(len(e.nodes))]
+		requestFrom = e.nodes[num%uint64(len(e.nodes))]
 	}
 	e.lastSequenceRequested = end
 	e.Comm.SendMessage(msg, requestFrom)
 }
-
