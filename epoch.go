@@ -80,7 +80,7 @@ type Epoch struct {
 	monitor                        *Monitor
 	cancelWaitForBlockNotarization context.CancelFunc
 
-	// latest seq we requested
+	// latest seq requested
 	lastSequenceRequested uint64
 }
 
@@ -126,10 +126,8 @@ func (e *Epoch) HandleMessage(msg *Message, from NodeID) error {
 	case msg.FinalizationCertificate != nil:
 		return e.handleFinalizationCertificateMessage(msg.FinalizationCertificate, from)
 	case msg.Response != nil:
-		e.handleResponse(msg.Response, from)
-		return nil
+		return e.handleResponse(msg.Response, from)
 	case msg.Request != nil:
-		// todo: move to request method
 		resp := e.HandleRequest(msg.Request, from)
 		msg := &Message{Response: resp}
 		if resp != nil {
@@ -186,7 +184,7 @@ func (e *Epoch) syncBlockRecord(r []byte) error {
 	if err != nil {
 		return err
 	}
-	b := e.storeProposal(block, false)
+	b := e.storeProposal(block)
 	if !b {
 		return fmt.Errorf("failed to store block from WAL")
 	}
@@ -405,7 +403,7 @@ func (e *Epoch) collectFutureFinalizationCertificates(fCert *FinalizationCertifi
 	fCertRound := fCert.Finalization.Round
 	nextSeqToCommit := e.Storage.Height()
 	endSeq := math.Min(float64(fCertRound), float64(e.maxRoundWindow+e.round))
-	// Node is behind, but we've already sent messages to collecting future fCerts
+	// Node is behind, but we've already sent messages to collect future fCerts
 	if e.lastSequenceRequested >= uint64(endSeq) {
 		return
 	}
@@ -692,7 +690,6 @@ func (e *Epoch) persistFinalizationCertificate(fCert FinalizationCertificate) er
 		for {
 			r := fCert.Finalization.Round
 			block := e.rounds[r].block
-			e.Logger.Info("Attempt to index", zap.Uint64("round", fCert.Finalization.Round), zap.Uint64("sequence", fCert.Finalization.Seq), zap.Stringer("digest", fCert.Finalization.BlockHeader.Digest))
 			e.Storage.Index(block, fCert)
 			e.Logger.Info("Committed block",
 				zap.Uint64("round", fCert.Finalization.Round),
@@ -1014,10 +1011,17 @@ func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote)
 		record := BlockRecord(md, block.Bytes())
 		e.WAL.Append(record)
 
-		if !e.storeProposal(block, true) {
+		if !e.storeProposal(block) {
 			e.Logger.Warn("Unable to store proposed block for the round", zap.Stringer("NodeID", from), zap.Uint64("round", md.Round))
 			return md.Digest
 			// TODO: timeout
+		}
+
+		// We might have received votes and finalizations from future rounds before we received this block.
+		// So load the messages into our round data structure now that we have created it.
+		err := e.maybeLoadFutureMessages(md.Round)
+		if err != nil {
+			e.Logger.Warn("Failed to load future messages", zap.Error(err))
 		}
 
 		e.deleteFutureProposal(from, md.Round)
@@ -1171,9 +1175,7 @@ func (e *Epoch) buildBlock() {
 
 func (e *Epoch) createBlockBuildingTask(metadata ProtocolMetadata) func() Digest {
 	return func() Digest {
-		fmt.Println("running createBlockBuildingTask")
 		block, ok := e.BlockBuilder.BuildBlock(e.finishCtx, metadata)
-		fmt.Println("finished createBlockBuildingTask")
 		if !ok {
 			e.Logger.Warn("Failed building block")
 			return Digest{}
@@ -1216,7 +1218,7 @@ func (e *Epoch) proposeBlock(block Block) error {
 		},
 	}
 
-	if !e.storeProposal(block, true) {
+	if !e.storeProposal(block) {
 		return errors.New("failed to store block proposed by me")
 	}
 
@@ -1443,10 +1445,7 @@ func (e *Epoch) maybeLoadFutureMessages(round uint64) error {
 		for from, messagesFromNode := range e.futureMessages {
 			if msgs, exists := messagesFromNode[round]; exists {
 				if msgs.fCert != nil {
-					// TODO: couple weird things. It would be nice to call `handleBlockMessage` here
-					// however, that function requires a block to be sent from the leader of that round.
-					// Another thing for why we can't call handleBlockMessage: when we aren't guarenteed to have the vote attached to the block message in this instance
-					stored := e.storeProposal(msgs.proposal.Block, false)
+					stored := e.storeProposal(msgs.proposal.Block)
 					if !stored {
 						return errors.New("failed to store block proposed by a node")
 					}
@@ -1495,7 +1494,7 @@ func (e *Epoch) maybeLoadFutureMessages(round uint64) error {
 
 // storeProposal stores a block in the epochs memory(NOT storage).
 // it creates a new round with the block and stores it in the rounds map.
-func (e *Epoch) storeProposal(block Block, load bool) bool {
+func (e *Epoch) storeProposal(block Block) bool {
 	md := block.BlockHeader()
 
 	// Have we already received a block from that node?
@@ -1510,11 +1509,7 @@ func (e *Epoch) storeProposal(block Block, load bool) bool {
 
 	round := NewRound(block)
 	e.rounds[md.Round] = round
-	// We might have received votes and finalizations from future rounds before we received this block.
-	// So load the messages into our round data structure now that we have created it.
-	if load {
-		e.maybeLoadFutureMessages(md.Round)
-	}
+	
 	return true
 }
 

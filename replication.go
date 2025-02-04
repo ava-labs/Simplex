@@ -44,7 +44,7 @@ type LatestRoundRequest struct {
 // if block has not been proposed yet, we should return the last round's block, notarization, and fCert
 type LatestRoundResponse struct {
 	// last finalizaed block
-	last SequenceData
+	LastIndex SequenceData
 
 	// current block
 	Block        Block
@@ -93,7 +93,7 @@ func (e *Epoch) handleLatestBlockRequest() *LatestRoundResponse {
 	if err != nil {
 		return &LatestRoundResponse{}
 	}
-	resp.last = SequenceData{
+	resp.LastIndex = SequenceData{
 		Block: block,
 		FCert: fCert,
 	}
@@ -116,19 +116,21 @@ func (e *Epoch) handleLatestBlockRequest() *LatestRoundResponse {
 	if ok {
 		return resp
 	}
-	return &LatestRoundResponse{
-		Block:        round.block,
-		Notarization: round.notarization,
-	}
+
+	resp.Block = round.block
+	resp.Notarization = round.notarization
+	return resp
 }
 
-func (e *Epoch) handleResponse(resp *Response, from NodeID) {
+func (e *Epoch) handleResponse(resp *Response, from NodeID) error {
+	var err error
 	if resp.LatestRoundResponse != nil {
 		e.handleLatestRoundResponse(resp.LatestRoundResponse)
 	}
 	if resp.FinalizationCertificateResponse != nil {
-		e.handleFinalizationCertificateResponse(resp.FinalizationCertificateResponse, from)
+		err = e.handleFinalizationCertificateResponse(resp.FinalizationCertificateResponse, from)
 	}
+	return err
 }
 
 func (e *Epoch) handleFinalizationCertificateResponse(resp *FinalizationCertificateResponse, from NodeID) error {
