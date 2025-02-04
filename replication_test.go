@@ -115,7 +115,7 @@ func TestHandleFinalizationCertificateRequest(t *testing.T) {
 		QCDeserializer:      &testQCDeserializer{t: t},
 	}
 
-	seqs := newStorage(t, nodes, bb, 10)
+	seqs := createBlocks(t, nodes, bb, 10)
 	for _, data := range seqs {
 		conf.Storage.Index(data.Block, data.FCert)
 	}
@@ -149,7 +149,7 @@ func TestReplication(t *testing.T) {
 	startSeq := uint64(8)
 
 	// initiate a network with 4 nodes. one node is behind by 8 blocks
-	storageData := newStorage(t, nodes, &bb.testBlockBuilder, startSeq)
+	storageData := createBlocks(t, nodes, &bb.testBlockBuilder, startSeq)
 	normalNode1 := newSimplexNodeWithStorage(t, nodes[0], net, bb, storageData)
 	normalNode2 := newSimplexNodeWithStorage(t, nodes[1], net, bb, storageData)
 	normalNode3 := newSimplexNodeWithStorage(t, nodes[2], net, bb, storageData)
@@ -177,7 +177,7 @@ func TestReplicationExceedsMaxRoundWindow(t *testing.T) {
 	net := newInMemNetwork(nodes)
 	startSeq := uint64(simplex.DefaultMaxRoundWindow + 3)
 
-	storageData := newStorage(t, nodes, &bb.testBlockBuilder, startSeq)
+	storageData := createBlocks(t, nodes, &bb.testBlockBuilder, startSeq)
 	normalNode1 := newSimplexNodeWithStorage(t, nodes[0], net, bb, storageData)
 	normalNode2 := newSimplexNodeWithStorage(t, nodes[1], net, bb, storageData)
 	normalNode3 := newSimplexNodeWithStorage(t, nodes[2], net, bb, storageData)
@@ -234,23 +234,26 @@ func buildAndSendBlock(t *testing.T, e *simplex.Epoch, bb *testBlockBuilder, fro
 	return block
 }
 
-func newStorage(t *testing.T, nodes []simplex.NodeID, bb simplex.BlockBuilder, seqs uint64) []simplex.SequenceData {
+func createBlocks(t *testing.T, nodes []simplex.NodeID, bb simplex.BlockBuilder, seqCount uint64) []simplex.SequenceData {
 	logger := testutil.MakeLogger(t, int(0))
 	ctx := context.Background()
-	protocolMetadata := simplex.ProtocolMetadata{}
-	data := make([]simplex.SequenceData, 0, seqs)
-	for i := uint64(0); i < seqs; i++ {
+	data := make([]simplex.SequenceData, 0, seqCount)
+	var prev simplex.Digest
+	for i := uint64(0); i < seqCount; i++ {
+		protocolMetadata := simplex.ProtocolMetadata{
+			Seq: i,
+			Round: i,
+			Prev: prev,
+		}
+		
 		block, ok := bb.BuildBlock(ctx, protocolMetadata)
 		require.True(t, ok)
+		prev = block.BlockHeader().Digest
 		fCert, _ := newFinalizationRecord(t, logger, &testSignatureAggregator{}, block, nodes)
 		data = append(data, simplex.SequenceData{
 			Block: block,
 			FCert: fCert,
 		})
-		protocolMetadata.Seq++
-		protocolMetadata.Round++
-		protocolMetadata.Prev = block.BlockHeader().Digest
 	}
-
 	return data
 }
