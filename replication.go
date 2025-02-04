@@ -148,6 +148,7 @@ func (e *Epoch) handleFinalizationCertificateResponse(resp *FinalizationCertific
 		}
 		if round.fCert != nil {
 			// we should never be here because the round would have been deleted
+			e.Logger.Error("Received finalization certificate for a round that already has a finalization certificate", zap.Uint64("round", data.FCert.Finalization.Seq))
 			continue
 		}
 		err := e.persistFinalizationCertificate(data.FCert)
@@ -194,6 +195,8 @@ func (e *Epoch) storeFutureFinalizationResponse(fCert FinalizationCertificate, b
 	msg.fCert = &fCert
 }
 
+// sendFutureCertficatesRequests sends requests for future finalization certificates for the 
+// range of sequences [start, end)
 func (e *Epoch) sendFutureCertficatesRequests(start uint64, end uint64) {
 	if e.lastSequenceRequested >= end {
 		// no need to resend
@@ -203,7 +206,6 @@ func (e *Epoch) sendFutureCertficatesRequests(start uint64, end uint64) {
 	for i := start; i < end; i++ {
 		seqs[i-start] = i
 	}
-
 	// also request latest round in case this fCert is also behind
 	roundRequest := &Request{
 		LatestRoundRequest: &LatestRoundRequest{},

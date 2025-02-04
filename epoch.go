@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	defaultMaxRoundWindow   = 10
+	DefaultMaxRoundWindow   = 10
 	defaultMaxPendingBlocks = 20
 
 	DefaultMaxProposalWaitTime = 5 * time.Second
@@ -82,6 +82,9 @@ type Epoch struct {
 
 	// latest seq requested
 	lastSequenceRequested uint64
+
+	// highest sequence we have seen
+	highestFCertReceived *FinalizationCertificate
 }
 
 func NewEpoch(conf EpochConfig) (*Epoch, error) {
@@ -148,7 +151,7 @@ func (e *Epoch) init() error {
 	e.nodes = e.Comm.ListNodes()
 	e.quorumSize = Quorum(len(e.nodes))
 	e.rounds = make(map[uint64]*Round)
-	e.maxRoundWindow = defaultMaxRoundWindow
+	e.maxRoundWindow = DefaultMaxRoundWindow
 	e.maxPendingBlocks = defaultMaxPendingBlocks
 	e.eligibleNodeIDs = make(map[string]struct{}, len(e.nodes))
 	e.futureMessages = make(messagesFromNode, len(e.nodes))
@@ -402,14 +405,34 @@ func (e *Epoch) handleFinalizationCertificateMessage(message *FinalizationCertif
 func (e *Epoch) collectFutureFinalizationCertificates(fCert *FinalizationCertificate) {
 	fCertRound := fCert.Finalization.Round
 	nextSeqToCommit := e.Storage.Height()
+	// Don't exceed the max round window
 	endSeq := math.Min(float64(fCertRound), float64(e.maxRoundWindow+e.round))
+	if e.highestFCertReceived == nil || fCertRound > e.highestFCertReceived.Finalization.Seq {
+		e.highestFCertReceived = fCert
+	}
 	// Node is behind, but we've already sent messages to collect future fCerts
 	if e.lastSequenceRequested >= uint64(endSeq) {
 		return
 	}
 
-	e.Logger.Debug("Node is behind, requesting missing finalization certificates", zap.Uint64("round", fCertRound))
-	e.sendFutureCertficatesRequests(nextSeqToCommit, uint64(endSeq))
+	startSeq := math.Max(float64(nextSeqToCommit), float64(e.lastSequenceRequested))
+	e.Logger.Debug("Node is behind, requesting missing finalization certificates", zap.Uint64("round", fCertRound), zap.Uint64("startSeq", uint64(startSeq)), zap.Uint64("endSeq", uint64(endSeq)))
+	e.sendFutureCertficatesRequests(uint64(startSeq), uint64(endSeq+1))
+}
+
+// shouldCollectFutureFinalizationCertificates returns true if the node should collect future finalization certificates.
+// This is the case when the node knows future sequences and the round has caught up to 1/2 of the maxRoundWindow.
+func (e *Epoch) shouldCollectFutureFinalizationCertificates() bool {
+	if e.highestFCertReceived == nil {
+		return false
+	}
+
+	// we send out more request once our round has caught upt to 1/2 of the maxRoundWindow
+	if e.lastSequenceRequested >= e.highestFCertReceived.Finalization.Round {
+		return false
+	}
+	
+	return e.round + e.maxRoundWindow/2 > e.lastSequenceRequested
 }
 
 func (e *Epoch) isFinalizationCertificateValid(fCert *FinalizationCertificate) (bool, error) {
@@ -1458,6 +1481,12 @@ func (e *Epoch) maybeLoadFutureMessages(round uint64) error {
 
 					// we can increase the round since we have a finalization certificate
 					e.increaseRound()
+
+					// check if we need to send out new requests
+					if e.shouldCollectFutureFinalizationCertificates() {
+						e.collectFutureFinalizationCertificates(e.highestFCertReceived)
+					}
+
 					continue
 				}
 				if msgs.proposal != nil {

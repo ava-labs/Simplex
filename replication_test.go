@@ -115,7 +115,7 @@ func TestHandleFinalizationCertificateRequest(t *testing.T) {
 		QCDeserializer:      &testQCDeserializer{t: t},
 	}
 
-	seqs := newStorage(t, l, nodes, bb, 10)
+	seqs := newStorage(t, nodes, bb, 10)
 	for _, data := range seqs {
 		conf.Storage.Index(data.Block, data.FCert)
 	}
@@ -143,14 +143,13 @@ func TestHandleFinalizationCertificateRequest(t *testing.T) {
 }
 
 func TestReplication(t *testing.T) {
-	l := testutil.MakeLogger(t, int(0))
 	bb := newTestControlledBlockBuilder()
 	nodes := []simplex.NodeID{{1}, {2}, {3}, []byte("lagging")}
 	net := newInMemNetwork(nodes)
 	startSeq := uint64(8)
 
-	// initiate a network with 3 nodes. one node is behind by 8 blocks
-	storageData := newStorage(t, l, nodes, &bb.testBlockBuilder, startSeq)
+	// initiate a network with 4 nodes. one node is behind by 8 blocks
+	storageData := newStorage(t, nodes, &bb.testBlockBuilder, startSeq)
 	normalNode1 := newSimplexNodeWithStorage(t, nodes[0], net, bb, storageData)
 	normalNode2 := newSimplexNodeWithStorage(t, nodes[1], net, bb, storageData)
 	normalNode3 := newSimplexNodeWithStorage(t, nodes[2], net, bb, storageData)
@@ -172,9 +171,39 @@ func TestReplication(t *testing.T) {
 	}
 }
 
-// func TestReplicationExceedsMaxRoundWindow() {
+func TestReplicationExceedsMaxRoundWindow(t *testing.T) {
+	bb := newTestControlledBlockBuilder()
+	nodes := []simplex.NodeID{{1}, {2}, {3}, []byte("lagging")}
+	net := newInMemNetwork(nodes)
+	startSeq := uint64(simplex.DefaultMaxRoundWindow + 3)
 
-// }
+	storageData := newStorage(t, nodes, &bb.testBlockBuilder, startSeq)
+	normalNode1 := newSimplexNodeWithStorage(t, nodes[0], net, bb, storageData)
+	normalNode2 := newSimplexNodeWithStorage(t, nodes[1], net, bb, storageData)
+	normalNode3 := newSimplexNodeWithStorage(t, nodes[2], net, bb, storageData)
+	laggingNode := newSimplexNode(t, nodes[3], net, bb)
+	laggingNodeIndex := 3
+	require.Equal(t, startSeq, normalNode1.storage.Height())
+	require.Equal(t, startSeq, normalNode2.storage.Height())
+	require.Equal(t, startSeq, normalNode3.storage.Height())
+	require.Equal(t, uint64(0), laggingNode.storage.Height())
+
+	net.addInstances(t, normalNode1, normalNode2, normalNode3, laggingNode)
+	net.startInstances()
+	bb.triggerNewBlock()
+
+	time.Sleep(50 * time.Millisecond)
+	// all blocks except the lagging node start at round 8, seq 8. 
+	// lagging node starts at round 0, seq 0. 
+	// this asserts that the lagging node catches up to the latest round
+	for i, n := range net.instances {
+		if i == laggingNodeIndex {
+			require.Equal(t, startSeq+1, n.storage.Height())
+		} else {
+			n.wal.assertNotarization(uint64(startSeq))
+		}
+	}
+}
 
 // // our node has a couple of blocks and notarizations causing us to increase our round
 // // then when we receive a fCert in the future, we should ensure those rounds are persisted
@@ -214,7 +243,8 @@ func buildAndSendBlock(t *testing.T, e *simplex.Epoch, bb *testBlockBuilder, fro
 	return block
 }
 
-func newStorage(t *testing.T, logger simplex.Logger, nodes []simplex.NodeID, bb simplex.BlockBuilder, seqs uint64) []simplex.SequenceData {	
+func newStorage(t *testing.T, nodes []simplex.NodeID, bb simplex.BlockBuilder, seqs uint64) []simplex.SequenceData {	
+	logger := testutil.MakeLogger(t, int(0))
 	ctx := context.Background()
 	protocolMetadata := simplex.ProtocolMetadata{}
 	data := make([]simplex.SequenceData, 0, seqs)
