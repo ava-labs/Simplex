@@ -167,7 +167,7 @@ func TestReplication(t *testing.T) {
 	// lagging node starts at round 0, seq 0.
 	// this asserts that the lagging node catches up to the latest round
 	for _, n := range net.instances {
-		n.wal.assertNotarization(uint64(startSeq))
+		n.storage.waitForBlockCommit(uint64(startSeq))
 	}
 }
 
@@ -182,7 +182,6 @@ func TestReplicationExceedsMaxRoundWindow(t *testing.T) {
 	normalNode2 := newSimplexNodeWithStorage(t, nodes[1], net, bb, storageData)
 	normalNode3 := newSimplexNodeWithStorage(t, nodes[2], net, bb, storageData)
 	laggingNode := newSimplexNode(t, nodes[3], net, bb)
-	laggingNodeIndex := 3
 	require.Equal(t, startSeq, normalNode1.storage.Height())
 	require.Equal(t, startSeq, normalNode2.storage.Height())
 	require.Equal(t, startSeq, normalNode3.storage.Height())
@@ -192,14 +191,8 @@ func TestReplicationExceedsMaxRoundWindow(t *testing.T) {
 	net.startInstances()
 	bb.triggerNewBlock()
 
-	time.Sleep(50 * time.Millisecond)
-	for i, n := range net.instances {
-		// we may be syncing from fCerts, so theres no notarization record to assert
-		if i == laggingNodeIndex {
-			require.Equal(t, startSeq+1, n.storage.Height())
-		} else {
-			n.wal.assertNotarization(uint64(startSeq))
-		}
+	for _, n := range net.instances {
+		n.storage.waitForBlockCommit(uint64(startSeq))
 	}
 }
 
