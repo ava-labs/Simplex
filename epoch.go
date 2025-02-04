@@ -280,7 +280,7 @@ func (e *Epoch) resumeFromWal(records [][]byte) error {
 
 func (e *Epoch) setMetadataFromStorage() error {
 	// load from storage if no notarization records
-	block, err := RetrieveLastBlockFromStorage(e.Storage)
+	block, _, err := RetrieveLastIndexFromStorage(e.Storage)
 	if err != nil {
 		return err
 	}
@@ -345,7 +345,7 @@ func (e *Epoch) syncFromWal() error {
 
 // loadLastBlock initializes the epoch with the lastBlock retrieved from storage.
 func (e *Epoch) loadLastBlock() error {
-	block, err := RetrieveLastBlockFromStorage(e.Storage)
+	block, _, err := RetrieveLastIndexFromStorage(e.Storage)
 	if err != nil {
 		return err
 	}

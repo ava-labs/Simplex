@@ -89,13 +89,13 @@ func (e *Epoch) handleFinalizationCertificateRequest(req *FinalizationCertificat
 func (e *Epoch) handleLatestBlockRequest() *LatestRoundResponse {
 	e.Logger.Debug("Received latest round request")
 	resp := &LatestRoundResponse{}
-	block, fCert, err := RetrieveLastFromStorage(e.Storage)
+	block, fCert, err := RetrieveLastIndexFromStorage(e.Storage)
 	if err != nil {
 		return &LatestRoundResponse{}
 	}
 	resp.LastIndex = SequenceData{
 		Block: block,
-		FCert: fCert,
+		FCert: *fCert,
 	}
 
 	// grab the current round

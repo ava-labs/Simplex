@@ -5,30 +5,17 @@ package simplex
 
 import "fmt"
 
-// RetrieveLastBlockFromStorage retrieves the latest block from storage.
+// RetrieveLastIndexFromStorage retrieves the latest block and fCert from storage.
 // Returns an error if it cannot be retrieved but the storage has some block.
 // Returns (nil, nil) if the storage is empty.
-func RetrieveLastBlockFromStorage(s Storage) (Block, error) {
+func RetrieveLastIndexFromStorage(s Storage) (Block, *FinalizationCertificate, error) {
 	height := s.Height()
 	if height == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
-	lastBlock, _, retrieved := s.Retrieve(height - 1)
-	if !retrieved {
-		return nil, fmt.Errorf("failed retrieving last block from storage with seq %d", height-1)
-	}
-	return lastBlock, nil
-}
-
-func RetrieveLastFromStorage(s Storage) (Block, FinalizationCertificate, error) {
-	height := s.Height()
-	if height == 0 {
-		return nil, FinalizationCertificate{}, nil
-	}
-
 	lastBlock, fCert, retrieved := s.Retrieve(height - 1)
 	if !retrieved {
-		return nil, FinalizationCertificate{}, fmt.Errorf("failed retrieving last block from storage with seq %d", height-1)
+		return nil, nil, fmt.Errorf("failed retrieving last block from storage with seq %d", height-1)
 	}
-	return lastBlock, fCert, nil
+	return lastBlock, &fCert, nil
 }
