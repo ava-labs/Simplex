@@ -365,7 +365,7 @@ func (e *Epoch) Stop() {
 func (e *Epoch) handleFinalizationCertificateMessage(message *FinalizationCertificate, from NodeID) error {
 	e.Logger.Verbo("Received finalization certificate message",
 		zap.Stringer("from", from), zap.Uint64("round", message.Finalization.Round), zap.Uint64("seq", message.Finalization.Seq))
-		
+
 	nextSeqToCommit := e.Storage.Height()
 	// Ignore finalization certificates for sequences we have already committed
 	if nextSeqToCommit > message.Finalization.Seq {
@@ -401,7 +401,6 @@ func (e *Epoch) handleFinalizationCertificateMessage(message *FinalizationCertif
 
 func (e *Epoch) collectFutureFinalizationCertificates(fCert *FinalizationCertificate) {
 	fCertRound := fCert.Finalization.Round
-	nextSeqToCommit := e.Storage.Height()
 	// Don't exceed the max round window
 	endSeq := math.Min(float64(fCertRound), float64(e.maxRoundWindow+e.round))
 	if e.highestFCertReceived == nil || fCertRound > e.highestFCertReceived.Finalization.Seq {
@@ -411,7 +410,8 @@ func (e *Epoch) collectFutureFinalizationCertificates(fCert *FinalizationCertifi
 	if e.lastSequenceRequested >= uint64(endSeq) {
 		return
 	}
-
+	
+	nextSeqToCommit := e.Storage.Height()
 	startSeq := math.Max(float64(nextSeqToCommit), float64(e.lastSequenceRequested))
 	e.Logger.Debug("Node is behind, requesting missing finalization certificates", zap.Uint64("round", fCertRound), zap.Uint64("startSeq", uint64(startSeq)), zap.Uint64("endSeq", uint64(endSeq)))
 	e.sendFutureCertficatesRequests(uint64(startSeq), uint64(endSeq+1))
