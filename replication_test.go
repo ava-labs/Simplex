@@ -2,7 +2,6 @@ package simplex_test
 
 import (
 	"context"
-	"fmt"
 	"simplex"
 	"simplex/testutil"
 	"simplex/wal"
@@ -168,7 +167,6 @@ func TestReplication(t *testing.T) {
 	// lagging node starts at round 0, seq 0.
 	// this asserts that the lagging node catches up to the latest round
 	for _, n := range net.instances {
-		fmt.Println(n.storage.Height(), n.e.ID)
 		n.storage.waitForBlockCommit(uint64(startSeq))
 	}
 }
