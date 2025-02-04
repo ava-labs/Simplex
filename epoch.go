@@ -83,7 +83,7 @@ type Epoch struct {
 	// latest seq requested
 	lastSequenceRequested uint64
 
-	// highest sequence we have seen
+	// highest sequence we have received a finalization certificate for
 	highestFCertReceived *FinalizationCertificate
 }
 

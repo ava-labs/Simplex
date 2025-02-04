@@ -193,10 +193,8 @@ func TestReplicationExceedsMaxRoundWindow(t *testing.T) {
 	bb.triggerNewBlock()
 
 	time.Sleep(50 * time.Millisecond)
-	// all blocks except the lagging node start at round 8, seq 8. 
-	// lagging node starts at round 0, seq 0. 
-	// this asserts that the lagging node catches up to the latest round
 	for i, n := range net.instances {
+		// we may be syncing from fCerts, so theres no notarization record to assert
 		if i == laggingNodeIndex {
 			require.Equal(t, startSeq+1, n.storage.Height())
 		} else {
