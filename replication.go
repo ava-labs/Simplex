@@ -49,6 +49,7 @@ type LatestRoundResponse struct {
 	Notarization *Notarization
 }
 
+// HandleRequest processes a request and returns a response. It also sends a response to the sender.
 func (e *Epoch) HandleRequest(req *Request, from NodeID) *Response {
 	// TODO: should I update requests to be async? and have the epoch respond with e.Comm.Send(msg, node)
 	response := &Response{}
@@ -59,6 +60,8 @@ func (e *Epoch) HandleRequest(req *Request, from NodeID) *Response {
 		response.FinalizationCertificateResponse = e.handleFinalizationCertificateRequest(req.FinalizationCertificateRequest)
 	}
 
+	msg := &Message{Response: response}
+	e.Comm.SendMessage(msg, from)
 	return response
 }
 

@@ -131,11 +131,7 @@ func (e *Epoch) HandleMessage(msg *Message, from NodeID) error {
 	case msg.Response != nil:
 		return e.handleResponse(msg.Response, from)
 	case msg.Request != nil:
-		resp := e.HandleRequest(msg.Request, from)
-		msg := &Message{Response: resp}
-		if resp != nil {
-			e.Comm.SendMessage(msg, from)
-		}
+		e.HandleRequest(msg.Request, from)
 		return nil
 	default:
 		e.Logger.Warn("Invalid message type", zap.Stringer("from", from))
@@ -369,9 +365,10 @@ func (e *Epoch) Stop() {
 func (e *Epoch) handleFinalizationCertificateMessage(message *FinalizationCertificate, from NodeID) error {
 	e.Logger.Verbo("Received finalization certificate message",
 		zap.Stringer("from", from), zap.Uint64("round", message.Finalization.Round), zap.Uint64("seq", message.Finalization.Seq))
+		
 	nextSeqToCommit := e.Storage.Height()
+	// Ignore finalization certificates for sequences we have already committed
 	if nextSeqToCommit > message.Finalization.Seq {
-		// this may happen since we delete rounds after finalizing them
 		return nil
 	}
 	valid, err := e.isFinalizationCertificateValid(message)
