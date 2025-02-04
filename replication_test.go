@@ -2,7 +2,6 @@ package simplex_test
 
 import (
 	"context"
-	"fmt"
 	"simplex"
 	"simplex/testutil"
 	"simplex/wal"
@@ -230,7 +229,6 @@ func newStorage(t *testing.T, logger simplex.Logger, nodes []simplex.NodeID, bb 
 		protocolMetadata.Seq++
 		protocolMetadata.Round++
 		protocolMetadata.Prev = block.BlockHeader().Digest
-		fmt.Printf("block digest %+v \n", block.BlockHeader().ProtocolMetadata)
 	}
 
 	return data

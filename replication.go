@@ -135,7 +135,6 @@ func (e *Epoch) handleResponse(resp *Response, from NodeID) error {
 
 func (e *Epoch) handleFinalizationCertificateResponse(resp *FinalizationCertificateResponse, from NodeID) error {
 	e.Logger.Debug("Received finalization certificate response", zap.String("from", from.String()), zap.Int("num seqs", len(resp.Data)))
-	// fmt.Printf("repsonse %+v\n", resp)
 	for _, data := range resp.Data {
 		if e.round+e.maxRoundWindow < data.FCert.Finalization.Seq {
 			// we are too far behind, we should ignore this message

@@ -1481,8 +1481,8 @@ func (e *Epoch) maybeLoadFutureMessages(round uint64) error {
 					delete(messagesFromNode, round)
 				}
 			} else {
-				// e.Logger.Debug("No future messages received for this round",
-				// 	zap.Stringer("from", NodeID(from)), zap.Uint64("round", round))
+				e.Logger.Debug("No future messages received for this round",
+					zap.Stringer("from", NodeID(from)), zap.Uint64("round", round))
 			}
 		}
 
