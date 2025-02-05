@@ -115,6 +115,7 @@ func (e *Epoch) HandleMessage(msg *Message, from NodeID) error {
 		return nil
 	}
 
+
 	switch {
 	case msg.BlockMessage != nil:
 		return e.handleBlockMessageFromLeader(msg.BlockMessage, from)
