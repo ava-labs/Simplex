@@ -654,9 +654,17 @@ func (e *Epoch) assembleFinalizationCertificate(round *Round) error {
 	return e.persistFinalizationCertificate(fCert)
 }
 
+func (e *Epoch) progressRoundsDueToCommit(round uint64) {
+	e.Logger.Debug("Progressing rounds due to commit", zap.Uint64("round", round))
+	for e.round < round {
+		e.increaseRound()
+	}
+}
+
 func (e *Epoch) persistFinalizationCertificate(fCert FinalizationCertificate) error {
 	// Check to see if we should commit this finalization to the storage as part of a block commit,
 	// or otherwise write it to the WAL in order to commit it later.
+	startRound := e.round
 	nextSeqToCommit := e.Storage.Height()
 	if fCert.Finalization.Seq == nextSeqToCommit {
 		for {
@@ -669,6 +677,11 @@ func (e *Epoch) persistFinalizationCertificate(fCert FinalizationCertificate) er
 				zap.Uint64("sequence", fCert.Finalization.Seq),
 				zap.Stringer("digest", fCert.Finalization.BlockHeader.Digest))
 			e.lastBlock = block
+
+			// We have commited because we have collected a finalization certificate.
+			// However, we may have not witnessed a notarization.
+			// Regardless of that, we can safely progress to the round succeeding the finalization.
+			e.progressRoundsDueToCommit(fCert.Finalization.Round + 1)
 
 			// If the round we're committing is too far in the past, don't keep it in the rounds cache.
 			if fCert.Finalization.Round+e.maxRoundWindow < e.round {
@@ -712,6 +725,12 @@ func (e *Epoch) persistFinalizationCertificate(fCert FinalizationCertificate) er
 	e.Logger.Debug("Broadcast finalization certificate",
 		zap.Uint64("round", fCert.Finalization.Round),
 		zap.Stringer("digest", fCert.Finalization.BlockHeader.Digest))
+
+	// If we have progressed to a new round while we committed blocks,
+	// start the new round.
+	if startRound < e.round {
+		return e.startRound()
+	}
 
 	return nil
 }
