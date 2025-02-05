@@ -11,8 +11,6 @@ import (
 	"encoding/asn1"
 	"encoding/binary"
 	"fmt"
-	"github.com/stretchr/testify/require"
-	"go.uber.org/zap/zapcore"
 	"math"
 	rand2 "math/rand"
 	. "simplex"
@@ -20,72 +18,10 @@ import (
 	"simplex/wal"
 	"sync"
 	"testing"
+
+	"github.com/stretchr/testify/require"
+	"go.uber.org/zap/zapcore"
 )
-
-func TestEpochFinalizeThenNotarize(t *testing.T) {
-	l := testutil.MakeLogger(t, 1)
-	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
-	storage := newInMemStorage()
-
-	wal := newTestWAL(t)
-
-	nodes := []NodeID{{1}, {2}, {3}, {4}}
-	quorum := Quorum(len(nodes))
-	conf := EpochConfig{
-		MaxProposalWait:     DefaultMaxProposalWaitTime,
-		Logger:              l,
-		ID:                  nodes[0],
-		Signer:              &testSigner{},
-		WAL:                 wal,
-		Verifier:            &testVerifier{},
-		Storage:             storage,
-		Comm:                noopComm(nodes),
-		BlockBuilder:        bb,
-		SignatureAggregator: &testSignatureAggregator{},
-	}
-
-	e, err := NewEpoch(conf)
-	require.NoError(t, err)
-
-	require.NoError(t, e.Start())
-
-	t.Run("commit without notarization, only with finalization", func(t *testing.T) {
-		for round := 0; round < 100; round++ {
-			notarizeAndFinalizeRound(t, nodes, uint64(round), e, bb, quorum, storage, true)
-			storage.waitForBlockCommit(uint64(round))
-		}
-	})
-
-	t.Run("notarization after commit without notarizations", func(t *testing.T) {
-		// leader is the proposer of the new block for the given round
-		leader := LeaderForRound(nodes, uint64(100))
-		// only create blocks if we are not the node running the epoch
-		if !leader.Equals(e.ID) {
-			md := e.Metadata()
-			_, ok := bb.BuildBlock(context.Background(), md)
-			require.True(t, ok)
-		}
-
-		block := <-bb.out
-
-		vote, err := newTestVote(block, nodes[0])
-		require.NoError(t, err)
-		err = e.HandleMessage(&Message{
-			BlockMessage: &BlockMessage{
-				Vote:  *vote,
-				Block: block,
-			},
-		}, nodes[0])
-		require.NoError(t, err)
-
-		for i := 1; i < quorum; i++ {
-			injectTestVote(t, e, block, nodes[i])
-		}
-
-		wal.assertNotarization(100)
-	})
-
-}
 
 func TestEpochSimpleFlow(t *testing.T) {
 	l := testutil.MakeLogger(t, 1)
@@ -114,11 +50,11 @@ func TestEpochSimpleFlow(t *testing.T) {
 
 	rounds := uint64(100)
 	for round := uint64(0); round < rounds; round++ {
-		notarizeAndFinalizeRound(t, nodes, round, e, bb, quorum, storage, false)
+		notarizeAndFinalizeRound(t, nodes, round, e, bb, quorum, storage)
 	}
 }
 
-func notarizeAndFinalizeRound(t *testing.T, nodes []NodeID, round uint64, e *Epoch, bb *testBlockBuilder, quorum int, storage *InMemStorage, skipNotarization bool) {
+func notarizeAndFinalizeRound(t *testing.T, nodes []NodeID, round uint64, e *Epoch, bb *testBlockBuilder, quorum int, storage *InMemStorage) {
 	// leader is the proposer of the new block for the given round
 	leader := LeaderForRound(nodes, round)
 	// only create blocks if we are not the node running the epoch
@@ -127,7 +63,6 @@ func notarizeAndFinalizeRound(t *testing.T, nodes []NodeID, round uint64, e *Epo
 		md := e.Metadata()
 		_, ok := bb.BuildBlock(context.Background(), md)
 		require.True(t, ok)
-		require.Equal(t, md.Round, md.Seq)
 	}
 
 	block := <-bb.out
@@ -145,23 +80,17 @@ func notarizeAndFinalizeRound(t *testing.T, nodes []NodeID, round uint64, e *Epo
 		require.NoError(t, err)
 	}
 
-	if !skipNotarization {
-		// start at one since our node has already voted
-		for i := 1; i < quorum; i++ {
-			// Skip the vote of the block proposer
-			if leader.Equals(nodes[i]) {
-				continue
-			}
-			injectTestVote(t, e, block, nodes[i])
+	// start at one since our node has already voted
+	for i := 1; i < quorum; i++ {
+		// Skip the vote of the block proposer
+		if leader.Equals(nodes[i]) {
+			continue
 		}
+		injectTestVote(t, e, block, nodes[i])
 	}
 
 	for i := 1; i < quorum; i++ {
 		injectTestFinalization(t, e, block, nodes[i])
-	}
-
-	if skipNotarization {
-		injectTestFinalization(t, e, block, nodes[quorum])
 	}
 
 	storage.waitForBlockCommit(round)

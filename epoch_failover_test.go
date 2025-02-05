@@ -65,7 +65,7 @@ func TestEpochLeaderFailover(t *testing.T) {
 	rounds := uint64(3)
 
 	for round := uint64(0); round < rounds; round++ {
-		notarizeAndFinalizeRound(t, nodes, round, e, bb, quorum, storage, false)
+		notarizeAndFinalizeRound(t, nodes, round, e, bb, quorum, storage)
 	}
 
 	bb.blockShouldBeBuilt <- struct{}{}
@@ -133,7 +133,7 @@ func TestEpochLeaderFailoverNotNeeded(t *testing.T) {
 	rounds := uint64(3)
 
 	for round := uint64(0); round < rounds; round++ {
-		notarizeAndFinalizeRound(t, nodes, round, e, bb, quorum, storage, false)
+		notarizeAndFinalizeRound(t, nodes, round, e, bb, quorum, storage)
 	}
 	bb.blockShouldBeBuilt <- struct{}{}
 	e.AdvanceTime(start.Add(conf.MaxProposalWait / 2))

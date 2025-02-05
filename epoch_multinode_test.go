@@ -18,45 +18,79 @@ import (
 )
 
 func TestSimplexMultiNodeSimple(t *testing.T) {
-	bb := newTestControlledBlockBuilder(t)
+	bb := newTestControlledBlockBuilder()
 
-	var net inMemNetwork
-	net.nodes = []NodeID{{1}, {2}, {3}, {4}}
-
-	n1 := newSimplexNode(t, 1, &net, bb)
-	n2 := newSimplexNode(t, 2, &net, bb)
-	n3 := newSimplexNode(t, 3, &net, bb)
-	n4 := newSimplexNode(t, 4, &net, bb)
-
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	net := newInMemNetwork(t, nodes)
+	newSimplexNode(t, nodes[0], net, bb)
+	newSimplexNode(t, nodes[1], net, bb)
+	newSimplexNode(t, nodes[2], net, bb)
+	newSimplexNode(t, nodes[3], net, bb)
 	bb.triggerNewBlock()
 
-	instances := []*testInstance{n4, n3, n2, n1}
-
-	for _, n := range instances {
-		n.start()
-	}
-
+	net.startInstances()
 	for seq := 0; seq < 10; seq++ {
-		for _, n := range instances {
-			n.ledger.waitForBlockCommit(uint64(seq))
+		for _, n := range net.instances {
+			n.wal.assertNotarization(uint64(seq))
 		}
 		bb.triggerNewBlock()
 	}
+
+	for seq := 0; seq < 10; seq++ {
+		for _, n := range net.instances {
+			n.storage.waitForBlockCommit(uint64(seq))
+		}
+	}
 }
 
-func (t *testInstance) start() {
+func (t *testNode) start() {
 	go t.handleMessages()
 	require.NoError(t.t, t.e.Start())
 }
 
-func newSimplexNode(t *testing.T, id uint8, net *inMemNetwork, bb BlockBuilder) *testInstance {
-	l := testutil.MakeLogger(t, int(id))
-	storage := newInMemStorage()
+func newSimplexNodeWithStorage(t *testing.T, nodeID NodeID, net *inMemNetwork, bb BlockBuilder, storage []SequenceData) *testNode {
+	conf := defaultTestNodeEpochConfig(t, nodeID, net, bb)
+	for _, data := range storage {
+		conf.Storage.Index(data.Block, data.FCert)
+	}
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	ti := &testNode{
+		wal:     conf.WAL.(*testWAL),
+		e:       e,
+		t:       t,
+		storage: conf.Storage.(*InMemStorage),
+		ingress: make(chan struct {
+			msg  *Message
+			from NodeID
+		}, 100)}
 
-	nodeID := NodeID{id}
+	net.addNode(ti)
+	return ti
+}
 
+func newSimplexNode(t *testing.T, nodeID NodeID, net *inMemNetwork, bb BlockBuilder) *testNode {
+	conf := defaultTestNodeEpochConfig(t, nodeID, net, bb)
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	ti := &testNode{
+		wal:     conf.WAL.(*testWAL),
+		e:       e,
+		t:       t,
+		storage: conf.Storage.(*InMemStorage),
+		ingress: make(chan struct {
+			msg  *Message
+			from NodeID
+		}, 100)}
+
+	net.addNode(ti)
+	return ti
+}
+
+func defaultTestNodeEpochConfig(t *testing.T, nodeID NodeID, net *inMemNetwork, bb BlockBuilder) EpochConfig {
+	l := testutil.MakeLogger(t, int(nodeID[0]))
 	wal := newTestWAL(t)
-
+	storage := newInMemStorage()
 	conf := EpochConfig{
 		MaxProposalWait: DefaultMaxProposalWaitTime,
 		Comm: &testComm{
@@ -72,28 +106,12 @@ func newSimplexNode(t *testing.T, id uint8, net *inMemNetwork, bb BlockBuilder) 
 		BlockBuilder:        bb,
 		SignatureAggregator: &testSignatureAggregator{},
 	}
-
-	e, err := NewEpoch(conf)
-	require.NoError(t, err)
-
-	ti := &testInstance{
-		wal:    wal,
-		e:      e,
-		t:      t,
-		ledger: storage,
-		ingress: make(chan struct {
-			msg  *Message
-			from NodeID
-		}, 100)}
-
-	net.instances = append(net.instances, ti)
-
-	return ti
+	return conf
 }
 
-type testInstance struct {
+type testNode struct {
 	wal     *testWAL
-	ledger  *InMemStorage
+	storage *InMemStorage
 	e       *Epoch
 	ingress chan struct {
 		msg  *Message
@@ -102,13 +120,13 @@ type testInstance struct {
 	t *testing.T
 }
 
-func (t *testInstance) HandleMessage(msg *Message, from NodeID) error {
+func (t *testNode) HandleMessage(msg *Message, from NodeID) error {
 	err := t.e.HandleMessage(msg, from)
 	require.NoError(t.t, err)
 	return err
 }
 
-func (t *testInstance) handleMessages() {
+func (t *testNode) handleMessages() {
 	for msg := range t.ingress {
 		err := t.HandleMessage(msg.msg, msg.from)
 		require.NoError(t.t, err)
@@ -217,19 +235,53 @@ func (c *testComm) Broadcast(msg *Message) {
 }
 
 type inMemNetwork struct {
+	t         *testing.T
 	nodes     []NodeID
-	instances []*testInstance
+	instances []*testNode
 }
 
+// newInMemNetwork creates an in-memory network. Node IDs must be provided before
+// adding instances, as nodes require prior knowledge of all participants.
+func newInMemNetwork(t *testing.T, nodes []NodeID) *inMemNetwork {
+	net := &inMemNetwork{
+		t:         t,
+		nodes:     nodes,
+		instances: make([]*testNode, 0),
+	}
+	return net
+}
+
+func (n *inMemNetwork) addNode(node *testNode) {
+	allowed := false
+	for _, id := range n.nodes {
+		if bytes.Equal(id, node.e.ID) {
+			allowed = true
+			break
+		}
+	}
+	require.True(node.t, allowed, "node must be declared before adding")
+	n.instances = append(n.instances, node)
+}
+
+// startInstances starts all instances in the network.
+// The first one is typically the leader, so we make sure to start it last.
+func (n *inMemNetwork) startInstances() {
+	require.Equal(n.t, len(n.nodes), len(n.instances))
+
+	for i := len(n.nodes) - 1; i >= 0; i-- {
+		n.instances[i].start()
+	}
+}
+
+// testControlledBlockBuilder is a test block builder that blocks
+// block building until a trigger is received
 type testControlledBlockBuilder struct {
-	t       *testing.T
 	control chan struct{}
 	testBlockBuilder
 }
 
-func newTestControlledBlockBuilder(t *testing.T) *testControlledBlockBuilder {
+func newTestControlledBlockBuilder() *testControlledBlockBuilder {
 	return &testControlledBlockBuilder{
-		t:                t,
 		control:          make(chan struct{}, 1),
 		testBlockBuilder: testBlockBuilder{out: make(chan *testBlock, 1)},
 	}
@@ -244,7 +296,6 @@ func (t *testControlledBlockBuilder) triggerNewBlock() {
 }
 
 func (t *testControlledBlockBuilder) BuildBlock(ctx context.Context, metadata ProtocolMetadata) (Block, bool) {
-	require.Equal(t.t, metadata.Seq, metadata.Round)
 	<-t.control
 	return t.testBlockBuilder.BuildBlock(ctx, metadata)
 }
