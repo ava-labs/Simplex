@@ -103,12 +103,18 @@ func (e *Epoch) HandleMessage(msg *Message, from NodeID) error {
 		return nil
 	}
 
+	if from.Equals(e.ID) {
+		e.Logger.Warn("Received message from self")
+		return nil
+	}
+
 	// Guard against receiving messages from unknown nodes
 	_, known := e.eligibleNodeIDs[string(from)]
 	if !known {
 		e.Logger.Warn("Received message from an unknown node", zap.Stringer("nodeID", from))
 		return nil
 	}
+
 
 	switch {
 	case msg.BlockMessage != nil:
@@ -904,12 +910,6 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 	if md.Round-e.round >= e.maxRoundWindow {
 		e.Logger.Debug("Received a block message for a too high round",
 			zap.Uint64("round", md.Round), zap.Uint64("our round", e.round))
-		return nil
-	}
-
-	// Ignore block messages sent by us
-	if e.ID.Equals(from) {
-		e.Logger.Debug("Got a BlockMessage from ourselves or created by us")
 		return nil
 	}
 
