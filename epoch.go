@@ -876,16 +876,16 @@ func (e *Epoch) hasSomeNodeSignedTwice(nodeIDs []NodeID) bool {
 	return false
 }
 
-// handleBlockMessageFromLeader expects the block message 
+// handleBlockMessageFromLeader expects the block message
 // to come from the leader of the round, otherwise the block will not be processed.
 func (e *Epoch) handleBlockMessageFromLeader(message *BlockMessage, from NodeID) error {
 	e.Logger.Verbo("Received block message",
 		zap.Stringer("from", from), zap.Uint64("round", message.Block.BlockHeader().Round))
-	
+
 	vote := message.Vote
 	from = vote.Signature.Signer
 	md := message.Block.BlockHeader()
-	
+
 	// Check that the node is a leader for the round corresponding to the block.
 	if !LeaderForRound(e.nodes, md.Round).Equals(from) {
 		// The block is associated with a round in which the sender is not the leader,

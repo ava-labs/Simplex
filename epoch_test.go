@@ -151,7 +151,7 @@ func TestEpochBlockSentFromNonLeader(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, e.Start())
-	
+
 	md := e.Metadata()
 	block, ok := bb.BuildBlock(context.Background(), md)
 	require.True(t, ok)
