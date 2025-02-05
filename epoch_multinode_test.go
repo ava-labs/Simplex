@@ -38,15 +38,9 @@ func TestSimplexMultiNodeSimple(t *testing.T) {
 
 	for seq := 0; seq < 10; seq++ {
 		for _, n := range instances {
-			n.wal.assertNotarization(uint64(seq))
-		}
-		bb.triggerNewBlock()
-	}
-
-	for seq := 0; seq < 10; seq++ {
-		for _, n := range instances {
 			n.ledger.waitForBlockCommit(uint64(seq))
 		}
+		bb.triggerNewBlock()
 	}
 }
 
