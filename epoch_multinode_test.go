@@ -18,7 +18,7 @@ import (
 )
 
 func TestSimplexMultiNodeSimple(t *testing.T) {
-	bb := newTestControlledBlockBuilder()
+	bb := newTestControlledBlockBuilder(t)
 
 	var net inMemNetwork
 	net.nodes = []NodeID{{1}, {2}, {3}, {4}}
@@ -228,12 +228,14 @@ type inMemNetwork struct {
 }
 
 type testControlledBlockBuilder struct {
+	t       *testing.T
 	control chan struct{}
 	testBlockBuilder
 }
 
-func newTestControlledBlockBuilder() *testControlledBlockBuilder {
+func newTestControlledBlockBuilder(t *testing.T) *testControlledBlockBuilder {
 	return &testControlledBlockBuilder{
+		t:                t,
 		control:          make(chan struct{}, 1),
 		testBlockBuilder: testBlockBuilder{out: make(chan *testBlock, 1)},
 	}
@@ -248,6 +250,7 @@ func (t *testControlledBlockBuilder) triggerNewBlock() {
 }
 
 func (t *testControlledBlockBuilder) BuildBlock(ctx context.Context, metadata ProtocolMetadata) (Block, bool) {
+	require.Equal(t.t, metadata.Seq, metadata.Round)
 	<-t.control
 	return t.testBlockBuilder.BuildBlock(ctx, metadata)
 }

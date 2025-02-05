@@ -62,6 +62,7 @@ func notarizeAndFinalizeRound(t *testing.T, nodes []NodeID, round uint64, e *Epo
 		md := e.Metadata()
 		_, ok := bb.BuildBlock(context.Background(), md)
 		require.True(t, ok)
+		require.Equal(t, md.Round, md.Seq)
 	}
 
 	block := <-bb.out

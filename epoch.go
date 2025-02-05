@@ -1213,7 +1213,7 @@ func (e *Epoch) Metadata() ProtocolMetadata {
 func (e *Epoch) metadata() ProtocolMetadata {
 	var prev Digest
 	seq := e.Storage.Height()
-	if e.lastBlock != nil {
+	if len(e.rounds) > 0 {
 		// Build on top of the latest block
 		currMed := e.getHighestRound().block.BlockHeader()
 		prev = currMed.Digest
