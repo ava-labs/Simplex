@@ -138,13 +138,15 @@ func (e *Epoch) handleFinalizationCertificateResponse(resp *FinalizationCertific
 	e.Logger.Debug("Received finalization certificate response", zap.String("from", from.String()), zap.Int("num seqs", len(resp.Data)))
 	for _, data := range resp.Data {
 		if e.round+e.maxRoundWindow < data.FCert.Finalization.Seq {
+			e.Logger.Debug("Received finalization certificate for a round that is too far ahead", zap.Uint64("seq", data.FCert.Finalization.Seq))
 			// we are too far behind, we should ignore this message
 			continue
 		}
 
 		// ensure the finalization certificate we get relates to the block
-		if !bytes.Equal(data.Block.Bytes(), data.FCert.Finalization.BlockHeader.Bytes()) {
-			e.Logger.Error("Finalization certificate does not match the block", zap.String("from", from.String()))
+		blockDigest := data.Block.BlockHeader().Digest
+		if !bytes.Equal(blockDigest[:], data.FCert.Finalization.BlockHeader.Digest[:]) {
+			e.Logger.Error("Finalization certificate does not match the block", zap.String("from", from.String()), zap.Uint64("seq", data.FCert.Finalization.Seq))
 			continue
 		}
 
@@ -163,10 +165,6 @@ func (e *Epoch) handleFinalizationCertificateResponse(resp *FinalizationCertific
 		if err != nil {
 			e.Logger.Error("Failed to persist finalization certificate", zap.Error(err))
 			continue
-		}
-		if e.round == data.FCert.Finalization.Seq {
-			e.Logger.Debug("Received finalization certificate for current round", zap.Uint64("round", e.round))
-			e.increaseRound()
 		}
 	}
 

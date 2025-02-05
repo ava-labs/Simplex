@@ -73,7 +73,7 @@ func notarizeAndFinalizeRound(t *testing.T, nodes []NodeID, round uint64, e *Epo
 		require.NoError(t, err)
 		err = e.HandleMessage(&Message{
 			BlockMessage: &BlockMessage{
-				Vote:  *vote,
+				Vote:  vote,
 				Block: block,
 			},
 		}, leader)
@@ -182,7 +182,7 @@ func createCallbacks(t *testing.T, rounds int, protocolMetadata ProtocolMetadata
 				e.HandleMessage(&Message{
 					BlockMessage: &BlockMessage{
 						Block: block,
-						Vote:  *vote,
+						Vote:  vote,
 					},
 				}, leader)
 			})
@@ -273,7 +273,7 @@ func TestEpochBlockSentTwice(t *testing.T) {
 	require.NoError(t, err)
 	err = e.HandleMessage(&Message{
 		BlockMessage: &BlockMessage{
-			Vote:  *vote,
+			Vote:  vote,
 			Block: block,
 		},
 	}, nodes[2])
@@ -284,7 +284,7 @@ func TestEpochBlockSentTwice(t *testing.T) {
 
 	err = e.HandleMessage(&Message{
 		BlockMessage: &BlockMessage{
-			Vote:  *vote,
+			Vote:  vote,
 			Block: block,
 		},
 	}, nodes[2])
@@ -346,7 +346,7 @@ func TestEpochBlockTooHighRound(t *testing.T) {
 		require.NoError(t, err)
 		err = e.HandleMessage(&Message{
 			BlockMessage: &BlockMessage{
-				Vote:  *vote,
+				Vote:  vote,
 				Block: block,
 			},
 		}, nodes[0])
@@ -369,7 +369,7 @@ func TestEpochBlockTooHighRound(t *testing.T) {
 		require.NoError(t, err)
 		err = e.HandleMessage(&Message{
 			BlockMessage: &BlockMessage{
-				Vote:  *vote,
+				Vote:  vote,
 				Block: block,
 			},
 		}, nodes[0])

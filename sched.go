@@ -4,8 +4,9 @@
 package simplex
 
 import (
-	"go.uber.org/zap"
 	"sync"
+
+	"go.uber.org/zap"
 )
 
 type scheduler struct {

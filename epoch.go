@@ -247,7 +247,7 @@ func (e *Epoch) resumeFromWal(records [][]byte) error {
 			proposal := &Message{
 				BlockMessage: &BlockMessage{
 					Block: block,
-					Vote:  vote,
+					Vote:  &vote,
 				},
 			}
 			// broadcast only if we are the leader
@@ -779,7 +779,7 @@ func (e *Epoch) persistFinalizationCertificate(fCert FinalizationCertificate) er
 
 	// If we have progressed to a new round while we committed blocks,
 	// start the new round.
-	if startRound < e.round {
+	if startRound < e.round  {
 		return e.startRound()
 	}
 
@@ -935,17 +935,14 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 		return nil
 	}
 
-	vote := message.Vote
-	from = vote.Signature.Signer
-
 	md := block.BlockHeader()
 
 	e.Logger.Debug("Handling block message", zap.Stringer("digest", md.Digest), zap.Uint64("round", md.Round))
 
 	// Don't bother processing blocks from the past
-	if e.round > md.Round {
-		return nil
-	}
+	// if e.round > md.Round {
+	// 	return nil
+	// }
 
 	// The block is for a too high round, we shouldn't handle it as
 	// we have only so much memory.
@@ -955,20 +952,24 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 		return nil
 	}
 
-	// Check that the node is a leader for the round corresponding to the block.
-	if !LeaderForRound(e.nodes, md.Round).Equals(from) {
-		// The block is associated with a round in which the sender is not the leader,
-		// it should not be sending us any block at all.
-		e.Logger.Debug("Got block from a block proposer that is not the leader of the round", zap.Stringer("NodeID", from), zap.Uint64("round", md.Round))
-		return nil
+	vote := message.Vote
+	if vote != nil {
+		from = vote.Signature.Signer
 	}
+
+	// // Check that the node is a leader for the round corresponding to the block.
+	// if !LeaderForRound(e.nodes, md.Round).Equals(from) {
+	// 	// The block is associated with a round in which the sender is not the leader,
+	// 	// it should not be sending us any block at all.
+	// 	e.Logger.Debug("Got block from a block proposer that is not the leader of the round", zap.Stringer("NodeID", from), zap.Uint64("round", md.Round))
+	// 	return nil
+	// }
 
 	// Check if we have verified this message in the past:
 	alreadyVerified := e.wasBlockAlreadyVerified(from, md)
 
-	if !alreadyVerified {
+	if !alreadyVerified && vote != nil {
 		// Ensure the block was voted on by its block producer:
-
 		// 1) Verify block digest corresponds to the digest voted on
 		if !bytes.Equal(vote.Vote.Digest[:], md.Digest[:]) {
 			e.Logger.Debug("ToBeSignedVote digest mismatches block digest", zap.Stringer("voteDigest", vote.Vote.Digest),
@@ -1027,7 +1028,7 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 	return nil
 }
 
-func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote) func() Digest {
+func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote *Vote) func() Digest {
 	return func() Digest {
 		md := block.BlockHeader()
 
@@ -1064,6 +1065,11 @@ func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote)
 
 		e.deleteFutureProposal(from, md.Round)
 
+		// we are in replication phasem, no need to create a vote
+		if e.round > md.Round {
+			return md.Digest
+		}
+
 		// Once we have stored the proposal, we have a Round object for the round.
 		// We store the vote to prevent verifying its signature again.
 		round, exists := e.rounds[md.Round]
@@ -1072,7 +1078,10 @@ func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote)
 			e.Logger.Error("programming error: round not found", zap.Uint64("round", md.Round))
 			return md.Digest
 		}
-		round.votes[string(vote.Signature.Signer)] = &vote
+		
+		if vote != nil {
+			round.votes[string(vote.Signature.Signer)] = vote
+		}
 
 		if err := e.doProposed(block); err != nil {
 			e.Logger.Warn("Failed voting on block", zap.Error(err))
@@ -1252,7 +1261,7 @@ func (e *Epoch) proposeBlock(block Block) error {
 	proposal := &Message{
 		BlockMessage: &BlockMessage{
 			Block: block,
-			Vote:  vote,
+			Vote:  &vote,
 		},
 	}
 
@@ -1356,6 +1365,11 @@ func (e *Epoch) monitorProgress(round uint64) {
 }
 
 func (e *Epoch) startRound() error {
+	// if we are in replicating dont build block
+	if e.highestFCertReceived != nil && e.highestFCertReceived.Finalization.BlockHeader.Round > e.round {
+		return nil
+	}
+
 	leaderForCurrentRound := LeaderForRound(e.nodes, e.round)
 
 	if e.ID.Equals(leaderForCurrentRound) {
@@ -1396,11 +1410,7 @@ func (e *Epoch) doProposed(block Block) error {
 
 	e.Comm.Broadcast(voteMsg)
 	// Send yourself a vote message
-	if err := e.handleVoteMessage(&vote, e.ID); err != nil {
-		return err
-	}
-
-	return nil
+	return e.handleVoteMessage(&vote, e.ID)
 }
 
 func (e *Epoch) voteOnBlock(block Block) (Vote, error) {
@@ -1488,10 +1498,6 @@ func (e *Epoch) handleFutureFinalizationCertificate(roundMessages *messagesForRo
 	// we dont want to handle any other messages if we have a finalization certificate
 	delete(e.futureMessages[string(from)], round)
 
-	// todo: this check should be moved to handleFinalizationCertificateMessage
-	// we can increase the round since we have a finalization certificate
-	e.increaseRound()
-
 	// check if we need to send out new requests
 	if e.shouldCollectFutureFinalizationCertificates() {
 		e.collectFutureFinalizationCertificates(e.highestFCertReceived)
@@ -1500,7 +1506,7 @@ func (e *Epoch) handleFutureFinalizationCertificate(roundMessages *messagesForRo
 }
 
 func (e *Epoch) maybeLoadFutureMessages(round uint64) error {
-	e.Logger.Debug("Loading messages received for this round in the past", zap.Uint64("round", round))
+	e.Logger.Debug("Loading messages received for this round in the past", zap.Uint64("round", round), zap.Uint64("my round", e.round), zap.String("id", e.ID.String()))
 	for {
 		round := e.round
 		height := e.Storage.Height()
