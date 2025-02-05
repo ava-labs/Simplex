@@ -11,8 +11,6 @@ import (
 	"encoding/asn1"
 	"encoding/binary"
 	"fmt"
-	"github.com/stretchr/testify/require"
-	"go.uber.org/zap/zapcore"
 	"math"
 	rand2 "math/rand"
 	. "simplex"
@@ -20,6 +18,9 @@ import (
 	"simplex/wal"
 	"sync"
 	"testing"
+
+	"github.com/stretchr/testify/require"
+	"go.uber.org/zap/zapcore"
 )
 
 func TestEpochFinalizeThenNotarize(t *testing.T) {
@@ -116,6 +117,56 @@ func TestEpochSimpleFlow(t *testing.T) {
 	for round := uint64(0); round < rounds; round++ {
 		notarizeAndFinalizeRound(t, nodes, round, e, bb, quorum, storage, false)
 	}
+}
+
+func TestEpochBlockSentFromNonLeader(t *testing.T) {
+	l := testutil.MakeLogger(t, 1)
+	nonLeaderMessage := false
+
+	l.Intercept(func(entry zapcore.Entry) error {
+		if entry.Message == "Got block from a block proposer that is not the leader of the round" {
+			nonLeaderMessage = true
+		}
+		return nil
+	})
+
+	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
+	storage := newInMemStorage()
+
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	conf := EpochConfig{
+		MaxProposalWait:     DefaultMaxProposalWaitTime,
+		Logger:              l,
+		ID:                  nodes[1],
+		Signer:              &testSigner{},
+		WAL:                 wal.NewMemWAL(t),
+		Verifier:            &testVerifier{},
+		Storage:             storage,
+		Comm:                noopComm(nodes),
+		BlockBuilder:        bb,
+		SignatureAggregator: &testSignatureAggregator{},
+	}
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+
+	require.NoError(t, e.Start())
+	
+	md := e.Metadata()
+	block, ok := bb.BuildBlock(context.Background(), md)
+	require.True(t, ok)
+
+	notLeader := nodes[3]
+	vote, err := newTestVote(block, notLeader)
+	require.NoError(t, err)
+	err = e.HandleMessage(&Message{
+		BlockMessage: &BlockMessage{
+			Vote:  *vote,
+			Block: block,
+		},
+	}, notLeader)
+	require.NoError(t, err)
+	require.True(t, nonLeaderMessage)
 }
 
 func notarizeAndFinalizeRound(t *testing.T, nodes []NodeID, round uint64, e *Epoch, bb *testBlockBuilder, quorum int, storage *InMemStorage, skipNotarization bool) {

@@ -115,10 +115,9 @@ func (e *Epoch) HandleMessage(msg *Message, from NodeID) error {
 		return nil
 	}
 
-
 	switch {
 	case msg.BlockMessage != nil:
-		return e.handleBlockMessage(msg.BlockMessage, from)
+		return e.handleBlockMessageFromLeader(msg.BlockMessage, from)
 	case msg.VoteMessage != nil:
 		return e.handleVoteMessage(msg.VoteMessage, from)
 	case msg.Notarization != nil:
@@ -877,6 +876,45 @@ func (e *Epoch) hasSomeNodeSignedTwice(nodeIDs []NodeID) bool {
 	return false
 }
 
+// handleBlockMessageFromLeader expects the block message 
+// to come from the leader of the round, otherwise the block will not be processed.
+func (e *Epoch) handleBlockMessageFromLeader(message *BlockMessage, from NodeID) error {
+	e.Logger.Verbo("Received block message",
+		zap.Stringer("from", from), zap.Uint64("round", message.Block.BlockHeader().Round))
+	
+	vote := message.Vote
+	from = vote.Signature.Signer
+	md := message.Block.BlockHeader()
+	
+	// Check that the node is a leader for the round corresponding to the block.
+	if !LeaderForRound(e.nodes, md.Round).Equals(from) {
+		// The block is associated with a round in which the sender is not the leader,
+		// it should not be sending us any block at all.
+		e.Logger.Debug("Got block from a block proposer that is not the leader of the round", zap.Stringer("NodeID", from), zap.Uint64("round", md.Round))
+		return nil
+	}
+
+	// Check if we have verified this message in the past:
+	alreadyVerified := e.wasBlockAlreadyVerified(from, md)
+
+	if !alreadyVerified {
+		// Ensure the block was voted on by its block producer:
+		// 1) Verify block digest corresponds to the digest voted on
+		if !bytes.Equal(vote.Vote.Digest[:], md.Digest[:]) {
+			e.Logger.Debug("ToBeSignedVote digest mismatches block digest", zap.Stringer("voteDigest", vote.Vote.Digest),
+				zap.Stringer("blockDigest", md.Digest))
+			return nil
+		}
+		// 2) Verify the vote is properly signed
+		if err := vote.Vote.Verify(vote.Signature.Value, e.Verifier, vote.Signature.Signer); err != nil {
+			e.Logger.Debug("ToBeSignedVote verification failed", zap.Stringer("NodeID", vote.Signature.Signer), zap.Error(err))
+			return nil
+		}
+	}
+
+	return e.handleBlockMessage(message, from)
+}
+
 func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 	block := message.Block
 	if block == nil {
@@ -884,17 +922,11 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 		return nil
 	}
 
-	e.Logger.Verbo("Received block message",
-		zap.Stringer("from", from), zap.Uint64("round", block.BlockHeader().Round))
-
 	pendingBlocks := e.sched.Size()
 	if pendingBlocks > e.maxPendingBlocks {
 		e.Logger.Warn("Too many blocks being verified to ingest another one", zap.Int("pendingBlocks", pendingBlocks))
 		return nil
 	}
-
-	vote := message.Vote
-	from = vote.Signature.Signer
 
 	md := block.BlockHeader()
 
@@ -911,33 +943,6 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 		e.Logger.Debug("Received a block message for a too high round",
 			zap.Uint64("round", md.Round), zap.Uint64("our round", e.round))
 		return nil
-	}
-
-	// Check that the node is a leader for the round corresponding to the block.
-	if !LeaderForRound(e.nodes, md.Round).Equals(from) {
-		// The block is associated with a round in which the sender is not the leader,
-		// it should not be sending us any block at all.
-		e.Logger.Debug("Got block from a block proposer that is not the leader of the round", zap.Stringer("NodeID", from), zap.Uint64("round", md.Round))
-		return nil
-	}
-
-	// Check if we have verified this message in the past:
-	alreadyVerified := e.wasBlockAlreadyVerified(from, md)
-
-	if !alreadyVerified {
-		// Ensure the block was voted on by its block producer:
-
-		// 1) Verify block digest corresponds to the digest voted on
-		if !bytes.Equal(vote.Vote.Digest[:], md.Digest[:]) {
-			e.Logger.Debug("ToBeSignedVote digest mismatches block digest", zap.Stringer("voteDigest", vote.Vote.Digest),
-				zap.Stringer("blockDigest", md.Digest))
-			return nil
-		}
-		// 2) Verify the vote is properly signed
-		if err := vote.Vote.Verify(vote.Signature.Value, e.Verifier, vote.Signature.Signer); err != nil {
-			e.Logger.Debug("ToBeSignedVote verification failed", zap.Stringer("NodeID", vote.Signature.Signer), zap.Error(err))
-			return nil
-		}
 	}
 
 	// If this is a message from a more advanced round,
@@ -971,7 +976,7 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 	defer e.deleteFutureProposal(from, md.Round)
 
 	// Create a task that will verify the block in the future, after its predecessors have also been verified.
-	task := e.createBlockVerificationTask(block, from, vote)
+	task := e.createBlockVerificationTask(block, from, message.Vote)
 
 	// isBlockReadyToBeScheduled checks if the block is known to us either from some previous round,
 	// or from storage. If so, then we have verified it in the past, since only verified blocks are saved in memory.
@@ -1326,7 +1331,7 @@ func (e *Epoch) startRound() error {
 		return nil
 	}
 
-	return e.handleBlockMessage(msgsForRound.proposal, leaderForCurrentRound)
+	return e.handleBlockMessageFromLeader(msgsForRound.proposal, leaderForCurrentRound)
 }
 
 func (e *Epoch) doProposed(block Block) error {
@@ -1436,7 +1441,7 @@ func (e *Epoch) maybeLoadFutureMessages(round uint64) error {
 		for from, messagesFromNode := range e.futureMessages {
 			if msgs, exists := messagesFromNode[round]; exists {
 				if msgs.proposal != nil {
-					if err := e.handleBlockMessage(msgs.proposal, NodeID(from)); err != nil {
+					if err := e.handleBlockMessageFromLeader(msgs.proposal, NodeID(from)); err != nil {
 						return err
 					}
 				}
