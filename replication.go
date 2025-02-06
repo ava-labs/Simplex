@@ -42,7 +42,7 @@ func (r *ReplicationState) sendFutureCertficatesRequests(start uint64, end uint6
 	for i := start; i <= end; i++ {
 		seqs[i-start] = i
 	}
-	// also request latest round in case this fCert is also behind
+
 	roundRequest := &Request{
 		FinalizationCertificateRequest: &FinalizationCertificateRequest{
 			Sequences: seqs,
