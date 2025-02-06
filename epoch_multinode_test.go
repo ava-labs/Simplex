@@ -89,7 +89,7 @@ func newSimplexNode(t *testing.T, nodeID NodeID, net *inMemNetwork, bb BlockBuil
 	return ti
 }
 
-func defaultTestNodeEpochConfig(t *testing.T, nodeID NodeID, net *inMemNetwork,  wal WriteAheadLog, bb BlockBuilder) EpochConfig {
+func defaultTestNodeEpochConfig(t *testing.T, nodeID NodeID, net *inMemNetwork, wal WriteAheadLog, bb BlockBuilder) EpochConfig {
 	l := testutil.MakeLogger(t, int(nodeID[0]))
 	storage := newInMemStorage()
 	conf := EpochConfig{
