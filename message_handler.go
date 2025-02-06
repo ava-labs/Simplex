@@ -110,7 +110,7 @@ func (e *Epoch) handleFinalizationCertificateResponse(resp *FinalizationCertific
 	}
 
 	// handle future messages in case we need to persist more fCerts from the future
-	return e.maybeLoadFutureMessages(e.round)
+	return e.maybeLoadFutureMessages()
 }
 
 func (e *Epoch) storeFutureFinalizationResponse(fCert FinalizationCertificate, block Block, from NodeID) {

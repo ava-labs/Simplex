@@ -152,6 +152,7 @@ func (e *Epoch) init() error {
 	e.eligibleNodeIDs = make(map[string]struct{}, len(e.nodes))
 	e.futureMessages = make(messagesFromNode, len(e.nodes))
 	e.replicationState = NewReplicationState(e.Logger, e.Comm, e.ID, e.maxRoundWindow)
+
 	for _, node := range e.nodes {
 		e.futureMessages[string(node)] = make(map[uint64]*messagesForRound)
 	}
@@ -372,6 +373,7 @@ func (e *Epoch) handleFinalizationCertificateMessage(message *FinalizationCertif
 	if nextSeqToCommit > message.Finalization.Seq {
 		return nil
 	}
+
 	valid, err := e.isFinalizationCertificateValid(message)
 	if err != nil {
 		return err
@@ -385,6 +387,7 @@ func (e *Epoch) handleFinalizationCertificateMessage(message *FinalizationCertif
 
 	round, exists := e.rounds[message.Finalization.Round]
 	if !exists {
+		// TODO: delay requesting future fCerts and blocks, since blocks could be in transit
 		e.Logger.Debug("Received finalization certificate for a future round", zap.Uint64("round", message.Finalization.Round))
 		nextSeqToCommit := e.Storage.Height()
 		e.replicationState.collectFutureFinalizationCertificates(message, e.round, nextSeqToCommit)
@@ -643,6 +646,7 @@ func (e *Epoch) maybeCollectFinalizationCertificate(round *Round) error {
 func (e *Epoch) assembleFinalizationCertificate(round *Round) error {
 	// Divide finalizations into sets that agree on the same metadata
 	finalizationsByMD := make(map[string][]*Finalization)
+
 	for _, vote := range round.finalizations {
 		key := string(vote.Finalization.Bytes())
 		finalizationsByMD[key] = append(finalizationsByMD[key], vote)
@@ -763,9 +767,11 @@ func (e *Epoch) maybeCollectNotarization() error {
 			zap.Int("votes", voteCount), zap.String("from", fmt.Sprintf("%s", from)))
 		return nil
 	}
+
 	// TODO: store votes before receiving the block
 	block := e.rounds[e.round].block
 	expectedDigest := block.BlockHeader().Digest
+
 	// Ensure we have enough votes for the same digest
 	var voteCountForOurDigest int
 	for _, vote := range votesForCurrentRound {
@@ -817,7 +823,7 @@ func (e *Epoch) persistNotarization(notarization Notarization) error {
 
 	e.increaseRound()
 
-	return errors.Join(e.doNotarized(notarization.Vote.Round), e.maybeLoadFutureMessages(e.round))
+	return errors.Join(e.doNotarized(notarization.Vote.Round), e.maybeLoadFutureMessages())
 }
 
 func (e *Epoch) handleNotarizationMessage(message *Notarization, from NodeID) error {
@@ -1032,14 +1038,14 @@ func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote)
 
 		// We might have received votes and finalizations from future rounds before we received this block.
 		// So load the messages into our round data structure now that we have created it.
-		err := e.maybeLoadFutureMessages(md.Round)
+		err := e.maybeLoadFutureMessages()
 		if err != nil {
 			e.Logger.Warn("Failed to load future messages", zap.Error(err))
 		}
 
 		e.deleteFutureProposal(from, md.Round)
 
-		// we are in replication phasem, no need to create a vote
+		// our node is behind and replicating blocks, thus we should not handle/send votes
 		if e.round > md.Round {
 			return md.Digest
 		}
@@ -1247,7 +1253,7 @@ func (e *Epoch) proposeBlock(block Block) error {
 		zap.Int("size", len(rawBlock)),
 		zap.Stringer("digest", md.Digest))
 
-	return errors.Join(e.handleVoteMessage(&vote, e.ID), e.maybeLoadFutureMessages(md.Round))
+	return errors.Join(e.handleVoteMessage(&vote, e.ID), e.maybeLoadFutureMessages())
 }
 
 func (e *Epoch) Metadata() ProtocolMetadata {
@@ -1260,7 +1266,7 @@ func (e *Epoch) Metadata() ProtocolMetadata {
 func (e *Epoch) metadata() ProtocolMetadata {
 	var prev Digest
 	seq := e.Storage.Height()
-	if e.lastBlock != nil {
+	if len(e.rounds) > 0 {
 		// Build on top of the latest block
 		currMed := e.getHighestRound().block.BlockHeader()
 		prev = currMed.Digest
@@ -1337,7 +1343,7 @@ func (e *Epoch) monitorProgress(round uint64) {
 }
 
 func (e *Epoch) startRound() error {
-	// if we are in replicating dont build block
+	// don't start a new round if we're replicating
 	if e.replicationState.ShouldReplicate(e.round) {
 		return nil
 	}
@@ -1475,8 +1481,7 @@ func (e *Epoch) handleFutureFinalizationCertificate(roundMessages *messagesForRo
 	return nil
 }
 
-func (e *Epoch) maybeLoadFutureMessages(round uint64) error {
-	e.Logger.Debug("Loading messages received for this round in the past", zap.Uint64("round", round), zap.Uint64("my round", e.round), zap.String("id", e.ID.String()))
+func (e *Epoch) maybeLoadFutureMessages() error {
 	for {
 		round := e.round
 		height := e.Storage.Height()
