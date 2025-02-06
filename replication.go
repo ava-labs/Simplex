@@ -14,12 +14,10 @@ const MaxSeqToSend = 1024
 
 type Request struct {
 	FinalizationCertificateRequest *FinalizationCertificateRequest
-	LatestRoundRequest             *LatestRoundRequest
 }
 
 type Response struct {
 	FinalizationCertificateResponse *FinalizationCertificateResponse
-	LatestRoundResponse             *LatestRoundResponse
 }
 
 // request a finalization certificate for the given sequence number
@@ -36,26 +34,10 @@ type FinalizationCertificateResponse struct {
 	Data []SequenceData
 }
 
-type LatestRoundRequest struct {
-}
-
-// if block has not been proposed yet, we should return the last round's block, notarization, and fCert
-type LatestRoundResponse struct {
-	// last finalizaed block
-	LastIndex SequenceData
-
-	// current block
-	Block        Block
-	Notarization *Notarization
-}
-
 // HandleRequest processes a request and returns a response. It also sends a response to the sender.
 func (e *Epoch) HandleRequest(req *Request, from NodeID) *Response {
 	// TODO: should I update requests to be async? and have the epoch respond with e.Comm.Send(msg, node)
 	response := &Response{}
-	if req.LatestRoundRequest != nil {
-		response.LatestRoundResponse = e.handleLatestBlockRequest()
-	}
 	if req.FinalizationCertificateRequest != nil {
 		response.FinalizationCertificateResponse = e.handleFinalizationCertificateRequest(req.FinalizationCertificateRequest)
 	}
@@ -87,47 +69,8 @@ func (e *Epoch) handleFinalizationCertificateRequest(req *FinalizationCertificat
 	}
 }
 
-func (e *Epoch) handleLatestBlockRequest() *LatestRoundResponse {
-	e.Logger.Debug("Received latest round request")
-	resp := &LatestRoundResponse{}
-	block, fCert, err := RetrieveLastIndexFromStorage(e.Storage)
-	if err != nil {
-		return &LatestRoundResponse{}
-	}
-	resp.LastIndex = SequenceData{
-		Block: block,
-		FCert: *fCert,
-	}
-
-	// grab the current round
-	round, ok := e.rounds[e.round]
-	if ok {
-		resp.Block = round.block
-		resp.Notarization = round.notarization
-		return resp
-	}
-
-	// we have not proposed a block yet
-	if e.round == 0 {
-		return resp
-	}
-
-	// get the previous block and notarization
-	round, ok = e.rounds[e.round-1]
-	if ok {
-		return resp
-	}
-
-	resp.Block = round.block
-	resp.Notarization = round.notarization
-	return resp
-}
-
 func (e *Epoch) handleResponse(resp *Response, from NodeID) error {
 	var err error
-	if resp.LatestRoundResponse != nil {
-		e.handleLatestRoundResponse(resp.LatestRoundResponse)
-	}
 	if resp.FinalizationCertificateResponse != nil {
 		err = e.handleFinalizationCertificateResponse(resp.FinalizationCertificateResponse, from)
 	}
@@ -172,10 +115,6 @@ func (e *Epoch) handleFinalizationCertificateResponse(resp *FinalizationCertific
 	return e.maybeLoadFutureMessages(e.round)
 }
 
-func (e *Epoch) handleLatestRoundResponse(r *LatestRoundResponse) {
-
-}
-
 func (e *Epoch) storeFutureFinalizationResponse(fCert FinalizationCertificate, block Block, from NodeID) {
 	msg, ok := e.futureMessages[string(from)][block.BlockHeader().Round]
 	if !ok {
@@ -214,7 +153,6 @@ func (e *Epoch) sendFutureCertficatesRequests(start uint64, end uint64) {
 	}
 	// also request latest round in case this fCert is also behind
 	roundRequest := &Request{
-		LatestRoundRequest: &LatestRoundRequest{},
 		FinalizationCertificateRequest: &FinalizationCertificateRequest{
 			Sequences: seqs,
 		},
