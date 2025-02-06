@@ -105,6 +105,8 @@ func defaultTestNodeEpochConfig(t *testing.T, nodeID NodeID, net *inMemNetwork, 
 		Storage:             storage,
 		BlockBuilder:        bb,
 		SignatureAggregator: &testSignatureAggregator{},
+		BlockDeserializer:   &blockDeserializer{},
+		QCDeserializer:      &testQCDeserializer{t: t},
 	}
 	return conf
 }

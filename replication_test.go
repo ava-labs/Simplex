@@ -5,7 +5,6 @@ import (
 	"simplex"
 	"simplex/testutil"
 	"simplex/wal"
-	"time"
 
 	"testing"
 
@@ -60,6 +59,8 @@ func TestHandleFinalizationCertificateRequest(t *testing.T) {
 	require.Zero(t, len(resp.FinalizationCertificateResponse.Data))
 }
 
+// TestReplication tests the replication process of a node that
+// is behind the rest of the network by less than maxRoundWindow.
 func TestReplication(t *testing.T) {
 	bb := newTestControlledBlockBuilder()
 	nodes := []simplex.NodeID{{1}, {2}, {3}, []byte("lagging")}
@@ -89,11 +90,13 @@ func TestReplication(t *testing.T) {
 	}
 }
 
+// TestReplicationExceedsMaxRoundWindow tests the replication process of a node that
+// is behind the rest of the network by more than maxRoundWindow.
 func TestReplicationExceedsMaxRoundWindow(t *testing.T) {
 	bb := newTestControlledBlockBuilder()
 	nodes := []simplex.NodeID{{1}, {2}, {3}, []byte("lagging")}
 	net := newInMemNetwork(t, nodes)
-	startSeq := uint64(simplex.DefaultMaxRoundWindow + 3)
+	startSeq := uint64(simplex.DefaultMaxRoundWindow * 3)
 
 	storageData := createBlocks(t, nodes, &bb.testBlockBuilder, startSeq)
 	normalNode1 := newSimplexNodeWithStorage(t, nodes[0], net, bb, storageData)
@@ -112,22 +115,36 @@ func TestReplicationExceedsMaxRoundWindow(t *testing.T) {
 	}
 }
 
-// our node has a couple of blocks and notarizations causing us to increase our round
-// then when we receive a fCert in the future, we should ensure those rounds are persisted
+// TestReplicationStartsBeforeCurrentRound tests the replication process of a node that
+// starts replicating in the middle of the current round.
 func TestReplicationStartsBeforeCurrentRound(t *testing.T) {
 	bb := newTestControlledBlockBuilder()
 	nodes := []simplex.NodeID{{1}, {2}, {3}, []byte("lagging")}
+	quorum := simplex.Quorum(len(nodes))
 	net := newInMemNetwork(t, nodes)
 	startSeq := uint64(simplex.DefaultMaxRoundWindow + 3)
-
 	storageData := createBlocks(t, nodes, &bb.testBlockBuilder, startSeq)
-	// wal := wal.NewMemWAL(t)
-	// write 2 blocks and 2 notarizations
 
 	normalNode1 := newSimplexNodeWithStorage(t, nodes[0], net, bb, storageData)
 	normalNode2 := newSimplexNodeWithStorage(t, nodes[1], net, bb, storageData)
 	normalNode3 := newSimplexNodeWithStorage(t, nodes[2], net, bb, storageData)
 	laggingNode := newSimplexNode(t, nodes[3], net, bb)
+
+	firstBlock := storageData[0].Block
+	record := simplex.BlockRecord(firstBlock.BlockHeader(), firstBlock.Bytes())
+	laggingNode.wal.Append(record)
+
+	firstNotarizationRecord, err := newNotarizationRecord(laggingNode.e.Logger, laggingNode.e.SignatureAggregator, firstBlock, nodes[0:quorum])
+	require.NoError(t, err)
+	laggingNode.wal.Append(firstNotarizationRecord)
+
+	secondBlock := storageData[1].Block
+	record = simplex.BlockRecord(secondBlock.BlockHeader(), secondBlock.Bytes())
+	laggingNode.wal.Append(record)
+
+	secondNotarizationRecord, err := newNotarizationRecord(laggingNode.e.Logger, laggingNode.e.SignatureAggregator, secondBlock, nodes[0:quorum])
+	require.NoError(t, err)
+	laggingNode.wal.Append(secondNotarizationRecord)
 
 	require.Equal(t, startSeq, normalNode1.storage.Height())
 	require.Equal(t, startSeq, normalNode2.storage.Height())
@@ -135,43 +152,14 @@ func TestReplicationStartsBeforeCurrentRound(t *testing.T) {
 	require.Equal(t, uint64(0), laggingNode.storage.Height())
 
 	net.startInstances()
+
+	laggingNodeMd := laggingNode.e.Metadata()
+	require.Equal(t, uint64(2), laggingNodeMd.Round)
+
 	bb.triggerNewBlock()
 	for _, n := range net.instances {
 		n.storage.waitForBlockCommit(uint64(startSeq))
 	}
-
-}
-
-// // We replicate to the latest round(which doesn't have a fCert)
-// // ensuring that we have the latest block and notarization
-// func TestReplicationLatestRoundNotarized() {
-
-// }
-
-// // We get an FCert from the future, but it is actually not the global latest
-// // so we should realize that during the replication process and replicate to the latest
-// func TestReplicationMultipleBehind() {
-
-// }
-
-func buildAndSendBlock(t *testing.T, e *simplex.Epoch, bb *testBlockBuilder, from simplex.NodeID) *testBlock {
-	md := e.Metadata()
-	_, ok := bb.BuildBlock(context.Background(), md)
-	require.True(t, ok)
-	block := <-bb.out
-	vote, err := newTestVote(block, from)
-	require.NoError(t, err)
-	err = e.HandleMessage(&simplex.Message{
-		BlockMessage: &simplex.BlockMessage{
-			Vote:  *vote,
-			Block: block,
-		},
-	}, from)
-	require.NoError(t, err)
-
-	// wait for the block to be processed
-	time.Sleep(50 * time.Millisecond)
-	return block
 }
 
 func createBlocks(t *testing.T, nodes []simplex.NodeID, bb simplex.BlockBuilder, seqCount uint64) []simplex.SequenceData {
