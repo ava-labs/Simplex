@@ -9,7 +9,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"math"
 	"simplex/record"
 	"sync"
 	"sync/atomic"
@@ -80,11 +79,7 @@ type Epoch struct {
 	monitor                        *Monitor
 	cancelWaitForBlockNotarization context.CancelFunc
 
-	// latest seq requested
-	lastSequenceRequested uint64
-
-	// highest sequence we have received a finalization certificate for
-	highestFCertReceived *FinalizationCertificate
+	replicationState *ReplicationState
 }
 
 func NewEpoch(conf EpochConfig) (*Epoch, error) {
@@ -156,6 +151,7 @@ func (e *Epoch) init() error {
 	e.maxPendingBlocks = defaultMaxPendingBlocks
 	e.eligibleNodeIDs = make(map[string]struct{}, len(e.nodes))
 	e.futureMessages = make(messagesFromNode, len(e.nodes))
+	e.replicationState = NewReplicationState(e.Logger, e.Comm, e.ID, e.maxRoundWindow)
 	for _, node := range e.nodes {
 		e.futureMessages[string(node)] = make(map[uint64]*messagesForRound)
 	}
@@ -390,7 +386,8 @@ func (e *Epoch) handleFinalizationCertificateMessage(message *FinalizationCertif
 	round, exists := e.rounds[message.Finalization.Round]
 	if !exists {
 		e.Logger.Debug("Received finalization certificate for a future round", zap.Uint64("round", message.Finalization.Round))
-		e.collectFutureFinalizationCertificates(message)
+		nextSeqToCommit := e.Storage.Height()
+		e.replicationState.collectFutureFinalizationCertificates(message, e.round, nextSeqToCommit)
 		return nil
 	}
 
@@ -402,39 +399,6 @@ func (e *Epoch) handleFinalizationCertificateMessage(message *FinalizationCertif
 	round.fCert = message
 
 	return e.persistFinalizationCertificate(*message)
-}
-
-func (e *Epoch) collectFutureFinalizationCertificates(fCert *FinalizationCertificate) {
-	fCertRound := fCert.Finalization.Round
-	// Don't exceed the max round window
-	endSeq := math.Min(float64(fCertRound), float64(e.maxRoundWindow+e.round))
-	if e.highestFCertReceived == nil || fCertRound > e.highestFCertReceived.Finalization.Seq {
-		e.highestFCertReceived = fCert
-	}
-	// Node is behind, but we've already sent messages to collect future fCerts
-	if e.lastSequenceRequested >= uint64(endSeq) {
-		return
-	}
-
-	nextSeqToCommit := e.Storage.Height()
-	startSeq := math.Max(float64(nextSeqToCommit), float64(e.lastSequenceRequested))
-	e.Logger.Debug("Node is behind, requesting missing finalization certificates", zap.Uint64("round", fCertRound), zap.Uint64("startSeq", uint64(startSeq)), zap.Uint64("endSeq", uint64(endSeq)))
-	e.sendFutureCertficatesRequests(uint64(startSeq), uint64(endSeq+1))
-}
-
-// shouldCollectFutureFinalizationCertificates returns true if the node should collect future finalization certificates.
-// This is the case when the node knows future sequences and the round has caught up to 1/2 of the maxRoundWindow.
-func (e *Epoch) shouldCollectFutureFinalizationCertificates() bool {
-	if e.highestFCertReceived == nil {
-		return false
-	}
-
-	// we send out more request once our round has caught up to 1/2 of the maxRoundWindow
-	if e.lastSequenceRequested >= e.highestFCertReceived.Finalization.Round {
-		return false
-	}
-
-	return e.round+e.maxRoundWindow/2 > e.lastSequenceRequested
 }
 
 func (e *Epoch) isFinalizationCertificateValid(fCert *FinalizationCertificate) (bool, error) {
@@ -925,7 +889,8 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 	e.Logger.Verbo("Received block message",
 		zap.Stringer("from", from), zap.Uint64("round", message.Block.BlockHeader().Round))
 
-	if e.highestFCertReceived != nil && e.highestFCertReceived.Finalization.Round >= message.Block.BlockHeader().Round {
+	// we will not have a vote for the block if we are replicating
+	if e.replicationState.ShouldReplicate(message.Block.BlockHeader().Round) {
 		return e.processBlock(message, from)
 	}
 
@@ -1373,7 +1338,7 @@ func (e *Epoch) monitorProgress(round uint64) {
 
 func (e *Epoch) startRound() error {
 	// if we are in replicating dont build block
-	if e.highestFCertReceived != nil && e.highestFCertReceived.Finalization.BlockHeader.Round > e.round {
+	if e.replicationState.ShouldReplicate(e.round) {
 		return nil
 	}
 
@@ -1506,9 +1471,7 @@ func (e *Epoch) handleFutureFinalizationCertificate(roundMessages *messagesForRo
 	delete(e.futureMessages[string(from)], round)
 
 	// check if we need to send out new requests
-	if e.shouldCollectFutureFinalizationCertificates() {
-		e.collectFutureFinalizationCertificates(e.highestFCertReceived)
-	}
+	e.replicationState.maybeCollectFutureFinalizationCertificates(e.round, e.Storage.Height())
 	return nil
 }
 

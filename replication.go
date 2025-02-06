@@ -5,6 +5,7 @@ package simplex
 
 import (
 	"bytes"
+	"math"
 	"slices"
 
 	"go.uber.org/zap"
@@ -18,6 +19,28 @@ type Request struct {
 
 type Response struct {
 	FinalizationCertificateResponse *FinalizationCertificateResponse
+}
+
+type ReplicationState struct {
+	logger Logger
+	maxRoundWindow uint64
+	comm Communication
+	id NodeID
+
+	// latest seq requested
+	lastSequenceRequested uint64
+
+	// highest sequence we have received a finalization certificate for
+	highestFCertReceived *FinalizationCertificate
+}
+
+func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundWindow uint64) *ReplicationState {
+	return &ReplicationState{
+		logger: logger,
+		comm: comm,
+		id: id,
+		maxRoundWindow: maxRoundWindow,
+	}
 }
 
 // request a finalization certificate for the given sequence number
@@ -142,8 +165,8 @@ func (e *Epoch) storeFutureFinalizationResponse(fCert FinalizationCertificate, b
 
 // sendFutureCertficatesRequests sends requests for future finalization certificates for the
 // range of sequences [start, end)
-func (e *Epoch) sendFutureCertficatesRequests(start uint64, end uint64) {
-	if e.lastSequenceRequested >= end {
+func (r *ReplicationState) sendFutureCertficatesRequests(start uint64, end uint64) {
+	if r.lastSequenceRequested >= end {
 		// no need to resend
 		return
 	}
@@ -159,19 +182,64 @@ func (e *Epoch) sendFutureCertficatesRequests(start uint64, end uint64) {
 	}
 	msg := &Message{Request: roundRequest}
 
-	requestFrom := e.requestFrom()
+	requestFrom := r.requestFrom()
 
-	e.lastSequenceRequested = end
-	e.Comm.SendMessage(msg, requestFrom)
+	r.lastSequenceRequested = end
+	r.comm.SendMessage(msg, requestFrom)
 }
 
 // requestFrom returns a node to send a message request to
 // this is used to ensure that we are not sending a message to ourselves
-func (e *Epoch) requestFrom() NodeID {
-	for _, node := range e.Comm.ListNodes() {
-		if !node.Equals(e.ID) {
+func (r *ReplicationState) requestFrom() NodeID {
+	nodes := r.comm.ListNodes()
+	for _, node := range nodes {
+		if !node.Equals(r.id) {
 			return node
 		}
 	}
 	return NodeID{}
+}
+
+
+func (r *ReplicationState) collectFutureFinalizationCertificates(fCert *FinalizationCertificate, currentRound uint64, nextSeqToCommit uint64) {
+	fCertRound := fCert.Finalization.Round
+	// Don't exceed the max round window
+	endSeq := math.Min(float64(fCertRound), float64(r.maxRoundWindow+currentRound))
+	if r.highestFCertReceived == nil || fCertRound > r.highestFCertReceived.Finalization.Seq {
+		r.highestFCertReceived = fCert
+	}
+	// Node is behind, but we've already sent messages to collect future fCerts
+	if r.lastSequenceRequested >= uint64(endSeq) {
+		return
+	}
+
+	startSeq := math.Max(float64(nextSeqToCommit), float64(r.lastSequenceRequested))
+	r.logger.Debug("Node is behind, requesting missing finalization certificates", zap.Uint64("round", fCertRound), zap.Uint64("startSeq", uint64(startSeq)), zap.Uint64("endSeq", uint64(endSeq)))
+	r.sendFutureCertficatesRequests(uint64(startSeq), uint64(endSeq+1))
+}
+
+// shouldCollectFutureFinalizationCertificates returns true if the node should collect future finalization certificates.
+// This is the case when the node knows future sequences and [round] has caught up to 1/2 of the maxRoundWindow.
+func (r *ReplicationState) maybeCollectFutureFinalizationCertificates(round uint64, nextSequenceToCommit uint64) {
+	if r.highestFCertReceived == nil {
+		return
+	}
+
+	// we send out more request once our round has caught up to 1/2 of the maxRoundWindow
+	if r.lastSequenceRequested >= r.highestFCertReceived.Finalization.Round {
+		return
+	}
+
+	if round+r.maxRoundWindow/2 > r.lastSequenceRequested {
+		r.collectFutureFinalizationCertificates(r.highestFCertReceived, round, nextSequenceToCommit)
+	}
+}
+
+// ShouldReplicate returns true if [round] still needs to be replicated
+func (r *ReplicationState) ShouldReplicate(round uint64) bool {
+	if r.highestFCertReceived == nil {
+		return false
+	}
+	
+	return r.highestFCertReceived.Finalization.BlockHeader.Round >= round
 }
