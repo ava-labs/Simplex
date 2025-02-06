@@ -206,7 +206,6 @@ func TestReplicationStartsBeforeCurrentRound(t *testing.T) {
 	// wal := wal.NewMemWAL(t)
 	// write 2 blocks and 2 notarizations
 
-
 	normalNode1 := newSimplexNodeWithStorage(t, nodes[0], net, bb, storageData)
 	normalNode2 := newSimplexNodeWithStorage(t, nodes[1], net, bb, storageData)
 	normalNode3 := newSimplexNodeWithStorage(t, nodes[2], net, bb, storageData)
@@ -222,8 +221,6 @@ func TestReplicationStartsBeforeCurrentRound(t *testing.T) {
 	for _, n := range net.instances {
 		n.storage.waitForBlockCommit(uint64(startSeq))
 	}
-
-
 
 }
 

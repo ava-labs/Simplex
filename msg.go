@@ -111,7 +111,7 @@ func (n *Notarization) Verify() error {
 
 type BlockMessage struct {
 	Block Block
-	Vote Vote
+	Vote  Vote
 }
 
 type SignedMessage struct {

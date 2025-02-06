@@ -415,7 +415,7 @@ func (e *Epoch) collectFutureFinalizationCertificates(fCert *FinalizationCertifi
 	if e.lastSequenceRequested >= uint64(endSeq) {
 		return
 	}
-	
+
 	nextSeqToCommit := e.Storage.Height()
 	startSeq := math.Max(float64(nextSeqToCommit), float64(e.lastSequenceRequested))
 	e.Logger.Debug("Node is behind, requesting missing finalization certificates", zap.Uint64("round", fCertRound), zap.Uint64("startSeq", uint64(startSeq)), zap.Uint64("endSeq", uint64(endSeq)))
@@ -779,7 +779,7 @@ func (e *Epoch) persistFinalizationCertificate(fCert FinalizationCertificate) er
 
 	// If we have progressed to a new round while we committed blocks,
 	// start the new round.
-	if startRound < e.round  {
+	if startRound < e.round {
 		return e.startRound()
 	}
 
@@ -919,17 +919,15 @@ func (e *Epoch) hasSomeNodeSignedTwice(nodeIDs []NodeID) bool {
 	return false
 }
 
-
 // handleBlockMessageFromLeader expects the block message
 // to come from the leader of the round, otherwise the block will not be processed.
 func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 	e.Logger.Verbo("Received block message",
 		zap.Stringer("from", from), zap.Uint64("round", message.Block.BlockHeader().Round))
 
-	if e.highestFCertReceived != nil && e.highestFCertReceived.Finalization.Round > message.Block.BlockHeader().Round {
+	if e.highestFCertReceived != nil && e.highestFCertReceived.Finalization.Round >= message.Block.BlockHeader().Round {
 		return e.processBlock(message, from)
 	}
-
 
 	vote := message.Vote
 	from = vote.Signature.Signer
@@ -939,7 +937,7 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 	if !LeaderForRound(e.nodes, md.Round).Equals(from) {
 		// The block is associated with a round in which the sender is not the leader,
 		// it should not be sending us any block at all.
-		e.Logger.Debug("Got block from a block proposer that is not the leader of the round", zap.Stringer("NodeID", from), zap.Uint64("round", md.Round))
+		e.Logger.Debug("Got block from a block proposer that is not the leader of the round", zap.Stringer("from", NodeID(from)), zap.Uint64("round", md.Round))
 		return nil
 	}
 
@@ -1089,7 +1087,7 @@ func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote)
 			e.Logger.Error("programming error: round not found", zap.Uint64("round", md.Round))
 			return md.Digest
 		}
-		
+
 		round.votes[string(vote.Signature.Signer)] = &vote
 
 		if err := e.doProposed(block); err != nil {
