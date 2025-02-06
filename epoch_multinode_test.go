@@ -18,7 +18,7 @@ import (
 )
 
 func TestSimplexMultiNodeSimple(t *testing.T) {
-	bb := newTestControlledBlockBuilder()
+	bb := newTestControlledBlockBuilder(t)
 
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	net := newInMemNetwork(t, nodes)
@@ -49,14 +49,15 @@ func (t *testNode) start() {
 }
 
 func newSimplexNodeWithStorage(t *testing.T, nodeID NodeID, net *inMemNetwork, bb BlockBuilder, storage []SequenceData) *testNode {
-	conf := defaultTestNodeEpochConfig(t, nodeID, net, bb)
+	wal := newTestWAL(t)
+	conf := defaultTestNodeEpochConfig(t, nodeID, net, wal, bb)
 	for _, data := range storage {
 		conf.Storage.Index(data.Block, data.FCert)
 	}
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
 	ti := &testNode{
-		wal:     conf.WAL.(*testWAL),
+		wal:     wal,
 		e:       e,
 		t:       t,
 		storage: conf.Storage.(*InMemStorage),
@@ -70,11 +71,12 @@ func newSimplexNodeWithStorage(t *testing.T, nodeID NodeID, net *inMemNetwork, b
 }
 
 func newSimplexNode(t *testing.T, nodeID NodeID, net *inMemNetwork, bb BlockBuilder) *testNode {
-	conf := defaultTestNodeEpochConfig(t, nodeID, net, bb)
+	wal := newTestWAL(t)
+	conf := defaultTestNodeEpochConfig(t, nodeID, net, wal, bb)
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
 	ti := &testNode{
-		wal:     conf.WAL.(*testWAL),
+		wal:     wal,
 		e:       e,
 		t:       t,
 		storage: conf.Storage.(*InMemStorage),
@@ -87,9 +89,8 @@ func newSimplexNode(t *testing.T, nodeID NodeID, net *inMemNetwork, bb BlockBuil
 	return ti
 }
 
-func defaultTestNodeEpochConfig(t *testing.T, nodeID NodeID, net *inMemNetwork, bb BlockBuilder) EpochConfig {
+func defaultTestNodeEpochConfig(t *testing.T, nodeID NodeID, net *inMemNetwork,  wal WriteAheadLog, bb BlockBuilder) EpochConfig {
 	l := testutil.MakeLogger(t, int(nodeID[0]))
-	wal := newTestWAL(t)
 	storage := newInMemStorage()
 	conf := EpochConfig{
 		MaxProposalWait: DefaultMaxProposalWaitTime,
@@ -278,12 +279,14 @@ func (n *inMemNetwork) startInstances() {
 // testControlledBlockBuilder is a test block builder that blocks
 // block building until a trigger is received
 type testControlledBlockBuilder struct {
+	t       *testing.T
 	control chan struct{}
 	testBlockBuilder
 }
 
-func newTestControlledBlockBuilder() *testControlledBlockBuilder {
+func newTestControlledBlockBuilder(t *testing.T) *testControlledBlockBuilder {
 	return &testControlledBlockBuilder{
+		t:                t,
 		control:          make(chan struct{}, 1),
 		testBlockBuilder: testBlockBuilder{out: make(chan *testBlock, 1)},
 	}
@@ -298,6 +301,7 @@ func (t *testControlledBlockBuilder) triggerNewBlock() {
 }
 
 func (t *testControlledBlockBuilder) BuildBlock(ctx context.Context, metadata ProtocolMetadata) (Block, bool) {
+	require.Equal(t.t, metadata.Seq, metadata.Round)
 	<-t.control
 	return t.testBlockBuilder.BuildBlock(ctx, metadata)
 }

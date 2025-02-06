@@ -62,7 +62,7 @@ func TestHandleFinalizationCertificateRequest(t *testing.T) {
 // TestReplication tests the replication process of a node that
 // is behind the rest of the network by less than maxRoundWindow.
 func TestReplication(t *testing.T) {
-	bb := newTestControlledBlockBuilder()
+	bb := newTestControlledBlockBuilder(t)
 	nodes := []simplex.NodeID{{1}, {2}, {3}, []byte("lagging")}
 	net := newInMemNetwork(t, nodes)
 	startSeq := uint64(8)
@@ -93,7 +93,7 @@ func TestReplication(t *testing.T) {
 // TestReplicationExceedsMaxRoundWindow tests the replication process of a node that
 // is behind the rest of the network by more than maxRoundWindow.
 func TestReplicationExceedsMaxRoundWindow(t *testing.T) {
-	bb := newTestControlledBlockBuilder()
+	bb := newTestControlledBlockBuilder(t)
 	nodes := []simplex.NodeID{{1}, {2}, {3}, []byte("lagging")}
 	net := newInMemNetwork(t, nodes)
 	startSeq := uint64(simplex.DefaultMaxRoundWindow * 3)
@@ -118,7 +118,7 @@ func TestReplicationExceedsMaxRoundWindow(t *testing.T) {
 // TestReplicationStartsBeforeCurrentRound tests the replication process of a node that
 // starts replicating in the middle of the current round.
 func TestReplicationStartsBeforeCurrentRound(t *testing.T) {
-	bb := newTestControlledBlockBuilder()
+	bb := newTestControlledBlockBuilder(t)
 	nodes := []simplex.NodeID{{1}, {2}, {3}, []byte("lagging")}
 	quorum := simplex.Quorum(len(nodes))
 	net := newInMemNetwork(t, nodes)
