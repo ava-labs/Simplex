@@ -82,7 +82,7 @@ func TestRecoverFromWALProposed(t *testing.T) {
 			require.NoError(t, err)
 			err = e.HandleMessage(&Message{
 				BlockMessage: &BlockMessage{
-					Vote:  vote,
+					Vote:  *vote,
 					Block: block,
 				},
 			}, leader)
@@ -360,7 +360,7 @@ func TestWalWritesBlockRecord(t *testing.T) {
 	require.NoError(t, err)
 	err = e.HandleMessage(&Message{
 		BlockMessage: &BlockMessage{
-			Vote:  vote,
+			Vote:  *vote,
 			Block: block,
 		},
 	}, nodes[0])
@@ -435,7 +435,7 @@ func TestWalWritesFinalizationCert(t *testing.T) {
 	require.NoError(t, err)
 	err = e.HandleMessage(&Message{
 		BlockMessage: &BlockMessage{
-			Vote:  vote,
+			Vote:  *vote,
 			Block: secondBlock,
 		},
 	}, nodes[1])

@@ -248,7 +248,7 @@ func buildAndSendBlock(t *testing.T, e *simplex.Epoch, bb *testBlockBuilder, fro
 	require.NoError(t, err)
 	err = e.HandleMessage(&simplex.Message{
 		BlockMessage: &simplex.BlockMessage{
-			Vote:  vote,
+			Vote:  *vote,
 			Block: block,
 		},
 	}, from)

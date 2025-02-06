@@ -247,7 +247,7 @@ func (e *Epoch) resumeFromWal(records [][]byte) error {
 			proposal := &Message{
 				BlockMessage: &BlockMessage{
 					Block: block,
-					Vote:  &vote,
+					Vote:  vote,
 				},
 			}
 			// broadcast only if we are the leader
@@ -919,56 +919,34 @@ func (e *Epoch) hasSomeNodeSignedTwice(nodeIDs []NodeID) bool {
 	return false
 }
 
+
+// handleBlockMessageFromLeader expects the block message
+// to come from the leader of the round, otherwise the block will not be processed.
 func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
-	block := message.Block
-	if block == nil {
-		e.Logger.Debug("Got empty block in a BlockMessage")
-		return nil
-	}
-
 	e.Logger.Verbo("Received block message",
-		zap.Stringer("from", from), zap.Uint64("round", block.BlockHeader().Round))
+		zap.Stringer("from", from), zap.Uint64("round", message.Block.BlockHeader().Round))
 
-	pendingBlocks := e.sched.Size()
-	if pendingBlocks > e.maxPendingBlocks {
-		e.Logger.Warn("Too many blocks being verified to ingest another one", zap.Int("pendingBlocks", pendingBlocks))
-		return nil
+	if e.highestFCertReceived != nil && e.highestFCertReceived.Finalization.Round > message.Block.BlockHeader().Round {
+		return e.processBlock(message, from)
 	}
 
-	md := block.BlockHeader()
-
-	e.Logger.Debug("Handling block message", zap.Stringer("digest", md.Digest), zap.Uint64("round", md.Round))
-
-	// Don't bother processing blocks from the past
-	// if e.round > md.Round {
-	// 	return nil
-	// }
-
-	// The block is for a too high round, we shouldn't handle it as
-	// we have only so much memory.
-	if md.Round-e.round >= e.maxRoundWindow {
-		e.Logger.Debug("Received a block message for a too high round",
-			zap.Uint64("round", md.Round), zap.Uint64("our round", e.round))
-		return nil
-	}
 
 	vote := message.Vote
-	if vote != nil {
-		from = vote.Signature.Signer
-	}
+	from = vote.Signature.Signer
+	md := message.Block.BlockHeader()
 
-	// // Check that the node is a leader for the round corresponding to the block.
-	// if !LeaderForRound(e.nodes, md.Round).Equals(from) {
-	// 	// The block is associated with a round in which the sender is not the leader,
-	// 	// it should not be sending us any block at all.
-	// 	e.Logger.Debug("Got block from a block proposer that is not the leader of the round", zap.Stringer("NodeID", from), zap.Uint64("round", md.Round))
-	// 	return nil
-	// }
+	// Check that the node is a leader for the round corresponding to the block.
+	if !LeaderForRound(e.nodes, md.Round).Equals(from) {
+		// The block is associated with a round in which the sender is not the leader,
+		// it should not be sending us any block at all.
+		e.Logger.Debug("Got block from a block proposer that is not the leader of the round", zap.Stringer("NodeID", from), zap.Uint64("round", md.Round))
+		return nil
+	}
 
 	// Check if we have verified this message in the past:
 	alreadyVerified := e.wasBlockAlreadyVerified(from, md)
 
-	if !alreadyVerified && vote != nil {
+	if !alreadyVerified {
 		// Ensure the block was voted on by its block producer:
 		// 1) Verify block digest corresponds to the digest voted on
 		if !bytes.Equal(vote.Vote.Digest[:], md.Digest[:]) {
@@ -981,6 +959,39 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 			e.Logger.Debug("ToBeSignedVote verification failed", zap.Stringer("NodeID", vote.Signature.Signer), zap.Error(err))
 			return nil
 		}
+	}
+
+	return e.processBlock(message, from)
+}
+
+func (e *Epoch) processBlock(message *BlockMessage, from NodeID) error {
+	block := message.Block
+	if block == nil {
+		e.Logger.Debug("Got empty block in a BlockMessage")
+		return nil
+	}
+
+	pendingBlocks := e.sched.Size()
+	if pendingBlocks > e.maxPendingBlocks {
+		e.Logger.Warn("Too many blocks being verified to ingest another one", zap.Int("pendingBlocks", pendingBlocks))
+		return nil
+	}
+
+	md := block.BlockHeader()
+
+	e.Logger.Debug("Handling block message", zap.Stringer("digest", md.Digest), zap.Uint64("round", md.Round))
+
+	// Don't bother processing blocks from the past
+	if e.round > md.Round {
+		return nil
+	}
+
+	// The block is for a too high round, we shouldn't handle it as
+	// we have only so much memory.
+	if md.Round-e.round >= e.maxRoundWindow {
+		e.Logger.Debug("Received a block message for a too high round",
+			zap.Uint64("round", md.Round), zap.Uint64("our round", e.round))
+		return nil
 	}
 
 	// If this is a message from a more advanced round,
@@ -1014,7 +1025,7 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 	defer e.deleteFutureProposal(from, md.Round)
 
 	// Create a task that will verify the block in the future, after its predecessors have also been verified.
-	task := e.createBlockVerificationTask(block, from, vote)
+	task := e.createBlockVerificationTask(block, from, message.Vote)
 
 	// isBlockReadyToBeScheduled checks if the block is known to us either from some previous round,
 	// or from storage. If so, then we have verified it in the past, since only verified blocks are saved in memory.
@@ -1028,7 +1039,7 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 	return nil
 }
 
-func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote *Vote) func() Digest {
+func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote) func() Digest {
 	return func() Digest {
 		md := block.BlockHeader()
 
@@ -1079,9 +1090,7 @@ func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote *Vote
 			return md.Digest
 		}
 		
-		if vote != nil {
-			round.votes[string(vote.Signature.Signer)] = vote
-		}
+		round.votes[string(vote.Signature.Signer)] = &vote
 
 		if err := e.doProposed(block); err != nil {
 			e.Logger.Warn("Failed voting on block", zap.Error(err))
@@ -1261,7 +1270,7 @@ func (e *Epoch) proposeBlock(block Block) error {
 	proposal := &Message{
 		BlockMessage: &BlockMessage{
 			Block: block,
-			Vote:  &vote,
+			Vote:  vote,
 		},
 	}
 

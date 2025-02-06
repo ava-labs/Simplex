@@ -148,7 +148,7 @@ func TestEpochLeaderFailoverNotNeeded(t *testing.T) {
 	require.NoError(t, err)
 	err = e.HandleMessage(&Message{
 		BlockMessage: &BlockMessage{
-			Vote:  vote,
+			Vote:  *vote,
 			Block: block,
 		},
 	}, nodes[3])
