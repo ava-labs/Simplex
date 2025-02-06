@@ -385,11 +385,16 @@ func (e *Epoch) handleFinalizationCertificateMessage(message *FinalizationCertif
 		return nil
 	}
 
+	if message.Finalization.Seq > nextSeqToCommit {
+		e.Logger.Debug("Received a finalization certificate for a future sequence", zap.Uint64("seq", message.Finalization.Seq), zap.Uint64("nextSeqToCommit", nextSeqToCommit))
+		e.replicationState.collectFutureFinalizationCertificates(message, e.round, nextSeqToCommit)
+		return nil
+	}
+
 	round, exists := e.rounds[message.Finalization.Round]
 	if !exists {
 		// TODO: delay requesting future fCerts and blocks, since blocks could be in transit
 		e.Logger.Debug("Received finalization certificate for a future round", zap.Uint64("round", message.Finalization.Round))
-		nextSeqToCommit := e.Storage.Height()
 		e.replicationState.collectFutureFinalizationCertificates(message, e.round, nextSeqToCommit)
 		return nil
 	}
