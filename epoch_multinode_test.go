@@ -26,14 +26,10 @@ func TestSimplexMultiNodeSimple(t *testing.T) {
 	newSimplexNode(t, nodes[1], net, bb)
 	newSimplexNode(t, nodes[2], net, bb)
 	newSimplexNode(t, nodes[3], net, bb)
-	bb.triggerNewBlock()
 
+	bb.triggerNewBlock()
+	
 	net.startInstances()
-	for seq := 0; seq < 10; seq++ {
-		// for _, n := range net.instances {
-		// 	n.wal.assertNotarization(uint64(seq))
-		// }
-	}
 	
 	for seq := 0; seq < 10; seq++ {
 		for _, n := range net.instances {
