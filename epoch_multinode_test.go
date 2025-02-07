@@ -28,9 +28,9 @@ func TestSimplexMultiNodeSimple(t *testing.T) {
 	newSimplexNode(t, nodes[3], net, bb)
 
 	bb.triggerNewBlock()
-	
+
 	net.startInstances()
-	
+
 	for seq := 0; seq < 10; seq++ {
 		for _, n := range net.instances {
 			n.storage.waitForBlockCommit(uint64(seq))
