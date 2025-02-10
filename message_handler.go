@@ -4,7 +4,6 @@
 package simplex
 
 import (
-	"bytes"
 	"slices"
 
 	"go.uber.org/zap"
@@ -84,56 +83,33 @@ func (e *Epoch) handleFinalizationCertificateResponse(resp *FinalizationCertific
 			continue
 		}
 
-		// ensure the finalization certificate we get relates to the block
-		blockDigest := data.Block.BlockHeader().Digest
-		if !bytes.Equal(blockDigest[:], data.FCert.Finalization.BlockHeader.Digest[:]) {
-			e.Logger.Error("Finalization certificate does not match the block", zap.String("from", from.String()), zap.Uint64("seq", data.FCert.Finalization.Seq))
-			continue
-		}
-
-		// if we already have a round object for this round, we should persist the fCert
-		round, ok := e.rounds[data.Block.BlockHeader().Round]
-		if !ok {
-			e.storeFutureFinalizationResponse(data.FCert, data.Block, from)
-			continue
-		}
-		if round.fCert != nil {
-			// we should never be here because the round would have been deleted
-			e.Logger.Error("Received finalization certificate for a round that already has a finalization certificate", zap.Uint64("round", data.FCert.Finalization.Seq))
-			continue
-		}
-		err := e.persistFinalizationCertificate(data.FCert)
+		err := e.replicationState.StoreSequenceData(data)
 		if err != nil {
-			e.Logger.Error("Failed to persist finalization certificate", zap.Error(err))
+			e.Logger.Error("Failed to store sequence data", zap.Error(err), zap.Uint64("seq", data.FCert.Finalization.Seq), zap.String("from", from.String()))
 			continue
 		}
 	}
 
-	// handle future messages in case we need to persist more fCerts from the future
-	return e.maybeLoadFutureMessages()
+	e.processReplicationState()
+	return nil
 }
 
-func (e *Epoch) storeFutureFinalizationResponse(fCert FinalizationCertificate, block Block, from NodeID) {
-	msg, ok := e.futureMessages[string(from)][block.BlockHeader().Round]
+func (e *Epoch) processReplicationState() {
+	// next sequence to commit 
+	nextSeqToCommit := e.Storage.Height()
+	// iterate over the replications states and send requests for future finalization certificates
+	sequenceData, ok := e.replicationState.receivedFinalizationCertificates[nextSeqToCommit]
 	if !ok {
-		msgsForRound := &messagesForRound{}
-		msgsForRound.proposal = &BlockMessage{
-			Block: block,
-		}
-		msgsForRound.fCert = &fCert
-		e.futureMessages[string(from)][block.BlockHeader().Round] = msgsForRound
+		// we are missing the finalization certificate for the next sequence to commit
 		return
 	}
 
-	if msg.proposal != nil && !bytes.Equal(msg.proposal.Block.Bytes(), block.Bytes()) {
-		e.Logger.Error("Proposal does not match the block in the finalization certificate response", zap.String("from", from.String()))
-		return
-	} else if msg.proposal == nil {
-		msg.proposal = &BlockMessage{
-			Block: block,
-		}
-	} else {
-		msg.proposal.Block = block
+	blockVerificationTask := blockVerificationTask{
+		finalizedProposal: sequenceData,
 	}
-	msg.fCert = &fCert
+	// process block should not verify the block if its in e.round map
+	e.processBlock(blockVerificationTask)
+	// call processBlock onTheRound
+	// the callback should call processReplicationState
 }
+

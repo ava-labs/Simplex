@@ -4,6 +4,8 @@
 package simplex
 
 import (
+	"bytes"
+	"fmt"
 	"math"
 
 	"go.uber.org/zap"
@@ -20,6 +22,9 @@ type ReplicationState struct {
 
 	// highest sequence we have received a finalization certificate for
 	highestFCertReceived *FinalizationCertificate
+
+	// received 
+	receivedFinalizationCertificates map[uint64]SequenceData
 }
 
 func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundWindow uint64) *ReplicationState {
@@ -108,4 +113,24 @@ func (r *ReplicationState) ShouldReplicate(round uint64) bool {
 	}
 
 	return r.highestFCertReceived.Finalization.BlockHeader.Round >= round
+}
+
+func (r *ReplicationState) StoreSequenceData(data SequenceData) error {
+	// ensure the finalization certificate we get relates to the block
+	blockDigest := data.Block.BlockHeader().Digest
+	if !bytes.Equal(blockDigest[:], data.FCert.Finalization.BlockHeader.Digest[:]) {
+		return fmt.Errorf("Finalization certificate does not match the block")
+	}
+
+	// verify the finalization certificate
+	if err := data.FCert.Verify(); err != nil {
+		return fmt.Errorf("Finalization certificate failed verification")
+	}
+
+	// we should never receive two valid fCerts for the same round, check anyways
+	if _, ok := r.receivedFinalizationCertificates[data.FCert.Finalization.Seq]; ok {
+		return fmt.Errorf("finalization certificate for sequence %d already exists", data.FCert.Finalization.Seq)
+	}
+	r.receivedFinalizationCertificates[data.FCert.Finalization.Seq] = data
+	return nil
 }

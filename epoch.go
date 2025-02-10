@@ -1583,3 +1583,9 @@ type messagesForRound struct {
 	finalization *Finalization
 	fCert        *FinalizationCertificate
 }
+
+type blockVerificationTask struct {
+	from     NodeID
+	proposal *BlockMessage
+	finalizedProposal SequenceData
+}
