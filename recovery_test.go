@@ -476,7 +476,6 @@ func TestWalWritesFinalizationCert(t *testing.T) {
 	require.Equal(t, uint64(0), e.Storage.Height())
 }
 
-// TestRecoverFromMultipleRounds tests that the epoch can recover from a wal with multiple rounds written to it.
 // Appends to the wal -> block, notarization, second block, notarization block 2, finalization for block 2.
 func TestRecoverFromMultipleNotarizations(t *testing.T) {
 	l := testutil.MakeLogger(t, 1)
