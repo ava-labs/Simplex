@@ -7,5 +7,7 @@ const (
 	UndefinedRecordType uint16 = iota
 	BlockRecordType
 	NotarizationRecordType
+	EmptyVoteRecordType
+	EmptyNotarizationRecordType
 	FinalizationRecordType
 )

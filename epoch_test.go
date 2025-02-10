@@ -52,7 +52,7 @@ func TestEpochFinalizeThenNotarize(t *testing.T) {
 
 	t.Run("commit without notarization, only with finalization", func(t *testing.T) {
 		for round := 0; round < 100; round++ {
-			notarizeAndFinalizeRound(t, nodes, uint64(round), e, bb, quorum, storage, true)
+			notarizeAndFinalizeRound(t, nodes, uint64(round), uint64(round), e, bb, quorum, storage, true)
 			storage.waitForBlockCommit(uint64(round))
 		}
 	})
@@ -115,17 +115,18 @@ func TestEpochSimpleFlow(t *testing.T) {
 
 	rounds := uint64(100)
 	for round := uint64(0); round < rounds; round++ {
-		notarizeAndFinalizeRound(t, nodes, round, e, bb, quorum, storage, false)
+		notarizeAndFinalizeRound(t, nodes, round, round, e, bb, quorum, storage, false)
 	}
 }
 
-func notarizeAndFinalizeRound(t *testing.T, nodes []NodeID, round uint64, e *Epoch, bb *testBlockBuilder, quorum int, storage *InMemStorage, skipNotarization bool) {
+func notarizeAndFinalizeRound(t *testing.T, nodes []NodeID, round, seq uint64, e *Epoch, bb *testBlockBuilder, quorum int, storage *InMemStorage, skipNotarization bool) {
 	// leader is the proposer of the new block for the given round
 	leader := LeaderForRound(nodes, round)
 	// only create blocks if we are not the node running the epoch
 	isEpochNode := leader.Equals(e.ID)
 	if !isEpochNode {
 		md := e.Metadata()
+		md.Seq = seq
 		_, ok := bb.BuildBlock(context.Background(), md)
 		require.True(t, ok)
 		require.Equal(t, md.Round, md.Seq)
@@ -165,7 +166,7 @@ func notarizeAndFinalizeRound(t *testing.T, nodes []NodeID, round uint64, e *Epo
 		injectTestFinalization(t, e, block, nodes[quorum])
 	}
 
-	block2 := storage.waitForBlockCommit(round)
+	block2 := storage.waitForBlockCommit(seq)
 	require.Equal(t, block, block2)
 }
 

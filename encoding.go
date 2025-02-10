@@ -166,3 +166,73 @@ func ParseBlockRecord(buff []byte) (BlockHeader, []byte, error) {
 
 	return bh, payload, nil
 }
+
+func NewEmptyNotarizationRecord(emptyNotarization *EmptyNotarization) []byte {
+	return NewQuorumRecord(emptyNotarization.QC.Bytes(), emptyNotarization.Vote.Bytes(), record.EmptyNotarizationRecordType)
+}
+
+func EmptyNotarizationFromRecord(record []byte, qd QCDeserializer) (EmptyNotarization, error) {
+	qcBytes, emptyVote, err := ParseemptyNotarizationRecord(record)
+	if err != nil {
+		return EmptyNotarization{}, err
+	}
+
+	qc, err := qd.DeserializeQuorumCertificate(qcBytes)
+	if err != nil {
+		return EmptyNotarization{}, err
+	}
+
+	return EmptyNotarization{
+		Vote: emptyVote,
+		QC:   qc,
+	}, nil
+}
+
+func ParseemptyNotarizationRecord(buff []byte) ([]byte, ToBeSignedEmptyVote, error) {
+	recordType := binary.BigEndian.Uint16(buff[:2])
+	if recordType != record.EmptyNotarizationRecordType {
+		return nil, ToBeSignedEmptyVote{}, fmt.Errorf("expected record type %d, got %d", record.NotarizationRecordType, recordType)
+	}
+
+	record := buff[2:]
+	var nr QuorumRecord
+	_, err := asn1.Unmarshal(record, &nr)
+	if err != nil {
+		return nil, ToBeSignedEmptyVote{}, err
+	}
+
+	var vote ToBeSignedEmptyVote
+	if err := vote.FromBytes(nr.Vote); err != nil {
+		return nil, ToBeSignedEmptyVote{}, err
+	}
+
+	return nr.QC, vote, nil
+}
+
+func NewEmptyVoteRecord(emptyVote ToBeSignedEmptyVote) []byte {
+	payload := emptyVote.Bytes()
+	buff := make([]byte, len(payload)+2)
+	binary.BigEndian.PutUint16(buff, record.EmptyVoteRecordType)
+	copy(buff[2:], payload)
+
+	return buff
+}
+
+func ParseEmptyVoteRecord(rawEmptyVote []byte) (ToBeSignedEmptyVote, error) {
+	if len(rawEmptyVote) < 2 {
+		return ToBeSignedEmptyVote{}, errors.New("expected at least two bytes")
+	}
+
+	recordType := binary.BigEndian.Uint16(rawEmptyVote[:2])
+
+	if recordType != record.EmptyVoteRecordType {
+		return ToBeSignedEmptyVote{}, fmt.Errorf("expected record type %d, got %d", record.EmptyVoteRecordType, recordType)
+	}
+
+	var emptyVote ToBeSignedEmptyVote
+	if err := emptyVote.FromBytes(rawEmptyVote[2:]); err != nil {
+		return ToBeSignedEmptyVote{}, err
+	}
+
+	return emptyVote, nil
+}
