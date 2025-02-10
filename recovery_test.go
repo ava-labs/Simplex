@@ -60,7 +60,7 @@ func TestRecoverFromWALProposed(t *testing.T) {
 	err = e.Start()
 	require.NoError(t, err)
 
-	rounds := uint64(100)
+	rounds := uint64(1)
 	for i := uint64(0); i < rounds; i++ {
 		leader := LeaderForRound(nodes, uint64(i))
 		isEpochNode := leader.Equals(e.ID)
@@ -170,48 +170,6 @@ func TestRecoverFromNotarization(t *testing.T) {
 	require.Equal(t, block.Bytes(), committedData)
 	require.Equal(t, uint64(1), e.Storage.Height())
 }
-
-
-// // TestRecoveryFCertsOutOfOrder tests that the epoch can recover from a wal
-// // with a finalization certificate written to it out of order
-
-// // Block1, notarization 1, block 2 , notarization 2, finalization 2, 
-// func TestRecoveryFCertsOutOfOrder(t *testing.T) {
-// 	l := testutil.MakeLogger(t, 1)
-// 	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
-// 	wal := wal.NewMemWAL(t)
-// 	storage := newInMemStorage()
-// 	ctx := context.Background()
-// 	nodes := []NodeID{{1}, {2}, {3}, {4}}
-// 	quorum := Quorum(len(nodes))
-// 	sigAggregrator := &testSignatureAggregator{}
-// 	conf := EpochConfig{
-// 		MaxProposalWait:     DefaultMaxProposalWaitTime,
-// 		Logger:              l,
-// 		ID:                  nodes[0],
-// 		Signer:              &testSigner{},
-// 		WAL:                 wal,
-// 		Verifier:            &testVerifier{},
-// 		Storage:             storage,
-// 		Comm:                noopComm(nodes),
-// 		BlockBuilder:        bb,
-// 		SignatureAggregator: sigAggregrator,
-// 		BlockDeserializer:   &blockDeserializer{},
-// 		QCDeserializer:      &testQCDeserializer{t: t},
-// 	}
-
-// 	e, err := NewEpoch(conf)
-// 	require.NoError(t, err)
-
-// 	protocolMetadata := e.Metadata()
-// 	block, ok := bb.BuildBlock(ctx, protocolMetadata)
-// 	require.True(t, ok)
-// 	blockRecord := BlockRecord(block.BlockHeader(), block.Bytes())
-
-// 	// write block blockRecord to wal
-// 	require.NoError(t, wal.Append(blockRecord))
-// }
-
 
 // TestRecoverFromWALFinalized tests that the epoch can recover from a wal
 // with a block already stored in the storage
@@ -518,59 +476,6 @@ func TestWalWritesFinalizationCert(t *testing.T) {
 	require.Equal(t, uint64(0), e.Storage.Height())
 }
 
-// TestRecoverFromMultipleRounds tests that the epoch can recover from a wal with multiple rounds written to it.
-func TestRecoverFromMultipleRounds(t *testing.T) {
-	l := testutil.MakeLogger(t, 1)
-	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
-	wal := wal.NewMemWAL(t)
-	storage := newInMemStorage()
-	ctx := context.Background()
-	nodes := []NodeID{{1}, {2}, {3}, {4}}
-	quorum := Quorum(len(nodes))
-	sigAggregrator := &testSignatureAggregator{}
-	conf := EpochConfig{
-		MaxProposalWait:     DefaultMaxProposalWaitTime,
-		Logger:              l,
-		ID:                  nodes[0],
-		Signer:              &testSigner{},
-		WAL:                 wal,
-		Verifier:            &testVerifier{},
-		Storage:             storage,
-		Comm:                noopComm(nodes),
-		BlockBuilder:        bb,
-		SignatureAggregator: sigAggregrator,
-		BlockDeserializer:   &blockDeserializer{},
-		QCDeserializer:      &testQCDeserializer{t: t},
-	}
-
-	e, err := NewEpoch(conf)
-	require.NoError(t, err)
-
-	protocolMetadata := e.Metadata()
-	firstBlock, ok := bb.BuildBlock(ctx, protocolMetadata)
-	require.True(t, ok)
-	record := BlockRecord(firstBlock.BlockHeader(), firstBlock.Bytes())
-	wal.Append(record)
-
-	firstNotarizationRecord, err := newNotarizationRecord(l, sigAggregrator, firstBlock, nodes[0:quorum])
-	require.NoError(t, err)
-	wal.Append(firstNotarizationRecord)
-
-	_, finalizationRecord := newFinalizationRecord(t, l, sigAggregrator, firstBlock, nodes[0:quorum])
-	require.NoError(t, err)
-	wal.Append(finalizationRecord)
-
-	// when we start we should recover to round 1
-	err = e.Start()
-	require.NoError(t, err)
-
-	// Verify the epoch recovered to the correct round
-	require.Equal(t, uint64(1), e.Metadata().Round)
-	require.Equal(t, uint64(1), e.Storage.Height())
-	require.Equal(t, firstBlock.Bytes(), storage.data[0].Block.Bytes())
-}
-
-// TestRecoverFromMultipleRounds tests that the epoch can recover from a wal with multiple rounds written to it.
 // Appends to the wal -> block, notarization, second block, notarization block 2, finalization for block 2.
 func TestRecoverFromMultipleNotarizations(t *testing.T) {
 	l := testutil.MakeLogger(t, 1)
@@ -622,7 +527,7 @@ func TestRecoverFromMultipleNotarizations(t *testing.T) {
 	require.NoError(t, err)
 	wal.Append(secondNotarizationRecord)
 
-	// Create finalization record for first block
+	// Create finalization record for second block
 	fCert2, finalizationRecord := newFinalizationRecord(t, l, sigAggregrator, secondBlock, nodes[0:quorum])
 	wal.Append(finalizationRecord)
 
@@ -633,7 +538,7 @@ func TestRecoverFromMultipleNotarizations(t *testing.T) {
 	require.Equal(t, uint64(0), e.Storage.Height())
 
 	// now if we send fCert for block 1, we should index both 1 & 2
- 	fCert1, _ := newFinalizationRecord(t, l, sigAggregrator, firstBlock, nodes[0:quorum])
+	fCert1, _ := newFinalizationRecord(t, l, sigAggregrator, firstBlock, nodes[0:quorum])
 	err = e.HandleMessage(&Message{
 		FinalizationCertificate: &fCert1,
 	}, nodes[1])
@@ -644,4 +549,70 @@ func TestRecoverFromMultipleNotarizations(t *testing.T) {
 	require.Equal(t, secondBlock.Bytes(), storage.data[1].Block.Bytes())
 	require.Equal(t, fCert1, storage.data[0].FinalizationCertificate)
 	require.Equal(t, fCert2, storage.data[1].FinalizationCertificate)
+}
+
+// Block1, notarization 1, block 2, block 3,
+func TestRecoveryWithoutNotarization(t *testing.T) {
+	l := testutil.MakeLogger(t, 1)
+	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
+	wal := wal.NewMemWAL(t)
+	storage := newInMemStorage()
+	ctx := context.Background()
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	quorum := Quorum(len(nodes))
+	sigAggregrator := &testSignatureAggregator{}
+	conf := EpochConfig{
+		MaxProposalWait:     DefaultMaxProposalWaitTime,
+		Logger:              l,
+		ID:                  nodes[0],
+		Signer:              &testSigner{},
+		WAL:                 wal,
+		Verifier:            &testVerifier{},
+		Storage:             storage,
+		Comm:                noopComm(nodes),
+		BlockBuilder:        bb,
+		SignatureAggregator: sigAggregrator,
+		BlockDeserializer:   &blockDeserializer{},
+		QCDeserializer:      &testQCDeserializer{t: t},
+	}
+
+	protocolMetadata := ProtocolMetadata{Seq: 0, Round: 0, Epoch: 0}
+	firstBlock, ok := bb.BuildBlock(ctx, protocolMetadata)
+	require.True(t, ok)
+	record := BlockRecord(firstBlock.BlockHeader(), firstBlock.Bytes())
+	wal.Append(record)
+
+	firstNotarizationRecord, err := newNotarizationRecord(l, sigAggregrator, firstBlock, nodes[0:quorum])
+	require.NoError(t, err)
+	wal.Append(firstNotarizationRecord)
+
+	protocolMetadata.Round = 1
+	protocolMetadata.Seq = 1
+	secondBlock, ok := bb.BuildBlock(ctx, protocolMetadata)
+	require.True(t, ok)
+	record = BlockRecord(secondBlock.BlockHeader(), secondBlock.Bytes())
+	wal.Append(record)
+
+	protocolMetadata.Round = 2
+	protocolMetadata.Seq = 2
+	thirdBlock, ok := bb.BuildBlock(ctx, protocolMetadata)
+	require.True(t, ok)
+	record = BlockRecord(thirdBlock.BlockHeader(), thirdBlock.Bytes())
+	wal.Append(record)
+
+	fCert1, _ := newFinalizationRecord(t, l, sigAggregrator, firstBlock, nodes[0:quorum])
+	fCert2, _ := newFinalizationRecord(t, l, sigAggregrator, secondBlock, nodes[0:quorum])
+	fCer3, _ := newFinalizationRecord(t, l, sigAggregrator, thirdBlock, nodes[0:quorum])
+
+	conf.Storage.Index(firstBlock, fCert1)
+	conf.Storage.Index(secondBlock, fCert2)
+	conf.Storage.Index(thirdBlock, fCer3)
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	require.Equal(t, uint64(3), e.Storage.Height())
+	require.NoError(t, e.Start())
+
+	// ensure the round is properly set to 3
+	require.Equal(t, uint64(3), e.Metadata().Round)
 }

@@ -11,8 +11,6 @@ import (
 	"encoding/asn1"
 	"encoding/binary"
 	"fmt"
-	"github.com/stretchr/testify/require"
-	"go.uber.org/zap/zapcore"
 	"math"
 	rand2 "math/rand"
 	. "simplex"
@@ -20,6 +18,9 @@ import (
 	"simplex/wal"
 	"sync"
 	"testing"
+
+	"github.com/stretchr/testify/require"
+	"go.uber.org/zap/zapcore"
 )
 
 func TestEpochFinalizeThenNotarize(t *testing.T) {
