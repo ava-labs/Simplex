@@ -191,7 +191,7 @@ func (e *Epoch) syncNotarizationRecord(r []byte) error {
 	if err != nil {
 		return err
 	}
-
+	e.Logger.Info("Notarization Recovered From WAL", zap.Uint64("Round", notarization.Vote.Round))
 	return e.storeNotarization(notarization)
 }
 
@@ -204,6 +204,7 @@ func (e *Epoch) syncFinalizationRecord(r []byte) error {
 	if !ok {
 		return fmt.Errorf("round not found for finalization certificate")
 	}
+	e.Logger.Info("Finalization Certificate Recovered From WAL", zap.Uint64("Round", fCert.Finalization.Round))
 	round.fCert = &fCert
 	return nil
 }
@@ -259,10 +260,14 @@ func (e *Epoch) resumeFromWal(records [][]byte) error {
 		if err != nil {
 			return err
 		}
-		err = e.persistFinalizationCertificate(fCert)
-		if err != nil {
-			return err
-		}
+
+		finalizationCertificate := &Message{FinalizationCertificate: &fCert}
+		e.Comm.Broadcast(finalizationCertificate)
+	
+		e.Logger.Debug("Broadcast finalization certificate",
+			zap.Uint64("round", fCert.Finalization.Round),
+			zap.Stringer("digest", fCert.Finalization.BlockHeader.Digest))
+	
 		return e.startRound()
 	default:
 		return errors.New("unknown record type")

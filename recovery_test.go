@@ -171,6 +171,48 @@ func TestRecoverFromNotarization(t *testing.T) {
 	require.Equal(t, uint64(1), e.Storage.Height())
 }
 
+
+// // TestRecoveryFCertsOutOfOrder tests that the epoch can recover from a wal
+// // with a finalization certificate written to it out of order
+
+// // Block1, notarization 1, block 2 , notarization 2, finalization 2, 
+// func TestRecoveryFCertsOutOfOrder(t *testing.T) {
+// 	l := testutil.MakeLogger(t, 1)
+// 	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
+// 	wal := wal.NewMemWAL(t)
+// 	storage := newInMemStorage()
+// 	ctx := context.Background()
+// 	nodes := []NodeID{{1}, {2}, {3}, {4}}
+// 	quorum := Quorum(len(nodes))
+// 	sigAggregrator := &testSignatureAggregator{}
+// 	conf := EpochConfig{
+// 		MaxProposalWait:     DefaultMaxProposalWaitTime,
+// 		Logger:              l,
+// 		ID:                  nodes[0],
+// 		Signer:              &testSigner{},
+// 		WAL:                 wal,
+// 		Verifier:            &testVerifier{},
+// 		Storage:             storage,
+// 		Comm:                noopComm(nodes),
+// 		BlockBuilder:        bb,
+// 		SignatureAggregator: sigAggregrator,
+// 		BlockDeserializer:   &blockDeserializer{},
+// 		QCDeserializer:      &testQCDeserializer{t: t},
+// 	}
+
+// 	e, err := NewEpoch(conf)
+// 	require.NoError(t, err)
+
+// 	protocolMetadata := e.Metadata()
+// 	block, ok := bb.BuildBlock(ctx, protocolMetadata)
+// 	require.True(t, ok)
+// 	blockRecord := BlockRecord(block.BlockHeader(), block.Bytes())
+
+// 	// write block blockRecord to wal
+// 	require.NoError(t, wal.Append(blockRecord))
+// }
+
+
 // TestRecoverFromWALFinalized tests that the epoch can recover from a wal
 // with a block already stored in the storage
 func TestRecoverFromWalWithStorage(t *testing.T) {
@@ -529,7 +571,7 @@ func TestRecoverFromMultipleRounds(t *testing.T) {
 }
 
 // TestRecoverFromMultipleRounds tests that the epoch can recover from a wal with multiple rounds written to it.
-// Appends to the wal -> block, notarization, second block, notarization block 2, finalization for block 1.
+// Appends to the wal -> block, notarization, second block, notarization block 2, finalization for block 2.
 func TestRecoverFromMultipleNotarizations(t *testing.T) {
 	l := testutil.MakeLogger(t, 1)
 	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
@@ -568,7 +610,8 @@ func TestRecoverFromMultipleNotarizations(t *testing.T) {
 	require.NoError(t, err)
 	wal.Append(firstNotarizationRecord)
 
-	protocolMetadata.Round = 2
+	protocolMetadata.Round = 1
+	protocolMetadata.Seq = 1
 	secondBlock, ok := bb.BuildBlock(ctx, protocolMetadata)
 	require.True(t, ok)
 	record = BlockRecord(secondBlock.BlockHeader(), secondBlock.Bytes())
@@ -580,15 +623,25 @@ func TestRecoverFromMultipleNotarizations(t *testing.T) {
 	wal.Append(secondNotarizationRecord)
 
 	// Create finalization record for first block
-	_, finalizationRecord := newFinalizationRecord(t, l, sigAggregrator, firstBlock, nodes[0:quorum])
+	fCert2, finalizationRecord := newFinalizationRecord(t, l, sigAggregrator, secondBlock, nodes[0:quorum])
 	wal.Append(finalizationRecord)
 
 	err = e.Start()
 	require.NoError(t, err)
 
-	require.Equal(t, uint64(3), e.Metadata().Round)
-	// require that we correctly persisted block 1 to storage
-	require.Equal(t, uint64(1), e.Storage.Height())
-	committedData := storage.data[0].Block.Bytes()
-	require.Equal(t, firstBlock.Bytes(), committedData)
+	require.Equal(t, uint64(2), e.Metadata().Round)
+	require.Equal(t, uint64(0), e.Storage.Height())
+
+	// now if we send fCert for block 1, we should index both 1 & 2
+ 	fCert1, _ := newFinalizationRecord(t, l, sigAggregrator, firstBlock, nodes[0:quorum])
+	err = e.HandleMessage(&Message{
+		FinalizationCertificate: &fCert1,
+	}, nodes[1])
+	require.NoError(t, err)
+
+	require.Equal(t, uint64(2), e.Storage.Height())
+	require.Equal(t, firstBlock.Bytes(), storage.data[0].Block.Bytes())
+	require.Equal(t, secondBlock.Bytes(), storage.data[1].Block.Bytes())
+	require.Equal(t, fCert1, storage.data[0].FinalizationCertificate)
+	require.Equal(t, fCert2, storage.data[1].FinalizationCertificate)
 }
