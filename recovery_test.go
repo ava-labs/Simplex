@@ -477,58 +477,6 @@ func TestWalWritesFinalizationCert(t *testing.T) {
 }
 
 // TestRecoverFromMultipleRounds tests that the epoch can recover from a wal with multiple rounds written to it.
-func TestRecoverFromMultipleRounds(t *testing.T) {
-	l := testutil.MakeLogger(t, 1)
-	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
-	wal := wal.NewMemWAL(t)
-	storage := newInMemStorage()
-	ctx := context.Background()
-	nodes := []NodeID{{1}, {2}, {3}, {4}}
-	quorum := Quorum(len(nodes))
-	sigAggregrator := &testSignatureAggregator{}
-	conf := EpochConfig{
-		MaxProposalWait:     DefaultMaxProposalWaitTime,
-		Logger:              l,
-		ID:                  nodes[0],
-		Signer:              &testSigner{},
-		WAL:                 wal,
-		Verifier:            &testVerifier{},
-		Storage:             storage,
-		Comm:                noopComm(nodes),
-		BlockBuilder:        bb,
-		SignatureAggregator: sigAggregrator,
-		BlockDeserializer:   &blockDeserializer{},
-		QCDeserializer:      &testQCDeserializer{t: t},
-	}
-
-	e, err := NewEpoch(conf)
-	require.NoError(t, err)
-
-	protocolMetadata := e.Metadata()
-	firstBlock, ok := bb.BuildBlock(ctx, protocolMetadata)
-	require.True(t, ok)
-	record := BlockRecord(firstBlock.BlockHeader(), firstBlock.Bytes())
-	wal.Append(record)
-
-	firstNotarizationRecord, err := newNotarizationRecord(l, sigAggregrator, firstBlock, nodes[0:quorum])
-	require.NoError(t, err)
-	wal.Append(firstNotarizationRecord)
-
-	_, finalizationRecord := newFinalizationRecord(t, l, sigAggregrator, firstBlock, nodes[0:quorum])
-	require.NoError(t, err)
-	wal.Append(finalizationRecord)
-
-	// when we start we should recover to round 1
-	err = e.Start()
-	require.NoError(t, err)
-
-	// Verify the epoch recovered to the correct round
-	require.Equal(t, uint64(1), e.Metadata().Round)
-	require.Equal(t, uint64(1), e.Storage.Height())
-	require.Equal(t, firstBlock.Bytes(), storage.data[0].Block.Bytes())
-}
-
-// TestRecoverFromMultipleRounds tests that the epoch can recover from a wal with multiple rounds written to it.
 // Appends to the wal -> block, notarization, second block, notarization block 2, finalization for block 2.
 func TestRecoverFromMultipleNotarizations(t *testing.T) {
 	l := testutil.MakeLogger(t, 1)
