@@ -95,7 +95,7 @@ func (e *Epoch) handleFinalizationCertificateResponse(resp *FinalizationCertific
 }
 
 func (e *Epoch) processReplicationState() {
-	// next sequence to commit 
+	// next sequence to commit
 	nextSeqToCommit := e.Storage.Height()
 	// iterate over the replications states and send requests for future finalization certificates
 	sequenceData, ok := e.replicationState.receivedFinalizationCertificates[nextSeqToCommit]
@@ -112,4 +112,3 @@ func (e *Epoch) processReplicationState() {
 	// call processBlock onTheRound
 	// the callback should call processReplicationState
 }
-

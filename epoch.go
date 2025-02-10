@@ -1585,7 +1585,7 @@ type messagesForRound struct {
 }
 
 type blockVerificationTask struct {
-	from     NodeID
-	proposal *BlockMessage
+	from              NodeID
+	proposal          *BlockMessage
 	finalizedProposal SequenceData
 }

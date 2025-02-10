@@ -23,7 +23,7 @@ type ReplicationState struct {
 	// highest sequence we have received a finalization certificate for
 	highestFCertReceived *FinalizationCertificate
 
-	// received 
+	// received
 	receivedFinalizationCertificates map[uint64]SequenceData
 }
 
