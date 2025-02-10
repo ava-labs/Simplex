@@ -115,7 +115,6 @@ func (e *Epoch) HandleMessage(msg *Message, from NodeID) error {
 		return nil
 	}
 
-
 	switch {
 	case msg.BlockMessage != nil:
 		return e.handleBlockMessage(msg.BlockMessage, from)
@@ -263,11 +262,11 @@ func (e *Epoch) resumeFromWal(records [][]byte) error {
 
 		finalizationCertificate := &Message{FinalizationCertificate: &fCert}
 		e.Comm.Broadcast(finalizationCertificate)
-	
+
 		e.Logger.Debug("Broadcast finalization certificate",
 			zap.Uint64("round", fCert.Finalization.Round),
 			zap.Stringer("digest", fCert.Finalization.BlockHeader.Digest))
-	
+
 		return e.startRound()
 	default:
 		return errors.New("unknown record type")

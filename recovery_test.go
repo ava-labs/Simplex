@@ -171,48 +171,6 @@ func TestRecoverFromNotarization(t *testing.T) {
 	require.Equal(t, uint64(1), e.Storage.Height())
 }
 
-
-// // TestRecoveryFCertsOutOfOrder tests that the epoch can recover from a wal
-// // with a finalization certificate written to it out of order
-
-// // Block1, notarization 1, block 2 , notarization 2, finalization 2, 
-// func TestRecoveryFCertsOutOfOrder(t *testing.T) {
-// 	l := testutil.MakeLogger(t, 1)
-// 	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
-// 	wal := wal.NewMemWAL(t)
-// 	storage := newInMemStorage()
-// 	ctx := context.Background()
-// 	nodes := []NodeID{{1}, {2}, {3}, {4}}
-// 	quorum := Quorum(len(nodes))
-// 	sigAggregrator := &testSignatureAggregator{}
-// 	conf := EpochConfig{
-// 		MaxProposalWait:     DefaultMaxProposalWaitTime,
-// 		Logger:              l,
-// 		ID:                  nodes[0],
-// 		Signer:              &testSigner{},
-// 		WAL:                 wal,
-// 		Verifier:            &testVerifier{},
-// 		Storage:             storage,
-// 		Comm:                noopComm(nodes),
-// 		BlockBuilder:        bb,
-// 		SignatureAggregator: sigAggregrator,
-// 		BlockDeserializer:   &blockDeserializer{},
-// 		QCDeserializer:      &testQCDeserializer{t: t},
-// 	}
-
-// 	e, err := NewEpoch(conf)
-// 	require.NoError(t, err)
-
-// 	protocolMetadata := e.Metadata()
-// 	block, ok := bb.BuildBlock(ctx, protocolMetadata)
-// 	require.True(t, ok)
-// 	blockRecord := BlockRecord(block.BlockHeader(), block.Bytes())
-
-// 	// write block blockRecord to wal
-// 	require.NoError(t, wal.Append(blockRecord))
-// }
-
-
 // TestRecoverFromWALFinalized tests that the epoch can recover from a wal
 // with a block already stored in the storage
 func TestRecoverFromWalWithStorage(t *testing.T) {
@@ -633,7 +591,7 @@ func TestRecoverFromMultipleNotarizations(t *testing.T) {
 	require.Equal(t, uint64(0), e.Storage.Height())
 
 	// now if we send fCert for block 1, we should index both 1 & 2
- 	fCert1, _ := newFinalizationRecord(t, l, sigAggregrator, firstBlock, nodes[0:quorum])
+	fCert1, _ := newFinalizationRecord(t, l, sigAggregrator, firstBlock, nodes[0:quorum])
 	err = e.HandleMessage(&Message{
 		FinalizationCertificate: &fCert1,
 	}, nodes[1])
