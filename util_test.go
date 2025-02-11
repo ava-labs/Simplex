@@ -5,7 +5,9 @@ package simplex_test
 
 import (
 	"errors"
+	"simplex"
 	. "simplex"
+	"simplex/testutil"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -58,6 +60,65 @@ func TestRetrieveFromStorage(t *testing.T) {
 			require.Equal(t, testCase.expectedErr, err)
 			require.Equal(t, testCase.expectedBlock, block)
 			require.Equal(t, testCase.expectedFCert, fCert)
+		})
+	}
+}
+
+func TestFinalizationCertificateValidation(t *testing.T) {
+	l := testutil.MakeLogger(t, 0)
+	nodes := []NodeID{{1}, {2}, {3}, {4}, {5}}
+	quorumSize := Quorum(len(nodes))
+	signatureAggregator := &testSignatureAggregator{}
+	// Test
+	tests := []struct {
+		name       string
+		fCert      FinalizationCertificate
+		quorumSize int
+		valid      bool
+	}{
+		{
+			name: "valid finalization certificate",
+			fCert: func() FinalizationCertificate {
+				block := newTestBlock(ProtocolMetadata{})
+				fCert, _ := newFinalizationRecord(t, l, signatureAggregator, block, nodes[:quorumSize])
+				return fCert
+			}(),
+			quorumSize: quorumSize,
+			valid:      true,
+		}, {
+			name: "not enough signers",
+			fCert: func() FinalizationCertificate {
+				block := newTestBlock(ProtocolMetadata{})
+				fCert, _ := newFinalizationRecord(t, l, signatureAggregator, block, nodes[:quorumSize-1])
+				return fCert
+			}(),
+			quorumSize: quorumSize,
+			valid:      false,
+		},
+		{
+			name: "signer signed twice",
+			fCert: func() FinalizationCertificate {
+				block := newTestBlock(ProtocolMetadata{})
+				doubleNodes := []NodeID{{1}, {2}, {3}, {4}, {4}}
+				fCert, _ := newFinalizationRecord(t, l, signatureAggregator, block, doubleNodes)
+				return fCert
+			}(),
+			quorumSize: quorumSize,
+			valid:      false,
+		},
+		{
+			name:       "quorum certificate not in finalization certificate",
+			fCert:      FinalizationCertificate{Finalization: ToBeSignedFinalization{}},
+			quorumSize: quorumSize,
+			valid:      false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			valid, err := simplex.IsFinalizationCertificateValid(&tt.fCert, tt.quorumSize, l)
+			require.NoError(t, err)
+			require.Equal(t, tt.valid, valid)
 		})
 	}
 }
