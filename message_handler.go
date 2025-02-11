@@ -85,7 +85,7 @@ func (e *Epoch) handleFinalizationCertificateResponse(resp *FinalizationCertific
 
 		err := e.replicationState.StoreFinalizedBlock(data)
 		if err != nil {
-			e.Logger.Error("Failed to store sequence data", zap.Error(err), zap.Uint64("seq", data.FCert.Finalization.Seq), zap.String("from", from.String()))
+			e.Logger.Info("Failed to store sequence data", zap.Error(err), zap.Uint64("seq", data.FCert.Finalization.Seq), zap.String("from", from.String()))
 			continue
 		}
 	}

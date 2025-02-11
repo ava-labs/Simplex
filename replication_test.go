@@ -2,7 +2,6 @@ package simplex_test
 
 import (
 	"context"
-	"fmt"
 	"simplex"
 	"simplex/testutil"
 	"simplex/wal"
@@ -86,8 +85,10 @@ func TestReplication(t *testing.T) {
 	// all blocks except the lagging node start at round 8, seq 8.
 	// lagging node starts at round 0, seq 0.
 	// this asserts that the lagging node catches up to the latest round
-	for _, n := range net.instances {
-		n.storage.waitForBlockCommit(uint64(startSeq))
+	for i := 0; i <= int(startSeq); i++ {
+		for _, n := range net.instances {
+			n.storage.waitForBlockCommit(uint64(startSeq))
+		}
 	}
 }
 
@@ -111,8 +112,10 @@ func TestReplicationExceedsMaxRoundWindow(t *testing.T) {
 
 	net.startInstances()
 	bb.triggerNewBlock()
-	for _, n := range net.instances {
-		n.storage.waitForBlockCommit(uint64(startSeq))
+	for i := 0; i <= int(startSeq); i++ {
+		for _, n := range net.instances {
+			n.storage.waitForBlockCommit(uint64(startSeq))
+		}
 	}
 }
 
@@ -158,9 +161,10 @@ func TestReplicationStartsBeforeCurrentRound(t *testing.T) {
 	require.Equal(t, uint64(2), laggingNodeMd.Round)
 
 	bb.triggerNewBlock()
-	for _, n := range net.instances {
-		fmt.Println(n.storage.Height(), n.e.ID.String())
-		n.storage.waitForBlockCommit(uint64(startSeq))
+	for i := 0; i <= int(startSeq); i++ {
+		for _, n := range net.instances {
+			n.storage.waitForBlockCommit(uint64(startSeq))
+		}
 	}
 }
 
