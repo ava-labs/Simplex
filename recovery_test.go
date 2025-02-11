@@ -620,7 +620,7 @@ func TestRecoveryWithoutNotarization(t *testing.T) {
 	require.Equal(t, thirdBlock.BlockHeader().Digest, e.Metadata().Prev)
 }
 
-func TestEpochCorrectlyInitializesStorage(t *testing.T) {
+func TestEpochCorrectlyInitializesMetadataFromStorage(t *testing.T) {
 	l := testutil.MakeLogger(t, 1)
 	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
 	storage := newInMemStorage()
