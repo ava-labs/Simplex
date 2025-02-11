@@ -87,7 +87,6 @@ func TestReplication(t *testing.T) {
 	// lagging node starts at round 0, seq 0.
 	// this asserts that the lagging node catches up to the latest round
 	for _, n := range net.instances {
-		fmt.Println("n.storage.waitForBlockCommit(uint64(startSeq))", uint64(startSeq), n.e.ID.String())
 		n.storage.waitForBlockCommit(uint64(startSeq))
 	}
 }
@@ -160,6 +159,7 @@ func TestReplicationStartsBeforeCurrentRound(t *testing.T) {
 
 	bb.triggerNewBlock()
 	for _, n := range net.instances {
+		fmt.Println(n.storage.Height(), n.e.ID.String())
 		n.storage.waitForBlockCommit(uint64(startSeq))
 	}
 }
