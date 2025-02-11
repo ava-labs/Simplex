@@ -1298,11 +1298,6 @@ func (e *Epoch) metadata() ProtocolMetadata {
 		currMed := e.getHighestRound().block.BlockHeader()
 		prev = currMed.Digest
 		seq = currMed.Seq + 1
-	} else if e.lastBlock != nil {
-		// If we have a last block, but no rounds, we must have crashed before we could propose it.
-		currMed := e.lastBlock.BlockHeader()
-		prev = currMed.Digest
-		seq = currMed.Seq + 1
 	}
 
 	md := ProtocolMetadata{
