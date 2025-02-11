@@ -24,7 +24,7 @@ func RetrieveLastIndexFromStorage(s Storage) (Block, *FinalizationCertificate, e
 	return lastBlock, &fCert, nil
 }
 
-func isFinalizationCertificateValid(fCert *FinalizationCertificate, quorumSize int, logger Logger) (bool, error) {
+func IsFinalizationCertificateValid(fCert *FinalizationCertificate, quorumSize int, logger Logger) (bool, error) {
 	valid, err := validateFinalizationQC(fCert, quorumSize, logger)
 	if err != nil {
 		return false, err
