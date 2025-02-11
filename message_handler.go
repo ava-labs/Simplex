@@ -97,18 +97,12 @@ func (e *Epoch) handleFinalizationCertificateResponse(resp *FinalizationCertific
 func (e *Epoch) processReplicationState() {
 	// next sequence to commit
 	nextSeqToCommit := e.Storage.Height()
-	// iterate over the replications states and send requests for future finalization certificates
 	sequenceData, ok := e.replicationState.receivedFinalizationCertificates[nextSeqToCommit]
 	if !ok {
 		// we are missing the finalization certificate for the next sequence to commit
 		return
 	}
 
-	blockVerificationTask := blockVerificationTask{
-		finalizedProposal: sequenceData,
-	}
 	// process block should not verify the block if its in e.round map
-	e.processBlock(blockVerificationTask)
-	// call processBlock onTheRound
-	// the callback should call processReplicationState
+	e.processFinalizedBlock(&sequenceData)
 }
