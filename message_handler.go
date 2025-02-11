@@ -102,7 +102,7 @@ func (e *Epoch) processReplicationState() {
 		// we are missing the finalization certificate for the next sequence to commit
 		return
 	}
-
+	
 	// process block should not verify the block if its in e.round map
 	e.processFinalizedBlock(&sequenceData)
 }

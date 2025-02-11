@@ -387,7 +387,7 @@ func (e *Epoch) handleFinalizationCertificateMessage(message *FinalizationCertif
 
 	if message.Finalization.Seq > nextSeqToCommit {
 		e.Logger.Debug("Received a finalization certificate for a future sequence", zap.Uint64("seq", message.Finalization.Seq), zap.Uint64("nextSeqToCommit", nextSeqToCommit))
-		e.replicationState.collectFutureFinalizationCertificates(message, e.round, nextSeqToCommit)
+		// e.replicationState.collectFutureFinalizationCertificates(message, e.round, nextSeqToCommit)
 		return nil
 	}
 
@@ -395,7 +395,7 @@ func (e *Epoch) handleFinalizationCertificateMessage(message *FinalizationCertif
 	if !exists {
 		// TODO: delay requesting future fCerts and blocks, since blocks could be in transit
 		e.Logger.Debug("Received finalization certificate for a future round", zap.Uint64("round", message.Finalization.Round))
-		e.replicationState.collectFutureFinalizationCertificates(message, e.round, nextSeqToCommit)
+		// e.replicationState.collectFutureFinalizationCertificates(message, e.round, nextSeqToCommit)
 		return nil
 	}
 
@@ -1027,13 +1027,6 @@ func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote)
 			// TODO: timeout
 		}
 
-		// We might have received votes and finalizations from future rounds before we received this block.
-		// So load the messages into our round data structure now that we have created it.
-		err := e.maybeLoadFutureMessages()
-		if err != nil {
-			e.Logger.Warn("Failed to load future messages", zap.Error(err))
-		}
-
 		e.deleteFutureProposal(from, md.Round)
 
 		// Once we have stored the proposal, we have a Round object for the round.
@@ -1044,7 +1037,6 @@ func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote)
 			e.Logger.Error("programming error: round not found", zap.Uint64("round", md.Round))
 			return md.Digest
 		}
-
 		round.votes[string(vote.Signature.Signer)] = &vote
 
 		if err := e.doProposed(block); err != nil {
@@ -1091,6 +1083,7 @@ func (e *Epoch) createBlockFinalizedVerificationTask(sequenceData SequenceData) 
 		round.fCert = &sequenceData.FCert
 
 		e.indexFinalizationCertificates(e.round)
+		e.replicationState.maybeCollectFutureFinalizationCertificates(e.round, e.Storage.Height())
 		e.processReplicationState()
 		err := e.maybeLoadFutureMessages()
 		if err != nil {
@@ -1226,6 +1219,7 @@ func (e *Epoch) buildBlock() {
 	metadata := e.metadata()
 
 	task := e.createBlockBuildingTask(metadata)
+
 	e.Logger.Debug("Scheduling block building", zap.Uint64("round", metadata.Round))
 	e.sched.Schedule(task, metadata.Prev, true)
 }
@@ -1249,6 +1243,7 @@ func (e *Epoch) createBlockBuildingTask(metadata ProtocolMetadata) func() Digest
 
 func (e *Epoch) proposeBlock(block Block) error {
 	md := block.BlockHeader()
+
 	// Write record to WAL before broadcasting it, so that
 	// if we crash during broadcasting, we know what we sent.
 
@@ -1489,25 +1484,6 @@ func (e *Epoch) storeNotarization(notarization Notarization) error {
 	return nil
 }
 
-func (e *Epoch) handleFutureFinalizationCertificate(roundMessages *messagesForRound, round uint64, from NodeID) error {
-	// ensure we have a proposal before storing the finalization certificate
-	if _, exists := e.rounds[round]; !exists {
-		e.Logger.Debug("Received a finalization certificate for a round without a proposal", zap.Uint64("round", round))
-		return nil
-	}
-
-	// set the block for the round
-	if err := e.handleFinalizationCertificateMessage(roundMessages.fCert, NodeID(from)); err != nil {
-		return err
-	}
-	// we dont want to handle any other messages if we have a finalization certificate
-	delete(e.futureMessages[string(from)], round)
-
-	// check if we need to send out new requests
-	e.replicationState.maybeCollectFutureFinalizationCertificates(e.round, e.Storage.Height())
-	return nil
-}
-
 func (e *Epoch) maybeLoadFutureMessages() error {
 	for {
 		round := e.round
@@ -1519,12 +1495,6 @@ func (e *Epoch) maybeLoadFutureMessages() error {
 					if err := e.handleBlockMessage(msgs.proposal, NodeID(from)); err != nil {
 						return err
 					}
-				}
-				if msgs.fCert != nil {
-					if err := e.handleFutureFinalizationCertificate(msgs, round, NodeID(from)); err != nil {
-						return err
-					}
-					continue
 				}
 				if msgs.vote != nil {
 					if err := e.handleVoteMessage(msgs.vote, NodeID(from)); err != nil {
@@ -1603,11 +1573,4 @@ type messagesForRound struct {
 	proposal     *BlockMessage
 	vote         *Vote
 	finalization *Finalization
-	fCert        *FinalizationCertificate
-}
-
-type blockVerificationTask struct {
-	from              NodeID
-	blockMessage          *BlockMessage
-	finalizedProposal *SequenceData
 }
