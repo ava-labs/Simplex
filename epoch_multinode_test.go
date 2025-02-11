@@ -44,7 +44,7 @@ func (t *testNode) start() {
 	require.NoError(t.t, t.e.Start())
 }
 
-func newSimplexNodeWithStorage(t *testing.T, nodeID NodeID, net *inMemNetwork, bb BlockBuilder, storage []SequenceData) *testNode {
+func newSimplexNodeWithStorage(t *testing.T, nodeID NodeID, net *inMemNetwork, bb BlockBuilder, storage []FinalizedBlock) *testNode {
 	wal := newTestWAL(t)
 	conf := defaultTestNodeEpochConfig(t, nodeID, net, wal, bb)
 	for _, data := range storage {

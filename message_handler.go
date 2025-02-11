@@ -22,13 +22,13 @@ type FinalizationCertificateRequest struct {
 	Sequences []uint64
 }
 
-type SequenceData struct {
+type FinalizedBlock struct {
 	Block Block
 	FCert FinalizationCertificate
 }
 
 type FinalizationCertificateResponse struct {
-	Data []SequenceData
+	Data []FinalizedBlock
 }
 
 // HandleRequest processes a request and returns a response. It also sends a response to the sender.
@@ -48,7 +48,7 @@ func (e *Epoch) handleFinalizationCertificateRequest(req *FinalizationCertificat
 	e.Logger.Debug("Received finalization certificate request", zap.Int("num seqs", len(req.Sequences)))
 	seqs := req.Sequences
 	slices.Sort(seqs)
-	data := make([]SequenceData, len(seqs))
+	data := make([]FinalizedBlock, len(seqs))
 	for i, seq := range seqs {
 		block, fCert, exists := e.Storage.Retrieve(seq)
 		if !exists {
@@ -56,7 +56,7 @@ func (e *Epoch) handleFinalizationCertificateRequest(req *FinalizationCertificat
 			data = data[:i]
 			break
 		}
-		data[i] = SequenceData{
+		data[i] = FinalizedBlock{
 			Block: block,
 			FCert: fCert,
 		}
@@ -83,7 +83,7 @@ func (e *Epoch) handleFinalizationCertificateResponse(resp *FinalizationCertific
 			continue
 		}
 
-		err := e.replicationState.StoreSequenceData(data)
+		err := e.replicationState.StoreFinalizedBlock(data)
 		if err != nil {
 			e.Logger.Error("Failed to store sequence data", zap.Error(err), zap.Uint64("seq", data.FCert.Finalization.Seq), zap.String("from", from.String()))
 			continue
@@ -95,14 +95,12 @@ func (e *Epoch) handleFinalizationCertificateResponse(resp *FinalizationCertific
 }
 
 func (e *Epoch) processReplicationState() {
-	// next sequence to commit
 	nextSeqToCommit := e.Storage.Height()
-	sequenceData, ok := e.replicationState.receivedFinalizationCertificates[nextSeqToCommit]
+	finalizedBlock, ok := e.replicationState.receivedFinalizationCertificates[nextSeqToCommit]
 	if !ok {
-		// we are missing the finalization certificate for the next sequence to commit
 		return
 	}
-	
-	// process block should not verify the block if its in e.round map
-	e.processFinalizedBlock(&sequenceData)
+
+	e.replicationState.maybeCollectFutureFinalizationCertificates(e.round, e.Storage.Height())
+	e.processFinalizedBlock(&finalizedBlock)
 }

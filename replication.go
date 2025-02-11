@@ -16,7 +16,7 @@ type ReplicationState struct {
 	maxRoundWindow uint64
 	comm           Communication
 	id             NodeID
-	quorumSize    int
+	quorumSize     int
 
 	// latest seq requested
 	lastSequenceRequested uint64
@@ -25,17 +25,17 @@ type ReplicationState struct {
 	highestFCertReceived *FinalizationCertificate
 
 	// received
-	receivedFinalizationCertificates map[uint64]SequenceData
+	receivedFinalizationCertificates map[uint64]FinalizedBlock
 }
 
 func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundWindow uint64) *ReplicationState {
 	return &ReplicationState{
-		quorumSize: Quorum(len(comm.ListNodes())),
-		logger:         logger,
-		comm:           comm,
-		id:             id,
-		maxRoundWindow: maxRoundWindow,
-		receivedFinalizationCertificates: make(map[uint64]SequenceData),
+		quorumSize:                       Quorum(len(comm.ListNodes())),
+		logger:                           logger,
+		comm:                             comm,
+		id:                               id,
+		maxRoundWindow:                   maxRoundWindow,
+		receivedFinalizationCertificates: make(map[uint64]FinalizedBlock),
 	}
 }
 
@@ -118,7 +118,7 @@ func (r *ReplicationState) ShouldReplicate(round uint64) bool {
 	return r.highestFCertReceived.Finalization.BlockHeader.Round >= round
 }
 
-func (r *ReplicationState) StoreSequenceData(data SequenceData) (error) {
+func (r *ReplicationState) StoreFinalizedBlock(data FinalizedBlock) error {
 	// ensure the finalization certificate we get relates to the block
 	blockDigest := data.Block.BlockHeader().Digest
 	if !bytes.Equal(blockDigest[:], data.FCert.Finalization.BlockHeader.Digest[:]) {

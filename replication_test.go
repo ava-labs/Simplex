@@ -164,10 +164,10 @@ func TestReplicationStartsBeforeCurrentRound(t *testing.T) {
 	}
 }
 
-func createBlocks(t *testing.T, nodes []simplex.NodeID, bb simplex.BlockBuilder, seqCount uint64) []simplex.SequenceData {
+func createBlocks(t *testing.T, nodes []simplex.NodeID, bb simplex.BlockBuilder, seqCount uint64) []simplex.FinalizedBlock {
 	logger := testutil.MakeLogger(t, int(0))
 	ctx := context.Background()
-	data := make([]simplex.SequenceData, 0, seqCount)
+	data := make([]simplex.FinalizedBlock, 0, seqCount)
 	var prev simplex.Digest
 	for i := uint64(0); i < seqCount; i++ {
 		protocolMetadata := simplex.ProtocolMetadata{
@@ -180,7 +180,7 @@ func createBlocks(t *testing.T, nodes []simplex.NodeID, bb simplex.BlockBuilder,
 		require.True(t, ok)
 		prev = block.BlockHeader().Digest
 		fCert, _ := newFinalizationRecord(t, logger, &testSignatureAggregator{}, block, nodes)
-		data = append(data, simplex.SequenceData{
+		data = append(data, simplex.FinalizedBlock{
 			Block: block,
 			FCert: fCert,
 		})

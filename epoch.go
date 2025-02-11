@@ -695,7 +695,7 @@ func (e *Epoch) indexFinalizationCertificates(startRound uint64) {
 		return
 	}
 	if round.fCert.Finalization.Seq != e.Storage.Height() {
-		e.Logger.Debug("Finalization certificate does not correspond to the next sequence to commit", 
+		e.Logger.Debug("Finalization certificate does not correspond to the next sequence to commit",
 			zap.Uint64("seq", round.fCert.Finalization.Seq), zap.Uint64("height", e.Storage.Height()))
 		return
 	}
@@ -852,7 +852,6 @@ func (e *Epoch) handleNotarizationMessage(message *Notarization, from NodeID) er
 	return e.persistNotarization(*message)
 }
 
-
 func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 	block := message.Block
 	if block == nil {
@@ -961,20 +960,22 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 	return nil
 }
 
-func (e *Epoch) processFinalizedBlock(sequenceData *SequenceData) error {
-	round, exists := e.rounds[sequenceData.FCert.Finalization.Round]
+// processFinalizedBlock processes a block that has a finalization certificate.
+// if the block has already been verified, it will index the finalization certificate,
+// otherwise it will verify the block first.
+func (e *Epoch) processFinalizedBlock(finalizedBlock *FinalizedBlock) error {
+	round, exists := e.rounds[finalizedBlock.FCert.Finalization.Round]
 	// dont create a block verification task if the block is already in the rounds map
 	if exists {
 		roundDigest := round.block.BlockHeader().Digest
-		seqDigest := sequenceData.FCert.Finalization.BlockHeader.Digest
+		seqDigest := finalizedBlock.FCert.Finalization.BlockHeader.Digest
 		if !bytes.Equal(roundDigest[:], seqDigest[:]) {
 			e.Logger.Warn("Received finalized block that is different from the one we have in the rounds map",
 				zap.Stringer("roundDigest", roundDigest), zap.Stringer("seqDigest", seqDigest))
 			return nil
 		}
-		round.fCert = &sequenceData.FCert
+		round.fCert = &finalizedBlock.FCert
 		e.indexFinalizationCertificates(round.num)
-		e.replicationState.maybeCollectFutureFinalizationCertificates(e.round, e.Storage.Height())
 		e.processReplicationState()
 		return e.maybeLoadFutureMessages()
 	}
@@ -984,14 +985,14 @@ func (e *Epoch) processFinalizedBlock(sequenceData *SequenceData) error {
 		e.Logger.Warn("Too many blocks being verified to ingest another one", zap.Int("pendingBlocks", pendingBlocks))
 		return nil
 	}
-	md := sequenceData.Block.BlockHeader()
-	if !e.verifyProposalIsPartOfOurChain(sequenceData.Block) {
+	md := finalizedBlock.Block.BlockHeader()
+	if !e.verifyProposalIsPartOfOurChain(finalizedBlock.Block) {
 		e.Logger.Debug("Got invalid block in a BlockMessage")
 		return nil
 	}
 
 	// Create a task that will verify the block in the future, after its predecessors have also been verified.
-	task := e.createBlockFinalizedVerificationTask(*sequenceData)
+	task := e.createBlockFinalizedVerificationTask(*finalizedBlock)
 
 	// isBlockReadyToBeScheduled checks if the block is known to us either from some previous round,
 	// or from storage. If so, then we have verified it in the past, since only verified blocks are saved in memory.
@@ -1053,8 +1054,8 @@ func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote)
 	}
 }
 
-func (e *Epoch) createBlockFinalizedVerificationTask(sequenceData SequenceData) func() Digest {
-	block := sequenceData.Block
+func (e *Epoch) createBlockFinalizedVerificationTask(finalizedBlock FinalizedBlock) func() Digest {
+	block := finalizedBlock.Block
 	return func() Digest {
 		md := block.BlockHeader()
 
@@ -1086,10 +1087,9 @@ func (e *Epoch) createBlockFinalizedVerificationTask(sequenceData SequenceData) 
 			e.Logger.Error("programming error: round not found", zap.Uint64("round", md.Round))
 			return md.Digest
 		}
-		round.fCert = &sequenceData.FCert
+		round.fCert = &finalizedBlock.FCert
 
 		e.indexFinalizationCertificates(round.num)
-		e.replicationState.maybeCollectFutureFinalizationCertificates(e.round, e.Storage.Height())
 		e.processReplicationState()
 		err := e.maybeLoadFutureMessages()
 		if err != nil {
