@@ -378,14 +378,14 @@ func TestEpochBlockSentFromNonLeader(t *testing.T) {
 
 	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
 	storage := newInMemStorage()
-
+	wal := newTestWAL(t)
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	conf := EpochConfig{
 		MaxProposalWait:     DefaultMaxProposalWaitTime,
 		Logger:              l,
 		ID:                  nodes[1],
 		Signer:              &testSigner{},
-		WAL:                 wal.NewMemWAL(t),
+		WAL:                 wal,
 		Verifier:            &testVerifier{},
 		Storage:             storage,
 		Comm:                noopComm(nodes),
@@ -413,6 +413,9 @@ func TestEpochBlockSentFromNonLeader(t *testing.T) {
 	}, notLeader)
 	require.NoError(t, err)
 	require.True(t, nonLeaderMessage)
+	records, err := wal.WriteAheadLog.ReadAll()
+	require.NoError(t, err)
+	require.Len(t, records, 0)
 }
 
 func TestEpochBlockTooHighRound(t *testing.T) {
