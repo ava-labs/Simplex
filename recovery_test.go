@@ -552,7 +552,7 @@ func TestRecoverFromMultipleNotarizations(t *testing.T) {
 }
 
 // TestRecoversFromMultipleNotarizations tests that the epoch can recover from a wal
-// with its last notarization record being from a less recent round. 
+// with its last notarization record being from a less recent round.
 func TestRecoveryWithoutNotarization(t *testing.T) {
 	l := testutil.MakeLogger(t, 1)
 	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
@@ -617,4 +617,38 @@ func TestRecoveryWithoutNotarization(t *testing.T) {
 	// ensure the round is properly set to 3
 	require.Equal(t, uint64(3), e.Metadata().Round)
 	require.Equal(t, uint64(3), e.Metadata().Seq)
+	require.Equal(t, thirdBlock.BlockHeader().Digest, e.Metadata().Prev)
+}
+
+func TestEpochCorrectlyInitializesMetadataFromStorage(t *testing.T) {
+	l := testutil.MakeLogger(t, 1)
+	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
+	storage := newInMemStorage()
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	conf := EpochConfig{
+		MaxProposalWait:   DefaultMaxProposalWaitTime,
+		Logger:            l,
+		ID:                nodes[0],
+		Signer:            &testSigner{},
+		WAL:               wal.NewMemWAL(t),
+		Verifier:          &testVerifier{},
+		Storage:           storage,
+		Comm:              noopComm(nodes),
+		BlockBuilder:      bb,
+		BlockDeserializer: &blockDeserializer{},
+		QCDeserializer:    &testQCDeserializer{t: t},
+	}
+
+	block := newTestBlock(ProtocolMetadata{Seq: 0, Round: 0, Epoch: 0})
+	conf.Storage.Index(block, FinalizationCertificate{})
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	require.Equal(t, uint64(1), e.Storage.Height())
+	require.NoError(t, e.Start())
+
+	// ensure the round is properly set
+	require.Equal(t, uint64(1), e.Metadata().Round)
+	require.Equal(t, uint64(1), e.Metadata().Seq)
+	require.Equal(t, block.BlockHeader().Digest, e.Metadata().Prev)
+
 }
