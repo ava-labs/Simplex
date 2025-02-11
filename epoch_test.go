@@ -165,10 +165,8 @@ func notarizeAndFinalizeRound(t *testing.T, nodes []NodeID, round uint64, e *Epo
 		injectTestFinalization(t, e, block, nodes[quorum])
 	}
 
-	storage.waitForBlockCommit(round)
-
-	committedData := storage.data[round].Block.Bytes()
-	require.Equal(t, block.Bytes(), committedData)
+	block2 := storage.waitForBlockCommit(round)
+	require.Equal(t, block, block2)
 }
 
 func FuzzEpochInterleavingMessages(f *testing.F) {
@@ -731,13 +729,13 @@ func newInMemStorage() *InMemStorage {
 	return s
 }
 
-func (mem *InMemStorage) waitForBlockCommit(seq uint64) {
+func (mem *InMemStorage) waitForBlockCommit(seq uint64) Block {
 	mem.lock.Lock()
 	defer mem.lock.Unlock()
 
 	for {
-		if _, exists := mem.data[seq]; exists {
-			return
+		if data, exists := mem.data[seq]; exists {
+			return data.Block
 		}
 
 		mem.signal.Wait()

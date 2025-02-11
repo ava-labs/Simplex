@@ -5,9 +5,10 @@ package simplex
 
 import (
 	"context"
-	"go.uber.org/zap"
 	"sync/atomic"
 	"time"
+
+	"go.uber.org/zap"
 )
 
 type Monitor struct {
