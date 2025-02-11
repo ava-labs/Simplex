@@ -650,12 +650,13 @@ func (e *Epoch) progressRoundsDueToCommit(round uint64) {
 }
 
 func (e *Epoch) persistFinalizationCertificate(fCert FinalizationCertificate) error {
+	e.Logger.Debug("Received enough finalizations to finalize a block", zap.Uint64("round", fCert.Finalization.Round))
 	// Check to see if we should commit this finalization to the storage as part of a block commit,
 	// or otherwise write it to the WAL in order to commit it later.
 	startRound := e.round
 	nextSeqToCommit := e.Storage.Height()
 	if fCert.Finalization.Seq == nextSeqToCommit {
-		e.indexFinalizationCertificates(startRound)
+		e.indexFinalizationCertificates(fCert.Finalization.Round)
 	} else {
 		recordBytes := NewQuorumRecord(fCert.QC.Bytes(), fCert.Finalization.Bytes(), record.FinalizationRecordType)
 		if err := e.WAL.Append(recordBytes); err != nil {
@@ -690,9 +691,12 @@ func (e *Epoch) indexFinalizationCertificates(startRound uint64) {
 	r := startRound
 	round, exists := e.rounds[r]
 	if !exists {
+		e.Logger.Debug("Round not found", zap.Uint64("round", r))
 		return
 	}
 	if round.fCert.Finalization.Seq != e.Storage.Height() {
+		e.Logger.Debug("Finalization certificate does not correspond to the next sequence to commit", 
+			zap.Uint64("seq", round.fCert.Finalization.Seq), zap.Uint64("height", e.Storage.Height()))
 		return
 	}
 
@@ -1082,7 +1086,7 @@ func (e *Epoch) createBlockFinalizedVerificationTask(sequenceData SequenceData) 
 		}
 		round.fCert = &sequenceData.FCert
 
-		e.indexFinalizationCertificates(e.round)
+		e.indexFinalizationCertificates(round.num)
 		e.replicationState.maybeCollectFutureFinalizationCertificates(e.round, e.Storage.Height())
 		e.processReplicationState()
 		err := e.maybeLoadFutureMessages()
@@ -1540,6 +1544,10 @@ func (e *Epoch) storeProposal(block Block) bool {
 
 	round := NewRound(block)
 	e.rounds[md.Round] = round
+
+	// We might have received votes and finalizations from future rounds before we received this block.
+	// So load the messages into our round data structure now that we have created it.
+	e.maybeLoadFutureMessages()
 
 	return true
 }
