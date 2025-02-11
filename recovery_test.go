@@ -60,7 +60,7 @@ func TestRecoverFromWALProposed(t *testing.T) {
 	err = e.Start()
 	require.NoError(t, err)
 
-	rounds := uint64(1)
+	rounds := uint64(100)
 	for i := uint64(0); i < rounds; i++ {
 		leader := LeaderForRound(nodes, uint64(i))
 		isEpochNode := leader.Equals(e.ID)
@@ -551,7 +551,8 @@ func TestRecoverFromMultipleNotarizations(t *testing.T) {
 	require.Equal(t, fCert2, storage.data[1].FinalizationCertificate)
 }
 
-// Block1, notarization 1, block 2, block 3,
+// TestRecoversFromMultipleNotarizations tests that the epoch can recover from a wal
+// with its last notarization record being from a less recent round. 
 func TestRecoveryWithoutNotarization(t *testing.T) {
 	l := testutil.MakeLogger(t, 1)
 	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
@@ -615,4 +616,5 @@ func TestRecoveryWithoutNotarization(t *testing.T) {
 
 	// ensure the round is properly set to 3
 	require.Equal(t, uint64(3), e.Metadata().Round)
+	require.Equal(t, uint64(3), e.Metadata().Seq)
 }
