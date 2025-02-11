@@ -125,7 +125,7 @@ func (r *ReplicationState) StoreFinalizedBlock(data FinalizedBlock) error {
 		return fmt.Errorf("Finalization certificate does not match the block")
 	}
 
-	valid, err := isFinalizationCertificateValid(&data.FCert, r.quorumSize, r.logger)
+	valid, err := IsFinalizationCertificateValid(&data.FCert, r.quorumSize, r.logger)
 	// verify the finalization certificate
 	if err != nil || !valid {
 		return fmt.Errorf("Finalization certificate failed verification")

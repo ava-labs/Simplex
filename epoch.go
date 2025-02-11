@@ -279,7 +279,6 @@ func (e *Epoch) resumeFromWal(records [][]byte) error {
 func (e *Epoch) setMetadataFromStorage() error {
 	// load from storage if no notarization records
 	block, _, err := RetrieveLastIndexFromStorage(e.Storage)
-	block, _, err := RetrieveLastIndexFromStorage(e.Storage)
 	if err != nil {
 		return err
 	}
@@ -366,11 +365,6 @@ func (e *Epoch) handleFinalizationCertificateMessage(message *FinalizationCertif
 	nextSeqToCommit := e.Storage.Height()
 	// Ignore finalization certificates for sequences we have already committed
 	if nextSeqToCommit > message.Finalization.Seq {
-		return nil
-	}
-
-	if round.fCert != nil {
-		e.Logger.Debug("Received finalization for an already finalized round", zap.Uint64("round", message.Finalization.Round))
 		return nil
 	}
 
