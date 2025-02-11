@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"fmt"
 	. "simplex"
 	"simplex/record"
 	"simplex/testutil"
@@ -300,6 +299,5 @@ func (t *testControlledBlockBuilder) triggerNewBlock() {
 func (t *testControlledBlockBuilder) BuildBlock(ctx context.Context, metadata ProtocolMetadata) (Block, bool) {
 	require.Equal(t.t, metadata.Seq, metadata.Round)
 	<-t.control
-	fmt.Println("triggerting bloick withj previoud", metadata.Prev)
 	return t.testBlockBuilder.BuildBlock(ctx, metadata)
 }
