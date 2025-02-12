@@ -111,6 +111,8 @@ func TestEpochLeaderFailover(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, emptyVoteFrom1.Vote, emptyNotarization.Vote)
 	require.Equal(t, uint64(3), emptyNotarization.Vote.Round)
+	require.Equal(t, uint64(2), emptyNotarization.Vote.Seq)
+	require.Equal(t, uint64(4), storage.Height())
 }
 
 func TestEpochLeaderFailoverAfterProposal(t *testing.T) {
@@ -246,6 +248,9 @@ func TestEpochLeaderFailoverAfterProposal(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, emptyVoteFrom1.Vote, emptyNotarization.Vote)
 	require.Equal(t, uint64(3), emptyNotarization.Vote.Round)
+	require.Equal(t, uint64(2), emptyNotarization.Vote.Seq)
+	require.Equal(t, uint64(4), storage.Height())
+
 }
 
 func TestEpochLeaderFailoverTwice(t *testing.T) {
@@ -366,6 +371,8 @@ func TestEpochLeaderFailoverTwice(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, emptyVoteFrom1.Vote, emptyNotarization.Vote)
 	require.Equal(t, uint64(3), emptyNotarization.Vote.Round)
+	require.Equal(t, uint64(1), emptyNotarization.Vote.Seq)
+	require.Equal(t, uint64(3), storage.Height())
 }
 
 func createEmptyVote(md ProtocolMetadata, signer NodeID) *EmptyVote {
