@@ -51,12 +51,12 @@ func (r *ReplicationState) sendFutureCertficatesRequests(start uint64, end uint6
 		seqs[i-start] = i
 	}
 
-	roundRequest := &Request{
+	roundRequest := &ReplicationRequest{
 		FinalizationCertificateRequest: &FinalizationCertificateRequest{
 			Sequences: seqs,
 		},
 	}
-	msg := &Message{Request: roundRequest}
+	msg := &Message{ReplicationRequest: roundRequest}
 
 	requestFrom := r.requestFrom()
 

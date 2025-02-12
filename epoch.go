@@ -128,10 +128,10 @@ func (e *Epoch) HandleMessage(msg *Message, from NodeID) error {
 		return e.handleFinalizationMessage(msg.Finalization, from)
 	case msg.FinalizationCertificate != nil:
 		return e.handleFinalizationCertificateMessage(msg.FinalizationCertificate, from)
-	case msg.Response != nil:
-		return e.handleResponse(msg.Response, from)
-	case msg.Request != nil:
-		e.HandleRequest(msg.Request, from)
+	case msg.ReplicationResponse != nil:
+		return e.handleReplicationResponse(msg.ReplicationResponse, from)
+	case msg.ReplicationRequest != nil:
+		e.HandleReplicationRequest(msg.ReplicationRequest, from)
 		return nil
 	default:
 		e.Logger.Warn("Invalid message type", zap.Stringer("from", from))

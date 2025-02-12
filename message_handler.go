@@ -9,11 +9,11 @@ import (
 	"go.uber.org/zap"
 )
 
-type Request struct {
+type ReplicationRequest struct {
 	FinalizationCertificateRequest *FinalizationCertificateRequest
 }
 
-type Response struct {
+type ReplicationResponse struct {
 	FinalizationCertificateResponse *FinalizationCertificateResponse
 }
 
@@ -32,14 +32,14 @@ type FinalizationCertificateResponse struct {
 }
 
 // HandleRequest processes a request and returns a response. It also sends a response to the sender.
-func (e *Epoch) HandleRequest(req *Request, from NodeID) *Response {
+func (e *Epoch) HandleReplicationRequest(req *ReplicationRequest, from NodeID) *ReplicationResponse {
 	// TODO: should I update requests to be async? and have the epoch respond with e.Comm.Send(msg, node)
-	response := &Response{}
+	response := &ReplicationResponse{}
 	if req.FinalizationCertificateRequest != nil {
 		response.FinalizationCertificateResponse = e.handleFinalizationCertificateRequest(req.FinalizationCertificateRequest)
 	}
 
-	msg := &Message{Response: response}
+	msg := &Message{ReplicationResponse: response}
 	e.Comm.SendMessage(msg, from)
 	return response
 }
@@ -66,7 +66,7 @@ func (e *Epoch) handleFinalizationCertificateRequest(req *FinalizationCertificat
 	}
 }
 
-func (e *Epoch) handleResponse(resp *Response, from NodeID) error {
+func (e *Epoch) handleReplicationResponse(resp *ReplicationResponse, from NodeID) error {
 	var err error
 	if resp.FinalizationCertificateResponse != nil {
 		err = e.handleFinalizationCertificateResponse(resp.FinalizationCertificateResponse, from)
