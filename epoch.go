@@ -907,7 +907,7 @@ func (e *Epoch) maybeAssembleEmptyNotarization() error {
 
 	emptyNotarization := &EmptyNotarization{QC: qc, Vote: popularEmptyVote.Vote}
 
-	return e.persistemptyNotarization(emptyNotarization)
+	return e.persistEmptyNotarization(emptyNotarization)
 }
 
 func findMostPopularEmptyVote(votes map[string]*EmptyVote, quorumSize int) (*EmptyVote, bool) {
@@ -933,7 +933,7 @@ func findMostPopularEmptyVote(votes map[string]*EmptyVote, quorumSize int) (*Emp
 	return popularEmptyVotes[0], true
 }
 
-func (e *Epoch) persistemptyNotarization(emptyNotarization *EmptyNotarization) error {
+func (e *Epoch) persistEmptyNotarization(emptyNotarization *EmptyNotarization) error {
 	emptyNotarizationRecord := NewEmptyNotarizationRecord(emptyNotarization)
 	if err := e.WAL.Append(emptyNotarizationRecord); err != nil {
 		e.Logger.Error("Failed to append empty block record to WAL", zap.Error(err))
