@@ -167,28 +167,7 @@ func ParseBlockRecord(buff []byte) (BlockHeader, []byte, error) {
 	return bh, payload, nil
 }
 
-func NewEmptyNotarizationRecord(emptyNotarization *EmptyNotarization) []byte {
-	return NewQuorumRecord(emptyNotarization.QC.Bytes(), emptyNotarization.Vote.Bytes(), record.EmptyNotarizationRecordType)
-}
-
-func EmptyNotarizationFromRecord(record []byte, qd QCDeserializer) (EmptyNotarization, error) {
-	qcBytes, emptyVote, err := ParseemptyNotarizationRecord(record)
-	if err != nil {
-		return EmptyNotarization{}, err
-	}
-
-	qc, err := qd.DeserializeQuorumCertificate(qcBytes)
-	if err != nil {
-		return EmptyNotarization{}, err
-	}
-
-	return EmptyNotarization{
-		Vote: emptyVote,
-		QC:   qc,
-	}, nil
-}
-
-func ParseemptyNotarizationRecord(buff []byte) ([]byte, ToBeSignedEmptyVote, error) {
+func ParseEmptyNotarizationRecord(buff []byte) ([]byte, ToBeSignedEmptyVote, error) {
 	recordType := binary.BigEndian.Uint16(buff[:2])
 	if recordType != record.EmptyNotarizationRecordType {
 		return nil, ToBeSignedEmptyVote{}, fmt.Errorf("expected record type %d, got %d", record.NotarizationRecordType, recordType)
