@@ -676,10 +676,7 @@ func (e *Epoch) handleVoteMessage(message *Vote, from NodeID) error {
 
 func (e *Epoch) haveWeAlreadyTimedOutOnThisRound(round uint64) bool {
 	emptyVotes, exists := e.emptyVotes[round]
-	if exists && emptyVotes.timedOut {
-		return true
-	}
-	return false
+	return exists && emptyVotes.timedOut
 }
 
 func (e *Epoch) storeFutureVote(message *Vote, from NodeID, round uint64) {
