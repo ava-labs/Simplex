@@ -911,15 +911,15 @@ func (e *Epoch) maybeAssembleEmptyNotarization() error {
 }
 
 func findMostPopularEmptyVote(votes map[string]*EmptyVote, quorumSize int) (*EmptyVote, bool) {
-	votesBySender := make(map[string][]*EmptyVote)
+	votesByBytes := make(map[string][]*EmptyVote)
 	for _, vote := range votes {
 		key := string(vote.Vote.Bytes())
-		votesBySender[key] = append(votesBySender[key], vote)
+		votesByBytes[key] = append(votesByBytes[key], vote)
 	}
 
 	var popularEmptyVotes []*EmptyVote
 
-	for _, votes := range votesBySender {
+	for _, votes := range votesByBytes {
 		if len(votes) >= quorumSize {
 			popularEmptyVotes = votes
 			break
