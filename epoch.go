@@ -1571,6 +1571,11 @@ func (e *Epoch) handleFinalizationCertificateRequest(req *FinalizationCertificat
 	e.Logger.Debug("Received finalization certificate request", zap.Int("num seqs", len(req.Sequences)))
 	seqs := req.Sequences
 	slices.Sort(seqs)
+
+	if seqs[0] > e.Storage.Height() {
+		return &FinalizationCertificateResponse{}
+	}
+	
 	data := make([]FinalizedBlock, len(seqs))
 	for i, seq := range seqs {
 		block, fCert, exists := e.Storage.Retrieve(seq)
@@ -1584,6 +1589,7 @@ func (e *Epoch) handleFinalizationCertificateRequest(req *FinalizationCertificat
 			FCert: fCert,
 		}
 	}
+
 	return &FinalizationCertificateResponse{
 		Data: data,
 	}
