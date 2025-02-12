@@ -886,17 +886,10 @@ func (e *Epoch) maybeAssembleEmptyNotarization() error {
 
 	// Check if we found a quorum of votes for the same metadata
 	quorumSize := e.quorumSize
-	popularEmptyVote, found := findMostPopularEmptyVote(emptyVotes.votes, quorumSize)
+	popularEmptyVote, signatures, found := findMostPopularEmptyVote(emptyVotes.votes, quorumSize)
 	if !found {
 		e.Logger.Debug("Could not find empty vote with a quorum or more votes", zap.Uint64("round", e.round))
 		return nil
-	}
-
-	signatures := make([]Signature, 0, quorumSize)
-	for _, vote := range emptyVotes.votes {
-		if vote.Vote == popularEmptyVote.Vote {
-			signatures = append(signatures, vote.Signature)
-		}
 	}
 
 	qc, err := e.SignatureAggregator.Aggregate(signatures)
@@ -905,12 +898,12 @@ func (e *Epoch) maybeAssembleEmptyNotarization() error {
 		return nil
 	}
 
-	emptyNotarization := &EmptyNotarization{QC: qc, Vote: popularEmptyVote.Vote}
+	emptyNotarization := &EmptyNotarization{QC: qc, Vote: popularEmptyVote}
 
 	return e.persistEmptyNotarization(emptyNotarization)
 }
 
-func findMostPopularEmptyVote(votes map[string]*EmptyVote, quorumSize int) (*EmptyVote, bool) {
+func findMostPopularEmptyVote(votes map[string]*EmptyVote, quorumSize int) (ToBeSignedEmptyVote, []Signature, bool) {
 	votesByBytes := make(map[string][]*EmptyVote)
 	for _, vote := range votes {
 		key := string(vote.Vote.Bytes())
@@ -927,10 +920,15 @@ func findMostPopularEmptyVote(votes map[string]*EmptyVote, quorumSize int) (*Emp
 	}
 
 	if len(popularEmptyVotes) == 0 {
-		return nil, false
+		return ToBeSignedEmptyVote{}, nil, false
 	}
 
-	return popularEmptyVotes[0], true
+	sigs := make([]Signature, 0, len(popularEmptyVotes))
+	for _, vote := range popularEmptyVotes {
+		sigs = append(sigs, vote.Signature)
+	}
+
+	return popularEmptyVotes[0].Vote, sigs, true
 }
 
 func (e *Epoch) persistEmptyNotarization(emptyNotarization *EmptyNotarization) error {
