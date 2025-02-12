@@ -589,7 +589,7 @@ func (e *Epoch) handleEmptyVoteMessage(message *EmptyVote, from NodeID) error {
 
 	emptyVotes.votes[string(from)] = message
 
-	return e.maybeAssembleemptyNotarization()
+	return e.maybeAssembleEmptyNotarization()
 }
 
 func (e *Epoch) getOrCreateEmptyVoteSetForRound(round uint64) *EmptyVoteSet {
@@ -879,7 +879,7 @@ func (e *Epoch) persistFinalizationCertificate(fCert FinalizationCertificate) er
 	return nil
 }
 
-func (e *Epoch) maybeAssembleemptyNotarization() error {
+func (e *Epoch) maybeAssembleEmptyNotarization() error {
 	emptyVotes, exists := e.emptyVotes[e.round]
 
 	// This should never happen, but done for sanity
