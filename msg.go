@@ -129,3 +129,25 @@ type QuorumCertificate interface {
 	// Bytes returns a raw representation of the given QuorumCertificate.
 	Bytes() []byte
 }
+
+type ReplicationRequest struct {
+	FinalizationCertificateRequest *FinalizationCertificateRequest
+}
+
+type ReplicationResponse struct {
+	FinalizationCertificateResponse *FinalizationCertificateResponse
+}
+
+// request a finalization certificate for the given sequence number
+type FinalizationCertificateRequest struct {
+	Sequences []uint64
+}
+
+type FinalizedBlock struct {
+	Block Block
+	FCert FinalizationCertificate
+}
+
+type FinalizationCertificateResponse struct {
+	Data []FinalizedBlock
+}
