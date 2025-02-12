@@ -67,7 +67,7 @@ func TestEpochLeaderFailover(t *testing.T) {
 
 	bb.blockShouldBeBuilt <- struct{}{}
 
-	waitForEvent(start, e, timeoutDetected)
+	waitForEvent(t, start, e, timeoutDetected)
 
 	lastBlock, _, ok := storage.Retrieve(storage.Height() - 1)
 	require.True(t, ok)
@@ -192,7 +192,7 @@ func TestEpochLeaderFailoverAfterProposal(t *testing.T) {
 
 	bb.blockShouldBeBuilt <- struct{}{}
 
-	waitForEvent(start, e, timeoutDetected)
+	waitForEvent(t, start, e, timeoutDetected)
 
 	for i := 1; i < quorum; i++ {
 		// Skip the vote of the block proposer
@@ -202,7 +202,7 @@ func TestEpochLeaderFailoverAfterProposal(t *testing.T) {
 		injectTestVote(t, e, block, nodes[i])
 	}
 
-	waitForEvent(start, e, alreadyTimedOut)
+	waitForEvent(t, start, e, alreadyTimedOut)
 
 	lastBlock, _, ok := storage.Retrieve(storage.Height() - 1)
 	require.True(t, ok)
@@ -297,7 +297,7 @@ func TestEpochLeaderFailoverTwice(t *testing.T) {
 
 	bb.blockShouldBeBuilt <- struct{}{}
 
-	waitForEvent(start, e, timeoutDetected)
+	waitForEvent(t, start, e, timeoutDetected)
 
 	lastBlock, _, ok := storage.Retrieve(storage.Height() - 1)
 	require.True(t, ok)
@@ -326,7 +326,7 @@ func TestEpochLeaderFailoverTwice(t *testing.T) {
 
 	bb.blockShouldBeBuilt <- struct{}{}
 
-	waitForEvent(start, e, timeoutDetected)
+	waitForEvent(t, start, e, timeoutDetected)
 
 	md = ProtocolMetadata{
 		Round: 3,
@@ -380,8 +380,11 @@ func createEmptyVote(md ProtocolMetadata, signer NodeID) *EmptyVote {
 	return emptyVoteFrom2
 }
 
-func waitForEvent(start time.Time, e *Epoch, events chan struct{}) {
+func waitForEvent(t *testing.T, start time.Time, e *Epoch, events chan struct{}) {
 	now := start
+	timeout := time.NewTimer(time.Minute)
+	defer timeout.Stop()
+
 	for {
 		now = now.Add(e.EpochConfig.MaxProposalWait / 5)
 		e.AdvanceTime(now)
@@ -390,6 +393,8 @@ func waitForEvent(start time.Time, e *Epoch, events chan struct{}) {
 			return
 		case <-time.After(time.Millisecond * 10):
 			continue
+		case <-timeout.C:
+			require.Fail(t, "timed out waiting for event")
 		}
 	}
 }
