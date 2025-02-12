@@ -696,7 +696,7 @@ func (e *Epoch) deleteFutureVote(from NodeID, round uint64) {
 	msgsForRound.vote = nil
 }
 
-func (e *Epoch) deleteFutureemptyNotarization(from NodeID, round uint64) {
+func (e *Epoch) deleteFutureEmptyNotarization(from NodeID, round uint64) {
 	msgsForRound, exists := e.futureMessages[string(from)][round]
 	if !exists {
 		return
