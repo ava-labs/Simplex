@@ -131,10 +131,11 @@ func (r *ReplicationState) StoreFinalizedBlock(data FinalizedBlock) error {
 		return fmt.Errorf("Finalization certificate failed verification")
 	}
 
-	// we should never receive two valid fCerts for the same round, check anyways
+	// don't store the same finalization certificate twice
 	if _, ok := r.receivedFinalizationCertificates[data.FCert.Finalization.Seq]; ok {
-		return fmt.Errorf("finalization certificate for sequence %d already exists", data.FCert.Finalization.Seq)
+		return nil
 	}
+	
 	r.receivedFinalizationCertificates[data.FCert.Finalization.Seq] = data
 	return nil
 }
