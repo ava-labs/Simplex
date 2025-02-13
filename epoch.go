@@ -427,10 +427,7 @@ func (e *Epoch) handleFinalizationCertificateMessage(message *FinalizationCertif
 		return nil
 	}
 
-	valid, err := IsFinalizationCertificateValid(message, e.quorumSize, e.Logger)
-	if err != nil {
-		return err
-	}
+	valid := IsFinalizationCertificateValid(message, e.quorumSize, e.Logger)
 	if !valid {
 		e.Logger.Debug("Received an invalid finalization certificate",
 			zap.Int("round", int(message.Finalization.Round)),

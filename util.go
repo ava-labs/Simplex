@@ -24,21 +24,21 @@ func RetrieveLastIndexFromStorage(s Storage) (Block, *FinalizationCertificate, e
 	return lastBlock, &fCert, nil
 }
 
-func IsFinalizationCertificateValid(fCert *FinalizationCertificate, quorumSize int, logger Logger) (bool, error) {
-	valid, err := validateFinalizationQC(fCert, quorumSize, logger)
-	if err != nil {
-		return false, err
+func IsFinalizationCertificateValid(fCert *FinalizationCertificate, quorumSize int, logger Logger) bool {
+	valid := validateFinalizationQC(fCert, quorumSize, logger)
+	if !valid {
+		return false
 	}
 	if !valid {
-		return false, nil
+		return false
 	}
 
-	return true, nil
+	return true
 }
 
-func validateFinalizationQC(fCert *FinalizationCertificate, quorumSize int, logger Logger) (bool, error) {
+func validateFinalizationQC(fCert *FinalizationCertificate, quorumSize int, logger Logger) bool {
 	if fCert.QC == nil {
-		return false, nil
+		return false
 	}
 
 	// Check enough signers signed the finalization certificate
@@ -46,20 +46,20 @@ func validateFinalizationQC(fCert *FinalizationCertificate, quorumSize int, logg
 		logger.Debug("ToBeSignedFinalization certificate signed by insufficient nodes",
 			zap.Int("count", len(fCert.QC.Signers())),
 			zap.Int("Quorum", quorumSize))
-		return false, nil
+		return false
 	}
 
 	signedTwice := hasSomeNodeSignedTwice(fCert.QC.Signers(), logger)
 
 	if signedTwice {
-		return false, nil
+		return false
 	}
 
 	if err := fCert.Verify(); err != nil {
-		return false, nil
+		return false
 	}
 
-	return true, nil
+	return true
 }
 
 func hasSomeNodeSignedTwice(nodeIDs []NodeID, logger Logger) bool {

@@ -116,8 +116,7 @@ func TestFinalizationCertificateValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			valid, err := simplex.IsFinalizationCertificateValid(&tt.fCert, tt.quorumSize, l)
-			require.NoError(t, err)
+			valid := simplex.IsFinalizationCertificateValid(&tt.fCert, tt.quorumSize, l)
 			require.Equal(t, tt.valid, valid)
 		})
 	}
