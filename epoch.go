@@ -1071,7 +1071,7 @@ func (e *Epoch) createBlockFinalizedVerificationTask(finalizedBlock FinalizedBlo
 		e.lock.Lock()
 		defer e.lock.Unlock()
 
-		// we started verifying the block when it was the next sequence to commit, however its 
+		// we started verifying the block when it was the next sequence to commit, however its
 		// possible we received a fCert for this block in the meantime. This check ensures we commit
 		// the block only if it is still the next sequence to commit.
 		if e.Storage.Height() != md.Seq {
