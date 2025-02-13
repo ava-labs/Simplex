@@ -135,7 +135,7 @@ func (r *ReplicationState) StoreFinalizedBlock(data FinalizedBlock) error {
 	if _, ok := r.receivedFinalizationCertificates[data.FCert.Finalization.Seq]; ok {
 		return nil
 	}
-	
+
 	r.receivedFinalizationCertificates[data.FCert.Finalization.Seq] = data
 	return nil
 }

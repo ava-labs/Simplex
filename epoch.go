@@ -380,12 +380,6 @@ func (e *Epoch) handleFinalizationCertificateMessage(message *FinalizationCertif
 		return nil
 	}
 
-	if message.Finalization.Seq > nextSeqToCommit {
-		e.Logger.Debug("Received a finalization certificate for a future sequence", zap.Uint64("seq", message.Finalization.Seq), zap.Uint64("nextSeqToCommit", nextSeqToCommit))
-		e.replicationState.collectFutureFinalizationCertificates(message, e.round, nextSeqToCommit)
-		return nil
-	}
-
 	round, exists := e.rounds[message.Finalization.Round]
 	if !exists {
 		// TODO: delay requesting future fCerts and blocks, since blocks could be in transit
@@ -664,6 +658,10 @@ func (e *Epoch) persistFinalizationCertificate(fCert FinalizationCertificate) er
 			zap.Uint64("height", nextSeqToCommit),
 			zap.Int("size", len(recordBytes)),
 			zap.Stringer("digest", fCert.Finalization.BlockHeader.Digest))
+
+		// we receive a finalization certificate for a future round
+		e.Logger.Debug("Received a finalization certificate for a future sequence", zap.Uint64("seq", fCert.Finalization.Seq), zap.Uint64("nextSeqToCommit", nextSeqToCommit))
+		e.replicationState.collectFutureFinalizationCertificates(&fCert, e.round, nextSeqToCommit)
 	}
 
 	finalizationCertificate := &Message{FinalizationCertificate: &fCert}
@@ -1575,7 +1573,7 @@ func (e *Epoch) handleFinalizationCertificateRequest(req *FinalizationCertificat
 	if seqs[0] > e.Storage.Height() {
 		return &FinalizationCertificateResponse{}
 	}
-	
+
 	data := make([]FinalizedBlock, len(seqs))
 	for i, seq := range seqs {
 		block, fCert, exists := e.Storage.Retrieve(seq)
