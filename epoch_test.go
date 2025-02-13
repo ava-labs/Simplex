@@ -366,6 +366,59 @@ func TestEpochBlockSentTwice(t *testing.T) {
 
 }
 
+func TestEpochBlockSentFromNonLeader(t *testing.T) {
+	l := testutil.MakeLogger(t, 1)
+	nonLeaderMessage := false
+
+	l.Intercept(func(entry zapcore.Entry) error {
+		if entry.Message == "Got block from a block proposer that is not the leader of the round" {
+			nonLeaderMessage = true
+		}
+		return nil
+	})
+
+	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
+	storage := newInMemStorage()
+	wal := newTestWAL(t)
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	conf := EpochConfig{
+		MaxProposalWait:     DefaultMaxProposalWaitTime,
+		Logger:              l,
+		ID:                  nodes[1],
+		Signer:              &testSigner{},
+		WAL:                 wal,
+		Verifier:            &testVerifier{},
+		Storage:             storage,
+		Comm:                noopComm(nodes),
+		BlockBuilder:        bb,
+		SignatureAggregator: &testSignatureAggregator{},
+	}
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+
+	require.NoError(t, e.Start())
+
+	md := e.Metadata()
+	block, ok := bb.BuildBlock(context.Background(), md)
+	require.True(t, ok)
+
+	notLeader := nodes[3]
+	vote, err := newTestVote(block, notLeader)
+	require.NoError(t, err)
+	err = e.HandleMessage(&Message{
+		BlockMessage: &BlockMessage{
+			Vote:  *vote,
+			Block: block,
+		},
+	}, notLeader)
+	require.NoError(t, err)
+	require.True(t, nonLeaderMessage)
+	records, err := wal.WriteAheadLog.ReadAll()
+	require.NoError(t, err)
+	require.Len(t, records, 0)
+}
+
 func TestEpochBlockTooHighRound(t *testing.T) {
 	l := testutil.MakeLogger(t, 1)
 

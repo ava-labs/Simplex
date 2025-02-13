@@ -312,7 +312,7 @@ func (e *Epoch) resumeFromWal(records [][]byte) error {
 
 func (e *Epoch) setMetadataFromStorage() error {
 	// load from storage if no notarization records
-	block, err := RetrieveLastBlockFromStorage(e.Storage)
+	block, _, err := RetrieveLastIndexFromStorage(e.Storage)
 	if err != nil {
 		return err
 	}
@@ -395,7 +395,7 @@ func (e *Epoch) syncFromWal() error {
 
 // loadLastBlock initializes the epoch with the lastBlock retrieved from storage.
 func (e *Epoch) loadLastBlock() error {
-	block, err := RetrieveLastBlockFromStorage(e.Storage)
+	block, _, err := RetrieveLastIndexFromStorage(e.Storage)
 	if err != nil {
 		return err
 	}
@@ -424,7 +424,7 @@ func (e *Epoch) handleFinalizationCertificateMessage(message *FinalizationCertif
 		return nil
 	}
 
-	valid, err := e.isFinalizationCertificateValid(message)
+	valid, err := IsFinalizationCertificateValid(message, e.quorumSize, e.Logger)
 	if err != nil {
 		return err
 	}
@@ -437,44 +437,6 @@ func (e *Epoch) handleFinalizationCertificateMessage(message *FinalizationCertif
 	round.fCert = message
 
 	return e.persistFinalizationCertificate(*message)
-}
-
-func (e *Epoch) isFinalizationCertificateValid(fCert *FinalizationCertificate) (bool, error) {
-	valid, err := e.validateFinalizationQC(fCert)
-	if err != nil {
-		return false, err
-	}
-	if !valid {
-		return false, nil
-	}
-
-	return true, nil
-}
-
-func (e *Epoch) validateFinalizationQC(fCert *FinalizationCertificate) (bool, error) {
-	if fCert.QC == nil {
-		return false, nil
-	}
-
-	// Check enough signers signed the finalization certificate
-	if e.quorumSize > len(fCert.QC.Signers()) {
-		e.Logger.Debug("ToBeSignedFinalization certificate signed by insufficient nodes",
-			zap.Int("count", len(fCert.QC.Signers())),
-			zap.Int("Quorum", e.quorumSize))
-		return false, nil
-	}
-
-	signedTwice := e.hasSomeNodeSignedTwice(fCert.QC.Signers())
-
-	if signedTwice {
-		return false, nil
-	}
-
-	if err := fCert.Verify(); err != nil {
-		return false, nil
-	}
-
-	return true, nil
 }
 
 func (e *Epoch) handleFinalizationMessage(message *Finalization, from NodeID) error {
@@ -1072,20 +1034,6 @@ func (e *Epoch) handleNotarizationMessage(message *Notarization, from NodeID) er
 	}
 
 	return e.persistNotarization(*message)
-}
-
-func (e *Epoch) hasSomeNodeSignedTwice(nodeIDs []NodeID) bool {
-	seen := make(map[string]struct{}, len(nodeIDs))
-
-	for _, nodeID := range nodeIDs {
-		if _, alreadySeen := seen[string(nodeID)]; alreadySeen {
-			e.Logger.Warn("Observed a signature originating at least twice from the same node")
-			return true
-		}
-		seen[string(nodeID)] = struct{}{}
-	}
-
-	return false
 }
 
 func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
