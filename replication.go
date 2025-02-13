@@ -50,7 +50,7 @@ func (r *ReplicationState) collectFutureFinalizationCertificates(fCert *Finaliza
 	endSeq := math.Min(float64(fCertRound), float64(r.maxRoundWindow+currentRound))
 	if r.highestFCertReceived == nil || fCertRound > r.highestFCertReceived.Finalization.Seq {
 		r.highestFCertReceived = fCert
-	} 
+	}
 	// Node is behind, but we've already sent messages to collect future fCerts
 	if r.lastSequenceRequested >= uint64(endSeq) {
 		return

@@ -1902,6 +1902,7 @@ func (e *Epoch) processReplicationState() {
 		return
 	}
 
+	delete(e.replicationState.receivedFinalizationCertificates, nextSeqToCommit)
 	e.replicationState.maybeCollectFutureFinalizationCertificates(e.round, e.Storage.Height())
 	e.processFinalizedBlock(&finalizedBlock)
 }
