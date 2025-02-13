@@ -1570,14 +1570,10 @@ func (e *Epoch) handleFinalizationCertificateRequest(req *FinalizationCertificat
 	seqs := req.Sequences
 	slices.Sort(seqs)
 
-	if seqs[0] > e.Storage.Height() {
-		return &FinalizationCertificateResponse{}
-	}
-
 	data := make([]FinalizedBlock, len(seqs))
 	for i, seq := range seqs {
-		block, fCert, exists := e.Storage.Retrieve(seq)
-		if !exists {
+		block, fCert, found := e.locateSequence(seq)
+		if !found {
 			// since we are sorted, we can break early
 			data = data[:i]
 			break
@@ -1591,6 +1587,22 @@ func (e *Epoch) handleFinalizationCertificateRequest(req *FinalizationCertificat
 	return &FinalizationCertificateResponse{
 		Data: data,
 	}
+}
+
+func (e *Epoch) locateSequence(seq uint64) (Block, FinalizationCertificate, bool) {
+	for _, round := range e.rounds {
+		blockSeq := round.block.BlockHeader().Seq
+		if blockSeq == seq {
+			if round.fCert == nil {
+				break
+			}
+
+			return round.block, *round.fCert, true
+		}
+	}
+
+	block, fCert, exists := e.Storage.Retrieve(seq)
+	return block, fCert, exists
 }
 
 func (e *Epoch) handleReplicationResponse(resp *ReplicationResponse, from NodeID) error {
