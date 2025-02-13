@@ -947,7 +947,7 @@ func (e *Epoch) persistEmptyNotarization(emptyNotarization *EmptyNotarization) e
 
 	e.increaseRound()
 
-	return errors.Join(e.startRound(), e.maybeLoadFutureMessages(e.round))
+	return errors.Join(e.startRound(), e.maybeLoadFutureMessages())
 }
 
 func (e *Epoch) maybeCollectNotarization() error {
