@@ -58,6 +58,7 @@ type EpochConfig struct {
 	BlockBuilder        BlockBuilder
 	Epoch               uint64
 	StartTime           time.Time
+	ReplicationEnabled  bool
 }
 
 type Epoch struct {
@@ -152,7 +153,7 @@ func (e *Epoch) init() error {
 	e.maxPendingBlocks = defaultMaxPendingBlocks
 	e.eligibleNodeIDs = make(map[string]struct{}, len(e.nodes))
 	e.futureMessages = make(messagesFromNode, len(e.nodes))
-	e.replicationState = NewReplicationState(e.Logger, e.Comm, e.ID, e.maxRoundWindow)
+	e.replicationState = NewReplicationState(e.Logger, e.Comm, e.ID, e.maxRoundWindow, e.ReplicationEnabled)
 
 	for _, node := range e.nodes {
 		e.futureMessages[string(node)] = make(map[uint64]*messagesForRound)
@@ -1551,7 +1552,9 @@ func (e *Epoch) storeProposal(block Block) bool {
 
 // HandleRequest processes a request and returns a response. It also sends a response to the sender.
 func (e *Epoch) HandleReplicationRequest(req *ReplicationRequest, from NodeID) *ReplicationResponse {
-	// TODO: should I update requests to be async? and have the epoch respond with e.Comm.Send(msg, node)
+	if !e.ReplicationEnabled {
+		return &ReplicationResponse{}
+	}
 	response := &ReplicationResponse{}
 	if req.FinalizationCertificateRequest != nil {
 		response.FinalizationCertificateResponse = e.handleFinalizationCertificateRequest(req.FinalizationCertificateRequest)

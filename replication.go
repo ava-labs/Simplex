@@ -13,6 +13,7 @@ import (
 
 type ReplicationState struct {
 	logger         Logger
+	enabled        bool
 	maxRoundWindow uint64
 	comm           Communication
 	id             NodeID
@@ -28,10 +29,11 @@ type ReplicationState struct {
 	receivedFinalizationCertificates map[uint64]FinalizedBlock
 }
 
-func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundWindow uint64) *ReplicationState {
+func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundWindow uint64, enabled bool) *ReplicationState {
 	return &ReplicationState{
-		quorumSize:                       Quorum(len(comm.ListNodes())),
 		logger:                           logger,
+		enabled:                          enabled,
+		quorumSize:                       Quorum(len(comm.ListNodes())),
 		comm:                             comm,
 		id:                               id,
 		maxRoundWindow:                   maxRoundWindow,
@@ -77,6 +79,9 @@ func (r *ReplicationState) requestFrom() NodeID {
 }
 
 func (r *ReplicationState) collectFutureFinalizationCertificates(fCert *FinalizationCertificate, currentRound uint64, nextSeqToCommit uint64) {
+	if !r.enabled {
+		return
+	}
 	fCertRound := fCert.Finalization.Round
 	// Don't exceed the max round window
 	endSeq := math.Min(float64(fCertRound), float64(r.maxRoundWindow+currentRound))

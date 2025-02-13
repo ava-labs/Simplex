@@ -33,6 +33,7 @@ func TestHandleFinalizationCertificateRequest(t *testing.T) {
 		SignatureAggregator: signatureAggregator,
 		BlockDeserializer:   &blockDeserializer{},
 		QCDeserializer:      &testQCDeserializer{t: t},
+		ReplicationEnabled:  true,
 	}
 
 	seqs := createBlocks(t, nodes, bb, 10)
@@ -75,7 +76,7 @@ func TestReplication(t *testing.T) {
 	normalNode1 := newSimplexNodeWithStorage(t, nodes[0], net, bb, storageData)
 	normalNode2 := newSimplexNodeWithStorage(t, nodes[1], net, bb, storageData)
 	normalNode3 := newSimplexNodeWithStorage(t, nodes[2], net, bb, storageData)
-	laggingNode := newSimplexNode(t, nodes[3], net, bb)
+	laggingNode := newSimplexNode(t, nodes[3], net, bb, true)
 
 	require.Equal(t, startSeq, normalNode1.storage.Height())
 	require.Equal(t, startSeq, normalNode2.storage.Height())
@@ -107,7 +108,7 @@ func TestReplicationExceedsMaxRoundWindow(t *testing.T) {
 	normalNode1 := newSimplexNodeWithStorage(t, nodes[0], net, bb, storageData)
 	normalNode2 := newSimplexNodeWithStorage(t, nodes[1], net, bb, storageData)
 	normalNode3 := newSimplexNodeWithStorage(t, nodes[2], net, bb, storageData)
-	laggingNode := newSimplexNode(t, nodes[3], net, bb)
+	laggingNode := newSimplexNode(t, nodes[3], net, bb, true)
 	require.Equal(t, startSeq, normalNode1.storage.Height())
 	require.Equal(t, startSeq, normalNode2.storage.Height())
 	require.Equal(t, startSeq, normalNode3.storage.Height())
@@ -135,7 +136,7 @@ func TestReplicationStartsBeforeCurrentRound(t *testing.T) {
 	normalNode1 := newSimplexNodeWithStorage(t, nodes[0], net, bb, storageData)
 	normalNode2 := newSimplexNodeWithStorage(t, nodes[1], net, bb, storageData)
 	normalNode3 := newSimplexNodeWithStorage(t, nodes[2], net, bb, storageData)
-	laggingNode := newSimplexNode(t, nodes[3], net, bb)
+	laggingNode := newSimplexNode(t, nodes[3], net, bb, true)
 
 	firstBlock := storageData[0].Block
 	record := simplex.BlockRecord(firstBlock.BlockHeader(), firstBlock.Bytes())

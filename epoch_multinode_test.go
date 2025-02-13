@@ -22,10 +22,10 @@ func TestSimplexMultiNodeSimple(t *testing.T) {
 
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	net := newInMemNetwork(t, nodes)
-	newSimplexNode(t, nodes[0], net, bb)
-	newSimplexNode(t, nodes[1], net, bb)
-	newSimplexNode(t, nodes[2], net, bb)
-	newSimplexNode(t, nodes[3], net, bb)
+	newSimplexNode(t, nodes[0], net, bb, false)
+	newSimplexNode(t, nodes[1], net, bb, false)
+	newSimplexNode(t, nodes[2], net, bb, false)
+	newSimplexNode(t, nodes[3], net, bb, false)
 
 	bb.triggerNewBlock()
 
@@ -46,7 +46,7 @@ func (t *testNode) start() {
 
 func newSimplexNodeWithStorage(t *testing.T, nodeID NodeID, net *inMemNetwork, bb BlockBuilder, storage []FinalizedBlock) *testNode {
 	wal := newTestWAL(t)
-	conf := defaultTestNodeEpochConfig(t, nodeID, net, wal, bb)
+	conf := defaultTestNodeEpochConfig(t, nodeID, net, wal, bb, true)
 	for _, data := range storage {
 		conf.Storage.Index(data.Block, data.FCert)
 	}
@@ -66,9 +66,9 @@ func newSimplexNodeWithStorage(t *testing.T, nodeID NodeID, net *inMemNetwork, b
 	return ti
 }
 
-func newSimplexNode(t *testing.T, nodeID NodeID, net *inMemNetwork, bb BlockBuilder) *testNode {
+func newSimplexNode(t *testing.T, nodeID NodeID, net *inMemNetwork, bb BlockBuilder, replicationEnabled bool) *testNode {
 	wal := newTestWAL(t)
-	conf := defaultTestNodeEpochConfig(t, nodeID, net, wal, bb)
+	conf := defaultTestNodeEpochConfig(t, nodeID, net, wal, bb, replicationEnabled)
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
 	ti := &testNode{
@@ -85,7 +85,7 @@ func newSimplexNode(t *testing.T, nodeID NodeID, net *inMemNetwork, bb BlockBuil
 	return ti
 }
 
-func defaultTestNodeEpochConfig(t *testing.T, nodeID NodeID, net *inMemNetwork, wal WriteAheadLog, bb BlockBuilder) EpochConfig {
+func defaultTestNodeEpochConfig(t *testing.T, nodeID NodeID, net *inMemNetwork, wal WriteAheadLog, bb BlockBuilder, replicationEnabled bool) EpochConfig {
 	l := testutil.MakeLogger(t, int(nodeID[0]))
 	storage := newInMemStorage()
 	conf := EpochConfig{
