@@ -121,14 +121,14 @@ func (r *ReplicationState) ShouldReplicate(round uint64) bool {
 func (r *ReplicationState) StoreFinalizedBlock(data FinalizedBlock) error {
 	// ensure the finalization certificate we get relates to the block
 	blockDigest := data.Block.BlockHeader().Digest
-	if !bytes.Equal(blockDigest[:], data.FCert.Finalization.BlockHeader.Digest[:]) {
-		return fmt.Errorf("Finalization certificate does not match the block")
+	if !bytes.Equal(blockDigest[:], data.FCert.Finalization.Digest[:]) {
+		return fmt.Errorf("finalization certificate does not match the block")
 	}
 
 	valid, err := IsFinalizationCertificateValid(&data.FCert, r.quorumSize, r.logger)
 	// verify the finalization certificate
 	if err != nil || !valid {
-		return fmt.Errorf("Finalization certificate failed verification")
+		return fmt.Errorf("finalization certificate failed verification")
 	}
 
 	// don't store the same finalization certificate twice
