@@ -696,17 +696,7 @@ func (e *Epoch) indexFinalizationCertificates(startRound uint64) {
 	for exists && round.fCert != nil {
 		fCert := *round.fCert
 		block := round.block
-		e.Storage.Index(block, fCert)
-		e.Logger.Info("Committed block",
-			zap.Uint64("round", fCert.Finalization.Round),
-			zap.Uint64("sequence", fCert.Finalization.Seq),
-			zap.Stringer("digest", fCert.Finalization.BlockHeader.Digest))
-		e.lastBlock = block
-
-		// We have commited because we have collected a finalization certificate.
-		// However, we may have not witnessed a notarization.
-		// Regardless of that, we can safely progress to the round succeeding the finalization.
-		e.progressRoundsDueToCommit(fCert.Finalization.Round + 1)
+		e.indexFinalizationCertificate(block, fCert)
 
 		// If the round we're committing is too far in the past, don't keep it in the rounds cache.
 		if fCert.Finalization.Round+e.maxRoundWindow < e.round {
@@ -722,6 +712,20 @@ func (e *Epoch) indexFinalizationCertificates(startRound uint64) {
 		r++
 		round, exists = e.rounds[r]
 	}
+}
+
+func (e *Epoch) indexFinalizationCertificate(block Block, fCert FinalizationCertificate) {
+	e.Storage.Index(block, fCert)
+	e.Logger.Info("Committed block",
+		zap.Uint64("round", fCert.Finalization.Round),
+		zap.Uint64("sequence", fCert.Finalization.Seq),
+		zap.Stringer("digest", fCert.Finalization.BlockHeader.Digest))
+	e.lastBlock = block
+
+	// We have commited because we have collected a finalization certificate.
+	// However, we may have not witnessed a notarization.
+	// Regardless of that, we can safely progress to the round succeeding the finalization.
+	e.progressRoundsDueToCommit(fCert.Finalization.Round + 1)
 }
 
 func (e *Epoch) maybeCollectNotarization() error {
@@ -1067,22 +1071,15 @@ func (e *Epoch) createBlockFinalizedVerificationTask(finalizedBlock FinalizedBlo
 		e.lock.Lock()
 		defer e.lock.Unlock()
 
-		if !e.storeProposal(block) {
-			e.Logger.Warn("Unable to store proposed block for the round", zap.Uint64("round", md.Round))
-			return md.Digest
-			// TODO: timeout
-		}
-
-		// add the fCert to the round
-		round, exists := e.rounds[md.Round]
-		if !exists {
-			// This shouldn't happen, but in case it does, return an error
-			e.Logger.Error("programming error: round not found", zap.Uint64("round", md.Round))
+		// we started verifying the block when it was the next sequence to commit, however its 
+		// possible we received a fCert for this block in the meantime. This check ensures we commit
+		// the block only if it is still the next sequence to commit.
+		if e.Storage.Height() != md.Seq {
+			e.Logger.Debug("Received finalized block that is not the next sequence to commit",
+				zap.Uint64("seq", md.Seq), zap.Uint64("height", e.Storage.Height()))
 			return md.Digest
 		}
-		round.fCert = &finalizedBlock.FCert
-
-		e.indexFinalizationCertificates(round.num)
+		e.indexFinalizationCertificate(block, finalizedBlock.FCert)
 		e.processReplicationState()
 		err := e.maybeLoadFutureMessages()
 		if err != nil {
