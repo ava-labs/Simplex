@@ -41,6 +41,26 @@ func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundW
 	}
 }
 
+func (r *ReplicationState) collectFutureFinalizationCertificates(fCert *FinalizationCertificate, currentRound uint64, nextSeqToCommit uint64) {
+	if !r.enabled {
+		return
+	}
+	fCertRound := fCert.Finalization.Round
+	// Don't exceed the max round window
+	endSeq := math.Min(float64(fCertRound), float64(r.maxRoundWindow+currentRound))
+	if r.highestFCertReceived == nil || fCertRound > r.highestFCertReceived.Finalization.Seq {
+		r.highestFCertReceived = fCert
+	}
+	// Node is behind, but we've already sent messages to collect future fCerts
+	if r.lastSequenceRequested >= uint64(endSeq) {
+		return
+	}
+
+	startSeq := math.Max(float64(nextSeqToCommit), float64(r.lastSequenceRequested))
+	r.logger.Debug("Node is behind, requesting missing finalization certificates", zap.Uint64("round", fCertRound), zap.Uint64("startSeq", uint64(startSeq)), zap.Uint64("endSeq", uint64(endSeq)))
+	r.sendFutureCertficatesRequests(uint64(startSeq), uint64(endSeq))
+}
+
 // sendFutureCertficatesRequests sends requests for future finalization certificates for the
 // range of sequences [start, end] <- inclusive
 func (r *ReplicationState) sendFutureCertficatesRequests(start uint64, end uint64) {
@@ -76,26 +96,6 @@ func (r *ReplicationState) requestFrom() NodeID {
 		}
 	}
 	return NodeID{}
-}
-
-func (r *ReplicationState) collectFutureFinalizationCertificates(fCert *FinalizationCertificate, currentRound uint64, nextSeqToCommit uint64) {
-	if !r.enabled {
-		return
-	}
-	fCertRound := fCert.Finalization.Round
-	// Don't exceed the max round window
-	endSeq := math.Min(float64(fCertRound), float64(r.maxRoundWindow+currentRound))
-	if r.highestFCertReceived == nil || fCertRound > r.highestFCertReceived.Finalization.Seq {
-		r.highestFCertReceived = fCert
-	}
-	// Node is behind, but we've already sent messages to collect future fCerts
-	if r.lastSequenceRequested >= uint64(endSeq) {
-		return
-	}
-
-	startSeq := math.Max(float64(nextSeqToCommit), float64(r.lastSequenceRequested))
-	r.logger.Debug("Node is behind, requesting missing finalization certificates", zap.Uint64("round", fCertRound), zap.Uint64("startSeq", uint64(startSeq)), zap.Uint64("endSeq", uint64(endSeq)))
-	r.sendFutureCertficatesRequests(uint64(startSeq), uint64(endSeq))
 }
 
 // shouldCollectFutureFinalizationCertificates returns true if the node should collect future finalization certificates.
