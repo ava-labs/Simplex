@@ -50,7 +50,7 @@ func (r *ReplicationState) collectFutureFinalizationCertificates(fCert *Finaliza
 	endSeq := math.Min(float64(fCertRound), float64(r.maxRoundWindow+currentRound))
 	if r.highestFCertReceived == nil || fCertRound > r.highestFCertReceived.Finalization.Seq {
 		r.highestFCertReceived = fCert
-	}
+	} 
 	// Node is behind, but we've already sent messages to collect future fCerts
 	if r.lastSequenceRequested >= uint64(endSeq) {
 		return
@@ -112,15 +112,6 @@ func (r *ReplicationState) maybeCollectFutureFinalizationCertificates(round uint
 	if round+r.maxRoundWindow/2 > r.lastSequenceRequested {
 		r.collectFutureFinalizationCertificates(r.highestFCertReceived, round, nextSequenceToCommit)
 	}
-}
-
-// ShouldReplicate returns true if [round] still needs to be replicated
-func (r *ReplicationState) ShouldReplicate(round uint64) bool {
-	if r.highestFCertReceived == nil {
-		return false
-	}
-
-	return r.highestFCertReceived.Finalization.BlockHeader.Round >= round
 }
 
 func (r *ReplicationState) StoreFinalizedBlock(data FinalizedBlock) error {
