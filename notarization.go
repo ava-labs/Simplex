@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"simplex/record"
 	"slices"
 
 	"go.uber.org/zap"
@@ -16,6 +17,27 @@ var (
 	ErrorNoVotes                   = errors.New("no votes to notarize")
 	ErrorInvalidFinalizationDigest = errors.New("finalization digests do not match")
 )
+
+func NewEmptyNotarizationRecord(emptyNotarization *EmptyNotarization) []byte {
+	return NewQuorumRecord(emptyNotarization.QC.Bytes(), emptyNotarization.Vote.Bytes(), record.EmptyNotarizationRecordType)
+}
+
+func EmptyNotarizationFromRecord(record []byte, qd QCDeserializer) (EmptyNotarization, error) {
+	qcBytes, emptyVote, err := ParseEmptyNotarizationRecord(record)
+	if err != nil {
+		return EmptyNotarization{}, err
+	}
+
+	qc, err := qd.DeserializeQuorumCertificate(qcBytes)
+	if err != nil {
+		return EmptyNotarization{}, err
+	}
+
+	return EmptyNotarization{
+		Vote: emptyVote,
+		QC:   qc,
+	}, nil
+}
 
 // NewNotarization builds a Notarization for a block described by [blockHeader] from [votesForCurrentRound].
 func NewNotarization(logger Logger, signatureAggregator SignatureAggregator, votesForCurrentRound map[string]*Vote, blockHeader BlockHeader) (Notarization, error) {

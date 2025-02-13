@@ -193,6 +193,14 @@ func (tw *testWAL) assertNotarization(round uint64) {
 					return
 				}
 			}
+			if binary.BigEndian.Uint16(rawRecord[:2]) == record.EmptyNotarizationRecordType {
+				_, vote, err := ParseEmptyNotarizationRecord(rawRecord)
+				require.NoError(tw.t, err)
+
+				if vote.Round == round {
+					return
+				}
+			}
 		}
 
 		tw.signal.Wait()

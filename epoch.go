@@ -25,6 +25,12 @@ const (
 	DefaultMaxProposalWaitTime = 5 * time.Second
 )
 
+type EmptyVoteSet struct {
+	timedOut          bool
+	votes             map[string]*EmptyVote
+	emptyNotarization *EmptyNotarization
+}
+
 type Round struct {
 	num           uint64
 	block         Block
@@ -74,6 +80,7 @@ type Epoch struct {
 	eligibleNodeIDs                map[string]struct{}
 	quorumSize                     int
 	rounds                         map[uint64]*Round
+	emptyVotes                     map[uint64]*EmptyVoteSet
 	futureMessages                 messagesFromNode
 	round                          uint64 // The current round we notarize
 	maxRoundWindow                 uint64
@@ -124,8 +131,12 @@ func (e *Epoch) HandleMessage(msg *Message, from NodeID) error {
 		return e.handleBlockMessage(msg.BlockMessage, from)
 	case msg.VoteMessage != nil:
 		return e.handleVoteMessage(msg.VoteMessage, from)
+	case msg.EmptyVoteMessage != nil:
+		return e.handleEmptyVoteMessage(msg.EmptyVoteMessage, from)
 	case msg.Notarization != nil:
 		return e.handleNotarizationMessage(msg.Notarization, from)
+	//case msg.EmptyNotarization != nil:
+	//	return e.handleEmptyNotarizationMessage(msg.EmptyNotarization, from)
 	case msg.Finalization != nil:
 		return e.handleFinalizationMessage(msg.Finalization, from)
 	case msg.FinalizationCertificate != nil:
@@ -150,6 +161,7 @@ func (e *Epoch) init() error {
 	e.quorumSize = Quorum(len(e.nodes))
 	e.rounds = make(map[uint64]*Round)
 	e.maxRoundWindow = DefaultMaxRoundWindow
+	e.emptyVotes = make(map[uint64]*EmptyVoteSet)
 	e.maxPendingBlocks = defaultMaxPendingBlocks
 	e.eligibleNodeIDs = make(map[string]struct{}, len(e.nodes))
 	e.futureMessages = make(messagesFromNode, len(e.nodes))
@@ -197,6 +209,28 @@ func (e *Epoch) syncNotarizationRecord(r []byte) error {
 	}
 	e.Logger.Info("Notarization Recovered From WAL", zap.Uint64("Round", notarization.Vote.Round))
 	return e.storeNotarization(notarization)
+}
+
+func (e *Epoch) syncEmptyNotarizationRecord(r []byte) error {
+	emptyNotarization, err := EmptyNotarizationFromRecord(r, e.QCDeserializer)
+	if err != nil {
+		return err
+	}
+
+	emptyVotes := e.getOrCreateEmptyVoteSetForRound(emptyNotarization.Vote.Round)
+	emptyVotes.emptyNotarization = &emptyNotarization
+	return nil
+}
+
+func (e *Epoch) syncEmptyVoteRecord(r []byte) error {
+	vote, err := ParseEmptyVoteRecord(r)
+	if err != nil {
+		return err
+	}
+
+	emptyVotes := e.getOrCreateEmptyVoteSetForRound(vote.Round)
+	emptyVotes.timedOut = true
+	return nil
 }
 
 func (e *Epoch) syncFinalizationRecord(r []byte) error {
@@ -259,6 +293,14 @@ func (e *Epoch) resumeFromWal(records [][]byte) error {
 		lastMessage := Message{Notarization: &notarization}
 		e.Comm.Broadcast(&lastMessage)
 		return e.doNotarized(notarization.Vote.Round)
+	case record.EmptyNotarizationRecordType:
+		emptyNotarization, err := EmptyNotarizationFromRecord(lastRecord, e.QCDeserializer)
+		if err != nil {
+			return err
+		}
+		lastMessage := Message{EmptyNotarization: &emptyNotarization}
+		e.Comm.Broadcast(&lastMessage)
+		return e.startRound()
 	case record.FinalizationRecordType:
 		fCert, err := FinalizationCertificateFromRecord(lastRecord, e.QCDeserializer)
 		if err != nil {
@@ -293,7 +335,7 @@ func (e *Epoch) setMetadataFromStorage() error {
 }
 
 func (e *Epoch) setMetadataFromRecords(records [][]byte) error {
-	// iterate through records to find the last notarization record
+	// iterate through records to find the last notarization or empty block record
 	for i := len(records) - 1; i >= 0; i-- {
 		recordType := binary.BigEndian.Uint16(records[i])
 		if recordType == record.NotarizationRecordType {
@@ -304,6 +346,17 @@ func (e *Epoch) setMetadataFromRecords(records [][]byte) error {
 			if notarization.Vote.Round >= e.round {
 				e.round = notarization.Vote.Round + 1
 				e.Epoch = notarization.Vote.BlockHeader.Epoch
+			}
+			return nil
+		}
+		if recordType == record.EmptyNotarizationRecordType {
+			emptyNotarization, err := EmptyNotarizationFromRecord(records[i], e.QCDeserializer)
+			if err != nil {
+				return err
+			}
+			if emptyNotarization.Vote.Round >= e.round {
+				e.round = emptyNotarization.Vote.Round + 1
+				e.Epoch = emptyNotarization.Vote.Epoch
 			}
 			return nil
 		}
@@ -331,6 +384,10 @@ func (e *Epoch) syncFromWal() error {
 			err = e.syncNotarizationRecord(r)
 		case record.FinalizationRecordType:
 			err = e.syncFinalizationRecord(r)
+		case record.EmptyNotarizationRecordType:
+			err = e.syncEmptyNotarizationRecord(r)
+		case record.EmptyVoteRecordType:
+			err = e.syncEmptyVoteRecord(r)
 		default:
 			e.Logger.Error("undefined record type", zap.Uint16("type", recordType))
 			return fmt.Errorf("undefined record type: %d", recordType)
@@ -465,6 +522,64 @@ func (e *Epoch) storeFutureFinalization(message *Finalization, from NodeID, roun
 	msgsForRound.finalization = message
 }
 
+func (e *Epoch) handleEmptyVoteMessage(message *EmptyVote, from NodeID) error {
+	vote := message.Vote
+
+	e.Logger.Verbo("Received empty vote message",
+		zap.Stringer("from", from), zap.Uint64("round", vote.Round))
+
+	// Only process point to point empty votes.
+	// A node will never need to forward to us someone else's vote.
+	if !from.Equals(message.Signature.Signer) {
+		e.Logger.Debug("Received an empty vote signed by a different party than sent it",
+			zap.Stringer("signer", message.Signature.Signer), zap.Stringer("sender", from))
+		return nil
+	}
+
+	if e.round > vote.Round {
+		e.Logger.Debug("Got vote from a past round",
+			zap.Uint64("round", vote.Round), zap.Uint64("my round", e.round), zap.Stringer("from", from))
+		return nil
+	}
+
+	// TODO: This empty vote may correspond to a future round, so... let future me implement it!
+	if e.round < vote.Round { //TODO: only handle it if it's within the max round window (&& vote.Round-e.round < e.maxRoundWindow)
+		e.Logger.Debug("Got vote from a future round",
+			zap.Uint64("round", vote.Round), zap.Uint64("my round", e.round), zap.Stringer("from", from))
+		//TODO: e.storeFutureEmptyVote(message, from, vote.Round)
+		return nil
+	}
+
+	// Else, this is an empty vote for current round
+
+	e.Logger.Debug("Received an empty vote for the current round",
+		zap.Uint64("round", vote.Round), zap.Stringer("from", from))
+
+	signature := message.Signature
+
+	if err := vote.Verify(signature.Value, e.Verifier, signature.Signer); err != nil {
+		e.Logger.Debug("ToBeSignedEmptyVote verification failed", zap.Stringer("NodeID", signature.Signer), zap.Error(err))
+		return nil
+	}
+
+	round := vote.Round
+
+	emptyVotes := e.getOrCreateEmptyVoteSetForRound(round)
+
+	emptyVotes.votes[string(from)] = message
+
+	return e.maybeAssembleEmptyNotarization()
+}
+
+func (e *Epoch) getOrCreateEmptyVoteSetForRound(round uint64) *EmptyVoteSet {
+	emptyVotes, exists := e.emptyVotes[round]
+	if !exists {
+		emptyVotes = &EmptyVoteSet{votes: make(map[string]*EmptyVote)}
+		e.emptyVotes[round] = emptyVotes
+	}
+	return emptyVotes
+}
+
 func (e *Epoch) handleVoteMessage(message *Vote, from NodeID) error {
 	vote := message.Vote
 
@@ -479,6 +594,12 @@ func (e *Epoch) handleVoteMessage(message *Vote, from NodeID) error {
 		e.Logger.Debug("Received a vote signed by a different party than sent it",
 			zap.Stringer("signer", message.Signature.Signer), zap.Stringer("sender", from),
 			zap.Stringer("digest", vote.Digest))
+		return nil
+	}
+
+	// Check if we have timed out on this round
+	if e.haveWeAlreadyTimedOutOnThisRound(vote.Round) {
+		e.Logger.Debug("Received a vote but already timed out in that round", zap.Uint64("round", vote.Round), zap.Stringer("NodeID", from))
 		return nil
 	}
 
@@ -532,6 +653,11 @@ func (e *Epoch) handleVoteMessage(message *Vote, from NodeID) error {
 	return e.maybeCollectNotarization()
 }
 
+func (e *Epoch) haveWeAlreadyTimedOutOnThisRound(round uint64) bool {
+	emptyVotes, exists := e.emptyVotes[round]
+	return exists && emptyVotes.timedOut
+}
+
 func (e *Epoch) storeFutureVote(message *Vote, from NodeID, round uint64) {
 	msgsForRound, exists := e.futureMessages[string(from)][round]
 	if !exists {
@@ -547,6 +673,22 @@ func (e *Epoch) deleteFutureVote(from NodeID, round uint64) {
 		return
 	}
 	msgsForRound.vote = nil
+}
+
+func (e *Epoch) deleteFutureEmptyNotarization(from NodeID, round uint64) {
+	msgsForRound, exists := e.futureMessages[string(from)][round]
+	if !exists {
+		return
+	}
+	msgsForRound.emptyNotarization = nil
+}
+
+func (e *Epoch) deleteFutureEmptyVote(from NodeID, round uint64) {
+	msgsForRound, exists := e.futureMessages[string(from)][round]
+	if !exists {
+		return
+	}
+	msgsForRound.emptyVote = nil
 }
 
 func (e *Epoch) deleteFutureProposal(from NodeID, round uint64) {
@@ -729,6 +871,85 @@ func (e *Epoch) indexFinalizationCertificate(block Block, fCert FinalizationCert
 	e.progressRoundsDueToCommit(fCert.Finalization.Round + 1)
 }
 
+func (e *Epoch) maybeAssembleEmptyNotarization() error {
+	emptyVotes, exists := e.emptyVotes[e.round]
+
+	// This should never happen, but done for sanity
+	if !exists {
+		return fmt.Errorf("could not find empty vote set for round %d", e.round)
+	}
+
+	// Check if we found a quorum of votes for the same metadata
+	quorumSize := e.quorumSize
+	popularEmptyVote, signatures, found := findMostPopularEmptyVote(emptyVotes.votes, quorumSize)
+	if !found {
+		e.Logger.Debug("Could not find empty vote with a quorum or more votes", zap.Uint64("round", e.round))
+		return nil
+	}
+
+	qc, err := e.SignatureAggregator.Aggregate(signatures)
+	if err != nil {
+		e.Logger.Error("Could not aggregate empty votes signatures", zap.Error(err), zap.Uint64("round", e.round))
+		return nil
+	}
+
+	emptyNotarization := &EmptyNotarization{QC: qc, Vote: popularEmptyVote}
+
+	return e.persistEmptyNotarization(emptyNotarization)
+}
+
+func findMostPopularEmptyVote(votes map[string]*EmptyVote, quorumSize int) (ToBeSignedEmptyVote, []Signature, bool) {
+	votesByBytes := make(map[string][]*EmptyVote)
+	for _, vote := range votes {
+		key := string(vote.Vote.Bytes())
+		votesByBytes[key] = append(votesByBytes[key], vote)
+	}
+
+	var popularEmptyVotes []*EmptyVote
+
+	for _, votes := range votesByBytes {
+		if len(votes) >= quorumSize {
+			popularEmptyVotes = votes
+			break
+		}
+	}
+
+	if len(popularEmptyVotes) == 0 {
+		return ToBeSignedEmptyVote{}, nil, false
+	}
+
+	sigs := make([]Signature, 0, len(popularEmptyVotes))
+	for _, vote := range popularEmptyVotes {
+		sigs = append(sigs, vote.Signature)
+	}
+
+	return popularEmptyVotes[0].Vote, sigs, true
+}
+
+func (e *Epoch) persistEmptyNotarization(emptyNotarization *EmptyNotarization) error {
+	emptyNotarizationRecord := NewEmptyNotarizationRecord(emptyNotarization)
+	if err := e.WAL.Append(emptyNotarizationRecord); err != nil {
+		e.Logger.Error("Failed to append empty block record to WAL", zap.Error(err))
+		return err
+	}
+
+	e.Logger.Debug("Persisted empty block to WAL",
+		zap.Int("size", len(emptyNotarizationRecord)),
+		zap.Uint64("round", emptyNotarization.Vote.Round))
+
+	e.emptyVotes[emptyNotarization.Vote.Round].emptyNotarization = emptyNotarization
+
+	notarizationMessage := &Message{EmptyNotarization: emptyNotarization}
+	e.Comm.Broadcast(notarizationMessage)
+
+	e.Logger.Debug("Broadcast empty block",
+		zap.Uint64("round", emptyNotarization.Vote.Round))
+
+	e.increaseRound()
+
+	return errors.Join(e.startRound(), e.maybeLoadFutureMessages(e.round))
+}
+
 func (e *Epoch) maybeCollectNotarization() error {
 	votesForCurrentRound := e.rounds[e.round].votes
 	voteCount := len(votesForCurrentRound)
@@ -785,9 +1006,6 @@ func (e *Epoch) persistNotarization(notarization Notarization) error {
 	if err != nil {
 		return err
 	}
-
-	// Notify a block has been notarized, in case we were waiting for it.
-	e.cancelWaitForBlockNotarization()
 
 	notarizationMessage := &Message{Notarization: &notarization}
 	e.Comm.Broadcast(notarizationMessage)
@@ -891,6 +1109,12 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 		// The block is associated with a round in which the sender is not the leader,
 		// it should not be sending us any block at all.
 		e.Logger.Debug("Got block from a block proposer that is not the leader of the round", zap.Stringer("NodeID", from), zap.Uint64("round", md.Round))
+		return nil
+	}
+
+	// Check if we have timed out on this round
+	if e.haveWeAlreadyTimedOutOnThisRound(md.Round) {
+		e.Logger.Debug("Received a block but already timed out in that round", zap.Uint64("round", md.Round), zap.Stringer("NodeID", from))
 		return nil
 	}
 
@@ -1295,11 +1519,14 @@ func (e *Epoch) metadata() ProtocolMetadata {
 		currMed := e.getHighestRound().block.BlockHeader()
 		prev = currMed.Digest
 		seq = currMed.Seq + 1
-	} else if e.lastBlock != nil {
-		// If we have a last block, but no rounds, we either crashed or deleted the rounds.
+	}
+
+	if e.lastBlock != nil {
 		currMed := e.lastBlock.BlockHeader()
-		prev = currMed.Digest
-		seq = currMed.Seq + 1
+		if currMed.Seq+1 >= seq {
+			prev = currMed.Digest
+			seq = currMed.Seq + 1
+		}
 	}
 
 	md := ProtocolMetadata{
@@ -1316,6 +1543,32 @@ func (e *Epoch) triggerProposalWaitTimeExpired(round uint64) {
 	leader := LeaderForRound(e.nodes, round)
 	e.Logger.Info("Timed out on block agreement", zap.Uint64("round", round), zap.Stringer("leader", leader))
 	// TODO: Actually start the empty block agreement
+
+	md := e.metadata()
+	md.Seq-- // e.metadata() returns metadata fit for a new block proposal, but we need the sequence of the previous block proposal.
+
+	emptyVote := ToBeSignedEmptyVote{ProtocolMetadata: md}
+	rawSig, err := emptyVote.Sign(e.Signer)
+	if err != nil {
+		e.Logger.Error("Failed signing message", zap.Error(err))
+		return
+	}
+
+	emptyVoteRecord := NewEmptyVoteRecord(emptyVote)
+	if err := e.WAL.Append(emptyVoteRecord); err != nil {
+		e.Logger.Error("Failed appending empty vote", zap.Error(err))
+		return
+	}
+
+	emptyVotes := e.getOrCreateEmptyVoteSetForRound(round)
+	emptyVotes.timedOut = true
+
+	signedEV := EmptyVote{Vote: emptyVote, Signature: Signature{Signer: e.ID, Value: rawSig}}
+
+	// Add our own empty vote to the set
+	emptyVotes.votes[string(e.ID)] = &signedEV
+
+	e.Comm.Broadcast(&Message{EmptyVoteMessage: &signedEV})
 }
 
 func (e *Epoch) monitorProgress(round uint64) {
@@ -1325,6 +1578,9 @@ func (e *Epoch) monitorProgress(round uint64) {
 	noop := func() {}
 
 	proposalWaitTimeExpired := func() {
+		e.lock.Lock()
+		defer e.lock.Unlock()
+
 		e.triggerProposalWaitTimeExpired(round)
 	}
 
@@ -1433,6 +1689,10 @@ func (e *Epoch) voteOnBlock(block Block) (Vote, error) {
 }
 
 func (e *Epoch) increaseRound() {
+	// In case we're waiting for a block to be notarized, cancel the wait because
+	// we advanced to the next round.
+	e.cancelWaitForBlockNotarization()
+
 	leader := LeaderForRound(e.nodes, e.round)
 	e.Logger.Info("Moving to a new round",
 		zap.Uint64("old round", e.round),
@@ -1467,6 +1727,11 @@ func (e *Epoch) doNotarized(r uint64) error {
 		Finalization: &sf,
 	}
 	e.Comm.Broadcast(finalizationMsg)
+
+	if e.haveWeAlreadyTimedOutOnThisRound(r) {
+		e.Logger.Info("We have already timed out on this round, will not finalize it", zap.Uint64("round", r))
+		return e.startRound()
+	}
 
 	err1 := e.startRound()
 	err2 := e.handleFinalizationMessage(&sf, e.ID)
@@ -1648,6 +1913,9 @@ func (e *Epoch) getHighestRound() *Round {
 	var max uint64
 	for _, round := range e.rounds {
 		if round.num > max {
+			if round.notarization == nil && round.fCert == nil {
+				continue
+			}
 			max = round.num
 		}
 	}
@@ -1670,7 +1938,9 @@ func Quorum(n int) int {
 type messagesFromNode map[string]map[uint64]*messagesForRound
 
 type messagesForRound struct {
-	proposal     *BlockMessage
-	vote         *Vote
-	finalization *Finalization
+	emptyNotarization *EmptyNotarization
+	emptyVote         *EmptyVote
+	proposal          *BlockMessage
+	vote              *Vote
+	finalization      *Finalization
 }
