@@ -958,7 +958,7 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 	return nil
 }
 
-// processFinalizedBlock processes a block that has a finalization certificate.
+// processFinalizedBlocks processes a block that has a finalization certificate.
 // if the block has already been verified, it will index the finalization certificate,
 // otherwise it will verify the block first.
 func (e *Epoch) processFinalizedBlock(finalizedBlock *FinalizedBlock) error {
@@ -975,7 +975,7 @@ func (e *Epoch) processFinalizedBlock(finalizedBlock *FinalizedBlock) error {
 		round.fCert = &finalizedBlock.FCert
 		e.indexFinalizationCertificates(round.num)
 		e.processReplicationState()
-		return e.maybeLoadFutureMessages()
+		return nil
 	}
 
 	pendingBlocks := e.sched.Size()
