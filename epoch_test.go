@@ -766,7 +766,6 @@ func (mem *InMemStorage) Index(block Block, certificate FinalizationCertificate)
 
 	_, ok := mem.data[seq]
 	if ok {
-		fmt.Println("already indexed1!!")
 		panic(fmt.Sprintf("block with seq %d already indexed!", seq))
 	}
 	mem.data[seq] = struct {
