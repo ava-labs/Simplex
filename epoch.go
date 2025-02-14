@@ -1220,7 +1220,7 @@ func (e *Epoch) processFinalizedBlock(finalizedBlock *FinalizedBlock) error {
 	// Schedule the block to be verified once its direct predecessor have been verified,
 	// or if it can be verified immediately.
 	e.Logger.Debug("Scheduling block verification", zap.Uint64("round", md.Round))
-	e.sched.Schedule(task, md.Prev, canBeImmediatelyVerified)
+	e.sched.Schedule(task, md.Prev, md.Round, canBeImmediatelyVerified)
 
 	return nil
 }
