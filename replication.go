@@ -62,10 +62,6 @@ func (r *ReplicationState) collectFutureFinalizationCertificates(fCert *Finaliza
 // sendFutureCertficatesRequests sends requests for future finalization certificates for the
 // range of sequences [start, end] <- inclusive
 func (r *ReplicationState) sendFutureCertficatesRequests(start uint64, end uint64) {
-	if r.lastSequenceRequested >= end {
-		// no need to resend
-		return
-	}
 	seqs := make([]uint64, (end+1)-start)
 	for i := start; i <= end; i++ {
 		seqs[i-start] = i
