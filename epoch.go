@@ -1884,6 +1884,13 @@ func (e *Epoch) handleFinalizationCertificateResponse(resp *FinalizationCertific
 			continue
 		}
 
+		valid := IsFinalizationCertificateValid(&data.FCert, e.quorumSize, e.Logger)
+		// verify the finalization certificate
+		if !valid {
+			e.Logger.Debug("Received invalid finalization certificate", zap.Uint64("seq", data.FCert.Finalization.Seq), zap.String("from", from.String()))
+			continue
+		}
+
 		err := e.replicationState.StoreFinalizedBlock(data)
 		if err != nil {
 			e.Logger.Info("Failed to store sequence data", zap.Error(err), zap.Uint64("seq", data.FCert.Finalization.Seq), zap.String("from", from.String()))

@@ -17,7 +17,6 @@ type ReplicationState struct {
 	maxRoundWindow uint64
 	comm           Communication
 	id             NodeID
-	quorumSize     int
 
 	// latest seq requested
 	lastSequenceRequested uint64
@@ -33,7 +32,6 @@ func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundW
 	return &ReplicationState{
 		logger:                           logger,
 		enabled:                          enabled,
-		quorumSize:                       Quorum(len(comm.ListNodes())),
 		comm:                             comm,
 		id:                               id,
 		maxRoundWindow:                   maxRoundWindow,
@@ -98,8 +96,8 @@ func (r *ReplicationState) requestFrom() NodeID {
 	return NodeID{}
 }
 
-// shouldCollectFutureFinalizationCertificates returns true if the node should collect future finalization certificates.
-// This is the case when the node knows future sequences and [round] has caught up to 1/2 of the maxRoundWindow.
+// maybeCollectFutureFinalizationCertificates attempts to collect future finalization certificates if
+// there are more fCerts to be collected and the round has caught up.
 func (r *ReplicationState) maybeCollectFutureFinalizationCertificates(round uint64, nextSequenceToCommit uint64) {
 	if r.highestFCertReceived == nil {
 		return
@@ -119,12 +117,6 @@ func (r *ReplicationState) StoreFinalizedBlock(data FinalizedBlock) error {
 	blockDigest := data.Block.BlockHeader().Digest
 	if !bytes.Equal(blockDigest[:], data.FCert.Finalization.Digest[:]) {
 		return fmt.Errorf("finalization certificate does not match the block")
-	}
-
-	valid := IsFinalizationCertificateValid(&data.FCert, r.quorumSize, r.logger)
-	// verify the finalization certificate
-	if !valid {
-		return fmt.Errorf("finalization certificate failed verification")
 	}
 
 	// don't store the same finalization certificate twice
