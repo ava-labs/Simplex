@@ -20,7 +20,7 @@ import (
 
 const (
 	DefaultMaxRoundWindow   = 10
-	defaultMaxPendingBlocks = 20
+	DefaultMaxPendingBlocks = 20
 
 	DefaultMaxProposalWaitTime = 5 * time.Second
 )
@@ -70,7 +70,7 @@ type EpochConfig struct {
 type Epoch struct {
 	EpochConfig
 	// Runtime
-	sched                          *scheduler
+	sched                          *oneTimeBlockScheduler
 	lock                           sync.Mutex
 	lastBlock                      Block // latest block commited
 	canReceiveMessages             atomic.Bool
@@ -153,7 +153,7 @@ func (e *Epoch) HandleMessage(msg *Message, from NodeID) error {
 }
 
 func (e *Epoch) init() error {
-	e.sched = NewScheduler(e.Logger)
+	e.sched = newOneTimeBlockScheduler(NewScheduler(e.Logger))
 	e.monitor = NewMonitor(e.StartTime, e.Logger)
 	e.cancelWaitForBlockNotarization = func() {}
 	e.finishCtx, e.finishFn = context.WithCancel(context.Background())
@@ -162,7 +162,7 @@ func (e *Epoch) init() error {
 	e.rounds = make(map[uint64]*Round)
 	e.maxRoundWindow = DefaultMaxRoundWindow
 	e.emptyVotes = make(map[uint64]*EmptyVoteSet)
-	e.maxPendingBlocks = defaultMaxPendingBlocks
+	e.maxPendingBlocks = DefaultMaxPendingBlocks
 	e.eligibleNodeIDs = make(map[string]struct{}, len(e.nodes))
 	e.futureMessages = make(messagesFromNode, len(e.nodes))
 	e.replicationState = NewReplicationState(e.Logger, e.Comm, e.ID, e.maxRoundWindow, e.ReplicationEnabled)
@@ -1174,7 +1174,7 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 	// Schedule the block to be verified once its direct predecessor have been verified,
 	// or if it can be verified immediately.
 	e.Logger.Debug("Scheduling block verification", zap.Uint64("round", md.Round))
-	e.sched.Schedule(task, md.Prev, canBeImmediatelyVerified)
+	e.sched.Schedule(task, md.Prev, md.Round, canBeImmediatelyVerified)
 
 	return nil
 }
@@ -1439,7 +1439,7 @@ func (e *Epoch) buildBlock() {
 	task := e.createBlockBuildingTask(metadata)
 
 	e.Logger.Debug("Scheduling block building", zap.Uint64("round", metadata.Round))
-	e.sched.Schedule(task, metadata.Prev, true)
+	e.sched.Schedule(task, metadata.Prev, metadata.Round, true)
 }
 
 func (e *Epoch) createBlockBuildingTask(metadata ProtocolMetadata) func() Digest {
