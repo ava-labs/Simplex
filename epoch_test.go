@@ -18,10 +18,89 @@ import (
 	"simplex/wal"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap/zapcore"
 )
+
+func TestEpochConsecutiveProposalsDoNotGetVerified(t *testing.T) {
+	shouldOnlyBeClosedOnce := make(chan struct{})
+
+	l := testutil.MakeLogger(t, 1)
+	l.Intercept(func(entry zapcore.Entry) error {
+		if entry.Message == "Scheduling new ready task" {
+			select {
+			case <-shouldOnlyBeClosedOnce:
+				require.FailNow(t, "The block verification task should have been scheduled only once")
+			default:
+				close(shouldOnlyBeClosedOnce)
+			}
+		}
+		return nil
+	})
+
+	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
+	storage := newInMemStorage()
+
+	wal := newTestWAL(t)
+
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+
+	conf := EpochConfig{
+		MaxProposalWait:     DefaultMaxProposalWaitTime,
+		Logger:              l,
+		ID:                  nodes[1],
+		Signer:              &testSigner{},
+		WAL:                 wal,
+		Verifier:            &testVerifier{},
+		Storage:             storage,
+		Comm:                noopComm(nodes),
+		BlockBuilder:        bb,
+		SignatureAggregator: &testSignatureAggregator{},
+	}
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+
+	require.NoError(t, e.Start())
+
+	leader := nodes[0]
+
+	md := e.Metadata()
+	_, ok := bb.BuildBlock(context.Background(), md)
+	require.True(t, ok)
+	require.Equal(t, md.Round, md.Seq)
+
+	block := <-bb.out
+
+	vote, err := newTestVote(block, leader)
+	require.NoError(t, err)
+
+	var wg sync.WaitGroup
+	wg.Add(DefaultMaxPendingBlocks)
+
+	for i := 0; i < DefaultMaxPendingBlocks; i++ {
+		go func() {
+			defer wg.Done()
+
+			err := e.HandleMessage(&Message{
+				BlockMessage: &BlockMessage{
+					Vote:  *vote,
+					Block: block,
+				},
+			}, leader)
+			require.NoError(t, err)
+		}()
+	}
+	wg.Wait()
+
+	select {
+	case <-shouldOnlyBeClosedOnce:
+	case <-time.After(time.Minute):
+		require.Fail(t, "timeout waiting for shouldOnlyBeClosedOnce")
+	}
+}
 
 func TestEpochFinalizeThenNotarize(t *testing.T) {
 	l := testutil.MakeLogger(t, 1)
