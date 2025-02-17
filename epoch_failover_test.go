@@ -69,8 +69,16 @@ func TestEpochLeaderFailover(t *testing.T) {
 
 	waitForEvent(t, start, e, timeoutDetected)
 	
-	emptyBlockMd := e.Metadata()
-	emptyBlockMd.Seq = emptyBlockMd.Seq - 1
+	lastBlock, _, ok := storage.Retrieve(storage.Height() - 1)
+	require.True(t, ok)
+
+	prev := lastBlock.BlockHeader().Digest
+
+	emptyBlockMd := ProtocolMetadata{
+		Round: 3,
+		Seq:   2,
+		Prev:  prev,
+	}
 
 	nextBlockSeqToCommit := uint64(3)
 	nextRoundToCommit := uint64(4)
