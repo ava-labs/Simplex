@@ -1245,11 +1245,7 @@ func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote)
 		defer e.lock.Unlock()
 
 		record := BlockRecord(md, block.Bytes())
-		err := e.WAL.Append(record)
-		if err != nil {
-			e.Logger.Error("Failed to append block record to WAL", zap.Error(err))
-			return md.Digest
-		}
+		e.WAL.Append(record)
 		e.Logger.Debug("Persisted block to WAL",
 			zap.Uint64("round", md.Round),
 			zap.Stringer("digest", md.Digest))
