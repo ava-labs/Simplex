@@ -89,11 +89,8 @@ func defaultTestNodeEpochConfig(t *testing.T, nodeID NodeID, net *inMemNetwork, 
 	l := testutil.MakeLogger(t, int(nodeID[0]))
 	storage := newInMemStorage()
 	conf := EpochConfig{
-		MaxProposalWait: DefaultMaxProposalWaitTime,
-		Comm: &testComm{
-			from: nodeID,
-			net:  net,
-		},
+		MaxProposalWait:     DefaultMaxProposalWaitTime,
+		Comm:                newTestComm(nodeID, net),
 		Logger:              l,
 		ID:                  nodeID,
 		Signer:              &testSigner{},
@@ -213,11 +210,23 @@ type testComm struct {
 	net  *inMemNetwork
 }
 
+func newTestComm(from NodeID, net *inMemNetwork) *testComm {
+	return &testComm{
+		from: from,
+		net:  net,
+	}
+}
+
 func (c *testComm) ListNodes() []NodeID {
 	return c.net.nodes
 }
 
 func (c *testComm) SendMessage(msg *Message, destination NodeID) {
+	// cannot send if either [from] or [destination] is not connected
+	if !c.net.IsConnected(destination) || !c.net.IsConnected(c.from) {
+		return
+	}
+
 	for _, instance := range c.net.instances {
 		if bytes.Equal(instance.e.ID, destination) {
 			instance.ingress <- struct {
@@ -230,11 +239,19 @@ func (c *testComm) SendMessage(msg *Message, destination NodeID) {
 }
 
 func (c *testComm) Broadcast(msg *Message) {
+	if !c.net.IsConnected(c.from) {
+		return
+	}
+
 	for _, instance := range c.net.instances {
 		// Skip sending the message to yourself
 		if bytes.Equal(c.from, instance.e.ID) {
 			continue
 		}
+		if !c.net.IsConnected(instance.e.ID) {
+			continue
+		}
+
 		instance.ingress <- struct {
 			msg  *Message
 			from NodeID
@@ -246,15 +263,22 @@ type inMemNetwork struct {
 	t         *testing.T
 	nodes     []NodeID
 	instances []*testNode
+	connected map[string]bool
 }
 
 // newInMemNetwork creates an in-memory network. Node IDs must be provided before
 // adding instances, as nodes require prior knowledge of all participants.
 func newInMemNetwork(t *testing.T, nodes []NodeID) *inMemNetwork {
+	connected := make(map[string]bool)
+	for _, node := range nodes {
+		connected[string(node)] = true
+	}
+
 	net := &inMemNetwork{
 		t:         t,
 		nodes:     nodes,
 		instances: make([]*testNode, 0),
+		connected: connected,
 	}
 	return net
 }
@@ -269,6 +293,23 @@ func (n *inMemNetwork) addNode(node *testNode) {
 	}
 	require.True(node.t, allowed, "node must be declared before adding")
 	n.instances = append(n.instances, node)
+}
+
+func (n *inMemNetwork) IsConnected(node NodeID) bool {
+	for _, instance := range n.instances {
+		if bytes.Equal(instance.e.ID, node) {
+			return n.connected[string(node)]
+		}
+	}
+	return false
+}
+
+func (n *inMemNetwork) Connect(node NodeID) {
+	n.connected[string(node)] = true
+}
+
+func (n *inMemNetwork) Disconnect(node NodeID) {
+	n.connected[string(node)] = false
 }
 
 // startInstances starts all instances in the network.

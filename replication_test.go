@@ -4,6 +4,7 @@
 package simplex_test
 
 import (
+	"bytes"
 	"context"
 	"simplex"
 	"simplex/testutil"
@@ -170,6 +171,72 @@ func TestReplicationStartsBeforeCurrentRound(t *testing.T) {
 			n.storage.waitForBlockCommit(uint64(startSeq))
 		}
 	}
+}
+
+// TestReplicationAfterNodeDisconnects tests the replication process of a node that
+// disconnects from the network and reconnects after the rest of the network has made progress.
+func TestReplicationAfterNodeDisconnects(t *testing.T) {
+	bb := newTestControlledBlockBuilder(t)
+	nodes := []simplex.NodeID{{1}, {2}, {3}, []byte("lagging")}
+	net := newInMemNetwork(t, nodes)
+	startDisconnect := uint64(5)
+	endDisconnect := uint64(18)
+
+	normalNode1 := newSimplexNode(t, nodes[0], net, bb, true)
+	normalNode2 := newSimplexNode(t, nodes[1], net, bb, true)
+	normalNode3 := newSimplexNode(t, nodes[2], net, bb, true)
+	laggingNode := newSimplexNode(t, nodes[3], net, bb, true)
+
+	require.Equal(t, uint64(0), normalNode1.storage.Height())
+	require.Equal(t, uint64(0), normalNode2.storage.Height())
+	require.Equal(t, uint64(0), normalNode3.storage.Height())
+	require.Equal(t, uint64(0), laggingNode.storage.Height())
+
+	bb.triggerNewBlock()
+
+	net.startInstances()
+
+	for i := uint64(0); i < startDisconnect; i++ {
+		for _, n := range net.instances {
+			n.storage.waitForBlockCommit(i)
+		}
+
+		bb.triggerNewBlock()
+	}
+
+	require.Equal(t, startDisconnect, normalNode1.storage.Height())
+	require.Equal(t, startDisconnect, normalNode2.storage.Height())
+	require.Equal(t, startDisconnect, normalNode3.storage.Height())
+	require.Equal(t, startDisconnect, laggingNode.storage.Height())
+
+	// lagging node disconnects
+	net.Disconnect(nodes[3])
+
+	// normal nodes continue to make progress
+	for i := startDisconnect; i < endDisconnect; i++ {
+		if bytes.Equal(simplex.LeaderForRound(nodes, i), nodes[3]) {
+			// TODO: build empty block
+		}
+		for _, n := range net.instances[:3] {
+			n.storage.waitForBlockCommit(i)
+		}
+		bb.triggerNewBlock()
+	}
+
+	require.Equal(t, endDisconnect, normalNode1.storage.Height())
+	require.Equal(t, endDisconnect, normalNode2.storage.Height())
+	require.Equal(t, endDisconnect, normalNode3.storage.Height())
+	require.Equal(t, startDisconnect, laggingNode.storage.Height())
+
+	// lagging node reconnects
+	net.Connect(nodes[3])
+
+	// lagging node catches up
+	bb.triggerNewBlock()
+	require.Equal(t, endDisconnect+1, laggingNode.storage.Height())
+	require.Equal(t, endDisconnect+1, normalNode1.storage.Height())
+	require.Equal(t, endDisconnect+1, normalNode2.storage.Height())
+	require.Equal(t, endDisconnect+1, normalNode3.storage.Height())
 }
 
 func createBlocks(t *testing.T, nodes []simplex.NodeID, bb simplex.BlockBuilder, seqCount uint64) []simplex.FinalizedBlock {
