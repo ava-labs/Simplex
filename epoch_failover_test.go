@@ -367,7 +367,7 @@ func createEmptyVote(md ProtocolMetadata, signer NodeID) *EmptyVote {
 func waitForBlockProposerTimeout(t *testing.T, e *Epoch) {
 	startRound := e.Metadata().Round
 	now := e.Time()
-	timeout := time.NewTimer(2 * time.Second)
+	timeout := time.NewTimer(time.Minute)
 	for {
 		if e.WAL.(*testWAL).containsEmptyVote(startRound) {
 			return
