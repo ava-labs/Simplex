@@ -223,7 +223,7 @@ func (c *testComm) ListNodes() []NodeID {
 
 func (c *testComm) SendMessage(msg *Message, destination NodeID) {
 	// cannot send if either [from] or [destination] is not connected
-	if !c.net.IsConnected(destination) || !c.net.IsConnected(c.from) {
+	if c.net.IsDisconnected(destination) || c.net.IsDisconnected(c.from) {
 		return
 	}
 
@@ -239,16 +239,13 @@ func (c *testComm) SendMessage(msg *Message, destination NodeID) {
 }
 
 func (c *testComm) Broadcast(msg *Message) {
-	if !c.net.IsConnected(c.from) {
+	if c.net.IsDisconnected(c.from) {
 		return
 	}
 
 	for _, instance := range c.net.instances {
-		// Skip sending the message to yourself
-		if bytes.Equal(c.from, instance.e.ID) {
-			continue
-		}
-		if !c.net.IsConnected(instance.e.ID) {
+		// Skip sending the message to yourself or disconnected nodes
+		if bytes.Equal(c.from, instance.e.ID) || c.net.IsDisconnected(instance.e.ID) {
 			continue
 		}
 
@@ -263,22 +260,18 @@ type inMemNetwork struct {
 	t         *testing.T
 	nodes     []NodeID
 	instances []*testNode
-	connected map[string]bool
+	lock 	sync.Mutex
+	disconnected map[string]struct{}
 }
 
 // newInMemNetwork creates an in-memory network. Node IDs must be provided before
 // adding instances, as nodes require prior knowledge of all participants.
 func newInMemNetwork(t *testing.T, nodes []NodeID) *inMemNetwork {
-	connected := make(map[string]bool)
-	for _, node := range nodes {
-		connected[string(node)] = true
-	}
-
 	net := &inMemNetwork{
 		t:         t,
 		nodes:     nodes,
 		instances: make([]*testNode, 0),
-		connected: connected,
+		disconnected: make(map[string]struct{}),
 	}
 	return net
 }
@@ -295,21 +288,26 @@ func (n *inMemNetwork) addNode(node *testNode) {
 	n.instances = append(n.instances, node)
 }
 
-func (n *inMemNetwork) IsConnected(node NodeID) bool {
-	for _, instance := range n.instances {
-		if bytes.Equal(instance.e.ID, node) {
-			return n.connected[string(node)]
-		}
-	}
-	return false
+func (n *inMemNetwork) IsDisconnected(node NodeID) bool {
+	n.lock.Lock()
+	defer n.lock.Unlock()
+
+	_, ok := n.disconnected[string(node)]
+	return ok
 }
 
 func (n *inMemNetwork) Connect(node NodeID) {
-	n.connected[string(node)] = true
+	n.lock.Lock()
+	defer n.lock.Unlock()
+
+	delete(n.disconnected, string(node))
 }
 
 func (n *inMemNetwork) Disconnect(node NodeID) {
-	n.connected[string(node)] = false
+	n.lock.Lock()
+	defer n.lock.Unlock()
+
+	n.disconnected[string(node)] = struct{}{}
 }
 
 // startInstances starts all instances in the network.
