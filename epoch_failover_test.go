@@ -61,30 +61,22 @@ func TestEpochLeaderFailover(t *testing.T) {
 	// Then, don't do anything and wait for our node
 	// to start complaining about a block not being notarized
 
-	for _, round := range []uint64{0, 1, 2} {
+	for round := uint64(0); round < 3; round++ {
 		notarizeAndFinalizeRound(t, nodes, round, round, e, bb, quorum, storage, false)
 	}
 
 	bb.blockShouldBeBuilt <- struct{}{}
 
 	waitForEvent(t, start, e, timeoutDetected)
-
-	lastBlock, _, ok := storage.Retrieve(storage.Height() - 1)
-	require.True(t, ok)
-
-	prev := lastBlock.BlockHeader().Digest
-
-	md := ProtocolMetadata{
-		Round: 3,
-		Seq:   2,
-		Prev:  prev,
-	}
+	
+	emptyBlockMd := e.Metadata()
+	emptyBlockMd.Seq = emptyBlockMd.Seq - 1
 
 	nextBlockSeqToCommit := uint64(3)
 	nextRoundToCommit := uint64(4)
 
-	emptyVoteFrom1 := createEmptyVote(md, nodes[1])
-	emptyVoteFrom2 := createEmptyVote(md, nodes[2])
+	emptyVoteFrom1 := createEmptyVote(emptyBlockMd, nodes[1])
+	emptyVoteFrom2 := createEmptyVote(emptyBlockMd, nodes[2])
 
 	e.HandleMessage(&Message{
 		EmptyVoteMessage: emptyVoteFrom1,
@@ -93,25 +85,23 @@ func TestEpochLeaderFailover(t *testing.T) {
 		EmptyVoteMessage: emptyVoteFrom2,
 	}, nodes[2])
 
-	// Ensure our node proposes block with sequence 3 for round 4
-	notarizeAndFinalizeRound(t, nodes, nextRoundToCommit, nextBlockSeqToCommit, e, bb, quorum, storage, false)
-
-	// WAL must contain an empty vote and an empty block.
 	walContent, err := wal.ReadAll()
 	require.NoError(t, err)
 
-	// WAL should be: [..., <empty vote>, <empty block>, <notarization for 4>, <block3>]
-	rawEmptyVote, rawEmptyNotarization := walContent[len(walContent)-4], walContent[len(walContent)-3]
-
+	rawEmptyVote, rawEmptyNotarization := walContent[len(walContent)-2], walContent[len(walContent)-1]
 	emptyVote, err := ParseEmptyVoteRecord(rawEmptyVote)
 	require.NoError(t, err)
-	require.Equal(t, createEmptyVote(md, nodes[0]).Vote, emptyVote)
+	require.Equal(t, createEmptyVote(emptyBlockMd, nodes[0]).Vote, emptyVote)
 
 	emptyNotarization, err := EmptyNotarizationFromRecord(rawEmptyNotarization, &testQCDeserializer{t: t})
 	require.NoError(t, err)
 	require.Equal(t, emptyVoteFrom1.Vote, emptyNotarization.Vote)
 	require.Equal(t, uint64(3), emptyNotarization.Vote.Round)
 	require.Equal(t, uint64(2), emptyNotarization.Vote.Seq)
+	require.Equal(t, uint64(3), storage.Height())
+
+	// Ensure our node proposes block with sequence 3 for round 4
+	notarizeAndFinalizeRound(t, nodes, nextRoundToCommit, nextBlockSeqToCommit, e, bb, quorum, storage, false)
 	require.Equal(t, uint64(4), storage.Height())
 }
 
