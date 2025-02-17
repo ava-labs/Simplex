@@ -93,9 +93,11 @@ func TestEpochLeaderFailover(t *testing.T) {
 		EmptyVoteMessage: emptyVoteFrom2,
 	}, nodes[2])
 
+	wal.lock.Lock()
 	walContent, err := wal.ReadAll()
 	require.NoError(t, err)
-
+	wal.lock.Unlock()
+	
 	rawEmptyVote, rawEmptyNotarization := walContent[len(walContent)-2], walContent[len(walContent)-1]
 	emptyVote, err := ParseEmptyVoteRecord(rawEmptyVote)
 	require.NoError(t, err)
