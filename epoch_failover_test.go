@@ -368,6 +368,8 @@ func waitForBlockProposerTimeout(t *testing.T, e *Epoch) {
 	startRound := e.Metadata().Round
 	now := e.Time()
 	timeout := time.NewTimer(time.Minute)
+	defer timeout.Stop()
+	
 	for {
 		if e.WAL.(*testWAL).containsEmptyVote(startRound) {
 			return
