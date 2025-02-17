@@ -208,6 +208,27 @@ func (tw *testWAL) assertNotarization(round uint64) {
 
 }
 
+func (tw *testWAL) containsEmptyVote(round uint64) bool {
+	tw.lock.Lock()
+	defer tw.lock.Unlock()
+
+	rawRecords, err := tw.WriteAheadLog.ReadAll()
+	require.NoError(tw.t, err)
+
+	for _, rawRecord := range rawRecords {
+		if binary.BigEndian.Uint16(rawRecord[:2]) == record.EmptyVoteRecordType {
+			vote, err := ParseEmptyVoteRecord(rawRecord)
+			require.NoError(tw.t, err)
+
+			if vote.Round == round {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
 type testComm struct {
 	from NodeID
 	net  *inMemNetwork

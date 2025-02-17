@@ -16,15 +16,7 @@ import (
 )
 
 func TestEpochLeaderFailover(t *testing.T) {
-	timeoutDetected := make(chan struct{})
-
 	l := testutil.MakeLogger(t, 1)
-	l.Intercept(func(entry zapcore.Entry) error {
-		if entry.Message == `Timed out on block agreement` {
-			close(timeoutDetected)
-		}
-		return nil
-	})
 
 	bb := &testBlockBuilder{out: make(chan *testBlock, 1), blockShouldBeBuilt: make(chan struct{}, 1)}
 	storage := newInMemStorage()
@@ -32,13 +24,11 @@ func TestEpochLeaderFailover(t *testing.T) {
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	quorum := Quorum(len(nodes))
 
-	start := time.Now()
-
 	wal := newTestWAL(t)
 
 	conf := EpochConfig{
 		MaxProposalWait:     DefaultMaxProposalWaitTime,
-		StartTime:           start,
+		StartTime:           time.Now(),
 		Logger:              l,
 		ID:                  nodes[0],
 		Signer:              &testSigner{},
@@ -67,8 +57,8 @@ func TestEpochLeaderFailover(t *testing.T) {
 
 	bb.blockShouldBeBuilt <- struct{}{}
 
-	waitForEvent(t, start, e, timeoutDetected)
-	
+	waitForBlockProposerTimeout(t, e)
+
 	lastBlock, _, ok := storage.Retrieve(storage.Height() - 1)
 	require.True(t, ok)
 
@@ -97,7 +87,7 @@ func TestEpochLeaderFailover(t *testing.T) {
 	walContent, err := wal.ReadAll()
 	require.NoError(t, err)
 	wal.lock.Unlock()
-	
+
 	rawEmptyVote, rawEmptyNotarization := walContent[len(walContent)-2], walContent[len(walContent)-1]
 	emptyVote, err := ParseEmptyVoteRecord(rawEmptyVote)
 	require.NoError(t, err)
@@ -141,13 +131,11 @@ func TestEpochLeaderFailoverAfterProposal(t *testing.T) {
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	quorum := Quorum(len(nodes))
 
-	start := time.Now()
-
 	wal := newTestWAL(t)
 
 	conf := EpochConfig{
 		MaxProposalWait:     DefaultMaxProposalWaitTime,
-		StartTime:           start,
+		StartTime:           time.Now(),
 		Logger:              l,
 		ID:                  nodes[0],
 		Signer:              &testSigner{},
@@ -194,7 +182,7 @@ func TestEpochLeaderFailoverAfterProposal(t *testing.T) {
 
 	bb.blockShouldBeBuilt <- struct{}{}
 
-	waitForEvent(t, start, e, timeoutDetected)
+	waitForBlockProposerTimeout(t, e)
 
 	for i := 1; i < quorum; i++ {
 		// Skip the vote of the block proposer
@@ -204,7 +192,7 @@ func TestEpochLeaderFailoverAfterProposal(t *testing.T) {
 		injectTestVote(t, e, block, nodes[i])
 	}
 
-	waitForEvent(t, start, e, alreadyTimedOut)
+	waitForBlockProposerTimeout(t, e)
 
 	lastBlock, _, ok := storage.Retrieve(storage.Height() - 1)
 	require.True(t, ok)
@@ -254,16 +242,7 @@ func TestEpochLeaderFailoverAfterProposal(t *testing.T) {
 }
 
 func TestEpochLeaderFailoverTwice(t *testing.T) {
-	timeoutDetected := make(chan struct{})
-
 	l := testutil.MakeLogger(t, 1)
-	l.Intercept(func(entry zapcore.Entry) error {
-		if entry.Message == `Timed out on block agreement` {
-			close(timeoutDetected)
-			timeoutDetected = make(chan struct{})
-		}
-		return nil
-	})
 
 	bb := &testBlockBuilder{out: make(chan *testBlock, 1), blockShouldBeBuilt: make(chan struct{}, 1)}
 	storage := newInMemStorage()
@@ -271,13 +250,11 @@ func TestEpochLeaderFailoverTwice(t *testing.T) {
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	quorum := Quorum(len(nodes))
 
-	start := time.Now()
-
 	wal := newTestWAL(t)
 
 	conf := EpochConfig{
 		MaxProposalWait:     DefaultMaxProposalWaitTime,
-		StartTime:           start,
+		StartTime:           time.Now(),
 		Logger:              l,
 		ID:                  nodes[0],
 		Signer:              &testSigner{},
@@ -302,7 +279,7 @@ func TestEpochLeaderFailoverTwice(t *testing.T) {
 
 	bb.blockShouldBeBuilt <- struct{}{}
 
-	waitForEvent(t, start, e, timeoutDetected)
+	waitForBlockProposerTimeout(t, e)
 
 	lastBlock, _, ok := storage.Retrieve(storage.Height() - 1)
 	require.True(t, ok)
@@ -331,7 +308,7 @@ func TestEpochLeaderFailoverTwice(t *testing.T) {
 
 	bb.blockShouldBeBuilt <- struct{}{}
 
-	waitForEvent(t, start, e, timeoutDetected)
+	waitForBlockProposerTimeout(t, e)
 
 	md = ProtocolMetadata{
 		Round: 3,
@@ -387,17 +364,17 @@ func createEmptyVote(md ProtocolMetadata, signer NodeID) *EmptyVote {
 	return emptyVoteFrom2
 }
 
-func waitForEvent(t *testing.T, start time.Time, e *Epoch, events chan struct{}) {
-	now := start
-	timeout := time.NewTimer(time.Minute)
-	defer timeout.Stop()
-
+func waitForBlockProposerTimeout(t *testing.T, e *Epoch) {
+	startRound := e.Metadata().Round
+	now := e.Time()
+	timeout := time.NewTimer(2 * time.Second)
 	for {
+		if e.WAL.(*testWAL).containsEmptyVote(startRound) {
+			return
+		}
 		now = now.Add(e.EpochConfig.MaxProposalWait / 5)
 		e.AdvanceTime(now)
 		select {
-		case <-events:
-			return
 		case <-time.After(time.Millisecond * 10):
 			continue
 		case <-timeout.C:

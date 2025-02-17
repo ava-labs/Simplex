@@ -48,6 +48,11 @@ func (m *Monitor) AdvanceTime(t time.Time) {
 	}
 }
 
+func (m *Monitor) Time() time.Time {
+	t := m.time.Load()
+	return t.(time.Time)
+}
+
 func (m *Monitor) tick(now time.Time, taskID uint64) {
 	defer m.logger.Trace("Ticked", zap.Uint64("taskID", taskID), zap.Time("time", now))
 	ft := m.futureTask.Load()

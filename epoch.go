@@ -103,6 +103,10 @@ func (e *Epoch) AdvanceTime(t time.Time) {
 	e.monitor.AdvanceTime(t)
 }
 
+func (e *Epoch) Time() time.Time {
+	return e.monitor.Time()
+}
+
 // HandleMessage notifies the engine about a reception of a message.
 func (e *Epoch) HandleMessage(msg *Message, from NodeID) error {
 	e.lock.Lock()
