@@ -1564,7 +1564,7 @@ func (e *Epoch) triggerProposalWaitTimeExpired(round uint64) {
 		zap.Uint64("round from metadata", e.metadata().Round),
 		zap.Int("size", len(emptyVoteRecord)))
 
-	emptyVotes := e.getOrCreateEmptyVoteSetForRound(round)
+	emptyVotes := e.getOrCreateEmptyVoteSetForRound(e.metadata().Round)
 	emptyVotes.timedOut = true
 
 	signedEV := EmptyVote{Vote: emptyVote, Signature: Signature{Signer: e.ID, Value: rawSig}}
