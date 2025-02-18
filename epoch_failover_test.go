@@ -26,9 +26,10 @@ func TestEpochLeaderFailover(t *testing.T) {
 
 	wal := newTestWAL(t)
 
+	start := time.Now()
 	conf := EpochConfig{
 		MaxProposalWait:     DefaultMaxProposalWaitTime,
-		StartTime:           time.Now(),
+		StartTime:           start,
 		Logger:              l,
 		ID:                  nodes[0],
 		Signer:              &testSigner{},
@@ -57,7 +58,7 @@ func TestEpochLeaderFailover(t *testing.T) {
 
 	bb.blockShouldBeBuilt <- struct{}{}
 
-	waitForBlockProposerTimeout(t, e)
+	waitForBlockProposerTimeout(t, e, start)
 
 	lastBlock, _, ok := storage.Retrieve(storage.Height() - 1)
 	require.True(t, ok)
@@ -133,9 +134,10 @@ func TestEpochLeaderFailoverAfterProposal(t *testing.T) {
 
 	wal := newTestWAL(t)
 
+	start := time.Now()
 	conf := EpochConfig{
 		MaxProposalWait:     DefaultMaxProposalWaitTime,
-		StartTime:           time.Now(),
+		StartTime:           start,
 		Logger:              l,
 		ID:                  nodes[0],
 		Signer:              &testSigner{},
@@ -182,7 +184,7 @@ func TestEpochLeaderFailoverAfterProposal(t *testing.T) {
 
 	bb.blockShouldBeBuilt <- struct{}{}
 
-	waitForBlockProposerTimeout(t, e)
+	waitForBlockProposerTimeout(t, e, start)
 
 	for i := 1; i < quorum; i++ {
 		// Skip the vote of the block proposer
@@ -192,7 +194,7 @@ func TestEpochLeaderFailoverAfterProposal(t *testing.T) {
 		injectTestVote(t, e, block, nodes[i])
 	}
 
-	waitForBlockProposerTimeout(t, e)
+	waitForBlockProposerTimeout(t, e, start)
 
 	lastBlock, _, ok := storage.Retrieve(storage.Height() - 1)
 	require.True(t, ok)
@@ -252,9 +254,10 @@ func TestEpochLeaderFailoverTwice(t *testing.T) {
 
 	wal := newTestWAL(t)
 
+	start := time.Now()
 	conf := EpochConfig{
 		MaxProposalWait:     DefaultMaxProposalWaitTime,
-		StartTime:           time.Now(),
+		StartTime:           start,
 		Logger:              l,
 		ID:                  nodes[0],
 		Signer:              &testSigner{},
@@ -279,7 +282,7 @@ func TestEpochLeaderFailoverTwice(t *testing.T) {
 
 	bb.blockShouldBeBuilt <- struct{}{}
 
-	waitForBlockProposerTimeout(t, e)
+	waitForBlockProposerTimeout(t, e, start)
 
 	lastBlock, _, ok := storage.Retrieve(storage.Height() - 1)
 	require.True(t, ok)
@@ -308,7 +311,7 @@ func TestEpochLeaderFailoverTwice(t *testing.T) {
 
 	bb.blockShouldBeBuilt <- struct{}{}
 
-	waitForBlockProposerTimeout(t, e)
+	waitForBlockProposerTimeout(t, e, start)
 
 	md = ProtocolMetadata{
 		Round: 3,
@@ -364,18 +367,17 @@ func createEmptyVote(md ProtocolMetadata, signer NodeID) *EmptyVote {
 	return emptyVoteFrom2
 }
 
-func waitForBlockProposerTimeout(t *testing.T, e *Epoch) {
+func waitForBlockProposerTimeout(t *testing.T, e *Epoch, startTime time.Time) {
 	startRound := e.Metadata().Round
-	now := e.Time()
 	timeout := time.NewTimer(time.Minute)
 	defer timeout.Stop()
-	
+
 	for {
 		if e.WAL.(*testWAL).containsEmptyVote(startRound) {
 			return
 		}
-		now = now.Add(e.EpochConfig.MaxProposalWait / 5)
-		e.AdvanceTime(now)
+		startTime = startTime.Add(e.EpochConfig.MaxProposalWait / 5)
+		e.AdvanceTime(startTime)
 		select {
 		case <-time.After(time.Millisecond * 10):
 			continue
