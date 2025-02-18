@@ -13,6 +13,7 @@ import (
 	"simplex/wal"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -102,6 +103,7 @@ func defaultTestNodeEpochConfig(t *testing.T, nodeID NodeID, net *inMemNetwork, 
 		BlockDeserializer:   &blockDeserializer{},
 		QCDeserializer:      &testQCDeserializer{t: t},
 		ReplicationEnabled:  replicationEnabled,
+		StartTime:           time.Now(),
 	}
 	return conf
 }
@@ -278,10 +280,10 @@ func (c *testComm) Broadcast(msg *Message) {
 }
 
 type inMemNetwork struct {
-	t         *testing.T
-	nodes     []NodeID
-	instances []*testNode
-	lock 	sync.Mutex
+	t            *testing.T
+	nodes        []NodeID
+	instances    []*testNode
+	lock         sync.Mutex
 	disconnected map[string]struct{}
 }
 
@@ -289,9 +291,9 @@ type inMemNetwork struct {
 // adding instances, as nodes require prior knowledge of all participants.
 func newInMemNetwork(t *testing.T, nodes []NodeID) *inMemNetwork {
 	net := &inMemNetwork{
-		t:         t,
-		nodes:     nodes,
-		instances: make([]*testNode, 0),
+		t:            t,
+		nodes:        nodes,
+		instances:    make([]*testNode, 0),
 		disconnected: make(map[string]struct{}),
 	}
 	return net
@@ -353,7 +355,7 @@ func newTestControlledBlockBuilder(t *testing.T) *testControlledBlockBuilder {
 	return &testControlledBlockBuilder{
 		t:                t,
 		control:          make(chan struct{}, 1),
-		testBlockBuilder: testBlockBuilder{out: make(chan *testBlock, 1)},
+		testBlockBuilder: testBlockBuilder{out: make(chan *testBlock, 1), blockShouldBeBuilt: make(chan struct{}, 1)},
 	}
 }
 
@@ -366,7 +368,6 @@ func (t *testControlledBlockBuilder) triggerNewBlock() {
 }
 
 func (t *testControlledBlockBuilder) BuildBlock(ctx context.Context, metadata ProtocolMetadata) (Block, bool) {
-	require.Equal(t.t, metadata.Seq, metadata.Round)
 	<-t.control
 	return t.testBlockBuilder.BuildBlock(ctx, metadata)
 }

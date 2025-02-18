@@ -135,8 +135,8 @@ func (e *Epoch) HandleMessage(msg *Message, from NodeID) error {
 		return e.handleEmptyVoteMessage(msg.EmptyVoteMessage, from)
 	case msg.Notarization != nil:
 		return e.handleNotarizationMessage(msg.Notarization, from)
-	//case msg.EmptyNotarization != nil:
-	//	return e.handleEmptyNotarizationMessage(msg.EmptyNotarization, from)
+	// case msg.EmptyNotarization != nil:
+	// 	return e.handleEmptyNotarizationMessage(msg.EmptyNotarization, from)
 	case msg.Finalization != nil:
 		return e.handleFinalizationMessage(msg.Finalization, from)
 	case msg.FinalizationCertificate != nil:
@@ -1561,6 +1561,7 @@ func (e *Epoch) triggerProposalWaitTimeExpired(round uint64) {
 	}
 	e.Logger.Debug("Persisted empty vote to WAL",
 		zap.Uint64("round", round),
+		zap.Uint64("round from metadata", e.metadata().Round),
 		zap.Int("size", len(emptyVoteRecord)))
 
 	emptyVotes := e.getOrCreateEmptyVoteSetForRound(round)
@@ -1583,7 +1584,6 @@ func (e *Epoch) monitorProgress(round uint64) {
 	proposalWaitTimeExpired := func() {
 		e.lock.Lock()
 		defer e.lock.Unlock()
-
 		e.triggerProposalWaitTimeExpired(round)
 	}
 
