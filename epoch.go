@@ -1246,6 +1246,9 @@ func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote)
 
 		record := BlockRecord(md, block.Bytes())
 		e.WAL.Append(record)
+		e.Logger.Debug("Persisted block to WAL",
+			zap.Uint64("round", md.Round),
+			zap.Stringer("digest", md.Digest))
 
 		if !e.storeProposal(block) {
 			e.Logger.Warn("Unable to store proposed block for the round", zap.Stringer("NodeID", from), zap.Uint64("round", md.Round))
@@ -1556,6 +1559,9 @@ func (e *Epoch) triggerProposalWaitTimeExpired(round uint64) {
 		e.Logger.Error("Failed appending empty vote", zap.Error(err))
 		return
 	}
+	e.Logger.Debug("Persisted empty vote to WAL",
+		zap.Uint64("round", round),
+		zap.Int("size", len(emptyVoteRecord)))
 
 	emptyVotes := e.getOrCreateEmptyVoteSetForRound(round)
 	emptyVotes.timedOut = true
