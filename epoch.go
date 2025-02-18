@@ -86,6 +86,7 @@ type Epoch struct {
 	maxRoundWindow                 uint64
 	maxPendingBlocks               int
 	monitor                        *Monitor
+	haltedError                    error
 	cancelWaitForBlockNotarization context.CancelFunc
 
 	replicationState *ReplicationState
@@ -112,6 +113,10 @@ func (e *Epoch) HandleMessage(msg *Message, from NodeID) error {
 	if !e.canReceiveMessages.Load() {
 		e.Logger.Warn("Cannot receive a message")
 		return nil
+	}
+
+	if e.haltedError != nil {
+		return e.haltedError
 	}
 
 	if from.Equals(e.ID) {
@@ -1245,7 +1250,12 @@ func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote)
 		defer e.lock.Unlock()
 
 		record := BlockRecord(md, block.Bytes())
-		e.WAL.Append(record)
+		if err := e.WAL.Append(record); err != nil {
+			e.haltedError = err
+			e.Logger.Error("Failed to append block record to WAL", zap.Error(err))
+			return md.Digest
+		}
+
 		e.Logger.Debug("Persisted block to WAL",
 			zap.Uint64("round", md.Round),
 			zap.Stringer("digest", md.Digest))
