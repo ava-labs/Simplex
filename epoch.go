@@ -541,7 +541,7 @@ func (e *Epoch) handleEmptyVoteMessage(message *EmptyVote, from NodeID) error {
 
 	// TODO: This empty vote may correspond to a future round, so... let future me implement it!
 	if e.round < vote.Round { //TODO: only handle it if it's within the max round window (&& vote.Round-e.round < e.maxRoundWindow)
-		e.Logger.Debug("Got vote from a future round",
+		e.Logger.Debug("Got empty vote from a future round",
 			zap.Uint64("round", vote.Round), zap.Uint64("my round", e.round), zap.Stringer("from", from))
 		//TODO: e.storeFutureEmptyVote(message, from, vote.Round)
 		return nil
@@ -1571,8 +1571,10 @@ func (e *Epoch) triggerProposalWaitTimeExpired(round uint64) {
 
 	// Add our own empty vote to the set
 	emptyVotes.votes[string(e.ID)] = &signedEV
-
+	
 	e.Comm.Broadcast(&Message{EmptyVoteMessage: &signedEV})
+
+	e.maybeAssembleEmptyNotarization()
 }
 
 func (e *Epoch) monitorProgress(round uint64) {
@@ -1584,7 +1586,7 @@ func (e *Epoch) monitorProgress(round uint64) {
 	proposalWaitTimeExpired := func() {
 		e.lock.Lock()
 		defer e.lock.Unlock()
-		e.triggerProposalWaitTimeExpired(round)
+		e.triggerProposalWaitTimeExpired(e.metadata().Round)
 	}
 
 	var cancelled atomic.Bool
