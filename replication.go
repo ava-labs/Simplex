@@ -43,10 +43,10 @@ func (r *ReplicationState) collectFutureFinalizationCertificates(fCert *Finaliza
 	if !r.enabled {
 		return
 	}
-	fCertRound := fCert.Finalization.Round
+	fCertSeq := fCert.Finalization.Seq
 	// Don't exceed the max round window
-	endSeq := math.Min(float64(fCertRound), float64(r.maxRoundWindow+currentRound))
-	if r.highestFCertReceived == nil || fCertRound > r.highestFCertReceived.Finalization.Seq {
+	endSeq := math.Min(float64(fCertSeq), float64(r.maxRoundWindow+currentRound))
+	if r.highestFCertReceived == nil || fCertSeq > r.highestFCertReceived.Finalization.Seq {
 		r.highestFCertReceived = fCert
 	}
 	// Node is behind, but we've already sent messages to collect future fCerts
@@ -55,7 +55,7 @@ func (r *ReplicationState) collectFutureFinalizationCertificates(fCert *Finaliza
 	}
 
 	startSeq := math.Max(float64(nextSeqToCommit), float64(r.lastSequenceRequested))
-	r.logger.Debug("Node is behind, requesting missing finalization certificates", zap.Uint64("round", fCertRound), zap.Uint64("startSeq", uint64(startSeq)), zap.Uint64("endSeq", uint64(endSeq)))
+	r.logger.Debug("Node is behind, requesting missing finalization certificates", zap.Uint64("seq", fCertSeq), zap.Uint64("startSeq", uint64(startSeq)), zap.Uint64("endSeq", uint64(endSeq)))
 	r.sendFutureCertficatesRequests(uint64(startSeq), uint64(endSeq))
 }
 
@@ -100,7 +100,7 @@ func (r *ReplicationState) maybeCollectFutureFinalizationCertificates(round uint
 	}
 
 	// we send out more request once our round has caught up to 1/2 of the maxRoundWindow
-	if r.lastSequenceRequested >= r.highestFCertReceived.Finalization.Round {
+	if r.lastSequenceRequested >= r.highestFCertReceived.Finalization.Seq {
 		return
 	}
 	if round+r.maxRoundWindow/2 > r.lastSequenceRequested {

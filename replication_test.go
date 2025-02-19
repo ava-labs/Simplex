@@ -6,7 +6,6 @@ package simplex_test
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"simplex"
 	"simplex/testutil"
 	"simplex/wal"
@@ -177,16 +176,18 @@ func TestReplicationStartsBeforeCurrentRound(t *testing.T) {
 
 // TestReplicationAfterNodeDisconnects tests the replication process of a node that
 // disconnects from the network and reconnects after the rest of the network has made progress.
+// 
+// All nodes make progress for 5 
 func TestReplicationAfterNodeDisconnects(t *testing.T) {
 	bb := newTestControlledBlockBuilder(t)
 	nodes := []simplex.NodeID{{1}, {2}, {3}, []byte("lagging")}
 	net := newInMemNetwork(t, nodes)
 	startDisconnect := uint64(5)
-	endDisconnect := uint64(18)
-	normalNode1 := newSimplexNode(t, nodes[0], net, bb, false)
-	normalNode2 := newSimplexNode(t, nodes[1], net, bb, false)
-	normalNode3 := newSimplexNode(t, nodes[2], net, bb, false)
-	laggingNode := newSimplexNode(t, nodes[3], net, bb, false)
+	endDisconnect := uint64(17) // todo also test where the lagging node is the leader(set end disconnect to 18)
+	normalNode1 := newSimplexNode(t, nodes[0], net, bb, true)
+	normalNode2 := newSimplexNode(t, nodes[1], net, bb, true)
+	normalNode3 := newSimplexNode(t, nodes[2], net, bb, true)
+	laggingNode := newSimplexNode(t, nodes[3], net, bb, true)
 
 	require.Equal(t, uint64(0), normalNode1.storage.Height())
 	require.Equal(t, uint64(0), normalNode2.storage.Height())
@@ -199,22 +200,19 @@ func TestReplicationAfterNodeDisconnects(t *testing.T) {
 		n.start()
 	}
 
-	bb.triggerNewBlock()
-
 	net.startInstances()
-
+	
 	for i := uint64(0); i < startDisconnect; i++ {
+		bb.triggerNewBlock()
 		for _, n := range net.instances {
 			n.storage.waitForBlockCommit(i)
 		}
-
-		bb.triggerNewBlock()
 	}
 
-	require.Equal(t, startDisconnect, normalNode1.storage.Height())
-	require.Equal(t, startDisconnect, normalNode2.storage.Height())
-	require.Equal(t, startDisconnect, normalNode3.storage.Height())
-	require.Equal(t, startDisconnect, laggingNode.storage.Height())
+	// all nodes have commited [startDisconnect] blocks
+	for _, n := range net.instances {
+		require.Equal(t, startDisconnect, n.storage.Height())
+	}
 
 	// lagging node disconnects
 	net.Disconnect(nodes[3])
@@ -222,6 +220,7 @@ func TestReplicationAfterNodeDisconnects(t *testing.T) {
 	missedSeqs := uint64(0)
 	// normal nodes continue to make progress
 	for i := startDisconnect; i < endDisconnect; i++ {
+		bb.triggerNewBlock()
 		emptyRound := bytes.Equal(simplex.LeaderForRound(nodes, i), nodes[3])
 		if emptyRound {
 			advanceWithoutLeader(t, net, bb, epochTimes)
@@ -231,23 +230,29 @@ func TestReplicationAfterNodeDisconnects(t *testing.T) {
 				n.storage.waitForBlockCommit(i - missedSeqs)
 			}
 		}
-		bb.triggerNewBlock()
 	}
 
-	require.Equal(t, endDisconnect-missedSeqs, normalNode1.storage.Height())
-	require.Equal(t, endDisconnect-missedSeqs, normalNode2.storage.Height())
-	require.Equal(t, endDisconnect-missedSeqs, normalNode3.storage.Height())
+	// all nodes excpet for lagging node have progressed and commited [endDisconnect - missedSeqs] blocks
+	for _, n := range net.instances[:3] {
+		n.storage.waitForBlockCommit(uint64(endDisconnect - missedSeqs))
+	}
 	require.Equal(t, startDisconnect, laggingNode.storage.Height())
 
 	// lagging node reconnects
-	// net.Connect(nodes[3])
+	net.Connect(nodes[3])
 
-	// // lagging node catches up
-	// bb.triggerNewBlock()
-	// require.Equal(t, endDisconnect+1, laggingNode.storage.Height())
-	// require.Equal(t, endDisconnect+1, normalNode1.storage.Height())
-	// require.Equal(t, endDisconnect+1, normalNode2.storage.Height())
-	// require.Equal(t, endDisconnect+1, normalNode3.storage.Height())
+	isLagginNodeLeader := bytes.Equal(simplex.LeaderForRound(nodes, endDisconnect), nodes[3])
+	require.False(t, isLagginNodeLeader, "for this test, the lagging node should not be the leader")
+
+	bb.triggerNewBlock() // round endDisconnect + 1
+	for _, n := range net.instances {
+		n.storage.waitForBlockCommit(endDisconnect-missedSeqs+1)
+	}
+	
+	for _, n := range net.instances {
+		require.Equal(t, endDisconnect-missedSeqs+1, n.storage.Height()-1)
+		require.Equal(t, endDisconnect+2, n.e.Metadata().Round)
+	}
 }
 
 func advanceWithoutLeader(t *testing.T, net *inMemNetwork, bb *testControlledBlockBuilder, epochTimes []time.Time) {
@@ -258,7 +263,6 @@ func advanceWithoutLeader(t *testing.T, net *inMemNetwork, bb *testControlledBlo
 	for i, n := range net.instances[:3] {
 		// advance the round without a leader
 		waitForBlockProposerTimeout(t, n.e, epochTimes[i])
-		fmt.Println("waiting for block proposer timeout", n.e.ID.String())
 	}
 }
 

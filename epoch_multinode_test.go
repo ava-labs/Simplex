@@ -28,15 +28,18 @@ func TestSimplexMultiNodeSimple(t *testing.T) {
 	newSimplexNode(t, nodes[2], net, bb, false)
 	newSimplexNode(t, nodes[3], net, bb, false)
 
-	bb.triggerNewBlock()
 
 	net.startInstances()
 
 	for seq := 0; seq < 10; seq++ {
+		bb.triggerNewBlock()
 		for _, n := range net.instances {
 			n.storage.waitForBlockCommit(uint64(seq))
 		}
-		bb.triggerNewBlock()
+	}
+
+	for _, n := range net.instances {
+		require.Equal(t, uint64(10), n.storage.Height())
 	}
 }
 

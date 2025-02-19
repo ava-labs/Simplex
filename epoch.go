@@ -1205,10 +1205,10 @@ func (e *Epoch) processFinalizedBlock(finalizedBlock *FinalizedBlock) error {
 		return nil
 	}
 	md := finalizedBlock.Block.BlockHeader()
-	if !e.verifyProposalIsPartOfOurChain(finalizedBlock.Block) {
-		e.Logger.Debug("Got invalid block in a BlockMessage")
-		return nil
-	}
+	// if !e.verifyProposalIsPartOfOurChain(finalizedBlock.Block) {
+	// 	e.Logger.Debug("Got invalid block in a BlockMessage")
+	// 	return nil
+	// }
 
 	// Create a task that will verify the block in the future, after its predecessors have also been verified.
 	task := e.createBlockFinalizedVerificationTask(*finalizedBlock)
@@ -1586,7 +1586,7 @@ func (e *Epoch) monitorProgress(round uint64) {
 	proposalWaitTimeExpired := func() {
 		e.lock.Lock()
 		defer e.lock.Unlock()
-		e.triggerProposalWaitTimeExpired(e.metadata().Round)
+		e.triggerProposalWaitTimeExpired(round)
 	}
 
 	var cancelled atomic.Bool
@@ -1617,6 +1617,8 @@ func (e *Epoch) monitorProgress(round uint64) {
 			e.cancelWaitForBlockNotarization = noop
 		}
 	}
+
+	e.cancelWaitForBlockNotarization()
 
 	// Registers a wait operation that:
 	// (1) Waits for the block builder to tell us it thinks it's time to build a new block.
@@ -1853,7 +1855,7 @@ func (e *Epoch) handleFinalizationCertificateRequest(req *FinalizationCertificat
 			FCert: fCert,
 		}
 	}
-
+	e.Logger.Debug("Sending finalization certificate response", zap.Int("num seqs", len(data)), zap.Any("seqs", seqs))
 	return &FinalizationCertificateResponse{
 		Data: data,
 	}
