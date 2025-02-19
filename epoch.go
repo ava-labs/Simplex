@@ -1582,6 +1582,11 @@ func (e *Epoch) triggerProposalWaitTimeExpired(round uint64) {
 	emptyVotes.votes[string(e.ID)] = &signedEV
 
 	e.Comm.Broadcast(&Message{EmptyVoteMessage: &signedEV})
+
+	if err := e.maybeAssembleEmptyNotarization(); err != nil {
+		e.Logger.Error("Failed assembling empty notarization", zap.Error(err))
+		e.haltedError = err
+	}
 }
 
 func (e *Epoch) monitorProgress(round uint64) {
