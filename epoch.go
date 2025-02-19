@@ -1561,7 +1561,6 @@ func (e *Epoch) triggerProposalWaitTimeExpired(round uint64) {
 	}
 	e.Logger.Debug("Persisted empty vote to WAL",
 		zap.Uint64("round", round),
-		zap.Uint64("round from metadata", e.metadata().Round),
 		zap.Int("size", len(emptyVoteRecord)))
 
 	emptyVotes := e.getOrCreateEmptyVoteSetForRound(round)
@@ -1571,7 +1570,7 @@ func (e *Epoch) triggerProposalWaitTimeExpired(round uint64) {
 
 	// Add our own empty vote to the set
 	emptyVotes.votes[string(e.ID)] = &signedEV
-	
+
 	e.Comm.Broadcast(&Message{EmptyVoteMessage: &signedEV})
 
 	e.maybeAssembleEmptyNotarization()

@@ -99,10 +99,11 @@ func (r *ReplicationState) maybeCollectFutureFinalizationCertificates(round uint
 		return
 	}
 
-	// we send out more request once our round has caught up to 1/2 of the maxRoundWindow
 	if r.lastSequenceRequested >= r.highestFCertReceived.Finalization.Seq {
 		return
 	}
+
+	// we send out more requests once our seq has caught up to 1/2 of the maxRoundWindow
 	if round+r.maxRoundWindow/2 > r.lastSequenceRequested {
 		r.collectFutureFinalizationCertificates(r.highestFCertReceived, round, nextSequenceToCommit)
 	}
