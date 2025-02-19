@@ -1585,6 +1585,7 @@ func (e *Epoch) monitorProgress(round uint64) {
 	proposalWaitTimeExpired := func() {
 		e.lock.Lock()
 		defer e.lock.Unlock()
+		
 		e.triggerProposalWaitTimeExpired(round)
 	}
 
