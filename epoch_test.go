@@ -734,7 +734,6 @@ func (t *testBlockBuilder) IncomingBlock(ctx context.Context) {
 	case <-t.blockShouldBeBuilt:
 	case <-ctx.Done():
 	}
-
 }
 
 type testBlock struct {
