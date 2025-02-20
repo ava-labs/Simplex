@@ -205,8 +205,8 @@ func TestReplicationFutureFinalizationCertificate(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, md.Round, md.Seq)
 
-	block := <- bb.out
-	
+	block := <-bb.out
+
 	vote, err := newTestVote(block, nodes[0])
 	require.NoError(t, err)
 
@@ -217,20 +217,19 @@ func TestReplicationFutureFinalizationCertificate(t *testing.T) {
 		},
 	}, nodes[0])
 	require.NoError(t, err)
-	
+
 	fCert, _ := newFinalizationRecord(t, l, signatureAggregator, block, nodes[0:quorum])
 	// send fcert
 	err = e.HandleMessage(&simplex.Message{
 		FinalizationCertificate: &fCert,
-		}, nodes[0])
-		require.NoError(t, err)
-	
+	}, nodes[0])
+	require.NoError(t, err)
 
 	storedBlock := storage.waitForBlockCommit(0)
 	require.Equal(t, uint64(1), storage.Height())
 	// make sure it was indexed and no replication requests where sent
 	require.Equal(t, block, storedBlock)
-	
+
 }
 
 func createBlocks(t *testing.T, nodes []simplex.NodeID, bb simplex.BlockBuilder, seqCount uint64) []simplex.FinalizedBlock {

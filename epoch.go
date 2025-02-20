@@ -446,7 +446,7 @@ func (e *Epoch) handleFinalizationCertificateMessage(message *FinalizationCertif
 		// and the fCert is for the current round
 		if e.futureProposalForRoundExists(message.Finalization.Round) && message.Finalization.Round == e.round {
 			e.Logger.Debug("Received finalization certificate for this round, but we are still verifying the proposal",
-				zap.Uint64("round", message.Finalization.Round)) 
+				zap.Uint64("round", message.Finalization.Round))
 			e.storeFutureFinalizationCertificate(message, from, message.Finalization.Round)
 			return nil
 		}
@@ -1197,11 +1197,18 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 	}
 
 	// save in future messages while we are verifying the block
-	_, exists := e.futureMessages[string(from)][md.Round]
+	msgForRound, exists := e.futureMessages[string(from)][md.Round]
 	if !exists {
 		msgsForRound := &messagesForRound{}
 		msgsForRound.proposal = message
 		e.futureMessages[string(from)][md.Round] = msgsForRound
+	} else {
+		if msgForRound.proposal != nil {
+			e.Logger.Debug("Already received a proposal from this node for the round",
+				zap.Stringer("NodeID", from), zap.Uint64("round", md.Round))
+			return nil
+		}
+		msgForRound.proposal = message
 	}
 
 	// Create a task that will verify the block in the future, after its predecessors have also been verified.
@@ -1999,10 +2006,10 @@ func Quorum(n int) int {
 type messagesFromNode map[string]map[uint64]*messagesForRound
 
 type messagesForRound struct {
-	emptyNotarization *EmptyNotarization
-	emptyVote         *EmptyVote
-	proposal          *BlockMessage
-	vote              *Vote
-	finalization      *Finalization
+	emptyNotarization       *EmptyNotarization
+	emptyVote               *EmptyVote
+	proposal                *BlockMessage
+	vote                    *Vote
+	finalization            *Finalization
 	finalizationCertificate *FinalizationCertificate
 }
