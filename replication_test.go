@@ -8,7 +8,6 @@ import (
 	"simplex"
 	"simplex/testutil"
 	"simplex/wal"
-	"time"
 
 	"testing"
 
@@ -176,7 +175,7 @@ func TestReplicationStartsBeforeCurrentRound(t *testing.T) {
 func TestReplicationFutureFinalizationCertificate(t *testing.T) {
 	// send a block, then simultaneously send a finalization certificate for the block
 	l := testutil.MakeLogger(t, 1)
-	bb := newTestDelayedVerificationBlockBuilder(50 * time.Millisecond)
+	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
 	storage := newInMemStorage()
 
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
@@ -206,6 +205,7 @@ func TestReplicationFutureFinalizationCertificate(t *testing.T) {
 	require.Equal(t, md.Round, md.Seq)
 
 	block := <-bb.out
+	block.verificationDelay = make(chan struct{}) // add a delay to the block verification
 
 	vote, err := newTestVote(block, nodes[0])
 	require.NoError(t, err)
@@ -224,6 +224,8 @@ func TestReplicationFutureFinalizationCertificate(t *testing.T) {
 		FinalizationCertificate: &fCert,
 	}, nodes[0])
 	require.NoError(t, err)
+
+	block.verificationDelay <- struct{}{} // unblock the block verification
 
 	storedBlock := storage.waitForBlockCommit(0)
 	require.Equal(t, uint64(1), storage.Height())

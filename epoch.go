@@ -442,7 +442,7 @@ func (e *Epoch) handleFinalizationCertificateMessage(message *FinalizationCertif
 
 	round, exists := e.rounds[message.Finalization.Round]
 	if !exists {
-		e.handleFinalizationCertificateForPendingOrFutureRound(message, from, message.Finalization.Round, nextSeqToCommit)
+		e.handleFinalizationCertificateForPendingOrFutureRound(message, message.Finalization.Round, nextSeqToCommit)
 		return nil
 	}
 
@@ -456,7 +456,7 @@ func (e *Epoch) handleFinalizationCertificateMessage(message *FinalizationCertif
 	return e.persistFinalizationCertificate(*message)
 }
 
-func (e *Epoch) handleFinalizationCertificateForPendingOrFutureRound(message *FinalizationCertificate, from NodeID, round uint64, nextSeqToCommit uint64) {
+func (e *Epoch) handleFinalizationCertificateForPendingOrFutureRound(message *FinalizationCertificate, round uint64, nextSeqToCommit uint64) {
 	if round == e.round {
 		// delay collecting future finalization certificate if we are verifying the proposal for that round
 		// and the fCert is for the current round
