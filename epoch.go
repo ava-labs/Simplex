@@ -444,8 +444,7 @@ func (e *Epoch) handleFinalizationCertificateMessage(message *FinalizationCertif
 	if !exists {
 		// delay collecting future finalization certificate if we are verifying the proposal for that round
 		// and the fCert is for the current round
-		msgsForRound, exists := e.futureMessages[string(from)][message.Finalization.Round]
-		if exists && msgsForRound.proposal != nil && message.Finalization.Round == e.round {
+		if e.futureProposalForRoundExists(message.Finalization.Round) && message.Finalization.Round == e.round {
 			e.Logger.Debug("Received finalization certificate for this round, but we are still verifying the proposal",
 				zap.Uint64("round", message.Finalization.Round)) 
 			e.storeFutureFinalizationCertificate(message, from, message.Finalization.Round)
@@ -542,6 +541,16 @@ func (e *Epoch) storeFutureFinalizationCertificate(fCert *FinalizationCertificat
 		return
 	}
 	msgsForRound.finalizationCertificate = fCert
+}
+
+func (e *Epoch) futureProposalForRoundExists(round uint64) bool {
+	for _, msgs := range e.futureMessages {
+		msgForRound, exists := msgs[round]
+		if exists && msgForRound.proposal != nil {
+			return true
+		}
+	}
+	return false
 }
 
 func (e *Epoch) handleEmptyVoteMessage(message *EmptyVote, from NodeID) error {
