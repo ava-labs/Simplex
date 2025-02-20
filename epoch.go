@@ -18,6 +18,8 @@ import (
 	"go.uber.org/zap"
 )
 
+var ErrAlreadyStarted = errors.New("epoch already started")
+
 const (
 	DefaultMaxRoundWindow   = 10
 	DefaultMaxPendingBlocks = 20
@@ -186,6 +188,9 @@ func (e *Epoch) init() error {
 }
 
 func (e *Epoch) Start() error {
+	if e.canReceiveMessages.Load() {
+		return ErrAlreadyStarted
+	}
 	// Only init receiving messages once you have initialized the data structures required for it.
 	defer func() {
 		e.canReceiveMessages.Store(true)
@@ -1626,6 +1631,11 @@ func (e *Epoch) triggerProposalWaitTimeExpired(round uint64) {
 	emptyVotes.votes[string(e.ID)] = &signedEV
 
 	e.Comm.Broadcast(&Message{EmptyVoteMessage: &signedEV})
+
+	if err := e.maybeAssembleEmptyNotarization(); err != nil {
+		e.Logger.Error("Failed assembling empty notarization", zap.Error(err))
+		e.haltedError = err
+	}
 }
 
 func (e *Epoch) monitorProgress(round uint64) {
