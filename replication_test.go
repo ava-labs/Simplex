@@ -199,7 +199,6 @@ func TestReplicationAfterNodeDisconnects(t *testing.T) {
 	epochTimes := make([]time.Time, 0, 4)
 	for _, n := range net.instances {
 		epochTimes = append(epochTimes, n.e.StartTime)
-		n.start()
 	}
 
 	net.startInstances()
