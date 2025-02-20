@@ -229,7 +229,6 @@ func TestReplicationFutureFinalizationCertificate(t *testing.T) {
 
 	storedBlock := storage.waitForBlockCommit(0)
 	require.Equal(t, uint64(1), storage.Height())
-	// make sure it was indexed and no replication requests where sent
 	require.Equal(t, block, storedBlock)
 
 }
