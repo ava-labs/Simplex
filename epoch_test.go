@@ -736,6 +736,67 @@ func (t *testBlockBuilder) IncomingBlock(ctx context.Context) {
 	}
 }
 
+type testDelayedVerificationBlock struct {
+	testBlock
+	verificationDelay time.Duration
+}
+
+func newTestDelayedVerificationBlock(metadata ProtocolMetadata, delay time.Duration) *testDelayedVerificationBlock {
+	return &testDelayedVerificationBlock{
+		testBlock:         *newTestBlock(metadata),
+		verificationDelay: delay,
+	}
+}
+
+func (t *testDelayedVerificationBlock) Verify() error {
+	time.Sleep(t.verificationDelay)
+	return nil
+}
+
+type testDelayedVerificationBlockBuilder struct {
+	out                chan *testDelayedVerificationBlock
+	in                 chan *testDelayedVerificationBlock
+	blockShouldBeBuilt chan struct{}
+	verificationDelay  time.Duration
+}
+
+func newTestDelayedVerificationBlockBuilder(verificationDelay time.Duration) *testDelayedVerificationBlockBuilder {
+	return &testDelayedVerificationBlockBuilder{
+		out:                make(chan *testDelayedVerificationBlock, 1),
+		in:                 make(chan *testDelayedVerificationBlock, 1),
+		blockShouldBeBuilt: make(chan struct{}),
+		verificationDelay:  verificationDelay,
+	}
+}
+
+func (t *testDelayedVerificationBlockBuilder) BuildBlock(_ context.Context, metadata ProtocolMetadata) (Block, bool) {
+	if len(t.in) > 0 {
+		block := <-t.in
+		return block, true
+	}
+
+	if len(t.in) > 0 {
+		block := <-t.in
+		return block, true
+	}
+
+	tb := newTestDelayedVerificationBlock(metadata, t.verificationDelay)
+
+	select {
+	case t.out <- tb:
+	default:
+	}
+
+	return tb, true
+}
+
+func (t *testDelayedVerificationBlockBuilder) IncomingBlock(ctx context.Context) {
+	select {
+	case <-t.blockShouldBeBuilt:
+	case <-ctx.Done():
+	}
+}
+
 type testBlock struct {
 	data     []byte
 	metadata ProtocolMetadata

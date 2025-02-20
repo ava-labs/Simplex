@@ -8,6 +8,7 @@ import (
 	"simplex"
 	"simplex/testutil"
 	"simplex/wal"
+	"time"
 
 	"testing"
 
@@ -170,6 +171,66 @@ func TestReplicationStartsBeforeCurrentRound(t *testing.T) {
 			n.storage.waitForBlockCommit(uint64(startSeq))
 		}
 	}
+}
+
+func TestReplicationFutureFinalizationCertificate(t *testing.T) {
+	// send a block, then simultaneously send a finalization certificate for the block
+	l := testutil.MakeLogger(t, 1)
+	bb := newTestDelayedVerificationBlockBuilder(50 * time.Millisecond)
+	storage := newInMemStorage()
+
+	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
+	quorum := simplex.Quorum(len(nodes))
+	signatureAggregator := &testSignatureAggregator{}
+	conf := simplex.EpochConfig{
+		MaxProposalWait:     simplex.DefaultMaxProposalWaitTime,
+		Logger:              l,
+		ID:                  nodes[1],
+		Signer:              &testSigner{},
+		WAL:                 wal.NewMemWAL(t),
+		Verifier:            &testVerifier{},
+		Storage:             storage,
+		Comm:                noopComm(nodes),
+		BlockBuilder:        bb,
+		SignatureAggregator: signatureAggregator,
+	}
+
+	e, err := simplex.NewEpoch(conf)
+	require.NoError(t, err)
+
+	require.NoError(t, e.Start())
+
+	md := e.Metadata()
+	_, ok := bb.BuildBlock(context.Background(), md)
+	require.True(t, ok)
+	require.Equal(t, md.Round, md.Seq)
+
+	block := <- bb.out
+	
+	vote, err := newTestVote(block, nodes[0])
+	require.NoError(t, err)
+
+	err = e.HandleMessage(&simplex.Message{
+		BlockMessage: &simplex.BlockMessage{
+			Vote:  *vote,
+			Block: block,
+		},
+	}, nodes[0])
+	require.NoError(t, err)
+	
+	fCert, _ := newFinalizationRecord(t, l, signatureAggregator, block, nodes[0:quorum])
+	// send fcert
+	err = e.HandleMessage(&simplex.Message{
+		FinalizationCertificate: &fCert,
+		}, nodes[0])
+		require.NoError(t, err)
+	
+
+	storedBlock := storage.waitForBlockCommit(0)
+	require.Equal(t, uint64(1), storage.Height())
+	// make sure it was indexed and no replication requests where sent
+	require.Equal(t, block, storedBlock)
+	
 }
 
 func createBlocks(t *testing.T, nodes []simplex.NodeID, bb simplex.BlockBuilder, seqCount uint64) []simplex.FinalizedBlock {

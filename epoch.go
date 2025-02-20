@@ -442,6 +442,16 @@ func (e *Epoch) handleFinalizationCertificateMessage(message *FinalizationCertif
 
 	round, exists := e.rounds[message.Finalization.Round]
 	if !exists {
+		// delay collecting future finalization certificate if we are verifying the proposal for that round
+		// and the fCert is for the current round
+		msgsForRound, exists := e.futureMessages[string(from)][message.Finalization.Round]
+		if exists && msgsForRound.proposal != nil && message.Finalization.Round == e.round {
+			e.Logger.Debug("Received finalization certificate for this round, but we are still verifying the proposal",
+				zap.Uint64("round", message.Finalization.Round)) 
+			e.storeFutureFinalizationCertificate(message, from, message.Finalization.Round)
+			return nil
+		}
+
 		// TODO: delay requesting future fCerts and blocks, since blocks could be in transit
 		e.Logger.Debug("Received finalization certificate for a future round", zap.Uint64("round", message.Finalization.Round))
 		e.replicationState.collectFutureFinalizationCertificates(message, e.round, nextSeqToCommit)
@@ -522,6 +532,16 @@ func (e *Epoch) storeFutureFinalization(message *Finalization, from NodeID, roun
 		e.futureMessages[string(from)][round] = msgsForRound
 	}
 	msgsForRound.finalization = message
+}
+
+func (e *Epoch) storeFutureFinalizationCertificate(fCert *FinalizationCertificate, from NodeID, round uint64) {
+	msgsForRound, exists := e.futureMessages[string(from)][round]
+	if !exists {
+		e.Logger.Warn("Attempting to store a future finalization certificate for a round we have not seen yet",
+			zap.Uint64("round", round), zap.Stringer("from", from))
+		return
+	}
+	msgsForRound.finalizationCertificate = fCert
 }
 
 func (e *Epoch) handleEmptyVoteMessage(message *EmptyVote, from NodeID) error {
@@ -1167,7 +1187,13 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 		return nil
 	}
 
-	defer e.deleteFutureProposal(from, md.Round)
+	// save in future messages while we are verifying the block
+	_, exists := e.futureMessages[string(from)][md.Round]
+	if !exists {
+		msgsForRound := &messagesForRound{}
+		msgsForRound.proposal = message
+		e.futureMessages[string(from)][md.Round] = msgsForRound
+	}
 
 	// Create a task that will verify the block in the future, after its predecessors have also been verified.
 	task := e.createBlockVerificationTask(block, from, vote)
@@ -1776,6 +1802,11 @@ func (e *Epoch) maybeLoadFutureMessages() error {
 						return err
 					}
 				}
+				if msgs.finalizationCertificate != nil {
+					if err := e.handleFinalizationCertificateMessage(msgs.finalizationCertificate, NodeID(from)); err != nil {
+						return err
+					}
+				}
 				if msgs.vote != nil {
 					if err := e.handleVoteMessage(msgs.vote, NodeID(from)); err != nil {
 						return err
@@ -1964,4 +1995,5 @@ type messagesForRound struct {
 	proposal          *BlockMessage
 	vote              *Vote
 	finalization      *Finalization
+	finalizationCertificate *FinalizationCertificate
 }
