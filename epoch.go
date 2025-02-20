@@ -442,18 +442,7 @@ func (e *Epoch) handleFinalizationCertificateMessage(message *FinalizationCertif
 
 	round, exists := e.rounds[message.Finalization.Round]
 	if !exists {
-		// delay collecting future finalization certificate if we are verifying the proposal for that round
-		// and the fCert is for the current round
-		if e.futureProposalForRoundExists(message.Finalization.Round) && message.Finalization.Round == e.round {
-			e.Logger.Debug("Received finalization certificate for this round, but we are still verifying the proposal",
-				zap.Uint64("round", message.Finalization.Round))
-			e.storeFutureFinalizationCertificate(message, from, message.Finalization.Round)
-			return nil
-		}
-
-		// TODO: delay requesting future fCerts and blocks, since blocks could be in transit
-		e.Logger.Debug("Received finalization certificate for a future round", zap.Uint64("round", message.Finalization.Round))
-		e.replicationState.collectFutureFinalizationCertificates(message, e.round, nextSeqToCommit)
+		e.handleFinalizationCertificateForPendingOrFutureRound(message, from, message.Finalization.Round, nextSeqToCommit)
 		return nil
 	}
 
@@ -465,6 +454,24 @@ func (e *Epoch) handleFinalizationCertificateMessage(message *FinalizationCertif
 	round.fCert = message
 
 	return e.persistFinalizationCertificate(*message)
+}
+
+func (e *Epoch) handleFinalizationCertificateForPendingOrFutureRound(message *FinalizationCertificate, from NodeID, round uint64, nextSeqToCommit uint64) {
+	if round == e.round {
+		// delay collecting future finalization certificate if we are verifying the proposal for that round
+		// and the fCert is for the current round
+		for _, msgs := range e.futureMessages {
+			msgForRound, exists := msgs[round]
+			if exists && msgForRound.proposal != nil {
+				msgForRound.finalizationCertificate = message
+				return
+			}
+		}
+	}
+
+	// TODO: delay requesting future fCerts and blocks, since blocks could be in transit
+	e.Logger.Debug("Received finalization certificate for a future round", zap.Uint64("round", round))
+	e.replicationState.collectFutureFinalizationCertificates(message, e.round, nextSeqToCommit)
 }
 
 func (e *Epoch) handleFinalizationMessage(message *Finalization, from NodeID) error {
