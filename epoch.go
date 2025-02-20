@@ -1203,11 +1203,6 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 		msgsForRound.proposal = message
 		e.futureMessages[string(from)][md.Round] = msgsForRound
 	} else {
-		if msgForRound.proposal != nil {
-			e.Logger.Debug("Already received a proposal from this node for the round",
-				zap.Stringer("NodeID", from), zap.Uint64("round", md.Round))
-			return nil
-		}
 		msgForRound.proposal = message
 	}
 
