@@ -15,6 +15,108 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+func TestEpochLeaderFailoverReceivesEmptyVotesEarly(t *testing.T) {
+	l := testutil.MakeLogger(t, 1)
+
+	bb := &testBlockBuilder{out: make(chan *testBlock, 1), blockShouldBeBuilt: make(chan struct{}, 1)}
+	storage := newInMemStorage()
+
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	quorum := Quorum(len(nodes))
+
+	wal := newTestWAL(t)
+
+	start := time.Now()
+	conf := EpochConfig{
+		MaxProposalWait:     DefaultMaxProposalWaitTime,
+		StartTime:           start,
+		Logger:              l,
+		ID:                  nodes[0],
+		Signer:              &testSigner{},
+		WAL:                 wal,
+		Verifier:            &testVerifier{},
+		Storage:             storage,
+		Comm:                noopComm(nodes),
+		BlockBuilder:        bb,
+		SignatureAggregator: &testSignatureAggregator{},
+	}
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+
+	require.NoError(t, e.Start())
+
+	// Run through 3 blocks, to make the block proposals be:
+	// 1 --> 2 --> 3 --> X (node 4 doesn't propose a block)
+
+	// Then, don't do anything and wait for our node
+	// to start complaining about a block not being notarized
+
+	for round := uint64(0); round < 3; round++ {
+		notarizeAndFinalizeRound(t, nodes, round, round, e, bb, quorum, storage, false)
+	}
+
+	lastBlock, _, ok := storage.Retrieve(storage.Height() - 1)
+	require.True(t, ok)
+
+	prev := lastBlock.BlockHeader().Digest
+
+	emptyBlockMd := ProtocolMetadata{
+		Round: 3,
+		Seq:   2,
+		Prev:  prev,
+	}
+
+	emptyVoteFrom1 := createEmptyVote(emptyBlockMd, nodes[1])
+	emptyVoteFrom2 := createEmptyVote(emptyBlockMd, nodes[2])
+
+	e.HandleMessage(&Message{
+		EmptyVoteMessage: emptyVoteFrom1,
+	}, nodes[1])
+	e.HandleMessage(&Message{
+		EmptyVoteMessage: emptyVoteFrom2,
+	}, nodes[2])
+
+	bb.blockShouldBeBuilt <- struct{}{}
+
+	waitForBlockProposerTimeout(t, e, start)
+
+	wal.lock.Lock()
+	walContent, err := wal.ReadAll()
+	require.NoError(t, err)
+	wal.lock.Unlock()
+
+	rawEmptyVote, rawEmptyNotarization, rawProposal := walContent[len(walContent)-3], walContent[len(walContent)-2], walContent[len(walContent)-1]
+	emptyVote, err := ParseEmptyVoteRecord(rawEmptyVote)
+	require.NoError(t, err)
+	require.Equal(t, createEmptyVote(emptyBlockMd, nodes[0]).Vote, emptyVote)
+
+	emptyNotarization, err := EmptyNotarizationFromRecord(rawEmptyNotarization, &testQCDeserializer{t: t})
+	require.NoError(t, err)
+	require.Equal(t, emptyVoteFrom1.Vote, emptyNotarization.Vote)
+	require.Equal(t, uint64(3), emptyNotarization.Vote.Round)
+	require.Equal(t, uint64(2), emptyNotarization.Vote.Seq)
+	require.Equal(t, uint64(3), storage.Height())
+
+	header, _, err := ParseBlockRecord(rawProposal)
+	require.NoError(t, err)
+	require.Equal(t, uint64(4), header.Round)
+	require.Equal(t, uint64(3), header.Seq)
+
+	// Ensure our node proposes block with sequence 3 for round 4
+	block := <-bb.out
+
+	for i := 1; i <= quorum; i++ {
+		injectTestFinalization(t, e, block, nodes[i])
+	}
+
+	block2 := storage.waitForBlockCommit(3)
+	require.Equal(t, block, block2)
+	require.Equal(t, uint64(4), storage.Height())
+	require.Equal(t, uint64(4), block2.BlockHeader().Round)
+	require.Equal(t, uint64(3), block2.BlockHeader().Seq)
+}
+
 func TestEpochLeaderFailover(t *testing.T) {
 	l := testutil.MakeLogger(t, 1)
 
