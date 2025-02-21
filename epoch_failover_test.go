@@ -15,6 +15,113 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+func TestEpochLeaderFailoverWithEmptyNotarization(t *testing.T) {
+	l := testutil.MakeLogger(t, 1)
+
+	bb := &testBlockBuilder{
+		out:                make(chan *testBlock, 3),
+		blockShouldBeBuilt: make(chan struct{}, 1),
+		in:                 make(chan *testBlock, 3),
+	}
+	storage := newInMemStorage()
+
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	quorum := Quorum(len(nodes))
+
+	wal := newTestWAL(t)
+
+	start := time.Now()
+	conf := EpochConfig{
+		MaxProposalWait:     DefaultMaxProposalWaitTime,
+		StartTime:           start,
+		Logger:              l,
+		ID:                  nodes[0],
+		Signer:              &testSigner{},
+		WAL:                 wal,
+		Verifier:            &testVerifier{},
+		Storage:             storage,
+		Comm:                noopComm(nodes),
+		BlockBuilder:        bb,
+		SignatureAggregator: &testSignatureAggregator{},
+	}
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+
+	require.NoError(t, e.Start())
+
+	// Agree on the first block, and then receive an empty notarization for round 3.
+	// Afterward, run through rounds 1 and 2.
+	// The node should move to round 4 via the empty notarization it has received
+	// from earlier.
+
+	notarizeAndFinalizeRound(t, nodes, 0, 0, e, bb, quorum, storage, false)
+
+	block0, _, ok := storage.Retrieve(0)
+	require.True(t, ok)
+
+	block1, ok := bb.BuildBlock(context.Background(), ProtocolMetadata{
+		Round: 1,
+		Prev:  block0.BlockHeader().Digest,
+		Seq:   1,
+	})
+	require.True(t, ok)
+
+	block2, ok := bb.BuildBlock(context.Background(), ProtocolMetadata{
+		Round: 2,
+		Prev:  block1.BlockHeader().Digest,
+		Seq:   2,
+	})
+	require.True(t, ok)
+
+	block3, ok := bb.BuildBlock(context.Background(), ProtocolMetadata{
+		Round: 4,
+		Prev:  block2.BlockHeader().Digest,
+		Seq:   3,
+	})
+	require.True(t, ok)
+
+	var qc testQC
+	for i := 1; i <= quorum; i++ {
+		qc = append(qc, Signature{Signer: NodeID{byte(i)}, Value: []byte{byte(i)}})
+	}
+
+	// Artificially force the block builder to output the blocks we want.
+	for len(bb.out) > 0 {
+		<-bb.out
+	}
+	for _, block := range []Block{block1, block2, block3} {
+		bb.out <- block.(*testBlock)
+		bb.in <- block.(*testBlock)
+	}
+
+	e.HandleMessage(&Message{
+		EmptyNotarization: &EmptyNotarization{
+			Vote: ToBeSignedEmptyVote{ProtocolMetadata: ProtocolMetadata{
+				Prev:  block2.BlockHeader().Digest,
+				Round: 3,
+				Seq:   2,
+			}},
+			QC: qc,
+		},
+	}, nodes[1])
+
+	for round := uint64(1); round <= 2; round++ {
+		notarizeAndFinalizeRound(t, nodes, round, round, e, bb, quorum, storage, false)
+	}
+
+	bb.blockShouldBeBuilt <- struct{}{}
+
+	wal.assertNotarization(3)
+
+	nextBlockSeqToCommit := uint64(3)
+	nextRoundToCommit := uint64(4)
+
+	// Ensure our node proposes block with sequence 3 for round 4
+	notarizeAndFinalizeRound(t, nodes, nextRoundToCommit, nextBlockSeqToCommit, e, bb, quorum, storage, false)
+	require.Equal(t, uint64(4), storage.Height())
+}
+
 func TestEpochLeaderFailoverReceivesEmptyVotesEarly(t *testing.T) {
 	l := testutil.MakeLogger(t, 1)
 
