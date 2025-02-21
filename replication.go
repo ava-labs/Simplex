@@ -39,6 +39,8 @@ func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundW
 	}
 }
 
+// isReplicationComplete returns true if the replication state has caught up to the highest finalization certificate.
+// TODO: when we add notarization requests, this function should also make sure we have caught up to the highest notarization.
 func (r *ReplicationState) isReplicationComplete(nextSeqToCommit uint64) bool {
 	return nextSeqToCommit > r.highestFCertReceived.Finalization.Seq
 }

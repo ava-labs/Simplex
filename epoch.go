@@ -1205,8 +1205,7 @@ func (e *Epoch) processFinalizedBlock(finalizedBlock *FinalizedBlock) error {
 		}
 		round.fCert = &finalizedBlock.FCert
 		e.indexFinalizationCertificates(round.num)
-		e.processReplicationState()
-		return nil
+		return e.processReplicationState()
 	}
 
 	pendingBlocks := e.sched.Size()
@@ -1316,8 +1315,13 @@ func (e *Epoch) createBlockFinalizedVerificationTask(finalizedBlock FinalizedBlo
 			return md.Digest
 		}
 		e.indexFinalizationCertificate(block, finalizedBlock.FCert)
-		e.processReplicationState()
-		err := e.maybeLoadFutureMessages()
+		err := e.processReplicationState()
+		if err != nil {
+			e.haltedError = err
+			e.Logger.Error("Failed to process replication state", zap.Error(err))
+			return md.Digest
+		}
+		err = e.maybeLoadFutureMessages()
 		if err != nil {
 			e.Logger.Warn("Failed to load future messages", zap.Error(err))
 		}
@@ -1920,27 +1924,25 @@ func (e *Epoch) handleFinalizationCertificateResponse(resp *FinalizationCertific
 		}
 	}
 
-	e.processReplicationState()
-	return nil
+	return e.processReplicationState()
 }
 
-func (e *Epoch) processReplicationState() {
+func (e *Epoch) processReplicationState() error {
 	nextSeqToCommit := e.Storage.Height()
 
 	// check if we are done replicating and should start a new round
 	if e.replicationState.isReplicationComplete(nextSeqToCommit) {
-		e.startRound()
-		return
+		return e.startRound()
 	}
 
 	finalizedBlock, ok := e.replicationState.receivedFinalizationCertificates[nextSeqToCommit]
 	if !ok {
-		return
+		return nil
 	}
 
 	delete(e.replicationState.receivedFinalizationCertificates, nextSeqToCommit)
 	e.replicationState.maybeCollectFutureFinalizationCertificates(e.round, e.Storage.Height())
-	e.processFinalizedBlock(&finalizedBlock)
+	return e.processFinalizedBlock(&finalizedBlock)
 }
 
 func (e *Epoch) getHighestRound() *Round {
