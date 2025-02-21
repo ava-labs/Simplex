@@ -607,7 +607,7 @@ func (e *Epoch) handleVoteMessage(message *Vote, from NodeID) error {
 	vote := message.Vote
 
 	e.Logger.Verbo("Received vote message",
-		zap.Stringer("from", from), zap.Uint64("round", vote.Round))
+		zap.Stringer("from", from), zap.Uint64("round", vote.Round), zap.Stringer("digest", vote.Digest))
 
 	// Only process point to point votes.
 	// This is needed to prevent a malicious node from sending us a vote of a different node for a future round.
@@ -1000,8 +1000,10 @@ func (e *Epoch) maybeCollectNotarization() error {
 	}
 
 	if voteCountForOurDigest < e.quorumSize {
-		e.Logger.Verbo("Counting votes for the digest we received from the leader",
-			zap.Uint64("round", e.round), zap.Int("votes", voteCount))
+		e.Logger.Warn("Counting votes for the digest we received from the leader",
+			zap.Uint64("round", e.round),
+			zap.Int("voteForOurDigests", voteCountForOurDigest),
+			zap.Int("total votes", voteCount))
 		return nil
 	}
 
