@@ -545,26 +545,6 @@ func (e *Epoch) storeFutureFinalization(message *Finalization, from NodeID, roun
 	msgsForRound.finalization = message
 }
 
-func (e *Epoch) storeFutureFinalizationCertificate(fCert *FinalizationCertificate, from NodeID, round uint64) {
-	msgsForRound, exists := e.futureMessages[string(from)][round]
-	if !exists {
-		e.Logger.Warn("Attempting to store a future finalization certificate for a round we have not seen yet",
-			zap.Uint64("round", round), zap.Stringer("from", from))
-		return
-	}
-	msgsForRound.finalizationCertificate = fCert
-}
-
-func (e *Epoch) futureProposalForRoundExists(round uint64) bool {
-	for _, msgs := range e.futureMessages {
-		msgForRound, exists := msgs[round]
-		if exists && msgForRound.proposal != nil {
-			return true
-		}
-	}
-	return false
-}
-
 func (e *Epoch) handleEmptyVoteMessage(message *EmptyVote, from NodeID) error {
 	vote := message.Vote
 
