@@ -234,7 +234,6 @@ func TestReplicationFutureFinalizationCertificate(t *testing.T) {
 	require.Equal(t, block, storedBlock)
 }
 
-
 // TestReplicationAfterNodeDisconnects tests the replication process of a node that
 // disconnects from the network and reconnects after the rest of the network has made progress.
 //
