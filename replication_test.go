@@ -174,104 +174,64 @@ func TestReplicationStartsBeforeCurrentRound(t *testing.T) {
 	}
 }
 
-// TestReplicationAfterNodeDisconnects tests the replication process of a node that
-// disconnects from the network and reconnects after the rest of the network has made progress.
-//
-// All nodes make progress for `startDisconnect` blocks. The lagging node disconnects
-// and the rest of the nodes continue to make progress for another `endDisconnect - startDisconnect` blocks.
-// The lagging node reconnects and the after the next `fCert` is sent, the lagging node catches up to the latest height.
-func TestReplicationAfterNodeDisconnects(t *testing.T) {
-	bb := newTestControlledBlockBuilder(t)
-	nodes := []simplex.NodeID{{1}, {2}, {3}, []byte("lagging")}
-	net := newInMemNetwork(t, nodes)
-	startDisconnect := uint64(5)
-	endDisconnect := uint64(17) // TODO: create test where the lagging node is the leader after replication
-	normalNode1 := newSimplexNode(t, nodes[0], net, bb, true)
-	normalNode2 := newSimplexNode(t, nodes[1], net, bb, true)
-	normalNode3 := newSimplexNode(t, nodes[2], net, bb, true)
-	laggingNode := newSimplexNode(t, nodes[3], net, bb, true)
+func TestReplicationFutureFinalizationCertificate(t *testing.T) {
+	// send a block, then simultaneously send a finalization certificate for the block
+	l := testutil.MakeLogger(t, 1)
+	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
+	storage := newInMemStorage()
 
-	require.Equal(t, uint64(0), normalNode1.storage.Height())
-	require.Equal(t, uint64(0), normalNode2.storage.Height())
-	require.Equal(t, uint64(0), normalNode3.storage.Height())
-	require.Equal(t, uint64(0), laggingNode.storage.Height())
-
-	epochTimes := make([]time.Time, 0, 4)
-	for _, n := range net.instances {
-		epochTimes = append(epochTimes, n.e.StartTime)
+	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
+	quorum := simplex.Quorum(len(nodes))
+	signatureAggregator := &testSignatureAggregator{}
+	conf := simplex.EpochConfig{
+		MaxProposalWait:     simplex.DefaultMaxProposalWaitTime,
+		Logger:              l,
+		ID:                  nodes[1],
+		Signer:              &testSigner{},
+		WAL:                 wal.NewMemWAL(t),
+		Verifier:            &testVerifier{},
+		Storage:             storage,
+		Comm:                noopComm(nodes),
+		BlockBuilder:        bb,
+		SignatureAggregator: signatureAggregator,
 	}
 
-	net.startInstances()
+	e, err := simplex.NewEpoch(conf)
+	require.NoError(t, err)
 
-	for i := uint64(0); i < startDisconnect; i++ {
-		bb.triggerNewBlock()
-		for _, n := range net.instances {
-			n.storage.waitForBlockCommit(i)
-		}
-	}
+	require.NoError(t, e.Start())
 
-	// all nodes have commited `startDisconnect` blocks
-	for _, n := range net.instances {
-		require.Equal(t, startDisconnect, n.storage.Height())
-	}
+	md := e.Metadata()
+	_, ok := bb.BuildBlock(context.Background(), md)
+	require.True(t, ok)
+	require.Equal(t, md.Round, md.Seq)
 
-	// lagging node disconnects
-	net.Disconnect(nodes[3])
+	block := <-bb.out
+	block.verificationDelay = make(chan struct{}) // add a delay to the block verification
 
-	missedSeqs := uint64(0)
-	// normal nodes continue to make progress
-	for i := startDisconnect; i < endDisconnect; i++ {
-		bb.triggerNewBlock()
-		emptyRound := bytes.Equal(simplex.LeaderForRound(nodes, i), nodes[3])
-		if emptyRound {
-			advanceWithoutLeader(t, net, bb, epochTimes)
-			missedSeqs++
-		} else {
-			for _, n := range net.instances[:3] {
-				n.storage.waitForBlockCommit(i - missedSeqs)
-			}
-		}
-	}
+	vote, err := newTestVote(block, nodes[0])
+	require.NoError(t, err)
 
-	// all nodes excpet for lagging node have progressed and commited [endDisconnect - missedSeqs] blocks
-	for _, n := range net.instances[:3] {
-		n.storage.waitForBlockCommit(uint64(endDisconnect - missedSeqs))
-	}
-	require.Equal(t, startDisconnect, laggingNode.storage.Height())
+	err = e.HandleMessage(&simplex.Message{
+		BlockMessage: &simplex.BlockMessage{
+			Vote:  *vote,
+			Block: block,
+		},
+	}, nodes[0])
+	require.NoError(t, err)
 
-	// lagging node reconnects
-	net.Connect(nodes[3])
+	fCert, _ := newFinalizationRecord(t, l, signatureAggregator, block, nodes[0:quorum])
+	// send fcert
+	err = e.HandleMessage(&simplex.Message{
+		FinalizationCertificate: &fCert,
+	}, nodes[0])
+	require.NoError(t, err)
 
-	isLaggingNodeLeader := bytes.Equal(simplex.LeaderForRound(nodes, endDisconnect+1), nodes[3])
-	require.False(t, isLaggingNodeLeader, "the lagging node should not be the leader")
+	block.verificationDelay <- struct{}{} // unblock the block verification
 
-	bb.triggerNewBlock()
-	for _, n := range net.instances {
-		n.storage.waitForBlockCommit(endDisconnect - missedSeqs + 1)
-	}
-
-	for _, n := range net.instances {
-		require.Equal(t, endDisconnect-missedSeqs+1, n.storage.Height()-1)
-		require.Equal(t, endDisconnect+2, n.e.Metadata().Round)
-	}
-
-	isLaggingNodeLeader = bytes.Equal(simplex.LeaderForRound(nodes, endDisconnect+2), nodes[3])
-	require.True(t, isLaggingNodeLeader, "the lagging node should be the leader")
-
-	bb.triggerNewBlock() // the lagging node should build a block when triggered
-	for _, n := range net.instances {
-		n.storage.waitForBlockCommit(endDisconnect - missedSeqs + 2)
-	}
-}
-
-func advanceWithoutLeader(t *testing.T, net *inMemNetwork, bb *testControlledBlockBuilder, epochTimes []time.Time) {
-	for range net.instances {
-		bb.blockShouldBeBuilt <- struct{}{}
-	}
-
-	for i, n := range net.instances[:3] {
-		waitForBlockProposerTimeout(t, n.e, epochTimes[i])
-	}
+	storedBlock := storage.waitForBlockCommit(0)
+	require.Equal(t, uint64(1), storage.Height())
+	require.Equal(t, block, storedBlock)
 }
 
 func createBlocks(t *testing.T, nodes []simplex.NodeID, bb simplex.BlockBuilder, seqCount uint64) []simplex.FinalizedBlock {

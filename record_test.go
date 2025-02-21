@@ -40,8 +40,7 @@ func newNotarizationRecord(logger simplex.Logger, signatureAggregator simplex.Si
 func newFinalizationRecord(t *testing.T, logger simplex.Logger, signatureAggregator simplex.SignatureAggregator, block simplex.Block, ids []simplex.NodeID) (simplex.FinalizationCertificate, []byte) {
 	finalizations := make([]*simplex.Finalization, len(ids))
 	for i, id := range ids {
-		testBlock := block.(*testBlock)
-		finalizations[i] = newTestFinalization(t, testBlock, id)
+		finalizations[i] = newTestFinalization(t, block, id)
 	}
 
 	fCert, err := simplex.NewFinalizationCertificate(logger, signatureAggregator, finalizations)

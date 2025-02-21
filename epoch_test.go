@@ -766,9 +766,16 @@ type testBlock struct {
 	data     []byte
 	metadata ProtocolMetadata
 	digest   [32]byte
+	verificationDelay chan struct{}
 }
 
 func (tb *testBlock) Verify() error {
+	if tb.verificationDelay == nil {
+		return nil
+	}
+	
+	<- tb.verificationDelay
+
 	return nil
 }
 
