@@ -1632,8 +1632,6 @@ func (e *Epoch) monitorProgress(round uint64) {
 		}
 	}
 
-	e.cancelWaitForBlockNotarization()
-
 	// Registers a wait operation that:
 	// (1) Waits for the block builder to tell us it thinks it's time to build a new block.
 	// (2) Registers a monitor which, if not cancelled earlier, notifies the Epoch about a timeout for this round.
@@ -1928,6 +1926,13 @@ func (e *Epoch) handleFinalizationCertificateResponse(resp *FinalizationCertific
 
 func (e *Epoch) processReplicationState() {
 	nextSeqToCommit := e.Storage.Height()
+
+	// check if we are done replicating and should start a new round
+	if e.replicationState.isReplicationComplete(nextSeqToCommit) {
+		e.startRound()
+		return
+	}
+
 	finalizedBlock, ok := e.replicationState.receivedFinalizationCertificates[nextSeqToCommit]
 	if !ok {
 		return

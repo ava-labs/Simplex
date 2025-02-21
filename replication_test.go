@@ -242,10 +242,10 @@ func TestReplicationAfterNodeDisconnects(t *testing.T) {
 	// lagging node reconnects
 	net.Connect(nodes[3])
 
-	isLagginNodeLeader := bytes.Equal(simplex.LeaderForRound(nodes, endDisconnect), nodes[3])
-	require.False(t, isLagginNodeLeader, "for this test, the lagging node should not be the leader")
+	isLaggingNodeLeader := bytes.Equal(simplex.LeaderForRound(nodes, endDisconnect+1), nodes[3])
+	require.False(t, isLaggingNodeLeader, "the lagging node should not be the leader")
 
-	bb.triggerNewBlock() 
+	bb.triggerNewBlock()
 	for _, n := range net.instances {
 		n.storage.waitForBlockCommit(endDisconnect - missedSeqs + 1)
 	}
@@ -253,6 +253,14 @@ func TestReplicationAfterNodeDisconnects(t *testing.T) {
 	for _, n := range net.instances {
 		require.Equal(t, endDisconnect-missedSeqs+1, n.storage.Height()-1)
 		require.Equal(t, endDisconnect+2, n.e.Metadata().Round)
+	}
+
+	isLaggingNodeLeader = bytes.Equal(simplex.LeaderForRound(nodes, endDisconnect+2), nodes[3])
+	require.True(t, isLaggingNodeLeader, "the lagging node should be the leader")
+
+	bb.triggerNewBlock() // the lagging node should build a block when triggered
+	for _, n := range net.instances {
+		n.storage.waitForBlockCommit(endDisconnect - missedSeqs + 2)
 	}
 }
 

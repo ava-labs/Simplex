@@ -39,6 +39,10 @@ func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundW
 	}
 }
 
+func (r *ReplicationState) isReplicationComplete(nextSeqToCommit uint64) bool {
+	return nextSeqToCommit > r.highestFCertReceived.Finalization.Seq
+}
+
 func (r *ReplicationState) collectFutureFinalizationCertificates(fCert *FinalizationCertificate, currentRound uint64, nextSeqToCommit uint64) {
 	if !r.enabled {
 		return
