@@ -620,12 +620,6 @@ func (e *Epoch) handleVoteMessage(message *Vote, from NodeID) error {
 		return nil
 	}
 
-	// Check if we have timed out on this round
-	if e.haveWeAlreadyTimedOutOnThisRound(vote.Round) {
-		e.Logger.Debug("Received a vote but already timed out in that round", zap.Uint64("round", vote.Round), zap.Stringer("NodeID", from))
-		return nil
-	}
-
 	// If we have not received the proposal yet, we won't have a Round object in e.rounds,
 	// yet we may receive the corresponding vote.
 	// This may happen if we're asynchronously verifying the proposal at the moment.
@@ -1135,12 +1129,6 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 		return nil
 	}
 
-	// Check if we have timed out on this round
-	if e.haveWeAlreadyTimedOutOnThisRound(md.Round) {
-		e.Logger.Debug("Received a block but already timed out in that round", zap.Uint64("round", md.Round), zap.Stringer("NodeID", from))
-		return nil
-	}
-
 	// Check if we have verified this message in the past:
 	alreadyVerified := e.wasBlockAlreadyVerified(from, md)
 
@@ -1296,6 +1284,17 @@ func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote)
 		}
 
 		e.deleteFutureProposal(from, md.Round)
+
+		// Check if we have timed out on this round.
+		// Although we store the proposal for this round,
+		// we refuse to vote for it because we have timed out.
+		// We store the proposal only in order to be able to finalize it
+		// in case we cannot assemble an empty notarization but eventually
+		// this proposal is either notarized or finalized.
+		if e.haveWeAlreadyTimedOutOnThisRound(md.Round) {
+			e.Logger.Debug("Refusing to vote on block because already timed out in this round", zap.Uint64("round", md.Round), zap.Stringer("NodeID", from))
+			return md.Digest
+		}
 
 		// Once we have stored the proposal, we have a Round object for the round.
 		// We store the vote to prevent verifying its signature again.
@@ -1749,6 +1748,11 @@ func (e *Epoch) increaseRound() {
 }
 
 func (e *Epoch) doNotarized(r uint64) error {
+	if e.haveWeAlreadyTimedOutOnThisRound(r) {
+		e.Logger.Info("We have already timed out on this round, will not finalize it", zap.Uint64("round", r))
+		return e.startRound()
+	}
+
 	round := e.rounds[r]
 	block := round.block
 
@@ -1774,11 +1778,6 @@ func (e *Epoch) doNotarized(r uint64) error {
 		Finalization: &sf,
 	}
 	e.Comm.Broadcast(finalizationMsg)
-
-	if e.haveWeAlreadyTimedOutOnThisRound(r) {
-		e.Logger.Info("We have already timed out on this round, will not finalize it", zap.Uint64("round", r))
-		return e.startRound()
-	}
 
 	err1 := e.startRound()
 	err2 := e.handleFinalizationMessage(&sf, e.ID)

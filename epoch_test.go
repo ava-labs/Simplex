@@ -763,9 +763,9 @@ func (t *testBlockBuilder) IncomingBlock(ctx context.Context) {
 }
 
 type testBlock struct {
-	data     []byte
-	metadata ProtocolMetadata
-	digest   [32]byte
+	data              []byte
+	metadata          ProtocolMetadata
+	digest            [32]byte
 	verificationDelay chan struct{}
 }
 
@@ -773,8 +773,8 @@ func (tb *testBlock) Verify() error {
 	if tb.verificationDelay == nil {
 		return nil
 	}
-	
-	<- tb.verificationDelay
+
+	<-tb.verificationDelay
 
 	return nil
 }
@@ -856,6 +856,16 @@ func (mem *InMemStorage) waitForBlockCommit(seq uint64) Block {
 
 		mem.signal.Wait()
 	}
+}
+
+func (mem *InMemStorage) ensureNoBlockCommit(t *testing.T, seq uint64) {
+	require.Never(t, func() bool {
+		mem.lock.Lock()
+		defer mem.lock.Unlock()
+
+		_, exists := mem.data[seq]
+		return exists
+	}, time.Second, time.Millisecond*100, "block %d has been committed but shouldn't have been", seq)
 }
 
 func (mem *InMemStorage) Height() uint64 {
