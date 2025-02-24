@@ -281,7 +281,7 @@ type inMemNetwork struct {
 	t            *testing.T
 	nodes        []NodeID
 	instances    []*testNode
-	lock         sync.Mutex
+	lock         sync.RWMutex
 	disconnected map[string]struct{}
 }
 
@@ -310,8 +310,8 @@ func (n *inMemNetwork) addNode(node *testNode) {
 }
 
 func (n *inMemNetwork) IsDisconnected(node NodeID) bool {
-	n.lock.Lock()
-	defer n.lock.Unlock()
+	n.lock.RLock()
+	defer n.lock.RUnlock()
 
 	_, ok := n.disconnected[string(node)]
 	return ok
