@@ -4,10 +4,12 @@
 package simplex_test
 
 import (
+	"bytes"
 	"context"
 	"simplex"
 	"simplex/testutil"
 	"simplex/wal"
+	"time"
 
 	"testing"
 
@@ -230,7 +232,105 @@ func TestReplicationFutureFinalizationCertificate(t *testing.T) {
 	storedBlock := storage.waitForBlockCommit(0)
 	require.Equal(t, uint64(1), storage.Height())
 	require.Equal(t, block, storedBlock)
+}
 
+// TestReplicationAfterNodeDisconnects tests the replication process of a node that
+// disconnects from the network and reconnects after the rest of the network has made progress.
+//
+// All nodes make progress for `startDisconnect` blocks. The lagging node disconnects
+// and the rest of the nodes continue to make progress for another `endDisconnect - startDisconnect` blocks.
+// The lagging node reconnects and the after the next `fCert` is sent, the lagging node catches up to the latest height.
+func TestReplicationAfterNodeDisconnects(t *testing.T) {
+	bb := newTestControlledBlockBuilder(t)
+	nodes := []simplex.NodeID{{1}, {2}, {3}, []byte("lagging")}
+	net := newInMemNetwork(t, nodes)
+	startDisconnect := uint64(5)
+	endDisconnect := uint64(17) // TODO: create test where the lagging node is the leader after replication
+	normalNode1 := newSimplexNode(t, nodes[0], net, bb, true)
+	normalNode2 := newSimplexNode(t, nodes[1], net, bb, true)
+	normalNode3 := newSimplexNode(t, nodes[2], net, bb, true)
+	laggingNode := newSimplexNode(t, nodes[3], net, bb, true)
+
+	require.Equal(t, uint64(0), normalNode1.storage.Height())
+	require.Equal(t, uint64(0), normalNode2.storage.Height())
+	require.Equal(t, uint64(0), normalNode3.storage.Height())
+	require.Equal(t, uint64(0), laggingNode.storage.Height())
+
+	epochTimes := make([]time.Time, 0, 4)
+	for _, n := range net.instances {
+		epochTimes = append(epochTimes, n.e.StartTime)
+	}
+
+	net.startInstances()
+
+	for i := uint64(0); i < startDisconnect; i++ {
+		bb.triggerNewBlock()
+		for _, n := range net.instances {
+			n.storage.waitForBlockCommit(i)
+		}
+	}
+
+	// all nodes have commited `startDisconnect` blocks
+	for _, n := range net.instances {
+		require.Equal(t, startDisconnect, n.storage.Height())
+	}
+
+	// lagging node disconnects
+	net.Disconnect(nodes[3])
+
+	missedSeqs := uint64(0)
+	// normal nodes continue to make progress
+	for i := startDisconnect; i < endDisconnect; i++ {
+		emptyRound := bytes.Equal(simplex.LeaderForRound(nodes, i), nodes[3])
+		if emptyRound {
+			advanceWithoutLeader(t, net, bb, epochTimes)
+			missedSeqs++
+			} else {
+			bb.triggerNewBlock()
+			for _, n := range net.instances[:3] {
+				n.storage.waitForBlockCommit(i - missedSeqs)
+			}
+		}
+	}
+
+	// all nodes excpet for lagging node have progressed and commited [endDisconnect - missedSeqs] blocks
+	for _, n := range net.instances[:3] {
+		require.Equal(t, endDisconnect-missedSeqs, n.storage.Height())
+	}
+	require.Equal(t, startDisconnect, laggingNode.storage.Height())
+
+	// lagging node reconnects
+	net.Connect(nodes[3])
+
+	isLaggingNodeLeader := bytes.Equal(simplex.LeaderForRound(nodes, endDisconnect+1), nodes[3])
+	require.False(t, isLaggingNodeLeader, "the lagging node should not be the leader")
+	bb.triggerNewBlock()
+	for _, n := range net.instances {
+		n.storage.waitForBlockCommit(endDisconnect - missedSeqs)
+	}
+
+	for _, n := range net.instances {
+		require.Equal(t, endDisconnect-missedSeqs, n.storage.Height()-1)
+		require.Equal(t, endDisconnect+1, n.e.Metadata().Round)
+	}
+
+	isLaggingNodeLeader = bytes.Equal(simplex.LeaderForRound(nodes, endDisconnect+2), nodes[3])
+	require.True(t, isLaggingNodeLeader, "the lagging node should be the leader")
+
+	bb.triggerNewBlock() // the lagging node should build a block when triggered
+	for _, n := range net.instances {
+		n.storage.waitForBlockCommit(endDisconnect - missedSeqs + 1)
+	}
+}
+
+func advanceWithoutLeader(t *testing.T, net *inMemNetwork, bb *testControlledBlockBuilder, epochTimes []time.Time) {
+	for range net.instances {
+		bb.blockShouldBeBuilt <- struct{}{}
+	}
+
+	for i, n := range net.instances[:3] {
+		waitForBlockProposerTimeout(t, n.e, epochTimes[i])
+	}
 }
 
 func createBlocks(t *testing.T, nodes []simplex.NodeID, bb simplex.BlockBuilder, seqCount uint64) []simplex.FinalizedBlock {

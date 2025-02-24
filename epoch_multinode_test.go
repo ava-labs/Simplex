@@ -13,6 +13,7 @@ import (
 	"simplex/wal"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -27,15 +28,13 @@ func TestSimplexMultiNodeSimple(t *testing.T) {
 	newSimplexNode(t, nodes[2], net, bb, false)
 	newSimplexNode(t, nodes[3], net, bb, false)
 
-	bb.triggerNewBlock()
-
 	net.startInstances()
 
 	for seq := 0; seq < 10; seq++ {
+		bb.triggerNewBlock()
 		for _, n := range net.instances {
 			n.storage.waitForBlockCommit(uint64(seq))
 		}
-		bb.triggerNewBlock()
 	}
 }
 
@@ -89,11 +88,8 @@ func defaultTestNodeEpochConfig(t *testing.T, nodeID NodeID, net *inMemNetwork, 
 	l := testutil.MakeLogger(t, int(nodeID[0]))
 	storage := newInMemStorage()
 	conf := EpochConfig{
-		MaxProposalWait: DefaultMaxProposalWaitTime,
-		Comm: &testComm{
-			from: nodeID,
-			net:  net,
-		},
+		MaxProposalWait:     DefaultMaxProposalWaitTime,
+		Comm:                newTestComm(nodeID, net),
 		Logger:              l,
 		ID:                  nodeID,
 		Signer:              &testSigner{},
@@ -105,6 +101,7 @@ func defaultTestNodeEpochConfig(t *testing.T, nodeID NodeID, net *inMemNetwork, 
 		BlockDeserializer:   &blockDeserializer{},
 		QCDeserializer:      &testQCDeserializer{t: t},
 		ReplicationEnabled:  replicationEnabled,
+		StartTime:           time.Now(),
 	}
 	return conf
 }
@@ -234,11 +231,23 @@ type testComm struct {
 	net  *inMemNetwork
 }
 
+func newTestComm(from NodeID, net *inMemNetwork) *testComm {
+	return &testComm{
+		from: from,
+		net:  net,
+	}
+}
+
 func (c *testComm) ListNodes() []NodeID {
 	return c.net.nodes
 }
 
 func (c *testComm) SendMessage(msg *Message, destination NodeID) {
+	// cannot send if either [from] or [destination] is not connected
+	if c.net.IsDisconnected(destination) || c.net.IsDisconnected(c.from) {
+		return
+	}
+
 	for _, instance := range c.net.instances {
 		if bytes.Equal(instance.e.ID, destination) {
 			instance.ingress <- struct {
@@ -251,11 +260,16 @@ func (c *testComm) SendMessage(msg *Message, destination NodeID) {
 }
 
 func (c *testComm) Broadcast(msg *Message) {
+	if c.net.IsDisconnected(c.from) {
+		return
+	}
+
 	for _, instance := range c.net.instances {
-		// Skip sending the message to yourself
-		if bytes.Equal(c.from, instance.e.ID) {
+		// Skip sending the message to yourself or disconnected nodes
+		if bytes.Equal(c.from, instance.e.ID) || c.net.IsDisconnected(instance.e.ID) {
 			continue
 		}
+
 		instance.ingress <- struct {
 			msg  *Message
 			from NodeID
@@ -264,18 +278,21 @@ func (c *testComm) Broadcast(msg *Message) {
 }
 
 type inMemNetwork struct {
-	t         *testing.T
-	nodes     []NodeID
-	instances []*testNode
+	t            *testing.T
+	nodes        []NodeID
+	instances    []*testNode
+	lock         sync.RWMutex
+	disconnected map[string]struct{}
 }
 
 // newInMemNetwork creates an in-memory network. Node IDs must be provided before
 // adding instances, as nodes require prior knowledge of all participants.
 func newInMemNetwork(t *testing.T, nodes []NodeID) *inMemNetwork {
 	net := &inMemNetwork{
-		t:         t,
-		nodes:     nodes,
-		instances: make([]*testNode, 0),
+		t:            t,
+		nodes:        nodes,
+		instances:    make([]*testNode, 0),
+		disconnected: make(map[string]struct{}),
 	}
 	return net
 }
@@ -290,6 +307,28 @@ func (n *inMemNetwork) addNode(node *testNode) {
 	}
 	require.True(node.t, allowed, "node must be declared before adding")
 	n.instances = append(n.instances, node)
+}
+
+func (n *inMemNetwork) IsDisconnected(node NodeID) bool {
+	n.lock.RLock()
+	defer n.lock.RUnlock()
+
+	_, ok := n.disconnected[string(node)]
+	return ok
+}
+
+func (n *inMemNetwork) Connect(node NodeID) {
+	n.lock.Lock()
+	defer n.lock.Unlock()
+
+	delete(n.disconnected, string(node))
+}
+
+func (n *inMemNetwork) Disconnect(node NodeID) {
+	n.lock.Lock()
+	defer n.lock.Unlock()
+
+	n.disconnected[string(node)] = struct{}{}
 }
 
 // startInstances starts all instances in the network.
@@ -314,7 +353,7 @@ func newTestControlledBlockBuilder(t *testing.T) *testControlledBlockBuilder {
 	return &testControlledBlockBuilder{
 		t:                t,
 		control:          make(chan struct{}, 1),
-		testBlockBuilder: testBlockBuilder{out: make(chan *testBlock, 1)},
+		testBlockBuilder: testBlockBuilder{out: make(chan *testBlock, 1), blockShouldBeBuilt: make(chan struct{}, 1)},
 	}
 }
 
@@ -327,7 +366,6 @@ func (t *testControlledBlockBuilder) triggerNewBlock() {
 }
 
 func (t *testControlledBlockBuilder) BuildBlock(ctx context.Context, metadata ProtocolMetadata) (Block, bool) {
-	require.Equal(t.t, metadata.Seq, metadata.Round)
 	<-t.control
 	return t.testBlockBuilder.BuildBlock(ctx, metadata)
 }
