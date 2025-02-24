@@ -49,7 +49,7 @@ func (m *Monitor) AdvanceTime(t time.Time) {
 }
 
 func (m *Monitor) tick(now time.Time, taskID uint64) {
-	defer m.logger.Trace("Ticked", zap.Uint64("taskID", taskID), zap.Time("time", now))
+	defer m.logger.Verbo("Ticked", zap.Uint64("taskID", taskID), zap.Time("time", now))
 	ft := m.futureTask.Load()
 	if ft == nil {
 		return
@@ -61,9 +61,9 @@ func (m *Monitor) tick(now time.Time, taskID uint64) {
 		return
 	}
 
-	m.logger.Debug("Executing f", zap.Uint64("taskID", taskID), zap.Time("deadline", task.deadline))
+	m.logger.Verbo("Executing f", zap.Uint64("taskID", taskID), zap.Time("deadline", task.deadline))
 	task.f()
-	m.logger.Debug("Executed f", zap.Uint64("taskID", taskID), zap.Time("time", now), zap.Time("deadline", task.deadline))
+	m.logger.Verbo("Executed f", zap.Uint64("taskID", taskID), zap.Time("time", now), zap.Time("deadline", task.deadline))
 
 	// clean up future task to mark we have already executed it and to release memory
 	m.futureTask.Store(&futureTask{})
@@ -75,12 +75,12 @@ func (m *Monitor) run() {
 		select {
 		case tick := <-m.ticks:
 			m.tick(tick, taskID)
-			taskID++
 		case f := <-m.tasks:
-			m.logger.Debug("Executing f", zap.Uint64("taskID", taskID))
+			m.logger.Verbo("Executing f", zap.Uint64("taskID", taskID))
 			f()
-			m.logger.Debug("Task executed", zap.Uint64("taskID", taskID))
+			m.logger.Verbo("Task executed", zap.Uint64("taskID", taskID))
 		}
+		taskID++
 	}
 }
 
@@ -119,7 +119,7 @@ func (m *Monitor) WaitUntil(timeout time.Duration, f func()) context.CancelFunc 
 		deadline: time.Add(timeout),
 	})
 
-	m.logger.Debug("Scheduling task", zap.Duration("timeout", timeout), zap.Time("deadline", time))
+	m.logger.Verbo("Scheduling task", zap.Duration("timeout", timeout), zap.Time("deadline", time))
 
 	return func() {
 		m.futureTask.Store(&futureTask{})
