@@ -286,7 +286,7 @@ func TestReplicationAfterNodeDisconnects(t *testing.T) {
 		if emptyRound {
 			advanceWithoutLeader(t, net, bb, epochTimes)
 			missedSeqs++
-		} else {
+			} else {
 			for _, n := range net.instances[:3] {
 				n.storage.waitForBlockCommit(i - missedSeqs)
 			}

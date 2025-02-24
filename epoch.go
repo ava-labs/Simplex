@@ -1238,10 +1238,6 @@ func (e *Epoch) processFinalizedBlock(finalizedBlock *FinalizedBlock) error {
 		return nil
 	}
 	md := finalizedBlock.Block.BlockHeader()
-	if !e.verifyProposalIsPartOfOurChain(finalizedBlock.Block) {
-		e.Logger.Debug("Got invalid block in a BlockMessage")
-		return nil
-	}
 
 	// Create a task that will verify the block in the future, after its predecessors have also been verified.
 	task := e.createBlockFinalizedVerificationTask(*finalizedBlock)
