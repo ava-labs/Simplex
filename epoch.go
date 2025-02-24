@@ -1229,7 +1229,8 @@ func (e *Epoch) processFinalizedBlock(finalizedBlock *FinalizedBlock) error {
 		}
 		round.fCert = &finalizedBlock.FCert
 		e.indexFinalizationCertificates(round.num)
-		return e.processReplicationState()
+		e.replicationState.maybeCollectFutureFinalizationCertificates(e.round, e.Storage.Height())
+		return nil
 	}
 
 	pendingBlocks := e.sched.Size()
@@ -1339,16 +1340,13 @@ func (e *Epoch) createBlockFinalizedVerificationTask(finalizedBlock FinalizedBlo
 			return md.Digest
 		}
 		e.indexFinalizationCertificate(block, finalizedBlock.FCert)
-		err := e.processReplicationState()
-		if err != nil {
-			e.haltedError = err
-			e.Logger.Error("Failed to process replication state", zap.Error(err))
-			return md.Digest
-		}
-		err = e.maybeLoadFutureMessages()
+		
+		err := e.maybeLoadFutureMessages()
 		if err != nil {
 			e.Logger.Warn("Failed to load future messages", zap.Error(err))
 		}
+		
+		e.replicationState.maybeCollectFutureFinalizationCertificates(e.round, e.Storage.Height())
 
 		return md.Digest
 	}
@@ -1956,23 +1954,37 @@ func (e *Epoch) handleFinalizationCertificateResponse(resp *FinalizationCertific
 	return e.processReplicationState()
 }
 
+// the issue with the non recursive apporach is that we may have received a replication response while we are replicating
+// therefore the nextSeqToCommit may be behind but we have already deleted the finalized block from the map 
+// making this function terminate on too early.
 func (e *Epoch) processReplicationState() error {
 	nextSeqToCommit := e.Storage.Height()
+	
+	for {
+		finalizedBlock, ok := e.replicationState.receivedFinalizationCertificates[nextSeqToCommit]
+		// fmt.Println("attemptinfg to process finalized block", finalizedBlock.Block.BlockHeader().Round, ok)
+		if !ok {
+			break
+		}
+		
+		err := e.processFinalizedBlock(&finalizedBlock)
+		if err != nil {
+			return err
+		}
+		
+		delete(e.replicationState.receivedFinalizationCertificates, nextSeqToCommit)
+		fmt.Println("deleted finalized block for seq", nextSeqToCommit)
+		nextSeqToCommit++
+	}
 
 	// check if we are done replicating and should start a new round
 	if e.replicationState.isReplicationComplete(nextSeqToCommit) {
 		return e.startRound()
 	}
 
-	finalizedBlock, ok := e.replicationState.receivedFinalizationCertificates[nextSeqToCommit]
-	if !ok {
-		return nil
-	}
-
-	delete(e.replicationState.receivedFinalizationCertificates, nextSeqToCommit)
-	e.replicationState.maybeCollectFutureFinalizationCertificates(e.round, e.Storage.Height())
-	return e.processFinalizedBlock(&finalizedBlock)
+	return nil
 }
+
 
 func (e *Epoch) getHighestRound() *Round {
 	var max uint64

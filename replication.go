@@ -59,7 +59,7 @@ func (r *ReplicationState) collectFutureFinalizationCertificates(fCert *Finaliza
 	if r.lastSequenceRequested >= uint64(endSeq) {
 		return
 	}
-
+	
 	startSeq := math.Max(float64(nextSeqToCommit), float64(r.lastSequenceRequested))
 	r.logger.Debug("Node is behind, requesting missing finalization certificates", zap.Uint64("seq", fCertSeq), zap.Uint64("startSeq", uint64(startSeq)), zap.Uint64("endSeq", uint64(endSeq)))
 	r.sendFutureCertficatesRequests(uint64(startSeq), uint64(endSeq))
@@ -111,6 +111,7 @@ func (r *ReplicationState) maybeCollectFutureFinalizationCertificates(round uint
 
 	// we send out more requests once our seq has caught up to 1/2 of the maxRoundWindow
 	if round+r.maxRoundWindow/2 > r.lastSequenceRequested {
+		fmt.Println("collecting future finalization certificates", r.highestFCertReceived.Finalization.Seq, round, nextSequenceToCommit, r.lastSequenceRequested, r.maxRoundWindow/2)
 		r.collectFutureFinalizationCertificates(r.highestFCertReceived, round, nextSequenceToCommit)
 	}
 }
@@ -128,5 +129,6 @@ func (r *ReplicationState) StoreFinalizedBlock(data FinalizedBlock) error {
 	}
 
 	r.receivedFinalizationCertificates[data.FCert.Finalization.Seq] = data
+	fmt.Println("storing finalized block", data.FCert.Finalization.Seq)
 	return nil
 }
