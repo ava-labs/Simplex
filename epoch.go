@@ -18,6 +18,8 @@ import (
 	"go.uber.org/zap"
 )
 
+var ErrAlreadyStarted = errors.New("epoch already started")
+
 const (
 	DefaultMaxRoundWindow   = 10
 	DefaultMaxPendingBlocks = 20
@@ -86,6 +88,7 @@ type Epoch struct {
 	maxRoundWindow                 uint64
 	maxPendingBlocks               int
 	monitor                        *Monitor
+	haltedError                    error
 	cancelWaitForBlockNotarization context.CancelFunc
 
 	replicationState *ReplicationState
@@ -112,6 +115,10 @@ func (e *Epoch) HandleMessage(msg *Message, from NodeID) error {
 	if !e.canReceiveMessages.Load() {
 		e.Logger.Warn("Cannot receive a message")
 		return nil
+	}
+
+	if e.haltedError != nil {
+		return e.haltedError
 	}
 
 	if from.Equals(e.ID) {
@@ -181,6 +188,9 @@ func (e *Epoch) init() error {
 }
 
 func (e *Epoch) Start() error {
+	if e.canReceiveMessages.Load() {
+		return ErrAlreadyStarted
+	}
 	// Only init receiving messages once you have initialized the data structures required for it.
 	defer func() {
 		e.canReceiveMessages.Store(true)
@@ -437,9 +447,7 @@ func (e *Epoch) handleFinalizationCertificateMessage(message *FinalizationCertif
 
 	round, exists := e.rounds[message.Finalization.Round]
 	if !exists {
-		// TODO: delay requesting future fCerts and blocks, since blocks could be in transit
-		e.Logger.Debug("Received finalization certificate for a future round", zap.Uint64("round", message.Finalization.Round))
-		e.replicationState.collectFutureFinalizationCertificates(message, e.round, nextSeqToCommit)
+		e.handleFinalizationCertificateForPendingOrFutureRound(message, message.Finalization.Round, nextSeqToCommit)
 		return nil
 	}
 
@@ -451,6 +459,24 @@ func (e *Epoch) handleFinalizationCertificateMessage(message *FinalizationCertif
 	round.fCert = message
 
 	return e.persistFinalizationCertificate(*message)
+}
+
+func (e *Epoch) handleFinalizationCertificateForPendingOrFutureRound(message *FinalizationCertificate, round uint64, nextSeqToCommit uint64) {
+	if round == e.round {
+		// delay collecting future finalization certificate if we are verifying the proposal for that round
+		// and the fCert is for the current round
+		for _, msgs := range e.futureMessages {
+			msgForRound, exists := msgs[round]
+			if exists && msgForRound.proposal != nil {
+				msgForRound.finalizationCertificate = message
+				return
+			}
+		}
+	}
+
+	// TODO: delay requesting future fCerts and blocks, since blocks could be in transit
+	e.Logger.Debug("Received finalization certificate for a future round", zap.Uint64("round", round))
+	e.replicationState.collectFutureFinalizationCertificates(message, e.round, nextSeqToCommit)
 }
 
 func (e *Epoch) handleFinalizationMessage(message *Finalization, from NodeID) error {
@@ -541,7 +567,7 @@ func (e *Epoch) handleEmptyVoteMessage(message *EmptyVote, from NodeID) error {
 
 	// TODO: This empty vote may correspond to a future round, so... let future me implement it!
 	if e.round < vote.Round { //TODO: only handle it if it's within the max round window (&& vote.Round-e.round < e.maxRoundWindow)
-		e.Logger.Debug("Got vote from a future round",
+		e.Logger.Debug("Got empty vote from a future round",
 			zap.Uint64("round", vote.Round), zap.Uint64("my round", e.round), zap.Stringer("from", from))
 		//TODO: e.storeFutureEmptyVote(message, from, vote.Round)
 		return nil
@@ -1162,7 +1188,15 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 		return nil
 	}
 
-	defer e.deleteFutureProposal(from, md.Round)
+	// save in future messages while we are verifying the block
+	msgForRound, exists := e.futureMessages[string(from)][md.Round]
+	if !exists {
+		msgsForRound := &messagesForRound{}
+		msgsForRound.proposal = message
+		e.futureMessages[string(from)][md.Round] = msgsForRound
+	} else {
+		msgForRound.proposal = message
+	}
 
 	// Create a task that will verify the block in the future, after its predecessors have also been verified.
 	task := e.createBlockVerificationTask(block, from, vote)
@@ -1195,8 +1229,7 @@ func (e *Epoch) processFinalizedBlock(finalizedBlock *FinalizedBlock) error {
 		}
 		round.fCert = &finalizedBlock.FCert
 		e.indexFinalizationCertificates(round.num)
-		e.processReplicationState()
-		return nil
+		return e.processReplicationState()
 	}
 
 	pendingBlocks := e.sched.Size()
@@ -1205,10 +1238,6 @@ func (e *Epoch) processFinalizedBlock(finalizedBlock *FinalizedBlock) error {
 		return nil
 	}
 	md := finalizedBlock.Block.BlockHeader()
-	if !e.verifyProposalIsPartOfOurChain(finalizedBlock.Block) {
-		e.Logger.Debug("Got invalid block in a BlockMessage")
-		return nil
-	}
 
 	// Create a task that will verify the block in the future, after its predecessors have also been verified.
 	task := e.createBlockFinalizedVerificationTask(*finalizedBlock)
@@ -1245,7 +1274,15 @@ func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote)
 		defer e.lock.Unlock()
 
 		record := BlockRecord(md, block.Bytes())
-		e.WAL.Append(record)
+		if err := e.WAL.Append(record); err != nil {
+			e.haltedError = err
+			e.Logger.Error("Failed to append block record to WAL", zap.Error(err))
+			return md.Digest
+		}
+
+		e.Logger.Debug("Persisted block to WAL",
+			zap.Uint64("round", md.Round),
+			zap.Stringer("digest", md.Digest))
 
 		if !e.storeProposal(block) {
 			e.Logger.Warn("Unable to store proposed block for the round", zap.Stringer("NodeID", from), zap.Uint64("round", md.Round))
@@ -1302,8 +1339,13 @@ func (e *Epoch) createBlockFinalizedVerificationTask(finalizedBlock FinalizedBlo
 			return md.Digest
 		}
 		e.indexFinalizationCertificate(block, finalizedBlock.FCert)
-		e.processReplicationState()
-		err := e.maybeLoadFutureMessages()
+		err := e.processReplicationState()
+		if err != nil {
+			e.haltedError = err
+			e.Logger.Error("Failed to process replication state", zap.Error(err))
+			return md.Digest
+		}
+		err = e.maybeLoadFutureMessages()
 		if err != nil {
 			e.Logger.Warn("Failed to load future messages", zap.Error(err))
 		}
@@ -1556,6 +1598,9 @@ func (e *Epoch) triggerProposalWaitTimeExpired(round uint64) {
 		e.Logger.Error("Failed appending empty vote", zap.Error(err))
 		return
 	}
+	e.Logger.Debug("Persisted empty vote to WAL",
+		zap.Uint64("round", round),
+		zap.Int("size", len(emptyVoteRecord)))
 
 	emptyVotes := e.getOrCreateEmptyVoteSetForRound(round)
 	emptyVotes.timedOut = true
@@ -1566,6 +1611,11 @@ func (e *Epoch) triggerProposalWaitTimeExpired(round uint64) {
 	emptyVotes.votes[string(e.ID)] = &signedEV
 
 	e.Comm.Broadcast(&Message{EmptyVoteMessage: &signedEV})
+
+	if err := e.maybeAssembleEmptyNotarization(); err != nil {
+		e.Logger.Error("Failed assembling empty notarization", zap.Error(err))
+		e.haltedError = err
+	}
 }
 
 func (e *Epoch) monitorProgress(round uint64) {
@@ -1760,6 +1810,11 @@ func (e *Epoch) maybeLoadFutureMessages() error {
 						return err
 					}
 				}
+				if msgs.finalizationCertificate != nil {
+					if err := e.handleFinalizationCertificateMessage(msgs.finalizationCertificate, NodeID(from)); err != nil {
+						return err
+					}
+				}
 				if msgs.vote != nil {
 					if err := e.handleVoteMessage(msgs.vote, NodeID(from)); err != nil {
 						return err
@@ -1845,7 +1900,7 @@ func (e *Epoch) handleFinalizationCertificateRequest(req *FinalizationCertificat
 			FCert: fCert,
 		}
 	}
-
+	e.Logger.Debug("Sending finalization certificate response", zap.Int("num seqs", len(data)), zap.Any("seqs", seqs))
 	return &FinalizationCertificateResponse{
 		Data: data,
 	}
@@ -1898,20 +1953,25 @@ func (e *Epoch) handleFinalizationCertificateResponse(resp *FinalizationCertific
 		}
 	}
 
-	e.processReplicationState()
-	return nil
+	return e.processReplicationState()
 }
 
-func (e *Epoch) processReplicationState() {
+func (e *Epoch) processReplicationState() error {
 	nextSeqToCommit := e.Storage.Height()
+
+	// check if we are done replicating and should start a new round
+	if e.replicationState.isReplicationComplete(nextSeqToCommit) {
+		return e.startRound()
+	}
+
 	finalizedBlock, ok := e.replicationState.receivedFinalizationCertificates[nextSeqToCommit]
 	if !ok {
-		return
+		return nil
 	}
 
 	delete(e.replicationState.receivedFinalizationCertificates, nextSeqToCommit)
 	e.replicationState.maybeCollectFutureFinalizationCertificates(e.round, e.Storage.Height())
-	e.processFinalizedBlock(&finalizedBlock)
+	return e.processFinalizedBlock(&finalizedBlock)
 }
 
 func (e *Epoch) getHighestRound() *Round {
@@ -1943,9 +2003,10 @@ func Quorum(n int) int {
 type messagesFromNode map[string]map[uint64]*messagesForRound
 
 type messagesForRound struct {
-	emptyNotarization *EmptyNotarization
-	emptyVote         *EmptyVote
-	proposal          *BlockMessage
-	vote              *Vote
-	finalization      *Finalization
+	emptyNotarization       *EmptyNotarization
+	emptyVote               *EmptyVote
+	proposal                *BlockMessage
+	vote                    *Vote
+	finalization            *Finalization
+	finalizationCertificate *FinalizationCertificate
 }

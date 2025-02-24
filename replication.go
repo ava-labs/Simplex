@@ -39,14 +39,20 @@ func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundW
 	}
 }
 
+// isReplicationComplete returns true if the replication state has caught up to the highest finalization certificate.
+// TODO: when we add notarization requests, this function should also make sure we have caught up to the highest notarization.
+func (r *ReplicationState) isReplicationComplete(nextSeqToCommit uint64) bool {
+	return nextSeqToCommit > r.highestFCertReceived.Finalization.Seq
+}
+
 func (r *ReplicationState) collectFutureFinalizationCertificates(fCert *FinalizationCertificate, currentRound uint64, nextSeqToCommit uint64) {
 	if !r.enabled {
 		return
 	}
-	fCertRound := fCert.Finalization.Round
+	fCertSeq := fCert.Finalization.Seq
 	// Don't exceed the max round window
-	endSeq := math.Min(float64(fCertRound), float64(r.maxRoundWindow+currentRound))
-	if r.highestFCertReceived == nil || fCertRound > r.highestFCertReceived.Finalization.Seq {
+	endSeq := math.Min(float64(fCertSeq), float64(r.maxRoundWindow+currentRound))
+	if r.highestFCertReceived == nil || fCertSeq > r.highestFCertReceived.Finalization.Seq {
 		r.highestFCertReceived = fCert
 	}
 	// Node is behind, but we've already sent messages to collect future fCerts
@@ -55,7 +61,7 @@ func (r *ReplicationState) collectFutureFinalizationCertificates(fCert *Finaliza
 	}
 
 	startSeq := math.Max(float64(nextSeqToCommit), float64(r.lastSequenceRequested))
-	r.logger.Debug("Node is behind, requesting missing finalization certificates", zap.Uint64("round", fCertRound), zap.Uint64("startSeq", uint64(startSeq)), zap.Uint64("endSeq", uint64(endSeq)))
+	r.logger.Debug("Node is behind, requesting missing finalization certificates", zap.Uint64("seq", fCertSeq), zap.Uint64("startSeq", uint64(startSeq)), zap.Uint64("endSeq", uint64(endSeq)))
 	r.sendFutureCertficatesRequests(uint64(startSeq), uint64(endSeq))
 }
 
@@ -99,10 +105,11 @@ func (r *ReplicationState) maybeCollectFutureFinalizationCertificates(round uint
 		return
 	}
 
-	// we send out more request once our round has caught up to 1/2 of the maxRoundWindow
-	if r.lastSequenceRequested >= r.highestFCertReceived.Finalization.Round {
+	if r.lastSequenceRequested >= r.highestFCertReceived.Finalization.Seq {
 		return
 	}
+
+	// we send out more requests once our seq has caught up to 1/2 of the maxRoundWindow
 	if round+r.maxRoundWindow/2 > r.lastSequenceRequested {
 		r.collectFutureFinalizationCertificates(r.highestFCertReceived, round, nextSequenceToCommit)
 	}

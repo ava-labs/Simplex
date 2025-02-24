@@ -13,6 +13,7 @@ import (
 	"simplex/wal"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -27,15 +28,13 @@ func TestSimplexMultiNodeSimple(t *testing.T) {
 	newSimplexNode(t, nodes[2], net, bb, false)
 	newSimplexNode(t, nodes[3], net, bb, false)
 
-	bb.triggerNewBlock()
-
 	net.startInstances()
 
 	for seq := 0; seq < 10; seq++ {
+		bb.triggerNewBlock()
 		for _, n := range net.instances {
 			n.storage.waitForBlockCommit(uint64(seq))
 		}
-		bb.triggerNewBlock()
 	}
 }
 
@@ -102,6 +101,7 @@ func defaultTestNodeEpochConfig(t *testing.T, nodeID NodeID, net *inMemNetwork, 
 		BlockDeserializer:   &blockDeserializer{},
 		QCDeserializer:      &testQCDeserializer{t: t},
 		ReplicationEnabled:  replicationEnabled,
+		StartTime:           time.Now(),
 	}
 	return conf
 }
@@ -205,6 +205,27 @@ func (tw *testWAL) assertNotarization(round uint64) {
 
 }
 
+func (tw *testWAL) containsEmptyVote(round uint64) bool {
+	tw.lock.Lock()
+	defer tw.lock.Unlock()
+
+	rawRecords, err := tw.WriteAheadLog.ReadAll()
+	require.NoError(tw.t, err)
+
+	for _, rawRecord := range rawRecords {
+		if binary.BigEndian.Uint16(rawRecord[:2]) == record.EmptyVoteRecordType {
+			vote, err := ParseEmptyVoteRecord(rawRecord)
+			require.NoError(tw.t, err)
+
+			if vote.Round == round {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
 type testComm struct {
 	from NodeID
 	net  *inMemNetwork
@@ -223,7 +244,7 @@ func (c *testComm) ListNodes() []NodeID {
 
 func (c *testComm) SendMessage(msg *Message, destination NodeID) {
 	// cannot send if either [from] or [destination] is not connected
-	if !c.net.IsConnected(destination) || !c.net.IsConnected(c.from) {
+	if c.net.IsDisconnected(destination) || c.net.IsDisconnected(c.from) {
 		return
 	}
 
@@ -239,16 +260,13 @@ func (c *testComm) SendMessage(msg *Message, destination NodeID) {
 }
 
 func (c *testComm) Broadcast(msg *Message) {
-	if !c.net.IsConnected(c.from) {
+	if c.net.IsDisconnected(c.from) {
 		return
 	}
 
 	for _, instance := range c.net.instances {
-		// Skip sending the message to yourself
-		if bytes.Equal(c.from, instance.e.ID) {
-			continue
-		}
-		if !c.net.IsConnected(instance.e.ID) {
+		// Skip sending the message to yourself or disconnected nodes
+		if bytes.Equal(c.from, instance.e.ID) || c.net.IsDisconnected(instance.e.ID) {
 			continue
 		}
 
@@ -260,25 +278,21 @@ func (c *testComm) Broadcast(msg *Message) {
 }
 
 type inMemNetwork struct {
-	t         *testing.T
-	nodes     []NodeID
-	instances []*testNode
-	connected map[string]bool
+	t            *testing.T
+	nodes        []NodeID
+	instances    []*testNode
+	lock         sync.RWMutex
+	disconnected map[string]struct{}
 }
 
 // newInMemNetwork creates an in-memory network. Node IDs must be provided before
 // adding instances, as nodes require prior knowledge of all participants.
 func newInMemNetwork(t *testing.T, nodes []NodeID) *inMemNetwork {
-	connected := make(map[string]bool)
-	for _, node := range nodes {
-		connected[string(node)] = true
-	}
-
 	net := &inMemNetwork{
-		t:         t,
-		nodes:     nodes,
-		instances: make([]*testNode, 0),
-		connected: connected,
+		t:            t,
+		nodes:        nodes,
+		instances:    make([]*testNode, 0),
+		disconnected: make(map[string]struct{}),
 	}
 	return net
 }
@@ -295,21 +309,26 @@ func (n *inMemNetwork) addNode(node *testNode) {
 	n.instances = append(n.instances, node)
 }
 
-func (n *inMemNetwork) IsConnected(node NodeID) bool {
-	for _, instance := range n.instances {
-		if bytes.Equal(instance.e.ID, node) {
-			return n.connected[string(node)]
-		}
-	}
-	return false
+func (n *inMemNetwork) IsDisconnected(node NodeID) bool {
+	n.lock.RLock()
+	defer n.lock.RUnlock()
+
+	_, ok := n.disconnected[string(node)]
+	return ok
 }
 
 func (n *inMemNetwork) Connect(node NodeID) {
-	n.connected[string(node)] = true
+	n.lock.Lock()
+	defer n.lock.Unlock()
+
+	delete(n.disconnected, string(node))
 }
 
 func (n *inMemNetwork) Disconnect(node NodeID) {
-	n.connected[string(node)] = false
+	n.lock.Lock()
+	defer n.lock.Unlock()
+
+	n.disconnected[string(node)] = struct{}{}
 }
 
 // startInstances starts all instances in the network.
@@ -334,7 +353,7 @@ func newTestControlledBlockBuilder(t *testing.T) *testControlledBlockBuilder {
 	return &testControlledBlockBuilder{
 		t:                t,
 		control:          make(chan struct{}, 1),
-		testBlockBuilder: testBlockBuilder{out: make(chan *testBlock, 1)},
+		testBlockBuilder: testBlockBuilder{out: make(chan *testBlock, 1), blockShouldBeBuilt: make(chan struct{}, 1)},
 	}
 }
 
@@ -347,7 +366,6 @@ func (t *testControlledBlockBuilder) triggerNewBlock() {
 }
 
 func (t *testControlledBlockBuilder) BuildBlock(ctx context.Context, metadata ProtocolMetadata) (Block, bool) {
-	require.Equal(t.t, metadata.Seq, metadata.Round)
 	<-t.control
 	return t.testBlockBuilder.BuildBlock(ctx, metadata)
 }

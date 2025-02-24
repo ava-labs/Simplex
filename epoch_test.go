@@ -198,6 +198,32 @@ func TestEpochSimpleFlow(t *testing.T) {
 	}
 }
 
+func TestEpochStartedTwice(t *testing.T) {
+	l := testutil.MakeLogger(t, 1)
+	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
+	storage := newInMemStorage()
+
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	conf := EpochConfig{
+		MaxProposalWait:     DefaultMaxProposalWaitTime,
+		Logger:              l,
+		ID:                  nodes[0],
+		Signer:              &testSigner{},
+		WAL:                 wal.NewMemWAL(t),
+		Verifier:            &testVerifier{},
+		Storage:             storage,
+		Comm:                noopComm(nodes),
+		BlockBuilder:        bb,
+		SignatureAggregator: &testSignatureAggregator{},
+	}
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+
+	require.NoError(t, e.Start())
+	require.ErrorIs(t, e.Start(), ErrAlreadyStarted)
+}
+
 func notarizeAndFinalizeRound(t *testing.T, nodes []NodeID, round, seq uint64, e *Epoch, bb *testBlockBuilder, quorum int, storage *InMemStorage, skipNotarization bool) {
 	// leader is the proposer of the new block for the given round
 	leader := LeaderForRound(nodes, round)
@@ -740,9 +766,16 @@ type testBlock struct {
 	data     []byte
 	metadata ProtocolMetadata
 	digest   [32]byte
+	verificationDelay chan struct{}
 }
 
 func (tb *testBlock) Verify() error {
+	if tb.verificationDelay == nil {
+		return nil
+	}
+	
+	<- tb.verificationDelay
+
 	return nil
 }
 
