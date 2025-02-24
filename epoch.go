@@ -142,8 +142,8 @@ func (e *Epoch) HandleMessage(msg *Message, from NodeID) error {
 		return e.handleEmptyVoteMessage(msg.EmptyVoteMessage, from)
 	case msg.Notarization != nil:
 		return e.handleNotarizationMessage(msg.Notarization, from)
-	// case msg.EmptyNotarization != nil:
-	// 	return e.handleEmptyNotarizationMessage(msg.EmptyNotarization, from)
+	//case msg.EmptyNotarization != nil:
+	//	return e.handleEmptyNotarizationMessage(msg.EmptyNotarization, from)
 	case msg.Finalization != nil:
 		return e.handleFinalizationMessage(msg.Finalization, from)
 	case msg.FinalizationCertificate != nil:
@@ -1238,6 +1238,10 @@ func (e *Epoch) processFinalizedBlock(finalizedBlock *FinalizedBlock) error {
 		return nil
 	}
 	md := finalizedBlock.Block.BlockHeader()
+	if !e.verifyProposalIsPartOfOurChain(finalizedBlock.Block) {
+		e.Logger.Debug("Got invalid block in a BlockMessage")
+		return nil
+	}
 
 	// Create a task that will verify the block in the future, after its predecessors have also been verified.
 	task := e.createBlockFinalizedVerificationTask(*finalizedBlock)
