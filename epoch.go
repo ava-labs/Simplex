@@ -545,6 +545,15 @@ func (e *Epoch) storeFutureFinalization(message *Finalization, from NodeID, roun
 	msgsForRound.finalization = message
 }
 
+func (e *Epoch) storeFutureNotarization(message *Notarization, from NodeID, round uint64) {
+	msgsForRound, exists := e.futureMessages[string(from)][round]
+	if !exists {
+		msgsForRound = &messagesForRound{}
+		e.futureMessages[string(from)][round] = msgsForRound
+	}
+	msgsForRound.notarization = message
+}
+
 func (e *Epoch) handleEmptyVoteMessage(message *EmptyVote, from NodeID) error {
 	vote := message.Vote
 
@@ -706,6 +715,14 @@ func (e *Epoch) deleteFutureFinalization(from NodeID, round uint64) {
 		return
 	}
 	msgsForRound.finalization = nil
+}
+
+func (e *Epoch) deleteFutureNotarization(from NodeID, round uint64) {
+	msgsForRound, exists := e.futureMessages[string(from)][round]
+	if !exists {
+		return
+	}
+	msgsForRound.notarization = nil
 }
 
 func (e *Epoch) isFinalizationValid(signature []byte, finalization ToBeSignedFinalization, from NodeID) bool {
@@ -964,7 +981,10 @@ func (e *Epoch) maybeCollectNotarization() error {
 		}
 		e.Logger.Verbo("Counting votes", zap.Uint64("round", e.round),
 			zap.Int("votes", voteCount), zap.String("from", fmt.Sprintf("%s", from)))
-		return nil
+
+		// As a last resort, check if we have received a notarization message for this round
+		// by attempting to load it from the future messages.
+		return e.maybeLoadFutureMessages()
 	}
 
 	// TODO: store votes before receiving the block
@@ -984,7 +1004,10 @@ func (e *Epoch) maybeCollectNotarization() error {
 			zap.Uint64("round", e.round),
 			zap.Int("voteForOurDigests", voteCountForOurDigest),
 			zap.Int("total votes", voteCount))
-		return nil
+
+		// As a last resort, check if we have received a notarization message for this round
+		// by attempting to load it from the future messages.
+		return e.maybeLoadFutureMessages()
 	}
 
 	notarization, err := NewNotarization(e.Logger, e.SignatureAggregator, votesForCurrentRound, block.BlockHeader())
@@ -1089,20 +1112,6 @@ func (e *Epoch) handleNotarizationMessage(message *Notarization, from NodeID) er
 		return nil
 	}
 
-	// Have we already notarized in this round?
-	round, exists := e.rounds[vote.Round]
-	if !exists {
-		e.Logger.Debug("Received a notarization for a non existent round",
-			zap.Stringer("NodeID", from))
-		return nil
-	}
-
-	if round.notarization != nil {
-		e.Logger.Debug("Received a notarization for an already notarized round",
-			zap.Stringer("NodeID", from))
-		return nil
-	}
-
 	if !e.isVoteValid(vote) {
 		e.Logger.Debug("Notarization contains invalid vote",
 			zap.Stringer("NodeID", from))
@@ -1115,6 +1124,27 @@ func (e *Epoch) handleNotarizationMessage(message *Notarization, from NodeID) er
 		return nil
 	}
 
+	// Can we handle this notarization right away or should we handle it later?
+	round, exists := e.rounds[vote.Round]
+	// If we have already notarized the round, no need to continue
+	if exists && round.notarization != nil {
+		e.Logger.Debug("Received a notarization for an already notarized round")
+		return nil
+	}
+	// If this notarization is for a round we are currently processing its proposal,
+	// or for a future round, then store it for later use.
+	if !exists || e.round < vote.Round {
+		e.Logger.Debug("Received a notarization for a future round", zap.Uint64("round", vote.Round))
+		e.storeFutureNotarization(message, from, vote.Round)
+		return nil
+	}
+
+	// We are about to persist the notarization, so delete it in case it came from the future messages.
+	e.deleteFutureNotarization(from, vote.Round)
+
+	// Else, this is a notarization for the current round, and we have stored the proposal for this round.
+	// Note that we don't need to check if we have timed out on this round,
+	// because if we had collected an empty notarization for this round, we would have progressed to the next round.
 	return e.persistNotarization(*message)
 }
 
@@ -1852,12 +1882,17 @@ func (e *Epoch) maybeLoadFutureMessages() error {
 						return err
 					}
 				}
+				if msgs.notarization != nil {
+					if err := e.handleNotarizationMessage(msgs.notarization, NodeID(from)); err != nil {
+						return err
+					}
+				}
 				if msgs.finalization != nil {
 					if err := e.handleFinalizationMessage(msgs.finalization, NodeID(from)); err != nil {
 						return err
 					}
 				}
-				if msgs.proposal == nil && msgs.vote == nil && msgs.finalization == nil {
+				if e.futureMessagesForRoundEmpty(msgs) {
 					e.Logger.Debug("Deleting future messages",
 						zap.Stringer("from", NodeID(from)), zap.Uint64("round", round))
 					delete(messagesFromNode, round)
@@ -1887,6 +1922,11 @@ func (e *Epoch) maybeLoadFutureMessages() error {
 			return nil
 		}
 	}
+}
+
+func (e *Epoch) futureMessagesForRoundEmpty(msgs *messagesForRound) bool {
+	return msgs.proposal == nil && msgs.vote == nil && msgs.finalization == nil &&
+		msgs.notarization == nil && msgs.finalizationCertificate != nil
 }
 
 // storeProposal stores a block in the epochs memory(NOT storage).
@@ -2054,4 +2094,5 @@ type messagesForRound struct {
 	vote                    *Vote
 	finalization            *Finalization
 	finalizationCertificate *FinalizationCertificate
+	notarization            *Notarization
 }
