@@ -193,6 +193,11 @@ type EmptyNotarization struct {
 	QC   QuorumCertificate
 }
 
+func (en *EmptyNotarization) Verify() error {
+	context := "ToBeSignedEmptyVote"
+	return verifyContextQC(en.QC, en.Vote.Bytes(), context)
+}
+
 type SignedMessage struct {
 	Payload []byte
 	Context string
