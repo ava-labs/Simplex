@@ -24,6 +24,82 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+func TestEpochHandleNotarizationFutureRound(t *testing.T) {
+	l := testutil.MakeLogger(t, 1)
+	bb := &testBlockBuilder{}
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	// Create the two blocks ahead of time
+	blocks := createBlocks(t, nodes, bb, 2)
+	firstBlock := blocks[0].Block.(*testBlock)
+	secondBlock := blocks[1].Block.(*testBlock)
+	bb.out = make(chan *testBlock, 1)
+	bb.in = make(chan *testBlock, 1)
+
+	storage := newInMemStorage()
+
+	wal := newTestWAL(t)
+
+	quorum := Quorum(len(nodes))
+	conf := EpochConfig{
+		MaxProposalWait:     DefaultMaxProposalWaitTime,
+		Logger:              l,
+		ID:                  nodes[0],
+		Signer:              &testSigner{},
+		WAL:                 wal,
+		Verifier:            &testVerifier{},
+		Storage:             storage,
+		Comm:                noopComm(nodes),
+		BlockBuilder:        bb,
+		SignatureAggregator: &testSignatureAggregator{},
+	}
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+
+	require.NoError(t, e.Start())
+
+	// Load the first block into the block builder, so it will not create its own block but use the pre-built one.
+	// Drain the out channel before loading it
+	//for len(bb.out) > 0 {
+	//	<-bb.out
+	//}
+	bb.in <- firstBlock
+	bb.out <- firstBlock
+
+	// Create a notarization for round 1 which is a future round because we haven't gone through round 0 yet.
+	notarization, err := newNotarization(l, &testSignatureAggregator{}, secondBlock, nodes)
+	require.NoError(t, err)
+
+	// Give the node the notarization message before receiving the first block
+	e.HandleMessage(&Message{
+		Notarization: &notarization,
+	}, nodes[1])
+
+	// Run through round 0
+	notarizeAndFinalizeRound(t, nodes, 0, 0, e, bb, quorum, storage, false)
+
+	// Emulate round 1 by sending the block
+	vote, err := newTestVote(secondBlock, nodes[1])
+	require.NoError(t, err)
+	err = e.HandleMessage(&Message{
+		BlockMessage: &BlockMessage{
+			Vote:  *vote,
+			Block: secondBlock,
+		},
+	}, nodes[1])
+	require.NoError(t, err)
+
+	// The node should store the notarization of the second block once it gets the block.
+	wal.assertNotarization(1)
+
+	for i := 1; i < quorum; i++ {
+		injectTestFinalization(t, e, secondBlock, nodes[i])
+	}
+
+	blockCommitted := storage.waitForBlockCommit(1)
+	require.Equal(t, secondBlock, blockCommitted)
+}
+
 func TestEpochConsecutiveProposalsDoNotGetVerified(t *testing.T) {
 	shouldOnlyBeClosedOnce := make(chan struct{})
 
