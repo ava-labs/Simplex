@@ -509,7 +509,7 @@ func (e *Epoch) handleFinalizationMessage(message *Finalization, from NodeID) er
 
 	// This finalization may correspond to a proposal from a future round, or to the proposal of the current round
 	// which we are still verifying.
-	if e.round < finalization.Round && finalization.Round-e.round < e.maxRoundWindow {
+	if e.isWithinMaxRoundWindow(finalization.Round) {
 		e.Logger.Debug("Got finalization for a future round", zap.Uint64("round", finalization.Round), zap.Uint64("my round", e.round))
 		e.storeFutureFinalization(message, from, finalization.Round)
 		return nil
@@ -641,7 +641,7 @@ func (e *Epoch) handleVoteMessage(message *Vote, from NodeID) error {
 
 	// This vote may correspond to a proposal from a future round, or to the proposal of the current round
 	// which we are still verifying.
-	if e.round < vote.Round && vote.Round-e.round < e.maxRoundWindow {
+	if e.isWithinMaxRoundWindow(vote.Round) {
 		e.Logger.Debug("Got vote from a future round",
 			zap.Uint64("round", vote.Round), zap.Uint64("my round", e.round), zap.Stringer("from", from))
 		e.storeFutureVote(message, from, vote.Round)
@@ -740,7 +740,7 @@ func (e *Epoch) isVoteValid(vote ToBeSignedVote) bool {
 	}
 
 	// Ignore votes for rounds too far ahead
-	if vote.Round-e.round > e.maxRoundWindow {
+	if e.isRoundTooFarAhead(vote.Round) {
 		e.Logger.Debug("Received a vote for a too advanced round",
 			zap.Uint64("round", vote.Round), zap.Uint64("my round", e.round))
 		return false
@@ -1105,7 +1105,7 @@ func (e *Epoch) handleNotarizationMessage(message *Notarization, from NodeID) er
 	}
 
 	// Ignore votes for rounds too far ahead
-	if vote.Round-e.round > e.maxRoundWindow {
+	if 	e.isRoundTooFarAhead(vote.Round) {
 		e.Logger.Debug("Received a notarization for a too advanced round",
 			zap.Uint64("round", vote.Round), zap.Uint64("my round", e.round),
 			zap.Stringer("NodeID", from))
@@ -1178,7 +1178,7 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 
 	// The block is for a too high round, we shouldn't handle it as
 	// we have only so much memory.
-	if md.Round-e.round >= e.maxRoundWindow {
+	if e.isRoundTooFarAhead(md.Round) {
 		e.Logger.Debug("Received a block message for a too high round",
 			zap.Uint64("round", md.Round), zap.Uint64("our round", e.round))
 		return nil
@@ -1214,7 +1214,7 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 	// If this is a message from a more advanced round,
 	// only store it if it is up to `maxRoundWindow` ahead.
 	// TODO: test this
-	if e.round < md.Round && md.Round-e.round < e.maxRoundWindow {
+	if e.isWithinMaxRoundWindow(md.Round) {
 		e.Logger.Debug("Got block of a future round", zap.Uint64("round", md.Round), zap.Uint64("my round", e.round))
 		msgsForRound, exists := e.futureMessages[string(from)][md.Round]
 		if !exists {
@@ -2020,8 +2020,8 @@ func (e *Epoch) handleReplicationResponse(resp *ReplicationResponse, from NodeID
 func (e *Epoch) handleFinalizationCertificateResponse(resp *FinalizationCertificateResponse, from NodeID) error {
 	e.Logger.Debug("Received finalization certificate response", zap.String("from", from.String()), zap.Int("num seqs", len(resp.Data)))
 	for _, data := range resp.Data {
-		if e.round+e.maxRoundWindow < data.FCert.Finalization.Seq {
-			e.Logger.Debug("Received finalization certificate for a round that is too far ahead", zap.Uint64("seq", data.FCert.Finalization.Seq))
+		if e.isRoundTooFarAhead(data.FCert.Finalization.Seq) {
+			e.Logger.Debug("Received finalization certificate for a seq that is too far ahead", zap.Uint64("seq", data.FCert.Finalization.Seq))
 			// we are too far behind, we should ignore this message
 			continue
 		}
@@ -2073,6 +2073,17 @@ func (e *Epoch) getHighestRound() *Round {
 	}
 	return e.rounds[max]
 }
+
+// isRoundTooFarAhead returns true if [round] is more than `maxRoundWindow` rounds ahead of the current round.
+func (e *Epoch) isRoundTooFarAhead(round uint64) bool {
+	return round > e.round + e.maxRoundWindow 
+}
+
+// isWithinMaxRoundWindow checks if [round] is within `maxRoundWindow` rounds ahead of the current round.
+func (e *Epoch) isWithinMaxRoundWindow(round uint64) bool {
+	return e.round < round && round - e.round < e.maxRoundWindow
+}
+
 
 func LeaderForRound(nodes []NodeID, r uint64) NodeID {
 	n := len(nodes)
