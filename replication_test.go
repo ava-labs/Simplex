@@ -6,6 +6,7 @@ package simplex_test
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"simplex"
 	"simplex/testutil"
 	"simplex/wal"
@@ -241,11 +242,29 @@ func TestReplicationFutureFinalizationCertificate(t *testing.T) {
 // and the rest of the nodes continue to make progress for another `endDisconnect - startDisconnect` blocks.
 // The lagging node reconnects and the after the next `fCert` is sent, the lagging node catches up to the latest height.
 func TestReplicationAfterNodeDisconnects(t *testing.T) {
-	bb := newTestControlledBlockBuilder(t)
 	nodes := []simplex.NodeID{{1}, {2}, {3}, []byte("lagging")}
+
+	for startDisconnect := uint64(0); startDisconnect <= 5; startDisconnect++ {
+		for endDisconnect := uint64(10); endDisconnect <= 20; endDisconnect++ {
+			// lagging node cannot be the leader after node disconnects
+			isLaggingNodeLeader := bytes.Equal(simplex.LeaderForRound(nodes, endDisconnect), nodes[3])
+			if isLaggingNodeLeader {
+				continue
+			}
+
+			testName := fmt.Sprintf("Disconnect_%d_to_%d", startDisconnect, endDisconnect)
+
+			t.Run(testName, func(t *testing.T) {
+				t.Parallel()
+				testReplicationAfterNodeDisconnects(t, nodes, startDisconnect, endDisconnect)
+			})
+		}
+	}
+}
+
+func testReplicationAfterNodeDisconnects(t *testing.T, nodes []simplex.NodeID, startDisconnect, endDisconnect uint64) {
+	bb := newTestControlledBlockBuilder(t)
 	net := newInMemNetwork(t, nodes)
-	startDisconnect := uint64(5)
-	endDisconnect := uint64(17) // TODO: create test where the lagging node is the leader after replication
 	normalNode1 := newSimplexNode(t, nodes[0], net, bb, true)
 	normalNode2 := newSimplexNode(t, nodes[1], net, bb, true)
 	normalNode3 := newSimplexNode(t, nodes[2], net, bb, true)
@@ -278,6 +297,11 @@ func TestReplicationAfterNodeDisconnects(t *testing.T) {
 	// lagging node disconnects
 	net.Disconnect(nodes[3])
 
+	isLaggingNodeLeader := bytes.Equal(simplex.LeaderForRound(nodes, startDisconnect), nodes[3])
+	if isLaggingNodeLeader {
+		bb.triggerNewBlock()
+	}
+
 	missedSeqs := uint64(0)
 	// normal nodes continue to make progress
 	for i := startDisconnect; i < endDisconnect; i++ {
@@ -285,25 +309,22 @@ func TestReplicationAfterNodeDisconnects(t *testing.T) {
 		if emptyRound {
 			advanceWithoutLeader(t, net, bb, epochTimes)
 			missedSeqs++
-			} else {
+		} else {
 			bb.triggerNewBlock()
 			for _, n := range net.instances[:3] {
 				n.storage.waitForBlockCommit(i - missedSeqs)
 			}
 		}
 	}
-
 	// all nodes excpet for lagging node have progressed and commited [endDisconnect - missedSeqs] blocks
 	for _, n := range net.instances[:3] {
 		require.Equal(t, endDisconnect-missedSeqs, n.storage.Height())
 	}
 	require.Equal(t, startDisconnect, laggingNode.storage.Height())
-
+	require.Equal(t, startDisconnect, laggingNode.e.Metadata().Round)
 	// lagging node reconnects
 	net.Connect(nodes[3])
 
-	isLaggingNodeLeader := bytes.Equal(simplex.LeaderForRound(nodes, endDisconnect+1), nodes[3])
-	require.False(t, isLaggingNodeLeader, "the lagging node should not be the leader")
 	bb.triggerNewBlock()
 	for _, n := range net.instances {
 		n.storage.waitForBlockCommit(endDisconnect - missedSeqs)
@@ -313,9 +334,6 @@ func TestReplicationAfterNodeDisconnects(t *testing.T) {
 		require.Equal(t, endDisconnect-missedSeqs, n.storage.Height()-1)
 		require.Equal(t, endDisconnect+1, n.e.Metadata().Round)
 	}
-
-	isLaggingNodeLeader = bytes.Equal(simplex.LeaderForRound(nodes, endDisconnect+2), nodes[3])
-	require.True(t, isLaggingNodeLeader, "the lagging node should be the leader")
 
 	bb.triggerNewBlock() // the lagging node should build a block when triggered
 	for _, n := range net.instances {
