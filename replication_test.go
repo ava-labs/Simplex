@@ -50,7 +50,8 @@ func TestHandleFinalizationCertificateRequest(t *testing.T) {
 	req := &simplex.ReplicationRequest{FinalizationCertificateRequest: &simplex.FinalizationCertificateRequest{
 		Sequences: sequences,
 	}}
-	resp := e.HandleReplicationRequest(req, nodes[1])
+	resp, err := e.HandleReplicationRequest(req, nodes[1])
+	require.NoError(t, err)
 	require.NotNil(t, resp.FinalizationCertificateResponse)
 	require.Equal(t, len(sequences), len(resp.FinalizationCertificateResponse.Data))
 	for i, data := range resp.FinalizationCertificateResponse.Data {
@@ -62,7 +63,8 @@ func TestHandleFinalizationCertificateRequest(t *testing.T) {
 	req = &simplex.ReplicationRequest{FinalizationCertificateRequest: &simplex.FinalizationCertificateRequest{
 		Sequences: []uint64{11, 12, 13},
 	}}
-	resp = e.HandleReplicationRequest(req, nodes[1])
+	resp, err = e.HandleReplicationRequest(req, nodes[1])
+	require.NoError(t, err)
 	require.Zero(t, len(resp.FinalizationCertificateResponse.Data))
 }
 

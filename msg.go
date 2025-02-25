@@ -216,15 +216,33 @@ type QuorumCertificate interface {
 
 type ReplicationRequest struct {
 	FinalizationCertificateRequest *FinalizationCertificateRequest
+	RoundsRequest                  *RoundsRequest
 }
 
 type ReplicationResponse struct {
 	FinalizationCertificateResponse *FinalizationCertificateResponse
+	RoundsResponse                  *RoundsResponse
+}
+
+// request notarizations starting from a given round
+type RoundsRequest struct {
+	Round uint64
+}
+
+type RoundsResponse struct {
+	Data      []RoundInfo
+	LastFCert FinalizationCertificate
 }
 
 // request a finalization certificate for the given sequence number
 type FinalizationCertificateRequest struct {
 	Sequences []uint64
+}
+
+type RoundInfo struct {
+	Block             Block
+	Notarization      *Notarization
+	EmptyNotarization *EmptyNotarization
 }
 
 type FinalizedBlock struct {

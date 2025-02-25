@@ -1105,7 +1105,7 @@ func (e *Epoch) handleNotarizationMessage(message *Notarization, from NodeID) er
 	}
 
 	// Ignore votes for rounds too far ahead
-	if 	e.isRoundTooFarAhead(vote.Round) {
+	if e.isRoundTooFarAhead(vote.Round) {
 		e.Logger.Debug("Received a notarization for a too advanced round",
 			zap.Uint64("round", vote.Round), zap.Uint64("my round", e.round),
 			zap.Stringer("NodeID", from))
@@ -1955,18 +1955,73 @@ func (e *Epoch) storeProposal(block Block) bool {
 }
 
 // HandleRequest processes a request and returns a response. It also sends a response to the sender.
-func (e *Epoch) HandleReplicationRequest(req *ReplicationRequest, from NodeID) *ReplicationResponse {
+func (e *Epoch) HandleReplicationRequest(req *ReplicationRequest, from NodeID) (*ReplicationResponse, error) {
 	if !e.ReplicationEnabled {
-		return &ReplicationResponse{}
+		return &ReplicationResponse{}, nil
 	}
 	response := &ReplicationResponse{}
 	if req.FinalizationCertificateRequest != nil {
 		response.FinalizationCertificateResponse = e.handleFinalizationCertificateRequest(req.FinalizationCertificateRequest)
 	}
-
+	if req.RoundsRequest != nil {
+		roundsResponse, err := e.handleNotarizationRequest(req.RoundsRequest, from)
+		if err != nil {
+			return nil, err
+		}
+		response.RoundsResponse = roundsResponse
+	}
 	msg := &Message{ReplicationResponse: response}
 	e.Comm.SendMessage(msg, from)
-	return response
+	return response, nil
+}
+
+// handleNotarizationRequest responds to a [req] with a NotarizationResponse. It returns
+// the notarizations + rounds
+func (e *Epoch) handleNotarizationRequest(req *RoundsRequest, from NodeID) (*RoundsResponse, error) {
+	if req.Round > e.round {
+		return nil, nil
+	}
+
+	// we have fCerts for the rounds the node is trying to get
+	_, lastFCert, err := RetrieveLastIndexFromStorage(e.Storage)
+	if err != nil {
+		return nil, err
+	}
+
+	curRound := req.Round
+	if curRound < lastFCert.Finalization.Round+1 {
+		curRound = lastFCert.Finalization.Round + 1
+	}
+
+	roundsData := make([]RoundInfo, 0, e.round-curRound)
+
+	// iterate through rounds map
+	for ; curRound <= e.round; curRound++ {
+		roundInfo := RoundInfo{}
+		round, ok := e.rounds[curRound]
+		if !ok {
+			e.Logger.Warn("There should be a round here")
+			// maybe we have an empty round
+			emptyRound, ok := e.emptyVotes[curRound]
+			if !ok {
+				// something went wrong
+				// TODO: this will error if e.round doesn't have proposal if we just started a round
+				return nil, fmt.Errorf("unable to find expected round")
+			}
+			roundInfo.EmptyNotarization = emptyRound.emptyNotarization
+			continue
+		}
+
+		roundInfo.Block = round.block
+		roundInfo.Notarization = round.notarization
+	}
+
+	response := &RoundsResponse{
+		Data:      roundsData,
+		LastFCert: *lastFCert,
+	}
+
+	return response, nil
 }
 
 func (e *Epoch) handleFinalizationCertificateRequest(req *FinalizationCertificateRequest) *FinalizationCertificateResponse {
@@ -2076,14 +2131,13 @@ func (e *Epoch) getHighestRound() *Round {
 
 // isRoundTooFarAhead returns true if [round] is more than `maxRoundWindow` rounds ahead of the current round.
 func (e *Epoch) isRoundTooFarAhead(round uint64) bool {
-	return round > e.round + e.maxRoundWindow 
+	return round > e.round+e.maxRoundWindow
 }
 
 // isWithinMaxRoundWindow checks if [round] is within `maxRoundWindow` rounds ahead of the current round.
 func (e *Epoch) isWithinMaxRoundWindow(round uint64) bool {
-	return e.round < round && round - e.round < e.maxRoundWindow
+	return e.round < round && round-e.round < e.maxRoundWindow
 }
-
 
 func LeaderForRound(nodes []NodeID, r uint64) NodeID {
 	n := len(nodes)
