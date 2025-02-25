@@ -195,10 +195,10 @@ func (e *Epoch) Start() error {
 	defer func() {
 		e.canReceiveMessages.Store(true)
 	}()
-	return e.syncFromWal()
+	return e.restoreFromWal()
 }
 
-func (e *Epoch) syncBlockRecord(r []byte) error {
+func (e *Epoch) restoreBlockRecord(r []byte) error {
 	block, err := BlockFromRecord(e.BlockDeserializer, r)
 	if err != nil {
 		return err
@@ -212,7 +212,7 @@ func (e *Epoch) syncBlockRecord(r []byte) error {
 	return nil
 }
 
-func (e *Epoch) syncNotarizationRecord(r []byte) error {
+func (e *Epoch) restoreNotarizationRecord(r []byte) error {
 	notarization, err := NotarizationFromRecord(r, e.QCDeserializer)
 	if err != nil {
 		return err
@@ -221,7 +221,7 @@ func (e *Epoch) syncNotarizationRecord(r []byte) error {
 	return e.storeNotarization(notarization)
 }
 
-func (e *Epoch) syncEmptyNotarizationRecord(r []byte) error {
+func (e *Epoch) restoreEmptyNotarizationRecord(r []byte) error {
 	emptyNotarization, err := EmptyNotarizationFromRecord(r, e.QCDeserializer)
 	if err != nil {
 		return err
@@ -232,7 +232,7 @@ func (e *Epoch) syncEmptyNotarizationRecord(r []byte) error {
 	return nil
 }
 
-func (e *Epoch) syncEmptyVoteRecord(r []byte) error {
+func (e *Epoch) restoreEmptyVoteRecord(r []byte) error {
 	vote, err := ParseEmptyVoteRecord(r)
 	if err != nil {
 		return err
@@ -243,7 +243,7 @@ func (e *Epoch) syncEmptyVoteRecord(r []byte) error {
 	return nil
 }
 
-func (e *Epoch) syncFinalizationRecord(r []byte) error {
+func (e *Epoch) restoreFinalizationRecord(r []byte) error {
 	fCert, err := FinalizationCertificateFromRecord(r, e.QCDeserializer)
 	if err != nil {
 		return err
@@ -375,8 +375,8 @@ func (e *Epoch) setMetadataFromRecords(records [][]byte) error {
 	return nil
 }
 
-// syncFromWal initializes an epoch from the write ahead log.
-func (e *Epoch) syncFromWal() error {
+// restoreFromWal initializes an epoch from the write ahead log.
+func (e *Epoch) restoreFromWal() error {
 	records, err := e.WAL.ReadAll()
 	if err != nil {
 		return err
@@ -389,15 +389,15 @@ func (e *Epoch) syncFromWal() error {
 		recordType := binary.BigEndian.Uint16(r)
 		switch recordType {
 		case record.BlockRecordType:
-			err = e.syncBlockRecord(r)
+			err = e.restoreBlockRecord(r)
 		case record.NotarizationRecordType:
-			err = e.syncNotarizationRecord(r)
+			err = e.restoreNotarizationRecord(r)
 		case record.FinalizationRecordType:
-			err = e.syncFinalizationRecord(r)
+			err = e.restoreFinalizationRecord(r)
 		case record.EmptyNotarizationRecordType:
-			err = e.syncEmptyNotarizationRecord(r)
+			err = e.restoreEmptyNotarizationRecord(r)
 		case record.EmptyVoteRecordType:
-			err = e.syncEmptyVoteRecord(r)
+			err = e.restoreEmptyVoteRecord(r)
 		default:
 			e.Logger.Error("undefined record type", zap.Uint16("type", recordType))
 			return fmt.Errorf("undefined record type: %d", recordType)
@@ -1105,7 +1105,7 @@ func (e *Epoch) handleNotarizationMessage(message *Notarization, from NodeID) er
 	}
 
 	// Ignore votes for rounds too far ahead
-	if 	e.isRoundTooFarAhead(vote.Round) {
+	if e.isRoundTooFarAhead(vote.Round) {
 		e.Logger.Debug("Received a notarization for a too advanced round",
 			zap.Uint64("round", vote.Round), zap.Uint64("my round", e.round),
 			zap.Stringer("NodeID", from))
@@ -2076,14 +2076,13 @@ func (e *Epoch) getHighestRound() *Round {
 
 // isRoundTooFarAhead returns true if [round] is more than `maxRoundWindow` rounds ahead of the current round.
 func (e *Epoch) isRoundTooFarAhead(round uint64) bool {
-	return round > e.round + e.maxRoundWindow 
+	return round > e.round+e.maxRoundWindow
 }
 
 // isWithinMaxRoundWindow checks if [round] is within `maxRoundWindow` rounds ahead of the current round.
 func (e *Epoch) isWithinMaxRoundWindow(round uint64) bool {
-	return e.round < round && round - e.round < e.maxRoundWindow
+	return e.round < round && round-e.round < e.maxRoundWindow
 }
-
 
 func LeaderForRound(nodes []NodeID, r uint64) NodeID {
 	n := len(nodes)
