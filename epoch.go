@@ -2102,29 +2102,21 @@ func (e *Epoch) handleFinalizationCertificateResponse(resp *FinalizationCertific
 	return e.processReplicationState()
 }
 
-func (e *Epoch) handleRoundsResponse(resp *RoundsResponse, from NodeID) {
-	// lastFcer := resp.LastFCert
-
+func (e *Epoch) handleRoundsResponse(resp *RoundsResponse, from NodeID) error {
 	for _, data := range resp.Data {
 		if e.isRoundTooFarAhead(data.GetRound()) {
 			e.Logger.Debug("Received round info for a round that is too far ahead", zap.Uint64("round", data.GetRound()))
+			continue
 		}
 
-		if !e.isVoteValid(data.Notarization.Vote) {
-			e.Logger.Debug("Notarization contains invalid vote",
-				zap.Stringer("NodeID", from))
-			return nil
-		}
-	
-		if err := message.Verify(); err != nil {
-			e.Logger.Debug("Notarization quorum certificate is invalid",
-				zap.Stringer("NodeID", from), zap.Error(err))
-			return nil
+		if !data.IsValid() {
+			continue
 		}
 
-
+		e.replicationState.storeRoundInfo(data)
 	}
 
+	return e.processReplicationState()
 }
 
 func (e *Epoch) processReplicationState() error {

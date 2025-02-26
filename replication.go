@@ -146,4 +146,29 @@ func (r *RoundInfo) GetRound() uint64 {
 	return r.EmptyNotarization.Vote.ProtocolMetadata.Round
 }
 
+func (r *RoundInfo) IsValid() bool {
+	if r.EmptyNotarization != nil {
+		if err := r.EmptyNotarization.Verify(); err != nil {
+			return false
+		}
+		return true
+	}
+
+	if r.Notarization == nil {
+		// either the notarization or empty notarization must be sent
+		return false
+	}
+
+	blockDigest := r.Block.BlockHeader().Digest
+	if !bytes.Equal(blockDigest[:], r.Notarization.Vote.Digest[:]) {
+		return false
+	}
+
+	if err := r.Notarization.Verify(); err != nil {
+		return false
+	}
+
+	return true
+}
+
 // func (r *ReplicationState) 
