@@ -1964,7 +1964,7 @@ func (e *Epoch) HandleReplicationRequest(req *ReplicationRequest, from NodeID) (
 		response.FinalizationCertificateResponse = e.handleFinalizationCertificateRequest(req.FinalizationCertificateRequest)
 	}
 	if req.RoundsRequest != nil {
-		roundsResponse, err := e.handleNotarizationRequest(req.RoundsRequest, from)
+		roundsResponse, err := e.handleNotarizationRequest(req.RoundsRequest)
 		if err != nil {
 			return nil, err
 		}
@@ -1977,7 +1977,7 @@ func (e *Epoch) HandleReplicationRequest(req *ReplicationRequest, from NodeID) (
 
 // handleNotarizationRequest responds to a [req] with a NotarizationResponse. It returns
 // the notarizations + rounds
-func (e *Epoch) handleNotarizationRequest(req *RoundsRequest, from NodeID) (*RoundsResponse, error) {
+func (e *Epoch) handleNotarizationRequest(req *RoundsRequest) (*RoundsResponse, error) {
 	if req.Round > e.round {
 		return nil, nil
 	}
@@ -2014,6 +2014,7 @@ func (e *Epoch) handleNotarizationRequest(req *RoundsRequest, from NodeID) (*Rou
 
 		roundInfo.Block = round.block
 		roundInfo.Notarization = round.notarization
+		roundsData = append(roundsData, roundInfo)
 	}
 
 	response := &RoundsResponse{
@@ -2068,6 +2069,9 @@ func (e *Epoch) handleReplicationResponse(resp *ReplicationResponse, from NodeID
 	var err error
 	if resp.FinalizationCertificateResponse != nil {
 		err = e.handleFinalizationCertificateResponse(resp.FinalizationCertificateResponse, from)
+	} 
+	if resp.RoundsResponse != nil {
+		e.handleRoundsResponse(resp.RoundsResponse, from)
 	}
 	return err
 }
@@ -2096,6 +2100,31 @@ func (e *Epoch) handleFinalizationCertificateResponse(resp *FinalizationCertific
 	}
 
 	return e.processReplicationState()
+}
+
+func (e *Epoch) handleRoundsResponse(resp *RoundsResponse, from NodeID) {
+	// lastFcer := resp.LastFCert
+
+	for _, data := range resp.Data {
+		if e.isRoundTooFarAhead(data.GetRound()) {
+			e.Logger.Debug("Received round info for a round that is too far ahead", zap.Uint64("round", data.GetRound()))
+		}
+
+		if !e.isVoteValid(data.Notarization.Vote) {
+			e.Logger.Debug("Notarization contains invalid vote",
+				zap.Stringer("NodeID", from))
+			return nil
+		}
+	
+		if err := message.Verify(); err != nil {
+			e.Logger.Debug("Notarization quorum certificate is invalid",
+				zap.Stringer("NodeID", from), zap.Error(err))
+			return nil
+		}
+
+
+	}
+
 }
 
 func (e *Epoch) processReplicationState() error {

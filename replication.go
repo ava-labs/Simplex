@@ -26,6 +26,9 @@ type ReplicationState struct {
 
 	// received
 	receivedFinalizationCertificates map[uint64]FinalizedBlock
+
+	// received rounds
+	receivedRounds map[uint64]RoundInfo
 }
 
 func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundWindow uint64, enabled bool) *ReplicationState {
@@ -130,3 +133,17 @@ func (r *ReplicationState) StoreFinalizedBlock(data FinalizedBlock) error {
 	r.receivedFinalizationCertificates[data.FCert.Finalization.Seq] = data
 	return nil
 }
+
+func (r *ReplicationState) storeRoundInfo(round RoundInfo) {
+	r.receivedRounds[round.GetRound()] = round
+}
+
+func (r *RoundInfo) GetRound() uint64 {
+	if r.Block != nil {
+		return r.Block.BlockHeader().Round
+	} 
+
+	return r.EmptyNotarization.Vote.ProtocolMetadata.Round
+}
+
+// func (r *ReplicationState) 
