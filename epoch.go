@@ -630,6 +630,10 @@ func (e *Epoch) handleVoteMessage(message *Vote, from NodeID) error {
 		return nil
 	}
 
+	if !e.isVoteValid(vote) {
+		return nil
+	}
+
 	// If we have not received the proposal yet, we won't have a Round object in e.rounds,
 	// yet we may receive the corresponding vote.
 	// This may happen if we're asynchronously verifying the proposal at the moment.
@@ -658,10 +662,6 @@ func (e *Epoch) handleVoteMessage(message *Vote, from NodeID) error {
 
 	if round.notarization != nil {
 		e.Logger.Debug("Round already notarized", zap.Uint64("round", vote.Round))
-		return nil
-	}
-
-	if !e.isVoteValid(vote) {
 		return nil
 	}
 
@@ -1098,20 +1098,6 @@ func (e *Epoch) handleNotarizationMessage(message *Notarization, from NodeID) er
 
 	e.Logger.Verbo("Received notarization message",
 		zap.Stringer("from", from), zap.Uint64("round", vote.Round))
-
-	// Ignore votes for previous rounds
-	if vote.Round < e.round {
-		e.Logger.Debug("Received a notarization for an earlier round", zap.Uint64("round", vote.Round))
-		return nil
-	}
-
-	// Ignore votes for rounds too far ahead
-	if e.isRoundTooFarAhead(vote.Round) {
-		e.Logger.Debug("Received a notarization for a too advanced round",
-			zap.Uint64("round", vote.Round), zap.Uint64("my round", e.round),
-			zap.Stringer("NodeID", from))
-		return nil
-	}
 
 	if !e.isVoteValid(vote) {
 		e.Logger.Debug("Notarization contains invalid vote",
