@@ -203,12 +203,8 @@ func (e *Epoch) restoreBlockRecord(r []byte) error {
 	if err != nil {
 		return err
 	}
-	b := e.storeProposal(block)
-	if !b {
-		return fmt.Errorf("failed to store block from WAL")
-	}
-
-	e.Logger.Info("Block Proposal Recovered From WAL", zap.Uint64("Round", block.BlockHeader().Round), zap.Bool("stored", b))
+	e.rounds[block.BlockHeader().Round] = NewRound(block)
+	e.Logger.Info("Block Proposal Recovered From WAL", zap.Uint64("Round", block.BlockHeader().Round))
 	return nil
 }
 
@@ -217,8 +213,13 @@ func (e *Epoch) restoreNotarizationRecord(r []byte) error {
 	if err != nil {
 		return err
 	}
+	round, exists := e.rounds[notarization.Vote.Round]
+	if !exists {
+		return fmt.Errorf("could not find round %d, its proposal was probably not persisted earlier", notarization.Vote.Round)
+	}
+	round.notarization = &notarization
 	e.Logger.Info("Notarization Recovered From WAL", zap.Uint64("Round", notarization.Vote.Round))
-	return e.storeNotarization(notarization)
+	return nil
 }
 
 func (e *Epoch) restoreEmptyNotarizationRecord(r []byte) error {
