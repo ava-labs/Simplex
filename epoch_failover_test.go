@@ -118,16 +118,7 @@ func TestEpochLeaderFailoverWithEmptyNotarization(t *testing.T) {
 	nextBlockSeqToCommit := uint64(3)
 	nextRoundToCommit := uint64(4)
 
-	bbAfterCrash := &testBlockBuilder{
-		out:                make(chan *testBlock, 1),
-		in:                 make(chan *testBlock, 1),
-		blockShouldBeBuilt: make(chan struct{}, 1),
-	}
-
-	bbAfterCrash.out <- block3.(*testBlock)
-	bbAfterCrash.in <- block3.(*testBlock)
-
-	runCrashAndRestartExecution(t, e, nodes, bb, wal, storage, func(t *testing.T, e *Epoch, bb *testBlockBuilder, storage *InMemStorage, wal *testWAL) {
+	runCrashAndRestartExecution(t, e, bb, wal, storage, func(t *testing.T, e *Epoch, bb *testBlockBuilder, storage *InMemStorage, wal *testWAL) {
 		// Ensure our node proposes block with sequence 3 for round 4
 		notarizeAndFinalizeRound(t, nodes, nextRoundToCommit, nextBlockSeqToCommit, e, bb, quorum, storage, false)
 		require.Equal(t, uint64(4), storage.Height())
@@ -200,7 +191,7 @@ func TestEpochLeaderFailoverReceivesEmptyVotesEarly(t *testing.T) {
 
 	waitForBlockProposerTimeout(t, e, start)
 
-	runCrashAndRestartExecution(t, e, nodes, bb, wal, storage, func(t *testing.T, e *Epoch, bb *testBlockBuilder, storage *InMemStorage, wal *testWAL) {
+	runCrashAndRestartExecution(t, e, bb, wal, storage, func(t *testing.T, e *Epoch, bb *testBlockBuilder, storage *InMemStorage, wal *testWAL) {
 		wal.lock.Lock()
 		walContent, err := wal.ReadAll()
 		require.NoError(t, err)
@@ -284,7 +275,7 @@ func TestEpochLeaderFailover(t *testing.T) {
 
 	waitForBlockProposerTimeout(t, e, start)
 
-	runCrashAndRestartExecution(t, e, nodes, bb, wal, storage, func(t *testing.T, e *Epoch, bb *testBlockBuilder, storage *InMemStorage, wal *testWAL) {
+	runCrashAndRestartExecution(t, e, bb, wal, storage, func(t *testing.T, e *Epoch, bb *testBlockBuilder, storage *InMemStorage, wal *testWAL) {
 		lastBlock, _, ok := storage.Retrieve(storage.Height() - 1)
 		require.True(t, ok)
 
@@ -492,7 +483,7 @@ func TestEpochLeaderFailoverAfterProposal(t *testing.T) {
 	bb.blockShouldBeBuilt <- struct{}{}
 	waitForBlockProposerTimeout(t, e, start)
 
-	runCrashAndRestartExecution(t, e, nodes, bb, wal, storage, func(t *testing.T, e *Epoch, bb *testBlockBuilder, storage *InMemStorage, wal *testWAL) {
+	runCrashAndRestartExecution(t, e, bb, wal, storage, func(t *testing.T, e *Epoch, bb *testBlockBuilder, storage *InMemStorage, wal *testWAL) {
 
 		lastBlock, _, ok := storage.Retrieve(storage.Height() - 1)
 		require.True(t, ok)
@@ -582,7 +573,7 @@ func TestEpochLeaderFailoverTwice(t *testing.T) {
 
 	waitForBlockProposerTimeout(t, e, start)
 
-	runCrashAndRestartExecution(t, e, nodes, bb, wal, storage, func(t *testing.T, e *Epoch, bb *testBlockBuilder, storage *InMemStorage, wal *testWAL) {
+	runCrashAndRestartExecution(t, e, bb, wal, storage, func(t *testing.T, e *Epoch, bb *testBlockBuilder, storage *InMemStorage, wal *testWAL) {
 		lastBlock, _, ok := storage.Retrieve(storage.Height() - 1)
 		require.True(t, ok)
 
@@ -612,7 +603,7 @@ func TestEpochLeaderFailoverTwice(t *testing.T) {
 
 		waitForBlockProposerTimeout(t, e, start)
 
-		runCrashAndRestartExecution(t, e, nodes, bb, wal, storage, func(t *testing.T, e *Epoch, bb *testBlockBuilder, storage *InMemStorage, wal *testWAL) {
+		runCrashAndRestartExecution(t, e, bb, wal, storage, func(t *testing.T, e *Epoch, bb *testBlockBuilder, storage *InMemStorage, wal *testWAL) {
 			md := ProtocolMetadata{
 				Round: 3,
 				Seq:   1,
@@ -769,12 +760,14 @@ func TestEpochLeaderFailoverNotNeeded(t *testing.T) {
 	require.False(t, timedOut.Load())
 }
 
-func runCrashAndRestartExecution(t *testing.T, e *Epoch, nodes []NodeID, bb *testBlockBuilder, wal *testWAL, storage *InMemStorage, f func(t *testing.T, e *Epoch, bb *testBlockBuilder, storage *InMemStorage, wal *testWAL)) {
+func runCrashAndRestartExecution(t *testing.T, e *Epoch, bb *testBlockBuilder, wal *testWAL, storage *InMemStorage, f epochExecution) {
 	// Split the test into two scenarios:
 	// 1) The node proceeds as usual.
 	// 2) The node crashes and restarts.
 	cloneWAL := wal.Clone()
 	cloneStorage := storage.Clone()
+	
+	nodes := e.Comm.ListNodes()
 
 	// Clone the block builder
 	bbAfterCrash := &testBlockBuilder{
@@ -840,3 +833,5 @@ func (rc *recordingComm) Broadcast(msg *Message) {
 	rc.BroadcastMessages <- msg
 	rc.Communication.Broadcast(msg)
 }
+
+type epochExecution func(t *testing.T, e *Epoch, bb *testBlockBuilder, storage *InMemStorage, wal *testWAL)

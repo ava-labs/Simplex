@@ -149,6 +149,9 @@ func newTestWAL(t *testing.T) *testWAL {
 }
 
 func (tw *testWAL) Clone() *testWAL {
+	tw.lock.Lock()
+	defer tw.lock.Unlock()
+
 	rawWAL, err := tw.ReadAll()
 	require.NoError(tw.t, err)
 

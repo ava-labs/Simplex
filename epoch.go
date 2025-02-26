@@ -321,23 +321,21 @@ func (e *Epoch) resumeFromWal(records [][]byte) error {
 		e.Comm.Broadcast(&lastMessage)
 		return e.doNotarized(notarization.Vote.Round)
 	case record.EmptyVoteRecordType:
-		tbsEmptyVote, err := ParseEmptyVoteRecord(lastRecord)
+		ev, err := ParseEmptyVoteRecord(lastRecord)
 		if err != nil {
 			return err
 		}
-		signature, err := tbsEmptyVote.Sign(e.Signer)
-		if err != nil {
-			return err
+		round, exists := e.emptyVotes[ev.Round]
+		if ! exists {
+			return fmt.Errorf("round %d not found for empty vote", ev.Round)
 		}
-		lastMessage := Message{EmptyVoteMessage: &EmptyVote{
-			Vote: tbsEmptyVote,
-			Signature: Signature{
-				Signer: e.ID,
-				Value: signature,
-			},
-		}}
+		emptyVote, exists := round.votes[string(e.ID)]
+		if ! exists {
+			return fmt.Errorf("could not find my own vote for round %d", ev.Round)
+		}
+		lastMessage := Message{EmptyVoteMessage: emptyVote}
 		e.Comm.Broadcast(&lastMessage)
-		return e.startRound()
+		return nil
 	case record.EmptyNotarizationRecordType:
 		emptyNotarization, err := EmptyNotarizationFromRecord(lastRecord, e.QCDeserializer)
 		if err != nil {
