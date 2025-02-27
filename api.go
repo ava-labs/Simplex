@@ -86,7 +86,7 @@ type Block interface {
 	Bytes() []byte
 
 	// Verify verifies the block by speculatively executing it on top of its ancestor.
-	Verify() error
+	Verify(ctx context.Context) error
 }
 
 // BlockDeserializer deserializes blocks according to formatting

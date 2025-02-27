@@ -1303,7 +1303,7 @@ func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote)
 			e.Logger.Debug("Block verification ended", zap.Uint64("round", md.Round), zap.Duration("elapsed", elapsed))
 		}()
 
-		if err := block.Verify(); err != nil {
+		if err := block.Verify(context.Background()); err != nil {
 			e.Logger.Debug("Failed verifying block", zap.Error(err))
 			return md.Digest
 		}
@@ -1371,7 +1371,7 @@ func (e *Epoch) createBlockFinalizedVerificationTask(finalizedBlock FinalizedBlo
 			e.Logger.Debug("Block verification ended", zap.Uint64("round", md.Round), zap.Duration("elapsed", elapsed))
 		}()
 
-		if err := block.Verify(); err != nil {
+		if err := block.Verify(context.Background()); err != nil {
 			e.Logger.Debug("Failed verifying block", zap.Error(err))
 			return md.Digest
 		}

@@ -845,7 +845,7 @@ type testBlock struct {
 	verificationDelay chan struct{}
 }
 
-func (tb *testBlock) Verify() error {
+func (tb *testBlock) Verify(context.Context) error {
 	if tb.verificationDelay == nil {
 		return nil
 	}
