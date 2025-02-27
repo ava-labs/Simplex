@@ -921,6 +921,23 @@ func newInMemStorage() *InMemStorage {
 	return s
 }
 
+func (mem *InMemStorage) Clone() *InMemStorage {
+	clone := newInMemStorage()
+	mem.lock.Lock()
+	height := mem.Height()
+	mem.lock.Unlock()
+	for seq := uint64(0); seq < height; seq++ {
+		mem.lock.Lock()
+		block, fCert, ok := mem.Retrieve(seq)
+		if !ok {
+			panic(fmt.Sprintf("failed retrieving block %d", seq))
+		}
+		mem.lock.Unlock()
+		clone.Index(block, fCert)
+	}
+	return clone
+}
+
 func (mem *InMemStorage) waitForBlockCommit(seq uint64) Block {
 	mem.lock.Lock()
 	defer mem.lock.Unlock()

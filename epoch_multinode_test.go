@@ -148,6 +148,22 @@ func newTestWAL(t *testing.T) *testWAL {
 	return &tw
 }
 
+func (tw *testWAL) Clone() *testWAL {
+	tw.lock.Lock()
+	defer tw.lock.Unlock()
+
+	rawWAL, err := tw.ReadAll()
+	require.NoError(tw.t, err)
+
+	wal := newTestWAL(tw.t)
+
+	for _, entry := range rawWAL {
+		wal.Append(entry)
+	}
+
+	return wal
+}
+
 func (tw *testWAL) Append(b []byte) error {
 	tw.lock.Lock()
 	defer tw.lock.Unlock()
