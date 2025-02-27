@@ -957,7 +957,7 @@ func (e *Epoch) persistEmptyNotarization(emptyNotarization *EmptyNotarization, s
 		zap.Int("size", len(emptyNotarizationRecord)),
 		zap.Uint64("round", emptyNotarization.Vote.Round))
 
-	delete(e.emptyVotes, e.round)
+	// delete(e.emptyVotes, e.round)
 
 	if shouldBroadcast {
 		notarizationMessage := &Message{EmptyNotarization: emptyNotarization}
@@ -1081,11 +1081,11 @@ func (e *Epoch) handleEmptyNotarizationMessage(emptyNotarization *EmptyNotarizat
 		return nil
 	}
 
+	emptyVotes := e.getOrCreateEmptyVoteSetForRound(vote.Round)
+	emptyVotes.emptyNotarization = emptyNotarization
 	if e.round != vote.Round {
 		e.Logger.Debug("Received empty notarization for a future round",
 			zap.Uint64("round", vote.Round), zap.Uint64("our round", e.round))
-		emptyVotes := e.getOrCreateEmptyVoteSetForRound(vote.Round)
-		emptyVotes.emptyNotarization = emptyNotarization
 		return nil
 	}
 
@@ -1604,9 +1604,14 @@ func (e *Epoch) metadata() ProtocolMetadata {
 	seq := e.Storage.Height()
 	if len(e.rounds) > 0 {
 		// Build on top of the latest block
-		currMed := e.getHighestRound().block.BlockHeader()
-		prev = currMed.Digest
-		seq = currMed.Seq + 1
+		currMed := e.getHighestRound()
+		if currMed == nil {
+			panic("nil retrieved")
+		}
+
+		bh := currMed.block.BlockHeader()
+		prev = bh.Digest
+		seq = bh.Seq + 1
 	}
 
 	if e.lastBlock != nil {
@@ -1942,18 +1947,25 @@ func (e *Epoch) storeProposal(block Block) bool {
 }
 
 // HandleRequest processes a request and returns a response. It also sends a response to the sender.
-func (e *Epoch) HandleReplicationRequest(req *ReplicationRequest, from NodeID) *ReplicationResponse {
+func (e *Epoch) HandleReplicationRequest(req *ReplicationRequest, from NodeID) (*ReplicationResponse, error) {
 	if !e.ReplicationEnabled {
-		return &ReplicationResponse{}
+		return &ReplicationResponse{}, nil
 	}
 	response := &ReplicationResponse{}
 	if req.FinalizationCertificateRequest != nil {
 		response.FinalizationCertificateResponse = e.handleFinalizationCertificateRequest(req.FinalizationCertificateRequest)
 	}
+	if req.NotarizationRequest != nil {
+		notarizationResopnse, err := e.handleNotarizationRequest(req.NotarizationRequest, from)
+		if err != nil {
+			return nil, err
+		}
+		response.NotarizationResponse = notarizationResopnse
+	}
 
 	msg := &Message{ReplicationResponse: response}
 	e.Comm.SendMessage(msg, from)
-	return response
+	return response, nil
 }
 
 func (e *Epoch) handleFinalizationCertificateRequest(req *FinalizationCertificateRequest) *FinalizationCertificateResponse {
@@ -2028,6 +2040,48 @@ func (e *Epoch) handleFinalizationCertificateResponse(resp *FinalizationCertific
 	}
 
 	return e.processReplicationState()
+}
+
+func (e *Epoch) handleNotarizationRequest(req *NotarizationRequest, from NodeID) (*NotarizationResponse, error) {
+	startRound := req.StartRound
+	if startRound > e.round {
+		fmt.Println("hello")
+		return nil, nil
+	}
+
+	if e.Storage.Height() > startRound {
+		startRound = e.Storage.Height()
+		e.Logger.Debug("Node is potentially behind, it requested a start round when we have a fcert")
+	}
+
+	data := make([]NotarizedBlock, 0, e.round - startRound)
+
+	for currentRound := startRound; currentRound < e.round; currentRound++ {
+		round, ok := e.rounds[currentRound]
+		if !ok {
+			emptyVotes, ok := e.emptyVotes[currentRound]
+			if !ok || emptyVotes.emptyNotarization == nil {
+				// this should not happen
+				return nil, fmt.Errorf("unable to find required data for round %d", currentRound)
+			}
+
+			notarizedBlock := NotarizedBlock{
+				EmptyNotarization: emptyVotes.emptyNotarization,
+			}
+			data = append(data, notarizedBlock)
+			continue
+		}
+		notarizedBlock := NotarizedBlock{
+			Block: round.block,
+			Notarization: round.notarization,
+		}
+
+		data = append(data, notarizedBlock)
+	}
+
+	return &NotarizationResponse{
+		Data: data,
+	}, nil
 }
 
 func (e *Epoch) processReplicationState() error {

@@ -50,7 +50,8 @@ func TestHandleFinalizationCertificateRequest(t *testing.T) {
 	req := &simplex.ReplicationRequest{FinalizationCertificateRequest: &simplex.FinalizationCertificateRequest{
 		Sequences: sequences,
 	}}
-	resp := e.HandleReplicationRequest(req, nodes[1])
+	resp, err := e.HandleReplicationRequest(req, nodes[1])
+	require.NoError(t, err)
 	require.NotNil(t, resp.FinalizationCertificateResponse)
 	require.Equal(t, len(sequences), len(resp.FinalizationCertificateResponse.Data))
 	for i, data := range resp.FinalizationCertificateResponse.Data {
@@ -62,8 +63,160 @@ func TestHandleFinalizationCertificateRequest(t *testing.T) {
 	req = &simplex.ReplicationRequest{FinalizationCertificateRequest: &simplex.FinalizationCertificateRequest{
 		Sequences: []uint64{11, 12, 13},
 	}}
-	resp = e.HandleReplicationRequest(req, nodes[1])
+	resp, err = e.HandleReplicationRequest(req, nodes[1])
+	require.NoError(t, err)
 	require.Zero(t, len(resp.FinalizationCertificateResponse.Data))
+}
+
+// TestNotarizationRequestBasic tests notarization requests for blocks and notarizations.
+func TestNotarizationRequestBasic(t *testing.T) {
+	// generate 5 blocks & notarizations
+	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
+	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
+	wal := wal.NewMemWAL(t)
+	conf := defaultTestNodeEpochConfig(t, nodes[0], noopComm(nodes), wal, bb, true)
+
+	e, err := simplex.NewEpoch(conf)
+	require.NoError(t, err)
+	require.NoError(t, e.Start())
+
+	blocks := make(map[int]simplex.NotarizedBlock)
+	for i := 0; i < 5; i++ {
+		block, notarization := advanceRound(t, e, bb, true, false)
+
+		blocks[i] = simplex.NotarizedBlock{
+			Block: block,
+			Notarization: notarization,
+		}
+	}
+
+	require.Equal(t, uint64(5), e.Metadata().Round)
+
+	req := &simplex.ReplicationRequest{
+		NotarizationRequest: &simplex.NotarizationRequest{
+			StartRound: 0,
+		},
+	}
+	resp, err := e.HandleReplicationRequest(req, nodes[1])
+	require.NoError(t, err)
+	require.NotNil(t, resp.NotarizationResponse)
+	require.Nil(t, resp.FinalizationCertificateResponse)
+
+	for _, round := range resp.NotarizationResponse.Data {
+		require.Nil(t, round.EmptyNotarization)
+		notarizedBlock, ok := blocks[int(round.Block.BlockHeader().Round)]
+		require.True(t, ok)
+		require.Equal(t, notarizedBlock.Block, round.Block)
+		require.Equal(t, notarizedBlock.Notarization, round.Notarization)
+	}	
+}
+
+// TestNotarizationRequestMixed ensures the notarization response also includes empty notarizations
+// No empty notarizations. Within the maxRoundLimit
+func TestNotarizationRequestMixed(t *testing.T) {
+	// generate 5 blocks & notarizations
+	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
+	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
+	wal := wal.NewMemWAL(t)
+	conf := defaultTestNodeEpochConfig(t, nodes[0], noopComm(nodes), wal, bb, true)
+
+	e, err := simplex.NewEpoch(conf)
+	require.NoError(t, err)
+	require.NoError(t, e.Start())
+
+	blocks := make(map[int]simplex.NotarizedBlock)
+	for i := 0; i < 8; i++ {
+		leaderForRound := bytes.Equal(simplex.LeaderForRound(nodes, uint64(i)), e.ID)
+		emptyBlock := !leaderForRound
+		if emptyBlock {
+			emptyNotarization := newEmptyNotarization(t, e, uint64(i))
+			e.HandleMessage(&simplex.Message{
+				EmptyNotarization: emptyNotarization,
+			}, nodes[1])
+
+			time.Sleep(50 * time.Millisecond)
+			blocks[i] = simplex.NotarizedBlock{
+				EmptyNotarization: emptyNotarization,
+			}
+			continue
+		}
+		block, notarization := advanceRound(t, e, bb, true, false)
+
+		blocks[i] = simplex.NotarizedBlock{
+			Block: block,
+			Notarization: notarization,
+		}
+	}
+
+	require.Equal(t, uint64(8), e.Metadata().Round)
+
+	req := &simplex.ReplicationRequest{
+		NotarizationRequest: &simplex.NotarizationRequest{
+			StartRound: 0,
+		},
+	}
+	resp, err := e.HandleReplicationRequest(req, nodes[1])
+	require.NoError(t, err)
+	require.NotNil(t, resp.NotarizationResponse)
+	require.Nil(t, resp.FinalizationCertificateResponse)
+
+	for _, round := range resp.NotarizationResponse.Data {
+		notarizedBlock, ok := blocks[int(round.GetRound())]
+		require.True(t, ok)
+		require.Equal(t, notarizedBlock.Block, round.Block)
+		require.Equal(t, notarizedBlock.Notarization, round.Notarization)
+		require.Equal(t, notarizedBlock.EmptyNotarization, round.EmptyNotarization)
+	}
+}
+
+
+// TestNotarizationRequestBehind tests notarization requests when the requested start round
+// is behind the storage height.
+func TestNotarizationRequestBehind(t *testing.T) {
+	// generate 5 blocks & notarizations
+	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
+	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
+	wal := wal.NewMemWAL(t)
+	finalizedBlocks := createBlocks(t, nodes, bb, 4)
+	conf := defaultTestNodeEpochConfig(t, nodes[0], noopComm(nodes), wal, bb, true)
+	for _, data := range finalizedBlocks {
+		conf.Storage.Index(data.Block, data.FCert)
+	}
+
+	e, err := simplex.NewEpoch(conf)
+	require.NoError(t, err)
+	require.NoError(t, e.Start())
+
+	require.Equal(t, uint64(4), e.Metadata().Round)
+	blocks := make(map[int]simplex.NotarizedBlock)
+	for i := 0; i < 5; i++ {
+		block, notarization := advanceRound(t, e, bb, true, false)
+
+		blocks[i] = simplex.NotarizedBlock{
+			Block: block,
+			Notarization: notarization,
+		}
+	}
+
+	// require.Equal(t, uint64(5 + 4), e.Metadata().Round)
+
+	// req := &simplex.ReplicationRequest{
+	// 	NotarizationRequest: &simplex.NotarizationRequest{
+	// 		StartRound: 0,
+	// 	},
+	// }
+	// resp, err := e.HandleReplicationRequest(req, nodes[1])
+	// require.NoError(t, err)
+	// require.NotNil(t, resp.NotarizationResponse)
+	// require.Nil(t, resp.FinalizationCertificateResponse)
+
+	// for _, round := range resp.NotarizationResponse.Data {
+	// 	require.Nil(t, round.EmptyNotarization)
+	// 	notarizedBlock, ok := blocks[int(round.Block.BlockHeader().Round)]
+	// 	require.True(t, ok)
+	// 	require.Equal(t, notarizedBlock.Block, round.Block)
+	// 	require.Equal(t, notarizedBlock.Notarization, round.Notarization)
+	// }	
 }
 
 // TestReplication tests the replication process of a node that

@@ -5,6 +5,7 @@ package simplex_test
 
 import (
 	"context"
+	"simplex"
 	. "simplex"
 	"simplex/testutil"
 	"sync/atomic"
@@ -120,6 +121,25 @@ func TestEpochLeaderFailoverWithEmptyNotarization(t *testing.T) {
 	// Ensure our node proposes block with sequence 3 for round 4
 	notarizeAndFinalizeRound(t, nodes, nextRoundToCommit, nextBlockSeqToCommit, e, bb, quorum, storage, false)
 	require.Equal(t, uint64(4), storage.Height())
+}
+
+func newEmptyNotarization(t *testing.T, e *Epoch, round uint64) *EmptyNotarization {
+	quorum := simplex.Quorum(len(e.Comm.ListNodes()))
+	var qc testQC
+
+	for i := 0; i <= quorum; i++ {
+		qc = append(qc, Signature{Signer: NodeID{byte(i)}, Value: []byte{byte(i)}})
+	}
+
+	return &EmptyNotarization{
+		QC: qc,
+		Vote: ToBeSignedEmptyVote{ProtocolMetadata: ProtocolMetadata{
+			Prev:  Digest{},
+			Round: round,
+			Seq:   round,
+		}},
+
+	}
 }
 
 func TestEpochLeaderFailoverReceivesEmptyVotesEarly(t *testing.T) {

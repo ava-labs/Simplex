@@ -216,10 +216,12 @@ type QuorumCertificate interface {
 
 type ReplicationRequest struct {
 	FinalizationCertificateRequest *FinalizationCertificateRequest
+	NotarizationRequest *NotarizationRequest
 }
 
 type ReplicationResponse struct {
 	FinalizationCertificateResponse *FinalizationCertificateResponse
+	NotarizationResponse *NotarizationResponse
 }
 
 // request a finalization certificate for the given sequence number
@@ -234,4 +236,27 @@ type FinalizedBlock struct {
 
 type FinalizationCertificateResponse struct {
 	Data []FinalizedBlock
+}
+
+type NotarizationRequest struct {
+	// the starting round to request notarizations
+	StartRound uint64
+}
+
+type NotarizationResponse struct {
+	Data []NotarizedBlock
+}
+
+type NotarizedBlock struct {
+	Block Block
+	Notarization *Notarization
+	EmptyNotarization *EmptyNotarization
+}
+
+func (n NotarizedBlock) GetRound() uint64 {
+	if n.EmptyNotarization != nil {
+		return n.EmptyNotarization.Vote.Round
+	}
+
+	return n.Block.BlockHeader().Round
 }

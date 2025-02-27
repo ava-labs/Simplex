@@ -300,6 +300,65 @@ func TestEpochStartedTwice(t *testing.T) {
 	require.ErrorIs(t, e.Start(), ErrAlreadyStarted)
 }
 
+func advanceRound(t *testing.T, e *Epoch, bb *testBlockBuilder, notarize bool, finalize bool) (Block, *Notarization) {
+	require.True(t, notarize || finalize, "must either notarize or finalize a round to advance")
+	nodes := e.Comm.ListNodes()
+	quorum := Quorum(len(nodes))
+	// leader is the proposer of the new block for the given round
+	leader := LeaderForRound(nodes, e.Metadata().Round)
+	// only create blocks if we are not the node running the epoch
+	isEpochNode := leader.Equals(e.ID)
+	
+	if !isEpochNode {
+		md := e.Metadata()
+		_, ok := bb.BuildBlock(context.Background(), md)
+		require.True(t, ok)
+		require.Equal(t, md.Round, md.Seq)
+	}
+
+	block := <- bb.out
+	require.NotNil(t, block)
+	if !isEpochNode {
+		// send node a message from the leader
+		vote, err := newTestVote(block, leader)
+		require.NoError(t, err)
+		err = e.HandleMessage(&Message{
+			BlockMessage: &BlockMessage{
+				Vote:  *vote,
+				Block: block,
+			},
+		}, leader)
+		require.NoError(t, err)
+	}
+	
+	var notarization *Notarization
+	if notarize {
+		// start at one since our node has already voted
+		n, err :=  newNotarization(e.Logger, e.SignatureAggregator, block, nodes[0:quorum])
+		injectTestNotarization(t, e, n, nodes[1])
+		
+		time.Sleep(50 * time.Millisecond)
+		
+		// require a notarization was created and the round increased
+		require.Equal(t, block.metadata.Round+1, e.Metadata().Round)
+
+		require.NoError(t, err)
+		notarization = &n
+	}
+
+	if finalize {
+		for i := 1; i <= quorum; i++ {
+			injectTestFinalization(t, e, block, nodes[i])
+		}
+		blockFromStorage := e.Storage.(*InMemStorage).waitForBlockCommit(block.metadata.Seq)
+		require.Equal(t, block, blockFromStorage)
+		require.Equal(t, block.metadata.Round+1, e.Metadata().Round)
+	}
+
+	return block, notarization
+}
+
+
 func notarizeAndFinalizeRound(t *testing.T, nodes []NodeID, round, seq uint64, e *Epoch, bb *testBlockBuilder, quorum int, storage *InMemStorage, skipNotarization bool) {
 	// leader is the proposer of the new block for the given round
 	leader := LeaderForRound(nodes, round)
@@ -730,6 +789,13 @@ func newTestFinalization(t *testing.T, block Block, id NodeID) *Finalization {
 func injectTestFinalization(t *testing.T, e *Epoch, block Block, id NodeID) {
 	err := e.HandleMessage(&Message{
 		Finalization: newTestFinalization(t, block, id),
+	}, id)
+	require.NoError(t, err)
+}
+
+func injectTestNotarization(t *testing.T, e *Epoch, notarization Notarization, id NodeID) {
+	err := e.HandleMessage(&Message{
+		Notarization: &notarization,
 	}, id)
 	require.NoError(t, err)
 }
