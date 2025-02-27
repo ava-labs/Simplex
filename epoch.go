@@ -2105,6 +2105,7 @@ func (e *Epoch) processReplicationState() error {
 func (e *Epoch) getHighestRound() *Round {
 	var max uint64
 	for _, round := range e.rounds {
+		fmt.Printf("iterating over round %+v", round)
 		if round.num > max {
 			if round.notarization == nil && round.fCert == nil {
 				continue
@@ -2112,6 +2113,7 @@ func (e *Epoch) getHighestRound() *Round {
 			max = round.num
 		}
 	}
+	fmt.Println("max is ", max)
 	return e.rounds[max]
 }
 
