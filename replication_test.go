@@ -41,7 +41,7 @@ func TestHandleFinalizationCertificateRequest(t *testing.T) {
 
 	seqs := createBlocks(t, nodes, bb, 10)
 	for _, data := range seqs {
-		conf.Storage.Index(data.Block, data.FCert)
+		conf.Storage.Index(data.VerifiedBlock, data.FCert)
 	}
 	e, err := simplex.NewEpoch(conf)
 	require.NoError(t, err)
@@ -141,7 +141,7 @@ func TestReplicationStartsBeforeCurrentRound(t *testing.T) {
 	normalNode3 := newSimplexNodeWithStorage(t, nodes[2], net, bb, storageData)
 	laggingNode := newSimplexNode(t, nodes[3], net, bb, true)
 
-	firstBlock := storageData[0].Block
+	firstBlock := storageData[0].VerifiedBlock
 	record := simplex.BlockRecord(firstBlock.BlockHeader(), firstBlock.Bytes())
 	laggingNode.wal.Append(record)
 
@@ -149,7 +149,7 @@ func TestReplicationStartsBeforeCurrentRound(t *testing.T) {
 	require.NoError(t, err)
 	laggingNode.wal.Append(firstNotarizationRecord)
 
-	secondBlock := storageData[1].Block
+	secondBlock := storageData[1].VerifiedBlock
 	record = simplex.BlockRecord(secondBlock.BlockHeader(), secondBlock.Bytes())
 	laggingNode.wal.Append(record)
 
@@ -368,8 +368,8 @@ func createBlocks(t *testing.T, nodes []simplex.NodeID, bb simplex.BlockBuilder,
 		prev = block.BlockHeader().Digest
 		fCert, _ := newFinalizationRecord(t, logger, &testSignatureAggregator{}, block, nodes)
 		data = append(data, simplex.FinalizedBlock{
-			Block: block,
-			FCert: fCert,
+			VerifiedBlock: block,
+			FCert:         fCert,
 		})
 	}
 	return data

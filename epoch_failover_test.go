@@ -91,7 +91,7 @@ func TestEpochLeaderFailoverWithEmptyNotarization(t *testing.T) {
 	for len(bb.out) > 0 {
 		<-bb.out
 	}
-	for _, block := range []Block{block1, block2, block3} {
+	for _, block := range []VerifiedBlock{block1, block2, block3} {
 		bb.out <- block.(*testBlock)
 		bb.in <- block.(*testBlock)
 	}
@@ -368,18 +368,18 @@ func TestEpochNoFinalizationAfterEmptyVote(t *testing.T) {
 
 	waitForBlockProposerTimeout(t, e, start)
 
-	block, _, ok := storage.Retrieve(0)
+	b, _, ok := storage.Retrieve(0)
 	require.True(t, ok)
 
 	leader := LeaderForRound(nodes, 1)
 	_, ok = bb.BuildBlock(context.Background(), ProtocolMetadata{
-		Prev:  block.BlockHeader().Digest,
+		Prev:  b.BlockHeader().Digest,
 		Round: 1,
 		Seq:   1,
 	})
 	require.True(t, ok)
 
-	block = <-bb.out
+	block := <-bb.out
 
 	vote, err := newTestVote(block, leader)
 	require.NoError(t, err)

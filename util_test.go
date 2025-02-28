@@ -16,9 +16,9 @@ import (
 func TestRetrieveFromStorage(t *testing.T) {
 	brokenStorage := newInMemStorage()
 	brokenStorage.data[41] = struct {
-		Block
+		VerifiedBlock
 		FinalizationCertificate
-	}{Block: newTestBlock(ProtocolMetadata{Seq: 41})}
+	}{VerifiedBlock: newTestBlock(ProtocolMetadata{Seq: 41})}
 
 	block := newTestBlock(ProtocolMetadata{Seq: 0})
 	fCert := FinalizationCertificate{
@@ -28,15 +28,15 @@ func TestRetrieveFromStorage(t *testing.T) {
 	}
 	normalStorage := newInMemStorage()
 	normalStorage.data[0] = struct {
-		Block
+		VerifiedBlock
 		FinalizationCertificate
-	}{Block: block, FinalizationCertificate: fCert}
+	}{VerifiedBlock: block, FinalizationCertificate: fCert}
 
 	for _, testCase := range []struct {
 		description   string
 		storage       Storage
 		expectedErr   error
-		expectedBlock Block
+		expectedBlock VerifiedBlock
 		expectedFCert *FinalizationCertificate
 	}{
 		{

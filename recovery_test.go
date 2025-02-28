@@ -167,7 +167,7 @@ func TestRecoverFromNotarization(t *testing.T) {
 		injectTestFinalization(t, e, block, nodes[i])
 	}
 
-	committedData := storage.data[0].Block.Bytes()
+	committedData := storage.data[0].VerifiedBlock.Bytes()
 	require.Equal(t, block.Bytes(), committedData)
 	require.Equal(t, uint64(1), e.Storage.Height())
 }
@@ -237,7 +237,7 @@ func TestRecoverFromWalWithStorage(t *testing.T) {
 		injectTestFinalization(t, e, block, nodes[i])
 	}
 
-	committedData := storage.data[1].Block.Bytes()
+	committedData := storage.data[1].VerifiedBlock.Bytes()
 	require.Equal(t, block.Bytes(), committedData)
 	require.Equal(t, uint64(2), e.Storage.Height())
 }
@@ -309,7 +309,7 @@ func TestWalCreatedProperly(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, records, 2)
 
-	committedData := storage.data[0].Block.Bytes()
+	committedData := storage.data[0].VerifiedBlock.Bytes()
 	require.Equal(t, block.Bytes(), committedData)
 }
 
@@ -546,8 +546,8 @@ func TestRecoverFromMultipleNotarizations(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, uint64(2), e.Storage.Height())
-	require.Equal(t, firstBlock.Bytes(), storage.data[0].Block.Bytes())
-	require.Equal(t, secondBlock.Bytes(), storage.data[1].Block.Bytes())
+	require.Equal(t, firstBlock.Bytes(), storage.data[0].VerifiedBlock.Bytes())
+	require.Equal(t, secondBlock.Bytes(), storage.data[1].VerifiedBlock.Bytes())
 	require.Equal(t, fCert1, storage.data[0].FinalizationCertificate)
 	require.Equal(t, fCert2, storage.data[1].FinalizationCertificate)
 }
@@ -660,7 +660,7 @@ func TestRecoveryAsLeader(t *testing.T) {
 	finalizedBlocks := createBlocks(t, nodes, bb, 4)
 	storage := newInMemStorage()
 	for _, finalizedBlock := range finalizedBlocks {
-		storage.Index(finalizedBlock.Block, finalizedBlock.FCert)
+		storage.Index(finalizedBlock.VerifiedBlock, finalizedBlock.FCert)
 	}
 
 	conf := EpochConfig{
