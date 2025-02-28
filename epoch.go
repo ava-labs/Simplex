@@ -1820,14 +1820,11 @@ func (e *Epoch) deleteRoundsTooFarInThePast() {
 	}
 }
 
-func (e *Epoch) deleteEmptyVotesTooFarInThePast() {
-	for i, emptyVote := range e.emptyVotes {
-		if i + e.maxRoundWindow < e.round {
-			if emptyVote.emptyNotarization != nil {
-				delete(e.emptyVotes, i)
-			}
-		}
+func (e *Epoch) deleteEmptyVoteForPreviousRound() {
+	if e.round == 0 {
+		return
 	}
+	delete(e.emptyVotes, e.round - 1)
 }
 
 func (e *Epoch) increaseRound() {
@@ -1836,7 +1833,7 @@ func (e *Epoch) increaseRound() {
 	e.cancelWaitForBlockNotarization()
 
 	e.deleteRoundsTooFarInThePast()
-	e.deleteEmptyVotesTooFarInThePast()
+	e.deleteEmptyVoteForPreviousRound()
 
 	leader := LeaderForRound(e.nodes, e.round)
 	e.Logger.Info("Moving to a new round",
