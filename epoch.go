@@ -74,7 +74,6 @@ type Epoch struct {
 	// Runtime
 	sched                          *oneTimeBlockScheduler
 	lock                           sync.Mutex
-	lastBlock                      Block // latest block commited
 	canReceiveMessages             atomic.Bool
 	finishCtx                      context.Context
 	finishFn                       context.CancelFunc
@@ -179,10 +178,6 @@ func (e *Epoch) init() error {
 	}
 	for _, node := range e.nodes {
 		e.eligibleNodeIDs[string(node)] = struct{}{}
-	}
-	err := e.loadLastBlock()
-	if err != nil {
-		return err
 	}
 	return e.setMetadataFromStorage()
 }
@@ -443,17 +438,6 @@ func (e *Epoch) restoreFromWal() error {
 		return err
 	}
 	return e.resumeFromWal(records)
-}
-
-// loadLastBlock initializes the epoch with the lastBlock retrieved from storage.
-func (e *Epoch) loadLastBlock() error {
-	block, _, err := RetrieveLastIndexFromStorage(e.Storage)
-	if err != nil {
-		return err
-	}
-
-	e.lastBlock = block
-	return nil
 }
 
 func (e *Epoch) Stop() {
@@ -914,7 +898,6 @@ func (e *Epoch) indexFinalizationCertificate(block Block, fCert FinalizationCert
 		zap.Uint64("round", fCert.Finalization.Round),
 		zap.Uint64("sequence", fCert.Finalization.Seq),
 		zap.Stringer("digest", fCert.Finalization.BlockHeader.Digest))
-	e.lastBlock = block
 
 	// We have commited because we have collected a finalization certificate.
 	// However, we may have not witnessed a notarization.
@@ -1641,8 +1624,13 @@ func (e *Epoch) metadata() ProtocolMetadata {
 		seq = currMed.Seq + 1
 	}
 
-	if e.lastBlock != nil {
-		currMed := e.lastBlock.BlockHeader()
+	lastBlockFromStorage, _, err := RetrieveLastIndexFromStorage(e.Storage)
+	if err != nil {
+		e.Logger.Error("Error retrieving block from storage", zap.Uint64("seq", e.Storage.Height() -1))
+	}
+
+	if lastBlockFromStorage != nil {
+		currMed := lastBlockFromStorage.BlockHeader()
 		if currMed.Seq+1 >= seq {
 			prev = currMed.Digest
 			seq = currMed.Seq + 1
