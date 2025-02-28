@@ -197,6 +197,7 @@ func TestReplicationNotarizations(t *testing.T) {
 
 	numNotarizations := 9
 	missedSeqs := uint64(0)
+	blocks := []simplex.Block{}
 	// normal nodes continue to make progress
 	for i := uint64(0); i < uint64(numNotarizations); i++ {
 		emptyRound := bytes.Equal(simplex.LeaderForRound(nodes, i), nodes[3])
@@ -205,6 +206,8 @@ func TestReplicationNotarizations(t *testing.T) {
 			missedSeqs++
 		} else {
 			bb.triggerNewBlock()
+			block := <- bb.out
+			blocks = append(blocks, block)
 			for _, n := range net.instances[:3] {
 				n.wal.assertNotarization(i)
 			}
@@ -213,9 +216,21 @@ func TestReplicationNotarizations(t *testing.T) {
 
 	for _, n := range net.instances[:3] {
 		// assert metadata
-		fmt.Println("instance, ", n.e.ID.String())
 		require.Equal(t, uint64(numNotarizations), n.e.Metadata().Round)
 		require.Equal(t, uint64(0), n.e.Storage.Height())
+	}
+
+	net.Connect(nodes[3])
+	normalNode2.e.Comm = newTestComm(normalNode2.e.ID, net, allowAllMessages)
+	noFinalizeNode.e.Comm = newTestComm(noFinalizeNode.e.ID, net, allowAllMessages)
+
+	fCert, _ := newFinalizationRecord(t, laggingNode.e.Logger, normalNode1.e.EpochConfig.SignatureAggregator, blocks[0], nodes)
+	normalNode1.e.Comm.Broadcast(&simplex.Message{
+		FinalizationCertificate: &fCert,
+	})
+
+	for _, n := range net.instances[:4] {
+		n.storage.waitForBlockCommit(0)
 	}
 }
 
