@@ -174,7 +174,7 @@ func TestNotarizationRequestMixed(t *testing.T) {
 // is behind the storage height.
 func TestNotarizationRequestBehind(t *testing.T) {
 	// generate 5 blocks & notarizations
-	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
+	bb := &testBlockBuilder{}
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
 	wal := wal.NewMemWAL(t)
 	finalizedBlocks := createBlocks(t, nodes, bb, 4)
@@ -183,40 +183,42 @@ func TestNotarizationRequestBehind(t *testing.T) {
 		conf.Storage.Index(data.Block, data.FCert)
 	}
 
+	bb.out = make(chan *testBlock, 1)
 	e, err := simplex.NewEpoch(conf)
 	require.NoError(t, err)
 	require.NoError(t, e.Start())
 
 	require.Equal(t, uint64(4), e.Metadata().Round)
 	blocks := make(map[int]simplex.NotarizedBlock)
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		block, notarization := advanceRound(t, e, bb, true, false)
 
-		blocks[i] = simplex.NotarizedBlock{
+		blocks[int(block.BlockHeader().Round)] = simplex.NotarizedBlock{
 			Block: block,
 			Notarization: notarization,
 		}
 	}
 
-	// require.Equal(t, uint64(5 + 4), e.Metadata().Round)
+	require.Equal(t, uint64(5 + 4), e.Metadata().Round)
 
-	// req := &simplex.ReplicationRequest{
-	// 	NotarizationRequest: &simplex.NotarizationRequest{
-	// 		StartRound: 0,
-	// 	},
-	// }
-	// resp, err := e.HandleReplicationRequest(req, nodes[1])
-	// require.NoError(t, err)
-	// require.NotNil(t, resp.NotarizationResponse)
-	// require.Nil(t, resp.FinalizationCertificateResponse)
+	req := &simplex.ReplicationRequest{
+		NotarizationRequest: &simplex.NotarizationRequest{
+			StartRound: 0,
+		},
+	}
+	resp, err := e.HandleReplicationRequest(req, nodes[1])
+	require.NoError(t, err)
+	require.NotNil(t, resp.NotarizationResponse)
+	require.Nil(t, resp.FinalizationCertificateResponse)
+	require.Equal(t, 5, len(resp.NotarizationResponse.Data))
 
-	// for _, round := range resp.NotarizationResponse.Data {
-	// 	require.Nil(t, round.EmptyNotarization)
-	// 	notarizedBlock, ok := blocks[int(round.Block.BlockHeader().Round)]
-	// 	require.True(t, ok)
-	// 	require.Equal(t, notarizedBlock.Block, round.Block)
-	// 	require.Equal(t, notarizedBlock.Notarization, round.Notarization)
-	// }	
+	for _, round := range resp.NotarizationResponse.Data {
+		require.Nil(t, round.EmptyNotarization)
+		notarizedBlock, ok := blocks[int(round.Block.BlockHeader().Round)]
+		require.True(t, ok)
+		require.Equal(t, notarizedBlock.Block, round.Block)
+		require.Equal(t, notarizedBlock.Notarization, round.Notarization)
+	}	
 }
 
 // TestReplication tests the replication process of a node that

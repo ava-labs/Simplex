@@ -1526,10 +1526,8 @@ func (e *Epoch) locateBlock(seq uint64, digest []byte) (Block, bool) {
 
 func (e *Epoch) buildBlock() {
 	metadata := e.metadata()
-
 	task := e.createBlockBuildingTask(metadata)
 
-	e.Logger.Debug("Scheduling block building", zap.Uint64("round", metadata.Round))
 	e.sched.Schedule(task, metadata.Prev, metadata.Round, true)
 }
 
@@ -1599,19 +1597,16 @@ func (e *Epoch) Metadata() ProtocolMetadata {
 	return e.metadata()
 }
 
+
 func (e *Epoch) metadata() ProtocolMetadata {
 	var prev Digest
 	seq := e.Storage.Height()
-	if len(e.rounds) > 0 {
-		// Build on top of the latest block
-		currMed := e.getHighestRound()
-		if currMed == nil {
-			panic("nil retrieved")
-		}
 
-		bh := currMed.block.BlockHeader()
-		prev = bh.Digest
-		seq = bh.Seq + 1
+	highestRound, ok := e.getHighestRound()
+	if ok {
+		// Build on top of the latest block
+		prev = highestRound.block.BlockHeader().Digest
+		seq = highestRound.block.BlockHeader().Seq + 1
 	}
 
 	if e.lastBlock != nil {
@@ -1621,7 +1616,6 @@ func (e *Epoch) metadata() ProtocolMetadata {
 			seq = currMed.Seq + 1
 		}
 	}
-
 	md := ProtocolMetadata{
 		Round:   e.round,
 		Seq:     seq,
@@ -2102,10 +2096,11 @@ func (e *Epoch) processReplicationState() error {
 	return e.processFinalizedBlock(&finalizedBlock)
 }
 
-func (e *Epoch) getHighestRound() *Round {
+// getHighestRound returns the highest round that has either a notarization of finalization
+func (e *Epoch) getHighestRound() (*Round, bool) {
 	var max uint64
+
 	for _, round := range e.rounds {
-		fmt.Printf("iterating over round %+v", round)
 		if round.num > max {
 			if round.notarization == nil && round.fCert == nil {
 				continue
@@ -2113,8 +2108,9 @@ func (e *Epoch) getHighestRound() *Round {
 			max = round.num
 		}
 	}
-	fmt.Println("max is ", max)
-	return e.rounds[max]
+
+	round, ok := e.rounds[max]
+	return round, ok
 }
 
 // isRoundTooFarAhead returns true if [round] is more than `maxRoundWindow` rounds ahead of the current round.
