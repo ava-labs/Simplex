@@ -1625,7 +1625,7 @@ func (e *Epoch) proposeBlock(block Block) error {
 	return errors.Join(e.handleVoteMessage(&vote, e.ID), e.maybeLoadFutureMessages())
 }
 
-// Metadata returns the metadata of the next expected block of the epoch. 
+// Metadata returns the metadata of the next expected block of the epoch.
 func (e *Epoch) Metadata() ProtocolMetadata {
 	e.lock.Lock()
 	defer e.lock.Unlock()
@@ -1637,8 +1637,8 @@ func (e *Epoch) metadata() ProtocolMetadata {
 	var prev Digest
 	seq := e.Storage.Height()
 
-	highestRound, ok := e.getHighestRound()
-	if ok {
+	highestRound := e.getHighestRound()
+	if highestRound != nil {
 		// Build on top of the latest block
 		prev = highestRound.block.BlockHeader().Digest
 		seq = highestRound.block.BlockHeader().Seq + 1
@@ -2084,7 +2084,7 @@ func (e *Epoch) processReplicationState() error {
 }
 
 // getHighestRound returns the highest round that has either a notarization of finalization
-func (e *Epoch) getHighestRound() (*Round, bool) {
+func (e *Epoch) getHighestRound() *Round {
 	var max uint64
 
 	for _, round := range e.rounds {
@@ -2096,8 +2096,8 @@ func (e *Epoch) getHighestRound() (*Round, bool) {
 		}
 	}
 
-	round, ok := e.rounds[max]
-	return round, ok
+	round := e.rounds[max]
+	return round
 }
 
 // isRoundTooFarAhead returns true if [round] is more than `maxRoundWindow` rounds ahead of the current round.
