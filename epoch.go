@@ -1640,8 +1640,9 @@ func (e *Epoch) metadata() ProtocolMetadata {
 	highestRound := e.getHighestRound()
 	if highestRound != nil {
 		// Build on top of the latest block
-		prev = highestRound.block.BlockHeader().Digest
-		seq = highestRound.block.BlockHeader().Seq + 1
+		currMed := e.getHighestRound().block.BlockHeader()
+		prev = currMed.Digest
+		seq = currMed.Seq + 1
 	}
 
 	if e.lastBlock != nil {
@@ -2086,7 +2087,6 @@ func (e *Epoch) processReplicationState() error {
 // getHighestRound returns the highest round that has either a notarization of finalization
 func (e *Epoch) getHighestRound() *Round {
 	var max uint64
-
 	for _, round := range e.rounds {
 		if round.num > max {
 			if round.notarization == nil && round.fCert == nil {
@@ -2096,8 +2096,7 @@ func (e *Epoch) getHighestRound() *Round {
 		}
 	}
 
-	round := e.rounds[max]
-	return round
+	return e.rounds[max]
 }
 
 // isRoundTooFarAhead returns true if [round] is more than `maxRoundWindow` rounds ahead of the current round.
