@@ -184,6 +184,7 @@ func (e *Epoch) init() error {
 	if err != nil {
 		return err
 	}
+
 	return e.setMetadataFromStorage()
 }
 
@@ -250,7 +251,7 @@ func (e *Epoch) restoreEmptyVoteRecord(r []byte) error {
 	emptyVote := &EmptyVote{
 		Signature: Signature{
 			Signer: e.ID,
-			Value: signature,
+			Value:  signature,
 		},
 		Vote: vote,
 	}
@@ -326,11 +327,11 @@ func (e *Epoch) resumeFromWal(records [][]byte) error {
 			return err
 		}
 		round, exists := e.emptyVotes[ev.Round]
-		if ! exists {
+		if !exists {
 			return fmt.Errorf("round %d not found for empty vote", ev.Round)
 		}
 		emptyVote, exists := round.votes[string(e.ID)]
-		if ! exists {
+		if !exists {
 			return fmt.Errorf("could not find my own vote for round %d", ev.Round)
 		}
 		lastMessage := Message{EmptyVoteMessage: emptyVote}
@@ -1624,6 +1625,7 @@ func (e *Epoch) proposeBlock(block Block) error {
 	return errors.Join(e.handleVoteMessage(&vote, e.ID), e.maybeLoadFutureMessages())
 }
 
+// Metadata returns the metadata of the next expected block of the epoch.
 func (e *Epoch) Metadata() ProtocolMetadata {
 	e.lock.Lock()
 	defer e.lock.Unlock()
@@ -1634,7 +1636,9 @@ func (e *Epoch) Metadata() ProtocolMetadata {
 func (e *Epoch) metadata() ProtocolMetadata {
 	var prev Digest
 	seq := e.Storage.Height()
-	if len(e.rounds) > 0 {
+
+	highestRound := e.getHighestRound()
+	if highestRound != nil {
 		// Build on top of the latest block
 		currMed := e.getHighestRound().block.BlockHeader()
 		prev = currMed.Digest
@@ -2080,6 +2084,7 @@ func (e *Epoch) processReplicationState() error {
 	return e.processFinalizedBlock(&finalizedBlock)
 }
 
+// getHighestRound returns the highest round that has either a notarization of finalization
 func (e *Epoch) getHighestRound() *Round {
 	var max uint64
 	for _, round := range e.rounds {
@@ -2090,6 +2095,7 @@ func (e *Epoch) getHighestRound() *Round {
 			max = round.num
 		}
 	}
+
 	return e.rounds[max]
 }
 

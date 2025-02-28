@@ -766,7 +766,7 @@ func runCrashAndRestartExecution(t *testing.T, e *Epoch, bb *testBlockBuilder, w
 	// 2) The node crashes and restarts.
 	cloneWAL := wal.Clone()
 	cloneStorage := storage.Clone()
-	
+
 	nodes := e.Comm.ListNodes()
 
 	// Clone the block builder
