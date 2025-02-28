@@ -11,6 +11,7 @@ import (
 	"simplex/testutil"
 	"simplex/wal"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -680,6 +681,11 @@ func TestRecoveryAsLeader(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(4), e.Storage.Height())
 	require.NoError(t, e.Start())
+
+	<-bb.out
+
+	// wait for the block to finish verifying
+	time.Sleep(50 * time.Millisecond)
 
 	// ensure the round is properly set
 	require.Equal(t, uint64(4), e.Metadata().Round)

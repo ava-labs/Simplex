@@ -74,7 +74,6 @@ type Epoch struct {
 	// Runtime
 	sched                          *oneTimeBlockScheduler
 	lock                           sync.Mutex
-	lastBlock                      Block // latest block commited
 	canReceiveMessages             atomic.Bool
 	finishCtx                      context.Context
 	finishFn                       context.CancelFunc
@@ -180,10 +179,7 @@ func (e *Epoch) init() error {
 	for _, node := range e.nodes {
 		e.eligibleNodeIDs[string(node)] = struct{}{}
 	}
-	err := e.loadLastBlock()
-	if err != nil {
-		return err
-	}
+
 	return e.setMetadataFromStorage()
 }
 
@@ -250,7 +246,7 @@ func (e *Epoch) restoreEmptyVoteRecord(r []byte) error {
 	emptyVote := &EmptyVote{
 		Signature: Signature{
 			Signer: e.ID,
-			Value: signature,
+			Value:  signature,
 		},
 		Vote: vote,
 	}
@@ -326,11 +322,11 @@ func (e *Epoch) resumeFromWal(records [][]byte) error {
 			return err
 		}
 		round, exists := e.emptyVotes[ev.Round]
-		if ! exists {
+		if !exists {
 			return fmt.Errorf("round %d not found for empty vote", ev.Round)
 		}
 		emptyVote, exists := round.votes[string(e.ID)]
-		if ! exists {
+		if !exists {
 			return fmt.Errorf("could not find my own vote for round %d", ev.Round)
 		}
 		lastMessage := Message{EmptyVoteMessage: emptyVote}
@@ -443,17 +439,6 @@ func (e *Epoch) restoreFromWal() error {
 		return err
 	}
 	return e.resumeFromWal(records)
-}
-
-// loadLastBlock initializes the epoch with the lastBlock retrieved from storage.
-func (e *Epoch) loadLastBlock() error {
-	block, _, err := RetrieveLastIndexFromStorage(e.Storage)
-	if err != nil {
-		return err
-	}
-
-	e.lastBlock = block
-	return nil
 }
 
 func (e *Epoch) Stop() {
@@ -914,7 +899,6 @@ func (e *Epoch) indexFinalizationCertificate(block Block, fCert FinalizationCert
 		zap.Uint64("round", fCert.Finalization.Round),
 		zap.Uint64("sequence", fCert.Finalization.Seq),
 		zap.Stringer("digest", fCert.Finalization.BlockHeader.Digest))
-	e.lastBlock = block
 
 	// We have commited because we have collected a finalization certificate.
 	// However, we may have not witnessed a notarization.
@@ -1624,6 +1608,7 @@ func (e *Epoch) proposeBlock(block Block) error {
 	return errors.Join(e.handleVoteMessage(&vote, e.ID), e.maybeLoadFutureMessages())
 }
 
+// Metadata returns the metadata of the next expected block of the epoch. 
 func (e *Epoch) Metadata() ProtocolMetadata {
 	e.lock.Lock()
 	defer e.lock.Unlock()
@@ -1634,15 +1619,22 @@ func (e *Epoch) Metadata() ProtocolMetadata {
 func (e *Epoch) metadata() ProtocolMetadata {
 	var prev Digest
 	seq := e.Storage.Height()
-	if len(e.rounds) > 0 {
+
+	highestRound, ok := e.getHighestRound()
+	if ok {
 		// Build on top of the latest block
-		currMed := e.getHighestRound().block.BlockHeader()
-		prev = currMed.Digest
-		seq = currMed.Seq + 1
+		prev = highestRound.block.BlockHeader().Digest
+		seq = highestRound.block.BlockHeader().Seq + 1
 	}
 
-	if e.lastBlock != nil {
-		currMed := e.lastBlock.BlockHeader()
+	lastBlockFromStorage, _, err := RetrieveLastIndexFromStorage(e.Storage)
+	if err != nil {
+		panic("Could not retrieve block from storage")
+	}
+
+	// if we have committed to storage
+	if lastBlockFromStorage != nil {
+		currMed := lastBlockFromStorage.BlockHeader()
 		if currMed.Seq+1 >= seq {
 			prev = currMed.Digest
 			seq = currMed.Seq + 1
@@ -2080,8 +2072,10 @@ func (e *Epoch) processReplicationState() error {
 	return e.processFinalizedBlock(&finalizedBlock)
 }
 
-func (e *Epoch) getHighestRound() *Round {
+// getHighestRound returns the highest round that has either a notarization of finalization
+func (e *Epoch) getHighestRound() (*Round, bool) {
 	var max uint64
+
 	for _, round := range e.rounds {
 		if round.num > max {
 			if round.notarization == nil && round.fCert == nil {
@@ -2090,7 +2084,9 @@ func (e *Epoch) getHighestRound() *Round {
 			max = round.num
 		}
 	}
-	return e.rounds[max]
+
+	round, ok := e.rounds[max]
+	return round, ok
 }
 
 // isRoundTooFarAhead returns true if [round] is more than `maxRoundWindow` rounds ahead of the current round.
