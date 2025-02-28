@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"fmt"
 	. "simplex"
 	"simplex/record"
 	"simplex/testutil"
@@ -45,7 +46,7 @@ func (t *testNode) start() {
 
 func newSimplexNodeWithStorage(t *testing.T, nodeID NodeID, net *inMemNetwork, bb BlockBuilder, storage []FinalizedBlock) *testNode {
 	wal := newTestWAL(t)
-	comm := newTestComm(nodeID, net)
+	comm := newTestComm(nodeID, net, allowAllMessages)
 	conf := defaultTestNodeEpochConfig(t, nodeID, comm, wal, bb, true)
 	for _, data := range storage {
 		conf.Storage.Index(data.Block, data.FCert)
@@ -68,7 +69,28 @@ func newSimplexNodeWithStorage(t *testing.T, nodeID NodeID, net *inMemNetwork, b
 
 func newSimplexNode(t *testing.T, nodeID NodeID, net *inMemNetwork, bb BlockBuilder, replicationEnabled bool) *testNode {
 	wal := newTestWAL(t)
-	comm := newTestComm(nodeID, net)
+	comm := newTestComm(nodeID, net, allowAllMessages)
+	conf := defaultTestNodeEpochConfig(t, nodeID, comm, wal, bb, replicationEnabled)
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	ti := &testNode{
+		wal:     wal,
+		e:       e,
+		t:       t,
+		storage: conf.Storage.(*InMemStorage),
+		ingress: make(chan struct {
+			msg  *Message
+			from NodeID
+		}, 100)}
+
+	net.addNode(ti)
+	return ti
+}
+
+
+func newSimplexNodeWithMessageFunc(t *testing.T, nodeID NodeID, net *inMemNetwork, bb BlockBuilder, replicationEnabled bool, allowMessageFunc allowMessageFunc) *testNode {
+	wal := newTestWAL(t)
+	comm := newTestComm(nodeID, net, allowMessageFunc)
 	conf := defaultTestNodeEpochConfig(t, nodeID, comm, wal, bb, replicationEnabled)
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
@@ -228,15 +250,22 @@ func (tw *testWAL) containsEmptyVote(round uint64) bool {
 	return false
 }
 
+type allowMessageFunc func (*Message) bool
+func allowAllMessages(*Message) bool {
+	return true
+}
+
 type testComm struct {
 	from NodeID
 	net  *inMemNetwork
+	allowMessageFunc allowMessageFunc 
 }
 
-func newTestComm(from NodeID, net *inMemNetwork) *testComm {
+func newTestComm(from NodeID, net *inMemNetwork, allowMessageFunc allowMessageFunc) *testComm {
 	return &testComm{
 		from: from,
 		net:  net,
+		allowMessageFunc: allowMessageFunc,
 	}
 }
 
@@ -245,6 +274,9 @@ func (c *testComm) ListNodes() []NodeID {
 }
 
 func (c *testComm) SendMessage(msg *Message, destination NodeID) {
+	if !c.allowMessageFunc(msg) {
+		return
+	}
 	// cannot send if either [from] or [destination] is not connected
 	if c.net.IsDisconnected(destination) || c.net.IsDisconnected(c.from) {
 		return
@@ -262,6 +294,10 @@ func (c *testComm) SendMessage(msg *Message, destination NodeID) {
 }
 
 func (c *testComm) Broadcast(msg *Message) {
+	if !c.allowMessageFunc(msg) {
+		fmt.Println("not allowing the message")
+		return
+	}
 	if c.net.IsDisconnected(c.from) {
 		return
 	}

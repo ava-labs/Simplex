@@ -169,6 +169,69 @@ func TestNotarizationRequestMixed(t *testing.T) {
 	}
 }
 
+// TestReplicationNotarizations tests that a lagging node also replicates the notarizations 
+// after lagging behind
+// we generate 5 notarizations without finalizations, then finalize the first round and expect the lagging node to catch up 
+func TestReplicationNotarizations(t *testing.T) {
+	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
+	bb := newTestControlledBlockBuilder(t)
+	net := newInMemNetwork(t, nodes)
+	normalNode1 := newSimplexNode(t, nodes[0], net, bb, true)
+	normalNode2 := newSimplexNodeWithMessageFunc(t, nodes[1], net, bb, true, denyFinalizationMessages)
+	noFinalizeNode := newSimplexNodeWithMessageFunc(t, nodes[2], net, bb, true, denyFinalizationMessages)
+	laggingNode := newSimplexNode(t, nodes[3], net, bb, true)
+
+	require.Equal(t, uint64(0), normalNode1.storage.Height())
+	require.Equal(t, uint64(0), normalNode2.storage.Height())
+	require.Equal(t, uint64(0), noFinalizeNode.storage.Height())
+	require.Equal(t, uint64(0), laggingNode.storage.Height())
+
+	epochTimes := make([]time.Time, 0, 4)
+	for _, n := range net.instances {
+		epochTimes = append(epochTimes, n.e.StartTime)
+	}
+
+	net.startInstances()
+
+	net.Disconnect(nodes[3])
+
+	missedSeqs := uint64(0)
+	// normal nodes continue to make progress
+	for i := uint64(0); i < 2; i++ {
+		emptyRound := bytes.Equal(simplex.LeaderForRound(nodes, i), nodes[3])
+		if emptyRound {
+			advanceWithoutLeader(t, net, bb, epochTimes)
+			missedSeqs++
+		} else {
+			bb.triggerNewBlock()
+			for _, n := range net.instances[:3] {
+				n.wal.assertNotarization(i)
+			}
+		}
+	}
+
+	for _, n := range net.instances[:3] {
+		// assert metadata
+		fmt.Println("instance, ", n.e.ID.String())
+		require.Equal(t, uint64(2), n.e.Metadata().Round)
+		require.Equal(t, uint64(0), n.e.Storage.Height())
+	}
+}
+
+func denyFinalizationMessages(msg *simplex.Message) bool {
+	if msg.Finalization != nil {
+		return false
+	}
+	if msg.FinalizationCertificate != nil {
+		return false
+	}
+	if msg.Notarization != nil {
+		return false
+	}
+	return true
+}
+
+
 // TestNotarizationRequestBehind tests notarization requests when the requested start round
 // is behind the storage height.
 func TestNotarizationRequestBehind(t *testing.T) {

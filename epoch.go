@@ -2048,7 +2048,6 @@ func (e *Epoch) handleFinalizationCertificateResponse(resp *FinalizationCertific
 func (e *Epoch) handleNotarizationRequest(req *NotarizationRequest) (*NotarizationResponse, error) {
 	startRound := req.StartRound
 	if startRound > e.round {
-		fmt.Println("hello")
 		return nil, nil
 	}
 

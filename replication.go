@@ -147,13 +147,9 @@ func (r *ReplicationState) storeNotarizedBlock(data NotarizedBlock) {
 	r.receivedNotarizations[data.GetRound()] = data
 }
 
-// 
 func (r *ReplicationState) collectFutureNotarizations(currentRound uint64) {
 	// round to start collecting notarizations
-	start := r.highestNotarizedRound()
-	if start < currentRound {
-		start = currentRound
-	}
+	start := max(r.highestNotarizedRound(), currentRound)
 
 	msg := &Message{
 		ReplicationRequest: &ReplicationRequest{
@@ -170,7 +166,7 @@ func (r *ReplicationState) collectFutureNotarizations(currentRound uint64) {
 func (r *ReplicationState) highestNotarizedRound() uint64 {
 	var highestRound uint64
 	for round := range r.receivedNotarizations {
-		if round > round {
+		if round > highestRound {
 			highestRound = round
 		}
 	}
