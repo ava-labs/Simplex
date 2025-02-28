@@ -11,6 +11,7 @@ import (
 	"simplex/testutil"
 	"simplex/wal"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -650,5 +651,43 @@ func TestEpochCorrectlyInitializesMetadataFromStorage(t *testing.T) {
 	require.Equal(t, uint64(1), e.Metadata().Round)
 	require.Equal(t, uint64(1), e.Metadata().Seq)
 	require.Equal(t, block.BlockHeader().Digest, e.Metadata().Prev)
+}
 
+func TestRecoveryAsLeader(t *testing.T) {
+	l := testutil.MakeLogger(t, 1)
+	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	finalizedBlocks := createBlocks(t, nodes, bb, 4)
+	storage := newInMemStorage()
+	for _, finalizedBlock := range finalizedBlocks {
+		storage.Index(finalizedBlock.Block, finalizedBlock.FCert)
+	}
+
+	conf := EpochConfig{
+		MaxProposalWait:   DefaultMaxProposalWaitTime,
+		Logger:            l,
+		ID:                nodes[0],
+		Signer:            &testSigner{},
+		WAL:               wal.NewMemWAL(t),
+		Verifier:          &testVerifier{},
+		Storage:           storage,
+		Comm:              noopComm(nodes),
+		BlockBuilder:      bb,
+		BlockDeserializer: &blockDeserializer{},
+		QCDeserializer:    &testQCDeserializer{t: t},
+	}
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	require.Equal(t, uint64(4), e.Storage.Height())
+	require.NoError(t, e.Start())
+
+	<-bb.out
+
+	// wait for the block to finish verifying
+	time.Sleep(50 * time.Millisecond)
+
+	// ensure the round is properly set
+	require.Equal(t, uint64(4), e.Metadata().Round)
+	require.Equal(t, uint64(4), e.Metadata().Seq)
 }
