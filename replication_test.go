@@ -195,12 +195,13 @@ func TestReplicationNotarizations(t *testing.T) {
 
 	net.Disconnect(nodes[3])
 
+	numNotarizations := 9
 	missedSeqs := uint64(0)
 	// normal nodes continue to make progress
-	for i := uint64(0); i < 2; i++ {
+	for i := uint64(0); i < uint64(numNotarizations); i++ {
 		emptyRound := bytes.Equal(simplex.LeaderForRound(nodes, i), nodes[3])
 		if emptyRound {
-			advanceWithoutLeader(t, net, bb, epochTimes)
+			advanceWithoutLeader(t, net, bb, epochTimes, i)
 			missedSeqs++
 		} else {
 			bb.triggerNewBlock()
@@ -213,7 +214,7 @@ func TestReplicationNotarizations(t *testing.T) {
 	for _, n := range net.instances[:3] {
 		// assert metadata
 		fmt.Println("instance, ", n.e.ID.String())
-		require.Equal(t, uint64(2), n.e.Metadata().Round)
+		require.Equal(t, uint64(numNotarizations), n.e.Metadata().Round)
 		require.Equal(t, uint64(0), n.e.Storage.Height())
 	}
 }
@@ -524,7 +525,7 @@ func testReplicationAfterNodeDisconnects(t *testing.T, nodes []simplex.NodeID, s
 	for i := startDisconnect; i < endDisconnect; i++ {
 		emptyRound := bytes.Equal(simplex.LeaderForRound(nodes, i), nodes[3])
 		if emptyRound {
-			advanceWithoutLeader(t, net, bb, epochTimes)
+			advanceWithoutLeader(t, net, bb, epochTimes, i)
 			missedSeqs++
 		} else {
 			bb.triggerNewBlock()
@@ -558,13 +559,17 @@ func testReplicationAfterNodeDisconnects(t *testing.T, nodes []simplex.NodeID, s
 	}
 }
 
-func advanceWithoutLeader(t *testing.T, net *inMemNetwork, bb *testControlledBlockBuilder, epochTimes []time.Time) {
+func advanceWithoutLeader(t *testing.T, net *inMemNetwork, bb *testControlledBlockBuilder, epochTimes []time.Time, round uint64) {
 	for range net.instances {
 		bb.blockShouldBeBuilt <- struct{}{}
 	}
 
 	for i, n := range net.instances[:3] {
 		waitForBlockProposerTimeout(t, n.e, epochTimes[i])
+	}
+
+	for _, n := range net.instances[:3] {
+		n.wal.assertNotarization(round)
 	}
 }
 
