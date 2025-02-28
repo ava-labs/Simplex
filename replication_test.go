@@ -223,7 +223,7 @@ func TestReplicationNotarizations(t *testing.T) {
 	net.Connect(nodes[3])
 	normalNode2.e.Comm = newTestComm(normalNode2.e.ID, net, allowAllMessages)
 	noFinalizeNode.e.Comm = newTestComm(noFinalizeNode.e.ID, net, allowAllMessages)
-
+	fmt.Println("all messages allowed")
 	fCert, _ := newFinalizationRecord(t, laggingNode.e.Logger, normalNode1.e.EpochConfig.SignatureAggregator, blocks[0], nodes)
 	normalNode1.e.Comm.Broadcast(&simplex.Message{
 		FinalizationCertificate: &fCert,
