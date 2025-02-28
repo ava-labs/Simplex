@@ -37,7 +37,7 @@ type BlockBuilder interface {
 	// BuildBlock blocks until some transactions are available to be batched into a block,
 	// in which case a block and true are returned.
 	// When the given context is cancelled by the caller, returns false.
-	BuildBlock(ctx context.Context, metadata ProtocolMetadata) (Block, bool)
+	BuildBlock(ctx context.Context, metadata ProtocolMetadata) (VerifiedBlock, bool)
 
 	// IncomingBlock returns when either the given context is cancelled,
 	// or when the application signals that a block should be built.
@@ -48,8 +48,8 @@ type Storage interface {
 	Height() uint64
 	// Retrieve returns the block and finalization certificate at [seq].
 	// If [seq] is not found, returns false.
-	Retrieve(seq uint64) (Block, FinalizationCertificate, bool)
-	Index(block Block, certificate FinalizationCertificate)
+	Retrieve(seq uint64) (VerifiedBlock, FinalizationCertificate, bool)
+	Index(block VerifiedBlock, certificate FinalizationCertificate)
 }
 
 type Communication interface {
@@ -82,19 +82,24 @@ type Block interface {
 	// BlockHeader encodes a succinct and collision-free representation of a block.
 	BlockHeader() BlockHeader
 
+	// Verify verifies the block by speculatively executing it on top of its ancestor.
+	Verify(ctx context.Context) (VerifiedBlock, error)
+}
+
+type VerifiedBlock interface {
+	// BlockHeader encodes a succinct and collision-free representation of a block.
+	BlockHeader() BlockHeader
+
 	// Bytes returns a byte encoding of the block
 	Bytes() []byte
-
-	// Verify verifies the block by speculatively executing it on top of its ancestor.
-	Verify(ctx context.Context) error
 }
 
 // BlockDeserializer deserializes blocks according to formatting
 // enforced by the application.
 type BlockDeserializer interface {
-	// DeserializeBlock parses the given bytes and initializes a Block.
+	// DeserializeBlock parses the given bytes and initializes a VerifiedBlock.
 	// Returns an error upon failure.
-	DeserializeBlock(bytes []byte) (Block, error)
+	DeserializeBlock(bytes []byte) (VerifiedBlock, error)
 }
 
 // Signature encodes a signature and the node that signed it, without the message it was signed on.
