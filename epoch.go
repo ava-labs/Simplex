@@ -250,7 +250,7 @@ func (e *Epoch) restoreEmptyVoteRecord(r []byte) error {
 	emptyVote := &EmptyVote{
 		Signature: Signature{
 			Signer: e.ID,
-			Value: signature,
+			Value:  signature,
 		},
 		Vote: vote,
 	}
@@ -326,11 +326,11 @@ func (e *Epoch) resumeFromWal(records [][]byte) error {
 			return err
 		}
 		round, exists := e.emptyVotes[ev.Round]
-		if ! exists {
+		if !exists {
 			return fmt.Errorf("round %d not found for empty vote", ev.Round)
 		}
 		emptyVote, exists := round.votes[string(e.ID)]
-		if ! exists {
+		if !exists {
 			return fmt.Errorf("could not find my own vote for round %d", ev.Round)
 		}
 		lastMessage := Message{EmptyVoteMessage: emptyVote}
@@ -1812,7 +1812,7 @@ func (e *Epoch) voteOnBlock(block Block) (Vote, error) {
 
 func (e *Epoch) deleteRoundsTooFarInThePast() {
 	for i, round := range e.rounds {
-		if round.block.BlockHeader().Round + e.maxRoundWindow < e.round {
+		if round.block.BlockHeader().Round+e.maxRoundWindow < e.round {
 			if round.fCert != nil {
 				delete(e.rounds, i)
 			}
@@ -1824,7 +1824,7 @@ func (e *Epoch) deleteEmptyVoteForPreviousRound() {
 	if e.round == 0 {
 		return
 	}
-	delete(e.emptyVotes, e.round - 1)
+	delete(e.emptyVotes, e.round-1)
 }
 
 func (e *Epoch) increaseRound() {
