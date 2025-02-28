@@ -260,3 +260,11 @@ func (n NotarizedBlock) GetRound() uint64 {
 
 	return n.Block.BlockHeader().Round
 }
+
+func (n NotarizedBlock) Verify() error {
+	if n.EmptyNotarization != nil {
+		return n.EmptyNotarization.Verify()
+	}
+
+	return n.Notarization.Verify()
+}

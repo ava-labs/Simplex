@@ -169,7 +169,6 @@ func TestNotarizationRequestMixed(t *testing.T) {
 	}
 }
 
-
 // TestNotarizationRequestBehind tests notarization requests when the requested start round
 // is behind the storage height.
 func TestNotarizationRequestBehind(t *testing.T) {
