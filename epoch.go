@@ -2043,6 +2043,10 @@ func (e *Epoch) handleReplicationResponse(resp *ReplicationResponse, from NodeID
 func (e *Epoch) handleFinalizationCertificateResponse(resp *FinalizationCertificateResponse, from NodeID) error {
 	e.Logger.Debug("Received finalization certificate response", zap.String("from", from.String()), zap.Int("num seqs", len(resp.Data)))
 	for _, data := range resp.Data {
+		if data.Block == nil {
+			e.Logger.Debug("received finalization certificate response with nil block")
+			return nil
+		}
 		if e.isRoundTooFarAhead(data.FCert.Finalization.Seq) {
 			e.Logger.Debug("Received finalization certificate for a seq that is too far ahead", zap.Uint64("seq", data.FCert.Finalization.Seq))
 			// we are too far behind, we should ignore this message
