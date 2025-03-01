@@ -124,7 +124,7 @@ func BlockRecord(bh BlockHeader, blockData []byte) []byte {
 	return buff
 }
 
-func BlockFromRecord(blockDeserializer BlockDeserializer, record []byte) (Block, error) {
+func BlockFromRecord(blockDeserializer BlockDeserializer, record []byte) (VerifiedBlock, error) {
 	_, payload, err := ParseBlockRecord(record)
 	if err != nil {
 		return nil, err
