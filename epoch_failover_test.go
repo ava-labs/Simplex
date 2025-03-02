@@ -82,11 +82,6 @@ func TestEpochLeaderFailoverWithEmptyNotarization(t *testing.T) {
 	})
 	require.True(t, ok)
 
-	var qc testQC
-	for i := 1; i <= quorum; i++ {
-		qc = append(qc, Signature{Signer: NodeID{byte(i)}, Value: []byte{byte(i)}})
-	}
-
 	// Artificially force the block builder to output the blocks we want.
 	for len(bb.out) > 0 {
 		<-bb.out
@@ -96,15 +91,10 @@ func TestEpochLeaderFailoverWithEmptyNotarization(t *testing.T) {
 		bb.in <- block.(*testBlock)
 	}
 
+	emptyNotarization := newEmptyNotarization(e, 3, 2)
+
 	e.HandleMessage(&Message{
-		EmptyNotarization: &EmptyNotarization{
-			Vote: ToBeSignedEmptyVote{ProtocolMetadata: ProtocolMetadata{
-				Prev:  block2.BlockHeader().Digest,
-				Round: 3,
-				Seq:   2,
-			}},
-			QC: qc,
-		},
+		EmptyNotarization: emptyNotarization,
 	}, nodes[1])
 
 	for round := uint64(1); round <= 2; round++ {
@@ -123,7 +113,8 @@ func TestEpochLeaderFailoverWithEmptyNotarization(t *testing.T) {
 	require.Equal(t, uint64(4), storage.Height())
 }
 
-func newEmptyNotarization(t *testing.T, e *Epoch, round uint64) *EmptyNotarization {
+// newEmptyNotarization creates a new empty notarization
+func newEmptyNotarization(e *Epoch, round uint64, seq uint64) *EmptyNotarization {
 	quorum := simplex.Quorum(len(e.Comm.ListNodes()))
 	var qc testQC
 
@@ -134,9 +125,8 @@ func newEmptyNotarization(t *testing.T, e *Epoch, round uint64) *EmptyNotarizati
 	return &EmptyNotarization{
 		QC: qc,
 		Vote: ToBeSignedEmptyVote{ProtocolMetadata: ProtocolMetadata{
-			Prev:  Digest{},
 			Round: round,
-			Seq:   round,
+			Seq:   seq,
 		}},
 
 	}

@@ -125,11 +125,11 @@ func TestNotarizationRequestMixed(t *testing.T) {
 	require.NoError(t, e.Start())
 
 	blocks := make(map[int]simplex.NotarizedBlock)
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		leaderForRound := bytes.Equal(simplex.LeaderForRound(nodes, uint64(i)), e.ID)
 		emptyBlock := !leaderForRound
 		if emptyBlock {
-			emptyNotarization := newEmptyNotarization(t, e, uint64(i))
+			emptyNotarization := newEmptyNotarization(e, blocks[i-1].Block, uint64(i), uint64(i))
 			e.HandleMessage(&simplex.Message{
 				EmptyNotarization: emptyNotarization,
 			}, nodes[1])
