@@ -24,10 +24,10 @@ func TestSimplexMultiNodeSimple(t *testing.T) {
 
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	net := newInMemNetwork(t, nodes)
-	newSimplexNode(t, nodes[0], net, bb, false)
-	newSimplexNode(t, nodes[1], net, bb, false)
-	newSimplexNode(t, nodes[2], net, bb, false)
-	newSimplexNode(t, nodes[3], net, bb, false)
+	newSimplexNode(t, nodes[0], net, bb, nil)
+	newSimplexNode(t, nodes[1], net, bb, nil)
+	newSimplexNode(t, nodes[2], net, bb, nil)
+	newSimplexNode(t, nodes[3], net, bb, nil)
 
 	net.startInstances()
 
@@ -44,20 +44,30 @@ func (t *testNode) start() {
 	require.NoError(t.t, t.e.Start())
 }
 
-func newSimplexNodeWithStorage(t *testing.T, nodeID NodeID, net *inMemNetwork, bb BlockBuilder, storage []FinalizedBlock) *testNode {
-	wal := newTestWAL(t)
+type testNodeConfig struct {
+	// optional 
+	initialStorage []FinalizedBlock
+	comm Communication
+	replicationEnabled bool
+}
+
+// newSimplexNode creates a new testNode and adds it to [net]. Optionally pass in 
+func newSimplexNode(t *testing.T, nodeID NodeID, net *inMemNetwork, bb BlockBuilder, config *testNodeConfig) *testNode {
 	comm := newTestComm(nodeID, net, allowAllMessages)
-	conf := defaultTestNodeEpochConfig(t, nodeID, comm, wal, bb, true)
-	for _, data := range storage {
-		conf.Storage.Index(data.Block, data.FCert)
+	
+	epochConfig := defaultTestNodeEpochConfig(t, nodeID, comm, bb)
+
+	if config != nil {
+		updateEpochConfig(&epochConfig, config)
 	}
-	e, err := NewEpoch(conf)
+	
+	e, err := NewEpoch(epochConfig)
 	require.NoError(t, err)
 	ti := &testNode{
-		wal:     wal,
+		wal:     epochConfig.WAL.(*testWAL),
 		e:       e,
 		t:       t,
-		storage: conf.Storage.(*InMemStorage),
+		storage: epochConfig.Storage.(*InMemStorage),
 		ingress: make(chan struct {
 			msg  *Message
 			from NodeID
@@ -67,48 +77,22 @@ func newSimplexNodeWithStorage(t *testing.T, nodeID NodeID, net *inMemNetwork, b
 	return ti
 }
 
-func newSimplexNode(t *testing.T, nodeID NodeID, net *inMemNetwork, bb BlockBuilder, replicationEnabled bool) *testNode {
-	wal := newTestWAL(t)
-	comm := newTestComm(nodeID, net, allowAllMessages)
-	conf := defaultTestNodeEpochConfig(t, nodeID, comm, wal, bb, replicationEnabled)
-	e, err := NewEpoch(conf)
-	require.NoError(t, err)
-	ti := &testNode{
-		wal:     wal,
-		e:       e,
-		t:       t,
-		storage: conf.Storage.(*InMemStorage),
-		ingress: make(chan struct {
-			msg  *Message
-			from NodeID
-		}, 100)}
-
-	net.addNode(ti)
-	return ti
+func updateEpochConfig(epochConfig *EpochConfig, testConfig *testNodeConfig) {
+	// set the initial storage
+	for _, data := range testConfig.initialStorage {
+		epochConfig.Storage.Index(data.Block, data.FCert)
+	}
+	
+	// TODO: remove optional replication flag
+	epochConfig.ReplicationEnabled = testConfig.replicationEnabled
+	
+	// custom communication
+	if testConfig.comm != nil {
+		epochConfig.Comm = testConfig.comm
+	}
 }
 
-
-func newSimplexNodeWithMessageFunc(t *testing.T, nodeID NodeID, net *inMemNetwork, bb BlockBuilder, replicationEnabled bool, allowMessageFunc allowMessageFunc) *testNode {
-	wal := newTestWAL(t)
-	comm := newTestComm(nodeID, net, allowMessageFunc)
-	conf := defaultTestNodeEpochConfig(t, nodeID, comm, wal, bb, replicationEnabled)
-	e, err := NewEpoch(conf)
-	require.NoError(t, err)
-	ti := &testNode{
-		wal:     wal,
-		e:       e,
-		t:       t,
-		storage: conf.Storage.(*InMemStorage),
-		ingress: make(chan struct {
-			msg  *Message
-			from NodeID
-		}, 100)}
-
-	net.addNode(ti)
-	return ti
-}
-
-func defaultTestNodeEpochConfig(t *testing.T, nodeID NodeID, comm Communication, wal WriteAheadLog, bb BlockBuilder, replicationEnabled bool) EpochConfig {
+func defaultTestNodeEpochConfig(t *testing.T, nodeID NodeID, comm Communication, bb BlockBuilder) EpochConfig {
 	l := testutil.MakeLogger(t, int(nodeID[0]))
 	storage := newInMemStorage()
 	conf := EpochConfig{
@@ -117,14 +101,13 @@ func defaultTestNodeEpochConfig(t *testing.T, nodeID NodeID, comm Communication,
 		Logger:              l,
 		ID:                  nodeID,
 		Signer:              &testSigner{},
-		WAL:                 wal,
+		WAL:                 newTestWAL(t),
 		Verifier:            &testVerifier{},
 		Storage:             storage,
 		BlockBuilder:        bb,
 		SignatureAggregator: &testSignatureAggregator{},
 		BlockDeserializer:   &blockDeserializer{},
 		QCDeserializer:      &testQCDeserializer{t: t},
-		ReplicationEnabled:  replicationEnabled,
 		StartTime:           time.Now(),
 	}
 	return conf

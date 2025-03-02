@@ -73,8 +73,8 @@ func TestNotarizationRequestBasic(t *testing.T) {
 	// generate 5 blocks & notarizations
 	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
-	wal := wal.NewMemWAL(t)
-	conf := defaultTestNodeEpochConfig(t, nodes[0], noopComm(nodes), wal, bb, true)
+	conf := defaultTestNodeEpochConfig(t, nodes[0], noopComm(nodes), bb)
+	conf.ReplicationEnabled = true
 
 	e, err := simplex.NewEpoch(conf)
 	require.NoError(t, err)
@@ -117,9 +117,9 @@ func TestNotarizationRequestMixed(t *testing.T) {
 	// generate 5 blocks & notarizations
 	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
-	wal := wal.NewMemWAL(t)
-	conf := defaultTestNodeEpochConfig(t, nodes[0], noopComm(nodes), wal, bb, true)
-
+	conf := defaultTestNodeEpochConfig(t, nodes[0], noopComm(nodes), bb)
+	conf.ReplicationEnabled = true
+	
 	e, err := simplex.NewEpoch(conf)
 	require.NoError(t, err)
 	require.NoError(t, e.Start())
@@ -176,10 +176,20 @@ func TestReplicationNotarizations(t *testing.T) {
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
 	bb := newTestControlledBlockBuilder(t)
 	net := newInMemNetwork(t, nodes)
-	normalNode1 := newSimplexNodeWithMessageFunc(t, nodes[0], net, bb, true, denyFinalizationMessages)
-	normalNode2 := newSimplexNodeWithMessageFunc(t, nodes[1], net, bb, true, denyFinalizationMessages)
-	noFinalizeNode := newSimplexNodeWithMessageFunc(t, nodes[2], net, bb, true, denyFinalizationMessages)
-	laggingNode := newSimplexNode(t, nodes[3], net, bb, true)
+	
+	newNodeConfig := func(from simplex.NodeID) *testNodeConfig {
+		comm := newTestComm(from, net, denyFinalizationMessages)
+		return &testNodeConfig{
+			comm: comm,
+			replicationEnabled: true,
+		}
+	}
+
+
+	normalNode1 := newSimplexNode(t, nodes[0], net, bb, newNodeConfig(nodes[0]))
+	normalNode2 := newSimplexNode(t, nodes[1], net, bb, newNodeConfig(nodes[1]))
+	noFinalizeNode := newSimplexNode(t, nodes[2], net, bb, newNodeConfig(nodes[2]))
+	laggingNode := newSimplexNode(t, nodes[3], net, bb, newNodeConfig(nodes[3]))
 
 	require.Equal(t, uint64(0), normalNode1.storage.Height())
 	require.Equal(t, uint64(0), normalNode2.storage.Height())
@@ -225,6 +235,7 @@ func TestReplicationNotarizations(t *testing.T) {
 	normalNode1.e.Comm = newTestComm(normalNode1.e.ID, net, allowAllMessages)
 	normalNode2.e.Comm = newTestComm(normalNode2.e.ID, net, allowAllMessages)
 	noFinalizeNode.e.Comm = newTestComm(noFinalizeNode.e.ID, net, allowAllMessages)
+	laggingNode.e.Comm = newTestComm(laggingNode.e.ID, net, allowAllMessages)
 	fmt.Println("all messages allowed")
 	fCert, _ := newFinalizationRecord(t, laggingNode.e.Logger, normalNode1.e.EpochConfig.SignatureAggregator, blocks[0], nodes)
 	normalNode1.e.Comm.Broadcast(&simplex.Message{
@@ -268,9 +279,10 @@ func TestNotarizationRequestBehind(t *testing.T) {
 	// generate 5 blocks & notarizations
 	bb := &testBlockBuilder{}
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
-	wal := wal.NewMemWAL(t)
 	finalizedBlocks := createBlocks(t, nodes, bb, 4)
-	conf := defaultTestNodeEpochConfig(t, nodes[0], noopComm(nodes), wal, bb, true)
+	conf := defaultTestNodeEpochConfig(t, nodes[0], noopComm(nodes), bb)
+	conf.ReplicationEnabled = true
+
 	for _, data := range finalizedBlocks {
 		conf.Storage.Index(data.Block, data.FCert)
 	}
@@ -323,10 +335,16 @@ func TestReplication(t *testing.T) {
 
 	// initiate a network with 4 nodes. one node is behind by 8 blocks
 	storageData := createBlocks(t, nodes, &bb.testBlockBuilder, startSeq)
-	normalNode1 := newSimplexNodeWithStorage(t, nodes[0], net, bb, storageData)
-	normalNode2 := newSimplexNodeWithStorage(t, nodes[1], net, bb, storageData)
-	normalNode3 := newSimplexNodeWithStorage(t, nodes[2], net, bb, storageData)
-	laggingNode := newSimplexNode(t, nodes[3], net, bb, true)
+	testEpochConfig := &testNodeConfig{
+		initialStorage: storageData,
+		replicationEnabled: true,
+	}
+	normalNode1 := newSimplexNode(t, nodes[0], net, bb, testEpochConfig)
+	normalNode2 := newSimplexNode(t, nodes[1], net, bb, testEpochConfig)
+	normalNode3 := newSimplexNode(t, nodes[2], net, bb, testEpochConfig)
+	laggingNode := newSimplexNode(t, nodes[3], net, bb, &testNodeConfig{
+		replicationEnabled: true,
+	})
 
 	require.Equal(t, startSeq, normalNode1.storage.Height())
 	require.Equal(t, startSeq, normalNode2.storage.Height())
@@ -355,10 +373,17 @@ func TestReplicationExceedsMaxRoundWindow(t *testing.T) {
 	startSeq := uint64(simplex.DefaultMaxRoundWindow * 3)
 
 	storageData := createBlocks(t, nodes, &bb.testBlockBuilder, startSeq)
-	normalNode1 := newSimplexNodeWithStorage(t, nodes[0], net, bb, storageData)
-	normalNode2 := newSimplexNodeWithStorage(t, nodes[1], net, bb, storageData)
-	normalNode3 := newSimplexNodeWithStorage(t, nodes[2], net, bb, storageData)
-	laggingNode := newSimplexNode(t, nodes[3], net, bb, true)
+	testEpochConfig := &testNodeConfig{
+		initialStorage: storageData,
+		replicationEnabled: true,
+	}
+	normalNode1 := newSimplexNode(t, nodes[0], net, bb, testEpochConfig)
+	normalNode2 := newSimplexNode(t, nodes[1], net, bb, testEpochConfig)
+	normalNode3 := newSimplexNode(t, nodes[2], net, bb, testEpochConfig)
+	laggingNode := newSimplexNode(t, nodes[3], net, bb, &testNodeConfig{
+		replicationEnabled: true,
+	})
+
 	require.Equal(t, startSeq, normalNode1.storage.Height())
 	require.Equal(t, startSeq, normalNode2.storage.Height())
 	require.Equal(t, startSeq, normalNode3.storage.Height())
@@ -382,11 +407,16 @@ func TestReplicationStartsBeforeCurrentRound(t *testing.T) {
 	net := newInMemNetwork(t, nodes)
 	startSeq := uint64(simplex.DefaultMaxRoundWindow + 3)
 	storageData := createBlocks(t, nodes, &bb.testBlockBuilder, startSeq)
-
-	normalNode1 := newSimplexNodeWithStorage(t, nodes[0], net, bb, storageData)
-	normalNode2 := newSimplexNodeWithStorage(t, nodes[1], net, bb, storageData)
-	normalNode3 := newSimplexNodeWithStorage(t, nodes[2], net, bb, storageData)
-	laggingNode := newSimplexNode(t, nodes[3], net, bb, true)
+	testEpochConfig := &testNodeConfig{
+		initialStorage: storageData,
+		replicationEnabled: true,
+	}
+	normalNode1 := newSimplexNode(t, nodes[0], net, bb, testEpochConfig)
+	normalNode2 := newSimplexNode(t, nodes[1], net, bb, testEpochConfig)
+	normalNode3 := newSimplexNode(t, nodes[2], net, bb, testEpochConfig)
+	laggingNode := newSimplexNode(t, nodes[3], net, bb, &testNodeConfig{
+		replicationEnabled: true,
+	})
 
 	firstBlock := storageData[0].Block
 	record := simplex.BlockRecord(firstBlock.BlockHeader(), firstBlock.Bytes())
@@ -512,10 +542,13 @@ func TestReplicationAfterNodeDisconnects(t *testing.T) {
 func testReplicationAfterNodeDisconnects(t *testing.T, nodes []simplex.NodeID, startDisconnect, endDisconnect uint64) {
 	bb := newTestControlledBlockBuilder(t)
 	net := newInMemNetwork(t, nodes)
-	normalNode1 := newSimplexNode(t, nodes[0], net, bb, true)
-	normalNode2 := newSimplexNode(t, nodes[1], net, bb, true)
-	normalNode3 := newSimplexNode(t, nodes[2], net, bb, true)
-	laggingNode := newSimplexNode(t, nodes[3], net, bb, true)
+	testConfig := &testNodeConfig{
+		replicationEnabled: true,
+	}
+	normalNode1 := newSimplexNode(t, nodes[0], net, bb, testConfig)
+	normalNode2 := newSimplexNode(t, nodes[1], net, bb, testConfig)
+	normalNode3 := newSimplexNode(t, nodes[2], net, bb, testConfig)
+	laggingNode := newSimplexNode(t, nodes[3], net, bb, testConfig)
 
 	require.Equal(t, uint64(0), normalNode1.storage.Height())
 	require.Equal(t, uint64(0), normalNode2.storage.Height())

@@ -113,7 +113,7 @@ func TestEpochLeaderFailoverWithEmptyNotarization(t *testing.T) {
 	require.Equal(t, uint64(4), storage.Height())
 }
 
-// newEmptyNotarization creates a new empty notarization 
+// newEmptyNotarization creates a new empty notarization
 func newEmptyNotarization(e *Epoch, block Block, round uint64, seq uint64) *EmptyNotarization {
 	quorum := simplex.Quorum(len(e.Comm.ListNodes()))
 	var qc testQC
