@@ -176,7 +176,7 @@ func TestReplicationNotarizations(t *testing.T) {
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
 	bb := newTestControlledBlockBuilder(t)
 	net := newInMemNetwork(t, nodes)
-	normalNode1 := newSimplexNode(t, nodes[0], net, bb, true)
+	normalNode1 := newSimplexNodeWithMessageFunc(t, nodes[0], net, bb, true, denyFinalizationMessages)
 	normalNode2 := newSimplexNodeWithMessageFunc(t, nodes[1], net, bb, true, denyFinalizationMessages)
 	noFinalizeNode := newSimplexNodeWithMessageFunc(t, nodes[2], net, bb, true, denyFinalizationMessages)
 	laggingNode := newSimplexNode(t, nodes[3], net, bb, true)
@@ -204,6 +204,7 @@ func TestReplicationNotarizations(t *testing.T) {
 		if emptyRound {
 			advanceWithoutLeader(t, net, bb, epochTimes, i)
 			missedSeqs++
+			time.Sleep(time.Millisecond * 50)
 		} else {
 			bb.triggerNewBlock()
 			block := <- bb.out
@@ -221,6 +222,7 @@ func TestReplicationNotarizations(t *testing.T) {
 	}
 
 	net.Connect(nodes[3])
+	normalNode1.e.Comm = newTestComm(normalNode1.e.ID, net, allowAllMessages)
 	normalNode2.e.Comm = newTestComm(normalNode2.e.ID, net, allowAllMessages)
 	noFinalizeNode.e.Comm = newTestComm(noFinalizeNode.e.ID, net, allowAllMessages)
 	fmt.Println("all messages allowed")
@@ -229,8 +231,20 @@ func TestReplicationNotarizations(t *testing.T) {
 		FinalizationCertificate: &fCert,
 	})
 
-	for _, n := range net.instances[:4] {
+	for _, n := range net.instances {
 		n.storage.waitForBlockCommit(0)
+	}
+
+	for _, n := range net.instances {
+		fmt.Println(n.e.ID.String(), " ", n.e.Metadata().Round, " height: ",  n.e.Storage.Height())
+	}
+	time.Sleep(time.Second)
+	for _, n := range net.instances{
+		for i := 1; i < 9; i++ {
+			// check the notarizaiton records
+			fmt.Println("waiting for notatirzation ", i, " for node ", n.e.ID.String())
+			n.wal.assertNotarization(uint64(i))
+		}
 	}
 }
 

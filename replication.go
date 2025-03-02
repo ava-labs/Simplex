@@ -44,7 +44,13 @@ func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundW
 
 // isReplicationComplete returns true if the replication state has caught up to the highest finalization certificate.
 // TODO: when we add notarization requests, this function should also make sure we have caught up to the highest notarization.
-func (r *ReplicationState) isReplicationComplete(nextSeqToCommit uint64) bool {
+func (r *ReplicationState) isReplicationComplete(nextSeqToCommit uint64, currentRound uint64) bool {
+	for round, _ := range r.receivedNotarizations {
+		if round >= currentRound {
+			return false
+		}
+	}
+
 	return nextSeqToCommit > r.highestFCertReceived.Finalization.Seq
 }
 
@@ -95,9 +101,12 @@ func (r *ReplicationState) requestFrom() NodeID {
 	nodes := r.comm.ListNodes()
 	for _, node := range nodes {
 		if !node.Equals(r.id) {
+			fmt.Println("requestin gfrom ", node.String())
 			return node
 		}
 	}
+	fmt.Println("requestin nodbuby")
+
 	return NodeID{}
 }
 
@@ -106,7 +115,7 @@ func (r *ReplicationState) replicateBlocks(fCert *FinalizationCertificate, curre
 		return
 	}
 	r.collectFutureFinalizationCertificates(fCert, currentRound, nextSeqToCommit)
-	// r.collectFutureNotarizations(currentRound)
+	r.collectFutureNotarizations(currentRound)
 }
 
 // maybeCollectFutureFinalizationCertificates attempts to collect future finalization certificates if
