@@ -50,7 +50,7 @@ type testNodeConfig struct {
 	replicationEnabled bool
 }
 
-// newSimplexNode creates a new testNode and adds it to [net]. Optionally pass in 
+// newSimplexNode creates a new testNode and adds it to [net].
 func newSimplexNode(t *testing.T, nodeID NodeID, net *inMemNetwork, bb BlockBuilder, config *testNodeConfig) *testNode {
 	comm := newTestComm(nodeID, net, allowAllMessages)
 	
@@ -232,8 +232,25 @@ func (tw *testWAL) containsEmptyVote(round uint64) bool {
 	return false
 }
 
+// messageFilter defines a function that filters
+// certain messages from being sent or broadcasted.
 type messageFilter func (*Message) bool
 func allowAllMessages(*Message) bool {
+	return true
+}
+
+// denyFinalizationMessages blocks any messages that would cause nodes in 
+// a network to index a block in storage. 
+func denyFinalizationMessages(msg *Message) bool {
+	if msg.Finalization != nil {
+		return false
+	}
+	if msg.FinalizationCertificate != nil {
+		return false
+	}
+	if msg.Notarization != nil {
+		return false
+	}
 	return true
 }
 

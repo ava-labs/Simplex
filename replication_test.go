@@ -254,20 +254,6 @@ func TestReplicationNotarizations(t *testing.T) {
 	}
 }
 
-func denyFinalizationMessages(msg *simplex.Message) bool {
-	if msg.Finalization != nil {
-		return false
-	}
-	if msg.FinalizationCertificate != nil {
-		return false
-	}
-	if msg.Notarization != nil {
-		return false
-	}
-	return true
-}
-
-
 // TestNotarizationRequestBehind tests notarization requests when the requested start round
 // is behind the storage height.
 func TestNotarizationRequestBehind(t *testing.T) {
