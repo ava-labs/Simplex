@@ -236,7 +236,6 @@ func TestReplicationNotarizations(t *testing.T) {
 	normalNode2.e.Comm = newTestComm(normalNode2.e.ID, net, allowAllMessages)
 	noFinalizeNode.e.Comm = newTestComm(noFinalizeNode.e.ID, net, allowAllMessages)
 	laggingNode.e.Comm = newTestComm(laggingNode.e.ID, net, allowAllMessages)
-	fmt.Println("all messages allowed")
 	fCert, _ := newFinalizationRecord(t, laggingNode.e.Logger, normalNode1.e.EpochConfig.SignatureAggregator, blocks[0], nodes)
 	normalNode1.e.Comm.Broadcast(&simplex.Message{
 		FinalizationCertificate: &fCert,
@@ -246,14 +245,10 @@ func TestReplicationNotarizations(t *testing.T) {
 		n.storage.waitForBlockCommit(0)
 	}
 
-	for _, n := range net.instances {
-		fmt.Println(n.e.ID.String(), " ", n.e.Metadata().Round, " height: ",  n.e.Storage.Height())
-	}
 	time.Sleep(time.Second)
 	for _, n := range net.instances{
 		for i := 1; i < 9; i++ {
 			// check the notarizaiton records
-			fmt.Println("waiting for notatirzation ", i, " for node ", n.e.ID.String())
 			n.wal.assertNotarization(uint64(i))
 		}
 	}

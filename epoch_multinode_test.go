@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"fmt"
 	. "simplex"
 	"simplex/record"
 	"simplex/testutil"
@@ -233,7 +232,7 @@ func (tw *testWAL) containsEmptyVote(round uint64) bool {
 	return false
 }
 
-type allowMessageFunc func (*Message) bool
+type messageFilter func (*Message) bool
 func allowAllMessages(*Message) bool {
 	return true
 }
@@ -241,14 +240,14 @@ func allowAllMessages(*Message) bool {
 type testComm struct {
 	from NodeID
 	net  *inMemNetwork
-	allowMessageFunc allowMessageFunc 
+	messageFilter messageFilter 
 }
 
-func newTestComm(from NodeID, net *inMemNetwork, allowMessageFunc allowMessageFunc) *testComm {
+func newTestComm(from NodeID, net *inMemNetwork, messageFilter messageFilter) *testComm {
 	return &testComm{
 		from: from,
 		net:  net,
-		allowMessageFunc: allowMessageFunc,
+		messageFilter: messageFilter,
 	}
 }
 
@@ -257,7 +256,7 @@ func (c *testComm) ListNodes() []NodeID {
 }
 
 func (c *testComm) SendMessage(msg *Message, destination NodeID) {
-	if !c.allowMessageFunc(msg) {
+	if !c.messageFilter(msg) {
 		return
 	}
 	// cannot send if either [from] or [destination] is not connected
@@ -277,8 +276,7 @@ func (c *testComm) SendMessage(msg *Message, destination NodeID) {
 }
 
 func (c *testComm) Broadcast(msg *Message) {
-	if !c.allowMessageFunc(msg) {
-		fmt.Println("not allowing the message")
+	if !c.messageFilter(msg) {
 		return
 	}
 	if c.net.IsDisconnected(c.from) {

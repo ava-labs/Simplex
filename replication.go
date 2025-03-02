@@ -101,11 +101,9 @@ func (r *ReplicationState) requestFrom() NodeID {
 	nodes := r.comm.ListNodes()
 	for _, node := range nodes {
 		if !node.Equals(r.id) {
-			fmt.Println("requestin gfrom ", node.String())
 			return node
 		}
 	}
-	fmt.Println("requestin nodbuby")
 
 	return NodeID{}
 }

@@ -2101,7 +2101,6 @@ func (e *Epoch) HandleReplicationRequest(req *ReplicationRequest, from NodeID) (
 	if req.NotarizationRequest != nil {
 		notarizationResopnse, err := e.handleNotarizationRequest(req.NotarizationRequest)
 		if err != nil {
-			fmt.Printf("err is %v \n", err)
 			return nil, err
 		}
 		response.NotarizationResponse = notarizationResopnse
@@ -2222,8 +2221,6 @@ func (e *Epoch) handleNotarizationRequest(req *NotarizationRequest) (*Notarizati
 			emptyVotes, ok := e.emptyVotes[currentRound]
 			if !ok || emptyVotes.emptyNotarization == nil {
 				// this should not happen
-				fmt.Println("hetting here")
-				fmt.Println("current round", e.round)
 				return nil, fmt.Errorf("unable to find required data for round %d", currentRound)
 			}
 
