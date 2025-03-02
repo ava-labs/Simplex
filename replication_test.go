@@ -537,6 +537,8 @@ func TestReplicationAfterNodeDisconnects(t *testing.T) {
 			})
 		}
 	}
+
+	// testReplicationAfterNodeDisconnects(t, nodes, 1, 14)
 }
 
 func testReplicationAfterNodeDisconnects(t *testing.T, nodes []simplex.NodeID, startDisconnect, endDisconnect uint64) {

@@ -1456,21 +1456,15 @@ func (e *Epoch) createBlockFinalizedVerificationTask(finalizedBlock FinalizedBlo
 			return md.Digest
 		}
 		
-		// store the block in rounds
-		if !e.storeProposal(block) {
-			e.Logger.Warn("Unable to store proposed block for the round", zap.Uint64("round", md.Round))
-			return md.Digest
-			// TODO: timeout
-		}
-
 		round, ok := e.rounds[block.BlockHeader().Round]
 		if !ok {
-			e.Logger.Warn("Unable to get proposed block for the round", zap.Uint64("round", md.Round))
-			return md.Digest
+			round := NewRound(block)
+			e.rounds[block.BlockHeader().Round] = round
+			round.fCert = &finalizedBlock.FCert
+		} else {
+			round.fCert = &finalizedBlock.FCert
 		}
-
-		round.fCert = &finalizedBlock.FCert
-
+		
 		e.indexFinalizationCertificate(block, finalizedBlock.FCert)
 		err := e.processReplicationState()
 		if err != nil {
