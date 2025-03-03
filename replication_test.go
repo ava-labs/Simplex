@@ -85,7 +85,7 @@ func TestNotarizationRequestBasic(t *testing.T) {
 		block, notarization := advanceRound(t, e, bb, true, false)
 
 		blocks[i] = simplex.NotarizedBlock{
-			Block: block,
+			Block:        block,
 			Notarization: notarization,
 		}
 	}
@@ -108,7 +108,7 @@ func TestNotarizationRequestBasic(t *testing.T) {
 		require.True(t, ok)
 		require.Equal(t, notarizedBlock.Block, round.Block)
 		require.Equal(t, notarizedBlock.Notarization, round.Notarization)
-	}	
+	}
 }
 
 // TestNotarizationRequestMixed ensures the notarization response also includes empty notarizations
@@ -119,7 +119,7 @@ func TestNotarizationRequestMixed(t *testing.T) {
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
 	conf := defaultTestNodeEpochConfig(t, nodes[0], noopComm(nodes), bb)
 	conf.ReplicationEnabled = true
-	
+
 	e, err := simplex.NewEpoch(conf)
 	require.NoError(t, err)
 	require.NoError(t, e.Start())
@@ -143,7 +143,7 @@ func TestNotarizationRequestMixed(t *testing.T) {
 		block, notarization := advanceRound(t, e, bb, true, false)
 
 		blocks[i] = simplex.NotarizedBlock{
-			Block: block,
+			Block:        block,
 			Notarization: notarization,
 		}
 	}
@@ -169,22 +169,21 @@ func TestNotarizationRequestMixed(t *testing.T) {
 	}
 }
 
-// TestReplicationNotarizations tests that a lagging node also replicates the notarizations 
+// TestReplicationNotarizations tests that a lagging node also replicates the notarizations
 // after lagging behind
-// we generate 5 notarizations without finalizations, then finalize the first round and expect the lagging node to catch up 
+// we generate 5 notarizations without finalizations, then finalize the first round and expect the lagging node to catch up
 func TestReplicationNotarizations(t *testing.T) {
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
 	bb := newTestControlledBlockBuilder(t)
 	net := newInMemNetwork(t, nodes)
-	
+
 	newNodeConfig := func(from simplex.NodeID) *testNodeConfig {
 		comm := newTestComm(from, net, denyFinalizationMessages)
 		return &testNodeConfig{
-			comm: comm,
+			comm:               comm,
 			replicationEnabled: true,
 		}
 	}
-
 
 	normalNode1 := newSimplexNode(t, nodes[0], net, bb, newNodeConfig(nodes[0]))
 	normalNode2 := newSimplexNode(t, nodes[1], net, bb, newNodeConfig(nodes[1]))
@@ -217,7 +216,7 @@ func TestReplicationNotarizations(t *testing.T) {
 			time.Sleep(time.Millisecond * 50)
 		} else {
 			bb.triggerNewBlock()
-			block := <- bb.out
+			block := <-bb.out
 			blocks = append(blocks, block)
 			for _, n := range net.instances[:3] {
 				n.wal.assertNotarization(i)
@@ -246,7 +245,7 @@ func TestReplicationNotarizations(t *testing.T) {
 	}
 
 	time.Sleep(time.Second)
-	for _, n := range net.instances{
+	for _, n := range net.instances {
 		for i := 1; i < 9; i++ {
 			// check the notarizaiton records
 			n.wal.assertNotarization(uint64(i))
@@ -279,12 +278,12 @@ func TestNotarizationRequestBehind(t *testing.T) {
 		block, notarization := advanceRound(t, e, bb, true, false)
 
 		blocks[int(block.BlockHeader().Round)] = simplex.NotarizedBlock{
-			Block: block,
+			Block:        block,
 			Notarization: notarization,
 		}
 	}
 
-	require.Equal(t, uint64(5 + 4), e.Metadata().Round)
+	require.Equal(t, uint64(5+4), e.Metadata().Round)
 
 	req := &simplex.ReplicationRequest{
 		NotarizationRequest: &simplex.NotarizationRequest{
@@ -303,7 +302,7 @@ func TestNotarizationRequestBehind(t *testing.T) {
 		require.True(t, ok)
 		require.Equal(t, notarizedBlock.Block, round.Block)
 		require.Equal(t, notarizedBlock.Notarization, round.Notarization)
-	}	
+	}
 }
 
 // TestReplication tests the replication process of a node that
@@ -317,7 +316,7 @@ func TestReplication(t *testing.T) {
 	// initiate a network with 4 nodes. one node is behind by 8 blocks
 	storageData := createBlocks(t, nodes, &bb.testBlockBuilder, startSeq)
 	testEpochConfig := &testNodeConfig{
-		initialStorage: storageData,
+		initialStorage:     storageData,
 		replicationEnabled: true,
 	}
 	normalNode1 := newSimplexNode(t, nodes[0], net, bb, testEpochConfig)
@@ -355,7 +354,7 @@ func TestReplicationExceedsMaxRoundWindow(t *testing.T) {
 
 	storageData := createBlocks(t, nodes, &bb.testBlockBuilder, startSeq)
 	testEpochConfig := &testNodeConfig{
-		initialStorage: storageData,
+		initialStorage:     storageData,
 		replicationEnabled: true,
 	}
 	normalNode1 := newSimplexNode(t, nodes[0], net, bb, testEpochConfig)
@@ -389,7 +388,7 @@ func TestReplicationStartsBeforeCurrentRound(t *testing.T) {
 	startSeq := uint64(simplex.DefaultMaxRoundWindow + 3)
 	storageData := createBlocks(t, nodes, &bb.testBlockBuilder, startSeq)
 	testEpochConfig := &testNodeConfig{
-		initialStorage: storageData,
+		initialStorage:     storageData,
 		replicationEnabled: true,
 	}
 	normalNode1 := newSimplexNode(t, nodes[0], net, bb, testEpochConfig)

@@ -38,17 +38,16 @@ func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundW
 		id:                               id,
 		maxRoundWindow:                   maxRoundWindow,
 		receivedFinalizationCertificates: make(map[uint64]FinalizedBlock),
-		receivedNotarizations: make(map[uint64]NotarizedBlock),
+		receivedNotarizations:            make(map[uint64]NotarizedBlock),
 	}
 }
 
-// isReplicationComplete returns true if the replication state has caught up to the highest finalization certificate.
-// TODO: when we add notarization requests, this function should also make sure we have caught up to the highest notarization.
+// isReplicationComplete returns true if we have finished the replication process.
+// The process is considered finished once [nextSeqToCommit] has caught up to the highest finalization certificate
+// and there are no notarizations higher than [currentRound].
 func (r *ReplicationState) isReplicationComplete(nextSeqToCommit uint64, currentRound uint64) bool {
-	for round, _ := range r.receivedNotarizations {
-		if round >= currentRound {
-			return false
-		}
+	if r.highestNotarizedRound() >= currentRound {
+		return false
 	}
 
 	return nextSeqToCommit > r.highestFCertReceived.Finalization.Seq
@@ -57,7 +56,7 @@ func (r *ReplicationState) isReplicationComplete(nextSeqToCommit uint64, current
 func (r *ReplicationState) collectFutureFinalizationCertificates(fCert *FinalizationCertificate, currentRound uint64, nextSeqToCommit uint64) {
 	fCertSeq := fCert.Finalization.Seq
 	// Don't exceed the max round window
-	
+
 	endSeq := math.Min(float64(fCertSeq), float64(r.maxRoundWindow+currentRound))
 	// Node is behind, but we've already sent messages to collect future fCerts
 	if r.highestFCertReceived != nil && r.lastSequenceRequested >= uint64(endSeq) {
@@ -67,7 +66,6 @@ func (r *ReplicationState) collectFutureFinalizationCertificates(fCert *Finaliza
 	if r.highestFCertReceived == nil || fCertSeq > r.highestFCertReceived.Finalization.Seq {
 		r.highestFCertReceived = fCert
 	}
-	
 
 	startSeq := math.Max(float64(nextSeqToCommit), float64(r.lastSequenceRequested))
 	r.logger.Debug("Node is behind, requesting missing finalization certificates", zap.Uint64("seq", fCertSeq), zap.Uint64("startSeq", uint64(startSeq)), zap.Uint64("endSeq", uint64(endSeq)))

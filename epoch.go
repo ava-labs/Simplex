@@ -916,7 +916,6 @@ func (e *Epoch) maybeAssembleEmptyNotarization() error {
 	// write to the empty vote set
 	emptyVotes.emptyNotarization = emptyNotarization
 
-
 	// Persist the empty notarization and also broadcast it to everyone
 	return e.persistEmptyNotarization(emptyNotarization, true)
 }
@@ -1035,7 +1034,7 @@ func (e *Epoch) writeNotarizationToWal(notarization Notarization) error {
 		zap.Stringer("digest", notarization.Vote.BlockHeader.Digest))
 
 	return nil
-} 
+}
 
 func (e *Epoch) persistNotarization(notarization Notarization) error {
 	if err := e.writeNotarizationToWal(notarization); err != nil {
@@ -1315,7 +1314,7 @@ func (e *Epoch) processNotarizedBlock(notarizedBlock *NotarizedBlock) error {
 	}
 
 	// dont create a block verification task if the block is already in the rounds map
-	if exists && notarizedBlock.Notarization != nil { // we could have a block in the rounds map but receive and empty notarization 
+	if exists && notarizedBlock.Notarization != nil { // we could have a block in the rounds map but receive and empty notarization
 		roundDigest := round.block.BlockHeader().Digest
 		notarizedDigest := notarizedBlock.Notarization.Vote.BlockHeader.Digest
 		if !bytes.Equal(roundDigest[:], notarizedDigest[:]) {
@@ -1327,7 +1326,7 @@ func (e *Epoch) processNotarizedBlock(notarizedBlock *NotarizedBlock) error {
 		if err := e.writeNotarizationToWal(*notarizedBlock.Notarization); err != nil {
 			return nil
 		}
-	
+
 		err := e.storeNotarization(*notarizedBlock.Notarization)
 		if err != nil {
 			return err
@@ -1335,8 +1334,7 @@ func (e *Epoch) processNotarizedBlock(notarizedBlock *NotarizedBlock) error {
 
 		e.increaseRound()
 		return e.processReplicationState()
-	} 
-
+	}
 
 	pendingBlocks := e.sched.Size()
 	if pendingBlocks > e.maxPendingBlocks {
@@ -1455,7 +1453,7 @@ func (e *Epoch) createBlockFinalizedVerificationTask(finalizedBlock FinalizedBlo
 				zap.Uint64("seq", md.Seq), zap.Uint64("height", e.Storage.Height()))
 			return md.Digest
 		}
-		
+
 		round, ok := e.rounds[block.BlockHeader().Round]
 		if !ok {
 			round := NewRound(block)
@@ -1464,7 +1462,7 @@ func (e *Epoch) createBlockFinalizedVerificationTask(finalizedBlock FinalizedBlo
 		} else {
 			round.fCert = &finalizedBlock.FCert
 		}
-		
+
 		e.indexFinalizationCertificate(block, finalizedBlock.FCert)
 		err := e.processReplicationState()
 		if err != nil {
@@ -1480,7 +1478,6 @@ func (e *Epoch) createBlockFinalizedVerificationTask(finalizedBlock FinalizedBlo
 		return md.Digest
 	}
 }
-
 
 func (e *Epoch) createNotarizedBlockVerificationTask(block Block, notarization *Notarization) func() Digest {
 	return func() Digest {
@@ -1501,7 +1498,6 @@ func (e *Epoch) createNotarizedBlockVerificationTask(block Block, notarization *
 		e.lock.Lock()
 		defer e.lock.Unlock()
 
-
 		// we started verifying the block when it was the next sequence to commit, however its
 		// possible we received a fCert for this block in the meantime. This check ensures we commit
 		// the block only if it is still the next sequence to commit.
@@ -1510,7 +1506,6 @@ func (e *Epoch) createNotarizedBlockVerificationTask(block Block, notarization *
 		// 		zap.Uint64("seq", md.Seq), zap.Uint64("height", e.Storage.Height()))
 		// 	return md.Digest
 		// }
-		
 
 		// store the block in rounds
 		if !e.storeProposal(block) {
@@ -1529,7 +1524,7 @@ func (e *Epoch) createNotarizedBlockVerificationTask(block Block, notarization *
 		if err := e.writeNotarizationToWal(*notarization); err != nil {
 			e.haltedError = err
 		}
-	
+
 		err := e.storeNotarization(*notarization)
 		if err != nil {
 
@@ -1745,7 +1740,6 @@ func (e *Epoch) Metadata() ProtocolMetadata {
 
 	return e.metadata()
 }
-
 
 func (e *Epoch) metadata() ProtocolMetadata {
 	var prev Digest
@@ -2167,9 +2161,9 @@ func (e *Epoch) handleNotarizationResponse(resp *NotarizationResponse, from Node
 
 	for _, notarizedBlock := range resp.Data {
 		if err := notarizedBlock.Verify(); err != nil {
-			return err 
+			return err
 		}
-		
+
 		e.replicationState.storeNotarizedBlock(notarizedBlock)
 	}
 
@@ -2213,7 +2207,7 @@ func (e *Epoch) handleNotarizationRequest(req *NotarizationRequest) (*Notarizati
 		e.Logger.Debug("Node is potentially behind, it requested a start round when we have a fcert")
 	}
 
-	data := make([]NotarizedBlock, 0, e.round - startRound)
+	data := make([]NotarizedBlock, 0, e.round-startRound)
 
 	for currentRound := startRound; currentRound < e.round; currentRound++ {
 		round, ok := e.rounds[currentRound]
@@ -2231,7 +2225,7 @@ func (e *Epoch) handleNotarizationRequest(req *NotarizationRequest) (*Notarizati
 			continue
 		}
 		notarizedBlock := NotarizedBlock{
-			Block: round.block,
+			Block:        round.block,
 			Notarization: round.notarization,
 		}
 
@@ -2263,7 +2257,7 @@ func (e *Epoch) processReplicationState() error {
 		e.processNotarizedBlock(&notarizedBlock)
 	}
 
-	return nil	
+	return nil
 }
 
 func (e *Epoch) isRoundNotarized(round uint64) bool {
@@ -2275,7 +2269,6 @@ func (e *Epoch) isRoundNotarized(round uint64) bool {
 	emptyVote, ok := e.emptyVotes[round]
 	return ok && emptyVote.emptyNotarization != nil
 }
-
 
 // getHighestRound returns the highest round that has either a notarization of finalization
 func (e *Epoch) getHighestRound() (*Round, bool) {

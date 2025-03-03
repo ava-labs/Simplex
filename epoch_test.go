@@ -300,7 +300,7 @@ func TestEpochStartedTwice(t *testing.T) {
 }
 
 // advanceRound progresses [e] to a new round. If [notarize] is set, the round will progress due to a notarization.
-// If [finalize] is set, the round will advance and the block will be indexed to storage. 
+// If [finalize] is set, the round will advance and the block will be indexed to storage.
 func advanceRound(t *testing.T, e *Epoch, bb *testBlockBuilder, notarize bool, finalize bool) (Block, *Notarization) {
 	require.True(t, notarize || finalize, "must either notarize or finalize a round to advance")
 	nodes := e.Comm.ListNodes()
@@ -309,7 +309,6 @@ func advanceRound(t *testing.T, e *Epoch, bb *testBlockBuilder, notarize bool, f
 	leader := LeaderForRound(nodes, e.Metadata().Round)
 	// only create blocks if we are not the node running the epoch
 	isEpochNode := leader.Equals(e.ID)
-	
 	if !isEpochNode {
 		md := e.Metadata()
 		_, ok := bb.BuildBlock(context.Background(), md)
@@ -317,7 +316,7 @@ func advanceRound(t *testing.T, e *Epoch, bb *testBlockBuilder, notarize bool, f
 		require.Equal(t, md.Round, md.Seq)
 	}
 
-	block := <- bb.out
+	block := <-bb.out
 	require.NotNil(t, block)
 	if !isEpochNode {
 		// send node a message from the leader
@@ -331,11 +330,11 @@ func advanceRound(t *testing.T, e *Epoch, bb *testBlockBuilder, notarize bool, f
 		}, leader)
 		require.NoError(t, err)
 	}
-	
+
 	var notarization *Notarization
 	if notarize {
 		// start at one since our node has already voted
-		n, err :=  newNotarization(e.Logger, e.SignatureAggregator, block, nodes[0:quorum])
+		n, err := newNotarization(e.Logger, e.SignatureAggregator, block, nodes[0:quorum])
 		injectTestNotarization(t, e, n, nodes[1])
 
 		e.WAL.(*testWAL).assertNotarization(block.metadata.Round)
@@ -353,11 +352,6 @@ func advanceRound(t *testing.T, e *Epoch, bb *testBlockBuilder, notarize bool, f
 
 	return block, notarization
 }
-
-
-// func notarizeAndFinalizeRound(t *testing.T, nodes []NodeID, round, seq uint64, e *Epoch, bb *testBlockBuilder, quorum int, storage *InMemStorage, skipNotarization bool) {
-	
-// }
 
 func FuzzEpochInterleavingMessages(f *testing.F) {
 	f.Fuzz(func(t *testing.T, seed int64) {

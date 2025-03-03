@@ -104,9 +104,6 @@ func TestEpochLeaderFailoverWithEmptyNotarization(t *testing.T) {
 
 	wal.assertNotarization(3)
 
-	// nextBlockSeqToCommit := uint64(3)
-	// nextRoundToCommit := uint64(4)
-
 	// Ensure our node proposes block with sequence 3 for round 4
 	advanceRound(t, e, bb, true, true)
 	require.Equal(t, uint64(4), storage.Height())
@@ -128,7 +125,6 @@ func newEmptyNotarization(e *Epoch, block Block, round uint64, seq uint64) *Empt
 			Round: round,
 			Seq:   seq,
 		}},
-
 	}
 }
 
@@ -241,7 +237,6 @@ func TestEpochLeaderFailover(t *testing.T) {
 	storage := newInMemStorage()
 
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
-	// quorum := Quorum(len(nodes))
 
 	wal := newTestWAL(t)
 
@@ -419,7 +414,6 @@ func TestEpochLeaderFailoverAfterProposal(t *testing.T) {
 	storage := newInMemStorage()
 
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
-	// quorum := Quorum(len(nodes))
 
 	wal := newTestWAL(t)
 
@@ -493,9 +487,6 @@ func TestEpochLeaderFailoverAfterProposal(t *testing.T) {
 		Prev:  prev,
 	}
 
-	// nextBlockSeqToCommit := uint64(3)
-	// nextRoundToCommit := uint64(4)
-
 	emptyVoteFrom1 := createEmptyVote(md, nodes[1])
 	emptyVoteFrom2 := createEmptyVote(md, nodes[2])
 
@@ -507,7 +498,12 @@ func TestEpochLeaderFailoverAfterProposal(t *testing.T) {
 	}, nodes[2])
 
 	// Ensure our node proposes block with sequence 3 for round 4
-	advanceRound(t, e, bb, true, true)
+	nextBlockSeqToCommit := uint64(3)
+	nextRoundToCommit := uint64(4)
+
+	blockPropoed, _ := advanceRound(t, e, bb, true, true)
+	require.Equal(t, nextBlockSeqToCommit, blockPropoed.BlockHeader().Seq)
+	require.Equal(t, nextRoundToCommit, blockPropoed.BlockHeader().Round)
 
 	// WAL must contain an empty vote and an empty block.
 	walContent, err := wal.ReadAll()
@@ -536,7 +532,6 @@ func TestEpochLeaderFailoverTwice(t *testing.T) {
 	storage := newInMemStorage()
 
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
-	// quorum := Quorum(len(nodes))
 
 	wal := newTestWAL(t)
 
@@ -618,9 +613,12 @@ func TestEpochLeaderFailoverTwice(t *testing.T) {
 	wal.assertNotarization(3)
 
 	// Ensure our node proposes block with sequence 2 for round 4
-	// nextRoundToCommit := uint64(4)
-	// nextBlockSeqToCommit := uint64(2)
-	advanceRound(t, e, bb, true, true)
+	nextRoundToCommit := uint64(4)
+	nextBlockSeqToCommit := uint64(2)
+
+	blockPropoed, _ := advanceRound(t, e, bb, true, true)
+	require.Equal(t, nextBlockSeqToCommit, blockPropoed.BlockHeader().Seq)
+	require.Equal(t, nextRoundToCommit, blockPropoed.BlockHeader().Round)
 
 	// WAL must contain an empty vote and an empty block.
 	walContent, err := wal.ReadAll()

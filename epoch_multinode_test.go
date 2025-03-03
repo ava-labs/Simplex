@@ -44,22 +44,22 @@ func (t *testNode) start() {
 }
 
 type testNodeConfig struct {
-	// optional 
-	initialStorage []FinalizedBlock
-	comm Communication
+	// optional
+	initialStorage     []FinalizedBlock
+	comm               Communication
 	replicationEnabled bool
 }
 
 // newSimplexNode creates a new testNode and adds it to [net].
 func newSimplexNode(t *testing.T, nodeID NodeID, net *inMemNetwork, bb BlockBuilder, config *testNodeConfig) *testNode {
 	comm := newTestComm(nodeID, net, allowAllMessages)
-	
+
 	epochConfig := defaultTestNodeEpochConfig(t, nodeID, comm, bb)
 
 	if config != nil {
 		updateEpochConfig(&epochConfig, config)
 	}
-	
+
 	e, err := NewEpoch(epochConfig)
 	require.NoError(t, err)
 	ti := &testNode{
@@ -81,10 +81,10 @@ func updateEpochConfig(epochConfig *EpochConfig, testConfig *testNodeConfig) {
 	for _, data := range testConfig.initialStorage {
 		epochConfig.Storage.Index(data.Block, data.FCert)
 	}
-	
+
 	// TODO: remove optional replication flag
 	epochConfig.ReplicationEnabled = testConfig.replicationEnabled
-	
+
 	// custom communication
 	if testConfig.comm != nil {
 		epochConfig.Comm = testConfig.comm
@@ -234,15 +234,15 @@ func (tw *testWAL) containsEmptyVote(round uint64) bool {
 
 // messageFilter defines a function that filters
 // certain messages from being sent or broadcasted.
-type messageFilter func (*Message) bool
+type messageFilter func(*Message) bool
 
 // allowAllMessages allows every message to be sent
 func allowAllMessages(*Message) bool {
 	return true
 }
 
-// denyFinalizationMessages blocks any messages that would cause nodes in 
-// a network to index a block in storage. 
+// denyFinalizationMessages blocks any messages that would cause nodes in
+// a network to index a block in storage.
 func denyFinalizationMessages(msg *Message) bool {
 	if msg.Finalization != nil {
 		return false
@@ -257,15 +257,15 @@ func denyFinalizationMessages(msg *Message) bool {
 }
 
 type testComm struct {
-	from NodeID
-	net  *inMemNetwork
-	messageFilter messageFilter 
+	from          NodeID
+	net           *inMemNetwork
+	messageFilter messageFilter
 }
 
 func newTestComm(from NodeID, net *inMemNetwork, messageFilter messageFilter) *testComm {
 	return &testComm{
-		from: from,
-		net:  net,
+		from:          from,
+		net:           net,
 		messageFilter: messageFilter,
 	}
 }
