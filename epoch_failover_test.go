@@ -121,7 +121,6 @@ func newEmptyNotarization(e *Epoch, block Block, round uint64, seq uint64) *Empt
 	return &EmptyNotarization{
 		QC: qc,
 		Vote: ToBeSignedEmptyVote{ProtocolMetadata: ProtocolMetadata{
-			Prev:  block.BlockHeader().Digest,
 			Round: round,
 			Seq:   seq,
 		}},
