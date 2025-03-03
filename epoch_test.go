@@ -16,6 +16,7 @@ import (
 	. "simplex"
 	"simplex/testutil"
 	"simplex/wal"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -545,6 +546,177 @@ func TestEpochBlockSentTwice(t *testing.T) {
 	wal.assertWALSize(0)
 	require.True(t, alreadyReceivedMsg)
 
+}
+
+func TestEpochQCSignedByNonExistentNodes(t *testing.T) {
+	l := testutil.MakeLogger(t, 1)
+
+	var wg sync.WaitGroup
+	wg.Add(6)
+
+	//defer wg.Wait()
+
+	unknownNotarizationChan := make(chan struct{})
+	unknownEmptyNotarizationChan := make(chan struct{})
+	unknownFinalizationChan := make(chan struct{})
+	doubleNotarizationChan := make(chan struct{})
+	doubleEmptyNotarizationChan := make(chan struct{})
+	doubleFinalizationChan := make(chan struct{})
+
+	callbacks := map[string]func(){
+		"Notarization quorum certificate contains an unknown signer": func() {
+			wg.Done()
+			close(unknownNotarizationChan)
+		},
+		"Empty notarization quorum certificate contains an unknown signer": func() {
+			wg.Done()
+			close(unknownEmptyNotarizationChan)
+		},
+		"Finalization Quorum Certificate contains an unknown signer": func() {
+			wg.Done()
+			close(unknownFinalizationChan)
+		},
+		"A node has signed the notarization twice": func() {
+			wg.Done()
+			close(doubleNotarizationChan)
+		},
+		"A node has signed the empty notarization twice": func() {
+			wg.Done()
+			close(doubleEmptyNotarizationChan)
+		},
+		"Finalization certificate signed twice by the same node": func() {
+			wg.Done()
+			close(doubleFinalizationChan)
+		},
+	}
+
+	l.Intercept(func(entry zapcore.Entry) error {
+		for key, f := range callbacks {
+			if strings.Contains(entry.Message, key) {
+				f()
+			}
+		}
+		return nil
+	})
+
+	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
+	storage := newInMemStorage()
+
+	wal := newTestWAL(t)
+
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	conf := EpochConfig{
+		MaxProposalWait:     DefaultMaxProposalWaitTime,
+		Logger:              l,
+		ID:                  nodes[0],
+		Signer:              &testSigner{},
+		WAL:                 wal,
+		Verifier:            &testVerifier{},
+		Storage:             storage,
+		Comm:                noopComm(nodes),
+		BlockBuilder:        bb,
+		SignatureAggregator: &testSignatureAggregator{},
+	}
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+
+	require.NoError(t, e.Start())
+
+	block := <-bb.out
+
+	wal.assertWALSize(1)
+
+	t.Run("notarization with unknown signer isn't taken into account", func(t *testing.T) {
+		notarization, err := newNotarization(l, &testSignatureAggregator{}, block, []NodeID{{2}, {3}, {5}})
+		require.NoError(t, err)
+
+		err = e.HandleMessage(&Message{
+			Notarization: &notarization,
+		}, nodes[1])
+		require.NoError(t, err)
+
+		time.Sleep(time.Second)
+		rawWAL, err := wal.WriteAheadLog.ReadAll()
+		require.NoError(t, err)
+		fmt.Println(">>>", len(rawWAL))
+
+		wal.assertWALSize(1)
+	})
+
+	t.Run("notarization with double signer isn't taken into account", func(t *testing.T) {
+		notarization, err := newNotarization(l, &testSignatureAggregator{}, block, []NodeID{{2}, {3}, {2}})
+		require.NoError(t, err)
+
+		err = e.HandleMessage(&Message{
+			Notarization: &notarization,
+		}, nodes[1])
+		require.NoError(t, err)
+
+		wal.assertWALSize(1)
+	})
+
+	t.Run("empty notarization with unknown signer isn't taken into account", func(t *testing.T) {
+		var qc testQC
+		for i, n := range []NodeID{{2}, {3}, {5}} {
+			qc = append(qc, Signature{Signer: n, Value: []byte{byte(i)}})
+		}
+
+		err = e.HandleMessage(&Message{
+			EmptyNotarization: &EmptyNotarization{
+				Vote: ToBeSignedEmptyVote{ProtocolMetadata: ProtocolMetadata{
+					Round: 0,
+					Seq:   0,
+				}},
+				QC: qc,
+			},
+		}, nodes[1])
+		require.NoError(t, err)
+
+		wal.assertWALSize(1)
+	})
+
+	t.Run("empty notarization with double signer isn't taken into account", func(t *testing.T) {
+		var qc testQC
+		for i, n := range []NodeID{{2}, {3}, {2}} {
+			qc = append(qc, Signature{Signer: n, Value: []byte{byte(i)}})
+		}
+
+		err = e.HandleMessage(&Message{
+			EmptyNotarization: &EmptyNotarization{
+				Vote: ToBeSignedEmptyVote{ProtocolMetadata: ProtocolMetadata{
+					Round: 0,
+					Seq:   0,
+				}},
+				QC: qc,
+			},
+		}, nodes[1])
+		require.NoError(t, err)
+
+		wal.assertWALSize(1)
+	})
+
+	t.Run("finalization certificate with unknown signer isn't taken into account", func(t *testing.T) {
+		fCert, _ := newFinalizationRecord(t, l, &testSignatureAggregator{}, block, []NodeID{{2}, {3}, {5}})
+
+		err = e.HandleMessage(&Message{
+			FinalizationCertificate: &fCert,
+		}, nodes[1])
+		require.NoError(t, err)
+
+		storage.ensureNoBlockCommit(t, 0)
+	})
+
+	t.Run("finalization certificate with double signer isn't taken into account", func(t *testing.T) {
+		fCert, _ := newFinalizationRecord(t, l, &testSignatureAggregator{}, block, []NodeID{{2}, {3}, {3}})
+
+		err = e.HandleMessage(&Message{
+			FinalizationCertificate: &fCert,
+		}, nodes[1])
+		require.NoError(t, err)
+
+		storage.ensureNoBlockCommit(t, 0)
+	})
 }
 
 func TestEpochBlockSentFromNonLeader(t *testing.T) {

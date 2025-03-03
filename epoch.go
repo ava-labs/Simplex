@@ -471,7 +471,7 @@ func (e *Epoch) handleFinalizationCertificateMessage(message *FinalizationCertif
 		return nil
 	}
 
-	valid := IsFinalizationCertificateValid(message, e.quorumSize, e.Logger)
+	valid := IsFinalizationCertificateValid(e.eligibleNodeIDs, message, e.quorumSize, e.Logger)
 	if !valid {
 		e.Logger.Debug("Received an invalid finalization certificate",
 			zap.Int("round", int(message.Finalization.Round)),
@@ -1059,6 +1059,7 @@ func (e *Epoch) persistNotarization(notarization Notarization) error {
 		e.Logger.Error("Failed to append notarization record to WAL", zap.Error(err))
 		return err
 	}
+
 	e.Logger.Debug("Persisted notarization to WAL",
 		zap.Int("size", len(record)),
 		zap.Uint64("round", notarization.Vote.Round),
@@ -1109,8 +1110,8 @@ func (e *Epoch) handleEmptyNotarizationMessage(emptyNotarization *EmptyNotarizat
 	}
 
 	// Otherwise, this round is not notarized or finalized yet, so verify the empty notarization and store it.
-	if err := emptyNotarization.Verify(); err != nil {
-		e.Logger.Debug("Empty Notarization is invalid", zap.Error(err))
+
+	if !e.verifyEmptyNotarization(emptyNotarization) {
 		return nil
 	}
 
@@ -1126,6 +1127,37 @@ func (e *Epoch) handleEmptyNotarizationMessage(emptyNotarization *EmptyNotarizat
 	return e.persistEmptyNotarization(emptyNotarization, false)
 }
 
+func (e *Epoch) verifyEmptyNotarization(emptyNotarization *EmptyNotarization) bool {
+	// Check empty notarization was signed by only eligible nodes
+	for _, signer := range emptyNotarization.QC.Signers() {
+		if _, exists := e.eligibleNodeIDs[string(signer)]; !exists {
+			e.Logger.Warn("Empty notarization quorum certificate contains an unknown signer", zap.Stringer("signer", signer))
+			return false
+		}
+	}
+
+	// Ensure no node signed the empty notarization twice
+	doubleSigner, signedTwice := hasSomeNodeSignedTwice(emptyNotarization.QC.Signers(), e.Logger)
+	if signedTwice {
+		e.Logger.Warn("A node has signed the empty notarization twice", zap.Stringer("signer", doubleSigner))
+		return false
+	}
+
+	// Check enough signers signed the empty notarization
+	if e.quorumSize > len(emptyNotarization.QC.Signers()) {
+		e.Logger.Warn("Empty notarization signed by insufficient nodes",
+			zap.Int("count", len(emptyNotarization.QC.Signers())),
+			zap.Int("Quorum", e.quorumSize))
+		return false
+	}
+
+	if err := emptyNotarization.Verify(); err != nil {
+		e.Logger.Debug("Empty Notarization is invalid", zap.Error(err))
+		return false
+	}
+	return true
+}
+
 func (e *Epoch) handleNotarizationMessage(message *Notarization, from NodeID) error {
 	vote := message.Vote
 
@@ -1138,9 +1170,7 @@ func (e *Epoch) handleNotarizationMessage(message *Notarization, from NodeID) er
 		return nil
 	}
 
-	if err := message.Verify(); err != nil {
-		e.Logger.Debug("Notarization quorum certificate is invalid",
-			zap.Stringer("NodeID", from), zap.Error(err))
+	if !e.verifyNotarization(message, from) {
 		return nil
 	}
 
@@ -1166,6 +1196,38 @@ func (e *Epoch) handleNotarizationMessage(message *Notarization, from NodeID) er
 	// Note that we don't need to check if we have timed out on this round,
 	// because if we had collected an empty notarization for this round, we would have progressed to the next round.
 	return e.persistNotarization(*message)
+}
+
+func (e *Epoch) verifyNotarization(message *Notarization, from NodeID) bool {
+	// Ensure no node signed the notarization twice
+	doubleSigner, signedTwice := hasSomeNodeSignedTwice(message.QC.Signers(), e.Logger)
+	if signedTwice {
+		e.Logger.Warn("A node has signed the notarization twice", zap.Stringer("signer", doubleSigner))
+		return false
+	}
+
+	// Check enough signers signed the notarization
+	if e.quorumSize > len(message.QC.Signers()) {
+		e.Logger.Warn("Notarization certificate signed by insufficient nodes",
+			zap.Int("count", len(message.QC.Signers())),
+			zap.Int("Quorum", e.quorumSize))
+		return false
+	}
+
+	// Check notarization was signed by only eligible nodes
+	for _, signer := range message.QC.Signers() {
+		if _, exists := e.eligibleNodeIDs[string(signer)]; !exists {
+			e.Logger.Warn("Notarization quorum certificate contains an unknown signer", zap.Stringer("signer", signer))
+			return false
+		}
+	}
+
+	if err := message.Verify(); err != nil {
+		e.Logger.Debug("Notarization quorum certificate is invalid",
+			zap.Stringer("NodeID", from), zap.Error(err))
+		return false
+	}
+	return true
 }
 
 func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
@@ -2049,7 +2111,7 @@ func (e *Epoch) handleFinalizationCertificateResponse(resp *FinalizationCertific
 			continue
 		}
 
-		valid := IsFinalizationCertificateValid(&data.FCert, e.quorumSize, e.Logger)
+		valid := IsFinalizationCertificateValid(e.eligibleNodeIDs, &data.FCert, e.quorumSize, e.Logger)
 		// verify the finalization certificate
 		if !valid {
 			e.Logger.Debug("Received invalid finalization certificate", zap.Uint64("seq", data.FCert.Finalization.Seq), zap.String("from", from.String()))

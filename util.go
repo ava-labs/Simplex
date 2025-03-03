@@ -24,8 +24,8 @@ func RetrieveLastIndexFromStorage(s Storage) (Block, *FinalizationCertificate, e
 	return lastBlock, &fCert, nil
 }
 
-func IsFinalizationCertificateValid(fCert *FinalizationCertificate, quorumSize int, logger Logger) bool {
-	valid := validateFinalizationQC(fCert, quorumSize, logger)
+func IsFinalizationCertificateValid(eligibleSigners map[string]struct{}, fCert *FinalizationCertificate, quorumSize int, logger Logger) bool {
+	valid := validateFinalizationQC(eligibleSigners, fCert, quorumSize, logger)
 	if !valid {
 		return false
 	}
@@ -36,7 +36,7 @@ func IsFinalizationCertificateValid(fCert *FinalizationCertificate, quorumSize i
 	return true
 }
 
-func validateFinalizationQC(fCert *FinalizationCertificate, quorumSize int, logger Logger) bool {
+func validateFinalizationQC(eligibleSigners map[string]struct{}, fCert *FinalizationCertificate, quorumSize int, logger Logger) bool {
 	if fCert.QC == nil {
 		return false
 	}
@@ -49,10 +49,19 @@ func validateFinalizationQC(fCert *FinalizationCertificate, quorumSize int, logg
 		return false
 	}
 
-	signedTwice := hasSomeNodeSignedTwice(fCert.QC.Signers(), logger)
+	doubleSigner, signedTwice := hasSomeNodeSignedTwice(fCert.QC.Signers(), logger)
 
 	if signedTwice {
+		logger.Debug("Finalization certificate signed twice by the same node", zap.Stringer("signer", doubleSigner))
 		return false
+	}
+
+	// Finally, check that all signers are eligible of signing, and we don't have made up identities
+	for _, signer := range fCert.QC.Signers() {
+		if _, exists := eligibleSigners[string(signer)]; !exists {
+			logger.Debug("Finalization Quorum Certificate contains an unknown signer", zap.Stringer("signer", signer))
+			return false
+		}
 	}
 
 	if err := fCert.Verify(); err != nil {
@@ -62,16 +71,16 @@ func validateFinalizationQC(fCert *FinalizationCertificate, quorumSize int, logg
 	return true
 }
 
-func hasSomeNodeSignedTwice(nodeIDs []NodeID, logger Logger) bool {
+func hasSomeNodeSignedTwice(nodeIDs []NodeID, logger Logger) (NodeID, bool) {
 	seen := make(map[string]struct{}, len(nodeIDs))
 
 	for _, nodeID := range nodeIDs {
 		if _, alreadySeen := seen[string(nodeID)]; alreadySeen {
 			logger.Warn("Observed a signature originating at least twice from the same node")
-			return true
+			return nodeID, true
 		}
 		seen[string(nodeID)] = struct{}{}
 	}
 
-	return false
+	return NodeID{}, false
 }
