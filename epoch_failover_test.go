@@ -27,7 +27,6 @@ func TestEpochLeaderFailoverWithEmptyNotarization(t *testing.T) {
 	storage := newInMemStorage()
 
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
-	// quorum := Quorum(len(nodes))
 
 	wal := newTestWAL(t)
 
@@ -290,9 +289,6 @@ func TestEpochLeaderFailover(t *testing.T) {
 		Seq:   2,
 		Prev:  prev,
 	}
-
-	// nextBlockSeqToCommit := uint64(3)
-	// nextRoundToCommit := uint64(4)
 
 	emptyVoteFrom1 := createEmptyVote(emptyBlockMd, nodes[1])
 	emptyVoteFrom2 := createEmptyVote(emptyBlockMd, nodes[2])

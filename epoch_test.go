@@ -299,6 +299,8 @@ func TestEpochStartedTwice(t *testing.T) {
 	require.ErrorIs(t, e.Start(), ErrAlreadyStarted)
 }
 
+// advanceRound progresses [e] to a new round. If [notarize] is set, the round will progress due to a notarization.
+// If [finalize] is set, the round will advance and the block will be indexed to storage. 
 func advanceRound(t *testing.T, e *Epoch, bb *testBlockBuilder, notarize bool, finalize bool) (Block, *Notarization) {
 	require.True(t, notarize || finalize, "must either notarize or finalize a round to advance")
 	nodes := e.Comm.ListNodes()
@@ -335,24 +337,18 @@ func advanceRound(t *testing.T, e *Epoch, bb *testBlockBuilder, notarize bool, f
 		// start at one since our node has already voted
 		n, err :=  newNotarization(e.Logger, e.SignatureAggregator, block, nodes[0:quorum])
 		injectTestNotarization(t, e, n, nodes[1])
-		
-		time.Sleep(50 * time.Millisecond)
-		
-		// require a notarization was created and the round increased
-		// require.Equal(t, block.metadata.Round+1, e.Metadata().Round)
+
 		e.WAL.(*testWAL).assertNotarization(block.metadata.Round)
 		require.NoError(t, err)
 		notarization = &n
 	}
 
-	// TODO: we don't need to do this if we have notarized
 	if finalize {
 		for i := 1; i <= quorum; i++ {
 			injectTestFinalization(t, e, block, nodes[i])
 		}
 		blockFromStorage := e.Storage.(*InMemStorage).waitForBlockCommit(block.metadata.Seq)
 		require.Equal(t, block, blockFromStorage)
-		// require.Equal(t, block.metadata.Round+1, e.Metadata().Round)
 	}
 
 	return block, notarization
