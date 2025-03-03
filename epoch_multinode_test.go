@@ -235,6 +235,8 @@ func (tw *testWAL) containsEmptyVote(round uint64) bool {
 // messageFilter defines a function that filters
 // certain messages from being sent or broadcasted.
 type messageFilter func (*Message) bool
+
+// allowAllMessages allows every message to be sent
 func allowAllMessages(*Message) bool {
 	return true
 }
