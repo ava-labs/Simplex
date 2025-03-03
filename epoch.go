@@ -1074,7 +1074,6 @@ func (e *Epoch) handleEmptyNotarizationMessage(emptyNotarization *EmptyNotarizat
 	// it's our current round or not.
 	round, exists := e.rounds[vote.Round]
 	if exists && (round.notarization != nil || round.fCert != nil) {
-		e.Logger.Verbo("Already collected???", zap.Uint64("round", vote.Round))
 		return nil
 	}
 
@@ -1670,8 +1669,10 @@ func (e *Epoch) locateBlock(seq uint64, digest []byte) (Block, bool) {
 
 func (e *Epoch) buildBlock() {
 	metadata := e.metadata()
+	
 	task := e.createBlockBuildingTask(metadata)
 
+	e.Logger.Debug("Scheduling block building", zap.Uint64("round", metadata.Round))
 	e.sched.Schedule(task, metadata.Prev, metadata.Round, true)
 }
 
