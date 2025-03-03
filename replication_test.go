@@ -66,6 +66,25 @@ func TestHandleFinalizationCertificateRequest(t *testing.T) {
 	require.Zero(t, len(resp.FinalizationCertificateResponse.Data))
 }
 
+func TestNilFinalizationCertificateResponse(t *testing.T) {
+	bb := newTestControlledBlockBuilder(t)
+	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
+	net := newInMemNetwork(t, nodes)
+
+	storageData := createBlocks(t, nodes, &bb.testBlockBuilder, 0)
+	normalNode0 := newSimplexNodeWithStorage(t, nodes[0], net, bb, storageData)
+	normalNode0.start()
+
+	err := normalNode0.HandleMessage(&simplex.Message{
+		ReplicationResponse: &simplex.ReplicationResponse{
+			FinalizationCertificateResponse: &simplex.FinalizationCertificateResponse{
+				Data: []simplex.FinalizedBlock{{}},
+			},
+		},
+	}, nodes[1])
+	require.NoError(t, err)
+}
+
 // TestReplication tests the replication process of a node that
 // is behind the rest of the network by less than maxRoundWindow.
 func TestReplication(t *testing.T) {
