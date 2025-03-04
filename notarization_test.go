@@ -21,7 +21,7 @@ func TestNewNotarization(t *testing.T) {
 	tests := []struct {
 		name                 string
 		votesForCurrentRound map[string]*simplex.Vote
-		block                simplex.Block
+		block                simplex.VerifiedBlock
 		expectError          error
 		signatureAggregator  simplex.SignatureAggregator
 	}{

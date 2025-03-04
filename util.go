@@ -12,7 +12,7 @@ import (
 // RetrieveLastIndexFromStorage retrieves the latest block and fCert from storage.
 // Returns an error if it cannot be retrieved but the storage has some block.
 // Returns (nil, nil) if the storage is empty.
-func RetrieveLastIndexFromStorage(s Storage) (Block, *FinalizationCertificate, error) {
+func RetrieveLastIndexFromStorage(s Storage) (VerifiedBlock, *FinalizationCertificate, error) {
 	height := s.Height()
 	if height == 0 {
 		return nil, nil, nil
