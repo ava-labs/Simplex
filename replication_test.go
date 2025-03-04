@@ -41,7 +41,7 @@ func TestHandleFinalizationCertificateRequest(t *testing.T) {
 
 	seqs := createBlocks(t, nodes, bb, 10)
 	for _, data := range seqs {
-		conf.Storage.Index(data.Block, data.FCert)
+		conf.Storage.Index(data.VerifiedBlock, data.FCert)
 	}
 	e, err := simplex.NewEpoch(conf)
 	require.NoError(t, err)
@@ -304,6 +304,24 @@ func TestNotarizationRequestBehind(t *testing.T) {
 		require.Equal(t, notarizedBlock.Notarization, round.Notarization)
 	}
 }
+func TestNilFinalizationCertificateResponse(t *testing.T) {
+	bb := newTestControlledBlockBuilder(t)
+	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
+	net := newInMemNetwork(t, nodes)
+
+	storageData := createBlocks(t, nodes, &bb.testBlockBuilder, 0)
+	normalNode0 := newSimplexNodeWithStorage(t, nodes[0], net, bb, storageData)
+	normalNode0.start()
+
+	err := normalNode0.HandleMessage(&simplex.Message{
+		ReplicationResponse: &simplex.ReplicationResponse{
+			FinalizationCertificateResponse: &simplex.FinalizationCertificateResponse{
+				Data: []simplex.FinalizedBlock{{}},
+			},
+		},
+	}, nodes[1])
+	require.NoError(t, err)
+}
 
 // TestReplication tests the replication process of a node that
 // is behind the rest of the network by less than maxRoundWindow.
@@ -398,7 +416,7 @@ func TestReplicationStartsBeforeCurrentRound(t *testing.T) {
 		replicationEnabled: true,
 	})
 
-	firstBlock := storageData[0].Block
+	firstBlock := storageData[0].VerifiedBlock
 	record := simplex.BlockRecord(firstBlock.BlockHeader(), firstBlock.Bytes())
 	laggingNode.wal.Append(record)
 
@@ -406,7 +424,7 @@ func TestReplicationStartsBeforeCurrentRound(t *testing.T) {
 	require.NoError(t, err)
 	laggingNode.wal.Append(firstNotarizationRecord)
 
-	secondBlock := storageData[1].Block
+	secondBlock := storageData[1].VerifiedBlock
 	record = simplex.BlockRecord(secondBlock.BlockHeader(), secondBlock.Bytes())
 	laggingNode.wal.Append(record)
 
@@ -634,8 +652,8 @@ func createBlocks(t *testing.T, nodes []simplex.NodeID, bb simplex.BlockBuilder,
 		prev = block.BlockHeader().Digest
 		fCert, _ := newFinalizationRecord(t, logger, &testSignatureAggregator{}, block, nodes)
 		data = append(data, simplex.FinalizedBlock{
-			Block: block,
-			FCert: fCert,
+			VerifiedBlock: block,
+			FCert:         fCert,
 		})
 	}
 	return data

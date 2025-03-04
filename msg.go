@@ -184,8 +184,9 @@ func (n *Notarization) Verify() error {
 }
 
 type BlockMessage struct {
-	Block Block
-	Vote  Vote
+	Block         Block
+	VerifiedBlock VerifiedBlock
+	Vote          Vote
 }
 
 type EmptyNotarization struct {
@@ -230,8 +231,9 @@ type FinalizationCertificateRequest struct {
 }
 
 type FinalizedBlock struct {
-	Block Block
-	FCert FinalizationCertificate
+	Block         Block
+	VerifiedBlock VerifiedBlock
+	FCert         FinalizationCertificate
 }
 
 type FinalizationCertificateResponse struct {

@@ -16,6 +16,7 @@ import (
 	. "simplex"
 	"simplex/testutil"
 	"simplex/wal"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -30,8 +31,8 @@ func TestEpochHandleNotarizationFutureRound(t *testing.T) {
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	// Create the two blocks ahead of time
 	blocks := createBlocks(t, nodes, bb, 2)
-	firstBlock := blocks[0].Block.(*testBlock)
-	secondBlock := blocks[1].Block.(*testBlock)
+	firstBlock := blocks[0].VerifiedBlock.(*testBlock)
+	secondBlock := blocks[1].VerifiedBlock.(*testBlock)
 	bb.out = make(chan *testBlock, 1)
 	bb.in = make(chan *testBlock, 1)
 
@@ -413,7 +414,7 @@ func testEpochInterleavingMessages(t *testing.T, seed int64) {
 }
 
 func createCallbacks(t *testing.T, rounds int, protocolMetadata ProtocolMetadata, nodes []NodeID, e *Epoch, bb *testBlockBuilder) []func() {
-	blocks := make([]Block, 0, rounds)
+	blocks := make([]VerifiedBlock, 0, rounds)
 
 	callbacks := make([]func(), 0, rounds*4+len(blocks))
 
@@ -520,8 +521,10 @@ func TestEpochBlockSentTwice(t *testing.T) {
 	md := e.Metadata()
 	md.Round = 2
 
-	block, ok := bb.BuildBlock(context.Background(), md)
+	b, ok := bb.BuildBlock(context.Background(), md)
 	require.True(t, ok)
+
+	block := b.(Block)
 
 	vote, err := newTestVote(block, nodes[2])
 	require.NoError(t, err)
@@ -547,6 +550,177 @@ func TestEpochBlockSentTwice(t *testing.T) {
 	wal.assertWALSize(0)
 	require.True(t, alreadyReceivedMsg)
 
+}
+
+func TestEpochQCSignedByNonExistentNodes(t *testing.T) {
+	l := testutil.MakeLogger(t, 1)
+
+	var wg sync.WaitGroup
+	wg.Add(6)
+
+	//defer wg.Wait()
+
+	unknownNotarizationChan := make(chan struct{})
+	unknownEmptyNotarizationChan := make(chan struct{})
+	unknownFinalizationChan := make(chan struct{})
+	doubleNotarizationChan := make(chan struct{})
+	doubleEmptyNotarizationChan := make(chan struct{})
+	doubleFinalizationChan := make(chan struct{})
+
+	callbacks := map[string]func(){
+		"Notarization quorum certificate contains an unknown signer": func() {
+			wg.Done()
+			close(unknownNotarizationChan)
+		},
+		"Empty notarization quorum certificate contains an unknown signer": func() {
+			wg.Done()
+			close(unknownEmptyNotarizationChan)
+		},
+		"Finalization Quorum Certificate contains an unknown signer": func() {
+			wg.Done()
+			close(unknownFinalizationChan)
+		},
+		"A node has signed the notarization twice": func() {
+			wg.Done()
+			close(doubleNotarizationChan)
+		},
+		"A node has signed the empty notarization twice": func() {
+			wg.Done()
+			close(doubleEmptyNotarizationChan)
+		},
+		"Finalization certificate signed twice by the same node": func() {
+			wg.Done()
+			close(doubleFinalizationChan)
+		},
+	}
+
+	l.Intercept(func(entry zapcore.Entry) error {
+		for key, f := range callbacks {
+			if strings.Contains(entry.Message, key) {
+				f()
+			}
+		}
+		return nil
+	})
+
+	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
+	storage := newInMemStorage()
+
+	wal := newTestWAL(t)
+
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	conf := EpochConfig{
+		MaxProposalWait:     DefaultMaxProposalWaitTime,
+		Logger:              l,
+		ID:                  nodes[0],
+		Signer:              &testSigner{},
+		WAL:                 wal,
+		Verifier:            &testVerifier{},
+		Storage:             storage,
+		Comm:                noopComm(nodes),
+		BlockBuilder:        bb,
+		SignatureAggregator: &testSignatureAggregator{},
+	}
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+
+	require.NoError(t, e.Start())
+
+	block := <-bb.out
+
+	wal.assertWALSize(1)
+
+	t.Run("notarization with unknown signer isn't taken into account", func(t *testing.T) {
+		notarization, err := newNotarization(l, &testSignatureAggregator{}, block, []NodeID{{2}, {3}, {5}})
+		require.NoError(t, err)
+
+		err = e.HandleMessage(&Message{
+			Notarization: &notarization,
+		}, nodes[1])
+		require.NoError(t, err)
+
+		time.Sleep(time.Second)
+		rawWAL, err := wal.WriteAheadLog.ReadAll()
+		require.NoError(t, err)
+		fmt.Println(">>>", len(rawWAL))
+
+		wal.assertWALSize(1)
+	})
+
+	t.Run("notarization with double signer isn't taken into account", func(t *testing.T) {
+		notarization, err := newNotarization(l, &testSignatureAggregator{}, block, []NodeID{{2}, {3}, {2}})
+		require.NoError(t, err)
+
+		err = e.HandleMessage(&Message{
+			Notarization: &notarization,
+		}, nodes[1])
+		require.NoError(t, err)
+
+		wal.assertWALSize(1)
+	})
+
+	t.Run("empty notarization with unknown signer isn't taken into account", func(t *testing.T) {
+		var qc testQC
+		for i, n := range []NodeID{{2}, {3}, {5}} {
+			qc = append(qc, Signature{Signer: n, Value: []byte{byte(i)}})
+		}
+
+		err = e.HandleMessage(&Message{
+			EmptyNotarization: &EmptyNotarization{
+				Vote: ToBeSignedEmptyVote{ProtocolMetadata: ProtocolMetadata{
+					Round: 0,
+					Seq:   0,
+				}},
+				QC: qc,
+			},
+		}, nodes[1])
+		require.NoError(t, err)
+
+		wal.assertWALSize(1)
+	})
+
+	t.Run("empty notarization with double signer isn't taken into account", func(t *testing.T) {
+		var qc testQC
+		for i, n := range []NodeID{{2}, {3}, {2}} {
+			qc = append(qc, Signature{Signer: n, Value: []byte{byte(i)}})
+		}
+
+		err = e.HandleMessage(&Message{
+			EmptyNotarization: &EmptyNotarization{
+				Vote: ToBeSignedEmptyVote{ProtocolMetadata: ProtocolMetadata{
+					Round: 0,
+					Seq:   0,
+				}},
+				QC: qc,
+			},
+		}, nodes[1])
+		require.NoError(t, err)
+
+		wal.assertWALSize(1)
+	})
+
+	t.Run("finalization certificate with unknown signer isn't taken into account", func(t *testing.T) {
+		fCert, _ := newFinalizationRecord(t, l, &testSignatureAggregator{}, block, []NodeID{{2}, {3}, {5}})
+
+		err = e.HandleMessage(&Message{
+			FinalizationCertificate: &fCert,
+		}, nodes[1])
+		require.NoError(t, err)
+
+		storage.ensureNoBlockCommit(t, 0)
+	})
+
+	t.Run("finalization certificate with double signer isn't taken into account", func(t *testing.T) {
+		fCert, _ := newFinalizationRecord(t, l, &testSignatureAggregator{}, block, []NodeID{{2}, {3}, {3}})
+
+		err = e.HandleMessage(&Message{
+			FinalizationCertificate: &fCert,
+		}, nodes[1])
+		require.NoError(t, err)
+
+		storage.ensureNoBlockCommit(t, 0)
+	})
 }
 
 func TestEpochBlockSentFromNonLeader(t *testing.T) {
@@ -583,8 +757,10 @@ func TestEpochBlockSentFromNonLeader(t *testing.T) {
 	require.NoError(t, e.Start())
 
 	md := e.Metadata()
-	block, ok := bb.BuildBlock(context.Background(), md)
+	b, ok := bb.BuildBlock(context.Background(), md)
 	require.True(t, ok)
+
+	block := b.(Block)
 
 	notLeader := nodes[3]
 	vote, err := newTestVote(block, notLeader)
@@ -646,8 +822,10 @@ func TestEpochBlockTooHighRound(t *testing.T) {
 		md := e.Metadata()
 		md.Round = math.MaxUint64 - 3
 
-		block, ok := bb.BuildBlock(context.Background(), md)
+		b, ok := bb.BuildBlock(context.Background(), md)
 		require.True(t, ok)
+
+		block := b.(Block)
 
 		vote, err := newTestVote(block, nodes[0])
 		require.NoError(t, err)
@@ -669,8 +847,10 @@ func TestEpochBlockTooHighRound(t *testing.T) {
 		}()
 
 		md := e.Metadata()
-		block, ok := bb.BuildBlock(context.Background(), md)
+		b, ok := bb.BuildBlock(context.Background(), md)
 		require.True(t, ok)
+
+		block := b.(Block)
 
 		vote, err := newTestVote(block, nodes[0])
 		require.NoError(t, err)
@@ -687,7 +867,12 @@ func TestEpochBlockTooHighRound(t *testing.T) {
 	})
 }
 
-func newTestVote(block Block, id NodeID) (*Vote, error) {
+type AnyBlock interface {
+	// BlockHeader encodes a succinct and collision-free representation of a block.
+	BlockHeader() BlockHeader
+}
+
+func newTestVote(block AnyBlock, id NodeID) (*Vote, error) {
 	vote := ToBeSignedVote{
 		BlockHeader: block.BlockHeader(),
 	}
@@ -705,7 +890,7 @@ func newTestVote(block Block, id NodeID) (*Vote, error) {
 	}, nil
 }
 
-func injectTestVote(t *testing.T, e *Epoch, block Block, id NodeID) {
+func injectTestVote(t *testing.T, e *Epoch, block VerifiedBlock, id NodeID) {
 	vote, err := newTestVote(block, id)
 	require.NoError(t, err)
 	err = e.HandleMessage(&Message{
@@ -714,7 +899,7 @@ func injectTestVote(t *testing.T, e *Epoch, block Block, id NodeID) {
 	require.NoError(t, err)
 }
 
-func newTestFinalization(t *testing.T, block Block, id NodeID) *Finalization {
+func newTestFinalization(t *testing.T, block VerifiedBlock, id NodeID) *Finalization {
 	f := ToBeSignedFinalization{BlockHeader: block.BlockHeader()}
 	sig, err := f.Sign(&testSigner{})
 	require.NoError(t, err)
@@ -729,7 +914,7 @@ func newTestFinalization(t *testing.T, block Block, id NodeID) *Finalization {
 	}
 }
 
-func injectTestFinalization(t *testing.T, e *Epoch, block Block, id NodeID) {
+func injectTestFinalization(t *testing.T, e *Epoch, block VerifiedBlock, id NodeID) {
 	err := e.HandleMessage(&Message{
 		Finalization: newTestFinalization(t, block, id),
 	}, id)
@@ -795,7 +980,7 @@ func (t *testSigner) Sign([]byte) ([]byte, error) {
 type testVerifier struct {
 }
 
-func (t *testVerifier) VerifyBlock(Block) error {
+func (t *testVerifier) VerifyBlock(VerifiedBlock) error {
 	return nil
 }
 
@@ -824,7 +1009,7 @@ type testBlockBuilder struct {
 }
 
 // BuildBlock builds a new testblock and sends it to the BlockBuilder channel
-func (t *testBlockBuilder) BuildBlock(_ context.Context, metadata ProtocolMetadata) (Block, bool) {
+func (t *testBlockBuilder) BuildBlock(_ context.Context, metadata ProtocolMetadata) (VerifiedBlock, bool) {
 	if len(t.in) > 0 {
 		block := <-t.in
 		return block, true
@@ -854,14 +1039,14 @@ type testBlock struct {
 	verificationDelay chan struct{}
 }
 
-func (tb *testBlock) Verify() error {
+func (tb *testBlock) Verify(context.Context) (VerifiedBlock, error) {
 	if tb.verificationDelay == nil {
-		return nil
+		return tb, nil
 	}
 
 	<-tb.verificationDelay
 
-	return nil
+	return tb, nil
 }
 
 func newTestBlock(metadata ProtocolMetadata) *testBlock {
@@ -909,7 +1094,7 @@ func (t *testBlock) Bytes() []byte {
 
 type InMemStorage struct {
 	data map[uint64]struct {
-		Block
+		VerifiedBlock
 		FinalizationCertificate
 	}
 
@@ -920,7 +1105,7 @@ type InMemStorage struct {
 func newInMemStorage() *InMemStorage {
 	s := &InMemStorage{
 		data: make(map[uint64]struct {
-			Block
+			VerifiedBlock
 			FinalizationCertificate
 		}),
 	}
@@ -930,13 +1115,30 @@ func newInMemStorage() *InMemStorage {
 	return s
 }
 
-func (mem *InMemStorage) waitForBlockCommit(seq uint64) Block {
+func (mem *InMemStorage) Clone() *InMemStorage {
+	clone := newInMemStorage()
+	mem.lock.Lock()
+	height := mem.Height()
+	mem.lock.Unlock()
+	for seq := uint64(0); seq < height; seq++ {
+		mem.lock.Lock()
+		block, fCert, ok := mem.Retrieve(seq)
+		if !ok {
+			panic(fmt.Sprintf("failed retrieving block %d", seq))
+		}
+		mem.lock.Unlock()
+		clone.Index(block, fCert)
+	}
+	return clone
+}
+
+func (mem *InMemStorage) waitForBlockCommit(seq uint64) VerifiedBlock {
 	mem.lock.Lock()
 	defer mem.lock.Unlock()
 
 	for {
 		if data, exists := mem.data[seq]; exists {
-			return data.Block
+			return data.VerifiedBlock
 		}
 
 		mem.signal.Wait()
@@ -957,15 +1159,15 @@ func (mem *InMemStorage) Height() uint64 {
 	return uint64(len(mem.data))
 }
 
-func (mem *InMemStorage) Retrieve(seq uint64) (Block, FinalizationCertificate, bool) {
+func (mem *InMemStorage) Retrieve(seq uint64) (VerifiedBlock, FinalizationCertificate, bool) {
 	item, ok := mem.data[seq]
 	if !ok {
 		return nil, FinalizationCertificate{}, false
 	}
-	return item.Block, item.FinalizationCertificate, true
+	return item.VerifiedBlock, item.FinalizationCertificate, true
 }
 
-func (mem *InMemStorage) Index(block Block, certificate FinalizationCertificate) {
+func (mem *InMemStorage) Index(block VerifiedBlock, certificate FinalizationCertificate) {
 	mem.lock.Lock()
 	defer mem.lock.Unlock()
 
@@ -976,7 +1178,7 @@ func (mem *InMemStorage) Index(block Block, certificate FinalizationCertificate)
 		panic(fmt.Sprintf("block with seq %d already indexed!", seq))
 	}
 	mem.data[seq] = struct {
-		Block
+		VerifiedBlock
 		FinalizationCertificate
 	}{block,
 		certificate,
@@ -988,7 +1190,7 @@ func (mem *InMemStorage) Index(block Block, certificate FinalizationCertificate)
 type blockDeserializer struct {
 }
 
-func (b *blockDeserializer) DeserializeBlock(buff []byte) (Block, error) {
+func (b *blockDeserializer) DeserializeBlock(buff []byte) (VerifiedBlock, error) {
 	blockLen := binary.BigEndian.Uint32(buff[:4])
 	bh := BlockHeader{}
 	if err := bh.FromBytes(buff[4+blockLen:]); err != nil {

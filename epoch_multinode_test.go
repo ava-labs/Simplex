@@ -154,6 +154,22 @@ func newTestWAL(t *testing.T) *testWAL {
 	return &tw
 }
 
+func (tw *testWAL) Clone() *testWAL {
+	tw.lock.Lock()
+	defer tw.lock.Unlock()
+
+	rawWAL, err := tw.ReadAll()
+	require.NoError(tw.t, err)
+
+	wal := newTestWAL(tw.t)
+
+	for _, entry := range rawWAL {
+		wal.Append(entry)
+	}
+
+	return wal
+}
+
 func (tw *testWAL) Append(b []byte) error {
 	tw.lock.Lock()
 	defer tw.lock.Unlock()
@@ -283,6 +299,8 @@ func (c *testComm) SendMessage(msg *Message, destination NodeID) {
 		return
 	}
 
+	c.maybeTranslateOutoingToIncomingMessageTypes(msg)
+
 	for _, instance := range c.net.instances {
 		if bytes.Equal(instance.e.ID, destination) {
 			instance.ingress <- struct {
@@ -294,12 +312,31 @@ func (c *testComm) SendMessage(msg *Message, destination NodeID) {
 	}
 }
 
+func (c *testComm) maybeTranslateOutoingToIncomingMessageTypes(msg *Message) {
+	if msg.ReplicationResponse != nil {
+		data := make([]FinalizedBlock, 0, len(msg.ReplicationResponse.FinalizationCertificateResponse.Data))
+
+		for _, datum := range msg.ReplicationResponse.FinalizationCertificateResponse.Data {
+			// Outgoing block is of type verified block but incoming block is of type Block,
+			// so we do a type cast because the test block implements both.
+			datum.Block = datum.VerifiedBlock.(Block)
+			data = append(data, datum)
+		}
+
+		msg.ReplicationResponse.FinalizationCertificateResponse.Data = data
+	}
+}
+
 func (c *testComm) Broadcast(msg *Message) {
 	if !c.messageFilter(msg) {
 		return
 	}
 	if c.net.IsDisconnected(c.from) {
 		return
+	}
+
+	if msg.BlockMessage != nil {
+		msg.BlockMessage.Block = msg.BlockMessage.VerifiedBlock.(Block)
 	}
 
 	for _, instance := range c.net.instances {
@@ -403,7 +440,7 @@ func (t *testControlledBlockBuilder) triggerNewBlock() {
 	}
 }
 
-func (t *testControlledBlockBuilder) BuildBlock(ctx context.Context, metadata ProtocolMetadata) (Block, bool) {
+func (t *testControlledBlockBuilder) BuildBlock(ctx context.Context, metadata ProtocolMetadata) (VerifiedBlock, bool) {
 	<-t.control
 	return t.testBlockBuilder.BuildBlock(ctx, metadata)
 }
