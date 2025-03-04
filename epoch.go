@@ -302,7 +302,7 @@ func (e *Epoch) resumeFromWal(records [][]byte) error {
 				return err
 			}
 			proposal := &Message{
-				BlockMessage: &BlockMessage{
+				VerifiedBlockMessage: &VerifiedBlockMessage{
 					VerifiedBlock: block,
 					Vote:          vote,
 				},
@@ -1665,7 +1665,7 @@ func (e *Epoch) proposeBlock(block VerifiedBlock) error {
 	}
 
 	proposal := &Message{
-		BlockMessage: &BlockMessage{
+		VerifiedBlockMessage: &VerifiedBlockMessage{
 			VerifiedBlock: block,
 			Vote:          vote,
 		},
@@ -2061,7 +2061,7 @@ func (e *Epoch) HandleReplicationRequest(req *ReplicationRequest, from NodeID) *
 	}
 	response := &ReplicationResponse{}
 	if req.FinalizationCertificateRequest != nil {
-		response.FinalizationCertificateResponse = e.handleFinalizationCertificateRequest(req.FinalizationCertificateRequest)
+		response.VerifiedFinalizationCertificateResponse = e.handleFinalizationCertificateRequest(req.FinalizationCertificateRequest)
 	}
 
 	msg := &Message{ReplicationResponse: response}
@@ -2069,12 +2069,12 @@ func (e *Epoch) HandleReplicationRequest(req *ReplicationRequest, from NodeID) *
 	return response
 }
 
-func (e *Epoch) handleFinalizationCertificateRequest(req *FinalizationCertificateRequest) *FinalizationCertificateResponse {
+func (e *Epoch) handleFinalizationCertificateRequest(req *FinalizationCertificateRequest) *VerifiedFinalizationCertificateResponse {
 	e.Logger.Debug("Received finalization certificate request", zap.Int("num seqs", len(req.Sequences)))
 	seqs := req.Sequences
 	slices.Sort(seqs)
 
-	data := make([]FinalizedBlock, len(seqs))
+	data := make([]VerifiedFinalizedBlock, len(seqs))
 	for i, seq := range seqs {
 		block, fCert, found := e.locateSequence(seq)
 		if !found {
@@ -2082,13 +2082,13 @@ func (e *Epoch) handleFinalizationCertificateRequest(req *FinalizationCertificat
 			data = data[:i]
 			break
 		}
-		data[i] = FinalizedBlock{
+		data[i] = VerifiedFinalizedBlock{
 			VerifiedBlock: block,
 			FCert:         fCert,
 		}
 	}
 	e.Logger.Debug("Sending finalization certificate response", zap.Int("num seqs", len(data)), zap.Any("seqs", seqs))
-	return &FinalizationCertificateResponse{
+	return &VerifiedFinalizationCertificateResponse{
 		Data: data,
 	}
 }

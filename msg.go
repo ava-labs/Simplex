@@ -11,6 +11,7 @@ import (
 
 type Message struct {
 	BlockMessage            *BlockMessage
+	VerifiedBlockMessage    *VerifiedBlockMessage
 	EmptyNotarization       *EmptyNotarization
 	VoteMessage             *Vote
 	EmptyVoteMessage        *EmptyVote
@@ -184,7 +185,11 @@ func (n *Notarization) Verify() error {
 }
 
 type BlockMessage struct {
-	Block         Block
+	Block Block
+	Vote  Vote
+}
+
+type VerifiedBlockMessage struct {
 	VerifiedBlock VerifiedBlock
 	Vote          Vote
 }
@@ -220,7 +225,8 @@ type ReplicationRequest struct {
 }
 
 type ReplicationResponse struct {
-	FinalizationCertificateResponse *FinalizationCertificateResponse
+	FinalizationCertificateResponse         *FinalizationCertificateResponse
+	VerifiedFinalizationCertificateResponse *VerifiedFinalizationCertificateResponse
 }
 
 // request a finalization certificate for the given sequence number
@@ -229,11 +235,19 @@ type FinalizationCertificateRequest struct {
 }
 
 type FinalizedBlock struct {
-	Block         Block
+	Block Block
+	FCert FinalizationCertificate
+}
+
+type VerifiedFinalizedBlock struct {
 	VerifiedBlock VerifiedBlock
 	FCert         FinalizationCertificate
 }
 
 type FinalizationCertificateResponse struct {
 	Data []FinalizedBlock
+}
+
+type VerifiedFinalizationCertificateResponse struct {
+	Data []VerifiedFinalizedBlock
 }
