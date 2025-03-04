@@ -6,7 +6,6 @@ package simplex_test
 import (
 	"context"
 	"fmt"
-	"simplex"
 	. "simplex"
 	"simplex/testutil"
 	"sync/atomic"
@@ -91,7 +90,7 @@ func TestEpochLeaderFailoverWithEmptyNotarization(t *testing.T) {
 		bb.in <- block.(*testBlock)
 	}
 
-	emptyNotarization := newEmptyNotarization(e, 3, 2)
+	emptyNotarization := newEmptyNotarization(e, nodes[:3], 3, 2)
 
 	e.HandleMessage(&Message{
 		EmptyNotarization: emptyNotarization,
@@ -100,11 +99,11 @@ func TestEpochLeaderFailoverWithEmptyNotarization(t *testing.T) {
 	for round := uint64(1); round <= 2; round++ {
 		advanceRound(t, e, bb, true, true)
 	}
-
+	fmt.Println("finished advancing")
 	bb.blockShouldBeBuilt <- struct{}{}
 
 	wal.assertNotarization(3)
-
+	fmt.Println("assered")
 	nextBlockSeqToCommit := uint64(3)
 	nextRoundToCommit := uint64(4)
 
@@ -118,12 +117,11 @@ func TestEpochLeaderFailoverWithEmptyNotarization(t *testing.T) {
 }
 
 // newEmptyNotarization creates a new empty notarization
-func newEmptyNotarization(e *Epoch, round uint64, seq uint64) *EmptyNotarization {
-	quorum := simplex.Quorum(len(e.Comm.ListNodes()))
+func newEmptyNotarization(e *Epoch, nodes []NodeID, round uint64, seq uint64) *EmptyNotarization {
 	var qc testQC
 
-	for i := 0; i <= quorum; i++ {
-		qc = append(qc, Signature{Signer: NodeID{byte(i)}, Value: []byte{byte(i)}})
+	for i, node := range nodes {
+		qc = append(qc, Signature{Signer: node, Value: []byte{byte(i)}})
 	}
 
 	return &EmptyNotarization{

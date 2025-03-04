@@ -129,7 +129,7 @@ func TestNotarizationRequestMixed(t *testing.T) {
 		leaderForRound := bytes.Equal(simplex.LeaderForRound(nodes, uint64(i)), e.ID)
 		emptyBlock := !leaderForRound
 		if emptyBlock {
-			emptyNotarization := newEmptyNotarization(e, uint64(i), uint64(i))
+			emptyNotarization := newEmptyNotarization(e, nodes, uint64(i), uint64(i))
 			e.HandleMessage(&simplex.Message{
 				EmptyNotarization: emptyNotarization,
 		}, nodes[1])
