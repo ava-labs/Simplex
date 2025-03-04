@@ -51,11 +51,11 @@ func TestHandleFinalizationCertificateRequest(t *testing.T) {
 		Sequences: sequences,
 	}}
 	resp := e.HandleReplicationRequest(req, nodes[1])
-	require.NotNil(t, resp.FinalizationCertificateResponse)
-	require.Equal(t, len(sequences), len(resp.FinalizationCertificateResponse.Data))
-	for i, data := range resp.FinalizationCertificateResponse.Data {
+	require.NotNil(t, resp.VerifiedFinalizationCertificateResponse)
+	require.Equal(t, len(sequences), len(resp.VerifiedFinalizationCertificateResponse.Data))
+	for i, data := range resp.VerifiedFinalizationCertificateResponse.Data {
 		require.Equal(t, seqs[i].FCert, data.FCert)
-		require.Equal(t, seqs[i].VerifiedBlock, data.Block)
+		require.Equal(t, seqs[i].VerifiedBlock, data.VerifiedBlock)
 	}
 
 	// request out of scope
@@ -63,7 +63,7 @@ func TestHandleFinalizationCertificateRequest(t *testing.T) {
 		Sequences: []uint64{11, 12, 13},
 	}}
 	resp = e.HandleReplicationRequest(req, nodes[1])
-	require.Zero(t, len(resp.FinalizationCertificateResponse.Data))
+	require.Zero(t, len(resp.VerifiedFinalizationCertificateResponse.Data))
 }
 
 func TestNilFinalizationCertificateResponse(t *testing.T) {
