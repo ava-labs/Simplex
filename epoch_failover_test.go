@@ -16,6 +16,15 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+// TestEpochLeaderFailoverWithEmptyNotarization ensures leader failover works with
+// future empty notarizations.
+// The order of the test are as follows
+// index block @ round 0 into storage.
+// create but don't send blocks for rounds 1,2,4
+// send empty notarization for round 3 to epoch
+// notarize and finalize blocks for rounds 1,2
+// we expect the future empty notarization for round 3 to increment the round
+// notarize and finalize round 4(for which we are the leader) during a crash/non crash environment
 func TestEpochLeaderFailoverWithEmptyNotarization(t *testing.T) {
 	l := testutil.MakeLogger(t, 1)
 
@@ -111,16 +120,12 @@ func TestEpochLeaderFailoverWithEmptyNotarization(t *testing.T) {
 		notarizeAndFinalizeRound(t, nodes, round, round, e, bb, quorum, storage, false)
 	}
 
-	bb.blockShouldBeBuilt <- struct{}{}
-
 	wal.assertNotarization(3)
-
-	nextBlockSeqToCommit := uint64(3)
-	nextRoundToCommit := uint64(4)
+	expectedBh := wal.assertBlockProposal(4)
 
 	runCrashAndRestartExecution(t, e, bb, wal, storage, func(t *testing.T, e *Epoch, bb *testBlockBuilder, storage *InMemStorage, wal *testWAL) {
 		// Ensure our node proposes block with sequence 3 for round 4
-		notarizeAndFinalizeRound(t, nodes, nextRoundToCommit, nextBlockSeqToCommit, e, bb, quorum, storage, false)
+		notarizeAndFinalizeRound(t, nodes, expectedBh.Round, expectedBh.Seq, e, bb, quorum, storage, false)
 		require.Equal(t, uint64(4), storage.Height())
 	})
 }
