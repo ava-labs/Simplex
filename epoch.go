@@ -1547,7 +1547,7 @@ func (e *Epoch) createBlockFinalizedVerificationTask(finalizedBlock FinalizedBlo
 
 		round, ok := e.rounds[block.BlockHeader().Round]
 		if !ok {
-			round := NewRound(block)
+			round := NewRound(verifiedBlock)
 			e.rounds[block.BlockHeader().Round] = round
 			round.fCert = &finalizedBlock.FCert
 		} else {
@@ -1555,7 +1555,7 @@ func (e *Epoch) createBlockFinalizedVerificationTask(finalizedBlock FinalizedBlo
 		}
 
 		e.indexFinalizationCertificate(verifiedBlock, finalizedBlock.FCert)
-		err := e.processReplicationState()
+		err = e.processReplicationState()
 
 		if err != nil {
 			e.haltedError = err
@@ -1582,7 +1582,8 @@ func (e *Epoch) createNotarizedBlockVerificationTask(block Block, notarization *
 			e.Logger.Debug("Block verification ended", zap.Uint64("round", md.Round), zap.Duration("elapsed", elapsed))
 		}()
 
-		if err := block.Verify(); err != nil {
+		verifiedBlock, err := block.Verify(context.Background())
+		if err != nil {
 			e.Logger.Debug("Failed verifying block", zap.Error(err))
 			return md.Digest
 		}
@@ -1600,7 +1601,7 @@ func (e *Epoch) createNotarizedBlockVerificationTask(block Block, notarization *
 		// }
 
 		// store the block in rounds
-		if !e.storeProposal(block) {
+		if !e.storeProposal(verifiedBlock) {
 			e.Logger.Warn("Unable to store proposed block for the round", zap.Uint64("round", md.Round))
 			return md.Digest
 			// TODO: timeout
@@ -1617,7 +1618,7 @@ func (e *Epoch) createNotarizedBlockVerificationTask(block Block, notarization *
 			e.haltedError = err
 		}
 
-		err := e.storeNotarization(*notarization)
+		err = e.storeNotarization(*notarization)
 		if err != nil {
 
 		}
@@ -2342,7 +2343,7 @@ func (e *Epoch) handleNotarizationRequest(req *NotarizationRequest) (*Notarizati
 			continue
 		}
 		notarizedBlock := NotarizedBlock{
-			Block:        round.block,
+			VerifiedBlock:        round.block,
 			Notarization: round.notarization,
 		}
 

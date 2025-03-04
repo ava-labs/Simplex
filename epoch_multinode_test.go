@@ -79,7 +79,7 @@ func newSimplexNode(t *testing.T, nodeID NodeID, net *inMemNetwork, bb BlockBuil
 func updateEpochConfig(epochConfig *EpochConfig, testConfig *testNodeConfig) {
 	// set the initial storage
 	for _, data := range testConfig.initialStorage {
-		epochConfig.Storage.Index(data.Block, data.FCert)
+		epochConfig.Storage.Index(data.VerifiedBlock, data.FCert)
 	}
 
 	// TODO: remove optional replication flag

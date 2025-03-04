@@ -129,7 +129,7 @@ func TestNotarizationRequestMixed(t *testing.T) {
 		leaderForRound := bytes.Equal(simplex.LeaderForRound(nodes, uint64(i)), e.ID)
 		emptyBlock := !leaderForRound
 		if emptyBlock {
-			emptyNotarization := newEmptyNotarization(e, blocks[i-1].Block, uint64(i), uint64(i))
+			emptyNotarization := newEmptyNotarization(e, uint64(i), uint64(i))
 			e.HandleMessage(&simplex.Message{
 				EmptyNotarization: emptyNotarization,
 		}, nodes[1])
@@ -206,7 +206,7 @@ func TestReplicationNotarizations(t *testing.T) {
 
 	numNotarizations := 9
 	missedSeqs := uint64(0)
-	blocks := []simplex.Block{}
+	blocks := []simplex.VerifiedBlock{}
 	// normal nodes continue to make progress
 	for i := uint64(0); i < uint64(numNotarizations); i++ {
 		emptyRound := bytes.Equal(simplex.LeaderForRound(nodes, i), nodes[3])
@@ -264,7 +264,7 @@ func TestNotarizationRequestBehind(t *testing.T) {
 	conf.ReplicationEnabled = true
 
 	for _, data := range finalizedBlocks {
-		conf.Storage.Index(data.Block, data.FCert)
+		conf.Storage.Index(data.VerifiedBlock, data.FCert)
 	}
 
 	bb.out = make(chan *testBlock, 1)
@@ -309,8 +309,8 @@ func TestNilFinalizationCertificateResponse(t *testing.T) {
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
 	net := newInMemNetwork(t, nodes)
 
-	storageData := createBlocks(t, nodes, &bb.testBlockBuilder, 0)
-	normalNode0 := newSimplexNodeWithStorage(t, nodes[0], net, bb, storageData)
+	// storageData := createBlocks(t, nodes, &bb.testBlockBuilder, 0)
+	normalNode0 := newSimplexNode(t, nodes[0], net, bb, nil)
 	normalNode0.start()
 
 	err := normalNode0.HandleMessage(&simplex.Message{

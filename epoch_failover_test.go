@@ -5,6 +5,8 @@ package simplex_test
 
 import (
 	"context"
+	"fmt"
+	"simplex"
 	. "simplex"
 	"simplex/testutil"
 	"sync/atomic"
@@ -89,7 +91,7 @@ func TestEpochLeaderFailoverWithEmptyNotarization(t *testing.T) {
 		bb.in <- block.(*testBlock)
 	}
 
-	emptyNotarization := newEmptyNotarization(e, block2, 3, 2)
+	emptyNotarization := newEmptyNotarization(e, 3, 2)
 
 	e.HandleMessage(&Message{
 		EmptyNotarization: emptyNotarization,
@@ -108,13 +110,15 @@ func TestEpochLeaderFailoverWithEmptyNotarization(t *testing.T) {
 
 	runCrashAndRestartExecution(t, e, bb, wal, storage, func(t *testing.T, e *Epoch, bb *testBlockBuilder, storage *InMemStorage, wal *testWAL) {
 		// Ensure our node proposes block with sequence 3 for round 4
-		notarizeAndFinalizeRound(t, nodes, nextRoundToCommit, nextBlockSeqToCommit, e, bb, quorum, storage, false)
+		block, _ := advanceRound(t, e, bb, true, true)
+		require.Equal(t, nextRoundToCommit, block.BlockHeader().Round)
+		require.Equal(t, nextBlockSeqToCommit, block.BlockHeader().Seq)
 		require.Equal(t, uint64(4), storage.Height())
 	})
 }
 
 // newEmptyNotarization creates a new empty notarization
-func newEmptyNotarization(e *Epoch, block Block, round uint64, seq uint64) *EmptyNotarization {
+func newEmptyNotarization(e *Epoch, round uint64, seq uint64) *EmptyNotarization {
 	quorum := simplex.Quorum(len(e.Comm.ListNodes()))
 	var qc testQC
 
@@ -292,9 +296,6 @@ func TestEpochLeaderFailover(t *testing.T) {
 			Prev:  prev,
 		}
 
-		nextBlockSeqToCommit := uint64(3)
-		nextRoundToCommit := uint64(4)
-
 		emptyVoteFrom1 := createEmptyVote(emptyBlockMd, nodes[1])
 		emptyVoteFrom2 := createEmptyVote(emptyBlockMd, nodes[2])
 
@@ -322,8 +323,14 @@ func TestEpochLeaderFailover(t *testing.T) {
 		require.Equal(t, uint64(2), emptyNotarization.Vote.Seq)
 		require.Equal(t, uint64(3), storage.Height())
 
+		nextBlockSeqToCommit := uint64(3)
+		nextRoundToCommit := uint64(4)
+
 		// Ensure our node proposes block with sequence 3 for round 4
-		notarizeAndFinalizeRound(t, nodes, nextRoundToCommit, nextBlockSeqToCommit, e, bb, quorum, storage, false)
+		block, _ := advanceRound(t, e, bb, true, true)
+		require.Equal(t, nextRoundToCommit, block.BlockHeader().Round)
+		require.Equal(t, nextBlockSeqToCommit, block.BlockHeader().Seq)
+
 		require.Equal(t, uint64(4), storage.Height())
 	})
 }
@@ -514,7 +521,9 @@ func TestEpochLeaderFailoverAfterProposal(t *testing.T) {
 		}, nodes[2])
 
 		// Ensure our node proposes block with sequence 3 for round 4
-		notarizeAndFinalizeRound(t, nodes, nextRoundToCommit, nextBlockSeqToCommit, e, bb, quorum, storage, false)
+		block, _ := advanceRound(t, e, bb, true, true)
+		require.Equal(t, nextRoundToCommit, block.BlockHeader().Round)
+		require.Equal(t, nextBlockSeqToCommit, block.BlockHeader().Seq)
 
 		// WAL must contain an empty vote and an empty block.
 		walContent, err := wal.ReadAll()
@@ -629,7 +638,9 @@ func TestEpochLeaderFailoverTwice(t *testing.T) {
 			// Ensure our node proposes block with sequence 2 for round 4
 			nextRoundToCommit := uint64(4)
 			nextBlockSeqToCommit := uint64(2)
-			notarizeAndFinalizeRound(t, nodes, nextRoundToCommit, nextBlockSeqToCommit, e, bb, quorum, storage, false)
+			block, _ := advanceRound(t, e, bb, true, true)
+			require.Equal(t, nextRoundToCommit, block.BlockHeader().Round)
+			require.Equal(t, nextBlockSeqToCommit, block.BlockHeader().Seq)
 
 			// WAL must contain an empty vote and an empty block.
 			walContent, err := wal.ReadAll()

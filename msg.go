@@ -253,6 +253,7 @@ type NotarizationResponse struct {
 // Either an EmptyNotarization must be present or a Block and Notarization.
 type NotarizedBlock struct {
 	Block             Block
+	VerifiedBlock 	  VerifiedBlock
 	Notarization      *Notarization
 	EmptyNotarization *EmptyNotarization
 }
