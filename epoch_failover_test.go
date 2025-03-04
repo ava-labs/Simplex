@@ -27,7 +27,6 @@ func TestEpochLeaderFailoverWithEmptyNotarization(t *testing.T) {
 	storage := newInMemStorage()
 
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
-	quorum := Quorum(len(nodes))
 
 	wal := newTestWAL(t)
 
@@ -56,7 +55,7 @@ func TestEpochLeaderFailoverWithEmptyNotarization(t *testing.T) {
 	// The node should move to round 4 via the empty notarization it has received
 	// from earlier.
 
-	notarizeAndFinalizeRound(t, nodes, 0, 0, e, bb, quorum, storage, false)
+	advanceRound(t, e, bb, true, true)
 
 	block0, _, ok := storage.Retrieve(0)
 	require.True(t, ok)
@@ -82,11 +81,6 @@ func TestEpochLeaderFailoverWithEmptyNotarization(t *testing.T) {
 	})
 	require.True(t, ok)
 
-	var qc testQC
-	for i := 1; i <= quorum; i++ {
-		qc = append(qc, Signature{Signer: NodeID{byte(i)}, Value: []byte{byte(i)}})
-	}
-
 	// Artificially force the block builder to output the blocks we want.
 	for len(bb.out) > 0 {
 		<-bb.out
@@ -96,33 +90,47 @@ func TestEpochLeaderFailoverWithEmptyNotarization(t *testing.T) {
 		bb.in <- block.(*testBlock)
 	}
 
+	emptyNotarization := newEmptyNotarization(e, nodes[:3], 3, 2)
+
 	e.HandleMessage(&Message{
-		EmptyNotarization: &EmptyNotarization{
-			Vote: ToBeSignedEmptyVote{ProtocolMetadata: ProtocolMetadata{
-				Prev:  block2.BlockHeader().Digest,
-				Round: 3,
-				Seq:   2,
-			}},
-			QC: qc,
-		},
+		EmptyNotarization: emptyNotarization,
 	}, nodes[1])
 
 	for round := uint64(1); round <= 2; round++ {
-		notarizeAndFinalizeRound(t, nodes, round, round, e, bb, quorum, storage, false)
+		advanceRound(t, e, bb, true, true)
 	}
-
+	fmt.Println("finished advancing")
 	bb.blockShouldBeBuilt <- struct{}{}
 
 	wal.assertNotarization(3)
-
+	fmt.Println("assered")
 	nextBlockSeqToCommit := uint64(3)
 	nextRoundToCommit := uint64(4)
 
 	runCrashAndRestartExecution(t, e, bb, wal, storage, func(t *testing.T, e *Epoch, bb *testBlockBuilder, storage *InMemStorage, wal *testWAL) {
 		// Ensure our node proposes block with sequence 3 for round 4
-		notarizeAndFinalizeRound(t, nodes, nextRoundToCommit, nextBlockSeqToCommit, e, bb, quorum, storage, false)
+		block, _ := advanceRound(t, e, bb, true, true)
+		require.Equal(t, nextRoundToCommit, block.BlockHeader().Round)
+		require.Equal(t, nextBlockSeqToCommit, block.BlockHeader().Seq)
 		require.Equal(t, uint64(4), storage.Height())
 	})
+}
+
+// newEmptyNotarization creates a new empty notarization
+func newEmptyNotarization(e *Epoch, nodes []NodeID, round uint64, seq uint64) *EmptyNotarization {
+	var qc testQC
+
+	for i, node := range nodes {
+		qc = append(qc, Signature{Signer: node, Value: []byte{byte(i)}})
+	}
+
+	return &EmptyNotarization{
+		QC: qc,
+		Vote: ToBeSignedEmptyVote{ProtocolMetadata: ProtocolMetadata{
+			Round: round,
+			Seq:   seq,
+		}},
+	}
 }
 
 func TestEpochLeaderFailoverReceivesEmptyVotesEarly(t *testing.T) {
@@ -163,7 +171,7 @@ func TestEpochLeaderFailoverReceivesEmptyVotesEarly(t *testing.T) {
 	// to start complaining about a block not being notarized
 
 	for round := uint64(0); round < 3; round++ {
-		notarizeAndFinalizeRound(t, nodes, round, round, e, bb, quorum, storage, false)
+		advanceRound(t, e, bb, true, true)
 	}
 
 	lastBlock, _, ok := storage.Retrieve(storage.Height() - 1)
@@ -237,7 +245,6 @@ func TestEpochLeaderFailover(t *testing.T) {
 	storage := newInMemStorage()
 
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
-	quorum := Quorum(len(nodes))
 
 	wal := newTestWAL(t)
 
@@ -268,7 +275,7 @@ func TestEpochLeaderFailover(t *testing.T) {
 	// to start complaining about a block not being notarized
 
 	for round := uint64(0); round < 3; round++ {
-		notarizeAndFinalizeRound(t, nodes, round, round, e, bb, quorum, storage, false)
+		advanceRound(t, e, bb, true, true)
 	}
 
 	bb.blockShouldBeBuilt <- struct{}{}
@@ -286,9 +293,6 @@ func TestEpochLeaderFailover(t *testing.T) {
 			Seq:   2,
 			Prev:  prev,
 		}
-
-		nextBlockSeqToCommit := uint64(3)
-		nextRoundToCommit := uint64(4)
 
 		emptyVoteFrom1 := createEmptyVote(emptyBlockMd, nodes[1])
 		emptyVoteFrom2 := createEmptyVote(emptyBlockMd, nodes[2])
@@ -317,8 +321,14 @@ func TestEpochLeaderFailover(t *testing.T) {
 		require.Equal(t, uint64(2), emptyNotarization.Vote.Seq)
 		require.Equal(t, uint64(3), storage.Height())
 
+		nextBlockSeqToCommit := uint64(3)
+		nextRoundToCommit := uint64(4)
+
 		// Ensure our node proposes block with sequence 3 for round 4
-		notarizeAndFinalizeRound(t, nodes, nextRoundToCommit, nextBlockSeqToCommit, e, bb, quorum, storage, false)
+		block, _ := advanceRound(t, e, bb, true, true)
+		require.Equal(t, nextRoundToCommit, block.BlockHeader().Round)
+		require.Equal(t, nextBlockSeqToCommit, block.BlockHeader().Seq)
+
 		require.Equal(t, uint64(4), storage.Height())
 	})
 }
@@ -357,7 +367,7 @@ func TestEpochNoFinalizationAfterEmptyVote(t *testing.T) {
 
 	require.NoError(t, e.Start())
 
-	notarizeAndFinalizeRound(t, nodes, 0, 0, e, bb, quorum, storage, false)
+	advanceRound(t, e, bb, true, true)
 
 	// Drain the messages recorded
 	for len(recordedMessages) > 0 {
@@ -420,7 +430,6 @@ func TestEpochLeaderFailoverAfterProposal(t *testing.T) {
 	storage := newInMemStorage()
 
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
-	quorum := Quorum(len(nodes))
 
 	wal := newTestWAL(t)
 
@@ -451,8 +460,8 @@ func TestEpochLeaderFailoverAfterProposal(t *testing.T) {
 	// Node 4 proposes a block, but node 1 cannot collect votes until the timeout.
 	// After the timeout expires, node 1 is sent all the votes, and it should notarize the block.
 
-	for _, round := range []uint64{0, 1, 2} {
-		notarizeAndFinalizeRound(t, nodes, round, round, e, bb, quorum, storage, false)
+	for range 3 {
+		advanceRound(t, e, bb, true, true)
 	}
 
 	wal.assertWALSize(6) // (block, notarization) x 3 rounds
@@ -510,7 +519,9 @@ func TestEpochLeaderFailoverAfterProposal(t *testing.T) {
 		}, nodes[2])
 
 		// Ensure our node proposes block with sequence 3 for round 4
-		notarizeAndFinalizeRound(t, nodes, nextRoundToCommit, nextBlockSeqToCommit, e, bb, quorum, storage, false)
+		block, _ := advanceRound(t, e, bb, true, true)
+		require.Equal(t, nextRoundToCommit, block.BlockHeader().Round)
+		require.Equal(t, nextBlockSeqToCommit, block.BlockHeader().Seq)
 
 		// WAL must contain an empty vote and an empty block.
 		walContent, err := wal.ReadAll()
@@ -539,7 +550,6 @@ func TestEpochLeaderFailoverTwice(t *testing.T) {
 	storage := newInMemStorage()
 
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
-	quorum := Quorum(len(nodes))
 
 	wal := newTestWAL(t)
 
@@ -563,8 +573,8 @@ func TestEpochLeaderFailoverTwice(t *testing.T) {
 
 	require.NoError(t, e.Start())
 
-	for _, round := range []uint64{0, 1} {
-		notarizeAndFinalizeRound(t, nodes, round, round, e, bb, quorum, storage, false)
+	for range 2 {
+		advanceRound(t, e, bb, true, true)
 	}
 
 	t.Log("Node 2 crashes, leader failover to node 3")
@@ -603,6 +613,7 @@ func TestEpochLeaderFailoverTwice(t *testing.T) {
 
 		waitForBlockProposerTimeout(t, e, start)
 
+
 		runCrashAndRestartExecution(t, e, bb, wal, storage, func(t *testing.T, e *Epoch, bb *testBlockBuilder, storage *InMemStorage, wal *testWAL) {
 			md := ProtocolMetadata{
 				Round: 3,
@@ -625,7 +636,9 @@ func TestEpochLeaderFailoverTwice(t *testing.T) {
 			// Ensure our node proposes block with sequence 2 for round 4
 			nextRoundToCommit := uint64(4)
 			nextBlockSeqToCommit := uint64(2)
-			notarizeAndFinalizeRound(t, nodes, nextRoundToCommit, nextBlockSeqToCommit, e, bb, quorum, storage, false)
+			block, _ := advanceRound(t, e, bb, true, true)
+			require.Equal(t, nextRoundToCommit, block.BlockHeader().Round)
+			require.Equal(t, nextBlockSeqToCommit, block.BlockHeader().Seq)
 
 			// WAL must contain an empty vote and an empty block.
 			walContent, err := wal.ReadAll()
@@ -726,7 +739,7 @@ func TestEpochLeaderFailoverNotNeeded(t *testing.T) {
 	rounds := uint64(3)
 
 	for round := uint64(0); round < rounds; round++ {
-		notarizeAndFinalizeRound(t, nodes, round, round, e, bb, quorum, storage, false)
+		advanceRound(t, e, bb, true, true)
 	}
 	bb.blockShouldBeBuilt <- struct{}{}
 	e.AdvanceTime(start.Add(conf.MaxProposalWait / 2))

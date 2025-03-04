@@ -26,6 +26,8 @@ type ReplicationState struct {
 
 	// received
 	receivedFinalizationCertificates map[uint64]FinalizedBlock
+
+	receivedNotarizations map[uint64]NotarizedBlock
 }
 
 func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundWindow uint64, enabled bool) *ReplicationState {
@@ -36,21 +38,25 @@ func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundW
 		id:                               id,
 		maxRoundWindow:                   maxRoundWindow,
 		receivedFinalizationCertificates: make(map[uint64]FinalizedBlock),
+		receivedNotarizations:            make(map[uint64]NotarizedBlock),
 	}
 }
 
-// isReplicationComplete returns true if the replication state has caught up to the highest finalization certificate.
-// TODO: when we add notarization requests, this function should also make sure we have caught up to the highest notarization.
-func (r *ReplicationState) isReplicationComplete(nextSeqToCommit uint64) bool {
+// isReplicationComplete returns true if we have finished the replication process.
+// The process is considered finished once [nextSeqToCommit] has caught up to the highest finalization certificate
+// and there are no notarizations higher than [currentRound].
+func (r *ReplicationState) isReplicationComplete(nextSeqToCommit uint64, currentRound uint64) bool {
+	if r.highestNotarizedRound() >= currentRound {
+		return false
+	}
+
 	return nextSeqToCommit > r.highestFCertReceived.Finalization.Seq
 }
 
 func (r *ReplicationState) collectFutureFinalizationCertificates(fCert *FinalizationCertificate, currentRound uint64, nextSeqToCommit uint64) {
-	if !r.enabled {
-		return
-	}
 	fCertSeq := fCert.Finalization.Seq
 	// Don't exceed the max round window
+
 	endSeq := math.Min(float64(fCertSeq), float64(r.maxRoundWindow+currentRound))
 
 	// Node is behind, but we've already sent messages to collect future fCerts
@@ -97,7 +103,16 @@ func (r *ReplicationState) requestFrom() NodeID {
 			return node
 		}
 	}
+
 	return NodeID{}
+}
+
+func (r *ReplicationState) replicateBlocks(fCert *FinalizationCertificate, currentRound uint64, nextSeqToCommit uint64) {
+	if !r.enabled {
+		return
+	}
+	r.collectFutureFinalizationCertificates(fCert, currentRound, nextSeqToCommit)
+	r.collectFutureNotarizations(currentRound)
 }
 
 // maybeCollectFutureFinalizationCertificates attempts to collect future finalization certificates if
@@ -131,4 +146,38 @@ func (r *ReplicationState) StoreFinalizedBlock(data FinalizedBlock) error {
 
 	r.receivedFinalizationCertificates[data.FCert.Finalization.Seq] = data
 	return nil
+}
+
+func (r *ReplicationState) storeNotarizedBlock(data NotarizedBlock) {
+	if _, ok := r.receivedNotarizations[data.GetRound()]; ok {
+		return
+	}
+
+	r.receivedNotarizations[data.GetRound()] = data
+}
+
+func (r *ReplicationState) collectFutureNotarizations(currentRound uint64) {
+	// round to start collecting notarizations
+	start := max(r.highestNotarizedRound(), currentRound)
+
+	msg := &Message{
+		ReplicationRequest: &ReplicationRequest{
+			NotarizationRequest: &NotarizationRequest{
+				StartRound: start,
+			},
+		},
+	}
+
+	requestFrom := r.requestFrom()
+	r.comm.SendMessage(msg, requestFrom)
+}
+
+func (r *ReplicationState) highestNotarizedRound() uint64 {
+	var highestRound uint64
+	for round := range r.receivedNotarizations {
+		if round > highestRound {
+			highestRound = round
+		}
+	}
+	return highestRound
 }
