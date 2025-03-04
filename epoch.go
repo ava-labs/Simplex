@@ -893,6 +893,7 @@ func (e *Epoch) indexFinalizationCertificates(startRound uint64) {
 		block := round.block
 		e.indexFinalizationCertificate(block, fCert)
 
+		e.deleteRounds(round.num)
 		// Clean up the future messages - Remove all messages we may have stored for the round
 		// the finalization is about.
 		for _, messagesFromNode := range e.futureMessages {
@@ -1814,12 +1815,11 @@ func (e *Epoch) voteOnBlock(block Block) (Vote, error) {
 	return sv, nil
 }
 
-func (e *Epoch) deleteRoundsTooFarInThePast() {
-	for i, round := range e.rounds {
-		if round.block.BlockHeader().Round+e.maxRoundWindow < e.round {
-			if round.fCert != nil {
-				delete(e.rounds, i)
-			}
+// deletesRounds deletes all the rounds before [round] in the rounds map.
+func (e *Epoch) deleteRounds(round uint64) {
+	for i, r := range e.rounds {
+		if r.num+e.maxRoundWindow < round {
+			delete(e.rounds, i)
 		}
 	}
 }
@@ -1836,7 +1836,6 @@ func (e *Epoch) increaseRound() {
 	// we advanced to the next round.
 	e.cancelWaitForBlockNotarization()
 
-	e.deleteRoundsTooFarInThePast()
 	e.deleteEmptyVoteForPreviousRound()
 
 	leader := LeaderForRound(e.nodes, e.round)
