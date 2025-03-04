@@ -16,9 +16,9 @@ import (
 func TestRetrieveFromStorage(t *testing.T) {
 	brokenStorage := newInMemStorage()
 	brokenStorage.data[41] = struct {
-		Block
+		VerifiedBlock
 		FinalizationCertificate
-	}{Block: newTestBlock(ProtocolMetadata{Seq: 41})}
+	}{VerifiedBlock: newTestBlock(ProtocolMetadata{Seq: 41})}
 
 	block := newTestBlock(ProtocolMetadata{Seq: 0})
 	fCert := FinalizationCertificate{
@@ -28,15 +28,15 @@ func TestRetrieveFromStorage(t *testing.T) {
 	}
 	normalStorage := newInMemStorage()
 	normalStorage.data[0] = struct {
-		Block
+		VerifiedBlock
 		FinalizationCertificate
-	}{Block: block, FinalizationCertificate: fCert}
+	}{VerifiedBlock: block, FinalizationCertificate: fCert}
 
 	for _, testCase := range []struct {
 		description   string
 		storage       Storage
 		expectedErr   error
-		expectedBlock Block
+		expectedBlock VerifiedBlock
 		expectedFCert *FinalizationCertificate
 	}{
 		{
@@ -67,6 +67,10 @@ func TestRetrieveFromStorage(t *testing.T) {
 func TestFinalizationCertificateValidation(t *testing.T) {
 	l := testutil.MakeLogger(t, 0)
 	nodes := []NodeID{{1}, {2}, {3}, {4}, {5}}
+	eligibleSigners := make(map[string]struct{})
+	for _, n := range nodes {
+		eligibleSigners[string(n)] = struct{}{}
+	}
 	quorumSize := Quorum(len(nodes))
 	signatureAggregator := &testSignatureAggregator{}
 	// Test
@@ -112,11 +116,21 @@ func TestFinalizationCertificateValidation(t *testing.T) {
 			quorumSize: quorumSize,
 			valid:      false,
 		},
+		{
+			name: "nodes are not eligible signers",
+			fCert: func() FinalizationCertificate {
+				block := newTestBlock(ProtocolMetadata{})
+				signers := []NodeID{{1}, {2}, {3}, {4}, {6}}
+				fCert, _ := newFinalizationRecord(t, l, signatureAggregator, block, signers)
+				return fCert
+			}(), quorumSize: quorumSize,
+			valid: false,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			valid := simplex.IsFinalizationCertificateValid(&tt.fCert, tt.quorumSize, l)
+			valid := simplex.IsFinalizationCertificateValid(eligibleSigners, &tt.fCert, tt.quorumSize, l)
 			require.Equal(t, tt.valid, valid)
 		})
 	}
