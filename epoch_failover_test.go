@@ -90,7 +90,7 @@ func TestEpochLeaderFailoverWithEmptyNotarization(t *testing.T) {
 		bb.in <- block.(*testBlock)
 	}
 
-	emptyNotarization := newEmptyNotarization(e, nodes[:3], 3, 2)
+	emptyNotarization := newEmptyNotarization(nodes[:3], 3, 2)
 
 	e.HandleMessage(&Message{
 		EmptyNotarization: emptyNotarization,
@@ -117,7 +117,7 @@ func TestEpochLeaderFailoverWithEmptyNotarization(t *testing.T) {
 }
 
 // newEmptyNotarization creates a new empty notarization
-func newEmptyNotarization(e *Epoch, nodes []NodeID, round uint64, seq uint64) *EmptyNotarization {
+func newEmptyNotarization(nodes []NodeID, round uint64, seq uint64) *EmptyNotarization {
 	var qc testQC
 
 	for i, node := range nodes {
