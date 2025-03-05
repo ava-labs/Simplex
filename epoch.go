@@ -1763,7 +1763,7 @@ func (e *Epoch) locateBlock(seq uint64, digest []byte) (VerifiedBlock, bool) {
 
 func (e *Epoch) buildBlock() {
 	metadata := e.metadata()
-	
+
 	task := e.createBlockBuildingTask(metadata)
 
 	e.Logger.Debug("Scheduling block building", zap.Uint64("round", metadata.Round))
@@ -2343,8 +2343,8 @@ func (e *Epoch) handleNotarizationRequest(req *NotarizationRequest) (*Notarizati
 			continue
 		}
 		notarizedBlock := NotarizedBlock{
-			VerifiedBlock:        round.block,
-			Notarization: round.notarization,
+			VerifiedBlock: round.block,
+			Notarization:  round.notarization,
 		}
 
 		data = append(data, notarizedBlock)

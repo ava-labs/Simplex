@@ -613,7 +613,6 @@ func TestEpochLeaderFailoverTwice(t *testing.T) {
 
 		waitForBlockProposerTimeout(t, e, start)
 
-
 		runCrashAndRestartExecution(t, e, bb, wal, storage, func(t *testing.T, e *Epoch, bb *testBlockBuilder, storage *InMemStorage, wal *testWAL) {
 			md := ProtocolMetadata{
 				Round: 3,

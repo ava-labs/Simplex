@@ -132,7 +132,7 @@ func TestNotarizationRequestMixed(t *testing.T) {
 			emptyNotarization := newEmptyNotarization(e, nodes, uint64(i), uint64(i))
 			e.HandleMessage(&simplex.Message{
 				EmptyNotarization: emptyNotarization,
-		}, nodes[1])
+			}, nodes[1])
 			time.Sleep(50 * time.Millisecond)
 			e.WAL.(*testWAL).assertNotarization(uint64(i))
 			blocks[i] = simplex.NotarizedBlock{
