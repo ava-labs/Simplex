@@ -255,7 +255,7 @@ func TestEpochSimpleFlow(t *testing.T) {
 		Logger:              l,
 		ID:                  nodes[0],
 		Signer:              &testSigner{},
-		WAL:                 wal.NewMemWAL(t),
+		WAL:                 newTestWAL(t),
 		Verifier:            &testVerifier{},
 		Storage:             storage,
 		Comm:                noopComm(nodes),
