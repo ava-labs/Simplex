@@ -82,11 +82,6 @@ func TestEpochLeaderFailoverWithEmptyNotarization(t *testing.T) {
 	})
 	require.True(t, ok)
 
-	var qc testQC
-	for i := 1; i <= quorum; i++ {
-		qc = append(qc, Signature{Signer: NodeID{byte(i)}, Value: []byte{byte(i)}})
-	}
-
 	// Artificially force the block builder to output the blocks we want.
 	for len(bb.out) > 0 {
 		<-bb.out
@@ -96,20 +91,13 @@ func TestEpochLeaderFailoverWithEmptyNotarization(t *testing.T) {
 		bb.in <- block.(*testBlock)
 	}
 
-	emptyNotarization := newEmptyNotarization(nodes[:3], 3, 2)
+	emptyNotarization := newEmptyNotarization(nodes[:3], 2, 1)
 
 	e.HandleMessage(&Message{
-		EmptyNotarization: &EmptyNotarization{
-			Vote: ToBeSignedEmptyVote{ProtocolMetadata: ProtocolMetadata{
-				Prev:  block2.BlockHeader().Digest,
-				Round: 2,
-				Seq:   1,
-			}},
-			QC: qc,
-		},
+		EmptyNotarization: emptyNotarization,
 	}, nodes[1])
 
-	notarizeAndFinalizeRound(t, nodes, 1, 1, e, bb, quorum, storage, false)
+	advanceRound(t, e, bb, true, true)
 
 	wal.assertNotarization(2)
 	nextBlockSeqToCommit := uint64(2)
@@ -117,7 +105,9 @@ func TestEpochLeaderFailoverWithEmptyNotarization(t *testing.T) {
 
 	runCrashAndRestartExecution(t, e, bb, wal, storage, func(t *testing.T, e *Epoch, bb *testBlockBuilder, storage *InMemStorage, wal *testWAL) {
 		// Ensure our node proposes block with sequence 3 for round 4
-		notarizeAndFinalizeRound(t, nodes, nextRoundToCommit, nextBlockSeqToCommit, e, bb, quorum, storage, false)
+		block, _ := advanceRound(t, e, bb, true, true)
+		require.Equal(t, nextBlockSeqToCommit, block.BlockHeader().Seq)
+		require.Equal(t, nextRoundToCommit, block.BlockHeader().Round)
 		require.Equal(t, uint64(3), storage.Height())
 	})
 }

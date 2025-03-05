@@ -45,7 +45,7 @@ func (t *testNode) start() {
 
 type testNodeConfig struct {
 	// optional
-	initialStorage     []FinalizedBlock
+	initialStorage     []VerifiedFinalizedBlock
 	comm               Communication
 	replicationEnabled bool
 }

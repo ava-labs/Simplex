@@ -2343,7 +2343,7 @@ func (e *Epoch) handleNotarizationRequest(req *NotarizationRequest) (*Notarizati
 			continue
 		}
 		notarizedBlock := NotarizedBlock{
-			VerifiedBlock: round.block,
+			// VerifiedBlock: round.block,
 			Notarization:  round.notarization,
 		}
 

@@ -51,7 +51,8 @@ func TestHandleFinalizationCertificateRequest(t *testing.T) {
 		Sequences: sequences,
 	}}
 
-	resp := e.HandleReplicationRequest(req, nodes[1])
+	resp, err := e.HandleReplicationRequest(req, nodes[1])
+	require.NoError(t, err)
 	require.NotNil(t, resp.VerifiedFinalizationCertificateResponse)
 	require.Equal(t, len(sequences), len(resp.VerifiedFinalizationCertificateResponse.Data))
 	for i, data := range resp.VerifiedFinalizationCertificateResponse.Data {
@@ -64,7 +65,8 @@ func TestHandleFinalizationCertificateRequest(t *testing.T) {
 		Sequences: []uint64{11, 12, 13},
 	}}
 
-	resp = e.HandleReplicationRequest(req, nodes[1])
+	resp, err = e.HandleReplicationRequest(req, nodes[1])
+	require.NoError(t, err)
 	require.Zero(t, len(resp.VerifiedFinalizationCertificateResponse.Data))
 }
 
