@@ -16,13 +16,21 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+// TestEpochLeaderFailoverWithEmptyNotarization ensures leader failover works with
+// future empty notarizations.
+// The order of the test are as follows
+// index block @ round 0 into storage.
+// create but don't send blocks for rounds 1,3
+// send empty notarization for round 2 to epoch
+// notarize and finalize block for round 1
+// we expect the future empty notarization for round 2 to increment the round
 func TestEpochLeaderFailoverWithEmptyNotarization(t *testing.T) {
 	l := testutil.MakeLogger(t, 1)
 
 	bb := &testBlockBuilder{
-		out:                make(chan *testBlock, 3),
+		out:                make(chan *testBlock, 2),
 		blockShouldBeBuilt: make(chan struct{}, 1),
-		in:                 make(chan *testBlock, 3),
+		in:                 make(chan *testBlock, 2),
 	}
 	storage := newInMemStorage()
 
@@ -69,16 +77,9 @@ func TestEpochLeaderFailoverWithEmptyNotarization(t *testing.T) {
 	require.True(t, ok)
 
 	block2, ok := bb.BuildBlock(context.Background(), ProtocolMetadata{
-		Round: 2,
+		Round: 3,
 		Prev:  block1.BlockHeader().Digest,
 		Seq:   2,
-	})
-	require.True(t, ok)
-
-	block3, ok := bb.BuildBlock(context.Background(), ProtocolMetadata{
-		Round: 4,
-		Prev:  block2.BlockHeader().Digest,
-		Seq:   3,
 	})
 	require.True(t, ok)
 
@@ -91,7 +92,7 @@ func TestEpochLeaderFailoverWithEmptyNotarization(t *testing.T) {
 	for len(bb.out) > 0 {
 		<-bb.out
 	}
-	for _, block := range []VerifiedBlock{block1, block2, block3} {
+	for _, block := range []VerifiedBlock{block1, block2} {
 		bb.out <- block.(*testBlock)
 		bb.in <- block.(*testBlock)
 	}
@@ -100,28 +101,23 @@ func TestEpochLeaderFailoverWithEmptyNotarization(t *testing.T) {
 		EmptyNotarization: &EmptyNotarization{
 			Vote: ToBeSignedEmptyVote{ProtocolMetadata: ProtocolMetadata{
 				Prev:  block2.BlockHeader().Digest,
-				Round: 3,
-				Seq:   2,
+				Round: 2,
+				Seq:   1,
 			}},
 			QC: qc,
 		},
 	}, nodes[1])
 
-	for round := uint64(1); round <= 2; round++ {
-		notarizeAndFinalizeRound(t, nodes, round, round, e, bb, quorum, storage, false)
-	}
+	notarizeAndFinalizeRound(t, nodes, 1, 1, e, bb, quorum, storage, false)
 
-	bb.blockShouldBeBuilt <- struct{}{}
-
-	wal.assertNotarization(3)
-
-	nextBlockSeqToCommit := uint64(3)
-	nextRoundToCommit := uint64(4)
+	wal.assertNotarization(2)
+	nextBlockSeqToCommit := uint64(2)
+	nextRoundToCommit := uint64(3)
 
 	runCrashAndRestartExecution(t, e, bb, wal, storage, func(t *testing.T, e *Epoch, bb *testBlockBuilder, storage *InMemStorage, wal *testWAL) {
 		// Ensure our node proposes block with sequence 3 for round 4
 		notarizeAndFinalizeRound(t, nodes, nextRoundToCommit, nextBlockSeqToCommit, e, bb, quorum, storage, false)
-		require.Equal(t, uint64(4), storage.Height())
+		require.Equal(t, uint64(3), storage.Height())
 	})
 }
 
