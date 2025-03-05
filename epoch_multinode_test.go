@@ -307,7 +307,7 @@ func (c *testComm) maybeTranslateOutoingToIncomingMessageTypes(msg *Message) {
 	}
 
 	if msg.VerifiedBlockMessage != nil {
-		require.Nil(c.net.t, msg.BlockMessage, "message cannot include VerifiedBlockMessage & VerifiedBlockMessage")
+		require.Nil(c.net.t, msg.BlockMessage, "message cannot include BlockMessage & VerifiedBlockMessage")
 		msg.BlockMessage = &BlockMessage{
 			Block: msg.VerifiedBlockMessage.VerifiedBlock.(Block),
 			Vote:  msg.VerifiedBlockMessage.Vote,
