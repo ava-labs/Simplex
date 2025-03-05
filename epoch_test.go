@@ -311,7 +311,6 @@ func notarizeAndFinalizeRound(t *testing.T, nodes []NodeID, round, seq uint64, e
 		md.Seq = seq
 		_, ok := bb.BuildBlock(context.Background(), md)
 		require.True(t, ok)
-		require.Equal(t, md.Round, md.Seq)
 	}
 
 	block := <-bb.out

@@ -221,30 +221,6 @@ func (tw *testWAL) assertNotarization(round uint64) {
 
 }
 
-func (tw *testWAL) assertBlockProposal(round uint64) BlockHeader {
-	tw.lock.Lock()
-	defer tw.lock.Unlock()
-
-	for {
-		rawRecords, err := tw.WriteAheadLog.ReadAll()
-		require.NoError(tw.t, err)
-
-		for _, rawRecord := range rawRecords {
-			if binary.BigEndian.Uint16(rawRecord[:2]) == record.BlockRecordType {
-				header, _, err := ParseBlockRecord(rawRecord)
-				require.NoError(tw.t, err)
-				
-				if header.Round == round {
-					return header
-				}
-			}
-		}
-
-		tw.signal.Wait()
-	}
-
-}
-
 func (tw *testWAL) containsEmptyVote(round uint64) bool {
 	tw.lock.Lock()
 	defer tw.lock.Unlock()
