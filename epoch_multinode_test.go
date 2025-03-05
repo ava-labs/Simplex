@@ -314,16 +314,39 @@ func (c *testComm) SendMessage(msg *Message, destination NodeID) {
 
 func (c *testComm) maybeTranslateOutoingToIncomingMessageTypes(msg *Message) {
 	if msg.ReplicationResponse != nil {
-		data := make([]FinalizedBlock, 0, len(msg.ReplicationResponse.FinalizationCertificateResponse.Data))
+		verifiedFCertResponse := msg.ReplicationResponse.VerifiedFinalizationCertificateResponse
 
-		for _, datum := range msg.ReplicationResponse.FinalizationCertificateResponse.Data {
-			// Outgoing block is of type verified block but incoming block is of type Block,
-			// so we do a type cast because the test block implements both.
-			datum.Block = datum.VerifiedBlock.(Block)
-			data = append(data, datum)
+		if verifiedFCertResponse != nil {
+			data := make([]FinalizedBlock, 0, len(verifiedFCertResponse.Data))
+
+			for _, verifiedData := range verifiedFCertResponse.Data {
+				// Outgoing block is of type verified block but incoming block is of type Block,
+				// so we do a type cast because the test block implements both.
+				finalizedBlock := FinalizedBlock{
+					Block: verifiedData.VerifiedBlock.(Block),
+					FCert: verifiedData.FCert,
+				}
+				data = append(data, finalizedBlock)
+			}
+
+			require.Nil(
+				c.net.t,
+				msg.ReplicationResponse.FinalizationCertificateResponse,
+				"message cannot include FinalizationCertificateResponse & VerifiedFinalizationCertificateResponse",
+			)
+
+			msg.ReplicationResponse.FinalizationCertificateResponse = &FinalizationCertificateResponse{
+				Data: data,
+			}
 		}
+	}
 
-		msg.ReplicationResponse.FinalizationCertificateResponse.Data = data
+	if msg.VerifiedBlockMessage != nil {
+		require.Nil(c.net.t, msg.BlockMessage, "message cannot include BlockMessage & VerifiedBlockMessage")
+		msg.BlockMessage = &BlockMessage{
+			Block: msg.VerifiedBlockMessage.VerifiedBlock.(Block),
+			Vote:  msg.VerifiedBlockMessage.Vote,
+		}
 	}
 }
 
@@ -335,9 +358,7 @@ func (c *testComm) Broadcast(msg *Message) {
 		return
 	}
 
-	if msg.BlockMessage != nil {
-		msg.BlockMessage.Block = msg.BlockMessage.VerifiedBlock.(Block)
-	}
+	c.maybeTranslateOutoingToIncomingMessageTypes(msg)
 
 	for _, instance := range c.net.instances {
 		// Skip sending the message to yourself or disconnected nodes

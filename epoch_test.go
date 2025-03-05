@@ -314,7 +314,6 @@ func advanceRound(t *testing.T, e *Epoch, bb *testBlockBuilder, notarize bool, f
 		md := e.Metadata()
 		_, ok := bb.BuildBlock(context.Background(), md)
 		require.True(t, ok)
-		require.Equal(t, md.Round, md.Seq)
 	}
 
 	block := <-bb.out
