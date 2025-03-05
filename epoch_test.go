@@ -302,7 +302,7 @@ func TestEpochStartedTwice(t *testing.T) {
 
 // advanceRound progresses [e] to a new round. If [notarize] is set, the round will progress due to a notarization.
 // If [finalize] is set, the round will advance and the block will be indexed to storage.
-func advanceRound(t *testing.T, e *Epoch, bb *testBlockBuilder, notarize bool, finalize bool) (Block, *Notarization) {
+func advanceRound(t *testing.T, e *Epoch, bb *testBlockBuilder, notarize bool, finalize bool) (VerifiedBlock, *Notarization) {
 	require.True(t, notarize || finalize, "must either notarize or finalize a round to advance")
 	nodes := e.Comm.ListNodes()
 	quorum := Quorum(len(nodes))

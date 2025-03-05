@@ -315,7 +315,7 @@ func (c *testComm) SendMessage(msg *Message, destination NodeID) {
 func (c *testComm) maybeTranslateOutoingToIncomingMessageTypes(msg *Message) {
 	if msg.ReplicationResponse != nil {
 		verifiedFCertResponse := msg.ReplicationResponse.VerifiedFinalizationCertificateResponse
-
+		verifiedNotarizationResponse := msg.ReplicationResponse.VerifiedNotarizationResponse
 		if verifiedFCertResponse != nil {
 			data := make([]FinalizedBlock, 0, len(verifiedFCertResponse.Data))
 
@@ -336,6 +336,31 @@ func (c *testComm) maybeTranslateOutoingToIncomingMessageTypes(msg *Message) {
 			)
 
 			msg.ReplicationResponse.FinalizationCertificateResponse = &FinalizationCertificateResponse{
+				Data: data,
+			}
+		}
+
+		if verifiedNotarizationResponse != nil {
+			data := make([]NotarizedBlock, 0, len(verifiedNotarizationResponse.Data))
+
+			for _, verifiedData := range verifiedNotarizationResponse.Data {
+				notarizedBlock := NotarizedBlock{
+					Notarization: verifiedData.Notarization,
+					EmptyNotarization: verifiedData.EmptyNotarization,
+				}
+				if verifiedData.VerifiedBlock != nil {
+					notarizedBlock.Block = verifiedData.VerifiedBlock.(Block)
+				}
+				data = append(data, notarizedBlock)
+			}
+
+			require.Nil(
+				c.net.t,
+				msg.ReplicationResponse.FinalizationCertificateResponse,
+				"message cannot include NotarizationResponse & VerifiedNotarizationResponse",
+			)
+
+			msg.ReplicationResponse.NotarizationResponse = &NotarizationResponse{
 				Data: data,
 			}
 		}

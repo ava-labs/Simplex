@@ -2035,7 +2035,7 @@ func (e *Epoch) deleteEmptyVoteForPreviousRound() {
 	if e.round == 0 {
 		return
 	}
-	delete(e.emptyVotes, e.round-1)
+	// delete(e.emptyVotes, e.round-1)
 }
 
 func (e *Epoch) increaseRound() {
@@ -2207,11 +2207,13 @@ func (e *Epoch) HandleReplicationRequest(req *ReplicationRequest, from NodeID) (
 		response.VerifiedFinalizationCertificateResponse = e.handleFinalizationCertificateRequest(req.FinalizationCertificateRequest)
 	}
 	if req.NotarizationRequest != nil {
+		fmt.Println("request herew")
 		notarizationResopnse, err := e.handleNotarizationRequest(req.NotarizationRequest)
 		if err != nil {
+			fmt.Println("err")
 			return nil, err
 		}
-		response.NotarizationResponse = notarizationResopnse
+		response.VerifiedNotarizationResponse = notarizationResopnse
 	}
 
 	msg := &Message{ReplicationResponse: response}
@@ -2314,7 +2316,7 @@ func (e *Epoch) handleFinalizationCertificateResponse(resp *FinalizationCertific
 	return e.processReplicationState()
 }
 
-func (e *Epoch) handleNotarizationRequest(req *NotarizationRequest) (*NotarizationResponse, error) {
+func (e *Epoch) handleNotarizationRequest(req *NotarizationRequest) (*VerifiedNotarizationResponse, error) {
 	startRound := req.StartRound
 	if startRound > e.round {
 		return nil, nil
@@ -2325,7 +2327,7 @@ func (e *Epoch) handleNotarizationRequest(req *NotarizationRequest) (*Notarizati
 		e.Logger.Debug("Node is potentially behind, it requested a start round when we have a fcert")
 	}
 
-	data := make([]NotarizedBlock, 0, e.round-startRound)
+	data := make([]VerifiedNotarizedBlock, 0, e.round-startRound)
 
 	for currentRound := startRound; currentRound < e.round; currentRound++ {
 		round, ok := e.rounds[currentRound]
@@ -2336,20 +2338,20 @@ func (e *Epoch) handleNotarizationRequest(req *NotarizationRequest) (*Notarizati
 				return nil, fmt.Errorf("unable to find required data for round %d", currentRound)
 			}
 
-			notarizedBlock := NotarizedBlock{
+			notarizedBlock := VerifiedNotarizedBlock{
 				EmptyNotarization: emptyVotes.emptyNotarization,
 			}
 			data = append(data, notarizedBlock)
 			continue
 		}
-		notarizedBlock := NotarizedBlock{
-			// VerifiedBlock: round.block,
+		notarizedBlock := VerifiedNotarizedBlock{
+			VerifiedBlock: round.block,
 			Notarization:  round.notarization,
 		}
 
 		data = append(data, notarizedBlock)
 	}
-	return &NotarizationResponse{
+	return &VerifiedNotarizationResponse{
 		Data: data,
 	}, nil
 }

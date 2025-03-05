@@ -229,6 +229,7 @@ type ReplicationResponse struct {
 	NotarizationResponse            *NotarizationResponse
 	FinalizationCertificateResponse         *FinalizationCertificateResponse
 	VerifiedFinalizationCertificateResponse *VerifiedFinalizationCertificateResponse
+	VerifiedNotarizationResponse *VerifiedNotarizationResponse
 }
 
 // request a finalization certificate for the given sequence number
@@ -250,6 +251,10 @@ type FinalizationCertificateResponse struct {
 	Data []FinalizedBlock
 }
 
+type VerifiedFinalizationCertificateResponse struct {
+	Data []VerifiedFinalizedBlock
+}
+
 type NotarizationRequest struct {
 	// the starting round to request notarizations
 	StartRound uint64
@@ -257,6 +262,10 @@ type NotarizationRequest struct {
 
 type NotarizationResponse struct {
 	Data []NotarizedBlock
+}
+
+type VerifiedNotarizationResponse struct {
+	Data []VerifiedNotarizedBlock
 }
 
 // NotarizedBlock represents a block that has a notarization.
@@ -283,13 +292,20 @@ func (n NotarizedBlock) GetRound() uint64 {
 	return n.Block.BlockHeader().Round
 }
 
+// GetRound gets the round of the notarized block, which will either be
+// found in the empty notarization or the block.
+func (n VerifiedNotarizedBlock) GetRound() uint64 {
+	if n.EmptyNotarization != nil {
+		return n.EmptyNotarization.Vote.Round
+	}
+
+	return n.VerifiedBlock.BlockHeader().Round
+}
+
 func (n NotarizedBlock) Verify() error {
 	if n.EmptyNotarization != nil {
 		return n.EmptyNotarization.Verify()
 	}
 
 	return n.Notarization.Verify()
-}
-type VerifiedFinalizationCertificateResponse struct {
-	Data []VerifiedFinalizedBlock
 }

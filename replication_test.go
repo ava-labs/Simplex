@@ -82,12 +82,12 @@ func TestNotarizationRequestBasic(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, e.Start())
 
-	blocks := make(map[int]simplex.NotarizedBlock)
+	blocks := make(map[int]simplex.VerifiedNotarizedBlock)
 	for i := 0; i < 5; i++ {
 		block, notarization := advanceRound(t, e, bb, true, false)
 
-		blocks[i] = simplex.NotarizedBlock{
-			Block:        block,
+		blocks[i] = simplex.VerifiedNotarizedBlock{
+			VerifiedBlock:        block,
 			Notarization: notarization,
 		}
 	}
@@ -101,20 +101,20 @@ func TestNotarizationRequestBasic(t *testing.T) {
 	}
 	resp, err := e.HandleReplicationRequest(req, nodes[1])
 	require.NoError(t, err)
-	require.NotNil(t, resp.NotarizationResponse)
+	require.NotNil(t, resp.VerifiedNotarizationResponse)
+	require.Nil(t, resp.NotarizationResponse)
 	require.Nil(t, resp.FinalizationCertificateResponse)
 
-	for _, round := range resp.NotarizationResponse.Data {
+	for _, round := range resp.VerifiedNotarizationResponse.Data {
 		require.Nil(t, round.EmptyNotarization)
-		notarizedBlock, ok := blocks[int(round.Block.BlockHeader().Round)]
+		notarizedBlock, ok := blocks[int(round.VerifiedBlock.BlockHeader().Round)]
 		require.True(t, ok)
-		require.Equal(t, notarizedBlock.Block, round.Block)
+		require.Equal(t, notarizedBlock.VerifiedBlock, round.VerifiedBlock)
 		require.Equal(t, notarizedBlock.Notarization, round.Notarization)
 	}
 }
 
 // TestNotarizationRequestMixed ensures the notarization response also includes empty notarizations
-// No empty notarizations. Within the maxRoundLimit
 func TestNotarizationRequestMixed(t *testing.T) {
 	// generate 5 blocks & notarizations
 	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
@@ -126,7 +126,7 @@ func TestNotarizationRequestMixed(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, e.Start())
 
-	blocks := make(map[int]simplex.NotarizedBlock)
+	blocks := make(map[int]simplex.VerifiedNotarizedBlock)
 	for i := range 8 {
 		leaderForRound := bytes.Equal(simplex.LeaderForRound(nodes, uint64(i)), e.ID)
 		emptyBlock := !leaderForRound
@@ -137,15 +137,15 @@ func TestNotarizationRequestMixed(t *testing.T) {
 			}, nodes[1])
 			time.Sleep(50 * time.Millisecond)
 			e.WAL.(*testWAL).assertNotarization(uint64(i))
-			blocks[i] = simplex.NotarizedBlock{
+			blocks[i] = simplex.VerifiedNotarizedBlock{
 				EmptyNotarization: emptyNotarization,
 			}
 			continue
 		}
 		block, notarization := advanceRound(t, e, bb, true, false)
 
-		blocks[i] = simplex.NotarizedBlock{
-			Block:        block,
+		blocks[i] = simplex.VerifiedNotarizedBlock{
+			VerifiedBlock:        block,
 			Notarization: notarization,
 		}
 	}
@@ -159,13 +159,13 @@ func TestNotarizationRequestMixed(t *testing.T) {
 	}
 	resp, err := e.HandleReplicationRequest(req, nodes[1])
 	require.NoError(t, err)
-	require.NotNil(t, resp.NotarizationResponse)
-	require.Nil(t, resp.FinalizationCertificateResponse)
+	require.NotNil(t, resp.VerifiedNotarizationResponse)
+	require.Nil(t, resp.VerifiedFinalizationCertificateResponse)
 
-	for _, round := range resp.NotarizationResponse.Data {
+	for _, round := range resp.VerifiedNotarizationResponse.Data {
 		notarizedBlock, ok := blocks[int(round.GetRound())]
 		require.True(t, ok)
-		require.Equal(t, notarizedBlock.Block, round.Block)
+		require.Equal(t, notarizedBlock.VerifiedBlock, round.VerifiedBlock)
 		require.Equal(t, notarizedBlock.Notarization, round.Notarization)
 		require.Equal(t, notarizedBlock.EmptyNotarization, round.EmptyNotarization)
 	}
@@ -275,12 +275,12 @@ func TestNotarizationRequestBehind(t *testing.T) {
 	require.NoError(t, e.Start())
 
 	require.Equal(t, uint64(4), e.Metadata().Round)
-	blocks := make(map[int]simplex.NotarizedBlock)
+	blocks := make(map[int]simplex.VerifiedNotarizedBlock)
 	for range 5 {
 		block, notarization := advanceRound(t, e, bb, true, false)
 
-		blocks[int(block.BlockHeader().Round)] = simplex.NotarizedBlock{
-			Block:        block,
+		blocks[int(block.BlockHeader().Round)] = simplex.VerifiedNotarizedBlock{
+			VerifiedBlock:        block,
 			Notarization: notarization,
 		}
 	}
@@ -294,15 +294,15 @@ func TestNotarizationRequestBehind(t *testing.T) {
 	}
 	resp, err := e.HandleReplicationRequest(req, nodes[1])
 	require.NoError(t, err)
-	require.NotNil(t, resp.NotarizationResponse)
+	require.NotNil(t, resp.VerifiedNotarizationResponse)
 	require.Nil(t, resp.FinalizationCertificateResponse)
-	require.Equal(t, 5, len(resp.NotarizationResponse.Data))
+	require.Equal(t, 5, len(resp.VerifiedNotarizationResponse.Data))
 
-	for _, round := range resp.NotarizationResponse.Data {
+	for _, round := range resp.VerifiedNotarizationResponse.Data {
 		require.Nil(t, round.EmptyNotarization)
-		notarizedBlock, ok := blocks[int(round.Block.BlockHeader().Round)]
+		notarizedBlock, ok := blocks[int(round.VerifiedBlock.BlockHeader().Round)]
 		require.True(t, ok)
-		require.Equal(t, notarizedBlock.Block, round.Block)
+		require.Equal(t, notarizedBlock.VerifiedBlock, round.VerifiedBlock)
 		require.Equal(t, notarizedBlock.Notarization, round.Notarization)
 	}
 }
