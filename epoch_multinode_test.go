@@ -345,7 +345,7 @@ func (c *testComm) maybeTranslateOutoingToIncomingMessageTypes(msg *Message) {
 
 			for _, verifiedData := range verifiedNotarizationResponse.Data {
 				notarizedBlock := NotarizedBlock{
-					Notarization: verifiedData.Notarization,
+					Notarization:      verifiedData.Notarization,
 					EmptyNotarization: verifiedData.EmptyNotarization,
 				}
 				if verifiedData.VerifiedBlock != nil {

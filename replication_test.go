@@ -87,8 +87,8 @@ func TestNotarizationRequestBasic(t *testing.T) {
 		block, notarization := advanceRound(t, e, bb, true, false)
 
 		blocks[i] = simplex.VerifiedNotarizedBlock{
-			VerifiedBlock:        block,
-			Notarization: notarization,
+			VerifiedBlock: block,
+			Notarization:  notarization,
 		}
 	}
 
@@ -145,8 +145,8 @@ func TestNotarizationRequestMixed(t *testing.T) {
 		block, notarization := advanceRound(t, e, bb, true, false)
 
 		blocks[i] = simplex.VerifiedNotarizedBlock{
-			VerifiedBlock:        block,
-			Notarization: notarization,
+			VerifiedBlock: block,
+			Notarization:  notarization,
 		}
 	}
 
@@ -280,8 +280,8 @@ func TestNotarizationRequestBehind(t *testing.T) {
 		block, notarization := advanceRound(t, e, bb, true, false)
 
 		blocks[int(block.BlockHeader().Round)] = simplex.VerifiedNotarizedBlock{
-			VerifiedBlock:        block,
-			Notarization: notarization,
+			VerifiedBlock: block,
+			Notarization:  notarization,
 		}
 	}
 

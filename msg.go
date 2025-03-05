@@ -226,10 +226,10 @@ type ReplicationRequest struct {
 }
 
 type ReplicationResponse struct {
-	NotarizationResponse            *NotarizationResponse
+	NotarizationResponse                    *NotarizationResponse
 	FinalizationCertificateResponse         *FinalizationCertificateResponse
 	VerifiedFinalizationCertificateResponse *VerifiedFinalizationCertificateResponse
-	VerifiedNotarizationResponse *VerifiedNotarizationResponse
+	VerifiedNotarizationResponse            *VerifiedNotarizationResponse
 }
 
 // request a finalization certificate for the given sequence number
@@ -277,8 +277,8 @@ type NotarizedBlock struct {
 }
 
 type VerifiedNotarizedBlock struct {
-	VerifiedBlock VerifiedBlock
-	Notarization *Notarization
+	VerifiedBlock     VerifiedBlock
+	Notarization      *Notarization
 	EmptyNotarization *EmptyNotarization
 }
 
