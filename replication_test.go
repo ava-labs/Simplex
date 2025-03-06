@@ -172,7 +172,7 @@ func TestNotarizationRequestMixed(t *testing.T) {
 }
 
 // TestReplicationNotarizations tests that a lagging node also replicates
-// notarizations after lagging behind. 
+// notarizations after lagging behind.
 func TestReplicationNotarizations(t *testing.T) {
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
 	bb := newTestControlledBlockBuilder(t)
@@ -256,7 +256,7 @@ func TestReplicationNotarizations(t *testing.T) {
 	}
 }
 
-// TestReplicationEmptyNotarizations ensures a lagging node will properly replicate 
+// TestReplicationEmptyNotarizations ensures a lagging node will properly replicate
 // many empty notarizations in a row.
 func TestReplicationEmptyNotarizations(t *testing.T) {
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
@@ -321,7 +321,7 @@ func TestReplicationEmptyNotarizations(t *testing.T) {
 	net.Connect(nodes[3])
 
 	fCert, _ := newFinalizationRecord(t, laggingNode.e.Logger, laggingNode.e.SignatureAggregator, block, nodes)
-	
+
 	// we broadcast from the second node so that node 1 will be able to respond
 	// to the lagging nodes request
 	normalNode2.e.Comm.Broadcast(&simplex.Message{
