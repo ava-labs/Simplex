@@ -1046,7 +1046,7 @@ func (e *Epoch) maybeCollectNotarization() error {
 		return err
 	}
 
-	return e.persistNotarization(notarization)
+	return e.persistAndBroadcastNotarization(notarization)
 }
 
 func (e *Epoch) writeNotarizationToWal(notarization Notarization) error {
@@ -1075,6 +1075,17 @@ func (e *Epoch) persistNotarization(notarization Notarization) error {
 		return err
 	}
 
+	e.increaseRound()
+
+	return nil
+}
+
+func (e *Epoch) persistAndBroadcastNotarization(notarization Notarization) error {
+	err := e.persistNotarization(notarization)
+	if err != nil {
+		return err
+	}
+
 	notarizationMessage := &Message{Notarization: &notarization}
 	e.Comm.Broadcast(notarizationMessage)
 
@@ -1082,7 +1093,6 @@ func (e *Epoch) persistNotarization(notarization Notarization) error {
 		zap.Uint64("round", notarization.Vote.Round),
 		zap.Stringer("digest", notarization.Vote.BlockHeader.Digest))
 
-	e.increaseRound()
 
 	return errors.Join(e.doNotarized(notarization.Vote.Round), e.maybeLoadFutureMessages())
 }
@@ -1192,7 +1202,7 @@ func (e *Epoch) handleNotarizationMessage(message *Notarization, from NodeID) er
 	// Else, this is a notarization for the current round, and we have stored the proposal for this round.
 	// Note that we don't need to check if we have timed out on this round,
 	// because if we had collected an empty notarization for this round, we would have progressed to the next round.
-	return e.persistNotarization(*message)
+	return e.persistAndBroadcastNotarization(*message)
 }
 
 func (e *Epoch) verifyNotarization(message *Notarization, from NodeID) bool {
@@ -1412,16 +1422,10 @@ func (e *Epoch) processNotarizedBlock(notarizedBlock *NotarizedBlock) error {
 			return nil
 		}
 
-		if err := e.writeNotarizationToWal(*notarizedBlock.Notarization); err != nil {
+		if err := e.persistNotarization(*notarizedBlock.Notarization); err != nil {
 			return nil
 		}
 
-		err := e.storeNotarization(*notarizedBlock.Notarization)
-		if err != nil {
-			return err
-		}
-
-		e.increaseRound()
 		return e.processReplicationState()
 	}
 
@@ -1614,16 +1618,9 @@ func (e *Epoch) createNotarizedBlockVerificationTask(block Block, notarization *
 		}
 		round.notarization = notarization
 
-		if err := e.writeNotarizationToWal(*notarization); err != nil {
+		if err := e.persistNotarization(*notarization); err != nil {
 			e.haltedError = err
 		}
-
-		err = e.storeNotarization(*notarization)
-		if err != nil {
-
-		}
-
-		e.increaseRound()
 
 		err = e.processReplicationState()
 		if err != nil {
