@@ -444,7 +444,7 @@ func (n *inMemNetwork) setAllNodesMessageFilter(filter messageFilter) {
 	for _, instance := range n.instances {
 		instance.e.Comm = newTestComm(instance.e.ID, n, filter)
 	}
-} 
+}
 
 func (n *inMemNetwork) IsDisconnected(node NodeID) bool {
 	n.lock.RLock()
