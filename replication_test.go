@@ -232,10 +232,7 @@ func TestReplicationNotarizations(t *testing.T) {
 		}
 
 		net.Connect(nodes[3])
-		normalNode1.e.Comm = newTestComm(normalNode1.e.ID, net, allowAllMessages)
-		normalNode2.e.Comm = newTestComm(normalNode2.e.ID, net, allowAllMessages)
-		noFinalizeNode.e.Comm = newTestComm(noFinalizeNode.e.ID, net, allowAllMessages)
-		laggingNode.e.Comm = newTestComm(laggingNode.e.ID, net, allowAllMessages)
+		net.setAllNodesMessageFilter(allowAllMessages)
 		fCert, _ := newFinalizationRecord(t, laggingNode.e.Logger, normalNode1.e.EpochConfig.SignatureAggregator, blocks[0], nodes)
 
 		// we broadcast from the second node so that node 1 will be able to respond
@@ -285,16 +282,10 @@ func TestReplicationEmptyNotarizations(t *testing.T) {
 	require.Equal(t, uint64(0), noFinalizeNode.storage.Height())
 	require.Equal(t, uint64(0), laggingNode.storage.Height())
 
-	epochTimes := make([]time.Time, 0, 4)
-	for _, n := range net.instances {
-		epochTimes = append(epochTimes, n.e.StartTime)
-	}
-
 	net.startInstances()
 
 	net.Disconnect(nodes[3])
 	numNotarizations := 9
-	// missedSeqs := uint64(0)
 
 	bb.triggerNewBlock()
 	block := <-bb.out
@@ -302,10 +293,7 @@ func TestReplicationEmptyNotarizations(t *testing.T) {
 		n.wal.assertNotarization(0)
 	}
 
-	normalNode1.e.Comm = newTestComm(normalNode1.e.ID, net, onlyAllowEmptyRoundMessages)
-	normalNode2.e.Comm = newTestComm(normalNode2.e.ID, net, onlyAllowEmptyRoundMessages)
-	noFinalizeNode.e.Comm = newTestComm(noFinalizeNode.e.ID, net, onlyAllowEmptyRoundMessages)
-	laggingNode.e.Comm = newTestComm(laggingNode.e.ID, net, onlyAllowEmptyRoundMessages)
+	net.setAllNodesMessageFilter(onlyAllowEmptyRoundMessages)
 	// normal nodes continue to make progress
 	for i := uint64(1); i < uint64(numNotarizations); i++ {
 		bb.triggerNewBlock()
@@ -330,10 +318,7 @@ func TestReplicationEmptyNotarizations(t *testing.T) {
 
 	time.Sleep(50 * time.Millisecond)
 	net.Connect(nodes[3])
-	normalNode1.e.Comm = newTestComm(normalNode1.e.ID, net, allowAllMessages)
-	normalNode2.e.Comm = newTestComm(normalNode2.e.ID, net, allowAllMessages)
-	noFinalizeNode.e.Comm = newTestComm(noFinalizeNode.e.ID, net, allowAllMessages)
-	laggingNode.e.Comm = newTestComm(laggingNode.e.ID, net, allowAllMessages)
+	net.setAllNodesMessageFilter(allowAllMessages)
 
 	fCert, _ := newFinalizationRecord(t, laggingNode.e.Logger, normalNode1.e.EpochConfig.SignatureAggregator, block, nodes)
 	// we broadcast from the second node so that node 1 will be able to respond
