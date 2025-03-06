@@ -317,7 +317,7 @@ func advanceRound(t *testing.T, e *Epoch, bb *testBlockBuilder, notarize bool, f
 	}
 
 	block := <-bb.out
-	require.NotNil(t, block)
+
 	if !isEpochNode {
 		// send node a message from the leader
 		vote, err := newTestVote(block, leader)

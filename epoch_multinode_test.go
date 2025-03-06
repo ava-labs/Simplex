@@ -238,6 +238,7 @@ func (tw *testWAL) containsEmptyVote(round uint64) bool {
 		if binary.BigEndian.Uint16(rawRecord[:2]) == record.EmptyVoteRecordType {
 			vote, err := ParseEmptyVoteRecord(rawRecord)
 			require.NoError(tw.t, err)
+
 			if vote.Round == round {
 				return true
 			}
@@ -385,7 +386,6 @@ func (c *testComm) Broadcast(msg *Message) {
 	c.maybeTranslateOutoingToIncomingMessageTypes(msg)
 
 	for _, instance := range c.net.instances {
-		// time.Sleep(10 * time.Millisecond)
 		// Skip sending the message to yourself or disconnected nodes
 		if bytes.Equal(c.from, instance.e.ID) || c.net.IsDisconnected(instance.e.ID) {
 			continue
