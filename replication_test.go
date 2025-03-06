@@ -175,8 +175,15 @@ func TestNotarizationRequestMixed(t *testing.T) {
 // after lagging behind
 // we generate 5 notarizations without finalizations, then finalize the first round and expect the lagging node to catch up
 func TestReplicationNotarizations(t *testing.T) {
+	for range 10 {
+		temp(t)
+	}
+}
+
+func temp(t *testing.T) {
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
 	bb := newTestControlledBlockBuilder(t)
+	bb.blockShouldBeBuilt = make(chan struct{}, 3)
 	net := newInMemNetwork(t, nodes)
 
 	newNodeConfig := func(from simplex.NodeID) *testNodeConfig {
@@ -238,23 +245,23 @@ func TestReplicationNotarizations(t *testing.T) {
 	noFinalizeNode.e.Comm = newTestComm(noFinalizeNode.e.ID, net, allowAllMessages)
 	laggingNode.e.Comm = newTestComm(laggingNode.e.ID, net, allowAllMessages)
 	fCert, _ := newFinalizationRecord(t, laggingNode.e.Logger, normalNode1.e.EpochConfig.SignatureAggregator, blocks[0], nodes)
-	normalNode1.e.Comm.Broadcast(&simplex.Message{
+
+	// we broadcast from the second node so that node 1 will be able to respond 
+	// to the lagging nodes request
+	normalNode2.e.Comm.Broadcast(&simplex.Message{
 		FinalizationCertificate: &fCert,
 	})
-
 	for _, n := range net.instances {
 		n.storage.waitForBlockCommit(0)
 	}
-
-	time.Sleep(time.Second)
-	for _, n := range net.instances {
-		for i := 1; i < 9; i++ {
+	
+	for i := 1; i < numNotarizations; i++ {	
+		for _, n := range net.instances {
 			// check the notarizaiton records
 			n.wal.assertNotarization(uint64(i))
 		}
 	}
 }
-
 // TestNotarizationRequestBehind tests notarization requests when the requested start round
 // is behind the storage height.
 func TestNotarizationRequestBehind(t *testing.T) {
@@ -624,7 +631,11 @@ func testReplicationAfterNodeDisconnects(t *testing.T, nodes []simplex.NodeID, s
 }
 
 func advanceWithoutLeader(t *testing.T, net *inMemNetwork, bb *testControlledBlockBuilder, epochTimes []time.Time, round uint64) {
-	for range net.instances {
+	for _, n := range net.instances {
+		leader := simplex.LeaderForRound(net.nodes, n.e.Metadata().Round)
+		if leader.Equals(n.e.ID) {
+			continue
+		}
 		bb.blockShouldBeBuilt <- struct{}{}
 	}
 

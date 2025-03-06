@@ -1914,7 +1914,6 @@ func (e *Epoch) monitorProgress(round uint64) {
 	proposalWaitTimeExpired := func() {
 		e.lock.Lock()
 		defer e.lock.Unlock()
-
 		e.triggerProposalWaitTimeExpired(round)
 	}
 
@@ -1923,7 +1922,6 @@ func (e *Epoch) monitorProgress(round uint64) {
 	blockShouldBeBuiltNotification := func() {
 		// This invocation blocks until the block builder tells us it's time to build a new block.
 		e.BlockBuilder.IncomingBlock(ctx)
-
 		// While we waited, a block might have been notarized.
 		// If so, then don't start monitoring for it being notarized.
 		if cancelled.Load() {
@@ -2045,12 +2043,12 @@ func (e *Epoch) increaseRound() {
 
 	e.deleteEmptyVoteForPreviousRound()
 
+	e.round++
 	leader := LeaderForRound(e.nodes, e.round)
 	e.Logger.Info("Moving to a new round",
 		zap.Uint64("old round", e.round),
 		zap.Uint64("new round", e.round+1),
-		zap.Stringer("leader", leader))
-	e.round++
+		zap.Stringer("leader for new round", leader))
 }
 
 func (e *Epoch) doNotarized(r uint64) error {
@@ -2207,10 +2205,8 @@ func (e *Epoch) HandleReplicationRequest(req *ReplicationRequest, from NodeID) (
 		response.VerifiedFinalizationCertificateResponse = e.handleFinalizationCertificateRequest(req.FinalizationCertificateRequest)
 	}
 	if req.NotarizationRequest != nil {
-		fmt.Println("request herew")
 		notarizationResopnse, err := e.handleNotarizationRequest(req.NotarizationRequest)
 		if err != nil {
-			fmt.Println("err")
 			return nil, err
 		}
 		response.VerifiedNotarizationResponse = notarizationResopnse
@@ -2334,8 +2330,9 @@ func (e *Epoch) handleNotarizationRequest(req *NotarizationRequest) (*VerifiedNo
 		if !ok {
 			emptyVotes, ok := e.emptyVotes[currentRound]
 			if !ok || emptyVotes.emptyNotarization == nil {
-				// this should not happen
-				return nil, fmt.Errorf("unable to find required data for round %d", currentRound)
+				// this can happen because we deleted an old empty notarization
+				continue
+				// return nil, fmt.Errorf("unable to find required data for round %d", currentRound)
 			}
 
 			notarizedBlock := VerifiedNotarizedBlock{
