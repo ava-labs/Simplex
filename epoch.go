@@ -663,7 +663,7 @@ func (e *Epoch) handleVoteMessage(message *Vote, from NodeID) error {
 		return nil
 	}
 
-	if !e.isVoteValid(vote) {
+	if !e.isVoteRoundValid(vote.Round) {
 		return nil
 	}
 
@@ -767,16 +767,16 @@ func (e *Epoch) isFinalizationValid(signature []byte, finalization ToBeSignedFin
 	return true
 }
 
-func (e *Epoch) isVoteValid(vote ToBeSignedVote) bool {
+func (e *Epoch) isVoteRoundValid(round uint64) bool {
 	// Ignore votes for previous rounds
-	if vote.Round < e.round {
+	if round < e.round {
 		return false
 	}
 
 	// Ignore votes for rounds too far ahead
-	if e.isRoundTooFarAhead(vote.Round) {
+	if e.isRoundTooFarAhead(round) {
 		e.Logger.Debug("Received a vote for a too advanced round",
-			zap.Uint64("round", vote.Round), zap.Uint64("my round", e.round))
+			zap.Uint64("round", round), zap.Uint64("my round", e.round))
 		return false
 	}
 
@@ -1083,15 +1083,7 @@ func (e *Epoch) handleEmptyNotarizationMessage(emptyNotarization *EmptyNotarizat
 	e.Logger.Verbo("Received empty notarization message", zap.Uint64("round", vote.Round))
 
 	// Ignore votes for previous rounds
-	if vote.Round < e.round {
-		e.Logger.Debug("Received an empty notarization for an earlier round", zap.Uint64("round", vote.Round))
-		return nil
-	}
-
-	// Ignore votes for rounds too far ahead
-	if vote.Round-e.round > e.maxRoundWindow {
-		e.Logger.Debug("Received an empty notarization for a too advanced round",
-			zap.Uint64("round", vote.Round), zap.Uint64("my round", e.round))
+	if !e.isVoteRoundValid(vote.Round) {
 		return nil
 	}
 
@@ -1159,7 +1151,7 @@ func (e *Epoch) handleNotarizationMessage(message *Notarization, from NodeID) er
 	e.Logger.Verbo("Received notarization message",
 		zap.Stringer("from", from), zap.Uint64("round", vote.Round))
 
-	if !e.isVoteValid(vote) {
+	if !e.isVoteRoundValid(vote.Round) {
 		e.Logger.Debug("Notarization contains invalid vote",
 			zap.Stringer("NodeID", from))
 		return nil
