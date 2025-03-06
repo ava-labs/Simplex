@@ -269,8 +269,8 @@ type VerifiedNotarizationResponse struct {
 	Data []VerifiedNotarizedBlock
 }
 
-// NotarizedBlock represents a block that has a notarization.
-// Either an EmptyNotarization must be present or a Block and Notarization.
+// NotarizedBlock represents either a block and its corresponding notarization,
+// or an EmptyNotarization.
 type NotarizedBlock struct {
 	Block             Block
 	Notarization      *Notarization

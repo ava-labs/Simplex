@@ -2259,8 +2259,20 @@ func (e *Epoch) handleReplicationResponse(resp *ReplicationResponse, from NodeID
 
 func (e *Epoch) handleNotarizationResponse(resp *NotarizationResponse, from NodeID) error {
 	e.Logger.Debug("Received notarization response", zap.String("from", from.String()), zap.Int("num rounds", len(resp.Data)))
+	highestRound := uint64(0)
+	if round := e.getHighestRound(); round != nil {
+		highestRound = round.num
+	}
 
 	for _, notarizedBlock := range resp.Data {
+		if notarizedBlock.GetRound() <= highestRound {
+			continue
+		}
+
+		if notarizedBlock.GetRound() > e.round+e.maxRoundWindow {
+			continue
+		}
+
 		if err := notarizedBlock.Verify(); err != nil {
 			return err
 		}
