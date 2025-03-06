@@ -246,7 +246,7 @@ func temp(t *testing.T) {
 	laggingNode.e.Comm = newTestComm(laggingNode.e.ID, net, allowAllMessages)
 	fCert, _ := newFinalizationRecord(t, laggingNode.e.Logger, normalNode1.e.EpochConfig.SignatureAggregator, blocks[0], nodes)
 
-	// we broadcast from the second node so that node 1 will be able to respond 
+	// we broadcast from the second node so that node 1 will be able to respond
 	// to the lagging nodes request
 	normalNode2.e.Comm.Broadcast(&simplex.Message{
 		FinalizationCertificate: &fCert,
@@ -254,14 +254,15 @@ func temp(t *testing.T) {
 	for _, n := range net.instances {
 		n.storage.waitForBlockCommit(0)
 	}
-	
-	for i := 1; i < numNotarizations; i++ {	
+
+	for i := 1; i < numNotarizations; i++ {
 		for _, n := range net.instances {
 			// check the notarizaiton records
 			n.wal.assertNotarization(uint64(i))
 		}
 	}
 }
+
 // TestNotarizationRequestBehind tests notarization requests when the requested start round
 // is behind the storage height.
 func TestNotarizationRequestBehind(t *testing.T) {
