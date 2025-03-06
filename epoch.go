@@ -1548,15 +1548,6 @@ func (e *Epoch) createBlockFinalizedVerificationTask(finalizedBlock FinalizedBlo
 			return md.Digest
 		}
 
-		round, ok := e.rounds[block.BlockHeader().Round]
-		if !ok {
-			round := NewRound(verifiedBlock)
-			e.rounds[block.BlockHeader().Round] = round
-			round.fCert = &finalizedBlock.FCert
-		} else {
-			round.fCert = &finalizedBlock.FCert
-		}
-
 		e.indexFinalizationCertificate(verifiedBlock, finalizedBlock.FCert)
 		err = e.processReplicationState()
 
