@@ -2366,6 +2366,9 @@ func (e *Epoch) processReplicationState() error {
 		return e.processFinalizedBlock(&finalizedBlock)
 	}
 
+	// TODO: for this pr include a helper function to allow the node to deduce whether
+	// there has been an empty notarization for this round, since only the most recent
+	// empty notarization will be sent by the request
 	notarizedBlock, ok := e.replicationState.receivedNotarizations[e.round]
 	if ok {
 		delete(e.replicationState.receivedNotarizations, e.round)
@@ -2375,18 +2378,7 @@ func (e *Epoch) processReplicationState() error {
 	return nil
 }
 
-func (e *Epoch) isRoundNotarized(round uint64) bool {
-	roundObj, ok := e.rounds[round]
-	if ok && roundObj.notarization != nil {
-		return true
-	}
-
-	emptyVote, ok := e.emptyVotes[round]
-	return ok && emptyVote.emptyNotarization != nil
-}
-
 // getHighestRound returns the highest round that has either a notarization of finalization
-
 func (e *Epoch) getHighestRound() *Round {
 	var max uint64
 

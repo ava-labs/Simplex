@@ -302,7 +302,7 @@ func TestNotarizationRequestBehind(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, resp.VerifiedNotarizationResponse)
 	require.Nil(t, resp.FinalizationCertificateResponse)
-	require.Equal(t, numNotarizations, len(resp.VerifiedNotarizationResponse.Data))
+	require.Equal(t, int(numNotarizations), len(resp.VerifiedNotarizationResponse.Data))
 
 	for _, round := range resp.VerifiedNotarizationResponse.Data {
 		require.Nil(t, round.EmptyNotarization)
