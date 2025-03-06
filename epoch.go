@@ -2041,12 +2041,12 @@ func (e *Epoch) increaseRound() {
 
 	e.deleteEmptyVoteForPreviousRound()
 
-	e.round++
 	leader := LeaderForRound(e.nodes, e.round)
 	e.Logger.Info("Moving to a new round",
 		zap.Uint64("old round", e.round),
 		zap.Uint64("new round", e.round+1),
-		zap.Stringer("leader for new round", leader))
+		zap.Stringer("leader", leader))
+	e.round++
 }
 
 func (e *Epoch) doNotarized(r uint64) error {
@@ -2389,13 +2389,14 @@ func (e *Epoch) processReplicationState() error {
 	return nil
 }
 
-// maybeAdvanceRoundFromEmptyNotarizations attempts to advance rounds by 
+// maybeAdvanceRoundFromEmptyNotarizations attempts to advance rounds by
 // infering empty notarizations. This is necessary because nodes are not
 // required to store empty notarizations for previous rounds.
-// 
+//
 // For example, say we have the following NotarizedBlocks
-// 		NBlock1 { round 1, seq 1 }
-// 		NBlock2 { round 3, seq 2 }
+//
+//	NBlock1 { round 1, seq 1 }
+//	NBlock2 { round 3, seq 2 }
 //
 // in this case we can infer there was an empty notarization for round 2.
 func (e *Epoch) maybeAdvanceRoundFromEmptyNotarizations() (bool, error) {
