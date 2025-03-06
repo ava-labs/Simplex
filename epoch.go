@@ -827,7 +827,7 @@ func (e *Epoch) assembleFinalizationCertificate(round *Round) error {
 }
 
 func (e *Epoch) progressRoundsDueToCommit(round uint64) {
-	e.Logger.Debug("Progressing rounds due to commit", zap.Uint64("round", round))
+	e.Logger.Debug("Progressing rounds due to commit", zap.Uint64("round", round), zap.Uint64("current round", e.round))
 	for e.round < round {
 		e.increaseRound()
 	}
@@ -1840,7 +1840,7 @@ func (e *Epoch) metadata() ProtocolMetadata {
 	highestRound := e.getHighestRound()
 	if highestRound != nil {
 		// Build on top of the latest block
-		currMed := e.getHighestRound().block.BlockHeader()
+		currMed := highestRound.block.BlockHeader()
 		prev = currMed.Digest
 		seq = currMed.Seq + 1
 	}
@@ -2031,7 +2031,7 @@ func (e *Epoch) deleteEmptyVoteForPreviousRound() {
 	if e.round == 0 {
 		return
 	}
-	// delete(e.emptyVotes, e.round-1)
+	delete(e.emptyVotes, e.round-1)
 }
 
 func (e *Epoch) increaseRound() {
@@ -2322,30 +2322,33 @@ func (e *Epoch) handleNotarizationRequest(req *NotarizationRequest) (*VerifiedNo
 	}
 
 	data := make([]VerifiedNotarizedBlock, 0, e.round-startRound)
+	numNotarizations := 0
 
 	for currentRound := startRound; currentRound < e.round; currentRound++ {
-		round, ok := e.rounds[currentRound]
-		if !ok {
-			emptyVotes, ok := e.emptyVotes[currentRound]
-			if !ok || emptyVotes.emptyNotarization == nil {
-				// this can happen because we deleted an old empty notarization
-				continue
-				// return nil, fmt.Errorf("unable to find required data for round %d", currentRound)
-			}
+		round, roundExists := e.rounds[currentRound]
+		emptyVotes, emptyExists := e.emptyVotes[currentRound]
 
+		if roundExists && round.notarization != nil {
+			notarizedBlock := VerifiedNotarizedBlock{
+				VerifiedBlock: round.block,
+				Notarization:  round.notarization,
+			}
+			data = append(data, notarizedBlock)
+			numNotarizations++
+			continue
+		}
+
+		if emptyExists && emptyVotes.emptyNotarization != nil {
 			notarizedBlock := VerifiedNotarizedBlock{
 				EmptyNotarization: emptyVotes.emptyNotarization,
 			}
 			data = append(data, notarizedBlock)
-			continue
+			numNotarizations++
 		}
-		notarizedBlock := VerifiedNotarizedBlock{
-			VerifiedBlock: round.block,
-			Notarization:  round.notarization,
-		}
-
-		data = append(data, notarizedBlock)
 	}
+
+	data = data[:numNotarizations]
+
 	return &VerifiedNotarizationResponse{
 		Data: data,
 	}, nil
@@ -2369,6 +2372,15 @@ func (e *Epoch) processReplicationState() error {
 	// TODO: for this pr include a helper function to allow the node to deduce whether
 	// there has been an empty notarization for this round, since only the most recent
 	// empty notarization will be sent by the request
+	roundAdvanced, err := e.maybeAdvanceRoundFromEmptyNotarizations()
+	if err != nil {
+		return err
+	}
+	if roundAdvanced {
+		fmt.Println("round advanced")
+		return e.processReplicationState()
+	}
+
 	notarizedBlock, ok := e.replicationState.receivedNotarizations[e.round]
 	if ok {
 		delete(e.replicationState.receivedNotarizations, e.round)

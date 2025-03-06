@@ -304,9 +304,18 @@ func (n VerifiedNotarizedBlock) GetRound() uint64 {
 }
 
 func (n NotarizedBlock) Verify() error {
+	fmt.Println("attempting to verify", n.GetRound())
 	if n.EmptyNotarization != nil {
 		return n.EmptyNotarization.Verify()
 	}
 
 	return n.Notarization.Verify()
+}
+
+func (n NotarizedBlock) GetSequence() uint64 {
+	if n.EmptyNotarization != nil {
+		return n.EmptyNotarization.Vote.Seq
+	}
+
+	return n.Notarization.Vote.Seq
 }

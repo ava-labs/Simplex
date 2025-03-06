@@ -272,6 +272,16 @@ func denyFinalizationMessages(msg *Message) bool {
 	return true
 }
 
+func onlyAllowEmptyRoundMessages(msg *Message) bool {
+	if msg.EmptyNotarization != nil {
+		return true
+	}
+	if msg.EmptyVoteMessage != nil {
+		return true
+	}
+	return false
+}
+
 type testComm struct {
 	from          NodeID
 	net           *inMemNetwork

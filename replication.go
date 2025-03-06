@@ -181,3 +181,49 @@ func (r *ReplicationState) highestNotarizedRound() uint64 {
 	}
 	return highestRound
 }
+
+// note1 { round 1, seq 1 }, note 2 { round 3, seq 2 }
+// we can infer there has been an empty notarization in the middle
+func (e *Epoch) maybeAdvanceRoundFromEmptyNotarizations() (bool, error) {
+	round := e.round
+	expectedSeq := e.metadata().Seq
+	nBlock, ok := e.replicationState.receivedNotarizations[round]
+
+	// the current round is an empty notarization
+	if ok && nBlock.EmptyNotarization != nil {
+		emptyVotes := e.getOrCreateEmptyVoteSetForRound(nBlock.GetRound())
+		emptyVotes.emptyNotarization = nBlock.EmptyNotarization
+
+		err := e.persistEmptyNotarization(emptyVotes.emptyNotarization, false)
+		if err != nil {
+			return false, err
+		}
+		return true, nil
+	}
+
+	round++
+	numEmptyNotarizedRounds := 1
+	// its possible we did not receive this round since it was an empty notarization round
+	// check to see if we a future round with the sequence that we expect
+	for ; round <= e.replicationState.highestNotarizedRound(); round++ {
+		nBlock, ok := e.replicationState.receivedNotarizations[round]
+		if !ok {
+			numEmptyNotarizedRounds++
+			continue
+		}
+
+		if nBlock.GetSequence() == expectedSeq {
+			// we have an entry
+			for range numEmptyNotarizedRounds {
+				e.increaseRound()
+			}
+			return true, nil
+		} else {
+			// if we have an entry from a previous round but its not the expected sequence,
+			// we may be missing some notarizations sent to us
+			return false, nil
+		}
+	}
+
+	return false, nil
+}

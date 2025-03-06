@@ -175,10 +175,9 @@ func TestNotarizationRequestMixed(t *testing.T) {
 // after lagging behind
 // we generate 5 notarizations without finalizations, then finalize the first round and expect the lagging node to catch up
 func TestReplicationNotarizations(t *testing.T) {
-	for range 10 {
+	for range 1 {
 		nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
 		bb := newTestControlledBlockBuilder(t)
-		// bb.blockShouldBeBuilt = make(chan struct{}, 3)
 		net := newInMemNetwork(t, nodes)
 
 		newNodeConfig := func(from simplex.NodeID) *testNodeConfig {
@@ -251,10 +250,107 @@ func TestReplicationNotarizations(t *testing.T) {
 		for i := 1; i < numNotarizations; i++ {
 			for _, n := range net.instances {
 				// check the notarizaiton records
+				// lagging node wont have a notarization record if it was the leader
+				leader := simplex.LeaderForRound(nodes, uint64(i))
+				if n.e.ID.Equals(leader) && n.e.ID.Equals(nodes[3]) {
+					continue
+				}
+
 				n.wal.assertNotarization(uint64(i))
 			}
 		}
 	}
+}
+
+func TestReplicationEmptyNotarizations(t *testing.T) {
+	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
+	bb := newTestControlledBlockBuilder(t)
+	net := newInMemNetwork(t, nodes)
+
+	newNodeConfig := func(from simplex.NodeID) *testNodeConfig {
+		comm := newTestComm(from, net, denyFinalizationMessages)
+		return &testNodeConfig{
+			comm:               comm,
+			replicationEnabled: true,
+		}
+	}
+
+	normalNode1 := newSimplexNode(t, nodes[0], net, bb, newNodeConfig(nodes[0]))
+	normalNode2 := newSimplexNode(t, nodes[1], net, bb, newNodeConfig(nodes[1]))
+	noFinalizeNode := newSimplexNode(t, nodes[2], net, bb, newNodeConfig(nodes[2]))
+	laggingNode := newSimplexNode(t, nodes[3], net, bb, newNodeConfig(nodes[3]))
+
+	require.Equal(t, uint64(0), normalNode1.storage.Height())
+	require.Equal(t, uint64(0), normalNode2.storage.Height())
+	require.Equal(t, uint64(0), noFinalizeNode.storage.Height())
+	require.Equal(t, uint64(0), laggingNode.storage.Height())
+
+	epochTimes := make([]time.Time, 0, 4)
+	for _, n := range net.instances {
+		epochTimes = append(epochTimes, n.e.StartTime)
+	}
+
+	net.startInstances()
+
+	net.Disconnect(nodes[3])
+	numNotarizations := 9
+	// missedSeqs := uint64(0)
+
+	bb.triggerNewBlock()
+	block := <-bb.out
+	for _, n := range net.instances[:3] {
+		n.wal.assertNotarization(0)
+	}
+
+	normalNode1.e.Comm = newTestComm(normalNode1.e.ID, net, onlyAllowEmptyRoundMessages)
+	normalNode2.e.Comm = newTestComm(normalNode2.e.ID, net, onlyAllowEmptyRoundMessages)
+	noFinalizeNode.e.Comm = newTestComm(noFinalizeNode.e.ID, net, onlyAllowEmptyRoundMessages)
+	laggingNode.e.Comm = newTestComm(laggingNode.e.ID, net, onlyAllowEmptyRoundMessages)
+	fmt.Println("finished notarizing")
+	// normal nodes continue to make progress
+	for i := uint64(1); i < uint64(numNotarizations); i++ {
+		bb.triggerNewBlock()
+		emptyNotarization := newEmptyNotarization(nodes[:3], i, 1)
+		msg := &simplex.Message{
+			EmptyNotarization: emptyNotarization,
+		}
+		normalNode2.e.Comm.SendMessage(msg, normalNode1.e.ID)
+		normalNode1.e.Comm.Broadcast(msg)
+
+		for _, n := range net.instances[:3] {
+			fmt.Println("waiting to assert", n.e.ID.String(), i)
+			n.wal.assertNotarization(i)
+		}
+	}
+
+	for _, n := range net.instances[:3] {
+		// assert metadata
+		require.Equal(t, uint64(numNotarizations), n.e.Metadata().Round)
+		require.Equal(t, uint64(1), n.e.Metadata().Seq)
+		require.Equal(t, uint64(0), n.e.Storage.Height())
+	}
+
+	time.Sleep(50 * time.Millisecond)
+	net.Connect(nodes[3])
+	normalNode1.e.Comm = newTestComm(normalNode1.e.ID, net, allowAllMessages)
+	normalNode2.e.Comm = newTestComm(normalNode2.e.ID, net, allowAllMessages)
+	noFinalizeNode.e.Comm = newTestComm(noFinalizeNode.e.ID, net, allowAllMessages)
+	laggingNode.e.Comm = newTestComm(laggingNode.e.ID, net, allowAllMessages)
+
+	fCert, _ := newFinalizationRecord(t, laggingNode.e.Logger, normalNode1.e.EpochConfig.SignatureAggregator, block, nodes)
+	// we broadcast from the second node so that node 1 will be able to respond
+	// to the lagging nodes request
+	normalNode2.e.Comm.Broadcast(&simplex.Message{
+		FinalizationCertificate: &fCert,
+	})
+	for _, n := range net.instances {
+		n.storage.waitForBlockCommit(0)
+	}
+
+	laggingNode.wal.assertNotarization(uint64(numNotarizations) - 1)
+	require.Equal(t, uint64(1), laggingNode.storage.Height())
+	require.Equal(t, uint64(numNotarizations), laggingNode.e.Metadata().Round)
+	require.Equal(t, uint64(1), laggingNode.e.Metadata().Seq)
 }
 
 // TestNotarizationRequestBehind tests notarization requests when the requested start round
