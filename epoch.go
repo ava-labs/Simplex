@@ -2377,7 +2377,6 @@ func (e *Epoch) processReplicationState() error {
 		return err
 	}
 	if roundAdvanced {
-		fmt.Println("round advanced")
 		return e.processReplicationState()
 	}
 

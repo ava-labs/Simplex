@@ -306,7 +306,6 @@ func TestReplicationEmptyNotarizations(t *testing.T) {
 	normalNode2.e.Comm = newTestComm(normalNode2.e.ID, net, onlyAllowEmptyRoundMessages)
 	noFinalizeNode.e.Comm = newTestComm(noFinalizeNode.e.ID, net, onlyAllowEmptyRoundMessages)
 	laggingNode.e.Comm = newTestComm(laggingNode.e.ID, net, onlyAllowEmptyRoundMessages)
-	fmt.Println("finished notarizing")
 	// normal nodes continue to make progress
 	for i := uint64(1); i < uint64(numNotarizations); i++ {
 		bb.triggerNewBlock()
@@ -318,7 +317,6 @@ func TestReplicationEmptyNotarizations(t *testing.T) {
 		normalNode1.e.Comm.Broadcast(msg)
 
 		for _, n := range net.instances[:3] {
-			fmt.Println("waiting to assert", n.e.ID.String(), i)
 			n.wal.assertNotarization(i)
 		}
 	}

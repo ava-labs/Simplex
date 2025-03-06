@@ -304,7 +304,6 @@ func (n VerifiedNotarizedBlock) GetRound() uint64 {
 }
 
 func (n NotarizedBlock) Verify() error {
-	fmt.Println("attempting to verify", n.GetRound())
 	if n.EmptyNotarization != nil {
 		return n.EmptyNotarization.Verify()
 	}
