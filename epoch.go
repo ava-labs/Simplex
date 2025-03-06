@@ -1093,7 +1093,6 @@ func (e *Epoch) persistAndBroadcastNotarization(notarization Notarization) error
 		zap.Uint64("round", notarization.Vote.Round),
 		zap.Stringer("digest", notarization.Vote.BlockHeader.Digest))
 
-
 	return errors.Join(e.doNotarized(notarization.Vote.Round), e.maybeLoadFutureMessages())
 }
 
@@ -1841,8 +1840,9 @@ func (e *Epoch) metadata() ProtocolMetadata {
 	highestRound := e.getHighestRound()
 	if highestRound != nil {
 		// Build on top of the latest block
-		prev = highestRound.block.BlockHeader().Digest
-		seq = highestRound.block.BlockHeader().Seq + 1
+		currMed := e.getHighestRound().block.BlockHeader()
+		prev = currMed.Digest
+		seq = currMed.Seq + 1
 	}
 
 	if e.lastBlock != nil {
@@ -1852,6 +1852,7 @@ func (e *Epoch) metadata() ProtocolMetadata {
 			seq = currMed.Seq + 1
 		}
 	}
+
 	md := ProtocolMetadata{
 		Round:   e.round,
 		Seq:     seq,
