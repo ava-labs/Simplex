@@ -1585,14 +1585,15 @@ func (e *Epoch) createNotarizedBlockVerificationTask(block Block, notarization *
 		e.lock.Lock()
 		defer e.lock.Unlock()
 
-		// we started verifying the block when it was the next sequence to commit, however its
-		// possible we received a fCert for this block in the meantime. This check ensures we commit
-		// the block only if it is still the next sequence to commit.
-		// if e.Storage.Height() != md.Seq {
-		// 	e.Logger.Debug("Received finalized block that is not the next sequence to commit",
-		// 		zap.Uint64("seq", md.Seq), zap.Uint64("height", e.Storage.Height()))
-		// 	return md.Digest
-		// }
+		// we started verifying the block when we didn't have a notarization, however its
+		// possible we received a notarization or empty notarization for this block in the meantime. 
+		round, ok := e.rounds[md.Round]
+		emptyVote, emptyOk := e.emptyVotes[md.Round]
+		if (ok && round.notarization != nil) || (emptyOk && emptyVote.emptyNotarization != nil) {
+			e.Logger.Debug("Verifying notarized block that already has a notarization for the round",
+				zap.Uint64("round", md.Round))
+			return md.Digest
+		}
 
 		// store the block in rounds
 		if !e.storeProposal(verifiedBlock) {
@@ -1601,7 +1602,7 @@ func (e *Epoch) createNotarizedBlockVerificationTask(block Block, notarization *
 			// TODO: timeout
 		}
 
-		round, ok := e.rounds[block.BlockHeader().Round]
+		round, ok = e.rounds[block.BlockHeader().Round]
 		if !ok {
 			e.Logger.Warn("Unable to get proposed block for the round", zap.Uint64("round", md.Round))
 			return md.Digest
@@ -2416,6 +2417,7 @@ func (e *Epoch) maybeAdvanceRoundFromEmptyNotarizations() (bool, error) {
 		if err != nil {
 			return false, err
 		}
+		delete(e.replicationState.receivedNotarizations, nBlock.GetRound())
 		return true, nil
 	}
 
