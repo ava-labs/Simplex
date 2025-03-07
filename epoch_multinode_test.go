@@ -286,6 +286,7 @@ type testComm struct {
 	from          NodeID
 	net           *inMemNetwork
 	messageFilter messageFilter
+	lock          sync.RWMutex
 }
 
 func newTestComm(from NodeID, net *inMemNetwork, messageFilter messageFilter) *testComm {
@@ -301,6 +302,9 @@ func (c *testComm) ListNodes() []NodeID {
 }
 
 func (c *testComm) SendMessage(msg *Message, destination NodeID) {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+
 	if !c.messageFilter(msg) {
 		return
 	}
@@ -320,6 +324,13 @@ func (c *testComm) SendMessage(msg *Message, destination NodeID) {
 			return
 		}
 	}
+}
+
+func (c *testComm) setFilter(filter messageFilter) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	c.messageFilter = filter
 }
 
 func (c *testComm) maybeTranslateOutoingToIncomingMessageTypes(msg *Message) {
@@ -386,6 +397,9 @@ func (c *testComm) maybeTranslateOutoingToIncomingMessageTypes(msg *Message) {
 }
 
 func (c *testComm) Broadcast(msg *Message) {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+
 	if !c.messageFilter(msg) {
 		return
 	}
@@ -442,7 +456,7 @@ func (n *inMemNetwork) addNode(node *testNode) {
 
 func (n *inMemNetwork) setAllNodesMessageFilter(filter messageFilter) {
 	for _, instance := range n.instances {
-		instance.e.Comm = newTestComm(instance.e.ID, n, filter)
+		instance.e.Comm.(*testComm).setFilter(filter)
 	}
 }
 
