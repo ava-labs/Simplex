@@ -315,8 +315,6 @@ func TestReplicationEmptyNotarizations(t *testing.T) {
 		require.Equal(t, uint64(0), n.e.Storage.Height())
 	}
 
-	// allow time for all messages to be blocked before changing the filter
-	time.Sleep(50 * time.Millisecond)
 	net.setAllNodesMessageFilter(allowAllMessages)
 	net.Connect(nodes[3])
 
@@ -710,7 +708,6 @@ func testReplicationAfterNodeDisconnects(t *testing.T, nodes []simplex.NodeID, s
 
 func advanceWithoutLeader(t *testing.T, net *inMemNetwork, bb *testControlledBlockBuilder, epochTimes []time.Time, round uint64) {
 	for range net.instances {
-		time.Sleep(10 * time.Millisecond)
 		bb.blockShouldBeBuilt <- struct{}{}
 	}
 
