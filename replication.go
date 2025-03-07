@@ -112,7 +112,7 @@ func (r *ReplicationState) replicateBlocks(fCert *FinalizationCertificate, curre
 		return
 	}
 	r.collectFutureFinalizationCertificates(fCert, currentRound, nextSeqToCommit)
-	r.collectFutureNotarizations(currentRound)
+	r.collectFutureNotarizations(fCert.Finalization.Round + 1)
 }
 
 // maybeCollectFutureFinalizationCertificates attempts to collect future finalization certificates if
