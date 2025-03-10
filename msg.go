@@ -222,9 +222,13 @@ type QuorumCertificate interface {
 
 type ReplicationRequest struct {
 	FinalizationCertificateRequest *FinalizationCertificateRequest
+	NotarizationRequest            *NotarizationRequest
 }
 
 type ReplicationResponse struct {
+	NotarizationResponse         *NotarizationResponse
+	VerifiedNotarizationResponse *VerifiedNotarizationResponse
+
 	FinalizationCertificateResponse         *FinalizationCertificateResponse
 	VerifiedFinalizationCertificateResponse *VerifiedFinalizationCertificateResponse
 }
@@ -250,4 +254,67 @@ type FinalizationCertificateResponse struct {
 
 type VerifiedFinalizationCertificateResponse struct {
 	Data []VerifiedFinalizedBlock
+}
+
+type NotarizationRequest struct {
+	// the starting round to request notarizations
+	StartRound uint64
+}
+
+type NotarizationResponse struct {
+	Data []NotarizedBlock
+}
+
+type VerifiedNotarizationResponse struct {
+	Data []VerifiedNotarizedBlock
+}
+
+// NotarizedBlock represents either a block and its corresponding notarization,
+// or an EmptyNotarization.
+type NotarizedBlock struct {
+	Block             Block
+	Notarization      *Notarization
+	EmptyNotarization *EmptyNotarization
+}
+
+type VerifiedNotarizedBlock struct {
+	VerifiedBlock     VerifiedBlock
+	Notarization      *Notarization
+	EmptyNotarization *EmptyNotarization
+}
+
+// GetRound gets the round of the notarized block, which will either be
+// found in the empty notarization or the block.
+func (n NotarizedBlock) GetRound() uint64 {
+	if n.EmptyNotarization != nil {
+		return n.EmptyNotarization.Vote.Round
+	}
+
+	return n.Block.BlockHeader().Round
+}
+
+// GetRound gets the round of the notarized block, which will either be
+// found in the empty notarization or the block.
+func (n VerifiedNotarizedBlock) GetRound() uint64 {
+	if n.EmptyNotarization != nil {
+		return n.EmptyNotarization.Vote.Round
+	}
+
+	return n.VerifiedBlock.BlockHeader().Round
+}
+
+func (n NotarizedBlock) Verify() error {
+	if n.EmptyNotarization != nil {
+		return n.EmptyNotarization.Verify()
+	}
+
+	return n.Notarization.Verify()
+}
+
+func (n NotarizedBlock) GetSequence() uint64 {
+	if n.EmptyNotarization != nil {
+		return n.EmptyNotarization.Vote.Seq
+	}
+
+	return n.Notarization.Vote.Seq
 }
