@@ -27,7 +27,7 @@ type ReplicationState struct {
 	// received
 	receivedFinalizationCertificates map[uint64]FinalizedBlock
 
-	receivedNotarizations map[uint64]NotarizedBlock
+	// receivedNotarizations map[uint64]NotarizedBlock
 }
 
 func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundWindow uint64, enabled bool) *ReplicationState {
@@ -38,7 +38,7 @@ func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundW
 		id:                               id,
 		maxRoundWindow:                   maxRoundWindow,
 		receivedFinalizationCertificates: make(map[uint64]FinalizedBlock),
-		receivedNotarizations:            make(map[uint64]NotarizedBlock),
+		// receivedNotarizations:            make(map[uint64]NotarizedBlock),
 	}
 }
 
@@ -46,9 +46,9 @@ func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundW
 // The process is considered finished once [nextSeqToCommit] has caught up to the highest finalization certificate
 // and there are no notarizations higher than [currentRound].
 func (r *ReplicationState) isReplicationComplete(nextSeqToCommit uint64, currentRound uint64) bool {
-	if r.highestNotarizedRound() >= currentRound {
-		return false
-	}
+	// if r.highestNotarizedRound() >= currentRound {
+	// 	return false
+	// }
 
 	return nextSeqToCommit > r.highestFCertReceived.Finalization.Seq
 }
@@ -76,22 +76,22 @@ func (r *ReplicationState) collectFutureFinalizationCertificates(fCert *Finaliza
 // sendFutureCertficatesRequests sends requests for future finalization certificates for the
 // range of sequences [start, end] <- inclusive
 func (r *ReplicationState) sendFutureCertficatesRequests(start uint64, end uint64) {
-	seqs := make([]uint64, (end+1)-start)
-	for i := start; i <= end; i++ {
-		seqs[i-start] = i
-	}
+	// seqs := make([]uint64, (end+1)-start)
+	// for i := start; i <= end; i++ {
+	// 	seqs[i-start] = i
+	// }
 
-	roundRequest := &ReplicationRequest{
-		FinalizationCertificateRequest: &FinalizationCertificateRequest{
-			Sequences: seqs,
-		},
-	}
-	msg := &Message{ReplicationRequest: roundRequest}
+	// roundRequest := &ReplicationRequest{
+	// 	FinalizationCertificateRequest: &FinalizationCertificateRequest{
+	// 		Sequences: seqs,
+	// 	},
+	// }
+	// msg := &Message{ReplicationRequest: roundRequest}
 
-	requestFrom := r.requestFrom()
+	// requestFrom := r.requestFrom()
 
-	r.lastSequenceRequested = end
-	r.comm.SendMessage(msg, requestFrom)
+	// r.lastSequenceRequested = end
+	// r.comm.SendMessage(msg, requestFrom)
 }
 
 // requestFrom returns a node to send a message request to
@@ -112,7 +112,7 @@ func (r *ReplicationState) replicateBlocks(fCert *FinalizationCertificate, curre
 		return
 	}
 	r.collectFutureFinalizationCertificates(fCert, currentRound, nextSeqToCommit)
-	r.collectFutureNotarizations(fCert.Finalization.Round + 1)
+	// r.collectFutureNotarizations(fCert.Finalization.Round + 1)
 }
 
 // maybeCollectFutureFinalizationCertificates attempts to collect future finalization certificates if
@@ -148,36 +148,36 @@ func (r *ReplicationState) StoreFinalizedBlock(data FinalizedBlock) error {
 	return nil
 }
 
-func (r *ReplicationState) storeNotarizedBlock(data NotarizedBlock) {
-	if _, ok := r.receivedNotarizations[data.GetRound()]; ok {
-		return
-	}
+// func (r *ReplicationState) storeNotarizedBlock(data NotarizedBlock) {
+// 	if _, ok := r.receivedNotarizations[data.GetRound()]; ok {
+// 		return
+// 	}
 
-	r.receivedNotarizations[data.GetRound()] = data
-}
+// 	r.receivedNotarizations[data.GetRound()] = data
+// }
 
-func (r *ReplicationState) collectFutureNotarizations(currentRound uint64) {
-	// round to start collecting notarizations
-	start := max(r.highestNotarizedRound(), currentRound)
+// func (r *ReplicationState) collectFutureNotarizations(currentRound uint64) {
+// 	// round to start collecting notarizations
+// 	start := max(r.highestNotarizedRound(), currentRound)
 
-	msg := &Message{
-		ReplicationRequest: &ReplicationRequest{
-			NotarizationRequest: &NotarizationRequest{
-				StartRound: start,
-			},
-		},
-	}
+// 	msg := &Message{
+// 		ReplicationRequest: &ReplicationRequest{
+// 			NotarizationRequest: &NotarizationRequest{
+// 				StartRound: start,
+// 			},
+// 		},
+// 	}
 
-	requestFrom := r.requestFrom()
-	r.comm.SendMessage(msg, requestFrom)
-}
+// 	requestFrom := r.requestFrom()
+// 	r.comm.SendMessage(msg, requestFrom)
+// }
 
-func (r *ReplicationState) highestNotarizedRound() uint64 {
-	var highestRound uint64
-	for round := range r.receivedNotarizations {
-		if round > highestRound {
-			highestRound = round
-		}
-	}
-	return highestRound
-}
+// func (r *ReplicationState) highestNotarizedRound() uint64 {
+// 	var highestRound uint64
+// 	for round := range r.receivedNotarizations {
+// 		if round > highestRound {
+// 			highestRound = round
+// 		}
+// 	}
+// 	return highestRound
+// }

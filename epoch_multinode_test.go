@@ -334,56 +334,36 @@ func (c *testComm) setFilter(filter messageFilter) {
 }
 
 func (c *testComm) maybeTranslateOutoingToIncomingMessageTypes(msg *Message) {
-	if msg.ReplicationResponse != nil {
-		verifiedFCertResponse := msg.ReplicationResponse.VerifiedFinalizationCertificateResponse
-		verifiedNotarizationResponse := msg.ReplicationResponse.VerifiedNotarizationResponse
-		if verifiedFCertResponse != nil {
-			data := make([]FinalizedBlock, 0, len(verifiedFCertResponse.Data))
+	if msg.VerifiedReplicationResponse != nil {
+		data := make([]QuorumRound, 0, len(msg.VerifiedReplicationResponse.Data))
 
-			for _, verifiedData := range verifiedFCertResponse.Data {
-				// Outgoing block is of type verified block but incoming block is of type Block,
-				// so we do a type cast because the test block implements both.
-				finalizedBlock := FinalizedBlock{
-					Block: verifiedData.VerifiedBlock.(Block),
-					FCert: verifiedData.FCert,
+		for _, verifiedQuorumRound := range msg.VerifiedReplicationResponse.Data {
+			// Outgoing block is of type verified block but incoming block is of type Block,
+			// so we do a type cast because the test block implements both.
+			quorumRound := QuorumRound{}
+			if verifiedQuorumRound.EmptyNotarization != nil {
+				quorumRound.EmptyNotarization = verifiedQuorumRound.EmptyNotarization
+			} else {
+				quorumRound.Block = verifiedQuorumRound.VerifiedBlock.(Block)
+				if verifiedQuorumRound.Notarization != nil {
+					quorumRound.Notarization = verifiedQuorumRound.Notarization
 				}
-				data = append(data, finalizedBlock)
+				if verifiedQuorumRound.FCert != nil {
+					quorumRound.FCert = verifiedQuorumRound.FCert
+				}
 			}
 
-			require.Nil(
-				c.net.t,
-				msg.ReplicationResponse.FinalizationCertificateResponse,
-				"message cannot include FinalizationCertificateResponse & VerifiedFinalizationCertificateResponse",
-			)
-
-			msg.ReplicationResponse.FinalizationCertificateResponse = &FinalizationCertificateResponse{
-				Data: data,
-			}
+			data = append(data, quorumRound)
 		}
 
-		if verifiedNotarizationResponse != nil {
-			data := make([]NotarizedBlock, 0, len(verifiedNotarizationResponse.Data))
+		require.Nil(
+			c.net.t,
+			msg.ReplicationResponse,
+			"message cannot include ReplicationResponse & VerifiedReplicationResponse",
+		)
 
-			for _, verifiedData := range verifiedNotarizationResponse.Data {
-				notarizedBlock := NotarizedBlock{
-					Notarization:      verifiedData.Notarization,
-					EmptyNotarization: verifiedData.EmptyNotarization,
-				}
-				if verifiedData.VerifiedBlock != nil {
-					notarizedBlock.Block = verifiedData.VerifiedBlock.(Block)
-				}
-				data = append(data, notarizedBlock)
-			}
-
-			require.Nil(
-				c.net.t,
-				msg.ReplicationResponse.FinalizationCertificateResponse,
-				"message cannot include NotarizationResponse & VerifiedNotarizationResponse",
-			)
-
-			msg.ReplicationResponse.NotarizationResponse = &NotarizationResponse{
-				Data: data,
-			}
+		msg.ReplicationResponse = &ReplicationResponse{
+			Data: data,
 		}
 	}
 

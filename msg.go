@@ -19,6 +19,7 @@ type Message struct {
 	Finalization            *Finalization
 	FinalizationCertificate *FinalizationCertificate
 	ReplicationResponse     *ReplicationResponse
+	VerifiedReplicationResponse     *VerifiedReplicationResponse
 	ReplicationRequest      *ReplicationRequest
 }
 
@@ -221,21 +222,40 @@ type QuorumCertificate interface {
 }
 
 type ReplicationRequest struct {
-	FinalizationCertificateRequest *FinalizationCertificateRequest
-	NotarizationRequest            *NotarizationRequest
+	Seqs []uint64 // sequences we are requesting
+	LatestRound uint64 // latest round that we are aware of
 }
 
 type ReplicationResponse struct {
-	NotarizationResponse         *NotarizationResponse
-	VerifiedNotarizationResponse *VerifiedNotarizationResponse
-
-	FinalizationCertificateResponse         *FinalizationCertificateResponse
-	VerifiedFinalizationCertificateResponse *VerifiedFinalizationCertificateResponse
+	Data         []QuorumRound
+	LatestRound  QuorumRound
 }
 
-// request a finalization certificate for the given sequence number
-type FinalizationCertificateRequest struct {
-	Sequences []uint64
+type VerifiedReplicationResponse struct {
+	Data         []VerifiedQuorumRound
+	LatestRound  *VerifiedQuorumRound
+}
+
+type QuorumRound struct {
+	Block Block
+	Notarization *Notarization
+	FCert *FinalizationCertificate
+	EmptyNotarization *EmptyNotarization
+}
+
+type VerifiedQuorumRound struct {
+	VerifiedBlock VerifiedBlock
+	Notarization *Notarization
+	FCert *FinalizationCertificate
+	EmptyNotarization *EmptyNotarization
+}
+
+func (q VerifiedQuorumRound) GetRound() uint64 {
+	if q.EmptyNotarization != nil {
+		return q.EmptyNotarization.Vote.Round
+	}
+
+	return q.VerifiedBlock.BlockHeader().Round
 }
 
 type FinalizedBlock struct {
@@ -255,66 +275,28 @@ type FinalizationCertificateResponse struct {
 type VerifiedFinalizationCertificateResponse struct {
 	Data []VerifiedFinalizedBlock
 }
+// // GetRound gets the round of the notarized block, which will either be
+// // found in the empty notarization or the block.
+// func (n NotarizedBlock) GetRound() uint64 {
+// 	if n.EmptyNotarization != nil {
+// 		return n.EmptyNotarization.Vote.Round
+// 	}
 
-type NotarizationRequest struct {
-	// the starting round to request notarizations
-	StartRound uint64
-}
+// 	return n.Block.BlockHeader().Round
+// }
 
-type NotarizationResponse struct {
-	Data []NotarizedBlock
-}
+// func (n NotarizedBlock) Verify() error {
+// 	if n.EmptyNotarization != nil {
+// 		return n.EmptyNotarization.Verify()
+// 	}
 
-type VerifiedNotarizationResponse struct {
-	Data []VerifiedNotarizedBlock
-}
+// 	return n.Notarization.Verify()
+// }
 
-// NotarizedBlock represents either a block and its corresponding notarization,
-// or an EmptyNotarization.
-type NotarizedBlock struct {
-	Block             Block
-	Notarization      *Notarization
-	EmptyNotarization *EmptyNotarization
-}
+// func (n NotarizedBlock) GetSequence() uint64 {
+// 	if n.EmptyNotarization != nil {
+// 		return n.EmptyNotarization.Vote.Seq
+// 	}
 
-type VerifiedNotarizedBlock struct {
-	VerifiedBlock     VerifiedBlock
-	Notarization      *Notarization
-	EmptyNotarization *EmptyNotarization
-}
-
-// GetRound gets the round of the notarized block, which will either be
-// found in the empty notarization or the block.
-func (n NotarizedBlock) GetRound() uint64 {
-	if n.EmptyNotarization != nil {
-		return n.EmptyNotarization.Vote.Round
-	}
-
-	return n.Block.BlockHeader().Round
-}
-
-// GetRound gets the round of the notarized block, which will either be
-// found in the empty notarization or the block.
-func (n VerifiedNotarizedBlock) GetRound() uint64 {
-	if n.EmptyNotarization != nil {
-		return n.EmptyNotarization.Vote.Round
-	}
-
-	return n.VerifiedBlock.BlockHeader().Round
-}
-
-func (n NotarizedBlock) Verify() error {
-	if n.EmptyNotarization != nil {
-		return n.EmptyNotarization.Verify()
-	}
-
-	return n.Notarization.Verify()
-}
-
-func (n NotarizedBlock) GetSequence() uint64 {
-	if n.EmptyNotarization != nil {
-		return n.EmptyNotarization.Vote.Seq
-	}
-
-	return n.Notarization.Vote.Seq
-}
+// 	return n.Notarization.Vote.Seq
+// }
