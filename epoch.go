@@ -2256,64 +2256,40 @@ func (e *Epoch) locateQuorumRecord(seq uint64) (*VerifiedQuorumRound, error) {
 }
 
 func (e *Epoch) handleReplicationResponse(resp *ReplicationResponse, from NodeID) error {
-	return nil
+	e.Logger.Debug("Received replication response", zap.String("from", from.String()), zap.Int("num seqs", len(resp.Data)))
+	nextSeqToCommit := e.Storage.Height()
+
+	for _, data := range resp.Data {
+		if nextSeqToCommit >= data.GetSequence() {
+			continue
+		}
+
+		// we pass the sequence rather than round, since we can have large gaps due to empty notarizations 
+		if e.isRoundTooFarAhead(data.GetSequence()) {
+			e.Logger.Debug("Received quorum round for a seq that is too far ahead", zap.Uint64("seq", data.GetSequence()))
+			// we are too far behind, we should ignore this message
+			continue
+		}
+
+		if err := data.Verify(); err != nil {
+			e.Logger.Debug("Received invalid quorum round", zap.Uint64("seq", data.GetSequence()), zap.String("from", from.String()))
+			continue
+		}
+
+		if data.FCert != nil {
+			// extra check needed if we have a finalized block
+			valid := IsFinalizationCertificateValid(e.eligibleNodeIDs, data.FCert, e.quorumSize, e.Logger)
+			if !valid {
+				e.Logger.Debug("Received invalid finalization certificate", zap.Uint64("seq", data.FCert.Finalization.Seq), zap.String("from", from.String()))
+				continue
+			}
+		}
+
+		e.replicationState.StoreQuorumRound(data)
+	}
+
+	return e.processReplicationState()
 }
-
-// func (e *Epoch) handleNotarizationResponse(resp *NotarizationResponse, from NodeID) error {
-// 	e.Logger.Debug("Received notarization response", zap.String("from", from.String()), zap.Int("num rounds", len(resp.Data)))
-// 	highestRound := uint64(0)
-// 	if round := e.getHighestRound(); round != nil {
-// 		highestRound = round.num
-// 	}
-
-// 	for _, notarizedBlock := range resp.Data {
-// 		if notarizedBlock.GetRound() <= highestRound {
-// 			continue
-// 		}
-
-// 		if notarizedBlock.GetRound() > e.round+e.maxRoundWindow {
-// 			continue
-// 		}
-
-// 		if err := notarizedBlock.Verify(); err != nil {
-// 			return err
-// 		}
-
-// 		e.replicationState.storeNotarizedBlock(notarizedBlock)
-// 	}
-
-// 	return e.processReplicationState()
-// }
-
-// func (e *Epoch) handleFinalizationCertificateResponse(resp *FinalizationCertificateResponse, from NodeID) error {
-// 	e.Logger.Debug("Received finalization certificate response", zap.String("from", from.String()), zap.Int("num seqs", len(resp.Data)))
-// 	for _, data := range resp.Data {
-// 		if data.Block == nil {
-// 			e.Logger.Debug("received finalization certificate response with nil block")
-// 			return nil
-// 		}
-// 		if e.isRoundTooFarAhead(data.FCert.Finalization.Seq) {
-// 			e.Logger.Debug("Received finalization certificate for a seq that is too far ahead", zap.Uint64("seq", data.FCert.Finalization.Seq))
-// 			// we are too far behind, we should ignore this message
-// 			continue
-// 		}
-
-// 		valid := IsFinalizationCertificateValid(e.eligibleNodeIDs, &data.FCert, e.quorumSize, e.Logger)
-// 		// verify the finalization certificate
-// 		if !valid {
-// 			e.Logger.Debug("Received invalid finalization certificate", zap.Uint64("seq", data.FCert.Finalization.Seq), zap.String("from", from.String()))
-// 			continue
-// 		}
-
-// 		err := e.replicationState.StoreFinalizedBlock(data)
-// 		if err != nil {
-// 			e.Logger.Info("Failed to store sequence data", zap.Error(err), zap.Uint64("seq", data.FCert.Finalization.Seq), zap.String("from", from.String()))
-// 			continue
-// 		}
-// 	}
-
-// 	return e.processReplicationState()
-// }
 
 func (e *Epoch) processReplicationState() error {
 	// nextSeqToCommit := e.Storage.Height()

@@ -4,6 +4,7 @@
 package simplex
 
 import (
+	"bytes"
 	"encoding/asn1"
 	"encoding/binary"
 	"fmt"
@@ -257,6 +258,48 @@ func (q VerifiedQuorumRound) GetRound() uint64 {
 
 	return q.VerifiedBlock.BlockHeader().Round
 }
+
+func (q QuorumRound) GetRound() uint64 {
+	if q.EmptyNotarization != nil {
+		return q.EmptyNotarization.Vote.Round
+	}
+
+	return q.Block.BlockHeader().Round
+}
+
+func (q QuorumRound) GetSequence() uint64 {
+	if q.EmptyNotarization != nil {
+		return q.EmptyNotarization.Vote.Seq
+	}
+
+	return q.Block.BlockHeader().Seq
+}
+
+func (q QuorumRound) Verify() error {
+	if q.EmptyNotarization != nil {
+		return q.EmptyNotarization.Verify()
+	} 
+
+	// ensure the finalization certificate or notarization we get relates to the block
+	blockDigest := q.Block.BlockHeader().Digest
+	
+	if q.FCert != nil {
+		if !bytes.Equal(blockDigest[:], q.FCert.Finalization.Digest[:]) {
+			return fmt.Errorf("finalization certificate does not match the block")
+		}
+		return q.FCert.Verify()
+	}
+
+	if q.Notarization != nil {
+		if !bytes.Equal(blockDigest[:], q.Notarization.Vote.Digest[:]) {
+			return fmt.Errorf("notarization does not match the block")
+		}
+		return q.Notarization.Verify()
+	}
+
+	return fmt.Errorf("no finalization certificate, empty notarization or notarization found")
+}
+
 
 type FinalizedBlock struct {
 	Block Block

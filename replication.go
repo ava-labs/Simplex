@@ -4,8 +4,6 @@
 package simplex
 
 import (
-	"bytes"
-	"fmt"
 	"math"
 
 	"go.uber.org/zap"
@@ -25,9 +23,9 @@ type ReplicationState struct {
 	highestFCertReceived *FinalizationCertificate
 
 	// received
-	receivedFinalizationCertificates map[uint64]FinalizedBlock
+	// receivedFinalizationCertificates map[uint64]FinalizedBlock
 
-	// receivedNotarizations map[uint64]NotarizedBlock
+	receivedQuorumRounds map[uint64]QuorumRound
 }
 
 func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundWindow uint64, enabled bool) *ReplicationState {
@@ -37,7 +35,8 @@ func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundW
 		comm:                             comm,
 		id:                               id,
 		maxRoundWindow:                   maxRoundWindow,
-		receivedFinalizationCertificates: make(map[uint64]FinalizedBlock),
+		receivedQuorumRounds: 		   make(map[uint64]QuorumRound),
+		// receivedFinalizationCertificates: make(map[uint64]FinalizedBlock),
 		// receivedNotarizations:            make(map[uint64]NotarizedBlock),
 	}
 }
@@ -132,20 +131,12 @@ func (r *ReplicationState) maybeCollectFutureFinalizationCertificates(round uint
 	}
 }
 
-func (r *ReplicationState) StoreFinalizedBlock(data FinalizedBlock) error {
-	// ensure the finalization certificate we get relates to the block
-	blockDigest := data.Block.BlockHeader().Digest
-	if !bytes.Equal(blockDigest[:], data.FCert.Finalization.Digest[:]) {
-		return fmt.Errorf("finalization certificate does not match the block")
+func (r *ReplicationState) StoreQuorumRound(round QuorumRound) {
+	if _, ok := r.receivedQuorumRounds[round.GetRound()]; ok {
+		return
 	}
 
-	// don't store the same finalization certificate twice
-	if _, ok := r.receivedFinalizationCertificates[data.FCert.Finalization.Seq]; ok {
-		return nil
-	}
-
-	r.receivedFinalizationCertificates[data.FCert.Finalization.Seq] = data
-	return nil
+	r.receivedQuorumRounds[round.GetRound()] = round
 }
 
 // func (r *ReplicationState) storeNotarizedBlock(data NotarizedBlock) {
