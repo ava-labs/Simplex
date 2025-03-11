@@ -2197,9 +2197,10 @@ func (e *Epoch) HandleReplicationRequest(req *ReplicationRequest, from NodeID) (
 
 	seqs := req.Seqs
 	slices.Sort(seqs)
-	data := make([]VerifiedQuorumRound, 0, len(seqs))
-
+	data := make([]VerifiedQuorumRound, len(seqs))
+	fmt.Println("seqs", seqs)
 	for i, seq := range seqs {
+		// TODO: update this method so it accepts a list of seqs to reduce the double for loop
 		quorumRound, err := e.locateQuorumRecord(seq)
 		if err != nil {
 			e.Logger.Error("Error while locating record", zap.Error(err))
@@ -2207,10 +2208,13 @@ func (e *Epoch) HandleReplicationRequest(req *ReplicationRequest, from NodeID) (
 		}
 
 		if quorumRound == nil {
+			fmt.Println("not found", seq)
 			// since we are sorted, we can break early
 			data = data[:i]
 			break
 		}
+
+		data[i] = *quorumRound
 	}
 
 	response.Data = data
@@ -2227,7 +2231,6 @@ func (e *Epoch) locateQuorumRecord(seq uint64) (*VerifiedQuorumRound, error) {
 			if round.fCert == nil || round.notarization == nil {
 				break
 			}
-
 			return &VerifiedQuorumRound{
 				VerifiedBlock: round.block,
 				Notarization:  round.notarization,
@@ -2252,7 +2255,8 @@ func (e *Epoch) handleReplicationResponse(resp *ReplicationResponse, from NodeID
 	nextSeqToCommit := e.Storage.Height()
 
 	for _, data := range resp.Data {
-		if nextSeqToCommit >= data.GetSequence() {
+		if nextSeqToCommit > data.GetSequence() {
+			e.Logger.Debug("Received quorum round for a seq that is too far behind", zap.Uint64("seq", data.GetSequence()))
 			continue
 		}
 
@@ -2277,9 +2281,11 @@ func (e *Epoch) handleReplicationResponse(resp *ReplicationResponse, from NodeID
 			}
 		}
 
+		fmt.Println("storing quorum round")
 		e.replicationState.StoreQuorumRound(data)
 	}
 
+	fmt.Println("processing state")
 	return e.processReplicationState()
 }
 
@@ -2294,11 +2300,14 @@ func (e *Epoch) processReplicationState() error {
 		return e.startRound()
 	}
 
+	fmt.Println("continuign state")
+
 	// first we check if we can commit the next sequence
 	finalizedBlock := e.replicationState.GetFinalizedBlockForSequence(nextSeqToCommit)
 	if finalizedBlock != nil {
+		fmt.Println("finalized block")
 		delete(e.replicationState.receivedQuorumRounds, finalizedBlock.Block.BlockHeader().Round)
-		// e.replicationState.maybeCollectFutureSequences(e.round, e.Storage.Height())
+		e.replicationState.maybeCollectFutureSequences(e.round, e.Storage.Height())
 		return e.processFinalizedBlock(finalizedBlock)
 	}
 

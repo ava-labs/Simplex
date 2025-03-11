@@ -4,6 +4,7 @@
 package simplex
 
 import (
+	"fmt"
 	"math"
 
 	"go.uber.org/zap"
@@ -40,6 +41,10 @@ func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundW
 // isReplicationComplete returns true if we have finished the replication process.
 // The process is considered finished once [currentRound] has caught up to the highest round received.
 func (r *ReplicationState) isReplicationComplete(nextSeqToCommit uint64, currentRound uint64) bool {
+	if nextSeqToCommit == 0 {
+		return false
+	}
+
 	return nextSeqToCommit >= r.highestSeqReceived
 }
 
@@ -99,6 +104,7 @@ func (r *ReplicationState) replicateBlocks(fCert *FinalizationCertificate, curre
 	if !r.enabled {
 		return
 	}
+
 	r.collectMissingSequences(fCert.Finalization.Seq, currentRound, nextSeqToCommit)
 }
 
@@ -124,7 +130,9 @@ func (r *ReplicationState) StoreQuorumRound(round QuorumRound) {
 }
 
 func (r *ReplicationState) GetFinalizedBlockForSequence(seq uint64) *FinalizedBlock {
+	fmt.Println("len of receivedQuorumRounds: ", len(r.receivedQuorumRounds))
 	for _, round := range r.receivedQuorumRounds {
+		fmt.Println("round.GetSequence(): ", round.GetSequence())
 		if round.GetSequence() == seq {
 			if round.Block == nil || round.FCert == nil {
 				return nil
@@ -159,30 +167,6 @@ func (r *ReplicationState) GetNotarizedBlockForRound(round uint64) *NotarizedBlo
 		block:        qRound.Block,
 	}
 }
-
-// func (r *ReplicationState) storeNotarizedBlock(data NotarizedBlock) {
-// 	if _, ok := r.receivedNotarizations[data.GetRound()]; ok {
-// 		return
-// 	}
-
-// 	r.receivedNotarizations[data.GetRound()] = data
-// }
-
-// func (r *ReplicationState) collectFutureNotarizations(currentRound uint64) {
-// 	// round to start collecting notarizations
-// 	start := max(r.highestNotarizedRound(), currentRound)
-
-// 	msg := &Message{
-// 		ReplicationRequest: &ReplicationRequest{
-// 			NotarizationRequest: &NotarizationRequest{
-// 				StartRound: start,
-// 			},
-// 		},
-// 	}
-
-// 	requestFrom := r.requestFrom()
-// 	r.comm.SendMessage(msg, requestFrom)
-// }
 
 func (r *ReplicationState) highestNotarizedRound() uint64 {
 	var highestRound uint64
