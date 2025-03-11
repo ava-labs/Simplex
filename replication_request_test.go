@@ -43,14 +43,14 @@ func TestReplicationeRequestIndexedBlocks(t *testing.T) {
 	require.NoError(t, e.Start())
 	sequences := []uint64{0, 1, 2, 3}
 	req := &simplex.ReplicationRequest{
-		Seqs: sequences,
+		Seqs:        sequences,
 		LatestRound: numBlocks,
 	}
 
 	resp, err := e.HandleReplicationRequest(req, nodes[1])
 	require.NoError(t, err)
 	require.NotNil(t, resp)
-	require.Nil(t, resp.LatestRound) 
+	require.Nil(t, resp.LatestRound)
 	require.Equal(t, len(sequences), len(resp.Data))
 	for i, data := range resp.Data {
 		require.Equal(t, seqs[i].FCert, *data.FCert)
@@ -80,7 +80,7 @@ func TestReplicationRequestNotarizations(t *testing.T) {
 	require.NoError(t, e.Start())
 
 	numBlocks := uint64(5)
-	rounds := make(map[uint64]simplex.VerifiedQuorumRound)	
+	rounds := make(map[uint64]simplex.VerifiedQuorumRound)
 	for i := uint64(0); i < numBlocks; i++ {
 		block, notarization := advanceRound(t, e, bb, true, false)
 
@@ -97,7 +97,7 @@ func TestReplicationRequestNotarizations(t *testing.T) {
 		seqs = append(seqs, k)
 	}
 	req := &simplex.ReplicationRequest{
-		Seqs: seqs,
+		Seqs:        seqs,
 		LatestRound: 0,
 	}
 
@@ -127,7 +127,7 @@ func TestReplicationRequestMixed(t *testing.T) {
 	require.NoError(t, e.Start())
 
 	numBlocks := uint64(8)
-	rounds := make(map[uint64]simplex.VerifiedQuorumRound)	
+	rounds := make(map[uint64]simplex.VerifiedQuorumRound)
 	// only produce a notarization for blocks we are the leader, otherwise produce an empty notarization
 	for i := range numBlocks {
 		leaderForRound := bytes.Equal(simplex.LeaderForRound(nodes, uint64(i)), e.ID)
@@ -158,7 +158,7 @@ func TestReplicationRequestMixed(t *testing.T) {
 	}
 
 	req := &simplex.ReplicationRequest{
-		Seqs: seqs,
+		Seqs:        seqs,
 		LatestRound: 0,
 	}
 	resp, err := e.HandleReplicationRequest(req, nodes[1])
@@ -184,7 +184,7 @@ func TestNilReplicationResponse(t *testing.T) {
 
 	err := normalNode0.HandleMessage(&simplex.Message{
 		ReplicationResponse: &simplex.ReplicationResponse{
-				Data: []simplex.QuorumRound{{}},
+			Data: []simplex.QuorumRound{{}},
 		},
 	}, nodes[1])
 	require.NoError(t, err)

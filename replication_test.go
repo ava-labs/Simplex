@@ -181,7 +181,6 @@ func TestReplicationEmptyNotarizations(t *testing.T) {
 	require.Equal(t, uint64(1), laggingNode.e.Metadata().Seq)
 }
 
-
 // TestReplication tests the replication process of a node that
 // is behind the rest of the network by less than maxRoundWindow.
 func TestReplication(t *testing.T) {

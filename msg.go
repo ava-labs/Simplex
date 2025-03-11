@@ -11,17 +11,17 @@ import (
 )
 
 type Message struct {
-	BlockMessage            *BlockMessage
-	VerifiedBlockMessage    *VerifiedBlockMessage
-	EmptyNotarization       *EmptyNotarization
-	VoteMessage             *Vote
-	EmptyVoteMessage        *EmptyVote
-	Notarization            *Notarization
-	Finalization            *Finalization
-	FinalizationCertificate *FinalizationCertificate
-	ReplicationResponse     *ReplicationResponse
-	VerifiedReplicationResponse     *VerifiedReplicationResponse
-	ReplicationRequest      *ReplicationRequest
+	BlockMessage                *BlockMessage
+	VerifiedBlockMessage        *VerifiedBlockMessage
+	EmptyNotarization           *EmptyNotarization
+	VoteMessage                 *Vote
+	EmptyVoteMessage            *EmptyVote
+	Notarization                *Notarization
+	Finalization                *Finalization
+	FinalizationCertificate     *FinalizationCertificate
+	ReplicationResponse         *ReplicationResponse
+	VerifiedReplicationResponse *VerifiedReplicationResponse
+	ReplicationRequest          *ReplicationRequest
 }
 
 type ToBeSignedEmptyVote struct {
@@ -223,31 +223,31 @@ type QuorumCertificate interface {
 }
 
 type ReplicationRequest struct {
-	Seqs []uint64 // sequences we are requesting
-	LatestRound uint64 // latest round that we are aware of
+	Seqs        []uint64 // sequences we are requesting
+	LatestRound uint64   // latest round that we are aware of
 }
 
 type ReplicationResponse struct {
-	Data         []QuorumRound
-	LatestRound  QuorumRound
+	Data        []QuorumRound
+	LatestRound QuorumRound
 }
 
 type VerifiedReplicationResponse struct {
-	Data         []VerifiedQuorumRound
-	LatestRound  *VerifiedQuorumRound
+	Data        []VerifiedQuorumRound
+	LatestRound *VerifiedQuorumRound
 }
 
 type QuorumRound struct {
-	Block Block
-	Notarization *Notarization
-	FCert *FinalizationCertificate
+	Block             Block
+	Notarization      *Notarization
+	FCert             *FinalizationCertificate
 	EmptyNotarization *EmptyNotarization
 }
 
 type VerifiedQuorumRound struct {
-	VerifiedBlock VerifiedBlock
-	Notarization *Notarization
-	FCert *FinalizationCertificate
+	VerifiedBlock     VerifiedBlock
+	Notarization      *Notarization
+	FCert             *FinalizationCertificate
 	EmptyNotarization *EmptyNotarization
 }
 
@@ -278,11 +278,11 @@ func (q QuorumRound) GetSequence() uint64 {
 func (q QuorumRound) Verify() error {
 	if q.EmptyNotarization != nil {
 		return q.EmptyNotarization.Verify()
-	} 
+	}
 
 	// ensure the finalization certificate or notarization we get relates to the block
 	blockDigest := q.Block.BlockHeader().Digest
-	
+
 	if q.FCert != nil {
 		if !bytes.Equal(blockDigest[:], q.FCert.Finalization.Digest[:]) {
 			return fmt.Errorf("finalization certificate does not match the block")
@@ -299,7 +299,6 @@ func (q QuorumRound) Verify() error {
 
 	return fmt.Errorf("no finalization certificate, empty notarization or notarization found")
 }
-
 
 type FinalizedBlock struct {
 	Block Block
@@ -318,6 +317,7 @@ type FinalizationCertificateResponse struct {
 type VerifiedFinalizationCertificateResponse struct {
 	Data []VerifiedFinalizedBlock
 }
+
 // // GetRound gets the round of the notarized block, which will either be
 // // found in the empty notarization or the block.
 // func (n NotarizedBlock) GetRound() uint64 {
