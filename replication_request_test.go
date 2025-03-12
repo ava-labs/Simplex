@@ -18,6 +18,7 @@ func TestReplicationeRequestIndexedBlocks(t *testing.T) {
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
 	signatureAggregator := &testSignatureAggregator{}
 	wal := wal.NewMemWAL(t)
+	comm := NewBufferedComm(nodes)
 	conf := simplex.EpochConfig{
 		Logger:              l,
 		ID:                  nodes[0],
@@ -25,7 +26,7 @@ func TestReplicationeRequestIndexedBlocks(t *testing.T) {
 		WAL:                 wal,
 		Verifier:            &testVerifier{},
 		Storage:             storage,
-		Comm:                noopComm(nodes),
+		Comm:                comm,
 		BlockBuilder:        bb,
 		SignatureAggregator: signatureAggregator,
 		BlockDeserializer:   &blockDeserializer{},
@@ -42,15 +43,20 @@ func TestReplicationeRequestIndexedBlocks(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, e.Start())
 	sequences := []uint64{0, 1, 2, 3}
-	req := &simplex.ReplicationRequest{
-		Seqs:        sequences,
-		LatestRound: numBlocks,
+	req := &simplex.Message{
+		ReplicationRequest: &simplex.ReplicationRequest{
+			Seqs:        sequences,
+			LatestRound: numBlocks,
+		},
 	}
 
-	resp, err := e.HandleReplicationRequest(req, nodes[1])
+	err = e.HandleMessage(req, nodes[1])
 	require.NoError(t, err)
-	require.NotNil(t, resp)
+
+	msg := <-comm.in
+	resp := msg.VerifiedReplicationResponse
 	require.Nil(t, resp.LatestRound)
+
 	require.Equal(t, len(sequences), len(resp.Data))
 	for i, data := range resp.Data {
 		require.Equal(t, seqs[i].FCert, *data.FCert)
@@ -58,12 +64,17 @@ func TestReplicationeRequestIndexedBlocks(t *testing.T) {
 	}
 
 	// request out of scope
-	req = &simplex.ReplicationRequest{
-		Seqs: []uint64{11, 12, 13},
+	req = &simplex.Message{
+		ReplicationRequest: &simplex.ReplicationRequest{
+			Seqs: []uint64{11, 12, 13},
+		},
 	}
 
-	resp, err = e.HandleReplicationRequest(req, nodes[1])
+	err = e.HandleMessage(req, nodes[1])
 	require.NoError(t, err)
+
+	msg = <-comm.in
+	resp = msg.VerifiedReplicationResponse
 	require.Zero(t, len(resp.Data))
 }
 
@@ -72,7 +83,8 @@ func TestReplicationRequestNotarizations(t *testing.T) {
 	// generate 5 blocks & notarizations
 	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
-	conf := defaultTestNodeEpochConfig(t, nodes[0], noopComm(nodes), bb)
+	comm := NewBufferedComm(nodes)
+	conf := defaultTestNodeEpochConfig(t, nodes[0], comm, bb)
 	conf.ReplicationEnabled = true
 
 	e, err := simplex.NewEpoch(conf)
@@ -96,12 +108,18 @@ func TestReplicationRequestNotarizations(t *testing.T) {
 	for k := range rounds {
 		seqs = append(seqs, k)
 	}
-	req := &simplex.ReplicationRequest{
-		Seqs:        seqs,
-		LatestRound: 0,
+	req := &simplex.Message{
+		ReplicationRequest: &simplex.ReplicationRequest{
+			Seqs:        seqs,
+			LatestRound: 0,
+		},
 	}
 
-	resp, err := e.HandleReplicationRequest(req, nodes[1])
+	err = e.HandleMessage(req, nodes[1])
+	require.NoError(t, err)
+
+	msg := <-comm.in
+	resp := msg.VerifiedReplicationResponse
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 	require.Equal(t, *resp.LatestRound, rounds[numBlocks-1])
@@ -119,7 +137,8 @@ func TestReplicationRequestMixed(t *testing.T) {
 	// generate 5 blocks & notarizations
 	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
-	conf := defaultTestNodeEpochConfig(t, nodes[0], noopComm(nodes), bb)
+	comm := NewBufferedComm(nodes)
+	conf := defaultTestNodeEpochConfig(t, nodes[0], comm, bb)
 	conf.ReplicationEnabled = true
 
 	e, err := simplex.NewEpoch(conf)
@@ -157,12 +176,18 @@ func TestReplicationRequestMixed(t *testing.T) {
 		seqs = append(seqs, k)
 	}
 
-	req := &simplex.ReplicationRequest{
-		Seqs:        seqs,
-		LatestRound: 0,
+	req := &simplex.Message{
+		ReplicationRequest: &simplex.ReplicationRequest{
+			Seqs:        seqs,
+			LatestRound: 0,
+		},
 	}
-	resp, err := e.HandleReplicationRequest(req, nodes[1])
+
+	err = e.HandleMessage(req, nodes[1])
 	require.NoError(t, err)
+
+	msg := <-comm.in
+	resp := msg.VerifiedReplicationResponse
 
 	require.Equal(t, *resp.LatestRound, rounds[numBlocks-1])
 	for _, round := range resp.Data {

@@ -1014,6 +1014,22 @@ func (n noopComm) Broadcast(msg *Message) {
 
 }
 
+type bufferedComm struct {
+	noopComm
+	in chan *Message
+}
+
+func NewBufferedComm(nodeIDs []NodeID) *bufferedComm {
+	return &bufferedComm{
+		noopComm: noopComm(nodeIDs),
+		in:       make(chan *Message, 1),
+	}
+}
+
+func (b *bufferedComm) SendMessage(msg *Message, id NodeID) {
+	b.in <- msg
+}
+
 type testBlockBuilder struct {
 	out                chan *testBlock
 	in                 chan *testBlock

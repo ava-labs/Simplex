@@ -151,7 +151,7 @@ func (e *Epoch) HandleMessage(msg *Message, from NodeID) error {
 	case msg.ReplicationResponse != nil:
 		return e.handleReplicationResponse(msg.ReplicationResponse, from)
 	case msg.ReplicationRequest != nil:
-		e.HandleReplicationRequest(msg.ReplicationRequest, from)
+		e.handleReplicationRequest(msg.ReplicationRequest, from)
 		return nil
 	default:
 		e.Logger.Warn("Invalid message type", zap.Stringer("from", from))
@@ -2179,7 +2179,7 @@ func (e *Epoch) storeProposal(block VerifiedBlock) bool {
 }
 
 // HandleRequest processes a request and returns a response. It also sends a response to the sender.
-func (e *Epoch) HandleReplicationRequest(req *ReplicationRequest, from NodeID) (*VerifiedReplicationResponse, error) {
+func (e *Epoch) handleReplicationRequest(req *ReplicationRequest, from NodeID) (*VerifiedReplicationResponse, error) {
 	e.Logger.Debug("Received replication request", zap.String("from", from.String()), zap.Int("num seqs", len(req.Seqs)), zap.Uint64("latest round", req.LatestRound))
 	if !e.ReplicationEnabled {
 		return &VerifiedReplicationResponse{}, nil
