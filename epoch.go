@@ -1355,18 +1355,18 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 // processFinalizedBlocks processes a block that has a finalization certificate.
 // if the block has already been verified, it will index the finalization certificate,
 // otherwise it will verify the block first.
-func (e *Epoch) processFinalizedBlock(finalizedBlock *FinalizedBlock) error {
-	round, exists := e.rounds[finalizedBlock.FCert.Finalization.Round]
+func (e *Epoch) processFinalizedBlock(block Block, fCert FinalizationCertificate) error {
+	round, exists := e.rounds[fCert.Finalization.Round]
 	// dont create a block verification task if the block is already in the rounds map
 	if exists {
 		roundDigest := round.block.BlockHeader().Digest
-		seqDigest := finalizedBlock.FCert.Finalization.BlockHeader.Digest
+		seqDigest := fCert.Finalization.BlockHeader.Digest
 		if !bytes.Equal(roundDigest[:], seqDigest[:]) {
 			e.Logger.Warn("Received finalized block that is different from the one we have in the rounds map",
 				zap.Stringer("roundDigest", roundDigest), zap.Stringer("seqDigest", seqDigest))
 			return nil
 		}
-		round.fCert = &finalizedBlock.FCert
+		round.fCert = &fCert
 		e.indexFinalizationCertificates(round.num)
 		return e.processReplicationState()
 	}
@@ -1376,10 +1376,10 @@ func (e *Epoch) processFinalizedBlock(finalizedBlock *FinalizedBlock) error {
 		e.Logger.Warn("Too many blocks being verified to ingest another one", zap.Int("pendingBlocks", pendingBlocks))
 		return nil
 	}
-	md := finalizedBlock.Block.BlockHeader()
+	md := block.BlockHeader()
 
 	// Create a task that will verify the block in the future, after its predecessors have also been verified.
-	task := e.createBlockFinalizedVerificationTask(*finalizedBlock)
+	task := e.createFinalizedBlockVerificationTask(block, fCert)
 
 	// isBlockReadyToBeScheduled checks if the block is known to us either from some previous round,
 	// or from storage. If so, then we have verified it in the past, since only verified blocks are saved in memory.
@@ -1511,8 +1511,7 @@ func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote)
 	}
 }
 
-func (e *Epoch) createBlockFinalizedVerificationTask(finalizedBlock FinalizedBlock) func() Digest {
-	block := finalizedBlock.Block
+func (e *Epoch) createFinalizedBlockVerificationTask(block Block, fCert FinalizationCertificate) func() Digest {
 	return func() Digest {
 		md := block.BlockHeader()
 
@@ -1541,7 +1540,7 @@ func (e *Epoch) createBlockFinalizedVerificationTask(finalizedBlock FinalizedBlo
 			return md.Digest
 		}
 
-		e.indexFinalizationCertificate(verifiedBlock, finalizedBlock.FCert)
+		e.indexFinalizationCertificate(verifiedBlock, fCert)
 		err = e.processReplicationState()
 
 		if err != nil {
@@ -2333,11 +2332,11 @@ func (e *Epoch) processReplicationState() error {
 	}
 
 	// first we check if we can commit the next sequence
-	finalizedBlock := e.replicationState.GetFinalizedBlockForSequence(nextSeqToCommit)
-	if finalizedBlock != nil {
+	block, fCert, exists := e.replicationState.GetFinalizedBlockForSequence(nextSeqToCommit)
+	if exists {
 		// delete(e.replicationState.receivedQuorumRounds, finalizedBlock.Block.BlockHeader().Round)
 		e.replicationState.maybeCollectFutureSequences(e.round, e.Storage.Height())
-		return e.processFinalizedBlock(finalizedBlock)
+		return e.processFinalizedBlock(block, fCert)
 	}
 
 	// TODO: for this pr include a helper function to allow the node to deduce whether

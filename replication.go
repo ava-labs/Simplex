@@ -131,20 +131,17 @@ func (r *ReplicationState) StoreQuorumRound(round QuorumRound) {
 	r.receivedQuorumRounds[round.GetRound()] = round
 }
 
-func (r *ReplicationState) GetFinalizedBlockForSequence(seq uint64) *FinalizedBlock {
+func (r *ReplicationState) GetFinalizedBlockForSequence(seq uint64) (Block, FinalizationCertificate, bool) {
 	for _, round := range r.receivedQuorumRounds {
 		if round.GetSequence() == seq {
 			if round.Block == nil || round.FCert == nil {
-				return nil
+				return nil, FinalizationCertificate{}, false
 			}
-			return &FinalizedBlock{
-				Block: round.Block,
-				FCert: *round.FCert,
-			}
+			return round.Block, *round.FCert, true
 		}
 	}
 
-	return nil
+	return nil, FinalizationCertificate{}, false
 }
 
 type NotarizedBlock struct {
