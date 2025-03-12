@@ -47,12 +47,12 @@ func (r *ReplicationState) isReplicationComplete(nextSeqToCommit uint64, current
 		return true
 	}
 
-	return nextSeqToCommit >= r.highestSeqReceived
+	return nextSeqToCommit > r.highestSeqReceived
 }
 
 func (r *ReplicationState) collectMissingSequences(receivedSeq uint64, currentRound uint64, nextSeqToCommit uint64) {
 	// Node is behind, but we've already sent messages to collect future fCerts
-	if r.lastSequenceRequested >= uint64(receivedSeq) && r.sentOnce {
+	if r.lastSequenceRequested >= receivedSeq && r.sentOnce {
 		return
 	}
 

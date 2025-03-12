@@ -23,7 +23,7 @@ func TestBasicReplication(t *testing.T) {
 	nodes := []simplex.NodeID{{1}, {2}, {3}, []byte("lagging")}
 
 	// wihtih max round window for now
-	for i := range 8 {
+	for i := range 3 * simplex.DefaultMaxRoundWindow {
 		testName := fmt.Sprintf("Basic replication_of_%d_blocks", i)
 
 		// lagging node cannot be the leader after node disconnects
@@ -238,40 +238,6 @@ func TestReplicationEmptyNotarizations(t *testing.T) {
 	require.Equal(t, uint64(1), laggingNode.storage.Height())
 	require.Equal(t, numNotarizations, laggingNode.e.Metadata().Round)
 	require.Equal(t, uint64(1), laggingNode.e.Metadata().Seq)
-}
-
-// TestReplicationExceedsMaxRoundWindow tests the replication process of a node that
-// is behind the rest of the network by more than maxRoundWindow.
-func TestReplicationExceedsMaxRoundWindow(t *testing.T) {
-	bb := newTestControlledBlockBuilder(t)
-	nodes := []simplex.NodeID{{1}, {2}, {3}, []byte("lagging")}
-	net := newInMemNetwork(t, nodes)
-	startSeq := uint64(simplex.DefaultMaxRoundWindow * 3)
-
-	storageData := createBlocks(t, nodes, &bb.testBlockBuilder, startSeq)
-	testEpochConfig := &testNodeConfig{
-		initialStorage:     storageData,
-		replicationEnabled: true,
-	}
-	normalNode1 := newSimplexNode(t, nodes[0], net, bb, testEpochConfig)
-	normalNode2 := newSimplexNode(t, nodes[1], net, bb, testEpochConfig)
-	normalNode3 := newSimplexNode(t, nodes[2], net, bb, testEpochConfig)
-	laggingNode := newSimplexNode(t, nodes[3], net, bb, &testNodeConfig{
-		replicationEnabled: true,
-	})
-
-	require.Equal(t, startSeq, normalNode1.storage.Height())
-	require.Equal(t, startSeq, normalNode2.storage.Height())
-	require.Equal(t, startSeq, normalNode3.storage.Height())
-	require.Equal(t, uint64(0), laggingNode.storage.Height())
-
-	net.startInstances()
-	bb.triggerNewBlock()
-	for i := 0; i <= int(startSeq); i++ {
-		for _, n := range net.instances {
-			n.storage.waitForBlockCommit(uint64(startSeq))
-		}
-	}
 }
 
 // TestReplicationStartsBeforeCurrentRound tests the replication process of a node that
