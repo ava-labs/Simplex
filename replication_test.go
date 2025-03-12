@@ -17,6 +17,45 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestReplication tests the replication process of a node that
+// is behind the rest of the network by less than maxRoundWindow.
+func TestReplication(t *testing.T) {
+	bb := newTestControlledBlockBuilder(t)
+	nodes := []simplex.NodeID{{1}, {2}, {3}, []byte("lagging")}
+	net := newInMemNetwork(t, nodes)
+	startSeq := uint64(8)
+
+	// initiate a network with 4 nodes. one node is behind by 8 blocks
+	storageData := createBlocks(t, nodes, &bb.testBlockBuilder, startSeq)
+	testEpochConfig := &testNodeConfig{
+		initialStorage:     storageData,
+		replicationEnabled: true,
+	}
+	normalNode1 := newSimplexNode(t, nodes[0], net, bb, testEpochConfig)
+	normalNode2 := newSimplexNode(t, nodes[1], net, bb, testEpochConfig)
+	normalNode3 := newSimplexNode(t, nodes[2], net, bb, testEpochConfig)
+	laggingNode := newSimplexNode(t, nodes[3], net, bb, &testNodeConfig{
+		replicationEnabled: true,
+	})
+
+	require.Equal(t, startSeq, normalNode1.storage.Height())
+	require.Equal(t, startSeq, normalNode2.storage.Height())
+	require.Equal(t, startSeq, normalNode3.storage.Height())
+	require.Equal(t, uint64(0), laggingNode.storage.Height())
+
+	net.startInstances()
+	bb.triggerNewBlock()
+
+	// all blocks except the lagging node start at round 8, seq 8.
+	// lagging node starts at round 0, seq 0.
+	// this asserts that the lagging node catches up to the latest round
+	for i := 0; i <= int(startSeq); i++ {
+		for _, n := range net.instances {
+			n.storage.waitForBlockCommit(uint64(startSeq))
+		}
+	}
+}
+
 // TestReplicationNotarizations tests that a lagging node also replicates
 // notarizations after lagging behind.
 func TestReplicationNotarizations(t *testing.T) {
@@ -73,7 +112,6 @@ func TestReplicationNotarizations(t *testing.T) {
 		require.Equal(t, uint64(numNotarizations), n.e.Metadata().Round)
 		require.Equal(t, uint64(0), n.e.Storage.Height())
 	}
-
 	net.Connect(nodes[3])
 	net.setAllNodesMessageFilter(allowAllMessages)
 	fCert, _ := newFinalizationRecord(t, laggingNode.e.Logger, laggingNode.e.EpochConfig.SignatureAggregator, blocks[0], nodes)
@@ -83,7 +121,6 @@ func TestReplicationNotarizations(t *testing.T) {
 	net.instances[2].e.Comm.Broadcast(&simplex.Message{
 		FinalizationCertificate: &fCert,
 	})
-
 	// all nodes should have replicated finalization certificates
 	for _, n := range net.instances {
 		n.storage.waitForBlockCommit(0)
@@ -96,7 +133,6 @@ func TestReplicationNotarizations(t *testing.T) {
 			if n.e.ID.Equals(leader) && n.e.ID.Equals(nodes[3]) {
 				continue
 			}
-
 			n.wal.assertNotarization(uint64(i))
 		}
 	}
@@ -161,6 +197,7 @@ func TestReplicationEmptyNotarizations(t *testing.T) {
 		require.Equal(t, uint64(0), n.e.Storage.Height())
 	}
 
+	// assertReplicationRequest(t, normalNode1, )
 	net.setAllNodesMessageFilter(allowAllMessages)
 	net.Connect(nodes[3])
 
@@ -179,45 +216,6 @@ func TestReplicationEmptyNotarizations(t *testing.T) {
 	require.Equal(t, uint64(1), laggingNode.storage.Height())
 	require.Equal(t, numNotarizations, laggingNode.e.Metadata().Round)
 	require.Equal(t, uint64(1), laggingNode.e.Metadata().Seq)
-}
-
-// TestReplication tests the replication process of a node that
-// is behind the rest of the network by less than maxRoundWindow.
-func TestReplication(t *testing.T) {
-	bb := newTestControlledBlockBuilder(t)
-	nodes := []simplex.NodeID{{1}, {2}, {3}, []byte("lagging")}
-	net := newInMemNetwork(t, nodes)
-	startSeq := uint64(8)
-
-	// initiate a network with 4 nodes. one node is behind by 8 blocks
-	storageData := createBlocks(t, nodes, &bb.testBlockBuilder, startSeq)
-	testEpochConfig := &testNodeConfig{
-		initialStorage:     storageData,
-		replicationEnabled: true,
-	}
-	normalNode1 := newSimplexNode(t, nodes[0], net, bb, testEpochConfig)
-	normalNode2 := newSimplexNode(t, nodes[1], net, bb, testEpochConfig)
-	normalNode3 := newSimplexNode(t, nodes[2], net, bb, testEpochConfig)
-	laggingNode := newSimplexNode(t, nodes[3], net, bb, &testNodeConfig{
-		replicationEnabled: true,
-	})
-
-	require.Equal(t, startSeq, normalNode1.storage.Height())
-	require.Equal(t, startSeq, normalNode2.storage.Height())
-	require.Equal(t, startSeq, normalNode3.storage.Height())
-	require.Equal(t, uint64(0), laggingNode.storage.Height())
-
-	net.startInstances()
-	bb.triggerNewBlock()
-
-	// all blocks except the lagging node start at round 8, seq 8.
-	// lagging node starts at round 0, seq 0.
-	// this asserts that the lagging node catches up to the latest round
-	for i := 0; i <= int(startSeq); i++ {
-		for _, n := range net.instances {
-			n.storage.waitForBlockCommit(uint64(startSeq))
-		}
-	}
 }
 
 // TestReplicationExceedsMaxRoundWindow tests the replication process of a node that

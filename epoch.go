@@ -2191,14 +2191,13 @@ func (e *Epoch) HandleReplicationRequest(req *ReplicationRequest, from NodeID) (
 		return nil, err
 	}
 
-	if latestRound.GetRound() > req.LatestRound {
+	if latestRound != nil && latestRound.GetRound() > req.LatestRound {
 		response.LatestRound = latestRound
 	}
 
 	seqs := req.Seqs
 	slices.Sort(seqs)
 	data := make([]VerifiedQuorumRound, len(seqs))
-	fmt.Println("seqs", seqs)
 	for i, seq := range seqs {
 		// TODO: update this method so it accepts a list of seqs to reduce the double for loop
 		quorumRound, err := e.locateQuorumRecord(seq)
@@ -2208,7 +2207,6 @@ func (e *Epoch) HandleReplicationRequest(req *ReplicationRequest, from NodeID) (
 		}
 
 		if quorumRound == nil {
-			fmt.Println("not found", seq)
 			// since we are sorted, we can break early
 			data = data[:i]
 			break
@@ -2228,7 +2226,7 @@ func (e *Epoch) locateQuorumRecord(seq uint64) (*VerifiedQuorumRound, error) {
 	for _, round := range e.rounds {
 		blockSeq := round.block.BlockHeader().Seq
 		if blockSeq == seq {
-			if round.fCert == nil || round.notarization == nil {
+			if round.fCert == nil && round.notarization == nil {
 				break
 			}
 			return &VerifiedQuorumRound{
@@ -2251,7 +2249,17 @@ func (e *Epoch) locateQuorumRecord(seq uint64) (*VerifiedQuorumRound, error) {
 }
 
 func (e *Epoch) handleReplicationResponse(resp *ReplicationResponse, from NodeID) error {
-	e.Logger.Debug("Received replication response", zap.String("from", from.String()), zap.Int("num seqs", len(resp.Data)))
+	roundLog := "all caught up"
+	if resp.LatestRound != nil {
+		err := resp.LatestRound.isWellFormed()
+		if err != nil {
+			roundLog = "not properly formed"
+		} else {
+			roundLog = fmt.Sprintf("%d", resp.LatestRound.GetRound())
+		}
+	}
+
+	e.Logger.Debug("Received replication response", zap.String("from", from.String()), zap.Int("num seqs", len(resp.Data)), zap.String("latest round", roundLog))
 	nextSeqToCommit := e.Storage.Height()
 
 	for _, data := range resp.Data {
@@ -2281,12 +2289,35 @@ func (e *Epoch) handleReplicationResponse(resp *ReplicationResponse, from NodeID
 			}
 		}
 
-		fmt.Println("storing quorum round")
 		e.replicationState.StoreQuorumRound(data)
 	}
 
-	fmt.Println("processing state")
+	if err := e.processLatestRoundReceived(resp.LatestRound); err != nil {
+		e.Logger.Debug("Failed processing latest round", zap.Error(err))
+		// no need to halt the epoch, we can continue processing
+		return nil
+	}
+
 	return e.processReplicationState()
+}
+
+func (e *Epoch) processLatestRoundReceived(latestRound *QuorumRound) error {
+	if latestRound == nil {
+		return nil
+	}
+
+	// make sure the latest round is well formed
+	if err := latestRound.isWellFormed(); err != nil {
+		e.Logger.Debug("Received invalid latest round", zap.Error(err))
+		return err
+	}
+
+	if latestRound.GetRound() > e.round {
+		e.replicationState.collectMissingSequences(latestRound.GetSequence(), e.round, e.Storage.Height())
+	}
+
+	// TODO: handle tailing empty notarizations
+	return nil
 }
 
 func (e *Epoch) processReplicationState() error {
@@ -2300,13 +2331,10 @@ func (e *Epoch) processReplicationState() error {
 		return e.startRound()
 	}
 
-	fmt.Println("continuign state")
-
 	// first we check if we can commit the next sequence
 	finalizedBlock := e.replicationState.GetFinalizedBlockForSequence(nextSeqToCommit)
 	if finalizedBlock != nil {
-		fmt.Println("finalized block")
-		delete(e.replicationState.receivedQuorumRounds, finalizedBlock.Block.BlockHeader().Round)
+		// delete(e.replicationState.receivedQuorumRounds, finalizedBlock.Block.BlockHeader().Round)
 		e.replicationState.maybeCollectFutureSequences(e.round, e.Storage.Height())
 		return e.processFinalizedBlock(finalizedBlock)
 	}
@@ -2325,7 +2353,7 @@ func (e *Epoch) processReplicationState() error {
 	// TODO: we need to make sure that we do not forget about notarizations missing for rounds < e.round
 	notarizedBlock := e.replicationState.GetNotarizedBlockForRound(e.round)
 	if notarizedBlock != nil {
-		delete(e.replicationState.receivedQuorumRounds, e.round)
+		// delete(e.replicationState.receivedQuorumRounds, e.round)
 		e.processNotarizedBlock(notarizedBlock)
 	}
 
@@ -2356,7 +2384,7 @@ func (e *Epoch) maybeAdvanceRoundFromEmptyNotarizations() (bool, error) {
 		if err != nil {
 			return false, err
 		}
-		delete(e.replicationState.receivedQuorumRounds, qRound.GetRound())
+		// delete(e.replicationState.receivedQuorumRounds, qRound.GetRound())
 		return true, nil
 	}
 

@@ -356,6 +356,16 @@ func (c *testComm) maybeTranslateOutoingToIncomingMessageTypes(msg *Message) {
 			data = append(data, quorumRound)
 		}
 
+		var latestRound *QuorumRound
+		if msg.VerifiedReplicationResponse.LatestRound != nil {
+			latestRound = &QuorumRound{
+				Block: msg.VerifiedReplicationResponse.LatestRound.VerifiedBlock.(Block),
+				Notarization: msg.VerifiedReplicationResponse.LatestRound.Notarization,
+				FCert: msg.VerifiedReplicationResponse.LatestRound.FCert,
+				EmptyNotarization: msg.VerifiedReplicationResponse.LatestRound.EmptyNotarization,
+			}
+		}
+
 		require.Nil(
 			c.net.t,
 			msg.ReplicationResponse,
@@ -364,6 +374,7 @@ func (c *testComm) maybeTranslateOutoingToIncomingMessageTypes(msg *Message) {
 
 		msg.ReplicationResponse = &ReplicationResponse{
 			Data: data,
+			LatestRound: latestRound,
 		}
 	}
 

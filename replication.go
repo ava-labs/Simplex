@@ -4,7 +4,6 @@
 package simplex
 
 import (
-	"fmt"
 	"math"
 
 	"go.uber.org/zap"
@@ -50,7 +49,7 @@ func (r *ReplicationState) isReplicationComplete(nextSeqToCommit uint64, current
 
 func (r *ReplicationState) collectMissingSequences(receivedSeq uint64, currentRound uint64, nextSeqToCommit uint64) {
 	// Node is behind, but we've already sent messages to collect future fCerts
-	if r.lastSequenceRequested >= uint64(receivedSeq) {
+	if r.lastSequenceRequested >= uint64(receivedSeq) && r.lastSequenceRequested != 0 {
 		return
 	}
 
@@ -74,7 +73,6 @@ func (r *ReplicationState) sendReplicationRequests(start uint64, end uint64) {
 	for i := start; i <= end; i++ {
 		seqs[i-start] = i
 	}
-
 	request := &ReplicationRequest{
 		Seqs:        seqs,
 		LatestRound: r.highestSeqReceived,
@@ -130,9 +128,7 @@ func (r *ReplicationState) StoreQuorumRound(round QuorumRound) {
 }
 
 func (r *ReplicationState) GetFinalizedBlockForSequence(seq uint64) *FinalizedBlock {
-	fmt.Println("len of receivedQuorumRounds: ", len(r.receivedQuorumRounds))
 	for _, round := range r.receivedQuorumRounds {
-		fmt.Println("round.GetSequence(): ", round.GetSequence())
 		if round.GetSequence() == seq {
 			if round.Block == nil || round.FCert == nil {
 				return nil
@@ -158,7 +154,7 @@ func (r *ReplicationState) GetNotarizedBlockForRound(round uint64) *NotarizedBlo
 		return nil
 	}
 
-	if qRound.Block == nil || qRound.FCert == nil {
+	if qRound.Block == nil || qRound.Notarization == nil {
 		return nil
 	}
 

@@ -229,7 +229,7 @@ type ReplicationRequest struct {
 
 type ReplicationResponse struct {
 	Data        []QuorumRound
-	LatestRound QuorumRound
+	LatestRound *QuorumRound
 }
 
 type VerifiedReplicationResponse struct {
@@ -242,6 +242,25 @@ type QuorumRound struct {
 	Notarization      *Notarization
 	FCert             *FinalizationCertificate
 	EmptyNotarization *EmptyNotarization
+}
+
+// isWellFormed returns an error if the QuorumRound has either
+// (block, notarization) or (block, finalization certificate) or
+// (empty notarization)
+func (q QuorumRound) isWellFormed() error {
+	if q.EmptyNotarization != nil {
+		return nil
+	}
+
+	if q.Block == nil {
+		return fmt.Errorf("block is nil")
+	}
+
+	if q.Notarization != nil || q.FCert != nil {
+		return nil
+	}
+
+	return fmt.Errorf("neither notarization nor finalization certificate found")
 }
 
 type VerifiedQuorumRound struct {
@@ -257,6 +276,14 @@ func (q VerifiedQuorumRound) GetRound() uint64 {
 	}
 
 	return q.VerifiedBlock.BlockHeader().Round
+}
+
+func (q VerifiedQuorumRound) GetSequence() uint64 {
+	if q.EmptyNotarization != nil {
+		return q.EmptyNotarization.Vote.Seq
+	}
+
+	return q.VerifiedBlock.BlockHeader().Seq
 }
 
 func (q QuorumRound) GetRound() uint64 {
