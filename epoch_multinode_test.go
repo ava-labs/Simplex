@@ -358,11 +358,17 @@ func (c *testComm) maybeTranslateOutoingToIncomingMessageTypes(msg *Message) {
 
 		var latestRound *QuorumRound
 		if msg.VerifiedReplicationResponse.LatestRound != nil {
-			latestRound = &QuorumRound{
-				Block:             msg.VerifiedReplicationResponse.LatestRound.VerifiedBlock.(Block),
-				Notarization:      msg.VerifiedReplicationResponse.LatestRound.Notarization,
-				FCert:             msg.VerifiedReplicationResponse.LatestRound.FCert,
-				EmptyNotarization: msg.VerifiedReplicationResponse.LatestRound.EmptyNotarization,
+			if msg.VerifiedReplicationResponse.LatestRound.EmptyNotarization != nil {
+				latestRound = &QuorumRound{
+					EmptyNotarization: msg.VerifiedReplicationResponse.LatestRound.EmptyNotarization,
+				}
+			} else {
+				latestRound = &QuorumRound{
+					Block:             msg.VerifiedReplicationResponse.LatestRound.VerifiedBlock.(Block),
+					Notarization:      msg.VerifiedReplicationResponse.LatestRound.Notarization,
+					FCert:             msg.VerifiedReplicationResponse.LatestRound.FCert,
+					EmptyNotarization: msg.VerifiedReplicationResponse.LatestRound.EmptyNotarization,
+				}
 			}
 		}
 

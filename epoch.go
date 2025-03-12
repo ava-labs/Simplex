@@ -2317,7 +2317,7 @@ func (e *Epoch) processLatestRoundReceived(latestRound *QuorumRound) error {
 		e.replicationState.collectMissingSequences(latestRound.GetSequence(), e.round, e.Storage.Height())
 	}
 
-	// TODO: handle tailing empty notarizations
+	e.replicationState.StoreQuorumRound(*latestRound)
 	return nil
 }
 
