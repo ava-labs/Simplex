@@ -125,6 +125,10 @@ func (r *ReplicationState) maybeCollectFutureSequences(round uint64, nextSequenc
 
 func (r *ReplicationState) StoreQuorumRound(round QuorumRound) {
 	if _, ok := r.receivedQuorumRounds[round.GetRound()]; ok {
+		// maybe this quorum round was behind
+		if r.receivedQuorumRounds[round.GetRound()].FCert == nil && round.FCert != nil {
+			r.receivedQuorumRounds[round.GetRound()] = round
+		}
 		return
 	}
 
