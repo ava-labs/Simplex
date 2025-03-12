@@ -359,9 +359,9 @@ func (c *testComm) maybeTranslateOutoingToIncomingMessageTypes(msg *Message) {
 		var latestRound *QuorumRound
 		if msg.VerifiedReplicationResponse.LatestRound != nil {
 			latestRound = &QuorumRound{
-				Block: msg.VerifiedReplicationResponse.LatestRound.VerifiedBlock.(Block),
-				Notarization: msg.VerifiedReplicationResponse.LatestRound.Notarization,
-				FCert: msg.VerifiedReplicationResponse.LatestRound.FCert,
+				Block:             msg.VerifiedReplicationResponse.LatestRound.VerifiedBlock.(Block),
+				Notarization:      msg.VerifiedReplicationResponse.LatestRound.Notarization,
+				FCert:             msg.VerifiedReplicationResponse.LatestRound.FCert,
 				EmptyNotarization: msg.VerifiedReplicationResponse.LatestRound.EmptyNotarization,
 			}
 		}
@@ -373,7 +373,7 @@ func (c *testComm) maybeTranslateOutoingToIncomingMessageTypes(msg *Message) {
 		)
 
 		msg.ReplicationResponse = &ReplicationResponse{
-			Data: data,
+			Data:        data,
 			LatestRound: latestRound,
 		}
 	}

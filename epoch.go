@@ -2200,11 +2200,7 @@ func (e *Epoch) HandleReplicationRequest(req *ReplicationRequest, from NodeID) (
 	data := make([]VerifiedQuorumRound, len(seqs))
 	for i, seq := range seqs {
 		// TODO: update this method so it accepts a list of seqs to reduce the double for loop
-		quorumRound, err := e.locateQuorumRecord(seq)
-		if err != nil {
-			e.Logger.Error("Error while locating record", zap.Error(err))
-			return nil, err
-		}
+		quorumRound := e.locateQuorumRecord(seq)
 
 		if quorumRound == nil {
 			// since we are sorted, we can break early
@@ -2222,7 +2218,7 @@ func (e *Epoch) HandleReplicationRequest(req *ReplicationRequest, from NodeID) (
 }
 
 // locateQuorumRecord locates a block with a notarization or finalization certificate in the epochs memory or storage.
-func (e *Epoch) locateQuorumRecord(seq uint64) (*VerifiedQuorumRound, error) {
+func (e *Epoch) locateQuorumRecord(seq uint64) *VerifiedQuorumRound {
 	for _, round := range e.rounds {
 		blockSeq := round.block.BlockHeader().Seq
 		if blockSeq == seq {
@@ -2233,7 +2229,7 @@ func (e *Epoch) locateQuorumRecord(seq uint64) (*VerifiedQuorumRound, error) {
 				VerifiedBlock: round.block,
 				Notarization:  round.notarization,
 				FCert:         round.fCert,
-			}, nil
+			}
 		}
 	}
 
@@ -2242,10 +2238,10 @@ func (e *Epoch) locateQuorumRecord(seq uint64) (*VerifiedQuorumRound, error) {
 		return &VerifiedQuorumRound{
 			VerifiedBlock: block,
 			FCert:         &fCert,
-		}, nil
+		}
 	}
 
-	return nil, nil
+	return nil
 }
 
 func (e *Epoch) handleReplicationResponse(resp *ReplicationResponse, from NodeID) error {

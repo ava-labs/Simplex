@@ -24,6 +24,9 @@ type ReplicationState struct {
 
 	// receivedQuorumRounds maps rounds to quorum rounds
 	receivedQuorumRounds map[uint64]QuorumRound
+
+	// sent a replication request before
+	sentOnce bool
 }
 
 func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundWindow uint64, enabled bool) *ReplicationState {
@@ -40,8 +43,8 @@ func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundW
 // isReplicationComplete returns true if we have finished the replication process.
 // The process is considered finished once [currentRound] has caught up to the highest round received.
 func (r *ReplicationState) isReplicationComplete(nextSeqToCommit uint64, currentRound uint64) bool {
-	if nextSeqToCommit == 0 {
-		return false
+	if !r.sentOnce {
+		return true
 	}
 
 	return nextSeqToCommit >= r.highestSeqReceived
@@ -49,7 +52,7 @@ func (r *ReplicationState) isReplicationComplete(nextSeqToCommit uint64, current
 
 func (r *ReplicationState) collectMissingSequences(receivedSeq uint64, currentRound uint64, nextSeqToCommit uint64) {
 	// Node is behind, but we've already sent messages to collect future fCerts
-	if r.lastSequenceRequested >= uint64(receivedSeq) && r.lastSequenceRequested != 0 {
+	if r.lastSequenceRequested >= uint64(receivedSeq) && r.sentOnce {
 		return
 	}
 
@@ -82,6 +85,7 @@ func (r *ReplicationState) sendReplicationRequests(start uint64, end uint64) {
 	requestFrom := r.requestFrom()
 
 	r.lastSequenceRequested = end
+	r.sentOnce = true
 	r.comm.SendMessage(msg, requestFrom)
 }
 

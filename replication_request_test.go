@@ -2,7 +2,6 @@ package simplex_test
 
 import (
 	"bytes"
-	"fmt"
 	"simplex"
 	"simplex/testutil"
 	"simplex/wal"
@@ -53,7 +52,6 @@ func TestReplicationeRequestIndexedBlocks(t *testing.T) {
 	require.NotNil(t, resp)
 	require.Nil(t, resp.LatestRound)
 	require.Equal(t, len(sequences), len(resp.Data))
-	fmt.Printf("resp.Data: %+v \n", resp.Data)
 	for i, data := range resp.Data {
 		require.Equal(t, seqs[i].FCert, *data.FCert)
 		require.Equal(t, seqs[i].VerifiedBlock, data.VerifiedBlock)
