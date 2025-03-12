@@ -63,7 +63,7 @@ func TestEpochLeaderFailoverWithEmptyNotarization(t *testing.T) {
 	// The node should move to round 4 via the empty notarization it has received
 	// from earlier.
 
-	advanceRound(t, e, bb, true, true)
+	notarizeAndFinalizeRound(t, e, bb)
 
 	block0, _, ok := storage.Retrieve(0)
 	require.True(t, ok)
@@ -97,7 +97,7 @@ func TestEpochLeaderFailoverWithEmptyNotarization(t *testing.T) {
 		EmptyNotarization: emptyNotarization,
 	}, nodes[1])
 
-	advanceRound(t, e, bb, true, true)
+	notarizeAndFinalizeRound(t, e, bb)
 
 	wal.assertNotarization(2)
 	nextBlockSeqToCommit := uint64(2)
@@ -105,7 +105,7 @@ func TestEpochLeaderFailoverWithEmptyNotarization(t *testing.T) {
 
 	runCrashAndRestartExecution(t, e, bb, wal, storage, func(t *testing.T, e *Epoch, bb *testBlockBuilder, storage *InMemStorage, wal *testWAL) {
 		// Ensure our node proposes block with sequence 3 for round 4
-		block, _ := advanceRound(t, e, bb, true, true)
+		block, _ := notarizeAndFinalizeRound(t, e, bb)
 		require.Equal(t, nextBlockSeqToCommit, block.BlockHeader().Seq)
 		require.Equal(t, nextRoundToCommit, block.BlockHeader().Round)
 		require.Equal(t, uint64(3), storage.Height())
@@ -167,7 +167,7 @@ func TestEpochLeaderFailoverReceivesEmptyVotesEarly(t *testing.T) {
 	// to start complaining about a block not being notarized
 
 	for round := uint64(0); round < 3; round++ {
-		advanceRound(t, e, bb, true, true)
+		notarizeAndFinalizeRound(t, e, bb)
 	}
 
 	lastBlock, _, ok := storage.Retrieve(storage.Height() - 1)
@@ -271,7 +271,7 @@ func TestEpochLeaderFailover(t *testing.T) {
 	// to start complaining about a block not being notarized
 
 	for round := uint64(0); round < 3; round++ {
-		advanceRound(t, e, bb, true, true)
+		notarizeAndFinalizeRound(t, e, bb)
 	}
 
 	bb.blockShouldBeBuilt <- struct{}{}
@@ -321,7 +321,7 @@ func TestEpochLeaderFailover(t *testing.T) {
 		nextRoundToCommit := uint64(4)
 
 		// Ensure our node proposes block with sequence 3 for round 4
-		block, _ := advanceRound(t, e, bb, true, true)
+		block, _ := notarizeAndFinalizeRound(t, e, bb)
 		require.Equal(t, nextRoundToCommit, block.BlockHeader().Round)
 		require.Equal(t, nextBlockSeqToCommit, block.BlockHeader().Seq)
 
@@ -363,7 +363,7 @@ func TestEpochNoFinalizationAfterEmptyVote(t *testing.T) {
 
 	require.NoError(t, e.Start())
 
-	advanceRound(t, e, bb, true, true)
+	notarizeAndFinalizeRound(t, e, bb)
 
 	// Drain the messages recorded
 	for len(recordedMessages) > 0 {
@@ -457,7 +457,7 @@ func TestEpochLeaderFailoverAfterProposal(t *testing.T) {
 	// After the timeout expires, node 1 is sent all the votes, and it should notarize the block.
 
 	for range 3 {
-		advanceRound(t, e, bb, true, true)
+		notarizeAndFinalizeRound(t, e, bb)
 	}
 
 	wal.assertWALSize(6) // (block, notarization) x 3 rounds
@@ -515,7 +515,7 @@ func TestEpochLeaderFailoverAfterProposal(t *testing.T) {
 		}, nodes[2])
 
 		// Ensure our node proposes block with sequence 3 for round 4
-		block, _ := advanceRound(t, e, bb, true, true)
+		block, _ := notarizeAndFinalizeRound(t, e, bb)
 		require.Equal(t, nextRoundToCommit, block.BlockHeader().Round)
 		require.Equal(t, nextBlockSeqToCommit, block.BlockHeader().Seq)
 
@@ -570,7 +570,7 @@ func TestEpochLeaderFailoverTwice(t *testing.T) {
 	require.NoError(t, e.Start())
 
 	for range 2 {
-		advanceRound(t, e, bb, true, true)
+		notarizeAndFinalizeRound(t, e, bb)
 	}
 
 	t.Log("Node 2 crashes, leader failover to node 3")
@@ -631,7 +631,7 @@ func TestEpochLeaderFailoverTwice(t *testing.T) {
 			// Ensure our node proposes block with sequence 2 for round 4
 			nextRoundToCommit := uint64(4)
 			nextBlockSeqToCommit := uint64(2)
-			block, _ := advanceRound(t, e, bb, true, true)
+			block, _ := notarizeAndFinalizeRound(t, e, bb)
 			require.Equal(t, nextRoundToCommit, block.BlockHeader().Round)
 			require.Equal(t, nextBlockSeqToCommit, block.BlockHeader().Seq)
 
@@ -734,7 +734,7 @@ func TestEpochLeaderFailoverNotNeeded(t *testing.T) {
 	rounds := uint64(3)
 
 	for round := uint64(0); round < rounds; round++ {
-		advanceRound(t, e, bb, true, true)
+		notarizeAndFinalizeRound(t, e, bb)
 	}
 	bb.blockShouldBeBuilt <- struct{}{}
 	e.AdvanceTime(start.Add(conf.MaxProposalWait / 2))

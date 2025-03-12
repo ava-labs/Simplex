@@ -82,7 +82,7 @@ func TestReplicationRequestNotarizations(t *testing.T) {
 	numBlocks := uint64(5)
 	rounds := make(map[uint64]simplex.VerifiedQuorumRound)
 	for i := uint64(0); i < numBlocks; i++ {
-		block, notarization := advanceRound(t, e, bb, true, false)
+		block, notarization := advanceRoundFromNotarization(t, e, bb)
 
 		rounds[i] = simplex.VerifiedQuorumRound{
 			VerifiedBlock: block,
@@ -143,7 +143,7 @@ func TestReplicationRequestMixed(t *testing.T) {
 			}
 			continue
 		}
-		block, notarization := advanceRound(t, e, bb, true, false)
+		block, notarization := advanceRoundFromNotarization(t, e, bb)
 
 		rounds[i] = simplex.VerifiedQuorumRound{
 			VerifiedBlock: block,

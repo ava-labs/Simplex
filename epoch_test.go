@@ -77,7 +77,7 @@ func TestEpochHandleNotarizationFutureRound(t *testing.T) {
 	}, nodes[1])
 
 	// Run through round 0
-	advanceRound(t, e, bb, true, true)
+	notarizeAndFinalizeRound(t, e, bb)
 
 	// Emulate round 1 by sending the block
 	vote, err := newTestVote(secondBlock, nodes[1])
@@ -208,7 +208,7 @@ func TestEpochFinalizeThenNotarize(t *testing.T) {
 
 	t.Run("commit without notarization, only with finalization", func(t *testing.T) {
 		for round := 0; round < 100; round++ {
-			advanceRound(t, e, bb, false, true)
+			advanceRoundFromFinalization(t, e, bb)
 			storage.waitForBlockCommit(uint64(round))
 		}
 	})
@@ -270,7 +270,7 @@ func TestEpochSimpleFlow(t *testing.T) {
 
 	rounds := uint64(100)
 	for round := uint64(0); round < rounds; round++ {
-		advanceRound(t, e, bb, true, true)
+		notarizeAndFinalizeRound(t, e, bb)
 	}
 }
 
@@ -298,6 +298,20 @@ func TestEpochStartedTwice(t *testing.T) {
 
 	require.NoError(t, e.Start())
 	require.ErrorIs(t, e.Start(), ErrAlreadyStarted)
+}
+
+
+func advanceRoundFromNotarization(t *testing.T, e *Epoch, bb *testBlockBuilder) (VerifiedBlock, *Notarization) {
+	return advanceRound(t, e, bb, true, false)
+}
+
+func advanceRoundFromFinalization(t *testing.T, e *Epoch, bb *testBlockBuilder) VerifiedBlock {
+	block, _ := advanceRound(t, e, bb, false, true)
+	return block
+}
+
+func notarizeAndFinalizeRound(t *testing.T, e *Epoch, bb *testBlockBuilder) (VerifiedBlock, *Notarization) {
+	return advanceRound(t, e, bb, true, true)
 }
 
 // advanceRound progresses [e] to a new round. If [notarize] is set, the round will progress due to a notarization.
