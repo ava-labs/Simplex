@@ -4,21 +4,24 @@
 package simplex
 
 import (
+	"bytes"
 	"encoding/asn1"
 	"encoding/binary"
 	"fmt"
 )
 
 type Message struct {
-	BlockMessage            *BlockMessage
-	EmptyNotarization       *EmptyNotarization
-	VoteMessage             *Vote
-	EmptyVoteMessage        *EmptyVote
-	Notarization            *Notarization
-	Finalization            *Finalization
-	FinalizationCertificate *FinalizationCertificate
-	ReplicationResponse     *ReplicationResponse
-	ReplicationRequest      *ReplicationRequest
+	BlockMessage                *BlockMessage
+	VerifiedBlockMessage        *VerifiedBlockMessage
+	EmptyNotarization           *EmptyNotarization
+	VoteMessage                 *Vote
+	EmptyVoteMessage            *EmptyVote
+	Notarization                *Notarization
+	Finalization                *Finalization
+	FinalizationCertificate     *FinalizationCertificate
+	ReplicationResponse         *ReplicationResponse
+	VerifiedReplicationResponse *VerifiedReplicationResponse
+	ReplicationRequest          *ReplicationRequest
 }
 
 type ToBeSignedEmptyVote struct {
@@ -188,6 +191,11 @@ type BlockMessage struct {
 	Vote  Vote
 }
 
+type VerifiedBlockMessage struct {
+	VerifiedBlock VerifiedBlock
+	Vote          Vote
+}
+
 type EmptyNotarization struct {
 	Vote ToBeSignedEmptyVote
 	QC   QuorumCertificate
@@ -215,18 +223,108 @@ type QuorumCertificate interface {
 }
 
 type ReplicationRequest struct {
-	FinalizationCertificateRequest *FinalizationCertificateRequest
-	NotarizationRequest *NotarizationRequest
+	Seqs        []uint64 // sequences we are requesting
+	LatestRound uint64   // latest round that we are aware of
 }
 
 type ReplicationResponse struct {
-	FinalizationCertificateResponse *FinalizationCertificateResponse
-	NotarizationResponse *NotarizationResponse
+	Data        []QuorumRound
+	LatestRound *QuorumRound
 }
 
-// request a finalization certificate for the given sequence number
-type FinalizationCertificateRequest struct {
-	Sequences []uint64
+type VerifiedReplicationResponse struct {
+	Data        []VerifiedQuorumRound
+	LatestRound *VerifiedQuorumRound
+}
+
+type QuorumRound struct {
+	Block             Block
+	Notarization      *Notarization
+	FCert             *FinalizationCertificate
+	EmptyNotarization *EmptyNotarization
+}
+
+// isWellFormed returns an error if the QuorumRound has either
+// (block, notarization) or (block, finalization certificate) or
+// (empty notarization)
+func (q QuorumRound) isWellFormed() error {
+	if q.EmptyNotarization != nil {
+		return nil
+	}
+
+	if q.Block == nil {
+		return fmt.Errorf("block is nil")
+	}
+
+	if q.Notarization != nil || q.FCert != nil {
+		return nil
+	}
+
+	return fmt.Errorf("neither notarization nor finalization certificate found")
+}
+
+type VerifiedQuorumRound struct {
+	VerifiedBlock     VerifiedBlock
+	Notarization      *Notarization
+	FCert             *FinalizationCertificate
+	EmptyNotarization *EmptyNotarization
+}
+
+func (q VerifiedQuorumRound) GetRound() uint64 {
+	if q.EmptyNotarization != nil {
+		return q.EmptyNotarization.Vote.Round
+	}
+
+	return q.VerifiedBlock.BlockHeader().Round
+}
+
+func (q VerifiedQuorumRound) GetSequence() uint64 {
+	if q.EmptyNotarization != nil {
+		return q.EmptyNotarization.Vote.Seq
+	}
+
+	return q.VerifiedBlock.BlockHeader().Seq
+}
+
+func (q QuorumRound) GetRound() uint64 {
+	if q.EmptyNotarization != nil {
+		return q.EmptyNotarization.Vote.Round
+	}
+
+	return q.Block.BlockHeader().Round
+}
+
+func (q QuorumRound) GetSequence() uint64 {
+	if q.EmptyNotarization != nil {
+		return q.EmptyNotarization.Vote.Seq
+	}
+
+	return q.Block.BlockHeader().Seq
+}
+
+func (q QuorumRound) Verify() error {
+	if q.EmptyNotarization != nil {
+		return q.EmptyNotarization.Verify()
+	}
+
+	// ensure the finalization certificate or notarization we get relates to the block
+	blockDigest := q.Block.BlockHeader().Digest
+
+	if q.FCert != nil {
+		if !bytes.Equal(blockDigest[:], q.FCert.Finalization.Digest[:]) {
+			return fmt.Errorf("finalization certificate does not match the block")
+		}
+		return q.FCert.Verify()
+	}
+
+	if q.Notarization != nil {
+		if !bytes.Equal(blockDigest[:], q.Notarization.Vote.Digest[:]) {
+			return fmt.Errorf("notarization does not match the block")
+		}
+		return q.Notarization.Verify()
+	}
+
+	return fmt.Errorf("no finalization certificate, empty notarization or notarization found")
 }
 
 type FinalizedBlock struct {
@@ -234,29 +332,41 @@ type FinalizedBlock struct {
 	FCert FinalizationCertificate
 }
 
+type VerifiedFinalizedBlock struct {
+	VerifiedBlock VerifiedBlock
+	FCert         FinalizationCertificate
+}
+
 type FinalizationCertificateResponse struct {
 	Data []FinalizedBlock
 }
 
-type NotarizationRequest struct {
-	// the starting round to request notarizations
-	StartRound uint64
+type VerifiedFinalizationCertificateResponse struct {
+	Data []VerifiedFinalizedBlock
 }
 
-type NotarizationResponse struct {
-	Data []NotarizedBlock
-}
+// // GetRound gets the round of the notarized block, which will either be
+// // found in the empty notarization or the block.
+// func (n NotarizedBlock) GetRound() uint64 {
+// 	if n.EmptyNotarization != nil {
+// 		return n.EmptyNotarization.Vote.Round
+// 	}
 
-type NotarizedBlock struct {
-	Block Block
-	Notarization *Notarization
-	EmptyNotarization *EmptyNotarization
-}
+// 	return n.Block.BlockHeader().Round
+// }
 
-func (n NotarizedBlock) GetRound() uint64 {
-	if n.EmptyNotarization != nil {
-		return n.EmptyNotarization.Vote.Round
-	}
+// func (n NotarizedBlock) Verify() error {
+// 	if n.EmptyNotarization != nil {
+// 		return n.EmptyNotarization.Verify()
+// 	}
 
-	return n.Block.BlockHeader().Round
-}
+// 	return n.Notarization.Verify()
+// }
+
+// func (n NotarizedBlock) GetSequence() uint64 {
+// 	if n.EmptyNotarization != nil {
+// 		return n.EmptyNotarization.Vote.Seq
+// 	}
+
+// 	return n.Notarization.Vote.Seq
+// }

@@ -4,8 +4,6 @@
 package simplex
 
 import (
-	"bytes"
-	"fmt"
 	"math"
 
 	"go.uber.org/zap"
@@ -21,68 +19,73 @@ type ReplicationState struct {
 	// latest seq requested
 	lastSequenceRequested uint64
 
-	// highest sequence we have received a finalization certificate for
-	highestFCertReceived *FinalizationCertificate
+	// highest sequence we have received
+	highestSeqReceived uint64
 
-	// received
-	receivedFinalizationCertificates map[uint64]FinalizedBlock
+	// receivedQuorumRounds maps rounds to quorum rounds
+	receivedQuorumRounds map[uint64]QuorumRound
+
+	// sent a replication request before
+	sentOnce bool
 }
 
 func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundWindow uint64, enabled bool) *ReplicationState {
 	return &ReplicationState{
-		logger:                           logger,
-		enabled:                          enabled,
-		comm:                             comm,
-		id:                               id,
-		maxRoundWindow:                   maxRoundWindow,
-		receivedFinalizationCertificates: make(map[uint64]FinalizedBlock),
+		logger:               logger,
+		enabled:              enabled,
+		comm:                 comm,
+		id:                   id,
+		maxRoundWindow:       maxRoundWindow,
+		receivedQuorumRounds: make(map[uint64]QuorumRound),
 	}
 }
 
-// isReplicationComplete returns true if the replication state has caught up to the highest finalization certificate.
-// TODO: when we add notarization requests, this function should also make sure we have caught up to the highest notarization.
-func (r *ReplicationState) isReplicationComplete(nextSeqToCommit uint64) bool {
-	return nextSeqToCommit > r.highestFCertReceived.Finalization.Seq
+// isReplicationComplete returns true if we have finished the replication process.
+// The process is considered finished once [currentRound] has caught up to the highest round received.
+func (r *ReplicationState) isReplicationComplete(nextSeqToCommit uint64, currentRound uint64) bool {
+	if !r.sentOnce {
+		return true
+	}
+
+	return nextSeqToCommit > r.highestSeqReceived
 }
 
-func (r *ReplicationState) collectFutureFinalizationCertificates(fCert *FinalizationCertificate, currentRound uint64, nextSeqToCommit uint64) {
-	if !r.enabled {
-		return
-	}
-	fCertSeq := fCert.Finalization.Seq
-	// Don't exceed the max round window
-	endSeq := math.Min(float64(fCertSeq), float64(r.maxRoundWindow+currentRound))
-	if r.highestFCertReceived == nil || fCertSeq > r.highestFCertReceived.Finalization.Seq {
-		r.highestFCertReceived = fCert
-	}
+func (r *ReplicationState) collectMissingSequences(receivedSeq uint64, currentRound uint64, nextSeqToCommit uint64) {
 	// Node is behind, but we've already sent messages to collect future fCerts
-	if r.lastSequenceRequested >= uint64(endSeq) {
+	if r.lastSequenceRequested >= receivedSeq && r.sentOnce {
 		return
+	}
+
+	if receivedSeq > r.highestSeqReceived {
+		r.highestSeqReceived = receivedSeq
 	}
 
 	startSeq := math.Max(float64(nextSeqToCommit), float64(r.lastSequenceRequested))
-	r.logger.Debug("Node is behind, requesting missing finalization certificates", zap.Uint64("seq", fCertSeq), zap.Uint64("startSeq", uint64(startSeq)), zap.Uint64("endSeq", uint64(endSeq)))
-	r.sendFutureCertficatesRequests(uint64(startSeq), uint64(endSeq))
+
+	// Don't exceed the max round window
+	endSeq := math.Min(float64(receivedSeq), float64(r.maxRoundWindow+nextSeqToCommit))
+
+	r.logger.Debug("Node is behind, requesting missing finalization certificates", zap.Uint64("seq", receivedSeq), zap.Uint64("startSeq", uint64(startSeq)), zap.Uint64("endSeq", uint64(endSeq)))
+	r.sendReplicationRequests(uint64(startSeq), uint64(endSeq))
 }
 
-// sendFutureCertficatesRequests sends requests for future finalization certificates for the
+// sendReplicationRequests sends requests for missing sequences for the
 // range of sequences [start, end] <- inclusive
-func (r *ReplicationState) sendFutureCertficatesRequests(start uint64, end uint64) {
+func (r *ReplicationState) sendReplicationRequests(start uint64, end uint64) {
 	seqs := make([]uint64, (end+1)-start)
 	for i := start; i <= end; i++ {
 		seqs[i-start] = i
 	}
-
-	roundRequest := &ReplicationRequest{
-		FinalizationCertificateRequest: &FinalizationCertificateRequest{
-			Sequences: seqs,
-		},
+	request := &ReplicationRequest{
+		Seqs:        seqs,
+		LatestRound: r.highestSeqReceived,
 	}
-	msg := &Message{ReplicationRequest: roundRequest}
+	msg := &Message{ReplicationRequest: request}
 
 	requestFrom := r.requestFrom()
 
 	r.lastSequenceRequested = end
+	r.sentOnce = true
 	r.comm.SendMessage(msg, requestFrom)
 }
 
@@ -95,38 +98,82 @@ func (r *ReplicationState) requestFrom() NodeID {
 			return node
 		}
 	}
+
 	return NodeID{}
 }
 
-// maybeCollectFutureFinalizationCertificates attempts to collect future finalization certificates if
-// there are more fCerts to be collected and the round has caught up.
-func (r *ReplicationState) maybeCollectFutureFinalizationCertificates(round uint64, nextSequenceToCommit uint64) {
-	if r.highestFCertReceived == nil {
+func (r *ReplicationState) replicateBlocks(fCert *FinalizationCertificate, currentRound uint64, nextSeqToCommit uint64) {
+	if !r.enabled {
 		return
 	}
 
-	if r.lastSequenceRequested >= r.highestFCertReceived.Finalization.Seq {
+	r.collectMissingSequences(fCert.Finalization.Seq, currentRound, nextSeqToCommit)
+}
+
+// maybeCollectFutureSequences attempts to collect future sequences if
+// there are more to be collected and the round has caught up for us to send the request.
+func (r *ReplicationState) maybeCollectFutureSequences(round uint64, nextSequenceToCommit uint64) {
+	if r.lastSequenceRequested >= r.highestSeqReceived {
 		return
 	}
 
 	// we send out more requests once our seq has caught up to 1/2 of the maxRoundWindow
 	if round+r.maxRoundWindow/2 > r.lastSequenceRequested {
-		r.collectFutureFinalizationCertificates(r.highestFCertReceived, round, nextSequenceToCommit)
+		r.collectMissingSequences(r.highestSeqReceived, round, nextSequenceToCommit)
 	}
 }
 
-func (r *ReplicationState) StoreFinalizedBlock(data FinalizedBlock) error {
-	// ensure the finalization certificate we get relates to the block
-	blockDigest := data.Block.BlockHeader().Digest
-	if !bytes.Equal(blockDigest[:], data.FCert.Finalization.Digest[:]) {
-		return fmt.Errorf("finalization certificate does not match the block")
+func (r *ReplicationState) StoreQuorumRound(round QuorumRound) {
+	if _, ok := r.receivedQuorumRounds[round.GetRound()]; ok {
+		return
 	}
 
-	// don't store the same finalization certificate twice
-	if _, ok := r.receivedFinalizationCertificates[data.FCert.Finalization.Seq]; ok {
+	r.receivedQuorumRounds[round.GetRound()] = round
+}
+
+func (r *ReplicationState) GetFinalizedBlockForSequence(seq uint64) *FinalizedBlock {
+	for _, round := range r.receivedQuorumRounds {
+		if round.GetSequence() == seq {
+			if round.Block == nil || round.FCert == nil {
+				return nil
+			}
+			return &FinalizedBlock{
+				Block: round.Block,
+				FCert: *round.FCert,
+			}
+		}
+	}
+
+	return nil
+}
+
+type NotarizedBlock struct {
+	notarization Notarization
+	block        Block
+}
+
+func (r *ReplicationState) GetNotarizedBlockForRound(round uint64) *NotarizedBlock {
+	qRound, ok := r.receivedQuorumRounds[round]
+	if !ok {
 		return nil
 	}
 
-	r.receivedFinalizationCertificates[data.FCert.Finalization.Seq] = data
-	return nil
+	if qRound.Block == nil || qRound.Notarization == nil {
+		return nil
+	}
+
+	return &NotarizedBlock{
+		notarization: *qRound.Notarization,
+		block:        qRound.Block,
+	}
+}
+
+func (r *ReplicationState) highestNotarizedRound() uint64 {
+	var highestRound uint64
+	for round := range r.receivedQuorumRounds {
+		if round > highestRound {
+			highestRound = round
+		}
+	}
+	return highestRound
 }
