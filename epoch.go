@@ -2263,6 +2263,11 @@ func (e *Epoch) handleReplicationResponse(resp *ReplicationResponse, from NodeID
 	nextSeqToCommit := e.Storage.Height()
 
 	for _, data := range resp.Data {
+		if err := data.isWellFormed(); err != nil {
+			e.Logger.Debug("Malformed Quorum Round Received")
+			continue
+		}
+
 		if nextSeqToCommit > data.GetSequence() {
 			e.Logger.Debug("Received quorum round for a seq that is too far behind", zap.Uint64("seq", data.GetSequence()))
 			continue
