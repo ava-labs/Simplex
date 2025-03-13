@@ -456,6 +456,80 @@ func testReplicationAfterNodeDisconnects(t *testing.T, nodes []simplex.NodeID, s
 	}
 }
 
+func onlyAllowBlockProposalsAndNotarizations(msg *simplex.Message, to simplex.NodeID) bool {
+	// TODO: remove hardcoded node id
+	if to.Equals(simplex.NodeID{4}) {
+		return (msg.BlockMessage != nil || msg.VerifiedBlockMessage != nil || msg.Notarization != nil)
+	}
+
+	return true
+}
+
+func TestReplicationNotarizationWithoutFinalizations(t *testing.T) {
+	nodes := []simplex.NodeID{{1}, {2}, {3}, []byte("lagging")}
+
+	for numBlocks := uint64(1); numBlocks <= 3*simplex.DefaultMaxRoundWindow; numBlocks++ {
+		// lagging node cannot be the leader after node disconnects
+		isLaggingNodeLeader := bytes.Equal(simplex.LeaderForRound(nodes, numBlocks), nodes[3])
+		if isLaggingNodeLeader {
+			continue
+		}
+
+		testName := fmt.Sprintf("NotarizationWithoutFCert_%d_blocks", numBlocks)
+
+		t.Run(testName, func(t *testing.T) {
+			t.Parallel()
+			testReplicationNotarizationWithoutFinalizations(t, numBlocks)
+		})
+	}
+}
+
+// TestReplicationNotarizationWithoutFinalizations tests that a lagging node will replicate
+// blocks that have notarizations but no finalizations.
+func testReplicationNotarizationWithoutFinalizations(t *testing.T, numBlocks uint64) {
+	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
+	bb := newTestControlledBlockBuilder(t)
+	net := newInMemNetwork(t, nodes)
+
+	nodeConfig := func(from simplex.NodeID) *testNodeConfig {
+		comm := newTestComm(from, net, onlyAllowBlockProposalsAndNotarizations)
+		return &testNodeConfig{
+			comm:               comm,
+			replicationEnabled: true,
+		}
+	}
+
+	newSimplexNode(t, nodes[0], net, bb, nodeConfig(nodes[0]))
+	newSimplexNode(t, nodes[1], net, bb, nodeConfig(nodes[1]))
+	newSimplexNode(t, nodes[2], net, bb, nodeConfig(nodes[2]))
+
+	laggingNode := newSimplexNode(t, nodes[3], net, bb, nodeConfig(nodes[3]))
+
+	for _, n := range net.instances {
+		require.Equal(t, uint64(0), n.storage.Height())
+	}
+
+	net.startInstances()
+
+	// normal nodes continue to make progress
+	for i := uint64(0); i < uint64(numBlocks); i++ {
+		bb.triggerNewBlock()
+		for _, n := range net.instances[:3] {
+			n.storage.waitForBlockCommit(uint64(i))
+		}
+
+	}
+
+	require.Equal(t, uint64(0), laggingNode.storage.Height())
+	require.Equal(t, uint64(numBlocks), laggingNode.e.Metadata().Round)
+
+	net.setAllNodesMessageFilter(allowAllMessages)
+	bb.triggerNewBlock()
+	for _, n := range net.instances {
+		n.storage.waitForBlockCommit(uint64(numBlocks))
+	}
+}
+
 func advanceWithoutLeader(t *testing.T, net *inMemNetwork, bb *testControlledBlockBuilder, epochTimes []time.Time, round uint64) {
 	for range net.instances {
 		time.Sleep(10 * time.Millisecond)

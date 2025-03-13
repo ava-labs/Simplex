@@ -250,16 +250,16 @@ func (tw *testWAL) containsEmptyVote(round uint64) bool {
 
 // messageFilter defines a function that filters
 // certain messages from being sent or broadcasted.
-type messageFilter func(*Message) bool
+type messageFilter func(*Message, NodeID) bool
 
 // allowAllMessages allows every message to be sent
-func allowAllMessages(*Message) bool {
+func allowAllMessages(*Message, NodeID) bool {
 	return true
 }
 
 // denyFinalizationMessages blocks any messages that would cause nodes in
 // a network to index a block in storage.
-func denyFinalizationMessages(msg *Message) bool {
+func denyFinalizationMessages(msg *Message, destination NodeID) bool {
 	if msg.Finalization != nil {
 		return false
 	}
@@ -272,7 +272,7 @@ func denyFinalizationMessages(msg *Message) bool {
 	return true
 }
 
-func onlyAllowEmptyRoundMessages(msg *Message) bool {
+func onlyAllowEmptyRoundMessages(msg *Message, destination NodeID) bool {
 	if msg.EmptyNotarization != nil {
 		return true
 	}
@@ -305,7 +305,7 @@ func (c *testComm) SendMessage(msg *Message, destination NodeID) {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 
-	if !c.messageFilter(msg) {
+	if !c.messageFilter(msg, destination) {
 		return
 	}
 	// cannot send if either [from] or [destination] is not connected
@@ -397,9 +397,6 @@ func (c *testComm) Broadcast(msg *Message) {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 
-	if !c.messageFilter(msg) {
-		return
-	}
 	if c.net.IsDisconnected(c.from) {
 		return
 	}
@@ -407,6 +404,9 @@ func (c *testComm) Broadcast(msg *Message) {
 	c.maybeTranslateOutoingToIncomingMessageTypes(msg)
 
 	for _, instance := range c.net.instances {
+		if !c.messageFilter(msg, instance.e.ID) {
+			return
+		}
 		// Skip sending the message to yourself or disconnected nodes
 		if bytes.Equal(c.from, instance.e.ID) || c.net.IsDisconnected(instance.e.ID) {
 			continue
