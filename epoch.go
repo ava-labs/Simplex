@@ -2401,7 +2401,7 @@ func (e *Epoch) maybeAdvanceRoundFromEmptyNotarizations() (bool, error) {
 
 	// its possible we did not receive this round since it was an empty notarization round
 	// check to see if we a future round with the sequence that we expect
-	for ; round <= e.replicationState.highestNotarizedRound(); round++ {
+	for ; round <= e.replicationState.highestKnownRound(); round++ {
 		qRound, ok := e.replicationState.receivedQuorumRounds[round]
 		if !ok {
 			numEmptyNotarizedRounds++

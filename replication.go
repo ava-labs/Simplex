@@ -47,7 +47,7 @@ func (r *ReplicationState) isReplicationComplete(nextSeqToCommit uint64, current
 		return true
 	}
 
-	return nextSeqToCommit > r.highestSeqReceived
+	return nextSeqToCommit > r.highestSeqReceived && currentRound > r.highestKnownRound()
 }
 
 func (r *ReplicationState) collectMissingSequences(receivedSeq uint64, currentRound uint64, nextSeqToCommit uint64) {
@@ -169,7 +169,7 @@ func (r *ReplicationState) GetNotarizedBlockForRound(round uint64) *NotarizedBlo
 	}
 }
 
-func (r *ReplicationState) highestNotarizedRound() uint64 {
+func (r *ReplicationState) highestKnownRound() uint64 {
 	var highestRound uint64
 	for round := range r.receivedQuorumRounds {
 		if round > highestRound {
