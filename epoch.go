@@ -1401,7 +1401,17 @@ func (e *Epoch) processNotarizedBlock(notarizedBlock *NotarizedBlock) error {
 	round, exists := e.rounds[md.Round]
 
 	// dont create a block verification task if the block is already in the rounds map
-	if exists { // we could have a block in the rounds map but receive and empty notarization
+	if exists { 
+		// We could have a block in the rounds map, as well as an empty notarization.
+		// its important to not create a conflicting notarization for that round.
+		emptyVote, exists := e.emptyVotes[md.Round]
+
+		if exists && emptyVote.emptyNotarization != nil {
+			e.Logger.Debug("Received notarized block for a round that has an empty notarization",
+				zap.Uint64("round", md.Round))
+			return nil
+		}
+
 		if round.notarization != nil {
 			e.Logger.Debug("Round already notarized", zap.Uint64("round", md.Round))
 			return nil
@@ -2228,6 +2238,16 @@ func (e *Epoch) locateQuorumRecord(seq uint64) *VerifiedQuorumRound {
 				VerifiedBlock: round.block,
 				Notarization:  round.notarization,
 				FCert:         round.fCert,
+			}
+		}
+	}
+
+	// check empty votes 
+	emptyVotes, exists := e.emptyVotes[e.round]
+	if exists && emptyVotes.emptyNotarization != nil {
+		if emptyVotes.emptyNotarization.Vote.Round == seq {
+			return &VerifiedQuorumRound{
+				EmptyNotarization: emptyVotes.emptyNotarization,
 			}
 		}
 	}

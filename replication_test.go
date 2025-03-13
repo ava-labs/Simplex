@@ -376,14 +376,6 @@ func TestReplicationAfterNodeDisconnects(t *testing.T) {
 			})
 		}
 	}
-
-	// for range 100 {
-	// 	isLaggingNodeLeader := bytes.Equal(simplex.LeaderForRound(nodes, 17), nodes[3])
-	// 	if isLaggingNodeLeader {
-	// 		continue
-	// 	}
-	// 	testReplicationAfterNodeDisconnects(t, nodes, 0, 17)
-	// }
 }
 
 func testReplicationAfterNodeDisconnects(t *testing.T, nodes []simplex.NodeID, startDisconnect, endDisconnect uint64) {
