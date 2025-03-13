@@ -216,7 +216,6 @@ func TestReplicationEmptyNotarizations(t *testing.T) {
 		require.Equal(t, uint64(0), n.e.Storage.Height())
 	}
 
-	// assertReplicationRequest(t, normalNode1, )
 	net.setAllNodesMessageFilter(allowAllMessages)
 	net.Connect(nodes[3])
 
@@ -379,7 +378,6 @@ func TestReplicationAfterNodeDisconnects(t *testing.T) {
 }
 
 func testReplicationAfterNodeDisconnects(t *testing.T, nodes []simplex.NodeID, startDisconnect, endDisconnect uint64) {
-	fmt.Println("starting")
 	bb := newTestControlledBlockBuilder(t)
 	net := newInMemNetwork(t, nodes)
 	testConfig := &testNodeConfig{
@@ -444,22 +442,18 @@ func testReplicationAfterNodeDisconnects(t *testing.T, nodes []simplex.NodeID, s
 	require.Equal(t, startDisconnect, laggingNode.e.Metadata().Round)
 	// lagging node reconnects
 	net.Connect(nodes[3])
-	fmt.Println("reconnecting")
 	bb.triggerNewBlock()
 	for _, n := range net.instances {
 		n.storage.waitForBlockCommit(endDisconnect - missedSeqs)
 	}
-	fmt.Println("done reconnecting")
 	for _, n := range net.instances {
 		require.Equal(t, endDisconnect-missedSeqs, n.storage.Height()-1)
 		require.Equal(t, endDisconnect+1, n.e.Metadata().Round)
 	}
 	bb.triggerNewBlock() // the lagging node should build a block when triggered
 	for _, n := range net.instances {
-		fmt.Println("waiting for block commit ", endDisconnect-missedSeqs+1)
 		n.storage.waitForBlockCommit(endDisconnect - missedSeqs + 1)
 	}
-	fmt.Println("done waitiing for block commit ", endDisconnect-missedSeqs+1)
 }
 
 func advanceWithoutLeader(t *testing.T, net *inMemNetwork, bb *testControlledBlockBuilder, epochTimes []time.Time, round uint64) {

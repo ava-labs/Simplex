@@ -3,8 +3,6 @@ package simplex_test
 import (
 	"bytes"
 	"simplex"
-	"simplex/testutil"
-	"simplex/wal"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -12,27 +10,11 @@ import (
 
 // TestReplicationRequestIndexedBlocks tests replication requests for indexed blocks.
 func TestReplicationeRequestIndexedBlocks(t *testing.T) {
-	l := testutil.MakeLogger(t, 1)
 	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
-	storage := newInMemStorage()
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
-	signatureAggregator := &testSignatureAggregator{}
-	wal := wal.NewMemWAL(t)
-	comm := NewBufferedComm(nodes)
-	conf := simplex.EpochConfig{
-		Logger:              l,
-		ID:                  nodes[0],
-		Signer:              &testSigner{},
-		WAL:                 wal,
-		Verifier:            &testVerifier{},
-		Storage:             storage,
-		Comm:                comm,
-		BlockBuilder:        bb,
-		SignatureAggregator: signatureAggregator,
-		BlockDeserializer:   &blockDeserializer{},
-		QCDeserializer:      &testQCDeserializer{t: t},
-		ReplicationEnabled:  true,
-	}
+	comm := NewListenerComm(nodes)
+	conf := defaultTestNodeEpochConfig(t, nodes[0], comm, bb)
+	conf.ReplicationEnabled = true
 
 	numBlocks := uint64(10)
 	seqs := createBlocks(t, nodes, bb, numBlocks)
@@ -83,7 +65,7 @@ func TestReplicationRequestNotarizations(t *testing.T) {
 	// generate 5 blocks & notarizations
 	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
-	comm := NewBufferedComm(nodes)
+	comm := NewListenerComm(nodes)
 	conf := defaultTestNodeEpochConfig(t, nodes[0], comm, bb)
 	conf.ReplicationEnabled = true
 
@@ -137,7 +119,7 @@ func TestReplicationRequestMixed(t *testing.T) {
 	// generate 5 blocks & notarizations
 	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
-	comm := NewBufferedComm(nodes)
+	comm := NewListenerComm(nodes)
 	conf := defaultTestNodeEpochConfig(t, nodes[0], comm, bb)
 	conf.ReplicationEnabled = true
 

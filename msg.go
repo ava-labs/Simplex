@@ -237,6 +237,8 @@ type VerifiedReplicationResponse struct {
 	LatestRound *VerifiedQuorumRound
 }
 
+// QuorumRound represents a round that has acheived quorum on either
+// (empty notarization), (block & notarization), or (block, finalization certificate)
 type QuorumRound struct {
 	Block             Block
 	Notarization      *Notarization
@@ -261,29 +263,6 @@ func (q QuorumRound) isWellFormed() error {
 	}
 
 	return fmt.Errorf("neither notarization nor finalization certificate found")
-}
-
-type VerifiedQuorumRound struct {
-	VerifiedBlock     VerifiedBlock
-	Notarization      *Notarization
-	FCert             *FinalizationCertificate
-	EmptyNotarization *EmptyNotarization
-}
-
-func (q VerifiedQuorumRound) GetRound() uint64 {
-	if q.EmptyNotarization != nil {
-		return q.EmptyNotarization.Vote.Round
-	}
-
-	return q.VerifiedBlock.BlockHeader().Round
-}
-
-func (q VerifiedQuorumRound) GetSequence() uint64 {
-	if q.EmptyNotarization != nil {
-		return q.EmptyNotarization.Vote.Seq
-	}
-
-	return q.VerifiedBlock.BlockHeader().Seq
 }
 
 func (q QuorumRound) GetRound() uint64 {
@@ -340,4 +319,19 @@ func (q *QuorumRound) String() string {
 	}
 
 	return "QuorumRound{nil}"
+}
+
+type VerifiedQuorumRound struct {
+	VerifiedBlock     VerifiedBlock
+	Notarization      *Notarization
+	FCert             *FinalizationCertificate
+	EmptyNotarization *EmptyNotarization
+}
+
+func (q VerifiedQuorumRound) GetRound() uint64 {
+	if q.EmptyNotarization != nil {
+		return q.EmptyNotarization.Vote.Round
+	}
+
+	return q.VerifiedBlock.BlockHeader().Round
 }
