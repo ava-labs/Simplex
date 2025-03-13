@@ -2342,7 +2342,7 @@ func (e *Epoch) processReplicationState() error {
 	// first we check if we can commit the next sequence
 	block, fCert, exists := e.replicationState.GetFinalizedBlockForSequence(nextSeqToCommit)
 	if exists {
-		// delete(e.replicationState.receivedQuorumRounds, finalizedBlock.Block.BlockHeader().Round)
+		delete(e.replicationState.receivedQuorumRounds, block.BlockHeader().Round)
 		e.replicationState.maybeCollectFutureSequences(e.round, e.Storage.Height())
 		return e.processFinalizedBlock(block, fCert)
 	}
@@ -2361,7 +2361,7 @@ func (e *Epoch) processReplicationState() error {
 	// TODO: we need to make sure that we do not forget about notarizations missing for rounds < e.round
 	notarizedBlock := e.replicationState.GetNotarizedBlockForRound(e.round)
 	if notarizedBlock != nil {
-		// delete(e.replicationState.receivedQuorumRounds, e.round)
+		delete(e.replicationState.receivedQuorumRounds, e.round)
 		e.processNotarizedBlock(notarizedBlock)
 	}
 
@@ -2392,7 +2392,7 @@ func (e *Epoch) maybeAdvanceRoundFromEmptyNotarizations() (bool, error) {
 		if err != nil {
 			return false, err
 		}
-		// delete(e.replicationState.receivedQuorumRounds, qRound.GetRound())
+		delete(e.replicationState.receivedQuorumRounds, qRound.GetRound())
 		return true, nil
 	}
 
