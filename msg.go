@@ -326,3 +326,18 @@ func (q QuorumRound) Verify() error {
 
 	return fmt.Errorf("no finalization certificate, empty notarization or notarization found")
 }
+
+// String returns a string representation of the QuorumRound.
+// It is meant as a debugging aid for logs.
+func (q *QuorumRound) String() string {
+	if q != nil {
+		err := q.isWellFormed()
+		if err != nil {
+			return fmt.Sprintf("QuorumRound{Error: %s}", err)
+		} else {
+			return fmt.Sprintf("QuorumRound{Round: %d, Seq: %d}", q.GetRound(), q.GetSequence())
+		}
+	}
+
+	return "QuorumRound{nil}"
+}

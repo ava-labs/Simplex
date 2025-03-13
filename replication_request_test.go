@@ -214,3 +214,24 @@ func TestNilReplicationResponse(t *testing.T) {
 	}, nodes[1])
 	require.NoError(t, err)
 }
+
+// TestMalformedReplicationResponse tests that a malformed replication response is handled correctly.
+// This replication response is malformeds since it must also include a notarization or
+// finalization certificate.
+func TestMalformedReplicationResponse(t *testing.T) {
+	bb := newTestControlledBlockBuilder(t)
+	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
+	net := newInMemNetwork(t, nodes)
+
+	normalNode0 := newSimplexNode(t, nodes[0], net, bb, nil)
+	normalNode0.start()
+
+	err := normalNode0.HandleMessage(&simplex.Message{
+		ReplicationResponse: &simplex.ReplicationResponse{
+			Data: []simplex.QuorumRound{{
+				Block: &testBlock{},
+			}},
+		},
+	}, nodes[1])
+	require.NoError(t, err)
+}

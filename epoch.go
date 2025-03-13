@@ -2208,7 +2208,6 @@ func (e *Epoch) handleReplicationRequest(req *ReplicationRequest, from NodeID) (
 	slices.Sort(seqs)
 	data := make([]VerifiedQuorumRound, len(seqs))
 	for i, seq := range seqs {
-		// TODO: update this method so it accepts a list of seqs to reduce the double for loop
 		quorumRound := e.locateQuorumRecord(seq)
 
 		if quorumRound == nil {
@@ -2264,22 +2263,12 @@ func (e *Epoch) locateQuorumRecord(seq uint64) *VerifiedQuorumRound {
 }
 
 func (e *Epoch) handleReplicationResponse(resp *ReplicationResponse, from NodeID) error {
-	roundLog := "all caught up"
-	if resp.LatestRound != nil {
-		err := resp.LatestRound.isWellFormed()
-		if err != nil {
-			roundLog = "not properly formed"
-		} else {
-			roundLog = fmt.Sprintf("%d", resp.LatestRound.GetRound())
-		}
-	}
-
-	e.Logger.Debug("Received replication response", zap.String("from", from.String()), zap.Int("num seqs", len(resp.Data)), zap.String("latest round", roundLog))
+	e.Logger.Debug("Received replication response", zap.String("from", from.String()), zap.Int("num seqs", len(resp.Data)), zap.String("latest round", resp.LatestRound.String()))
 	nextSeqToCommit := e.Storage.Height()
 
 	for _, data := range resp.Data {
 		if err := data.isWellFormed(); err != nil {
-			e.Logger.Debug("Malformed Quorum Round Received")
+			e.Logger.Debug("Malformed Quorum Round Received", zap.Error(err))
 			continue
 		}
 
@@ -2314,7 +2303,6 @@ func (e *Epoch) handleReplicationResponse(resp *ReplicationResponse, from NodeID
 
 	if err := e.processLatestRoundReceived(resp.LatestRound); err != nil {
 		e.Logger.Debug("Failed processing latest round", zap.Error(err))
-		// no need to halt the epoch, we can continue processing
 		return nil
 	}
 
