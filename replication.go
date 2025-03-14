@@ -50,7 +50,7 @@ func (r *ReplicationState) isReplicationComplete(nextSeqToCommit uint64, current
 	return nextSeqToCommit > r.highestSeqReceived && currentRound > r.highestKnownRound()
 }
 
-func (r *ReplicationState) collectMissingSequences(receivedSeq uint64, currentRound uint64, nextSeqToCommit uint64) {
+func (r *ReplicationState) collectMissingSequences(receivedSeq uint64, nextSeqToCommit uint64) {
 	// Node is behind, but we've already sent messages to collect future fCerts
 	if r.lastSequenceRequested >= receivedSeq && r.sentOnce {
 		return
@@ -102,24 +102,24 @@ func (r *ReplicationState) requestFrom() NodeID {
 	return NodeID{}
 }
 
-func (r *ReplicationState) replicateBlocks(fCert *FinalizationCertificate, currentRound uint64, nextSeqToCommit uint64) {
+func (r *ReplicationState) replicateBlocks(fCert *FinalizationCertificate, nextSeqToCommit uint64) {
 	if !r.enabled {
 		return
 	}
 
-	r.collectMissingSequences(fCert.Finalization.Seq, currentRound, nextSeqToCommit)
+	r.collectMissingSequences(fCert.Finalization.Seq, nextSeqToCommit)
 }
 
 // maybeCollectFutureSequences attempts to collect future sequences if
 // there are more to be collected and the round has caught up for us to send the request.
-func (r *ReplicationState) maybeCollectFutureSequences(round uint64, nextSequenceToCommit uint64) {
+func (r *ReplicationState) maybeCollectFutureSequences(nextSequenceToCommit uint64) {
 	if r.lastSequenceRequested >= r.highestSeqReceived {
 		return
 	}
 
 	// we send out more requests once our seq has caught up to 1/2 of the maxRoundWindow
-	if round+r.maxRoundWindow/2 > r.lastSequenceRequested {
-		r.collectMissingSequences(r.highestSeqReceived, round, nextSequenceToCommit)
+	if nextSequenceToCommit+r.maxRoundWindow/2 > r.lastSequenceRequested {
+		r.collectMissingSequences(r.highestSeqReceived, nextSequenceToCommit)
 	}
 }
 
@@ -130,6 +130,10 @@ func (r *ReplicationState) StoreQuorumRound(round QuorumRound) {
 			r.receivedQuorumRounds[round.GetRound()] = round
 		}
 		return
+	}
+
+	if round.GetSequence() > r.highestSeqReceived {
+		r.highestSeqReceived = round.GetSequence()
 	}
 
 	r.receivedQuorumRounds[round.GetRound()] = round

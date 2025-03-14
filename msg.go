@@ -249,7 +249,7 @@ type QuorumRound struct {
 // isWellFormed returns an error if the QuorumRound has either
 // (block, notarization) or (block, finalization certificate) or
 // (empty notarization)
-func (q QuorumRound) isWellFormed() error {
+func (q *QuorumRound) isWellFormed() error {
 	if q.EmptyNotarization != nil {
 		return nil
 	}
@@ -265,7 +265,7 @@ func (q QuorumRound) isWellFormed() error {
 	return fmt.Errorf("neither notarization nor finalization certificate found")
 }
 
-func (q QuorumRound) GetRound() uint64 {
+func (q *QuorumRound) GetRound() uint64 {
 	if q.EmptyNotarization != nil {
 		return q.EmptyNotarization.Vote.Round
 	}
@@ -273,7 +273,7 @@ func (q QuorumRound) GetRound() uint64 {
 	return q.Block.BlockHeader().Round
 }
 
-func (q QuorumRound) GetSequence() uint64 {
+func (q *QuorumRound) GetSequence() uint64 {
 	if q.EmptyNotarization != nil {
 		return q.EmptyNotarization.Vote.Seq
 	}
@@ -281,7 +281,11 @@ func (q QuorumRound) GetSequence() uint64 {
 	return q.Block.BlockHeader().Seq
 }
 
-func (q QuorumRound) Verify() error {
+func (q *QuorumRound) Verify() error {
+	if err := q.isWellFormed(); err != nil {
+		return err
+	}
+
 	if q.EmptyNotarization != nil {
 		return q.EmptyNotarization.Verify()
 	}
@@ -293,7 +297,10 @@ func (q QuorumRound) Verify() error {
 		if !bytes.Equal(blockDigest[:], q.FCert.Finalization.Digest[:]) {
 			return fmt.Errorf("finalization certificate does not match the block")
 		}
-		return q.FCert.Verify()
+		err := q.FCert.Verify()
+		if err != nil {
+			return err
+		}
 	}
 
 	if q.Notarization != nil {
@@ -303,7 +310,7 @@ func (q QuorumRound) Verify() error {
 		return q.Notarization.Verify()
 	}
 
-	return fmt.Errorf("no finalization certificate, empty notarization or notarization found")
+	return nil
 }
 
 // String returns a string representation of the QuorumRound.
@@ -328,7 +335,7 @@ type VerifiedQuorumRound struct {
 	EmptyNotarization *EmptyNotarization
 }
 
-func (q VerifiedQuorumRound) GetRound() uint64 {
+func (q *VerifiedQuorumRound) GetRound() uint64 {
 	if q.EmptyNotarization != nil {
 		return q.EmptyNotarization.Vote.Round
 	}
