@@ -2194,10 +2194,7 @@ func (e *Epoch) handleReplicationRequest(req *ReplicationRequest, from NodeID) e
 	}
 	response := &VerifiedReplicationResponse{}
 
-	latestRound, err := e.getLatestVerifiedQuorumRound()
-	if err != nil {
-		return err
-	}
+	latestRound := e.getLatestVerifiedQuorumRound()
 
 	if latestRound != nil && latestRound.GetRound() > req.LatestRound {
 		response.LatestRound = latestRound
@@ -2450,45 +2447,12 @@ func (e *Epoch) getHighestEmptyNotarization() *EmptyNotarization {
 	return emptyNotarization
 }
 
-// getLatestVerifiedQuorumRound returns the latest verified quorum round.
-// it returns either an empty notarization, or a block
-// with either a notarization or finalization certificate.
-func (e *Epoch) getLatestVerifiedQuorumRound() (*VerifiedQuorumRound, error) {
-	var verifiedQuorumRound *VerifiedQuorumRound
-	var highestRound uint64
-	var exists bool
-
-	round := e.getHighestRound()
-	if round != nil {
-		highestRound = round.num
-		verifiedQuorumRound = &VerifiedQuorumRound{
-			VerifiedBlock: round.block,
-			Notarization:  round.notarization,
-			FCert:         round.fCert,
-		}
-		exists = true
-	}
-
-	emptyNotarization := e.getHighestEmptyNotarization()
-	if emptyNotarization != nil {
-		emptyNoteRound := emptyNotarization.Vote.Round
-		if emptyNoteRound > highestRound || !exists {
-			verifiedQuorumRound = &VerifiedQuorumRound{
-				EmptyNotarization: emptyNotarization,
-			}
-			highestRound = emptyNotarization.Vote.ProtocolMetadata.Round
-			exists = true
-		}
-	}
-
-	if e.lastBlock != nil && (e.lastBlock.VerifiedBlock.BlockHeader().Round > highestRound || !exists) {
-		verifiedQuorumRound = &VerifiedQuorumRound{
-			VerifiedBlock: e.lastBlock.VerifiedBlock,
-			FCert:         &e.lastBlock.FCert,
-		}
-	}
-
-	return verifiedQuorumRound, nil
+func (e *Epoch) getLatestVerifiedQuorumRound() *VerifiedQuorumRound {
+	return GetLatestVerifiedQuorumRound(
+		e.getHighestRound(),
+		e.getHighestEmptyNotarization(),
+		e.lastBlock,
+	)
 }
 
 // isRoundTooFarAhead returns true if [round] is more than `maxRoundWindow` rounds ahead of the current round.

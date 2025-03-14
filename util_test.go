@@ -136,3 +136,122 @@ func TestFinalizationCertificateValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestGetHighestQuorumRound(t *testing.T) {
+	// Test
+	nodes := []NodeID{{1}, {2}, {3}, {4}, {5}}
+	l := testutil.MakeLogger(t, 0)
+	signatureAggregator := &testSignatureAggregator{}
+
+	// seq 1
+	block1 := newTestBlock(ProtocolMetadata{
+		Seq:   1,
+		Round: 1,
+	})
+	notarization1, err := newNotarization(l, signatureAggregator, block1, nodes)
+	require.NoError(t, err)
+	fCert1, _ := newFinalizationRecord(t, l, signatureAggregator, block1, nodes)
+
+	// seq 10
+	block10 := newTestBlock(ProtocolMetadata{Seq: 10, Round: 10})
+	notarization10, err := newNotarization(l, signatureAggregator, block10, nodes)
+	require.NoError(t, err)
+	fCert10, _ := newFinalizationRecord(t, l, signatureAggregator, block10, nodes)
+
+	tests := []struct {
+		name       string
+		round      *Round
+		eNote      *EmptyNotarization
+		lastBlock  *VerifiedFinalizedBlock
+		expectedQr *VerifiedQuorumRound
+	}{
+		{
+			name:  "only mpty notarization",
+			eNote: newEmptyNotarization(nodes, 1, 1),
+			expectedQr: &VerifiedQuorumRound{
+				EmptyNotarization: newEmptyNotarization(nodes, 1, 1),
+			},
+		},
+		{
+			name: "only last block",
+			lastBlock: &VerifiedFinalizedBlock{
+				VerifiedBlock: block1,
+				FCert:         fCert1,
+			},
+			expectedQr: &VerifiedQuorumRound{
+				VerifiedBlock: block1,
+				FCert:         &fCert1,
+			},
+		},
+		{
+			name:  "round",
+			round: SetRound(block1, nil, &fCert1),
+			expectedQr: &VerifiedQuorumRound{
+				VerifiedBlock: block1,
+				FCert:         &fCert1,
+			},
+		},
+		{
+			name:  "round with notarization",
+			round: SetRound(block1, &notarization1, nil),
+			expectedQr: &VerifiedQuorumRound{
+				VerifiedBlock: block1,
+				Notarization:  &notarization1,
+			},
+		},
+		{
+			name:  "higher notarized round than indexed",
+			round: SetRound(block10, &notarization10, nil),
+			lastBlock: &VerifiedFinalizedBlock{
+				VerifiedBlock: block1,
+				FCert:         fCert1,
+			},
+			expectedQr: &VerifiedQuorumRound{
+				VerifiedBlock: block10,
+				Notarization:  &notarization10,
+			},
+		},
+		{
+			name:  "higher indexed than in round",
+			round: SetRound(block1, &notarization1, nil),
+			lastBlock: &VerifiedFinalizedBlock{
+				VerifiedBlock: block10,
+				FCert:         fCert10,
+			},
+			expectedQr: &VerifiedQuorumRound{
+				VerifiedBlock: block10,
+				FCert:         &fCert10,
+			},
+		},
+		{
+			name:  "higher empty notarization",
+			eNote: newEmptyNotarization(nodes, 100, 100),
+			lastBlock: &VerifiedFinalizedBlock{
+				VerifiedBlock: block1,
+				FCert:         fCert1,
+			},
+			round: SetRound(block10, &notarization10, nil),
+			expectedQr: &VerifiedQuorumRound{
+				EmptyNotarization: newEmptyNotarization(nodes, 100, 100),
+			},
+		},
+		{
+			name:  "higher empty notarization with same sequence",
+			eNote: newEmptyNotarization(nodes, 11, 10),
+			lastBlock: &VerifiedFinalizedBlock{
+				VerifiedBlock: block10,
+				FCert:         fCert10,
+			},
+			expectedQr: &VerifiedQuorumRound{
+				EmptyNotarization: newEmptyNotarization(nodes, 11, 10),
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			qr := simplex.GetLatestVerifiedQuorumRound(tt.round, tt.eNote, tt.lastBlock)
+			require.Equal(t, tt.expectedQr, qr)
+		})
+	}
+}
