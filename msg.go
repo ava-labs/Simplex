@@ -264,7 +264,11 @@ func (q *QuorumRound) GetRound() uint64 {
 		return q.EmptyNotarization.Vote.Round
 	}
 
-	return q.Block.BlockHeader().Round
+	if q.Block != nil {
+		return q.Block.BlockHeader().Round
+	}
+
+	return 0
 }
 
 func (q *QuorumRound) GetSequence() uint64 {
@@ -272,7 +276,11 @@ func (q *QuorumRound) GetSequence() uint64 {
 		return q.EmptyNotarization.Vote.Seq
 	}
 
-	return q.Block.BlockHeader().Seq
+	if q.Block != nil {
+		return q.Block.BlockHeader().Seq
+	}
+
+	return 0
 }
 
 func (q *QuorumRound) Verify() error {
@@ -334,5 +342,14 @@ func (q *VerifiedQuorumRound) GetRound() uint64 {
 		return q.EmptyNotarization.Vote.Round
 	}
 
-	return q.VerifiedBlock.BlockHeader().Round
+	if q.VerifiedBlock != nil {
+		return q.VerifiedBlock.BlockHeader().Round
+	}
+
+	return 0
+}
+
+type VerifiedFinalizedBlock struct {
+	VerifiedBlock VerifiedBlock
+	FCert         FinalizationCertificate
 }

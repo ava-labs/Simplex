@@ -545,15 +545,10 @@ func advanceWithoutLeader(t *testing.T, net *inMemNetwork, bb *testControlledBlo
 	}
 }
 
-type VerifiedFinalizedBlock struct {
-	VerifiedBlock simplex.VerifiedBlock
-	FCert         simplex.FinalizationCertificate
-}
-
-func createBlocks(t *testing.T, nodes []simplex.NodeID, bb simplex.BlockBuilder, seqCount uint64) []VerifiedFinalizedBlock {
+func createBlocks(t *testing.T, nodes []simplex.NodeID, bb simplex.BlockBuilder, seqCount uint64) []simplex.VerifiedFinalizedBlock {
 	logger := testutil.MakeLogger(t, int(0))
 	ctx := context.Background()
-	data := make([]VerifiedFinalizedBlock, 0, seqCount)
+	data := make([]simplex.VerifiedFinalizedBlock, 0, seqCount)
 	var prev simplex.Digest
 	for i := uint64(0); i < seqCount; i++ {
 		protocolMetadata := simplex.ProtocolMetadata{
@@ -566,7 +561,7 @@ func createBlocks(t *testing.T, nodes []simplex.NodeID, bb simplex.BlockBuilder,
 		require.True(t, ok)
 		prev = block.BlockHeader().Digest
 		fCert, _ := newFinalizationRecord(t, logger, &testSignatureAggregator{}, block, nodes)
-		data = append(data, VerifiedFinalizedBlock{
+		data = append(data, simplex.VerifiedFinalizedBlock{
 			VerifiedBlock: block,
 			FCert:         fCert,
 		})

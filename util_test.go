@@ -33,11 +33,10 @@ func TestRetrieveFromStorage(t *testing.T) {
 	}{VerifiedBlock: block, FinalizationCertificate: fCert}
 
 	for _, testCase := range []struct {
-		description   string
-		storage       Storage
-		expectedErr   error
-		expectedBlock VerifiedBlock
-		expectedFCert *FinalizationCertificate
+		description           string
+		storage               Storage
+		expectedErr           error
+		expectedVerifiedBlock *VerifiedFinalizedBlock
 	}{
 		{
 			description: "no blocks in storage",
@@ -49,17 +48,19 @@ func TestRetrieveFromStorage(t *testing.T) {
 			expectedErr: errors.New("failed retrieving last block from storage with seq 0"),
 		},
 		{
-			description:   "normal storage",
-			storage:       normalStorage,
-			expectedBlock: block,
-			expectedFCert: &fCert,
+			description: "normal storage",
+			storage:     normalStorage,
+			expectedVerifiedBlock: &VerifiedFinalizedBlock{
+				VerifiedBlock: block,
+				FCert:         fCert,
+			},
 		},
 	} {
 		t.Run(testCase.description, func(t *testing.T) {
-			block, fCert, err := RetrieveLastIndexFromStorage(testCase.storage)
+			lastBlock, err := RetrieveLastIndexFromStorage(testCase.storage)
 			require.Equal(t, testCase.expectedErr, err)
-			require.Equal(t, testCase.expectedBlock, block)
-			require.Equal(t, testCase.expectedFCert, fCert)
+
+			require.Equal(t, testCase.expectedVerifiedBlock, lastBlock)
 		})
 	}
 }

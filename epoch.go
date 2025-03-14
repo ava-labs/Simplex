@@ -74,7 +74,7 @@ type Epoch struct {
 	// Runtime
 	sched                          *oneTimeBlockScheduler
 	lock                           sync.Mutex
-	lastBlock                      VerifiedBlock // latest block commited
+	lastBlock                      *VerifiedFinalizedBlock // latest block & fcert commited
 	canReceiveMessages             atomic.Bool
 	finishCtx                      context.Context
 	finishFn                       context.CancelFunc
@@ -365,15 +365,11 @@ func (e *Epoch) resumeFromWal(records [][]byte) error {
 
 func (e *Epoch) setMetadataFromStorage() error {
 	// load from storage if no notarization records
-	block, _, err := RetrieveLastIndexFromStorage(e.Storage)
-	if err != nil {
-		return err
-	}
-	if block == nil {
+	if e.lastBlock == nil {
 		return nil
 	}
-	e.round = block.BlockHeader().Round + 1
-	e.Epoch = block.BlockHeader().Epoch
+	e.round = e.lastBlock.VerifiedBlock.BlockHeader().Round + 1
+	e.Epoch = e.lastBlock.VerifiedBlock.BlockHeader().Epoch
 	return nil
 }
 
@@ -447,12 +443,12 @@ func (e *Epoch) restoreFromWal() error {
 
 // loadLastBlock initializes the epoch with the lastBlock retrieved from storage.
 func (e *Epoch) loadLastBlock() error {
-	block, _, err := RetrieveLastIndexFromStorage(e.Storage)
+	lastIndex, err := RetrieveLastIndexFromStorage(e.Storage)
 	if err != nil {
 		return err
 	}
 
-	e.lastBlock = block
+	e.lastBlock = lastIndex
 	return nil
 }
 
@@ -911,7 +907,10 @@ func (e *Epoch) indexFinalizationCertificate(block VerifiedBlock, fCert Finaliza
 		zap.Uint64("round", fCert.Finalization.Round),
 		zap.Uint64("sequence", fCert.Finalization.Seq),
 		zap.Stringer("digest", fCert.Finalization.BlockHeader.Digest))
-	e.lastBlock = block
+	e.lastBlock = &VerifiedFinalizedBlock{
+		VerifiedBlock: block,
+		FCert:         fCert,
+	}
 
 	// We have commited because we have collected a finalization certificate.
 	// However, we may have not witnessed a notarization.
@@ -1425,6 +1424,7 @@ func (e *Epoch) processNotarizedBlock(notarizedBlock *NotarizedBlock) error {
 		}
 
 		if err := e.persistNotarization(notarizedBlock.notarization); err != nil {
+			e.Logger.Warn("Failed to persist notarization", zap.Error(err))
 			return nil
 		}
 
@@ -1839,7 +1839,7 @@ func (e *Epoch) metadata() ProtocolMetadata {
 	}
 
 	if e.lastBlock != nil {
-		currMed := e.lastBlock.BlockHeader()
+		currMed := e.lastBlock.VerifiedBlock.BlockHeader()
 		if currMed.Seq+1 >= seq {
 			prev = currMed.Digest
 			seq = currMed.Seq + 1
@@ -2481,15 +2481,10 @@ func (e *Epoch) getLatestVerifiedQuorumRound() (*VerifiedQuorumRound, error) {
 		}
 	}
 
-	lastBlock, fCert, err := RetrieveLastIndexFromStorage(e.Storage)
-	if err != nil {
-		return nil, err
-	}
-
-	if e.lastBlock != nil && (lastBlock.BlockHeader().Round > highestRound || !exists) {
+	if e.lastBlock != nil && (e.lastBlock.VerifiedBlock.BlockHeader().Round > highestRound || !exists) {
 		verifiedQuorumRound = &VerifiedQuorumRound{
-			VerifiedBlock: e.lastBlock,
-			FCert:         fCert,
+			VerifiedBlock: e.lastBlock.VerifiedBlock,
+			FCert:         &e.lastBlock.FCert,
 		}
 	}
 

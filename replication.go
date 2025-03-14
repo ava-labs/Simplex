@@ -60,8 +60,7 @@ func (r *ReplicationState) collectMissingSequences(receivedSeq uint64, nextSeqTo
 		r.highestSeqReceived = receivedSeq
 	}
 
-	startSeq := math.Max(float64(nextSeqToCommit), float64(r.lastSequenceRequested))
-
+	startSeq := math.Max(float64(nextSeqToCommit), float64(r.lastSequenceRequested+1))
 	// Don't exceed the max round window
 	endSeq := math.Min(float64(receivedSeq), float64(r.maxRoundWindow+nextSeqToCommit))
 
@@ -145,10 +144,10 @@ func (r *ReplicationState) GetFinalizedBlockForSequence(seq uint64) (Block, Fina
 			if round.Block == nil || round.FCert == nil {
 				return nil, FinalizationCertificate{}, false
 			}
+
 			return round.Block, *round.FCert, true
 		}
 	}
-
 	return nil, FinalizationCertificate{}, false
 }
 

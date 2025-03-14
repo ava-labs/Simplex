@@ -12,16 +12,19 @@ import (
 // RetrieveLastIndexFromStorage retrieves the latest block and fCert from storage.
 // Returns an error if it cannot be retrieved but the storage has some block.
 // Returns (nil, nil) if the storage is empty.
-func RetrieveLastIndexFromStorage(s Storage) (VerifiedBlock, *FinalizationCertificate, error) {
+func RetrieveLastIndexFromStorage(s Storage) (*VerifiedFinalizedBlock, error) {
 	height := s.Height()
 	if height == 0 {
-		return nil, nil, nil
+		return nil, nil
 	}
 	lastBlock, fCert, retrieved := s.Retrieve(height - 1)
 	if !retrieved {
-		return nil, nil, fmt.Errorf("failed retrieving last block from storage with seq %d", height-1)
+		return nil, fmt.Errorf("failed retrieving last block from storage with seq %d", height-1)
 	}
-	return lastBlock, &fCert, nil
+	return &VerifiedFinalizedBlock{
+		VerifiedBlock: lastBlock,
+		FCert:         fCert,
+	}, nil
 }
 
 func IsFinalizationCertificateValid(eligibleSigners map[string]struct{}, fCert *FinalizationCertificate, quorumSize int, logger Logger) bool {
