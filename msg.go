@@ -249,20 +249,14 @@ type QuorumRound struct {
 // isWellFormed returns an error if the QuorumRound has either
 // (block, notarization) or (block, finalization certificate) or
 // (empty notarization)
-func (q *QuorumRound) isWellFormed() error {
-	if q.EmptyNotarization != nil {
+func (q *QuorumRound) IsWellFormed() error {
+	if q.EmptyNotarization != nil && q.Block == nil {
+		return nil
+	} else if q.Block != nil && (q.Notarization != nil || q.FCert != nil) {
 		return nil
 	}
 
-	if q.Block == nil {
-		return fmt.Errorf("block is nil")
-	}
-
-	if q.Notarization != nil || q.FCert != nil {
-		return nil
-	}
-
-	return fmt.Errorf("neither notarization nor finalization certificate found")
+	return fmt.Errorf("malformed QuorumRound")
 }
 
 func (q *QuorumRound) GetRound() uint64 {
@@ -282,7 +276,7 @@ func (q *QuorumRound) GetSequence() uint64 {
 }
 
 func (q *QuorumRound) Verify() error {
-	if err := q.isWellFormed(); err != nil {
+	if err := q.IsWellFormed(); err != nil {
 		return err
 	}
 
@@ -317,7 +311,7 @@ func (q *QuorumRound) Verify() error {
 // It is meant as a debugging aid for logs.
 func (q *QuorumRound) String() string {
 	if q != nil {
-		err := q.isWellFormed()
+		err := q.IsWellFormed()
 		if err != nil {
 			return fmt.Sprintf("QuorumRound{Error: %s}", err)
 		} else {

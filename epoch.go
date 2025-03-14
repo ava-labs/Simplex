@@ -2256,7 +2256,7 @@ func (e *Epoch) handleReplicationResponse(resp *ReplicationResponse, from NodeID
 	nextSeqToCommit := e.Storage.Height()
 
 	for _, data := range resp.Data {
-		if err := data.isWellFormed(); err != nil {
+		if err := data.IsWellFormed(); err != nil {
 			e.Logger.Debug("Malformed Quorum Round Received", zap.Error(err))
 			continue
 		}
@@ -2310,7 +2310,7 @@ func (e *Epoch) processLatestRoundReceived(latestRound *QuorumRound) error {
 	}
 
 	// make sure the latest round is well formed
-	if err := latestRound.isWellFormed(); err != nil {
+	if err := latestRound.IsWellFormed(); err != nil {
 		e.Logger.Debug("Received invalid latest round", zap.Error(err))
 		return err
 	}
