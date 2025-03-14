@@ -60,7 +60,7 @@ func (r *ReplicationState) collectMissingSequences(receivedSeq uint64, nextSeqTo
 		r.highestSeqReceived = receivedSeq
 	}
 
-	startSeq := math.Max(float64(nextSeqToCommit), float64(r.lastSequenceRequested+1))
+	startSeq := math.Max(float64(nextSeqToCommit), float64(r.lastSequenceRequested))
 	// Don't exceed the max round window
 	endSeq := math.Min(float64(receivedSeq), float64(r.maxRoundWindow+nextSeqToCommit))
 

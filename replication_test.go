@@ -36,7 +36,6 @@ func TestBasicReplication(t *testing.T) {
 			testReplication(t, uint64(i), nodes)
 		})
 	}
-
 }
 
 func testReplication(t *testing.T, startSeq uint64, nodes []simplex.NodeID) {

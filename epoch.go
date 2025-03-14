@@ -368,6 +368,7 @@ func (e *Epoch) setMetadataFromStorage() error {
 	if e.lastBlock == nil {
 		return nil
 	}
+
 	e.round = e.lastBlock.VerifiedBlock.BlockHeader().Round + 1
 	e.Epoch = e.lastBlock.VerifiedBlock.BlockHeader().Epoch
 	return nil
@@ -1425,6 +1426,7 @@ func (e *Epoch) processNotarizedBlock(notarizedBlock *NotarizedBlock) error {
 
 		if err := e.persistNotarization(notarizedBlock.notarization); err != nil {
 			e.Logger.Warn("Failed to persist notarization", zap.Error(err))
+			e.haltedError = err
 			return nil
 		}
 
