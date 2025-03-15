@@ -856,6 +856,11 @@ func (e *Epoch) persistFinalizationCertificate(fCert FinalizationCertificate) er
 
 		// we receive a finalization certificate for a future round
 		e.Logger.Debug("Received a finalization certificate for a future sequence", zap.Uint64("seq", fCert.Finalization.Seq), zap.Uint64("nextSeqToCommit", nextSeqToCommit))
+
+		if err := e.rebroadcastPastFinalizations(); err != nil {
+			return err
+		}
+
 		e.replicationState.collectFutureFinalizationCertificates(&fCert, e.round, nextSeqToCommit)
 	}
 
@@ -873,6 +878,45 @@ func (e *Epoch) persistFinalizationCertificate(fCert FinalizationCertificate) er
 	}
 
 	return nil
+}
+
+func (e *Epoch) rebroadcastPastFinalizations() error {
+	r := e.round
+
+	for {
+		if r == 0 {
+			return nil
+		}
+		r--
+		round, exists := e.rounds[r]
+		if !exists {
+			return nil
+		}
+
+		// Already collected a finalization certificate
+		if round.fCert != nil {
+			continue
+		}
+
+		// Has notarized this round?
+		if round.notarization == nil {
+			continue
+		}
+
+		var finalizationMessage *Message
+		// Try to re-use finalization we created if possible, else create it.
+		if finalization, exists := round.finalizations[string(e.ID)]; exists {
+			finalizationMessage = &Message{Finalization: finalization}
+		} else {
+			_, msg, err := e.constructFinalizationMessage(round.notarization.Vote.BlockHeader)
+			if err != nil {
+				return err
+			}
+			finalizationMessage = msg
+		}
+		e.Logger.Debug("Rebroadcasting finalization", zap.Uint64("round", r))
+		e.Comm.Broadcast(finalizationMessage)
+	}
 }
 
 func (e *Epoch) indexFinalizationCertificates(startRound uint64) {
@@ -1913,13 +1957,26 @@ func (e *Epoch) doNotarized(r uint64) error {
 
 	md := block.BlockHeader()
 
+	finalization, finalizationMsg, err := e.constructFinalizationMessage(md)
+	if err != nil {
+		return err
+	}
+	e.Comm.Broadcast(finalizationMsg)
+
+	err1 := e.startRound()
+	err2 := e.handleFinalizationMessage(&finalization, e.ID)
+
+	return errors.Join(err1, err2)
+}
+
+func (e *Epoch) constructFinalizationMessage(md BlockHeader) (Finalization, *Message, error) {
 	f := ToBeSignedFinalization{BlockHeader: md}
 	signature, err := f.Sign(e.Signer)
 	if err != nil {
-		return fmt.Errorf("failed signing vote %w", err)
+		return Finalization{}, nil, fmt.Errorf("failed signing vote %w", err)
 	}
 
-	sf := Finalization{
+	finalization := Finalization{
 		Signature: Signature{
 			Signer: e.ID,
 			Value:  signature,
@@ -1930,14 +1987,9 @@ func (e *Epoch) doNotarized(r uint64) error {
 	}
 
 	finalizationMsg := &Message{
-		Finalization: &sf,
+		Finalization: &finalization,
 	}
-	e.Comm.Broadcast(finalizationMsg)
-
-	err1 := e.startRound()
-	err2 := e.handleFinalizationMessage(&sf, e.ID)
-
-	return errors.Join(err1, err2)
+	return finalization, finalizationMsg, nil
 }
 
 // stores a notarization in the epoch's memory.
