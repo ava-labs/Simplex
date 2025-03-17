@@ -300,12 +300,9 @@ func (c *testComm) ListNodes() []NodeID {
 }
 
 func (c *testComm) SendMessage(msg *Message, destination NodeID) {
-	c.lock.RLock()
-	if !c.messageFilter(msg, destination) {
-		c.lock.RUnlock()
+	if !c.isMessagePermitted(msg, destination) {
 		return
 	}
-	c.lock.RUnlock()
 
 	// cannot send if either [from] or [destination] is not connected
 	if c.net.IsDisconnected(destination) || c.net.IsDisconnected(c.from) {
@@ -392,10 +389,14 @@ func (c *testComm) maybeTranslateOutoingToIncomingMessageTypes(msg *Message) {
 	}
 }
 
-func (c *testComm) Broadcast(msg *Message) {
+func (c *testComm) isMessagePermitted(msg *Message, destination NodeID) bool {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 
+	return c.messageFilter(msg, destination)
+}
+
+func (c *testComm) Broadcast(msg *Message) {
 	if c.net.IsDisconnected(c.from) {
 		return
 	}
@@ -403,7 +404,7 @@ func (c *testComm) Broadcast(msg *Message) {
 	c.maybeTranslateOutoingToIncomingMessageTypes(msg)
 
 	for _, instance := range c.net.instances {
-		if !c.messageFilter(msg, instance.e.ID) {
+		if !c.isMessagePermitted(msg, instance.e.ID) {
 			return
 		}
 		// Skip sending the message to yourself or disconnected nodes
