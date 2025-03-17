@@ -2358,7 +2358,6 @@ func (e *Epoch) processReplicationState() error {
 		return e.processReplicationState()
 	}
 
-	// TODO: we need to make sure that we do not forget about notarizations missing for rounds < e.round
 	notarizedBlock := e.replicationState.GetNotarizedBlockForRound(e.round)
 	if notarizedBlock != nil {
 		delete(e.replicationState.receivedQuorumRounds, e.round)
