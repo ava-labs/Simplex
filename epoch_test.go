@@ -179,6 +179,125 @@ func TestEpochConsecutiveProposalsDoNotGetVerified(t *testing.T) {
 	}
 }
 
+func TestEpochNotarizeTwiceThenFinalize(t *testing.T) {
+	l := testutil.MakeLogger(t, 1)
+	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
+	storage := newInMemStorage()
+
+	wal := newTestWAL(t)
+
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+
+	recordedMessages := make(chan *Message, 100)
+	comm := &recordingComm{Communication: noopComm(nodes), BroadcastMessages: recordedMessages}
+
+	conf := EpochConfig{
+		MaxProposalWait:     DefaultMaxProposalWaitTime,
+		Logger:              l,
+		ID:                  nodes[0],
+		Signer:              &testSigner{},
+		WAL:                 wal,
+		Verifier:            &testVerifier{},
+		Storage:             storage,
+		Comm:                comm,
+		BlockBuilder:        bb,
+		SignatureAggregator: &testSignatureAggregator{},
+	}
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+
+	require.NoError(t, e.Start())
+
+	// Round 0
+	block0 := <-bb.out
+
+	injectTestVote(t, e, block0, nodes[1])
+	injectTestVote(t, e, block0, nodes[2])
+	wal.assertNotarization(0)
+
+	// Round 1
+	md := e.Metadata()
+	_, ok := bb.BuildBlock(context.Background(), md)
+	require.True(t, ok)
+	block1 := <-bb.out
+
+	vote, err := newTestVote(block1, nodes[1])
+	require.NoError(t, err)
+	err = e.HandleMessage(&Message{
+		BlockMessage: &BlockMessage{
+			Vote:  *vote,
+			Block: block1,
+		},
+	}, nodes[1])
+	require.NoError(t, err)
+
+	injectTestVote(t, e, block1, nodes[2])
+
+	wal.assertNotarization(1)
+
+	// Round 2
+	md = e.Metadata()
+	_, ok = bb.BuildBlock(context.Background(), md)
+	require.True(t, ok)
+	block2 := <-bb.out
+
+	vote, err = newTestVote(block2, nodes[2])
+	require.NoError(t, err)
+	err = e.HandleMessage(&Message{
+		BlockMessage: &BlockMessage{
+			Vote:  *vote,
+			Block: block2,
+		},
+	}, nodes[2])
+	require.NoError(t, err)
+
+	injectTestVote(t, e, block2, nodes[1])
+
+	wal.assertNotarization(2)
+
+	// drain the recorded messages
+	for len(recordedMessages) > 0 {
+		<-recordedMessages
+	}
+
+	blocks := []*testBlock{block0, block1}
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	finish := make(chan struct{})
+	// Once the node sends a finalization message, send it finalization messages as a response
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-finish:
+				return
+			case msg := <-recordedMessages:
+				if msg.Finalization != nil {
+					index := msg.Finalization.Finalization.Round
+					if index > 1 {
+						continue
+					}
+					injectTestFinalization(t, e, blocks[int(index)], nodes[1])
+					injectTestFinalization(t, e, blocks[int(index)], nodes[2])
+				}
+			}
+		}
+	}()
+
+	injectTestFinalization(t, e, block2, nodes[1])
+	injectTestFinalization(t, e, block2, nodes[2])
+
+	storage.waitForBlockCommit(0)
+	storage.waitForBlockCommit(1)
+	storage.waitForBlockCommit(2)
+
+	close(finish)
+	wg.Wait()
+}
+
 func TestEpochFinalizeThenNotarize(t *testing.T) {
 	l := testutil.MakeLogger(t, 1)
 	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
