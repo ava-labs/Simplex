@@ -20,7 +20,7 @@ type ReplicationState struct {
 	lastSequenceRequested uint64
 
 	// highest sequence we have received
-	highestSeqReceived uint64
+	highestSequenceObserved uint64
 
 	// receivedQuorumRounds maps rounds to quorum rounds
 	receivedQuorumRounds map[uint64]QuorumRound
@@ -47,7 +47,7 @@ func (r *ReplicationState) isReplicationComplete(nextSeqToCommit uint64, current
 		return true
 	}
 
-	return nextSeqToCommit > r.highestSeqReceived && currentRound > r.highestKnownRound()
+	return nextSeqToCommit > r.highestSequenceObserved && currentRound > r.highestKnownRound()
 }
 
 func (r *ReplicationState) collectMissingSequences(receivedSeq uint64, nextSeqToCommit uint64) {
@@ -56,8 +56,8 @@ func (r *ReplicationState) collectMissingSequences(receivedSeq uint64, nextSeqTo
 		return
 	}
 
-	if receivedSeq > r.highestSeqReceived {
-		r.highestSeqReceived = receivedSeq
+	if receivedSeq > r.highestSequenceObserved {
+		r.highestSequenceObserved = receivedSeq
 	}
 
 	startSeq := math.Max(float64(nextSeqToCommit), float64(r.lastSequenceRequested))
@@ -77,7 +77,7 @@ func (r *ReplicationState) sendReplicationRequests(start uint64, end uint64) {
 	}
 	request := &ReplicationRequest{
 		Seqs:        seqs,
-		LatestRound: r.highestSeqReceived,
+		LatestRound: r.highestSequenceObserved,
 	}
 	msg := &Message{ReplicationRequest: request}
 
@@ -112,13 +112,13 @@ func (r *ReplicationState) replicateBlocks(fCert *FinalizationCertificate, nextS
 // maybeCollectFutureSequences attempts to collect future sequences if
 // there are more to be collected and the round has caught up for us to send the request.
 func (r *ReplicationState) maybeCollectFutureSequences(nextSequenceToCommit uint64) {
-	if r.lastSequenceRequested >= r.highestSeqReceived {
+	if r.lastSequenceRequested >= r.highestSequenceObserved {
 		return
 	}
 
 	// we send out more requests once our seq has caught up to 1/2 of the maxRoundWindow
 	if nextSequenceToCommit+r.maxRoundWindow/2 > r.lastSequenceRequested {
-		r.collectMissingSequences(r.highestSeqReceived, nextSequenceToCommit)
+		r.collectMissingSequences(r.highestSequenceObserved, nextSequenceToCommit)
 	}
 }
 
@@ -131,8 +131,8 @@ func (r *ReplicationState) StoreQuorumRound(round QuorumRound) {
 		return
 	}
 
-	if round.GetSequence() > r.highestSeqReceived {
-		r.highestSeqReceived = round.GetSequence()
+	if round.GetSequence() > r.highestSequenceObserved {
+		r.highestSequenceObserved = round.GetSequence()
 	}
 
 	r.receivedQuorumRounds[round.GetRound()] = round
