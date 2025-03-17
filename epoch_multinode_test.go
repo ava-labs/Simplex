@@ -266,9 +266,7 @@ func denyFinalizationMessages(msg *Message, destination NodeID) bool {
 	if msg.FinalizationCertificate != nil {
 		return false
 	}
-	if msg.Notarization != nil {
-		return false
-	}
+
 	return true
 }
 
@@ -303,11 +301,12 @@ func (c *testComm) ListNodes() []NodeID {
 
 func (c *testComm) SendMessage(msg *Message, destination NodeID) {
 	c.lock.RLock()
-	defer c.lock.RUnlock()
-
 	if !c.messageFilter(msg, destination) {
+		c.lock.RUnlock()
 		return
 	}
+	c.lock.RUnlock()
+
 	// cannot send if either [from] or [destination] is not connected
 	if c.net.IsDisconnected(destination) || c.net.IsDisconnected(c.from) {
 		return

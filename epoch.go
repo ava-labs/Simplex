@@ -2251,6 +2251,10 @@ func (e *Epoch) locateQuorumRecord(seq uint64) *VerifiedQuorumRound {
 }
 
 func (e *Epoch) handleReplicationResponse(resp *ReplicationResponse, from NodeID) error {
+	if !e.ReplicationEnabled {
+		return nil
+	}
+
 	e.Logger.Debug("Received replication response", zap.Stringer("from", from), zap.Int("num seqs", len(resp.Data)), zap.Stringer("latest round", resp.LatestRound))
 	nextSeqToCommit := e.Storage.Height()
 

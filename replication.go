@@ -115,7 +115,7 @@ func (r *ReplicationState) maybeCollectFutureSequences(nextSequenceToCommit uint
 	if !r.enabled {
 		return
 	}
-	
+
 	if r.lastSequenceRequested >= r.highestSequenceObserved {
 		return
 	}
