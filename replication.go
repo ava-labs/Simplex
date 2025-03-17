@@ -112,6 +112,10 @@ func (r *ReplicationState) replicateBlocks(fCert *FinalizationCertificate, nextS
 // maybeCollectFutureSequences attempts to collect future sequences if
 // there are more to be collected and the round has caught up for us to send the request.
 func (r *ReplicationState) maybeCollectFutureSequences(nextSequenceToCommit uint64) {
+	if !r.enabled {
+		return
+	}
+	
 	if r.lastSequenceRequested >= r.highestSequenceObserved {
 		return
 	}
