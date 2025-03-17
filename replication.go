@@ -50,21 +50,21 @@ func (r *ReplicationState) isReplicationComplete(nextSeqToCommit uint64, current
 	return nextSeqToCommit > r.highestSequenceObserved && currentRound > r.highestKnownRound()
 }
 
-func (r *ReplicationState) collectMissingSequences(receivedSeq uint64, nextSeqToCommit uint64) {
+func (r *ReplicationState) collectMissingSequences(observedSeq uint64, nextSeqToCommit uint64) {
 	// Node is behind, but we've already sent messages to collect future fCerts
-	if r.lastSequenceRequested >= receivedSeq && r.sentOnce {
+	if r.lastSequenceRequested >= observedSeq && r.sentOnce {
 		return
 	}
 
-	if receivedSeq > r.highestSequenceObserved {
-		r.highestSequenceObserved = receivedSeq
+	if observedSeq > r.highestSequenceObserved {
+		r.highestSequenceObserved = observedSeq
 	}
 
 	startSeq := math.Max(float64(nextSeqToCommit), float64(r.lastSequenceRequested))
 	// Don't exceed the max round window
-	endSeq := math.Min(float64(receivedSeq), float64(r.maxRoundWindow+nextSeqToCommit))
+	endSeq := math.Min(float64(observedSeq), float64(r.maxRoundWindow+nextSeqToCommit))
 
-	r.logger.Debug("Node is behind, requesting missing finalization certificates", zap.Uint64("seq", receivedSeq), zap.Uint64("startSeq", uint64(startSeq)), zap.Uint64("endSeq", uint64(endSeq)))
+	r.logger.Debug("Node is behind, requesting missing finalization certificates", zap.Uint64("seq", observedSeq), zap.Uint64("startSeq", uint64(startSeq)), zap.Uint64("endSeq", uint64(endSeq)))
 	r.sendReplicationRequests(uint64(startSeq), uint64(endSeq))
 }
 
