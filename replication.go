@@ -185,3 +185,16 @@ func (r *ReplicationState) highestKnownRound() uint64 {
 	}
 	return highestRound
 }
+
+func (r *ReplicationState) GetEmptyNotarizationForSequence(seq uint64) *EmptyNotarization {
+	for _, round := range r.receivedQuorumRounds {
+		if round.GetSequence() == seq {
+			if round.EmptyNotarization == nil {
+				continue
+			}
+
+			return round.EmptyNotarization
+		}
+	}
+	return nil
+}

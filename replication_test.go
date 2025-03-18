@@ -112,7 +112,7 @@ func TestReplicationNotarizations(t *testing.T) {
 	for i := uint64(0); i < uint64(numNotarizations); i++ {
 		emptyRound := bytes.Equal(simplex.LeaderForRound(nodes, i), nodes[3])
 		if emptyRound {
-			advanceWithoutLeader(t, net, bb, epochTimes, i)
+			advanceWithoutLeader(t, net, bb, epochTimes, i, laggingNode.e.ID)
 			missedSeqs++
 		} else {
 			bb.triggerNewBlock()
@@ -159,7 +159,7 @@ func TestReplicationNotarizations(t *testing.T) {
 // TestReplicationEmptyNotarizations ensures a lagging node will properly replicate
 // many empty notarizations in a row.
 func TestReplicationEmptyNotarizations(t *testing.T) {
-	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
+	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}, {5}, {6}}
 	bb := newTestControlledBlockBuilder(t)
 	net := newInMemNetwork(t, nodes)
 
@@ -171,44 +171,66 @@ func TestReplicationEmptyNotarizations(t *testing.T) {
 		}
 	}
 
-	normalNode1 := newSimplexNode(t, nodes[0], net, bb, newNodeConfig(nodes[0]))
+	startTimes := make([]time.Time, 0, len(nodes))
+	newSimplexNode(t, nodes[0], net, bb, newNodeConfig(nodes[0]))
 	normalNode2 := newSimplexNode(t, nodes[1], net, bb, newNodeConfig(nodes[1]))
 	newSimplexNode(t, nodes[2], net, bb, newNodeConfig(nodes[2]))
-	laggingNode := newSimplexNode(t, nodes[3], net, bb, newNodeConfig(nodes[3]))
+	newSimplexNode(t, nodes[3], net, bb, newNodeConfig(nodes[3]))
+	newSimplexNode(t, nodes[4], net, bb, newNodeConfig(nodes[4]))
+	laggingNode := newSimplexNode(t, nodes[5], net, bb, newNodeConfig(nodes[5]))
 
 	for _, n := range net.instances {
 		require.Equal(t, uint64(0), n.storage.Height())
+		startTimes = append(startTimes, n.e.StartTime)
 	}
 
 	net.startInstances()
 
-	net.Disconnect(nodes[3])
+	net.Disconnect(laggingNode.e.ID)
 	numNotarizations := uint64(9)
 
 	bb.triggerNewBlock()
 	block := <-bb.out
-	for _, n := range net.instances[:3] {
+	for _, n := range net.instances {
+		if n.e.ID.Equals(laggingNode.e.ID) {
+			continue
+		}
 		n.wal.assertNotarization(0)
 	}
 
 	net.setAllNodesMessageFilter(onlyAllowEmptyRoundMessages)
+	bb.blockShouldBeBuilt <- struct{}{}
 
 	// normal nodes continue to make progress
 	for i := uint64(1); i < uint64(numNotarizations); i++ {
-		bb.triggerNewBlock()
-		emptyNotarization := newEmptyNotarization(nodes[:3], i, 1)
-		msg := &simplex.Message{
-			EmptyNotarization: emptyNotarization,
+		leader := simplex.LeaderForRound(nodes, i)
+		if !leader.Equals(laggingNode.e.ID) {
+			bb.triggerNewBlock()
 		}
-		normalNode2.e.Comm.SendMessage(msg, normalNode1.e.ID)
-		normalNode1.e.Comm.Broadcast(msg)
 
-		for _, n := range net.instances[:3] {
-			n.wal.assertNotarization(i)
-		}
+		advanceWithoutLeader(t, net, bb, startTimes, i, laggingNode.e.ID)
+
+		// emptyNotarization := newEmptyNotarization(nodes[:5], i, 1)
+		// msg := &simplex.Message{
+		// 	EmptyNotarization: emptyNotarization,
+		// }
+		// normalNode2.e.Comm.SendMessage(msg, normalNode1.e.ID)
+		// normalNode1.e.Comm.Broadcast(msg)
+
+		// for _, n := range net.instances {
+		// 	if n.e.ID.Equals(laggingNode.e.ID) {
+		// 		continue
+		// 	}
+
+		// 	n.wal.assertNotarization(i)
+		// }
 	}
 
-	for _, n := range net.instances[:3] {
+	for _, n := range net.instances {
+		if n.e.ID.Equals(laggingNode.e.ID) {
+			continue
+		}
+
 		// assert metadata
 		require.Equal(t, uint64(numNotarizations), n.e.Metadata().Round)
 		require.Equal(t, uint64(1), n.e.Metadata().Seq)
@@ -216,10 +238,10 @@ func TestReplicationEmptyNotarizations(t *testing.T) {
 	}
 
 	net.setAllNodesMessageFilter(allowAllMessages)
-	net.Connect(nodes[3])
+	net.Connect(laggingNode.e.ID)
 
 	fCert, _ := newFinalizationRecord(t, laggingNode.e.Logger, laggingNode.e.SignatureAggregator, block, nodes)
-
+	fmt.Println("broadcasting")
 	// we broadcast from the second node so that node 1 will be able to respond
 	// to the lagging nodes request
 	normalNode2.e.Comm.Broadcast(&simplex.Message{
@@ -227,8 +249,8 @@ func TestReplicationEmptyNotarizations(t *testing.T) {
 	})
 	for _, n := range net.instances {
 		n.storage.waitForBlockCommit(0)
-	}
-
+	}	
+	fmt.Println("commit was waited for", laggingNode.e.Metadata().Round, laggingNode.storage.Height())
 	laggingNode.wal.assertNotarization(uint64(numNotarizations) - 1)
 	require.Equal(t, uint64(1), laggingNode.storage.Height())
 	require.Equal(t, numNotarizations, laggingNode.e.Metadata().Round)
@@ -424,7 +446,7 @@ func testReplicationAfterNodeDisconnects(t *testing.T, nodes []simplex.NodeID, s
 	for i := startDisconnect; i < endDisconnect; i++ {
 		emptyRound := bytes.Equal(simplex.LeaderForRound(nodes, i), nodes[3])
 		if emptyRound {
-			advanceWithoutLeader(t, net, bb, epochTimes, i)
+			advanceWithoutLeader(t, net, bb, epochTimes, i, laggingNode.e.ID)
 			missedSeqs++
 		} else {
 			bb.triggerNewBlock()
@@ -529,18 +551,35 @@ func testReplicationNotarizationWithoutFinalizations(t *testing.T, numBlocks uin
 	}
 }
 
-func advanceWithoutLeader(t *testing.T, net *inMemNetwork, bb *testControlledBlockBuilder, epochTimes []time.Time, round uint64) {
-	for range net.instances {
-		time.Sleep(10 * time.Millisecond)
+func advanceWithoutLeader(t *testing.T, net *inMemNetwork, bb *testControlledBlockBuilder, epochTimes []time.Time, round uint64, laggingNodeId simplex.NodeID) {
+	fmt.Println("attempting to build block", round)
+	for _, n := range net.instances {
+		leader := bytes.Equal(simplex.LeaderForRound(net.nodes, n.e.Metadata().Round), n.e.ID)
+		if leader || laggingNodeId.Equals(n.e.ID) {
+			continue
+		}
 		bb.blockShouldBeBuilt <- struct{}{}
 	}
+	fmt.Println("sending block proposal", round)
+	for i, n := range net.instances {
+		// the leader will not write an empty vote to the wal since it can't propose a block & vote on an empty block in the same round
+		leader := bytes.Equal(simplex.LeaderForRound(net.nodes, n.e.Metadata().Round), n.e.ID)
+		if laggingNodeId.Equals(n.e.ID) || leader {
+			continue
+		}
 
-	for i, n := range net.instances[:3] {
-		waitForBlockProposerTimeout(t, n.e, epochTimes[i])
+		fmt.Println("waiting for block proposal", round, n.e.ID, n.e.Metadata().Round)
+		waitForBlockProposerTimeout(t, n.e, epochTimes[i], round)
+		fmt.Println("block proposal received", round, n.e.ID, n.e.Metadata().Round)
 	}
 
-	for _, n := range net.instances[:3] {
+	for _, n := range net.instances {
+		if laggingNodeId.Equals(n.e.ID) {
+			continue
+		}
+		fmt.Println("waiting for block commit", round)
 		n.wal.assertNotarization(round)
+		fmt.Println("notarization recorded", round)
 	}
 }
 
