@@ -4,6 +4,7 @@
 package simplex
 
 import (
+	"fmt"
 	"math"
 
 	"go.uber.org/zap"
@@ -138,7 +139,7 @@ func (r *ReplicationState) StoreQuorumRound(round QuorumRound) {
 	if round.GetSequence() > r.highestSequenceObserved {
 		r.highestSequenceObserved = round.GetSequence()
 	}
-
+	fmt.Println("storing round ", round.GetRound())
 	r.receivedQuorumRounds[round.GetRound()] = round
 }
 
@@ -155,27 +156,6 @@ func (r *ReplicationState) GetFinalizedBlockForSequence(seq uint64) (Block, Fina
 	return nil, FinalizationCertificate{}, false
 }
 
-type NotarizedBlock struct {
-	notarization Notarization
-	block        Block
-}
-
-func (r *ReplicationState) GetNotarizedBlockForRound(round uint64) *NotarizedBlock {
-	qRound, ok := r.receivedQuorumRounds[round]
-	if !ok {
-		return nil
-	}
-
-	if qRound.Block == nil || qRound.Notarization == nil {
-		return nil
-	}
-
-	return &NotarizedBlock{
-		notarization: *qRound.Notarization,
-		block:        qRound.Block,
-	}
-}
-
 func (r *ReplicationState) highestKnownRound() uint64 {
 	var highestRound uint64
 	for round := range r.receivedQuorumRounds {
@@ -186,14 +166,10 @@ func (r *ReplicationState) highestKnownRound() uint64 {
 	return highestRound
 }
 
-func (r *ReplicationState) GetEmptyNotarizationForSequence(seq uint64) *EmptyNotarization {
+func (r *ReplicationState) GetQuroumRoundWithSeq(seq uint64) *QuorumRound {
 	for _, round := range r.receivedQuorumRounds {
 		if round.GetSequence() == seq {
-			if round.EmptyNotarization == nil {
-				continue
-			}
-
-			return round.EmptyNotarization
+			return &round
 		}
 	}
 	return nil

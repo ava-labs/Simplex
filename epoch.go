@@ -1440,8 +1440,8 @@ func (e *Epoch) processFinalizedBlock(block Block, fCert FinalizationCertificate
 // processNotarizedBlock processes a block that has a notarization.
 // if the block has already been verified, it will persist the notarization,
 // otherwise it will verify the block first.
-func (e *Epoch) processNotarizedBlock(notarizedBlock *NotarizedBlock) error {
-	md := notarizedBlock.block.BlockHeader()
+func (e *Epoch) processNotarizedBlock(block Block, notarization *Notarization) error {
+	md := block.BlockHeader()
 	round, exists := e.rounds[md.Round]
 
 	// dont create a block verification task if the block is already in the rounds map
@@ -1462,14 +1462,14 @@ func (e *Epoch) processNotarizedBlock(notarizedBlock *NotarizedBlock) error {
 		}
 
 		roundDigest := round.block.BlockHeader().Digest
-		notarizedDigest := notarizedBlock.notarization.Vote.BlockHeader.Digest
+		notarizedDigest := notarization.Vote.BlockHeader.Digest
 		if !bytes.Equal(roundDigest[:], notarizedDigest[:]) {
 			e.Logger.Warn("Received notarized block that is different from the one we have in the rounds map",
 				zap.Stringer("roundDigest", roundDigest), zap.Stringer("notarizedDigest", notarizedDigest))
 			return nil
 		}
 
-		if err := e.persistNotarization(notarizedBlock.notarization); err != nil {
+		if err := e.persistNotarization(*notarization); err != nil {
 			e.Logger.Warn("Failed to persist notarization", zap.Error(err))
 			e.haltedError = err
 			return nil
@@ -1485,7 +1485,7 @@ func (e *Epoch) processNotarizedBlock(notarizedBlock *NotarizedBlock) error {
 	}
 
 	// Create a task that will verify the block in the future, after its predecessors have also been verified.
-	task := e.createNotarizedBlockVerificationTask(notarizedBlock.block, notarizedBlock.notarization)
+	task := e.createNotarizedBlockVerificationTask(block, *notarization)
 
 	// isBlockReadyToBeScheduled checks if the block is known to us either from some previous round,
 	// or from storage. If so, then we have verified it in the past, since only verified blocks are saved in memory.
@@ -2360,6 +2360,18 @@ func (e *Epoch) verifyQuorumRound(q QuorumRound) error {
 	return nil
 }
 
+func (e *Epoch) processEmptyNotarization(emptyNotarization *EmptyNotarization) error {
+	emptyVotes := e.getOrCreateEmptyVoteSetForRound(emptyNotarization.Vote.Round)
+	emptyVotes.emptyNotarization = emptyNotarization
+
+	err := e.persistEmptyNotarization(emptyVotes.emptyNotarization, false)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (e *Epoch) processLatestRoundReceived(latestRound *QuorumRound) error {
 	if latestRound == nil {
 		return nil
@@ -2396,21 +2408,20 @@ func (e *Epoch) processReplicationState() error {
 	// first we check if we can commit the next sequence
 	block, fCert, exists := e.replicationState.GetFinalizedBlockForSequence(nextSeqToCommit)
 	if exists {
-		// if the round for the nextSeqToCommit is ahead of the current round, we can infer
-		// and empty notarization occured
-		fmt.Println("Finalized block for sequence", nextSeqToCommit, "found", "round", block.BlockHeader().Round, "current round", e.round)
-		for e.round < block.BlockHeader().Round {
-			e.increaseRound()
-		}
-
 		delete(e.replicationState.receivedQuorumRounds, block.BlockHeader().Round)
 		return e.processFinalizedBlock(block, fCert)
 	}
 
-	notarizedBlock := e.replicationState.GetNotarizedBlockForRound(e.round)
-	if notarizedBlock != nil {
+	// the current round is an empty notarization
+	qRound, ok := e.replicationState.receivedQuorumRounds[e.round]
+	if ok && qRound.Notarization != nil {
 		delete(e.replicationState.receivedQuorumRounds, e.round)
-		return e.processNotarizedBlock(notarizedBlock)
+		return e.processNotarizedBlock(qRound.Block, qRound.Notarization)
+	}
+
+	if ok && qRound.EmptyNotarization != nil {
+		delete(e.replicationState.receivedQuorumRounds, qRound.GetRound())
+		return e.processEmptyNotarization(qRound.EmptyNotarization)
 	}
 
 	roundAdvanced, err := e.maybeAdvanceRoundFromEmptyNotarizations()
@@ -2432,36 +2443,32 @@ func (e *Epoch) processReplicationState() error {
 //	NBlock1 { round 1, seq 1 }
 //	NBlock2 { round 8, seq 1 }
 //
-// in this case we can infer there was empty notarizations for rounds 2-8.
+// in this case we can infer there was 8-1 empty notarizations during rounds [2, 8].
 func (e *Epoch) maybeAdvanceRoundFromEmptyNotarizations() (bool, error) {
-	currentSeq := uint64(0)
-	if e.Storage.Height() > 0 {
-		currentSeq = e.Storage.Height() - 1
-	}
-	emptyNotarization := e.replicationState.GetEmptyNotarizationForSequence(currentSeq)
+	round := e.round
+	expectedSeq := e.metadata().Seq
 
-	if emptyNotarization == nil {
-		return false, nil
-	}
-	delete(e.replicationState.receivedQuorumRounds, emptyNotarization.Vote.Round)
-	for e.round < emptyNotarization.Vote.Round {
-		e.increaseRound()
+	nextSeqQuorum := e.replicationState.GetQuroumRoundWithSeq(expectedSeq)
+	if nextSeqQuorum != nil {
+		// num empty notarizations
+		for range nextSeqQuorum.GetRound() - round {
+			e.increaseRound()
+		}
+		return true, nil
 	}
 
-	emptyNotarizationRecord := NewEmptyNotarizationRecord(emptyNotarization)
-	if err := e.WAL.Append(emptyNotarizationRecord); err != nil {
-		e.Logger.Error("Failed to append empty block record to WAL", zap.Error(err))
-		return true, err
+	// if there is no sequence, then maybe there is one with the same sequence but an empty notarization
+	sameSeqQuorum := e.replicationState.GetQuroumRoundWithSeq(expectedSeq-1)
+	if sameSeqQuorum != nil && sameSeqQuorum.EmptyNotarization != nil {
+		// num empty notarizations
+		for range sameSeqQuorum.GetRound() - round {
+			e.increaseRound()
+		}
+		return true, nil
 	}
 
-	e.Logger.Debug("Persisted empty block to WAL",
-		zap.Int("size", len(emptyNotarizationRecord)),
-		zap.Uint64("round", emptyNotarization.Vote.Round))
+	return false, nil
 
-	
-	e.increaseRound()
-
-	return true, nil
 }
 
 // getHighestRound returns the highest round that has either a notarization or finalization
