@@ -1406,7 +1406,9 @@ func (e *Epoch) processFinalizedBlock(block Block, fCert FinalizationCertificate
 		if !bytes.Equal(roundDigest[:], seqDigest[:]) {
 			e.Logger.Warn("Received finalized block that is different from the one we have in the rounds map",
 				zap.Stringer("roundDigest", roundDigest), zap.Stringer("seqDigest", seqDigest))
-			return nil
+			err := fmt.Errorf("received finalized block that is different from the one we have in the rounds map")
+			e.haltedError = err
+			return err
 		}
 		round.fCert = &fCert
 		e.indexFinalizationCertificates(round.num)
