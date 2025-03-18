@@ -209,21 +209,6 @@ func TestReplicationEmptyNotarizations(t *testing.T) {
 		}
 
 		advanceWithoutLeader(t, net, bb, startTimes, i, laggingNode.e.ID)
-
-		// emptyNotarization := newEmptyNotarization(nodes[:5], i, 1)
-		// msg := &simplex.Message{
-		// 	EmptyNotarization: emptyNotarization,
-		// }
-		// normalNode2.e.Comm.SendMessage(msg, normalNode1.e.ID)
-		// normalNode1.e.Comm.Broadcast(msg)
-
-		// for _, n := range net.instances {
-		// 	if n.e.ID.Equals(laggingNode.e.ID) {
-		// 		continue
-		// 	}
-
-		// 	n.wal.assertNotarization(i)
-		// }
 	}
 
 	for _, n := range net.instances {
@@ -241,7 +226,6 @@ func TestReplicationEmptyNotarizations(t *testing.T) {
 	net.Connect(laggingNode.e.ID)
 
 	fCert, _ := newFinalizationRecord(t, laggingNode.e.Logger, laggingNode.e.SignatureAggregator, block, nodes)
-	fmt.Println("broadcasting")
 	// we broadcast from the second node so that node 1 will be able to respond
 	// to the lagging nodes request
 	normalNode2.e.Comm.Broadcast(&simplex.Message{
@@ -249,8 +233,7 @@ func TestReplicationEmptyNotarizations(t *testing.T) {
 	})
 	for _, n := range net.instances {
 		n.storage.waitForBlockCommit(0)
-	}	
-	fmt.Println("commit was waited for", laggingNode.e.Metadata().Round, laggingNode.storage.Height())
+	}
 	laggingNode.wal.assertNotarization(uint64(numNotarizations) - 1)
 	require.Equal(t, uint64(1), laggingNode.storage.Height())
 	require.Equal(t, numNotarizations, laggingNode.e.Metadata().Round)
@@ -552,7 +535,6 @@ func testReplicationNotarizationWithoutFinalizations(t *testing.T, numBlocks uin
 }
 
 func advanceWithoutLeader(t *testing.T, net *inMemNetwork, bb *testControlledBlockBuilder, epochTimes []time.Time, round uint64, laggingNodeId simplex.NodeID) {
-	fmt.Println("attempting to build block", round)
 	for _, n := range net.instances {
 		leader := bytes.Equal(simplex.LeaderForRound(net.nodes, n.e.Metadata().Round), n.e.ID)
 		if leader || laggingNodeId.Equals(n.e.ID) {
@@ -560,7 +542,6 @@ func advanceWithoutLeader(t *testing.T, net *inMemNetwork, bb *testControlledBlo
 		}
 		bb.blockShouldBeBuilt <- struct{}{}
 	}
-	fmt.Println("sending block proposal", round)
 	for i, n := range net.instances {
 		// the leader will not write an empty vote to the wal since it can't propose a block & vote on an empty block in the same round
 		leader := bytes.Equal(simplex.LeaderForRound(net.nodes, n.e.Metadata().Round), n.e.ID)
@@ -568,18 +549,14 @@ func advanceWithoutLeader(t *testing.T, net *inMemNetwork, bb *testControlledBlo
 			continue
 		}
 
-		fmt.Println("waiting for block proposal", round, n.e.ID, n.e.Metadata().Round)
 		waitForBlockProposerTimeout(t, n.e, epochTimes[i], round)
-		fmt.Println("block proposal received", round, n.e.ID, n.e.Metadata().Round)
 	}
 
 	for _, n := range net.instances {
 		if laggingNodeId.Equals(n.e.ID) {
 			continue
 		}
-		fmt.Println("waiting for block commit", round)
 		n.wal.assertNotarization(round)
-		fmt.Println("notarization recorded", round)
 	}
 }
 

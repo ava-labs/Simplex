@@ -1959,7 +1959,6 @@ func (e *Epoch) monitorProgress(round uint64) {
 
 	blockShouldBeBuiltNotification := func() {
 		// This invocation blocks until the block builder tells us it's time to build a new block.
-		fmt.Println("waiting for incoming block", e.ID, e.round)
 		e.BlockBuilder.IncomingBlock(ctx)
 		// While we waited, a block might have been notarized.
 		// If so, then don't start monitoring for it being notarized.
@@ -2397,6 +2396,8 @@ func (e *Epoch) processReplicationState() error {
 	// first we check if we can commit the next sequence
 	block, fCert, exists := e.replicationState.GetFinalizedBlockForSequence(nextSeqToCommit)
 	if exists {
+		// if the round for the nextSeqToCommit is ahead of the current round, we can infer
+		// and empty notarization occured
 		for e.round < block.BlockHeader().Round {
 			e.increaseRound()
 		}
@@ -2405,9 +2406,12 @@ func (e *Epoch) processReplicationState() error {
 		return e.processFinalizedBlock(block, fCert)
 	}
 
-	// TODO: for this pr include a helper function to allow the node to deduce whether
-	// there has been an empty notarization for this round, since only the most recent
-	// empty notarization will be sent by the request
+	notarizedBlock := e.replicationState.GetNotarizedBlockForRound(e.round)
+	if notarizedBlock != nil {
+		delete(e.replicationState.receivedQuorumRounds, e.round)
+		return e.processNotarizedBlock(notarizedBlock)
+	}
+
 	roundAdvanced, err := e.maybeAdvanceRoundFromEmptyNotarizations()
 	if err != nil {
 		return err
@@ -2416,37 +2420,25 @@ func (e *Epoch) processReplicationState() error {
 		return e.processReplicationState()
 	}
 
-	notarizedBlock := e.replicationState.GetNotarizedBlockForRound(e.round)
-	if notarizedBlock != nil {
-		delete(e.replicationState.receivedQuorumRounds, e.round)
-		return e.processNotarizedBlock(notarizedBlock)
-	}
-
 	return nil
 }
 
-// maybeAdvanceRoundFromEmptyNotarizations attempts to advance rounds by
-// inferring empty notarizations. This is necessary because nodes are not
-// required to store empty notarizations for previous rounds.
+// maybeAdvanceRoundFromEmptyNotarizations advances the round if
+// there is an empty notarization for the current sequence.
 //
 // For example, say we have the following NotarizedBlocks
 //
 //	NBlock1 { round 1, seq 1 }
-//	NBlock2 { round 3, seq 2 }
+//	NBlock2 { round 8, seq 1 }
 //
-// in this case we can infer there was an empty notarization for round 2.
+// in this case we can infer there was empty notarizations for rounds 2-8.
 func (e *Epoch) maybeAdvanceRoundFromEmptyNotarizations() (bool, error) {
-	fmt.Println("attempting to advance round from empty notarizations")
-	round := e.round
-
-	
-	currentSeq := uint64(0) 
+	currentSeq := uint64(0)
 	if e.Storage.Height() > 0 {
 		currentSeq = e.Storage.Height() - 1
 	}
 	emptyNotarization := e.replicationState.GetEmptyNotarizationForSequence(currentSeq)
-	fmt.Println("attempting to advance round from empty notarizations", round, currentSeq, e.replicationState.highestKnownRound())
-	
+
 	if emptyNotarization == nil {
 		return false, nil
 	}
@@ -2455,59 +2447,7 @@ func (e *Epoch) maybeAdvanceRoundFromEmptyNotarizations() (bool, error) {
 		e.increaseRound()
 	}
 
-	err := e.persistEmptyNotarization(emptyNotarization, false)
-	if err != nil {
-		return true, err
-	}
-	return true, nil	
-	// qRound, ok := e.replicationState.receivedQuorumRounds[round]
-
-
-
-
-
-	
-	// // the current round is an empty notarization
-	// if ok && qRound.EmptyNotarization != nil {
-	// 	emptyVotes := e.getOrCreateEmptyVoteSetForRound(qRound.GetRound())
-	// 	emptyVotes.emptyNotarization = qRound.EmptyNotarization
-
-	// 	err := e.persistEmptyNotarization(emptyVotes.emptyNotarization, false)
-	// 	if err != nil {
-	// 		return false, err
-	// 	}
-	// 	delete(e.replicationState.receivedQuorumRounds, qRound.GetRound())
-	// 	return true, nil
-	// }
-
-
-	// // if we have an empty notarization we would find a 
-
-	// round++
-	// numEmptyNotarizedRounds := 1
-
-	// // infer the number of rounds increased due to empty notarizations, if any
-	// for ; round <= e.replicationState.highestKnownRound(); round++ {
-	// 	qRound, ok := e.replicationState.receivedQuorumRounds[round]
-	// 	if !ok {
-	// 		numEmptyNotarizedRounds++
-	// 		continue
-	// 	}
-	// 	fmt.Println("sequence got notarized", qRound.GetSequence(), qRound.GetRound())
-	// 	if qRound.GetSequence() == nextSeqToCommit {
-	// 		// we have an entry
-	// 		for range numEmptyNotarizedRounds {
-	// 			e.increaseRound()
-	// 		}
-	// 		return true, nil
-	// 	} else {
-	// 		// if we have an entry from a previous round but its not the expected sequence,
-	// 		// we may be missing some notarizations for previous rounds
-	// 		return false, nil
-	// 	}
-	// }
-
-	// return false, nil
+	return true, e.persistEmptyNotarization(emptyNotarization, false)
 }
 
 // getHighestRound returns the highest round that has either a notarization or finalization
