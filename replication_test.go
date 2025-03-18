@@ -97,20 +97,22 @@ func TestReplicationNotarizations(t *testing.T) {
 		require.Equal(t, uint64(0), n.storage.Height())
 	}
 
-	epochTimes := make([]time.Time, 0, 4)
+	epochTimes := make([]time.Time, 0, len(nodes))
 	for _, n := range net.instances {
 		epochTimes = append(epochTimes, n.e.StartTime)
 	}
 
 	net.startInstances()
 
-	net.Disconnect(nodes[3])
+	net.Disconnect(laggingNode.e.ID)
 	numNotarizations := 9
 	missedSeqs := uint64(0)
 	blocks := []simplex.VerifiedBlock{}
+	bb.blockShouldBeBuilt <- struct{}{}
 	// normal nodes continue to make progress
 	for i := uint64(0); i < uint64(numNotarizations); i++ {
-		emptyRound := bytes.Equal(simplex.LeaderForRound(nodes, i), nodes[3])
+		fmt.Println("Round", i)
+		emptyRound := bytes.Equal(simplex.LeaderForRound(nodes, i), laggingNode.e.ID)
 		if emptyRound {
 			advanceWithoutLeader(t, net, bb, epochTimes, i, laggingNode.e.ID)
 			missedSeqs++
@@ -118,19 +120,27 @@ func TestReplicationNotarizations(t *testing.T) {
 			bb.triggerNewBlock()
 			block := <-bb.out
 			blocks = append(blocks, block)
-			for _, n := range net.instances[:3] {
+			for _, n := range net.instances {
+				if n.e.ID.Equals(laggingNode.e.ID) {
+					continue
+				}
 				n.wal.assertNotarization(i)
 			}
 		}
 	}
 
-	for _, n := range net.instances[:3] {
+	fmt.Println("Done with rounds")
+	for _, n := range net.instances {
+		if n.e.ID.Equals(laggingNode.e.ID) {
+			continue
+		}
+
 		// assert metadata
 		require.Equal(t, uint64(numNotarizations), n.e.Metadata().Round)
 		require.Equal(t, uint64(0), n.e.Storage.Height())
 	}
 
-	net.Connect(nodes[3])
+	net.Connect(laggingNode.e.ID)
 	net.setAllNodesMessageFilter(allowAllMessages)
 	fCert, _ := newFinalizationRecord(t, laggingNode.e.Logger, laggingNode.e.EpochConfig.SignatureAggregator, blocks[0], nodes)
 
@@ -144,6 +154,8 @@ func TestReplicationNotarizations(t *testing.T) {
 		n.storage.waitForBlockCommit(0)
 	}
 
+	fmt.Println("waiting for notarization")
+
 	for i := 1; i < numNotarizations; i++ {
 		for _, n := range net.instances {
 			// lagging node wont have a notarization record if it was the leader
@@ -151,7 +163,9 @@ func TestReplicationNotarizations(t *testing.T) {
 			if n.e.ID.Equals(leader) && n.e.ID.Equals(nodes[3]) {
 				continue
 			}
+			fmt.Println("waiting for notarization", i, n.e.ID)
 			n.wal.assertNotarization(uint64(i))
+			fmt.Println("done waiting for notarization", i, n.e.ID)
 		}
 	}
 }
@@ -535,21 +549,27 @@ func testReplicationNotarizationWithoutFinalizations(t *testing.T, numBlocks uin
 }
 
 func advanceWithoutLeader(t *testing.T, net *inMemNetwork, bb *testControlledBlockBuilder, epochTimes []time.Time, round uint64, laggingNodeId simplex.NodeID) {
+	fmt.Println("entering ", round)
 	for _, n := range net.instances {
 		leader := bytes.Equal(simplex.LeaderForRound(net.nodes, n.e.Metadata().Round), n.e.ID)
 		if leader || laggingNodeId.Equals(n.e.ID) {
+			fmt.Println("skipping in bb", n.e.ID)
 			continue
 		}
 		bb.blockShouldBeBuilt <- struct{}{}
 	}
+
+	fmt.Println("Round waiting", round)
 	for i, n := range net.instances {
 		// the leader will not write an empty vote to the wal since it can't propose a block & vote on an empty block in the same round
 		leader := bytes.Equal(simplex.LeaderForRound(net.nodes, n.e.Metadata().Round), n.e.ID)
 		if laggingNodeId.Equals(n.e.ID) || leader {
+			fmt.Println("skipping for", n.e.ID)
 			continue
 		}
-
+		fmt.Println("for which id", n.e.ID, "round", n.e.Metadata().Round)
 		waitForBlockProposerTimeout(t, n.e, &epochTimes[i], round)
+		fmt.Println("id done", n.e.ID, "round", n.e.Metadata().Round)
 	}
 
 	for _, n := range net.instances {

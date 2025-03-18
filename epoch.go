@@ -2398,6 +2398,7 @@ func (e *Epoch) processReplicationState() error {
 	if exists {
 		// if the round for the nextSeqToCommit is ahead of the current round, we can infer
 		// and empty notarization occured
+		fmt.Println("Finalized block for sequence", nextSeqToCommit, "found", "round", block.BlockHeader().Round, "current round", e.round)
 		for e.round < block.BlockHeader().Round {
 			e.increaseRound()
 		}
@@ -2447,7 +2448,20 @@ func (e *Epoch) maybeAdvanceRoundFromEmptyNotarizations() (bool, error) {
 		e.increaseRound()
 	}
 
-	return true, e.persistEmptyNotarization(emptyNotarization, false)
+	emptyNotarizationRecord := NewEmptyNotarizationRecord(emptyNotarization)
+	if err := e.WAL.Append(emptyNotarizationRecord); err != nil {
+		e.Logger.Error("Failed to append empty block record to WAL", zap.Error(err))
+		return true, err
+	}
+
+	e.Logger.Debug("Persisted empty block to WAL",
+		zap.Int("size", len(emptyNotarizationRecord)),
+		zap.Uint64("round", emptyNotarization.Vote.Round))
+
+	
+	e.increaseRound()
+
+	return true, nil
 }
 
 // getHighestRound returns the highest round that has either a notarization or finalization
