@@ -549,7 +549,7 @@ func advanceWithoutLeader(t *testing.T, net *inMemNetwork, bb *testControlledBlo
 			continue
 		}
 
-		waitForBlockProposerTimeout(t, n.e, epochTimes[i], round)
+		waitForBlockProposerTimeout(t, n.e, &epochTimes[i], round)
 	}
 
 	for _, n := range net.instances {

@@ -193,7 +193,7 @@ func TestEpochLeaderFailoverReceivesEmptyVotesEarly(t *testing.T) {
 
 	bb.blockShouldBeBuilt <- struct{}{}
 
-	waitForBlockProposerTimeout(t, e, start, e.Metadata().Round)
+	waitForBlockProposerTimeout(t, e, &start, e.Metadata().Round)
 
 	runCrashAndRestartExecution(t, e, bb, wal, storage, func(t *testing.T, e *Epoch, bb *testBlockBuilder, storage *InMemStorage, wal *testWAL) {
 		wal.lock.Lock()
@@ -276,7 +276,7 @@ func TestEpochLeaderFailover(t *testing.T) {
 
 	bb.blockShouldBeBuilt <- struct{}{}
 
-	waitForBlockProposerTimeout(t, e, start, e.Metadata().Round)
+	waitForBlockProposerTimeout(t, e, &start, e.Metadata().Round)
 
 	runCrashAndRestartExecution(t, e, bb, wal, storage, func(t *testing.T, e *Epoch, bb *testBlockBuilder, storage *InMemStorage, wal *testWAL) {
 		lastBlock, _, ok := storage.Retrieve(storage.Height() - 1)
@@ -371,9 +371,7 @@ func TestEpochNoFinalizationAfterEmptyVote(t *testing.T) {
 	}
 
 	bb.blockShouldBeBuilt <- struct{}{}
-
-	waitForBlockProposerTimeout(t, e, start, e.Metadata().Round)
-
+	waitForBlockProposerTimeout(t, e, &start, e.Metadata().Round)
 	b, _, ok := storage.Retrieve(0)
 	require.True(t, ok)
 
@@ -486,7 +484,7 @@ func TestEpochLeaderFailoverAfterProposal(t *testing.T) {
 
 	// Send a timeout from the application
 	bb.blockShouldBeBuilt <- struct{}{}
-	waitForBlockProposerTimeout(t, e, start, e.Metadata().Round)
+	waitForBlockProposerTimeout(t, e, &start, e.Metadata().Round)
 
 	runCrashAndRestartExecution(t, e, bb, wal, storage, func(t *testing.T, e *Epoch, bb *testBlockBuilder, storage *InMemStorage, wal *testWAL) {
 
@@ -577,7 +575,7 @@ func TestEpochLeaderFailoverTwice(t *testing.T) {
 
 	bb.blockShouldBeBuilt <- struct{}{}
 
-	waitForBlockProposerTimeout(t, e, start, e.Metadata().Round)
+	waitForBlockProposerTimeout(t, e, &start, e.Metadata().Round)
 
 	runCrashAndRestartExecution(t, e, bb, wal, storage, func(t *testing.T, e *Epoch, bb *testBlockBuilder, storage *InMemStorage, wal *testWAL) {
 		lastBlock, _, ok := storage.Retrieve(storage.Height() - 1)
@@ -607,7 +605,7 @@ func TestEpochLeaderFailoverTwice(t *testing.T) {
 
 		bb.blockShouldBeBuilt <- struct{}{}
 
-		waitForBlockProposerTimeout(t, e, start, e.Metadata().Round)
+		waitForBlockProposerTimeout(t, e, &start, e.Metadata().Round)
 
 		runCrashAndRestartExecution(t, e, bb, wal, storage, func(t *testing.T, e *Epoch, bb *testBlockBuilder, storage *InMemStorage, wal *testWAL) {
 			md := ProtocolMetadata{
@@ -668,7 +666,7 @@ func createEmptyVote(md ProtocolMetadata, signer NodeID) *EmptyVote {
 	return emptyVoteFrom2
 }
 
-func waitForBlockProposerTimeout(t *testing.T, e *Epoch, startTime time.Time, startRound uint64) {
+func waitForBlockProposerTimeout(t *testing.T, e *Epoch, startTime *time.Time, startRound uint64) {
 	// startRound := e.Metadata().Round
 	timeout := time.NewTimer(time.Minute)
 	defer timeout.Stop()
@@ -677,8 +675,8 @@ func waitForBlockProposerTimeout(t *testing.T, e *Epoch, startTime time.Time, st
 		if e.WAL.(*testWAL).containsEmptyVote(startRound) || e.WAL.(*testWAL).containsEmptyNotarization(startRound) {
 			return
 		}
-		startTime = startTime.Add(e.EpochConfig.MaxProposalWait / 5)
-		e.AdvanceTime(startTime)
+		*startTime = startTime.Add(e.EpochConfig.MaxProposalWait / 5)
+		e.AdvanceTime(*startTime)
 		select {
 		case <-time.After(time.Millisecond * 10):
 			continue
