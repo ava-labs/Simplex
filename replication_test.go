@@ -175,7 +175,7 @@ func TestReplicationEmptyNotarizations(t *testing.T) {
 	for endRound := uint64(2); endRound <= 2*simplex.DefaultMaxRoundWindow; endRound++ {
 		testName := fmt.Sprintf("Empty_notarizations_end_round%d", endRound)
 		t.Run(testName, func(t *testing.T) {
-			// t.Parallel()
+			t.Parallel()
 			testReplicationEmptyNotarizations(t, nodes, endRound)
 		})
 	}
