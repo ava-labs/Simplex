@@ -21,7 +21,6 @@ import (
 func TestBasicReplication(t *testing.T) {
 	nodes := []simplex.NodeID{{1}, {2}, {3}, []byte("lagging")}
 
-	// wihtih max round window for now
 	for i := range 3 * simplex.DefaultMaxRoundWindow {
 		testName := fmt.Sprintf("Basic replication_of_%d_blocks", i)
 
