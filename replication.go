@@ -138,7 +138,6 @@ func (r *ReplicationState) StoreQuorumRound(round QuorumRound) {
 	if round.GetSequence() > r.highestSequenceObserved {
 		r.highestSequenceObserved = round.GetSequence()
 	}
-
 	r.receivedQuorumRounds[round.GetRound()] = round
 }
 
@@ -146,9 +145,9 @@ func (r *ReplicationState) GetFinalizedBlockForSequence(seq uint64) (Block, Fina
 	for _, round := range r.receivedQuorumRounds {
 		if round.GetSequence() == seq {
 			if round.Block == nil || round.FCert == nil {
-				return nil, FinalizationCertificate{}, false
+				// this could be an empty notarization
+				continue
 			}
-
 			return round.Block, *round.FCert, true
 		}
 	}

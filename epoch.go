@@ -2260,7 +2260,6 @@ func (e *Epoch) handleReplicationRequest(req *ReplicationRequest, from NodeID) e
 	data := make([]VerifiedQuorumRound, len(seqs))
 	for i, seq := range seqs {
 		quorumRound := e.locateQuorumRecord(seq)
-
 		if quorumRound == nil {
 			// since we are sorted, we can break early
 			data = data[:i]
