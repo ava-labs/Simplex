@@ -1438,7 +1438,6 @@ func (e *Epoch) processFinalizedBlock(block Block, fCert FinalizationCertificate
 	// or if it can be verified immediately.
 	e.Logger.Debug("Scheduling block verification", zap.Uint64("round", md.Round))
 
-	fmt.Println("Scheduling block verification", md.Round, md.Prev, md.Round, canBeImmediatelyVerified)
 	e.sched.Schedule(task, md.Prev, md.Round, canBeImmediatelyVerified)
 
 	return nil
@@ -1520,12 +1519,14 @@ func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote)
 			elapsed := time.Since(start)
 			e.Logger.Debug("Block verification ended", zap.Uint64("round", md.Round), zap.Duration("elapsed", elapsed))
 		}()
-
+		
+		e.lock.Lock()
 		if e.isDigestVerified(md.Round, md.Digest) {
 			e.Logger.Debug("Block already verified", zap.Uint64("round", md.Round))
 			return md.Digest
 		}
-
+		e.lock.Unlock()	
+		
 		verifiedBlock, err := block.Verify(context.Background())
 		if err != nil {
 			e.Logger.Debug("Failed verifying block", zap.Error(err))
@@ -1667,10 +1668,12 @@ func (e *Epoch) createNotarizedBlockVerificationTask(block Block, notarization N
 			e.Logger.Debug("Block verification ended", zap.Uint64("round", md.Round), zap.Duration("elapsed", elapsed))
 		}()
 
+		e.lock.Lock()
 		if e.isDigestVerified(md.Round, md.Digest) {
 			e.Logger.Debug("Block already verified", zap.Uint64("round", md.Round))
 			return md.Digest
 		}
+		e.lock.Unlock()
 
 		verifiedBlock, err := block.Verify(context.Background())
 		if err != nil {
