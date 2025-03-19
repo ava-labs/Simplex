@@ -90,7 +90,7 @@ func TestReplicationNotarizations(t *testing.T) {
 	newSimplexNode(t, nodes[0], net, bb, newNodeConfig(nodes[0]))
 	newSimplexNode(t, nodes[1], net, bb, newNodeConfig(nodes[1]))
 	newSimplexNode(t, nodes[2], net, bb, newNodeConfig(nodes[2]))
-	// we do not expect the lagging node to build any blokcs
+	// we do not expect the lagging node to build any blocks
 	laggingBb := newTestControlledBlockBuilder(t)
 	laggingNode := newSimplexNode(t, nodes[3], net, laggingBb, newNodeConfig(nodes[3]))
 

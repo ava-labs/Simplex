@@ -2368,7 +2368,7 @@ func (e *Epoch) processEmptyNotarization(emptyNotarization *EmptyNotarization) e
 		return err
 	}
 
-	return nil
+	return e.processReplicationState()
 }
 
 func (e *Epoch) processLatestRoundReceived(latestRound *QuorumRound) error {
@@ -2439,10 +2439,10 @@ func (e *Epoch) processReplicationState() error {
 // maybeAdvanceRoundFromEmptyNotarizations advances the round if
 // there is an empty notarization for the current sequence.
 //
-// For example, say we have the following NotarizedBlocks
+// For example, say we have the following QuorumRounds
 //
-//	NBlock1 { round 1, seq 1 }
-//	NBlock2 { round 8, seq 1 }
+//	QRound1 { round 1, seq 1 }
+//	QRound2 { round 8, seq 1 }
 //
 // in this case we can infer there was 8-1 empty notarizations during rounds [2, 8].
 func (e *Epoch) maybeAdvanceRoundFromEmptyNotarizations() (bool, error) {
