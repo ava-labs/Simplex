@@ -2419,7 +2419,7 @@ func (e *Epoch) processReplicationState() error {
 		delete(e.replicationState.receivedQuorumRounds, e.round)
 		return e.processNotarizedBlock(qRound.Block, qRound.Notarization)
 	}
-	
+
 	// the current round is an empty notarization
 	if ok && qRound.EmptyNotarization != nil {
 		delete(e.replicationState.receivedQuorumRounds, qRound.GetRound())
@@ -2470,7 +2470,6 @@ func (e *Epoch) maybeAdvanceRoundFromEmptyNotarizations() (bool, error) {
 	}
 
 	return false, nil
-
 }
 
 // getHighestRound returns the highest round that has either a notarization or finalization

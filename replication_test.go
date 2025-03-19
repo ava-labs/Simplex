@@ -172,6 +172,7 @@ func TestReplicationNotarizations(t *testing.T) {
 func TestReplicationEmptyNotarizations(t *testing.T) {
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}, {5}, {6}}
 	bb := newTestControlledBlockBuilder(t)
+	laggingBb := newTestControlledBlockBuilder(t)
 	net := newInMemNetwork(t, nodes)
 
 	newNodeConfig := func(from simplex.NodeID) *testNodeConfig {
@@ -188,7 +189,7 @@ func TestReplicationEmptyNotarizations(t *testing.T) {
 	newSimplexNode(t, nodes[2], net, bb, newNodeConfig(nodes[2]))
 	newSimplexNode(t, nodes[3], net, bb, newNodeConfig(nodes[3]))
 	newSimplexNode(t, nodes[4], net, bb, newNodeConfig(nodes[4]))
-	laggingNode := newSimplexNode(t, nodes[5], net, bb, newNodeConfig(nodes[5]))
+	laggingNode := newSimplexNode(t, nodes[5], net, laggingBb, newNodeConfig(nodes[5]))
 
 	for _, n := range net.instances {
 		require.Equal(t, uint64(0), n.storage.Height())
@@ -210,7 +211,6 @@ func TestReplicationEmptyNotarizations(t *testing.T) {
 	}
 
 	net.setAllNodesMessageFilter(onlyAllowEmptyRoundMessages)
-	bb.blockShouldBeBuilt <- struct{}{}
 
 	// normal nodes continue to make progress
 	for i := uint64(1); i < uint64(numNotarizations); i++ {
@@ -471,7 +471,7 @@ func testReplicationAfterNodeDisconnects(t *testing.T, nodes []simplex.NodeID, s
 		require.Equal(t, endDisconnect-missedSeqs, n.storage.Height()-1)
 		require.Equal(t, endDisconnect+1, n.e.Metadata().Round)
 	}
-	
+
 	// the lagging node should build a block when triggered if its the leader
 	if bytes.Equal(simplex.LeaderForRound(nodes, endDisconnect+1), nodes[3]) {
 		laggingBb.triggerNewBlock()
@@ -596,7 +596,7 @@ func advanceWithoutLeader(t *testing.T, net *inMemNetwork, bb *testControlledBlo
 	}
 
 	for i, n := range net.instances {
-		// the leader will not write an empty vote to the wal 
+		// the leader will not write an empty vote to the wal
 		// because it cannot both propose a block & send an empty vote in the same round
 		leader := n.e.ID.Equals(simplex.LeaderForRound(net.nodes, n.e.Metadata().Round))
 		if leader || laggingNodeId.Equals(n.e.ID) {
