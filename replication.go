@@ -4,7 +4,6 @@
 package simplex
 
 import (
-	"fmt"
 	"math"
 
 	"go.uber.org/zap"
@@ -139,7 +138,7 @@ func (r *ReplicationState) StoreQuorumRound(round QuorumRound) {
 	if round.GetSequence() > r.highestSequenceObserved {
 		r.highestSequenceObserved = round.GetSequence()
 	}
-	fmt.Println("storing round ", round.GetRound())
+
 	r.receivedQuorumRounds[round.GetRound()] = round
 }
 

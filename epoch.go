@@ -2405,20 +2405,22 @@ func (e *Epoch) processReplicationState() error {
 
 	e.replicationState.maybeCollectFutureSequences(e.Storage.Height())
 
-	// first we check if we can commit the next sequence
+	// first we check if we can commit the next sequence, it is ok to try and commit the next sequence
+	// directly, since if there are any empty notarizations, `indexFinalizationCertificate` will
+	// increment the round properly.
 	block, fCert, exists := e.replicationState.GetFinalizedBlockForSequence(nextSeqToCommit)
 	if exists {
 		delete(e.replicationState.receivedQuorumRounds, block.BlockHeader().Round)
 		return e.processFinalizedBlock(block, fCert)
 	}
 
-	// the current round is an empty notarization
 	qRound, ok := e.replicationState.receivedQuorumRounds[e.round]
 	if ok && qRound.Notarization != nil {
 		delete(e.replicationState.receivedQuorumRounds, e.round)
 		return e.processNotarizedBlock(qRound.Block, qRound.Notarization)
 	}
-
+	
+	// the current round is an empty notarization
 	if ok && qRound.EmptyNotarization != nil {
 		delete(e.replicationState.receivedQuorumRounds, qRound.GetRound())
 		return e.processEmptyNotarization(qRound.EmptyNotarization)
@@ -2458,7 +2460,7 @@ func (e *Epoch) maybeAdvanceRoundFromEmptyNotarizations() (bool, error) {
 	}
 
 	// if there is no sequence, then maybe there is one with the same sequence but an empty notarization
-	sameSeqQuorum := e.replicationState.GetQuroumRoundWithSeq(expectedSeq-1)
+	sameSeqQuorum := e.replicationState.GetQuroumRoundWithSeq(expectedSeq - 1)
 	if sameSeqQuorum != nil && sameSeqQuorum.EmptyNotarization != nil {
 		// num empty notarizations
 		for range sameSeqQuorum.GetRound() - round {
