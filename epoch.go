@@ -1406,9 +1406,9 @@ func (e *Epoch) processFinalizedBlock(block Block, fCert FinalizationCertificate
 		if !bytes.Equal(roundDigest[:], seqDigest[:]) {
 			e.Logger.Warn("Received finalized block that is different from the one we have in the rounds map",
 				zap.Stringer("roundDigest", roundDigest), zap.Stringer("seqDigest", seqDigest))
-			err := fmt.Errorf("received finalized block that is different from the one we have in the rounds map")
-			e.haltedError = err
-			return err
+
+			delete(e.rounds, round.num)
+			return e.processFinalizedBlock(block, fCert)
 		}
 		round.fCert = &fCert
 		e.indexFinalizationCertificates(round.num)
@@ -1432,6 +1432,8 @@ func (e *Epoch) processFinalizedBlock(block Block, fCert FinalizationCertificate
 	// Schedule the block to be verified once its direct predecessor have been verified,
 	// or if it can be verified immediately.
 	e.Logger.Debug("Scheduling block verification", zap.Uint64("round", md.Round))
+
+	fmt.Println("Scheduling block verification", md.Round, md.Prev, md.Round, canBeImmediatelyVerified)
 	e.sched.Schedule(task, md.Prev, md.Round, canBeImmediatelyVerified)
 
 	return nil
@@ -1456,8 +1458,8 @@ func (e *Epoch) processNotarizedBlock(notarizedBlock *NotarizedBlock) error {
 			return nil
 		}
 
-		if round.notarization != nil {
-			e.Logger.Debug("Round already notarized", zap.Uint64("round", md.Round))
+		if round.notarization != nil || round.fCert != nil {
+			e.Logger.Debug("Round already notarized or finalized", zap.Uint64("round", md.Round))
 			return nil
 		}
 
@@ -1466,7 +1468,11 @@ func (e *Epoch) processNotarizedBlock(notarizedBlock *NotarizedBlock) error {
 		if !bytes.Equal(roundDigest[:], notarizedDigest[:]) {
 			e.Logger.Warn("Received notarized block that is different from the one we have in the rounds map",
 				zap.Stringer("roundDigest", roundDigest), zap.Stringer("notarizedDigest", notarizedDigest))
-			return nil
+
+			// by deleting the round, and recursively calling processNotarizedBlock
+			// we will verify this new block and store the notarization.
+			delete(e.rounds, md.Round)
+			return e.processNotarizedBlock(notarizedBlock)
 		}
 
 		if err := e.persistNotarization(notarizedBlock.notarization); err != nil {

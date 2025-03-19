@@ -4,6 +4,7 @@
 package simplex
 
 import (
+	"fmt"
 	"math"
 	"sync"
 
@@ -190,6 +191,7 @@ func (otb *oneTimeBlockScheduler) Schedule(f func() Digest, prev Digest, round u
 	lastRoundScheduled := otb.lastRoundScheduled
 
 	if lastRoundScheduled != math.MaxUint64 && round <= lastRoundScheduled {
+		fmt.Println("here")
 		return
 	}
 
