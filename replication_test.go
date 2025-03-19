@@ -50,7 +50,7 @@ func TestReplicationAdversarialNode(t *testing.T) {
 	testEpochConfig := &testNodeConfig{
 		replicationEnabled: true,
 	}
-	
+
 	// doubleBlockProposalNode will propose two blocks for the same round
 	doubleBlockProposalNode := newSimplexNode(t, nodes[0], net, bb, testEpochConfig)
 	normalNode2 := newSimplexNode(t, nodes[1], net, bb, testEpochConfig)
@@ -71,13 +71,13 @@ func TestReplicationAdversarialNode(t *testing.T) {
 	msg := &simplex.Message{
 		BlockMessage: &simplex.BlockMessage{
 			Block: doubleBlock,
-			Vote: *doubleBlockVote,
+			Vote:  *doubleBlockVote,
 		},
 	}
 
 	laggingNode.e.HandleMessage(msg, doubleBlockProposalNode.e.ID)
 	net.Disconnect(laggingNode.e.ID)
-	
+
 	blocks := []simplex.VerifiedBlock{}
 	for i := range 2 {
 		bb.triggerNewBlock()

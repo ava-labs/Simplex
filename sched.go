@@ -4,7 +4,6 @@
 package simplex
 
 import (
-	"fmt"
 	"math"
 	"sync"
 
@@ -190,8 +189,9 @@ func (otb *oneTimeBlockScheduler) Size() int {
 func (otb *oneTimeBlockScheduler) Schedule(f func() Digest, prev Digest, round uint64, ready bool) {
 	lastRoundScheduled := otb.lastRoundScheduled
 
-	if lastRoundScheduled != math.MaxUint64 && round <= lastRoundScheduled {
-		fmt.Println("here")
+	// Note: we can schedule multiple blocks for the same round. It is the responsibility of
+	// the caller to ensure blocks for the same round are not verified twice.
+	if lastRoundScheduled != math.MaxUint64 && round < lastRoundScheduled {
 		return
 	}
 
