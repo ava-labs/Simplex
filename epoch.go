@@ -40,8 +40,6 @@ type Round struct {
 	notarization  *Notarization
 	finalizations map[string]*Finalization // NodeID --> vote
 	fCert         *FinalizationCertificate
-	// block digests we have verified
-	verifiedDigests map[Digest]struct{}
 }
 
 func NewRound(block VerifiedBlock) *Round {
@@ -50,9 +48,6 @@ func NewRound(block VerifiedBlock) *Round {
 		block:         block,
 		votes:         make(map[string]*Vote),
 		finalizations: make(map[string]*Finalization),
-		verifiedDigests: map[Digest]struct{}{
-			block.BlockHeader().Digest: {},
-		},
 	}
 }
 
@@ -97,6 +92,9 @@ type Epoch struct {
 	cancelWaitForBlockNotarization context.CancelFunc
 
 	replicationState *ReplicationState
+
+	// block digests we have verified for the current round
+	verifiedDigests map[Digest]struct{}
 }
 
 func NewEpoch(conf EpochConfig) (*Epoch, error) {
@@ -177,6 +175,7 @@ func (e *Epoch) init() error {
 	e.eligibleNodeIDs = make(map[string]struct{}, len(e.nodes))
 	e.futureMessages = make(messagesFromNode, len(e.nodes))
 	e.replicationState = NewReplicationState(e.Logger, e.Comm, e.ID, e.maxRoundWindow, e.ReplicationEnabled)
+	e.verifiedDigests = make(map[Digest]struct{})
 
 	for _, node := range e.nodes {
 		e.futureMessages[string(node)] = make(map[uint64]*messagesForRound)
@@ -1509,6 +1508,29 @@ func (e *Epoch) processNotarizedBlock(notarizedBlock *NotarizedBlock) error {
 	return nil
 }
 
+func (e *Epoch) verifyBlock(block Block) (VerifiedBlock, bool, error) {
+	md := block.BlockHeader()
+	e.lock.Lock()
+
+	if e.isDigestVerified(md.Round, md.Digest) {
+		e.Logger.Debug("Block already verified", zap.Uint64("round", md.Round))
+		return nil, true, nil
+	}
+	e.lock.Unlock()
+
+	verifiedBlock, err := block.Verify(context.Background())
+	if err != nil {
+		e.Logger.Debug("Failed verifying block", zap.Error(err))
+		return nil, false, err
+	}
+
+	e.lock.Lock()
+	defer e.lock.Unlock()
+
+	e.verifiedDigests[md.Digest] = struct{}{}
+	return verifiedBlock, false, nil
+}
+
 func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote) func() Digest {
 	return func() Digest {
 		md := block.BlockHeader()
@@ -1519,17 +1541,9 @@ func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote)
 			elapsed := time.Since(start)
 			e.Logger.Debug("Block verification ended", zap.Uint64("round", md.Round), zap.Duration("elapsed", elapsed))
 		}()
-		
-		e.lock.Lock()
-		if e.isDigestVerified(md.Round, md.Digest) {
-			e.Logger.Debug("Block already verified", zap.Uint64("round", md.Round))
-			return md.Digest
-		}
-		e.lock.Unlock()	
-		
-		verifiedBlock, err := block.Verify(context.Background())
-		if err != nil {
-			e.Logger.Debug("Failed verifying block", zap.Error(err))
+
+		verifiedBlock, alreadyVerified, err := e.verifyBlock(block)
+		if err != nil || alreadyVerified {
 			return md.Digest
 		}
 
@@ -1584,22 +1598,8 @@ func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote)
 	}
 }
 
-func (e *Epoch) maybeAddVerifiedDigest(r uint64, digest Digest) {
-	round, ok := e.rounds[r]
-	if !ok {
-		return
-	}
-
-	round.verifiedDigests[digest] = struct{}{}
-}
-
 func (e *Epoch) isDigestVerified(r uint64, digest Digest) bool {
-	round, ok := e.rounds[r]
-	if !ok {
-		return false
-	}
-
-	_, ok = round.verifiedDigests[digest]
+	_, ok := e.verifiedDigests[digest]
 	return ok
 }
 
@@ -1614,23 +1614,14 @@ func (e *Epoch) createFinalizedBlockVerificationTask(block Block, fCert Finaliza
 			e.Logger.Debug("Block verification ended", zap.Uint64("round", md.Round), zap.Duration("elapsed", elapsed))
 		}()
 
-		e.lock.Lock()
-		if e.isDigestVerified(md.Round, md.Digest) {
-			e.Logger.Debug("Block already verified", zap.Uint64("round", md.Round))
-			return md.Digest
-		}
-		e.lock.Unlock()
-
-		verifiedBlock, err := block.Verify(context.Background())
-		if err != nil {
-			e.Logger.Debug("Failed verifying block", zap.Error(err))
+		verifiedBlock, alreadyVerified, err := e.verifyBlock(block)
+		if err != nil || alreadyVerified {
 			return md.Digest
 		}
 
 		e.lock.Lock()
 		defer e.lock.Unlock()
 
-		e.maybeAddVerifiedDigest(md.Round, md.Digest)
 		// we started verifying the block when it was the next sequence to commit, however its
 		// possible we received a fCert for this block in the meantime. This check ensures we commit
 		// the block only if it is still the next sequence to commit.
@@ -1668,16 +1659,8 @@ func (e *Epoch) createNotarizedBlockVerificationTask(block Block, notarization N
 			e.Logger.Debug("Block verification ended", zap.Uint64("round", md.Round), zap.Duration("elapsed", elapsed))
 		}()
 
-		e.lock.Lock()
-		if e.isDigestVerified(md.Round, md.Digest) {
-			e.Logger.Debug("Block already verified", zap.Uint64("round", md.Round))
-			return md.Digest
-		}
-		e.lock.Unlock()
-
-		verifiedBlock, err := block.Verify(context.Background())
-		if err != nil {
-			e.Logger.Debug("Failed verifying block", zap.Error(err))
+		verifiedBlock, alreadyVerified, err := e.verifyBlock(block)
+		if err != nil || alreadyVerified {
 			return md.Digest
 		}
 
@@ -2131,6 +2114,7 @@ func (e *Epoch) increaseRound() {
 	e.cancelWaitForBlockNotarization()
 
 	e.deleteEmptyVoteForPreviousRound()
+	e.verifiedDigests = make(map[Digest]struct{})
 
 	leader := LeaderForRound(e.nodes, e.round)
 	e.Logger.Info("Moving to a new round",
