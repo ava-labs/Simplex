@@ -1326,6 +1326,7 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 		return nil
 	}
 
+	fmt.Println("got block from leader, round:", md.Round, "my round:", e.round, e.ID)
 	// Check if we have verified this message in the past:
 	alreadyVerified := e.wasBlockAlreadyVerified(from, md)
 
@@ -1513,7 +1514,8 @@ func (e *Epoch) verifyBlock(block Block) (VerifiedBlock, bool, error) {
 
 	e.lock.Lock()
 	if _, ok := e.verifiedDigests[md.Digest]; ok {
-		e.Logger.Debug("Block already verified", zap.Uint64("round", md.Round))
+		// e.Logger.Debug("Block already verified", zap.Uint64("round", md.Round), zap.Stringer("digest", md.Digest))
+		fmt.Println("checking verified", md.Digest, e.ID)
 		return nil, true, nil
 	}
 	e.lock.Unlock()
@@ -1528,6 +1530,7 @@ func (e *Epoch) verifyBlock(block Block) (VerifiedBlock, bool, error) {
 	defer e.lock.Unlock()
 
 	e.verifiedDigests[md.Digest] = struct{}{}
+	fmt.Println("adding to verifiedDigests", md.Digest, e.ID)
 	return verifiedBlock, false, nil
 }
 
@@ -1541,7 +1544,7 @@ func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote)
 			elapsed := time.Since(start)
 			e.Logger.Debug("Block verification ended", zap.Uint64("round", md.Round), zap.Duration("elapsed", elapsed))
 		}()
-
+		fmt.Println("creating block verification task for block of round", md.Round, e.ID)
 		verifiedBlock, alreadyVerified, err := e.verifyBlock(block)
 		if err != nil || alreadyVerified {
 			return md.Digest
