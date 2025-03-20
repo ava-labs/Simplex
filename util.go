@@ -163,7 +163,6 @@ type oneTimeVerifiedBlock struct {
 }
 
 func (block *oneTimeVerifiedBlock) Verify(ctx context.Context) (VerifiedBlock, error) {
-	fmt.Println("#######", block.Block.BlockHeader().Digest)
 	block.otv.lock.Lock()
 	defer block.otv.lock.Unlock()
 
