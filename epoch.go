@@ -1510,9 +1510,9 @@ func (e *Epoch) processNotarizedBlock(notarizedBlock *NotarizedBlock) error {
 
 func (e *Epoch) verifyBlock(block Block) (VerifiedBlock, bool, error) {
 	md := block.BlockHeader()
+	
 	e.lock.Lock()
-
-	if e.isDigestVerified(md.Round, md.Digest) {
+	if _, ok := e.verifiedDigests[md.Digest]; ok {
 		e.Logger.Debug("Block already verified", zap.Uint64("round", md.Round))
 		return nil, true, nil
 	}
@@ -1596,11 +1596,6 @@ func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote)
 
 		return md.Digest
 	}
-}
-
-func (e *Epoch) isDigestVerified(r uint64, digest Digest) bool {
-	_, ok := e.verifiedDigests[digest]
-	return ok
 }
 
 func (e *Epoch) createFinalizedBlockVerificationTask(block Block, fCert FinalizationCertificate) func() Digest {
