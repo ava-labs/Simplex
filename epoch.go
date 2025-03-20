@@ -1510,7 +1510,7 @@ func (e *Epoch) processNotarizedBlock(notarizedBlock *NotarizedBlock) error {
 
 func (e *Epoch) verifyBlock(block Block) (VerifiedBlock, bool, error) {
 	md := block.BlockHeader()
-	
+
 	e.lock.Lock()
 	if _, ok := e.verifiedDigests[md.Digest]; ok {
 		e.Logger.Debug("Block already verified", zap.Uint64("round", md.Round))
