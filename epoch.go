@@ -1471,7 +1471,7 @@ func (e *Epoch) processNotarizedBlock(block Block, notarization *Notarization) e
 			// by deleting the round, and recursively calling processNotarizedBlock
 			// we will verify this new block and store the notarization.
 			delete(e.rounds, md.Round)
-			return e.processNotarizedBlock(notarizedBlock)
+			return e.processNotarizedBlock(block, notarization)
 		}
 
 		if err := e.persistNotarization(*notarization); err != nil {
@@ -1490,7 +1490,7 @@ func (e *Epoch) processNotarizedBlock(block Block, notarization *Notarization) e
 	}
 
 	// Create a task that will verify the block in the future, after its predecessors have also been verified.
-  task := e.createNotarizedBlockVerificationTask(e.oneTimeVerifier.Wrap(block), *notarization)
+	task := e.createNotarizedBlockVerificationTask(e.oneTimeVerifier.Wrap(block), *notarization)
 
 	// isBlockReadyToBeScheduled checks if the block is known to us either from some previous round,
 	// or from storage. If so, then we have verified it in the past, since only verified blocks are saved in memory.
