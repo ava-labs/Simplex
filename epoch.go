@@ -72,7 +72,8 @@ type EpochConfig struct {
 type Epoch struct {
 	EpochConfig
 	// Runtime
-	sched                          *oneTimeBlockScheduler
+	oneTimeVerifier                *oneTimeVerifier
+	sched                          *scheduler
 	lock                           sync.Mutex
 	lastBlock                      *VerifiedFinalizedBlock // latest block & fcert commited
 	canReceiveMessages             atomic.Bool
@@ -159,7 +160,8 @@ func (e *Epoch) HandleMessage(msg *Message, from NodeID) error {
 }
 
 func (e *Epoch) init() error {
-	e.sched = newOneTimeBlockScheduler(NewScheduler(e.Logger))
+	e.oneTimeVerifier = &oneTimeVerifier{digests: make(map[Digest]verifiedResult)}
+	e.sched = NewScheduler(e.Logger)
 	e.monitor = NewMonitor(e.StartTime, e.Logger)
 	e.cancelWaitForBlockNotarization = func() {}
 	e.finishCtx, e.finishFn = context.WithCancel(context.Background())
@@ -1380,7 +1382,7 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 	}
 
 	// Create a task that will verify the block in the future, after its predecessors have also been verified.
-	task := e.createBlockVerificationTask(block, from, vote)
+	task := e.createBlockVerificationTask(e.oneTimeVerifier.Wrap(block), from, vote)
 
 	// isBlockReadyToBeScheduled checks if the block is known to us either from some previous round,
 	// or from storage. If so, then we have verified it in the past, since only verified blocks are saved in memory.
@@ -1389,7 +1391,7 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 	// Schedule the block to be verified once its direct predecessor have been verified,
 	// or if it can be verified immediately.
 	e.Logger.Debug("Scheduling block verification", zap.Uint64("round", md.Round))
-	e.sched.Schedule(task, md.Prev, md.Round, canBeImmediatelyVerified)
+	e.sched.Schedule(task, md.Prev, canBeImmediatelyVerified)
 
 	return nil
 }
@@ -1423,7 +1425,7 @@ func (e *Epoch) processFinalizedBlock(block Block, fCert FinalizationCertificate
 	md := block.BlockHeader()
 
 	// Create a task that will verify the block in the future, after its predecessors have also been verified.
-	task := e.createFinalizedBlockVerificationTask(block, fCert)
+	task := e.createFinalizedBlockVerificationTask(e.oneTimeVerifier.Wrap(block), fCert)
 
 	// isBlockReadyToBeScheduled checks if the block is known to us either from some previous round,
 	// or from storage. If so, then we have verified it in the past, since only verified blocks are saved in memory.
@@ -1432,7 +1434,7 @@ func (e *Epoch) processFinalizedBlock(block Block, fCert FinalizationCertificate
 	// Schedule the block to be verified once its direct predecessor have been verified,
 	// or if it can be verified immediately.
 	e.Logger.Debug("Scheduling block verification", zap.Uint64("round", md.Round))
-	e.sched.Schedule(task, md.Prev, md.Round, canBeImmediatelyVerified)
+	e.sched.Schedule(task, md.Prev, canBeImmediatelyVerified)
 
 	return nil
 }
@@ -1485,7 +1487,7 @@ func (e *Epoch) processNotarizedBlock(notarizedBlock *NotarizedBlock) error {
 	}
 
 	// Create a task that will verify the block in the future, after its predecessors have also been verified.
-	task := e.createNotarizedBlockVerificationTask(notarizedBlock.block, notarizedBlock.notarization)
+	task := e.createNotarizedBlockVerificationTask(e.oneTimeVerifier.Wrap(notarizedBlock.block), notarizedBlock.notarization)
 
 	// isBlockReadyToBeScheduled checks if the block is known to us either from some previous round,
 	// or from storage. If so, then we have verified it in the past, since only verified blocks are saved in memory.
@@ -1494,7 +1496,7 @@ func (e *Epoch) processNotarizedBlock(notarizedBlock *NotarizedBlock) error {
 	// Schedule the block to be verified once its direct predecessor have been verified,
 	// or if it can be verified immediately.
 	e.Logger.Debug("Scheduling block verification", zap.Uint64("round", md.Round))
-	e.sched.Schedule(task, md.Prev, md.Round, canBeImmediatelyVerified)
+	e.sched.Schedule(task, md.Prev, canBeImmediatelyVerified)
 
 	return nil
 }
@@ -1530,13 +1532,13 @@ func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote)
 			zap.Uint64("round", md.Round),
 			zap.Stringer("digest", md.Digest))
 
+		e.deleteFutureProposal(from, md.Round)
+
 		if !e.storeProposal(verifiedBlock) {
 			e.Logger.Warn("Unable to store proposed block for the round", zap.Stringer("NodeID", from), zap.Uint64("round", md.Round))
 			return md.Digest
 			// TODO: timeout
 		}
-
-		e.deleteFutureProposal(from, md.Round)
 
 		// Check if we have timed out on this round.
 		// Although we store the proposal for this round,
@@ -1803,7 +1805,7 @@ func (e *Epoch) buildBlock() {
 	task := e.createBlockBuildingTask(metadata)
 
 	e.Logger.Debug("Scheduling block building", zap.Uint64("round", metadata.Round))
-	e.sched.Schedule(task, metadata.Prev, metadata.Round, true)
+	e.sched.Schedule(task, metadata.Prev, true)
 }
 
 func (e *Epoch) createBlockBuildingTask(metadata ProtocolMetadata) func() Digest {

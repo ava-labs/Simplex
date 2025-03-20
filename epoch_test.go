@@ -102,20 +102,7 @@ func TestEpochHandleNotarizationFutureRound(t *testing.T) {
 }
 
 func TestEpochConsecutiveProposalsDoNotGetVerified(t *testing.T) {
-	shouldOnlyBeClosedOnce := make(chan struct{})
-
 	l := testutil.MakeLogger(t, 1)
-	l.Intercept(func(entry zapcore.Entry) error {
-		if entry.Message == "Scheduling new ready task" {
-			select {
-			case <-shouldOnlyBeClosedOnce:
-				require.FailNow(t, "The block verification task should have been scheduled only once")
-			default:
-				close(shouldOnlyBeClosedOnce)
-			}
-		}
-		return nil
-	})
 
 	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
 	storage := newInMemStorage()
@@ -149,7 +136,11 @@ func TestEpochConsecutiveProposalsDoNotGetVerified(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, md.Round, md.Seq)
 
+	onlyVerifyOnce := make(chan struct{})
 	block := <-bb.out
+	block.onVerify = func() {
+		close(onlyVerifyOnce)
+	}
 
 	vote, err := newTestVote(block, leader)
 	require.NoError(t, err)
@@ -173,7 +164,7 @@ func TestEpochConsecutiveProposalsDoNotGetVerified(t *testing.T) {
 	wg.Wait()
 
 	select {
-	case <-shouldOnlyBeClosedOnce:
+	case <-onlyVerifyOnce:
 	case <-time.After(time.Minute):
 		require.Fail(t, "timeout waiting for shouldOnlyBeClosedOnce")
 	}
@@ -1185,10 +1176,16 @@ type testBlock struct {
 	data              []byte
 	metadata          ProtocolMetadata
 	digest            [32]byte
+	onVerify          func()
 	verificationDelay chan struct{}
 }
 
 func (tb *testBlock) Verify(context.Context) (VerifiedBlock, error) {
+	defer func() {
+		if tb.onVerify != nil {
+			tb.onVerify()
+		}
+	}()
 	if tb.verificationDelay == nil {
 		return tb, nil
 	}
