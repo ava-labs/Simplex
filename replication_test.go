@@ -73,6 +73,74 @@ func testReplication(t *testing.T, startSeq uint64, nodes []simplex.NodeID) {
 	}
 }
 
+// TestReplicationAdversarialNode tests the replication process of a node that
+// has been sent a different block by one node, however the rest of the network
+// notarizes a different block for the same round
+func TestReplicationAdversarialNode(t *testing.T) {
+	nodes := []simplex.NodeID{{1}, {2}, {3}, []byte("lagging")}
+
+	bb := newTestControlledBlockBuilder(t)
+	net := newInMemNetwork(t, nodes)
+
+	testEpochConfig := &testNodeConfig{
+		replicationEnabled: true,
+	}
+
+	// doubleBlockProposalNode will propose two blocks for the same round
+	doubleBlockProposalNode := newSimplexNode(t, nodes[0], net, bb, testEpochConfig)
+	normalNode2 := newSimplexNode(t, nodes[1], net, bb, testEpochConfig)
+	normalNode3 := newSimplexNode(t, nodes[2], net, bb, testEpochConfig)
+	laggingNode := newSimplexNode(t, nodes[3], net, bb, &testNodeConfig{
+		replicationEnabled: true,
+	})
+
+	require.Equal(t, uint64(0), doubleBlockProposalNode.storage.Height())
+	require.Equal(t, uint64(0), normalNode2.storage.Height())
+	require.Equal(t, uint64(0), normalNode3.storage.Height())
+	require.Equal(t, uint64(0), laggingNode.storage.Height())
+
+	net.startInstances()
+	doubleBlock := newTestBlock(doubleBlockProposalNode.e.Metadata())
+	doubleBlockVote, err := newTestVote(doubleBlock, doubleBlockProposalNode.e.ID)
+	require.NoError(t, err)
+	msg := &simplex.Message{
+		BlockMessage: &simplex.BlockMessage{
+			Block: doubleBlock,
+			Vote:  *doubleBlockVote,
+		},
+	}
+
+	laggingNode.e.HandleMessage(msg, doubleBlockProposalNode.e.ID)
+	net.Disconnect(laggingNode.e.ID)
+
+	blocks := []simplex.VerifiedBlock{}
+	for i := range 2 {
+		bb.triggerNewBlock()
+		block := <-bb.out
+		blocks = append(blocks, block)
+		for _, n := range net.instances[:3] {
+			commited := n.storage.waitForBlockCommit(uint64(i))
+			require.Equal(t, block, commited.(*testBlock))
+		}
+	}
+
+	// lagging node should not have commited the block
+	require.Equal(t, uint64(0), laggingNode.storage.Height())
+	require.Equal(t, uint64(0), laggingNode.e.Metadata().Round)
+	net.Connect(laggingNode.e.ID)
+
+	fCert, _ := newFinalizationRecord(t, laggingNode.e.Logger, laggingNode.e.SignatureAggregator, blocks[1], nodes)
+	fCertMsg := &simplex.Message{
+		FinalizationCertificate: &fCert,
+	}
+	laggingNode.e.HandleMessage(fCertMsg, doubleBlockProposalNode.e.ID)
+
+	for i := range 2 {
+		lagBlock := laggingNode.storage.waitForBlockCommit(uint64(i))
+		require.Equal(t, blocks[i], lagBlock)
+	}
+}
+
 // TestReplicationNotarizations tests that a lagging node also replicates
 // notarizations after lagging behind.
 func TestReplicationNotarizations(t *testing.T) {
