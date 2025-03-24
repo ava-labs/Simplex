@@ -25,33 +25,17 @@ import (
 // notarize and finalize block for round 1
 // we expect the future empty notarization for round 2 to increment the round
 func TestEpochLeaderFailoverWithEmptyNotarization(t *testing.T) {
-	l := testutil.MakeLogger(t, 1)
-
-	bb := &testBlockBuilder{
-		out:                make(chan *testBlock, 2),
-		blockShouldBeBuilt: make(chan struct{}, 1),
-		in:                 make(chan *testBlock, 2),
+	bb := &testutil.TestBlockBuilder{
+		Out:                make(chan *testutil.TestBlock, 2),
+		BlockShouldBeBuilt: make(chan struct{}, 1),
+		In:                 make(chan *testutil.TestBlock, 2),
 	}
-	storage := newInMemStorage()
+	storage := testutil.NewInMemStorage()
 
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 
-	wal := newTestWAL(t)
-
-	start := time.Now()
-	conf := EpochConfig{
-		MaxProposalWait:     DefaultMaxProposalWaitTime,
-		StartTime:           start,
-		Logger:              l,
-		ID:                  nodes[0],
-		Signer:              &testSigner{},
-		WAL:                 wal,
-		Verifier:            &testVerifier{},
-		Storage:             storage,
-		Comm:                noopComm(nodes),
-		BlockBuilder:        bb,
-		SignatureAggregator: &testSignatureAggregator{},
-	}
+	conf := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NoopComm(nodes), bb)
+	wal := conf.WAL.(*testutil.TestWAL)
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
@@ -83,12 +67,12 @@ func TestEpochLeaderFailoverWithEmptyNotarization(t *testing.T) {
 	require.True(t, ok)
 
 	// Artificially force the block builder to output the blocks we want.
-	for len(bb.out) > 0 {
-		<-bb.out
+	for len(bb.Out) > 0 {
+		<-bb.Out
 	}
 	for _, block := range []VerifiedBlock{block1, block2} {
-		bb.out <- block.(*testBlock)
-		bb.in <- block.(*testBlock)
+		bb.Out <- block.(*testutil.TestBlock)
+		bb.In <- block.(*testutil.TestBlock)
 	}
 
 	emptyNotarization := newEmptyNotarization(nodes[:3], 2, 1)
@@ -130,30 +114,14 @@ func newEmptyNotarization(nodes []NodeID, round uint64, seq uint64) *EmptyNotari
 }
 
 func TestEpochLeaderFailoverReceivesEmptyVotesEarly(t *testing.T) {
-	l := testutil.MakeLogger(t, 1)
-
-	bb := &testBlockBuilder{out: make(chan *testBlock, 1), blockShouldBeBuilt: make(chan struct{}, 1)}
-	storage := newInMemStorage()
+	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1), BlockShouldBeBuilt: make(chan struct{}, 1)}
 
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	quorum := Quorum(len(nodes))
 
-	wal := newTestWAL(t)
-
-	start := time.Now()
-	conf := EpochConfig{
-		MaxProposalWait:     DefaultMaxProposalWaitTime,
-		StartTime:           start,
-		Logger:              l,
-		ID:                  nodes[0],
-		Signer:              &testSigner{},
-		WAL:                 wal,
-		Verifier:            &testVerifier{},
-		Storage:             storage,
-		Comm:                noopComm(nodes),
-		BlockBuilder:        bb,
-		SignatureAggregator: &testSignatureAggregator{},
-	}
+	conf := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NoopComm(nodes), bb)
+	storage := conf.Storage.(*InMemStorage)
+	wal := conf.WAL.(*testWAL)
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
@@ -191,11 +159,11 @@ func TestEpochLeaderFailoverReceivesEmptyVotesEarly(t *testing.T) {
 		EmptyVoteMessage: emptyVoteFrom2,
 	}, nodes[2])
 
-	bb.blockShouldBeBuilt <- struct{}{}
+	bb.BlockShouldBeBuilt <- struct{}{}
 
-	waitForBlockProposerTimeout(t, e, &start, e.Metadata().Round)
+	testutil.WaitForBlockProposerTimeout(t, e, &e.StartTime, e.Metadata().Round)
 
-	runCrashAndRestartExecution(t, e, bb, wal, storage, func(t *testing.T, e *Epoch, bb *testBlockBuilder, storage *InMemStorage, wal *testWAL) {
+	runCrashAndRestartExecution(t, e, bb, wal, storage, func(t *testing.T, e *Epoch, bb *testutil.TestBlockBuilder, storage *testutil.InMemStorage, wal *testutil.TestWAL) {
 		wal.lock.Lock()
 		walContent, err := wal.ReadAll()
 		require.NoError(t, err)
@@ -206,7 +174,7 @@ func TestEpochLeaderFailoverReceivesEmptyVotesEarly(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, createEmptyVote(emptyBlockMd, nodes[0]).Vote, emptyVote)
 
-		emptyNotarization, err := EmptyNotarizationFromRecord(rawEmptyNotarization, &testQCDeserializer{t: t})
+		emptyNotarization, err := EmptyNotarizationFromRecord(rawEmptyNotarization, e.QCDeserializer)
 		require.NoError(t, err)
 		require.Equal(t, emptyVoteFrom1.Vote, emptyNotarization.Vote)
 		require.Equal(t, uint64(3), emptyNotarization.Vote.Round)
@@ -237,27 +205,14 @@ func TestEpochLeaderFailoverReceivesEmptyVotesEarly(t *testing.T) {
 func TestEpochLeaderFailover(t *testing.T) {
 	l := testutil.MakeLogger(t, 1)
 
-	bb := &testBlockBuilder{out: make(chan *testBlock, 1), blockShouldBeBuilt: make(chan struct{}, 1)}
-	storage := newInMemStorage()
+	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1), BlockShouldBeBuilt: make(chan struct{}, 1)}
 
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 
-	wal := newTestWAL(t)
-
 	start := time.Now()
-	conf := EpochConfig{
-		MaxProposalWait:     DefaultMaxProposalWaitTime,
-		StartTime:           start,
-		Logger:              l,
-		ID:                  nodes[0],
-		Signer:              &testSigner{},
-		WAL:                 wal,
-		Verifier:            &testVerifier{},
-		Storage:             storage,
-		Comm:                noopComm(nodes),
-		BlockBuilder:        bb,
-		SignatureAggregator: &testSignatureAggregator{},
-	}
+	conf := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NoopComm(nodes), bb)
+	storage := conf.Storage.(*testutil.InMemStorage)
+	wal := conf.WAL.(*testutil.TestWAL)
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
@@ -274,9 +229,9 @@ func TestEpochLeaderFailover(t *testing.T) {
 		notarizeAndFinalizeRound(t, e, bb)
 	}
 
-	bb.blockShouldBeBuilt <- struct{}{}
+	bb.BlockShouldBeBuilt <- struct{}{}
 
-	waitForBlockProposerTimeout(t, e, &start, e.Metadata().Round)
+	testutil.WaitForBlockProposerTimeout(t, e, &start, e.Metadata().Round)
 
 	runCrashAndRestartExecution(t, e, bb, wal, storage, func(t *testing.T, e *Epoch, bb *testBlockBuilder, storage *InMemStorage, wal *testWAL) {
 		lastBlock, _, ok := storage.Retrieve(storage.Height() - 1)
@@ -330,33 +285,18 @@ func TestEpochLeaderFailover(t *testing.T) {
 }
 
 func TestEpochNoFinalizationAfterEmptyVote(t *testing.T) {
-	l := testutil.MakeLogger(t, 1)
-
-	bb := &testBlockBuilder{out: make(chan *testBlock, 1), blockShouldBeBuilt: make(chan struct{}, 1)}
-	storage := newInMemStorage()
+	bb := &testutil.TestBlockBuilder{Out: make(chan *testBlock, 1), blockShouldBeBuilt: make(chan struct{}, 1)}
 
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	quorum := Quorum(len(nodes))
 
-	wal := newTestWAL(t)
-
 	recordedMessages := make(chan *Message, 7)
-	comm := &recordingComm{Communication: noopComm(nodes), BroadcastMessages: recordedMessages}
+	comm := &testutil.RecordingComm{Communication: testutil.NoopComm(nodes), BroadcastMessages: recordedMessages}
 
-	start := time.Now()
-	conf := EpochConfig{
-		MaxProposalWait:     DefaultMaxProposalWaitTime,
-		StartTime:           start,
-		Logger:              l,
-		ID:                  nodes[0],
-		Signer:              &testSigner{},
-		WAL:                 wal,
-		Verifier:            &testVerifier{},
-		Storage:             storage,
-		Comm:                comm,
-		BlockBuilder:        bb,
-		SignatureAggregator: &testSignatureAggregator{},
-	}
+	conf := testutil.DefaultTestNodeEpochConfig(t, nodes[0], comm, bb)
+	storage := conf.Storage.(*testutil.InMemStorage)
+	wal := conf.WAL.(*testutil.TestWAL)
+	start := conf.StartTime
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
@@ -371,7 +311,7 @@ func TestEpochNoFinalizationAfterEmptyVote(t *testing.T) {
 	}
 
 	bb.blockShouldBeBuilt <- struct{}{}
-	waitForBlockProposerTimeout(t, e, &start, e.Metadata().Round)
+	testutil.WaitForBlockProposerTimeout(t, e, &start, e.Metadata().Round)
 	b, _, ok := storage.Retrieve(0)
 	require.True(t, ok)
 
@@ -666,25 +606,6 @@ func createEmptyVote(md ProtocolMetadata, signer NodeID) *EmptyVote {
 	return emptyVoteFrom2
 }
 
-func waitForBlockProposerTimeout(t *testing.T, e *Epoch, startTime *time.Time, startRound uint64) {
-	timeout := time.NewTimer(time.Minute)
-	defer timeout.Stop()
-
-	for {
-		if e.WAL.(*testWAL).containsEmptyVote(startRound) || e.WAL.(*testWAL).containsEmptyNotarization(startRound) {
-			return
-		}
-		*startTime = startTime.Add(e.EpochConfig.MaxProposalWait / 5)
-		e.AdvanceTime(*startTime)
-		select {
-		case <-time.After(time.Millisecond * 10):
-			continue
-		case <-timeout.C:
-			require.Fail(t, "timed out waiting for event")
-		}
-	}
-}
-
 func TestEpochLeaderFailoverNotNeeded(t *testing.T) {
 	var timedOut atomic.Bool
 
@@ -765,7 +686,7 @@ func TestEpochLeaderFailoverNotNeeded(t *testing.T) {
 	require.False(t, timedOut.Load())
 }
 
-func runCrashAndRestartExecution(t *testing.T, e *Epoch, bb *testBlockBuilder, wal *testWAL, storage *InMemStorage, f epochExecution) {
+func runCrashAndRestartExecution(t *testing.T, e *Epoch, bb *testutil.TestBlockBuilder, wal *testutil.TestWAL, storage *testutil.InMemStorage, f epochExecution) {
 	// Split the test into two scenarios:
 	// 1) The node proceeds as usual.
 	// 2) The node crashes and restarts.
@@ -775,10 +696,10 @@ func runCrashAndRestartExecution(t *testing.T, e *Epoch, bb *testBlockBuilder, w
 	nodes := e.Comm.ListNodes()
 
 	// Clone the block builder
-	bbAfterCrash := &testBlockBuilder{
-		out:                cloneBlockChan(bb.out),
-		in:                 cloneBlockChan(bb.in),
-		blockShouldBeBuilt: make(chan struct{}, cap(bb.blockShouldBeBuilt)),
+	bbAfterCrash := &testutil.TestBlockBuilder{
+		Out:                cloneBlockChan(bb.Out),
+		In:                 cloneBlockChan(bb.In),
+		BlockShouldBeBuilt: make(chan struct{}, cap(bb.BlockShouldBeBuilt)),
 	}
 
 	// Case 1:
@@ -788,21 +709,9 @@ func runCrashAndRestartExecution(t *testing.T, e *Epoch, bb *testBlockBuilder, w
 
 	// Case 2:
 	t.Run(fmt.Sprintf("%s-with-crash", t.Name()), func(t *testing.T) {
-		conf := EpochConfig{
-			QCDeserializer:      &testQCDeserializer{t: t},
-			BlockDeserializer:   &blockDeserializer{},
-			MaxProposalWait:     DefaultMaxProposalWaitTime,
-			StartTime:           time.Now(),
-			Logger:              testutil.MakeLogger(t, 1),
-			ID:                  nodes[0],
-			Signer:              &testSigner{},
-			WAL:                 cloneWAL,
-			Verifier:            &testVerifier{},
-			Storage:             cloneStorage,
-			Comm:                noopComm(nodes),
-			BlockBuilder:        bbAfterCrash,
-			SignatureAggregator: &testSignatureAggregator{},
-		}
+		conf := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NoopComm(nodes), bbAfterCrash)
+		conf.Storage = cloneStorage
+		conf.WAL = cloneWAL
 
 		e, err := NewEpoch(conf)
 		require.NoError(t, err)
@@ -812,9 +721,9 @@ func runCrashAndRestartExecution(t *testing.T, e *Epoch, bb *testBlockBuilder, w
 	})
 }
 
-func cloneBlockChan(in chan *testBlock) chan *testBlock {
-	tmp := make(chan *testBlock, cap(in))
-	out := make(chan *testBlock, cap(in))
+func cloneBlockChan(in chan *testutil.TestBlock) chan *testutil.TestBlock {
+	tmp := make(chan *testutil.TestBlock, cap(in))
+	out := make(chan *testutil.TestBlock, cap(in))
 
 	for len(in) > 0 {
 		block := <-in
@@ -829,14 +738,4 @@ func cloneBlockChan(in chan *testBlock) chan *testBlock {
 	return out
 }
 
-type recordingComm struct {
-	Communication
-	BroadcastMessages chan *Message
-}
-
-func (rc *recordingComm) Broadcast(msg *Message) {
-	rc.BroadcastMessages <- msg
-	rc.Communication.Broadcast(msg)
-}
-
-type epochExecution func(t *testing.T, e *Epoch, bb *testBlockBuilder, storage *InMemStorage, wal *testWAL)
+type epochExecution func(t *testing.T, e *Epoch, bb *testutil.TestBlockBuilder, storage *testutil.InMemStorage, wal *testutil.TestWAL)
