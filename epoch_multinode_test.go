@@ -248,6 +248,27 @@ func (tw *testWAL) containsEmptyVote(round uint64) bool {
 	return false
 }
 
+func (tw *testWAL) containsEmptyNotarization(round uint64) bool {
+	tw.lock.Lock()
+	defer tw.lock.Unlock()
+
+	rawRecords, err := tw.WriteAheadLog.ReadAll()
+	require.NoError(tw.t, err)
+
+	for _, rawRecord := range rawRecords {
+		if binary.BigEndian.Uint16(rawRecord[:2]) == record.EmptyNotarizationRecordType {
+			_, vote, err := ParseEmptyNotarizationRecord(rawRecord)
+			require.NoError(tw.t, err)
+
+			if vote.Round == round {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
 // messageFilter defines a function that filters
 // certain messages from being sent or broadcasted.
 type messageFilter func(*Message, NodeID) bool

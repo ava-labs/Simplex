@@ -4,7 +4,6 @@
 package simplex
 
 import (
-	"math"
 	"sync"
 
 	"go.uber.org/zap"
@@ -169,31 +168,4 @@ func (t *dependencies) Remove(id Digest) []task {
 	dependents := t.dependsOn[id]
 	delete(t.dependsOn, id)
 	return dependents
-}
-
-// oneTimeBlockScheduler ensures each block is only scheduled once by forcing that blocks
-// would be scheduled in ascending order.
-type oneTimeBlockScheduler struct {
-	scheduler          *scheduler
-	lastRoundScheduled uint64
-}
-
-func newOneTimeBlockScheduler(scheduler *scheduler) *oneTimeBlockScheduler {
-	return &oneTimeBlockScheduler{scheduler: scheduler, lastRoundScheduled: math.MaxUint64}
-}
-
-func (otb *oneTimeBlockScheduler) Size() int {
-	return otb.scheduler.Size()
-}
-
-func (otb *oneTimeBlockScheduler) Schedule(f func() Digest, prev Digest, round uint64, ready bool) {
-	lastRoundScheduled := otb.lastRoundScheduled
-
-	if lastRoundScheduled != math.MaxUint64 && round <= lastRoundScheduled {
-		return
-	}
-
-	// Else, round > lastRoundScheduled, or it's the first time we entered this function because lastRoundScheduled is math.MaxUint64.
-	otb.lastRoundScheduled = round
-	otb.scheduler.Schedule(f, prev, ready)
 }
