@@ -1217,8 +1217,6 @@ func (e *Epoch) handleNotarizationMessage(message *Notarization, from NodeID) er
 		zap.Stringer("from", from), zap.Uint64("round", vote.Round))
 
 	if !e.isVoteRoundValid(vote.Round) {
-		e.Logger.Debug("Notarization contains invalid vote",
-			zap.Stringer("NodeID", from))
 		return nil
 	}
 
