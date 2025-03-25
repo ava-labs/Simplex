@@ -17,7 +17,8 @@ var errorSigAggregation = errors.New("signature error")
 
 func TestNewNotarization(t *testing.T) {
 	l := testutil.MakeLogger(t, 1)
-	testBlock := &testBlock{}
+	testBlock :=  &testutil.TestBlock{}
+
 	tests := []struct {
 		name                 string
 		votesForCurrentRound map[string]*simplex.Vote
@@ -31,7 +32,7 @@ func TestNewNotarization(t *testing.T) {
 				votes := make(map[string]*simplex.Vote)
 				nodeIds := [][]byte{{1}, {2}, {3}, {4}, {5}}
 				for _, nodeId := range nodeIds {
-					vote, err := newTestVote(testBlock, nodeId)
+					vote, err := newTestVote(testBlock, nodeId, &testutil.TestSigner{})
 					require.NoError(t, err)
 					votes[string(nodeId)] = vote
 				}

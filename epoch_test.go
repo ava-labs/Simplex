@@ -12,7 +12,6 @@ import (
 	rand2 "math/rand"
 	. "simplex"
 	"simplex/testutil"
-	"simplex/wal"
 	"strings"
 	"sync"
 	"testing"
@@ -34,7 +33,7 @@ func TestEpochHandleNotarizationFutureRound(t *testing.T) {
 	bb.In = make(chan *testutil.TestBlock, 1)
 
 	quorum := Quorum(len(nodes))
-	conf, _, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NoopComm(nodes), bb)
+	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
@@ -62,7 +61,7 @@ func TestEpochHandleNotarizationFutureRound(t *testing.T) {
 	notarizeAndFinalizeRound(t, e, bb)
 
 	// Emulate round 1 by sending the block
-	vote, err := newTestVote(secondBlock, nodes[1])
+	vote, err := newTestVote(secondBlock, nodes[1], e.Signer)
 	require.NoError(t, err)
 	err = e.HandleMessage(&Message{
 		BlockMessage: &BlockMessage{
@@ -73,7 +72,7 @@ func TestEpochHandleNotarizationFutureRound(t *testing.T) {
 	require.NoError(t, err)
 
 	// The node should store the notarization of the second block once it gets the block.
-	conf.wal.assertNotarization(1)
+	wal.AssertNotarization(1)
 
 	for i := 1; i < quorum; i++ {
 		injectTestFinalization(t, e, secondBlock, nodes[i])
@@ -87,7 +86,7 @@ func TestEpochConsecutiveProposalsDoNotGetVerified(t *testing.T) {
 	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1)}
 
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
-	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NoopComm(nodes), bb)
+	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
@@ -107,7 +106,7 @@ func TestEpochConsecutiveProposalsDoNotGetVerified(t *testing.T) {
 		close(onlyVerifyOnce)
 	}
 
-	vote, err := newTestVote(block, leader)
+	vote, err := newTestVote(block, leader, e.Signer)
 	require.NoError(t, err)
 
 	var wg sync.WaitGroup
@@ -140,7 +139,7 @@ func TestEpochNotarizeTwiceThenFinalize(t *testing.T) {
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 
 	recordedMessages := make(chan *Message, 100)
-	comm := &testutil.RecordingComm{Communication: testutil.NoopComm(nodes), BroadcastMessages: recordedMessages}
+	comm := &testutil.RecordingComm{Communication: testutil.NewNoopComm(nodes), BroadcastMessages: recordedMessages}
 
 	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], comm, bb)
 	e, err := NewEpoch(conf)
@@ -161,7 +160,7 @@ func TestEpochNotarizeTwiceThenFinalize(t *testing.T) {
 	require.True(t, ok)
 	block1 := <-bb.Out
 
-	vote, err := newTestVote(block1, nodes[1])
+	vote, err := newTestVote(block1, nodes[1], e.Signer)
 	require.NoError(t, err)
 	err = e.HandleMessage(&Message{
 		BlockMessage: &BlockMessage{
@@ -181,7 +180,7 @@ func TestEpochNotarizeTwiceThenFinalize(t *testing.T) {
 	require.True(t, ok)
 	block2 := <-bb.Out
 
-	vote, err = newTestVote(block2, nodes[2])
+	vote, err = newTestVote(block2, nodes[2], e.Signer)
 	require.NoError(t, err)
 	err = e.HandleMessage(&Message{
 		BlockMessage: &BlockMessage{
@@ -238,27 +237,11 @@ func TestEpochNotarizeTwiceThenFinalize(t *testing.T) {
 }
 
 func TestEpochFinalizeThenNotarize(t *testing.T) {
-	l := testutil.MakeLogger(t, 1)
-	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
-	storage := newInMemStorage()
-
-	wal := newTestWAL(t)
+	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1)}
 
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	quorum := Quorum(len(nodes))
-	conf := EpochConfig{
-		MaxProposalWait:     DefaultMaxProposalWaitTime,
-		Logger:              l,
-		ID:                  nodes[0],
-		Signer:              &testSigner{},
-		WAL:                 wal,
-		Verifier:            &testVerifier{},
-		Storage:             storage,
-		Comm:                noopComm(nodes),
-		BlockBuilder:        bb,
-		SignatureAggregator: &testSignatureAggregator{},
-	}
-
+	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
 
@@ -267,7 +250,7 @@ func TestEpochFinalizeThenNotarize(t *testing.T) {
 	t.Run("commit without notarization, only with finalization", func(t *testing.T) {
 		for round := 0; round < 100; round++ {
 			advanceRoundFromFinalization(t, e, bb)
-			storage.waitForBlockCommit(uint64(round))
+			storage.WaitForBlockCommit(uint64(round))
 		}
 	})
 
@@ -281,9 +264,9 @@ func TestEpochFinalizeThenNotarize(t *testing.T) {
 			require.True(t, ok)
 		}
 
-		block := <-bb.out
+		block := <-bb.Out
 
-		vote, err := newTestVote(block, nodes[0])
+		vote, err := newTestVote(block, nodes[0], e.Signer)
 		require.NoError(t, err)
 		err = e.HandleMessage(&Message{
 			BlockMessage: &BlockMessage{
@@ -297,30 +280,16 @@ func TestEpochFinalizeThenNotarize(t *testing.T) {
 			injectTestVote(t, e, block, nodes[i])
 		}
 
-		wal.assertNotarization(100)
+		wal.AssertNotarization(100)
 	})
 
 }
 
 func TestEpochSimpleFlow(t *testing.T) {
-	l := testutil.MakeLogger(t, 1)
-	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
-	storage := newInMemStorage()
+	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1)}
 
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
-	conf := EpochConfig{
-		MaxProposalWait:     DefaultMaxProposalWaitTime,
-		Logger:              l,
-		ID:                  nodes[0],
-		Signer:              &testSigner{},
-		WAL:                 newTestWAL(t),
-		Verifier:            &testVerifier{},
-		Storage:             storage,
-		Comm:                noopComm(nodes),
-		BlockBuilder:        bb,
-		SignatureAggregator: &testSignatureAggregator{},
-	}
-
+	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
 
@@ -333,23 +302,10 @@ func TestEpochSimpleFlow(t *testing.T) {
 }
 
 func TestEpochStartedTwice(t *testing.T) {
-	l := testutil.MakeLogger(t, 1)
-	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
-	storage := newInMemStorage()
+	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1)}
 
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
-	conf := EpochConfig{
-		MaxProposalWait:     DefaultMaxProposalWaitTime,
-		Logger:              l,
-		ID:                  nodes[0],
-		Signer:              &testSigner{},
-		WAL:                 wal.NewMemWAL(t),
-		Verifier:            &testVerifier{},
-		Storage:             storage,
-		Comm:                noopComm(nodes),
-		BlockBuilder:        bb,
-		SignatureAggregator: &testSignatureAggregator{},
-	}
+	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
@@ -358,22 +314,22 @@ func TestEpochStartedTwice(t *testing.T) {
 	require.ErrorIs(t, e.Start(), ErrAlreadyStarted)
 }
 
-func advanceRoundFromNotarization(t *testing.T, e *Epoch, bb *testBlockBuilder) (VerifiedBlock, *Notarization) {
+func advanceRoundFromNotarization(t *testing.T, e *Epoch, bb *testutil.TestBlockBuilder) (VerifiedBlock, *Notarization) {
 	return advanceRound(t, e, bb, true, false)
 }
 
-func advanceRoundFromFinalization(t *testing.T, e *Epoch, bb *testBlockBuilder) VerifiedBlock {
+func advanceRoundFromFinalization(t *testing.T, e *Epoch, bb *testutil.TestBlockBuilder) VerifiedBlock {
 	block, _ := advanceRound(t, e, bb, false, true)
 	return block
 }
 
-func notarizeAndFinalizeRound(t *testing.T, e *Epoch, bb *testBlockBuilder) (VerifiedBlock, *Notarization) {
+func notarizeAndFinalizeRound(t *testing.T, e *Epoch, bb *testutil.TestBlockBuilder) (VerifiedBlock, *Notarization) {
 	return advanceRound(t, e, bb, true, true)
 }
 
 // advanceRound progresses [e] to a new round. If [notarize] is set, the round will progress due to a notarization.
 // If [finalize] is set, the round will advance and the block will be indexed to storage.
-func advanceRound(t *testing.T, e *Epoch, bb *testBlockBuilder, notarize bool, finalize bool) (VerifiedBlock, *Notarization) {
+func advanceRound(t *testing.T, e *Epoch, bb *testutil.TestBlockBuilder, notarize bool, finalize bool) (VerifiedBlock, *Notarization) {
 	require.True(t, notarize || finalize, "must either notarize or finalize a round to advance")
 	nodes := e.Comm.ListNodes()
 	quorum := Quorum(len(nodes))
@@ -387,11 +343,11 @@ func advanceRound(t *testing.T, e *Epoch, bb *testBlockBuilder, notarize bool, f
 		require.True(t, ok)
 	}
 
-	block := <-bb.out
+	block := <-bb.Out
 
 	if !isEpochNode {
 		// send node a message from the leader
-		vote, err := newTestVote(block, leader)
+		vote, err := newTestVote(block, leader, e.Signer)
 		require.NoError(t, err)
 		err = e.HandleMessage(&Message{
 			BlockMessage: &BlockMessage{
@@ -408,7 +364,7 @@ func advanceRound(t *testing.T, e *Epoch, bb *testBlockBuilder, notarize bool, f
 		n, err := newNotarization(e.Logger, e.SignatureAggregator, block, nodes[0:quorum])
 		injectTestNotarization(t, e, n, nodes[1])
 
-		e.WAL.(*testWAL).assertNotarization(block.metadata.Round)
+		e.WAL.(*testutil.TestWAL).AssertNotarization(block.BlockHeader().Round)
 		require.NoError(t, err)
 		notarization = &n
 	}
@@ -417,7 +373,7 @@ func advanceRound(t *testing.T, e *Epoch, bb *testBlockBuilder, notarize bool, f
 		for i := 1; i <= quorum; i++ {
 			injectTestFinalization(t, e, block, nodes[i])
 		}
-		blockFromStorage := e.Storage.(*InMemStorage).waitForBlockCommit(block.metadata.Seq)
+		blockFromStorage := e.Storage.(*testutil.InMemStorage).WaitForBlockCommit(block.BlockHeader().Seq)
 		require.Equal(t, block, blockFromStorage)
 	}
 
@@ -442,26 +398,12 @@ func TestEpochInterleavingMessages(t *testing.T) {
 }
 
 func testEpochInterleavingMessages(t *testing.T, seed int64) {
-	l := testutil.MakeLogger(t, 1)
 	rounds := 10
 
-	bb := &testBlockBuilder{in: make(chan *testBlock, rounds)}
-	storage := newInMemStorage()
+	bb := &testutil.TestBlockBuilder{In: make(chan *testutil.TestBlock, rounds)}
 
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
-	conf := EpochConfig{
-		MaxProposalWait:     DefaultMaxProposalWaitTime,
-		Logger:              l,
-		ID:                  nodes[0],
-		Signer:              &testSigner{},
-		WAL:                 wal.NewMemWAL(t),
-		Verifier:            &testVerifier{},
-		Storage:             storage,
-		Comm:                noopComm(nodes),
-		BlockBuilder:        bb,
-		SignatureAggregator: &testSignatureAggregator{},
-	}
-
+	conf, _, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
 
@@ -479,17 +421,17 @@ func testEpochInterleavingMessages(t *testing.T, seed int64) {
 
 	for i := 0; i < rounds; i++ {
 		t.Log("Waiting for commit of round", i)
-		storage.waitForBlockCommit(uint64(i))
+		storage.WaitForBlockCommit(uint64(i))
 	}
 }
 
-func createCallbacks(t *testing.T, rounds int, protocolMetadata ProtocolMetadata, nodes []NodeID, e *Epoch, bb *testBlockBuilder) []func() {
+func createCallbacks(t *testing.T, rounds int, protocolMetadata ProtocolMetadata, nodes []NodeID, e *Epoch, bb *testutil.TestBlockBuilder) []func() {
 	blocks := make([]VerifiedBlock, 0, rounds)
 
 	callbacks := make([]func(), 0, rounds*4+len(blocks))
 
 	for i := 0; i < rounds; i++ {
-		block := newTestBlock(protocolMetadata)
+		block := testutil.NewTestBlock(protocolMetadata)
 		blocks = append(blocks, block)
 
 		protocolMetadata.Seq++
@@ -499,7 +441,7 @@ func createCallbacks(t *testing.T, rounds int, protocolMetadata ProtocolMetadata
 		leader := LeaderForRound(nodes, uint64(i))
 
 		if !leader.Equals(e.ID) {
-			vote, err := newTestVote(block, leader)
+			vote, err := newTestVote(block, leader, e.Signer)
 			require.NoError(t, err)
 
 			callbacks = append(callbacks, func() {
@@ -512,12 +454,12 @@ func createCallbacks(t *testing.T, rounds int, protocolMetadata ProtocolMetadata
 				}, leader)
 			})
 		} else {
-			bb.in <- block
+			bb.In <- block
 		}
 
 		for j := 1; j <= 2; j++ {
 			node := nodes[j]
-			vote, err := newTestVote(block, node)
+			vote, err := newTestVote(block, node, e.Signer)
 			require.NoError(t, err)
 			msg := Message{
 				VoteMessage: vote,
@@ -533,7 +475,7 @@ func createCallbacks(t *testing.T, rounds int, protocolMetadata ProtocolMetadata
 
 		for j := 1; j <= 2; j++ {
 			node := nodes[j]
-			finalization := newTestFinalization(t, block, node)
+			finalization := newTestFinalization(t, block, node, e.Signer)
 			msg := Message{
 				Finalization: finalization,
 			}
@@ -564,24 +506,9 @@ func TestEpochBlockSentTwice(t *testing.T) {
 		return nil
 	})
 
-	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
-	storage := newInMemStorage()
-
-	wal := newTestWAL(t)
-
+	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1)}
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
-	conf := EpochConfig{
-		MaxProposalWait:     DefaultMaxProposalWaitTime,
-		Logger:              l,
-		ID:                  nodes[1],
-		Signer:              &testSigner{},
-		WAL:                 wal,
-		Verifier:            &testVerifier{},
-		Storage:             storage,
-		Comm:                noopComm(nodes),
-		BlockBuilder:        bb,
-		SignatureAggregator: &testSignatureAggregator{},
-	}
+	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
@@ -596,7 +523,7 @@ func TestEpochBlockSentTwice(t *testing.T) {
 
 	block := b.(Block)
 
-	vote, err := newTestVote(block, nodes[2])
+	vote, err := newTestVote(block, nodes[2], e.Signer)
 	require.NoError(t, err)
 	err = e.HandleMessage(&Message{
 		BlockMessage: &BlockMessage{
@@ -606,7 +533,7 @@ func TestEpochBlockSentTwice(t *testing.T) {
 	}, nodes[2])
 	require.NoError(t, err)
 
-	wal.assertWALSize(0)
+	wal.AssertWALSize(0)
 	require.True(t, tooFarMsg)
 
 	err = e.HandleMessage(&Message{
@@ -617,7 +544,7 @@ func TestEpochBlockSentTwice(t *testing.T) {
 	}, nodes[2])
 	require.NoError(t, err)
 
-	wal.assertWALSize(0)
+	wal.AssertWALSize(0)
 	require.True(t, alreadyReceivedMsg)
 
 }
@@ -673,36 +600,22 @@ func TestEpochQCSignedByNonExistentNodes(t *testing.T) {
 		return nil
 	})
 
-	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
-	storage := newInMemStorage()
-
-	wal := newTestWAL(t)
+	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1)}
 
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
-	conf := EpochConfig{
-		MaxProposalWait:     DefaultMaxProposalWaitTime,
-		Logger:              l,
-		ID:                  nodes[0],
-		Signer:              &testSigner{},
-		WAL:                 wal,
-		Verifier:            &testVerifier{},
-		Storage:             storage,
-		Comm:                noopComm(nodes),
-		BlockBuilder:        bb,
-		SignatureAggregator: &testSignatureAggregator{},
-	}
+	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
 
 	require.NoError(t, e.Start())
 
-	block := <-bb.out
+	block := <-bb.Out
 
-	wal.assertWALSize(1)
+	wal.AssertWALSize(1)
 
 	t.Run("notarization with unknown signer isn't taken into account", func(t *testing.T) {
-		notarization, err := newNotarization(l, &testSignatureAggregator{}, block, []NodeID{{2}, {3}, {5}})
+		notarization, err := newNotarization(l, e.SignatureAggregator, block, []NodeID{{2}, {3}, {5}})
 		require.NoError(t, err)
 
 		err = e.HandleMessage(&Message{
@@ -715,11 +628,11 @@ func TestEpochQCSignedByNonExistentNodes(t *testing.T) {
 		require.NoError(t, err)
 		fmt.Println(">>>", len(rawWAL))
 
-		wal.assertWALSize(1)
+		wal.AssertWALSize(1)
 	})
 
 	t.Run("notarization with double signer isn't taken into account", func(t *testing.T) {
-		notarization, err := newNotarization(l, &testSignatureAggregator{}, block, []NodeID{{2}, {3}, {2}})
+		notarization, err := newNotarization(l, e.SignatureAggregator, block, []NodeID{{2}, {3}, {2}})
 		require.NoError(t, err)
 
 		err = e.HandleMessage(&Message{
@@ -727,11 +640,11 @@ func TestEpochQCSignedByNonExistentNodes(t *testing.T) {
 		}, nodes[1])
 		require.NoError(t, err)
 
-		wal.assertWALSize(1)
+		wal.AssertWALSize(1)
 	})
 
 	t.Run("empty notarization with unknown signer isn't taken into account", func(t *testing.T) {
-		var qc testQC
+		var qc testutil.TestQC
 		for i, n := range []NodeID{{2}, {3}, {5}} {
 			qc = append(qc, Signature{Signer: n, Value: []byte{byte(i)}})
 		}
@@ -747,11 +660,11 @@ func TestEpochQCSignedByNonExistentNodes(t *testing.T) {
 		}, nodes[1])
 		require.NoError(t, err)
 
-		wal.assertWALSize(1)
+		wal.AssertWALSize(1)
 	})
 
 	t.Run("empty notarization with double signer isn't taken into account", func(t *testing.T) {
-		var qc testQC
+		var qc testutil.TestQC
 		for i, n := range []NodeID{{2}, {3}, {2}} {
 			qc = append(qc, Signature{Signer: n, Value: []byte{byte(i)}})
 		}
@@ -767,29 +680,29 @@ func TestEpochQCSignedByNonExistentNodes(t *testing.T) {
 		}, nodes[1])
 		require.NoError(t, err)
 
-		wal.assertWALSize(1)
+		wal.AssertWALSize(1)
 	})
 
 	t.Run("finalization certificate with unknown signer isn't taken into account", func(t *testing.T) {
-		fCert, _ := newFinalizationRecord(t, l, &testSignatureAggregator{}, block, []NodeID{{2}, {3}, {5}})
+		fCert, _ := newFinalizationRecord(t, l, e.SignatureAggregator, block, []NodeID{{2}, {3}, {5}})
 
 		err = e.HandleMessage(&Message{
 			FinalizationCertificate: &fCert,
 		}, nodes[1])
 		require.NoError(t, err)
 
-		storage.ensureNoBlockCommit(t, 0)
+		storage.EnsureNoBlockCommit(t, 0)
 	})
 
 	t.Run("finalization certificate with double signer isn't taken into account", func(t *testing.T) {
-		fCert, _ := newFinalizationRecord(t, l, &testSignatureAggregator{}, block, []NodeID{{2}, {3}, {3}})
+		fCert, _ := newFinalizationRecord(t, l, e.SignatureAggregator, block, []NodeID{{2}, {3}, {3}})
 
 		err = e.HandleMessage(&Message{
 			FinalizationCertificate: &fCert,
 		}, nodes[1])
 		require.NoError(t, err)
 
-		storage.ensureNoBlockCommit(t, 0)
+		storage.EnsureNoBlockCommit(t, 0)
 	})
 }
 
@@ -804,22 +717,9 @@ func TestEpochBlockSentFromNonLeader(t *testing.T) {
 		return nil
 	})
 
-	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
-	storage := newInMemStorage()
-	wal := newTestWAL(t)
+	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1)}
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
-	conf := EpochConfig{
-		MaxProposalWait:     DefaultMaxProposalWaitTime,
-		Logger:              l,
-		ID:                  nodes[1],
-		Signer:              &testSigner{},
-		WAL:                 wal,
-		Verifier:            &testVerifier{},
-		Storage:             storage,
-		Comm:                noopComm(nodes),
-		BlockBuilder:        bb,
-		SignatureAggregator: &testSignatureAggregator{},
-	}
+	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
@@ -833,7 +733,7 @@ func TestEpochBlockSentFromNonLeader(t *testing.T) {
 	block := b.(Block)
 
 	notLeader := nodes[3]
-	vote, err := newTestVote(block, notLeader)
+	vote, err := newTestVote(block, notLeader, e.Signer)
 	require.NoError(t, err)
 	err = e.HandleMessage(&Message{
 		BlockMessage: &BlockMessage{
@@ -860,24 +760,10 @@ func TestEpochBlockTooHighRound(t *testing.T) {
 		return nil
 	})
 
-	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
-	storage := newInMemStorage()
-
-	wal := newTestWAL(t)
+	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1)}
 
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
-	conf := EpochConfig{
-		MaxProposalWait:     DefaultMaxProposalWaitTime,
-		Logger:              l,
-		ID:                  nodes[1],
-		Signer:              &testSigner{},
-		WAL:                 wal,
-		Verifier:            &testVerifier{},
-		Storage:             storage,
-		Comm:                noopComm(nodes),
-		BlockBuilder:        bb,
-		SignatureAggregator: &testSignatureAggregator{},
-	}
+	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
@@ -897,7 +783,7 @@ func TestEpochBlockTooHighRound(t *testing.T) {
 
 		block := b.(Block)
 
-		vote, err := newTestVote(block, nodes[0])
+		vote, err := newTestVote(block, nodes[0], e.Signer)
 		require.NoError(t, err)
 		err = e.HandleMessage(&Message{
 			BlockMessage: &BlockMessage{
@@ -908,7 +794,7 @@ func TestEpochBlockTooHighRound(t *testing.T) {
 		require.NoError(t, err)
 		require.True(t, rejectedBlock)
 
-		wal.assertWALSize(0)
+		wal.AssertWALSize(0)
 	})
 
 	t.Run("block is accepted", func(t *testing.T) {
@@ -922,7 +808,7 @@ func TestEpochBlockTooHighRound(t *testing.T) {
 
 		block := b.(Block)
 
-		vote, err := newTestVote(block, nodes[0])
+		vote, err := newTestVote(block, nodes[0], e.Signer)
 		require.NoError(t, err)
 		err = e.HandleMessage(&Message{
 			BlockMessage: &BlockMessage{
@@ -933,7 +819,7 @@ func TestEpochBlockTooHighRound(t *testing.T) {
 		require.NoError(t, err)
 		require.False(t, rejectedBlock)
 
-		wal.assertWALSize(1)
+		wal.AssertWALSize(1)
 	})
 }
 
@@ -942,11 +828,11 @@ type AnyBlock interface {
 	BlockHeader() BlockHeader
 }
 
-func newTestVote(block AnyBlock, id NodeID) (*Vote, error) {
+func newTestVote(block AnyBlock, id NodeID, signer Signer) (*Vote, error) {
 	vote := ToBeSignedVote{
 		BlockHeader: block.BlockHeader(),
 	}
-	sig, err := vote.Sign(&testSigner{})
+	sig, err := vote.Sign(signer)
 	if err != nil {
 		return nil, err
 	}
@@ -961,7 +847,7 @@ func newTestVote(block AnyBlock, id NodeID) (*Vote, error) {
 }
 
 func injectTestVote(t *testing.T, e *Epoch, block VerifiedBlock, id NodeID) {
-	vote, err := newTestVote(block, id)
+	vote, err := newTestVote(block, id, e.Signer)
 	require.NoError(t, err)
 	err = e.HandleMessage(&Message{
 		VoteMessage: vote,
@@ -969,9 +855,9 @@ func injectTestVote(t *testing.T, e *Epoch, block VerifiedBlock, id NodeID) {
 	require.NoError(t, err)
 }
 
-func newTestFinalization(t *testing.T, block VerifiedBlock, id NodeID) *Finalization {
+func newTestFinalization(t *testing.T, block VerifiedBlock, id NodeID, signer Signer) *Finalization {
 	f := ToBeSignedFinalization{BlockHeader: block.BlockHeader()}
-	sig, err := f.Sign(&testSigner{})
+	sig, err := f.Sign(signer)
 	require.NoError(t, err)
 	return &Finalization{
 		Signature: Signature{
@@ -986,7 +872,7 @@ func newTestFinalization(t *testing.T, block VerifiedBlock, id NodeID) *Finaliza
 
 func injectTestFinalization(t *testing.T, e *Epoch, block VerifiedBlock, id NodeID) {
 	err := e.HandleMessage(&Message{
-		Finalization: newTestFinalization(t, block, id),
+		Finalization: newTestFinalization(t, block, id, e.Signer),
 	}, id)
 	require.NoError(t, err)
 }

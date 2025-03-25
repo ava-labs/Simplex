@@ -108,7 +108,7 @@ func (c *testComm) SendMessage(msg *simplex.Message, destination simplex.NodeID)
 	c.maybeTranslateOutoingToIncomingMessageTypes(msg)
 
 	for _, instance := range c.net.instances {
-		if bytes.Equal(instance.e.ID, destination) {
+		if bytes.Equal(instance.E.ID, destination) {
 			instance.ingress <- struct {
 				msg  *simplex.Message
 				from simplex.NodeID
@@ -200,11 +200,11 @@ func (c *testComm) Broadcast(msg *simplex.Message) {
 	c.maybeTranslateOutoingToIncomingMessageTypes(msg)
 
 	for _, instance := range c.net.instances {
-		if !c.isMessagePermitted(msg, instance.e.ID) {
+		if !c.isMessagePermitted(msg, instance.E.ID) {
 			return
 		}
 		// Skip sending the message to yourself or disconnected nodes
-		if bytes.Equal(c.from, instance.e.ID) || c.net.IsDisconnected(instance.e.ID) {
+		if bytes.Equal(c.from, instance.E.ID) || c.net.IsDisconnected(instance.E.ID) {
 			continue
 		}
 

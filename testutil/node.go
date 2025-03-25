@@ -82,7 +82,7 @@ func DefaultTestNodeEpochConfig(t *testing.T, nodeID simplex.NodeID, comm simple
 		MaxProposalWait:     simplex.DefaultMaxProposalWaitTime,
 		Logger:              l,
 		ID:                  nodeID,
-		Signer:              &testSigner{},
+		Signer:              &TestSigner{},
 		WAL:                 newTestWAL(t),
 		Verifier:            &testVerifier{},
 		Storage:             storage,
@@ -130,10 +130,10 @@ func (n *testNode) WaitToEnterRound(round uint64) {
 	}
 }
 
-type testSigner struct {
+type TestSigner struct {
 }
 
-func (t *testSigner) Sign([]byte) ([]byte, error) {
+func (t *TestSigner) Sign([]byte) ([]byte, error) {
 	return []byte{1, 2, 3}, nil
 }
 
@@ -157,7 +157,7 @@ func (t *testQCDeserializer) DeserializeQuorumCertificate(bytes []byte) (simplex
 	rest, err := asn1.Unmarshal(bytes, &qc)
 	require.NoError(t.t, err)
 	require.Empty(t.t, rest)
-	return testQC(qc), err
+	return TestQC(qc), err
 }
 
 type TestSignatureAggregator struct {
@@ -165,12 +165,12 @@ type TestSignatureAggregator struct {
 }
 
 func (t *TestSignatureAggregator) Aggregate(signatures []simplex.Signature) (simplex.QuorumCertificate, error) {
-	return testQC(signatures), t.err
+	return TestQC(signatures), t.err
 }
 
-type testQC []simplex.Signature
+type TestQC []simplex.Signature
 
-func (t testQC) Signers() []simplex.NodeID {
+func (t TestQC) Signers() []simplex.NodeID {
 	res := make([]simplex.NodeID, 0, len(t))
 	for _, sig := range t {
 		res = append(res, sig.Signer)
@@ -178,11 +178,11 @@ func (t testQC) Signers() []simplex.NodeID {
 	return res
 }
 
-func (t testQC) Verify(msg []byte) error {
+func (t TestQC) Verify(msg []byte) error {
 	return nil
 }
 
-func (t testQC) Bytes() []byte {
+func (t TestQC) Bytes() []byte {
 	bytes, err := asn1.Marshal(t)
 	if err != nil {
 		panic(err)

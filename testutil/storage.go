@@ -63,7 +63,7 @@ func (mem *InMemStorage) WaitForBlockCommit(seq uint64) simplex.VerifiedBlock {
 	}
 }
 
-func (mem *InMemStorage) ensureNoBlockCommit(t *testing.T, seq uint64) {
+func (mem *InMemStorage) EnsureNoBlockCommit(t *testing.T, seq uint64) {
 	require.Never(t, func() bool {
 		mem.lock.Lock()
 		defer mem.lock.Unlock()

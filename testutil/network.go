@@ -33,7 +33,7 @@ func NewInMemNetwork(t *testing.T, nodes []simplex.NodeID) *inMemNetwork {
 func (n *inMemNetwork) addNode(node *testNode) {
 	allowed := false
 	for _, id := range n.nodes {
-		if bytes.Equal(id, node.e.ID) {
+		if bytes.Equal(id, node.E.ID) {
 			allowed = true
 			break
 		}
@@ -44,7 +44,7 @@ func (n *inMemNetwork) addNode(node *testNode) {
 
 func (n *inMemNetwork) SetAllNodesMessageFilter(filter messageFilter) {
 	for _, instance := range n.instances {
-		instance.e.Comm.(*testComm).setFilter(filter)
+		instance.E.Comm.(*testComm).setFilter(filter)
 	}
 }
 
@@ -90,7 +90,7 @@ func AdvanceWithoutLeader(t *testing.T, net *inMemNetwork, bb *testControlledBlo
 	// we need to ensure all blocks are waiting for the channel before proceeding
 	// otherwise, we may send to a channel that is not ready to receive
 	for _, n := range net.instances {
-		if laggingNodeId.Equals(n.e.ID) {
+		if laggingNodeId.Equals(n.E.ID) {
 			continue
 		}
 
@@ -98,8 +98,8 @@ func AdvanceWithoutLeader(t *testing.T, net *inMemNetwork, bb *testControlledBlo
 	}
 
 	for _, n := range net.instances {
-		leader := n.e.ID.Equals(simplex.LeaderForRound(net.nodes, n.e.Metadata().Round))
-		if leader || laggingNodeId.Equals(n.e.ID) {
+		leader := n.E.ID.Equals(simplex.LeaderForRound(net.nodes, n.E.Metadata().Round))
+		if leader || laggingNodeId.Equals(n.E.ID) {
 			continue
 		}
 		bb.BlockShouldBeBuilt <- struct{}{}
@@ -108,15 +108,15 @@ func AdvanceWithoutLeader(t *testing.T, net *inMemNetwork, bb *testControlledBlo
 	for i, n := range net.instances {
 		// the leader will not write an empty vote to the wal
 		// because it cannot both propose a block & send an empty vote in the same round
-		leader := n.e.ID.Equals(simplex.LeaderForRound(net.nodes, n.e.Metadata().Round))
-		if leader || laggingNodeId.Equals(n.e.ID) {
+		leader := n.E.ID.Equals(simplex.LeaderForRound(net.nodes, n.E.Metadata().Round))
+		if leader || laggingNodeId.Equals(n.E.ID) {
 			continue
 		}
 		n.waitForBlockProposerTimeout(&epochTimes[i], round)
 	}
 
 	for _, n := range net.instances {
-		if laggingNodeId.Equals(n.e.ID) {
+		if laggingNodeId.Equals(n.E.ID) {
 			continue
 		}
 		n.wal.AssertNotarization(round)

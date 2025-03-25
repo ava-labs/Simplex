@@ -2,6 +2,7 @@ package simplex_test
 
 import (
 	"simplex"
+	"simplex/testutil"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -31,21 +32,21 @@ func TestQuorumRoundMalformed(t *testing.T) {
 		}, {
 			name: "block and notarization",
 			qr: simplex.QuorumRound{
-				Block:        &testBlock{},
+				Block:        &testutil.TestBlock{},
 				Notarization: &simplex.Notarization{},
 			},
 			expectedErr: false,
 		}, {
 			name: "block and fcert",
 			qr: simplex.QuorumRound{
-				Block: &testBlock{},
+				Block:        &testutil.TestBlock{},
 				FCert: &simplex.FinalizationCertificate{},
 			},
 			expectedErr: false,
 		}, {
 			name: "block and empty notarization",
 			qr: simplex.QuorumRound{
-				Block:             &testBlock{},
+				Block:        &testutil.TestBlock{},
 				EmptyNotarization: &simplex.EmptyNotarization{},
 			},
 			expectedErr: true,
@@ -53,7 +54,7 @@ func TestQuorumRoundMalformed(t *testing.T) {
 		{
 			name: "block and notarization and fcert",
 			qr: simplex.QuorumRound{
-				Block:        &testBlock{},
+				Block:        &testutil.TestBlock{},
 				Notarization: &simplex.Notarization{},
 				FCert:        &simplex.FinalizationCertificate{},
 			},
@@ -76,7 +77,7 @@ func TestQuorumRoundMalformed(t *testing.T) {
 		{
 			name: "just block",
 			qr: simplex.QuorumRound{
-				Block: &testBlock{},
+				Block:        &testutil.TestBlock{},
 			},
 			expectedErr: true,
 		},

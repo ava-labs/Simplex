@@ -42,6 +42,13 @@ func (tw *TestWAL) Clone() *TestWAL {
 	return wal
 }
 
+func (tw *TestWAL) ReadAll () ([][]byte, error) {
+	tw.lock.Lock()
+	defer tw.lock.Unlock()
+
+	return tw.WriteAheadLog.ReadAll()
+}
+
 func (tw *TestWAL) Append(b []byte) error {
 	tw.lock.Lock()
 	defer tw.lock.Unlock()
@@ -51,7 +58,7 @@ func (tw *TestWAL) Append(b []byte) error {
 	return err
 }
 
-func (tw *TestWAL) assertWALSize(n int) {
+func (tw *TestWAL) AssertWALSize(n int) {
 	tw.lock.Lock()
 	defer tw.lock.Unlock()
 

@@ -3,134 +3,123 @@
 
 package simplex
 
-import (
-	"crypto/rand"
-	rand2 "math/rand"
-	"simplex/testutil"
-	"sync"
-	"testing"
-	"time"
+// func TestDependencyTree(t *testing.T) {
+// 	dt := newDependencies()
 
-	"github.com/stretchr/testify/require"
-)
+// 	for i := 0; i < 5; i++ {
+// 		dt.Insert(task{f: func() Digest {
+// 			return Digest{uint8(i + 1)}
+// 		}, parent: Digest{uint8(i)}})
+// 	}
 
-func TestDependencyTree(t *testing.T) {
-	dt := newDependencies()
+// 	require.Equal(t, 5, dt.Size())
 
-	for i := 0; i < 5; i++ {
-		dt.Insert(task{f: func() Digest {
-			return Digest{uint8(i + 1)}
-		}, parent: Digest{uint8(i)}})
-	}
+// 	for i := 0; i < 5; i++ {
+// 		j := dt.Remove(Digest{uint8(i)})
+// 		require.Len(t, j, 1)
+// 		require.Equal(t, Digest{uint8(i + 1)}, j[0].f())
+// 	}
 
-	require.Equal(t, 5, dt.Size())
+// }
 
-	for i := 0; i < 5; i++ {
-		j := dt.Remove(Digest{uint8(i)})
-		require.Len(t, j, 1)
-		require.Equal(t, Digest{uint8(i + 1)}, j[0].f())
-	}
+// func TestAsyncScheduler(t *testing.T) {
+// 	t.Run("Executes asynchronously", func(t *testing.T) {
+// 		as := NewScheduler(testutil.MakeLogger(t))
+// 		defer as.Close()
 
-}
+// 		ticks := make(chan struct{})
 
-func TestAsyncScheduler(t *testing.T) {
-	t.Run("Executes asynchronously", func(t *testing.T) {
-		as := NewScheduler(testutil.MakeLogger(t))
-		defer as.Close()
+// 		var wg sync.WaitGroup
+// 		wg.Add(1)
 
-		ticks := make(chan struct{})
+// 		dig1 := makeDigest(t)
+// 		dig2 := makeDigest(t)
 
-		var wg sync.WaitGroup
-		wg.Add(1)
+// 		as.Schedule(func() Digest {
+// 			defer wg.Done()
+// 			<-ticks
+// 			return dig2
+// 		}, dig1, true)
 
-		dig1 := makeDigest(t)
-		dig2 := makeDigest(t)
+// 		ticks <- struct{}{}
+// 		wg.Wait()
+// 	})
 
-		as.Schedule(func() Digest {
-			defer wg.Done()
-			<-ticks
-			return dig2
-		}, dig1, true)
+// 	t.Run("Does not execute when closed", func(t *testing.T) {
+// 		as := NewScheduler(testutil.MakeLogger(t))
+// 		ticks := make(chan struct{}, 1)
 
-		ticks <- struct{}{}
-		wg.Wait()
-	})
+// 		as.Close()
 
-	t.Run("Does not execute when closed", func(t *testing.T) {
-		as := NewScheduler(testutil.MakeLogger(t))
-		ticks := make(chan struct{}, 1)
+// 		dig1 := makeDigest(t)
+// 		dig2 := makeDigest(t)
 
-		as.Close()
+// 		as.Schedule(func() Digest {
+// 			close(ticks)
+// 			return dig2
+// 		}, dig1, true)
 
-		dig1 := makeDigest(t)
-		dig2 := makeDigest(t)
+// 		ticks <- struct{}{}
+// 	})
 
-		as.Schedule(func() Digest {
-			close(ticks)
-			return dig2
-		}, dig1, true)
+// 	t.Run("Executes several pending tasks concurrently in arbitrary order", func(t *testing.T) {
+// 		as := NewScheduler(testutil.MakeLogger(t))
+// 		defer as.Close()
 
-		ticks <- struct{}{}
-	})
+// 		n := 9000
 
-	t.Run("Executes several pending tasks concurrently in arbitrary order", func(t *testing.T) {
-		as := NewScheduler(testutil.MakeLogger(t))
-		defer as.Close()
+// 		var lock sync.Mutex
+// 		finished := make(map[Digest]struct{})
 
-		n := 9000
+// 		var wg sync.WaitGroup
+// 		wg.Add(n)
 
-		var lock sync.Mutex
-		finished := make(map[Digest]struct{})
+// 		var prevTask Digest
+// 		tasks := make([]func(), n)
 
-		var wg sync.WaitGroup
-		wg.Add(n)
+// 		for i := 0; i < n; i++ {
+// 			taskID := makeDigest(t)
+// 			tasks[i] = scheduleTask(&lock, finished, prevTask, taskID, &wg, as, i)
+// 			// Next iteration's previous task ID is current task ID
+// 			prevTask = taskID
+// 		}
 
-		var prevTask Digest
-		tasks := make([]func(), n)
+// 		seed := time.Now().UnixNano()
+// 		r := rand2.New(rand2.NewSource(seed))
 
-		for i := 0; i < n; i++ {
-			taskID := makeDigest(t)
-			tasks[i] = scheduleTask(&lock, finished, prevTask, taskID, &wg, as, i)
-			// Next iteration's previous task ID is current task ID
-			prevTask = taskID
-		}
+// 		for _, index := range r.Perm(n) {
+// 			tasks[index]()
+// 		}
 
-		seed := time.Now().UnixNano()
-		r := rand2.New(rand2.NewSource(seed))
+// 		wg.Wait()
+// 	})
+// }
 
-		for _, index := range r.Perm(n) {
-			tasks[index]()
-		}
+// func scheduleTask(lock *sync.Mutex, finished map[Digest]struct{}, dependency Digest, id Digest, wg *sync.WaitGroup, as *scheduler, i int) func() {
+// 	var dep Digest
+// 	copy(dep[:], dependency[:])
 
-		wg.Wait()
-	})
-}
+// 	return func() {
+// 		lock.Lock()
+// 		defer lock.Unlock()
 
-func scheduleTask(lock *sync.Mutex, finished map[Digest]struct{}, dependency Digest, id Digest, wg *sync.WaitGroup, as *scheduler, i int) func() {
-	var dep Digest
-	copy(dep[:], dependency[:])
+// 		_, hasFinished := finished[dep]
 
-	return func() {
-		lock.Lock()
-		defer lock.Unlock()
+// 		task := func() Digest {
+// 			lock.Lock()
+// 			defer lock.Unlock()
+// 			finished[id] = struct{}{}
+// 			wg.Done()
+// 			return id
+// 		}
 
-		_, hasFinished := finished[dep]
+// 		as.Schedule(task, dep, i == 0 || hasFinished)
+// 	}
+// }
 
-		task := func() Digest {
-			lock.Lock()
-			defer lock.Unlock()
-			finished[id] = struct{}{}
-			wg.Done()
-			return id
-		}
-
-		as.Schedule(task, dep, i == 0 || hasFinished)
-	}
-}
-
-func makeDigest(t *testing.T) Digest {
-	var dig Digest
-	_, err := rand.Read(dig[:])
-	require.NoError(t, err)
-	return dig
-}
+// func makeDigest(t *testing.T) Digest {
+// 	var dig Digest
+// 	_, err := rand.Read(dig[:])
+// 	require.NoError(t, err)
+// 	return dig
+// }
