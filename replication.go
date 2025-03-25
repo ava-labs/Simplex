@@ -4,6 +4,7 @@
 package simplex
 
 import (
+	"fmt"
 	"math"
 
 	"go.uber.org/zap"
@@ -68,6 +69,12 @@ type ReplicationState struct {
 
 	// receivedQuorumRounds maps rounds to quorum rounds
 	receivedQuorumRounds map[uint64]QuorumRound
+
+	// outgoing requests
+	outgoingRequests map[uint64]struct{}
+
+	// request iterator
+	requestIterator int
 }
 
 func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundWindow uint64, enabled bool) *ReplicationState {
@@ -108,38 +115,6 @@ func (r *ReplicationState) collectMissingSequences(observedSignedSeq *signedSequ
 
 	r.logger.Debug("Node is behind, requesting missing finalization certificates", zap.Uint64("seq", observedSeq), zap.Uint64("startSeq", uint64(startSeq)), zap.Uint64("endSeq", uint64(endSeq)))
 	r.sendReplicationRequests(uint64(startSeq), uint64(endSeq))
-}
-
-// sendReplicationRequests sends requests for missing sequences for the
-// range of sequences [start, end] <- inclusive
-func (r *ReplicationState) sendReplicationRequests(start uint64, end uint64) {
-	seqs := make([]uint64, (end+1)-start)
-	for i := start; i <= end; i++ {
-		seqs[i-start] = i
-	}
-	request := &ReplicationRequest{
-		Seqs:        seqs,
-		LatestRound: r.highestSequenceObserved.getSequence(),
-	}
-	msg := &Message{ReplicationRequest: request}
-
-	requestFrom := r.requestFrom()
-
-	r.lastSequenceRequested = end
-	r.comm.SendMessage(msg, requestFrom)
-}
-
-// requestFrom returns a node to send a message request to
-// this is used to ensure that we are not sending a message to ourselves
-func (r *ReplicationState) requestFrom() NodeID {
-	nodes := r.comm.ListNodes()
-	for _, node := range nodes {
-		if !node.Equals(r.id) {
-			return node
-		}
-	}
-
-	return NodeID{}
 }
 
 func (r *ReplicationState) replicateBlocks(fCert *FinalizationCertificate, nextSeqToCommit uint64) {
@@ -214,4 +189,42 @@ func (r *ReplicationState) GetQuroumRoundWithSeq(seq uint64) *QuorumRound {
 		}
 	}
 	return nil
+}
+
+// sendReplicationRequests sends requests for missing sequences for the
+// range of sequences [start, end] <- inclusive. It does so by splitting the 
+// range of sequences equally amount the nodes that have signed the [highestSequenceObserved].
+func (r *ReplicationState) sendReplicationRequests(start uint64, end uint64) {
+	nodes := r.highestSequenceObserved.getSigners()
+
+	// round up to ensure we get all the sequences
+	reqPerNode := uint64(math.Ceil(float64(end + 1 - start) / float64(len(nodes))))
+	
+	
+	nodeIndex := r.requestIterator
+	fmt.Println("req per node", reqPerNode)
+	// <= because we are inclusive
+	for curSeq := uint64(0); curSeq <= end + 1 - start; curSeq += reqPerNode {
+		endSeq := uint64(math.Min(float64(end), float64(start+curSeq+reqPerNode)))
+		r.sendRequestToNode(start+curSeq, endSeq, nodes[nodeIndex%len(nodes)])
+		nodeIndex++
+	}
+
+	// next time we send requests, we start with a different permutation
+	r.requestIterator++
+}
+
+func (r *ReplicationState) sendRequestToNode(start uint64, end uint64, node NodeID) {
+	seqs := make([]uint64, (end+1)-start)
+	for i := start; i <= end; i++ {
+		seqs[i-start] = i
+	}
+	request := &ReplicationRequest{
+		Seqs:        seqs,
+		LatestRound: r.highestSequenceObserved.getSequence(),
+	}
+	msg := &Message{ReplicationRequest: request}
+
+	r.lastSequenceRequested = end
+	r.comm.SendMessage(msg, node)
 }
