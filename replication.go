@@ -138,7 +138,6 @@ func (r *ReplicationState) StoreQuorumRound(round QuorumRound) {
 	if round.GetSequence() > r.highestSequenceObserved {
 		r.highestSequenceObserved = round.GetSequence()
 	}
-
 	r.receivedQuorumRounds[round.GetRound()] = round
 }
 
@@ -146,34 +145,13 @@ func (r *ReplicationState) GetFinalizedBlockForSequence(seq uint64) (Block, Fina
 	for _, round := range r.receivedQuorumRounds {
 		if round.GetSequence() == seq {
 			if round.Block == nil || round.FCert == nil {
-				return nil, FinalizationCertificate{}, false
+				// this could be an empty notarization
+				continue
 			}
-
 			return round.Block, *round.FCert, true
 		}
 	}
 	return nil, FinalizationCertificate{}, false
-}
-
-type NotarizedBlock struct {
-	notarization Notarization
-	block        Block
-}
-
-func (r *ReplicationState) GetNotarizedBlockForRound(round uint64) *NotarizedBlock {
-	qRound, ok := r.receivedQuorumRounds[round]
-	if !ok {
-		return nil
-	}
-
-	if qRound.Block == nil || qRound.Notarization == nil {
-		return nil
-	}
-
-	return &NotarizedBlock{
-		notarization: *qRound.Notarization,
-		block:        qRound.Block,
-	}
 }
 
 func (r *ReplicationState) highestKnownRound() uint64 {
@@ -184,4 +162,13 @@ func (r *ReplicationState) highestKnownRound() uint64 {
 		}
 	}
 	return highestRound
+}
+
+func (r *ReplicationState) GetQuroumRoundWithSeq(seq uint64) *QuorumRound {
+	for _, round := range r.receivedQuorumRounds {
+		if round.GetSequence() == seq {
+			return &round
+		}
+	}
+	return nil
 }

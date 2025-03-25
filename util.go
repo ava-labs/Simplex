@@ -4,7 +4,9 @@
 package simplex
 
 import (
+	"context"
 	"fmt"
+	"sync"
 
 	"go.uber.org/zap"
 )
@@ -136,4 +138,58 @@ func SetRound(block VerifiedBlock, notarization *Notarization, fCert *Finalizati
 	}
 
 	return round
+}
+
+type oneTimeVerifier struct {
+	lock    sync.Mutex
+	digests map[Digest]verifiedResult
+}
+
+func (otv *oneTimeVerifier) Wrap(block Block) Block {
+	return &oneTimeVerifiedBlock{
+		otv:   otv,
+		Block: block,
+	}
+}
+
+type verifiedResult struct {
+	vb  VerifiedBlock
+	err error
+}
+
+type oneTimeVerifiedBlock struct {
+	otv *oneTimeVerifier
+	Block
+}
+
+func (block *oneTimeVerifiedBlock) Verify(ctx context.Context) (VerifiedBlock, error) {
+	block.otv.lock.Lock()
+	defer block.otv.lock.Unlock()
+
+	header := block.Block.BlockHeader()
+	digest := header.Digest
+	seq := header.Seq
+
+	// cleanup
+	defer func() {
+		for _, vr := range block.otv.digests {
+			bh := vr.vb.BlockHeader()
+			if bh.Seq < seq {
+				delete(block.otv.digests, bh.Digest)
+			}
+		}
+	}()
+
+	if result, exists := block.otv.digests[digest]; exists {
+		return result.vb, result.err
+	}
+
+	vb, err := block.Block.Verify(ctx)
+
+	block.otv.digests[digest] = verifiedResult{
+		vb:  vb,
+		err: err,
+	}
+
+	return vb, err
 }
