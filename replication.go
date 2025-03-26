@@ -4,7 +4,6 @@
 package simplex
 
 import (
-	"fmt"
 	"math"
 
 	"go.uber.org/zap"
@@ -14,15 +13,15 @@ import (
 // it essentially is a quorum round without the enforcement of needing a block with a
 // finalization certificate or notarization.
 type signedSequence struct {
-	fcert *FinalizationCertificate
-	notarization *Notarization
+	fcert             *FinalizationCertificate
+	notarization      *Notarization
 	emptyNotarization *EmptyNotarization
 }
 
 func newSignedSequenceFromRound(round QuorumRound) *signedSequence {
 	return &signedSequence{
-		fcert: round.FCert,
-		notarization: round.Notarization,
+		fcert:             round.FCert,
+		notarization:      round.Notarization,
 		emptyNotarization: round.EmptyNotarization,
 	}
 }
@@ -52,7 +51,6 @@ func (s *signedSequence) getSigners() []NodeID {
 	}
 	return nil
 }
-
 
 type ReplicationState struct {
 	logger         Logger
@@ -192,21 +190,28 @@ func (r *ReplicationState) GetQuroumRoundWithSeq(seq uint64) *QuorumRound {
 }
 
 // sendReplicationRequests sends requests for missing sequences for the
-// range of sequences [start, end] <- inclusive. It does so by splitting the 
+// range of sequences [start, end] <- inclusive. It does so by splitting the
 // range of sequences equally amount the nodes that have signed the [highestSequenceObserved].
 func (r *ReplicationState) sendReplicationRequests(start uint64, end uint64) {
 	nodes := r.highestSequenceObserved.getSigners()
 
 	// round up to ensure we get all the sequences
-	reqPerNode := uint64(math.Ceil(float64(end + 1 - start) / float64(len(nodes))))
-	
-	
+	reqPerNode := uint64(math.Ceil(float64(end+1-start) / float64(len(nodes))))
+
 	nodeIndex := r.requestIterator
-	fmt.Println("req per node", reqPerNode)
+
 	// <= because we are inclusive
-	for curSeq := uint64(0); curSeq <= end + 1 - start; curSeq += reqPerNode {
+	for curSeq := uint64(0); curSeq <= end+1-start; curSeq += reqPerNode {
 		endSeq := uint64(math.Min(float64(end), float64(start+curSeq+reqPerNode)))
-		r.sendRequestToNode(start+curSeq, endSeq, nodes[nodeIndex%len(nodes)])
+		index := nodeIndex % len(nodes)
+		// it's possible our node has signed the highest sequence observed.
+		// this may happen if our node has sent a finalization for the highest sequence observed,
+		// however has not received the finalization certificate from the network.
+		if nodes[index].Equals(r.id) {
+			// in this case we shouldn't send a request to ourselves.
+			index = (index + 1) % len(nodes)
+		}
+		r.sendRequestToNode(start+curSeq, endSeq, nodes[index])
 		nodeIndex++
 	}
 
@@ -215,6 +220,10 @@ func (r *ReplicationState) sendReplicationRequests(start uint64, end uint64) {
 }
 
 func (r *ReplicationState) sendRequestToNode(start uint64, end uint64, node NodeID) {
+	r.logger.Debug("Requesting missing finalization certificates ",
+		zap.Stringer("from", node),
+		zap.Uint64("start", start),
+		zap.Uint64("end", end))
 	seqs := make([]uint64, (end+1)-start)
 	for i := start; i <= end; i++ {
 		seqs[i-start] = i

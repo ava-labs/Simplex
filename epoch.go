@@ -1433,7 +1433,7 @@ func (e *Epoch) processFinalizedBlock(block Block, fCert FinalizationCertificate
 
 	// Schedule the block to be verified once its direct predecessor have been verified,
 	// or if it can be verified immediately.
-	e.Logger.Debug("Scheduling block verification", zap.Uint64("round", md.Round))
+	e.Logger.Debug("Scheduling block verification", zap.Uint64("round", md.Round), zap.Bool("canBeImmediatelyVerified", canBeImmediatelyVerified))
 	e.sched.Schedule(task, md.Prev, canBeImmediatelyVerified)
 
 	return nil
