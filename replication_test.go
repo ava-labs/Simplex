@@ -148,14 +148,14 @@ func TestReplicationNotarizations(t *testing.T) {
 	net := newInMemNetwork(t, nodes)
 
 	newNodeConfig := func(from simplex.NodeID) *testNodeConfig {
-		comm := newTestComm(from, net, denyFinalizationMessages)
+		comm := newTestComm(from, net, allowAllMessages)
 		return &testNodeConfig{
 			comm:               comm,
 			replicationEnabled: true,
 		}
 	}
 
-	normalNode := newSimplexNode(t, nodes[0], net, bb, newNodeConfig(nodes[0]))
+	newSimplexNode(t, nodes[0], net, bb, newNodeConfig(nodes[0]))
 	newSimplexNode(t, nodes[1], net, bb, newNodeConfig(nodes[1]))
 	newSimplexNode(t, nodes[2], net, bb, newNodeConfig(nodes[2]))
 	// we do not expect the lagging node to build any blocks
@@ -178,8 +178,20 @@ func TestReplicationNotarizations(t *testing.T) {
 	missedSeqs := uint64(0)
 	blocks := []simplex.VerifiedBlock{}
 
+	// finalization for the first block
+	bb.triggerNewBlock()
+	block := <-bb.out
+	blocks = append(blocks, block)
+	for _, n := range net.instances {
+		if n.e.ID.Equals(laggingNode.e.ID) {
+			continue
+		}
+		n.storage.waitForBlockCommit(0)
+	}
+
+	net.setAllNodesMessageFilter(denyFinalizationMessages)
 	// normal nodes continue to make progress
-	for i := uint64(0); i < uint64(numNotarizations); i++ {
+	for i := uint64(1); i < uint64(numNotarizations); i++ {
 		emptyRound := bytes.Equal(simplex.LeaderForRound(nodes, i), laggingNode.e.ID)
 		if emptyRound {
 			advanceWithoutLeader(t, net, bb, epochTimes, i, laggingNode.e.ID)
@@ -196,38 +208,27 @@ func TestReplicationNotarizations(t *testing.T) {
 			}
 		}
 	}
+
 	for _, n := range net.instances {
 		if n.e.ID.Equals(laggingNode.e.ID) {
+			require.Equal(t, uint64(0), n.storage.Height())
+			require.Equal(t, uint64(0), n.e.Metadata().Round)
 			continue
 		}
 
 		// assert metadata
 		require.Equal(t, uint64(numNotarizations), n.e.Metadata().Round)
-		require.Equal(t, uint64(0), n.e.Storage.Height())
+		require.Equal(t, uint64(1), n.e.Storage.Height())
 	}
 
 	net.setAllNodesMessageFilter(allowAllMessages)
-	fCert, _ := newFinalizationRecord(t, laggingNode.e.Logger, laggingNode.e.EpochConfig.SignatureAggregator, blocks[0], nodes[:3])
-	normalNode.e.Comm.Broadcast(&simplex.Message{
-		FinalizationCertificate: &fCert,
-	})
-
-	// all nodes should have replicated finalization certificates
-	for _, n := range net.instances {
-		if n.e.ID.Equals(laggingNode.e.ID) {
-			continue
-		}
-
-		n.storage.waitForBlockCommit(0)
-	}
 	net.Connect(laggingNode.e.ID)
+	bb.triggerNewBlock()
 
-	normalNode.e.Comm.SendMessage(&simplex.Message{
-		FinalizationCertificate: &fCert,
-	}, laggingNode.e.ID)
+	// lagging node should replicate the first finalized block and subsequent notarizations
 	laggingNode.storage.waitForBlockCommit(0)
 
-	for i := 1; i < numNotarizations; i++ {
+	for i := 1; i < numNotarizations+1; i++ {
 		for _, n := range net.instances {
 			// lagging node wont have a notarization record if it was the leader
 			leader := simplex.LeaderForRound(nodes, uint64(i))
@@ -237,6 +238,7 @@ func TestReplicationNotarizations(t *testing.T) {
 			n.wal.assertNotarization(uint64(i))
 		}
 	}
+
 }
 
 // TestReplicationEmptyNotarizations ensures a lagging node will properly replicate
@@ -594,23 +596,20 @@ func onlyAllowBlockProposalsAndNotarizations(msg *simplex.Message, to simplex.No
 func TestReplicationNotarizationWithoutFinalizations(t *testing.T) {
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
 
-	// for numBlocks := uint64(1); numBlocks <= 3*simplex.DefaultMaxRoundWindow; numBlocks++ {
-	// 	// lagging node cannot be the leader after node disconnects
-	// 	isLaggingNodeLeader := bytes.Equal(simplex.LeaderForRound(nodes, numBlocks), nodes[3])
-	// 	if isLaggingNodeLeader {
-	// 		continue
-	// 	}
+	for numBlocks := uint64(1); numBlocks <= 3*simplex.DefaultMaxRoundWindow; numBlocks++ {
+		// lagging node cannot be the leader after node disconnects
+		isLaggingNodeLeader := bytes.Equal(simplex.LeaderForRound(nodes, numBlocks), nodes[3])
+		if isLaggingNodeLeader {
+			continue
+		}
 
-	// 	testName := fmt.Sprintf("NotarizationWithoutFCert_%d_blocks", numBlocks)
+		testName := fmt.Sprintf("NotarizationWithoutFCert_%d_blocks", numBlocks)
 
-	// 	t.Run(testName, func(t *testing.T) {
-	// 		// t.Parallel()
-	// 		testReplicationNotarizationWithoutFinalizations(t, numBlocks, nodes)
-	// 	})
-	// }
-
-	testReplicationNotarizationWithoutFinalizations(t, 10, nodes)
-
+		t.Run(testName, func(t *testing.T) {
+			t.Parallel()
+			testReplicationNotarizationWithoutFinalizations(t, numBlocks, nodes)
+		})
+	}
 }
 
 // TestReplicationNotarizationWithoutFinalizations tests that a lagging node will replicate
