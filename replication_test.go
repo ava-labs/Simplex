@@ -265,7 +265,7 @@ func testReplicationEmptyNotarizations(t *testing.T, nodes []simplex.NodeID, end
 	laggingBb := newTestControlledBlockBuilder(t)
 	net := newInMemNetwork(t, nodes)
 	newNodeConfig := func(from simplex.NodeID) *testNodeConfig {
-		comm := newTestComm(from, net, denyFinalizationMessages)
+		comm := newTestComm(from, net, allowAllMessages)
 		return &testNodeConfig{
 			comm:               comm,
 			replicationEnabled: true,
@@ -273,7 +273,7 @@ func testReplicationEmptyNotarizations(t *testing.T, nodes []simplex.NodeID, end
 	}
 
 	startTimes := make([]time.Time, 0, len(nodes))
-	normalNode1 := newSimplexNode(t, nodes[0], net, bb, newNodeConfig(nodes[0]))
+	newSimplexNode(t, nodes[0], net, bb, newNodeConfig(nodes[0]))
 	newSimplexNode(t, nodes[1], net, bb, newNodeConfig(nodes[1]))
 	newSimplexNode(t, nodes[2], net, bb, newNodeConfig(nodes[2]))
 	newSimplexNode(t, nodes[3], net, bb, newNodeConfig(nodes[3]))
@@ -290,12 +290,11 @@ func testReplicationEmptyNotarizations(t *testing.T, nodes []simplex.NodeID, end
 	net.Disconnect(laggingNode.e.ID)
 
 	bb.triggerNewBlock()
-	block := <-bb.out
 	for _, n := range net.instances {
 		if n.e.ID.Equals(laggingNode.e.ID) {
 			continue
 		}
-		n.wal.assertNotarization(0)
+		n.storage.waitForBlockCommit(0)
 	}
 
 	net.setAllNodesMessageFilter(onlyAllowEmptyRoundMessages)
@@ -312,43 +311,27 @@ func testReplicationEmptyNotarizations(t *testing.T, nodes []simplex.NodeID, end
 
 	for _, n := range net.instances {
 		if n.e.ID.Equals(laggingNode.e.ID) {
+			require.Equal(t, uint64(0), n.storage.Height())
+			require.Equal(t, uint64(0), n.e.Metadata().Round)
 			continue
 		}
 
 		// assert metadata
 		require.Equal(t, uint64(endRound), n.e.Metadata().Round)
 		require.Equal(t, uint64(1), n.e.Metadata().Seq)
-		require.Equal(t, uint64(0), n.e.Storage.Height())
+		require.Equal(t, uint64(1), n.e.Storage.Height())
 	}
 
 	net.setAllNodesMessageFilter(allowAllMessages)
-
-	fCert, _ := newFinalizationRecord(t, laggingNode.e.Logger, laggingNode.e.SignatureAggregator, block, nodes[:5])
-	normalNode1.e.Comm.Broadcast(&simplex.Message{
-		FinalizationCertificate: &fCert,
-	})
-
-	// assert the nodes have the fcert before the lagging node
+	net.Connect(laggingNode.e.ID)
+	bb.triggerNewBlock()
 	for _, n := range net.instances {
-		if n.e.ID.Equals(laggingNode.e.ID) {
-			continue
-		}
-
-		n.storage.waitForBlockCommit(0)
+		n.storage.waitForBlockCommit(1)
 	}
 
-	net.Connect(laggingNode.e.ID)
-
-	normalNode1.e.Comm.SendMessage(&simplex.Message{
-		FinalizationCertificate: &fCert,
-	}, laggingNode.e.ID)
-
-	laggingNode.storage.waitForBlockCommit(0)
-	laggingNode.wal.assertNotarization(endRound - 1)
-
-	require.Equal(t, uint64(1), laggingNode.storage.Height())
-	require.Equal(t, endRound, laggingNode.e.Metadata().Round)
-	require.Equal(t, uint64(1), laggingNode.e.Metadata().Seq)
+	require.Equal(t, uint64(2), laggingNode.storage.Height())
+	require.Equal(t, uint64(endRound+1), laggingNode.e.Metadata().Round)
+	require.Equal(t, uint64(2), laggingNode.e.Metadata().Seq)
 }
 
 // TestReplicationStartsBeforeCurrentRound tests the replication process of a node that
