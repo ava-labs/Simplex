@@ -129,7 +129,7 @@ func (r *ReplicationState) sendReplicationRequests(start uint64, end uint64) {
 		index := nodeIndex % len(nodes)
 		// it's possible our node has signed [highestSequenceObserved].
 		// For example this may happen if our node has sent a finalization
-		// for [highestSequenceObserved] and has not received the 
+		// for [highestSequenceObserved] and has not received the
 		// finalization certificate from the network.
 		if nodes[index].Equals(r.id) {
 			// in this case we shouldn't send a request to ourselves.
