@@ -68,9 +68,6 @@ type ReplicationState struct {
 	// receivedQuorumRounds maps rounds to quorum rounds
 	receivedQuorumRounds map[uint64]QuorumRound
 
-	// outgoing requests
-	outgoingRequests map[uint64]struct{}
-
 	// request iterator
 	requestIterator int
 }
@@ -117,7 +114,7 @@ func (r *ReplicationState) collectMissingSequences(observedSignedSeq *signedSequ
 
 // sendReplicationRequests sends requests for missing sequences for the
 // range of sequences [start, end] <- inclusive. It does so by splitting the
-// range of sequences equally amount the nodes that have signed the [highestSequenceObserved].
+// range of sequences equally amount the nodes that have signed [highestSequenceObserved].
 func (r *ReplicationState) sendReplicationRequests(start uint64, end uint64) {
 	nodes := r.highestSequenceObserved.getSigners()
 
@@ -130,9 +127,10 @@ func (r *ReplicationState) sendReplicationRequests(start uint64, end uint64) {
 	for curSeq := uint64(0); curSeq <= end+1-start; curSeq += reqPerNode {
 		endSeq := uint64(math.Min(float64(end), float64(start+curSeq+reqPerNode)))
 		index := nodeIndex % len(nodes)
-		// it's possible our node has signed the highest sequence observed.
-		// this may happen if our node has sent a finalization for the highest sequence observed,
-		// however has not received the finalization certificate from the network.
+		// it's possible our node has signed [highestSequenceObserved].
+		// For example this may happen if our node has sent a finalization
+		// for [highestSequenceObserved] and has not received the 
+		// finalization certificate from the network.
 		if nodes[index].Equals(r.id) {
 			// in this case we shouldn't send a request to ourselves.
 			index = (index + 1) % len(nodes)
