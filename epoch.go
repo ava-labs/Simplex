@@ -79,7 +79,7 @@ type Epoch struct {
 	canReceiveMessages             atomic.Bool
 	finishCtx                      context.Context
 	finishFn                       context.CancelFunc
-	nodes                          []NodeID
+	nodes                          NodeIDs
 	eligibleNodeIDs                map[string]struct{}
 	quorumSize                     int
 	rounds                         map[uint64]*Round
@@ -185,6 +185,8 @@ func (e *Epoch) init() error {
 	if err != nil {
 		return err
 	}
+
+	e.Logger.Info("Starting Simplex Epoch", zap.String("ID", e.ID.String()), zap.Stringer("nodes", e.nodes))
 
 	return e.setMetadataFromStorage()
 }
@@ -1215,8 +1217,6 @@ func (e *Epoch) handleNotarizationMessage(message *Notarization, from NodeID) er
 		zap.Stringer("from", from), zap.Uint64("round", vote.Round))
 
 	if !e.isVoteRoundValid(vote.Round) {
-		e.Logger.Debug("Notarization contains invalid vote",
-			zap.Stringer("NodeID", from))
 		return nil
 	}
 
