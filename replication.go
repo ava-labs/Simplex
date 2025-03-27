@@ -4,6 +4,7 @@
 package simplex
 
 import (
+	"fmt"
 	"math"
 
 	"go.uber.org/zap"
@@ -13,45 +14,28 @@ import (
 // it essentially is a quorum round without the enforcement of needing a block with a
 // finalization certificate or notarization.
 type signedSequence struct {
-	fcert *FinalizationCertificate
-	notarization *Notarization
-	emptyNotarization *EmptyNotarization
+	seq     uint64
+	signers NodeIDs
 }
 
-func newSignedSequenceFromRound(round QuorumRound) *signedSequence {
-	return &signedSequence{
-		fcert: round.FCert,
-		notarization: round.Notarization,
-		emptyNotarization: round.EmptyNotarization,
+func newSignedSequenceFromRound(round QuorumRound) (*signedSequence, error) {
+	ss := &signedSequence{}
+	switch {
+	case round.FCert != nil:
+		ss.signers = round.FCert.QC.Signers()
+		ss.seq = round.FCert.Finalization.Seq
+	case round.EmptyNotarization != nil:
+		ss.signers = round.EmptyNotarization.QC.Signers()
+		ss.seq = round.EmptyNotarization.Vote.Seq
+	case round.Notarization != nil:
+		ss.signers = round.Notarization.QC.Signers()
+		ss.seq = round.Notarization.Vote.Seq
+	default:
+		return nil, fmt.Errorf("round does not contain a finalization certificate, empty notarization, or notarization")
 	}
-}
 
-func (s *signedSequence) getSequence() uint64 {
-	if s.fcert != nil {
-		return s.fcert.Finalization.Seq
-	}
-	if s.notarization != nil {
-		return s.notarization.Vote.Seq
-	}
-	if s.emptyNotarization != nil {
-		return s.emptyNotarization.Vote.Seq
-	}
-	return 0
+	return ss, nil
 }
-
-func (s *signedSequence) getSigners() []NodeID {
-	if s.fcert != nil {
-		return s.fcert.QC.Signers()
-	}
-	if s.notarization != nil {
-		return s.notarization.QC.Signers()
-	}
-	if s.emptyNotarization != nil {
-		return s.emptyNotarization.QC.Signers()
-	}
-	return nil
-}
-
 
 type ReplicationState struct {
 	logger         Logger
@@ -68,6 +52,9 @@ type ReplicationState struct {
 
 	// receivedQuorumRounds maps rounds to quorum rounds
 	receivedQuorumRounds map[uint64]QuorumRound
+
+	// request iterator
+	requestIterator int
 }
 
 func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundWindow uint64, enabled bool) *ReplicationState {
@@ -88,17 +75,17 @@ func (r *ReplicationState) isReplicationComplete(nextSeqToCommit uint64, current
 		return true
 	}
 
-	return nextSeqToCommit > r.highestSequenceObserved.getSequence() && currentRound > r.highestKnownRound()
+	return nextSeqToCommit > r.highestSequenceObserved.seq && currentRound > r.highestKnownRound()
 }
 
 func (r *ReplicationState) collectMissingSequences(observedSignedSeq *signedSequence, nextSeqToCommit uint64) {
-	observedSeq := observedSignedSeq.getSequence()
+	observedSeq := observedSignedSeq.seq
 	// Node is behind, but we've already sent messages to collect future fCerts
 	if r.lastSequenceRequested >= observedSeq && r.highestSequenceObserved != nil {
 		return
 	}
 
-	if r.highestSequenceObserved == nil || observedSeq > r.highestSequenceObserved.getSequence() {
+	if r.highestSequenceObserved == nil || observedSeq > r.highestSequenceObserved.seq {
 		r.highestSequenceObserved = observedSignedSeq
 	}
 
@@ -111,35 +98,54 @@ func (r *ReplicationState) collectMissingSequences(observedSignedSeq *signedSequ
 }
 
 // sendReplicationRequests sends requests for missing sequences for the
-// range of sequences [start, end] <- inclusive
+// range of sequences [start, end] <- inclusive. It does so by splitting the
+// range of sequences equally amount the nodes that have signed [highestSequenceObserved].
 func (r *ReplicationState) sendReplicationRequests(start uint64, end uint64) {
+	// it's possible our node has signed [highestSequenceObserved].
+	// For example this may happen if our node has sent a finalization
+	// for [highestSequenceObserved] and has not received the
+	// finalization certificate from the network.
+	nodes := r.highestSequenceObserved.signers.Remove(r.id)
+	numNodes := len(nodes)
+
+	numSeqs := end + 1 - start
+	seqsPerNode := numSeqs / uint64(numNodes)
+
+	// Distribute sequences evenly among nodes in round-robin fashion
+	for i := range numNodes {
+		nodeIndex := (r.requestIterator + i) % numNodes
+		nodeStart := start + (uint64(i) * seqsPerNode)
+
+		// Last node gets any remainder sequences
+		nodeEnd := nodeStart + seqsPerNode
+		if i == numNodes-1 {
+			nodeEnd = end
+		}
+
+		r.sendRequestToNode(nodeStart, nodeEnd, nodes[nodeIndex])
+	}
+
+	// next time we send requests, we start with a different permutation
+	r.requestIterator++
+}
+
+func (r *ReplicationState) sendRequestToNode(start uint64, end uint64, node NodeID) {
+	r.logger.Debug("Requesting missing finalization certificates ",
+		zap.Stringer("from", node),
+		zap.Uint64("start", start),
+		zap.Uint64("end", end))
 	seqs := make([]uint64, (end+1)-start)
 	for i := start; i <= end; i++ {
 		seqs[i-start] = i
 	}
 	request := &ReplicationRequest{
 		Seqs:        seqs,
-		LatestRound: r.highestSequenceObserved.getSequence(),
+		LatestRound: r.highestSequenceObserved.seq,
 	}
 	msg := &Message{ReplicationRequest: request}
 
-	requestFrom := r.requestFrom()
-
 	r.lastSequenceRequested = end
-	r.comm.SendMessage(msg, requestFrom)
-}
-
-// requestFrom returns a node to send a message request to
-// this is used to ensure that we are not sending a message to ourselves
-func (r *ReplicationState) requestFrom() NodeID {
-	nodes := r.comm.ListNodes()
-	for _, node := range nodes {
-		if !node.Equals(r.id) {
-			return node
-		}
-	}
-
-	return NodeID{}
+	r.comm.SendMessage(msg, node)
 }
 
 func (r *ReplicationState) replicateBlocks(fCert *FinalizationCertificate, nextSeqToCommit uint64) {
@@ -147,9 +153,12 @@ func (r *ReplicationState) replicateBlocks(fCert *FinalizationCertificate, nextS
 		return
 	}
 
-	r.collectMissingSequences(&signedSequence{
-		fcert: fCert,
-	}, nextSeqToCommit)
+	signedSequence := &signedSequence{
+		seq:     fCert.Finalization.Seq,
+		signers: fCert.QC.Signers(),
+	}
+
+	r.collectMissingSequences(signedSequence, nextSeqToCommit)
 }
 
 // maybeCollectFutureSequences attempts to collect future sequences if
@@ -159,7 +168,7 @@ func (r *ReplicationState) maybeCollectFutureSequences(nextSequenceToCommit uint
 		return
 	}
 
-	if r.lastSequenceRequested >= r.highestSequenceObserved.getSequence() {
+	if r.lastSequenceRequested >= r.highestSequenceObserved.seq {
 		return
 	}
 
@@ -178,8 +187,15 @@ func (r *ReplicationState) StoreQuorumRound(round QuorumRound) {
 		return
 	}
 
-	if round.GetSequence() > r.highestSequenceObserved.getSequence() {
-		r.highestSequenceObserved = newSignedSequenceFromRound(round)
+	if round.GetSequence() > r.highestSequenceObserved.seq {
+		signedSeq, err := newSignedSequenceFromRound(round)
+		if err != nil {
+			// should never be here since we already checked the QuorumRound was valid
+			r.logger.Error("Error creating signed sequence from round", zap.Error(err))
+			return
+		}
+
+		r.highestSequenceObserved = signedSeq
 	}
 	r.receivedQuorumRounds[round.GetRound()] = round
 }
