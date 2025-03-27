@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"fmt"
+	"slices"
 )
 
 type NodeID []byte
@@ -29,4 +30,13 @@ func (nodes NodeIDs) String() string {
 		nodeStrings = append(nodeStrings, node.String())
 	}
 	return fmt.Sprintf("%v", nodeStrings)
+}
+
+func (nodes NodeIDs) Remove(targetNode NodeID) []NodeID {
+	for i, n := range nodes {
+		if n.Equals(targetNode) {
+			return slices.Delete(nodes, i, i)
+		}
+	}
+	return nodes
 }
