@@ -25,6 +25,7 @@ import (
 // notarize and finalize block for round 1
 // we expect the future empty notarization for round 2 to increment the round
 func TestEpochLeaderFailoverWithEmptyNotarization(t *testing.T) {
+	for range 100 {
 	l := testutil.MakeLogger(t, 1)
 
 	bb := &testBlockBuilder{
@@ -110,6 +111,7 @@ func TestEpochLeaderFailoverWithEmptyNotarization(t *testing.T) {
 		require.Equal(t, nextRoundToCommit, block.BlockHeader().Round)
 		require.Equal(t, uint64(3), storage.Height())
 	})
+}
 }
 
 // newEmptyNotarization creates a new empty notarization
@@ -420,6 +422,8 @@ func TestEpochNoFinalizationAfterEmptyVote(t *testing.T) {
 }
 
 func TestEpochLeaderFailoverAfterProposal(t *testing.T) {
+	for range 100 {
+	fmt.Println("starting test")
 	bb := &testBlockBuilder{out: make(chan *testBlock, 1), blockShouldBeBuilt: make(chan struct{}, 1)}
 	storage := newInMemStorage()
 
@@ -457,7 +461,7 @@ func TestEpochLeaderFailoverAfterProposal(t *testing.T) {
 	for range 3 {
 		notarizeAndFinalizeRound(t, e, bb)
 	}
-
+	fmt.Println("asserting wal size")
 	wal.assertWALSize(6) // (block, notarization) x 3 rounds
 
 	// leader is the proposer of the new block for the given round
@@ -478,14 +482,17 @@ func TestEpochLeaderFailoverAfterProposal(t *testing.T) {
 		},
 	}, leader)
 	require.NoError(t, err)
-
+	
+	fmt.Println("injecting votes for block of rond 3", block.BlockHeader().Round)
 	// Wait until we have verified the block and written it to the WAL
 	wal.assertWALSize(7)
-
+	
 	// Send a timeout from the application
+	fmt.Println("sending timeout")
 	bb.blockShouldBeBuilt <- struct{}{}
+	fmt.Println("waiting for block proposer timeout", e.Metadata().Round)
 	waitForBlockProposerTimeout(t, e, &start, e.Metadata().Round)
-
+	fmt.Println("running crash and restart execution")
 	runCrashAndRestartExecution(t, e, bb, wal, storage, func(t *testing.T, e *Epoch, bb *testBlockBuilder, storage *InMemStorage, wal *testWAL) {
 
 		lastBlock, _, ok := storage.Retrieve(storage.Height() - 1)
@@ -535,6 +542,7 @@ func TestEpochLeaderFailoverAfterProposal(t *testing.T) {
 		require.Equal(t, uint64(2), emptyNotarization.Vote.Seq)
 		require.Equal(t, uint64(4), storage.Height())
 	})
+}
 }
 
 func TestEpochLeaderFailoverTwice(t *testing.T) {

@@ -1955,19 +1955,23 @@ func (e *Epoch) monitorProgress(round uint64) {
 	noop := func() {}
 
 	proposalWaitTimeExpired := func() {
+		fmt.Println("proposal wait time expired")
 		e.lock.Lock()
 		defer e.lock.Unlock()
 		e.triggerProposalWaitTimeExpired(round)
+		fmt.Println("proposal wait time expired done")
 	}
 
 	var cancelled atomic.Bool
 
 	blockShouldBeBuiltNotification := func() {
+		fmt.Println("wait for block should be built", e.round, round)
 		// This invocation blocks until the block builder tells us it's time to build a new block.
 		e.BlockBuilder.IncomingBlock(ctx)
 		// While we waited, a block might have been notarized.
 		// If so, then don't start monitoring for it being notarized.
 		if cancelled.Load() {
+			fmt.Println("cancelled", e.round, round)
 			return
 		}
 
@@ -1991,11 +1995,13 @@ func (e *Epoch) monitorProgress(round uint64) {
 	// Registers a wait operation that:
 	// (1) Waits for the block builder to tell us it thinks it's time to build a new block.
 	// (2) Registers a monitor which, if not cancelled earlier, notifies the Epoch about a timeout for this round.
+	fmt.Println("registering wait for block should be built", e.round, round)
 	e.monitor.WaitFor(blockShouldBeBuiltNotification)
-
+	fmt.Println("registered wait for block should be built", e.round, round)
 	// If we notarize a block for this round we should cancel the monitor,
 	// so first stop it and then cancel the context.
 	e.cancelWaitForBlockNotarization = func() {
+		fmt.Println("cancel wait for block should be built", e.round, round)
 		cancelled.Store(true)
 		cancelContext()
 		e.cancelWaitForBlockNotarization = noop
@@ -2004,7 +2010,7 @@ func (e *Epoch) monitorProgress(round uint64) {
 
 func (e *Epoch) startRound() error {
 	leaderForCurrentRound := LeaderForRound(e.nodes, e.round)
-
+	fmt.Println("calling start round on leader", leaderForCurrentRound, e.round)
 	if e.ID.Equals(leaderForCurrentRound) {
 		e.buildBlock()
 		return nil
@@ -2082,6 +2088,7 @@ func (e *Epoch) deleteEmptyVoteForPreviousRound() {
 func (e *Epoch) increaseRound() {
 	// In case we're waiting for a block to be notarized, cancel the wait because
 	// we advanced to the next round.
+	fmt.Println("cancel wait for block notarization", e.round)
 	e.cancelWaitForBlockNotarization()
 
 	e.deleteEmptyVoteForPreviousRound()

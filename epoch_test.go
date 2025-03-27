@@ -1168,7 +1168,9 @@ func (t *testBlockBuilder) BuildBlock(_ context.Context, metadata ProtocolMetada
 func (t *testBlockBuilder) IncomingBlock(ctx context.Context) {
 	select {
 	case <-t.blockShouldBeBuilt:
+		fmt.Println("eating up block building")
 	case <-ctx.Done():
+		fmt.Println("eating up ctx")
 	}
 }
 

@@ -5,6 +5,7 @@ package simplex
 
 import (
 	"context"
+	"fmt"
 	"sync/atomic"
 	"time"
 
@@ -106,7 +107,7 @@ func (m *Monitor) WaitFor(f func()) {
 	select {
 	case m.tasks <- f:
 	default:
-
+		fmt.Println("dropping because channel is full")
 	}
 }
 

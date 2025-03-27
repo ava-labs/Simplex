@@ -1,0 +1,2 @@
+signal: interrupt
+FAIL	simplex	0.024s

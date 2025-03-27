@@ -353,3 +353,191 @@ type VerifiedFinalizedBlock struct {
 	VerifiedBlock VerifiedBlock
 	FCert         FinalizationCertificate
 }
+// cancel wait for blocancel wait for block notarization 0
+// [03-26|22:53:33.012] INFO Simplex/epoch.go:2097 Moving to a new round {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "old round": 0, "new round": 1, "leader": "0100000000000000"}
+// [03-26|22:53:33.012] DEBUG Simplex/epoch.go:1138 Broadcast notarization {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "round": 0, "digest": "2d16e6463c77d3fd64d0..."}
+// calling start round on leader 0200000000000000 1
+// [03-26|22:53:33.012] DEBUG Simplex/epoch.go:1952 Monitoring progress {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "round": 1}
+// registering wait for block should be built 1 1
+// registered wait for block should be built 1 1
+// [03-26|22:53:33.012] DEBUG Simplex/epoch.go:519 Received finalization message {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "from": "0100000000000000", "round": 0}
+// [03-26|22:53:33.012] DEBUG Simplex/epoch.go:790 Counting finalizations {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "round": 1, "votes": 1}
+// [03-26|22:53:33.012] DEBUG Simplex/epoch.go:2200 No future messages received for this round {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "from": "0400000000000000", "round": 1}
+// [03-26|22:53:33.012] DEBUG Simplex/epoch.go:2200 No future messages received for this round {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "from": "0100000000000000", "round": 1}
+// [03-26|22:53:33.012] DEBUG Simplex/epoch.go:2200 No future messages received for this round {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "from": "0200000000000000", "round": 1}
+// [03-26|22:53:33.012] DEBUG Simplex/epoch.go:2200 No future messages received for this round {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "from": "0300000000000000", "round": 1}
+// [03-26|22:53:33.012] DEBUG Simplex/monitor.go:79 Executing f {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "taskID": 0}
+// wait for block should be built 1 1
+// [03-26|22:53:33.012] DEBUG Simplex/epoch.go:519 Received finalization message {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "from": "0200000000000000", "round": 0}
+// [03-26|22:53:33.012] DEBUG Simplex/epoch.go:790 Counting finalizations {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "round": 1, "votes": 2}
+// [03-26|22:53:33.012] DEBUG Simplex/epoch.go:519 Received finalization message {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "from": "0300000000000000", "round": 0}
+// [03-26|22:53:33.012] DEBUG Simplex/notarization.go:87 Collected finalization from node {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "NodeID": "0100000000000000", "round": 0}
+// [03-26|22:53:33.012] DEBUG Simplex/notarization.go:87 Collected finalization from node {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "NodeID": "0200000000000000", "round": 0}
+// [03-26|22:53:33.012] DEBUG Simplex/notarization.go:87 Collected finalization from node {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "NodeID": "0300000000000000", "round": 0}
+// [03-26|22:53:33.012] DEBUG Simplex/epoch.go:837 Received enough finalizations to finalize a block {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "round": 0}
+// [03-26|22:53:33.012] INFO Simplex/epoch.go:954 Committed block {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "round": 0, "sequence": 0, "digest": "2d16e6463c77d3fd64d0..."}
+// [03-26|22:53:33.012] DEBUG Simplex/epoch.go:830 Progressing rounds due to commit {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "round": 1, "current round": 1}
+// [03-26|22:53:33.012] DEBUG Simplex/epoch.go:869 Broadcast finalization certificate {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "round": 0, "digest": "2d16e6463c77d3fd64d0..."}
+// [03-26|22:53:33.012] DEBUG Simplex/epoch.go:519 Received finalization message {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "from": "0400000000000000", "round": 0}
+// [03-26|22:53:33.012] DEBUG Simplex/epoch.go:559 Received finalization for an already finalized round {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "round": 0}
+// [03-26|22:53:33.012] DEBUG Simplex/epoch.go:1290 Received block message {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "from": "0200000000000000", "round": 1}
+// [03-26|22:53:33.012] DEBUG Simplex/epoch.go:1304 Handling block message {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "digest": "b7860ca2209475a7f1c1...", "round": 1}
+// [03-26|22:53:33.012] DEBUG Simplex/epoch.go:1393 Scheduling block verification {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "round": 1}
+// [03-26|22:53:33.012] DEBUG Simplex/sched.go:136 Scheduling new ready task {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "dependency": "2d16e6463c77d3fd64d0..."}
+// [03-26|22:53:33.012] INFO Simplex/notarization.go:46 Collected Quorum of votes {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "round": 1, "votes": 3}
+// [03-26|22:53:33.012] DEBUG Simplex/notarization.go:50 Collected vote from node {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "NodeID": "0200000000000000"}
+// [03-26|22:53:33.012] DEBUG Simplex/notarization.go:50 Collected vote from node {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "NodeID": "0300000000000000"}
+// [03-26|22:53:33.012] DEBUG Simplex/notarization.go:50 Collected vote from node {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "NodeID": "0100000000000000"}
+// [03-26|22:53:33.012] DEBUG Simplex/epoch.go:1216 Received notarization message {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "from": "0200000000000000", "round": 1}
+// [03-26|22:53:33.012] DEBUG Simplex/epoch.go:1237 Received a notarization for a future round {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "round": 1}
+// [03-26|22:53:33.012] DEBUG Simplex/sched.go:96 Woken up from sleep {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "ready tasks": 1}
+// [03-26|22:53:33.012] DEBUG Simplex/sched.go:106 Running task {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "remaining ready tasks": 0}
+// [03-26|22:53:33.012] DEBUG Simplex/epoch.go:1511 Block verification started {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "round": 1}
+// [03-26|22:53:33.012] DEBUG Simplex/epoch.go:1534 Persisted block to WAL {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "round": 1, "digest": "b7860ca2209475a7f1c1..."}
+// [03-26|22:53:33.012] DEBUG Simplex/epoch.go:2200 No future messages received for this round {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "from": "0300000000000000", "round": 1}
+// [03-26|22:53:33.012] DEBUG Simplex/epoch.go:2200 No future messages received for this round {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "from": "0400000000000000", "round": 1}
+// [03-26|22:53:33.012] DEBUG Simplex/epoch.go:2200 No future messages received for this round {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "from": "0100000000000000", "round": 1}
+// [03-26|22:53:33.012] DEBUG Simplex/epoch.go:1216 Received notarization message {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "from": "0200000000000000", "round": 1}
+// [03-26|22:53:33.012] DEBUG Simplex/epoch.go:1106 Persisted notarization to WAL {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "size": 129, "round": 1, "digest": "b7860ca2209475a7f1c1..."}
+// cancel wait for block notarization 1
+// cancel wait for block should be built 1 1
+// [03-26|22:53:33.012] INFO Simplex/epoch.go:2097 Moving to a new round {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "old round": 1, "new round": 2, "leader": "0200000000000000"}
+// [03-26|22:53:33.012] DEBUG Simplex/epoch.go:1138 Broadcast notarization {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "round": 1, "digest": "b7860ca2209475a7f1c1..."}
+// calling start round on leader 0300000000000000 2
+// [03-26|22:53:33.012] DEBUG Simplex/epoch.go:1952 Monitoring progress {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "round": 2}
+// registering wait for block should be built 2 2
+// registered wait for block should be built 2 2
+// [03-26|22:53:33.012] DEBUG Simplex/epoch.go:519 Received finalization message {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "from": "0100000000000000", "round": 1}
+// [03-26|22:53:33.012] DEBUG Simplex/epoch.go:790 Counting finalizations {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "round": 2, "votes": 1}
+// [03-26|22:53:33.012] DEBUG Simplex/epoch.go:2200 No future messages received for this round {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "from": "0300000000000000", "round": 2}
+// [03-26|22:53:33.012] DEBUG Simplex/epoch.go:2200 No future messages received for this round {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "from": "0400000000000000", "round": 2}
+// [03-26|22:53:33.012] DEBUG Simplex/epoch.go:2200 No future messages received for this round {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "from": "0100000000000000", "round": 2}
+// eating up ctx
+// [03-26|22:53:33.012] DEBUG Simplex/epoch.go:2200 No future messages received for this round {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "from": "0200000000000000", "round": 2}
+// cancelled 2 1
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:2200 No future messages received for this round {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "from": "0400000000000000", "round": 2}
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:2200 No future messages received for this round {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "from": "0100000000000000", "round": 2}
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:2200 No future messages received for this round {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "from": "0200000000000000", "round": 2}
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:2200 No future messages received for this round {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "from": "0300000000000000", "round": 2}
+// [03-26|22:53:33.013] DEBUG Simplex/monitor.go:81 Task executed {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "taskID": 0}
+// [03-26|22:53:33.013] DEBUG Simplex/monitor.go:79 Executing f {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "taskID": 1}
+// wait for block should be built 2 2
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:2046 Broadcasting vote {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "round": 1, "digest": "b7860ca2209475a7f1c1..."}
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:652 Received vote message {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "from": "0100000000000000", "round": 1, "digest": "b7860ca2209475a7f1c1..."}
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:1515 Block verification ended {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "round": 1, "elapsed": "141.25µs"}
+// [03-26|22:53:33.013] DEBUG Simplex/sched.go:108 Task finished execution {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "taskID": "b7860ca2209475a7f1c1..."}
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:519 Received finalization message {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "from": "0200000000000000", "round": 1}
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:790 Counting finalizations {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "round": 2, "votes": 2}
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:519 Received finalization message {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "from": "0300000000000000", "round": 1}
+// [03-26|22:53:33.013] DEBUG Simplex/notarization.go:87 Collected finalization from node {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "NodeID": "0100000000000000", "round": 1}
+// [03-26|22:53:33.013] DEBUG Simplex/notarization.go:87 Collected finalization from node {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "NodeID": "0200000000000000", "round": 1}
+// [03-26|22:53:33.013] DEBUG Simplex/notarization.go:87 Collected finalization from node {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "NodeID": "0300000000000000", "round": 1}
+// [03-26|22:53:33.013] DEBUG Simplex/sched.go:113 Enqueued newly ready tasks {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "number of ready tasks": 0}
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:837 Received enough finalizations to finalize a block {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "round": 1}
+// [03-26|22:53:33.013] INFO Simplex/epoch.go:954 Committed block {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "round": 1, "sequence": 1, "digest": "b7860ca2209475a7f1c1..."}
+// [03-26|22:53:33.013] DEBUG Simplex/sched.go:94 No ready tasks, going to sleep {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1}
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:830 Progressing rounds due to commit {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "round": 2, "current round": 2}
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:869 Broadcast finalization certificate {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "round": 1, "digest": "b7860ca2209475a7f1c1..."}
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:519 Received finalization message {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "from": "0400000000000000", "round": 1}
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:559 Received finalization for an already finalized round {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "round": 1}
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:1290 Received block message {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "from": "0300000000000000", "round": 2}
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:1304 Handling block message {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "digest": "da5c197b1b712f36615f...", "round": 2}
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:1393 Scheduling block verification {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "round": 2}
+// [03-26|22:53:33.013] DEBUG Simplex/sched.go:136 Scheduling new ready task {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "dependency": "b7860ca2209475a7f1c1..."}
+// [03-26|22:53:33.013] INFO Simplex/notarization.go:46 Collected Quorum of votes {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "round": 2, "votes": 3}
+// [03-26|22:53:33.013] DEBUG Simplex/notarization.go:50 Collected vote from node {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "NodeID": "0100000000000000"}
+// [03-26|22:53:33.013] DEBUG Simplex/notarization.go:50 Collected vote from node {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "NodeID": "0200000000000000"}
+// [03-26|22:53:33.013] DEBUG Simplex/sched.go:96 Woken up from sleep {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "ready tasks": 1}
+// [03-26|22:53:33.013] DEBUG Simplex/notarization.go:50 Collected vote from node {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "NodeID": "0300000000000000"}
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:1216 Received notarization message {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "from": "0200000000000000", "round": 2}
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:1237 Received a notarization for a future round {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "round": 2}
+// [03-26|22:53:33.013] DEBUG Simplex/sched.go:106 Running task {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "remaining ready tasks": 0}
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:1511 Block verification started {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "round": 2}
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:1534 Persisted block to WAL {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "round": 2, "digest": "da5c197b1b712f36615f..."}
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:2200 No future messages received for this round {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "from": "0100000000000000", "round": 2}
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:1216 Received notarization message {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "from": "0200000000000000", "round": 2}
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:1106 Persisted notarization to WAL {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "size": 129, "round": 2, "digest": "da5c197b1b712f36615f..."}
+// cancel wait for block notarization 2
+// cancel wait for block should be built 2 2
+// [03-26|22:53:33.013] INFO Simplex/epoch.go:2097 Moving to a new round {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "old round": 2, "new round": 3, "leader": "0300000000000000"}
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:1138 Broadcast notarization {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "round": 2, "digest": "da5c197b1b712f36615f..."}
+// calling start round on leader 0400000000000000 3
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:1952 Monitoring progress {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "round": 3}
+// registering wait for block should be built 3 3
+// registered wait for block should be built 3 3
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:519 Received finalization message {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "from": "0100000000000000", "round": 2}
+// eating up ctx
+// cancelled 3 2
+// [03-26|22:53:33.013] DEBUG Simplex/monitor.go:81 Task executed {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "taskID": 1}
+// [03-26|22:53:33.013] DEBUG Simplex/monitor.go:79 Executing f {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "taskID": 2}
+// wait for block should be built 3 3
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:790 Counting finalizations {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "round": 3, "votes": 1}
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:2200 No future messages received for this round {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "from": "0100000000000000", "round": 3}
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:2200 No future messages received for this round {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "from": "0200000000000000", "round": 3}
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:2200 No future messages received for this round {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "from": "0300000000000000", "round": 3}
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:2200 No future messages received for this round {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "from": "0400000000000000", "round": 3}
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:2200 No future messages received for this round {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "from": "0400000000000000", "round": 2}
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:2200 No future messages received for this round {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "from": "0200000000000000", "round": 3}
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:2200 No future messages received for this round {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "from": "0300000000000000", "round": 3}
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:2200 No future messages received for this round {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "from": "0400000000000000", "round": 3}
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:2200 No future messages received for this round {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "from": "0100000000000000", "round": 3}
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:2046 Broadcasting vote {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "round": 2, "digest": "da5c197b1b712f36615f..."}
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:652 Received vote message {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "from": "0100000000000000", "round": 2, "digest": "da5c197b1b712f36615f..."}
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:1515 Block verification ended {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "round": 2, "elapsed": "113.125µs"}
+// [03-26|22:53:33.013] DEBUG Simplex/sched.go:108 Task finished execution {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "taskID": "da5c197b1b712f36615f..."}
+// [03-26|22:53:33.013] DEBUG Simplex/sched.go:113 Enqueued newly ready tasks {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "number of ready tasks": 0}
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:519 Received finalization message {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "from": "0200000000000000", "round": 2}
+// [03-26|22:53:33.013] DEBUG Simplex/sched.go:94 No ready tasks, going to sleep {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1}
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:790 Counting finalizations {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "round": 3, "votes": 2}
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:519 Received finalization message {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "from": "0300000000000000", "round": 2}
+// [03-26|22:53:33.013] DEBUG Simplex/notarization.go:87 Collected finalization from node {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "NodeID": "0300000000000000", "round": 2}
+// [03-26|22:53:33.013] DEBUG Simplex/notarization.go:87 Collected finalization from node {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "NodeID": "0100000000000000", "round": 2}
+// [03-26|22:53:33.013] DEBUG Simplex/notarization.go:87 Collected finalization from node {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "NodeID": "0200000000000000", "round": 2}
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:837 Received enough finalizations to finalize a block {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "round": 2}
+// [03-26|22:53:33.013] INFO Simplex/epoch.go:954 Committed block {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "round": 2, "sequence": 2, "digest": "da5c197b1b712f36615f..."}
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:830 Progressing rounds due to commit {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "round": 3, "current round": 3}
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:869 Broadcast finalization certificate {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "round": 2, "digest": "da5c197b1b712f36615f..."}
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:519 Received finalization message {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "from": "0400000000000000", "round": 2}
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:559 Received finalization for an already finalized round {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "round": 2}
+// asserting wal size
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:1290 Received block message {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "from": "0400000000000000", "round": 3}
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:1304 Handling block message {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "digest": "4cdd371a46f09fa10e98...", "round": 3}
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:1393 Scheduling block verification {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "round": 3}
+// [03-26|22:53:33.013] DEBUG Simplex/sched.go:136 Scheduling new ready task {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "dependency": "da5c197b1b712f36615f..."}
+// injecting votes for block of rond 3 3
+// [03-26|22:53:33.013] DEBUG Simplex/sched.go:96 Woken up from sleep {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "ready tasks": 1}
+// [03-26|22:53:33.013] DEBUG Simplex/sched.go:106 Running task {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "remaining ready tasks": 0}
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:1511 Block verification started {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "round": 3}
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:1534 Persisted block to WAL {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "round": 3, "digest": "4cdd371a46f09fa10e98..."}
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:2200 No future messages received for this round {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "from": "0200000000000000", "round": 3}
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:2200 No future messages received for this round {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "from": "0300000000000000", "round": 3}
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:2200 No future messages received for this round {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "from": "0100000000000000", "round": 3}
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:2046 Broadcasting vote {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "round": 3, "digest": "4cdd371a46f09fa10e98..."}
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:652 Received vote message {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "from": "0100000000000000", "round": 3, "digest": "4cdd371a46f09fa10e98..."}
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:1059 Counting votes {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "round": 3, "votes": 2, "from": "[0100000000000000 0400000000000000]"}
+// sending timeout
+// eating up block building
+// [03-26|22:53:33.013] INFO Simplex/epoch.go:1978 It is time to build a block {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "round": 3}
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:2200 No future messages received for this round {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "from": "0300000000000000", "round": 3}
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:2200 No future messages received for this round {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "from": "0100000000000000", "round": 3}
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:2200 No future messages received for this round {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "from": "0200000000000000", "round": 3}
+// [03-26|22:53:33.013] DEBUG Simplex/epoch.go:1515 Block verification ended {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "round": 3, "elapsed": "66.958µs"}
+// [03-26|22:53:33.013] DEBUG Simplex/sched.go:108 Task finished execution {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "taskID": "4cdd371a46f09fa10e98..."}
+// [03-26|22:53:33.013] DEBUG Simplex/monitor.go:122 Scheduling task {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "timeout": "5s", "deadline": "[03-26|22:53:33.012]"}
+// [03-26|22:53:33.013] DEBUG Simplex/monitor.go:81 Task executed {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "taskID": 2}
+// waiting for block proposer timeout 3
+// [03-26|22:53:33.013] DEBUG Simplex/sched.go:113 Enqueued newly ready tasks {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "number of ready tasks": 0}
+// [03-26|22:53:33.013] DEBUG Simplex/sched.go:94 No ready tasks, going to sleep {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1}
+// [03-26|22:53:33.013] DEBUG Simplex/monitor.go:61 Ticked {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "taskID": 3, "time": "[03-26|22:53:34.012]"}
+// [03-26|22:53:33.024] DEBUG Simplex/monitor.go:61 Ticked {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "taskID": 4, "time": "[03-26|22:53:35.012]"}
+// [03-26|22:53:33.035] DEBUG Simplex/monitor.go:61 Ticked {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "taskID": 5, "time": "[03-26|22:53:36.012]"}
+// [03-26|22:53:33.046] DEBUG Simplex/monitor.go:61 Ticked {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "taskID": 6, "time": "[03-26|22:53:37.012]"}
+// [03-26|22:53:33.057] DEBUG Simplex/monitor.go:64 Executing f {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "taskID": 7, "deadline": "[03-26|22:53:38.012]"}
+// proposal wait time expired
+// [03-26|22:53:33.057] INFO Simplex/epoch.go:1913 Timed out on block agreement {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "round": 3, "leader": "0400000000000000"}
+// [03-26|22:53:33.057] DEBUG Simplex/epoch.go:1931 Persisted empty vote to WAL {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "round": 3, "size": 59}
+// [03-26|22:53:33.057] DEBUG Simplex/epoch.go:981 Could not find empty vote with a quorum or more votes {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "round": 3}
+// proposal wait time expired done
+// [03-26|22:53:33.057] DEBUG Simplex/monitor.go:66 Executed f {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "taskID": 7, "time": "[03-26|22:53:38.012]", "deadline": "[03-26|22:53:38.012]"}
+// [03-26|22:53:33.057] DEBUG Simplex/monitor.go:70 Ticked {"test": "TestEpochLeaderFailoverAfterProposal", "node": 1, "taskID": 7, "time": "[03-26|22:53:38.012]"}
+// running crash and restart execution
