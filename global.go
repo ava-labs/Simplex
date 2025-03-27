@@ -40,4 +40,3 @@ func (nodes NodeIDs) Remove(targetNode NodeID) []NodeID {
 	}
 	return nodes
 }
-
