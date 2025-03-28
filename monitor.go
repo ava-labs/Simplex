@@ -80,7 +80,7 @@ func (m *Monitor) run() {
 			m.tick(tick, taskID)
 		case f := <-m.tasks:
 			m.logger.Verbo("Executing f", zap.Uint64("taskID", taskID))
-			f(true)
+			go f(true)
 			m.logger.Verbo("Task executed", zap.Uint64("taskID", taskID))
 		}
 		taskID++
@@ -107,10 +107,10 @@ func (m *Monitor) Close() {
 
 func (m *Monitor) WaitFor(f taskFunction, cancel context.CancelFunc) {
 	// m.mutex.Lock()
-    // defer m.mutex.Unlock()
-    select {
-    case m.tasks <- f:
-    default:
+	// defer m.mutex.Unlock()
+	select {
+	case m.tasks <- f:
+	default:
 		m.logger.Warn("Tasks channel is full")
 		oldTask := <-m.tasks
 		m.logger.Verbo("Executing f since tasks channel is full")
@@ -119,7 +119,7 @@ func (m *Monitor) WaitFor(f taskFunction, cancel context.CancelFunc) {
 		m.logger.Verbo("Task executed")
 		m.logger.Verbo("Re-queuing f since tasks channel is full", zap.Int("len", len(m.tasks)))
 		m.tasks <- f
-    }
+	}
 
 	m.logger.Verbo("done")
 }
@@ -129,9 +129,9 @@ func (m *Monitor) WaitUntil(timeout time.Duration, f func(bool)) context.CancelF
 	time := t.(time.Time)
 
 	currentTask := m.futureTask.Load()
-	if  currentTask != nil {
+	if currentTask != nil {
 		currentTask := currentTask.(*futureTask)
-		if currentTask.f != nil  {
+		if currentTask.f != nil {
 			m.logger.Warn("Overridding deadline", zap.Time("deadline", currentTask.deadline))
 		}
 	}

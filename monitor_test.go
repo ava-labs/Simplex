@@ -77,7 +77,7 @@ func TestMonitorAsyncWaitFor(t *testing.T) {
 		func(b bool) {
 			wg.Done()
 		},
-		func(){},
+		func() {},
 	)
 	wg.Wait()
 }
@@ -94,9 +94,8 @@ func TestMonitorAsyncWaitUntilWithWaitFor(t *testing.T) {
 	mon.WaitFor(func(_ bool) {
 		mon.AdvanceTime(start.Add(10 * time.Millisecond))
 	},
-	func(){},
-
-)
+		func() {},
+	)
 	wg.Wait()
 }
 
@@ -113,9 +112,8 @@ func TestMonitorAsyncWaitForWithNestedWaitUntil(t *testing.T) {
 		},
 		)
 	},
-	func(){},
-
-)
+		func() {},
+	)
 	wg.Wait()
 }
 
