@@ -105,23 +105,18 @@ func (m *Monitor) Close() {
 	}
 }
 
-func (m *Monitor) WaitFor(f taskFunction, cancel context.CancelFunc) {
-	// m.mutex.Lock()
-	// defer m.mutex.Unlock()
+func (m *Monitor) WaitFor(f taskFunction) {
 	select {
 	case m.tasks <- f:
 	default:
 		m.logger.Warn("Tasks channel is full")
 		oldTask := <-m.tasks
-		m.logger.Verbo("Executing f since tasks channel is full")
+		m.logger.Verbo("Executing previous task")
 		oldTask(false)
-		cancel()
-		m.logger.Verbo("Task executed")
-		m.logger.Verbo("Re-queuing f since tasks channel is full", zap.Int("len", len(m.tasks)))
+		m.logger.Verbo("Previous task executed")
+		m.logger.Verbo("Re-queuing new task", zap.Int("len", len(m.tasks)))
 		m.tasks <- f
 	}
-
-	m.logger.Verbo("done")
 }
 
 func (m *Monitor) WaitUntil(timeout time.Duration, f func(bool)) context.CancelFunc {

@@ -1965,11 +1965,8 @@ func (e *Epoch) monitorProgress(round uint64) {
 	}
 
 	var cancelled atomic.Bool
-	// var blockShouldBeBuiltCancelationFinished sync.WaitGroup
-	// blockShouldBeBuiltCancelationFinished.Add(1)
 
 	blockShouldBeBuiltNotification := func(shouldLock bool) {
-		// defer blockShouldBeBuiltCancelationFinished.Done()
 		// This invocation blocks until the block builder tells us it's time to build a new block.
 		e.BlockBuilder.IncomingBlock(ctx)
 		// While we waited, a block might have been notarized.
@@ -2000,14 +1997,13 @@ func (e *Epoch) monitorProgress(round uint64) {
 	// Registers a wait operation that:
 	// (1) Waits for the block builder to tell us it thinks it's time to build a new block.
 	// (2) Registers a monitor which, if not cancelled earlier, notifies the Epoch about a timeout for this round.
-	e.monitor.WaitFor(blockShouldBeBuiltNotification, e.cancelWaitForBlockNotarization)
+	e.monitor.WaitFor(blockShouldBeBuiltNotification)
 	// If we notarize a block for this round we should cancel the monitor,
 	// so first stop it and then cancel the context.
 	e.cancelWaitForBlockNotarization = func() {
 		cancelled.Store(true)
 		cancelContext()
 		e.cancelWaitForBlockNotarization = noop
-		// blockShouldBeBuiltCancelationFinished.Wait()
 	}
 }
 
