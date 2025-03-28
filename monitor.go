@@ -79,9 +79,11 @@ func (m *Monitor) run() {
 		case tick := <-m.ticks:
 			m.tick(tick, taskID)
 		case f := <-m.tasks:
-			m.logger.Verbo("Executing f", zap.Uint64("taskID", taskID))
-			go f(true)
-			m.logger.Verbo("Task executed", zap.Uint64("taskID", taskID))
+			go func() {
+				m.logger.Verbo("Executing f", zap.Uint64("taskID", taskID))
+				f(true)
+				m.logger.Verbo("Task executed", zap.Uint64("taskID", taskID))
+			}()
 		}
 		taskID++
 	}
