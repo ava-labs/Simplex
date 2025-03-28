@@ -103,11 +103,10 @@ func (m *Monitor) Close() {
 }
 
 func (m *Monitor) WaitFor(f func()) {
-	select {
-	case m.tasks <- f:
-	default:
-		m.logger.Warn("Dropping task because the monitor tasks channel is full")
+	if len(m.tasks) > 0 {
+		m.logger.Warn("Tasks channel is full")
 	}
+	m.tasks <- f
 }
 
 func (m *Monitor) WaitUntil(timeout time.Duration, f func()) context.CancelFunc {
