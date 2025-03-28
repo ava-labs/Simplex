@@ -106,7 +106,7 @@ func (m *Monitor) WaitFor(f func()) {
 	select {
 	case m.tasks <- f:
 	default:
-		m.logger.Warn("Dropping task because the monitor tasks channel is full")
+
 	}
 }
 

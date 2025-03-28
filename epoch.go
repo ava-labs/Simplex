@@ -1952,7 +1952,6 @@ func (e *Epoch) monitorProgress(round uint64) {
 	e.Logger.Debug("Monitoring progress", zap.Uint64("round", round))
 	ctx, cancelContext := context.WithCancel(context.Background())
 
-	e.cancelWaitForBlockNotarization()
 	noop := func() {}
 
 	proposalWaitTimeExpired := func() {
@@ -1962,11 +1961,8 @@ func (e *Epoch) monitorProgress(round uint64) {
 	}
 
 	var cancelled atomic.Bool
-	var blockShouldBeBuiltCancelationFinished sync.WaitGroup
-	blockShouldBeBuiltCancelationFinished.Add(1)
 
 	blockShouldBeBuiltNotification := func() {
-		defer blockShouldBeBuiltCancelationFinished.Done()
 		// This invocation blocks until the block builder tells us it's time to build a new block.
 		e.BlockBuilder.IncomingBlock(ctx)
 		// While we waited, a block might have been notarized.
@@ -2003,7 +1999,6 @@ func (e *Epoch) monitorProgress(round uint64) {
 		cancelled.Store(true)
 		cancelContext()
 		e.cancelWaitForBlockNotarization = noop
-		blockShouldBeBuiltCancelationFinished.Wait()
 	}
 }
 
