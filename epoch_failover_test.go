@@ -420,121 +420,122 @@ func TestEpochNoFinalizationAfterEmptyVote(t *testing.T) {
 }
 
 func TestEpochLeaderFailoverAfterProposal(t *testing.T) {
-	bb := &testBlockBuilder{out: make(chan *testBlock, 1), blockShouldBeBuilt: make(chan struct{}, 1)}
-	storage := newInMemStorage()
+	for range 100 {
+		bb := &testBlockBuilder{out: make(chan *testBlock, 1), blockShouldBeBuilt: make(chan struct{}, 1)}
+		storage := newInMemStorage()
 
-	nodes := []NodeID{{1}, {2}, {3}, {4}}
+		nodes := []NodeID{{1}, {2}, {3}, {4}}
 
-	wal := newTestWAL(t)
+		wal := newTestWAL(t)
 
-	logger := testutil.MakeLogger(t, 1)
+		logger := testutil.MakeLogger(t, 1)
 
-	start := time.Now()
-	conf := EpochConfig{
-		MaxProposalWait:     DefaultMaxProposalWaitTime,
-		StartTime:           start,
-		Logger:              logger,
-		ID:                  nodes[0],
-		Signer:              &testSigner{},
-		WAL:                 wal,
-		Verifier:            &testVerifier{},
-		Storage:             storage,
-		Comm:                noopComm(nodes),
-		BlockBuilder:        bb,
-		SignatureAggregator: &testSignatureAggregator{},
-	}
-
-	e, err := NewEpoch(conf)
-	require.NoError(t, err)
-
-	require.NoError(t, e.Start())
-
-	// Run through 3 blocks, to make the block proposals be:
-	// 1 --> 2 --> 3 --> 4
-	// Node 4 proposes a block, but node 1 cannot collect votes until the timeout.
-	// After the timeout expires, node 1 is sent all the votes, and it should notarize the block.
-
-	for range 3 {
-		notarizeAndFinalizeRound(t, e, bb)
-	}
-
-	wal.assertWALSize(6) // (block, notarization) x 3 rounds
-
-	// leader is the proposer of the new block for the given round
-	leader := LeaderForRound(nodes, 3)
-	md := e.Metadata()
-	_, ok := bb.BuildBlock(context.Background(), md)
-	require.True(t, ok)
-	require.Equal(t, md.Round, md.Seq)
-
-	block := <-bb.out
-
-	vote, err := newTestVote(block, leader)
-	require.NoError(t, err)
-	err = e.HandleMessage(&Message{
-		BlockMessage: &BlockMessage{
-			Vote:  *vote,
-			Block: block,
-		},
-	}, leader)
-	require.NoError(t, err)
-
-	// Wait until we have verified the block and written it to the WAL
-	wal.assertWALSize(7)
-
-	// Send a timeout from the application
-	bb.blockShouldBeBuilt <- struct{}{}
-	waitForBlockProposerTimeout(t, e, &start, e.Metadata().Round)
-
-	runCrashAndRestartExecution(t, e, bb, wal, storage, func(t *testing.T, e *Epoch, bb *testBlockBuilder, storage *InMemStorage, wal *testWAL) {
-
-		lastBlock, _, ok := storage.Retrieve(storage.Height() - 1)
-		require.True(t, ok)
-
-		prev := lastBlock.BlockHeader().Digest
-
-		md = ProtocolMetadata{
-			Round: 3,
-			Seq:   2,
-			Prev:  prev,
+		start := time.Now()
+		conf := EpochConfig{
+			MaxProposalWait:     DefaultMaxProposalWaitTime,
+			StartTime:           start,
+			Logger:              logger,
+			ID:                  nodes[0],
+			Signer:              &testSigner{},
+			WAL:                 wal,
+			Verifier:            &testVerifier{},
+			Storage:             storage,
+			Comm:                noopComm(nodes),
+			BlockBuilder:        bb,
+			SignatureAggregator: &testSignatureAggregator{},
 		}
 
-		nextBlockSeqToCommit := uint64(3)
-		nextRoundToCommit := uint64(4)
-
-		emptyVoteFrom1 := createEmptyVote(md, nodes[1])
-		emptyVoteFrom2 := createEmptyVote(md, nodes[2])
-
-		e.HandleMessage(&Message{
-			EmptyVoteMessage: emptyVoteFrom1,
-		}, nodes[1])
-		e.HandleMessage(&Message{
-			EmptyVoteMessage: emptyVoteFrom2,
-		}, nodes[2])
-
-		// Ensure our node proposes block with sequence 3 for round 4
-		block, _ := notarizeAndFinalizeRound(t, e, bb)
-		require.Equal(t, nextRoundToCommit, block.BlockHeader().Round)
-		require.Equal(t, nextBlockSeqToCommit, block.BlockHeader().Seq)
-
-		// WAL must contain an empty vote and an empty block.
-		walContent, err := wal.ReadAll()
+		e, err := NewEpoch(conf)
 		require.NoError(t, err)
 
-		// WAL should be: [..., <empty vote>, <empty block>, <notarization for 4>, <block3>]
-		rawEmptyVote, rawEmptyNotarization := walContent[len(walContent)-4], walContent[len(walContent)-3]
+		require.NoError(t, e.Start())
 
-		emptyVote, err := ParseEmptyVoteRecord(rawEmptyVote)
-		require.NoError(t, err)
-		require.Equal(t, createEmptyVote(md, nodes[0]).Vote, emptyVote)
+		// Run through 3 blocks, to make the block proposals be:
+		// 1 --> 2 --> 3 --> 4
+		// Node 4 proposes a block, but node 1 cannot collect votes until the timeout.
+		// After the timeout expires, node 1 is sent all the votes, and it should notarize the block.
 
-		emptyNotarization, err := EmptyNotarizationFromRecord(rawEmptyNotarization, &testQCDeserializer{t: t})
+		for range 3 {
+			notarizeAndFinalizeRound(t, e, bb)
+		}
+
+		wal.assertWALSize(6) // (block, notarization) x 3 rounds
+
+		// leader is the proposer of the new block for the given round
+		leader := LeaderForRound(nodes, 3)
+		md := e.Metadata()
+		_, ok := bb.BuildBlock(context.Background(), md)
+		require.True(t, ok)
+		require.Equal(t, md.Round, md.Seq)
+
+		block := <-bb.out
+
+		vote, err := newTestVote(block, leader)
 		require.NoError(t, err)
-		require.Equal(t, emptyVoteFrom1.Vote, emptyNotarization.Vote)
-		require.Equal(t, uint64(3), emptyNotarization.Vote.Round)
-		require.Equal(t, uint64(2), emptyNotarization.Vote.Seq)
-		require.Equal(t, uint64(4), storage.Height())
-	})
+		err = e.HandleMessage(&Message{
+			BlockMessage: &BlockMessage{
+				Vote:  *vote,
+				Block: block,
+			},
+		}, leader)
+		require.NoError(t, err)
+
+		// Wait until we have verified the block and written it to the WAL
+		wal.assertWALSize(7)
+		// Send a timeout from the application
+		bb.blockShouldBeBuilt <- struct{}{}
+		waitForBlockProposerTimeout(t, e, &start, md.Round)
+
+		runCrashAndRestartExecution(t, e, bb, wal, storage, func(t *testing.T, e *Epoch, bb *testBlockBuilder, storage *InMemStorage, wal *testWAL) {
+
+			lastBlock, _, ok := storage.Retrieve(storage.Height() - 1)
+			require.True(t, ok)
+
+			prev := lastBlock.BlockHeader().Digest
+
+			md = ProtocolMetadata{
+				Round: 3,
+				Seq:   2,
+				Prev:  prev,
+			}
+
+			nextBlockSeqToCommit := uint64(3)
+			nextRoundToCommit := uint64(4)
+
+			emptyVoteFrom1 := createEmptyVote(md, nodes[1])
+			emptyVoteFrom2 := createEmptyVote(md, nodes[2])
+
+			e.HandleMessage(&Message{
+				EmptyVoteMessage: emptyVoteFrom1,
+			}, nodes[1])
+			e.HandleMessage(&Message{
+				EmptyVoteMessage: emptyVoteFrom2,
+			}, nodes[2])
+
+			// Ensure our node proposes block with sequence 3 for round 4
+			block, _ := notarizeAndFinalizeRound(t, e, bb)
+			require.Equal(t, nextRoundToCommit, block.BlockHeader().Round)
+			require.Equal(t, nextBlockSeqToCommit, block.BlockHeader().Seq)
+
+			// WAL must contain an empty vote and an empty block.
+			walContent, err := wal.ReadAll()
+			require.NoError(t, err)
+
+			// WAL should be: [..., <empty vote>, <empty block>, <notarization for 4>, <block3>]
+			rawEmptyVote, rawEmptyNotarization := walContent[len(walContent)-4], walContent[len(walContent)-3]
+
+			emptyVote, err := ParseEmptyVoteRecord(rawEmptyVote)
+			require.NoError(t, err)
+			require.Equal(t, createEmptyVote(md, nodes[0]).Vote, emptyVote)
+
+			emptyNotarization, err := EmptyNotarizationFromRecord(rawEmptyNotarization, &testQCDeserializer{t: t})
+			require.NoError(t, err)
+			require.Equal(t, emptyVoteFrom1.Vote, emptyNotarization.Vote)
+			require.Equal(t, uint64(3), emptyNotarization.Vote.Round)
+			require.Equal(t, uint64(2), emptyNotarization.Vote.Seq)
+			require.Equal(t, uint64(4), storage.Height())
+		})
+	}
 }
 
 func TestEpochLeaderFailoverTwice(t *testing.T) {
@@ -667,7 +668,7 @@ func createEmptyVote(md ProtocolMetadata, signer NodeID) *EmptyVote {
 }
 
 func waitForBlockProposerTimeout(t *testing.T, e *Epoch, startTime *time.Time, startRound uint64) {
-	timeout := time.NewTimer(time.Minute)
+	timeout := time.NewTimer(10 * time.Second)
 	defer timeout.Stop()
 
 	for {
@@ -686,83 +687,85 @@ func waitForBlockProposerTimeout(t *testing.T, e *Epoch, startTime *time.Time, s
 }
 
 func TestEpochLeaderFailoverNotNeeded(t *testing.T) {
-	var timedOut atomic.Bool
+	for range 100 {
+		var timedOut atomic.Bool
 
-	l := testutil.MakeLogger(t, 1)
-	l.Intercept(func(entry zapcore.Entry) error {
-		if entry.Message == `Timed out on block agreement` {
-			timedOut.Store(true)
+		l := testutil.MakeLogger(t, 1)
+		l.Intercept(func(entry zapcore.Entry) error {
+			if entry.Message == `Timed out on block agreement` {
+				timedOut.Store(true)
+			}
+			return nil
+		})
+
+		bb := &testBlockBuilder{out: make(chan *testBlock, 1), blockShouldBeBuilt: make(chan struct{}, 1)}
+		storage := newInMemStorage()
+
+		nodes := []NodeID{{1}, {2}, {3}, {4}}
+		quorum := Quorum(len(nodes))
+
+		wal := newTestWAL(t)
+
+		start := time.Now()
+
+		conf := EpochConfig{
+			MaxProposalWait:     DefaultMaxProposalWaitTime,
+			StartTime:           start,
+			Logger:              l,
+			ID:                  nodes[0],
+			Signer:              &testSigner{},
+			WAL:                 wal,
+			Verifier:            &testVerifier{},
+			Storage:             storage,
+			Comm:                noopComm(nodes),
+			BlockBuilder:        bb,
+			SignatureAggregator: &testSignatureAggregator{},
 		}
-		return nil
-	})
 
-	bb := &testBlockBuilder{out: make(chan *testBlock, 1), blockShouldBeBuilt: make(chan struct{}, 1)}
-	storage := newInMemStorage()
+		e, err := NewEpoch(conf)
+		require.NoError(t, err)
 
-	nodes := []NodeID{{1}, {2}, {3}, {4}}
-	quorum := Quorum(len(nodes))
+		require.NoError(t, e.Start())
 
-	wal := newTestWAL(t)
+		// Run through 3 blocks, to make the block proposals be:
+		// 1 --> 2 --> 3 --> 4 (node 4 proposes a block eventually but not immediately
 
-	start := time.Now()
+		rounds := uint64(3)
 
-	conf := EpochConfig{
-		MaxProposalWait:     DefaultMaxProposalWaitTime,
-		StartTime:           start,
-		Logger:              l,
-		ID:                  nodes[0],
-		Signer:              &testSigner{},
-		WAL:                 wal,
-		Verifier:            &testVerifier{},
-		Storage:             storage,
-		Comm:                noopComm(nodes),
-		BlockBuilder:        bb,
-		SignatureAggregator: &testSignatureAggregator{},
+		for round := uint64(0); round < rounds; round++ {
+			notarizeAndFinalizeRound(t, e, bb)
+		}
+		bb.blockShouldBeBuilt <- struct{}{}
+		e.AdvanceTime(start.Add(conf.MaxProposalWait / 2))
+
+		md := e.Metadata()
+		_, ok := bb.BuildBlock(context.Background(), md)
+		require.True(t, ok)
+
+		block := <-bb.out
+
+		vote, err := newTestVote(block, nodes[3])
+		require.NoError(t, err)
+		err = e.HandleMessage(&Message{
+			BlockMessage: &BlockMessage{
+				Vote:  *vote,
+				Block: block,
+			},
+		}, nodes[3])
+		require.NoError(t, err)
+
+		// start at one since our node has already voted
+		for i := 1; i < quorum; i++ {
+			injectTestVote(t, e, block, nodes[i])
+		}
+
+		wal.assertNotarization(3)
+
+		e.AdvanceTime(start.Add(conf.MaxProposalWait / 2))
+		e.AdvanceTime(start.Add(conf.MaxProposalWait / 2))
+
+		require.False(t, timedOut.Load())
 	}
-
-	e, err := NewEpoch(conf)
-	require.NoError(t, err)
-
-	require.NoError(t, e.Start())
-
-	// Run through 3 blocks, to make the block proposals be:
-	// 1 --> 2 --> 3 --> 4 (node 4 proposes a block eventually but not immediately
-
-	rounds := uint64(3)
-
-	for round := uint64(0); round < rounds; round++ {
-		notarizeAndFinalizeRound(t, e, bb)
-	}
-	bb.blockShouldBeBuilt <- struct{}{}
-	e.AdvanceTime(start.Add(conf.MaxProposalWait / 2))
-
-	md := e.Metadata()
-	_, ok := bb.BuildBlock(context.Background(), md)
-	require.True(t, ok)
-
-	block := <-bb.out
-
-	vote, err := newTestVote(block, nodes[3])
-	require.NoError(t, err)
-	err = e.HandleMessage(&Message{
-		BlockMessage: &BlockMessage{
-			Vote:  *vote,
-			Block: block,
-		},
-	}, nodes[3])
-	require.NoError(t, err)
-
-	// start at one since our node has already voted
-	for i := 1; i < quorum; i++ {
-		injectTestVote(t, e, block, nodes[i])
-	}
-
-	wal.assertNotarization(3)
-
-	e.AdvanceTime(start.Add(conf.MaxProposalWait / 2))
-	e.AdvanceTime(start.Add(conf.MaxProposalWait / 2))
-
-	require.False(t, timedOut.Load())
 }
 
 func runCrashAndRestartExecution(t *testing.T, e *Epoch, bb *testBlockBuilder, wal *testWAL, storage *InMemStorage, f epochExecution) {

@@ -4,12 +4,13 @@
 package simplex
 
 import (
-	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 func TestMonitorDoubleClose(t *testing.T) {
@@ -36,7 +37,7 @@ func TestMonitorPrematureCancelTask(t *testing.T) {
 	})
 
 	t.Run("Cancelled task does not fire", func(t *testing.T) {
-		panic := func() {
+		panic := func(_ bool) {
 			panic("test failed")
 		}
 
@@ -55,7 +56,7 @@ func TestMonitorPrematureCancelTask(t *testing.T) {
 	t.Run("Non-Cancelled task fires", func(t *testing.T) {
 		finish := make(chan struct{})
 
-		mon.WaitUntil(time.Hour, func() {
+		mon.WaitUntil(time.Hour, func(_ bool) {
 			close(finish)
 		})
 
@@ -72,7 +73,12 @@ func TestMonitorAsyncWaitFor(t *testing.T) {
 
 	var wg sync.WaitGroup
 	wg.Add(1)
-	mon.WaitFor(wg.Done)
+	mon.WaitFor(
+		func(b bool) {
+			wg.Done()
+		},
+		func(){},
+	)
 	wg.Wait()
 }
 
@@ -82,10 +88,15 @@ func TestMonitorAsyncWaitUntilWithWaitFor(t *testing.T) {
 
 	var wg sync.WaitGroup
 	wg.Add(1)
-	mon.WaitUntil(10*time.Millisecond, wg.Done)
-	mon.WaitFor(func() {
-		mon.AdvanceTime(start.Add(10 * time.Millisecond))
+	mon.WaitUntil(10*time.Millisecond, func(b bool) {
+		wg.Done()
 	})
+	mon.WaitFor(func(_ bool) {
+		mon.AdvanceTime(start.Add(10 * time.Millisecond))
+	},
+	func(){},
+
+)
 	wg.Wait()
 }
 
@@ -95,10 +106,16 @@ func TestMonitorAsyncWaitForWithNestedWaitUntil(t *testing.T) {
 
 	var wg sync.WaitGroup
 	wg.Add(1)
-	mon.WaitFor(func() {
+	mon.WaitFor(func(_ bool) {
 		go mon.AdvanceTime(start.Add(10 * time.Millisecond))
-		mon.WaitUntil(10*time.Millisecond, wg.Done)
-	})
+		mon.WaitUntil(10*time.Millisecond, func(b bool) {
+			wg.Done()
+		},
+		)
+	},
+	func(){},
+
+)
 	wg.Wait()
 }
 

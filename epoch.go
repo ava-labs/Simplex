@@ -1952,12 +1952,15 @@ func (e *Epoch) monitorProgress(round uint64) {
 	e.Logger.Debug("Monitoring progress", zap.Uint64("round", round))
 	ctx, cancelContext := context.WithCancel(context.Background())
 
-	// e.cancelWaitForBlockNotarization()
+	e.cancelWaitForBlockNotarization()
 	noop := func() {}
 
-	proposalWaitTimeExpired := func() {
-		e.lock.Lock()
-		defer e.lock.Unlock()
+	proposalWaitTimeExpired := func(shouldLock bool) {
+		if shouldLock {
+			e.lock.Lock()
+			defer e.lock.Unlock()
+		}
+
 		e.triggerProposalWaitTimeExpired(round)
 	}
 
@@ -1965,7 +1968,7 @@ func (e *Epoch) monitorProgress(round uint64) {
 	// var blockShouldBeBuiltCancelationFinished sync.WaitGroup
 	// blockShouldBeBuiltCancelationFinished.Add(1)
 
-	blockShouldBeBuiltNotification := func() {
+	blockShouldBeBuiltNotification := func(shouldLock bool) {
 		// defer blockShouldBeBuiltCancelationFinished.Done()
 		// This invocation blocks until the block builder tells us it's time to build a new block.
 		e.BlockBuilder.IncomingBlock(ctx)
@@ -1981,8 +1984,10 @@ func (e *Epoch) monitorProgress(round uint64) {
 		// and if the monitor isn't cancelled by then, invoke proposalWaitTimeExpired() above.
 		stop := e.monitor.WaitUntil(e.EpochConfig.MaxProposalWait, proposalWaitTimeExpired)
 
-		e.lock.Lock()
-		defer e.lock.Unlock()
+		if shouldLock {
+			e.lock.Lock()
+			defer e.lock.Unlock()
+		}
 
 		// However, if the proposal is notarized before the wait time expires,
 		// cancel the above wait procedure.
@@ -1995,8 +2000,7 @@ func (e *Epoch) monitorProgress(round uint64) {
 	// Registers a wait operation that:
 	// (1) Waits for the block builder to tell us it thinks it's time to build a new block.
 	// (2) Registers a monitor which, if not cancelled earlier, notifies the Epoch about a timeout for this round.
-	e.monitor.WaitFor(blockShouldBeBuiltNotification)
-
+	e.monitor.WaitFor(blockShouldBeBuiltNotification, e.cancelWaitForBlockNotarization)
 	// If we notarize a block for this round we should cancel the monitor,
 	// so first stop it and then cancel the context.
 	e.cancelWaitForBlockNotarization = func() {

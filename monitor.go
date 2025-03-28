@@ -16,20 +16,22 @@ type Monitor struct {
 	close      chan struct{}
 	time       atomic.Value
 	ticks      chan time.Time
-	tasks      chan func()
+	tasks      chan taskFunction
 	futureTask atomic.Value
 }
 
 type futureTask struct {
 	deadline time.Time
-	f        func()
+	f        taskFunction
 }
+
+type taskFunction func(bool)
 
 func NewMonitor(startTime time.Time, logger Logger) *Monitor {
 	m := &Monitor{
 		logger: logger,
 		close:  make(chan struct{}),
-		tasks:  make(chan func(), 1),
+		tasks:  make(chan taskFunction, 1),
 		ticks:  make(chan time.Time, 1),
 	}
 
@@ -45,6 +47,7 @@ func (m *Monitor) AdvanceTime(t time.Time) {
 	select {
 	case m.ticks <- t:
 	default:
+		m.logger.Warn("Dropping tick, channel is full")
 	}
 }
 
@@ -62,7 +65,7 @@ func (m *Monitor) tick(now time.Time, taskID uint64) {
 	}
 
 	m.logger.Verbo("Executing f", zap.Uint64("taskID", taskID), zap.Time("deadline", task.deadline))
-	task.f()
+	task.f(true)
 	m.logger.Verbo("Executed f", zap.Uint64("taskID", taskID), zap.Time("time", now), zap.Time("deadline", task.deadline))
 
 	// clean up future task to mark we have already executed it and to release memory
@@ -77,7 +80,7 @@ func (m *Monitor) run() {
 			m.tick(tick, taskID)
 		case f := <-m.tasks:
 			m.logger.Verbo("Executing f", zap.Uint64("taskID", taskID))
-			f()
+			f(true)
 			m.logger.Verbo("Task executed", zap.Uint64("taskID", taskID))
 		}
 		taskID++
@@ -102,17 +105,36 @@ func (m *Monitor) Close() {
 	}
 }
 
-func (m *Monitor) WaitFor(f func()) {
-	if len(m.tasks) > 0 {
+func (m *Monitor) WaitFor(f taskFunction, cancel context.CancelFunc) {
+	// m.mutex.Lock()
+    // defer m.mutex.Unlock()
+    select {
+    case m.tasks <- f:
+    default:
 		m.logger.Warn("Tasks channel is full")
-	}
-	m.tasks <- f
+		oldTask := <-m.tasks
+		m.logger.Verbo("Executing f since tasks channel is full")
+		oldTask(false)
+		cancel()
+		m.logger.Verbo("Task executed")
+		m.logger.Verbo("Re-queuing f since tasks channel is full", zap.Int("len", len(m.tasks)))
+		m.tasks <- f
+    }
+
+	m.logger.Verbo("done")
 }
 
-func (m *Monitor) WaitUntil(timeout time.Duration, f func()) context.CancelFunc {
+func (m *Monitor) WaitUntil(timeout time.Duration, f func(bool)) context.CancelFunc {
 	t := m.time.Load()
 	time := t.(time.Time)
 
+	currentTask := m.futureTask.Load()
+	if  currentTask != nil {
+		currentTask := currentTask.(*futureTask)
+		if currentTask.f != nil  {
+			m.logger.Warn("Overridding deadline", zap.Time("deadline", currentTask.deadline))
+		}
+	}
 	m.futureTask.Store(&futureTask{
 		f:        f,
 		deadline: time.Add(timeout),
