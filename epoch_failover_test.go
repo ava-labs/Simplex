@@ -481,7 +481,6 @@ func TestEpochLeaderFailoverAfterProposal(t *testing.T) {
 
 	// Wait until we have verified the block and written it to the WAL
 	wal.assertWALSize(7)
-
 	// Send a timeout from the application
 	bb.blockShouldBeBuilt <- struct{}{}
 	waitForBlockProposerTimeout(t, e, &start, e.Metadata().Round)

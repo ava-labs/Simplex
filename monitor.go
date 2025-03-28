@@ -16,20 +16,22 @@ type Monitor struct {
 	close      chan struct{}
 	time       atomic.Value
 	ticks      chan time.Time
-	tasks      chan func()
+	tasks      chan taskFunction
 	futureTask atomic.Value
 }
 
 type futureTask struct {
 	deadline time.Time
-	f        func()
+	f        taskFunction
 }
+
+type taskFunction func(bool)
 
 func NewMonitor(startTime time.Time, logger Logger) *Monitor {
 	m := &Monitor{
 		logger: logger,
 		close:  make(chan struct{}),
-		tasks:  make(chan func(), 1),
+		tasks:  make(chan taskFunction, 1),
 		ticks:  make(chan time.Time, 1),
 	}
 
@@ -45,6 +47,7 @@ func (m *Monitor) AdvanceTime(t time.Time) {
 	select {
 	case m.ticks <- t:
 	default:
+		m.logger.Warn("Dropping tick, channel is full")
 	}
 }
 
@@ -62,7 +65,7 @@ func (m *Monitor) tick(now time.Time, taskID uint64) {
 	}
 
 	m.logger.Verbo("Executing f", zap.Uint64("taskID", taskID), zap.Time("deadline", task.deadline))
-	task.f()
+	task.f(true)
 	m.logger.Verbo("Executed f", zap.Uint64("taskID", taskID), zap.Time("time", now), zap.Time("deadline", task.deadline))
 
 	// clean up future task to mark we have already executed it and to release memory
@@ -76,9 +79,12 @@ func (m *Monitor) run() {
 		case tick := <-m.ticks:
 			m.tick(tick, taskID)
 		case f := <-m.tasks:
-			m.logger.Verbo("Executing f", zap.Uint64("taskID", taskID))
-			f()
-			m.logger.Verbo("Task executed", zap.Uint64("taskID", taskID))
+			id := taskID
+			go func() {
+				m.logger.Verbo("Executing f", zap.Uint64("taskID", id))
+				f(true)
+				m.logger.Verbo("Task executed", zap.Uint64("taskID", id))
+			}()
 		}
 		taskID++
 	}
@@ -102,15 +108,21 @@ func (m *Monitor) Close() {
 	}
 }
 
-func (m *Monitor) WaitFor(f func()) {
+func (m *Monitor) WaitFor(f taskFunction) {
 	select {
 	case m.tasks <- f:
 	default:
-		m.logger.Warn("Dropping task because the monitor tasks channel is full")
+		m.logger.Warn("Tasks channel is full")
+		oldTask := <-m.tasks
+		m.logger.Verbo("Executing previous task")
+		oldTask(false)
+		m.logger.Verbo("Previous task executed")
+		m.logger.Verbo("Re-queuing new task", zap.Int("len", len(m.tasks)))
+		m.tasks <- f
 	}
 }
 
-func (m *Monitor) WaitUntil(timeout time.Duration, f func()) context.CancelFunc {
+func (m *Monitor) WaitUntil(timeout time.Duration, f taskFunction) context.CancelFunc {
 	t := m.time.Load()
 	time := t.(time.Time)
 

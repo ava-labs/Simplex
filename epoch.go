@@ -1955,18 +1955,18 @@ func (e *Epoch) monitorProgress(round uint64) {
 	e.cancelWaitForBlockNotarization()
 	noop := func() {}
 
-	proposalWaitTimeExpired := func() {
-		e.lock.Lock()
-		defer e.lock.Unlock()
+	proposalWaitTimeExpired := func(shouldLock bool) {
+		if shouldLock {
+			e.lock.Lock()
+			defer e.lock.Unlock()
+		}
+
 		e.triggerProposalWaitTimeExpired(round)
 	}
 
 	var cancelled atomic.Bool
-	var blockShouldBeBuiltCancelationFinished sync.WaitGroup
-	blockShouldBeBuiltCancelationFinished.Add(1)
 
-	blockShouldBeBuiltNotification := func() {
-		defer blockShouldBeBuiltCancelationFinished.Done()
+	blockShouldBeBuiltNotification := func(shouldLock bool) {
 		// This invocation blocks until the block builder tells us it's time to build a new block.
 		e.BlockBuilder.IncomingBlock(ctx)
 		// While we waited, a block might have been notarized.
@@ -1981,8 +1981,10 @@ func (e *Epoch) monitorProgress(round uint64) {
 		// and if the monitor isn't cancelled by then, invoke proposalWaitTimeExpired() above.
 		stop := e.monitor.WaitUntil(e.EpochConfig.MaxProposalWait, proposalWaitTimeExpired)
 
-		e.lock.Lock()
-		defer e.lock.Unlock()
+		if shouldLock {
+			e.lock.Lock()
+			defer e.lock.Unlock()
+		}
 
 		// However, if the proposal is notarized before the wait time expires,
 		// cancel the above wait procedure.
@@ -1996,14 +1998,12 @@ func (e *Epoch) monitorProgress(round uint64) {
 	// (1) Waits for the block builder to tell us it thinks it's time to build a new block.
 	// (2) Registers a monitor which, if not cancelled earlier, notifies the Epoch about a timeout for this round.
 	e.monitor.WaitFor(blockShouldBeBuiltNotification)
-
 	// If we notarize a block for this round we should cancel the monitor,
 	// so first stop it and then cancel the context.
 	e.cancelWaitForBlockNotarization = func() {
 		cancelled.Store(true)
 		cancelContext()
 		e.cancelWaitForBlockNotarization = noop
-		blockShouldBeBuiltCancelationFinished.Wait()
 	}
 }
 
