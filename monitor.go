@@ -119,17 +119,10 @@ func (m *Monitor) WaitFor(f taskFunction) {
 	}
 }
 
-func (m *Monitor) WaitUntil(timeout time.Duration, f func(bool)) context.CancelFunc {
+func (m *Monitor) WaitUntil(timeout time.Duration, f taskFunction) context.CancelFunc {
 	t := m.time.Load()
 	time := t.(time.Time)
 
-	currentTask := m.futureTask.Load()
-	if currentTask != nil {
-		currentTask := currentTask.(*futureTask)
-		if currentTask.f != nil {
-			m.logger.Warn("Overridding deadline", zap.Time("deadline", currentTask.deadline))
-		}
-	}
 	m.futureTask.Store(&futureTask{
 		f:        f,
 		deadline: time.Add(timeout),
