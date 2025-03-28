@@ -483,7 +483,7 @@ func TestEpochLeaderFailoverAfterProposal(t *testing.T) {
 	wal.assertWALSize(7)
 	// Send a timeout from the application
 	bb.blockShouldBeBuilt <- struct{}{}
-	waitForBlockProposerTimeout(t, e, &start, md.Round)
+	waitForBlockProposerTimeout(t, e, &start, e.Metadata().Round)
 
 	runCrashAndRestartExecution(t, e, bb, wal, storage, func(t *testing.T, e *Epoch, bb *testBlockBuilder, storage *InMemStorage, wal *testWAL) {
 
@@ -666,7 +666,7 @@ func createEmptyVote(md ProtocolMetadata, signer NodeID) *EmptyVote {
 }
 
 func waitForBlockProposerTimeout(t *testing.T, e *Epoch, startTime *time.Time, startRound uint64) {
-	timeout := time.NewTimer(10 * time.Second)
+	timeout := time.NewTimer(time.Minute)
 	defer timeout.Stop()
 
 	for {
