@@ -630,6 +630,7 @@ func testReplicationNotarizationWithoutFinalizations(t *testing.T, numBlocks uin
 
 	}
 
+	laggingNode.wal.assertNotarization(numBlocks - 1)
 	require.Equal(t, uint64(0), laggingNode.storage.Height())
 	require.Equal(t, uint64(numBlocks), laggingNode.e.Metadata().Round)
 
