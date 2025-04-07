@@ -4,7 +4,6 @@
 package simplex
 
 import (
-	"context"
 	"sync/atomic"
 	"time"
 
@@ -17,6 +16,7 @@ type Monitor struct {
 	time       atomic.Value
 	ticks      chan time.Time
 	tasks      chan func()
+	cancelTask func()
 	futureTask atomic.Value
 }
 
@@ -27,10 +27,11 @@ type futureTask struct {
 
 func NewMonitor(startTime time.Time, logger Logger) *Monitor {
 	m := &Monitor{
-		logger: logger,
-		close:  make(chan struct{}),
-		tasks:  make(chan func(), 1),
-		ticks:  make(chan time.Time, 1),
+		cancelTask: func() {},
+		logger:     logger,
+		close:      make(chan struct{}),
+		tasks:      make(chan func(), 1),
+		ticks:      make(chan time.Time, 1),
 	}
 
 	m.time.Store(startTime)
@@ -102,15 +103,43 @@ func (m *Monitor) Close() {
 	}
 }
 
-func (m *Monitor) WaitFor(f func()) {
+func (m *Monitor) CancelTask() {
+	m.cancelTask()
 	select {
-	case m.tasks <- f:
+	case <-m.tasks:
 	default:
-		m.logger.Warn("Dropping task because the monitor tasks channel is full")
+
 	}
 }
 
-func (m *Monitor) WaitUntil(timeout time.Duration, f func()) context.CancelFunc {
+func (m *Monitor) RunTask(f func()) bool {
+	var cancelled atomic.Bool
+
+	m.cancelTask = func() {
+		cancelled.Store(true)
+	}
+
+	task := func() {
+		if cancelled.Load() {
+			return
+		}
+		f()
+	}
+
+	select {
+	case m.tasks <- task:
+		return true
+	default:
+		m.logger.Warn("Attempted to run a task but capacity was full")
+		return false
+	}
+}
+
+func (m *Monitor) CancelFutureTask() {
+	m.futureTask.Store(&futureTask{})
+}
+
+func (m *Monitor) FutureTask(timeout time.Duration, f func()) {
 	t := m.time.Load()
 	time := t.(time.Time)
 
@@ -120,8 +149,4 @@ func (m *Monitor) WaitUntil(timeout time.Duration, f func()) context.CancelFunc 
 	})
 
 	m.logger.Verbo("Scheduling task", zap.Duration("timeout", timeout), zap.Time("deadline", time))
-
-	return func() {
-		m.futureTask.Store(&futureTask{})
-	}
 }

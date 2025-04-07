@@ -1952,8 +1952,15 @@ func (e *Epoch) monitorProgress(round uint64) {
 	e.Logger.Debug("Monitoring progress", zap.Uint64("round", round))
 	ctx, cancelContext := context.WithCancel(context.Background())
 
-	e.cancelWaitForBlockNotarization()
 	noop := func() {}
+
+	// If we have a task pending to be executed, remove it from execution because we're about to schedule
+	// a task for a higher round.
+	e.monitor.CancelTask()
+	e.monitor.CancelFutureTask()
+
+	// Since we're about to execute a task, abort the previous execution to make room for the new execution.
+	e.cancelWaitForBlockNotarization()
 
 	proposalWaitTimeExpired := func() {
 		e.lock.Lock()
@@ -1962,11 +1969,8 @@ func (e *Epoch) monitorProgress(round uint64) {
 	}
 
 	var cancelled atomic.Bool
-	var blockShouldBeBuiltCancelationFinished sync.WaitGroup
-	blockShouldBeBuiltCancelationFinished.Add(1)
 
 	blockShouldBeBuiltNotification := func() {
-		defer blockShouldBeBuiltCancelationFinished.Done()
 		// This invocation blocks until the block builder tells us it's time to build a new block.
 		e.BlockBuilder.IncomingBlock(ctx)
 		// While we waited, a block might have been notarized.
@@ -1979,31 +1983,28 @@ func (e *Epoch) monitorProgress(round uint64) {
 
 		// Once it's time to build a new block, wait a grace period of 'e.maxProposalWait' time,
 		// and if the monitor isn't cancelled by then, invoke proposalWaitTimeExpired() above.
-		stop := e.monitor.WaitUntil(e.EpochConfig.MaxProposalWait, proposalWaitTimeExpired)
-
-		e.lock.Lock()
-		defer e.lock.Unlock()
-
-		// However, if the proposal is notarized before the wait time expires,
-		// cancel the above wait procedure.
-		e.cancelWaitForBlockNotarization = func() {
-			stop()
-			e.cancelWaitForBlockNotarization = noop
-		}
+		e.monitor.FutureTask(e.EpochConfig.MaxProposalWait, proposalWaitTimeExpired)
 	}
 
 	// Registers a wait operation that:
 	// (1) Waits for the block builder to tell us it thinks it's time to build a new block.
 	// (2) Registers a monitor which, if not cancelled earlier, notifies the Epoch about a timeout for this round.
-	e.monitor.WaitFor(blockShouldBeBuiltNotification)
+	scheduled := e.monitor.RunTask(blockShouldBeBuiltNotification)
+	if !scheduled {
+		// If we fail monitoring for a block to be proposed by the leader, this is not an irrecoverable error,
+		// because it might be that other nodes have succeeded.
+		e.Logger.Warn("Failed monitoring leader progress")
+		cancelContext()
+		return
+	}
 
 	// If we notarize a block for this round we should cancel the monitor,
 	// so first stop it and then cancel the context.
 	e.cancelWaitForBlockNotarization = func() {
+		e.monitor.CancelFutureTask()
 		cancelled.Store(true)
 		cancelContext()
 		e.cancelWaitForBlockNotarization = noop
-		blockShouldBeBuiltCancelationFinished.Wait()
 	}
 }
 
