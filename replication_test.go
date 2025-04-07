@@ -31,7 +31,7 @@ func TestBasicReplication(t *testing.T) {
 		}
 
 		t.Run(testName, func(t *testing.T) {
-			// t.Parallel()
+			t.Parallel()
 			testReplication(t, uint64(i), nodes)
 		})
 	}
