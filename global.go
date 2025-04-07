@@ -34,7 +34,10 @@ func (nodes NodeIDs) String() string {
 func (nodes NodeIDs) Remove(targetNode NodeID) []NodeID {
 	for i, n := range nodes {
 		if n.Equals(targetNode) {
-			return append(nodes[:i], nodes[i+1:]...)
+			result := make([]NodeID, 0, len(nodes)-1)
+			result = append(result, nodes[:i]...)
+			result = append(result, nodes[i+1:]...)
+			return result
 		}
 	}
 	return nodes
