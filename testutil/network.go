@@ -80,7 +80,7 @@ func (n *inMemNetwork) StartInstances() {
 	require.Equal(n.t, len(n.nodes), len(n.instances))
 
 	for i := len(n.nodes) - 1; i >= 0; i-- {
-		n.instances[i].start()
+		n.instances[i].Start()
 	}
 }
 
@@ -119,6 +119,6 @@ func AdvanceWithoutLeader(t *testing.T, net *inMemNetwork, bb *testControlledBlo
 		if laggingNodeId.Equals(n.E.ID) {
 			continue
 		}
-		n.wal.AssertNotarization(round)
+		n.Wal.AssertNotarization(round)
 	}
 }

@@ -30,18 +30,18 @@ func (n NoopComm) Broadcast(msg *simplex.Message) {
 // and sends them to the [in] channel
 type listnerComm struct {
 	NoopComm
-	in chan *simplex.Message
+	In chan *simplex.Message
 }
 
 func NewListenerComm(nodeIDs []simplex.NodeID) *listnerComm {
 	return &listnerComm{
 		NoopComm: NoopComm(nodeIDs),
-		in:       make(chan *simplex.Message, 1),
+		In:       make(chan *simplex.Message, 1),
 	}
 }
 
 func (b *listnerComm) SendMessage(msg *simplex.Message, id simplex.NodeID) {
-	b.in <- msg
+	b.In <- msg
 }
 
 // messageFilter defines a function that filters
@@ -49,33 +49,9 @@ func (b *listnerComm) SendMessage(msg *simplex.Message, id simplex.NodeID) {
 type messageFilter func(*simplex.Message, simplex.NodeID) bool
 
 // allowAllMessages allows every message to be sent
-func allowAllMessages(*simplex.Message, simplex.NodeID) bool {
+func AllowAllMessages(*simplex.Message, simplex.NodeID) bool {
 	return true
 }
-
-// denyFinalizationMessages blocks any messages that would cause nodes in
-// a network to index a block in storage.
-func denyFinalizationMessages(msg *simplex.Message, destination simplex.NodeID) bool {
-	if msg.Finalization != nil {
-		return false
-	}
-	if msg.FinalizationCertificate != nil {
-		return false
-	}
-
-	return true
-}
-
-func onlyAllowEmptyRoundMessages(msg *simplex.Message, destination simplex.NodeID) bool {
-	if msg.EmptyNotarization != nil {
-		return true
-	}
-	if msg.EmptyVoteMessage != nil {
-		return true
-	}
-	return false
-}
-
 type testComm struct {
 	from          simplex.NodeID
 	net           *inMemNetwork
@@ -83,7 +59,7 @@ type testComm struct {
 	lock          sync.RWMutex
 }
 
-func newTestComm(from simplex.NodeID, net *inMemNetwork, messageFilter messageFilter) *testComm {
+func NewTestComm(from simplex.NodeID, net *inMemNetwork, messageFilter messageFilter) *testComm {
 	return &testComm{
 		from:          from,
 		net:           net,

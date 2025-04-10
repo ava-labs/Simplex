@@ -11,7 +11,7 @@ import (
 )
 
 type InMemStorage struct {
-	data map[uint64]struct {
+	Data map[uint64]struct {
 		simplex.VerifiedBlock
 		simplex.FinalizationCertificate
 	}
@@ -22,7 +22,7 @@ type InMemStorage struct {
 
 func NewInMemStorage() *InMemStorage {
 	s := &InMemStorage{
-		data: make(map[uint64]struct {
+		Data: make(map[uint64]struct {
 			simplex.VerifiedBlock
 			simplex.FinalizationCertificate
 		}),
@@ -55,7 +55,7 @@ func (mem *InMemStorage) WaitForBlockCommit(seq uint64) simplex.VerifiedBlock {
 	defer mem.lock.Unlock()
 
 	for {
-		if data, exists := mem.data[seq]; exists {
+		if data, exists := mem.Data[seq]; exists {
 			return data.VerifiedBlock
 		}
 
@@ -68,17 +68,17 @@ func (mem *InMemStorage) EnsureNoBlockCommit(t *testing.T, seq uint64) {
 		mem.lock.Lock()
 		defer mem.lock.Unlock()
 
-		_, exists := mem.data[seq]
+		_, exists := mem.Data[seq]
 		return exists
 	}, time.Second, time.Millisecond*100, "block %d has been committed but shouldn't have been", seq)
 }
 
 func (mem *InMemStorage) Height() uint64 {
-	return uint64(len(mem.data))
+	return uint64(len(mem.Data))
 }
 
 func (mem *InMemStorage) Retrieve(seq uint64) (simplex.VerifiedBlock, simplex.FinalizationCertificate, bool) {
-	item, ok := mem.data[seq]
+	item, ok := mem.Data[seq]
 	if !ok {
 		return nil, simplex.FinalizationCertificate{}, false
 	}
@@ -91,11 +91,11 @@ func (mem *InMemStorage) Index(block simplex.VerifiedBlock, certificate simplex.
 
 	seq := block.BlockHeader().Seq
 
-	_, ok := mem.data[seq]
+	_, ok := mem.Data[seq]
 	if ok {
 		panic(fmt.Sprintf("block with seq %d already indexed!", seq))
 	}
-	mem.data[seq] = struct {
+	mem.Data[seq] = struct {
 		simplex.VerifiedBlock
 		simplex.FinalizationCertificate
 	}{block,
@@ -109,7 +109,7 @@ func (mem *InMemStorage) SetIndex(seq uint64, block simplex.VerifiedBlock, certi
 	mem.lock.Lock()
 	defer mem.lock.Unlock()
 
-	mem.data[seq] = struct {
+	mem.Data[seq] = struct {
 		simplex.VerifiedBlock
 		simplex.FinalizationCertificate
 	}{block,

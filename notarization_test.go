@@ -18,7 +18,7 @@ var errorSigAggregation = errors.New("signature error")
 func TestNewNotarization(t *testing.T) {
 	l := testutil.MakeLogger(t, 1)
 	testBlock :=  &testutil.TestBlock{}
-
+	signer := &testutil.TestSigner{}
 	tests := []struct {
 		name                 string
 		votesForCurrentRound map[string]*simplex.Vote
@@ -39,14 +39,14 @@ func TestNewNotarization(t *testing.T) {
 				return votes
 			}(),
 			block:               testBlock,
-			signatureAggregator: &testSignatureAggregator{},
+			signatureAggregator: &testutil.TestSignatureAggregator{},
 			expectError:         nil,
 		},
 		{
 			name:                 "no votes",
 			votesForCurrentRound: map[string]*simplex.Vote{},
 			block:                testBlock,
-			signatureAggregator:  &testSignatureAggregator{},
+			signatureAggregator:  &testutil.TestSignatureAggregator{},
 			expectError:          simplex.ErrorNoVotes,
 		},
 		{
@@ -55,14 +55,14 @@ func TestNewNotarization(t *testing.T) {
 				votes := make(map[string]*simplex.Vote)
 				nodeIds := [][]byte{{1}, {2}, {3}, {4}, {5}}
 				for _, nodeId := range nodeIds {
-					vote, err := newTestVote(testBlock, nodeId)
+					vote, err := newTestVote(testBlock, nodeId, signer)
 					require.NoError(t, err)
 					votes[string(nodeId)] = vote
 				}
 				return votes
 			}(),
 			block:               testBlock,
-			signatureAggregator: &testSignatureAggregator{err: errorSigAggregation},
+			signatureAggregator: &testutil.TestSignatureAggregator{Err: errorSigAggregation},
 			expectError:         errorSigAggregation,
 		},
 	}
@@ -87,6 +87,7 @@ func TestNewNotarization(t *testing.T) {
 
 func TestNewFinalizationCertificate(t *testing.T) {
 	l := testutil.MakeLogger(t, 1)
+	signer := &testutil.TestSigner{}
 	tests := []struct {
 		name                 string
 		finalizations        []*simplex.Finalization
@@ -98,47 +99,47 @@ func TestNewFinalizationCertificate(t *testing.T) {
 		{
 			name: "valid finalizations in order",
 			finalizations: []*simplex.Finalization{
-				newTestFinalization(t, &testBlock{}, []byte{1}),
-				newTestFinalization(t, &testBlock{}, []byte{2}),
-				newTestFinalization(t, &testBlock{}, []byte{3}),
+				newTestFinalization(t, &testutil.TestBlock{}, []byte{1}, signer),
+				newTestFinalization(t, &testutil.TestBlock{}, []byte{2}, signer),
+				newTestFinalization(t, &testutil.TestBlock{}, []byte{3}, signer),
 			},
-			signatureAggregator:  &testSignatureAggregator{},
-			expectedFinalization: &newTestFinalization(t, &testBlock{}, []byte{1}).Finalization,
+			signatureAggregator:  &testutil.TestSignatureAggregator{},
+			expectedFinalization: &newTestFinalization(t, &testutil.TestBlock{}, []byte{1}, signer).Finalization,
 			expectError:          nil,
 		},
 		{
 			name: "unsorted finalizations",
 			finalizations: []*simplex.Finalization{
-				newTestFinalization(t, &testBlock{}, []byte{3}),
-				newTestFinalization(t, &testBlock{}, []byte{1}),
-				newTestFinalization(t, &testBlock{}, []byte{2}),
+				newTestFinalization(t, &testutil.TestBlock{}, []byte{3}, signer),
+				newTestFinalization(t, &testutil.TestBlock{}, []byte{1}, signer),
+				newTestFinalization(t, &testutil.TestBlock{}, []byte{2}, signer),
 			},
-			signatureAggregator:  &testSignatureAggregator{},
-			expectedFinalization: &newTestFinalization(t, &testBlock{}, []byte{1}).Finalization,
+			signatureAggregator:  &testutil.TestSignatureAggregator{},
+			expectedFinalization: &newTestFinalization(t, &testutil.TestBlock{}, []byte{1}, signer).Finalization,
 			expectError:          nil,
 		},
 		{
 			name: "finalizations with different digests",
 			finalizations: []*simplex.Finalization{
-				newTestFinalization(t, &testBlock{digest: [32]byte{1}}, []byte{1}),
-				newTestFinalization(t, &testBlock{digest: [32]byte{2}}, []byte{2}),
-				newTestFinalization(t, &testBlock{digest: [32]byte{3}}, []byte{3}),
+				newTestFinalization(t, &testutil.TestBlock{Digest: [32]byte{1}}, []byte{1}, signer),
+				newTestFinalization(t, &testutil.TestBlock{Digest: [32]byte{2}}, []byte{2}, signer),
+				newTestFinalization(t, &testutil.TestBlock{Digest: [32]byte{3}}, []byte{3}, signer),
 			},
-			signatureAggregator: &testSignatureAggregator{},
+			signatureAggregator: &testutil.TestSignatureAggregator{},
 			expectError:         simplex.ErrorInvalidFinalizationDigest,
 		},
 		{
 			name: "signature aggregator errors",
 			finalizations: []*simplex.Finalization{
-				newTestFinalization(t, &testBlock{}, []byte{1}),
+				newTestFinalization(t, &testutil.TestBlock{}, []byte{1}, signer),
 			},
-			signatureAggregator: &testSignatureAggregator{err: errorSigAggregation},
+			signatureAggregator: &testutil.TestSignatureAggregator{Err: errorSigAggregation},
 			expectError:         errorSigAggregation,
 		},
 		{
 			name:                "no votes",
 			finalizations:       []*simplex.Finalization{},
-			signatureAggregator: &testSignatureAggregator{},
+			signatureAggregator: &testutil.TestSignatureAggregator{},
 			expectError:         simplex.ErrorNoVotes,
 		},
 	}

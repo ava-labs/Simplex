@@ -43,9 +43,9 @@ func (t *TestBlockBuilder) IncomingBlock(ctx context.Context) {
 type TestBlock struct {
 	data              []byte
 	metadata          simplex.ProtocolMetadata
-	digest            [32]byte
 	OnVerify          func()
-	verificationDelay chan struct{}
+	Digest            [32]byte
+	VerificationDelay chan struct{}
 }
 
 func (tb *TestBlock) Verify(context.Context) (simplex.VerifiedBlock, error) {
@@ -54,11 +54,11 @@ func (tb *TestBlock) Verify(context.Context) (simplex.VerifiedBlock, error) {
 			tb.OnVerify()
 		}
 	}()
-	if tb.verificationDelay == nil {
+	if tb.VerificationDelay == nil {
 		return tb, nil
 	}
 
-	<-tb.verificationDelay
+	<-tb.VerificationDelay
 
 	return tb, nil
 }
@@ -82,13 +82,13 @@ func NewTestBlock(metadata simplex.ProtocolMetadata) *TestBlock {
 func (tb *TestBlock) computeDigest() {
 	var bb bytes.Buffer
 	bb.Write(tb.Bytes())
-	tb.digest = sha256.Sum256(bb.Bytes())
+	tb.Digest = sha256.Sum256(bb.Bytes())
 }
 
 func (t *TestBlock) BlockHeader() simplex.BlockHeader {
 	return simplex.BlockHeader{
 		ProtocolMetadata: t.metadata,
-		Digest:           t.digest,
+		Digest:           t.Digest,
 	}
 }
 

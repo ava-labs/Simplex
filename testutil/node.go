@@ -13,7 +13,7 @@ import (
 type testNode struct {
 	Storage *InMemStorage
 	E       *simplex.Epoch
-	wal     *TestWAL
+	Wal     *TestWAL
 	ingress chan struct {
 		msg  *simplex.Message
 		from simplex.NodeID
@@ -21,7 +21,7 @@ type testNode struct {
 	t *testing.T
 }
 
-func (t *testNode) start() {
+func (t *testNode) Start() {
 	go t.handleMessages()
 	require.NoError(t.t, t.E.Start())
 }
@@ -35,7 +35,7 @@ type TestNodeConfig struct {
 
 // NewSimplexNode creates a new testNode and adds it to [net].
 func NewSimplexNode(t *testing.T, nodeID simplex.NodeID, net *inMemNetwork, bb simplex.BlockBuilder, config *TestNodeConfig) *testNode {
-	comm := newTestComm(nodeID, net, allowAllMessages)
+	comm := NewTestComm(nodeID, net, AllowAllMessages)
 
 	epochConfig, _, _ := DefaultTestNodeEpochConfig(t, nodeID, comm, bb)
 
@@ -46,7 +46,7 @@ func NewSimplexNode(t *testing.T, nodeID simplex.NodeID, net *inMemNetwork, bb s
 	e, err := simplex.NewEpoch(epochConfig)
 	require.NoError(t, err)
 	ti := &testNode{
-		wal:     epochConfig.WAL.(*TestWAL),
+		Wal:     epochConfig.WAL.(*TestWAL),
 		E:       e,
 		t:       t,
 		Storage: epochConfig.Storage.(*InMemStorage),
@@ -161,11 +161,11 @@ func (t *testQCDeserializer) DeserializeQuorumCertificate(bytes []byte) (simplex
 }
 
 type TestSignatureAggregator struct {
-	err error
+	Err error
 }
 
 func (t *TestSignatureAggregator) Aggregate(signatures []simplex.Signature) (simplex.QuorumCertificate, error) {
-	return TestQC(signatures), t.err
+	return TestQC(signatures), t.Err
 }
 
 type TestQC []simplex.Signature
