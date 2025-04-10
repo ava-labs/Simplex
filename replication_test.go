@@ -179,7 +179,7 @@ func TestReplicationNotarizations(t *testing.T) {
 
 	// finalization for the first block
 	bb.TriggerNewBlock()
-	block := <-bb.out
+	block := <-bb.Out
 	blocks = append(blocks, block)
 	for _, n := range net.Instances() {
 		if n.E.ID.Equals(laggingNode.E.ID) {
@@ -220,7 +220,7 @@ func TestReplicationNotarizations(t *testing.T) {
 		require.Equal(t, uint64(1), n.E.Storage.Height())
 	}
 
-	net.testutil.SetAllNodesMessageFilter(testutil.AllowAllMessages)
+	net.SetAllNodesMessageFilter(testutil.AllowAllMessages)
 	net.Connect(laggingNode.E.ID)
 	bb.TriggerNewBlock()
 
@@ -289,18 +289,18 @@ func testReplicationEmptyNotarizations(t *testing.T, nodes []simplex.NodeID, end
 	newNodeConfig := func(from simplex.NodeID) *testutil.TestNodeConfig {
 		comm := testutil.NewTestComm(from, net, testutil.AllowAllMessages)
 		return &testutil.TestNodeConfig{
-			comm:               comm,
-			replicationEnabled: true,
+			Comm:               comm,
+			ReplicationEnabled: true,
 		}
 	}
 
 	startTimes := make([]time.Time, 0, len(nodes))
-	newSimplexNode(t, nodes[0], net, bb, newNodeConfig(nodes[0]))
-	newSimplexNode(t, nodes[1], net, bb, newNodeConfig(nodes[1]))
-	newSimplexNode(t, nodes[2], net, bb, newNodeConfig(nodes[2]))
-	newSimplexNode(t, nodes[3], net, bb, newNodeConfig(nodes[3]))
-	newSimplexNode(t, nodes[4], net, bb, newNodeConfig(nodes[4]))
-	laggingNode := newSimplexNode(t, nodes[5], net, laggingBb, newNodeConfig(nodes[5]))
+	testutil.NewSimplexNode(t, nodes[0], net, bb, newNodeConfig(nodes[0]))
+	testutil.NewSimplexNode(t, nodes[1], net, bb, newNodeConfig(nodes[1]))
+	testutil.NewSimplexNode(t, nodes[2], net, bb, newNodeConfig(nodes[2]))
+	testutil.NewSimplexNode(t, nodes[3], net, bb, newNodeConfig(nodes[3]))
+	testutil.NewSimplexNode(t, nodes[4], net, bb, newNodeConfig(nodes[4]))
+	laggingNode := testutil.NewSimplexNode(t, nodes[5], net, laggingBb, newNodeConfig(nodes[5]))
 
 	for _, n := range net.Instances() {
 		require.Equal(t, uint64(0), n.Storage.Height())
@@ -344,7 +344,7 @@ func testReplicationEmptyNotarizations(t *testing.T, nodes []simplex.NodeID, end
 		require.Equal(t, uint64(1), n.E.Storage.Height())
 	}
 
-	net.testutil.SetAllNodesMessageFilter(testutil.AllowAllMessages)
+	net.SetAllNodesMessageFilter(testutil.AllowAllMessages)
 	net.Connect(laggingNode.E.ID)
 	bb.TriggerNewBlock()
 	for _, n := range net.Instances() {
@@ -614,8 +614,8 @@ func testReplicationNotarizationWithoutFinalizations(t *testing.T, numBlocks uin
 	nodeConfig := func(from simplex.NodeID) *testutil.TestNodeConfig {
 		comm := testutil.NewTestComm(from, net, onlyAllowBlockProposalsAndNotarizations)
 		return &testutil.TestNodeConfig{
-			comm:               comm,
-			replicationEnabled: true,
+			Comm:               comm,
+			ReplicationEnabled: true,
 		}
 	}
 
@@ -641,27 +641,6 @@ func testReplicationNotarizationWithoutFinalizations(t *testing.T, numBlocks uin
 	}
 
 	laggingNode.Wal.AssertNotarization(numBlocks - 1)
-	require.Equal(t, uint64(0), laggingNode.Storage.Height())
-	require.Equal(t, uint64(numBlocks), laggingNode.E.Metadata().Round)
-
-	net.SetAllNodesMessageFilter(testutil.AllowAllMessages)
-	bb.TriggerNewBlock()
-	for _, n := range net.Instances() {
-		n.Storage.WaitForBlockCommit(uint64(numBlocks))
-	}
-}
-
-func waitToEnterRound(t *testing.T, n *testNode, round uint64) {
-	timeout := time.NewTimer(time.Minute)
-	defer timeout.Stop()
-
-	for {
-		if n.E.Metadata().Round >= round {
-			return
-		}
-
-	}
-
 	require.Equal(t, uint64(0), laggingNode.Storage.Height())
 	require.Equal(t, uint64(numBlocks), laggingNode.E.Metadata().Round)
 
