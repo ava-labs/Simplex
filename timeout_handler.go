@@ -1,6 +1,7 @@
 package simplex
 
 import (
+	"container/heap"
 	"sync"
 	"time"
 )
@@ -16,27 +17,67 @@ type TimeoutTask struct {
 }
 
 type TimeoutHandler struct {
-	mu sync.Mutex
+	lock sync.Mutex
 
 	tasks map[ID]*TimeoutTask
 	heap TaskHeap
 	now time.Time
 }
 
+func NewTimeoutHandler(startTime time.Time) *TimeoutHandler {
+	return &TimeoutHandler{
+		now: startTime,
+		tasks: make(map[ID]*TimeoutTask),
+		heap: TaskHeap{},
+	}
+}
+
 func (t *TimeoutHandler) Tick(now time.Time) {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+
 	// update the time of the handler
 	t.now = now
 
 	// go through the heap executing relevant tasks
+	for t.heap.Len() > 0 {
+		next := t.heap[0]
+		if next.timeout.After(t.now) {
+			break
+		}
+
+		heap.Pop(&t.heap)
+		delete(t.tasks, next.id)
+		go next.task()
+	}
 }
 
-func (t *TimeoutHandler) AddTask(task TimeoutTask) {
+func (t *TimeoutHandler) AddTask(task *TimeoutTask) {
 	// adds a task to the heap and the tasks map
+	t.lock.Lock()
+	defer t.lock.Unlock()
+
+	if _, ok := t.tasks[task.id]; ok {
+		// TODO: log warn instead of return
+		return
+	}
+
+	t.tasks[task.id] = task
+	heap.Push(&t.heap, task)
 }
 
 func (t *TimeoutHandler) RemoveTask(id ID) {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+
+	if _, ok := t.tasks[id]; !ok {
+		return
+	}
+
 	// find the task using the task map
 	// remove it from the heap using the index
+	heap.Remove(&t.heap, t.tasks[id].index)
+	delete(t.tasks, id)
 }
 
 
@@ -70,4 +111,12 @@ func (h *TaskHeap) Pop() any {
 	*h = old[0: len - 1]
 	task.index = -1
 	return task
+}
+
+func (h *TaskHeap) Peep() any {
+	if h.Len() == 0 {
+		return nil
+	}
+
+	return (*h)[0]
 }
