@@ -35,13 +35,13 @@ func TestMonitorPrematureCancelTask(t *testing.T) {
 		return nil
 	})
 
-	t.Run("Cancelled task does not fire", func(t *testing.T) {
+	t.Run("Cancelled future task does not fire", func(t *testing.T) {
 		panic := func() {
 			panic("test failed")
 		}
 
-		cancel := mon.WaitUntil(time.Hour, panic)
-		cancel()
+		mon.FutureTask(time.Hour, panic)
+		mon.CancelFutureTask()
 
 		mon.AdvanceTime(start.Add(time.Hour))
 
@@ -52,10 +52,10 @@ func TestMonitorPrematureCancelTask(t *testing.T) {
 		}
 	})
 
-	t.Run("Non-Cancelled task fires", func(t *testing.T) {
+	t.Run("Non-Cancelled future task fires", func(t *testing.T) {
 		finish := make(chan struct{})
 
-		mon.WaitUntil(time.Hour, func() {
+		mon.FutureTask(time.Hour, func() {
 			close(finish)
 		})
 
@@ -63,6 +63,19 @@ func TestMonitorPrematureCancelTask(t *testing.T) {
 
 		<-ticked
 		<-finish
+	})
+
+	t.Run("Cancelled task does not fire", func(t *testing.T) {
+		finish := make(chan struct{})
+
+		mon.RunTask(func() {
+			<-finish
+			close(finish) // Test should panic if we have a double close
+		})
+
+		mon.CancelTask()
+
+		close(finish)
 	})
 }
 
@@ -72,7 +85,7 @@ func TestMonitorAsyncWaitFor(t *testing.T) {
 
 	var wg sync.WaitGroup
 	wg.Add(1)
-	mon.WaitFor(wg.Done)
+	mon.RunTask(wg.Done)
 	wg.Wait()
 }
 
@@ -82,8 +95,8 @@ func TestMonitorAsyncWaitUntilWithWaitFor(t *testing.T) {
 
 	var wg sync.WaitGroup
 	wg.Add(1)
-	mon.WaitUntil(10*time.Millisecond, wg.Done)
-	mon.WaitFor(func() {
+	mon.FutureTask(10*time.Millisecond, wg.Done)
+	mon.RunTask(func() {
 		mon.AdvanceTime(start.Add(10 * time.Millisecond))
 	})
 	wg.Wait()
@@ -95,9 +108,9 @@ func TestMonitorAsyncWaitForWithNestedWaitUntil(t *testing.T) {
 
 	var wg sync.WaitGroup
 	wg.Add(1)
-	mon.WaitFor(func() {
+	mon.RunTask(func() {
 		go mon.AdvanceTime(start.Add(10 * time.Millisecond))
-		mon.WaitUntil(10*time.Millisecond, wg.Done)
+		mon.FutureTask(10*time.Millisecond, wg.Done)
 	})
 	wg.Wait()
 }

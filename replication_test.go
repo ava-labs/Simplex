@@ -76,9 +76,9 @@ func testReplication(t *testing.T, startSeq uint64, nodes []simplex.NodeID) {
 // notarizes a different block for the same round
 func TestReplicationAdversarialNode(t *testing.T) {
 	nodes := []simplex.NodeID{{1}, {2}, {3}, []byte("lagging")}
-
-	bb := testutil.NewTestControlledBlockBuilder(t)
-	net := testutil.NewInMemNetwork(t, nodes)
+	quorum := simplex.Quorum(len(nodes))
+	bb := newTestControlledBlockBuilder(t)
+	net := newInMemNetwork(t, nodes)
 
 	testEpochConfig := &testutil.TestNodeConfig{
 		ReplicationEnabled: true,
@@ -126,8 +126,8 @@ func TestReplicationAdversarialNode(t *testing.T) {
 	require.Equal(t, uint64(0), laggingNode.Storage.Height())
 	require.Equal(t, uint64(0), laggingNode.E.Metadata().Round)
 	net.Connect(laggingNode.E.ID)
+	fCert, _ := newFinalizationRecord(t, laggingNode.e.Logger, laggingNode.e.SignatureAggregator, blocks[1], nodes[:quorum])
 
-	fCert, _ := newFinalizationRecord(t, laggingNode.E.Logger, laggingNode.E.SignatureAggregator, blocks[1], nodes)
 	fCertMsg := &simplex.Message{
 		FinalizationCertificate: &fCert,
 	}
@@ -143,14 +143,14 @@ func TestReplicationAdversarialNode(t *testing.T) {
 // notarizations after lagging behind.
 func TestReplicationNotarizations(t *testing.T) {
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
-	bb := testutil.NewTestControlledBlockBuilder(t)
-	net := testutil.NewInMemNetwork(t, nodes)
+	bb := newTestControlledBlockBuilder(t)
+	net := newInMemNetwork(t, nodes)
 
-	newNodeConfig := func(from simplex.NodeID) *testutil.TestNodeConfig {
-		comm := testutil.NewTestComm(from, net, denyFinalizationMessages)
-		return &testutil.TestNodeConfig{
-			Comm:               comm,
-			ReplicationEnabled: true,
+	newNodeConfig := func(from simplex.NodeID) *testNodeConfig {
+		comm := newTestComm(from, net, allowAllMessages)
+		return &testNodeConfig{
+			comm:               comm,
+			replicationEnabled: true,
 		}
 	}
 
@@ -177,9 +177,21 @@ func TestReplicationNotarizations(t *testing.T) {
 	missedSeqs := uint64(0)
 	blocks := []simplex.VerifiedBlock{}
 
+	// finalization for the first block
+	bb.triggerNewBlock()
+	block := <-bb.out
+	blocks = append(blocks, block)
+	for _, n := range net.instances {
+		if n.e.ID.Equals(laggingNode.e.ID) {
+			continue
+		}
+		n.storage.waitForBlockCommit(0)
+	}
+
+	net.setAllNodesMessageFilter(denyFinalizationMessages)
 	// normal nodes continue to make progress
-	for i := uint64(0); i < uint64(numNotarizations); i++ {
-		emptyRound := bytes.Equal(simplex.LeaderForRound(nodes, i), laggingNode.E.ID)
+	for i := uint64(1); i < uint64(numNotarizations); i++ {
+		emptyRound := bytes.Equal(simplex.LeaderForRound(nodes, i), laggingNode.e.ID)
 		if emptyRound {
 			testutil.AdvanceWithoutLeader(t, net, bb, epochTimes, i, laggingNode.E.ID)
 			missedSeqs++
@@ -195,32 +207,28 @@ func TestReplicationNotarizations(t *testing.T) {
 			}
 		}
 	}
-	for _, n := range net.Instances() {
-		if n.E.ID.Equals(laggingNode.E.ID) {
+  
+	for _, n := range net.instances {
+		if n.e.ID.Equals(laggingNode.e.ID) {
+			require.Equal(t, uint64(0), n.storage.Height())
+			require.Equal(t, uint64(0), n.e.Metadata().Round)
 			continue
 		}
 
-		// assert metadata
-		require.Equal(t, uint64(numNotarizations), n.E.Metadata().Round)
-		require.Equal(t, uint64(0), n.E.Storage.Height())
+
+		require.Equal(t, uint64(numNotarizations), n.e.Metadata().Round)
+		require.Equal(t, uint64(1), n.e.Storage.Height())
 	}
 
-	net.Connect(laggingNode.E.ID)
-	net.SetAllNodesMessageFilter(testutil.AllowAllMessages)
-	fCert, _ := newFinalizationRecord(t, laggingNode.E.Logger, laggingNode.E.EpochConfig.SignatureAggregator, blocks[0], nodes)
+	net.setAllNodesMessageFilter(allowAllMessages)
+	net.Connect(laggingNode.e.ID)
+	bb.triggerNewBlock()
 
-	// we broadcast from the second node so that node 1 will be able to respond
-	// to the lagging nodes replication request in time
-	net.Instances()[2].E.Comm.Broadcast(&simplex.Message{
-		FinalizationCertificate: &fCert,
-	})
-	// all nodes should have replicated finalization certificates
-	for _, n := range net.Instances() {
-		n.Storage.WaitForBlockCommit(0)
-	}
+	// lagging node should replicate the first finalized block and subsequent notarizations
+	laggingNode.storage.waitForBlockCommit(0)
 
-	for i := 1; i < numNotarizations; i++ {
-		for _, n := range net.Instances() {
+	for i := 1; i < numNotarizations+1; i++ {
+		for _, n := range net.instances {
 			// lagging node wont have a notarization record if it was the leader
 			leader := simplex.LeaderForRound(nodes, uint64(i))
 			if n.E.ID.Equals(leader) && n.E.ID.Equals(nodes[3]) {
@@ -229,6 +237,7 @@ func TestReplicationNotarizations(t *testing.T) {
 			n.Wal.AssertNotarization(uint64(i))
 		}
 	}
+
 }
 
 // TestReplicationEmptyNotarizations ensures a lagging node will properly replicate
@@ -237,6 +246,11 @@ func TestReplicationEmptyNotarizations(t *testing.T) {
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}, {5}, {6}}
 
 	for endRound := uint64(2); endRound <= 2*simplex.DefaultMaxRoundWindow; endRound++ {
+		isLaggingNodeLeader := bytes.Equal(simplex.LeaderForRound(nodes, endRound), nodes[5])
+		if isLaggingNodeLeader {
+			continue
+		}
+
 		testName := fmt.Sprintf("Empty_notarizations_end_round%d", endRound)
 		t.Run(testName, func(t *testing.T) {
 			t.Parallel()
@@ -269,24 +283,24 @@ func onlyAllowEmptyRoundMessages(msg *simplex.Message, _ simplex.NodeID) bool {
 }
 
 func testReplicationEmptyNotarizations(t *testing.T, nodes []simplex.NodeID, endRound uint64) {
-	bb := testutil.NewTestControlledBlockBuilder(t)
-	laggingBb := testutil.NewTestControlledBlockBuilder(t)
-	net := testutil.NewInMemNetwork(t, nodes)
-	newNodeConfig := func(from simplex.NodeID) *testutil.TestNodeConfig {
-		comm := testutil.NewTestComm(from, net, denyFinalizationMessages)
-		return &testutil.TestNodeConfig{
-			Comm:               comm,
-			ReplicationEnabled: true,
+	bb := newTestControlledBlockBuilder(t)
+	laggingBb := newTestControlledBlockBuilder(t)
+	net := newInMemNetwork(t, nodes)
+	newNodeConfig := func(from simplex.NodeID) *testNodeConfig {
+		comm := newTestComm(from, net, allowAllMessages)
+		return &testNodeConfig{
+			comm:               comm,
+			replicationEnabled: true,
 		}
 	}
 
 	startTimes := make([]time.Time, 0, len(nodes))
-	normalNode1 := testutil.NewSimplexNode(t, nodes[0], net, bb, newNodeConfig(nodes[0]))
-	normalNode2 := testutil.NewSimplexNode(t, nodes[1], net, bb, newNodeConfig(nodes[1]))
-	testutil.NewSimplexNode(t, nodes[2], net, bb, newNodeConfig(nodes[2]))
-	testutil.NewSimplexNode(t, nodes[3], net, bb, newNodeConfig(nodes[3]))
-	testutil.NewSimplexNode(t, nodes[4], net, bb, newNodeConfig(nodes[4]))
-	laggingNode := testutil.NewSimplexNode(t, nodes[5], net, laggingBb, newNodeConfig(nodes[5]))
+	newSimplexNode(t, nodes[0], net, bb, newNodeConfig(nodes[0]))
+	newSimplexNode(t, nodes[1], net, bb, newNodeConfig(nodes[1]))
+	newSimplexNode(t, nodes[2], net, bb, newNodeConfig(nodes[2]))
+	newSimplexNode(t, nodes[3], net, bb, newNodeConfig(nodes[3]))
+	newSimplexNode(t, nodes[4], net, bb, newNodeConfig(nodes[4]))
+	laggingNode := newSimplexNode(t, nodes[5], net, laggingBb, newNodeConfig(nodes[5]))
 
 	for _, n := range net.Instances() {
 		require.Equal(t, uint64(0), n.Storage.Height())
@@ -297,13 +311,12 @@ func testReplicationEmptyNotarizations(t *testing.T, nodes []simplex.NodeID, end
 
 	net.Disconnect(laggingNode.E.ID)
 
-	bb.TriggerNewBlock()
-	block := <-bb.Out
-	for _, n := range net.Instances() {
-		if n.E.ID.Equals(laggingNode.E.ID) {
+	bb.triggerNewBlock()
+	for _, n := range net.instances {
+		if n.e.ID.Equals(laggingNode.e.ID) {
 			continue
 		}
-		n.Wal.AssertNotarization(0)
+		n.storage.waitForBlockCommit(0)
 	}
 
 	net.SetAllNodesMessageFilter(onlyAllowEmptyRoundMessages)
@@ -318,36 +331,29 @@ func testReplicationEmptyNotarizations(t *testing.T, nodes []simplex.NodeID, end
 		testutil.AdvanceWithoutLeader(t, net, bb, startTimes, i, laggingNode.E.ID)
 	}
 
-	for _, n := range net.Instances() {
-		if n.E.ID.Equals(laggingNode.E.ID) {
+	for _, n := range net.instances {
+		if n.e.ID.Equals(laggingNode.e.ID) {
+			require.Equal(t, uint64(0), n.storage.Height())
+			require.Equal(t, uint64(0), n.e.Metadata().Round)
 			continue
 		}
 
 		// assert metadata
-		require.Equal(t, uint64(endRound), n.E.Metadata().Round)
-		require.Equal(t, uint64(1), n.E.Metadata().Seq)
-		require.Equal(t, uint64(0), n.E.Storage.Height())
+		require.Equal(t, uint64(endRound), n.e.Metadata().Round)
+		require.Equal(t, uint64(1), n.e.Metadata().Seq)
+		require.Equal(t, uint64(1), n.e.Storage.Height())
 	}
 
-	net.SetAllNodesMessageFilter(testutil.AllowAllMessages)
-	net.Connect(laggingNode.E.ID)
-
-	fCert, _ := newFinalizationRecord(t, laggingNode.E.Logger, laggingNode.E.SignatureAggregator, block, nodes)
-	// we broadcast from the second node so that node 1 will be able to respond
-	// to the lagging nodes request
-	normalNode2.E.Comm.SendMessage(&simplex.Message{
-		FinalizationCertificate: &fCert,
-	}, normalNode1.E.ID)
-
-	for _, n := range net.Instances() {
-		n.Storage.WaitForBlockCommit(0)
+	net.setAllNodesMessageFilter(allowAllMessages)
+	net.Connect(laggingNode.e.ID)
+	bb.triggerNewBlock()
+	for _, n := range net.instances {
+		n.storage.waitForBlockCommit(1)
 	}
 
-	laggingNode.Wal.AssertNotarization(endRound - 1)
-
-	require.Equal(t, uint64(1), laggingNode.Storage.Height())
-	require.Equal(t, endRound, laggingNode.E.Metadata().Round)
-	require.Equal(t, uint64(1), laggingNode.E.Metadata().Seq)
+	require.Equal(t, uint64(2), laggingNode.storage.Height())
+	require.Equal(t, uint64(endRound+1), laggingNode.e.Metadata().Round)
+	require.Equal(t, uint64(2), laggingNode.e.Metadata().Seq)
 }
 
 // TestReplicationStartsBeforeCurrentRound tests the replication process of a node that
@@ -581,7 +587,7 @@ func onlyAllowBlockProposalsAndNotarizations(msg *simplex.Message, to simplex.No
 }
 
 func TestReplicationNotarizationWithoutFinalizations(t *testing.T) {
-	nodes := []simplex.NodeID{{1}, {2}, {3}, []byte("lagging")}
+	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
 
 	for numBlocks := uint64(1); numBlocks <= 3*simplex.DefaultMaxRoundWindow; numBlocks++ {
 		// lagging node cannot be the leader after node disconnects
@@ -594,23 +600,22 @@ func TestReplicationNotarizationWithoutFinalizations(t *testing.T) {
 
 		t.Run(testName, func(t *testing.T) {
 			t.Parallel()
-			testReplicationNotarizationWithoutFinalizations(t, numBlocks)
+			testReplicationNotarizationWithoutFinalizations(t, numBlocks, nodes)
 		})
 	}
 }
 
 // TestReplicationNotarizationWithoutFinalizations tests that a lagging node will replicate
 // blocks that have notarizations but no finalizations.
-func testReplicationNotarizationWithoutFinalizations(t *testing.T, numBlocks uint64) {
-	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
-	bb := testutil.NewTestControlledBlockBuilder(t)
-	net := testutil.NewInMemNetwork(t, nodes)
+func testReplicationNotarizationWithoutFinalizations(t *testing.T, numBlocks uint64, nodes []simplex.NodeID) {
+	bb := newTestControlledBlockBuilder(t)
+	net := newInMemNetwork(t, nodes)
 
-	nodeConfig := func(from simplex.NodeID) *testutil.TestNodeConfig {
-		comm := testutil.NewTestComm(from, net, onlyAllowBlockProposalsAndNotarizations)
-		return &testutil.TestNodeConfig{
-			Comm:               comm,
-			ReplicationEnabled: true,
+	nodeConfig := func(from simplex.NodeID) *testNodeConfig {
+		comm := newTestComm(from, net, onlyAllowBlockProposalsAndNotarizations)
+		return &testNodeConfig{
+			comm:               comm,
+			replicationEnabled: true,
 		}
 	}
 
@@ -628,9 +633,31 @@ func testReplicationNotarizationWithoutFinalizations(t *testing.T, numBlocks uin
 
 	// normal nodes continue to make progress
 	for i := uint64(0); i < uint64(numBlocks); i++ {
-		bb.TriggerNewBlock()
-		for _, n := range net.Instances()[:3] {
-			n.Storage.WaitForBlockCommit(uint64(i))
+		bb.triggerNewBlock()
+		for _, n := range net.instances[:3] {
+			n.storage.waitForBlockCommit(uint64(i))
+		}
+
+	}
+
+	laggingNode.wal.assertNotarization(numBlocks - 1)
+	require.Equal(t, uint64(0), laggingNode.storage.Height())
+	require.Equal(t, uint64(numBlocks), laggingNode.e.Metadata().Round)
+
+	net.setAllNodesMessageFilter(allowAllMessages)
+	bb.triggerNewBlock()
+	for _, n := range net.instances {
+		n.storage.waitForBlockCommit(uint64(numBlocks))
+	}
+}
+
+func waitToEnterRound(t *testing.T, n *testNode, round uint64) {
+	timeout := time.NewTimer(time.Minute)
+	defer timeout.Stop()
+
+	for {
+		if n.e.Metadata().Round >= round {
+			return
 		}
 
 	}
