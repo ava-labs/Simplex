@@ -83,7 +83,7 @@ type Epoch struct {
 	eligibleNodeIDs                map[string]struct{}
 	quorumSize                     int
 	rounds                         map[uint64]*Round
-	emptyVotes                     map[uint64]*EmptyVoteSet
+	emptyVotes                      map[uint64]*EmptyVoteSet
 	futureMessages                 messagesFromNode
 	round                          uint64 // The current round we notarize
 	maxRoundWindow                 uint64
