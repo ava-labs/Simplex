@@ -141,7 +141,7 @@ func (as *Scheduler) Schedule(f func() Digest, prev Digest, ready bool) {
 }
 
 type Task struct {
-	F     func() Digest
+	F      func() Digest
 	Parent Digest
 }
 

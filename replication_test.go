@@ -207,14 +207,13 @@ func TestReplicationNotarizations(t *testing.T) {
 			}
 		}
 	}
-  
+
 	for _, n := range net.Instances() {
 		if n.E.ID.Equals(laggingNode.E.ID) {
 			require.Equal(t, uint64(0), n.Storage.Height())
 			require.Equal(t, uint64(0), n.E.Metadata().Round)
 			continue
 		}
-
 
 		require.Equal(t, uint64(numNotarizations), n.E.Metadata().Round)
 		require.Equal(t, uint64(1), n.E.Storage.Height())
@@ -419,7 +418,7 @@ func TestReplicationFutureFinalizationCertificate(t *testing.T) {
 	quorum := simplex.Quorum(len(nodes))
 	signatureAggregator := &testutil.TestSignatureAggregator{}
 	conf, _, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[1], testutil.NoopComm(nodes), bb)
-	
+
 	e, err := simplex.NewEpoch(conf)
 	require.NoError(t, err)
 

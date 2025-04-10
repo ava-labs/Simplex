@@ -52,6 +52,7 @@ type MessageFilter func(*simplex.Message, simplex.NodeID) bool
 func AllowAllMessages(*simplex.Message, simplex.NodeID) bool {
 	return true
 }
+
 type testComm struct {
 	from          simplex.NodeID
 	net           *inMemNetwork

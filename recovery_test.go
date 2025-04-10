@@ -23,7 +23,7 @@ func TestRecoverFromWALProposed(t *testing.T) {
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	quorum := Quorum(len(nodes))
 
-	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb) 
+	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
@@ -98,7 +98,7 @@ func TestRecoverFromNotarization(t *testing.T) {
 	ctx := context.Background()
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	quorum := Quorum(len(nodes))
-	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb) 
+	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
@@ -147,7 +147,7 @@ func TestRecoverFromWalWithStorage(t *testing.T) {
 	ctx := context.Background()
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	quorum := Quorum(len(nodes))
-	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb) 
+	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
 
 	storage.Index(testutil.NewTestBlock(ProtocolMetadata{Seq: 0, Round: 0, Epoch: 0}), FinalizationCertificate{})
 	e, err := NewEpoch(conf)
@@ -199,7 +199,7 @@ func TestWalCreatedProperly(t *testing.T) {
 	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1)}
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	quorum := Quorum(len(nodes))
-	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb) 
+	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
@@ -251,7 +251,7 @@ func TestWalCreatedProperly(t *testing.T) {
 func TestWalWritesBlockRecord(t *testing.T) {
 	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1)}
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
-	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb) 
+	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
@@ -298,7 +298,7 @@ func TestWalWritesFinalizationCert(t *testing.T) {
 	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1)}
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	quorum := Quorum(len(nodes))
-	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb) 
+	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
@@ -385,8 +385,8 @@ func TestRecoverFromMultipleNotarizations(t *testing.T) {
 	ctx := context.Background()
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	quorum := Quorum(len(nodes))
-	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb) 
-	
+	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
+
 	// Create first block and write to WAL
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
@@ -445,7 +445,7 @@ func TestRecoveryWithoutNotarization(t *testing.T) {
 	ctx := context.Background()
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	quorum := Quorum(len(nodes))
-	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb) 
+	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
 
 	protocolMetadata := ProtocolMetadata{Seq: 0, Round: 0, Epoch: 0}
 	firstBlock, ok := bb.BuildBlock(ctx, protocolMetadata)
@@ -494,8 +494,7 @@ func TestEpochCorrectlyInitializesMetadataFromStorage(t *testing.T) {
 	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1)}
 
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
-	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb) 
-	
+	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
 
 	block := testutil.NewTestBlock(ProtocolMetadata{Seq: 0, Round: 0, Epoch: 0})
 	conf.Storage.Index(block, FinalizationCertificate{})
@@ -519,7 +518,7 @@ func TestRecoveryAsLeader(t *testing.T) {
 		storage.Index(finalizedBlock.VerifiedBlock, finalizedBlock.FCert)
 	}
 
-	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb) 
+	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)

@@ -39,14 +39,14 @@ func TestQuorumRoundMalformed(t *testing.T) {
 		}, {
 			name: "block and fcert",
 			qr: simplex.QuorumRound{
-				Block:        &testutil.TestBlock{},
+				Block: &testutil.TestBlock{},
 				FCert: &simplex.FinalizationCertificate{},
 			},
 			expectedErr: false,
 		}, {
 			name: "block and empty notarization",
 			qr: simplex.QuorumRound{
-				Block:        &testutil.TestBlock{},
+				Block:             &testutil.TestBlock{},
 				EmptyNotarization: &simplex.EmptyNotarization{},
 			},
 			expectedErr: true,
@@ -77,7 +77,7 @@ func TestQuorumRoundMalformed(t *testing.T) {
 		{
 			name: "just block",
 			qr: simplex.QuorumRound{
-				Block:        &testutil.TestBlock{},
+				Block: &testutil.TestBlock{},
 			},
 			expectedErr: true,
 		},

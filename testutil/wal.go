@@ -42,7 +42,7 @@ func (tw *TestWAL) Clone() *TestWAL {
 	return wal
 }
 
-func (tw *TestWAL) ReadAll () ([][]byte, error) {
+func (tw *TestWAL) ReadAll() ([][]byte, error) {
 	tw.lock.Lock()
 	defer tw.lock.Unlock()
 

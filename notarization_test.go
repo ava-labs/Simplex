@@ -17,7 +17,7 @@ var errorSigAggregation = errors.New("signature error")
 
 func TestNewNotarization(t *testing.T) {
 	l := testutil.MakeLogger(t, 1)
-	testBlock :=  &testutil.TestBlock{}
+	testBlock := &testutil.TestBlock{}
 	signer := &testutil.TestSigner{}
 	tests := []struct {
 		name                 string
