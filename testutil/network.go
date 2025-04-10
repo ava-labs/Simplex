@@ -42,7 +42,7 @@ func (n *inMemNetwork) addNode(node *testNode) {
 	n.instances = append(n.instances, node)
 }
 
-func (n *inMemNetwork) SetAllNodesMessageFilter(filter messageFilter) {
+func (n *inMemNetwork) SetAllNodesMessageFilter(filter MessageFilter) {
 	for _, instance := range n.instances {
 		instance.E.Comm.(*testComm).setFilter(filter)
 	}

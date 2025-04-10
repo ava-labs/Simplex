@@ -46,7 +46,7 @@ func (b *listnerComm) SendMessage(msg *simplex.Message, id simplex.NodeID) {
 
 // messageFilter defines a function that filters
 // certain messages from being sent or broadcasted.
-type messageFilter func(*simplex.Message, simplex.NodeID) bool
+type MessageFilter func(*simplex.Message, simplex.NodeID) bool
 
 // allowAllMessages allows every message to be sent
 func AllowAllMessages(*simplex.Message, simplex.NodeID) bool {
@@ -55,11 +55,11 @@ func AllowAllMessages(*simplex.Message, simplex.NodeID) bool {
 type testComm struct {
 	from          simplex.NodeID
 	net           *inMemNetwork
-	messageFilter messageFilter
+	messageFilter MessageFilter
 	lock          sync.RWMutex
 }
 
-func NewTestComm(from simplex.NodeID, net *inMemNetwork, messageFilter messageFilter) *testComm {
+func NewTestComm(from simplex.NodeID, net *inMemNetwork, messageFilter MessageFilter) *testComm {
 	return &testComm{
 		from:          from,
 		net:           net,
@@ -94,7 +94,7 @@ func (c *testComm) SendMessage(msg *simplex.Message, destination simplex.NodeID)
 	}
 }
 
-func (c *testComm) setFilter(filter messageFilter) {
+func (c *testComm) setFilter(filter MessageFilter) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 

@@ -9,18 +9,18 @@ import (
 	"go.uber.org/zap"
 )
 
-type scheduler struct {
+type Scheduler struct {
 	logger  Logger
 	lock    sync.Mutex
 	signal  sync.Cond
 	pending dependencies
-	ready   []task
+	ready   []Task
 	close   bool
 }
 
-func NewScheduler(logger Logger) *scheduler {
-	var as scheduler
-	as.pending = newDependencies()
+func NewScheduler(logger Logger) *Scheduler {
+	var as Scheduler
+	as.pending = NewDependencies()
 	as.signal = sync.Cond{L: &as.lock}
 	as.logger = logger
 
@@ -29,14 +29,14 @@ func NewScheduler(logger Logger) *scheduler {
 	return &as
 }
 
-func (as *scheduler) Size() int {
+func (as *Scheduler) Size() int {
 	as.lock.Lock()
 	defer as.lock.Unlock()
 
 	return as.pending.Size() + len(as.ready)
 }
 
-func (as *scheduler) Close() {
+func (as *Scheduler) Close() {
 	as.lock.Lock()
 	defer as.lock.Unlock()
 
@@ -84,7 +84,7 @@ and A is not scheduled yet because scheduling of tasks is done under a lock. The
 
 */
 
-func (as *scheduler) run() {
+func (as *Scheduler) run() {
 	as.lock.Lock()
 	defer as.lock.Unlock()
 
@@ -98,13 +98,13 @@ func (as *scheduler) run() {
 		}
 
 		taskToRun := as.ready[0]
-		as.ready[0] = task{}    // Cleanup any object references reachable from the closure of the task
+		as.ready[0] = Task{}    // Cleanup any object references reachable from the closure of the task
 		as.ready = as.ready[1:] // (4)
 		numReadyTasks := len(as.ready)
 
 		as.lock.Unlock() // (5)
 		as.logger.Debug("Running task", zap.Int("remaining ready tasks", numReadyTasks))
-		id := taskToRun.f() // (6)
+		id := taskToRun.F() // (6)
 		as.logger.Debug("Task finished execution", zap.Stringer("taskID", id))
 		as.lock.Lock()
 
@@ -114,7 +114,7 @@ func (as *scheduler) run() {
 	}
 }
 
-func (as *scheduler) Schedule(f func() Digest, prev Digest, ready bool) {
+func (as *Scheduler) Schedule(f func() Digest, prev Digest, ready bool) {
 	as.lock.Lock()
 	defer as.lock.Unlock()
 
@@ -122,9 +122,9 @@ func (as *scheduler) Schedule(f func() Digest, prev Digest, ready bool) {
 		return
 	}
 
-	task := task{
-		f:      f,
-		parent: prev,
+	task := Task{
+		F:      f,
+		Parent: prev,
 	}
 
 	if !ready {
@@ -140,18 +140,18 @@ func (as *scheduler) Schedule(f func() Digest, prev Digest, ready bool) {
 	as.signal.Broadcast() // (11)
 }
 
-type task struct {
-	f      func() Digest
-	parent Digest
+type Task struct {
+	F     func() Digest
+	Parent Digest
 }
 
 type dependencies struct {
-	dependsOn map[Digest][]task // values depend on key.
+	dependsOn map[Digest][]Task // values depend on key.
 }
 
-func newDependencies() dependencies {
+func NewDependencies() dependencies {
 	return dependencies{
-		dependsOn: make(map[Digest][]task),
+		dependsOn: make(map[Digest][]Task),
 	}
 }
 
@@ -159,12 +159,12 @@ func (d *dependencies) Size() int {
 	return len(d.dependsOn)
 }
 
-func (d *dependencies) Insert(t task) {
-	dependency := t.parent
+func (d *dependencies) Insert(t Task) {
+	dependency := t.Parent
 	d.dependsOn[dependency] = append(d.dependsOn[dependency], t)
 }
 
-func (t *dependencies) Remove(id Digest) []task {
+func (t *dependencies) Remove(id Digest) []Task {
 	dependents := t.dependsOn[id]
 	delete(t.dependsOn, id)
 	return dependents

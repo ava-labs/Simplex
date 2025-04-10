@@ -73,7 +73,7 @@ type Epoch struct {
 	EpochConfig
 	// Runtime
 	oneTimeVerifier                *oneTimeVerifier
-	sched                          *scheduler
+	sched                          *Scheduler
 	lock                           sync.Mutex
 	lastBlock                      *VerifiedFinalizedBlock // latest block & fcert commited
 	canReceiveMessages             atomic.Bool
