@@ -6,17 +6,15 @@ import (
 	"time"
 )
 
-type ID string
-
 type TimeoutTask struct {
-	ID      ID
+	ID      string
 	Task    func()
 	Timeout time.Time
 
 	index int // for heap to work more efficiently
 }
 
-func NewTimeoutTask(ID ID, task func(), timeout time.Time) *TimeoutTask {
+func NewTimeoutTask(ID string, task func(), timeout time.Time) *TimeoutTask {
 	return &TimeoutTask{
 		ID:      ID,
 		Task:    task,
@@ -27,7 +25,7 @@ func NewTimeoutTask(ID ID, task func(), timeout time.Time) *TimeoutTask {
 type TimeoutHandler struct {
 	lock sync.Mutex
 
-	tasks map[ID]*TimeoutTask
+	tasks map[string]*TimeoutTask
 	heap  TaskHeap
 	now   time.Time
 }
@@ -35,7 +33,7 @@ type TimeoutHandler struct {
 func NewTimeoutHandler(startTime time.Time) *TimeoutHandler {
 	return &TimeoutHandler{
 		now:   startTime,
-		tasks: make(map[ID]*TimeoutTask),
+		tasks: make(map[string]*TimeoutTask),
 		heap:  TaskHeap{},
 	}
 }
@@ -63,7 +61,7 @@ func (t *TimeoutHandler) Tick(now time.Time) {
 
 		heap.Pop(&t.heap)
 		delete(t.tasks, next.ID)
-		go next.Task()
+		next.Task()
 	}
 }
 
@@ -81,7 +79,7 @@ func (t *TimeoutHandler) AddTask(task *TimeoutTask) {
 	heap.Push(&t.heap, task)
 }
 
-func (t *TimeoutHandler) RemoveTask(ID ID) {
+func (t *TimeoutHandler) RemoveTask(ID string) {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 

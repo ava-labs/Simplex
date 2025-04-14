@@ -43,10 +43,6 @@ func TestRemoveTask(t *testing.T) {
 	handler.RemoveTask("task2")
 	handler.Tick(start.Add(2 * time.Second))
 	require.False(t, ran)
-
-	// since we run tasks in different go routine
-	time.Sleep(10 * time.Millisecond)
-	require.False(t, ran)
 }
 
 func TestTaskOrder(t *testing.T) {
@@ -87,13 +83,11 @@ func TestTaskOrder(t *testing.T) {
 	})
 
 	handler.Tick(start.Add(3 * time.Second))
-	time.Sleep(20 * time.Millisecond)
 
 	mu.Lock()
 	defer mu.Unlock()
 
 	require.Equal(t, 2, len(results))
-	// they may not be in the same order due to tasks running in ther own goroutine
 	require.Contains(t, results, "first")
 	require.Contains(t, results, "second")
 }
@@ -146,7 +140,6 @@ func TestAddTasksOutOfOrder(t *testing.T) {
 	})
 
 	handler.Tick(start.Add(1 * time.Second))
-	time.Sleep(10 * time.Millisecond)
 
 	mu.Lock()
 	require.Equal(t, 1, len(results))
@@ -154,7 +147,6 @@ func TestAddTasksOutOfOrder(t *testing.T) {
 	mu.Unlock()
 
 	handler.Tick(start.Add(3 * time.Second))
-	time.Sleep(10 * time.Millisecond)
 
 	mu.Lock()
 	require.Equal(t, 3, len(results))
@@ -163,8 +155,6 @@ func TestAddTasksOutOfOrder(t *testing.T) {
 	mu.Unlock()
 
 	handler.Tick(start.Add(4 * time.Second))
-	time.Sleep(10 * time.Millisecond)
-
 	mu.Lock()
 	require.Equal(t, 4, len(results))
 	require.Contains(t, results, "fourth")

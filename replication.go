@@ -159,9 +159,9 @@ func (r *ReplicationState) sendRequestToNode(start uint64, end uint64, nodes []N
 	}
 	msg := &Message{ReplicationRequest: request}
 
-	task, id := r.createReplicationTimeoutTask(start, end, nodes, index)
+	task := r.createReplicationTimeoutTask(start, end, nodes, index)
 	timeoutTask := &TimeoutTask{
-		ID:      id,
+		ID:      r.getUniqueTimeoutID(start, end, nodes[index]),
 		Task:    task,
 		Timeout: r.handler.GetTime().Add(DefaultReplicationRequestTimeout),
 	}
@@ -171,14 +171,14 @@ func (r *ReplicationState) sendRequestToNode(start uint64, end uint64, nodes []N
 	r.comm.SendMessage(msg, nodes[index])
 }
 
-func (r *ReplicationState) createReplicationTimeoutTask(start, end uint64, nodes []NodeID, index int) (func(), ID) {
+func (r *ReplicationState) createReplicationTimeoutTask(start, end uint64, nodes []NodeID, index int) func() {
 	return func() {
 		r.sendRequestToNode(start, end, nodes, (index+1)%len(nodes))
-	}, r.createUniqueTimeoutID(start, end, nodes[index])
+	}
 }
 
-func (r *ReplicationState) createUniqueTimeoutID(start, end uint64, node NodeID) ID {
-	return ID(fmt.Sprintf("timeout_%d_to_%d_node_%s", start, end, node))
+func (r *ReplicationState) getUniqueTimeoutID(start, end uint64, node NodeID) string {
+	return fmt.Sprintf("timeout_%d_to_%d_node_%s", start, end, node)
 }
 
 func (r *ReplicationState) receivedReplicationResponse(data []QuorumRound, node NodeID) {
@@ -195,7 +195,7 @@ func (r *ReplicationState) receivedReplicationResponse(data []QuorumRound, node 
 		}
 	}
 
-	id := r.createUniqueTimeoutID(min, max, node)
+	id := r.getUniqueTimeoutID(min, max, node)
 	r.handler.RemoveTask(id)
 }
 
