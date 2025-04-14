@@ -9,11 +9,19 @@ import (
 type ID string
 
 type TimeoutTask struct {
-	id ID
-	task func()
-	timeout time.Time
+	ID ID
+	Task func()
+	Timeout time.Time
 
 	index int // for heap to work more efficiently
+}
+
+func NewTimeoutTask(ID ID, task func(), timeout time.Time) *TimeoutTask {
+	return &TimeoutTask{
+		ID: ID,
+		Task: task,
+		Timeout: timeout,
+	}
 }
 
 type TimeoutHandler struct {
@@ -42,13 +50,13 @@ func (t *TimeoutHandler) Tick(now time.Time) {
 	// go through the heap executing relevant tasks
 	for t.heap.Len() > 0 {
 		next := t.heap[0]
-		if next.timeout.After(t.now) {
+		if next.Timeout.After(t.now) {
 			break
 		}
 
 		heap.Pop(&t.heap)
-		delete(t.tasks, next.id)
-		go next.task()
+		delete(t.tasks, next.ID)
+		go next.Task()
 	}
 }
 
@@ -57,38 +65,35 @@ func (t *TimeoutHandler) AddTask(task *TimeoutTask) {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 
-	if _, ok := t.tasks[task.id]; ok {
+	if _, ok := t.tasks[task.ID]; ok {
 		// TODO: log warn instead of return
 		return
 	}
 
-	t.tasks[task.id] = task
+	t.tasks[task.ID] = task
 	heap.Push(&t.heap, task)
 }
 
-func (t *TimeoutHandler) RemoveTask(id ID) {
+func (t *TimeoutHandler) RemoveTask(ID ID) {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 
-	if _, ok := t.tasks[id]; !ok {
+	if _, ok := t.tasks[ID]; !ok {
 		return
 	}
 
 	// find the task using the task map
 	// remove it from the heap using the index
-	heap.Remove(&t.heap, t.tasks[id].index)
-	delete(t.tasks, id)
+	heap.Remove(&t.heap, t.tasks[ID].index)
+	delete(t.tasks, ID)
 }
-
-
-
 
 // ----------------------------------------------------------------------
 type TaskHeap []*TimeoutTask
 
 func (h *TaskHeap) Len() int {return len(*h)}
 // Less returns if the task at index [i] has a lower timeout than the task at index [j]
-func (h *TaskHeap) Less(i, j int) bool { return (*h)[i].timeout.Before((*h)[j].timeout) }
+func (h *TaskHeap) Less(i, j int) bool { return (*h)[i].Timeout.Before((*h)[j].Timeout) }
 
 // Swap swaps the values at index [i] and [j]
 func (h *TaskHeap) Swap(i, j int) { 

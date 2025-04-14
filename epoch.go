@@ -25,6 +25,7 @@ const (
 	DefaultMaxPendingBlocks = 20
 
 	DefaultMaxProposalWaitTime = 5 * time.Second
+	DefaultReplicationRequestTimeout = 5 * time.Second
 )
 
 type EmptyVoteSet struct {
@@ -105,6 +106,7 @@ func NewEpoch(conf EpochConfig) (*Epoch, error) {
 // AdvanceTime hints the engine that the given amount of time has passed.
 func (e *Epoch) AdvanceTime(t time.Time) {
 	e.monitor.AdvanceTime(t)
+	e.replicationState.Tick(t)
 }
 
 // HandleMessage notifies the engine about a reception of a message.
@@ -173,7 +175,7 @@ func (e *Epoch) init() error {
 	e.maxPendingBlocks = DefaultMaxPendingBlocks
 	e.eligibleNodeIDs = make(map[string]struct{}, len(e.nodes))
 	e.futureMessages = make(messagesFromNode, len(e.nodes))
-	e.replicationState = NewReplicationState(e.Logger, e.Comm, e.ID, e.maxRoundWindow, e.ReplicationEnabled)
+	e.replicationState = NewReplicationState(e.Logger, e.Comm, e.ID, e.maxRoundWindow, e.ReplicationEnabled, e.StartTime)
 
 	for _, node := range e.nodes {
 		e.futureMessages[string(node)] = make(map[uint64]*messagesForRound)

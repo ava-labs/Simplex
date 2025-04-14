@@ -6,6 +6,7 @@ package simplex
 import (
 	"fmt"
 	"math"
+	"time"
 
 	"go.uber.org/zap"
 )
@@ -55,9 +56,12 @@ type ReplicationState struct {
 
 	// request iterator
 	requestIterator int
+
+	now time.Time
+	handler TimeoutHandler
 }
 
-func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundWindow uint64, enabled bool) *ReplicationState {
+func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundWindow uint64, enabled bool, start time.Time) *ReplicationState {
 	return &ReplicationState{
 		logger:               logger,
 		enabled:              enabled,
@@ -65,7 +69,13 @@ func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundW
 		id:                   id,
 		maxRoundWindow:       maxRoundWindow,
 		receivedQuorumRounds: make(map[uint64]QuorumRound),
+		now: start,
 	}
+}
+
+func (r *ReplicationState) Tick(now time.Time) {
+	r.now = now
+	r.handler.Tick(now)
 }
 
 // isReplicationComplete returns true if we have finished the replication process.
@@ -122,16 +132,16 @@ func (r *ReplicationState) sendReplicationRequests(start uint64, end uint64) {
 			nodeEnd = end
 		}
 
-		r.sendRequestToNode(nodeStart, nodeEnd, nodes[nodeIndex])
+		r.sendRequestToNode(nodeStart, nodeEnd, nodes, nodeIndex)
 	}
 
 	// next time we send requests, we start with a different permutation
 	r.requestIterator++
 }
 
-func (r *ReplicationState) sendRequestToNode(start uint64, end uint64, node NodeID) {
+func (r *ReplicationState) sendRequestToNode(start uint64, end uint64, nodes []NodeID, index int) {
 	r.logger.Debug("Requesting missing finalization certificates ",
-		zap.Stringer("from", node),
+		zap.Stringer("from", nodes[index]),
 		zap.Uint64("start", start),
 		zap.Uint64("end", end))
 	seqs := make([]uint64, (end+1)-start)
@@ -144,8 +154,25 @@ func (r *ReplicationState) sendRequestToNode(start uint64, end uint64, node Node
 	}
 	msg := &Message{ReplicationRequest: request}
 
+	task, id := r.createReplicationTimeoutTask(start, end, nodes, index)
+	timeoutTask := &TimeoutTask{
+		ID: id,
+		Task: task,
+		Timeout: r.now.Add(DefaultReplicationRequestTimeout),
+	}
+	r.handler.AddTask(timeoutTask)
 	r.lastSequenceRequested = end
-	r.comm.SendMessage(msg, node)
+	r.comm.SendMessage(msg, nodes[index])
+}
+
+func (r *ReplicationState) createReplicationTimeoutTask(start, end uint64, nodes []NodeID, index int) (func (), ID) {
+	return func() {
+		r.sendRequestToNode(start, end, nodes, (index + 1) % len(nodes))
+	}, r.createUniqueTimeoutID(start, end, nodes, index)
+}
+
+func (r *ReplicationState) createUniqueTimeoutID(start, end uint64, nodes []NodeID, index int) ID {
+	return ID(fmt.Sprintf("timeout_%d_to_%d_nodes_%s_index_%d", start, end, NodeIDs(nodes), index))
 }
 
 func (r *ReplicationState) replicateBlocks(fCert *FinalizationCertificate, nextSeqToCommit uint64) {
