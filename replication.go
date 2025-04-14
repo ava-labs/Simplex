@@ -70,12 +70,13 @@ func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundW
 		maxRoundWindow:       maxRoundWindow,
 		receivedQuorumRounds: make(map[uint64]QuorumRound),
 		now:                  start,
+		handler: *NewTimeoutHandler(start),
 	}
 }
 
 func (r *ReplicationState) AdvanceTime(now time.Time) {
-	// r.now = now
-	// r.handler.Tick(now)
+	r.now = now
+	r.handler.Tick(now)
 }
 
 // isReplicationComplete returns true if we have finished the replication process.
