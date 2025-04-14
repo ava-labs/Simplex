@@ -39,7 +39,7 @@ func NewTimeoutHandler(log Logger, startTime time.Time) *TimeoutHandler {
 		now:   startTime,
 		tasks: make(map[string]*TimeoutTask),
 		heap:  TaskHeap{},
-		log: log,
+		log:   log,
 	}
 }
 
