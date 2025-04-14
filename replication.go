@@ -70,7 +70,7 @@ func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundW
 		maxRoundWindow:       maxRoundWindow,
 		receivedQuorumRounds: make(map[uint64]QuorumRound),
 		now:                  start,
-		handler: *NewTimeoutHandler(start),
+		handler:              *NewTimeoutHandler(start),
 	}
 }
 

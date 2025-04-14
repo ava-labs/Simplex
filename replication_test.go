@@ -41,7 +41,7 @@ func testReplication(t *testing.T, startSeq uint64, nodes []simplex.NodeID) {
 	bb := newTestControlledBlockBuilder(t)
 	net := newInMemNetwork(t, nodes)
 
-	// initiate a network with 4 nodes. one node is behind by 8 blocks
+	// initiate a network with 4 nodes. one node is behind by startSeq blocks
 	storageData := createBlocks(t, nodes, &bb.testBlockBuilder, startSeq)
 	testEpochConfig := &testNodeConfig{
 		initialStorage:     storageData,
