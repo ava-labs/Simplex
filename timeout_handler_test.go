@@ -2,6 +2,7 @@ package simplex_test
 
 import (
 	"simplex"
+	"simplex/testutil"
 	"sync"
 	"testing"
 	"time"
@@ -11,7 +12,8 @@ import (
 
 func TestAddAndRunTask(t *testing.T) {
 	start := time.Now()
-	handler := simplex.NewTimeoutHandler(start)
+	l := testutil.MakeLogger(t, 1)
+	handler := simplex.NewTimeoutHandler(l, start)
 
 	sent := make(chan struct{}, 1)
 
@@ -28,7 +30,8 @@ func TestAddAndRunTask(t *testing.T) {
 
 func TestRemoveTask(t *testing.T) {
 	start := time.Now()
-	handler := simplex.NewTimeoutHandler(start)
+	l := testutil.MakeLogger(t, 1)
+	handler := simplex.NewTimeoutHandler(l, start)
 
 	var ran bool
 	task := &simplex.TimeoutTask{
@@ -47,7 +50,8 @@ func TestRemoveTask(t *testing.T) {
 
 func TestTaskOrder(t *testing.T) {
 	start := time.Now()
-	handler := simplex.NewTimeoutHandler(start)
+	l := testutil.MakeLogger(t, 1)
+	handler := simplex.NewTimeoutHandler(l, start)
 
 	var mu sync.Mutex
 	results := []string{}
@@ -94,7 +98,8 @@ func TestTaskOrder(t *testing.T) {
 
 func TestAddTasksOutOfOrder(t *testing.T) {
 	start := time.Now()
-	handler := simplex.NewTimeoutHandler(start)
+	l := testutil.MakeLogger(t, 1)
+	handler := simplex.NewTimeoutHandler(l, start)
 
 	var mu sync.Mutex
 	results := []string{}

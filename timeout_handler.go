@@ -4,6 +4,8 @@ import (
 	"container/heap"
 	"sync"
 	"time"
+
+	"go.uber.org/zap"
 )
 
 type TimeoutTask struct {
@@ -28,13 +30,16 @@ type TimeoutHandler struct {
 	tasks map[string]*TimeoutTask
 	heap  TaskHeap
 	now   time.Time
+
+	log Logger
 }
 
-func NewTimeoutHandler(startTime time.Time) *TimeoutHandler {
+func NewTimeoutHandler(log Logger, startTime time.Time) *TimeoutHandler {
 	return &TimeoutHandler{
 		now:   startTime,
 		tasks: make(map[string]*TimeoutTask),
 		heap:  TaskHeap{},
+		log: log,
 	}
 }
 
@@ -68,6 +73,7 @@ func (t *TimeoutHandler) Tick(now time.Time) {
 		heap.Pop(&t.heap)
 		delete(t.tasks, next.ID)
 		t.lock.Unlock()
+		t.log.Debug("Executing timeout task", zap.String("taskid", next.ID))
 		next.Task()
 	}
 }
@@ -83,6 +89,7 @@ func (t *TimeoutHandler) AddTask(task *TimeoutTask) {
 	}
 
 	t.tasks[task.ID] = task
+	t.log.Debug("Adding timeout task", zap.String("taskid", task.ID))
 	heap.Push(&t.heap, task)
 }
 
@@ -96,6 +103,7 @@ func (t *TimeoutHandler) RemoveTask(ID string) {
 
 	// find the task using the task map
 	// remove it from the heap using the index
+	t.log.Debug("Removing timeout task", zap.String("taskid", ID))
 	heap.Remove(&t.heap, t.tasks[ID].index)
 	delete(t.tasks, ID)
 }
