@@ -2,6 +2,7 @@ package simplex
 
 import (
 	"container/heap"
+	"sync"
 	"time"
 )
 
@@ -22,6 +23,8 @@ func NewTimeoutTask(ID string, task func(), timeout time.Time) *TimeoutTask {
 }
 
 type TimeoutHandler struct {
+	lock sync.Mutex
+
 	tasks map[string]*TimeoutTask
 	heap  TaskHeap
 	now   time.Time
@@ -36,27 +39,43 @@ func NewTimeoutHandler(startTime time.Time) *TimeoutHandler {
 }
 
 func (t *TimeoutHandler) GetTime() time.Time {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+
 	return t.now
 }
 
 func (t *TimeoutHandler) Tick(now time.Time) {
+	t.lock.Lock()
 	// update the time of the handler
 	t.now = now
+	t.lock.Unlock()
 
 	// go through the heap executing relevant tasks
-	for t.heap.Len() > 0 {
+	for {
+		t.lock.Lock()
+		if t.heap.Len() == 0 {
+			t.lock.Unlock()
+			break
+		}
+
 		next := t.heap[0]
 		if next.Timeout.After(t.now) {
+			t.lock.Unlock()
 			break
 		}
 
 		heap.Pop(&t.heap)
 		delete(t.tasks, next.ID)
+		t.lock.Unlock()
 		next.Task()
 	}
 }
 
 func (t *TimeoutHandler) AddTask(task *TimeoutTask) {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+
 	// adds a task to the heap and the tasks map
 	if _, ok := t.tasks[task.ID]; ok {
 		// TODO: log warn instead of return
@@ -68,6 +87,9 @@ func (t *TimeoutHandler) AddTask(task *TimeoutTask) {
 }
 
 func (t *TimeoutHandler) RemoveTask(ID string) {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+
 	if _, ok := t.tasks[ID]; !ok {
 		return
 	}
