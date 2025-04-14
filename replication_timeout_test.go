@@ -65,20 +65,20 @@ func TestReplicationRequestTimeout(t *testing.T) {
 	laggingNode.storage.waitForBlockCommit(uint64(startSeq))
 }
 
-type TestMessageFilter struct {
+type testTimeoutMessageFilter struct {
 	t *testing.T
 
-	replicationRequest chan struct{}
+	replicationResponses chan struct{}
 }
 
-func (m *TestMessageFilter) failOnReplicationRequest(msg *simplex.Message, from simplex.NodeID) bool {
+func (m *testTimeoutMessageFilter) failOnReplicationRequest(msg *simplex.Message, from simplex.NodeID) bool {
 	require.Nil(m.t, msg.ReplicationRequest)
 	return true
 }
 
-func (m *TestMessageFilter) receivedReplicationRequest(msg *simplex.Message, from simplex.NodeID) bool {
+func (m *testTimeoutMessageFilter) receivedReplicationRequest(msg *simplex.Message, from simplex.NodeID) bool {
 	if msg.VerifiedReplicationResponse != nil || msg.ReplicationResponse != nil {
-		m.replicationRequest <- struct{}{}
+		m.replicationResponses <- struct{}{}
 		return false
 	}
 
@@ -117,8 +117,8 @@ func TestReplicationRequestTimeoutCancels(t *testing.T) {
 		}
 	}
 
-	// ensure lagging node doesn't resed requests
-	mf := &TestMessageFilter{
+	// ensure lagging node doesn't resend requests
+	mf := &testTimeoutMessageFilter{
 		t: t,
 	}
 	laggingNode.e.Comm.(*testComm).setFilter(mf.failOnReplicationRequest)
@@ -146,9 +146,9 @@ func TestReplicationRequestTimeoutMultiple(t *testing.T) {
 		}
 	}
 
-	mf := &TestMessageFilter{
-		t:                  t,
-		replicationRequest: make(chan struct{}, 1),
+	mf := &testTimeoutMessageFilter{
+		t:                    t,
+		replicationResponses: make(chan struct{}, 1),
 	}
 
 	newSimplexNode(t, nodes[0], net, bb, newNodeConfig(nodes[0]))
@@ -173,19 +173,22 @@ func TestReplicationRequestTimeoutMultiple(t *testing.T) {
 		}
 	}
 
-	// assert the lagging node has not received any replication requests
-	<-mf.replicationRequest
+	// this is done from normalNode2 since the lagging node will request
+	// seqs [0-startSeq/3] after the timeout
+	<-mf.replicationResponses
+
+	// assert the lagging node has not received any replication responses
 	require.Equal(t, uint64(0), laggingNode.storage.Height())
 	normalNode2.e.Comm.(*testComm).setFilter(allowAllMessages)
 
-	// after the timeout, only normalNode1 should respond
+	// after the timeout, only normalNode2 should respond
 	laggingNode.e.AdvanceTime(laggingNode.e.StartTime.Add(simplex.DefaultReplicationRequestTimeout / 2))
 	require.Equal(t, uint64(0), laggingNode.storage.Height())
 	laggingNode.e.AdvanceTime(laggingNode.e.StartTime.Add(simplex.DefaultReplicationRequestTimeout))
 	laggingNode.storage.waitForBlockCommit(startSeq / 3)
 
 	net.setAllNodesMessageFilter(allowAllMessages)
-	// timeout again
+	// timeout again, now all nodes will respond
 	laggingNode.e.AdvanceTime(laggingNode.e.StartTime.Add(simplex.DefaultReplicationRequestTimeout * 2))
 	laggingNode.storage.waitForBlockCommit(startSeq)
 }

@@ -118,7 +118,8 @@ func (r *ReplicationState) sendReplicationRequests(start uint64, end uint64) {
 
 	numSeqs := end + 1 - start
 	seqsPerNode := numSeqs / uint64(numNodes)
-	r.logger.Debug("Distributing replication requests", zap.Uint64("start", start), zap.Uint64("end", end), zap.Stringer("ndoes", NodeIDs(nodes)), zap.Int("numnodes", len(nodes)))
+
+	r.logger.Debug("Distributing replication requests", zap.Uint64("start", start), zap.Uint64("end", end), zap.Stringer("ndoes", NodeIDs(nodes)))
 	// Distribute sequences evenly among nodes in round-robin fashion
 	for i := range numNodes {
 		nodeIndex := (r.requestIterator + i) % numNodes
@@ -139,7 +140,7 @@ func (r *ReplicationState) sendReplicationRequests(start uint64, end uint64) {
 }
 
 // sendRequestToNode requests the sequences [start, end] from nodes[index].
-// Incase the nodes[index] does not respond, we create a timeout that will
+// In case the nodes[index] does not respond, we create a timeout that will
 // re-send the request.
 func (r *ReplicationState) sendRequestToNode(start uint64, end uint64, nodes []NodeID, index int) {
 	r.logger.Debug("Requesting missing finalization certificates ",
