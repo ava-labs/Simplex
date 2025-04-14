@@ -118,7 +118,7 @@ func (r *ReplicationState) sendReplicationRequests(start uint64, end uint64) {
 
 	numSeqs := end + 1 - start
 	seqsPerNode := numSeqs / uint64(numNodes)
-
+	r.logger.Debug("Distributing replication requests", zap.Uint64("start", start), zap.Uint64("end", end), zap.Stringer("ndoes", NodeIDs(nodes)), zap.Int("numnodes", len(nodes)))
 	// Distribute sequences evenly among nodes in round-robin fashion
 	for i := range numNodes {
 		nodeIndex := (r.requestIterator + i) % numNodes
@@ -141,9 +141,6 @@ func (r *ReplicationState) sendReplicationRequests(start uint64, end uint64) {
 // sendRequestToNode requests the sequences [start, end] from nodes[index].
 // Incase the nodes[index] does not respond, we create a timeout that will
 // re-send the request.
-//
-// Note: This function can be called concurrently from the timeout handler. Therefore
-// we do not modify [r] to avoid race conditions and locking.
 func (r *ReplicationState) sendRequestToNode(start uint64, end uint64, nodes []NodeID, index int) {
 	r.logger.Debug("Requesting missing finalization certificates ",
 		zap.Stringer("from", nodes[index]),
@@ -248,6 +245,8 @@ func (r *ReplicationState) StoreQuorumRound(round QuorumRound) {
 
 		r.highestSequenceObserved = signedSeq
 	}
+
+	r.logger.Debug("Stored quorum round ", zap.Stringer("qr", &round))
 	r.receivedQuorumRounds[round.GetRound()] = round
 }
 
