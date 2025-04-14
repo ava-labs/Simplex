@@ -40,6 +40,13 @@ func NewTimeoutHandler(startTime time.Time) *TimeoutHandler {
 	}
 }
 
+func (t *TimeoutHandler) GetTime() time.Time {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+
+	return t.now
+}
+
 func (t *TimeoutHandler) Tick(now time.Time) {
 	t.lock.Lock()
 	defer t.lock.Unlock()

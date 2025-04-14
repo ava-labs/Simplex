@@ -57,7 +57,6 @@ type ReplicationState struct {
 	// request iterator
 	requestIterator int
 
-	now     time.Time
 	handler TimeoutHandler
 }
 
@@ -69,13 +68,11 @@ func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundW
 		id:                   id,
 		maxRoundWindow:       maxRoundWindow,
 		receivedQuorumRounds: make(map[uint64]QuorumRound),
-		now:                  start,
 		handler:              *NewTimeoutHandler(start),
 	}
 }
 
 func (r *ReplicationState) AdvanceTime(now time.Time) {
-	r.now = now
 	r.handler.Tick(now)
 }
 
@@ -136,10 +133,17 @@ func (r *ReplicationState) sendReplicationRequests(start uint64, end uint64) {
 		r.sendRequestToNode(nodeStart, nodeEnd, nodes, nodeIndex)
 	}
 
+	r.lastSequenceRequested = end
 	// next time we send requests, we start with a different permutation
 	r.requestIterator++
 }
 
+// sendRequestToNode requests the sequences [start, end] from nodes[index].
+// Incase the nodes[index] does not respond, we create a timeout that will
+// re-send the request.
+//
+// Note: This function can be called concurrently from the timeout handler. Therefore
+// we do not modify [r] to avoid race conditions and locking.
 func (r *ReplicationState) sendRequestToNode(start uint64, end uint64, nodes []NodeID, index int) {
 	r.logger.Debug("Requesting missing finalization certificates ",
 		zap.Stringer("from", nodes[index]),
@@ -159,12 +163,11 @@ func (r *ReplicationState) sendRequestToNode(start uint64, end uint64, nodes []N
 	timeoutTask := &TimeoutTask{
 		ID:      id,
 		Task:    task,
-		Timeout: r.now.Add(DefaultReplicationRequestTimeout),
+		Timeout: r.handler.GetTime().Add(DefaultReplicationRequestTimeout),
 	}
 
 	r.handler.AddTask(timeoutTask)
 
-	r.lastSequenceRequested = end
 	r.comm.SendMessage(msg, nodes[index])
 }
 

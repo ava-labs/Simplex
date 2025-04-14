@@ -8,11 +8,7 @@ import (
 )
 
 func rejectReplicationRequests(msg *simplex.Message, from simplex.NodeID) bool {
-	if msg.ReplicationRequest != nil {
-		return false
-	}
-
-	return true
+	return msg.ReplicationRequest == nil
 }
 
 // A node attempts to request blocks to replicate, but fails to receive them
