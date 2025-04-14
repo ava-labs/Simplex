@@ -9,8 +9,8 @@ import (
 type ID string
 
 type TimeoutTask struct {
-	ID ID
-	Task func()
+	ID      ID
+	Task    func()
 	Timeout time.Time
 
 	index int // for heap to work more efficiently
@@ -18,8 +18,8 @@ type TimeoutTask struct {
 
 func NewTimeoutTask(ID ID, task func(), timeout time.Time) *TimeoutTask {
 	return &TimeoutTask{
-		ID: ID,
-		Task: task,
+		ID:      ID,
+		Task:    task,
 		Timeout: timeout,
 	}
 }
@@ -28,15 +28,15 @@ type TimeoutHandler struct {
 	lock sync.Mutex
 
 	tasks map[ID]*TimeoutTask
-	heap TaskHeap
-	now time.Time
+	heap  TaskHeap
+	now   time.Time
 }
 
 func NewTimeoutHandler(startTime time.Time) *TimeoutHandler {
 	return &TimeoutHandler{
-		now: startTime,
+		now:   startTime,
 		tasks: make(map[ID]*TimeoutTask),
-		heap: TaskHeap{},
+		heap:  TaskHeap{},
 	}
 }
 
@@ -91,13 +91,14 @@ func (t *TimeoutHandler) RemoveTask(ID ID) {
 // ----------------------------------------------------------------------
 type TaskHeap []*TimeoutTask
 
-func (h *TaskHeap) Len() int {return len(*h)}
+func (h *TaskHeap) Len() int { return len(*h) }
+
 // Less returns if the task at index [i] has a lower timeout than the task at index [j]
 func (h *TaskHeap) Less(i, j int) bool { return (*h)[i].Timeout.Before((*h)[j].Timeout) }
 
 // Swap swaps the values at index [i] and [j]
-func (h *TaskHeap) Swap(i, j int) { 
-	(*h)[i], (*h)[j] = (*h)[j], (*h)[i] 
+func (h *TaskHeap) Swap(i, j int) {
+	(*h)[i], (*h)[j] = (*h)[j], (*h)[i]
 	(*h)[i].index = i
 	(*h)[j].index = j
 }
@@ -113,7 +114,7 @@ func (h *TaskHeap) Pop() any {
 	len := h.Len()
 	task := old[len-1]
 	old[len-1] = nil
-	*h = old[0: len - 1]
+	*h = old[0 : len-1]
 	task.index = -1
 	return task
 }

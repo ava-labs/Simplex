@@ -57,7 +57,7 @@ type ReplicationState struct {
 	// request iterator
 	requestIterator int
 
-	now time.Time
+	now     time.Time
 	handler TimeoutHandler
 }
 
@@ -69,7 +69,7 @@ func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundW
 		id:                   id,
 		maxRoundWindow:       maxRoundWindow,
 		receivedQuorumRounds: make(map[uint64]QuorumRound),
-		now: start,
+		now:                  start,
 	}
 }
 
@@ -156,18 +156,19 @@ func (r *ReplicationState) sendRequestToNode(start uint64, end uint64, nodes []N
 
 	task, id := r.createReplicationTimeoutTask(start, end, nodes, index)
 	timeoutTask := &TimeoutTask{
-		ID: id,
-		Task: task,
+		ID:      id,
+		Task:    task,
 		Timeout: r.now.Add(DefaultReplicationRequestTimeout),
 	}
+
 	r.handler.AddTask(timeoutTask)
 	r.lastSequenceRequested = end
 	r.comm.SendMessage(msg, nodes[index])
 }
 
-func (r *ReplicationState) createReplicationTimeoutTask(start, end uint64, nodes []NodeID, index int) (func (), ID) {
+func (r *ReplicationState) createReplicationTimeoutTask(start, end uint64, nodes []NodeID, index int) (func(), ID) {
 	return func() {
-		r.sendRequestToNode(start, end, nodes, (index + 1) % len(nodes))
+		r.sendRequestToNode(start, end, nodes, (index+1)%len(nodes))
 	}, r.createUniqueTimeoutID(start, end, nodes, index)
 }
 

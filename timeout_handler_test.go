@@ -12,12 +12,12 @@ import (
 func TestAddAndRunTask(t *testing.T) {
 	start := time.Now()
 	handler := simplex.NewTimeoutHandler(start)
-	
+
 	sent := make(chan struct{}, 1)
 
 	task := simplex.NewTimeoutTask("task1", func() {
 		sent <- struct{}{}
-	}, start.Add(5 * time.Second))
+	}, start.Add(5*time.Second))
 
 	handler.AddTask(task)
 	handler.Tick(start.Add(2 * time.Second))
@@ -32,7 +32,7 @@ func TestRemoveTask(t *testing.T) {
 
 	var ran bool
 	task := &simplex.TimeoutTask{
-		ID:  "task2",
+		ID:      "task2",
 		Timeout: start.Add(1 * time.Second),
 		Task: func() {
 			ran = true
@@ -57,7 +57,7 @@ func TestTaskOrder(t *testing.T) {
 	results := []string{}
 
 	handler.AddTask(&simplex.TimeoutTask{
-		ID:  "first",
+		ID:      "first",
 		Timeout: start.Add(1 * time.Second),
 		Task: func() {
 			mu.Lock()
@@ -67,7 +67,7 @@ func TestTaskOrder(t *testing.T) {
 	})
 
 	handler.AddTask(&simplex.TimeoutTask{
-		ID:  "second",
+		ID:      "second",
 		Timeout: start.Add(2 * time.Second),
 		Task: func() {
 			mu.Lock()
@@ -77,7 +77,7 @@ func TestTaskOrder(t *testing.T) {
 	})
 
 	handler.AddTask(&simplex.TimeoutTask{
-		ID:  "noruntask",
+		ID:      "noruntask",
 		Timeout: start.Add(4 * time.Second),
 		Task: func() {
 			mu.Lock()
@@ -101,12 +101,12 @@ func TestTaskOrder(t *testing.T) {
 func TestAddTasksOutOfOrder(t *testing.T) {
 	start := time.Now()
 	handler := simplex.NewTimeoutHandler(start)
-	
+
 	var mu sync.Mutex
 	results := []string{}
 
 	handler.AddTask(&simplex.TimeoutTask{
-		ID:  "third",
+		ID:      "third",
 		Timeout: start.Add(3 * time.Second),
 		Task: func() {
 			mu.Lock()
@@ -116,7 +116,7 @@ func TestAddTasksOutOfOrder(t *testing.T) {
 	})
 
 	handler.AddTask(&simplex.TimeoutTask{
-		ID:  "second",
+		ID:      "second",
 		Timeout: start.Add(2 * time.Second),
 		Task: func() {
 			mu.Lock()
@@ -125,9 +125,8 @@ func TestAddTasksOutOfOrder(t *testing.T) {
 		},
 	})
 
-
 	handler.AddTask(&simplex.TimeoutTask{
-		ID:  "fourth",
+		ID:      "fourth",
 		Timeout: start.Add(4 * time.Second),
 		Task: func() {
 			mu.Lock()
@@ -137,7 +136,7 @@ func TestAddTasksOutOfOrder(t *testing.T) {
 	})
 
 	handler.AddTask(&simplex.TimeoutTask{
-		ID:  "first",
+		ID:      "first",
 		Timeout: start.Add(1 * time.Second),
 		Task: func() {
 			mu.Lock()
@@ -149,7 +148,7 @@ func TestAddTasksOutOfOrder(t *testing.T) {
 	handler.Tick(start.Add(1 * time.Second))
 	time.Sleep(10 * time.Millisecond)
 
-	mu.Lock()	
+	mu.Lock()
 	require.Equal(t, 1, len(results))
 	require.Contains(t, results, "first")
 	mu.Unlock()
@@ -162,7 +161,6 @@ func TestAddTasksOutOfOrder(t *testing.T) {
 	require.Contains(t, results, "second")
 	require.Contains(t, results, "third")
 	mu.Unlock()
-
 
 	handler.Tick(start.Add(4 * time.Second))
 	time.Sleep(10 * time.Millisecond)
