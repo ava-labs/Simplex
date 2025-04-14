@@ -106,7 +106,7 @@ func NewEpoch(conf EpochConfig) (*Epoch, error) {
 // AdvanceTime hints the engine that the given amount of time has passed.
 func (e *Epoch) AdvanceTime(t time.Time) {
 	e.monitor.AdvanceTime(t)
-	e.replicationState.Tick(t)
+	e.replicationState.AdvanceTime(t)
 }
 
 // HandleMessage notifies the engine about a reception of a message.
@@ -2352,6 +2352,8 @@ func (e *Epoch) handleReplicationResponse(resp *ReplicationResponse, from NodeID
 		e.Logger.Debug("Failed processing latest round", zap.Error(err))
 		return nil
 	}
+
+	e.replicationState.receivedReplicationResponse(resp.Data, from)
 
 	return e.processReplicationState()
 }

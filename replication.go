@@ -73,9 +73,9 @@ func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundW
 	}
 }
 
-func (r *ReplicationState) Tick(now time.Time) {
-	r.now = now
-	r.handler.Tick(now)
+func (r *ReplicationState) AdvanceTime(now time.Time) {
+	// r.now = now
+	// r.handler.Tick(now)
 }
 
 // isReplicationComplete returns true if we have finished the replication process.
@@ -162,6 +162,7 @@ func (r *ReplicationState) sendRequestToNode(start uint64, end uint64, nodes []N
 	}
 
 	r.handler.AddTask(timeoutTask)
+
 	r.lastSequenceRequested = end
 	r.comm.SendMessage(msg, nodes[index])
 }
@@ -169,11 +170,29 @@ func (r *ReplicationState) sendRequestToNode(start uint64, end uint64, nodes []N
 func (r *ReplicationState) createReplicationTimeoutTask(start, end uint64, nodes []NodeID, index int) (func(), ID) {
 	return func() {
 		r.sendRequestToNode(start, end, nodes, (index+1)%len(nodes))
-	}, r.createUniqueTimeoutID(start, end, nodes, index)
+	}, r.createUniqueTimeoutID(start, end, nodes[index])
 }
 
-func (r *ReplicationState) createUniqueTimeoutID(start, end uint64, nodes []NodeID, index int) ID {
-	return ID(fmt.Sprintf("timeout_%d_to_%d_nodes_%s_index_%d", start, end, NodeIDs(nodes), index))
+func (r *ReplicationState) createUniqueTimeoutID(start, end uint64, node NodeID) ID {
+	return ID(fmt.Sprintf("timeout_%d_to_%d_node_%s", start, end, node))
+}
+
+func (r *ReplicationState) receivedReplicationResponse(data []QuorumRound, node NodeID) {
+	var min, max uint64
+	min = math.MaxUint64
+
+	for _, qr := range data {
+		if qr.GetSequence() > max {
+			max = qr.GetSequence()
+		}
+
+		if qr.GetSequence() < min {
+			min = qr.GetSequence()
+		}
+	}
+
+	id := r.createUniqueTimeoutID(min, max, node)
+	r.handler.RemoveTask(id)
 }
 
 func (r *ReplicationState) replicateBlocks(fCert *FinalizationCertificate, nextSeqToCommit uint64) {
