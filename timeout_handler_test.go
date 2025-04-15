@@ -16,13 +16,19 @@ import (
 func TestAddAndRunTask(t *testing.T) {
 	start := time.Now()
 	l := testutil.MakeLogger(t, 1)
-	handler := simplex.NewTimeoutHandler(l, start)
+	nodes := []simplex.NodeID{{1}, {2}}
+	handler := simplex.NewTimeoutHandler(l, start, nodes)
 
 	sent := make(chan struct{}, 1)
 
-	task := simplex.NewTimeoutTask("task1", func() {
-		sent <- struct{}{}
-	}, start.Add(5*time.Second))
+	task := &simplex.TimeoutTask{
+		NodeID:   nodes[0],
+		TaskID:   "simplerun",
+		Deadline: start.Add(5 * time.Second),
+		Task: func() {
+			sent <- struct{}{}
+		},
+	}
 
 	handler.AddTask(task)
 	handler.Tick(start.Add(2 * time.Second))
@@ -34,11 +40,13 @@ func TestAddAndRunTask(t *testing.T) {
 func TestRemoveTask(t *testing.T) {
 	start := time.Now()
 	l := testutil.MakeLogger(t, 1)
-	handler := simplex.NewTimeoutHandler(l, start)
+	nodes := []simplex.NodeID{{1}, {2}}
+	handler := simplex.NewTimeoutHandler(l, start, nodes)
 
 	var ran bool
 	task := &simplex.TimeoutTask{
-		ID:       "task2",
+		NodeID:   nodes[0],
+		TaskID:   "task2",
 		Deadline: start.Add(1 * time.Second),
 		Task: func() {
 			ran = true
@@ -46,22 +54,27 @@ func TestRemoveTask(t *testing.T) {
 	}
 
 	handler.AddTask(task)
-	handler.RemoveTask("task2")
+	handler.RemoveTask(nodes[0], "task2")
 	handler.Tick(start.Add(2 * time.Second))
 	require.False(t, ran)
+
+	// ensure no panic
+	handler.RemoveTask(nodes[1], "task-doesn't-exist")
 }
 
 func TestTaskOrder(t *testing.T) {
 	start := time.Now()
 	l := testutil.MakeLogger(t, 1)
-	handler := simplex.NewTimeoutHandler(l, start)
+	nodes := []simplex.NodeID{{1}, {2}}
+	handler := simplex.NewTimeoutHandler(l, start, nodes)
 	finished := make(chan struct{})
 
 	var mu sync.Mutex
 	results := []string{}
 
 	handler.AddTask(&simplex.TimeoutTask{
-		ID:       "first",
+		NodeID:   nodes[0],
+		TaskID:   "first",
 		Deadline: start.Add(1 * time.Second),
 		Task: func() {
 			mu.Lock()
@@ -72,7 +85,8 @@ func TestTaskOrder(t *testing.T) {
 	})
 
 	handler.AddTask(&simplex.TimeoutTask{
-		ID:       "second",
+		NodeID:   nodes[1],
+		TaskID:   "second",
 		Deadline: start.Add(2 * time.Second),
 		Task: func() {
 			mu.Lock()
@@ -83,7 +97,8 @@ func TestTaskOrder(t *testing.T) {
 	})
 
 	handler.AddTask(&simplex.TimeoutTask{
-		ID:       "noruntask",
+		NodeID:   nodes[0],
+		TaskID:   "noruntask",
 		Deadline: start.Add(4 * time.Second),
 		Task: func() {
 			mu.Lock()
@@ -108,13 +123,15 @@ func TestTaskOrder(t *testing.T) {
 func TestAddTasksOutOfOrder(t *testing.T) {
 	start := time.Now()
 	l := testutil.MakeLogger(t, 1)
-	handler := simplex.NewTimeoutHandler(l, start)
+	nodes := []simplex.NodeID{{1}, {2}}
+	handler := simplex.NewTimeoutHandler(l, start, nodes)
 	finished := make(chan struct{})
 	var mu sync.Mutex
 	results := []string{}
 
 	handler.AddTask(&simplex.TimeoutTask{
-		ID:       "third",
+		NodeID:   nodes[0],
+		TaskID:   "third",
 		Deadline: start.Add(3 * time.Second),
 		Task: func() {
 			mu.Lock()
@@ -125,7 +142,8 @@ func TestAddTasksOutOfOrder(t *testing.T) {
 	})
 
 	handler.AddTask(&simplex.TimeoutTask{
-		ID:       "second",
+		NodeID:   nodes[0],
+		TaskID:   "second",
 		Deadline: start.Add(2 * time.Second),
 		Task: func() {
 			mu.Lock()
@@ -136,7 +154,8 @@ func TestAddTasksOutOfOrder(t *testing.T) {
 	})
 
 	handler.AddTask(&simplex.TimeoutTask{
-		ID:       "fourth",
+		NodeID:   nodes[1],
+		TaskID:   "fourth",
 		Deadline: start.Add(4 * time.Second),
 		Task: func() {
 			mu.Lock()
@@ -147,7 +166,8 @@ func TestAddTasksOutOfOrder(t *testing.T) {
 	})
 
 	handler.AddTask(&simplex.TimeoutTask{
-		ID:       "first",
+		NodeID:   nodes[0],
+		TaskID:   "first",
 		Deadline: start.Add(1 * time.Second),
 		Task: func() {
 			mu.Lock()

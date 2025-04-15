@@ -6,6 +6,7 @@ package simplex
 import (
 	"fmt"
 	"math"
+	"slices"
 	"time"
 
 	"go.uber.org/zap"
@@ -68,7 +69,7 @@ func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundW
 		id:                   id,
 		maxRoundWindow:       maxRoundWindow,
 		receivedQuorumRounds: make(map[uint64]QuorumRound),
-		timeoutHandler:       NewTimeoutHandler(logger, start),
+		timeoutHandler:       NewTimeoutHandler(logger, start, comm.ListNodes()),
 	}
 }
 
@@ -158,43 +159,102 @@ func (r *ReplicationState) sendRequestToNode(start uint64, end uint64, nodes []N
 	msg := &Message{ReplicationRequest: request}
 
 	task := r.createReplicationTimeoutTask(start, end, nodes, index)
-	timeoutTask := &TimeoutTask{
-		ID:       r.getUniqueTimeoutID(start, end, nodes[index]),
-		Task:     task,
-		Deadline: r.timeoutHandler.GetTime().Add(DefaultReplicationRequestTimeout),
-	}
 
-	r.timeoutHandler.AddTask(timeoutTask)
+	r.timeoutHandler.AddTask(task)
 
 	r.comm.SendMessage(msg, nodes[index])
 }
 
-func (r *ReplicationState) createReplicationTimeoutTask(start, end uint64, nodes []NodeID, index int) func() {
-	return func() {
+func (r *ReplicationState) createReplicationTimeoutTask(start, end uint64, nodes []NodeID, index int) *TimeoutTask {
+	taskFunc := func() {
 		r.sendRequestToNode(start, end, nodes, (index+1)%len(nodes))
 	}
-}
+	timeoutTask := &TimeoutTask{
+		Start:    start,
+		End:      end,
+		NodeID:   nodes[index],
+		TaskID:   getTimeoutID(start, end),
+		Task:     taskFunc,
+		Deadline: r.timeoutHandler.GetTime().Add(DefaultReplicationRequestTimeout),
+	}
 
-func (r *ReplicationState) getUniqueTimeoutID(start, end uint64, node NodeID) string {
-	return fmt.Sprintf("timeout_%d_to_%d_node_%s", start, end, node)
+	return timeoutTask
 }
 
 func (r *ReplicationState) receivedReplicationResponse(data []QuorumRound, node NodeID) {
-	var min, max uint64
-	min = math.MaxUint64
+	seqs := make([]uint64, 0, len(data))
 
 	for _, qr := range data {
-		if qr.GetSequence() > max {
-			max = qr.GetSequence()
-		}
+		seqs = append(seqs, qr.GetSequence())
+	}
 
-		if qr.GetSequence() < min {
-			min = qr.GetSequence()
+	slices.Sort(seqs)
+
+	var task *TimeoutTask
+	// first find the id this request belongs too
+seq:
+	for _, seq := range seqs {
+		for _, t := range r.timeoutHandler.tasks[string(node)] {
+			if seq > t.Start && seq < t.End {
+				task = t
+				break seq
+			}
 		}
 	}
 
-	id := r.getUniqueTimeoutID(min, max, node)
-	r.timeoutHandler.RemoveTask(id)
+	if task == nil {
+		return
+	}
+
+	// we found the buket, now
+	missing := findMissingNumbersInRange(task.Start, task.End, seqs)
+
+	// remove the old task
+	r.timeoutHandler.RemoveTask(node, task.TaskID)
+
+	if len(missing) == 0 {
+		return
+	}
+
+	nodes := r.highestSequenceObserved.signers.Remove(r.id)
+	lenNodes := len(nodes)
+
+	start := missing[0]
+	end := missing[0]
+	for i, missingSeq := range missing[1:] {
+		if missingSeq != missing[i]+1 {
+			index := i % lenNodes
+			newTask := r.createReplicationTimeoutTask(start, end, nodes, index)
+			r.timeoutHandler.AddTask(newTask)
+			start = missingSeq
+		}
+
+		end = missingSeq
+	}
+
+	newTask := r.createReplicationTimeoutTask(start, end, nodes, len(missing)%lenNodes)
+	r.timeoutHandler.AddTask(newTask)
+}
+
+func findMissingNumbersInRange(start, end uint64, nums []uint64) []uint64 {
+	// Create a map to track numbers in the input array for O(1) lookups
+	numMap := make(map[uint64]bool)
+	for _, num := range nums {
+		numMap[num] = true
+	}
+
+	// Create result array of missing numbers
+	var result []uint64
+
+	// Check each number in the range
+	for i := start; i <= end; i++ {
+		// If number isn't in the map, add it to result
+		if _, exists := numMap[i]; !exists {
+			result = append(result, i)
+		}
+	}
+
+	return result
 }
 
 func (r *ReplicationState) replicateBlocks(fCert *FinalizationCertificate, nextSeqToCommit uint64) {

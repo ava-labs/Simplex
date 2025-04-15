@@ -5,6 +5,9 @@ package simplex
 
 import (
 	"container/heap"
+	"fmt"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -12,19 +15,14 @@ import (
 )
 
 type TimeoutTask struct {
-	ID       string
+	NodeID   NodeID
+	TaskID   string
+	Start    uint64
+	End      uint64
 	Task     func()
 	Deadline time.Time
 
 	index int // for heap to work more efficiently
-}
-
-func NewTimeoutTask(ID string, task func(), timeout time.Time) *TimeoutTask {
-	return &TimeoutTask{
-		ID:       ID,
-		Task:     task,
-		Deadline: timeout,
-	}
 }
 
 type TimeoutHandler struct {
@@ -32,7 +30,8 @@ type TimeoutHandler struct {
 
 	ticks chan time.Time
 	close chan struct{}
-	tasks map[string]*TimeoutTask
+	// nodeids -> range -> task
+	tasks map[string]map[string]*TimeoutTask
 	heap  TaskHeap
 	now   time.Time
 
@@ -41,10 +40,15 @@ type TimeoutHandler struct {
 
 // NewTimeoutHandler returns a TimeoutHandler and starts a new goroutine that
 // listens for ticks and executes TimeoutTasks.
-func NewTimeoutHandler(log Logger, startTime time.Time) *TimeoutHandler {
+func NewTimeoutHandler(log Logger, startTime time.Time, nodes []NodeID) *TimeoutHandler {
+	tasks := make(map[string]map[string]*TimeoutTask)
+	for _, node := range nodes {
+		tasks[string(node)] = make(map[string]*TimeoutTask)
+	}
+
 	t := &TimeoutHandler{
 		now:   startTime,
-		tasks: make(map[string]*TimeoutTask),
+		tasks: tasks,
 		heap:  TaskHeap{},
 		ticks: make(chan time.Time),
 		close: make(chan struct{}),
@@ -92,9 +96,9 @@ func (t *TimeoutHandler) maybeRunTasks() {
 		}
 
 		heap.Pop(&t.heap)
-		delete(t.tasks, next.ID)
+		delete(t.tasks[string(next.NodeID)], next.TaskID)
 		t.lock.Unlock()
-		t.log.Debug("Executing timeout task", zap.String("taskid", next.ID))
+		t.log.Debug("Executing timeout task", zap.String("taskid", next.TaskID))
 		next.Task()
 	}
 }
@@ -117,29 +121,38 @@ func (t *TimeoutHandler) AddTask(task *TimeoutTask) {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 
+	if _, ok := t.tasks[string(task.NodeID)]; !ok {
+		t.log.Info("Attempting to add a task for an unknown node", zap.Stringer("node", task.NodeID))
+	}
+
 	// adds a task to the heap and the tasks map
-	if _, ok := t.tasks[task.ID]; ok {
-		// TODO: log warn instead of return
+	if _, ok := t.tasks[string(task.NodeID)][task.TaskID]; ok {
+		t.log.Debug("Trying to add an already included task", zap.Stringer("node", task.NodeID), zap.String("Task ID", task.TaskID))
 		return
 	}
 
-	t.tasks[task.ID] = task
-	t.log.Debug("Adding timeout task", zap.String("taskid", task.ID))
+	t.tasks[string(task.NodeID)][task.TaskID] = task
+	t.log.Debug("Adding timeout task", zap.Stringer("node", task.NodeID), zap.String("taskid", task.TaskID))
 	heap.Push(&t.heap, task)
 }
 
-func (t *TimeoutHandler) RemoveTask(ID string) {
+func (t *TimeoutHandler) RemoveTask(nodeID NodeID, ID string) {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 
-	if _, ok := t.tasks[ID]; !ok {
+	if _, ok := t.tasks[string(nodeID)]; !ok {
+		t.log.Info("Attempting to add a remove a task for an unknown node", zap.Stringer("node", nodeID))
+		return
+	}
+
+	if _, ok := t.tasks[string(nodeID)][ID]; !ok {
 		return
 	}
 
 	// find the task using the task map
 	// remove it from the heap using the index
 	t.log.Debug("Removing timeout task", zap.String("taskid", ID))
-	heap.Remove(&t.heap, t.tasks[ID].index)
+	heap.Remove(&t.heap, t.tasks[string(nodeID)][ID].index)
 	delete(t.tasks, ID)
 }
 
@@ -150,6 +163,31 @@ func (t *TimeoutHandler) Close() {
 	default:
 		close(t.close)
 	}
+}
+
+const delimiter = "_"
+
+func getTimeoutID(start, end uint64) string {
+	return fmt.Sprintf("%d%s%d", start, delimiter, end)
+}
+
+func parseTimeoutID(id string) (uint64, uint64) {
+	parts := strings.Split(id, delimiter)
+	if len(parts) != 2 {
+		return 0, 0
+	}
+
+	start, err := strconv.ParseUint(parts[0], 10, 64)
+	if err != nil {
+		return 0, 0
+	}
+
+	end, err := strconv.ParseUint(parts[1], 10, 64)
+	if err != nil {
+		return 0, 0
+	}
+
+	return start, end
 }
 
 // ----------------------------------------------------------------------
