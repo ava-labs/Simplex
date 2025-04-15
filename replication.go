@@ -159,9 +159,9 @@ func (r *ReplicationState) sendRequestToNode(start uint64, end uint64, nodes []N
 
 	task := r.createReplicationTimeoutTask(start, end, nodes, index)
 	timeoutTask := &TimeoutTask{
-		ID:      r.getUniqueTimeoutID(start, end, nodes[index]),
-		Task:    task,
-		Timeout: r.timeoutHandler.GetTime().Add(DefaultReplicationRequestTimeout),
+		ID:       r.getUniqueTimeoutID(start, end, nodes[index]),
+		Task:     task,
+		Deadline: r.timeoutHandler.GetTime().Add(DefaultReplicationRequestTimeout),
 	}
 
 	r.timeoutHandler.AddTask(timeoutTask)

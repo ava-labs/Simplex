@@ -12,18 +12,18 @@ import (
 )
 
 type TimeoutTask struct {
-	ID      string
-	Task    func()
-	Timeout time.Time
+	ID       string
+	Task     func()
+	Deadline time.Time
 
 	index int // for heap to work more efficiently
 }
 
 func NewTimeoutTask(ID string, task func(), timeout time.Time) *TimeoutTask {
 	return &TimeoutTask{
-		ID:      ID,
-		Task:    task,
-		Timeout: timeout,
+		ID:       ID,
+		Task:     task,
+		Deadline: timeout,
 	}
 }
 
@@ -68,7 +68,7 @@ func (t *TimeoutHandler) Tick(now time.Time) {
 		}
 
 		next := t.heap[0]
-		if next.Timeout.After(t.now) {
+		if next.Deadline.After(t.now) {
 			t.lock.Unlock()
 			break
 		}
@@ -117,7 +117,7 @@ type TaskHeap []*TimeoutTask
 func (h *TaskHeap) Len() int { return len(*h) }
 
 // Less returns if the task at index [i] has a lower timeout than the task at index [j]
-func (h *TaskHeap) Less(i, j int) bool { return (*h)[i].Timeout.Before((*h)[j].Timeout) }
+func (h *TaskHeap) Less(i, j int) bool { return (*h)[i].Deadline.Before((*h)[j].Deadline) }
 
 // Swap swaps the values at index [i] and [j]
 func (h *TaskHeap) Swap(i, j int) {
