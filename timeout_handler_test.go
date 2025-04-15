@@ -200,3 +200,110 @@ func TestAddTasksOutOfOrder(t *testing.T) {
 	require.Contains(t, results, "fourth")
 	mu.Unlock()
 }
+
+func TestFindTask(t *testing.T) {
+	// Setup a mock logger
+	l := testutil.MakeLogger(t, 1)
+	nodes := []simplex.NodeID{{1}, {2}}
+	startTime := time.Now()
+
+	handler := simplex.NewTimeoutHandler(l, startTime, nodes)
+
+	// Create some test tasks
+	task1 := &simplex.TimeoutTask{
+		TaskID: "task1",
+		NodeID: nodes[0],
+		Start:  5,
+		End:    10,
+	}
+
+	taskSameRangeDiffNode := &simplex.TimeoutTask{
+		TaskID: "taskSameDiff",
+		NodeID: nodes[1],
+		Start:  5,
+		End:    10,
+	}
+
+	task3 := &simplex.TimeoutTask{
+		TaskID: "task3",
+		NodeID: nodes[1],
+		Start:  25,
+		End:    30,
+	}
+
+	task4 := &simplex.TimeoutTask{
+		TaskID: "task4",
+		NodeID: nodes[1],
+		Start:  31,
+		End:    36,
+	}
+
+	// Add tasks to handler
+	handler.AddTask(task1)
+	handler.AddTask(taskSameRangeDiffNode)
+	handler.AddTask(task3)
+	handler.AddTask(task4)
+
+	tests := []struct {
+		name     string
+		node     simplex.NodeID
+		seqs     []uint64
+		expected *simplex.TimeoutTask
+	}{
+		{
+			name:     "Find task with sequence in middle of range",
+			node:     nodes[0],
+			seqs:     []uint64{7, 8, 9},
+			expected: task1,
+		},
+		{
+			name:     "Find task with sequence at boundary (inclusive)",
+			node:     nodes[0],
+			seqs:     []uint64{5, 7},
+			expected: task1,
+		},
+		{
+			name:     "Find task with mixed sequences (first valid sequence)",
+			node:     nodes[0],
+			seqs:     []uint64{3, 4, 5, 11},
+			expected: task1, // 5 is in range
+		},
+		{
+			name:     "Same sequences, but different node",
+			node:     nodes[1],
+			seqs:     []uint64{7, 8, 9},
+			expected: taskSameRangeDiffNode,
+		},
+		{
+			name:     "No sequences in range",
+			node:     nodes[0],
+			seqs:     []uint64{1, 2, 3, 4, 11, 12, 13, 14},
+			expected: nil,
+		},
+		{
+			name:     "Span across many tasks",
+			node:     nodes[1],
+			seqs:     []uint64{26, 27, 30, 31, 33},
+			expected: task3,
+		},
+		{
+			name:     "Unknown node",
+			node:     simplex.NodeID("unknown"),
+			seqs:     []uint64{5, 15, 25},
+			expected: nil,
+		},
+		{
+			name:     "Empty sequence list",
+			node:     nodes[1],
+			seqs:     []uint64{},
+			expected: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := handler.FindTask(tt.node, tt.seqs)
+			require.Equal(t, tt.expected, result)
+		})
+	}
+}

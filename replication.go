@@ -190,17 +190,7 @@ func (r *ReplicationState) receivedReplicationResponse(data []QuorumRound, node 
 
 	slices.Sort(seqs)
 
-	var task *TimeoutTask
-	// first find the id this request belongs too
-seq:
-	for _, seq := range seqs {
-		for _, t := range r.timeoutHandler.tasks[string(node)] {
-			if seq > t.Start && seq < t.End {
-				task = t
-				break seq
-			}
-		}
-	}
+	task := r.timeoutHandler.FindTask(node, seqs)
 
 	if task == nil {
 		return

@@ -165,6 +165,23 @@ func (t *TimeoutHandler) Close() {
 	}
 }
 
+// FindTask returns the first TimeoutTask assigned to [node] that contains any sequence in [seqs].
+// A sequence is considered "contained" if it falls between a task's Start (inclusive) and End (inclusive).
+func (t *TimeoutHandler) FindTask(node NodeID, seqs []uint64) *TimeoutTask {
+	var task *TimeoutTask
+seq:
+	for _, seq := range seqs {
+		for _, t := range t.tasks[string(node)] {
+			if seq >= t.Start && seq <= t.End {
+				task = t
+				break seq
+			}
+		}
+	}
+
+	return task
+}
+
 const delimiter = "_"
 
 func getTimeoutID(start, end uint64) string {
