@@ -57,7 +57,7 @@ type ReplicationState struct {
 	// request iterator
 	requestIterator int
 
-	handler TimeoutHandler
+	timeoutHandler TimeoutHandler
 }
 
 func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundWindow uint64, enabled bool, start time.Time) *ReplicationState {
@@ -68,12 +68,12 @@ func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundW
 		id:                   id,
 		maxRoundWindow:       maxRoundWindow,
 		receivedQuorumRounds: make(map[uint64]QuorumRound),
-		handler:              *NewTimeoutHandler(logger, start),
+		timeoutHandler:       *NewTimeoutHandler(logger, start),
 	}
 }
 
 func (r *ReplicationState) AdvanceTime(now time.Time) {
-	r.handler.Tick(now)
+	r.timeoutHandler.Tick(now)
 }
 
 // isReplicationComplete returns true if we have finished the replication process.
@@ -161,10 +161,10 @@ func (r *ReplicationState) sendRequestToNode(start uint64, end uint64, nodes []N
 	timeoutTask := &TimeoutTask{
 		ID:      r.getUniqueTimeoutID(start, end, nodes[index]),
 		Task:    task,
-		Timeout: r.handler.GetTime().Add(DefaultReplicationRequestTimeout),
+		Timeout: r.timeoutHandler.GetTime().Add(DefaultReplicationRequestTimeout),
 	}
 
-	r.handler.AddTask(timeoutTask)
+	r.timeoutHandler.AddTask(timeoutTask)
 
 	r.comm.SendMessage(msg, nodes[index])
 }
@@ -194,7 +194,7 @@ func (r *ReplicationState) receivedReplicationResponse(data []QuorumRound, node 
 	}
 
 	id := r.getUniqueTimeoutID(min, max, node)
-	r.handler.RemoveTask(id)
+	r.timeoutHandler.RemoveTask(id)
 }
 
 func (r *ReplicationState) replicateBlocks(fCert *FinalizationCertificate, nextSeqToCommit uint64) {
