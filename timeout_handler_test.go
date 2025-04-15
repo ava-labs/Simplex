@@ -55,6 +55,7 @@ func TestTaskOrder(t *testing.T) {
 	start := time.Now()
 	l := testutil.MakeLogger(t, 1)
 	handler := simplex.NewTimeoutHandler(l, start)
+	finished := make(chan struct{})
 
 	var mu sync.Mutex
 	results := []string{}
@@ -65,6 +66,7 @@ func TestTaskOrder(t *testing.T) {
 		Task: func() {
 			mu.Lock()
 			results = append(results, "first")
+			finished <- struct{}{}
 			mu.Unlock()
 		},
 	})
@@ -75,6 +77,7 @@ func TestTaskOrder(t *testing.T) {
 		Task: func() {
 			mu.Lock()
 			results = append(results, "second")
+			finished <- struct{}{}
 			mu.Unlock()
 		},
 	})
@@ -91,6 +94,9 @@ func TestTaskOrder(t *testing.T) {
 
 	handler.Tick(start.Add(3 * time.Second))
 
+	<-finished
+	<-finished
+
 	mu.Lock()
 	defer mu.Unlock()
 
@@ -103,7 +109,7 @@ func TestAddTasksOutOfOrder(t *testing.T) {
 	start := time.Now()
 	l := testutil.MakeLogger(t, 1)
 	handler := simplex.NewTimeoutHandler(l, start)
-
+	finished := make(chan struct{})
 	var mu sync.Mutex
 	results := []string{}
 
@@ -113,6 +119,7 @@ func TestAddTasksOutOfOrder(t *testing.T) {
 		Task: func() {
 			mu.Lock()
 			results = append(results, "third")
+			finished <- struct{}{}
 			mu.Unlock()
 		},
 	})
@@ -123,6 +130,7 @@ func TestAddTasksOutOfOrder(t *testing.T) {
 		Task: func() {
 			mu.Lock()
 			results = append(results, "second")
+			finished <- struct{}{}
 			mu.Unlock()
 		},
 	})
@@ -133,6 +141,7 @@ func TestAddTasksOutOfOrder(t *testing.T) {
 		Task: func() {
 			mu.Lock()
 			results = append(results, "fourth")
+			finished <- struct{}{}
 			mu.Unlock()
 		},
 	})
@@ -143,19 +152,21 @@ func TestAddTasksOutOfOrder(t *testing.T) {
 		Task: func() {
 			mu.Lock()
 			results = append(results, "first")
+			finished <- struct{}{}
 			mu.Unlock()
 		},
 	})
 
 	handler.Tick(start.Add(1 * time.Second))
-
+	<-finished
 	mu.Lock()
 	require.Equal(t, 1, len(results))
 	require.Contains(t, results, "first")
 	mu.Unlock()
 
 	handler.Tick(start.Add(3 * time.Second))
-
+	<-finished
+	<-finished
 	mu.Lock()
 	require.Equal(t, 3, len(results))
 	require.Contains(t, results, "second")
@@ -163,6 +174,7 @@ func TestAddTasksOutOfOrder(t *testing.T) {
 	mu.Unlock()
 
 	handler.Tick(start.Add(4 * time.Second))
+	<-finished
 	mu.Lock()
 	require.Equal(t, 4, len(results))
 	require.Contains(t, results, "fourth")

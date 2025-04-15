@@ -30,6 +30,8 @@ func NewTimeoutTask(ID string, task func(), timeout time.Time) *TimeoutTask {
 type TimeoutHandler struct {
 	lock sync.Mutex
 
+	ticks chan struct{}
+	close chan struct{}
 	tasks map[string]*TimeoutTask
 	heap  TaskHeap
 	now   time.Time
@@ -37,13 +39,21 @@ type TimeoutHandler struct {
 	log Logger
 }
 
+// NewTimeoutHandler returns a TimeoutHandler and starts a new goroutine that
+// listens for ticks and executes TimeoutTasks.
 func NewTimeoutHandler(log Logger, startTime time.Time) *TimeoutHandler {
-	return &TimeoutHandler{
+	t := &TimeoutHandler{
 		now:   startTime,
 		tasks: make(map[string]*TimeoutTask),
 		heap:  TaskHeap{},
+		ticks: make(chan struct{}),
+		close: make(chan struct{}),
 		log:   log,
 	}
+
+	go t.run()
+
+	return t
 }
 
 func (t *TimeoutHandler) GetTime() time.Time {
@@ -53,12 +63,14 @@ func (t *TimeoutHandler) GetTime() time.Time {
 	return t.now
 }
 
-func (t *TimeoutHandler) Tick(now time.Time) {
-	t.lock.Lock()
-	// update the time of the handler
-	t.now = now
-	t.lock.Unlock()
+func (t *TimeoutHandler) run() {
+	for t.shouldRun() {
+		<-t.ticks
+		t.maybeRunTasks()
+	}
+}
 
+func (t *TimeoutHandler) maybeRunTasks() {
 	// go through the heap executing relevant tasks
 	for {
 		t.lock.Lock()
@@ -79,6 +91,24 @@ func (t *TimeoutHandler) Tick(now time.Time) {
 		t.log.Debug("Executing timeout task", zap.String("taskid", next.ID))
 		next.Task()
 	}
+}
+
+func (t *TimeoutHandler) shouldRun() bool {
+	select {
+	case <-t.close:
+		return false
+	default:
+		return true
+	}
+}
+
+func (t *TimeoutHandler) Tick(now time.Time) {
+	t.lock.Lock()
+	// update the time of the handler
+	t.now = now
+	t.ticks <- struct{}{}
+	t.lock.Unlock()
+
 }
 
 func (t *TimeoutHandler) AddTask(task *TimeoutTask) {
@@ -109,6 +139,15 @@ func (t *TimeoutHandler) RemoveTask(ID string) {
 	t.log.Debug("Removing timeout task", zap.String("taskid", ID))
 	heap.Remove(&t.heap, t.tasks[ID].index)
 	delete(t.tasks, ID)
+}
+
+func (t *TimeoutHandler) Close() {
+	select {
+	case <-t.close:
+		return
+	default:
+		close(t.close)
+	}
 }
 
 // ----------------------------------------------------------------------
