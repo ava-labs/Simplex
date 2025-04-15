@@ -64,7 +64,6 @@ func TestReplicationRequestTimeout(t *testing.T) {
 
 	require.Equal(t, uint64(0), laggingNode.storage.Height())
 	laggingNode.e.AdvanceTime(laggingNode.e.StartTime.Add(simplex.DefaultReplicationRequestTimeout * 2))
-
 	laggingNode.storage.waitForBlockCommit(uint64(startSeq))
 }
 

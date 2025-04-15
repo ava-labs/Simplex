@@ -57,7 +57,7 @@ type ReplicationState struct {
 	// request iterator
 	requestIterator int
 
-	timeoutHandler TimeoutHandler
+	timeoutHandler *TimeoutHandler
 }
 
 func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundWindow uint64, enabled bool, start time.Time) *ReplicationState {
@@ -68,7 +68,7 @@ func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundW
 		id:                   id,
 		maxRoundWindow:       maxRoundWindow,
 		receivedQuorumRounds: make(map[uint64]QuorumRound),
-		timeoutHandler:       *NewTimeoutHandler(logger, start),
+		timeoutHandler:       NewTimeoutHandler(logger, start),
 	}
 }
 

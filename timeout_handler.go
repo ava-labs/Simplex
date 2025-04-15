@@ -30,7 +30,7 @@ func NewTimeoutTask(ID string, task func(), timeout time.Time) *TimeoutTask {
 type TimeoutHandler struct {
 	lock sync.Mutex
 
-	ticks chan struct{}
+	ticks chan time.Time
 	close chan struct{}
 	tasks map[string]*TimeoutTask
 	heap  TaskHeap
@@ -46,7 +46,7 @@ func NewTimeoutHandler(log Logger, startTime time.Time) *TimeoutHandler {
 		now:   startTime,
 		tasks: make(map[string]*TimeoutTask),
 		heap:  TaskHeap{},
-		ticks: make(chan struct{}),
+		ticks: make(chan time.Time),
 		close: make(chan struct{}),
 		log:   log,
 	}
@@ -65,8 +65,14 @@ func (t *TimeoutHandler) GetTime() time.Time {
 
 func (t *TimeoutHandler) run() {
 	for t.shouldRun() {
-		<-t.ticks
+		now := <-t.ticks
+
+		t.lock.Lock()
+		t.now = now
+		t.lock.Unlock()
+
 		t.maybeRunTasks()
+
 	}
 }
 
@@ -103,12 +109,8 @@ func (t *TimeoutHandler) shouldRun() bool {
 }
 
 func (t *TimeoutHandler) Tick(now time.Time) {
-	t.lock.Lock()
 	// update the time of the handler
-	t.now = now
-	t.ticks <- struct{}{}
-	t.lock.Unlock()
-
+	t.ticks <- now
 }
 
 func (t *TimeoutHandler) AddTask(task *TimeoutTask) {
