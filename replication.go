@@ -191,21 +191,19 @@ func (r *ReplicationState) receivedReplicationResponse(data []QuorumRound, node 
 	slices.Sort(seqs)
 
 	task := r.timeoutHandler.FindTask(node, seqs)
-
 	if task == nil {
 		return
 	}
 
-	// we found the buket, now
-	missing := findMissingNumbersInRange(task.Start, task.End, seqs)
-
-	// remove the old task
 	r.timeoutHandler.RemoveTask(node, task.TaskID)
 
+	// we found the timeout, now make sure all seqs were returned
+	missing := findMissingNumbersInRange(task.Start, task.End, seqs)
 	if len(missing) == 0 {
 		return
 	}
 
+	// not all sequences were returned, create new timeouts
 	nodes := r.highestSequenceObserved.signers.Remove(r.id)
 	lenNodes := len(nodes)
 
