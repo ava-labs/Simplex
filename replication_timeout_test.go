@@ -6,6 +6,7 @@ package simplex_test
 import (
 	"simplex"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -186,6 +187,9 @@ func TestReplicationRequestTimeoutMultiple(t *testing.T) {
 	// after the timeout, only normalNode2 should respond
 	laggingNode.e.AdvanceTime(laggingNode.e.StartTime.Add(simplex.DefaultReplicationRequestTimeout / 2))
 	require.Equal(t, uint64(0), laggingNode.storage.Height())
+
+	// sleep so we do not drop the tick in timeout handler
+	time.Sleep(10 * time.Millisecond)
 	laggingNode.e.AdvanceTime(laggingNode.e.StartTime.Add(simplex.DefaultReplicationRequestTimeout))
 	laggingNode.storage.waitForBlockCommit(startSeq / 3)
 

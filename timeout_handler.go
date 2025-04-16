@@ -67,14 +67,16 @@ func (t *TimeoutHandler) GetTime() time.Time {
 
 func (t *TimeoutHandler) run() {
 	for t.shouldRun() {
-		now := <-t.ticks
+		select {
+		case now := <-t.ticks:
+			t.lock.Lock()
+			t.now = now
+			t.lock.Unlock()
 
-		t.lock.Lock()
-		t.now = now
-		t.lock.Unlock()
-
-		t.maybeRunTasks()
-
+			t.maybeRunTasks()
+		case <-t.close:
+			return
+		}
 	}
 }
 
@@ -111,8 +113,11 @@ func (t *TimeoutHandler) shouldRun() bool {
 }
 
 func (t *TimeoutHandler) Tick(now time.Time) {
-	// update the time of the handler
-	t.ticks <- now
+	select {
+	case t.ticks <- now:
+	default:
+		t.log.Debug("Dropping tick in timeouthandler")
+	}
 }
 
 func (t *TimeoutHandler) AddTask(task *TimeoutTask) {
