@@ -271,6 +271,7 @@ func (tw *testWAL) containsEmptyNotarization(round uint64) bool {
 
 // messageFilter defines a function that filters
 // certain messages from being sent or broadcasted.
+// a message filter should return true if the message is allowed to be sent
 type messageFilter func(*Message, NodeID) bool
 
 // allowAllMessages allows every message to be sent
