@@ -6,7 +6,6 @@ package simplex_test
 import (
 	"simplex"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -62,8 +61,8 @@ func TestReplicationRequestTimeout(t *testing.T) {
 	// after the timeout, the nodes should respond and the lagging node will replicate
 	net.setAllNodesMessageFilter(allowAllMessages)
 	laggingNode.e.AdvanceTime(laggingNode.e.StartTime.Add(simplex.DefaultReplicationRequestTimeout / 2))
-
 	require.Equal(t, uint64(0), laggingNode.storage.Height())
+
 	laggingNode.e.AdvanceTime(laggingNode.e.StartTime.Add(simplex.DefaultReplicationRequestTimeout * 2))
 	laggingNode.storage.waitForBlockCommit(uint64(startSeq))
 }
@@ -188,8 +187,6 @@ func TestReplicationRequestTimeoutMultiple(t *testing.T) {
 	laggingNode.e.AdvanceTime(laggingNode.e.StartTime.Add(simplex.DefaultReplicationRequestTimeout / 2))
 	require.Equal(t, uint64(0), laggingNode.storage.Height())
 
-	// sleep so we do not drop the tick in timeout handler
-	time.Sleep(10 * time.Millisecond)
 	laggingNode.e.AdvanceTime(laggingNode.e.StartTime.Add(simplex.DefaultReplicationRequestTimeout))
 	laggingNode.storage.waitForBlockCommit(startSeq / 3)
 
@@ -272,6 +269,7 @@ func TestReplicationRequestIncompleteResponses(t *testing.T) {
 	// after the timeout, only normalNode2 should respond(but with incomplete data)
 	laggingNode.e.AdvanceTime(laggingNode.e.StartTime.Add(simplex.DefaultReplicationRequestTimeout / 2))
 	require.Equal(t, uint64(0), laggingNode.storage.Height())
+
 	laggingNode.e.AdvanceTime(laggingNode.e.StartTime.Add(simplex.DefaultReplicationRequestTimeout))
 	laggingNode.storage.waitForBlockCommit(0)
 
