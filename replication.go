@@ -181,6 +181,9 @@ func (r *ReplicationState) createReplicationTimeoutTask(start, end uint64, nodes
 	return timeoutTask
 }
 
+// receivedReplicationResponse notifies the task handler a response was received. If the response
+// was incomplete(meaning our timeout expected more seqs), then we will create a new timeout
+// for the missing sequences and send the request to a different node.
 func (r *ReplicationState) receivedReplicationResponse(data []QuorumRound, node NodeID) {
 	seqs := make([]uint64, 0, len(data))
 
@@ -194,7 +197,6 @@ func (r *ReplicationState) receivedReplicationResponse(data []QuorumRound, node 
 	if task == nil {
 		return
 	}
-
 	r.timeoutHandler.RemoveTask(node, task.TaskID)
 
 	// we found the timeout, now make sure all seqs were returned
@@ -203,7 +205,7 @@ func (r *ReplicationState) receivedReplicationResponse(data []QuorumRound, node 
 		return
 	}
 
-	// not all sequences were returned, create new timeouts
+	// if not all sequences were returned, create new timeouts
 	nodes := r.highestSequenceObserved.signers.Remove(r.id)
 	lenNodes := len(nodes)
 

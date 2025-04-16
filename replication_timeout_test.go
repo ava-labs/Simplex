@@ -4,7 +4,6 @@
 package simplex_test
 
 import (
-	"fmt"
 	"simplex"
 	"testing"
 
@@ -196,7 +195,7 @@ func TestReplicationRequestTimeoutMultiple(t *testing.T) {
 	laggingNode.storage.waitForBlockCommit(startSeq)
 }
 
-// does every other
+// modifies the replication response to only send every other quorom round
 func incompleteReplicationResponseFilter(msg *simplex.Message, from simplex.NodeID) bool {
 	if msg.VerifiedReplicationResponse != nil || msg.ReplicationResponse != nil {
 		newLen := len(msg.VerifiedReplicationResponse.Data) / 2
@@ -206,8 +205,6 @@ func incompleteReplicationResponseFilter(msg *simplex.Message, from simplex.Node
 			newData = append(newData, msg.VerifiedReplicationResponse.Data[i])
 		}
 		msg.VerifiedReplicationResponse.Data = newData
-
-		fmt.Println("hereee")
 	}
 	return true
 }
@@ -266,7 +263,7 @@ func TestReplicationRequestIncompleteResponses(t *testing.T) {
 
 	// assert the lagging node has not received any replication responses
 	require.Equal(t, uint64(0), laggingNode.storage.Height())
-	normalNode2.e.Comm.(*testComm).setFilter(incompleteReplicationResponseFilter)
+	net.setAllNodesMessageFilter(incompleteReplicationResponseFilter)
 
 	// after the timeout, only normalNode2 should respond(but with incomplete data)
 	laggingNode.e.AdvanceTime(laggingNode.e.StartTime.Add(simplex.DefaultReplicationRequestTimeout / 2))

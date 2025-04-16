@@ -6,8 +6,6 @@ package simplex
 import (
 	"container/heap"
 	"fmt"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -186,25 +184,6 @@ const delimiter = "_"
 
 func getTimeoutID(start, end uint64) string {
 	return fmt.Sprintf("%d%s%d", start, delimiter, end)
-}
-
-func parseTimeoutID(id string) (uint64, uint64) {
-	parts := strings.Split(id, delimiter)
-	if len(parts) != 2 {
-		return 0, 0
-	}
-
-	start, err := strconv.ParseUint(parts[0], 10, 64)
-	if err != nil {
-		return 0, 0
-	}
-
-	end, err := strconv.ParseUint(parts[1], 10, 64)
-	if err != nil {
-		return 0, 0
-	}
-
-	return start, end
 }
 
 // ----------------------------------------------------------------------
