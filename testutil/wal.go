@@ -2,6 +2,7 @@ package testutil
 
 import (
 	"encoding/binary"
+	"fmt"
 	"simplex"
 	"simplex/record"
 	"simplex/wal"
@@ -27,8 +28,10 @@ func newTestWAL(t *testing.T) *TestWAL {
 }
 
 func (tw *TestWAL) Clone() *TestWAL {
+	fmt.Println("attemping to lock")
 	tw.lock.Lock()
 	defer tw.lock.Unlock()
+	fmt.Println("done lock")
 
 	rawWAL, err := tw.ReadAll()
 	require.NoError(tw.t, err)
@@ -43,9 +46,6 @@ func (tw *TestWAL) Clone() *TestWAL {
 }
 
 func (tw *TestWAL) ReadAll() ([][]byte, error) {
-	tw.lock.Lock()
-	defer tw.lock.Unlock()
-
 	return tw.WriteAheadLog.ReadAll()
 }
 

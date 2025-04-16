@@ -86,7 +86,7 @@ func TestRecoverFromWALProposed(t *testing.T) {
 
 		require.Equal(t, block, block2)
 	}
-	
+
 	require.Equal(t, rounds, e.Storage.Height())
 }
 

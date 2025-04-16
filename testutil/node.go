@@ -83,7 +83,7 @@ func DefaultTestNodeEpochConfig(t *testing.T, nodeID simplex.NodeID, comm simple
 		Logger:              l,
 		ID:                  nodeID,
 		Signer:              &TestSigner{},
-		WAL:                 newTestWAL(t),
+		WAL:                 wal,
 		Verifier:            &testVerifier{},
 		Storage:             storage,
 		Comm:                comm,
