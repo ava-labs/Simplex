@@ -153,7 +153,7 @@ func (t *TimeoutHandler) RemoveTask(nodeID NodeID, ID string) {
 	// remove it from the heap using the index
 	t.log.Debug("Removing timeout task", zap.String("taskid", ID))
 	heap.Remove(&t.heap, t.tasks[string(nodeID)][ID].index)
-	delete(t.tasks, ID)
+	delete(t.tasks[string(nodeID)], ID)
 }
 
 func (t *TimeoutHandler) Close() {
