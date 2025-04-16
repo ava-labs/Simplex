@@ -86,7 +86,7 @@ func TestEpochConsecutiveProposalsDoNotGetVerified(t *testing.T) {
 	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1)}
 
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
-	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
+	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[1], testutil.NewNoopComm(nodes), bb)
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
@@ -508,8 +508,8 @@ func TestEpochBlockSentTwice(t *testing.T) {
 
 	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1)}
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
-	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
-
+	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[1], testutil.NewNoopComm(nodes), bb)
+	conf.Logger = l
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
 
@@ -719,8 +719,8 @@ func TestEpochBlockSentFromNonLeader(t *testing.T) {
 
 	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1)}
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
-	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
-
+	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[1], testutil.NewNoopComm(nodes), bb)
+	conf.Logger = l
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
 
@@ -763,7 +763,8 @@ func TestEpochBlockTooHighRound(t *testing.T) {
 	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1)}
 
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
-	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
+	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[1], testutil.NewNoopComm(nodes), bb)
+	conf.Logger = l
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
