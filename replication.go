@@ -226,19 +226,17 @@ func (r *ReplicationState) receivedReplicationResponse(data []QuorumRound, node 
 	r.timeoutHandler.AddTask(newTask)
 }
 
+// findMissingNumbersInRange finds numbers in an array constructed by [start...end] that are not in [nums]
+// ex. (3, 10, [1,2,3,4,5,6]) -> [7,8,9,10]
 func findMissingNumbersInRange(start, end uint64, nums []uint64) []uint64 {
-	// Create a map to track numbers in the input array for O(1) lookups
 	numMap := make(map[uint64]bool)
 	for _, num := range nums {
 		numMap[num] = true
 	}
 
-	// Create result array of missing numbers
 	var result []uint64
 
-	// Check each number in the range
 	for i := start; i <= end; i++ {
-		// If number isn't in the map, add it to result
 		if _, exists := numMap[i]; !exists {
 			result = append(result, i)
 		}
