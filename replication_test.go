@@ -819,43 +819,6 @@ func advanceWithoutLeader(t *testing.T, net *inMemNetwork, bb *testControlledBlo
 	}
 }
 
-// func timeoutOnRound(t *testing.T, net *inMemNetwork, bb *testControlledBlockBuilder, epochTimes []time.Time, round uint64, laggingNodeId simplex.NodeID) {
-// 		// we need to ensure all blocks are waiting for the channel before proceeding
-// 	// otherwise, we may send to a channel that is not ready to receive
-// 	for _, n := range net.instances {
-// 		if laggingNodeId.Equals(n.e.ID) {
-// 			continue
-// 		}
-
-// 		waitToEnterRound(t, n, round)
-// 	}
-
-// 	for _, n := range net.instances {
-// 		leader := n.e.ID.Equals(simplex.LeaderForRound(net.nodes, n.e.Metadata().Round))
-// 		if leader || laggingNodeId.Equals(n.e.ID) {
-// 			continue
-// 		}
-// 		bb.blockShouldBeBuilt <- struct{}{}
-// 	}
-
-// 	for i, n := range net.instances {
-// 		// the leader will not write an empty vote to the wal
-// 		// because it cannot both propose a block & send an empty vote in the same round
-// 		leader := n.e.ID.Equals(simplex.LeaderForRound(net.nodes, n.e.Metadata().Round))
-// 		if leader || laggingNodeId.Equals(n.e.ID) {
-// 			continue
-// 		}
-// 		waitForBlockProposerTimeout(t, n.e, &epochTimes[i], round)
-// 	}
-
-// 	for _, n := range net.instances {
-// 		if laggingNodeId.Equals(n.e.ID) {
-// 			continue
-// 		}
-// 		n.wal.assertNotarization(round)
-// 	}
-// }
-
 func createBlocks(t *testing.T, nodes []simplex.NodeID, bb simplex.BlockBuilder, seqCount uint64) []simplex.VerifiedFinalizedBlock {
 	logger := testutil.MakeLogger(t, int(0))
 	ctx := context.Background()
