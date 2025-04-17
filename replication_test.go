@@ -567,9 +567,9 @@ func testReplicationAfterNodeDisconnects(t *testing.T, nodes []simplex.NodeID, s
 	}
 }
 
-func onlyAllowBlockProposalsAndNotarizations(msg *simplex.Message, to simplex.NodeID) bool {
+func onlyAllowBlockProposalsAndNotarizations(msg *simplex.Message, from, to simplex.NodeID) bool {
 	// TODO: remove hardcoded node id
-	if to.Equals(simplex.NodeID{4}) {
+	if from.Equals(simplex.NodeID{4}) {
 		return (msg.BlockMessage != nil || msg.VerifiedBlockMessage != nil || msg.Notarization != nil)
 	}
 
@@ -641,6 +641,117 @@ func testReplicationNotarizationWithoutFinalizations(t *testing.T, numBlocks uin
 	}
 }
 
+// sendVotesToOneNode allows block messages to sent to all nodes, and only 
+// passes vote messages to one node. This will allows that node to notarize the block,
+// while the other blocks will timeout
+func sendVotesToOneNode(msg *simplex.Message, from, to simplex.NodeID) bool {
+	if msg.VerifiedBlockMessage != nil || msg.BlockMessage != nil{
+		return true
+	}
+
+	if msg.VoteMessage != nil {
+		if  to.Equals(simplex.NodeID{4}){
+			return true 
+		}
+	}
+
+	return false
+}
+// Say we notarize a block of seq 10, round 10, but the rest of the network propagates an empty notarization.
+
+// When we replicate and receive an fcert of round 10 + x, seq 10 we should properly increase the round and make sure our epoch doesn't hang since it stores an old block/notarization of that same sequence.
+
+// I think we have this covered since we first process replication by sequences, but it would be nice to include a test for this.
+func TestReplicationNodeDiverges(t *testing.T) {
+	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}, {5}, {6}}
+	// numBlocks := uint64(5)
+
+	bb := newTestControlledBlockBuilder(t)
+	net := newInMemNetwork(t, nodes)
+
+	nodeConfig := func(from simplex.NodeID) *testNodeConfig {
+		comm := newTestComm(from, net, sendVotesToOneNode)
+		return &testNodeConfig{
+			comm:               comm,
+			replicationEnabled: true,
+		}
+	}
+
+	newSimplexNode(t, nodes[0], net, bb, nodeConfig(nodes[0]))
+	newSimplexNode(t, nodes[1], net, bb, nodeConfig(nodes[1]))
+	newSimplexNode(t, nodes[2], net, bb, nodeConfig(nodes[2]))
+	laggingNode := newSimplexNode(t, nodes[3], net, bb, nodeConfig(nodes[3]))
+
+	// we need at least 6 nodes since the lagging node & leader will note timeout
+	newSimplexNode(t, nodes[4], net, bb, nodeConfig(nodes[4]))
+	newSimplexNode(t, nodes[5], net, bb, nodeConfig(nodes[5]))
+
+	startTimes := make([]time.Time, 0, len(nodes))
+	for _, n := range net.instances {
+		require.Equal(t, uint64(0), n.storage.Height())
+		startTimes = append(startTimes, n.e.StartTime)
+	}
+	
+	for _, n := range net.instances {
+		require.Equal(t, uint64(0), n.storage.Height())
+	}
+	
+	net.startInstances()
+	bb.triggerNewBlock()
+	
+	// because of the message filter, the lagging one will be the only one to notarize the block
+	laggingNode.wal.assertNotarization(0)
+	for _, n := range net.instances[:3] {
+		require.Equal(t, false, n.wal.containsNotarization(0))
+	}
+	
+	net.setAllNodesMessageFilter(allowAllMessages)
+	net.Disconnect(laggingNode.e.ID)
+	// now all the other nodes will progress with a timeout on this round
+	advanceWithoutLeader(t, net, bb, startTimes, 0, laggingNode.e.ID)
+	for _, n := range net.instances {
+		require.Equal(t, uint64(1), n.e.Metadata().Round)
+		fmt.Println("n", n.e.ID)
+
+		if n.e.ID.Equals(laggingNode.e.ID) {
+			continue
+		}
+
+		require.Equal(t, uint64(0), n.e.Metadata().Seq)
+	}
+
+	// // now advance the round from a block(the lagging node will realize it is behind)
+	// bb.triggerNewBlock()
+	// for _, n := range net.instances {
+	// 	n.storage.waitForBlockCommit(0)
+	// 	fmt.Println("waiting for ", n.e.ID)
+	// 	if n.e.ID.Equals(laggingNode.e.ID) {
+	// 		continue
+	// 	}
+	// 	fmt.Println("done waiting for ", n.e.ID)
+	// }
+
+
+
+	// for _, n := range net.instances {
+	// 	n.wal.assertNotarization(0)
+	// }
+	
+	// net.Disconnect(laggingNode.e.ID)
+
+
+	// laggingNode.wal.assertNotarization(numBlocks - 1)
+	// require.Equal(t, uint64(0), laggingNode.storage.Height())
+	// require.Equal(t, uint64(numBlocks), laggingNode.e.Metadata().Round)
+
+	// net.setAllNodesMessageFilter(allowAllMessages)
+	// bb.triggerNewBlock()
+	// for _, n := range net.instances {
+	// 	n.storage.waitForBlockCommit(uint64(numBlocks))
+	// }
+}
+
+
 func waitToEnterRound(t *testing.T, n *testNode, round uint64) {
 	timeout := time.NewTimer(time.Minute)
 	defer timeout.Stop()
@@ -692,9 +803,47 @@ func advanceWithoutLeader(t *testing.T, net *inMemNetwork, bb *testControlledBlo
 		if laggingNodeId.Equals(n.e.ID) {
 			continue
 		}
-		n.wal.assertNotarization(round)
+		empty := n.wal.assertNotarization(round)
+		require.True(t, empty)
 	}
 }
+
+// func timeoutOnRound(t *testing.T, net *inMemNetwork, bb *testControlledBlockBuilder, epochTimes []time.Time, round uint64, laggingNodeId simplex.NodeID) {
+// 		// we need to ensure all blocks are waiting for the channel before proceeding
+// 	// otherwise, we may send to a channel that is not ready to receive
+// 	for _, n := range net.instances {
+// 		if laggingNodeId.Equals(n.e.ID) {
+// 			continue
+// 		}
+
+// 		waitToEnterRound(t, n, round)
+// 	}
+
+// 	for _, n := range net.instances {
+// 		leader := n.e.ID.Equals(simplex.LeaderForRound(net.nodes, n.e.Metadata().Round))
+// 		if leader || laggingNodeId.Equals(n.e.ID) {
+// 			continue
+// 		}
+// 		bb.blockShouldBeBuilt <- struct{}{}
+// 	}
+
+// 	for i, n := range net.instances {
+// 		// the leader will not write an empty vote to the wal
+// 		// because it cannot both propose a block & send an empty vote in the same round
+// 		leader := n.e.ID.Equals(simplex.LeaderForRound(net.nodes, n.e.Metadata().Round))
+// 		if leader || laggingNodeId.Equals(n.e.ID) {
+// 			continue
+// 		}
+// 		waitForBlockProposerTimeout(t, n.e, &epochTimes[i], round)
+// 	}
+
+// 	for _, n := range net.instances {
+// 		if laggingNodeId.Equals(n.e.ID) {
+// 			continue
+// 		}
+// 		n.wal.assertNotarization(round)
+// 	}
+// }
 
 func createBlocks(t *testing.T, nodes []simplex.NodeID, bb simplex.BlockBuilder, seqCount uint64) []simplex.VerifiedFinalizedBlock {
 	logger := testutil.MakeLogger(t, int(0))
