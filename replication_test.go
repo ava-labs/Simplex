@@ -678,8 +678,8 @@ func TestReplicationNodeDiverges(t *testing.T) {
 		}
 	}
 
-	newSimplexNode(t, nodes[0], net, bb, nodeConfig(nodes[0]))
-	newSimplexNode(t, nodes[1], net, bb, nodeConfig(nodes[1]))
+	firstBlockProposer := newSimplexNode(t, nodes[0], net, bb, nodeConfig(nodes[0]))
+	secondBlockProposer := newSimplexNode(t, nodes[1], net, bb, nodeConfig(nodes[1]))
 	newSimplexNode(t, nodes[2], net, bb, nodeConfig(nodes[2]))
 	laggingNode := newSimplexNode(t, nodes[3], net, bb, nodeConfig(nodes[3]))
 
@@ -706,21 +706,30 @@ func TestReplicationNodeDiverges(t *testing.T) {
 		require.Equal(t, false, n.wal.containsNotarization(0))
 	}
 	
+	// we disconnect lagging node first so that it doesn't send the notarized block to any other nodes 
+	net.Disconnect(laggingNode.e.ID)
 	net.setAllNodesMessageFilter(allowAllMessages)
-	// net.Disconnect(laggingNode.e.ID)
+
 	// now all the other nodes will progress with a timeout on this round
+	// advance without leader asserts every node except lagging has an empty notarization for 
+	// round 0
 	advanceWithoutLeader(t, net, bb, startTimes, 0, laggingNode.e.ID)
 	
-	// for _, n := range net.instances {
-	// 	require.Equal(t, uint64(1), n.e.Metadata().Round)
-	// 	fmt.Println("n", n.e.ID)
+	for _, n := range net.instances {
+		require.Equal(t, uint64(1), n.e.Metadata().Round)
+		if n.e.ID.Equals(laggingNode.e.ID) || n.e.ID.Equals(firstBlockProposer.e.ID) {
+			require.Equal(t, uint64(1), n.e.Metadata().Seq)
+			continue
+		}
 
-	// 	if n.e.ID.Equals(laggingNode.e.ID) {
-	// 		continue
-	// 	}
+		// may or may not have finished building a block
+		if n.e.ID.Equals(secondBlockProposer.e.ID) {
+			continue
+		}
 
-	// 	require.Equal(t, uint64(0), n.e.Metadata().Seq)
-	// }
+		fmt.Println("n", n.e.ID)
+		require.Equal(t, uint64(0), n.e.Metadata().Seq)
+	}
 
 	// // now advance the round from a block(the lagging node will realize it is behind)
 	// bb.triggerNewBlock()
