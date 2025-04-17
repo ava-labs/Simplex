@@ -6,6 +6,7 @@ package simplex_test
 import (
 	"simplex"
 	"simplex/record"
+	"simplex/testutil"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -14,7 +15,7 @@ import (
 func newNotarization(logger simplex.Logger, signatureAggregator simplex.SignatureAggregator, block simplex.VerifiedBlock, ids []simplex.NodeID) (simplex.Notarization, error) {
 	votesForCurrentRound := make(map[string]*simplex.Vote)
 	for _, id := range ids {
-		vote, err := newTestVote(block, id)
+		vote, err := newTestVote(block, id, &testutil.TestSigner{})
 		if err != nil {
 			return simplex.Notarization{}, err
 		}
@@ -40,7 +41,7 @@ func newNotarizationRecord(logger simplex.Logger, signatureAggregator simplex.Si
 func newFinalizationRecord(t *testing.T, logger simplex.Logger, signatureAggregator simplex.SignatureAggregator, block simplex.VerifiedBlock, ids []simplex.NodeID) (simplex.FinalizationCertificate, []byte) {
 	finalizations := make([]*simplex.Finalization, len(ids))
 	for i, id := range ids {
-		finalizations[i] = newTestFinalization(t, block, id)
+		finalizations[i] = newTestFinalization(t, block, id, &testutil.TestSigner{})
 	}
 
 	fCert, err := simplex.NewFinalizationCertificate(logger, signatureAggregator, finalizations)

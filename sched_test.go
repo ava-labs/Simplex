@@ -1,11 +1,12 @@
 // Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
-package simplex
+package simplex_test
 
 import (
 	"crypto/rand"
 	rand2 "math/rand"
+	. "simplex"
 	"simplex/testutil"
 	"sync"
 	"testing"
@@ -15,12 +16,12 @@ import (
 )
 
 func TestDependencyTree(t *testing.T) {
-	dt := newDependencies()
+	dt := NewDependencies()
 
 	for i := 0; i < 5; i++ {
-		dt.Insert(task{f: func() Digest {
+		dt.Insert(Task{F: func() Digest {
 			return Digest{uint8(i + 1)}
-		}, parent: Digest{uint8(i)}})
+		}, Parent: Digest{uint8(i)}})
 	}
 
 	require.Equal(t, 5, dt.Size())
@@ -28,7 +29,7 @@ func TestDependencyTree(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		j := dt.Remove(Digest{uint8(i)})
 		require.Len(t, j, 1)
-		require.Equal(t, Digest{uint8(i + 1)}, j[0].f())
+		require.Equal(t, Digest{uint8(i + 1)}, j[0].F())
 	}
 
 }
@@ -106,7 +107,7 @@ func TestAsyncScheduler(t *testing.T) {
 	})
 }
 
-func scheduleTask(lock *sync.Mutex, finished map[Digest]struct{}, dependency Digest, id Digest, wg *sync.WaitGroup, as *scheduler, i int) func() {
+func scheduleTask(lock *sync.Mutex, finished map[Digest]struct{}, dependency Digest, id Digest, wg *sync.WaitGroup, as *Scheduler, i int) func() {
 	var dep Digest
 	copy(dep[:], dependency[:])
 
