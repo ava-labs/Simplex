@@ -1043,7 +1043,7 @@ func (e *Epoch) persistEmptyNotarization(emptyNotarization *EmptyNotarization, s
 			zap.Uint64("round", emptyNotarization.Vote.Round))
 	}
 
-	delete(e.rounds, e.round)
+	// delete(e.rounds, e.round)
 	e.increaseRound()
 
 	return errors.Join(e.startRound(), e.maybeLoadFutureMessages())
