@@ -251,7 +251,7 @@ func TestWalCreatedProperly(t *testing.T) {
 func TestWalWritesBlockRecord(t *testing.T) {
 	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1)}
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
-	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
+	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[1], testutil.NewNoopComm(nodes), bb)
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
@@ -519,6 +519,7 @@ func TestRecoveryAsLeader(t *testing.T) {
 	}
 
 	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
+	conf.Storage = storage
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
