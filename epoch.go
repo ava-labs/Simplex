@@ -850,7 +850,6 @@ func (e *Epoch) persistFinalizationCertificate(fCert FinalizationCertificate) er
 
 		e.Logger.Debug("Persisted finalization certificate to WAL",
 			zap.Uint64("round", fCert.Finalization.Round),
-			zap.Uint64("finalization next", fCert.Finalization.Seq),
 			zap.Uint64("height", nextSeqToCommit),
 			zap.Int("size", len(recordBytes)),
 			zap.Stringer("digest", fCert.Finalization.BlockHeader.Digest))
@@ -1043,7 +1042,6 @@ func (e *Epoch) persistEmptyNotarization(emptyNotarization *EmptyNotarization, s
 			zap.Uint64("round", emptyNotarization.Vote.Round))
 	}
 
-	// delete(e.rounds, e.round)
 	e.increaseRound()
 
 	return errors.Join(e.startRound(), e.maybeLoadFutureMessages())

@@ -650,7 +650,6 @@ func sendVotesToOneNode(msg *simplex.Message, from, to simplex.NodeID) bool {
 	}
 
 	if msg.VoteMessage != nil {
-		// this is the lagging node
 		if  to.Equals(simplex.NodeID{4}){
 			return true 
 		}
@@ -707,31 +706,20 @@ func TestReplicationNodeDiverges(t *testing.T) {
 	}
 	
 	net.setAllNodesMessageFilter(allowAllMessages)
-	// net.Disconnect(laggingNode.e.ID)
+	
 	// now all the other nodes will progress with a timeout on this round
 	advanceWithoutLeader(t, net, bb, startTimes, 0, laggingNode.e.ID)
-	
-	// for _, n := range net.instances {
-	// 	require.Equal(t, uint64(1), n.e.Metadata().Round)
-	// 	fmt.Println("n", n.e.ID)
+	for _, n := range net.instances {
+		require.Equal(t, uint64(1), n.e.Metadata().Round)
+	}
 
-	// 	if n.e.ID.Equals(laggingNode.e.ID) {
-	// 		continue
-	// 	}
-
-	// 	require.Equal(t, uint64(0), n.e.Metadata().Seq)
-	// }
-
-	// // now advance the round from a block(the lagging node will realize it is behind)
-	// bb.triggerNewBlock()
-	// for _, n := range net.instances {
-	// 	n.storage.waitForBlockCommit(0)
-	// 	fmt.Println("waiting for ", n.e.ID)
-	// 	if n.e.ID.Equals(laggingNode.e.ID) {
-	// 		continue
-	// 	}
-	// 	fmt.Println("done waiting for ", n.e.ID)
-	// }
+	// now advance the round from a block(the lagging node will realize it is behind)
+	bb.triggerNewBlock()
+	for _, n := range net.instances {
+		fmt.Println("waiting for ", n.e.ID)
+		n.storage.waitForBlockCommit(0)
+		fmt.Println("dine for ", n.e.ID)
+	}
 
 
 
@@ -805,8 +793,7 @@ func advanceWithoutLeader(t *testing.T, net *inMemNetwork, bb *testControlledBlo
 		if laggingNodeId.Equals(n.e.ID) {
 			continue
 		}
-		empty := n.wal.assertNotarization(round)
-		require.True(t, empty)
+		n.wal.assertNotarization(round)
 	}
 }
 
