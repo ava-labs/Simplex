@@ -850,6 +850,7 @@ func (e *Epoch) persistFinalizationCertificate(fCert FinalizationCertificate) er
 
 		e.Logger.Debug("Persisted finalization certificate to WAL",
 			zap.Uint64("round", fCert.Finalization.Round),
+			zap.Uint64("finalization next", fCert.Finalization.Seq),
 			zap.Uint64("height", nextSeqToCommit),
 			zap.Int("size", len(recordBytes)),
 			zap.Stringer("digest", fCert.Finalization.BlockHeader.Digest))
@@ -1881,7 +1882,6 @@ func (e *Epoch) Metadata() ProtocolMetadata {
 func (e *Epoch) metadata() ProtocolMetadata {
 	var prev Digest
 	seq := e.Storage.Height()
-
 	highestRound := e.getHighestRound()
 	if highestRound != nil {
 		// Build on top of the latest block
@@ -2153,7 +2153,6 @@ func (e *Epoch) storeNotarization(notarization Notarization) error {
 	if !exists {
 		return fmt.Errorf("attempted to store notarization of a non existent round %d", round)
 	}
-
 	r.notarization = &notarization
 	return nil
 }
@@ -2485,14 +2484,20 @@ func (e *Epoch) maybeAdvanceRoundFromEmptyNotarizations() (bool, error) {
 // getHighestRound returns the highest round that has either a notarization or finalization
 func (e *Epoch) getHighestRound() *Round {
 	var max uint64
+	var found bool
 
 	for _, round := range e.rounds {
-		if round.num > max {
+		if round.num >= max {
 			if round.notarization == nil && round.fCert == nil {
 				continue
 			}
 			max = round.num
+			found = true
 		}
+	}
+
+	if !found {
+		return nil
 	}
 
 	return e.rounds[max]

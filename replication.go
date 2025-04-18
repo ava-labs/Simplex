@@ -111,6 +111,11 @@ func (r *ReplicationState) sendReplicationRequests(start uint64, end uint64) {
 	numSeqs := end + 1 - start
 	seqsPerNode := numSeqs / uint64(numNodes)
 
+	// this way we don't send unecessary requests
+	if seqsPerNode == 0 {
+		seqsPerNode = 1 
+	}
+
 	// Distribute sequences evenly among nodes in round-robin fashion
 	for i := range numNodes {
 		nodeIndex := (r.requestIterator + i) % numNodes
@@ -122,6 +127,9 @@ func (r *ReplicationState) sendReplicationRequests(start uint64, end uint64) {
 			nodeEnd = end
 		}
 
+		if nodeEnd > end {
+			break
+		}
 		r.sendRequestToNode(nodeStart, nodeEnd, nodes[nodeIndex])
 	}
 
