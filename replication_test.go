@@ -717,7 +717,6 @@ func TestReplicationNodeDiverges(t *testing.T) {
 	
 	for _, n := range net.instances {
 		require.Equal(t, uint64(1), n.e.Metadata().Round)
-		fmt.Println("n", n.e.ID, n.e.Metadata().Seq)
 		if n.e.ID.Equals(laggingNode.e.ID) {
 			require.Equal(t, uint64(1), n.e.Metadata().Seq)
 			continue

@@ -576,7 +576,6 @@ func (e *Epoch) storeFutureFinalization(message *Finalization, from NodeID, roun
 		msgsForRound = &messagesForRound{}
 		e.futureMessages[string(from)][round] = msgsForRound
 	}
-	fmt.Println("future fcert", e.ID)
 	msgsForRound.finalization = message
 }
 
@@ -586,7 +585,6 @@ func (e *Epoch) storeFutureNotarization(message *Notarization, from NodeID, roun
 		msgsForRound = &messagesForRound{}
 		e.futureMessages[string(from)][round] = msgsForRound
 	}
-	fmt.Println("storing notarization", e.ID)
 	msgsForRound.notarization = message
 }
 
@@ -1884,10 +1882,8 @@ func (e *Epoch) Metadata() ProtocolMetadata {
 func (e *Epoch) metadata() ProtocolMetadata {
 	var prev Digest
 	seq := e.Storage.Height()
-	fmt.Println("storage.height", seq, e.ID)
 	highestRound := e.getHighestRound()
 	if highestRound != nil {
-		fmt.Println("highest?", e.ID)
 		// Build on top of the latest block
 		currMed := highestRound.block.BlockHeader()
 		prev = currMed.Digest
@@ -2075,7 +2071,6 @@ func (e *Epoch) voteOnBlock(block VerifiedBlock) (Vote, error) {
 
 // deletesRounds deletes all the rounds before [round] in the rounds map.
 func (e *Epoch) deleteRounds(round uint64) {
-	fmt.Println("deleting rounds")
 	for i, r := range e.rounds {
 		if r.num+e.maxRoundWindow < round {
 			delete(e.rounds, i)
@@ -2158,7 +2153,6 @@ func (e *Epoch) storeNotarization(notarization Notarization) error {
 	if !exists {
 		return fmt.Errorf("attempted to store notarization of a non existent round %d", round)
 	}
-	fmt.Println("stored noteeee", e.ID)
 	r.notarization = &notarization
 	return nil
 }
@@ -2497,7 +2491,6 @@ func (e *Epoch) getHighestRound() *Round {
 			if round.notarization == nil && round.fCert == nil {
 				continue
 			}
-			fmt.Println("highest block found", e.ID)
 			max = round.num
 			found = true
 		}

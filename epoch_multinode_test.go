@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"fmt"
 	. "simplex"
 	"simplex/record"
 	"simplex/testutil"
@@ -449,7 +448,6 @@ func (c *testComm) isMessagePermitted(msg *Message, destination NodeID) bool {
 }
 
 func (c *testComm) Broadcast(msg *Message) {
-	fmt.Println("node is broadcasting", c.from.String())
 	if c.net.IsDisconnected(c.from) {
 		return
 	}
