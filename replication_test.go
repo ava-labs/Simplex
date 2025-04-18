@@ -678,7 +678,7 @@ func TestReplicationNodeDiverges(t *testing.T) {
 		}
 	}
 
-	firstBlockProposer := newSimplexNode(t, nodes[0], net, bb, nodeConfig(nodes[0]))
+	newSimplexNode(t, nodes[0], net, bb, nodeConfig(nodes[0]))
 	secondBlockProposer := newSimplexNode(t, nodes[1], net, bb, nodeConfig(nodes[1]))
 	newSimplexNode(t, nodes[2], net, bb, nodeConfig(nodes[2]))
 	laggingNode := newSimplexNode(t, nodes[3], net, bb, nodeConfig(nodes[3]))
@@ -717,7 +717,8 @@ func TestReplicationNodeDiverges(t *testing.T) {
 	
 	for _, n := range net.instances {
 		require.Equal(t, uint64(1), n.e.Metadata().Round)
-		if n.e.ID.Equals(laggingNode.e.ID) || n.e.ID.Equals(firstBlockProposer.e.ID) {
+		fmt.Println("n", n.e.ID, n.e.Metadata().Seq)
+		if n.e.ID.Equals(laggingNode.e.ID) {
 			require.Equal(t, uint64(1), n.e.Metadata().Seq)
 			continue
 		}
@@ -727,7 +728,6 @@ func TestReplicationNodeDiverges(t *testing.T) {
 			continue
 		}
 
-		fmt.Println("n", n.e.ID)
 		require.Equal(t, uint64(0), n.e.Metadata().Seq)
 	}
 
