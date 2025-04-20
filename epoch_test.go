@@ -989,7 +989,7 @@ func TestEpochBlockTooHighRound(t *testing.T) {
 	})
 }
 
-// TestMetadataProposedRound ensures the metadata doesn't build off a block 
+// TestMetadataProposedRound ensures the metadata doesn't build off a block
 // that doesn't have a finalization or notarization
 func TestMetadataProposedRound(t *testing.T) {
 	l := testutil.MakeLogger(t, 1)
@@ -1014,9 +1014,10 @@ func TestMetadataProposedRound(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, e.Start())
-	
+
 	// assert the proposed block was written to the wal
 	wal.assertWALSize(1)
+	require.Zero(t, e.Metadata().Round)
 	require.Zero(t, e.Metadata().Seq)
 }
 
