@@ -989,8 +989,8 @@ func TestEpochBlockTooHighRound(t *testing.T) {
 	})
 }
 
-// TestMetadataProposedRound ensures the metadata doesn't build off a block
-// that doesn't have a finalization or notarization
+// TestMetadataProposedRound ensures the metadata only builds off blocks
+// with finalizations or notarizations
 func TestMetadataProposedRound(t *testing.T) {
 	l := testutil.MakeLogger(t, 1)
 	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
