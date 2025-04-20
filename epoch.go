@@ -2485,17 +2485,23 @@ func (e *Epoch) maybeAdvanceRoundFromEmptyNotarizations() (bool, error) {
 // getHighestRound returns the highest round that has either a notarization or finalization
 func (e *Epoch) getHighestRound() *Round {
 	var max uint64
+	var found bool
 
 	for _, round := range e.rounds {
-		if round.num > max {
+		if round.num >= max {
 			if round.notarization == nil && round.fCert == nil {
 				continue
 			}
 			max = round.num
+			found = true
 		}
 	}
 
-	return e.rounds[max]
+	if found {
+		return e.rounds[max]
+	}
+
+	return nil
 }
 
 func (e *Epoch) getHighestEmptyNotarization() *EmptyNotarization {
