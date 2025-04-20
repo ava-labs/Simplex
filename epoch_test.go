@@ -170,6 +170,53 @@ func TestEpochConsecutiveProposalsDoNotGetVerified(t *testing.T) {
 	}
 }
 
+// TestEpochIncreasesRoundAfterFCert ensures that the epochs round is incremented
+// if we receive an fcert for the current round(even if it is not the next seq to commit)
+func TestEpochIncreasesRoundAfterFCert(t *testing.T) {
+	l := testutil.MakeLogger(t, 1)
+
+	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
+	storage := newInMemStorage()
+
+	wal := newTestWAL(t)
+
+	nodes := []NodeID{{1}, {2}, {3}, {4}, {5}, {6}}
+
+	conf := EpochConfig{
+		MaxProposalWait:     DefaultMaxProposalWaitTime,
+		Logger:              l,
+		ID:                  nodes[2],
+		Signer:              &testSigner{},
+		WAL:                 wal,
+		Verifier:            &testVerifier{},
+		Storage:             storage,
+		Comm:                noopComm(nodes),
+		BlockBuilder:        bb,
+		SignatureAggregator: &testSignatureAggregator{},
+	}
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+
+	require.NoError(t, e.Start())
+
+	block, _ := advanceRoundFromNotarization(t, e, bb)
+	advanceRoundFromFinalization(t, e, bb)
+	require.Equal(t, uint64(2), e.Metadata().Round)
+	require.Equal(t, uint64(0), storage.Height())
+
+	// create the finalized block
+	fCert, _ := newFinalizationRecord(t, l, conf.SignatureAggregator, block, nodes)
+	injectTestFinalizationCertificate(t, e, &fCert, nodes[1])
+
+	storage.waitForBlockCommit(1)
+	require.Equal(t, uint64(2), e.Metadata().Round)
+	require.Equal(t, uint64(2), storage.Height())
+
+	// we are the leader, ensure we can continue & propose a block
+	notarizeAndFinalizeRound(t, e, bb)
+}
+
 func TestEpochNotarizeTwiceThenFinalize(t *testing.T) {
 	l := testutil.MakeLogger(t, 1)
 	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
@@ -427,6 +474,7 @@ func notarizeAndFinalizeRound(t *testing.T, e *Epoch, bb *testBlockBuilder) (Ver
 // If [finalize] is set, the round will advance and the block will be indexed to storage.
 func advanceRound(t *testing.T, e *Epoch, bb *testBlockBuilder, notarize bool, finalize bool) (VerifiedBlock, *Notarization) {
 	require.True(t, notarize || finalize, "must either notarize or finalize a round to advance")
+	nextSeqToCommit := e.Storage.Height()
 	nodes := e.Comm.ListNodes()
 	quorum := Quorum(len(nodes))
 	// leader is the proposer of the new block for the given round
@@ -466,9 +514,18 @@ func advanceRound(t *testing.T, e *Epoch, bb *testBlockBuilder, notarize bool, f
 	}
 
 	if finalize {
-		for i := 1; i <= quorum; i++ {
+		for i := 0; i <= quorum; i++ {
+			if nodes[i].Equals(e.ID) {
+				continue
+			}
 			injectTestFinalization(t, e, block, nodes[i])
 		}
+
+		if nextSeqToCommit != block.metadata.Seq {
+			waitToEnterRound(t, e, block.metadata.Round+1)
+			return block, notarization
+		}
+
 		blockFromStorage := e.Storage.(*InMemStorage).waitForBlockCommit(block.metadata.Seq)
 		require.Equal(t, block, blockFromStorage)
 	}
@@ -989,7 +1046,7 @@ func TestEpochBlockTooHighRound(t *testing.T) {
 	})
 }
 
-// TestMetadataProposedRound ensures the metadata doesn't build off a block 
+// TestMetadataProposedRound ensures the metadata doesn't build off a block
 // that doesn't have a finalization or notarization
 func TestMetadataProposedRound(t *testing.T) {
 	l := testutil.MakeLogger(t, 1)
@@ -1014,7 +1071,7 @@ func TestMetadataProposedRound(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, e.Start())
-	
+
 	// assert the proposed block was written to the wal
 	wal.assertWALSize(1)
 	require.Zero(t, e.Metadata().Seq)
@@ -1065,6 +1122,13 @@ func newTestFinalization(t *testing.T, block VerifiedBlock, id NodeID) *Finaliza
 			BlockHeader: block.BlockHeader(),
 		},
 	}
+}
+
+func injectTestFinalizationCertificate(t *testing.T, e *Epoch, fCert *FinalizationCertificate, from NodeID) {
+	err := e.HandleMessage(&Message{
+		FinalizationCertificate: fCert,
+	}, from)
+	require.NoError(t, err)
 }
 
 func injectTestFinalization(t *testing.T, e *Epoch, block VerifiedBlock, id NodeID) {

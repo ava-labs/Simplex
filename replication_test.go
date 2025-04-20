@@ -641,12 +641,12 @@ func testReplicationNotarizationWithoutFinalizations(t *testing.T, numBlocks uin
 	}
 }
 
-func waitToEnterRound(t *testing.T, n *testNode, round uint64) {
+func waitToEnterRound(t *testing.T, e *simplex.Epoch, round uint64) {
 	timeout := time.NewTimer(time.Minute)
 	defer timeout.Stop()
 
 	for {
-		if n.e.Metadata().Round >= round {
+		if e.Metadata().Round >= round {
 			return
 		}
 
@@ -667,7 +667,7 @@ func advanceWithoutLeader(t *testing.T, net *inMemNetwork, bb *testControlledBlo
 			continue
 		}
 
-		waitToEnterRound(t, n, round)
+		waitToEnterRound(t, n.e, round)
 	}
 
 	for _, n := range net.instances {

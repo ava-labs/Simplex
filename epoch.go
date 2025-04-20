@@ -861,6 +861,15 @@ func (e *Epoch) persistFinalizationCertificate(fCert FinalizationCertificate) er
 		if err := e.rebroadcastPastFinalizations(); err != nil {
 			return err
 		}
+
+		if e.round == fCert.Finalization.Round {
+			round, ok := e.rounds[e.round]
+			// This code path can be hit after incrementing the round from a notarization.
+			// this check ensure we do not double increment.
+			if ok && round.notarization == nil {
+				e.increaseRound()
+			}
+		}
 	}
 
 	finalizationCertificate := &Message{FinalizationCertificate: &fCert}
