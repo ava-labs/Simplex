@@ -108,7 +108,6 @@ func (m *Monitor) CancelTask() {
 	select {
 	case <-m.tasks:
 	default:
-
 	}
 }
 

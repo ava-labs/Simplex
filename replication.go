@@ -205,6 +205,8 @@ func (r *ReplicationState) StoreQuorumRound(round QuorumRound) {
 
 		r.highestSequenceObserved = signedSeq
 	}
+
+	r.logger.Debug("Storing quorum round", zap.Stringer("qr", &round))
 	r.receivedQuorumRounds[round.GetRound()] = round
 }
 

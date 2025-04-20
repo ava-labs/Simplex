@@ -1443,7 +1443,10 @@ func (e *Epoch) processFinalizedBlock(block Block, fCert FinalizationCertificate
 // processNotarizedBlock processes a block that has a notarization.
 // if the block has already been verified, it will persist the notarization,
 // otherwise it will verify the block first.
+// if an fCert is provided, it should be added to the rounds map, however it's important that fCert is not the next sdequence to commit. If so, call 
+// processFinalizedBlock
 func (e *Epoch) processNotarizedBlock(block Block, notarization *Notarization) error {
+	e.Logger.Info("processing notarized block", zap.Uint64("rund", block.BlockHeader().Round))
 	md := block.BlockHeader()
 	round, exists := e.rounds[md.Round]
 
@@ -2425,6 +2428,10 @@ func (e *Epoch) processReplicationState() error {
 
 	qRound, ok := e.replicationState.receivedQuorumRounds[e.round]
 	if ok && qRound.Notarization != nil {
+		if qRound.FCert != nil {
+			e.Logger.Fatal("contains fcert", zap.Uint64("seq", qRound.GetSequence()), zap.Uint64("nextSeqToCommit", nextSeqToCommit), zap.Uint64("round", e.round))
+			return e.processFinalizedBlock(block, *qRound.FCert)
+		}
 		delete(e.replicationState.receivedQuorumRounds, e.round)
 		return e.processNotarizedBlock(qRound.Block, qRound.Notarization)
 	}

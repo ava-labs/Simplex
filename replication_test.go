@@ -665,9 +665,10 @@ func sendVotesToOneNode(msg *simplex.Message, from, to simplex.NodeID) bool {
 // I think we have this covered since we first process replication by sequences, but it would be nice to include a test for this.
 func TestReplicationNodeDiverges(t *testing.T) {
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}, {5}, {6}}
-	// numBlocks := uint64(5)
+	numBlocks := uint64(5)
 
 	bb := newTestControlledBlockBuilder(t)
+	laggingNodeBb := newTestControlledBlockBuilder(t)
 	net := newInMemNetwork(t, nodes)
 
 	nodeConfig := func(from simplex.NodeID) *testNodeConfig {
@@ -679,9 +680,9 @@ func TestReplicationNodeDiverges(t *testing.T) {
 	}
 
 	newSimplexNode(t, nodes[0], net, bb, nodeConfig(nodes[0]))
-	secondBlockProposer := newSimplexNode(t, nodes[1], net, bb, nodeConfig(nodes[1]))
+	newSimplexNode(t, nodes[1], net, bb, nodeConfig(nodes[1]))
 	newSimplexNode(t, nodes[2], net, bb, nodeConfig(nodes[2]))
-	laggingNode := newSimplexNode(t, nodes[3], net, bb, nodeConfig(nodes[3]))
+	laggingNode := newSimplexNode(t, nodes[3], net, laggingNodeBb, nodeConfig(nodes[3]))
 
 	// we need at least 6 nodes since the lagging node & leader will note timeout
 	newSimplexNode(t, nodes[4], net, bb, nodeConfig(nodes[4]))
@@ -702,7 +703,10 @@ func TestReplicationNodeDiverges(t *testing.T) {
 	
 	// because of the message filter, the lagging one will be the only one to notarize the block
 	laggingNode.wal.assertNotarization(0)
-	for _, n := range net.instances[:3] {
+	for _, n := range net.instances {
+		if n.e.ID.Equals(laggingNode.e.ID) {
+			continue
+		}
 		require.Equal(t, false, n.wal.containsNotarization(0))
 	}
 	
@@ -710,9 +714,8 @@ func TestReplicationNodeDiverges(t *testing.T) {
 	net.Disconnect(laggingNode.e.ID)
 	net.setAllNodesMessageFilter(allowAllMessages)
 
-	// now all the other nodes will progress with a timeout on this round
-	// advance without leader asserts every node except lagging has an empty notarization for 
-	// round 0
+	// This function call ensures all nodes will timeout, and
+	// receive an empty notarization for round 0(except for lagging).
 	advanceWithoutLeader(t, net, bb, startTimes, 0, laggingNode.e.ID)
 	
 	for _, n := range net.instances {
@@ -722,24 +725,37 @@ func TestReplicationNodeDiverges(t *testing.T) {
 			continue
 		}
 
-		// may or may not have finished building a block
-		if n.e.ID.Equals(secondBlockProposer.e.ID) {
-			continue
-		}
-
 		require.Equal(t, uint64(0), n.e.Metadata().Seq)
+		require.Equal(t, uint64(1), n.e.Metadata().Round)
 	}
 
-	// // now advance the round from a block(the lagging node will realize it is behind)
-	// bb.triggerNewBlock()
-	// for _, n := range net.instances {
-	// 	n.storage.waitForBlockCommit(0)
-	// 	fmt.Println("waiting for ", n.e.ID)
-	// 	if n.e.ID.Equals(laggingNode.e.ID) {
-	// 		continue
-	// 	}
-	// 	fmt.Println("done waiting for ", n.e.ID)
-	// }
+	// advance [numRounds] while the lagging node is disconnected
+	missedSeqs := uint64(1) // missed the first seq
+	for i := uint64(1); i < 1 + numBlocks; i++ {
+		emptyRound := bytes.Equal(simplex.LeaderForRound(nodes, i), laggingNode.e.ID)
+		if emptyRound {
+			advanceWithoutLeader(t, net, bb, startTimes, i, laggingNode.e.ID)
+			missedSeqs++
+		} else {
+			bb.triggerNewBlock()
+			for _, n := range net.instances {
+				if n.e.ID.Equals(laggingNode.e.ID) {
+					continue
+				}
+				n.storage.waitForBlockCommit(i - missedSeqs)
+			}
+		}
+	}
+
+	net.Connect(laggingNode.e.ID)
+
+	// now advance the round from a block(the lagging node will realize it is behind)
+	bb.triggerNewBlock()
+	for _, n := range net.instances {
+		fmt.Println("waiting for ", n.e.ID, numBlocks - missedSeqs)
+		n.storage.waitForBlockCommit(numBlocks - missedSeqs)
+		fmt.Println("done waiting for ", n.e.ID)
+	}
 
 
 
@@ -790,7 +806,6 @@ func advanceWithoutLeader(t *testing.T, net *inMemNetwork, bb *testControlledBlo
 
 		waitToEnterRound(t, n, round)
 	}
-
 	for _, n := range net.instances {
 		leader := n.e.ID.Equals(simplex.LeaderForRound(net.nodes, n.e.Metadata().Round))
 		if leader || laggingNodeId.Equals(n.e.ID) {
@@ -798,7 +813,7 @@ func advanceWithoutLeader(t *testing.T, net *inMemNetwork, bb *testControlledBlo
 		}
 		bb.blockShouldBeBuilt <- struct{}{}
 	}
-
+	
 	for i, n := range net.instances {
 		// the leader will not write an empty vote to the wal
 		// because it cannot both propose a block & send an empty vote in the same round
