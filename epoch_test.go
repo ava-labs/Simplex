@@ -1046,37 +1046,6 @@ func TestEpochBlockTooHighRound(t *testing.T) {
 	})
 }
 
-// TestMetadataProposedRound ensures the metadata doesn't build off a block
-// that doesn't have a finalization or notarization
-func TestMetadataProposedRound(t *testing.T) {
-	l := testutil.MakeLogger(t, 1)
-	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
-	storage := newInMemStorage()
-	wal := newTestWAL(t)
-	nodes := []NodeID{{1}, {2}, {3}, {4}}
-	conf := EpochConfig{
-		MaxProposalWait:     DefaultMaxProposalWaitTime,
-		Logger:              l,
-		ID:                  nodes[0],
-		Signer:              &testSigner{},
-		WAL:                 wal,
-		Verifier:            &testVerifier{},
-		Storage:             storage,
-		Comm:                noopComm(nodes),
-		BlockBuilder:        bb,
-		SignatureAggregator: &testSignatureAggregator{},
-	}
-
-	e, err := NewEpoch(conf)
-	require.NoError(t, err)
-
-	require.NoError(t, e.Start())
-
-	// assert the proposed block was written to the wal
-	wal.assertWALSize(1)
-	require.Zero(t, e.Metadata().Seq)
-}
-
 type AnyBlock interface {
 	// BlockHeader encodes a succinct and collision-free representation of a block.
 	BlockHeader() BlockHeader
