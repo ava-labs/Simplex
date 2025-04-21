@@ -217,11 +217,3 @@ func (h *TaskHeap) Pop() any {
 	task.index = -1
 	return task
 }
-
-func (h *TaskHeap) Peep() any {
-	if h.Len() == 0 {
-		return nil
-	}
-
-	return (*h)[0]
-}
