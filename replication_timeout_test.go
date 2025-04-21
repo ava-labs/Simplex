@@ -17,13 +17,13 @@ func rejectReplicationRequests(msg *simplex.Message, from simplex.NodeID) bool {
 // A node attempts to request blocks to replicate, but fails to receive them
 func TestReplicationRequestTimeout(t *testing.T) {
 	nodes := []simplex.NodeID{{1}, {2}, {3}, []byte("lagging")}
-	startSeq := uint64(8)
+	numInitalSeqs := uint64(8)
 
 	// node begins replication
 	bb := newTestControlledBlockBuilder(t)
 	net := newInMemNetwork(t, nodes)
 
-	storageData := createBlocks(t, nodes, &bb.testBlockBuilder, startSeq)
+	storageData := createBlocks(t, nodes, &bb.testBlockBuilder, numInitalSeqs)
 
 	newNodeConfig := func(from simplex.NodeID) *testNodeConfig {
 		comm := newTestComm(from, net, rejectReplicationRequests)
@@ -46,16 +46,16 @@ func TestReplicationRequestTimeout(t *testing.T) {
 
 	// typically the lagging node would catch up here, but since we block
 	// replication requests, the lagging node will be forced to resend requests after a timeout
-	for i := 0; i <= int(startSeq); i++ {
+	for i := 0; i <= int(numInitalSeqs); i++ {
 		for _, n := range net.instances {
 			if n.e.ID.Equals(laggingNode.e.ID) {
 				continue
 			}
-			n.storage.waitForBlockCommit(uint64(startSeq))
+			n.storage.waitForBlockCommit(uint64(numInitalSeqs))
 		}
 	}
 
-	// assert the lagging node has not received any replicaiton requests
+	// assert the lagging node has not received any replication requests
 	require.Equal(t, uint64(0), laggingNode.storage.Height())
 
 	// after the timeout, the nodes should respond and the lagging node will replicate
@@ -64,7 +64,7 @@ func TestReplicationRequestTimeout(t *testing.T) {
 	require.Equal(t, uint64(0), laggingNode.storage.Height())
 
 	laggingNode.e.AdvanceTime(laggingNode.e.StartTime.Add(simplex.DefaultReplicationRequestTimeout * 2))
-	laggingNode.storage.waitForBlockCommit(uint64(startSeq))
+	laggingNode.storage.waitForBlockCommit(uint64(numInitalSeqs))
 }
 
 type testTimeoutMessageFilter struct {
@@ -196,7 +196,7 @@ func TestReplicationRequestTimeoutMultiple(t *testing.T) {
 	laggingNode.storage.waitForBlockCommit(startSeq)
 }
 
-// modifies the replication response to only send every other quorom round
+// modifies the replication response to only send every other quorum round
 func incompleteReplicationResponseFilter(msg *simplex.Message, from simplex.NodeID) bool {
 	if msg.VerifiedReplicationResponse != nil || msg.ReplicationResponse != nil {
 		newLen := len(msg.VerifiedReplicationResponse.Data) / 2

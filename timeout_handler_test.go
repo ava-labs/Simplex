@@ -72,7 +72,7 @@ func TestTaskOrder(t *testing.T) {
 	finished := make(chan struct{})
 
 	var mu sync.Mutex
-	results := []string{}
+	var results []string
 
 	handler.AddTask(&simplex.TimeoutTask{
 		NodeID:   nodes[0],
@@ -130,7 +130,7 @@ func TestAddTasksOutOfOrder(t *testing.T) {
 		handler := simplex.NewTimeoutHandler(l, start, nodes)
 		finished := make(chan struct{})
 		var mu sync.Mutex
-		results := []string{}
+		var results []string
 
 		handler.AddTask(&simplex.TimeoutTask{
 			NodeID:   nodes[0],

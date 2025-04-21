@@ -120,7 +120,7 @@ func (r *ReplicationState) sendReplicationRequests(start uint64, end uint64) {
 	numSeqs := end + 1 - start
 	seqsPerNode := numSeqs / uint64(numNodes)
 
-	r.logger.Debug("Distributing replication requests", zap.Uint64("start", start), zap.Uint64("end", end), zap.Stringer("ndoes", NodeIDs(nodes)))
+	r.logger.Debug("Distributing replication requests", zap.Uint64("start", start), zap.Uint64("end", end), zap.Stringer("nodes", NodeIDs(nodes)))
 	// Distribute sequences evenly among nodes in round-robin fashion
 	for i := range numNodes {
 		nodeIndex := (r.requestIterator + i) % numNodes
@@ -195,6 +195,7 @@ func (r *ReplicationState) receivedReplicationResponse(data []QuorumRound, node 
 
 	task := r.timeoutHandler.FindTask(node, seqs)
 	if task == nil {
+		r.logger.Debug("Could not find a timeout task associated with the replication response", zap.Stringer("from", node))
 		return
 	}
 	r.timeoutHandler.RemoveTask(node, task.TaskID)
@@ -206,6 +207,7 @@ func (r *ReplicationState) receivedReplicationResponse(data []QuorumRound, node 
 	}
 
 	// if not all sequences were returned, create new timeouts
+	r.logger.Debug("Received missing sequences in the replication response", zap.Stringer("from", node), zap.Any("missing", missing))
 	nodes := r.highestSequenceObserved.signers.Remove(r.id)
 	lenNodes := len(nodes)
 
@@ -229,9 +231,9 @@ func (r *ReplicationState) receivedReplicationResponse(data []QuorumRound, node 
 // findMissingNumbersInRange finds numbers in an array constructed by [start...end] that are not in [nums]
 // ex. (3, 10, [1,2,3,4,5,6]) -> [7,8,9,10]
 func findMissingNumbersInRange(start, end uint64, nums []uint64) []uint64 {
-	numMap := make(map[uint64]bool)
+	numMap := make(map[uint64]struct{})
 	for _, num := range nums {
-		numMap[num] = true
+		numMap[num] = struct{}{}
 	}
 
 	var result []uint64
