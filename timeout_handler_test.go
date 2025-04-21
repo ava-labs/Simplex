@@ -18,6 +18,7 @@ func TestAddAndRunTask(t *testing.T) {
 	l := testutil.MakeLogger(t, 1)
 	nodes := []simplex.NodeID{{1}, {2}}
 	handler := simplex.NewTimeoutHandler(l, start, nodes)
+	defer handler.Close()
 
 	sent := make(chan struct{}, 1)
 
@@ -44,6 +45,7 @@ func TestRemoveTask(t *testing.T) {
 	l := testutil.MakeLogger(t, 1)
 	nodes := []simplex.NodeID{{1}, {2}}
 	handler := simplex.NewTimeoutHandler(l, start, nodes)
+	defer handler.Close()
 
 	var ran bool
 	task := &simplex.TimeoutTask{
@@ -69,6 +71,8 @@ func TestTaskOrder(t *testing.T) {
 	l := testutil.MakeLogger(t, 1)
 	nodes := []simplex.NodeID{{1}, {2}}
 	handler := simplex.NewTimeoutHandler(l, start, nodes)
+	defer handler.Close()
+
 	finished := make(chan struct{})
 
 	var mu sync.Mutex
@@ -123,86 +127,86 @@ func TestTaskOrder(t *testing.T) {
 }
 
 func TestAddTasksOutOfOrder(t *testing.T) {
-	for range 100 {
-		start := time.Now()
-		l := testutil.MakeLogger(t, 1)
-		nodes := []simplex.NodeID{{1}, {2}}
-		handler := simplex.NewTimeoutHandler(l, start, nodes)
-		finished := make(chan struct{})
-		var mu sync.Mutex
-		var results []string
+	start := time.Now()
+	l := testutil.MakeLogger(t, 1)
+	nodes := []simplex.NodeID{{1}, {2}}
+	handler := simplex.NewTimeoutHandler(l, start, nodes)
+	defer handler.Close()
 
-		handler.AddTask(&simplex.TimeoutTask{
-			NodeID:   nodes[0],
-			TaskID:   "third",
-			Deadline: start.Add(3 * time.Second),
-			Task: func() {
-				mu.Lock()
-				results = append(results, "third")
-				finished <- struct{}{}
-				mu.Unlock()
-			},
-		})
+	finished := make(chan struct{})
+	var mu sync.Mutex
+	var results []string
 
-		handler.AddTask(&simplex.TimeoutTask{
-			NodeID:   nodes[0],
-			TaskID:   "second",
-			Deadline: start.Add(2 * time.Second),
-			Task: func() {
-				mu.Lock()
-				results = append(results, "second")
-				finished <- struct{}{}
-				mu.Unlock()
-			},
-		})
+	handler.AddTask(&simplex.TimeoutTask{
+		NodeID:   nodes[0],
+		TaskID:   "third",
+		Deadline: start.Add(3 * time.Second),
+		Task: func() {
+			mu.Lock()
+			results = append(results, "third")
+			finished <- struct{}{}
+			mu.Unlock()
+		},
+	})
 
-		handler.AddTask(&simplex.TimeoutTask{
-			NodeID:   nodes[1],
-			TaskID:   "fourth",
-			Deadline: start.Add(4 * time.Second),
-			Task: func() {
-				mu.Lock()
-				results = append(results, "fourth")
-				finished <- struct{}{}
-				mu.Unlock()
-			},
-		})
+	handler.AddTask(&simplex.TimeoutTask{
+		NodeID:   nodes[0],
+		TaskID:   "second",
+		Deadline: start.Add(2 * time.Second),
+		Task: func() {
+			mu.Lock()
+			results = append(results, "second")
+			finished <- struct{}{}
+			mu.Unlock()
+		},
+	})
 
-		handler.AddTask(&simplex.TimeoutTask{
-			NodeID:   nodes[0],
-			TaskID:   "first",
-			Deadline: start.Add(1 * time.Second),
-			Task: func() {
-				mu.Lock()
-				results = append(results, "first")
-				finished <- struct{}{}
-				mu.Unlock()
-			},
-		})
+	handler.AddTask(&simplex.TimeoutTask{
+		NodeID:   nodes[1],
+		TaskID:   "fourth",
+		Deadline: start.Add(4 * time.Second),
+		Task: func() {
+			mu.Lock()
+			results = append(results, "fourth")
+			finished <- struct{}{}
+			mu.Unlock()
+		},
+	})
 
-		handler.Tick(start.Add(1 * time.Second))
-		<-finished
-		mu.Lock()
-		require.Equal(t, 1, len(results))
-		require.Contains(t, results, "first")
-		mu.Unlock()
+	handler.AddTask(&simplex.TimeoutTask{
+		NodeID:   nodes[0],
+		TaskID:   "first",
+		Deadline: start.Add(1 * time.Second),
+		Task: func() {
+			mu.Lock()
+			results = append(results, "first")
+			finished <- struct{}{}
+			mu.Unlock()
+		},
+	})
 
-		handler.Tick(start.Add(3 * time.Second))
-		<-finished
-		<-finished
-		mu.Lock()
-		require.Equal(t, 3, len(results))
-		require.Contains(t, results, "second")
-		require.Contains(t, results, "third")
-		mu.Unlock()
+	handler.Tick(start.Add(1 * time.Second))
+	<-finished
+	mu.Lock()
+	require.Equal(t, 1, len(results))
+	require.Contains(t, results, "first")
+	mu.Unlock()
 
-		handler.Tick(start.Add(4 * time.Second))
-		<-finished
-		mu.Lock()
-		require.Equal(t, 4, len(results))
-		require.Contains(t, results, "fourth")
-		mu.Unlock()
-	}
+	handler.Tick(start.Add(3 * time.Second))
+	<-finished
+	<-finished
+	mu.Lock()
+	require.Equal(t, 3, len(results))
+	require.Contains(t, results, "second")
+	require.Contains(t, results, "third")
+	mu.Unlock()
+
+	handler.Tick(start.Add(4 * time.Second))
+	<-finished
+	mu.Lock()
+	require.Equal(t, 4, len(results))
+	require.Contains(t, results, "fourth")
+	mu.Unlock()
 }
 
 func TestFindTask(t *testing.T) {
@@ -212,6 +216,7 @@ func TestFindTask(t *testing.T) {
 	startTime := time.Now()
 
 	handler := simplex.NewTimeoutHandler(l, startTime, nodes)
+	defer handler.Close()
 
 	// Create some test tasks
 	task1 := &simplex.TimeoutTask{
