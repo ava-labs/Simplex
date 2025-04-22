@@ -1514,7 +1514,7 @@ func (e *Epoch) processNotarizedBlock(block Block, notarization *Notarization) e
 			delete(e.rounds, md.Round)
 			return e.processNotarizedBlock(block, notarization)
 		}
-		fmt.Println("*******proceess persist")
+		fmt.Println("*******proceess persist in hereee")
 		if err := e.persistNotarization(*notarization); err != nil {
 			e.Logger.Warn("Failed to persist notarization", zap.Error(err))
 			e.haltedError = err
@@ -1706,11 +1706,14 @@ func (e *Epoch) createNotarizedBlockVerificationTask(block Block, notarization N
 			return md.Digest
 		}
 		round.notarization = &notarization
-		fmt.Println("*******proceess persist out here")
-		if err := e.persistNotarization(notarization); err != nil {
-			e.haltedError = err
-		}
 
+		fmt.Println("*******proceess persist out here")
+		if e.round == notarization.Vote.Round {
+			if err := e.persistNotarization(notarization); err != nil {
+				e.haltedError = err
+			}	
+		}
+		
 		err = e.processReplicationState()
 		if err != nil {
 			e.haltedError = err
@@ -2532,7 +2535,7 @@ func (e *Epoch) maybeAdvanceRoundFromEmptyNotarizations() (bool, error) {
 		if round < nextSeqQuorum.GetRound() {
 			for range nextSeqQuorum.GetRound() - round {
 				e.increaseRound()
-			}
+			}			
 			return true, nil
 		}
 	}
