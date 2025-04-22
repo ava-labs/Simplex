@@ -2503,11 +2503,11 @@ func (e *Epoch) getHighestRound() *Round {
 		}
 	}
 
-	if !found {
-		return nil
+	if found {
+		return e.rounds[max]
 	}
 
-	return e.rounds[max]
+	return nil
 }
 
 func (e *Epoch) getHighestEmptyNotarization() *EmptyNotarization {
