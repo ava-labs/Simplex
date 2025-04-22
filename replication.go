@@ -209,23 +209,13 @@ func (r *ReplicationState) receivedReplicationResponse(data []QuorumRound, node 
 	// if not all sequences were returned, create new timeouts
 	r.logger.Debug("Received missing sequences in the replication response", zap.Stringer("from", node), zap.Any("missing", missing))
 	nodes := r.highestSequenceObserved.signers.Remove(r.id)
-	lenNodes := len(nodes)
-
-	start := missing[0]
-	end := missing[0]
-	for i, missingSeq := range missing[1:] {
-		if missingSeq != missing[i]+1 {
-			index := i % lenNodes
-			newTask := r.createReplicationTimeoutTask(start, end, nodes, index)
-			r.timeoutHandler.AddTask(newTask)
-			start = missingSeq
-		}
-
-		end = missingSeq
+	numNodes := len(nodes)
+	segments := CompressSequences(missing)
+	for i, seqs := range segments {
+		index := i % numNodes
+		newTask := r.createReplicationTimeoutTask(seqs.Start, seqs.End, nodes, index)
+		r.timeoutHandler.AddTask(newTask)
 	}
-
-	newTask := r.createReplicationTimeoutTask(start, end, nodes, len(missing)%lenNodes)
-	r.timeoutHandler.AddTask(newTask)
 }
 
 // findMissingNumbersInRange finds numbers in an array constructed by [start...end] that are not in [nums]
