@@ -235,10 +235,11 @@ func TestReplicationNotarizations(t *testing.T) {
 			if n.e.ID.Equals(leader) && n.e.ID.Equals(nodes[3]) {
 				continue
 			}
+
+			fmt.Println("asserting ", n.e.ID, i)
 			n.wal.assertNotarization(uint64(i))
 		}
 	}
-
 }
 
 // TestReplicationEmptyNotarizations ensures a lagging node will properly replicate
