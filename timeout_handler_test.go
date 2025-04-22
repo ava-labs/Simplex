@@ -122,8 +122,8 @@ func TestTaskOrder(t *testing.T) {
 	defer mu.Unlock()
 
 	require.Equal(t, 2, len(results))
-	require.Contains(t, results, "first")
-	require.Contains(t, results, "second")
+	require.Equal(t, results[0], "first")
+	require.Equal(t, results[1], "second")
 }
 
 func TestAddTasksOutOfOrder(t *testing.T) {
@@ -189,7 +189,7 @@ func TestAddTasksOutOfOrder(t *testing.T) {
 	<-finished
 	mu.Lock()
 	require.Equal(t, 1, len(results))
-	require.Contains(t, results, "first")
+	require.Equal(t, results[0], "first")
 	mu.Unlock()
 
 	handler.Tick(start.Add(3 * time.Second))
@@ -197,15 +197,15 @@ func TestAddTasksOutOfOrder(t *testing.T) {
 	<-finished
 	mu.Lock()
 	require.Equal(t, 3, len(results))
-	require.Contains(t, results, "second")
-	require.Contains(t, results, "third")
+	require.Equal(t, results[1], "second")
+	require.Equal(t, results[2], "third")
 	mu.Unlock()
 
 	handler.Tick(start.Add(4 * time.Second))
 	<-finished
 	mu.Lock()
 	require.Equal(t, 4, len(results))
-	require.Contains(t, results, "fourth")
+	require.Equal(t, results[3], "fourth")
 	mu.Unlock()
 }
 
