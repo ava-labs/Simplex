@@ -217,53 +217,6 @@ func TestEpochIncreasesRoundAfterFCert(t *testing.T) {
 	notarizeAndFinalizeRound(t, e, bb)
 }
 
-// TestEpochIncreasesRoundAfterFCert ensures that the epochs round is incremented
-// if we receive an fcert for the current round(even if it is not the next seq to commit)
-func TestEpochFcertIncreasesRound(t *testing.T) {
-	l := testutil.MakeLogger(t, 1)
-
-	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
-	storage := newInMemStorage()
-
-	wal := newTestWAL(t)
-
-	nodes := []NodeID{{1}, {2}, {3}, {4}, {5}, {6}}
-
-	conf := EpochConfig{
-		MaxProposalWait:     DefaultMaxProposalWaitTime,
-		Logger:              l,
-		ID:                  nodes[2],
-		Signer:              &testSigner{},
-		WAL:                 wal,
-		Verifier:            &testVerifier{},
-		Storage:             storage,
-		Comm:                noopComm(nodes),
-		BlockBuilder:        bb,
-		SignatureAggregator: &testSignatureAggregator{},
-	}
-
-	e, err := NewEpoch(conf)
-	require.NoError(t, err)
-
-	require.NoError(t, e.Start())
-
-	advanceRoundFromFinalization(t, e, bb)
-	advanceRoundFromFinalization(t, e, bb)
-	require.Equal(t, uint64(2), e.Metadata().Round)
-	require.Equal(t, uint64(2), storage.Height())
-
-	// // create the finalized block
-	// fCert, _ := newFinalizationRecord(t, l, conf.SignatureAggregator, block, nodes)
-	// injectTestFinalizationCertificate(t, e, &fCert, nodes[1])
-
-	// storage.waitForBlockCommit(1)
-	// require.Equal(t, uint64(2), e.Metadata().Round)
-	// require.Equal(t, uint64(2), storage.Height())
-
-	// // we are the leader, ensure we can continue & propose a block
-	// notarizeAndFinalizeRound(t, e, bb)
-}
-
 func TestEpochNotarizeTwiceThenFinalize(t *testing.T) {
 	l := testutil.MakeLogger(t, 1)
 	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}

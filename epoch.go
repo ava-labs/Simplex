@@ -709,6 +709,7 @@ func (e *Epoch) handleVoteMessage(message *Vote, from NodeID) error {
 
 	e.rounds[vote.Round].votes[string(signature.Signer)] = message
 	e.deleteFutureVote(from, vote.Round)
+
 	return e.maybeCollectNotarization()
 }
 
@@ -1051,6 +1052,7 @@ func (e *Epoch) persistEmptyNotarization(emptyNotarization *EmptyNotarization, s
 	}
 
 	e.increaseRound()
+
 	return errors.Join(e.startRound(), e.maybeLoadFutureMessages())
 }
 
@@ -1480,6 +1482,7 @@ func (e *Epoch) processNotarizedBlock(block Block, notarization *Notarization) e
 			delete(e.rounds, md.Round)
 			return e.processNotarizedBlock(block, notarization)
 		}
+
 		if err := e.persistNotarization(*notarization); err != nil {
 			e.Logger.Warn("Failed to persist notarization", zap.Error(err))
 			e.haltedError = err
