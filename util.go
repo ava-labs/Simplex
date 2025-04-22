@@ -143,6 +143,14 @@ func SetRound(block VerifiedBlock, notarization *Notarization, fCert *Finalizati
 type oneTimeVerifier struct {
 	lock    sync.Mutex
 	digests map[Digest]verifiedResult
+	logger  Logger
+}
+
+func newOneTimeVerifier(logger Logger) *oneTimeVerifier {
+	return &oneTimeVerifier{
+		digests: make(map[Digest]verifiedResult),
+		logger:  logger,
+	}
 }
 
 func (otv *oneTimeVerifier) Wrap(block Block) Block {
@@ -165,7 +173,6 @@ type oneTimeVerifiedBlock struct {
 func (block *oneTimeVerifiedBlock) Verify(ctx context.Context) (VerifiedBlock, error) {
 	block.otv.lock.Lock()
 	defer block.otv.lock.Unlock()
-
 	header := block.Block.BlockHeader()
 	digest := header.Digest
 	seq := header.Seq
@@ -181,6 +188,7 @@ func (block *oneTimeVerifiedBlock) Verify(ctx context.Context) (VerifiedBlock, e
 	}()
 
 	if result, exists := block.otv.digests[digest]; exists {
+		block.otv.logger.Warn("Attempted to verify an already verified block", zap.Uint64("round", header.Round))
 		return result.vb, result.err
 	}
 

@@ -239,6 +239,7 @@ func TestReplicationNotarizations(t *testing.T) {
 			n.wal.assertNotarizationOrFinalization(uint64(i), n.e.EpochConfig.QCDeserializer)
 		}
 	}
+	time.Sleep(10 * time.Millisecond)
 }
 
 // TestReplicationEmptyNotarizations ensures a lagging node will properly replicate

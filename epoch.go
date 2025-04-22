@@ -160,7 +160,7 @@ func (e *Epoch) HandleMessage(msg *Message, from NodeID) error {
 }
 
 func (e *Epoch) init() error {
-	e.oneTimeVerifier = &oneTimeVerifier{digests: make(map[Digest]verifiedResult)}
+	e.oneTimeVerifier = newOneTimeVerifier(e.Logger)
 	e.sched = NewScheduler(e.Logger)
 	e.monitor = NewMonitor(e.StartTime, e.Logger)
 	e.cancelWaitForBlockNotarization = func() {}
@@ -866,9 +866,7 @@ func (e *Epoch) persistFinalizationCertificate(fCert FinalizationCertificate) er
 			// This code path can be hit after incrementing the round from a notarization.
 			// this check ensure we do not double increment.
 			if ok && round.notarization == nil {
-				// e.maybeLoadFutureMessages()
 				e.increaseRound()
-				// return e.startRound()
 			}
 		}
 	}
@@ -883,7 +881,6 @@ func (e *Epoch) persistFinalizationCertificate(fCert FinalizationCertificate) er
 	// If we have progressed to a new round while we committed blocks,
 	// start the new round.
 	if startRound < e.round {
-		// return errors.Join(e.maybeLoadFutureMessages(), e.startRound(), )
 		return e.startRound()
 	}
 
@@ -1552,6 +1549,10 @@ func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote)
 			// TODO: timeout
 		}
 
+		// We might have received votes and finalizations from future rounds before we received this block.
+		// So load the messages into our round data structure now that we have created it.
+		e.maybeLoadFutureMessages()
+
 		// Check if we have timed out on this round.
 		// Although we store the proposal for this round,
 		// we refuse to vote for it because we have timed out.
@@ -1618,10 +1619,6 @@ func (e *Epoch) createFinalizedBlockVerificationTask(block Block, fCert Finaliza
 			e.Logger.Error("Failed to process replication state", zap.Error(err))
 			return md.Digest
 		}
-		err = e.maybeLoadFutureMessages()
-		if err != nil {
-			e.Logger.Warn("Failed to load future messages", zap.Error(err))
-		}
 
 		return md.Digest
 	}
@@ -1671,10 +1668,8 @@ func (e *Epoch) createNotarizedBlockVerificationTask(block Block, notarization N
 		}
 		round.notarization = &notarization
 
-		if e.round == notarization.Vote.Round {
-			if err := e.persistNotarization(notarization); err != nil {
-				e.haltedError = err
-			}
+		if err := e.persistNotarization(notarization); err != nil {
+			e.haltedError = err
 		}
 
 		err = e.processReplicationState()
@@ -1682,10 +1677,6 @@ func (e *Epoch) createNotarizedBlockVerificationTask(block Block, notarization N
 			e.haltedError = err
 			e.Logger.Error("Failed to process replication state", zap.Error(err))
 			return md.Digest
-		}
-		err = e.maybeLoadFutureMessages()
-		if err != nil {
-			e.Logger.Warn("Failed to load future messages", zap.Error(err))
 		}
 
 		return md.Digest
@@ -1871,6 +1862,10 @@ func (e *Epoch) proposeBlock(block VerifiedBlock) error {
 	if !e.storeProposal(block) {
 		return errors.New("failed to store block proposed by me")
 	}
+
+	// We might have received votes and finalizations from future rounds before we received this block.
+	// So load the messages into our round data structure now that we have created it.
+	e.maybeLoadFutureMessages()
 
 	e.Comm.Broadcast(proposal)
 	e.Logger.Debug("Proposal broadcast",
@@ -2231,6 +2226,7 @@ func (e *Epoch) maybeLoadFutureMessages() error {
 		if e.round == round && height == e.Storage.Height() {
 			return nil
 		}
+		e.Logger.Debug("Round or height was increased while processing future messages", zap.Uint64("epoch round", e.round), zap.Uint64("Round", round), zap.Uint64("height", height), zap.Uint64("storage height", e.Storage.Height()))
 	}
 }
 
@@ -2256,10 +2252,6 @@ func (e *Epoch) storeProposal(block VerifiedBlock) bool {
 
 	round := NewRound(block)
 	e.rounds[md.Round] = round
-
-	// We might have received votes and finalizations from future rounds before we received this block.
-	// So load the messages into our round data structure now that we have created it.
-	e.maybeLoadFutureMessages()
 
 	return true
 }
