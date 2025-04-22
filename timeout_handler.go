@@ -47,7 +47,7 @@ func NewTimeoutHandler(log Logger, startTime time.Time, nodes []NodeID) *Timeout
 	t := &TimeoutHandler{
 		now:   startTime,
 		tasks: tasks,
-		ticks: make(chan time.Time, 2),
+		ticks: make(chan time.Time, 1),
 		close: make(chan struct{}),
 		log:   log,
 	}
