@@ -227,7 +227,6 @@ func (tw *testWAL) assertNotarization(round uint64) {
 
 }
 
-
 func (tw *testWAL) assertNotarizationOrFinalization(round uint64, qc QCDeserializer) {
 	tw.lock.Lock()
 	defer tw.lock.Unlock()
@@ -261,7 +260,7 @@ func (tw *testWAL) assertNotarizationOrFinalization(round uint64, qc QCDeseriali
 					return
 				}
 			}
-			
+
 		}
 
 		tw.signal.Wait()

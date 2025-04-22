@@ -236,7 +236,6 @@ func TestReplicationNotarizations(t *testing.T) {
 				continue
 			}
 
-			fmt.Println("asserting ", n.e.ID, i)
 			n.wal.assertNotarizationOrFinalization(uint64(i), n.e.EpochConfig.QCDeserializer)
 		}
 	}
