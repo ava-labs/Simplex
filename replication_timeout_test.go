@@ -6,7 +6,6 @@ package simplex_test
 import (
 	"simplex"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -126,7 +125,12 @@ func TestReplicationRequestTimeoutCancels(t *testing.T) {
 	}
 	laggingNode.e.Comm.(*testComm).setFilter(mf.failOnReplicationRequest)
 	laggingNode.e.AdvanceTime(laggingNode.e.StartTime.Add(simplex.DefaultReplicationRequestTimeout * 2))
-	time.Sleep(50 * time.Millisecond) // give enough time to ensure a replication request doesn't go through
+
+	// ensure enough time passes after advanceTime is called
+	bb.triggerNewBlock()
+	for _, n := range net.instances {
+		n.storage.waitForBlockCommit(uint64(startSeq + 1))
+	}
 }
 
 // A node attempts to request blocks to replicate, but fails to
