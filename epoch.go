@@ -2034,6 +2034,7 @@ func (e *Epoch) startRound() error {
 	if !exists || msgsForRound.proposal == nil {
 		return nil
 	}
+
 	return e.handleBlockMessage(msgsForRound.proposal, leaderForCurrentRound)
 }
 
@@ -2105,7 +2106,6 @@ func (e *Epoch) increaseRound() {
 		zap.Uint64("old round", e.round),
 		zap.Uint64("new round", e.round+1),
 		zap.Stringer("leader", leader))
-
 	e.round++
 }
 
@@ -2199,7 +2199,6 @@ func (e *Epoch) maybeLoadFutureMessages() error {
 						return err
 					}
 				}
-
 				if e.futureMessagesForRoundEmpty(msgs) {
 					e.Logger.Debug("Deleting future messages",
 						zap.Stringer("from", NodeID(from)), zap.Uint64("round", round))
@@ -2482,10 +2481,12 @@ func (e *Epoch) maybeAdvanceRoundFromEmptyNotarizations() (bool, error) {
 	sameSeqQuorum := e.replicationState.GetQuroumRoundWithSeq(expectedSeq - 1)
 	if sameSeqQuorum != nil && sameSeqQuorum.EmptyNotarization != nil {
 		// num empty notarizations
-		for range sameSeqQuorum.GetRound() - round {
-			e.increaseRound()
+		if round < nextSeqQuorum.GetRound() {
+			for range sameSeqQuorum.GetRound() - round {
+				e.increaseRound()
+			}
+			return true, nil
 		}
-		return true, nil
 	}
 
 	return false, nil
