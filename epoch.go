@@ -1554,7 +1554,11 @@ func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote)
 
 		// We might have received votes and finalizations from future rounds before we received this block.
 		// So load the messages into our round data structure now that we have created it.
-		e.maybeLoadFutureMessages()
+		err = e.maybeLoadFutureMessages()
+		if err != nil {
+			e.haltedError = err
+			return md.Digest
+		}
 
 		// Check if we have timed out on this round.
 		// Although we store the proposal for this round,
@@ -1868,7 +1872,10 @@ func (e *Epoch) proposeBlock(block VerifiedBlock) error {
 
 	// We might have received votes and finalizations from future rounds before we received this block.
 	// So load the messages into our round data structure now that we have created it.
-	e.maybeLoadFutureMessages()
+	err = e.maybeLoadFutureMessages()
+	if err != nil {
+		return err
+	}
 
 	e.Comm.Broadcast(proposal)
 	e.Logger.Debug("Proposal broadcast",
@@ -1876,7 +1883,7 @@ func (e *Epoch) proposeBlock(block VerifiedBlock) error {
 		zap.Int("size", len(rawBlock)),
 		zap.Stringer("digest", md.Digest))
 
-	return errors.Join(e.handleVoteMessage(&vote, e.ID), e.maybeLoadFutureMessages())
+	return e.handleVoteMessage(&vote, e.ID)
 }
 
 // Metadata returns the metadata of the next expected block of the epoch.
