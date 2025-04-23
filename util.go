@@ -165,6 +165,7 @@ type oneTimeVerifiedBlock struct {
 func (block *oneTimeVerifiedBlock) Verify(ctx context.Context) (VerifiedBlock, error) {
 	block.otv.lock.Lock()
 	defer block.otv.lock.Unlock()
+
 	header := block.Block.BlockHeader()
 	digest := header.Digest
 	seq := header.Seq
