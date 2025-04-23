@@ -160,7 +160,7 @@ func (e *Epoch) HandleMessage(msg *Message, from NodeID) error {
 }
 
 func (e *Epoch) init() error {
-	e.oneTimeVerifier = &oneTimeVerifier{digests: make(map[Digest]verifiedResult)}
+	e.oneTimeVerifier = newOneTimeVerifier(e.Logger)
 	e.sched = NewScheduler(e.Logger)
 	e.monitor = NewMonitor(e.StartTime, e.Logger)
 	e.cancelWaitForBlockNotarization = func() {}
