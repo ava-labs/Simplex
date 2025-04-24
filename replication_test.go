@@ -41,7 +41,7 @@ func testReplication(t *testing.T, startSeq uint64, nodes []simplex.NodeID) {
 	bb := newTestControlledBlockBuilder(t)
 	net := newInMemNetwork(t, nodes)
 
-	// initiate a network with 4 nodes. one node is behind by 8 blocks
+	// initiate a network with 4 nodes. one node is behind by startSeq blocks
 	storageData := createBlocks(t, nodes, &bb.testBlockBuilder, startSeq)
 	testEpochConfig := &testNodeConfig{
 		initialStorage:     storageData,
@@ -235,10 +235,10 @@ func TestReplicationNotarizations(t *testing.T) {
 			if n.e.ID.Equals(leader) && n.e.ID.Equals(nodes[3]) {
 				continue
 			}
-			n.wal.assertNotarization(uint64(i))
+
+			n.wal.assertNotarizationOrFinalization(uint64(i), n.e.EpochConfig.QCDeserializer)
 		}
 	}
-
 }
 
 // TestReplicationEmptyNotarizations ensures a lagging node will properly replicate
@@ -777,13 +777,12 @@ func TestReplicationNodeDiverges(t *testing.T) {
 	// }
 }
 
-
-func waitToEnterRound(t *testing.T, n *testNode, round uint64) {
+func waitToEnterRound(t *testing.T, e *simplex.Epoch, round uint64) {
 	timeout := time.NewTimer(time.Minute)
 	defer timeout.Stop()
 
 	for {
-		if n.e.Metadata().Round >= round {
+		if e.Metadata().Round >= round {
 			return
 		}
 
@@ -804,7 +803,7 @@ func advanceWithoutLeader(t *testing.T, net *inMemNetwork, bb *testControlledBlo
 			continue
 		}
 
-		waitToEnterRound(t, n, round)
+		waitToEnterRound(t, n.e, round)
 	}
 	for _, n := range net.instances {
 		leader := n.e.ID.Equals(simplex.LeaderForRound(net.nodes, n.e.Metadata().Round))

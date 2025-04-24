@@ -255,3 +255,57 @@ func TestGetHighestQuorumRound(t *testing.T) {
 		})
 	}
 }
+
+func TestCompressSequences(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    []uint64
+		expected []Segment
+	}{
+		{
+			name:     "empty input",
+			input:    []uint64{},
+			expected: nil,
+		},
+		{
+			name:  "single element",
+			input: []uint64{5},
+			expected: []Segment{
+				{Start: 5, End: 5},
+			},
+		},
+		{
+			name:  "all consecutive",
+			input: []uint64{1, 2, 3, 4, 5},
+			expected: []Segment{
+				{Start: 1, End: 5},
+			},
+		},
+		{
+			name:  "no consecutive elements",
+			input: []uint64{2, 4, 6, 8},
+			expected: []Segment{
+				{Start: 2, End: 2},
+				{Start: 4, End: 4},
+				{Start: 6, End: 6},
+				{Start: 8, End: 8},
+			},
+		},
+		{
+			name:  "mixed consecutive and non-consecutive",
+			input: []uint64{3, 4, 5, 7, 8, 10},
+			expected: []Segment{
+				{Start: 3, End: 5},
+				{Start: 7, End: 8},
+				{Start: 10, End: 10},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := CompressSequences(tt.input)
+			require.Equal(t, tt.expected, result)
+		})
+	}
+}

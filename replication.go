@@ -6,6 +6,8 @@ package simplex
 import (
 	"fmt"
 	"math"
+	"slices"
+	"time"
 
 	"go.uber.org/zap"
 )
@@ -55,9 +57,11 @@ type ReplicationState struct {
 
 	// request iterator
 	requestIterator int
+
+	timeoutHandler *TimeoutHandler
 }
 
-func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundWindow uint64, enabled bool) *ReplicationState {
+func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundWindow uint64, enabled bool, start time.Time) *ReplicationState {
 	return &ReplicationState{
 		logger:               logger,
 		enabled:              enabled,
@@ -65,7 +69,12 @@ func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundW
 		id:                   id,
 		maxRoundWindow:       maxRoundWindow,
 		receivedQuorumRounds: make(map[uint64]QuorumRound),
+		timeoutHandler:       NewTimeoutHandler(logger, start, comm.ListNodes()),
 	}
+}
+
+func (r *ReplicationState) AdvanceTime(now time.Time) {
+	r.timeoutHandler.Tick(now)
 }
 
 // isReplicationComplete returns true if we have finished the replication process.
@@ -116,6 +125,7 @@ func (r *ReplicationState) sendReplicationRequests(start uint64, end uint64) {
 		seqsPerNode = 1 
 	}
 
+	r.logger.Debug("Distributing replication requests", zap.Uint64("start", start), zap.Uint64("end", end), zap.Stringer("nodes", NodeIDs(nodes)))
 	// Distribute sequences evenly among nodes in round-robin fashion
 	for i := range numNodes {
 		nodeIndex := (r.requestIterator + i) % numNodes
@@ -133,13 +143,17 @@ func (r *ReplicationState) sendReplicationRequests(start uint64, end uint64) {
 		r.sendRequestToNode(nodeStart, nodeEnd, nodes[nodeIndex])
 	}
 
+	r.lastSequenceRequested = end
 	// next time we send requests, we start with a different permutation
 	r.requestIterator++
 }
 
-func (r *ReplicationState) sendRequestToNode(start uint64, end uint64, node NodeID) {
+// sendRequestToNode requests the sequences [start, end] from nodes[index].
+// In case the nodes[index] does not respond, we create a timeout that will
+// re-send the request.
+func (r *ReplicationState) sendRequestToNode(start uint64, end uint64, nodes []NodeID, index int) {
 	r.logger.Debug("Requesting missing finalization certificates ",
-		zap.Stringer("from", node),
+		zap.Stringer("from", nodes[index]),
 		zap.Uint64("start", start),
 		zap.Uint64("end", end))
 	seqs := make([]uint64, (end+1)-start)
@@ -152,8 +166,83 @@ func (r *ReplicationState) sendRequestToNode(start uint64, end uint64, node Node
 	}
 	msg := &Message{ReplicationRequest: request}
 
-	r.lastSequenceRequested = end
-	r.comm.SendMessage(msg, node)
+	task := r.createReplicationTimeoutTask(start, end, nodes, index)
+
+	r.timeoutHandler.AddTask(task)
+
+	r.comm.SendMessage(msg, nodes[index])
+}
+
+func (r *ReplicationState) createReplicationTimeoutTask(start, end uint64, nodes []NodeID, index int) *TimeoutTask {
+	taskFunc := func() {
+		r.sendRequestToNode(start, end, nodes, (index+1)%len(nodes))
+	}
+	timeoutTask := &TimeoutTask{
+		Start:    start,
+		End:      end,
+		NodeID:   nodes[index],
+		TaskID:   getTimeoutID(start, end),
+		Task:     taskFunc,
+		Deadline: r.timeoutHandler.GetTime().Add(DefaultReplicationRequestTimeout),
+	}
+
+	return timeoutTask
+}
+
+// receivedReplicationResponse notifies the task handler a response was received. If the response
+// was incomplete(meaning our timeout expected more seqs), then we will create a new timeout
+// for the missing sequences and send the request to a different node.
+func (r *ReplicationState) receivedReplicationResponse(data []QuorumRound, node NodeID) {
+	seqs := make([]uint64, 0, len(data))
+
+	for _, qr := range data {
+		seqs = append(seqs, qr.GetSequence())
+	}
+
+	slices.Sort(seqs)
+
+	task := r.timeoutHandler.FindTask(node, seqs)
+	if task == nil {
+		r.logger.Debug("Could not find a timeout task associated with the replication response", zap.Stringer("from", node))
+		return
+	}
+	r.timeoutHandler.RemoveTask(node, task.TaskID)
+
+	// we found the timeout, now make sure all seqs were returned
+	missing := findMissingNumbersInRange(task.Start, task.End, seqs)
+	if len(missing) == 0 {
+		return
+	}
+
+	// if not all sequences were returned, create new timeouts
+	r.logger.Debug("Received missing sequences in the replication response", zap.Stringer("from", node), zap.Any("missing", missing))
+	nodes := r.highestSequenceObserved.signers.Remove(r.id)
+	numNodes := len(nodes)
+	segments := CompressSequences(missing)
+	for i, seqs := range segments {
+		index := i % numNodes
+		newTask := r.createReplicationTimeoutTask(seqs.Start, seqs.End, nodes, index)
+		r.timeoutHandler.AddTask(newTask)
+	}
+}
+
+// findMissingNumbersInRange finds numbers in an array constructed by [start...end] that are not in [nums]
+// ex. (3, 10, [1,2,3,4,5,6]) -> [7,8,9,10]
+func findMissingNumbersInRange(start, end uint64, nums []uint64) []uint64 {
+	numMap := make(map[uint64]struct{})
+	for _, num := range nums {
+		numMap[num] = struct{}{}
+	}
+
+	var result []uint64
+
+	for i := start; i <= end; i++ {
+		if _, exists := numMap[i]; !exists {
+			result = append(result, i)
+		}
+	}
+
+	return result
 }
 
 func (r *ReplicationState) replicateBlocks(fCert *FinalizationCertificate, nextSeqToCommit uint64) {
@@ -206,7 +295,7 @@ func (r *ReplicationState) StoreQuorumRound(round QuorumRound) {
 		r.highestSequenceObserved = signedSeq
 	}
 
-	r.logger.Debug("Storing quorum round", zap.Stringer("qr", &round))
+	r.logger.Debug("Stored quorum round ", zap.Stringer("qr", &round))
 	r.receivedQuorumRounds[round.GetRound()] = round
 }
 

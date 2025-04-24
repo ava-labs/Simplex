@@ -227,6 +227,47 @@ func (tw *testWAL) assertNotarization(round uint64) bool {
 
 }
 
+func (tw *testWAL) assertNotarizationOrFinalization(round uint64, qc QCDeserializer) {
+	tw.lock.Lock()
+	defer tw.lock.Unlock()
+
+	for {
+		rawRecords, err := tw.WriteAheadLog.ReadAll()
+		require.NoError(tw.t, err)
+
+		for _, rawRecord := range rawRecords {
+			if binary.BigEndian.Uint16(rawRecord[:2]) == record.NotarizationRecordType {
+				_, vote, err := ParseNotarizationRecord(rawRecord)
+				require.NoError(tw.t, err)
+
+				if vote.Round == round {
+					return
+				}
+			}
+			if binary.BigEndian.Uint16(rawRecord[:2]) == record.EmptyNotarizationRecordType {
+				_, vote, err := ParseEmptyNotarizationRecord(rawRecord)
+				require.NoError(tw.t, err)
+
+				if vote.Round == round {
+					return
+				}
+			}
+			if binary.BigEndian.Uint16(rawRecord[:2]) == record.FinalizationRecordType {
+				fcert, err := FinalizationCertificateFromRecord(rawRecord, qc)
+				require.NoError(tw.t, err)
+
+				if fcert.Finalization.Round == round {
+					return
+				}
+			}
+
+		}
+
+		tw.signal.Wait()
+	}
+
+}
+
 func (tw *testWAL) containsEmptyVote(round uint64) bool {
 	tw.lock.Lock()
 	defer tw.lock.Unlock()
@@ -268,8 +309,6 @@ func (tw *testWAL) containsEmptyNotarization(round uint64) bool {
 
 	return false
 }
-
-
 
 func (tw *testWAL) containsNotarization(round uint64) bool {
 	tw.lock.Lock()
