@@ -140,7 +140,7 @@ func (r *ReplicationState) sendReplicationRequests(start uint64, end uint64) {
 		if nodeEnd > end {
 			break
 		}
-		r.sendRequestToNode(nodeStart, nodeEnd, nodes[nodeIndex])
+		r.sendRequestToNode(nodeStart, nodeEnd, nodes, nodeIndex)
 	}
 
 	r.lastSequenceRequested = end
