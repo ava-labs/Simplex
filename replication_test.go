@@ -659,11 +659,7 @@ func sendVotesToOneNode(msg *simplex.Message, from, to simplex.NodeID) bool {
 	return false
 }
 
-// Say we notarize a block of seq 10, round 10, but the rest of the network propagates an empty notarization.
-
-// When we replicate and receive an fcert of round 10 + x, seq 10 we should properly increase the round and make sure our epoch doesn't hang since it stores an old block/notarization of that same sequence.
-
-// I think we have this covered since we first process replication by sequences, but it would be nice to include a test for this.
+// TestReplicationNodeDiverges
 func TestReplicationNodeDiverges(t *testing.T) {
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}, {5}, {6}}
 	numBlocks := uint64(5)
@@ -685,7 +681,7 @@ func TestReplicationNodeDiverges(t *testing.T) {
 	newSimplexNode(t, nodes[2], net, bb, nodeConfig(nodes[2]))
 	laggingNode := newSimplexNode(t, nodes[3], net, laggingNodeBb, nodeConfig(nodes[3]))
 
-	// we need at least 6 nodes since the lagging node & leader will note timeout
+	// we need at least 6 nodes since the lagging node & leader will not timeout
 	newSimplexNode(t, nodes[4], net, bb, nodeConfig(nodes[4]))
 	newSimplexNode(t, nodes[5], net, bb, nodeConfig(nodes[5]))
 
@@ -695,12 +691,9 @@ func TestReplicationNodeDiverges(t *testing.T) {
 		startTimes = append(startTimes, n.e.StartTime)
 	}
 
-	for _, n := range net.instances {
-		require.Equal(t, uint64(0), n.storage.Height())
-	}
-
 	net.startInstances()
 	bb.triggerNewBlock()
+	firstBlock := <-bb.out
 
 	// because of the message filter, the lagging one will be the only one to notarize the block
 	laggingNode.wal.assertNotarization(0)
@@ -720,8 +713,8 @@ func TestReplicationNodeDiverges(t *testing.T) {
 	advanceWithoutLeader(t, net, bb, startTimes, 0, laggingNode.e.ID)
 
 	for _, n := range net.instances {
-		require.Equal(t, uint64(1), n.e.Metadata().Round)
 		if n.e.ID.Equals(laggingNode.e.ID) {
+			require.Equal(t, uint64(1), n.e.Metadata().Round)
 			require.Equal(t, uint64(1), n.e.Metadata().Seq)
 			continue
 		}
@@ -753,26 +746,11 @@ func TestReplicationNodeDiverges(t *testing.T) {
 	// now advance the round from a block(the lagging node will realize it is behind)
 	bb.triggerNewBlock()
 	for _, n := range net.instances {
-		fmt.Println("waiting for ", n.e.ID, numBlocks-missedSeqs)
-		n.storage.waitForBlockCommit(numBlocks - missedSeqs)
-		fmt.Println("done waiting for ", n.e.ID)
+		// sanity check: assert that we did not index the notarized block
+		storedBlock := n.storage.waitForBlockCommit(numBlocks - missedSeqs)
+		require.NotEqual(t, storedBlock, firstBlock)
 	}
 
-	// for _, n := range net.instances {
-	// 	n.wal.assertNotarization(0)
-	// }
-
-	// net.Disconnect(laggingNode.e.ID)
-
-	// laggingNode.wal.assertNotarization(numBlocks - 1)
-	// require.Equal(t, uint64(0), laggingNode.storage.Height())
-	// require.Equal(t, uint64(numBlocks), laggingNode.e.Metadata().Round)
-
-	// net.setAllNodesMessageFilter(allowAllMessages)
-	// bb.triggerNewBlock()
-	// for _, n := range net.instances {
-	// 	n.storage.waitForBlockCommit(uint64(numBlocks))
-	// }
 }
 
 func waitToEnterRound(t *testing.T, e *simplex.Epoch, round uint64) {

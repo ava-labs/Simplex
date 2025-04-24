@@ -2458,7 +2458,7 @@ func (e *Epoch) processReplicationState() error {
 	block, fCert, exists := e.replicationState.GetFinalizedBlockForSequence(nextSeqToCommit)
 	if exists {
 		delete(e.replicationState.receivedQuorumRounds, block.BlockHeader().Round)
-		return e.processNextFinalizedBlockSeq(block, fCert)
+		return e.processFinalizedBlock(block, fCert)
 	}
 
 	qRound, ok := e.replicationState.receivedQuorumRounds[e.round]
