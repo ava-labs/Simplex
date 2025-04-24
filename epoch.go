@@ -835,6 +835,42 @@ func (e *Epoch) progressRoundsDueToCommit(round uint64) {
 	}
 }
 
+func (e *Epoch) storeFutureFinalizationCertificate(fCert *FinalizationCertificate, replicate bool) error {
+	nextSeqToCommit := e.Storage.Height()
+	recordBytes := NewQuorumRecord(fCert.QC.Bytes(), fCert.Finalization.Bytes(), record.FinalizationRecordType)
+	if err := e.WAL.Append(recordBytes); err != nil {
+		e.Logger.Error("Failed to append finalization certificate record to WAL", zap.Error(err))
+		return err
+	}
+
+	e.Logger.Debug("Persisted finalization certificate to WAL",
+		zap.Uint64("round", fCert.Finalization.Round),
+		zap.Uint64("height", nextSeqToCommit),
+		zap.Int("size", len(recordBytes)),
+		zap.Stringer("digest", fCert.Finalization.BlockHeader.Digest))
+
+	// we receive a finalization certificate for a future round
+	e.Logger.Debug("Received a finalization certificate for a future sequence", zap.Uint64("seq", fCert.Finalization.Seq), zap.Uint64("nextSeqToCommit", nextSeqToCommit))
+
+	if replicate {
+		e.replicationState.replicateBlocks(fCert, nextSeqToCommit)
+		if err := e.rebroadcastPastFinalizations(); err != nil {
+			return err
+		}
+	}
+
+	if e.round == fCert.Finalization.Round {
+		round, ok := e.rounds[e.round]
+		// This code path can be hit after incrementing the round from a notarization.
+		// this check ensure we do not double increment.
+		if ok && round.notarization == nil {
+			e.increaseRound()
+		}
+	}
+
+	return nil
+}
+
 func (e *Epoch) persistFinalizationCertificate(fCert FinalizationCertificate) error {
 	e.Logger.Debug("Received enough finalizations to finalize a block", zap.Uint64("round", fCert.Finalization.Round))
 	// Check to see if we should commit this finalization to the storage as part of a block commit,
@@ -844,34 +880,7 @@ func (e *Epoch) persistFinalizationCertificate(fCert FinalizationCertificate) er
 	if fCert.Finalization.Seq == nextSeqToCommit {
 		e.indexFinalizationCertificates(fCert.Finalization.Round)
 	} else {
-		recordBytes := NewQuorumRecord(fCert.QC.Bytes(), fCert.Finalization.Bytes(), record.FinalizationRecordType)
-		if err := e.WAL.Append(recordBytes); err != nil {
-			e.Logger.Error("Failed to append finalization certificate record to WAL", zap.Error(err))
-			return err
-		}
-
-		e.Logger.Debug("Persisted finalization certificate to WAL",
-			zap.Uint64("round", fCert.Finalization.Round),
-			zap.Uint64("height", nextSeqToCommit),
-			zap.Int("size", len(recordBytes)),
-			zap.Stringer("digest", fCert.Finalization.BlockHeader.Digest))
-
-		// we receive a finalization certificate for a future round
-		e.Logger.Debug("Received a finalization certificate for a future sequence", zap.Uint64("seq", fCert.Finalization.Seq), zap.Uint64("nextSeqToCommit", nextSeqToCommit))
-		e.replicationState.replicateBlocks(&fCert, nextSeqToCommit)
-
-		if err := e.rebroadcastPastFinalizations(); err != nil {
-			return err
-		}
-
-		if e.round == fCert.Finalization.Round {
-			round, ok := e.rounds[e.round]
-			// This code path can be hit after incrementing the round from a notarization.
-			// this check ensure we do not double increment.
-			if ok && round.notarization == nil {
-				e.increaseRound()
-			}
-		}
+		e.storeFutureFinalizationCertificate(&fCert, true)
 	}
 
 	finalizationCertificate := &Message{FinalizationCertificate: &fCert}
@@ -1407,7 +1416,7 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 	return nil
 }
 
-// processFinalizedBlocks processes a block that has a finalization certificate.
+// processFinalizedBlock processes a block that has a finalization certificate.
 // if the block has already been verified, it will index the finalization certificate,
 // otherwise it will verify the block first.
 func (e *Epoch) processFinalizedBlock(block Block, fCert FinalizationCertificate) error {
@@ -1424,7 +1433,13 @@ func (e *Epoch) processFinalizedBlock(block Block, fCert FinalizationCertificate
 			return e.processFinalizedBlock(block, fCert)
 		}
 		round.fCert = &fCert
-		e.indexFinalizationCertificates(round.num)
+
+		if e.Storage.Height() != fCert.Finalization.Seq {
+			e.storeFutureFinalizationCertificate(&fCert, false)
+		} else {
+			e.indexFinalizationCertificates(round.num)
+		}
+
 		return e.processReplicationState()
 	}
 
@@ -1613,12 +1628,20 @@ func (e *Epoch) createFinalizedBlockVerificationTask(block Block, fCert Finaliza
 		e.lock.Lock()
 		defer e.lock.Unlock()
 
+		round, ok := e.rounds[e.round]
+		if !ok {
+			round = NewRound(verifiedBlock)
+		}
+		round.fCert = &fCert
+
 		// we started verifying the block when it was the next sequence to commit, however its
 		// possible we received a fCert for this block in the meantime. This check ensures we commit
 		// the block only if it is still the next sequence to commit.
 		if e.Storage.Height() != md.Seq {
 			e.Logger.Debug("Received finalized block that is not the next sequence to commit",
 				zap.Uint64("seq", md.Seq), zap.Uint64("height", e.Storage.Height()))
+
+			e.storeFutureFinalizationCertificate(&fCert, false)
 			return md.Digest
 		}
 
@@ -2435,15 +2458,16 @@ func (e *Epoch) processReplicationState() error {
 	block, fCert, exists := e.replicationState.GetFinalizedBlockForSequence(nextSeqToCommit)
 	if exists {
 		delete(e.replicationState.receivedQuorumRounds, block.BlockHeader().Round)
-		return e.processFinalizedBlock(block, fCert)
+		return e.processNextFinalizedBlockSeq(block, fCert)
 	}
 
 	qRound, ok := e.replicationState.receivedQuorumRounds[e.round]
 	if ok && qRound.Notarization != nil {
-		// if qRound.FCert != nil {
-		// 	// e.Logger.Fatal("contains fcert", zap.Uint64("seq", qRound.GetSequence()), zap.Uint64("nextSeqToCommit", nextSeqToCommit), zap.Uint64("round", e.round))
-		// 	return e.processFinalizedBlock(block, *qRound.FCert)
-		// }
+		// this block is for a future fcert
+		if qRound.FCert != nil {
+			delete(e.replicationState.receivedQuorumRounds, e.round)
+			return e.processFinalizedBlock(qRound.Block, *qRound.FCert)
+		}
 		delete(e.replicationState.receivedQuorumRounds, e.round)
 		return e.processNotarizedBlock(qRound.Block, qRound.Notarization)
 	}
@@ -2454,11 +2478,13 @@ func (e *Epoch) processReplicationState() error {
 		return e.processEmptyNotarization(qRound.EmptyNotarization)
 	}
 
+	previousRound := e.round
 	roundAdvanced, err := e.maybeAdvanceRoundFromEmptyNotarizations()
 	if err != nil {
 		return err
 	}
 	if roundAdvanced {
+		e.Logger.Debug("Round advanced due to empty notarizations", zap.Uint64("old round", previousRound), zap.Uint64("new round", e.round))
 		return e.processReplicationState()
 	}
 
