@@ -21,6 +21,7 @@ func TestAddAndRunTask(t *testing.T) {
 	defer handler.Close()
 
 	sent := make(chan struct{}, 1)
+	count := 0
 
 	task := &simplex.TimeoutTask{
 		NodeID:   nodes[0],
@@ -28,6 +29,7 @@ func TestAddAndRunTask(t *testing.T) {
 		Deadline: start.Add(5 * time.Second),
 		Task: func() {
 			sent <- struct{}{}
+			count += 1
 		},
 	}
 
@@ -38,6 +40,12 @@ func TestAddAndRunTask(t *testing.T) {
 	require.Zero(t, len(sent))
 	handler.Tick(start.Add(6 * time.Second))
 	<-sent
+	require.Equal(t, 1, count)
+
+	// test we only execute task once
+	handler.Tick(start.Add(12 * time.Second))
+	time.Sleep(10 * time.Millisecond)
+	require.Equal(t, 1, count)
 }
 
 func TestRemoveTask(t *testing.T) {
