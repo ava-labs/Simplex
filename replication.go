@@ -124,7 +124,7 @@ func (r *ReplicationState) sendReplicationRequests(start uint64, end uint64) {
 		index := (i + r.requestIterator) & numNodes
 		r.sendRequestToNode(seqs.Start, seqs.End, nodes, index)
 	}
-	
+
 	r.lastSequenceRequested = end
 	// next time we send requests, we start with a different permutation
 	r.requestIterator++

@@ -5,7 +5,6 @@ package simplex_test
 
 import (
 	"errors"
-	"reflect"
 	"simplex"
 	. "simplex"
 	"simplex/testutil"
@@ -317,14 +316,14 @@ func TestDistributeSequenceRequests(t *testing.T) {
 		start    uint64
 		end      uint64
 		numNodes int
-		want     []Segment
+		expected []Segment
 	}{
 		{
 			name:     "even distribution",
 			start:    0,
 			end:      9,
 			numNodes: 2,
-			want: []Segment{
+			expected: []Segment{
 				{Start: 0, End: 4},
 				{Start: 5, End: 9},
 			},
@@ -334,7 +333,7 @@ func TestDistributeSequenceRequests(t *testing.T) {
 			start:    0,
 			end:      10,
 			numNodes: 3,
-			want: []Segment{
+			expected: []Segment{
 				{Start: 0, End: 3},
 				{Start: 4, End: 7},
 				{Start: 8, End: 10},
@@ -345,7 +344,7 @@ func TestDistributeSequenceRequests(t *testing.T) {
 			start:    5,
 			end:      15,
 			numNodes: 1,
-			want: []Segment{
+			expected: []Segment{
 				{Start: 5, End: 15},
 			},
 		},
@@ -354,7 +353,7 @@ func TestDistributeSequenceRequests(t *testing.T) {
 			start:    0,
 			end:      2,
 			numNodes: 5,
-			want: []Segment{
+			expected: []Segment{
 				{Start: 0, End: 0},
 				{Start: 1, End: 1},
 				{Start: 2, End: 2},
@@ -365,7 +364,7 @@ func TestDistributeSequenceRequests(t *testing.T) {
 			start:    5,
 			end:      5,
 			numNodes: 3,
-			want: []Segment{
+			expected: []Segment{
 				{Start: 5, End: 5},
 			},
 		},
@@ -374,23 +373,21 @@ func TestDistributeSequenceRequests(t *testing.T) {
 			start:    10,
 			end:      5,
 			numNodes: 2,
-			want:     []Segment{},
+			expected: []Segment{},
 		},
 		{
 			name:     "zero nodes",
 			start:    0,
 			end:      10,
 			numNodes: 0,
-			want:     []Segment{},
+			expected: []Segment{},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := DistributeSequenceRequests(tt.start, tt.end, tt.numNodes)
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("got %+v, want %+v", got, tt.want)
-			}
+			result := DistributeSequenceRequests(tt.start, tt.end, tt.numNodes)
+			require.Equal(t, result, tt.expected)
 		})
 	}
 }
