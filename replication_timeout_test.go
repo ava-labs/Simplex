@@ -17,13 +17,13 @@ func rejectReplicationRequests(msg *simplex.Message, from simplex.NodeID) bool {
 // A node attempts to request blocks to replicate, but fails to receive them
 func TestReplicationRequestTimeout(t *testing.T) {
 	nodes := []simplex.NodeID{{1}, {2}, {3}, []byte("lagging")}
-	numInitalSeqs := uint64(8)
+	numInitialSeqs := uint64(8)
 
 	// node begins replication
 	bb := newTestControlledBlockBuilder(t)
 	net := newInMemNetwork(t, nodes)
 
-	storageData := createBlocks(t, nodes, &bb.testBlockBuilder, numInitalSeqs)
+	storageData := createBlocks(t, nodes, &bb.testBlockBuilder, numInitialSeqs)
 
 	newNodeConfig := func(from simplex.NodeID) *testNodeConfig {
 		comm := newTestComm(from, net, rejectReplicationRequests)
@@ -46,12 +46,12 @@ func TestReplicationRequestTimeout(t *testing.T) {
 
 	// typically the lagging node would catch up here, but since we block
 	// replication requests, the lagging node will be forced to resend requests after a timeout
-	for i := 0; i <= int(numInitalSeqs); i++ {
+	for i := 0; i <= int(numInitialSeqs); i++ {
 		for _, n := range net.instances {
 			if n.e.ID.Equals(laggingNode.e.ID) {
 				continue
 			}
-			n.storage.waitForBlockCommit(uint64(numInitalSeqs))
+			n.storage.waitForBlockCommit(uint64(numInitialSeqs))
 		}
 	}
 
@@ -64,7 +64,7 @@ func TestReplicationRequestTimeout(t *testing.T) {
 	require.Equal(t, uint64(0), laggingNode.storage.Height())
 
 	laggingNode.e.AdvanceTime(laggingNode.e.StartTime.Add(simplex.DefaultReplicationRequestTimeout * 2))
-	laggingNode.storage.waitForBlockCommit(uint64(numInitalSeqs))
+	laggingNode.storage.waitForBlockCommit(uint64(numInitialSeqs))
 }
 
 type testTimeoutMessageFilter struct {
