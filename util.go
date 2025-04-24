@@ -143,6 +143,14 @@ func SetRound(block VerifiedBlock, notarization *Notarization, fCert *Finalizati
 type oneTimeVerifier struct {
 	lock    sync.Mutex
 	digests map[Digest]verifiedResult
+	logger  Logger
+}
+
+func newOneTimeVerifier(logger Logger) *oneTimeVerifier {
+	return &oneTimeVerifier{
+		digests: make(map[Digest]verifiedResult),
+		logger:  logger,
+	}
 }
 
 func (otv *oneTimeVerifier) Wrap(block Block) Block {
@@ -181,6 +189,7 @@ func (block *oneTimeVerifiedBlock) Verify(ctx context.Context) (VerifiedBlock, e
 	}()
 
 	if result, exists := block.otv.digests[digest]; exists {
+		block.otv.logger.Warn("Attempted to verify an already verified block", zap.Uint64("round", header.Round))
 		return result.vb, result.err
 	}
 
@@ -192,4 +201,41 @@ func (block *oneTimeVerifiedBlock) Verify(ctx context.Context) (VerifiedBlock, e
 	}
 
 	return vb, err
+}
+
+type Segment struct {
+	Start uint64
+	End   uint64
+}
+
+// compressSequences takes a sorted slice of uint64 values representing
+// missing sequence numbers and compresses consecutive numbers into segments.
+// Each segment represents a continuous block of missing sequence numbers.
+func CompressSequences(missingSeqs []uint64) []Segment {
+	var segments []Segment
+
+	if len(missingSeqs) == 0 {
+		return segments
+	}
+
+	startSeq := missingSeqs[0]
+	endSeq := missingSeqs[0]
+
+	for i, currentSeq := range missingSeqs[1:] {
+		if currentSeq != missingSeqs[i]+1 {
+			segments = append(segments, Segment{
+				Start: startSeq,
+				End:   endSeq,
+			})
+			startSeq = currentSeq
+		}
+		endSeq = currentSeq
+	}
+
+	segments = append(segments, Segment{
+		Start: startSeq,
+		End:   endSeq,
+	})
+
+	return segments
 }

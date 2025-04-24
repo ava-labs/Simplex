@@ -24,7 +24,8 @@ const (
 	DefaultMaxRoundWindow   = 10
 	DefaultMaxPendingBlocks = 20
 
-	DefaultMaxProposalWaitTime = 5 * time.Second
+	DefaultMaxProposalWaitTime       = 5 * time.Second
+	DefaultReplicationRequestTimeout = 5 * time.Second
 )
 
 type EmptyVoteSet struct {
@@ -105,6 +106,7 @@ func NewEpoch(conf EpochConfig) (*Epoch, error) {
 // AdvanceTime hints the engine that the given amount of time has passed.
 func (e *Epoch) AdvanceTime(t time.Time) {
 	e.monitor.AdvanceTime(t)
+	e.replicationState.AdvanceTime(t)
 }
 
 // HandleMessage notifies the engine about a reception of a message.
@@ -160,7 +162,7 @@ func (e *Epoch) HandleMessage(msg *Message, from NodeID) error {
 }
 
 func (e *Epoch) init() error {
-	e.oneTimeVerifier = &oneTimeVerifier{digests: make(map[Digest]verifiedResult)}
+	e.oneTimeVerifier = newOneTimeVerifier(e.Logger)
 	e.sched = NewScheduler(e.Logger)
 	e.monitor = NewMonitor(e.StartTime, e.Logger)
 	e.cancelWaitForBlockNotarization = func() {}
@@ -173,7 +175,7 @@ func (e *Epoch) init() error {
 	e.maxPendingBlocks = DefaultMaxPendingBlocks
 	e.eligibleNodeIDs = make(map[string]struct{}, len(e.nodes))
 	e.futureMessages = make(messagesFromNode, len(e.nodes))
-	e.replicationState = NewReplicationState(e.Logger, e.Comm, e.ID, e.maxRoundWindow, e.ReplicationEnabled)
+	e.replicationState = NewReplicationState(e.Logger, e.Comm, e.ID, e.maxRoundWindow, e.ReplicationEnabled, e.StartTime)
 
 	for _, node := range e.nodes {
 		e.futureMessages[string(node)] = make(map[uint64]*messagesForRound)
@@ -2363,6 +2365,8 @@ func (e *Epoch) handleReplicationResponse(resp *ReplicationResponse, from NodeID
 		e.Logger.Debug("Failed processing latest round", zap.Error(err))
 		return nil
 	}
+
+	e.replicationState.receivedReplicationResponse(resp.Data, from)
 
 	return e.processReplicationState()
 }
