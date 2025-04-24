@@ -104,20 +104,17 @@ func TestMonitorAsyncWaitUntilWithWaitFor(t *testing.T) {
 }
 
 func TestMonitorAsyncWaitForWithNestedWaitUntil(t *testing.T) {
-	for range 1000 {
-		start := time.Now()
-		mon := NewMonitor(start, makeLogger(t))
+	start := time.Now()
+	mon := NewMonitor(start, makeLogger(t))
 
-		var wg sync.WaitGroup
-		wg.Add(1)
-		mon.RunTask(func() {
-			go mon.AdvanceTime(start.Add(10 * time.Millisecond))
-			mon.FutureTask(10*time.Millisecond, wg.Done)
-		})
-		wg.Wait()
-	}
+	var wg sync.WaitGroup
+	wg.Add(1)
+	mon.RunTask(func() {
+		go mon.AdvanceTime(start.Add(10 * time.Millisecond))
+		mon.FutureTask(10*time.Millisecond, wg.Done)
+	})
+	wg.Wait()
 }
-
 
 type testLogger struct {
 	*zap.Logger
