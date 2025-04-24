@@ -1870,18 +1870,18 @@ func (e *Epoch) proposeBlock(block VerifiedBlock) error {
 		return errors.New("failed to store block proposed by me")
 	}
 
+	e.Comm.Broadcast(proposal)
+	e.Logger.Debug("Proposal broadcast",
+		zap.Uint64("round", md.Round),
+		zap.Int("size", len(rawBlock)),
+		zap.Stringer("digest", md.Digest))
+
 	// We might have received votes and finalizations from future rounds before we received this block.
 	// So load the messages into our round data structure now that we have created it.
 	err = e.maybeLoadFutureMessages()
 	if err != nil {
 		return err
 	}
-
-	e.Comm.Broadcast(proposal)
-	e.Logger.Debug("Proposal broadcast",
-		zap.Uint64("round", md.Round),
-		zap.Int("size", len(rawBlock)),
-		zap.Stringer("digest", md.Digest))
 
 	return e.handleVoteMessage(&vote, e.ID)
 }
