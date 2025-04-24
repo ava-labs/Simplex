@@ -5,6 +5,7 @@ package simplex_test
 
 import (
 	"errors"
+	"reflect"
 	"simplex"
 	. "simplex"
 	"simplex/testutil"
@@ -306,6 +307,90 @@ func TestCompressSequences(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result := CompressSequences(tt.input)
 			require.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestDistributeSequenceRequests(t *testing.T) {
+	tests := []struct {
+		name     string
+		start    uint64
+		end      uint64
+		numNodes int
+		want     []Segment
+	}{
+		{
+			name:     "even distribution",
+			start:    0,
+			end:      9,
+			numNodes: 2,
+			want: []Segment{
+				{Start: 0, End: 4},
+				{Start: 5, End: 9},
+			},
+		},
+		{
+			name:     "uneven distribution",
+			start:    0,
+			end:      10,
+			numNodes: 3,
+			want: []Segment{
+				{Start: 0, End: 3},
+				{Start: 4, End: 7},
+				{Start: 8, End: 10},
+			},
+		},
+		{
+			name:     "single node full range",
+			start:    5,
+			end:      15,
+			numNodes: 1,
+			want: []Segment{
+				{Start: 5, End: 15},
+			},
+		},
+		{
+			name:     "numNodes greater than sequences",
+			start:    0,
+			end:      2,
+			numNodes: 5,
+			want: []Segment{
+				{Start: 0, End: 0},
+				{Start: 1, End: 1},
+				{Start: 2, End: 2},
+			},
+		},
+		{
+			name:     "zero-length range",
+			start:    5,
+			end:      5,
+			numNodes: 3,
+			want: []Segment{
+				{Start: 5, End: 5},
+			},
+		},
+		{
+			name:     "start > end",
+			start:    10,
+			end:      5,
+			numNodes: 2,
+			want:     []Segment{},
+		},
+		{
+			name:     "zero nodes",
+			start:    0,
+			end:      10,
+			numNodes: 0,
+			want:     []Segment{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := DistributeSequenceRequests(tt.start, tt.end, tt.numNodes)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("got %+v, want %+v", got, tt.want)
+			}
 		})
 	}
 }

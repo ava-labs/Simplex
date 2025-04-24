@@ -239,3 +239,45 @@ func CompressSequences(missingSeqs []uint64) []Segment {
 
 	return segments
 }
+
+
+// DistributeSequenceRequests evenly creates segments amongst [numNodes] over
+// the range [start, end].
+func DistributeSequenceRequests(start, end uint64, numNodes int) []Segment {
+	var segments []Segment
+
+	numSeqs := end + 1 - start
+	seqsPerNode := numSeqs / uint64(numNodes)
+
+	// this way we don't send unecessary requests
+	if seqsPerNode == 0 {
+		seqsPerNode = 1
+	}
+
+	// Distribute sequences evenly among nodes
+	for i := range numNodes {
+		nodeStart := start + (uint64(i) * seqsPerNode)
+
+		// Last node gets any remainder sequences
+		nodeEnd := nodeStart + seqsPerNode
+		if i == numNodes-1 {
+			nodeEnd = end
+		}
+
+		endReached := false
+		if nodeEnd > end {
+			nodeEnd = end
+		}
+
+		segments = append(segments, Segment{
+			Start: nodeStart,
+			End: nodeEnd,
+		})
+
+		if endReached {
+			break
+		}
+	}
+
+	return segments
+}

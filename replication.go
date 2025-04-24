@@ -117,24 +117,14 @@ func (r *ReplicationState) sendReplicationRequests(start uint64, end uint64) {
 	nodes := r.highestSequenceObserved.signers.Remove(r.id)
 	numNodes := len(nodes)
 
-	numSeqs := end + 1 - start
-	seqsPerNode := numSeqs / uint64(numNodes)
+	seqRequests := DistributeSequenceRequests(start, end, numNodes)
 
 	r.logger.Debug("Distributing replication requests", zap.Uint64("start", start), zap.Uint64("end", end), zap.Stringer("nodes", NodeIDs(nodes)))
-	// Distribute sequences evenly among nodes in round-robin fashion
-	for i := range numNodes {
-		nodeIndex := (r.requestIterator + i) % numNodes
-		nodeStart := start + (uint64(i) * seqsPerNode)
-
-		// Last node gets any remainder sequences
-		nodeEnd := nodeStart + seqsPerNode
-		if i == numNodes-1 {
-			nodeEnd = end
-		}
-
-		r.sendRequestToNode(nodeStart, nodeEnd, nodes, nodeIndex)
+	for i, seqs := range seqRequests {
+		index := (i + r.requestIterator) & numNodes
+		r.sendRequestToNode(seqs.Start, seqs.End, nodes, index)
 	}
-
+	
 	r.lastSequenceRequested = end
 	// next time we send requests, we start with a different permutation
 	r.requestIterator++
