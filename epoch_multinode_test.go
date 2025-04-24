@@ -331,12 +331,13 @@ func (tw *testWAL) containsNotarization(round uint64) bool {
 	return false
 }
 
-// messageFilter is a function type that determines whether a message can be 
+// messageFilter is a function type that determines whether a message can be
 // transmitted from one node to another.
 // Parameters:
 //   - msg: The message being evaluated for transmission
 //   - from: The ID of the sending node
 //   - to: The ID of the receiving node
+//
 // Returns:
 //   - bool: true if the message can be transmitted, false otherwise
 type messageFilter func(msg *Message, from NodeID, to NodeID) bool

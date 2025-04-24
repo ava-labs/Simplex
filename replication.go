@@ -122,7 +122,7 @@ func (r *ReplicationState) sendReplicationRequests(start uint64, end uint64) {
 
 	// this way we don't send unecessary requests
 	if seqsPerNode == 0 {
-		seqsPerNode = 1 
+		seqsPerNode = 1
 	}
 
 	r.logger.Debug("Distributing replication requests", zap.Uint64("start", start), zap.Uint64("end", end), zap.Stringer("nodes", NodeIDs(nodes)))

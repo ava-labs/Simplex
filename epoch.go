@@ -852,7 +852,6 @@ func (e *Epoch) persistFinalizationCertificate(fCert FinalizationCertificate) er
 
 		e.Logger.Debug("Persisted finalization certificate to WAL",
 			zap.Uint64("round", fCert.Finalization.Round),
-			zap.Uint64("finalization next", fCert.Finalization.Seq),
 			zap.Uint64("height", nextSeqToCommit),
 			zap.Int("size", len(recordBytes)),
 			zap.Stringer("digest", fCert.Finalization.BlockHeader.Digest))
@@ -1454,10 +1453,9 @@ func (e *Epoch) processFinalizedBlock(block Block, fCert FinalizationCertificate
 // processNotarizedBlock processes a block that has a notarization.
 // if the block has already been verified, it will persist the notarization,
 // otherwise it will verify the block first.
-// if an fCert is provided, it should be added to the rounds map, however it's important that fCert is not the next sdequence to commit. If so, call 
+// if an fCert is provided, it should be added to the rounds map, however it's important that fCert is not the next sdequence to commit. If so, call
 // processFinalizedBlock
 func (e *Epoch) processNotarizedBlock(block Block, notarization *Notarization) error {
-	e.Logger.Info("processing notarized block", zap.Uint64("rund", block.BlockHeader().Round))
 	md := block.BlockHeader()
 	round, exists := e.rounds[md.Round]
 
@@ -1898,6 +1896,7 @@ func (e *Epoch) Metadata() ProtocolMetadata {
 func (e *Epoch) metadata() ProtocolMetadata {
 	var prev Digest
 	seq := e.Storage.Height()
+
 	highestRound := e.getHighestRound()
 	if highestRound != nil {
 		// Build on top of the latest block
@@ -2169,6 +2168,7 @@ func (e *Epoch) storeNotarization(notarization Notarization) error {
 	if !exists {
 		return fmt.Errorf("attempted to store notarization of a non existent round %d", round)
 	}
+
 	r.notarization = &notarization
 	return nil
 }
@@ -2440,10 +2440,10 @@ func (e *Epoch) processReplicationState() error {
 
 	qRound, ok := e.replicationState.receivedQuorumRounds[e.round]
 	if ok && qRound.Notarization != nil {
-		if qRound.FCert != nil {
-			e.Logger.Fatal("contains fcert", zap.Uint64("seq", qRound.GetSequence()), zap.Uint64("nextSeqToCommit", nextSeqToCommit), zap.Uint64("round", e.round))
-			return e.processFinalizedBlock(block, *qRound.FCert)
-		}
+		// if qRound.FCert != nil {
+		// 	// e.Logger.Fatal("contains fcert", zap.Uint64("seq", qRound.GetSequence()), zap.Uint64("nextSeqToCommit", nextSeqToCommit), zap.Uint64("round", e.round))
+		// 	return e.processFinalizedBlock(block, *qRound.FCert)
+		// }
 		delete(e.replicationState.receivedQuorumRounds, e.round)
 		return e.processNotarizedBlock(qRound.Block, qRound.Notarization)
 	}
