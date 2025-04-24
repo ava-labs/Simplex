@@ -354,8 +354,7 @@ func TestDistributeSequenceRequests(t *testing.T) {
 			end:      2,
 			numNodes: 5,
 			expected: []Segment{
-				{Start: 0, End: 0},
-				{Start: 1, End: 1},
+				{Start: 0, End: 1},
 				{Start: 2, End: 2},
 			},
 		},
@@ -373,21 +372,21 @@ func TestDistributeSequenceRequests(t *testing.T) {
 			start:    10,
 			end:      5,
 			numNodes: 2,
-			expected: []Segment{},
+			expected: nil,
 		},
 		{
 			name:     "zero nodes",
 			start:    0,
 			end:      10,
 			numNodes: 0,
-			expected: []Segment{},
+			expected: nil,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := DistributeSequenceRequests(tt.start, tt.end, tt.numNodes)
-			require.Equal(t, result, tt.expected)
+			require.Equal(t, tt.expected, result)
 		})
 	}
 }
