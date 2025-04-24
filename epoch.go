@@ -1880,12 +1880,7 @@ func (e *Epoch) proposeBlock(block VerifiedBlock) error {
 
 	// We might have received votes and finalizations from future rounds before we received this block.
 	// So load the messages into our round data structure now that we have created it.
-	err = e.maybeLoadFutureMessages()
-	if err != nil {
-		return err
-	}
-
-	return e.handleVoteMessage(&vote, e.ID)
+	return errors.Join(e.handleVoteMessage(&vote, e.ID), e.maybeLoadFutureMessages())
 }
 
 // Metadata returns the metadata of the next expected block of the epoch.
