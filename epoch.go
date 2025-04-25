@@ -1628,12 +1628,6 @@ func (e *Epoch) createFinalizedBlockVerificationTask(block Block, fCert Finaliza
 		e.lock.Lock()
 		defer e.lock.Unlock()
 
-		round, ok := e.rounds[e.round]
-		if !ok {
-			round = NewRound(verifiedBlock)
-		}
-		round.fCert = &fCert
-
 		// we started verifying the block when it was the next sequence to commit, however its
 		// possible we received a fCert for this block in the meantime. This check ensures we commit
 		// the block only if it is still the next sequence to commit.
@@ -1641,7 +1635,17 @@ func (e *Epoch) createFinalizedBlockVerificationTask(block Block, fCert Finaliza
 			e.Logger.Debug("Received finalized block that is not the next sequence to commit",
 				zap.Uint64("seq", md.Seq), zap.Uint64("height", e.Storage.Height()))
 
-			e.storeFutureFinalizationCertificate(&fCert, false)
+			// if the block is not the next sequence to commit, it might be a block for the current round
+			// we still want to store this block in the rounds map
+			round, exists := e.rounds[md.Round]
+			if e.round == md.Round {
+				if !exists {
+					round = NewRound(verifiedBlock)
+				}
+
+				round.fCert = &fCert
+				e.storeFutureFinalizationCertificate(&fCert, false)
+			}
 			return md.Digest
 		}
 
