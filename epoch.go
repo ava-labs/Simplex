@@ -1468,8 +1468,6 @@ func (e *Epoch) processFinalizedBlock(block Block, fCert FinalizationCertificate
 // processNotarizedBlock processes a block that has a notarization.
 // if the block has already been verified, it will persist the notarization,
 // otherwise it will verify the block first.
-// if an fCert is provided, it should be added to the rounds map, however it's important that fCert is not the next sdequence to commit. If so, call
-// processFinalizedBlock
 func (e *Epoch) processNotarizedBlock(block Block, notarization *Notarization) error {
 	md := block.BlockHeader()
 	round, exists := e.rounds[md.Round]
