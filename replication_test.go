@@ -633,12 +633,6 @@ func testReplicationNotarizationWithoutFinalizations(t *testing.T, numBlocks uin
 	laggingNode.wal.assertNotarization(numBlocks - 1)
 	require.Equal(t, uint64(0), laggingNode.storage.Height())
 	require.Equal(t, uint64(numBlocks), laggingNode.e.Metadata().Round)
-
-	// net.setAllNodesMessageFilter(allowAllMessages)
-	// bb.triggerNewBlock()
-	// for _, n := range net.instances {
-	// 	n.storage.waitForBlockCommit(uint64(numBlocks))
-	// }
 }
 
 // sendVotesToOneNode allows block messages to sent to all nodes, and only
@@ -781,6 +775,7 @@ func advanceWithoutLeader(t *testing.T, net *inMemNetwork, bb *testControlledBlo
 
 		waitToEnterRound(t, n.e, round)
 	}
+	
 	for _, n := range net.instances {
 		leader := n.e.ID.Equals(simplex.LeaderForRound(net.nodes, n.e.Metadata().Round))
 		if leader || laggingNodeId.Equals(n.e.ID) {
