@@ -121,7 +121,7 @@ func (r *ReplicationState) sendReplicationRequests(start uint64, end uint64) {
 
 	r.logger.Debug("Distributing replication requests", zap.Uint64("start", start), zap.Uint64("end", end), zap.Stringer("nodes", NodeIDs(nodes)))
 	for i, seqs := range seqRequests {
-		index := (i + r.requestIterator) & numNodes
+		index := (i + r.requestIterator) % numNodes
 		r.sendRequestToNode(seqs.Start, seqs.End, nodes, index)
 	}
 
