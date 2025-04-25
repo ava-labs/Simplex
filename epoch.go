@@ -1609,18 +1609,27 @@ func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote)
 }
 
 func (e *Epoch) maybeProcessFCertForCurrentRound(block VerifiedBlock, fCert *FinalizationCertificate) error {
-	md := fCert.Finalization.BlockHeader
-	round, exists := e.rounds[md.Round]
-	if e.round == md.Round {
-		if !exists {
-			round = NewRound(block)
-		}
+	fCertRound := fCert.Finalization.BlockHeader.Round
+	if e.round != fCertRound {
+		return nil
+	}
 
+	round, exists := e.rounds[fCertRound]
+	if !exists {
+		r := NewRound(block)
+		r.fCert = fCert
+		e.rounds[fCert.Finalization.BlockHeader.Round] = r
+	} else {
 		round.fCert = fCert
-		err := e.storeFutureFinalizationCertificate(fCert, false)
-		if err != nil {
-			return err
-		}
+	}
+
+	if err := e.storeFutureFinalizationCertificate(fCert, false); err != nil {
+		return err
+	}
+
+	if e.round != fCertRound {
+		// process any pending messages now that the round has advanced
+		e.maybeLoadFutureMessages()
 	}
 
 	return nil
@@ -1656,14 +1665,6 @@ func (e *Epoch) createFinalizedBlockVerificationTask(block Block, fCert Finaliza
 			// if the block is not the next sequence to commit, it might be a block for the current round
 			// we still want to store this block in the rounds map
 			err = e.maybeProcessFCertForCurrentRound(verifiedBlock, &fCert)
-			if err != nil {
-				e.haltedError = err
-				e.Logger.Error("Failed to process fcert for current round", zap.Error(err))
-				return md.Digest
-			}
-
-			// we might have advanced a round
-			err = e.processReplicationState()
 			if err != nil {
 				e.haltedError = err
 				e.Logger.Error("Failed to process fcert for current round", zap.Error(err))
