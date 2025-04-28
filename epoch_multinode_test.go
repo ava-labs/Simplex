@@ -195,7 +195,9 @@ func (tw *testWAL) assertWALSize(n int) {
 	}
 }
 
-func (tw *testWAL) assertNotarization(round uint64) {
+// assertNotarization waits until either a notarization or empty notarization was appended to
+// the WAL for a given [round]. It returns whether or not the notarization was for an empty block.
+func (tw *testWAL) assertNotarization(round uint64) bool {
 	tw.lock.Lock()
 	defer tw.lock.Unlock()
 
@@ -209,7 +211,7 @@ func (tw *testWAL) assertNotarization(round uint64) {
 				require.NoError(tw.t, err)
 
 				if vote.Round == round {
-					return
+					return false
 				}
 			}
 			if binary.BigEndian.Uint16(rawRecord[:2]) == record.EmptyNotarizationRecordType {
@@ -217,7 +219,7 @@ func (tw *testWAL) assertNotarization(round uint64) {
 				require.NoError(tw.t, err)
 
 				if vote.Round == round {
-					return
+					return true
 				}
 			}
 		}
@@ -225,6 +227,27 @@ func (tw *testWAL) assertNotarization(round uint64) {
 		tw.signal.Wait()
 	}
 
+}
+
+func (tw *testWAL) containsNotarization(round uint64) bool {
+	tw.lock.Lock()
+	defer tw.lock.Unlock()
+
+	rawRecords, err := tw.WriteAheadLog.ReadAll()
+	require.NoError(tw.t, err)
+
+	for _, rawRecord := range rawRecords {
+		if binary.BigEndian.Uint16(rawRecord[:2]) == record.NotarizationRecordType {
+			_, vote, err := ParseNotarizationRecord(rawRecord)
+			require.NoError(tw.t, err)
+
+			if vote.Round == round {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 func (tw *testWAL) assertNotarizationOrFinalization(round uint64, qc QCDeserializer) {
@@ -310,19 +333,25 @@ func (tw *testWAL) containsEmptyNotarization(round uint64) bool {
 	return false
 }
 
-// messageFilter defines a function that filters
-// certain messages from being sent or broadcasted.
-// a message filter should return true if the message is allowed to be sent
-type messageFilter func(*Message, NodeID) bool
+// messageFilter is a function type that determines whether a message can be
+// transmitted from one node to another.
+// Parameters:
+//   - msg: The message being evaluated for transmission
+//   - from: The ID of the sending node
+//   - to: The ID of the receiving node
+//
+// Returns:
+//   - bool: true if the message can be transmitted, false otherwise
+type messageFilter func(msg *Message, from NodeID, to NodeID) bool
 
 // allowAllMessages allows every message to be sent
-func allowAllMessages(*Message, NodeID) bool {
+func allowAllMessages(*Message, NodeID, NodeID) bool {
 	return true
 }
 
 // denyFinalizationMessages blocks any messages that would cause nodes in
 // a network to index a block in storage.
-func denyFinalizationMessages(msg *Message, destination NodeID) bool {
+func denyFinalizationMessages(msg *Message, from, to NodeID) bool {
 	if msg.Finalization != nil {
 		return false
 	}
@@ -333,7 +362,7 @@ func denyFinalizationMessages(msg *Message, destination NodeID) bool {
 	return true
 }
 
-func onlyAllowEmptyRoundMessages(msg *Message, destination NodeID) bool {
+func onlyAllowEmptyRoundMessages(msg *Message, from, to NodeID) bool {
 	if msg.EmptyNotarization != nil {
 		return true
 	}
@@ -456,7 +485,7 @@ func (c *testComm) isMessagePermitted(msg *Message, destination NodeID) bool {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 
-	return c.messageFilter(msg, destination)
+	return c.messageFilter(msg, c.from, destination)
 }
 
 func (c *testComm) Broadcast(msg *Message) {
@@ -468,7 +497,7 @@ func (c *testComm) Broadcast(msg *Message) {
 
 	for _, instance := range c.net.instances {
 		if !c.isMessagePermitted(msg, instance.e.ID) {
-			return
+			continue
 		}
 		// Skip sending the message to yourself or disconnected nodes
 		if bytes.Equal(c.from, instance.e.ID) || c.net.IsDisconnected(instance.e.ID) {

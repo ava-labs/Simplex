@@ -567,7 +567,7 @@ func testReplicationAfterNodeDisconnects(t *testing.T, nodes []simplex.NodeID, s
 	}
 }
 
-func onlyAllowBlockProposalsAndNotarizations(msg *simplex.Message, to simplex.NodeID) bool {
+func onlyAllowBlockProposalsAndNotarizations(msg *simplex.Message, from, to simplex.NodeID) bool {
 	// TODO: remove hardcoded node id
 	if to.Equals(simplex.NodeID{4}) {
 		return (msg.BlockMessage != nil || msg.VerifiedBlockMessage != nil || msg.Notarization != nil)
@@ -641,6 +641,118 @@ func testReplicationNotarizationWithoutFinalizations(t *testing.T, numBlocks uin
 	}
 }
 
+// sendVotesToOneNode allows block messages to sent to all nodes, and only
+// passes vote messages to one node. This will allows that node to notarize the block,
+// while the other blocks will timeout
+func sendVotesToOneNode(msg *simplex.Message, from, to simplex.NodeID) bool {
+	if msg.VerifiedBlockMessage != nil || msg.BlockMessage != nil {
+		return true
+	}
+
+	if msg.VoteMessage != nil {
+		// this is the lagging node
+		if to.Equals(simplex.NodeID{4}) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// TestReplicationNodeDiverges
+func TestReplicationNodeDiverges(t *testing.T) {
+	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}, {5}, {6}}
+	numBlocks := uint64(5)
+
+	bb := newTestControlledBlockBuilder(t)
+	laggingNodeBb := newTestControlledBlockBuilder(t)
+	net := newInMemNetwork(t, nodes)
+
+	nodeConfig := func(from simplex.NodeID) *testNodeConfig {
+		comm := newTestComm(from, net, sendVotesToOneNode)
+		return &testNodeConfig{
+			comm:               comm,
+			replicationEnabled: true,
+		}
+	}
+
+	newSimplexNode(t, nodes[0], net, bb, nodeConfig(nodes[0]))
+	newSimplexNode(t, nodes[1], net, bb, nodeConfig(nodes[1]))
+	newSimplexNode(t, nodes[2], net, bb, nodeConfig(nodes[2]))
+	laggingNode := newSimplexNode(t, nodes[3], net, laggingNodeBb, nodeConfig(nodes[3]))
+
+	// we need at least 6 nodes since the lagging node & leader will not timeout
+	newSimplexNode(t, nodes[4], net, bb, nodeConfig(nodes[4]))
+	newSimplexNode(t, nodes[5], net, bb, nodeConfig(nodes[5]))
+
+	startTimes := make([]time.Time, 0, len(nodes))
+	for _, n := range net.instances {
+		require.Equal(t, uint64(0), n.storage.Height())
+		startTimes = append(startTimes, n.e.StartTime)
+	}
+
+	net.startInstances()
+	bb.triggerNewBlock()
+	firstBlock := <-bb.out
+
+	// because of the message filter, the lagging one will be the only one to notarize the block
+	laggingNode.wal.assertNotarization(0)
+	for _, n := range net.instances {
+		if n.e.ID.Equals(laggingNode.e.ID) {
+			continue
+		}
+		require.Equal(t, false, n.wal.containsNotarization(0))
+	}
+
+	// we disconnect lagging node first so that it doesn't send the notarized block to any other nodes
+	net.Disconnect(laggingNode.e.ID)
+	net.setAllNodesMessageFilter(allowAllMessages)
+
+	// This function call ensures all nodes will timeout, and
+	// receive an empty notarization for round 0(except for lagging).
+	advanceWithoutLeader(t, net, bb, startTimes, 0, laggingNode.e.ID)
+
+	for _, n := range net.instances {
+		if n.e.ID.Equals(laggingNode.e.ID) {
+			require.Equal(t, uint64(1), n.e.Metadata().Round)
+			require.Equal(t, uint64(1), n.e.Metadata().Seq)
+			continue
+		}
+
+		require.Equal(t, uint64(0), n.e.Metadata().Seq)
+		require.Equal(t, uint64(1), n.e.Metadata().Round)
+	}
+
+	// advance [numRounds] while the lagging node is disconnected
+	missedSeqs := uint64(1) // missed the first seq
+	for i := uint64(1); i < 1+numBlocks; i++ {
+		emptyRound := bytes.Equal(simplex.LeaderForRound(nodes, i), laggingNode.e.ID)
+		if emptyRound {
+			advanceWithoutLeader(t, net, bb, startTimes, i, laggingNode.e.ID)
+			missedSeqs++
+		} else {
+			bb.triggerNewBlock()
+			for _, n := range net.instances {
+				if n.e.ID.Equals(laggingNode.e.ID) {
+					continue
+				}
+				n.storage.waitForBlockCommit(i - missedSeqs)
+			}
+		}
+	}
+
+	net.Connect(laggingNode.e.ID)
+
+	// now advance the round from a block(the lagging node will realize it is behind)
+	bb.triggerNewBlock()
+	for _, n := range net.instances {
+		// sanity check: assert that we did not index the notarized block
+		storedBlock := n.storage.waitForBlockCommit(numBlocks - missedSeqs)
+		require.NotEqual(t, storedBlock, firstBlock)
+	}
+
+}
+
 func waitToEnterRound(t *testing.T, e *simplex.Epoch, round uint64) {
 	timeout := time.NewTimer(time.Minute)
 	defer timeout.Stop()
@@ -692,7 +804,8 @@ func advanceWithoutLeader(t *testing.T, net *inMemNetwork, bb *testControlledBlo
 		if laggingNodeId.Equals(n.e.ID) {
 			continue
 		}
-		n.wal.assertNotarization(round)
+		empty := n.wal.assertNotarization(round)
+		require.True(t, empty)
 	}
 }
 

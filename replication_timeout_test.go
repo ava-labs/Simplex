@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func rejectReplicationRequests(msg *simplex.Message, from simplex.NodeID) bool {
+func rejectReplicationRequests(msg *simplex.Message, from, to simplex.NodeID) bool {
 	return msg.ReplicationRequest == nil && msg.ReplicationResponse == nil && msg.VerifiedReplicationResponse == nil
 }
 
@@ -73,12 +73,12 @@ type testTimeoutMessageFilter struct {
 	replicationResponses chan struct{}
 }
 
-func (m *testTimeoutMessageFilter) failOnReplicationRequest(msg *simplex.Message, from simplex.NodeID) bool {
+func (m *testTimeoutMessageFilter) failOnReplicationRequest(msg *simplex.Message, from, to simplex.NodeID) bool {
 	require.Nil(m.t, msg.ReplicationRequest)
 	return true
 }
 
-func (m *testTimeoutMessageFilter) receivedReplicationRequest(msg *simplex.Message, from simplex.NodeID) bool {
+func (m *testTimeoutMessageFilter) receivedReplicationRequest(msg *simplex.Message, from, to simplex.NodeID) bool {
 	if msg.VerifiedReplicationResponse != nil || msg.ReplicationResponse != nil {
 		m.replicationResponses <- struct{}{}
 		return false
@@ -203,7 +203,7 @@ func TestReplicationRequestTimeoutMultiple(t *testing.T) {
 }
 
 // modifies the replication response to only send every other quorum round
-func incompleteReplicationResponseFilter(msg *simplex.Message, from simplex.NodeID) bool {
+func incompleteReplicationResponseFilter(msg *simplex.Message, from, to simplex.NodeID) bool {
 	if msg.VerifiedReplicationResponse != nil || msg.ReplicationResponse != nil {
 		newLen := len(msg.VerifiedReplicationResponse.Data) / 2
 		newData := make([]simplex.VerifiedQuorumRound, 0, newLen)
