@@ -323,7 +323,7 @@ func (q *QuorumRound) String() string {
 		if err != nil {
 			return fmt.Sprintf("QuorumRound{Error: %s}", err)
 		} else {
-			return fmt.Sprintf("QuorumRound{Round: %d, Seq: %d, EmptyNote: %t, Note: %t, FCer: %t}", q.GetRound(), q.GetSequence(), q.EmptyNotarization != nil, q.Notarization != nil, q.FCert != nil)
+			return fmt.Sprintf("QuorumRound{Round: %d, Seq: %d}", q.GetRound(), q.GetSequence())
 		}
 	}
 
