@@ -170,8 +170,10 @@ func (r *ReplicationState) createReplicationTimeoutTask(start, end uint64, nodes
 		r.sendRequestToNode(start, end, nodes, (index+1)%len(nodes))
 	}
 	timeoutTask := &TimeoutTask{
-		Start:    start,
-		End:      end,
+		Data: &ReplicationTimeoutData{
+			Start: start,
+			End:   end,
+		},
 		NodeID:   nodes[index],
 		TaskID:   getTimeoutID(start, end),
 		Task:     taskFunc,
@@ -193,15 +195,17 @@ func (r *ReplicationState) receivedReplicationResponse(data []QuorumRound, node 
 
 	slices.Sort(seqs)
 
-	task := r.timeoutHandler.FindTask(node, seqs)
+	task := FindTask(r.timeoutHandler, node, seqs)
 	if task == nil {
 		r.logger.Debug("Could not find a timeout task associated with the replication response", zap.Stringer("from", node))
 		return
 	}
 	r.timeoutHandler.RemoveTask(node, task.TaskID)
 
+	taskData := task.Data
+	replicationData := taskData.(*ReplicationTimeoutData)
 	// we found the timeout, now make sure all seqs were returned
-	missing := findMissingNumbersInRange(task.Start, task.End, seqs)
+	missing := findMissingNumbersInRange(replicationData.Start, replicationData.End, seqs)
 	if len(missing) == 0 {
 		return
 	}
@@ -320,5 +324,25 @@ func (r *ReplicationState) GetQuroumRoundWithSeq(seq uint64) *QuorumRound {
 			return &round
 		}
 	}
+	return nil
+}
+
+// FindTask returns the first TimeoutTask assigned to [node] that contains any sequence in [seqs].
+// A sequence is considered "contained" if it falls between a task's Start (inclusive) and End (inclusive).
+// func (t *TimeoutHandler) FindTask(node NodeID, seqs []uint64) *TimeoutTask {
+func FindTask(t *TimeoutHandler, node NodeID, seqs []uint64) *TimeoutTask {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+
+	for _, task := range t.tasks[string(node)] {
+		data := task.Data
+		replicationData := data.(*ReplicationTimeoutData)
+		for _, seq := range seqs {
+			if seq >= replicationData.Start && seq <= replicationData.End {
+				return task
+			}
+		}
+	}
+
 	return nil
 }

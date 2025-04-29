@@ -12,11 +12,15 @@ import (
 	"go.uber.org/zap"
 )
 
+type ReplicationTimeoutData struct {
+	Start uint64
+	End   uint64
+}
+
 type TimeoutTask struct {
 	NodeID   NodeID
 	TaskID   string
-	Start    uint64
-	End      uint64
+	Data     any
 	Task     func()
 	Deadline time.Time
 
@@ -166,23 +170,6 @@ func (t *TimeoutHandler) Close() {
 	default:
 		close(t.close)
 	}
-}
-
-// FindTask returns the first TimeoutTask assigned to [node] that contains any sequence in [seqs].
-// A sequence is considered "contained" if it falls between a task's Start (inclusive) and End (inclusive).
-func (t *TimeoutHandler) FindTask(node NodeID, seqs []uint64) *TimeoutTask {
-	t.lock.Lock()
-	defer t.lock.Unlock()
-
-	for _, seq := range seqs {
-		for _, t := range t.tasks[string(node)] {
-			if seq >= t.Start && seq <= t.End {
-				return t
-			}
-		}
-	}
-
-	return nil
 }
 
 const delimiter = "_"

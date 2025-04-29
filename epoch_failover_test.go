@@ -6,6 +6,7 @@ package simplex_test
 import (
 	"context"
 	"fmt"
+	"simplex"
 	. "simplex"
 	"simplex/testutil"
 	"sync/atomic"
@@ -763,6 +764,118 @@ func TestEpochLeaderFailoverNotNeeded(t *testing.T) {
 	e.AdvanceTime(start.Add(conf.MaxProposalWait / 2))
 
 	require.False(t, timedOut.Load())
+}
+
+type rebroadcastCounterComm struct {
+	nodes []NodeID
+	count atomic.Uint64
+	mostRecentRound atomic.Uint64
+}
+
+func (r *rebroadcastCounterComm) ListNodes() []NodeID {
+	return r.nodes
+}
+
+func (r *rebroadcastCounterComm) SendMessage(*Message, NodeID) {
+
+}
+
+func (r *rebroadcastCounterComm) Broadcast(msg *Message) {
+	if msg.EmptyVoteMessage != nil {
+		r.mostRecentRound.Store(msg.EmptyVoteMessage.Vote.Round)
+		r.count.Add(1)
+	}
+}
+
+func TestEpochRebroadcastsEmptyVote(t *testing.T) {
+	l := testutil.MakeLogger(t, 2)
+	bb := &testBlockBuilder{out: make(chan *testBlock, 1), blockShouldBeBuilt: make(chan struct{}, 1)}
+	storage := newInMemStorage()
+
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+
+	wal := newTestWAL(t)
+
+	epochTime := time.Now()
+	comm := &rebroadcastCounterComm{
+		nodes: nodes,
+	}
+	conf := EpochConfig{
+		MaxProposalWait: DefaultMaxProposalWaitTime,
+		MaxRebrodcastWait: 500 * time.Millisecond,
+		StartTime:       epochTime,
+		Logger:          l,
+		ID:              nodes[3], // so we are not the leader
+		Signer:          &testSigner{},
+		WAL:             wal,
+		Verifier:        &testVerifier{},
+		Storage:         storage,
+		Comm: comm,
+		BlockBuilder:        bb,
+		SignatureAggregator: &testSignatureAggregator{},
+	}
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+
+	require.NoError(t, e.Start())
+	require.Equal(t, uint64(0), e.Metadata().Round)
+	require.Equal(t, uint64(0), e.Metadata().Round)
+	require.False(t, wal.containsEmptyVote(0))
+
+	bb.blockShouldBeBuilt <- struct{}{}
+	time.Sleep(10 * time.Millisecond)
+	epochTime = epochTime.Add(DefaultMaxProposalWaitTime)
+	e.AdvanceTime(epochTime)
+	wal.assertEmptyVote(0)
+	wal.assertWALSize(1)
+	require.Equal(t, uint64(1), comm.count.Load())
+	
+	// reset to get rebroadcast count
+	comm.count.Store(0)
+	for i := range 10 {
+		epochTime = epochTime.Add(e.MaxRebrodcastWait)
+		e.AdvanceTime(epochTime)
+		time.Sleep(10 * time.Millisecond)
+		require.Equal(t, uint64(i + 1), comm.count.Load())
+		require.Equal(t, uint64(0), comm.mostRecentRound.Load())
+		wal.assertWALSize(1)
+	}
+	
+	emptyNotarization := newEmptyNotarization(nodes, 0, 0)
+	e.HandleMessage(&simplex.Message{
+		EmptyNotarization: emptyNotarization,
+		}, nodes[2])
+		
+		wal.assertNotarization(0)
+	
+	comm.count.Store(0)
+	// ensure the rebroadcast was canceled
+	for range 10 {
+		epochTime = epochTime.Add(e.MaxRebrodcastWait)
+		e.AdvanceTime(epochTime)
+		time.Sleep(10 * time.Millisecond)
+		require.Equal(t, uint64(0), comm.count.Load())
+	}
+
+	// assert that we continue to rebraodcast, but for a different round now
+	bb.blockShouldBeBuilt <- struct{}{}
+	time.Sleep(10 * time.Millisecond)
+	epochTime = epochTime.Add(DefaultMaxProposalWaitTime)
+	e.AdvanceTime(epochTime)
+	wal.assertEmptyVote(1)
+	wal.assertWALSize(3)
+
+	// reset to get rebroadcast count
+	comm.count.Store(0)
+	for i := range 10 {
+		epochTime = epochTime.Add(e.MaxRebrodcastWait)
+		e.AdvanceTime(epochTime)
+		time.Sleep(10 * time.Millisecond)
+		require.Equal(t, uint64(i + 1), comm.count.Load())
+		require.Equal(t, uint64(1), comm.mostRecentRound.Load())
+		wal.assertWALSize(3)
+	}
 }
 
 func runCrashAndRestartExecution(t *testing.T, e *Epoch, bb *testBlockBuilder, wal *testWAL, storage *InMemStorage, f epochExecution) {

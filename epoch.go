@@ -24,8 +24,10 @@ const (
 	DefaultMaxRoundWindow   = 10
 	DefaultMaxPendingBlocks = 20
 
-	DefaultMaxProposalWaitTime       = 5 * time.Second
-	DefaultReplicationRequestTimeout = 5 * time.Second
+	DefaultMaxProposalWaitTime         = 5 * time.Second
+	DefaultReplicationRequestTimeout   = 5 * time.Second
+	DefaultEmptyVoteRebroadcastTimeout = 5 * time.Second
+	EmptyVoteTimeoutID                 = "rebroadcast_empty_vote"
 )
 
 type EmptyVoteSet struct {
@@ -54,6 +56,7 @@ func NewRound(block VerifiedBlock) *Round {
 
 type EpochConfig struct {
 	MaxProposalWait     time.Duration
+	MaxRebrodcastWait 	time.Duration
 	QCDeserializer      QCDeserializer
 	Logger              Logger
 	ID                  NodeID
@@ -92,8 +95,8 @@ type Epoch struct {
 	monitor                        *Monitor
 	haltedError                    error
 	cancelWaitForBlockNotarization context.CancelFunc
-
-	replicationState *ReplicationState
+	timeoutHandler                 *TimeoutHandler
+	replicationState               *ReplicationState
 }
 
 func NewEpoch(conf EpochConfig) (*Epoch, error) {
@@ -107,6 +110,7 @@ func NewEpoch(conf EpochConfig) (*Epoch, error) {
 func (e *Epoch) AdvanceTime(t time.Time) {
 	e.monitor.AdvanceTime(t)
 	e.replicationState.AdvanceTime(t)
+	e.timeoutHandler.Tick(t)
 }
 
 // HandleMessage notifies the engine about a reception of a message.
@@ -176,6 +180,7 @@ func (e *Epoch) init() error {
 	e.eligibleNodeIDs = make(map[string]struct{}, len(e.nodes))
 	e.futureMessages = make(messagesFromNode, len(e.nodes))
 	e.replicationState = NewReplicationState(e.Logger, e.Comm, e.ID, e.maxRoundWindow, e.ReplicationEnabled, e.StartTime)
+	e.timeoutHandler = NewTimeoutHandler(e.Logger, e.StartTime, e.nodes)
 
 	for _, node := range e.nodes {
 		e.futureMessages[string(node)] = make(map[uint64]*messagesForRound)
@@ -1955,10 +1960,27 @@ func (e *Epoch) triggerProposalWaitTimeExpired(round uint64) {
 
 	e.Comm.Broadcast(&Message{EmptyVoteMessage: &signedEV})
 
+	e.addEmptyVoteRebroadcastTimeout(&signedEV)
+
 	if err := e.maybeAssembleEmptyNotarization(); err != nil {
 		e.Logger.Error("Failed assembling empty notarization", zap.Error(err))
 		e.haltedError = err
 	}
+}
+
+func (e *Epoch) addEmptyVoteRebroadcastTimeout(vote *EmptyVote) {
+	task := &TimeoutTask{
+		NodeID:   e.ID,
+		TaskID:   EmptyVoteTimeoutID,
+		Deadline: e.timeoutHandler.GetTime().Add(e.EpochConfig.MaxRebrodcastWait),
+		Task: func() {
+			e.Logger.Debug("Rebroadcasting empty vote because round has not advanced", zap.Uint64("round", vote.Vote.Round))
+			e.Comm.Broadcast(&Message{EmptyVoteMessage: vote})
+			e.addEmptyVoteRebroadcastTimeout(vote)
+		},
+	}
+
+	e.timeoutHandler.AddTask(task)
 }
 
 func (e *Epoch) monitorProgress(round uint64) {
@@ -2103,6 +2125,8 @@ func (e *Epoch) increaseRound() {
 	// we advanced to the next round.
 	e.cancelWaitForBlockNotarization()
 
+	// remove the rebroadcast empty vote task
+	e.timeoutHandler.RemoveTask(e.ID, EmptyVoteTimeoutID)
 	e.deleteEmptyVoteForPreviousRound()
 
 	leader := LeaderForRound(e.nodes, e.round)

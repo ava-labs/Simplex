@@ -231,29 +231,37 @@ func TestFindTask(t *testing.T) {
 	task1 := &simplex.TimeoutTask{
 		TaskID: "task1",
 		NodeID: nodes[0],
-		Start:  5,
-		End:    10,
+		Data: &simplex.ReplicationTimeoutData{
+			Start: 5,
+			End:   10,
+		},
 	}
 
 	taskSameRangeDiffNode := &simplex.TimeoutTask{
 		TaskID: "taskSameDiff",
 		NodeID: nodes[1],
-		Start:  5,
-		End:    10,
+		Data: &simplex.ReplicationTimeoutData{
+			Start: 5,
+			End:   10,
+		},
 	}
 
 	task3 := &simplex.TimeoutTask{
 		TaskID: "task3",
 		NodeID: nodes[1],
-		Start:  25,
-		End:    30,
+		Data: &simplex.ReplicationTimeoutData{
+			Start: 25,
+			End:   30,
+		},
 	}
 
 	task4 := &simplex.TimeoutTask{
 		TaskID: "task4",
 		NodeID: nodes[1],
-		Start:  31,
-		End:    36,
+		Data: &simplex.ReplicationTimeoutData{
+			Start: 31,
+			End:   36,
+		},
 	}
 
 	// Add tasks to handler
@@ -320,7 +328,7 @@ func TestFindTask(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := handler.FindTask(tt.node, tt.seqs)
+			result := simplex.FindTask(handler, tt.node, tt.seqs)
 			require.Equal(t, tt.expected, result)
 		})
 	}
