@@ -766,24 +766,29 @@ func TestEpochLeaderFailoverNotNeeded(t *testing.T) {
 	require.False(t, timedOut.Load())
 }
 
-type rebroadcastCounterComm struct {
-	nodes []NodeID
-	count atomic.Uint64
-	mostRecentRound atomic.Uint64
+type rebroadcastComm struct {
+	nodes      []NodeID
+	emptyVotes chan *EmptyVote
 }
 
-func (r *rebroadcastCounterComm) ListNodes() []NodeID {
+func newRebroadcastComm(nodes []NodeID) *rebroadcastComm {
+	return &rebroadcastComm{
+		nodes:      nodes,
+		emptyVotes: make(chan *EmptyVote),
+	}
+}
+
+func (r *rebroadcastComm) ListNodes() []NodeID {
 	return r.nodes
 }
 
-func (r *rebroadcastCounterComm) SendMessage(*Message, NodeID) {
+func (r *rebroadcastComm) SendMessage(*Message, NodeID) {
 
 }
 
-func (r *rebroadcastCounterComm) Broadcast(msg *Message) {
+func (r *rebroadcastComm) Broadcast(msg *Message) {
 	if msg.EmptyVoteMessage != nil {
-		r.mostRecentRound.Store(msg.EmptyVoteMessage.Vote.Round)
-		r.count.Add(1)
+		r.emptyVotes <- msg.EmptyVoteMessage
 	}
 }
 
@@ -797,20 +802,18 @@ func TestEpochRebroadcastsEmptyVote(t *testing.T) {
 	wal := newTestWAL(t)
 
 	epochTime := time.Now()
-	comm := &rebroadcastCounterComm{
-		nodes: nodes,
-	}
+	comm := newRebroadcastComm(nodes)
 	conf := EpochConfig{
-		MaxProposalWait: DefaultMaxProposalWaitTime,
-		MaxRebrodcastWait: 500 * time.Millisecond,
-		StartTime:       epochTime,
-		Logger:          l,
-		ID:              nodes[3], // so we are not the leader
-		Signer:          &testSigner{},
-		WAL:             wal,
-		Verifier:        &testVerifier{},
-		Storage:         storage,
-		Comm: comm,
+		MaxProposalWait:     DefaultMaxProposalWaitTime,
+		MaxRebrodcastWait:   DefaultEmptyVoteRebroadcastTimeout,
+		StartTime:           epochTime,
+		Logger:              l,
+		ID:                  nodes[3], // so we are not the leader
+		Signer:              &testSigner{},
+		WAL:                 wal,
+		Verifier:            &testVerifier{},
+		Storage:             storage,
+		Comm:                comm,
 		BlockBuilder:        bb,
 		SignatureAggregator: &testSignatureAggregator{},
 	}
@@ -824,56 +827,67 @@ func TestEpochRebroadcastsEmptyVote(t *testing.T) {
 	require.False(t, wal.containsEmptyVote(0))
 
 	bb.blockShouldBeBuilt <- struct{}{}
-	time.Sleep(10 * time.Millisecond)
-	epochTime = epochTime.Add(DefaultMaxProposalWaitTime)
-	e.AdvanceTime(epochTime)
-	wal.assertEmptyVote(0)
-	wal.assertWALSize(1)
-	require.Equal(t, uint64(1), comm.count.Load())
-	
-	// reset to get rebroadcast count
-	comm.count.Store(0)
-	for i := range 10 {
-		epochTime = epochTime.Add(e.MaxRebrodcastWait)
-		e.AdvanceTime(epochTime)
-		time.Sleep(10 * time.Millisecond)
-		require.Equal(t, uint64(i + 1), comm.count.Load())
-		require.Equal(t, uint64(0), comm.mostRecentRound.Load())
-		wal.assertWALSize(1)
+
+	// wait for the initial empty vote broadcast
+	done := false
+	for !done {
+		select {
+		case emptyVote := <-comm.emptyVotes:
+			require.True(t, wal.containsEmptyVote(0))
+			require.Equal(t, uint64(0), emptyVote.Vote.Round)
+			done = true
+		case <-time.After(10 * time.Millisecond):
+			epochTime = epochTime.Add(e.MaxRebrodcastWait)
+			e.AdvanceTime(epochTime)
+		}
 	}
-	
-	emptyNotarization := newEmptyNotarization(nodes, 0, 0)
-	e.HandleMessage(&simplex.Message{
-		EmptyNotarization: emptyNotarization,
-		}, nodes[2])
-		
-		wal.assertNotarization(0)
-	
-	comm.count.Store(0)
-	// ensure the rebroadcast was canceled
+
+	// since the round does not advance, continue to rebroadcast
 	for range 10 {
 		epochTime = epochTime.Add(e.MaxRebrodcastWait)
 		e.AdvanceTime(epochTime)
-		time.Sleep(10 * time.Millisecond)
-		require.Equal(t, uint64(0), comm.count.Load())
+		emptyVote := <-comm.emptyVotes
+		require.Equal(t, uint64(0), emptyVote.Vote.Round)
+		wal.assertWALSize(1)
 	}
+
+	emptyNotarization := newEmptyNotarization(nodes, 0, 0)
+	e.HandleMessage(&simplex.Message{
+		EmptyNotarization: emptyNotarization,
+	}, nodes[2])
+
+	wal.assertNotarization(0)
+
+	// ensure the rebroadcast was canceled
+	epochTime = epochTime.Add(e.MaxRebrodcastWait * 2)
+	e.AdvanceTime(epochTime)
+
+	// ensure the timeout was canceled
+	require.Len(t, comm.emptyVotes, 0)
 
 	// assert that we continue to rebraodcast, but for a different round now
 	bb.blockShouldBeBuilt <- struct{}{}
-	time.Sleep(10 * time.Millisecond)
-	epochTime = epochTime.Add(DefaultMaxProposalWaitTime)
-	e.AdvanceTime(epochTime)
-	wal.assertEmptyVote(1)
+
+	// wait for the initial empty vote broadcast
+	done = false
+	for !done {
+		select {
+		case emptyVote := <-comm.emptyVotes:
+			require.True(t, wal.containsEmptyVote(1))
+			require.Equal(t, uint64(1), emptyVote.Vote.Round)
+			done = true
+		case <-time.After(10 * time.Millisecond):
+			epochTime = epochTime.Add(e.MaxRebrodcastWait)
+			e.AdvanceTime(epochTime)
+		}
+	}
 	wal.assertWALSize(3)
 
-	// reset to get rebroadcast count
-	comm.count.Store(0)
-	for i := range 10 {
+	for range 10 {
 		epochTime = epochTime.Add(e.MaxRebrodcastWait)
 		e.AdvanceTime(epochTime)
-		time.Sleep(10 * time.Millisecond)
-		require.Equal(t, uint64(i + 1), comm.count.Load())
-		require.Equal(t, uint64(1), comm.mostRecentRound.Load())
+		emptyVote := <-comm.emptyVotes
+		require.Equal(t, uint64(1), emptyVote.Vote.Round)
 		wal.assertWALSize(3)
 	}
 }

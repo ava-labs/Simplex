@@ -12,11 +12,6 @@ import (
 	"go.uber.org/zap"
 )
 
-type ReplicationTimeoutData struct {
-	Start uint64
-	End   uint64
-}
-
 type TimeoutTask struct {
 	NodeID   NodeID
 	TaskID   string

@@ -195,15 +195,14 @@ func (r *ReplicationState) receivedReplicationResponse(data []QuorumRound, node 
 
 	slices.Sort(seqs)
 
-	task := FindTask(r.timeoutHandler, node, seqs)
+	task := FindReplicationTask(r.timeoutHandler, node, seqs)
 	if task == nil {
 		r.logger.Debug("Could not find a timeout task associated with the replication response", zap.Stringer("from", node))
 		return
 	}
 	r.timeoutHandler.RemoveTask(node, task.TaskID)
 
-	taskData := task.Data
-	replicationData := taskData.(*ReplicationTimeoutData)
+	replicationData := task.Data.(*ReplicationTimeoutData)
 	// we found the timeout, now make sure all seqs were returned
 	missing := findMissingNumbersInRange(replicationData.Start, replicationData.End, seqs)
 	if len(missing) == 0 {
@@ -327,10 +326,14 @@ func (r *ReplicationState) GetQuroumRoundWithSeq(seq uint64) *QuorumRound {
 	return nil
 }
 
-// FindTask returns the first TimeoutTask assigned to [node] that contains any sequence in [seqs].
+type ReplicationTimeoutData struct {
+	Start uint64
+	End   uint64
+}
+
+// FindReplicationTask returns the first TimeoutTask assigned to [node] that contains any sequence in [seqs].
 // A sequence is considered "contained" if it falls between a task's Start (inclusive) and End (inclusive).
-// func (t *TimeoutHandler) FindTask(node NodeID, seqs []uint64) *TimeoutTask {
-func FindTask(t *TimeoutHandler, node NodeID, seqs []uint64) *TimeoutTask {
+func FindReplicationTask(t *TimeoutHandler, node NodeID, seqs []uint64) *TimeoutTask {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 

@@ -56,7 +56,7 @@ func NewRound(block VerifiedBlock) *Round {
 
 type EpochConfig struct {
 	MaxProposalWait     time.Duration
-	MaxRebrodcastWait 	time.Duration
+	MaxRebrodcastWait   time.Duration
 	QCDeserializer      QCDeserializer
 	Logger              Logger
 	ID                  NodeID

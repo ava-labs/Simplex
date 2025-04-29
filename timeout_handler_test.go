@@ -328,7 +328,7 @@ func TestFindTask(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := simplex.FindTask(handler, tt.node, tt.seqs)
+			result := simplex.FindReplicationTask(handler, tt.node, tt.seqs)
 			require.Equal(t, tt.expected, result)
 		})
 	}

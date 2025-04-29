@@ -268,29 +268,6 @@ func (tw *testWAL) assertNotarizationOrFinalization(round uint64, qc QCDeseriali
 
 }
 
-func (tw *testWAL) assertEmptyVote(round uint64) {
-	tw.lock.Lock()
-	defer tw.lock.Unlock()
-
-	for {
-		rawRecords, err := tw.WriteAheadLog.ReadAll()
-		require.NoError(tw.t, err)
-
-		for _, rawRecord := range rawRecords {
-			if binary.BigEndian.Uint16(rawRecord[:2]) == record.EmptyVoteRecordType {
-				vote, err := ParseEmptyVoteRecord(rawRecord)
-				require.NoError(tw.t, err)
-
-				if vote.Round == round {
-					return
-				}
-			}
-		}
-
-		tw.signal.Wait()
-	}
-}
-
 func (tw *testWAL) containsEmptyVote(round uint64) bool {
 	tw.lock.Lock()
 	defer tw.lock.Unlock()
