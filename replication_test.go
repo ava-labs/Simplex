@@ -692,7 +692,6 @@ func TestReplicationNodeDiverges(t *testing.T) {
 
 	net.startInstances()
 	bb.triggerNewBlock()
-	// firstBlock := <-bb.out
 
 	// because of the message filter, the lagging one will be the only one to notarize the block
 	laggingNode.wal.assertNotarization(0)
