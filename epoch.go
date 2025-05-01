@@ -835,7 +835,7 @@ func (e *Epoch) progressRoundsDueToCommit(round uint64) {
 	}
 }
 
-func (e *Epoch) storeFutureFinalizationCertificate(fCert *FinalizationCertificate, replicate bool) error {
+func (e *Epoch) storeFutureFinalizationCertificate(fCert *FinalizationCertificate, shouldReplicate bool) error {
 	nextSeqToCommit := e.Storage.Height()
 	recordBytes := NewQuorumRecord(fCert.QC.Bytes(), fCert.Finalization.Bytes(), record.FinalizationRecordType)
 	if err := e.WAL.Append(recordBytes); err != nil {
@@ -852,7 +852,7 @@ func (e *Epoch) storeFutureFinalizationCertificate(fCert *FinalizationCertificat
 	// we receive a finalization certificate for a future round
 	e.Logger.Debug("Received a finalization certificate for a future sequence", zap.Uint64("seq", fCert.Finalization.Seq), zap.Uint64("nextSeqToCommit", nextSeqToCommit))
 
-	if replicate {
+	if shouldReplicate {
 		e.replicationState.replicateBlocks(fCert, nextSeqToCommit)
 		if err := e.rebroadcastPastFinalizations(); err != nil {
 			return err

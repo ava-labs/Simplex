@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"simplex"
+	"simplex/record"
 	"simplex/testutil"
 	"simplex/wal"
 	"testing"
@@ -567,7 +568,7 @@ func testReplicationAfterNodeDisconnects(t *testing.T, nodes []simplex.NodeID, s
 	}
 }
 
-func onlyAllowBlockProposalsAndNotarizations(msg *simplex.Message, from, to simplex.NodeID) bool {
+func onlyAllowBlockProposalsAndNotarizations(msg *simplex.Message, _, to simplex.NodeID) bool {
 	// don't send to lagging node
 	if to.Equals(simplex.NodeID{4}) {
 		return (msg.BlockMessage != nil || msg.VerifiedBlockMessage != nil || msg.Notarization != nil)
@@ -635,25 +636,29 @@ func testReplicationNotarizationWithoutFinalizations(t *testing.T, numBlocks uin
 	require.Equal(t, uint64(numBlocks), laggingNode.e.Metadata().Round)
 }
 
-// sendVotesToOneNode allows block messages to sent to all nodes, and only
+// sendVotesToOneNode allows block messages to be sent to all nodes, and only
 // passes vote messages to one node. This will allows that node to notarize the block,
 // while the other blocks will timeout
-func sendVotesToOneNode(msg *simplex.Message, from, to simplex.NodeID) bool {
-	if msg.VerifiedBlockMessage != nil || msg.BlockMessage != nil {
-		return true
-	}
-
-	if msg.VoteMessage != nil {
-		// this is the lagging node
-		if to.Equals(simplex.NodeID{4}) {
+func sendVotesToOneNode(filteredOutNode simplex.NodeID) messageFilter {
+	return func(msg *simplex.Message, from simplex.NodeID, to simplex.NodeID) bool {
+		if msg.VerifiedBlockMessage != nil || msg.BlockMessage != nil {
 			return true
 		}
-	}
 
-	return false
+		if msg.VoteMessage != nil {
+			// this is the lagging node
+			if to.Equals(filteredOutNode) {
+				return true
+			}
+		}
+
+		return false
+	}
 }
 
-// TestReplicationNodeDiverges
+// TestReplicationNodeDiverges tests that a node replicates blocks even if they
+// have a stale notarization for a round(i.e. a node notarized a block but the rest of the network
+// propogated and empty notarization).
 func TestReplicationNodeDiverges(t *testing.T) {
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}, {5}, {6}}
 	numBlocks := uint64(5)
@@ -663,7 +668,7 @@ func TestReplicationNodeDiverges(t *testing.T) {
 	net := newInMemNetwork(t, nodes)
 
 	nodeConfig := func(from simplex.NodeID) *testNodeConfig {
-		comm := newTestComm(from, net, sendVotesToOneNode)
+		comm := newTestComm(from, net, sendVotesToOneNode(nodes[3]))
 		return &testNodeConfig{
 			comm:               comm,
 			replicationEnabled: true,
@@ -687,7 +692,7 @@ func TestReplicationNodeDiverges(t *testing.T) {
 
 	net.startInstances()
 	bb.triggerNewBlock()
-	firstBlock := <-bb.out
+	// firstBlock := <-bb.out
 
 	// because of the message filter, the lagging one will be the only one to notarize the block
 	laggingNode.wal.assertNotarization(0)
@@ -739,12 +744,25 @@ func TestReplicationNodeDiverges(t *testing.T) {
 
 	// now advance the round from a block(the lagging node will realize it is behind)
 	bb.triggerNewBlock()
-	for _, n := range net.instances {
-		// sanity check: assert that we did not index the notarized block
-		storedBlock := n.storage.waitForBlockCommit(numBlocks - missedSeqs)
-		require.NotEqual(t, storedBlock, firstBlock)
+	laggingNode.storage.waitForBlockCommit(numBlocks - missedSeqs + 1)
+	assertEqualLedgers(t, net)
+}
+
+func assertEqualLedgers(t *testing.T, net *inMemNetwork) {
+	expectedLedger := map[uint64][]byte{}
+
+	for seq, datum := range net.instances[0].storage.data {
+		expectedLedger[seq] = datum.VerifiedBlock.Bytes()
 	}
 
+	for _, n := range net.instances {
+		actualLedger := map[uint64][]byte{}
+
+		for seq, datum := range n.storage.data {
+			actualLedger[seq] = datum.VerifiedBlock.Bytes()
+		}
+		require.Equal(t, expectedLedger, actualLedger)
+	}
 }
 
 func waitToEnterRound(t *testing.T, e *simplex.Epoch, round uint64) {
@@ -798,8 +816,8 @@ func advanceWithoutLeader(t *testing.T, net *inMemNetwork, bb *testControlledBlo
 		if laggingNodeId.Equals(n.e.ID) {
 			continue
 		}
-		empty := n.wal.assertNotarization(round)
-		require.True(t, empty)
+		recordType := n.wal.assertNotarization(round)
+		require.Equal(t, record.EmptyNotarizationRecordType, recordType)
 	}
 }
 
