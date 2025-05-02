@@ -337,16 +337,14 @@ func FindReplicationTask(t *TimeoutHandler, node NodeID, seqs []uint64) *Timeout
 	t.lock.Lock()
 	defer t.lock.Unlock()
 
-	lowestSeqStart := uint64(math.MaxUint64)
 	var lowestTask *TimeoutTask
 	for _, task := range t.tasks[string(node)] {
 		data := task.Data
 		replicationData := data.(*ReplicationTimeoutData)
 		for _, seq := range seqs {
 			if seq >= replicationData.Start && seq <= replicationData.End {
-				if replicationData.Start < lowestSeqStart {
+				if lowestTask == nil || replicationData.Start < lowestTask.Data.(*ReplicationTimeoutData).Start {
 					lowestTask = task
-					lowestSeqStart = seq
 					break
 				}
 			}
