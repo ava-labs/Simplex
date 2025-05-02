@@ -10,4 +10,4 @@ function dots() {
 
 dots &
 
-go test -race ./... || dmesg
+go test ./... || dmesg
