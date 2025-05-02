@@ -1,5 +1,9 @@
 #!/usr/bin/env -euxo pipefail bash
 
+function killInBackground() {
+	sleep 240
+	pkill -SIGABRT simplex
+}
 
 function dots() {
     while :; do
@@ -8,6 +12,6 @@ function dots() {
     done
 }
 
-dots &
+killInBackground &
 
 go test ./... -race
