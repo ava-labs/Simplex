@@ -63,6 +63,7 @@ func newSimplexNode(t *testing.T, nodeID NodeID, net *inMemNetwork, bb BlockBuil
 	e, err := NewEpoch(epochConfig)
 	require.NoError(t, err)
 	ti := &testNode{
+		l:       epochConfig.Logger.(*testutil.TestLogger),
 		wal:     epochConfig.WAL.(*testWAL),
 		e:       e,
 		t:       t,
@@ -120,7 +121,12 @@ type testNode struct {
 		msg  *Message
 		from NodeID
 	}
+	l *testutil.TestLogger
 	t *testing.T
+}
+
+func (t *testNode) Silence() {
+	t.l.Silence()
 }
 
 func (t *testNode) HandleMessage(msg *Message, from NodeID) error {

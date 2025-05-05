@@ -22,6 +22,13 @@ func (t *TestLogger) Intercept(hook func(entry zapcore.Entry) error) {
 	t.Logger = logger
 }
 
+func (t *TestLogger) Silence() {
+	atomicLevel := zap.NewAtomicLevelAt(zapcore.FatalLevel)
+	core := t.Logger.Core()
+	t.Logger = zap.New(core, zap.AddCaller(), zap.IncreaseLevel(atomicLevel))
+	t.traceVerboseLogger = zap.New(core, zap.AddCaller(), zap.IncreaseLevel(atomicLevel))
+}
+
 func (tl *TestLogger) Trace(msg string, fields ...zap.Field) {
 	tl.traceVerboseLogger.Log(zapcore.DebugLevel, msg, fields...)
 }
