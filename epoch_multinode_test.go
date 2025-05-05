@@ -38,6 +38,75 @@ func TestSimplexMultiNodeSimple(t *testing.T) {
 	}
 }
 
+func onlySendBlockProposalsAndVotes(nodes []NodeID) messageFilter {
+	return func(m *Message, to NodeID) bool {
+		if m.BlockMessage != nil {
+			return true
+		}
+		if to.Equals(NodeID{3}) || to.Equals(NodeID{4}) {
+			return false
+		}
+		return true
+	}
+}
+
+// TestSplitVotes ensures that nodes who have timeout out, while the rest of the network has
+// progressed due to notartizations, are able to collect the notarariztions and continue
+func TestSplitVotes(t *testing.T) {
+	bb := newTestControlledBlockBuilder(t)
+
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	net := newInMemNetwork(t, nodes)
+
+	config := func(from NodeID) *testNodeConfig {
+		return &testNodeConfig{
+			comm: newTestComm(from, net, onlySendBlockProposalsAndVotes(nodes)),
+		}
+	}
+
+	newSimplexNode(t, nodes[0], net, bb, config(nodes[0]))
+	newSimplexNode(t, nodes[1], net, bb, config(nodes[1]))
+	newSimplexNode(t, nodes[2], net, bb, config(nodes[2]))
+	newSimplexNode(t, nodes[3], net, bb, config(nodes[3]))
+
+	startTimes := []time.Time{}
+	for _, n := range net.instances {
+		startTimes = append(startTimes, n.e.StartTime)
+	}
+
+	net.startInstances()
+
+	bb.triggerNewBlock()
+
+	for i, n := range net.instances {
+		n.wal.assertBlockProposal(0)
+		bb.blockShouldBeBuilt <- struct{}{}
+
+		if n.e.ID.Equals(nodes[2]) || n.e.ID.Equals(nodes[3]) {
+			// wait for timeout
+			require.Equal(t, uint64(0), n.e.Metadata().Round)
+			waitForBlockProposerTimeout(t, n.e, &startTimes[i], 0)
+		} else {
+			n.wal.assertNotarization(0)
+			require.Equal(t, uint64(1), n.e.Metadata().Round)
+		}
+	}
+
+	net.setAllNodesMessageFilter(allowAllMessages)
+	bb.triggerNewBlock()
+
+	for _, n := range net.instances {
+		n.wal.assertNotarization(1)
+	}
+
+	// all the nodes will process and vote for the block
+
+	// but nodes 3, 4 only will receive the block.
+
+	// check that nodes 1, 2, have progressed due to a notarization
+
+}
+
 func (t *testNode) start() {
 	go t.handleMessages()
 	require.NoError(t.t, t.e.Start())
@@ -217,6 +286,54 @@ func (tw *testWAL) assertNotarization(round uint64) {
 				require.NoError(tw.t, err)
 
 				if vote.Round == round {
+					return
+				}
+			}
+		}
+
+		tw.signal.Wait()
+	}
+
+}
+
+func (tw *testWAL) assertEmptyVote(round uint64) {
+	tw.lock.Lock()
+	defer tw.lock.Unlock()
+
+	for {
+		rawRecords, err := tw.WriteAheadLog.ReadAll()
+		require.NoError(tw.t, err)
+
+		for _, rawRecord := range rawRecords {
+			if binary.BigEndian.Uint16(rawRecord[:2]) == record.EmptyVoteRecordType {
+				vote, err := ParseEmptyVoteRecord(rawRecord)
+				require.NoError(tw.t, err)
+
+				if vote.Round == round {
+					return
+				}
+			}
+		}
+
+		tw.signal.Wait()
+	}
+
+}
+
+func (tw *testWAL) assertBlockProposal(round uint64) {
+	tw.lock.Lock()
+	defer tw.lock.Unlock()
+
+	for {
+		rawRecords, err := tw.WriteAheadLog.ReadAll()
+		require.NoError(tw.t, err)
+
+		for _, rawRecord := range rawRecords {
+			if binary.BigEndian.Uint16(rawRecord[:2]) == record.BlockRecordType {
+				bh, _, err := ParseBlockRecord(rawRecord)
+				require.NoError(tw.t, err)
+
+				if bh.Round == round {
 					return
 				}
 			}
