@@ -17,6 +17,13 @@ type TestLogger struct {
 	traceVerboseLogger *zap.Logger
 }
 
+func (t *TestLogger) Silence() {
+	atomicLevel := zap.NewAtomicLevelAt(zapcore.FatalLevel)
+	core := t.Logger.Core()
+	t.Logger = zap.New(core, zap.AddCaller(), zap.IncreaseLevel(atomicLevel))
+	t.traceVerboseLogger = zap.New(core, zap.AddCaller(), zap.IncreaseLevel(atomicLevel))
+}
+
 func (t *TestLogger) Intercept(hook func(entry zapcore.Entry) error) {
 	logger := t.Logger.WithOptions(zap.Hooks(hook))
 	t.Logger = logger
@@ -56,14 +63,14 @@ func MakeLogger(t *testing.T, node ...int) *TestLogger {
 	logger := zap.New(core, zap.AddCaller())
 	logger = logger.With(zap.String("test", t.Name()))
 	if len(node) > 0 {
-		logger = logger.With(zap.Int("node", node[0]))
+		logger = logger.With(zap.Int("ID", node[0]))
 	}
 
 	traceVerboseLogger := zap.New(core, zap.AddCaller(), zap.AddCallerSkip(1))
 	traceVerboseLogger = traceVerboseLogger.With(zap.String("test", t.Name()))
 
 	if len(node) > 0 {
-		traceVerboseLogger = traceVerboseLogger.With(zap.Int("node", node[0]))
+		traceVerboseLogger = traceVerboseLogger.With(zap.Int("ID", node[0]))
 	}
 
 	l := &TestLogger{Logger: logger, traceVerboseLogger: traceVerboseLogger}

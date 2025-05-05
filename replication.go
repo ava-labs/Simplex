@@ -84,6 +84,7 @@ func (r *ReplicationState) isReplicationComplete(nextSeqToCommit uint64, current
 		return true
 	}
 
+	r.logger.Debug("Checking if replication is complete", zap.Uint64("nextSeqToCommit", nextSeqToCommit), zap.Uint64("currentRound", currentRound), zap.Uint64("highestSequenceObserved", r.highestSequenceObserved.seq))
 	return nextSeqToCommit > r.highestSequenceObserved.seq && currentRound > r.highestKnownRound()
 }
 

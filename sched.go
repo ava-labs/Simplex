@@ -100,17 +100,17 @@ func (as *scheduler) run() {
 		taskToRun := as.ready[0]
 		as.ready[0] = task{}    // Cleanup any object references reachable from the closure of the task
 		as.ready = as.ready[1:] // (4)
-		numReadyTasks := len(as.ready)
+		//numReadyTasks := len(as.ready)
 
 		as.lock.Unlock() // (5)
-		as.logger.Debug("Running task", zap.Int("remaining ready tasks", numReadyTasks))
+		//as.logger.Debug("Running task", zap.Int("remaining ready tasks", numReadyTasks))
 		id := taskToRun.f() // (6)
-		as.logger.Debug("Task finished execution", zap.Stringer("taskID", id))
+		//as.logger.Debug("Task finished execution", zap.Stringer("taskID", id))
 		as.lock.Lock()
 
 		newlyReadyTasks := as.pending.Remove(id)        // (7)
 		as.ready = append(as.ready, newlyReadyTasks...) // (8)
-		as.logger.Trace("Enqueued newly ready tasks", zap.Int("number of ready tasks", len(newlyReadyTasks)))
+		//as.logger.Trace("Enqueued newly ready tasks", zap.Int("number of ready tasks", len(newlyReadyTasks)))
 	}
 }
 

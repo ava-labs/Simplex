@@ -675,14 +675,20 @@ func TestReplicationNodeDiverges(t *testing.T) {
 		}
 	}
 
-	newSimplexNode(t, nodes[0], net, bb, nodeConfig(nodes[0]))
-	newSimplexNode(t, nodes[1], net, bb, nodeConfig(nodes[1]))
-	newSimplexNode(t, nodes[2], net, bb, nodeConfig(nodes[2]))
+	n1 := newSimplexNode(t, nodes[0], net, bb, nodeConfig(nodes[0]))
+	n2 := newSimplexNode(t, nodes[1], net, bb, nodeConfig(nodes[1]))
+	n3 := newSimplexNode(t, nodes[2], net, bb, nodeConfig(nodes[2]))
 	laggingNode := newSimplexNode(t, nodes[3], net, laggingNodeBb, nodeConfig(nodes[3]))
 
 	// we need at least 6 nodes since the lagging node & leader will not timeout
-	newSimplexNode(t, nodes[4], net, bb, nodeConfig(nodes[4]))
-	newSimplexNode(t, nodes[5], net, bb, nodeConfig(nodes[5]))
+	n5 := newSimplexNode(t, nodes[4], net, bb, nodeConfig(nodes[4]))
+	n6 := newSimplexNode(t, nodes[5], net, bb, nodeConfig(nodes[5]))
+
+	n1.l.Silence()
+	n2.l.Silence()
+	n3.l.Silence()
+	n5.l.Silence()
+	n6.l.Silence()
 
 	startTimes := make([]time.Time, 0, len(nodes))
 	for _, n := range net.instances {
@@ -726,6 +732,7 @@ func TestReplicationNodeDiverges(t *testing.T) {
 	for i := uint64(1); i < 1+numBlocks; i++ {
 		emptyRound := bytes.Equal(simplex.LeaderForRound(nodes, i), laggingNode.e.ID)
 		if emptyRound {
+			t.Log(">>>> Advancing without leader for round", i)
 			advanceWithoutLeader(t, net, bb, startTimes, i, laggingNode.e.ID)
 			missedSeqs++
 		} else {
@@ -742,6 +749,8 @@ func TestReplicationNodeDiverges(t *testing.T) {
 	net.Connect(laggingNode.e.ID)
 
 	// now advance the round from a block(the lagging node will realize it is behind)
+	time.Sleep(time.Second)
+	t.Log(">>>>>>>>>>>>")
 	bb.triggerNewBlock()
 	laggingNode.storage.waitForBlockCommit(numBlocks - missedSeqs + 1)
 	assertEqualLedgers(t, net)
