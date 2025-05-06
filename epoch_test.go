@@ -103,7 +103,7 @@ func TestEpochHandleNotarizationFutureRound(t *testing.T) {
 }
 
 // TestEpochIndexFinalizationCertificates ensures that we properly index past finalizations when
-// there has been empty rounds
+// there have been empty rounds
 func TestEpochIndexFinalizationCertificates(t *testing.T) {
 	l := testutil.MakeLogger(t, 1)
 	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
@@ -111,7 +111,7 @@ func TestEpochIndexFinalizationCertificates(t *testing.T) {
 
 	storage := newInMemStorage()
 	wal := newTestWAL(t)
-	// quorum := Quorum(len(nodes))
+
 	conf := EpochConfig{
 		MaxProposalWait:     DefaultMaxProposalWaitTime,
 		Logger:              l,
