@@ -900,7 +900,7 @@ func (e *Epoch) rebroadcastPastFinalizations() error {
 	}
 	r := e.round
 	fmt.Println("minround", minRound)
-	
+
 	for {
 		if r == 0 {
 			e.Logger.Debug("exiting>>> r == 0")
@@ -912,7 +912,7 @@ func (e *Epoch) rebroadcastPastFinalizations() error {
 			e.Logger.Debug("exiting>>> !exists & minround")
 			return nil
 		}
-		
+
 		if !exists {
 			e.Logger.Debug("exiting>>> !exists")
 			continue
@@ -965,7 +965,7 @@ func (e *Epoch) indexFinalizationCertificates(startRound uint64) {
 				zap.Uint64("seq", round.fCert.Finalization.Seq), zap.Uint64("height", e.Storage.Height()))
 			return
 		}
-		
+
 		fCert := *round.fCert
 		block := round.block
 		e.indexFinalizationCertificate(block, fCert)
