@@ -892,61 +892,11 @@ func (e *Epoch) persistFinalizationCertificate(fCert FinalizationCertificate) er
 }
 
 func (e *Epoch) rebroadcastPastFinalizations() error {
-	// r := e.round
+	maxRound := e.maxRoundInRoundsMap()
+	startRound := e.minRoundInRoundsMap()
 
-	// for {
-	// 	if r == 0 {
-	// 		return nil
-	// 	}
-	// 	r--
-	// 	round, exists := e.rounds[r]
-	// 	if !exists {
-	// 		return nil
-	// 	}
-
-	// 	// Already collected a finalization certificate
-	// 	if round.fCert != nil {
-	// 		continue
-	// 	}
-
-	// 	// Has notarized this round?
-	// 	if round.notarization == nil {
-	// 		continue
-	// 	}
-
-	// 	var finalizationMessage *Message
-	// 	// Try to re-use finalization we created if possible, else create it.
-	// 	if finalization, exists := round.finalizations[string(e.ID)]; exists {
-	// 		finalizationMessage = &Message{Finalization: finalization}
-	// 	} else {
-	// 		_, msg, err := e.constructFinalizationMessage(round.notarization.Vote.BlockHeader)
-	// 		if err != nil {
-	// 			return err
-	// 		}
-	// 		finalizationMessage = msg
-	// 	}
-	// 	e.Logger.Debug("Rebroadcasting finalization", zap.Uint64("round", r))
-	// 	e.Comm.Broadcast(finalizationMessage)
-	// }
-
-	minRound := uint64(math.MaxUint64)
-	for round, _ := range e.rounds {
-		if round < minRound {
-			minRound = round
-		}
-	}
-	r := e.round
-
-	for {
-		if r == 0 {
-			return nil
-		}
-		r--
+	for r := startRound; r <= maxRound; r++ {
 		round, exists := e.rounds[r]
-		if !exists && r < minRound {
-			return nil
-		}
-
 		if !exists {
 			continue
 		}
@@ -975,15 +925,32 @@ func (e *Epoch) rebroadcastPastFinalizations() error {
 		e.Logger.Debug("Rebroadcasting finalization", zap.Uint64("round", r), zap.Uint64("seq", finalizationMessage.Finalization.Finalization.Seq))
 		e.Comm.Broadcast(finalizationMessage)
 	}
+
+	return nil
 }
 
-func (e *Epoch) indexFinalizationCertificates(startRound uint64) {
+func (e *Epoch) maxRoundInRoundsMap() uint64 {
 	maxRound := uint64(0)
 	for r := range e.rounds {
 		if r > maxRound {
 			maxRound = r
 		}
 	}
+	return maxRound
+}
+
+func (e *Epoch) minRoundInRoundsMap() uint64 {
+	minRound := uint64(math.MaxUint64)
+	for r := range e.rounds {
+		if r < minRound {
+			minRound = r
+		}
+	}
+	return minRound
+}
+
+func (e *Epoch) indexFinalizationCertificates(startRound uint64) {
+	maxRound := e.maxRoundInRoundsMap()
 
 	for currentRound := startRound; currentRound <= maxRound; currentRound++ {
 		round, exists := e.rounds[currentRound]
