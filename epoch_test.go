@@ -136,7 +136,7 @@ func TestEpochIndexFinalizationCertificates(t *testing.T) {
 	require.Equal(t, uint64(2), e.Metadata().Seq)
 	require.Equal(t, uint64(0), e.Storage.Height())
 
-	advanceRoundFromEmpty(t, e, bb)
+	advanceRoundFromEmpty(t, e)
 	require.Equal(t, uint64(3), e.Metadata().Round)
 	require.Equal(t, uint64(2), e.Metadata().Seq)
 	require.Equal(t, uint64(0), e.Storage.Height())
@@ -512,12 +512,9 @@ func TestEpochStartedTwice(t *testing.T) {
 	require.ErrorIs(t, e.Start(), ErrAlreadyStarted)
 }
 
-func advanceRoundFromEmpty(t *testing.T, e *Epoch, bb *testBlockBuilder) {
+func advanceRoundFromEmpty(t *testing.T, e *Epoch) {
 	leader := LeaderForRound(e.Comm.ListNodes(), e.Metadata().Round)
 	require.False(t, e.ID.Equals(leader), "epoch cannot be the leader for the empty round")
-
-	// oldSeq := e.Metadata().Seq
-	// oldRound := e.Metadata().Round
 
 	emptyNote := newEmptyNotarization(e.Comm.ListNodes(), e.Metadata().Round, e.Metadata().Seq)
 	err := e.HandleMessage(&Message{
@@ -561,6 +558,7 @@ func advanceRound(t *testing.T, e *Epoch, bb *testBlockBuilder, notarize bool, f
 	}
 
 	block := <-bb.out
+
 	if !isEpochNode {
 		// send node a message from the leader
 		vote, err := newTestVote(block, leader)
@@ -579,6 +577,7 @@ func advanceRound(t *testing.T, e *Epoch, bb *testBlockBuilder, notarize bool, f
 		// start at one since our node has already voted
 		n, err := newNotarization(e.Logger, e.SignatureAggregator, block, nodes[0:quorum])
 		injectTestNotarization(t, e, n, nodes[1])
+
 		e.WAL.(*testWAL).assertNotarization(block.metadata.Round)
 		require.NoError(t, err)
 		notarization = &n
