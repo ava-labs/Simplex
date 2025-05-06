@@ -2443,6 +2443,11 @@ func (e *Epoch) processReplicationState() error {
 
 	qRound, ok := e.replicationState.receivedQuorumRounds[e.round]
 	if ok && qRound.Notarization != nil {
+		// dont process the fcert until we have caught up with `nextSeqToCommit`
+		if qRound.FCert != nil {
+			return nil
+		}
+
 		delete(e.replicationState.receivedQuorumRounds, e.round)
 		return e.processNotarizedBlock(qRound.Block, qRound.Notarization)
 	}
