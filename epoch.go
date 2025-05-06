@@ -892,10 +892,9 @@ func (e *Epoch) persistFinalizationCertificate(fCert FinalizationCertificate) er
 }
 
 func (e *Epoch) rebroadcastPastFinalizations() error {
-	maxRound := e.maxRoundInRoundsMap()
 	startRound := e.minRoundInRoundsMap()
 
-	for r := startRound; r <= maxRound; r++ {
+	for r := startRound; r <= e.round; r++ {
 		round, exists := e.rounds[r]
 		if !exists {
 			continue
