@@ -9,6 +9,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"math"
 	"simplex/record"
 	"slices"
 	"sync"
@@ -891,6 +892,49 @@ func (e *Epoch) persistFinalizationCertificate(fCert FinalizationCertificate) er
 }
 
 func (e *Epoch) rebroadcastPastFinalizations() error {
+	// r := e.round
+
+	// for {
+	// 	if r == 0 {
+	// 		return nil
+	// 	}
+	// 	r--
+	// 	round, exists := e.rounds[r]
+	// 	if !exists {
+	// 		return nil
+	// 	}
+
+	// 	// Already collected a finalization certificate
+	// 	if round.fCert != nil {
+	// 		continue
+	// 	}
+
+	// 	// Has notarized this round?
+	// 	if round.notarization == nil {
+	// 		continue
+	// 	}
+
+	// 	var finalizationMessage *Message
+	// 	// Try to re-use finalization we created if possible, else create it.
+	// 	if finalization, exists := round.finalizations[string(e.ID)]; exists {
+	// 		finalizationMessage = &Message{Finalization: finalization}
+	// 	} else {
+	// 		_, msg, err := e.constructFinalizationMessage(round.notarization.Vote.BlockHeader)
+	// 		if err != nil {
+	// 			return err
+	// 		}
+	// 		finalizationMessage = msg
+	// 	}
+	// 	e.Logger.Debug("Rebroadcasting finalization", zap.Uint64("round", r))
+	// 	e.Comm.Broadcast(finalizationMessage)
+	// }
+
+	minRound := uint64(math.MaxUint64)
+	for round, _ := range e.rounds {
+		if round < minRound {
+			minRound = round
+		}
+	}
 	r := e.round
 
 	for {
@@ -899,8 +943,12 @@ func (e *Epoch) rebroadcastPastFinalizations() error {
 		}
 		r--
 		round, exists := e.rounds[r]
-		if !exists {
+		if !exists && r < minRound {
 			return nil
+		}
+
+		if !exists {
+			continue
 		}
 
 		// Already collected a finalization certificate
@@ -924,7 +972,7 @@ func (e *Epoch) rebroadcastPastFinalizations() error {
 			}
 			finalizationMessage = msg
 		}
-		e.Logger.Debug("Rebroadcasting finalization", zap.Uint64("round", r))
+		e.Logger.Debug("Rebroadcasting finalization", zap.Uint64("round", r), zap.Uint64("seq", finalizationMessage.Finalization.Finalization.Seq))
 		e.Comm.Broadcast(finalizationMessage)
 	}
 }
