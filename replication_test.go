@@ -140,10 +140,10 @@ func TestReplicationAdversarialNode(t *testing.T) {
 	}
 }
 
-// TestRebroadcastingWithReplicaiton verifies that after network recovery,
+// TestRebroadcastingWithReplication verifies that after network recovery,
 // a lagging node and the rest of the network correctly propagate missing
 // finalizations and index all blocks.
-func TestRebroadcastingWithReplicaiton(t *testing.T) {
+func TestRebroadcastingWithReplication(t *testing.T) {
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
 	bb := newTestControlledBlockBuilder(t)
 	net := newInMemNetwork(t, nodes)
