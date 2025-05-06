@@ -929,14 +929,15 @@ func (e *Epoch) rebroadcastPastFinalizations() error {
 }
 
 func (e *Epoch) maxRoundInRoundsMap() uint64 {
-  	maxRound := uint64(0)
+	maxRound := uint64(0)
 	for r := range e.rounds {
 		if r > maxRound {
 			maxRound = r
 		}
-  	return maxRound
-  }
-    
+	}
+	return maxRound
+}
+
 func (e *Epoch) minRoundInRoundsMap() uint64 {
 	minRound := uint64(math.MaxUint64)
 	for r := range e.rounds {
@@ -949,21 +950,6 @@ func (e *Epoch) minRoundInRoundsMap() uint64 {
 
 func (e *Epoch) indexFinalizationCertificates(startRound uint64) {
 	maxRound := e.maxRoundInRoundsMap()
-
-	for currentRound := startRound; currentRound <= maxRound; currentRound++ {
-		round, exists := e.rounds[currentRound]
-		if !exists {
-			e.Logger.Debug("Round not found", zap.Uint64("round", currentRound))
-			continue
-		}
-		if round.fCert == nil {
-			break
-		}
-		if round.fCert.Finalization.Seq != e.Storage.Height() {
-			e.Logger.Debug("Finalization certificate does not correspond to the next sequence to commit",
-				zap.Uint64("seq", round.fCert.Finalization.Seq), zap.Uint64("height", e.Storage.Height()))
-			return
-		}
 
 	for currentRound := startRound; currentRound <= maxRound; currentRound++ {
 		round, exists := e.rounds[currentRound]
