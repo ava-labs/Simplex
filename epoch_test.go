@@ -102,14 +102,13 @@ func TestEpochHandleNotarizationFutureRound(t *testing.T) {
 	require.Equal(t, secondBlock, blockCommitted)
 }
 
-
 // TestEpochIndexFinalizationCertificates ensures that we properly index past finalizations when
 // there has been empty rounds
 func TestEpochIndexFinalizationCertificates(t *testing.T) {
 	l := testutil.MakeLogger(t, 1)
 	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
-	
+
 	storage := newInMemStorage()
 	wal := newTestWAL(t)
 	// quorum := Quorum(len(nodes))
@@ -136,7 +135,7 @@ func TestEpochIndexFinalizationCertificates(t *testing.T) {
 	require.Equal(t, uint64(2), e.Metadata().Round)
 	require.Equal(t, uint64(2), e.Metadata().Seq)
 	require.Equal(t, uint64(0), e.Storage.Height())
-	
+
 	advanceRoundFromEmpty(t, e, bb)
 	require.Equal(t, uint64(3), e.Metadata().Round)
 	require.Equal(t, uint64(2), e.Metadata().Seq)
@@ -512,7 +511,6 @@ func TestEpochStartedTwice(t *testing.T) {
 	require.NoError(t, e.Start())
 	require.ErrorIs(t, e.Start(), ErrAlreadyStarted)
 }
-
 
 func advanceRoundFromEmpty(t *testing.T, e *Epoch, bb *testBlockBuilder) {
 	leader := LeaderForRound(e.Comm.ListNodes(), e.Metadata().Round)

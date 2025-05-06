@@ -951,7 +951,7 @@ func (e *Epoch) indexFinalizationCertificates(startRound uint64) {
 				zap.Uint64("seq", round.fCert.Finalization.Seq), zap.Uint64("height", e.Storage.Height()))
 			return
 		}
-		
+
 		fCert := *round.fCert
 		block := round.block
 		e.indexFinalizationCertificate(block, fCert)
