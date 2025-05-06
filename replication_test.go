@@ -170,10 +170,12 @@ func TestReplicationNotarizations(t *testing.T) {
 	epochTimes := make([]time.Time, 0, len(nodes))
 	for _, n := range net.instances {
 		epochTimes = append(epochTimes, n.e.StartTime)
+		if !n.e.ID.Equals(nodes[3]) {
+			n.l.Silence()
+		}
 	}
 
 	net.startInstances()
-
 	net.Disconnect(laggingNode.e.ID)
 	numNotarizations := 9
 	missedSeqs := uint64(0)
@@ -225,19 +227,19 @@ func TestReplicationNotarizations(t *testing.T) {
 	net.setAllNodesMessageFilter(allowAllMessages)
 	net.Connect(laggingNode.e.ID)
 	bb.triggerNewBlock()
-
+	block = <-bb.out
+	fmt.Println("seq of block", block.metadata.Seq, block.metadata.Round)
 	// lagging node should replicate the first finalized block and subsequent notarizations
 	laggingNode.storage.waitForBlockCommit(0)
 
-	for i := 1; i < numNotarizations+1; i++ {
+	for i := 0; i <= int(block.metadata.Seq); i++ {
 		for _, n := range net.instances {
-			// lagging node wont have a notarization record if it was the leader
-			leader := simplex.LeaderForRound(nodes, uint64(i))
-			if n.e.ID.Equals(leader) && n.e.ID.Equals(nodes[3]) {
-				continue
-			}
-
-			n.wal.assertNotarizationOrFinalization(uint64(i), n.e.EpochConfig.QCDeserializer)
+			// if n.e.ID.Equals(laggingNode.e.ID) {
+			// 	continue
+			// }
+			fmt.Println("waiting for commit", i, n.e.ID)
+			n.storage.waitForBlockCommit(uint64(i))
+			fmt.Println("done for commit", i, n.e.ID)
 		}
 	}
 }
