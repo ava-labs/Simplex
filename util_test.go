@@ -309,3 +309,84 @@ func TestCompressSequences(t *testing.T) {
 		})
 	}
 }
+
+func TestDistributeSequenceRequests(t *testing.T) {
+	tests := []struct {
+		name     string
+		start    uint64
+		end      uint64
+		numNodes int
+		expected []Segment
+	}{
+		{
+			name:     "even distribution",
+			start:    0,
+			end:      9,
+			numNodes: 2,
+			expected: []Segment{
+				{Start: 0, End: 4},
+				{Start: 5, End: 9},
+			},
+		},
+		{
+			name:     "uneven distribution",
+			start:    0,
+			end:      10,
+			numNodes: 3,
+			expected: []Segment{
+				{Start: 0, End: 3},
+				{Start: 4, End: 7},
+				{Start: 8, End: 10},
+			},
+		},
+		{
+			name:     "single node full range",
+			start:    5,
+			end:      15,
+			numNodes: 1,
+			expected: []Segment{
+				{Start: 5, End: 15},
+			},
+		},
+		{
+			name:     "numNodes greater than sequences",
+			start:    0,
+			end:      2,
+			numNodes: 5,
+			expected: []Segment{
+				{Start: 0, End: 1},
+				{Start: 2, End: 2},
+			},
+		},
+		{
+			name:     "zero-length range",
+			start:    5,
+			end:      5,
+			numNodes: 3,
+			expected: []Segment{
+				{Start: 5, End: 5},
+			},
+		},
+		{
+			name:     "start > end",
+			start:    10,
+			end:      5,
+			numNodes: 2,
+			expected: nil,
+		},
+		{
+			name:     "zero nodes",
+			start:    0,
+			end:      10,
+			numNodes: 0,
+			expected: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := DistributeSequenceRequests(tt.start, tt.end, tt.numNodes)
+			require.Equal(t, tt.expected, result)
+		})
+	}
+}
