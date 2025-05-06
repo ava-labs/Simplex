@@ -930,19 +930,28 @@ func (e *Epoch) rebroadcastPastFinalizations() error {
 }
 
 func (e *Epoch) indexFinalizationCertificates(startRound uint64) {
-	r := startRound
-	round, exists := e.rounds[r]
-	if !exists {
-		e.Logger.Debug("Round not found", zap.Uint64("round", r))
-		return
-	}
-	if round.fCert.Finalization.Seq != e.Storage.Height() {
-		e.Logger.Debug("Finalization certificate does not correspond to the next sequence to commit",
-			zap.Uint64("seq", round.fCert.Finalization.Seq), zap.Uint64("height", e.Storage.Height()))
-		return
+	maxRound := uint64(0)
+	for r := range e.rounds {
+		if r > maxRound {
+			maxRound = r
+		}
 	}
 
-	for exists && round.fCert != nil {
+	for currentRound := startRound; currentRound <= maxRound; currentRound++ {
+		round, exists := e.rounds[currentRound]
+		if !exists {
+			e.Logger.Debug("Round not found", zap.Uint64("round", currentRound))
+			continue
+		}
+		if round.fCert == nil {
+			break
+		}
+		if round.fCert.Finalization.Seq != e.Storage.Height() {
+			e.Logger.Debug("Finalization certificate does not correspond to the next sequence to commit",
+				zap.Uint64("seq", round.fCert.Finalization.Seq), zap.Uint64("height", e.Storage.Height()))
+			return
+		}
+		
 		fCert := *round.fCert
 		block := round.block
 		e.indexFinalizationCertificate(block, fCert)
@@ -953,10 +962,6 @@ func (e *Epoch) indexFinalizationCertificates(startRound uint64) {
 		for _, messagesFromNode := range e.futureMessages {
 			delete(messagesFromNode, fCert.Finalization.Round)
 		}
-
-		// Check if we can commit the next round
-		r++
-		round, exists = e.rounds[r]
 	}
 }
 

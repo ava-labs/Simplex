@@ -201,7 +201,7 @@ func (tw *testWAL) assertWALSize(n int) {
 	}
 }
 
-func (tw *testWAL) assertNotarization(round uint64) {
+func (tw *testWAL) assertNotarization(round uint64) uint16 {
 	tw.lock.Lock()
 	defer tw.lock.Unlock()
 
@@ -215,7 +215,7 @@ func (tw *testWAL) assertNotarization(round uint64) {
 				require.NoError(tw.t, err)
 
 				if vote.Round == round {
-					return
+					return record.NotarizationRecordType
 				}
 			}
 			if binary.BigEndian.Uint16(rawRecord[:2]) == record.EmptyNotarizationRecordType {
@@ -223,7 +223,7 @@ func (tw *testWAL) assertNotarization(round uint64) {
 				require.NoError(tw.t, err)
 
 				if vote.Round == round {
-					return
+					return record.EmptyNotarizationRecordType
 				}
 			}
 		}
