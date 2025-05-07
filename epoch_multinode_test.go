@@ -63,6 +63,7 @@ func newSimplexNode(t *testing.T, nodeID NodeID, net *inMemNetwork, bb BlockBuil
 	e, err := NewEpoch(epochConfig)
 	require.NoError(t, err)
 	ti := &testNode{
+		l:       epochConfig.Logger.(*testutil.TestLogger),
 		wal:     epochConfig.WAL.(*testWAL),
 		e:       e,
 		t:       t,
@@ -120,7 +121,12 @@ type testNode struct {
 		msg  *Message
 		from NodeID
 	}
+	l *testutil.TestLogger
 	t *testing.T
+}
+
+func (t *testNode) Silence() {
+	t.l.Silence()
 }
 
 func (t *testNode) HandleMessage(msg *Message, from NodeID) error {
@@ -195,7 +201,7 @@ func (tw *testWAL) assertWALSize(n int) {
 	}
 }
 
-func (tw *testWAL) assertNotarization(round uint64) {
+func (tw *testWAL) assertNotarization(round uint64) uint16 {
 	tw.lock.Lock()
 	defer tw.lock.Unlock()
 
@@ -209,7 +215,7 @@ func (tw *testWAL) assertNotarization(round uint64) {
 				require.NoError(tw.t, err)
 
 				if vote.Round == round {
-					return
+					return record.NotarizationRecordType
 				}
 			}
 			if binary.BigEndian.Uint16(rawRecord[:2]) == record.EmptyNotarizationRecordType {
@@ -217,7 +223,7 @@ func (tw *testWAL) assertNotarization(round uint64) {
 				require.NoError(tw.t, err)
 
 				if vote.Round == round {
-					return
+					return record.EmptyNotarizationRecordType
 				}
 			}
 		}

@@ -14,6 +14,7 @@ import (
 	"math"
 	rand2 "math/rand"
 	. "simplex"
+	"simplex/record"
 	"simplex/testutil"
 	"simplex/wal"
 	"strings"
@@ -99,6 +100,60 @@ func TestEpochHandleNotarizationFutureRound(t *testing.T) {
 
 	blockCommitted := storage.waitForBlockCommit(1)
 	require.Equal(t, secondBlock, blockCommitted)
+}
+
+// TestEpochIndexFinalizationCertificates ensures that we properly index past finalizations when
+// there have been empty rounds
+func TestEpochIndexFinalizationCertificates(t *testing.T) {
+	l := testutil.MakeLogger(t, 1)
+	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+
+	storage := newInMemStorage()
+	wal := newTestWAL(t)
+
+	conf := EpochConfig{
+		MaxProposalWait:     DefaultMaxProposalWaitTime,
+		Logger:              l,
+		ID:                  nodes[0],
+		Signer:              &testSigner{},
+		WAL:                 wal,
+		Verifier:            &testVerifier{},
+		Storage:             storage,
+		Comm:                noopComm(nodes),
+		BlockBuilder:        bb,
+		SignatureAggregator: &testSignatureAggregator{},
+	}
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+
+	require.NoError(t, e.Start())
+	firstBlock, _ := advanceRoundFromNotarization(t, e, bb)
+	advanceRoundFromFinalization(t, e, bb)
+
+	require.Equal(t, uint64(2), e.Metadata().Round)
+	require.Equal(t, uint64(2), e.Metadata().Seq)
+	require.Equal(t, uint64(0), e.Storage.Height())
+
+	advanceRoundFromEmpty(t, e)
+	require.Equal(t, uint64(3), e.Metadata().Round)
+	require.Equal(t, uint64(2), e.Metadata().Seq)
+	require.Equal(t, uint64(0), e.Storage.Height())
+
+	advanceRoundFromFinalization(t, e, bb)
+	require.Equal(t, uint64(4), e.Metadata().Round)
+	require.Equal(t, uint64(3), e.Metadata().Seq)
+	require.Equal(t, uint64(0), e.Storage.Height())
+
+	// at this point we are waiting on finalization certificate of seq 0.
+	// when we receive that fcert, we should commit the rest of the fcerts for seqs
+	// 1 & 2
+
+	fcert, _ := newFinalizationRecord(t, conf.Logger, conf.SignatureAggregator, firstBlock, e.Comm.ListNodes())
+	injectTestFinalizationCertificate(t, e, &fcert, nodes[1])
+
+	storage.waitForBlockCommit(2)
 }
 
 func TestEpochConsecutiveProposalsDoNotGetVerified(t *testing.T) {
@@ -455,6 +510,21 @@ func TestEpochStartedTwice(t *testing.T) {
 
 	require.NoError(t, e.Start())
 	require.ErrorIs(t, e.Start(), ErrAlreadyStarted)
+}
+
+func advanceRoundFromEmpty(t *testing.T, e *Epoch) {
+	leader := LeaderForRound(e.Comm.ListNodes(), e.Metadata().Round)
+	require.False(t, e.ID.Equals(leader), "epoch cannot be the leader for the empty round")
+
+	emptyNote := newEmptyNotarization(e.Comm.ListNodes(), e.Metadata().Round, e.Metadata().Seq)
+	err := e.HandleMessage(&Message{
+		EmptyNotarization: emptyNote,
+	}, leader)
+
+	require.NoError(t, err)
+
+	emptyRecord := e.WAL.(*testWAL).assertNotarization(emptyNote.Vote.Round)
+	require.Equal(t, record.EmptyNotarizationRecordType, emptyRecord)
 }
 
 func advanceRoundFromNotarization(t *testing.T, e *Epoch, bb *testBlockBuilder) (VerifiedBlock, *Notarization) {
