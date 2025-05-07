@@ -454,7 +454,7 @@ func (c *testComm) Broadcast(msg *Message) {
 
 	for _, instance := range c.net.instances {
 		if !c.isMessagePermitted(msg, instance.e.ID) {
-			return
+			continue
 		}
 		// Skip sending the message to yourself or disconnected nodes
 		if bytes.Equal(c.from, instance.e.ID) || c.net.IsDisconnected(instance.e.ID) {

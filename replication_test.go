@@ -590,7 +590,7 @@ func sendVotesToOneNode(filteredOutNode simplex.NodeID) messageFilter {
 // propogated and empty notarization).
 func TestReplicationNodeDiverges(t *testing.T) {
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}, {5}, {6}}
-	// numBlocks := uint64(5)
+	numBlocks := uint64(5)
 
 	bb := newTestControlledBlockBuilder(t)
 	laggingNodeBb := newTestControlledBlockBuilder(t)
@@ -630,59 +630,57 @@ func TestReplicationNodeDiverges(t *testing.T) {
 
 	// because of the message filter, the lagging one will be the only one to notarize the block
 	laggingNode.wal.assertNotarization(0)
-	// for _, n := range net.instances {
-	// 	if n.e.ID.Equals(laggingNode.e.ID) {
-	// 		continue
-	// 	}
-	// 	require.Equal(t, false, n.wal.containsNotarization(0))
-	// }
+	for _, n := range net.instances {
+		if n.e.ID.Equals(laggingNode.e.ID) {
+			continue
+		}
+		require.Equal(t, false, n.wal.containsNotarization(0))
+	}
 
 	// we disconnect lagging node first so that it doesn't send the notarized block to any other nodes
-	// net.Disconnect(laggingNode.e.ID)
-	// net.setAllNodesMessageFilter(allowAllMessages)
+	net.Disconnect(laggingNode.e.ID)
+	net.setAllNodesMessageFilter(allowAllMessages)
 
 	// This function call ensures all nodes will timeout, and
 	// receive an empty notarization for round 0(except for lagging).
-	// advanceWithoutLeader(t, net, bb, startTimes, 0, laggingNode.e.ID)
+	advanceWithoutLeader(t, net, bb, startTimes, 0, laggingNode.e.ID)
 
-	// for _, n := range net.instances {
-	// 	if n.e.ID.Equals(laggingNode.e.ID) {
-	// 		require.Equal(t, uint64(1), n.e.Metadata().Round)
-	// 		require.Equal(t, uint64(1), n.e.Metadata().Seq)
-	// 		continue
-	// 	}
+	for _, n := range net.instances {
+		if n.e.ID.Equals(laggingNode.e.ID) {
+			require.Equal(t, uint64(1), n.e.Metadata().Round)
+			require.Equal(t, uint64(1), n.e.Metadata().Seq)
+			continue
+		}
 
-	// 	require.Equal(t, uint64(0), n.e.Metadata().Seq)
-	// 	require.Equal(t, uint64(1), n.e.Metadata().Round)
-	// }
+		require.Equal(t, uint64(0), n.e.Metadata().Seq)
+		require.Equal(t, uint64(1), n.e.Metadata().Round)
+	}
 
-	// // advance [numRounds] while the lagging node is disconnected
-	// missedSeqs := uint64(1) // missed the first seq
-	// for i := uint64(1); i < 1+numBlocks; i++ {
-	// 	emptyRound := bytes.Equal(simplex.LeaderForRound(nodes, i), laggingNode.e.ID)
-	// 	if emptyRound {
-	// 		t.Log(">>>> Advancing without leader for round", i)
-	// 		advanceWithoutLeader(t, net, bb, startTimes, i, laggingNode.e.ID)
-	// 		missedSeqs++
-	// 	} else {
-	// 		bb.triggerNewBlock()
-	// 		for _, n := range net.instances {
-	// 			if n.e.ID.Equals(laggingNode.e.ID) {
-	// 				continue
-	// 			}
-	// 			n.storage.waitForBlockCommit(i - missedSeqs)
-	// 		}
-	// 	}
-	// }
+	// advance [numRounds] while the lagging node is disconnected
+	missedSeqs := uint64(1) // missed the first seq
+	for i := uint64(1); i < 1+numBlocks; i++ {
+		emptyRound := bytes.Equal(simplex.LeaderForRound(nodes, i), laggingNode.e.ID)
+		if emptyRound {
+			advanceWithoutLeader(t, net, bb, startTimes, i, laggingNode.e.ID)
+			missedSeqs++
+		} else {
+			bb.triggerNewBlock()
+			for _, n := range net.instances {
+				if n.e.ID.Equals(laggingNode.e.ID) {
+					continue
+				}
+				n.storage.waitForBlockCommit(i - missedSeqs)
+			}
+		}
+	}
 
-	// net.Connect(laggingNode.e.ID)
+	net.Connect(laggingNode.e.ID)
 
-	// // now advance the round from a block(the lagging node will realize it is behind)
-	// time.Sleep(time.Second)
-	// t.Log(">>>>>>>>>>>>")
-	// bb.triggerNewBlock()
-	// laggingNode.storage.waitForBlockCommit(numBlocks - missedSeqs + 1)
-	// assertEqualLedgers(t, net)
+	// now advance the round from a block(the lagging node will realize it is behind)
+	time.Sleep(time.Second)
+	bb.triggerNewBlock()
+	laggingNode.storage.waitForBlockCommit(numBlocks - missedSeqs + 1)
+	assertEqualLedgers(t, net)
 }
 
 func assertEqualLedgers(t *testing.T, net *inMemNetwork) {
