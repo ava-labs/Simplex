@@ -656,7 +656,7 @@ func TestReplicationNodeDiverges(t *testing.T) {
 		require.Equal(t, uint64(1), n.e.Metadata().Round)
 	}
 
-	// advance [numRounds] while the lagging node is disconnected
+	// advance [numBlocks] while the lagging node is disconnected
 	missedSeqs := uint64(1) // missed the first seq
 	for i := uint64(1); i < 1+numBlocks; i++ {
 		emptyRound := bytes.Equal(simplex.LeaderForRound(nodes, i), laggingNode.e.ID)
@@ -669,15 +669,14 @@ func TestReplicationNodeDiverges(t *testing.T) {
 				if n.e.ID.Equals(laggingNode.e.ID) {
 					continue
 				}
+				fmt.Println("waiting for commit")
 				n.storage.waitForBlockCommit(i - missedSeqs)
+				fmt.Println("done waiting for commit")
 			}
 		}
 	}
 
 	net.Connect(laggingNode.e.ID)
-
-	// now advance the round from a block(the lagging node will realize it is behind)
-	time.Sleep(time.Second)
 	bb.triggerNewBlock()
 	laggingNode.storage.waitForBlockCommit(numBlocks - missedSeqs + 1)
 	assertEqualLedgers(t, net)

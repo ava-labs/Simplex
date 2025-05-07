@@ -2457,6 +2457,9 @@ func (e *Epoch) processReplicationState() error {
 
 	qRound, ok := e.replicationState.receivedQuorumRounds[e.round]
 	if ok && qRound.Notarization != nil {
+		if qRound.FCert != nil {
+			return nil
+		}
 		delete(e.replicationState.receivedQuorumRounds, e.round)
 		return e.processNotarizedBlock(qRound.Block, qRound.Notarization)
 	}
