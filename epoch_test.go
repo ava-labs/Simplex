@@ -310,12 +310,21 @@ func TestEpochNotarizeTwiceThenFinalize(t *testing.T) {
 	wal.assertNotarization(0)
 
 	// Round 1
+	emptyNote := newEmptyNotarization(nodes, 1, 0)
+	err = e.HandleMessage(&Message{
+		EmptyNotarization: emptyNote,
+	}, nodes[1])
+	require.NoError(t, err)
+	emptyRecord := wal.assertNotarization(1)
+	require.Equal(t, record.EmptyNotarizationRecordType, emptyRecord)
+
+	// Round 2
 	md := e.Metadata()
 	_, ok := bb.BuildBlock(context.Background(), md)
 	require.True(t, ok)
 	block1 := <-bb.out
 
-	vote, err := newTestVote(block1, nodes[1])
+	vote, err := newTestVote(block1, nodes[2])
 	require.NoError(t, err)
 	err = e.HandleMessage(&Message{
 		BlockMessage: &BlockMessage{
@@ -325,36 +334,37 @@ func TestEpochNotarizeTwiceThenFinalize(t *testing.T) {
 	}, nodes[1])
 	require.NoError(t, err)
 
-	injectTestVote(t, e, block1, nodes[2])
+	injectTestVote(t, e, block1, nodes[3])
+	wal.assertNotarization(2)
 
-	wal.assertNotarization(1)
-
-	// Round 2
+	// Round 3
 	md = e.Metadata()
 	_, ok = bb.BuildBlock(context.Background(), md)
 	require.True(t, ok)
 	block2 := <-bb.out
 
-	vote, err = newTestVote(block2, nodes[2])
+	vote, err = newTestVote(block2, nodes[3])
 	require.NoError(t, err)
 	err = e.HandleMessage(&Message{
 		BlockMessage: &BlockMessage{
 			Vote:  *vote,
 			Block: block2,
 		},
-	}, nodes[2])
+	}, nodes[3])
 	require.NoError(t, err)
 
-	injectTestVote(t, e, block2, nodes[1])
-
-	wal.assertNotarization(2)
+	injectTestVote(t, e, block2, nodes[2])
+	wal.assertNotarization(3)
+	require.Equal(t, uint64(0), storage.Height())
 
 	// drain the recorded messages
 	for len(recordedMessages) > 0 {
 		<-recordedMessages
 	}
 
-	blocks := []*testBlock{block0, block1}
+	blocks := make(map[uint64]*testBlock)
+	blocks[0] = block0
+	blocks[2] = block1
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -369,12 +379,11 @@ func TestEpochNotarizeTwiceThenFinalize(t *testing.T) {
 				return
 			case msg := <-recordedMessages:
 				if msg.Finalization != nil {
-					index := msg.Finalization.Finalization.Round
-					if index > 1 {
-						continue
+					round := msg.Finalization.Finalization.Round
+					if block, ok := blocks[round]; ok {
+						injectTestFinalization(t, e, block, nodes[1])
+						injectTestFinalization(t, e, block, nodes[2])
 					}
-					injectTestFinalization(t, e, blocks[int(index)], nodes[1])
-					injectTestFinalization(t, e, blocks[int(index)], nodes[2])
 				}
 			}
 		}
