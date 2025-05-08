@@ -78,18 +78,26 @@ func TestSplitVotes(t *testing.T) {
 
 	bb.triggerNewBlock()
 
-	for i, n := range net.instances {
+	for _, n := range net.instances {
 		n.wal.assertBlockProposal(0)
 		bb.blockShouldBeBuilt <- struct{}{}
 
 		if n.e.ID.Equals(nodes[2]) || n.e.ID.Equals(nodes[3]) {
-			// wait for timeout
-			require.Equal(t, uint64(0), n.e.Metadata().Round)
-			waitForBlockProposerTimeout(t, n.e, &startTimes[i], 0)
+			continue
 		} else {
 			n.wal.assertNotarization(0)
 			require.Equal(t, uint64(1), n.e.Metadata().Round)
 		}
+	}
+
+	for i, n := range net.instances {
+		if n.e.ID.Equals(nodes[2]) || n.e.ID.Equals(nodes[3]) {
+			// wait for timeout
+			require.Equal(t, uint64(0), n.e.Metadata().Round)
+			waitForBlockProposerTimeout(t, n.e, &startTimes[i], 0)
+		}
+
+		// advance time to resend empty vote
 	}
 
 	net.setAllNodesMessageFilter(allowAllMessages)
