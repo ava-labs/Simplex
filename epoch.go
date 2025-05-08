@@ -609,7 +609,7 @@ func (e *Epoch) handleEmptyVoteMessage(message *EmptyVote, from NodeID) error {
 		e.Logger.Debug("Got empty vote from a past round",
 			zap.Uint64("round", vote.Round), zap.Uint64("my round", e.round), zap.Stringer("from", from))
 		// this node might be behind
-		e.sendNotarizationOrFinalization(from, vote.Round)
+		e.maybeSendNotarizationOrFinalization(from, vote.Round)
 		// send a message our latest notarized/finalized round
 		return nil
 	}
@@ -643,7 +643,7 @@ func (e *Epoch) handleEmptyVoteMessage(message *EmptyVote, from NodeID) error {
 	return e.maybeAssembleEmptyNotarization()
 }
 
-func (e *Epoch) sendNotarizationOrFinalization(to NodeID, round uint64) {
+func (e *Epoch) maybeSendNotarizationOrFinalization(to NodeID, round uint64) {
 	r, ok := e.rounds[round]
 
 	if !ok {
@@ -2024,7 +2024,6 @@ func (e *Epoch) monitorProgress(round uint64) {
 	proposalWaitTimeExpired := func() {
 		e.lock.Lock()
 		defer e.lock.Unlock()
-		fmt.Println("triggering wait time expired")
 		e.triggerProposalWaitTimeExpired(round)
 	}
 

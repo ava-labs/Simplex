@@ -39,7 +39,7 @@ func TestSimplexMultiNodeSimple(t *testing.T) {
 }
 
 func onlySendBlockProposalsAndVotes(nodes []NodeID) messageFilter {
-	return func(m *Message, to NodeID) bool {
+	return func(m *Message, _, to NodeID) bool {
 		if m.BlockMessage != nil {
 			return true
 		}
