@@ -160,10 +160,8 @@ func (r *ReplicationState) createReplicationTimeoutTask(start, end uint64, nodes
 		r.sendRequestToNode(start, end, nodes, (index+1)%len(nodes))
 	}
 	timeoutTask := &TimeoutTask{
-		Data: &ReplicationTimeoutData{
-			Start: start,
-			End:   end,
-		},
+		Start:    start,
+		End:      end,
 		NodeID:   nodes[index],
 		TaskID:   getTimeoutID(start, end),
 		Task:     taskFunc,
@@ -192,9 +190,8 @@ func (r *ReplicationState) receivedReplicationResponse(data []QuorumRound, node 
 	}
 	r.timeoutHandler.RemoveTask(node, task.TaskID)
 
-	replicationData := task.Data.(*ReplicationTimeoutData)
 	// we found the timeout, now make sure all seqs were returned
-	missing := findMissingNumbersInRange(replicationData.Start, replicationData.End, seqs)
+	missing := findMissingNumbersInRange(task.Start, task.End, seqs)
 	if len(missing) == 0 {
 		return
 	}
@@ -316,30 +313,22 @@ func (r *ReplicationState) GetQuroumRoundWithSeq(seq uint64) *QuorumRound {
 	return nil
 }
 
-type ReplicationTimeoutData struct {
-	Start uint64
-	End   uint64
-}
-
-// FindReplicationTask returns the first TimeoutTask assigned to [node] that contains any sequence in [seqs].
+// FindReplicationTask returns a TimeoutTask assigned to [node] that contains the lowest sequence in [seqs].
 // A sequence is considered "contained" if it falls between a task's Start (inclusive) and End (inclusive).
 func FindReplicationTask(t *TimeoutHandler, node NodeID, seqs []uint64) *TimeoutTask {
-	t.lock.Lock()
-	defer t.lock.Unlock()
-
 	var lowestTask *TimeoutTask
-	for _, task := range t.tasks[string(node)] {
-		data := task.Data
-		replicationData := data.(*ReplicationTimeoutData)
+
+	t.forEach(string(node), func(tt *TimeoutTask) {
 		for _, seq := range seqs {
-			if seq >= replicationData.Start && seq <= replicationData.End {
-				if lowestTask == nil || replicationData.Start < lowestTask.Data.(*ReplicationTimeoutData).Start {
-					lowestTask = task
-					break
+			if seq >= tt.Start && seq <= tt.End {
+				if lowestTask == nil {
+					lowestTask = tt
+				} else if seq < lowestTask.Start {
+					lowestTask = tt
 				}
 			}
 		}
-	}
+	})
 
 	return lowestTask
 }

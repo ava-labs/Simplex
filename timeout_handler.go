@@ -15,9 +15,12 @@ import (
 type TimeoutTask struct {
 	NodeID   NodeID
 	TaskID   string
-	Data     any
 	Task     func()
 	Deadline time.Time
+
+	// for replication tasks
+	Start uint64
+	End   uint64
 
 	index int // for heap to work more efficiently
 }
@@ -156,6 +159,20 @@ func (t *TimeoutHandler) RemoveTask(nodeID NodeID, ID string) {
 	t.log.Debug("Removing timeout task", zap.Stringer("from", nodeID), zap.String("taskid", ID))
 	heap.Remove(&t.heap, t.tasks[string(nodeID)][ID].index)
 	delete(t.tasks[string(nodeID)], ID)
+}
+
+func (t *TimeoutHandler) forEach(nodeID string, f func(tt *TimeoutTask)) {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+
+	tasks, exists := t.tasks[nodeID]
+	if !exists {
+		return
+	}
+
+	for _, task := range tasks {
+		f(task)
+	}
 }
 
 func (t *TimeoutHandler) Close() {
