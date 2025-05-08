@@ -2458,6 +2458,7 @@ func (e *Epoch) processReplicationState() error {
 	qRound, ok := e.replicationState.receivedQuorumRounds[e.round]
 	if ok && qRound.Notarization != nil {
 		if qRound.FCert != nil {
+			e.Logger.Debug("Delaying processing a QuorumRound that has an FCert != NextSeqToCommit", zap.Stringer("QuourumRound", &qRound))
 			return nil
 		}
 		delete(e.replicationState.receivedQuorumRounds, e.round)
