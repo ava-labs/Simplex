@@ -851,6 +851,7 @@ func TestEpochRebroadcastsEmptyVote(t *testing.T) {
 	// wait for the initial empty vote broadcast
 	// Wait for the initial empty vote broadcast for round 0
 	waitForEmptyVote(t, comm.emptyVotes, e, 0, epochTime)
+
 	require.Len(t, comm.emptyVotes, 0)
 
 	// Continue to rebroadcast for round 0
