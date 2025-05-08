@@ -569,7 +569,7 @@ func onlyAllowBlockProposalsAndNotarizations(msg *simplex.Message, _, to simplex
 // passes vote messages to one node. This will allows that node to notarize the block,
 // while the other blocks will timeout
 func sendVotesToOneNode(filteredOutNode simplex.NodeID) messageFilter {
-	return func(msg *simplex.Message, to simplex.NodeID) bool {
+	return func(msg *simplex.Message, _, to simplex.NodeID) bool {
 		if msg.VerifiedBlockMessage != nil || msg.BlockMessage != nil {
 			return true
 		}
