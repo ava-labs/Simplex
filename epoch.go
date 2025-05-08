@@ -57,7 +57,7 @@ func NewRound(block VerifiedBlock) *Round {
 
 type EpochConfig struct {
 	MaxProposalWait     time.Duration
-	MaxRebrodcastWait   time.Duration
+	MaxRebroadcastWait  time.Duration
 	QCDeserializer      QCDeserializer
 	Logger              Logger
 	ID                  NodeID
@@ -1991,7 +1991,7 @@ func (e *Epoch) addEmptyVoteRebroadcastTimeout(vote *EmptyVote) {
 	task := &TimeoutTask{
 		NodeID:   e.ID,
 		TaskID:   EmptyVoteTimeoutID,
-		Deadline: e.timeoutHandler.GetTime().Add(e.EpochConfig.MaxRebrodcastWait),
+		Deadline: e.timeoutHandler.GetTime().Add(e.EpochConfig.MaxRebroadcastWait),
 		Task: func() {
 			e.Logger.Debug("Rebroadcasting empty vote because round has not advanced", zap.Uint64("round", vote.Vote.Round))
 			e.Comm.Broadcast(&Message{EmptyVoteMessage: vote})

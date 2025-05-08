@@ -774,7 +774,7 @@ type rebroadcastComm struct {
 func newRebroadcastComm(nodes []NodeID) *rebroadcastComm {
 	return &rebroadcastComm{
 		nodes:      nodes,
-		emptyVotes: make(chan *EmptyVote),
+		emptyVotes: make(chan *EmptyVote, 1),
 	}
 }
 
@@ -805,7 +805,7 @@ func TestEpochRebroadcastsEmptyVote(t *testing.T) {
 	comm := newRebroadcastComm(nodes)
 	conf := EpochConfig{
 		MaxProposalWait:     DefaultMaxProposalWaitTime,
-		MaxRebrodcastWait:   DefaultEmptyVoteRebroadcastTimeout,
+		MaxRebroadcastWait:  DefaultEmptyVoteRebroadcastTimeout,
 		StartTime:           epochTime,
 		Logger:              l,
 		ID:                  nodes[3], // so we are not the leader
@@ -837,14 +837,14 @@ func TestEpochRebroadcastsEmptyVote(t *testing.T) {
 			require.Equal(t, uint64(0), emptyVote.Vote.Round)
 			done = true
 		case <-time.After(10 * time.Millisecond):
-			epochTime = epochTime.Add(e.MaxRebrodcastWait)
+			epochTime = epochTime.Add(e.MaxRebroadcastWait)
 			e.AdvanceTime(epochTime)
 		}
 	}
 
 	// since the round does not advance, continue to rebroadcast
 	for range 10 {
-		epochTime = epochTime.Add(e.MaxRebrodcastWait)
+		epochTime = epochTime.Add(e.MaxRebroadcastWait)
 		e.AdvanceTime(epochTime)
 		emptyVote := <-comm.emptyVotes
 		require.Equal(t, uint64(0), emptyVote.Vote.Round)
@@ -859,13 +859,13 @@ func TestEpochRebroadcastsEmptyVote(t *testing.T) {
 	wal.assertNotarization(0)
 
 	// ensure the rebroadcast was canceled
-	epochTime = epochTime.Add(e.MaxRebrodcastWait * 2)
+	epochTime = epochTime.Add(e.MaxRebroadcastWait * 2)
 	e.AdvanceTime(epochTime)
 
 	// ensure the timeout was canceled
 	require.Len(t, comm.emptyVotes, 0)
 
-	// assert that we continue to rebraodcast, but for a different round now
+	// assert that we continue to rebroadcast, but for a different round now
 	bb.blockShouldBeBuilt <- struct{}{}
 
 	// wait for the initial empty vote broadcast
@@ -877,7 +877,7 @@ func TestEpochRebroadcastsEmptyVote(t *testing.T) {
 			require.Equal(t, uint64(1), emptyVote.Vote.Round)
 			done = true
 		case <-time.After(10 * time.Millisecond):
-			epochTime = epochTime.Add(e.MaxRebrodcastWait)
+			epochTime = epochTime.Add(e.MaxRebroadcastWait)
 			e.AdvanceTime(epochTime)
 		}
 	}
@@ -892,7 +892,7 @@ func TestEpochRebroadcastsEmptyVote(t *testing.T) {
 			require.Equal(t, uint64(1), emptyVote.Vote.Round)
 			done = true
 		case <-time.After(10 * time.Millisecond):
-			epochTime = epochTime.Add(e.MaxRebrodcastWait)
+			epochTime = epochTime.Add(e.MaxRebroadcastWait)
 			e.AdvanceTime(epochTime)
 		}
 	}
