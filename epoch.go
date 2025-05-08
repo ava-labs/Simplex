@@ -664,6 +664,7 @@ func (e *Epoch) maybeSendNotarizationOrFinalization(to NodeID, round uint64) {
 	}
 
 	if r.notarization != nil {
+		e.Logger.Debug("Node appears behind, sending them a notarization", zap.Stringer("to", to), zap.Uint64("round", round))
 		msg := &Message{
 			Notarization: r.notarization,
 		}

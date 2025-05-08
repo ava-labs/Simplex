@@ -66,8 +66,8 @@ func TestSplitVotes(t *testing.T) {
 
 	newSimplexNode(t, nodes[0], net, bb, config(nodes[0]))
 	newSimplexNode(t, nodes[1], net, bb, config(nodes[1]))
-	newSimplexNode(t, nodes[2], net, bb, config(nodes[2]))
-	newSimplexNode(t, nodes[3], net, bb, config(nodes[3]))
+	splitNode2 := newSimplexNode(t, nodes[2], net, bb, config(nodes[2]))
+	splitNode3 := newSimplexNode(t, nodes[3], net, bb, config(nodes[3]))
 
 	startTimes := []time.Time{}
 	for _, n := range net.instances {
@@ -78,41 +78,48 @@ func TestSplitVotes(t *testing.T) {
 
 	bb.triggerNewBlock()
 
-	for _, n := range net.instances {
+	for i, n := range net.instances {
 		n.wal.assertBlockProposal(0)
 		bb.blockShouldBeBuilt <- struct{}{}
 
 		if n.e.ID.Equals(nodes[2]) || n.e.ID.Equals(nodes[3]) {
-			continue
+			require.Equal(t, uint64(0), n.e.Metadata().Round)
+			waitForBlockProposerTimeout(t, n.e, &startTimes[i], 0)
+			require.False(t, n.wal.containsNotarization(0))
 		} else {
 			n.wal.assertNotarization(0)
 			require.Equal(t, uint64(1), n.e.Metadata().Round)
 		}
 	}
 
-	for i, n := range net.instances {
-		if n.e.ID.Equals(nodes[2]) || n.e.ID.Equals(nodes[3]) {
-			// wait for timeout
-			require.Equal(t, uint64(0), n.e.Metadata().Round)
-			waitForBlockProposerTimeout(t, n.e, &startTimes[i], 0)
-		}
+	net.setAllNodesMessageFilter(allowAllMessages)
 
-		// advance time to resend empty vote
+	emptyVoteListener := newEmptyVoteListener(splitNode2.e.ID)
+	splitNode2.e.Comm.(*testComm).setFilter(emptyVoteListener.filter)
+	waitForEmptyVote(t, emptyVoteListener.emptyVotes, splitNode2.e, 0, startTimes[2])
+	splitNode2.e.Comm = newTestComm(splitNode2.e.ID, net, allowAllMessages)
+
+	// splitNode3 will receives notarization from splitNode2
+	splitNode2.wal.assertNotarization(0)
+	splitNode3.wal.assertNotarization(0)
+
+	for _, n := range net.instances {
+		require.Equal(t, uint64(0), n.e.Storage.Height())
+		require.Equal(t, uint64(1), n.e.Metadata().Round)
+		require.Equal(t, uint64(1), n.e.Metadata().Seq)
 	}
 
-	net.setAllNodesMessageFilter(allowAllMessages)
+	// once the new round gets finalized, it will re-broadcast
+	// all past notarizations allowing the nodes to index both seq 0 & 1
 	bb.triggerNewBlock()
 
 	for _, n := range net.instances {
-		n.wal.assertNotarization(1)
+		n.storage.waitForBlockCommit(0)
+		n.storage.waitForBlockCommit(1)
+		require.Equal(t, uint64(2), n.e.Storage.Height())
+		require.Equal(t, uint64(2), n.e.Metadata().Round)
+		require.Equal(t, uint64(2), n.e.Metadata().Seq)
 	}
-
-	// all the nodes will process and vote for the block
-
-	// but nodes 3, 4 only will receive the block.
-
-	// check that nodes 1, 2, have progressed due to a notarization
-
 }
 
 func (t *testNode) start() {
@@ -174,6 +181,7 @@ func defaultTestNodeEpochConfig(t *testing.T, nodeID NodeID, comm Communication,
 	storage := newInMemStorage()
 	conf := EpochConfig{
 		MaxProposalWait:     DefaultMaxProposalWaitTime,
+		MaxRebroadcastWait:  DefaultMaxProposalWaitTime,
 		Comm:                comm,
 		Logger:              l,
 		ID:                  nodeID,
@@ -429,6 +437,27 @@ func (tw *testWAL) containsEmptyNotarization(round uint64) bool {
 
 	for _, rawRecord := range rawRecords {
 		if binary.BigEndian.Uint16(rawRecord[:2]) == record.EmptyNotarizationRecordType {
+			_, vote, err := ParseEmptyNotarizationRecord(rawRecord)
+			require.NoError(tw.t, err)
+
+			if vote.Round == round {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+func (tw *testWAL) containsNotarization(round uint64) bool {
+	tw.lock.Lock()
+	defer tw.lock.Unlock()
+
+	rawRecords, err := tw.WriteAheadLog.ReadAll()
+	require.NoError(tw.t, err)
+
+	for _, rawRecord := range rawRecords {
+		if binary.BigEndian.Uint16(rawRecord[:2]) == record.NotarizationRecordType {
 			_, vote, err := ParseEmptyNotarizationRecord(rawRecord)
 			require.NoError(tw.t, err)
 
