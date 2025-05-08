@@ -183,7 +183,7 @@ func (r *ReplicationState) receivedReplicationResponse(data []QuorumRound, node 
 
 	slices.Sort(seqs)
 
-	task := r.timeoutHandler.FindTask(node, seqs)
+	task := FindReplicationTask(r.timeoutHandler, node, seqs)
 	if task == nil {
 		r.logger.Debug("Could not find a timeout task associated with the replication response", zap.Stringer("from", node))
 		return
@@ -311,4 +311,24 @@ func (r *ReplicationState) GetQuroumRoundWithSeq(seq uint64) *QuorumRound {
 		}
 	}
 	return nil
+}
+
+// FindReplicationTask returns a TimeoutTask assigned to [node] that contains the lowest sequence in [seqs].
+// A sequence is considered "contained" if it falls between a task's Start (inclusive) and End (inclusive).
+func FindReplicationTask(t *TimeoutHandler, node NodeID, seqs []uint64) *TimeoutTask {
+	var lowestTask *TimeoutTask
+
+	t.forEach(string(node), func(tt *TimeoutTask) {
+		for _, seq := range seqs {
+			if seq >= tt.Start && seq <= tt.End {
+				if lowestTask == nil {
+					lowestTask = tt
+				} else if seq < lowestTask.Start {
+					lowestTask = tt
+				}
+			}
+		}
+	})
+
+	return lowestTask
 }

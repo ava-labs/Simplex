@@ -15,10 +15,12 @@ import (
 type TimeoutTask struct {
 	NodeID   NodeID
 	TaskID   string
-	Start    uint64
-	End      uint64
 	Task     func()
 	Deadline time.Time
+
+	// for replication tasks
+	Start uint64
+	End   uint64
 
 	index int // for heap to work more efficiently
 }
@@ -114,6 +116,9 @@ func (t *TimeoutHandler) shouldRun() bool {
 func (t *TimeoutHandler) Tick(now time.Time) {
 	select {
 	case t.ticks <- now:
+		t.lock.Lock()
+		t.now = now
+		t.lock.Unlock()
 	default:
 		t.log.Debug("Dropping tick in timeouthandler")
 	}
@@ -159,6 +164,20 @@ func (t *TimeoutHandler) RemoveTask(nodeID NodeID, ID string) {
 	delete(t.tasks[string(nodeID)], ID)
 }
 
+func (t *TimeoutHandler) forEach(nodeID string, f func(tt *TimeoutTask)) {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+
+	tasks, exists := t.tasks[nodeID]
+	if !exists {
+		return
+	}
+
+	for _, task := range tasks {
+		f(task)
+	}
+}
+
 func (t *TimeoutHandler) Close() {
 	select {
 	case <-t.close:
@@ -166,23 +185,6 @@ func (t *TimeoutHandler) Close() {
 	default:
 		close(t.close)
 	}
-}
-
-// FindTask returns the first TimeoutTask assigned to [node] that contains any sequence in [seqs].
-// A sequence is considered "contained" if it falls between a task's Start (inclusive) and End (inclusive).
-func (t *TimeoutHandler) FindTask(node NodeID, seqs []uint64) *TimeoutTask {
-	t.lock.Lock()
-	defer t.lock.Unlock()
-
-	for _, seq := range seqs {
-		for _, t := range t.tasks[string(node)] {
-			if seq >= t.Start && seq <= t.End {
-				return t
-			}
-		}
-	}
-
-	return nil
 }
 
 const delimiter = "_"
