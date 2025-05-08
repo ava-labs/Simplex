@@ -132,6 +132,7 @@ func newSimplexNode(t *testing.T, nodeID NodeID, net *inMemNetwork, bb BlockBuil
 	e, err := NewEpoch(epochConfig)
 	require.NoError(t, err)
 	ti := &testNode{
+		l:       epochConfig.Logger.(*testutil.TestLogger),
 		wal:     epochConfig.WAL.(*testWAL),
 		e:       e,
 		t:       t,
@@ -189,7 +190,12 @@ type testNode struct {
 		msg  *Message
 		from NodeID
 	}
+	l *testutil.TestLogger
 	t *testing.T
+}
+
+func (t *testNode) Silence() {
+	t.l.Silence()
 }
 
 func (t *testNode) HandleMessage(msg *Message, from NodeID) error {
@@ -264,7 +270,7 @@ func (tw *testWAL) assertWALSize(n int) {
 	}
 }
 
-func (tw *testWAL) assertNotarization(round uint64) {
+func (tw *testWAL) assertNotarization(round uint64) uint16 {
 	tw.lock.Lock()
 	defer tw.lock.Unlock()
 
@@ -278,7 +284,7 @@ func (tw *testWAL) assertNotarization(round uint64) {
 				require.NoError(tw.t, err)
 
 				if vote.Round == round {
-					return
+					return record.NotarizationRecordType
 				}
 			}
 			if binary.BigEndian.Uint16(rawRecord[:2]) == record.EmptyNotarizationRecordType {
@@ -286,7 +292,7 @@ func (tw *testWAL) assertNotarization(round uint64) {
 				require.NoError(tw.t, err)
 
 				if vote.Round == round {
-					return
+					return record.EmptyNotarizationRecordType
 				}
 			}
 		}
@@ -427,19 +433,25 @@ func (tw *testWAL) containsEmptyNotarization(round uint64) bool {
 	return false
 }
 
-// messageFilter defines a function that filters
-// certain messages from being sent or broadcasted.
-// a message filter should return true if the message is allowed to be sent
-type messageFilter func(*Message, NodeID) bool
+// messageFilter is a function type that determines whether a message can be
+// transmitted from one node to another.
+// Parameters:
+//   - msg: The message being evaluated for transmission
+//   - from: The ID of the sending node
+//   - to: The ID of the receiving node
+//
+// Returns:
+//   - bool: true if the message can be transmitted, false otherwise
+type messageFilter func(msg *Message, from NodeID, to NodeID) bool
 
 // allowAllMessages allows every message to be sent
-func allowAllMessages(*Message, NodeID) bool {
+func allowAllMessages(*Message, NodeID, NodeID) bool {
 	return true
 }
 
 // denyFinalizationMessages blocks any messages that would cause nodes in
 // a network to index a block in storage.
-func denyFinalizationMessages(msg *Message, destination NodeID) bool {
+func denyFinalizationMessages(msg *Message, _, _ NodeID) bool {
 	if msg.Finalization != nil {
 		return false
 	}
@@ -450,7 +462,7 @@ func denyFinalizationMessages(msg *Message, destination NodeID) bool {
 	return true
 }
 
-func onlyAllowEmptyRoundMessages(msg *Message, destination NodeID) bool {
+func onlyAllowEmptyRoundMessages(msg *Message, _, _ NodeID) bool {
 	if msg.EmptyNotarization != nil {
 		return true
 	}
@@ -573,7 +585,7 @@ func (c *testComm) isMessagePermitted(msg *Message, destination NodeID) bool {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 
-	return c.messageFilter(msg, destination)
+	return c.messageFilter(msg, c.from, destination)
 }
 
 func (c *testComm) Broadcast(msg *Message) {
@@ -585,7 +597,7 @@ func (c *testComm) Broadcast(msg *Message) {
 
 	for _, instance := range c.net.instances {
 		if !c.isMessagePermitted(msg, instance.e.ID) {
-			return
+			continue
 		}
 		// Skip sending the message to yourself or disconnected nodes
 		if bytes.Equal(c.from, instance.e.ID) || c.net.IsDisconnected(instance.e.ID) {
