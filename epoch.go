@@ -613,9 +613,8 @@ func (e *Epoch) handleEmptyVoteMessage(message *EmptyVote, from NodeID) error {
 	if e.round > vote.Round {
 		e.Logger.Debug("Got empty vote from a past round",
 			zap.Uint64("round", vote.Round), zap.Uint64("my round", e.round), zap.Stringer("from", from))
-		// this node might be behind
+
 		e.maybeSendNotarizationOrFinalization(from, vote.Round)
-		// send a message our latest notarized/finalized round
 		return nil
 	}
 
