@@ -110,7 +110,7 @@ func NewEpoch(conf EpochConfig) (*Epoch, error) {
 // AdvanceTime hints the engine that the given amount of time has passed.
 func (e *Epoch) AdvanceTime(t time.Time) {
 	e.monitor.AdvanceTime(t)
-	// e.replicationState.AdvanceTime(t)
+	e.replicationState.AdvanceTime(t)
 	e.timeoutHandler.Tick(t)
 }
 
