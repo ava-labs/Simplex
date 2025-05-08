@@ -604,20 +604,14 @@ func TestReplicationNodeDiverges(t *testing.T) {
 		}
 	}
 
-	n1 := newSimplexNode(t, nodes[0], net, bb, nodeConfig(nodes[0]))
-	n2 := newSimplexNode(t, nodes[1], net, bb, nodeConfig(nodes[1]))
-	n3 := newSimplexNode(t, nodes[2], net, bb, nodeConfig(nodes[2]))
+	newSimplexNode(t, nodes[0], net, bb, nodeConfig(nodes[0]))
+	newSimplexNode(t, nodes[1], net, bb, nodeConfig(nodes[1]))
+	newSimplexNode(t, nodes[2], net, bb, nodeConfig(nodes[2]))
 	laggingNode := newSimplexNode(t, nodes[3], net, laggingNodeBb, nodeConfig(nodes[3]))
 
 	// we need at least 6 nodes since the lagging node & leader will not timeout
-	n5 := newSimplexNode(t, nodes[4], net, bb, nodeConfig(nodes[4]))
-	n6 := newSimplexNode(t, nodes[5], net, bb, nodeConfig(nodes[5]))
-
-	n1.l.Silence()
-	n2.l.Silence()
-	n3.l.Silence()
-	n5.l.Silence()
-	n6.l.Silence()
+	newSimplexNode(t, nodes[4], net, bb, nodeConfig(nodes[4]))
+	newSimplexNode(t, nodes[5], net, bb, nodeConfig(nodes[5]))
 
 	startTimes := make([]time.Time, 0, len(nodes))
 	for _, n := range net.instances {
