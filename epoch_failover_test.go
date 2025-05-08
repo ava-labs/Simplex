@@ -774,7 +774,7 @@ type rebroadcastComm struct {
 func newRebroadcastComm(nodes []NodeID) *rebroadcastComm {
 	return &rebroadcastComm{
 		nodes:      nodes,
-		emptyVotes: make(chan *EmptyVote, 1),
+		emptyVotes: make(chan *EmptyVote, 10),
 	}
 }
 
@@ -835,12 +835,15 @@ func TestEpochRebroadcastsEmptyVote(t *testing.T) {
 		case emptyVote := <-comm.emptyVotes:
 			require.True(t, wal.containsEmptyVote(0))
 			require.Equal(t, uint64(0), emptyVote.Vote.Round)
+			fmt.Println("done noow")
 			done = true
 		case <-time.After(10 * time.Millisecond):
 			epochTime = epochTime.Add(e.MaxRebroadcastWait)
 			e.AdvanceTime(epochTime)
+			fmt.Println("advancing ")
 		}
 	}
+	require.Len(t, comm.emptyVotes, 0)
 
 	// since the round does not advance, continue to rebroadcast
 	for range 10 {

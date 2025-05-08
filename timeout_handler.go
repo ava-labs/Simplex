@@ -116,6 +116,9 @@ func (t *TimeoutHandler) shouldRun() bool {
 func (t *TimeoutHandler) Tick(now time.Time) {
 	select {
 	case t.ticks <- now:
+		t.lock.Lock()
+		t.now = now
+		t.lock.Unlock()
 	default:
 		t.log.Debug("Dropping tick in timeouthandler")
 	}
