@@ -435,27 +435,6 @@ func (tw *testWAL) containsEmptyNotarization(round uint64) bool {
 	return false
 }
 
-func (tw *testWAL) containsNotarization(round uint64) bool {
-	tw.lock.Lock()
-	defer tw.lock.Unlock()
-
-	rawRecords, err := tw.WriteAheadLog.ReadAll()
-	require.NoError(tw.t, err)
-
-	for _, rawRecord := range rawRecords {
-		if binary.BigEndian.Uint16(rawRecord[:2]) == record.NotarizationRecordType {
-			_, vote, err := ParseNotarizationRecord(rawRecord)
-			require.NoError(tw.t, err)
-
-			if vote.Round == round {
-				return true
-			}
-		}
-	}
-
-	return false
-}
-
 // messageFilter is a function type that determines whether a message can be
 // transmitted from one node to another.
 // Parameters:
