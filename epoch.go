@@ -611,8 +611,10 @@ func (e *Epoch) handleEmptyVoteMessage(message *EmptyVote, from NodeID) error {
 	}
 
 	if e.round > vote.Round {
-		e.Logger.Debug("Got vote from a past round",
+		e.Logger.Debug("Got empty vote from a past round",
 			zap.Uint64("round", vote.Round), zap.Uint64("my round", e.round), zap.Stringer("from", from))
+
+		e.maybeSendNotarizationOrFinalization(from, vote.Round)
 		return nil
 	}
 
@@ -643,6 +645,31 @@ func (e *Epoch) handleEmptyVoteMessage(message *EmptyVote, from NodeID) error {
 	emptyVotes.votes[string(from)] = message
 
 	return e.maybeAssembleEmptyNotarization()
+}
+
+func (e *Epoch) maybeSendNotarizationOrFinalization(to NodeID, round uint64) {
+	r, ok := e.rounds[round]
+
+	if !ok {
+		return
+	}
+
+	if r.fCert != nil {
+		msg := &Message{
+			FinalizationCertificate: r.fCert,
+		}
+		e.Comm.SendMessage(msg, to)
+		return
+	}
+
+	if r.notarization != nil {
+		e.Logger.Debug("Node appears behind, sending them a notarization", zap.Stringer("to", to), zap.Uint64("round", round))
+		msg := &Message{
+			Notarization: r.notarization,
+		}
+		e.Comm.SendMessage(msg, to)
+		return
+	}
 }
 
 func (e *Epoch) getOrCreateEmptyVoteSetForRound(round uint64) *EmptyVoteSet {
