@@ -89,10 +89,19 @@ func TestSplitVotes(t *testing.T) {
 
 	net.setAllNodesMessageFilter(allowAllMessages)
 
-	emptyVoteListener := newEmptyVoteListener(splitNode2.e.ID)
-	splitNode2.e.Comm.(*testComm).setFilter(emptyVoteListener.filter)
-	waitForEmptyVote(t, emptyVoteListener.emptyVotes, splitNode2.e, 0, splitNode2.e.StartTime)
-	splitNode2.e.Comm = newTestComm(splitNode2.e.ID, net, allowAllMessages)
+	time2 := splitNode2.e.StartTime
+	time3 := splitNode3.e.StartTime
+
+	for {
+		time2 = time2.Add(splitNode2.e.EpochConfig.MaxRebroadcastWait / 3)
+		splitNode2.e.AdvanceTime(time2)
+
+		time3 = time3.Add(splitNode3.e.EpochConfig.MaxRebroadcastWait / 3)
+		splitNode3.e.AdvanceTime(time3)
+		if splitNode2.wal.containsNotarization(0) && splitNode3.wal.containsNotarization(0) {
+			break
+		}
+	}
 
 	// splitNode3 will receive the notarization from splitNode2
 	splitNode2.wal.assertNotarization(0)
@@ -453,7 +462,7 @@ func (tw *testWAL) containsNotarization(round uint64) bool {
 
 	for _, rawRecord := range rawRecords {
 		if binary.BigEndian.Uint16(rawRecord[:2]) == record.NotarizationRecordType {
-			_, vote, err := ParseEmptyNotarizationRecord(rawRecord)
+			_, vote, err := ParseNotarizationRecord(rawRecord)
 			require.NoError(tw.t, err)
 
 			if vote.Round == round {

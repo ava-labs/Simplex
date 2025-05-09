@@ -792,26 +792,6 @@ func (r *rebroadcastComm) Broadcast(msg *Message) {
 	}
 }
 
-type emptyVoteListener struct {
-	from       NodeID
-	emptyVotes chan *EmptyVote
-}
-
-func newEmptyVoteListener(from NodeID) *emptyVoteListener {
-	return &emptyVoteListener{
-		from:       from,
-		emptyVotes: make(chan *EmptyVote),
-	}
-}
-
-func (e *emptyVoteListener) filter(msg *Message, from, to NodeID) bool {
-	if msg.EmptyVoteMessage != nil && e.from.Equals(from) {
-		e.emptyVotes <- msg.EmptyVoteMessage
-	}
-
-	return true
-}
-
 func TestEpochRebroadcastsEmptyVote(t *testing.T) {
 	l := testutil.MakeLogger(t, 2)
 	bb := &testBlockBuilder{out: make(chan *testBlock, 1), blockShouldBeBuilt: make(chan struct{}, 1)}
@@ -850,13 +830,12 @@ func TestEpochRebroadcastsEmptyVote(t *testing.T) {
 
 	// wait for the initial empty vote broadcast
 	// Wait for the initial empty vote broadcast for round 0
-	waitForEmptyVote(t, comm.emptyVotes, e, 0, epochTime)
-
+	waitForEmptyVote(t, comm, e, 0, epochTime)
 	require.Len(t, comm.emptyVotes, 0)
 
 	// Continue to rebroadcast for round 0
 	for i := 0; i < 10; i++ {
-		waitForEmptyVote(t, comm.emptyVotes, e, 0, epochTime)
+		waitForEmptyVote(t, comm, e, 0, epochTime)
 		wal.assertWALSize(1)
 	}
 
@@ -874,20 +853,20 @@ func TestEpochRebroadcastsEmptyVote(t *testing.T) {
 
 	// Wait for empty vote broadcast for the next round (1)
 	bb.blockShouldBeBuilt <- struct{}{}
-	waitForEmptyVote(t, comm.emptyVotes, e, 1, epochTime)
+	waitForEmptyVote(t, comm, e, 1, epochTime)
 	wal.assertWALSize(3)
 
 	// Wait for rebroadcast of round 1
-	waitForEmptyVote(t, comm.emptyVotes, e, 1, epochTime)
+	waitForEmptyVote(t, comm, e, 1, epochTime)
 }
 
-func waitForEmptyVote(t *testing.T, emptyVotes chan *EmptyVote, e *Epoch, expectedRound uint64, epochTime time.Time) {
+func waitForEmptyVote(t *testing.T, comm *rebroadcastComm, e *Epoch, expectedRound uint64, epochTime time.Time) {
 	timeout := time.NewTimer(1 * time.Minute)
 	defer timeout.Stop()
 
 	for {
 		select {
-		case emptyVote := <-emptyVotes:
+		case emptyVote := <-comm.emptyVotes:
 			require.Equal(t, expectedRound, emptyVote.Vote.Round)
 			return
 		case <-timeout.C:
