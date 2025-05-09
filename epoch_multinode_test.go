@@ -38,13 +38,15 @@ func TestSimplexMultiNodeSimple(t *testing.T) {
 	}
 }
 
-func onlySendBlockProposalsAndVotes(nodes []NodeID) messageFilter {
+func onlySendBlockProposalsAndVotes(splitNodes []NodeID) messageFilter {
 	return func(m *Message, _, to NodeID) bool {
 		if m.BlockMessage != nil {
 			return true
 		}
-		if to.Equals(NodeID{3}) || to.Equals(NodeID{4}) {
-			return false
+		for _, splitNode := range splitNodes {
+			if to.Equals(splitNode) {
+				return false
+			}
 		}
 		return true
 	}
@@ -60,7 +62,7 @@ func TestSplitVotes(t *testing.T) {
 
 	config := func(from NodeID) *testNodeConfig {
 		return &testNodeConfig{
-			comm: newTestComm(from, net, onlySendBlockProposalsAndVotes(nodes)),
+			comm: newTestComm(from, net, onlySendBlockProposalsAndVotes(nodes[2:])),
 		}
 	}
 
