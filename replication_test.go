@@ -663,16 +663,16 @@ func TestReplicationNodeDiverges(t *testing.T) {
 				if n.e.ID.Equals(laggingNode.e.ID) {
 					continue
 				}
-				fmt.Println("waiting for commit")
 				n.storage.waitForBlockCommit(i - missedSeqs)
-				fmt.Println("done waiting for commit")
 			}
 		}
 	}
 
 	net.Connect(laggingNode.e.ID)
 	bb.triggerNewBlock()
-	laggingNode.storage.waitForBlockCommit(numBlocks - missedSeqs + 1)
+	for _, n := range net.instances {
+		n.storage.waitForBlockCommit(numBlocks - missedSeqs + 1)
+	}
 	assertEqualLedgers(t, net)
 }
 
