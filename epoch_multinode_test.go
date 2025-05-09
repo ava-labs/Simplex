@@ -99,7 +99,7 @@ func TestSplitVotes(t *testing.T) {
 	waitForEmptyVote(t, emptyVoteListener.emptyVotes, splitNode2.e, 0, startTimes[2])
 	splitNode2.e.Comm = newTestComm(splitNode2.e.ID, net, allowAllMessages)
 
-	// splitNode3 will receives notarization from splitNode2
+	// splitNode3 will receive the notarization from splitNode2
 	splitNode2.wal.assertNotarization(0)
 	splitNode3.wal.assertNotarization(0)
 
