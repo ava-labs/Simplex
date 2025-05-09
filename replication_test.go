@@ -568,7 +568,7 @@ func onlyAllowBlockProposalsAndNotarizations(msg *simplex.Message, _, to simplex
 // sendVotesToOneNode allows block messages to be sent to all nodes, and only
 // passes vote messages to one node. This will allows that node to notarize the block,
 // while the other blocks will timeout
-func sendVotesToOneNode(filteredOutNode simplex.NodeID) messageFilter {
+func sendVotesToOneNode(filteredInNode simplex.NodeID) messageFilter {
 	return func(msg *simplex.Message, _, to simplex.NodeID) bool {
 		if msg.VerifiedBlockMessage != nil || msg.BlockMessage != nil {
 			return true
@@ -576,7 +576,7 @@ func sendVotesToOneNode(filteredOutNode simplex.NodeID) messageFilter {
 
 		if msg.VoteMessage != nil {
 			// this is the lagging node
-			if to.Equals(filteredOutNode) {
+			if to.Equals(filteredInNode) {
 				return true
 			}
 		}
@@ -587,7 +587,7 @@ func sendVotesToOneNode(filteredOutNode simplex.NodeID) messageFilter {
 
 // TestReplicationNodeDiverges tests that a node replicates blocks even if they
 // have a stale notarization for a round(i.e. a node notarized a block but the rest of the network
-// propogated and empty notarization).
+// propagated an empty notarization).
 func TestReplicationNodeDiverges(t *testing.T) {
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}, {5}, {6}}
 	numBlocks := uint64(5)
