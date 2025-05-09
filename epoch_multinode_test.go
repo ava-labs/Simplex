@@ -69,22 +69,17 @@ func TestSplitVotes(t *testing.T) {
 	splitNode2 := newSimplexNode(t, nodes[2], net, bb, config(nodes[2]))
 	splitNode3 := newSimplexNode(t, nodes[3], net, bb, config(nodes[3]))
 
-	startTimes := []time.Time{}
-	for _, n := range net.instances {
-		startTimes = append(startTimes, n.e.StartTime)
-	}
-
 	net.startInstances()
 
 	bb.triggerNewBlock()
 
-	for i, n := range net.instances {
+	for _, n := range net.instances {
 		n.wal.assertBlockProposal(0)
 		bb.blockShouldBeBuilt <- struct{}{}
 
-		if n.e.ID.Equals(nodes[2]) || n.e.ID.Equals(nodes[3]) {
+		if n.e.ID.Equals(splitNode2.e.ID) || n.e.ID.Equals(splitNode3.e.ID) {
 			require.Equal(t, uint64(0), n.e.Metadata().Round)
-			waitForBlockProposerTimeout(t, n.e, &startTimes[i], 0)
+			waitForBlockProposerTimeout(t, n.e, &n.e.StartTime, 0)
 			require.False(t, n.wal.containsNotarization(0))
 		} else {
 			n.wal.assertNotarization(0)
@@ -96,7 +91,7 @@ func TestSplitVotes(t *testing.T) {
 
 	emptyVoteListener := newEmptyVoteListener(splitNode2.e.ID)
 	splitNode2.e.Comm.(*testComm).setFilter(emptyVoteListener.filter)
-	waitForEmptyVote(t, emptyVoteListener.emptyVotes, splitNode2.e, 0, startTimes[2])
+	waitForEmptyVote(t, emptyVoteListener.emptyVotes, splitNode2.e, 0, splitNode2.e.StartTime)
 	splitNode2.e.Comm = newTestComm(splitNode2.e.ID, net, allowAllMessages)
 
 	// splitNode3 will receive the notarization from splitNode2
