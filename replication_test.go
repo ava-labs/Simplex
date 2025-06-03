@@ -129,11 +129,11 @@ func TestReplicationAdversarialNode(t *testing.T) {
 	require.Equal(t, uint64(0), laggingNode.e.Metadata().Round)
 	net.Connect(laggingNode.e.ID)
 
-	fCert, _ := newFinalizationRecord(t, laggingNode.e.Logger, laggingNode.e.SignatureAggregator, blocks[1], nodes[:quorum])
-	fCertMsg := &simplex.Message{
-		Finalization: &fCert,
+	finalization, _ := newFinalizationRecord(t, laggingNode.e.Logger, laggingNode.e.SignatureAggregator, blocks[1], nodes[:quorum])
+	finalizationMsg := &simplex.Message{
+		Finalization: &finalization,
 	}
-	laggingNode.e.HandleMessage(fCertMsg, doubleBlockProposalNode.e.ID)
+	laggingNode.e.HandleMessage(finalizationMsg, doubleBlockProposalNode.e.ID)
 
 	for i := range 2 {
 		lagBlock := laggingNode.storage.waitForBlockCommit(uint64(i))
@@ -377,8 +377,8 @@ func TestReplicationStartsBeforeCurrentRound(t *testing.T) {
 	}
 }
 
-func TestReplicationFutureFinalizationCertificate(t *testing.T) {
-	// send a block, then simultaneously send a finalization certificate for the block
+func TestReplicationFutureFinalization(t *testing.T) {
+	// send a block, then simultaneously send a finalization for the block
 	l := testutil.MakeLogger(t, 1)
 	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
 	storage := newInMemStorage()
@@ -423,10 +423,10 @@ func TestReplicationFutureFinalizationCertificate(t *testing.T) {
 	}, nodes[0])
 	require.NoError(t, err)
 
-	fCert, _ := newFinalizationRecord(t, l, signatureAggregator, block, nodes[0:quorum])
+	finalization, _ := newFinalizationRecord(t, l, signatureAggregator, block, nodes[0:quorum])
 	// send finalization
 	err = e.HandleMessage(&simplex.Message{
-		Finalization: &fCert,
+		Finalization: &finalization,
 	}, nodes[0])
 	require.NoError(t, err)
 
@@ -442,7 +442,7 @@ func TestReplicationFutureFinalizationCertificate(t *testing.T) {
 //
 // All nodes make progress for `startDisconnect` blocks. The lagging node disconnects
 // and the rest of the nodes continue to make progress for another `endDisconnect - startDisconnect` blocks.
-// The lagging node reconnects and the after the next `fCert` is sent, the lagging node catches up to the latest height.
+// The lagging node reconnects and the after the next `finalization` is sent, the lagging node catches up to the latest height.
 func TestReplicationAfterNodeDisconnects(t *testing.T) {
 	nodes := []simplex.NodeID{{1}, {2}, {3}, []byte("lagging")}
 
@@ -703,7 +703,7 @@ func TestReplicationNotarizationWithoutFinalizations(t *testing.T) {
 			continue
 		}
 
-		testName := fmt.Sprintf("NotarizationWithoutFCert_%d_blocks", numBlocks)
+		testName := fmt.Sprintf("NotarizationWithoutFinalization_%d_blocks", numBlocks)
 
 		t.Run(testName, func(t *testing.T) {
 			t.Parallel()
@@ -829,10 +829,10 @@ func createBlocks(t *testing.T, nodes []simplex.NodeID, bb simplex.BlockBuilder,
 		block, ok := bb.BuildBlock(ctx, protocolMetadata)
 		require.True(t, ok)
 		prev = block.BlockHeader().Digest
-		fCert, _ := newFinalizationRecord(t, logger, &testSignatureAggregator{}, block, nodes)
+		finalization, _ := newFinalizationRecord(t, logger, &testSignatureAggregator{}, block, nodes)
 		data = append(data, simplex.VerifiedFinalizedBlock{
 			VerifiedBlock: block,
-			Finalization:         fCert,
+			Finalization:  finalization,
 		})
 	}
 	return data

@@ -244,7 +244,7 @@ type VerifiedReplicationResponse struct {
 }
 
 // QuorumRound represents a round that has acheived quorum on either
-// (empty notarization), (block & notarization), or (block, finalization certificate)
+// (empty notarization), (block & notarization), or (block, finalization)
 type QuorumRound struct {
 	Block             Block
 	Notarization      *Notarization
@@ -253,7 +253,7 @@ type QuorumRound struct {
 }
 
 // isWellFormed returns an error if the QuorumRound has either
-// (block, notarization) or (block, finalization certificate) or
+// (block, notarization) or (block, finalization) or
 // (empty notarization)
 func (q *QuorumRound) IsWellFormed() error {
 	if q.EmptyNotarization != nil && q.Block == nil {
@@ -298,12 +298,12 @@ func (q *QuorumRound) Verify() error {
 		return q.EmptyNotarization.Verify()
 	}
 
-	// ensure the finalization certificate or notarization we get relates to the block
+	// ensure the finalization or notarization we get relates to the block
 	blockDigest := q.Block.BlockHeader().Digest
 
 	if q.Finalization != nil {
 		if !bytes.Equal(blockDigest[:], q.Finalization.Finalization.Digest[:]) {
-			return fmt.Errorf("finalization certificate does not match the block")
+			return fmt.Errorf("finalization does not match the block")
 		}
 		err := q.Finalization.Verify()
 		if err != nil {

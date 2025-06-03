@@ -556,7 +556,7 @@ func (c *testComm) maybeTranslateOutoingToIncomingMessageTypes(msg *Message) {
 				latestRound = &QuorumRound{
 					Block:             msg.VerifiedReplicationResponse.LatestRound.VerifiedBlock.(Block),
 					Notarization:      msg.VerifiedReplicationResponse.LatestRound.Notarization,
-					Finalization:             msg.VerifiedReplicationResponse.LatestRound.Finalization,
+					Finalization:      msg.VerifiedReplicationResponse.LatestRound.Finalization,
 					EmptyNotarization: msg.VerifiedReplicationResponse.LatestRound.EmptyNotarization,
 				}
 			}

@@ -84,7 +84,7 @@ func TestNewNotarization(t *testing.T) {
 
 }
 
-func TestNewFinalizationCertificate(t *testing.T) {
+func TestNewFinalization(t *testing.T) {
 	l := testutil.MakeLogger(t, 1)
 	tests := []struct {
 		name                 string
@@ -144,13 +144,13 @@ func TestNewFinalizationCertificate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			fCert, err := simplex.NewFinalization(l, tt.signatureAggregator, tt.finalizeVotes)
+			finalization, err := simplex.NewFinalization(l, tt.signatureAggregator, tt.finalizeVotes)
 			require.ErrorIs(t, err, tt.expectError, "expected error, got nil")
 
 			if tt.expectError == nil {
-				require.Equal(t, fCert.Finalization.Digest, tt.expectedFinalization.Digest, "digests not correct")
+				require.Equal(t, finalization.Finalization.Digest, tt.expectedFinalization.Digest, "digests not correct")
 
-				signers := fCert.QC.Signers()
+				signers := finalization.QC.Signers()
 				require.Equal(t, len(signers), len(tt.finalizeVotes), "unexpected amount of signers")
 
 				// ensure the qc signers are in order

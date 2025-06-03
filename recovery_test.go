@@ -376,7 +376,7 @@ func TestWalWritesBlockRecord(t *testing.T) {
 	require.Equal(t, block, blockFromWal)
 }
 
-func TestWalWritesFinalizationCert(t *testing.T) {
+func TestWalWritesFinalization(t *testing.T) {
 	l := testutil.MakeLogger(t, 1)
 	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
 	storage := newInMemStorage()
@@ -472,7 +472,7 @@ func TestWalWritesFinalizationCert(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, expectedFinalizationRecord, records[4])
 
-	// ensure the finalization certificate is not indexed
+	// ensure the finalization is not indexed
 	require.Equal(t, uint64(2), e.Metadata().Round)
 	require.Equal(t, uint64(0), e.Storage.Height())
 }
@@ -529,7 +529,7 @@ func TestRecoverFromMultipleNotarizations(t *testing.T) {
 	wal.Append(secondNotarizationRecord)
 
 	// Create finalization record for second block
-	fCert2, finalizationRecord := newFinalizationRecord(t, l, sigAggregrator, secondBlock, nodes[0:quorum])
+	finalization2, finalizationRecord := newFinalizationRecord(t, l, sigAggregrator, secondBlock, nodes[0:quorum])
 	wal.Append(finalizationRecord)
 
 	err = e.Start()
@@ -538,18 +538,18 @@ func TestRecoverFromMultipleNotarizations(t *testing.T) {
 	require.Equal(t, uint64(2), e.Metadata().Round)
 	require.Equal(t, uint64(0), e.Storage.Height())
 
-	// now if we send fCert for block 1, we should index both 1 & 2
-	fCert1, _ := newFinalizationRecord(t, l, sigAggregrator, firstBlock, nodes[0:quorum])
+	// now if we send finalization for block 1, we should index both 1 & 2
+	finalization1, _ := newFinalizationRecord(t, l, sigAggregrator, firstBlock, nodes[0:quorum])
 	err = e.HandleMessage(&Message{
-		Finalization: &fCert1,
+		Finalization: &finalization1,
 	}, nodes[1])
 	require.NoError(t, err)
 
 	require.Equal(t, uint64(2), e.Storage.Height())
 	require.Equal(t, firstBlock.Bytes(), storage.data[0].VerifiedBlock.Bytes())
 	require.Equal(t, secondBlock.Bytes(), storage.data[1].VerifiedBlock.Bytes())
-	require.Equal(t, fCert1, storage.data[0].Finalization)
-	require.Equal(t, fCert2, storage.data[1].Finalization)
+	require.Equal(t, finalization1, storage.data[0].Finalization)
+	require.Equal(t, finalization2, storage.data[1].Finalization)
 }
 
 // TestRecoversFromMultipleNotarizations tests that the epoch can recover from a wal
@@ -602,12 +602,12 @@ func TestRecoveryWithoutNotarization(t *testing.T) {
 	record = BlockRecord(thirdBlock.BlockHeader(), thirdBlock.Bytes())
 	wal.Append(record)
 
-	fCert1, _ := newFinalizationRecord(t, l, sigAggregrator, firstBlock, nodes[0:quorum])
-	fCert2, _ := newFinalizationRecord(t, l, sigAggregrator, secondBlock, nodes[0:quorum])
+	finalization1, _ := newFinalizationRecord(t, l, sigAggregrator, firstBlock, nodes[0:quorum])
+	finalization2, _ := newFinalizationRecord(t, l, sigAggregrator, secondBlock, nodes[0:quorum])
 	fCer3, _ := newFinalizationRecord(t, l, sigAggregrator, thirdBlock, nodes[0:quorum])
 
-	conf.Storage.Index(firstBlock, fCert1)
-	conf.Storage.Index(secondBlock, fCert2)
+	conf.Storage.Index(firstBlock, finalization1)
+	conf.Storage.Index(secondBlock, finalization2)
 	conf.Storage.Index(thirdBlock, fCer3)
 
 	e, err := NewEpoch(conf)

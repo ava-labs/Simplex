@@ -52,7 +52,7 @@ func TestRetrieveFromStorage(t *testing.T) {
 			storage:     normalStorage,
 			expectedVerifiedBlock: &VerifiedFinalizedBlock{
 				VerifiedBlock: block,
-				Finalization:         finalization,
+				Finalization:  finalization,
 			},
 		},
 	} {
@@ -65,7 +65,7 @@ func TestRetrieveFromStorage(t *testing.T) {
 	}
 }
 
-func TestFinalizationCertificateValidation(t *testing.T) {
+func TestFinalizationValidation(t *testing.T) {
 	l := testutil.MakeLogger(t, 0)
 	nodes := []NodeID{{1}, {2}, {3}, {4}, {5}}
 	eligibleSigners := make(map[string]struct{})
@@ -76,13 +76,13 @@ func TestFinalizationCertificateValidation(t *testing.T) {
 	signatureAggregator := &testSignatureAggregator{}
 	// Test
 	tests := []struct {
-		name       string
-		finalization      Finalization
-		quorumSize int
-		valid      bool
+		name         string
+		finalization Finalization
+		quorumSize   int
+		valid        bool
 	}{
 		{
-			name: "valid finalization certificate",
+			name: "valid finalization",
 			finalization: func() Finalization {
 				block := newTestBlock(ProtocolMetadata{})
 				finalization, _ := newFinalizationRecord(t, l, signatureAggregator, block, nodes[:quorumSize])
@@ -112,10 +112,10 @@ func TestFinalizationCertificateValidation(t *testing.T) {
 			valid:      false,
 		},
 		{
-			name:       "quorum certificate not in finalization certificate",
-			finalization:      Finalization{Finalization: ToBeSignedFinalization{}},
-			quorumSize: quorumSize,
-			valid:      false,
+			name:         "quorum certificate not in finalization",
+			finalization: Finalization{Finalization: ToBeSignedFinalization{}},
+			quorumSize:   quorumSize,
+			valid:        false,
 		},
 		{
 			name: "nodes are not eligible signers",
@@ -176,11 +176,11 @@ func TestGetHighestQuorumRound(t *testing.T) {
 			name: "only last block",
 			lastBlock: &VerifiedFinalizedBlock{
 				VerifiedBlock: block1,
-				Finalization:         finalization1,
+				Finalization:  finalization1,
 			},
 			expectedQr: &VerifiedQuorumRound{
 				VerifiedBlock: block1,
-				Finalization:         &finalization1,
+				Finalization:  &finalization1,
 			},
 		},
 		{
@@ -188,7 +188,7 @@ func TestGetHighestQuorumRound(t *testing.T) {
 			round: SetRound(block1, nil, &finalization1),
 			expectedQr: &VerifiedQuorumRound{
 				VerifiedBlock: block1,
-				Finalization:         &finalization1,
+				Finalization:  &finalization1,
 			},
 		},
 		{
@@ -204,7 +204,7 @@ func TestGetHighestQuorumRound(t *testing.T) {
 			round: SetRound(block10, &notarization10, nil),
 			lastBlock: &VerifiedFinalizedBlock{
 				VerifiedBlock: block1,
-				Finalization:         finalization1,
+				Finalization:  finalization1,
 			},
 			expectedQr: &VerifiedQuorumRound{
 				VerifiedBlock: block10,
@@ -216,11 +216,11 @@ func TestGetHighestQuorumRound(t *testing.T) {
 			round: SetRound(block1, &notarization1, nil),
 			lastBlock: &VerifiedFinalizedBlock{
 				VerifiedBlock: block10,
-				Finalization:         finalization10,
+				Finalization:  finalization10,
 			},
 			expectedQr: &VerifiedQuorumRound{
 				VerifiedBlock: block10,
-				Finalization:         &finalization10,
+				Finalization:  &finalization10,
 			},
 		},
 		{
@@ -228,7 +228,7 @@ func TestGetHighestQuorumRound(t *testing.T) {
 			eNote: newEmptyNotarization(nodes, 100, 100),
 			lastBlock: &VerifiedFinalizedBlock{
 				VerifiedBlock: block1,
-				Finalization:         finalization1,
+				Finalization:  finalization1,
 			},
 			round: SetRound(block10, &notarization10, nil),
 			expectedQr: &VerifiedQuorumRound{
@@ -240,7 +240,7 @@ func TestGetHighestQuorumRound(t *testing.T) {
 			eNote: newEmptyNotarization(nodes, 11, 10),
 			lastBlock: &VerifiedFinalizedBlock{
 				VerifiedBlock: block10,
-				Finalization:         finalization10,
+				Finalization:  finalization10,
 			},
 			expectedQr: &VerifiedQuorumRound{
 				EmptyNotarization: newEmptyNotarization(nodes, 11, 10),

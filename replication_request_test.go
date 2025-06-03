@@ -199,7 +199,7 @@ func TestNilReplicationResponse(t *testing.T) {
 
 // TestMalformedReplicationResponse tests that a malformed replication response is handled correctly.
 // This replication response is malformeds since it must also include a notarization or
-// finalization certificate.
+// finalization.
 func TestMalformedReplicationResponse(t *testing.T) {
 	bb := newTestControlledBlockBuilder(t)
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}

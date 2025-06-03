@@ -102,9 +102,9 @@ func TestEpochHandleNotarizationFutureRound(t *testing.T) {
 	require.Equal(t, secondBlock, blockCommitted)
 }
 
-// TestEpochIndexFinalizationCertificates ensures that we properly index past finalizations when
+// TestEpochIndexFinalization ensures that we properly index past finalizations when
 // there have been empty rounds
-func TestEpochIndexFinalizationCertificates(t *testing.T) {
+func TestEpochIndexFinalization(t *testing.T) {
 	l := testutil.MakeLogger(t, 1)
 	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
@@ -146,12 +146,12 @@ func TestEpochIndexFinalizationCertificates(t *testing.T) {
 	require.Equal(t, uint64(3), e.Metadata().Seq)
 	require.Equal(t, uint64(0), e.Storage.Height())
 
-	// at this point we are waiting on finalization certificate of seq 0.
-	// when we receive that fcert, we should commit the rest of the fcerts for seqs
+	// at this point we are waiting on finalization of seq 0.
+	// when we receive that finalization, we should commit the rest of the finalizations for seqs
 	// 1 & 2
 
-	fcert, _ := newFinalizationRecord(t, conf.Logger, conf.SignatureAggregator, firstBlock, e.Comm.ListNodes())
-	injectTestFinalizationCertificate(t, e, &fcert, nodes[1])
+	finalization, _ := newFinalizationRecord(t, conf.Logger, conf.SignatureAggregator, firstBlock, e.Comm.ListNodes())
+	injectTestFinalization(t, e, &finalization, nodes[1])
 
 	storage.waitForBlockCommit(2)
 }
@@ -225,9 +225,9 @@ func TestEpochConsecutiveProposalsDoNotGetVerified(t *testing.T) {
 	}
 }
 
-// TestEpochIncreasesRoundAfterFCert ensures that the epochs round is incremented
-// if we receive an fcert for the current round(even if it is not the next seq to commit)
-func TestEpochIncreasesRoundAfterFCert(t *testing.T) {
+// TestEpochIncreasesRoundAfterFinalization ensures that the epochs round is incremented
+// if we receive an finalization for the current round(even if it is not the next seq to commit)
+func TestEpochIncreasesRoundAfterFinalization(t *testing.T) {
 	l := testutil.MakeLogger(t, 1)
 
 	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
@@ -261,8 +261,8 @@ func TestEpochIncreasesRoundAfterFCert(t *testing.T) {
 	require.Equal(t, uint64(0), storage.Height())
 
 	// create the finalized block
-	fCert, _ := newFinalizationRecord(t, l, conf.SignatureAggregator, block, nodes)
-	injectTestFinalizationCertificate(t, e, &fCert, nodes[1])
+	finalization, _ := newFinalizationRecord(t, l, conf.SignatureAggregator, block, nodes)
+	injectTestFinalization(t, e, &finalization, nodes[1])
 
 	storage.waitForBlockCommit(1)
 	require.Equal(t, uint64(2), e.Metadata().Round)
@@ -846,7 +846,7 @@ func TestEpochQCSignedByNonExistentNodes(t *testing.T) {
 			wg.Done()
 			close(doubleEmptyNotarizationChan)
 		},
-		"Finalization certificate signed twice by the same node": func() {
+		"Finalization signed twice by the same node": func() {
 			wg.Done()
 			close(doubleFinalizationChan)
 		},
@@ -958,22 +958,22 @@ func TestEpochQCSignedByNonExistentNodes(t *testing.T) {
 		wal.assertWALSize(1)
 	})
 
-	t.Run("finalization certificate with unknown signer isn't taken into account", func(t *testing.T) {
-		fCert, _ := newFinalizationRecord(t, l, &testSignatureAggregator{}, block, []NodeID{{2}, {3}, {5}})
+	t.Run("finalization with unknown signer isn't taken into account", func(t *testing.T) {
+		finalization, _ := newFinalizationRecord(t, l, &testSignatureAggregator{}, block, []NodeID{{2}, {3}, {5}})
 
 		err = e.HandleMessage(&Message{
-			Finalization: &fCert,
+			Finalization: &finalization,
 		}, nodes[1])
 		require.NoError(t, err)
 
 		storage.ensureNoBlockCommit(t, 0)
 	})
 
-	t.Run("finalization certificate with double signer isn't taken into account", func(t *testing.T) {
-		fCert, _ := newFinalizationRecord(t, l, &testSignatureAggregator{}, block, []NodeID{{2}, {3}, {3}})
+	t.Run("finalization with double signer isn't taken into account", func(t *testing.T) {
+		finalization, _ := newFinalizationRecord(t, l, &testSignatureAggregator{}, block, []NodeID{{2}, {3}, {3}})
 
 		err = e.HandleMessage(&Message{
-			Finalization: &fCert,
+			Finalization: &finalization,
 		}, nodes[1])
 		require.NoError(t, err)
 
@@ -1204,9 +1204,9 @@ func newTestFinalizeVote(t *testing.T, block VerifiedBlock, id NodeID) *Finalize
 	}
 }
 
-func injectTestFinalizationCertificate(t *testing.T, e *Epoch, fCert *Finalization, from NodeID) {
+func injectTestFinalization(t *testing.T, e *Epoch, finalization *Finalization, from NodeID) {
 	err := e.HandleMessage(&Message{
-		Finalization: fCert,
+		Finalization: finalization,
 	}, from)
 	require.NoError(t, err)
 }
@@ -1443,12 +1443,12 @@ func (mem *InMemStorage) Clone() *InMemStorage {
 	mem.lock.Unlock()
 	for seq := uint64(0); seq < height; seq++ {
 		mem.lock.Lock()
-		block, fCert, ok := mem.Retrieve(seq)
+		block, finalization, ok := mem.Retrieve(seq)
 		if !ok {
 			panic(fmt.Sprintf("failed retrieving block %d", seq))
 		}
 		mem.lock.Unlock()
-		clone.Index(block, fCert)
+		clone.Index(block, finalization)
 	}
 	return clone
 }

@@ -96,7 +96,7 @@ func NewFinalization(logger Logger, signatureAggregator SignatureAggregator, fin
 	finalization.Finalization = finalizeVotes[0].Finalization
 	finalization.QC, err = signatureAggregator.Aggregate(signatures)
 	if err != nil {
-		return Finalization{}, fmt.Errorf("could not aggregate signatures for finalization certificate: %w", err)
+		return Finalization{}, fmt.Errorf("could not aggregate signatures for finalization: %w", err)
 	}
 
 	return finalization, nil
