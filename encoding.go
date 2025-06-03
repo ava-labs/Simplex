@@ -16,18 +16,18 @@ type QuorumRecord struct {
 	Vote []byte
 }
 
-func FinalizationCertificateFromRecord(record []byte, qd QCDeserializer) (FinalizationCertificate, error) {
+func FinalizationFromRecord(record []byte, qd QCDeserializer) (Finalization, error) {
 	qcBytes, finalization, err := parseFinalizationRecord(record)
 	if err != nil {
-		return FinalizationCertificate{}, err
+		return Finalization{}, err
 	}
 
 	qc, err := qd.DeserializeQuorumCertificate(qcBytes)
 	if err != nil {
-		return FinalizationCertificate{}, err
+		return Finalization{}, err
 	}
 
-	return FinalizationCertificate{
+	return Finalization{
 		Finalization: finalization,
 		QC:           qc,
 	}, nil

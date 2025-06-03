@@ -96,7 +96,7 @@ func TestRecoverFromWALProposed(t *testing.T) {
 		}
 
 		for i := 1; i < quorum; i++ {
-			injectTestFinalization(t, e, block, nodes[i])
+			injectTestFinalizeVote(t, e, block, nodes[i])
 		}
 
 		block2 := storage.waitForBlockCommit(i)
@@ -164,7 +164,7 @@ func TestRecoverFromNotarization(t *testing.T) {
 	// require the round was incremented(notarization increases round)
 	require.Equal(t, uint64(1), e.Metadata().Round)
 	for i := 1; i < quorum; i++ {
-		injectTestFinalization(t, e, block, nodes[i])
+		injectTestFinalizeVote(t, e, block, nodes[i])
 	}
 
 	committedData := storage.data[0].VerifiedBlock.Bytes()
@@ -198,7 +198,7 @@ func TestRecoverFromWalWithStorage(t *testing.T) {
 		QCDeserializer:      &testQCDeserializer{t: t},
 	}
 
-	storage.Index(newTestBlock(ProtocolMetadata{Seq: 0, Round: 0, Epoch: 0}), FinalizationCertificate{})
+	storage.Index(newTestBlock(ProtocolMetadata{Seq: 0, Round: 0, Epoch: 0}), Finalization{})
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
 	require.Equal(t, uint64(1), e.Metadata().Round)
@@ -234,7 +234,7 @@ func TestRecoverFromWalWithStorage(t *testing.T) {
 
 	for i := 1; i < quorum; i++ {
 		// type assert block to testBlock
-		injectTestFinalization(t, e, block, nodes[i])
+		injectTestFinalizeVote(t, e, block, nodes[i])
 	}
 
 	committedData := storage.data[1].VerifiedBlock.Bytes()
@@ -301,7 +301,7 @@ func TestWalCreatedProperly(t *testing.T) {
 	require.Equal(t, expectedNotarizationRecord, records[1])
 
 	for i := 1; i < quorum; i++ {
-		injectTestFinalization(t, e, block, nodes[i])
+		injectTestFinalizeVote(t, e, block, nodes[i])
 	}
 
 	// we do not append the finalization record to the WAL if it for the next expected sequence
@@ -459,7 +459,7 @@ func TestWalWritesFinalizationCert(t *testing.T) {
 
 	// finalization for the second block should write to wal
 	for i := 1; i < quorum; i++ {
-		injectTestFinalization(t, e, secondBlock, nodes[i])
+		injectTestFinalizeVote(t, e, secondBlock, nodes[i])
 	}
 
 	records, err = e.WAL.ReadAll()
@@ -467,7 +467,7 @@ func TestWalWritesFinalizationCert(t *testing.T) {
 	require.Len(t, records, 5)
 	recordType := binary.BigEndian.Uint16(records[4])
 	require.Equal(t, record.FinalizationRecordType, recordType)
-	_, err = FinalizationCertificateFromRecord(records[4], e.QCDeserializer)
+	_, err = FinalizationFromRecord(records[4], e.QCDeserializer)
 	_, expectedFinalizationRecord := newFinalizationRecord(t, l, sigAggregrator, secondBlock, nodes[0:quorum])
 	require.NoError(t, err)
 	require.Equal(t, expectedFinalizationRecord, records[4])
@@ -541,15 +541,15 @@ func TestRecoverFromMultipleNotarizations(t *testing.T) {
 	// now if we send fCert for block 1, we should index both 1 & 2
 	fCert1, _ := newFinalizationRecord(t, l, sigAggregrator, firstBlock, nodes[0:quorum])
 	err = e.HandleMessage(&Message{
-		FinalizationCertificate: &fCert1,
+		Finalization: &fCert1,
 	}, nodes[1])
 	require.NoError(t, err)
 
 	require.Equal(t, uint64(2), e.Storage.Height())
 	require.Equal(t, firstBlock.Bytes(), storage.data[0].VerifiedBlock.Bytes())
 	require.Equal(t, secondBlock.Bytes(), storage.data[1].VerifiedBlock.Bytes())
-	require.Equal(t, fCert1, storage.data[0].FinalizationCertificate)
-	require.Equal(t, fCert2, storage.data[1].FinalizationCertificate)
+	require.Equal(t, fCert1, storage.data[0].Finalization)
+	require.Equal(t, fCert2, storage.data[1].Finalization)
 }
 
 // TestRecoversFromMultipleNotarizations tests that the epoch can recover from a wal
@@ -641,7 +641,7 @@ func TestEpochCorrectlyInitializesMetadataFromStorage(t *testing.T) {
 	}
 
 	block := newTestBlock(ProtocolMetadata{Seq: 0, Round: 0, Epoch: 0})
-	conf.Storage.Index(block, FinalizationCertificate{})
+	conf.Storage.Index(block, Finalization{})
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
 	require.Equal(t, uint64(1), e.Storage.Height())
@@ -660,7 +660,7 @@ func TestRecoveryAsLeader(t *testing.T) {
 	finalizedBlocks := createBlocks(t, nodes, bb, 4)
 	storage := newInMemStorage()
 	for _, finalizedBlock := range finalizedBlocks {
-		storage.Index(finalizedBlock.VerifiedBlock, finalizedBlock.FCert)
+		storage.Index(finalizedBlock.VerifiedBlock, finalizedBlock.Finalization)
 	}
 
 	conf := EpochConfig{

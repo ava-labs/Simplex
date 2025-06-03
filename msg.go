@@ -17,8 +17,8 @@ type Message struct {
 	VoteMessage                 *Vote
 	EmptyVoteMessage            *EmptyVote
 	Notarization                *Notarization
+	FinalizeVote                *FinalizeVote
 	Finalization                *Finalization
-	FinalizationCertificate     *FinalizationCertificate
 	ReplicationResponse         *ReplicationResponse
 	VerifiedReplicationResponse *VerifiedReplicationResponse
 	ReplicationRequest          *ReplicationRequest
@@ -151,31 +151,37 @@ func verifyContextQC(qc QuorumCertificate, msg []byte, context string) error {
 	return qc.Verify(toBeSigned)
 }
 
+// Vote represents a signed vote for a block.
 type Vote struct {
 	Vote      ToBeSignedVote
 	Signature Signature
 }
 
+// EmptyVote represents a signed vote for an empty block.
 type EmptyVote struct {
 	Vote      ToBeSignedEmptyVote
 	Signature Signature
 }
 
-type Finalization struct {
+// FinalizeVote represents a vote to finalize a block.
+type FinalizeVote struct {
 	Finalization ToBeSignedFinalization
 	Signature    Signature
 }
 
-type FinalizationCertificate struct {
+// Finalization represents a block that has reached quorum on block. This
+// means that block can be included in the chain and finalized.
+type Finalization struct {
 	Finalization ToBeSignedFinalization
 	QC           QuorumCertificate
 }
 
-func (fc *FinalizationCertificate) Verify() error {
+func (f *Finalization) Verify() error {
 	context := "ToBeSignedFinalization"
-	return verifyContextQC(fc.QC, fc.Finalization.Bytes(), context)
+	return verifyContextQC(f.QC, f.Finalization.Bytes(), context)
 }
 
+// Notarization represents a block that has reached a quorum of votes.
 type Notarization struct {
 	Vote ToBeSignedVote
 	QC   QuorumCertificate
@@ -242,7 +248,7 @@ type VerifiedReplicationResponse struct {
 type QuorumRound struct {
 	Block             Block
 	Notarization      *Notarization
-	FCert             *FinalizationCertificate
+	Finalization      *Finalization
 	EmptyNotarization *EmptyNotarization
 }
 
@@ -252,7 +258,7 @@ type QuorumRound struct {
 func (q *QuorumRound) IsWellFormed() error {
 	if q.EmptyNotarization != nil && q.Block == nil {
 		return nil
-	} else if q.Block != nil && (q.Notarization != nil || q.FCert != nil) {
+	} else if q.Block != nil && (q.Notarization != nil || q.Finalization != nil) {
 		return nil
 	}
 
@@ -295,11 +301,11 @@ func (q *QuorumRound) Verify() error {
 	// ensure the finalization certificate or notarization we get relates to the block
 	blockDigest := q.Block.BlockHeader().Digest
 
-	if q.FCert != nil {
-		if !bytes.Equal(blockDigest[:], q.FCert.Finalization.Digest[:]) {
+	if q.Finalization != nil {
+		if !bytes.Equal(blockDigest[:], q.Finalization.Finalization.Digest[:]) {
 			return fmt.Errorf("finalization certificate does not match the block")
 		}
-		err := q.FCert.Verify()
+		err := q.Finalization.Verify()
 		if err != nil {
 			return err
 		}
@@ -333,7 +339,7 @@ func (q *QuorumRound) String() string {
 type VerifiedQuorumRound struct {
 	VerifiedBlock     VerifiedBlock
 	Notarization      *Notarization
-	FCert             *FinalizationCertificate
+	Finalization      *Finalization
 	EmptyNotarization *EmptyNotarization
 }
 
@@ -351,5 +357,5 @@ func (q *VerifiedQuorumRound) GetRound() uint64 {
 
 type VerifiedFinalizedBlock struct {
 	VerifiedBlock VerifiedBlock
-	FCert         FinalizationCertificate
+	Finalization  Finalization
 }

@@ -23,9 +23,9 @@ type signedSequence struct {
 func newSignedSequenceFromRound(round QuorumRound) (*signedSequence, error) {
 	ss := &signedSequence{}
 	switch {
-	case round.FCert != nil:
-		ss.signers = round.FCert.QC.Signers()
-		ss.seq = round.FCert.Finalization.Seq
+	case round.Finalization != nil:
+		ss.signers = round.Finalization.QC.Signers()
+		ss.seq = round.Finalization.Finalization.Seq
 	case round.EmptyNotarization != nil:
 		ss.signers = round.EmptyNotarization.QC.Signers()
 		ss.seq = round.EmptyNotarization.Vote.Seq
@@ -227,14 +227,14 @@ func findMissingNumbersInRange(start, end uint64, nums []uint64) []uint64 {
 	return result
 }
 
-func (r *ReplicationState) replicateBlocks(fCert *FinalizationCertificate, nextSeqToCommit uint64) {
+func (r *ReplicationState) replicateBlocks(finalization *Finalization, nextSeqToCommit uint64) {
 	if !r.enabled {
 		return
 	}
 
 	signedSequence := &signedSequence{
-		seq:     fCert.Finalization.Seq,
-		signers: fCert.QC.Signers(),
+		seq:     finalization.Finalization.Seq,
+		signers: finalization.QC.Signers(),
 	}
 
 	r.collectMissingSequences(signedSequence, nextSeqToCommit)
@@ -260,7 +260,7 @@ func (r *ReplicationState) maybeCollectFutureSequences(nextSequenceToCommit uint
 func (r *ReplicationState) StoreQuorumRound(round QuorumRound) {
 	if _, ok := r.receivedQuorumRounds[round.GetRound()]; ok {
 		// maybe this quorum round was behind
-		if r.receivedQuorumRounds[round.GetRound()].FCert == nil && round.FCert != nil {
+		if r.receivedQuorumRounds[round.GetRound()].Finalization == nil && round.Finalization != nil {
 			r.receivedQuorumRounds[round.GetRound()] = round
 		}
 		return
@@ -281,17 +281,17 @@ func (r *ReplicationState) StoreQuorumRound(round QuorumRound) {
 	r.receivedQuorumRounds[round.GetRound()] = round
 }
 
-func (r *ReplicationState) GetFinalizedBlockForSequence(seq uint64) (Block, FinalizationCertificate, bool) {
+func (r *ReplicationState) GetFinalizedBlockForSequence(seq uint64) (Block, Finalization, bool) {
 	for _, round := range r.receivedQuorumRounds {
 		if round.GetSequence() == seq {
-			if round.Block == nil || round.FCert == nil {
+			if round.Block == nil || round.Finalization == nil {
 				// this could be an empty notarization
 				continue
 			}
-			return round.Block, *round.FCert, true
+			return round.Block, *round.Finalization, true
 		}
 	}
-	return nil, FinalizationCertificate{}, false
+	return nil, Finalization{}, false
 }
 
 func (r *ReplicationState) highestKnownRound() uint64 {

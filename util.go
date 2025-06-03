@@ -11,7 +11,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// RetrieveLastIndexFromStorage retrieves the latest block and fCert from storage.
+// RetrieveLastIndexFromStorage retrieves the latest block and finalization from storage.
 // Returns an error if it cannot be retrieved but the storage has some block.
 // Returns (nil, nil) if the storage is empty.
 func RetrieveLastIndexFromStorage(s Storage) (*VerifiedFinalizedBlock, error) {
@@ -19,18 +19,18 @@ func RetrieveLastIndexFromStorage(s Storage) (*VerifiedFinalizedBlock, error) {
 	if height == 0 {
 		return nil, nil
 	}
-	lastBlock, fCert, retrieved := s.Retrieve(height - 1)
+	lastBlock, finalization, retrieved := s.Retrieve(height - 1)
 	if !retrieved {
 		return nil, fmt.Errorf("failed retrieving last block from storage with seq %d", height-1)
 	}
 	return &VerifiedFinalizedBlock{
 		VerifiedBlock: lastBlock,
-		FCert:         fCert,
+		Finalization:  finalization,
 	}, nil
 }
 
-func IsFinalizationCertificateValid(eligibleSigners map[string]struct{}, fCert *FinalizationCertificate, quorumSize int, logger Logger) bool {
-	valid := validateFinalizationQC(eligibleSigners, fCert, quorumSize, logger)
+func IsFinalizationValid(eligibleSigners map[string]struct{}, finalization *Finalization, quorumSize int, logger Logger) bool {
+	valid := validateFinalizationQC(eligibleSigners, finalization, quorumSize, logger)
 	if !valid {
 		return false
 	}
@@ -41,35 +41,35 @@ func IsFinalizationCertificateValid(eligibleSigners map[string]struct{}, fCert *
 	return true
 }
 
-func validateFinalizationQC(eligibleSigners map[string]struct{}, fCert *FinalizationCertificate, quorumSize int, logger Logger) bool {
-	if fCert.QC == nil {
+func validateFinalizationQC(eligibleSigners map[string]struct{}, finalization *Finalization, quorumSize int, logger Logger) bool {
+	if finalization.QC == nil {
 		return false
 	}
 
-	// Check enough signers signed the finalization certificate
-	if quorumSize > len(fCert.QC.Signers()) {
-		logger.Debug("ToBeSignedFinalization certificate signed by insufficient nodes",
-			zap.Int("count", len(fCert.QC.Signers())),
+	// Check enough signers signed the finalization
+	if quorumSize > len(finalization.QC.Signers()) {
+		logger.Debug("ToBeSignedFinalization signed by insufficient nodes",
+			zap.Int("count", len(finalization.QC.Signers())),
 			zap.Int("Quorum", quorumSize))
 		return false
 	}
 
-	doubleSigner, signedTwice := hasSomeNodeSignedTwice(fCert.QC.Signers(), logger)
+	doubleSigner, signedTwice := hasSomeNodeSignedTwice(finalization.QC.Signers(), logger)
 
 	if signedTwice {
-		logger.Debug("Finalization certificate signed twice by the same node", zap.Stringer("signer", doubleSigner))
+		logger.Debug("Finalization signed twice by the same node", zap.Stringer("signer", doubleSigner))
 		return false
 	}
 
 	// Finally, check that all signers are eligible of signing, and we don't have made up identities
-	for _, signer := range fCert.QC.Signers() {
+	for _, signer := range finalization.QC.Signers() {
 		if _, exists := eligibleSigners[string(signer)]; !exists {
 			logger.Debug("Finalization Quorum Certificate contains an unknown signer", zap.Stringer("signer", signer))
 			return false
 		}
 	}
 
-	if err := fCert.Verify(); err != nil {
+	if err := finalization.Verify(); err != nil {
 		return false
 	}
 
@@ -102,7 +102,7 @@ func GetLatestVerifiedQuorumRound(round *Round, emptyNotarization *EmptyNotariza
 		verifiedQuorumRound = &VerifiedQuorumRound{
 			VerifiedBlock: round.block,
 			Notarization:  round.notarization,
-			FCert:         round.fCert,
+			Finalization:  round.finalization,
 		}
 		exists = true
 	}
@@ -121,7 +121,7 @@ func GetLatestVerifiedQuorumRound(round *Round, emptyNotarization *EmptyNotariza
 	if lastBlock != nil && (lastBlock.VerifiedBlock.BlockHeader().Round > highestRound || !exists) {
 		verifiedQuorumRound = &VerifiedQuorumRound{
 			VerifiedBlock: lastBlock.VerifiedBlock,
-			FCert:         &lastBlock.FCert,
+			Finalization:  &lastBlock.Finalization,
 		}
 	}
 
@@ -129,11 +129,11 @@ func GetLatestVerifiedQuorumRound(round *Round, emptyNotarization *EmptyNotariza
 }
 
 // SetRound is a helper function that is used for tests to create a round.
-func SetRound(block VerifiedBlock, notarization *Notarization, fCert *FinalizationCertificate) *Round {
+func SetRound(block VerifiedBlock, notarization *Notarization, finalization *Finalization) *Round {
 	round := &Round{
 		block:        block,
 		notarization: notarization,
-		fCert:        fCert,
+		finalization: finalization,
 		num:          block.BlockHeader().Round,
 	}
 

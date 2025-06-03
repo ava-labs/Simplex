@@ -170,7 +170,7 @@ func newSimplexNode(t *testing.T, nodeID NodeID, net *inMemNetwork, bb BlockBuil
 func updateEpochConfig(epochConfig *EpochConfig, testConfig *testNodeConfig) {
 	// set the initial storage
 	for _, data := range testConfig.initialStorage {
-		epochConfig.Storage.Index(data.VerifiedBlock, data.FCert)
+		epochConfig.Storage.Index(data.VerifiedBlock, data.Finalization)
 	}
 
 	// TODO: remove optional replication flag
@@ -454,10 +454,10 @@ func allowAllMessages(*Message, NodeID, NodeID) bool {
 // denyFinalizationMessages blocks any messages that would cause nodes in
 // a network to index a block in storage.
 func denyFinalizationMessages(msg *Message, _, _ NodeID) bool {
-	if msg.Finalization != nil {
+	if msg.FinalizeVote != nil {
 		return false
 	}
-	if msg.FinalizationCertificate != nil {
+	if msg.Finalization != nil {
 		return false
 	}
 
@@ -538,8 +538,8 @@ func (c *testComm) maybeTranslateOutoingToIncomingMessageTypes(msg *Message) {
 				if verifiedQuorumRound.Notarization != nil {
 					quorumRound.Notarization = verifiedQuorumRound.Notarization
 				}
-				if verifiedQuorumRound.FCert != nil {
-					quorumRound.FCert = verifiedQuorumRound.FCert
+				if verifiedQuorumRound.Finalization != nil {
+					quorumRound.Finalization = verifiedQuorumRound.Finalization
 				}
 			}
 
@@ -556,7 +556,7 @@ func (c *testComm) maybeTranslateOutoingToIncomingMessageTypes(msg *Message) {
 				latestRound = &QuorumRound{
 					Block:             msg.VerifiedReplicationResponse.LatestRound.VerifiedBlock.(Block),
 					Notarization:      msg.VerifiedReplicationResponse.LatestRound.Notarization,
-					FCert:             msg.VerifiedReplicationResponse.LatestRound.FCert,
+					Finalization:             msg.VerifiedReplicationResponse.LatestRound.Finalization,
 					EmptyNotarization: msg.VerifiedReplicationResponse.LatestRound.EmptyNotarization,
 				}
 			}

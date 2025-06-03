@@ -71,35 +71,35 @@ func NewNotarization(logger Logger, signatureAggregator SignatureAggregator, vot
 	return notarization, nil
 }
 
-// NewFinalizationCertificate builds a FinalizationCertificate from [finalizations].
-func NewFinalizationCertificate(logger Logger, signatureAggregator SignatureAggregator, finalizations []*Finalization) (FinalizationCertificate, error) {
-	voteCount := len(finalizations)
+// NewFinalization builds a Finalization from [finalizeVotes].
+func NewFinalization(logger Logger, signatureAggregator SignatureAggregator, finalizeVotes []*FinalizeVote) (Finalization, error) {
+	voteCount := len(finalizeVotes)
 	if voteCount == 0 {
-		return FinalizationCertificate{}, ErrorNoVotes
+		return Finalization{}, ErrorNoVotes
 	}
 
 	signatures := make([]Signature, 0, voteCount)
-	expectedDigest := finalizations[0].Finalization.Digest
-	for _, vote := range finalizations {
+	expectedDigest := finalizeVotes[0].Finalization.Digest
+	for _, vote := range finalizeVotes {
 		if vote.Finalization.Digest != expectedDigest {
-			return FinalizationCertificate{}, ErrorInvalidFinalizationDigest
+			return Finalization{}, ErrorInvalidFinalizationDigest
 		}
-		logger.Debug("Collected finalization from node", zap.Stringer("NodeID", vote.Signature.Signer), zap.Uint64("round", vote.Finalization.Round))
+		logger.Debug("Collected a finalize vote from node", zap.Stringer("NodeID", vote.Signature.Signer), zap.Uint64("round", vote.Finalization.Round))
 		signatures = append(signatures, vote.Signature)
 	}
 
 	// sort the signatures, as they are not guaranteed to be in the same order
 	slices.SortFunc(signatures, compareSignatures)
 
-	var fCert FinalizationCertificate
+	var finalization Finalization
 	var err error
-	fCert.Finalization = finalizations[0].Finalization
-	fCert.QC, err = signatureAggregator.Aggregate(signatures)
+	finalization.Finalization = finalizeVotes[0].Finalization
+	finalization.QC, err = signatureAggregator.Aggregate(signatures)
 	if err != nil {
-		return FinalizationCertificate{}, fmt.Errorf("could not aggregate signatures for finalization certificate: %w", err)
+		return Finalization{}, fmt.Errorf("could not aggregate signatures for finalization certificate: %w", err)
 	}
 
-	return fCert, nil
+	return finalization, nil
 }
 
 // compareSignatures compares two signatures by their Signer field returning -1, 0, 1 if i is less than, equal to, or greater than j.

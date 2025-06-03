@@ -88,7 +88,7 @@ func TestNewFinalizationCertificate(t *testing.T) {
 	l := testutil.MakeLogger(t, 1)
 	tests := []struct {
 		name                 string
-		finalizations        []*simplex.Finalization
+		finalizeVotes        []*simplex.FinalizeVote
 		signatureAggregator  simplex.SignatureAggregator
 		expectedFinalization *simplex.ToBeSignedFinalization
 		expectedQC           *simplex.QuorumCertificate
@@ -96,47 +96,47 @@ func TestNewFinalizationCertificate(t *testing.T) {
 	}{
 		{
 			name: "valid finalizations in order",
-			finalizations: []*simplex.Finalization{
-				newTestFinalization(t, &testBlock{}, []byte{1}),
-				newTestFinalization(t, &testBlock{}, []byte{2}),
-				newTestFinalization(t, &testBlock{}, []byte{3}),
+			finalizeVotes: []*simplex.FinalizeVote{
+				newTestFinalizeVote(t, &testBlock{}, []byte{1}),
+				newTestFinalizeVote(t, &testBlock{}, []byte{2}),
+				newTestFinalizeVote(t, &testBlock{}, []byte{3}),
 			},
 			signatureAggregator:  &testSignatureAggregator{},
-			expectedFinalization: &newTestFinalization(t, &testBlock{}, []byte{1}).Finalization,
+			expectedFinalization: &newTestFinalizeVote(t, &testBlock{}, []byte{1}).Finalization,
 			expectError:          nil,
 		},
 		{
 			name: "unsorted finalizations",
-			finalizations: []*simplex.Finalization{
-				newTestFinalization(t, &testBlock{}, []byte{3}),
-				newTestFinalization(t, &testBlock{}, []byte{1}),
-				newTestFinalization(t, &testBlock{}, []byte{2}),
+			finalizeVotes: []*simplex.FinalizeVote{
+				newTestFinalizeVote(t, &testBlock{}, []byte{3}),
+				newTestFinalizeVote(t, &testBlock{}, []byte{1}),
+				newTestFinalizeVote(t, &testBlock{}, []byte{2}),
 			},
 			signatureAggregator:  &testSignatureAggregator{},
-			expectedFinalization: &newTestFinalization(t, &testBlock{}, []byte{1}).Finalization,
+			expectedFinalization: &newTestFinalizeVote(t, &testBlock{}, []byte{1}).Finalization,
 			expectError:          nil,
 		},
 		{
 			name: "finalizations with different digests",
-			finalizations: []*simplex.Finalization{
-				newTestFinalization(t, &testBlock{digest: [32]byte{1}}, []byte{1}),
-				newTestFinalization(t, &testBlock{digest: [32]byte{2}}, []byte{2}),
-				newTestFinalization(t, &testBlock{digest: [32]byte{3}}, []byte{3}),
+			finalizeVotes: []*simplex.FinalizeVote{
+				newTestFinalizeVote(t, &testBlock{digest: [32]byte{1}}, []byte{1}),
+				newTestFinalizeVote(t, &testBlock{digest: [32]byte{2}}, []byte{2}),
+				newTestFinalizeVote(t, &testBlock{digest: [32]byte{3}}, []byte{3}),
 			},
 			signatureAggregator: &testSignatureAggregator{},
 			expectError:         simplex.ErrorInvalidFinalizationDigest,
 		},
 		{
 			name: "signature aggregator errors",
-			finalizations: []*simplex.Finalization{
-				newTestFinalization(t, &testBlock{}, []byte{1}),
+			finalizeVotes: []*simplex.FinalizeVote{
+				newTestFinalizeVote(t, &testBlock{}, []byte{1}),
 			},
 			signatureAggregator: &testSignatureAggregator{err: errorSigAggregation},
 			expectError:         errorSigAggregation,
 		},
 		{
 			name:                "no votes",
-			finalizations:       []*simplex.Finalization{},
+			finalizeVotes:       []*simplex.FinalizeVote{},
 			signatureAggregator: &testSignatureAggregator{},
 			expectError:         simplex.ErrorNoVotes,
 		},
@@ -144,14 +144,14 @@ func TestNewFinalizationCertificate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			fCert, err := simplex.NewFinalizationCertificate(l, tt.signatureAggregator, tt.finalizations)
+			fCert, err := simplex.NewFinalization(l, tt.signatureAggregator, tt.finalizeVotes)
 			require.ErrorIs(t, err, tt.expectError, "expected error, got nil")
 
 			if tt.expectError == nil {
 				require.Equal(t, fCert.Finalization.Digest, tt.expectedFinalization.Digest, "digests not correct")
 
 				signers := fCert.QC.Signers()
-				require.Equal(t, len(signers), len(tt.finalizations), "unexpected amount of signers")
+				require.Equal(t, len(signers), len(tt.finalizeVotes), "unexpected amount of signers")
 
 				// ensure the qc signers are in order
 				for i, signer := range signers[1:] {

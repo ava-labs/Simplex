@@ -25,7 +25,7 @@ func TestQuorumRoundMalformed(t *testing.T) {
 				EmptyNotarization: nil,
 				Block:             nil,
 				Notarization:      nil,
-				FCert:             nil,
+				Finalization:      nil,
 			},
 			expectedErr: true,
 		}, {
@@ -36,10 +36,10 @@ func TestQuorumRoundMalformed(t *testing.T) {
 			},
 			expectedErr: false,
 		}, {
-			name: "block and fcert",
+			name: "block and finalization",
 			qr: simplex.QuorumRound{
-				Block: &testBlock{},
-				FCert: &simplex.FinalizationCertificate{},
+				Block:        &testBlock{},
+				Finalization: &simplex.Finalization{},
 			},
 			expectedErr: false,
 		}, {
@@ -51,11 +51,11 @@ func TestQuorumRoundMalformed(t *testing.T) {
 			expectedErr: true,
 		},
 		{
-			name: "block and notarization and fcert",
+			name: "block and notarization and finalization",
 			qr: simplex.QuorumRound{
 				Block:        &testBlock{},
 				Notarization: &simplex.Notarization{},
-				FCert:        &simplex.FinalizationCertificate{},
+				Finalization: &simplex.Finalization{},
 			},
 			expectedErr: false,
 		},
@@ -67,9 +67,9 @@ func TestQuorumRoundMalformed(t *testing.T) {
 			expectedErr: true,
 		},
 		{
-			name: "fcert and no block",
+			name: "finalization and no block",
 			qr: simplex.QuorumRound{
-				FCert: &simplex.FinalizationCertificate{},
+				Finalization: &simplex.Finalization{},
 			},
 			expectedErr: true,
 		},

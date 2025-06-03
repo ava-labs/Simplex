@@ -131,7 +131,7 @@ func TestReplicationAdversarialNode(t *testing.T) {
 
 	fCert, _ := newFinalizationRecord(t, laggingNode.e.Logger, laggingNode.e.SignatureAggregator, blocks[1], nodes[:quorum])
 	fCertMsg := &simplex.Message{
-		FinalizationCertificate: &fCert,
+		Finalization: &fCert,
 	}
 	laggingNode.e.HandleMessage(fCertMsg, doubleBlockProposalNode.e.ID)
 
@@ -424,9 +424,9 @@ func TestReplicationFutureFinalizationCertificate(t *testing.T) {
 	require.NoError(t, err)
 
 	fCert, _ := newFinalizationRecord(t, l, signatureAggregator, block, nodes[0:quorum])
-	// send fcert
+	// send finalization
 	err = e.HandleMessage(&simplex.Message{
-		FinalizationCertificate: &fCert,
+		Finalization: &fCert,
 	}, nodes[0])
 	require.NoError(t, err)
 
@@ -832,7 +832,7 @@ func createBlocks(t *testing.T, nodes []simplex.NodeID, bb simplex.BlockBuilder,
 		fCert, _ := newFinalizationRecord(t, logger, &testSignatureAggregator{}, block, nodes)
 		data = append(data, simplex.VerifiedFinalizedBlock{
 			VerifiedBlock: block,
-			FCert:         fCert,
+			Finalization:         fCert,
 		})
 	}
 	return data

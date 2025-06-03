@@ -223,7 +223,7 @@ func TestEpochLeaderFailoverReceivesEmptyVotesEarly(t *testing.T) {
 		block := <-bb.out
 
 		for i := 1; i <= quorum; i++ {
-			injectTestFinalization(t, e, block, nodes[i])
+			injectTestFinalizeVote(t, e, block, nodes[i])
 		}
 
 		block2 := storage.waitForBlockCommit(3)
@@ -403,7 +403,7 @@ func TestEpochNoFinalizationAfterEmptyVote(t *testing.T) {
 	wal.assertNotarization(1)
 
 	for i := 1; i < quorum; i++ {
-		injectTestFinalization(t, e, block, nodes[i])
+		injectTestFinalizeVote(t, e, block, nodes[i])
 	}
 
 	// A block should not have been committed because we do not include our own finalization.
