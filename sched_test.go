@@ -6,10 +6,11 @@ package simplex
 import (
 	"crypto/rand"
 	rand2 "math/rand"
-	"simplex/testutil"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/ava-labs/simplex/testutil"
 
 	"github.com/stretchr/testify/require"
 )

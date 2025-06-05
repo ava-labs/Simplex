@@ -4,9 +4,10 @@
 package simplex_test
 
 import (
-	"simplex"
-	"simplex/record"
 	"testing"
+
+	"github.com/ava-labs/simplex"
+	"github.com/ava-labs/simplex/record"
 
 	"github.com/stretchr/testify/require"
 )

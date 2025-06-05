@@ -10,11 +10,12 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"simplex/record"
 	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/ava-labs/simplex/record"
 
 	"go.uber.org/zap"
 )

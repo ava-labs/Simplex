@@ -6,12 +6,14 @@ package simplex_test
 import (
 	"context"
 	"fmt"
-	"simplex"
-	. "simplex"
-	"simplex/testutil"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/ava-labs/simplex/testutil"
+
+	"github.com/ava-labs/simplex"
+	. "github.com/ava-labs/simplex"
 
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap/zapcore"

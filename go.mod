@@ -1,4 +1,4 @@
-module simplex
+module github.com/ava-labs/simplex
 
 go 1.23.0
 

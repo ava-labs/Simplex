@@ -6,12 +6,13 @@ package simplex_test
 import (
 	"context"
 	"encoding/binary"
-	. "simplex"
-	"simplex/record"
-	"simplex/testutil"
-	"simplex/wal"
 	"testing"
 	"time"
+
+	. "github.com/ava-labs/simplex"
+	"github.com/ava-labs/simplex/record"
+	"github.com/ava-labs/simplex/testutil"
+	"github.com/ava-labs/simplex/wal"
 
 	"github.com/stretchr/testify/require"
 )

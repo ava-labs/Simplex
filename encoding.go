@@ -8,7 +8,8 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"simplex/record"
+
+	"github.com/ava-labs/simplex/record"
 )
 
 type QuorumRecord struct {

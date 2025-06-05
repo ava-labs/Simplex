@@ -6,8 +6,9 @@ package simplex
 import (
 	"crypto/rand"
 	"crypto/sha256"
-	"simplex/record"
 	"testing"
+
+	"github.com/ava-labs/simplex/record"
 
 	"github.com/stretchr/testify/require"
 )

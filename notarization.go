@@ -7,8 +7,9 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"simplex/record"
 	"slices"
+
+	"github.com/ava-labs/simplex/record"
 
 	"go.uber.org/zap"
 )

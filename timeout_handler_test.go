@@ -4,12 +4,13 @@
 package simplex_test
 
 import (
-	"simplex"
-	"simplex/testutil"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/ava-labs/simplex"
+	"github.com/ava-labs/simplex/testutil"
 
 	"github.com/stretchr/testify/require"
 )

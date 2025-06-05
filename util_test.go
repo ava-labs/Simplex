@@ -5,10 +5,12 @@ package simplex_test
 
 import (
 	"errors"
-	"simplex"
-	. "simplex"
-	"simplex/testutil"
 	"testing"
+
+	. "github.com/ava-labs/simplex"
+
+	"github.com/ava-labs/simplex"
+	"github.com/ava-labs/simplex/testutil"
 
 	"github.com/stretchr/testify/require"
 )

@@ -4,8 +4,9 @@
 package simplex_test
 
 import (
-	"simplex"
 	"testing"
+
+	"github.com/ava-labs/simplex"
 
 	"github.com/stretchr/testify/require"
 )
