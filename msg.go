@@ -6,7 +6,6 @@ package simplex
 import (
 	"bytes"
 	"encoding/asn1"
-	"encoding/binary"
 	"fmt"
 )
 
@@ -29,46 +28,20 @@ type ToBeSignedEmptyVote struct {
 }
 
 func (v *ToBeSignedEmptyVote) Bytes() []byte {
-	buff := make([]byte, protocolMetadataLen)
-	var pos int
-
-	buff[pos] = v.Version
-	pos++
-
-	binary.BigEndian.PutUint64(buff[pos:], v.Epoch)
-	pos += metadataEpochLen
-
-	binary.BigEndian.PutUint64(buff[pos:], v.Round)
-	pos += metadataRoundLen
-
-	binary.BigEndian.PutUint64(buff[pos:], v.Seq)
-	pos += metadataSeqLen
-
-	copy(buff[pos:], v.Prev[:])
-
-	return buff
+	return v.ProtocolMetadata.Bytes()
 }
 
 func (v *ToBeSignedEmptyVote) FromBytes(buff []byte) error {
-	if len(buff) != protocolMetadataLen {
-		return fmt.Errorf("invalid buffer length %d, expected %d", len(buff), metadataLen)
+	if len(buff) != ProtocolMetadataLen {
+		return fmt.Errorf("invalid buffer length %d, expected %d", len(buff), ProtocolMetadataLen)
 	}
 
-	var pos int
+	md, err := ProtocolMetadataFromBytes(buff[:ProtocolMetadataLen])
+	if err != nil {
+		return fmt.Errorf("failed to parse ProtocolMetadata: %w", err)
+	}
 
-	v.Version = buff[pos]
-	pos++
-
-	v.Epoch = binary.BigEndian.Uint64(buff[pos:])
-	pos += metadataEpochLen
-
-	v.Round = binary.BigEndian.Uint64(buff[pos:])
-	pos += metadataRoundLen
-
-	v.Seq = binary.BigEndian.Uint64(buff[pos:])
-	pos += metadataSeqLen
-
-	copy(v.Prev[:], buff[pos:pos+metadataPrevLen])
+	v.ProtocolMetadata = *md
 
 	return nil
 }

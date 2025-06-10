@@ -17,8 +17,8 @@ const (
 	metadataPrevLen    = 32
 	metadataDigestLen  = 32
 
-	protocolMetadataLen = metadataVersionLen + metadataEpochLen + metadataRoundLen + metadataSeqLen + metadataPrevLen
-	metadataLen         = protocolMetadataLen + metadataDigestLen
+	ProtocolMetadataLen = metadataVersionLen + metadataEpochLen + metadataRoundLen + metadataSeqLen + metadataPrevLen
+	blockHeaderLen         = ProtocolMetadataLen + metadataDigestLen
 )
 
 const (
@@ -63,52 +63,72 @@ func (bh *BlockHeader) Equals(other *BlockHeader) bool {
 }
 
 func (bh *BlockHeader) Bytes() []byte {
-	buff := make([]byte, metadataLen)
-	var pos int
+	buff := make([]byte, blockHeaderLen)
 
-	buff[pos] = bh.Version
-	pos++
-
-	copy(buff[pos:], bh.Digest[:])
-	pos += metadataDigestLen
-
-	binary.BigEndian.PutUint64(buff[pos:], bh.Epoch)
-	pos += metadataEpochLen
-
-	binary.BigEndian.PutUint64(buff[pos:], bh.Round)
-	pos += metadataRoundLen
-
-	binary.BigEndian.PutUint64(buff[pos:], bh.Seq)
-	pos += metadataSeqLen
-
-	copy(buff[pos:], bh.Prev[:])
+	mdBytes := bh.ProtocolMetadata.Bytes()
+	copy(buff, mdBytes)
+	copy(buff[ProtocolMetadataLen:], bh.Digest[:])
 
 	return buff
 }
 
 func (bh *BlockHeader) FromBytes(buff []byte) error {
-	if len(buff) != metadataLen {
-		return fmt.Errorf("invalid buffer length %d, expected %d", len(buff), metadataLen)
+	if len(buff) != blockHeaderLen {
+		return fmt.Errorf("invalid buffer length %d, expected %d", len(buff), blockHeaderLen)
 	}
 
+	md, err := ProtocolMetadataFromBytes(buff[:ProtocolMetadataLen])
+	if err != nil {
+		return fmt.Errorf("failed to parse ProtocolMetadata: %w", err)
+	}
+	bh.ProtocolMetadata = *md
+
+	copy(bh.Digest[:], buff[ProtocolMetadataLen:ProtocolMetadataLen+metadataDigestLen])
+	return nil
+}
+
+// Serializes a ProtocolMetadata from a byte slice.
+func ProtocolMetadataFromBytes(buff []byte) (*ProtocolMetadata, error) {
+	if len(buff) != ProtocolMetadataLen {
+		return nil, fmt.Errorf("invalid buffer length %d, expected %d", len(buff), ProtocolMetadataLen)
+	}
+
+	md := &ProtocolMetadata{}
+	var pos int
+	md.Version = buff[pos]
+	pos++
+	md.Epoch = binary.BigEndian.Uint64(buff[pos:])
+	pos += metadataEpochLen
+	md.Round = binary.BigEndian.Uint64(buff[pos:])
+	pos += metadataRoundLen
+	md.Seq = binary.BigEndian.Uint64(buff[pos:])
+	pos += metadataSeqLen
+	copy(md.Prev[:], buff[pos:pos+metadataPrevLen])
+
+	return md, nil
+}
+
+// Bytes returns a byte encoding of the ProtocolMetadata.
+// it is encoded as follows:
+// [Version (1 byte), Epoch (8 bytes), Round (8 bytes),
+// Seq (8 bytes), Prev (32 bytes)]
+func (md *ProtocolMetadata) Bytes() []byte {
+	buff := make([]byte, ProtocolMetadataLen)
 	var pos int
 
-	bh.Version = buff[pos]
+	buff[pos] = md.Version
 	pos++
 
-	copy(bh.Digest[:], buff[pos:pos+metadataDigestLen])
-	pos += metadataDigestLen
-
-	bh.Epoch = binary.BigEndian.Uint64(buff[pos:])
+	binary.BigEndian.PutUint64(buff[pos:], md.Epoch)
 	pos += metadataEpochLen
 
-	bh.Round = binary.BigEndian.Uint64(buff[pos:])
+	binary.BigEndian.PutUint64(buff[pos:], md.Round)
 	pos += metadataRoundLen
 
-	bh.Seq = binary.BigEndian.Uint64(buff[pos:])
+	binary.BigEndian.PutUint64(buff[pos:], md.Seq)
 	pos += metadataSeqLen
 
-	copy(bh.Prev[:], buff[pos:pos+metadataPrevLen])
+	copy(buff[pos:], md.Prev[:])
 
-	return nil
+	return buff
 }
