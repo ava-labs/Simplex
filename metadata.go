@@ -18,7 +18,7 @@ const (
 	metadataDigestLen  = 32
 
 	ProtocolMetadataLen = metadataVersionLen + metadataEpochLen + metadataRoundLen + metadataSeqLen + metadataPrevLen
-	blockHeaderLen         = ProtocolMetadataLen + metadataDigestLen
+	blockHeaderLen      = ProtocolMetadataLen + metadataDigestLen
 )
 
 const (
