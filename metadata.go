@@ -18,7 +18,7 @@ const (
 	metadataDigestLen  = 32
 
 	ProtocolMetadataLen = metadataVersionLen + metadataEpochLen + metadataRoundLen + metadataSeqLen + metadataPrevLen
-	blockHeaderLen      = ProtocolMetadataLen + metadataDigestLen
+	BlockHeaderLen      = ProtocolMetadataLen + metadataDigestLen
 )
 
 const (
@@ -63,7 +63,7 @@ func (bh *BlockHeader) Equals(other *BlockHeader) bool {
 }
 
 func (bh *BlockHeader) Bytes() []byte {
-	buff := make([]byte, blockHeaderLen)
+	buff := make([]byte, BlockHeaderLen)
 
 	mdBytes := bh.ProtocolMetadata.Bytes()
 	copy(buff, mdBytes)
@@ -73,8 +73,8 @@ func (bh *BlockHeader) Bytes() []byte {
 }
 
 func (bh *BlockHeader) FromBytes(buff []byte) error {
-	if len(buff) != blockHeaderLen {
-		return fmt.Errorf("invalid buffer length %d, expected %d", len(buff), blockHeaderLen)
+	if len(buff) != BlockHeaderLen {
+		return fmt.Errorf("invalid buffer length %d, expected %d", len(buff), BlockHeaderLen)
 	}
 
 	md, err := ProtocolMetadataFromBytes(buff[:ProtocolMetadataLen])
