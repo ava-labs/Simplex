@@ -91,7 +91,7 @@ type VerifiedBlock interface {
 	BlockHeader() BlockHeader
 
 	// Bytes returns a byte encoding of the block
-	Bytes() []byte
+	Bytes() ([]byte, error)
 }
 
 // BlockDeserializer deserializes blocks according to formatting
