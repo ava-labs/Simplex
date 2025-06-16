@@ -1587,7 +1587,14 @@ func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote)
 		e.lock.Lock()
 		defer e.lock.Unlock()
 
-		record := BlockRecord(md, verifiedBlock.Bytes())
+		blockBytes, err := verifiedBlock.Bytes()
+		if err != nil {
+			e.haltedError = err
+			e.Logger.Error("Failed to serialize block", zap.Error(err))
+			return md.Digest
+		}
+
+		record := BlockRecord(md, blockBytes)
 		if err := e.WAL.Append(record); err != nil {
 			e.haltedError = err
 			e.Logger.Error("Failed to append block record to WAL", zap.Error(err))
@@ -1897,7 +1904,11 @@ func (e *Epoch) proposeBlock(block VerifiedBlock) error {
 	// Write record to WAL before broadcasting it, so that
 	// if we crash during broadcasting, we know what we sent.
 
-	rawBlock := block.Bytes()
+	rawBlock, err := block.Bytes()
+	if err != nil {
+		e.Logger.Error("Failed serializing block", zap.Error(err))
+	}
+
 	record := BlockRecord(block.BlockHeader(), rawBlock)
 	if err := e.WAL.Append(record); err != nil {
 		e.Logger.Error("Failed appending block to WAL", zap.Error(err))
