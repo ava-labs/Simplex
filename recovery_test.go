@@ -589,6 +589,9 @@ func TestRecoveryBlocksIndexed(t *testing.T) {
 	require.NoError(t, err)
 	wal.Append(firstNotarizationRecord)
 
+	_, finalizationBytes := newFinalizationRecord(t, l, sigAggregrator, firstBlock, nodes[0:quorum])
+    wal.Append(finalizationBytes)
+
 	protocolMetadata.Round = 1
 	protocolMetadata.Seq = 1
 	secondBlock, ok := bb.BuildBlock(ctx, protocolMetadata)
