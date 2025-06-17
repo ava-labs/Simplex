@@ -10,7 +10,7 @@ import (
 )
 
 // TestReplicationRequestIndexedBlocks tests replication requests for indexed blocks.
-func TestReplicationeRequestIndexedBlocks(t *testing.T) {
+func TestReplicationRequestIndexedBlocks(t *testing.T) {
 	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
 	comm := NewListenerComm(nodes)
