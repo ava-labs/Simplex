@@ -1510,9 +1510,11 @@ func (mem *InMemStorage) Index(block VerifiedBlock, certificate Finalization) {
 }
 
 type blockDeserializer struct {
+	// delayedVerification will block verifying any deserialized blocks until we send to the channel
+	delayedVerification chan struct{}
 }
 
-func (b *blockDeserializer) DeserializeBlock(buff []byte) (VerifiedBlock, error) {
+func (b *blockDeserializer) DeserializeBlock(buff []byte) (Block, error) {
 	blockLen := binary.BigEndian.Uint32(buff[:4])
 	bh := BlockHeader{}
 	if err := bh.FromBytes(buff[4+blockLen:]); err != nil {
@@ -1520,8 +1522,9 @@ func (b *blockDeserializer) DeserializeBlock(buff []byte) (VerifiedBlock, error)
 	}
 
 	tb := testBlock{
-		data:     buff[4 : 4+blockLen],
-		metadata: bh.ProtocolMetadata,
+		data:              buff[4 : 4+blockLen],
+		metadata:          bh.ProtocolMetadata,
+		verificationDelay: b.delayedVerification,
 	}
 
 	tb.computeDigest()

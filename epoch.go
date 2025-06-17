@@ -211,12 +211,28 @@ func (e *Epoch) Start() error {
 	return e.restoreFromWal()
 }
 
+func (e *Epoch) sequenceAlreadyIndexed(seq uint64) bool {
+	return seq < e.Storage.Height()
+}
+
 func (e *Epoch) restoreBlockRecord(r []byte) error {
 	block, err := BlockFromRecord(e.BlockDeserializer, r)
 	if err != nil {
 		return err
 	}
-	e.rounds[block.BlockHeader().Round] = NewRound(block)
+
+	if e.sequenceAlreadyIndexed(block.BlockHeader().Seq) {
+		e.Logger.Debug("Block already indexed, skipping restoration", zap.Uint64("Sequence", block.BlockHeader().Seq))
+		return nil
+	}
+
+	// we have not indexed this block so we need to verify before restoring
+	verifiedBlock, err := block.Verify(e.finishCtx)
+	if err != nil {
+		return fmt.Errorf("failed to verify block: %w", err)
+	}
+
+	e.rounds[block.BlockHeader().Round] = NewRound(verifiedBlock)
 	e.Logger.Info("Block Proposal Recovered From WAL", zap.Uint64("Round", block.BlockHeader().Round))
 	return nil
 }
@@ -226,6 +242,12 @@ func (e *Epoch) restoreNotarizationRecord(r []byte) error {
 	if err != nil {
 		return err
 	}
+
+	if e.sequenceAlreadyIndexed(notarization.Vote.Seq) {
+		e.Logger.Debug("Notarization already indexed, skipping restoration", zap.Uint64("Sequence", notarization.Vote.Seq))
+		return nil
+	}
+
 	round, exists := e.rounds[notarization.Vote.Round]
 	if !exists {
 		return fmt.Errorf("could not find round %d, its proposal was probably not persisted earlier", notarization.Vote.Round)
@@ -278,6 +300,12 @@ func (e *Epoch) restoreFinalizationRecord(r []byte) error {
 	if err != nil {
 		return err
 	}
+
+	if e.sequenceAlreadyIndexed(finalization.Finalization.Seq) {
+		e.Logger.Debug("Finalization already indexed, skipping restoration", zap.Uint64("Sequence", finalization.Finalization.Seq))
+		return nil
+	}
+
 	round, ok := e.rounds[finalization.Finalization.Round]
 	if !ok {
 		return fmt.Errorf("round not found for finalization")
@@ -308,14 +336,26 @@ func (e *Epoch) resumeFromWal(records [][]byte) error {
 		if err != nil {
 			return err
 		}
+
+		if e.sequenceAlreadyIndexed(block.BlockHeader().Seq) {
+			e.Logger.Debug("Block already indexed, skipping restoration", zap.Uint64("Sequence", block.BlockHeader().Seq))
+			return nil
+		}
+
+		round, exists := e.rounds[block.BlockHeader().Round]
+		if !exists {
+			// this should not happen, as we restored the block in `restoreBlockRecord`
+			return fmt.Errorf("could not find round %d for block", block.BlockHeader().Round)
+		}
+
 		if e.ID.Equals(LeaderForRound(e.nodes, block.BlockHeader().Round)) {
-			vote, err := e.voteOnBlock(block)
+			vote, err := e.voteOnBlock(round.block)
 			if err != nil {
 				return err
 			}
 			proposal := &Message{
 				VerifiedBlockMessage: &VerifiedBlockMessage{
-					VerifiedBlock: block,
+					VerifiedBlock: round.block,
 					Vote:          vote,
 				},
 			}
@@ -332,6 +372,12 @@ func (e *Epoch) resumeFromWal(records [][]byte) error {
 		}
 		lastMessage := Message{Notarization: &notarization}
 		e.Comm.Broadcast(&lastMessage)
+
+		if e.sequenceAlreadyIndexed(notarization.Vote.Seq) {
+			e.Logger.Debug("Notarization already indexed, skipping restoration", zap.Uint64("Sequence", notarization.Vote.Seq))
+			return nil
+		}
+
 		return e.doNotarized(notarization.Vote.Round)
 	case record.EmptyVoteRecordType:
 		ev, err := ParseEmptyVoteRecord(lastRecord)
