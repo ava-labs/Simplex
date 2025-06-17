@@ -590,7 +590,7 @@ func TestRecoveryBlocksIndexed(t *testing.T) {
 	wal.Append(firstNotarizationRecord)
 
 	_, finalizationBytes := newFinalizationRecord(t, l, sigAggregrator, firstBlock, nodes[0:quorum])
-    wal.Append(finalizationBytes)
+	wal.Append(finalizationBytes)
 
 	protocolMetadata.Round = 1
 	protocolMetadata.Seq = 1
