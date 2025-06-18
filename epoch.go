@@ -227,6 +227,7 @@ func (e *Epoch) restoreBlockRecord(r []byte) error {
 	}
 
 	// we have not indexed this block so we need to verify before restoring
+	e.Logger.Debug("Verifying block from WAL", zap.Uint64("Round", block.BlockHeader().Round))
 	verifiedBlock, err := block.Verify(e.finishCtx)
 	if err != nil {
 		return fmt.Errorf("failed to verify block: %w", err)

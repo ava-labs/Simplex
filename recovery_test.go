@@ -708,7 +708,7 @@ func TestRecoveryReVerifiesBlocks(t *testing.T) {
 	}
 
 	deserializer := &blockDeserializer{
-		delayedVerification: make(chan struct{}),
+		delayedVerification: make(chan struct{}, 1),
 	}
 	wal := wal.NewMemWAL(t)
 	conf := EpochConfig{
@@ -735,11 +735,7 @@ func TestRecoveryReVerifiesBlocks(t *testing.T) {
 	record := BlockRecord(firstBlock.BlockHeader(), firstBlock.Bytes())
 	wal.Append(record)
 
-	var epochError error
-	go func() {
-		epochError = e.Start()
-	}()
-
-	deserializer.delayedVerification <- struct{}{} // unblock the expected verification
-	require.NoError(t, epochError)
+	deserializer.delayedVerification <- struct{}{}
+	require.NoError(t, e.Start())
+	require.Len(t, deserializer.delayedVerification, 0)
 }
