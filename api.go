@@ -99,7 +99,7 @@ type VerifiedBlock interface {
 type BlockDeserializer interface {
 	// DeserializeBlock parses the given bytes and initializes a VerifiedBlock.
 	// Returns an error upon failure.
-	DeserializeBlock(bytes []byte) (VerifiedBlock, error)
+	DeserializeBlock(bytes []byte) (Block, error)
 }
 
 // Signature encodes a signature and the node that signed it, without the message it was signed on.

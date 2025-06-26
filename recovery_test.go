@@ -575,9 +575,9 @@ func TestRecoverFromMultipleNotarizations(t *testing.T) {
 	require.Equal(t, finalization2, storage.data[1].Finalization)
 }
 
-// TestRecoversFromMultipleNotarizations tests that the epoch can recover from a wal
-// with its last notarization record being from a less recent round.
-func TestRecoveryWithoutNotarization(t *testing.T) {
+// TestRecoveryBlocksIndexed tests that the epoch properly skips
+// block records that are already indexed in the storage.
+func TestRecoveryBlocksIndexed(t *testing.T) {
 	l := testutil.MakeLogger(t, 1)
 	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
 	wal := wal.NewMemWAL(t)
@@ -612,6 +612,9 @@ func TestRecoveryWithoutNotarization(t *testing.T) {
 	firstNotarizationRecord, err := newNotarizationRecord(l, sigAggregrator, firstBlock, nodes[0:quorum])
 	require.NoError(t, err)
 	wal.Append(firstNotarizationRecord)
+
+	_, finalizationBytes := newFinalizationRecord(t, l, sigAggregrator, firstBlock, nodes[0:quorum])
+	wal.Append(finalizationBytes)
 
 	protocolMetadata.Round = 1
 	protocolMetadata.Seq = 1
@@ -719,4 +722,48 @@ func TestRecoveryAsLeader(t *testing.T) {
 	// ensure the round is properly set
 	require.Equal(t, uint64(4), e.Metadata().Round)
 	require.Equal(t, uint64(4), e.Metadata().Seq)
+}
+
+func TestRecoveryReVerifiesBlocks(t *testing.T) {
+	l := testutil.MakeLogger(t, 1)
+	ctx := context.Background()
+	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	finalizedBlocks := createBlocks(t, nodes, bb, 4)
+	storage := newInMemStorage()
+	for _, finalizedBlock := range finalizedBlocks {
+		storage.Index(finalizedBlock.VerifiedBlock, finalizedBlock.Finalization)
+	}
+
+	deserializer := &blockDeserializer{
+		delayedVerification: make(chan struct{}, 1),
+	}
+	wal := wal.NewMemWAL(t)
+	conf := EpochConfig{
+		MaxProposalWait:   DefaultMaxProposalWaitTime,
+		Logger:            l,
+		ID:                nodes[0],
+		Signer:            &testSigner{},
+		WAL:               wal,
+		Verifier:          &testVerifier{},
+		Storage:           storage,
+		Comm:              noopComm(nodes),
+		BlockBuilder:      bb,
+		BlockDeserializer: deserializer,
+		QCDeserializer:    &testQCDeserializer{t: t},
+	}
+
+	// Create first block and write to WAL
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+
+	protocolMetadata := e.Metadata()
+	firstBlock, ok := bb.BuildBlock(ctx, protocolMetadata)
+	require.True(t, ok)
+	record := BlockRecord(firstBlock.BlockHeader(), firstBlock.Bytes())
+	wal.Append(record)
+
+	deserializer.delayedVerification <- struct{}{}
+	require.NoError(t, e.Start())
+	require.Len(t, deserializer.delayedVerification, 0)
 }
