@@ -1389,7 +1389,12 @@ func newTestBlock(metadata ProtocolMetadata) *testBlock {
 
 func (tb *testBlock) computeDigest() {
 	var bb bytes.Buffer
-	bb.Write(tb.Bytes())
+	tbBytes, err := tb.Bytes()
+	if err != nil {
+		panic(fmt.Sprintf("failed to serialize test block: %v", err))
+	}
+
+	bb.Write(tbBytes)
 	tb.digest = sha256.Sum256(bb.Bytes())
 }
 
@@ -1400,7 +1405,7 @@ func (t *testBlock) BlockHeader() BlockHeader {
 	}
 }
 
-func (t *testBlock) Bytes() []byte {
+func (t *testBlock) Bytes() ([]byte, error) {
 	bh := BlockHeader{
 		ProtocolMetadata: t.metadata,
 	}
@@ -1411,7 +1416,7 @@ func (t *testBlock) Bytes() []byte {
 	binary.BigEndian.PutUint32(buff, uint32(len(t.data)))
 	copy(buff[4:], t.data)
 	copy(buff[4+len(t.data):], mdBuff)
-	return buff
+	return buff, nil
 }
 
 type InMemStorage struct {
@@ -1536,7 +1541,9 @@ func TestBlockDeserializer(t *testing.T) {
 	var blockDeserializer blockDeserializer
 
 	tb := newTestBlock(ProtocolMetadata{Seq: 1, Round: 2, Epoch: 3})
-	tb2, err := blockDeserializer.DeserializeBlock(tb.Bytes())
+	tbBytes, err := tb.Bytes()
+	require.NoError(t, err)
+	tb2, err := blockDeserializer.DeserializeBlock(tbBytes)
 	require.NoError(t, err)
 	require.Equal(t, tb, tb2)
 }
