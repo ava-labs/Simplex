@@ -1907,6 +1907,7 @@ func (e *Epoch) proposeBlock(block VerifiedBlock) error {
 	rawBlock, err := block.Bytes()
 	if err != nil {
 		e.Logger.Error("Failed serializing block", zap.Error(err))
+		return err
 	}
 
 	record := BlockRecord(block.BlockHeader(), rawBlock)
