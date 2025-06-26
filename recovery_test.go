@@ -760,7 +760,9 @@ func TestRecoveryReVerifiesBlocks(t *testing.T) {
 	protocolMetadata := e.Metadata()
 	firstBlock, ok := bb.BuildBlock(ctx, protocolMetadata)
 	require.True(t, ok)
-	record := BlockRecord(firstBlock.BlockHeader(), firstBlock.Bytes())
+	fBytes, err := firstBlock.Bytes()
+	require.NoError(t, err)
+	record := BlockRecord(firstBlock.BlockHeader(), fBytes)
 	wal.Append(record)
 
 	deserializer.delayedVerification <- struct{}{}
