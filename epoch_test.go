@@ -1514,7 +1514,7 @@ type blockDeserializer struct {
 	delayedVerification chan struct{}
 }
 
-func (b *blockDeserializer) DeserializeBlock(buff []byte) (Block, error) {
+func (b *blockDeserializer) DeserializeBlock(ctx context.Context, buff []byte) (Block, error) {
 	blockLen := binary.BigEndian.Uint32(buff[:4])
 	bh := BlockHeader{}
 	if err := bh.FromBytes(buff[4+blockLen:]); err != nil {
@@ -1535,8 +1535,9 @@ func (b *blockDeserializer) DeserializeBlock(buff []byte) (Block, error) {
 func TestBlockDeserializer(t *testing.T) {
 	var blockDeserializer blockDeserializer
 
+	ctx := context.Background()
 	tb := newTestBlock(ProtocolMetadata{Seq: 1, Round: 2, Epoch: 3})
-	tb2, err := blockDeserializer.DeserializeBlock(tb.Bytes())
+	tb2, err := blockDeserializer.DeserializeBlock(ctx, tb.Bytes())
 	require.NoError(t, err)
 	require.Equal(t, tb, tb2)
 }
