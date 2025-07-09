@@ -4,6 +4,7 @@
 package simplex
 
 import (
+	"context"
 	"encoding/asn1"
 	"encoding/binary"
 	"errors"
@@ -125,13 +126,13 @@ func BlockRecord(bh BlockHeader, blockData []byte) []byte {
 	return buff
 }
 
-func BlockFromRecord(blockDeserializer BlockDeserializer, record []byte) (Block, error) {
+func BlockFromRecord(ctx context.Context, blockDeserializer BlockDeserializer, record []byte) (Block, error) {
 	_, payload, err := ParseBlockRecord(record)
 	if err != nil {
 		return nil, err
 	}
 
-	return blockDeserializer.DeserializeBlock(payload)
+	return blockDeserializer.DeserializeBlock(ctx, payload)
 }
 
 func ParseBlockRecord(buff []byte) (BlockHeader, []byte, error) {

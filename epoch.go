@@ -216,7 +216,7 @@ func (e *Epoch) sequenceAlreadyIndexed(seq uint64) bool {
 }
 
 func (e *Epoch) restoreBlockRecord(r []byte) error {
-	block, err := BlockFromRecord(e.BlockDeserializer, r)
+	block, err := BlockFromRecord(e.finishCtx, e.BlockDeserializer, r)
 	if err != nil {
 		return err
 	}
@@ -333,7 +333,7 @@ func (e *Epoch) resumeFromWal(records [][]byte) error {
 
 	switch recordType {
 	case record.BlockRecordType:
-		block, err := BlockFromRecord(e.BlockDeserializer, lastRecord)
+		block, err := BlockFromRecord(e.finishCtx, e.BlockDeserializer, lastRecord)
 		if err != nil {
 			return err
 		}

@@ -257,6 +257,7 @@ func TestRecoverFromWalWithStorage(t *testing.T) {
 // TestWalCreated tests that the epoch correctly writes to the WAL
 func TestWalCreatedProperly(t *testing.T) {
 	l := testutil.MakeLogger(t, 1)
+	ctx := context.Background()
 	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
 	storage := newInMemStorage()
 
@@ -295,7 +296,7 @@ func TestWalCreatedProperly(t *testing.T) {
 	records, err = e.WAL.ReadAll()
 	require.NoError(t, err)
 	require.Len(t, records, 1)
-	blockFromWal, err := BlockFromRecord(conf.BlockDeserializer, records[0])
+	blockFromWal, err := BlockFromRecord(ctx, conf.BlockDeserializer, records[0])
 	require.NoError(t, err)
 	block := <-bb.out
 	require.Equal(t, blockFromWal, block)
@@ -331,6 +332,7 @@ func TestWalCreatedProperly(t *testing.T) {
 // a block proposed by a node other than the epoch node
 func TestWalWritesBlockRecord(t *testing.T) {
 	l := testutil.MakeLogger(t, 1)
+	ctx := context.Background()
 	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
 	storage := newInMemStorage()
 	blockDeserializer := &blockDeserializer{}
@@ -385,13 +387,14 @@ func TestWalWritesBlockRecord(t *testing.T) {
 	records, err = e.WAL.ReadAll()
 	require.NoError(t, err)
 	require.Len(t, records, 1)
-	blockFromWal, err := BlockFromRecord(blockDeserializer, records[0])
+	blockFromWal, err := BlockFromRecord(ctx, blockDeserializer, records[0])
 	require.NoError(t, err)
 	require.Equal(t, block, blockFromWal)
 }
 
 func TestWalWritesFinalization(t *testing.T) {
 	l := testutil.MakeLogger(t, 1)
+	ctx := context.Background()
 	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
 	storage := newInMemStorage()
 	sigAggregrator := &testSignatureAggregator{}
@@ -425,7 +428,7 @@ func TestWalWritesFinalization(t *testing.T) {
 	records, err := e.WAL.ReadAll()
 	require.NoError(t, err)
 	require.Len(t, records, 2)
-	blockFromWal, err := BlockFromRecord(conf.BlockDeserializer, records[0])
+	blockFromWal, err := BlockFromRecord(ctx, conf.BlockDeserializer, records[0])
 	require.NoError(t, err)
 	require.Equal(t, firstBlock, blockFromWal)
 	expectedNotarizationRecord, err := newNotarizationRecord(l, sigAggregrator, firstBlock, nodes[0:quorum])
@@ -464,7 +467,7 @@ func TestWalWritesFinalization(t *testing.T) {
 	records, err = e.WAL.ReadAll()
 	require.NoError(t, err)
 	require.Len(t, records, 4)
-	blockFromWal, err = BlockFromRecord(conf.BlockDeserializer, records[2])
+	blockFromWal, err = BlockFromRecord(ctx, conf.BlockDeserializer, records[2])
 	require.NoError(t, err)
 	require.Equal(t, secondBlock, blockFromWal)
 	expectedNotarizationRecord, err = newNotarizationRecord(l, sigAggregrator, secondBlock, nodes[0:quorum])
