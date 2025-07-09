@@ -1397,8 +1397,16 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 		return nil
 	}
 
+	md := block.BlockHeader()
+
+	if e.Epoch != md.Epoch {
+		e.Logger.Debug("Got block message but the epoch mismatches our epoch",
+			zap.Uint64("our epoch", e.Epoch), zap.Uint64("block epoch", md.Epoch))
+		return nil
+	}
+
 	e.Logger.Verbo("Received block message",
-		zap.Stringer("from", from), zap.Uint64("round", block.BlockHeader().Round))
+		zap.Stringer("from", from), zap.Uint64("round", md.Round))
 
 	pendingBlocks := e.sched.Size()
 	if pendingBlocks > e.maxPendingBlocks {
@@ -1408,8 +1416,6 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 
 	vote := message.Vote
 	from = vote.Signature.Signer
-
-	md := block.BlockHeader()
 
 	e.Logger.Debug("Handling block message", zap.Stringer("digest", md.Digest), zap.Uint64("round", md.Round))
 
@@ -1829,11 +1835,6 @@ func (e *Epoch) verifyProposalIsPartOfOurChain(block Block) bool {
 		return false
 	}
 
-	if e.Epoch != bh.Epoch {
-		e.Logger.Debug("Got block message but the epoch mismatches our epoch",
-			zap.Uint64("our epoch", e.Epoch), zap.Uint64("block epoch", bh.Epoch))
-	}
-
 	var expectedSeq uint64
 	var expectedPrevDigest Digest
 
@@ -1851,7 +1852,6 @@ func (e *Epoch) verifyProposalIsPartOfOurChain(block Block) bool {
 			return false
 		}
 
-		// TODO: we need to take into account dummy blocks!
 		expectedSeq = bh.Seq
 		expectedPrevDigest = bh.Prev
 	}
