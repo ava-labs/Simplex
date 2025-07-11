@@ -177,7 +177,14 @@ func (r *ReplicationState) createReplicationTimeoutTask(start, end uint64, nodes
 func (r *ReplicationState) receivedReplicationResponse(data []QuorumRound, node NodeID) {
 	seqs := make([]uint64, 0, len(data))
 
+	// remove all sequences where we expect a finalization but only received a notarization
+	highestSeq := r.highestSequenceObserved.seq
 	for _, qr := range data {
+		if qr.GetSequence() <= highestSeq && qr.Finalization == nil && qr.Notarization != nil {
+			r.logger.Debug("Received notarization without finalization, skipping", zap.Stringer("from", node), zap.Uint64("seq", qr.GetSequence()))
+			continue
+		}
+
 		seqs = append(seqs, qr.GetSequence())
 	}
 
@@ -185,7 +192,7 @@ func (r *ReplicationState) receivedReplicationResponse(data []QuorumRound, node 
 
 	task := FindReplicationTask(r.timeoutHandler, node, seqs)
 	if task == nil {
-		r.logger.Debug("Could not find a timeout task associated with the replication response", zap.Stringer("from", node))
+		r.logger.Debug("Could not find a timeout task associated with the replication response", zap.Stringer("from", node), zap.Any("seqs", seqs))
 		return
 	}
 	r.timeoutHandler.RemoveTask(node, task.TaskID)

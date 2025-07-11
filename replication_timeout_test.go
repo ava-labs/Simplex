@@ -217,6 +217,24 @@ func incompleteReplicationResponseFilter(msg *simplex.Message, _, _ simplex.Node
 	return true
 }
 
+// modifies the replication response to only send every other quorum round
+func removeFinalizationsFromReplicationResponses(msg *simplex.Message, _, _ simplex.NodeID) bool {
+	if msg.VerifiedReplicationResponse != nil || msg.ReplicationResponse != nil {
+		newData := make([]simplex.VerifiedQuorumRound, 0, len(msg.VerifiedReplicationResponse.Data))
+
+		for i := 0; i < len(msg.VerifiedReplicationResponse.Data); i++ {
+			qr := msg.VerifiedReplicationResponse.Data[i]
+			// to keep the request well-formed, we remove the finalization
+			if qr.Notarization != nil {
+				qr.Finalization = nil
+			}
+			newData = append(newData, qr)
+		}
+		msg.VerifiedReplicationResponse.Data = newData
+	}
+	return true
+}
+
 // A node attempts to request blocks to replicate, but receives incomplete
 // responses from nodes.
 func TestReplicationRequestIncompleteResponses(t *testing.T) {
@@ -272,6 +290,75 @@ func TestReplicationRequestIncompleteResponses(t *testing.T) {
 	// assert the lagging node has not received any replication responses
 	require.Equal(t, uint64(0), laggingNode.storage.Height())
 	net.setAllNodesMessageFilter(incompleteReplicationResponseFilter)
+
+	// after the timeout, only normalNode2 should respond(but with incomplete data)
+	laggingNode.e.AdvanceTime(laggingNode.e.StartTime.Add(simplex.DefaultReplicationRequestTimeout / 2))
+	require.Equal(t, uint64(0), laggingNode.storage.Height())
+
+	laggingNode.e.AdvanceTime(laggingNode.e.StartTime.Add(simplex.DefaultReplicationRequestTimeout))
+	laggingNode.storage.waitForBlockCommit(0)
+
+	net.setAllNodesMessageFilter(allowAllMessages)
+	// timeout again, now all nodes will respond
+	laggingNode.e.AdvanceTime(laggingNode.e.StartTime.Add(simplex.DefaultReplicationRequestTimeout * 2))
+	laggingNode.storage.waitForBlockCommit(startSeq)
+}
+
+// TestReplicationRequestWithoutFinalization tests that a replication request is not marked as completed
+// if we are expecting a finalization but it is not present in the response.
+func TestReplicationRequestWithoutFinalization(t *testing.T) {
+	nodes := []simplex.NodeID{{1}, {2}, {3}, []byte("lagging")}
+	startSeq := uint64(8)
+
+	// node begins replication
+	bb := newTestControlledBlockBuilder(t)
+	net := newInMemNetwork(t, nodes)
+
+	storageData := createBlocks(t, nodes, &bb.testBlockBuilder, startSeq)
+
+	newNodeConfig := func(from simplex.NodeID) *testNodeConfig {
+		comm := newTestComm(from, net, rejectReplicationRequests)
+		return &testNodeConfig{
+			initialStorage:     storageData,
+			comm:               comm,
+			replicationEnabled: true,
+		}
+	}
+
+	mf := &testTimeoutMessageFilter{
+		t:                    t,
+		replicationResponses: make(chan struct{}, 1),
+	}
+
+	newSimplexNode(t, nodes[0], net, bb, newNodeConfig(nodes[0]))
+	normalNode2 := newSimplexNode(t, nodes[1], net, bb, newNodeConfig(nodes[1]))
+	normalNode2.e.Comm.(*testComm).setFilter(mf.receivedReplicationRequest)
+	newSimplexNode(t, nodes[2], net, bb, newNodeConfig(nodes[2]))
+	laggingNode := newSimplexNode(t, nodes[3], net, bb, &testNodeConfig{
+		replicationEnabled: true,
+	})
+
+	net.startInstances()
+	bb.triggerNewBlock()
+
+	// typically the lagging node would catch up here, but since we block
+	// replication requests, the lagging node will be forced to resend requests after a timeout
+	for i := 0; i <= int(startSeq); i++ {
+		for _, n := range net.instances {
+			if n.e.ID.Equals(laggingNode.e.ID) {
+				continue
+			}
+			n.storage.waitForBlockCommit(uint64(startSeq))
+		}
+	}
+
+	// this is done from normalNode2 since the lagging node will request
+	// seqs [0-startSeq/3] after the timeout
+	<-mf.replicationResponses
+
+	// assert the lagging node has not received any replication responses
+	require.Equal(t, uint64(0), laggingNode.storage.Height())
+	net.setAllNodesMessageFilter(removeFinalizationsFromReplicationResponses)
 
 	// after the timeout, only normalNode2 should respond(but with incomplete data)
 	laggingNode.e.AdvanceTime(laggingNode.e.StartTime.Add(simplex.DefaultReplicationRequestTimeout / 2))
