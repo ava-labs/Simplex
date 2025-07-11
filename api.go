@@ -91,7 +91,7 @@ type VerifiedBlock interface {
 	BlockHeader() BlockHeader
 
 	// Bytes returns a byte encoding of the block
-	Bytes() []byte
+	Bytes() ([]byte, error)
 }
 
 // BlockDeserializer deserializes blocks according to formatting
@@ -99,7 +99,7 @@ type VerifiedBlock interface {
 type BlockDeserializer interface {
 	// DeserializeBlock parses the given bytes and initializes a VerifiedBlock.
 	// Returns an error upon failure.
-	DeserializeBlock(bytes []byte) (Block, error)
+	DeserializeBlock(ctx context.Context, bytes []byte) (Block, error)
 }
 
 // Signature encodes a signature and the node that signed it, without the message it was signed on.
