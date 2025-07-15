@@ -54,7 +54,7 @@ type Storage interface {
 
 type Communication interface {
 
-	// Nodes returns all nodes known to the application.
+	// Nodes returns all nodes that participate in the epoch.
 	Nodes() []NodeID
 
 	// Send sends a message to the given destination node
