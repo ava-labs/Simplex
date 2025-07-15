@@ -174,6 +174,8 @@ func (e *Epoch) init() error {
 	e.cancelWaitForBlockNotarization = func() {}
 	e.finishCtx, e.finishFn = context.WithCancel(context.Background())
 	e.nodes = e.Comm.Nodes()
+	sortNodes(e.nodes)
+
 	e.quorumSize = Quorum(len(e.nodes))
 	e.rounds = make(map[uint64]*Round)
 	e.maxRoundWindow = DefaultMaxRoundWindow
@@ -2683,6 +2685,13 @@ func (e *Epoch) isRoundTooFarAhead(round uint64) bool {
 // isWithinMaxRoundWindow checks if [round] is within `maxRoundWindow` rounds ahead of the current round.
 func (e *Epoch) isWithinMaxRoundWindow(round uint64) bool {
 	return e.round < round && round-e.round < e.maxRoundWindow
+}
+
+// sortNodes sorts the nodes in place by their byte representations.
+func sortNodes(nodes []NodeID) {
+	slices.SortFunc(nodes, func(a, b NodeID) int {
+		return bytes.Compare(a[:], b[:])
+	})
 }
 
 func LeaderForRound(nodes []NodeID, r uint64) NodeID {
