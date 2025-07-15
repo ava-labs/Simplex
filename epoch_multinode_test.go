@@ -490,11 +490,11 @@ func newTestComm(from NodeID, net *inMemNetwork, messageFilter messageFilter) *t
 	}
 }
 
-func (c *testComm) ListNodes() []NodeID {
+func (c *testComm) Nodes() []NodeID {
 	return c.net.nodes
 }
 
-func (c *testComm) SendMessage(msg *Message, destination NodeID) {
+func (c *testComm) Send(msg *Message, destination NodeID) {
 	if !c.isMessagePermitted(msg, destination) {
 		return
 	}

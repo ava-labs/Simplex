@@ -151,7 +151,7 @@ func TestEpochIndexFinalization(t *testing.T) {
 	// when we receive that finalization, we should commit the rest of the finalizations for seqs
 	// 1 & 2
 
-	finalization, _ := newFinalizationRecord(t, conf.Logger, conf.SignatureAggregator, firstBlock, e.Comm.ListNodes())
+	finalization, _ := newFinalizationRecord(t, conf.Logger, conf.SignatureAggregator, firstBlock, e.Comm.Nodes())
 	injectTestFinalization(t, e, &finalization, nodes[1])
 
 	storage.waitForBlockCommit(2)
@@ -523,10 +523,10 @@ func TestEpochStartedTwice(t *testing.T) {
 }
 
 func advanceRoundFromEmpty(t *testing.T, e *Epoch) {
-	leader := LeaderForRound(e.Comm.ListNodes(), e.Metadata().Round)
+	leader := LeaderForRound(e.Comm.Nodes(), e.Metadata().Round)
 	require.False(t, e.ID.Equals(leader), "epoch cannot be the leader for the empty round")
 
-	emptyNote := newEmptyNotarization(e.Comm.ListNodes(), e.Metadata().Round, e.Metadata().Seq)
+	emptyNote := newEmptyNotarization(e.Comm.Nodes(), e.Metadata().Round, e.Metadata().Seq)
 	err := e.HandleMessage(&Message{
 		EmptyNotarization: emptyNote,
 	}, leader)
@@ -555,7 +555,7 @@ func notarizeAndFinalizeRound(t *testing.T, e *Epoch, bb *testBlockBuilder) (Ver
 func advanceRound(t *testing.T, e *Epoch, bb *testBlockBuilder, notarize bool, finalize bool) (VerifiedBlock, *Notarization) {
 	require.True(t, notarize || finalize, "must either notarize or finalize a round to advance")
 	nextSeqToCommit := e.Storage.Height()
-	nodes := e.Comm.ListNodes()
+	nodes := e.Comm.Nodes()
 	quorum := Quorum(len(nodes))
 	// leader is the proposer of the new block for the given round
 	leader := LeaderForRound(nodes, e.Metadata().Round)
@@ -1288,11 +1288,11 @@ func (t *testVerifier) Verify(_ []byte, _ []byte, _ NodeID) error {
 
 type noopComm []NodeID
 
-func (n noopComm) ListNodes() []NodeID {
+func (n noopComm) Nodes() []NodeID {
 	return n
 }
 
-func (n noopComm) SendMessage(*Message, NodeID) {
+func (n noopComm) Send(*Message, NodeID) {
 
 }
 

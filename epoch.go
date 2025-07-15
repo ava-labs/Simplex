@@ -173,7 +173,7 @@ func (e *Epoch) init() error {
 	e.monitor = NewMonitor(e.StartTime, e.Logger)
 	e.cancelWaitForBlockNotarization = func() {}
 	e.finishCtx, e.finishFn = context.WithCancel(context.Background())
-	e.nodes = e.Comm.ListNodes()
+	e.nodes = e.Comm.Nodes()
 	e.quorumSize = Quorum(len(e.nodes))
 	e.rounds = make(map[uint64]*Round)
 	e.maxRoundWindow = DefaultMaxRoundWindow
@@ -706,7 +706,7 @@ func (e *Epoch) maybeSendNotarizationOrFinalization(to NodeID, round uint64) {
 		msg := &Message{
 			Finalization: r.finalization,
 		}
-		e.Comm.SendMessage(msg, to)
+		e.Comm.Send(msg, to)
 		return
 	}
 
@@ -715,7 +715,7 @@ func (e *Epoch) maybeSendNotarizationOrFinalization(to NodeID, round uint64) {
 		msg := &Message{
 			Notarization: r.notarization,
 		}
-		e.Comm.SendMessage(msg, to)
+		e.Comm.Send(msg, to)
 		return
 	}
 }
@@ -2422,7 +2422,7 @@ func (e *Epoch) handleReplicationRequest(req *ReplicationRequest, from NodeID) e
 
 	response.Data = data
 	msg := &Message{VerifiedReplicationResponse: response}
-	e.Comm.SendMessage(msg, from)
+	e.Comm.Send(msg, from)
 	return nil
 }
 
