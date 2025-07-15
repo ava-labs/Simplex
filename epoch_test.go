@@ -1314,7 +1314,7 @@ func NewListenerComm(nodeIDs []NodeID) *listnerComm {
 	}
 }
 
-func (b *listnerComm) SendMessage(msg *Message, id NodeID) {
+func (b *listnerComm) Send(msg *Message, id NodeID) {
 	b.in <- msg
 }
 
