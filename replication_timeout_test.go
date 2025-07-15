@@ -5,6 +5,7 @@ package simplex_test
 
 import (
 	"bytes"
+	"sync"
 	"testing"
 	"time"
 
@@ -81,6 +82,8 @@ func (m *testTimeoutMessageFilter) failOnReplicationRequest(msg *simplex.Message
 	return true
 }
 
+// receiveReplicationRequest is used to filter out sending replication responses, and notify a channel
+// when a replication request is received.
 func (m *testTimeoutMessageFilter) receivedReplicationRequest(msg *simplex.Message, _, _ simplex.NodeID) bool {
 	if msg.VerifiedReplicationResponse != nil || msg.ReplicationResponse != nil {
 		m.replicationResponses <- struct{}{}
@@ -219,24 +222,6 @@ func incompleteReplicationResponseFilter(msg *simplex.Message, _, _ simplex.Node
 	return true
 }
 
-// modifies the replication response to only send every other quorum round
-func removeFinalizationsFromReplicationResponses(msg *simplex.Message, _, _ simplex.NodeID) bool {
-	if msg.VerifiedReplicationResponse != nil || msg.ReplicationResponse != nil {
-		newData := make([]simplex.VerifiedQuorumRound, 0, len(msg.VerifiedReplicationResponse.Data))
-
-		for i := 0; i < len(msg.VerifiedReplicationResponse.Data); i++ {
-			qr := msg.VerifiedReplicationResponse.Data[i]
-			// to keep the request well-formed, we remove the finalization
-			if qr.Notarization != nil {
-				qr.Finalization = nil
-			}
-			newData = append(newData, qr)
-		}
-		msg.VerifiedReplicationResponse.Data = newData
-	}
-	return true
-}
-
 // A node attempts to request blocks to replicate, but receives incomplete
 // responses from nodes.
 func TestReplicationRequestIncompleteResponses(t *testing.T) {
@@ -306,6 +291,54 @@ func TestReplicationRequestIncompleteResponses(t *testing.T) {
 	laggingNode.storage.waitForBlockCommit(startSeq)
 }
 
+type collectNotarizationComm struct {
+	lock          sync.Mutex
+	notarizations map[uint64]*simplex.Notarization
+	testNetworkCommunication
+}
+
+func newCollectNotarizationComm(nodeID simplex.NodeID, net *inMemNetwork, notarizations map[uint64]*simplex.Notarization) *collectNotarizationComm {
+	return &collectNotarizationComm{
+		notarizations:            notarizations,
+		testNetworkCommunication: newTestComm(nodeID, net, allowAllMessages),
+	}
+}
+
+func (c *collectNotarizationComm) SendMessage(msg *simplex.Message, to simplex.NodeID) {
+	if msg.Notarization != nil {
+		c.lock.Lock()
+		c.notarizations[msg.Notarization.Vote.Round] = msg.Notarization
+		c.lock.Unlock()
+	}
+	c.testNetworkCommunication.SendMessage(msg, to)
+}
+
+func (c *collectNotarizationComm) Broadcast(msg *simplex.Message) {
+	if msg.Notarization != nil {
+		c.lock.Lock()
+		c.notarizations[msg.Notarization.Vote.Round] = msg.Notarization
+		c.lock.Unlock()
+	}
+	c.testNetworkCommunication.Broadcast(msg)
+}
+
+func (c *collectNotarizationComm) removeFinalizationsFromReplicationResponses(msg *simplex.Message, _, _ simplex.NodeID) bool {
+	if msg.VerifiedReplicationResponse != nil || msg.ReplicationResponse != nil {
+		newData := make([]simplex.VerifiedQuorumRound, 0, len(msg.VerifiedReplicationResponse.Data))
+
+		for i := 0; i < len(msg.VerifiedReplicationResponse.Data); i++ {
+			qr := msg.VerifiedReplicationResponse.Data[i]
+			if qr.Finalization != nil && c.notarizations[qr.GetRound()] != nil {
+				qr.Finalization = nil
+				qr.Notarization = c.notarizations[qr.GetRound()]
+			}
+			newData = append(newData, qr)
+		}
+		msg.VerifiedReplicationResponse.Data = newData
+	}
+	return true
+}
+
 // TestReplicationRequestWithoutFinalization tests that a replication request is not marked as completed
 // if we are expecting a finalization but it is not present in the response.
 func TestReplicationRequestWithoutFinalization(t *testing.T) {
@@ -317,9 +350,12 @@ func TestReplicationRequestWithoutFinalization(t *testing.T) {
 	testConfig := &testNodeConfig{
 		replicationEnabled: true,
 	}
-	newSimplexNode(t, nodes[0], net, bb, testConfig)
-	newSimplexNode(t, nodes[1], net, bb, testConfig)
-	newSimplexNode(t, nodes[2], net, bb, testConfig)
+
+	notarizations := make(map[uint64]*simplex.Notarization)
+	notarizationComm := newCollectNotarizationComm(nodes[0], net, notarizations)
+	newSimplexNodeWithComm(t, nodes[0], net, bb, testConfig, notarizationComm)
+	newSimplexNodeWithComm(t, nodes[1], net, bb, testConfig, newCollectNotarizationComm(nodes[1], net, notarizations))
+	newSimplexNodeWithComm(t, nodes[2], net, bb, testConfig, newCollectNotarizationComm(nodes[2], net, notarizations))
 	laggingNode := newSimplexNode(t, nodes[3], net, laggingBb, testConfig)
 
 	epochTimes := make([]time.Time, 0, 4)
@@ -344,6 +380,7 @@ func TestReplicationRequestWithoutFinalization(t *testing.T) {
 			}
 		}
 	}
+
 	// all nodes excpet for lagging node have progressed and commited [endDisconnect - missedSeqs] blocks
 	for _, n := range net.instances[:3] {
 		require.Equal(t, endDisconnect-missedSeqs, n.storage.Height())
@@ -351,7 +388,7 @@ func TestReplicationRequestWithoutFinalization(t *testing.T) {
 	require.Equal(t, uint64(0), laggingNode.storage.Height())
 	require.Equal(t, uint64(0), laggingNode.e.Metadata().Round)
 	// lagging node reconnects
-	net.setAllNodesMessageFilter(removeFinalizationsFromReplicationResponses)
+	net.setAllNodesMessageFilter(notarizationComm.removeFinalizationsFromReplicationResponses)
 	net.Connect(nodes[3])
 	bb.triggerNewBlock()
 	for _, n := range net.instances {
@@ -360,18 +397,16 @@ func TestReplicationRequestWithoutFinalization(t *testing.T) {
 		}
 		n.storage.waitForBlockCommit(endDisconnect - missedSeqs)
 	}
-
-	// wait until the lagging nodes sends replication requests
 	time.Sleep(100 * time.Millisecond)
+	// wait until the lagging nodes sends replication requests
 	// due to the removeFinalizationsFromReplicationResponses message filter
 	// the lagging node should not have processed any replication requests
 	require.Equal(t, uint64(0), laggingNode.storage.Height())
 
 	// we should still have these replication requests in the timeout handler
 	laggingNode.e.AdvanceTime(laggingNode.e.StartTime.Add(simplex.DefaultReplicationRequestTimeout * 2))
-	time.Sleep(100 * time.Millisecond) // wait for the tick
+	time.Sleep(100 * time.Millisecond)
 	require.Equal(t, uint64(0), laggingNode.storage.Height())
-
 	// We should still have these replication requests in the timeout handler
 	// but now we allow the lagging node to process them
 	net.setAllNodesMessageFilter(allowAllMessages)

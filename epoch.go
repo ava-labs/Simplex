@@ -2431,14 +2431,19 @@ func (e *Epoch) locateQuorumRecord(seq uint64) *VerifiedQuorumRound {
 	for _, round := range e.rounds {
 		blockSeq := round.block.BlockHeader().Seq
 		if blockSeq == seq {
-			if round.finalization == nil && round.notarization == nil {
-				break
+			if round.finalization != nil {
+				return &VerifiedQuorumRound{
+					VerifiedBlock: round.block,
+					Finalization:  round.finalization,
+				}
+			} else if round.notarization != nil {
+				return &VerifiedQuorumRound{
+					VerifiedBlock: round.block,
+					Notarization:  round.notarization,
+				}
 			}
-			return &VerifiedQuorumRound{
-				VerifiedBlock: round.block,
-				Notarization:  round.notarization,
-				Finalization:  round.finalization,
-			}
+
+			break
 		}
 	}
 
