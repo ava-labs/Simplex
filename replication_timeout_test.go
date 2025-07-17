@@ -308,13 +308,13 @@ func newCollectNotarizationComm(nodeID simplex.NodeID, net *inMemNetwork, notari
 	}
 }
 
-func (c *collectNotarizationComm) SendMessage(msg *simplex.Message, to simplex.NodeID) {
+func (c *collectNotarizationComm) Send(msg *simplex.Message, to simplex.NodeID) {
 	if msg.Notarization != nil {
 		c.lock.Lock()
 		c.notarizations[msg.Notarization.Vote.Round] = msg.Notarization
 		c.lock.Unlock()
 	}
-	c.testNetworkCommunication.SendMessage(msg, to)
+	c.testNetworkCommunication.Send(msg, to)
 }
 
 func (c *collectNotarizationComm) Broadcast(msg *simplex.Message) {
