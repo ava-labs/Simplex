@@ -2438,7 +2438,7 @@ func (e *Epoch) locateQuorumRecord(seq uint64) *VerifiedQuorumRound {
 					Finalization:  round.finalization,
 				}
 			} else if round.notarization != nil {
-				if round == nil {
+				if notarizedRound == nil {
 					notarizedRound = round
 				} else if round.notarization.Vote.Round > notarizedRound.num {
 					// set the notarized round if it is the highest round we have seen so far
