@@ -144,11 +144,6 @@ type testNodeConfig struct {
 // newSimplexNode creates a new testNode and adds it to [net].
 func newSimplexNode(t *testing.T, nodeID NodeID, net *inMemNetwork, bb BlockBuilder, config *testNodeConfig) *testNode {
 	comm := newTestComm(nodeID, net, allowAllMessages)
-	return newSimplexNodeWithComm(t, nodeID, net, bb, config, comm)
-}
-
-// newSimplexNode creates a new testNode and adds it to [net].
-func newSimplexNodeWithComm(t *testing.T, nodeID NodeID, net *inMemNetwork, bb BlockBuilder, config *testNodeConfig, comm Communication) *testNode {
 	epochConfig := defaultTestNodeEpochConfig(t, nodeID, comm, bb)
 
 	if config != nil {

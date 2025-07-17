@@ -352,17 +352,24 @@ func TestReplicationRequestWithoutFinalization(t *testing.T) {
 	bb := newTestControlledBlockBuilder(t)
 	laggingBb := newTestControlledBlockBuilder(t)
 	net := newInMemNetwork(t, nodes)
-	testConfig := &testNodeConfig{
-		replicationEnabled: true,
-	}
 
 	notarizations := make(map[uint64]*simplex.Notarization)
 	mapLock := &sync.Mutex{}
+	testConfig := func(nodeID simplex.NodeID) *testNodeConfig {
+		return &testNodeConfig{
+			replicationEnabled: true,
+			comm:               newTestComm(nodeID, net, rejectReplicationRequests),
+		}
+	}
+
 	notarizationComm := newCollectNotarizationComm(nodes[0], net, notarizations, mapLock)
-	newSimplexNodeWithComm(t, nodes[0], net, bb, testConfig, notarizationComm)
-	newSimplexNodeWithComm(t, nodes[1], net, bb, testConfig, newCollectNotarizationComm(nodes[1], net, notarizations, mapLock))
-	newSimplexNodeWithComm(t, nodes[2], net, bb, testConfig, newCollectNotarizationComm(nodes[2], net, notarizations, mapLock))
-	laggingNode := newSimplexNode(t, nodes[3], net, laggingBb, testConfig)
+	newSimplexNode(t, nodes[0], net, bb, &testNodeConfig{
+		replicationEnabled: true,
+		comm:               newTestComm(nodes[0], net, rejectReplicationRequests),
+	})
+	newSimplexNode(t, nodes[1], net, bb, testConfig(nodes[1]))
+	newSimplexNode(t, nodes[2], net, bb, testConfig(nodes[2]))
+	laggingNode := newSimplexNode(t, nodes[3], net, laggingBb, testConfig(nodes[3]))
 
 	epochTimes := make([]time.Time, 0, 4)
 	for _, n := range net.instances {
