@@ -2442,8 +2442,6 @@ func (e *Epoch) locateQuorumRecord(seq uint64) *VerifiedQuorumRound {
 					Notarization:  round.notarization,
 				}
 			}
-
-			break
 		}
 	}
 
