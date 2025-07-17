@@ -69,7 +69,7 @@ func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundW
 		id:                   id,
 		maxRoundWindow:       maxRoundWindow,
 		receivedQuorumRounds: make(map[uint64]QuorumRound),
-		timeoutHandler:       NewTimeoutHandler(logger, start, comm.ListNodes()),
+		timeoutHandler:       NewTimeoutHandler(logger, start, comm.Nodes()),
 	}
 }
 
@@ -152,7 +152,7 @@ func (r *ReplicationState) sendRequestToNode(start uint64, end uint64, nodes []N
 
 	r.timeoutHandler.AddTask(task)
 
-	r.comm.SendMessage(msg, nodes[index])
+	r.comm.Send(msg, nodes[index])
 }
 
 func (r *ReplicationState) createReplicationTimeoutTask(start, end uint64, nodes []NodeID, index int) *TimeoutTask {

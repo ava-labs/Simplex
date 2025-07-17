@@ -507,11 +507,11 @@ which also can be configured on an epoch basis, is defined:
 ```go
 type Communication interface {
 	
-    // ListNodes returns all nodes known to the application.
-    ListNodes() []NodeID
+    // Nodes returns all nodes known to the application.
+    Nodes() []NodeID
 	
-    // SendMessage sends a message to the given destination node
-    SendMessage(msg Message, destination NodeID)
+    // Send sends a message to the given destination node
+    Send(msg Message, destination NodeID)
     
     // Broadcast broadcasts the given message to all nodes 
     Broadcast(msg Message)
@@ -721,9 +721,3 @@ BlockResponse {
   block Block
 }
 ```
-
-
-
-
-
-

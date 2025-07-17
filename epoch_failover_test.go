@@ -780,11 +780,11 @@ func newRebroadcastComm(nodes []NodeID) *rebroadcastComm {
 	}
 }
 
-func (r *rebroadcastComm) ListNodes() []NodeID {
+func (r *rebroadcastComm) Nodes() []NodeID {
 	return r.nodes
 }
 
-func (r *rebroadcastComm) SendMessage(*Message, NodeID) {
+func (r *rebroadcastComm) Send(*Message, NodeID) {
 
 }
 
@@ -887,7 +887,7 @@ func runCrashAndRestartExecution(t *testing.T, e *Epoch, bb *testBlockBuilder, w
 	cloneWAL := wal.Clone()
 	cloneStorage := storage.Clone()
 
-	nodes := e.Comm.ListNodes()
+	nodes := e.Comm.Nodes()
 
 	// Clone the block builder
 	bbAfterCrash := &testBlockBuilder{
