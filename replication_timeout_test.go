@@ -292,15 +292,19 @@ func TestReplicationRequestIncompleteResponses(t *testing.T) {
 }
 
 type collectNotarizationComm struct {
-	lock          sync.Mutex
+	lock          *sync.Mutex
 	notarizations map[uint64]*simplex.Notarization
 	testNetworkCommunication
+
+	replicationResponses chan struct{}
 }
 
-func newCollectNotarizationComm(nodeID simplex.NodeID, net *inMemNetwork, notarizations map[uint64]*simplex.Notarization) *collectNotarizationComm {
+func newCollectNotarizationComm(nodeID simplex.NodeID, net *inMemNetwork, notarizations map[uint64]*simplex.Notarization, lock *sync.Mutex) *collectNotarizationComm {
 	return &collectNotarizationComm{
 		notarizations:            notarizations,
 		testNetworkCommunication: newTestComm(nodeID, net, allowAllMessages),
+		replicationResponses:     make(chan struct{}, 3),
+		lock:                     lock,
 	}
 }
 
@@ -322,7 +326,7 @@ func (c *collectNotarizationComm) Broadcast(msg *simplex.Message) {
 	c.testNetworkCommunication.Broadcast(msg)
 }
 
-func (c *collectNotarizationComm) removeFinalizationsFromReplicationResponses(msg *simplex.Message, _, _ simplex.NodeID) bool {
+func (c *collectNotarizationComm) removeFinalizationsFromReplicationResponses(msg *simplex.Message, from, to simplex.NodeID) bool {
 	if msg.VerifiedReplicationResponse != nil || msg.ReplicationResponse != nil {
 		newData := make([]simplex.VerifiedQuorumRound, 0, len(msg.VerifiedReplicationResponse.Data))
 
@@ -335,6 +339,7 @@ func (c *collectNotarizationComm) removeFinalizationsFromReplicationResponses(ms
 			newData = append(newData, qr)
 		}
 		msg.VerifiedReplicationResponse.Data = newData
+		c.replicationResponses <- struct{}{}
 	}
 	return true
 }
@@ -352,10 +357,11 @@ func TestReplicationRequestWithoutFinalization(t *testing.T) {
 	}
 
 	notarizations := make(map[uint64]*simplex.Notarization)
-	notarizationComm := newCollectNotarizationComm(nodes[0], net, notarizations)
+	mapLock := &sync.Mutex{}
+	notarizationComm := newCollectNotarizationComm(nodes[0], net, notarizations, mapLock)
 	newSimplexNodeWithComm(t, nodes[0], net, bb, testConfig, notarizationComm)
-	newSimplexNodeWithComm(t, nodes[1], net, bb, testConfig, newCollectNotarizationComm(nodes[1], net, notarizations))
-	newSimplexNodeWithComm(t, nodes[2], net, bb, testConfig, newCollectNotarizationComm(nodes[2], net, notarizations))
+	newSimplexNodeWithComm(t, nodes[1], net, bb, testConfig, newCollectNotarizationComm(nodes[1], net, notarizations, mapLock))
+	newSimplexNodeWithComm(t, nodes[2], net, bb, testConfig, newCollectNotarizationComm(nodes[2], net, notarizations, mapLock))
 	laggingNode := newSimplexNode(t, nodes[3], net, laggingBb, testConfig)
 
 	epochTimes := make([]time.Time, 0, 4)
@@ -395,9 +401,11 @@ func TestReplicationRequestWithoutFinalization(t *testing.T) {
 		if n.e.ID.Equals(laggingNode.e.ID) {
 			continue
 		}
+
 		n.storage.waitForBlockCommit(endDisconnect - missedSeqs)
+		<-notarizationComm.replicationResponses
 	}
-	time.Sleep(100 * time.Millisecond)
+
 	// wait until the lagging nodes sends replication requests
 	// due to the removeFinalizationsFromReplicationResponses message filter
 	// the lagging node should not have processed any replication requests
@@ -405,7 +413,13 @@ func TestReplicationRequestWithoutFinalization(t *testing.T) {
 
 	// we should still have these replication requests in the timeout handler
 	laggingNode.e.AdvanceTime(laggingNode.e.StartTime.Add(simplex.DefaultReplicationRequestTimeout * 2))
-	time.Sleep(100 * time.Millisecond)
+
+	for range net.instances[:3] {
+		// the lagging node should have sent replication requests
+		// and the normal nodes should have responded
+		<-notarizationComm.replicationResponses
+	}
+
 	require.Equal(t, uint64(0), laggingNode.storage.Height())
 	// We should still have these replication requests in the timeout handler
 	// but now we allow the lagging node to process them
