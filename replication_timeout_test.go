@@ -358,14 +358,14 @@ func TestReplicationRequestWithoutFinalization(t *testing.T) {
 	testConfig := func(nodeID simplex.NodeID) *testNodeConfig {
 		return &testNodeConfig{
 			replicationEnabled: true,
-			comm:               newTestComm(nodeID, net, rejectReplicationRequests),
+			comm:               newCollectNotarizationComm(nodeID, net, notarizations, mapLock),
 		}
 	}
 
 	notarizationComm := newCollectNotarizationComm(nodes[0], net, notarizations, mapLock)
 	newSimplexNode(t, nodes[0], net, bb, &testNodeConfig{
 		replicationEnabled: true,
-		comm:               newTestComm(nodes[0], net, rejectReplicationRequests),
+		comm:               notarizationComm,
 	})
 	newSimplexNode(t, nodes[1], net, bb, testConfig(nodes[1]))
 	newSimplexNode(t, nodes[2], net, bb, testConfig(nodes[2]))
