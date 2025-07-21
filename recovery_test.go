@@ -206,7 +206,9 @@ func TestRecoverFromWalWithStorage(t *testing.T) {
 		QCDeserializer:      &testQCDeserializer{t: t},
 	}
 
-	storage.Index(newTestBlock(ProtocolMetadata{Seq: 0, Round: 0, Epoch: 0}), Finalization{})
+	err := storage.Index(ctx, newTestBlock(ProtocolMetadata{Seq: 0, Round: 0, Epoch: 0}), Finalization{})
+	require.NoError(t, err)
+
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
 	require.Equal(t, uint64(1), e.Metadata().Round)
@@ -641,9 +643,9 @@ func TestRecoveryBlocksIndexed(t *testing.T) {
 	finalization2, _ := newFinalizationRecord(t, l, sigAggregrator, secondBlock, nodes[0:quorum])
 	fCer3, _ := newFinalizationRecord(t, l, sigAggregrator, thirdBlock, nodes[0:quorum])
 
-	conf.Storage.Index(firstBlock, finalization1)
-	conf.Storage.Index(secondBlock, finalization2)
-	conf.Storage.Index(thirdBlock, fCer3)
+	conf.Storage.Index(ctx, firstBlock, finalization1)
+	conf.Storage.Index(ctx, secondBlock, finalization2)
+	conf.Storage.Index(ctx, thirdBlock, fCer3)
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
@@ -658,6 +660,7 @@ func TestRecoveryBlocksIndexed(t *testing.T) {
 
 func TestEpochCorrectlyInitializesMetadataFromStorage(t *testing.T) {
 	l := testutil.MakeLogger(t, 1)
+	ctx := context.Background()
 	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
 	storage := newInMemStorage()
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
@@ -676,7 +679,7 @@ func TestEpochCorrectlyInitializesMetadataFromStorage(t *testing.T) {
 	}
 
 	block := newTestBlock(ProtocolMetadata{Seq: 0, Round: 0, Epoch: 0})
-	conf.Storage.Index(block, Finalization{})
+	conf.Storage.Index(ctx, block, Finalization{})
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
 	require.Equal(t, uint64(1), e.Storage.Height())
@@ -691,11 +694,13 @@ func TestEpochCorrectlyInitializesMetadataFromStorage(t *testing.T) {
 func TestRecoveryAsLeader(t *testing.T) {
 	l := testutil.MakeLogger(t, 1)
 	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
+	ctx := context.Background()
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	finalizedBlocks := createBlocks(t, nodes, bb, 4)
 	storage := newInMemStorage()
 	for _, finalizedBlock := range finalizedBlocks {
-		storage.Index(finalizedBlock.VerifiedBlock, finalizedBlock.Finalization)
+		err := storage.Index(ctx, finalizedBlock.VerifiedBlock, finalizedBlock.Finalization)
+		require.NoError(t, err)
 	}
 
 	conf := EpochConfig{
@@ -735,7 +740,8 @@ func TestRecoveryReVerifiesBlocks(t *testing.T) {
 	finalizedBlocks := createBlocks(t, nodes, bb, 4)
 	storage := newInMemStorage()
 	for _, finalizedBlock := range finalizedBlocks {
-		storage.Index(finalizedBlock.VerifiedBlock, finalizedBlock.Finalization)
+		err := storage.Index(ctx, finalizedBlock.VerifiedBlock, finalizedBlock.Finalization)
+		require.NoError(t, err)
 	}
 
 	deserializer := &blockDeserializer{

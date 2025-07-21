@@ -49,7 +49,7 @@ type Storage interface {
 	// Retrieve returns the block and finalization at [seq].
 	// If [seq] is not found, returns false.
 	Retrieve(seq uint64) (VerifiedBlock, Finalization, bool)
-	Index(block VerifiedBlock, certificate Finalization)
+	Index(ctx context.Context, block VerifiedBlock, certificate Finalization) error
 }
 
 type Communication interface {
