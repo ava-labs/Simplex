@@ -1542,8 +1542,7 @@ func (e *Epoch) processFinalizedBlock(block Block, finalization Finalization) er
 		round.finalization = &finalization
 		if err := e.indexFinalizations(round.num); err != nil {
 			e.Logger.Error("Failed to index finalization", zap.Error(err))
-			e.haltedError = err
-			return nil
+			return err
 		}
 
 		return e.processReplicationState()
