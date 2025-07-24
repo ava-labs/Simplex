@@ -1454,7 +1454,7 @@ func (mem *InMemStorage) Clone() *InMemStorage {
 			panic(fmt.Sprintf("failed retrieving block %d", seq))
 		}
 		mem.lock.Unlock()
-		clone.Index(block, finalization)
+		clone.Index(context.Background(), block, finalization)
 	}
 	return clone
 }
@@ -1494,7 +1494,7 @@ func (mem *InMemStorage) Retrieve(seq uint64) (VerifiedBlock, Finalization, bool
 	return item.VerifiedBlock, item.Finalization, true
 }
 
-func (mem *InMemStorage) Index(block VerifiedBlock, certificate Finalization) {
+func (mem *InMemStorage) Index(ctx context.Context, block VerifiedBlock, certificate Finalization) error {
 	mem.lock.Lock()
 	defer mem.lock.Unlock()
 
@@ -1512,6 +1512,7 @@ func (mem *InMemStorage) Index(block VerifiedBlock, certificate Finalization) {
 	}
 
 	mem.signal.Signal()
+	return nil
 }
 
 type blockDeserializer struct {

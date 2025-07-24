@@ -2,6 +2,7 @@ package simplex_test
 
 import (
 	"bytes"
+	"context"
 	"testing"
 
 	"github.com/ava-labs/simplex"
@@ -14,13 +15,15 @@ func TestReplicationRequestIndexedBlocks(t *testing.T) {
 	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
 	comm := NewListenerComm(nodes)
+	ctx := context.Background()
 	conf := defaultTestNodeEpochConfig(t, nodes[0], comm, bb)
 	conf.ReplicationEnabled = true
 
 	numBlocks := uint64(10)
 	seqs := createBlocks(t, nodes, bb, numBlocks)
 	for _, data := range seqs {
-		conf.Storage.Index(data.VerifiedBlock, data.Finalization)
+		err := conf.Storage.Index(ctx, data.VerifiedBlock, data.Finalization)
+		require.NoError(t, err)
 	}
 	e, err := simplex.NewEpoch(conf)
 	require.NoError(t, err)

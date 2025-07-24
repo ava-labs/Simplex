@@ -925,7 +925,10 @@ func (e *Epoch) persistFinalization(finalization Finalization) error {
 	startRound := e.round
 	nextSeqToCommit := e.Storage.Height()
 	if finalization.Finalization.Seq == nextSeqToCommit {
-		e.indexFinalizations(finalization.Finalization.Round)
+		if err := e.indexFinalizations(finalization.Finalization.Round); err != nil {
+			e.Logger.Error("Failed to index finalizations", zap.Error(err))
+			return err
+		}
 	} else {
 		recordBytes := NewQuorumRecord(finalization.QC.Bytes(), finalization.Finalization.Bytes(), record.FinalizationRecordType)
 		if err := e.WAL.Append(recordBytes); err != nil {
@@ -1030,7 +1033,7 @@ func (e *Epoch) minRoundInRoundsMap() uint64 {
 	return minRound
 }
 
-func (e *Epoch) indexFinalizations(startRound uint64) {
+func (e *Epoch) indexFinalizations(startRound uint64) error {
 	maxRound := e.maxRoundInRoundsMap()
 
 	for currentRound := startRound; currentRound <= maxRound; currentRound++ {
@@ -1045,12 +1048,14 @@ func (e *Epoch) indexFinalizations(startRound uint64) {
 		if round.finalization.Finalization.Seq != e.Storage.Height() {
 			e.Logger.Debug("Finalization does not correspond to the next sequence to commit",
 				zap.Uint64("seq", round.finalization.Finalization.Seq), zap.Uint64("height", e.Storage.Height()))
-			return
+			return nil
 		}
 
 		finalization := *round.finalization
 		block := round.block
-		e.indexFinalization(block, finalization)
+		if err := e.indexFinalization(block, finalization); err != nil {
+			return err
+		}
 
 		e.deleteRounds(round.num)
 		// Clean up the future messages - Remove all messages we may have stored for the round
@@ -1059,10 +1064,13 @@ func (e *Epoch) indexFinalizations(startRound uint64) {
 			delete(messagesFromNode, finalization.Finalization.Round)
 		}
 	}
+	return nil
 }
 
-func (e *Epoch) indexFinalization(block VerifiedBlock, finalization Finalization) {
-	e.Storage.Index(block, finalization)
+func (e *Epoch) indexFinalization(block VerifiedBlock, finalization Finalization) error {
+	if err := e.Storage.Index(e.finishCtx, block, finalization); err != nil {
+		return err
+	}
 	e.Logger.Info("Committed block",
 		zap.Uint64("round", finalization.Finalization.Round),
 		zap.Uint64("sequence", finalization.Finalization.Seq),
@@ -1076,6 +1084,7 @@ func (e *Epoch) indexFinalization(block VerifiedBlock, finalization Finalization
 	// However, we may have not witnessed a notarization.
 	// Regardless of that, we can safely progress to the round succeeding the finalization.
 	e.progressRoundsDueToCommit(finalization.Finalization.Round + 1)
+	return nil
 }
 
 func (e *Epoch) maybeAssembleEmptyNotarization() error {
@@ -1531,7 +1540,11 @@ func (e *Epoch) processFinalizedBlock(block Block, finalization Finalization) er
 			return e.processFinalizedBlock(block, finalization)
 		}
 		round.finalization = &finalization
-		e.indexFinalizations(round.num)
+		if err := e.indexFinalizations(round.num); err != nil {
+			e.Logger.Error("Failed to index finalization", zap.Error(err))
+			return err
+		}
+
 		return e.processReplicationState()
 	}
 
@@ -1734,7 +1747,11 @@ func (e *Epoch) createFinalizedBlockVerificationTask(block Block, finalization F
 			return md.Digest
 		}
 
-		e.indexFinalization(verifiedBlock, finalization)
+		if err := e.indexFinalization(verifiedBlock, finalization); err != nil {
+			e.haltedError = err
+			e.Logger.Error("Failed to index finalization", zap.Error(err))
+			return md.Digest
+		}
 		err = e.processReplicationState()
 
 		if err != nil {
