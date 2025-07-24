@@ -876,10 +876,6 @@ func (e *Epoch) maybeCollectFinalization(round *Round) error {
 		return nil
 	}
 
-	return e.assembleFinalization(round)
-}
-
-func (e *Epoch) assembleFinalization(round *Round) error {
 	// Divide finalizations into sets that agree on the same metadata
 	finalizationsByMD := make(map[string][]*FinalizeVote)
 
@@ -902,7 +898,11 @@ func (e *Epoch) assembleFinalization(round *Round) error {
 		return nil
 	}
 
-	finalization, err := NewFinalization(e.Logger, e.SignatureAggregator, finalizations)
+	return e.assembleFinalization(round, finalizations)
+}
+
+func (e *Epoch) assembleFinalization(round *Round, finalizationVotes []*FinalizeVote) error {
+	finalization, err := NewFinalization(e.Logger, e.SignatureAggregator, finalizationVotes)
 	if err != nil {
 		return err
 	}
