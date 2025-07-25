@@ -1649,6 +1649,7 @@ func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote)
 		verifiedBlock, err := block.Verify(context.Background())
 		if err != nil {
 			e.Logger.Debug("Failed verifying block", zap.Error(err))
+			e.triggerEmptyBlockNotarization(md.Round, fmt.Sprintf("Invalid block: %s", err))
 			return md.Digest
 		}
 
@@ -2051,9 +2052,10 @@ func (e *Epoch) metadata() ProtocolMetadata {
 	return md
 }
 
-func (e *Epoch) triggerProposalWaitTimeExpired(round uint64) {
+func (e *Epoch) triggerEmptyBlockNotarization(round uint64, reason string) {
 	leader := LeaderForRound(e.nodes, round)
-	e.Logger.Info("Timed out on block agreement", zap.Uint64("round", round), zap.Stringer("leader", leader))
+	e.Logger.Info("Agreeing on an empty block",
+		zap.String("reason", reason), zap.Uint64("round", round), zap.Stringer("leader", leader))
 	// TODO: Actually start the empty block agreement
 
 	md := e.metadata()
@@ -2125,7 +2127,7 @@ func (e *Epoch) monitorProgress(round uint64) {
 	proposalWaitTimeExpired := func() {
 		e.lock.Lock()
 		defer e.lock.Unlock()
-		e.triggerProposalWaitTimeExpired(round)
+		e.triggerEmptyBlockNotarization(round, "Timed out on block agreement")
 	}
 
 	var cancelled atomic.Bool

@@ -195,9 +195,11 @@ func (block *oneTimeVerifiedBlock) Verify(ctx context.Context) (VerifiedBlock, e
 
 	vb, err := block.Block.Verify(ctx)
 
-	block.otv.digests[digest] = verifiedResult{
-		vb:  vb,
-		err: err,
+	if err == nil {
+		block.otv.digests[digest] = verifiedResult{
+			vb:  vb,
+			err: err,
+		}
 	}
 
 	return vb, err
