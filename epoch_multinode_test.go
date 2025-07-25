@@ -144,7 +144,6 @@ type testNodeConfig struct {
 // newSimplexNode creates a new testNode and adds it to [net].
 func newSimplexNode(t *testing.T, nodeID NodeID, net *inMemNetwork, bb BlockBuilder, config *testNodeConfig) *testNode {
 	comm := newTestComm(nodeID, net, allowAllMessages)
-
 	epochConfig := defaultTestNodeEpochConfig(t, nodeID, comm, bb)
 
 	if config != nil {
@@ -475,6 +474,13 @@ func onlyAllowEmptyRoundMessages(msg *Message, _, _ NodeID) bool {
 	return false
 }
 
+type testNetworkCommunication interface {
+	Communication
+	setFilter(filter messageFilter)
+}
+
+var _ testNetworkCommunication = (*testComm)(nil)
+
 type testComm struct {
 	from          NodeID
 	net           *inMemNetwork
@@ -648,7 +654,7 @@ func (n *inMemNetwork) addNode(node *testNode) {
 
 func (n *inMemNetwork) setAllNodesMessageFilter(filter messageFilter) {
 	for _, instance := range n.instances {
-		instance.e.Comm.(*testComm).setFilter(filter)
+		instance.e.Comm.(testNetworkCommunication).setFilter(filter)
 	}
 }
 
