@@ -1158,6 +1158,93 @@ func TestMetadataProposedRound(t *testing.T) {
 	require.Zero(t, e.Metadata().Seq)
 }
 
+func TestEpochVotesForEquivocatedVotes(t *testing.T) {
+	l := testutil.MakeLogger(t, 1)
+	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
+	storage := newInMemStorage()
+
+	wal := newTestWAL(t)
+
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+
+	recordedMessages := make(chan *Message, 100)
+	comm := &recordingComm{Communication: noopComm(nodes), BroadcastMessages: recordedMessages}
+
+	conf := EpochConfig{
+		MaxProposalWait:     DefaultMaxProposalWaitTime,
+		Logger:              l,
+		ID:                  nodes[3],
+		Signer:              &testSigner{},
+		WAL:                 wal,
+		Verifier:            &testVerifier{},
+		Storage:             storage,
+		Comm:                comm,
+		BlockBuilder:        bb,
+		SignatureAggregator: &testSignatureAggregator{},
+	}
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+
+	require.NoError(t, e.Start())
+
+	md := e.Metadata()
+	_, ok := bb.BuildBlock(context.Background(), md)
+	require.True(t, ok)
+
+	block := <-bb.out
+
+	// the leader and this node are sending the votes for the same block
+	leader := nodes[0]
+	vote, err := newTestVote(block, leader)
+	require.NoError(t, err)
+
+	err = e.HandleMessage(&Message{
+		BlockMessage: &BlockMessage{
+			Vote:  *vote,
+			Block: block,
+		},
+	}, leader)
+	require.NoError(t, err)
+
+	// node 1 sends a vote for a different block
+	equivocatedBlock := newTestBlock(block.metadata)
+	injectTestVote(t, e, equivocatedBlock, nodes[1])
+
+	// We should not have sent a notarization yet, since we have not received enough votes for the block we received from the leader
+	require.Never(t, func() bool {
+		select {
+		case msg := <-recordedMessages:
+			if msg.Notarization != nil {
+				return true
+			}
+		default:
+			return false
+		}
+		return false
+	}, time.Millisecond*500, time.Millisecond*100)
+
+	// node 2 sends a vote for the same block as the leader
+	injectTestVote(t, e, block, nodes[2])
+
+	// Wait for the notarization to be sent
+	require.Eventually(t, func() bool {
+		select {
+		case msg := <-recordedMessages:
+			if msg.Notarization != nil {
+				for _, signer := range msg.Notarization.QC.(testQC).Signers() {
+					require.NotEqual(t, nodes[1], signer, "Node 1 should not be in the notarization QC")
+				}
+				return true
+			}
+		default:
+			return false
+		}
+		return false
+	}, time.Second, time.Millisecond*10)
+
+}
+
 type AnyBlock interface {
 	// BlockHeader encodes a succinct and collision-free representation of a block.
 	BlockHeader() BlockHeader
