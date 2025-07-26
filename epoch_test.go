@@ -1354,6 +1354,7 @@ type testBlock struct {
 	digest            [32]byte
 	onVerify          func()
 	verificationDelay chan struct{}
+	verificationError error
 }
 
 func (tb *testBlock) Verify(context.Context) (VerifiedBlock, error) {
@@ -1362,6 +1363,11 @@ func (tb *testBlock) Verify(context.Context) (VerifiedBlock, error) {
 			tb.onVerify()
 		}
 	}()
+
+	if tb.verificationError != nil {
+		return nil, tb.verificationError
+	}
+
 	if tb.verificationDelay == nil {
 		return tb, nil
 	}

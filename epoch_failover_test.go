@@ -10,11 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ava-labs/simplex/testutil"
-
 	"github.com/ava-labs/simplex"
 	. "github.com/ava-labs/simplex"
-
+	"github.com/ava-labs/simplex/record"
+	"github.com/ava-labs/simplex/testutil"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap/zapcore"
 )
@@ -655,6 +654,73 @@ func TestEpochLeaderFailoverTwice(t *testing.T) {
 			require.Equal(t, uint64(3), storage.Height())
 		})
 	})
+}
+
+func TestEpochLeaderFailoverBecauseOfBadBlock(t *testing.T) {
+	l := testutil.MakeLogger(t, 1)
+
+	bb := &testBlockBuilder{out: make(chan *testBlock, 1), blockShouldBeBuilt: make(chan struct{}, 1)}
+	storage := newInMemStorage()
+
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+
+	wal := newTestWAL(t)
+
+	recordedMessages := make(chan *Message, 100)
+	comm := &recordingComm{Communication: noopComm(nodes), BroadcastMessages: recordedMessages}
+
+	start := time.Now()
+	conf := EpochConfig{
+		MaxProposalWait:     DefaultMaxProposalWaitTime,
+		StartTime:           start,
+		Logger:              l,
+		ID:                  nodes[3],
+		Signer:              &testSigner{},
+		WAL:                 wal,
+		Verifier:            &testVerifier{},
+		Storage:             storage,
+		Comm:                comm,
+		BlockBuilder:        bb,
+		SignatureAggregator: &testSignatureAggregator{},
+	}
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+
+	require.NoError(t, e.Start())
+
+	notarizeAndFinalizeRound(t, e, bb)
+
+	md := e.Metadata()
+	_, ok := bb.BuildBlock(context.Background(), md)
+	require.True(t, ok)
+	block := <-bb.out
+	block.verificationError = fmt.Errorf("invalid block")
+
+	vote, err := newTestVote(block, nodes[1])
+	require.NoError(t, err)
+	err = e.HandleMessage(&Message{
+		BlockMessage: &BlockMessage{
+			Vote:  *vote,
+			Block: block,
+		},
+	}, nodes[1])
+	require.NoError(t, err)
+
+	md.Seq--
+	waitForBlockProposerTimeout(t, e, &start, 1)
+	emptyVoteFrom1 := createEmptyVote(md, nodes[0])
+	emptyVoteFrom2 := createEmptyVote(md, nodes[2])
+
+	e.HandleMessage(&Message{
+		EmptyVoteMessage: emptyVoteFrom1,
+	}, nodes[0])
+	e.HandleMessage(&Message{
+		EmptyVoteMessage: emptyVoteFrom2,
+	}, nodes[2])
+
+	require.Equal(t, record.EmptyNotarizationRecordType, wal.assertNotarization(1))
+	notarizeAndFinalizeRound(t, e, bb)
 }
 
 func createEmptyVote(md ProtocolMetadata, signer NodeID) *EmptyVote {
