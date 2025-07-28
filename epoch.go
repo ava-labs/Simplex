@@ -1185,22 +1185,21 @@ func (e *Epoch) maybeCollectNotarization() error {
 		return e.maybeLoadFutureMessages()
 	}
 
-	// TODO: store votes before receiving the block
 	block := e.rounds[e.round].block
-	expectedDigest := block.BlockHeader().Digest
+	md := block.BlockHeader()
 
-	// Ensure we have enough votes for the same digest
-	var voteCountForOurDigest int
+	// Ensure we have enough votes for the same block header.
+	var voteCountForOurBlock int
 	for _, vote := range votesForCurrentRound {
-		if bytes.Equal(expectedDigest[:], vote.Vote.Digest[:]) {
-			voteCountForOurDigest++
+		if md == vote.Vote.BlockHeader {
+			voteCountForOurBlock++
 		}
 	}
 
-	if voteCountForOurDigest < e.quorumSize {
-		e.Logger.Warn("Counting votes for the digest we received from the leader",
+	if voteCountForOurBlock < e.quorumSize {
+		e.Logger.Warn("Counting votes for the block we received from the leader",
 			zap.Uint64("round", e.round),
-			zap.Int("voteForOurDigests", voteCountForOurDigest),
+			zap.Int("voteForOurBlock", voteCountForOurBlock),
 			zap.Int("total votes", voteCount))
 
 		// As a last resort, check if we have received a notarization message for this round
