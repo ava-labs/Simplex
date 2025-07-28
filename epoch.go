@@ -2446,17 +2446,31 @@ func (e *Epoch) handleReplicationRequest(req *ReplicationRequest, from NodeID) e
 
 // locateQuorumRecord locates a block with a notarization or finalization in the epochs memory or storage.
 func (e *Epoch) locateQuorumRecord(seq uint64) *VerifiedQuorumRound {
+	var notarizedRound *Round
 	for _, round := range e.rounds {
 		blockSeq := round.block.BlockHeader().Seq
 		if blockSeq == seq {
-			if round.finalization == nil && round.notarization == nil {
-				break
+			if round.finalization != nil {
+				return &VerifiedQuorumRound{
+					VerifiedBlock: round.block,
+					Finalization:  round.finalization,
+				}
+			} else if round.notarization != nil {
+				if notarizedRound == nil {
+					notarizedRound = round
+				} else if round.notarization.Vote.Round > notarizedRound.num {
+					// set the notarized round if it is the highest round we have seen so far
+					notarizedRound = round
+				}
 			}
-			return &VerifiedQuorumRound{
-				VerifiedBlock: round.block,
-				Notarization:  round.notarization,
-				Finalization:  round.finalization,
-			}
+		}
+	}
+
+	if notarizedRound != nil {
+		// we have a notarization, but no finalization, so we return the notarization
+		return &VerifiedQuorumRound{
+			VerifiedBlock: notarizedRound.block,
+			Notarization:  notarizedRound.notarization,
 		}
 	}
 
