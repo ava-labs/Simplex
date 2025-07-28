@@ -56,6 +56,11 @@ func (d Digest) String() string {
 	return fmt.Sprintf("%x...", (d)[:digestFormatSize])
 }
 
+func (bh BlockHeader) String() string {
+	return fmt.Sprintf("BlockHeader{Digest: %s, Prev: %s, Epoch: %d, Round: %d, Seq: %d, Version: %d}",
+		bh.Digest.String(), bh.Prev.String(), bh.Epoch, bh.Round, bh.Seq, bh.Version)
+}
+
 func (bh *BlockHeader) Equals(other *BlockHeader) bool {
 	return bytes.Equal(bh.Digest[:], other.Digest[:]) &&
 		bytes.Equal(bh.Prev[:], other.Prev[:]) && bh.Epoch == other.Epoch &&

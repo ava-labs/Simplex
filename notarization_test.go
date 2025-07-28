@@ -25,6 +25,7 @@ func TestNewNotarization(t *testing.T) {
 		block                simplex.VerifiedBlock
 		expectError          error
 		signatureAggregator  simplex.SignatureAggregator
+		expectedSigners      []simplex.NodeID
 	}{
 		{
 			name: "valid notarization",
@@ -41,6 +42,29 @@ func TestNewNotarization(t *testing.T) {
 			block:               testBlock,
 			signatureAggregator: &testSignatureAggregator{},
 			expectError:         nil,
+			expectedSigners: []simplex.NodeID{
+				{1}, {2}, {3}, {4}, {5},
+			},
+		},
+		{
+			name: "diverging votes",
+			votesForCurrentRound: func() map[string]*simplex.Vote {
+				votes := make(map[string]*simplex.Vote)
+				nodeIds := [][]byte{{1}, {2}, {3}, {4}, {5}}
+				for _, nodeId := range nodeIds {
+					vote, err := newTestVote(testBlock, nodeId)
+					require.NoError(t, err)
+					votes[string(nodeId)] = vote
+				}
+				votes[string(simplex.NodeID{2})].Vote.Digest[0]++ // Diverging vote
+				return votes
+			}(),
+			block:               testBlock,
+			signatureAggregator: &testSignatureAggregator{},
+			expectError:         nil,
+			expectedSigners: []simplex.NodeID{
+				{1}, {3}, {4}, {5},
+			},
 		},
 		{
 			name:                 "no votes",
@@ -74,7 +98,7 @@ func TestNewNotarization(t *testing.T) {
 
 			if tt.expectError == nil {
 				signers := notarization.QC.Signers()
-				require.Equal(t, len(signers), len(tt.votesForCurrentRound), "incorrect amount of signers")
+				require.Equal(t, tt.expectedSigners, signers)
 
 				for i, signer := range signers[1:] {
 					require.Negative(t, bytes.Compare(signers[i], signer), "signers not in order")
