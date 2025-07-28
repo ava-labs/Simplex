@@ -1647,7 +1647,13 @@ func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote)
 
 		verifiedBlock, err := block.Verify(context.Background())
 		if err != nil {
-			e.Logger.Debug("Failed verifying block", zap.Error(err))
+			leader := LeaderForRound(e.nodes, md.Round)
+			e.Logger.Info("Triggering empty block agreement",
+				zap.String("reason", "Failed verifying block"),
+				zap.Uint64("round", md.Round),
+				zap.Stringer("leader", leader),
+				zap.Error(err))
+			e.triggerEmptyBlockNotarization(md.Round)
 			return md.Digest
 		}
 
@@ -2050,11 +2056,7 @@ func (e *Epoch) metadata() ProtocolMetadata {
 	return md
 }
 
-func (e *Epoch) triggerProposalWaitTimeExpired(round uint64) {
-	leader := LeaderForRound(e.nodes, round)
-	e.Logger.Info("Timed out on block agreement", zap.Uint64("round", round), zap.Stringer("leader", leader))
-	// TODO: Actually start the empty block agreement
-
+func (e *Epoch) triggerEmptyBlockNotarization(round uint64) {
 	md := e.metadata()
 	md.Seq-- // e.metadata() returns metadata fit for a new block proposal, but we need the sequence of the previous block proposal.
 
@@ -2124,7 +2126,12 @@ func (e *Epoch) monitorProgress(round uint64) {
 	proposalWaitTimeExpired := func() {
 		e.lock.Lock()
 		defer e.lock.Unlock()
-		e.triggerProposalWaitTimeExpired(round)
+		leader := LeaderForRound(e.nodes, round)
+		e.Logger.Debug("Triggering empty block agreement",
+			zap.String("reason", "Timed out on block agreement"),
+			zap.Uint64("round", round),
+			zap.Stringer("leader", leader))
+		e.triggerEmptyBlockNotarization(round)
 	}
 
 	var cancelled atomic.Bool
