@@ -1228,21 +1228,22 @@ func TestEpochVotesForEquivocatedVotes(t *testing.T) {
 	injectTestVote(t, e, block, nodes[2])
 
 	// Wait for the notarization to be sent
-	require.Eventually(t, func() bool {
+	timeout := time.After(time.Minute)
+	var notarization *Notarization
+	for notarization == nil {
 		select {
 		case msg := <-recordedMessages:
 			if msg.Notarization != nil {
-				for _, signer := range msg.Notarization.QC.(testQC).Signers() {
-					require.NotEqual(t, nodes[1], signer, "Node 1 should not be in the notarization QC")
-				}
-				return true
+				notarization = msg.Notarization
 			}
-		default:
-			return false
+		case <-timeout:
+			require.Fail(t, "timed out waiting for notarization")
 		}
-		return false
-	}, time.Second, time.Millisecond*10)
+	}
 
+	for _, signer := range notarization.QC.(testQC).Signers() {
+		require.NotEqual(t, nodes[1], signer, "Node 1 should not be in the notarization QC")
+	}
 }
 
 type AnyBlock interface {
