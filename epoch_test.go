@@ -158,71 +158,87 @@ func TestEpochIndexFinalization(t *testing.T) {
 }
 
 func TestEpochConsecutiveProposalsDoNotGetVerified(t *testing.T) {
-	l := testutil.MakeLogger(t, 1)
+	for _, test := range []struct {
+		name string
+		err  error
+	}{
+		{
+			name: "valid block",
+		},
+		{
+			name: "invalid block",
+			err:  fmt.Errorf("invalid block"),
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			l := testutil.MakeLogger(t, 1)
 
-	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
-	storage := newInMemStorage()
+			bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
+			storage := newInMemStorage()
 
-	wal := newTestWAL(t)
+			wal := newTestWAL(t)
 
-	nodes := []NodeID{{1}, {2}, {3}, {4}}
+			nodes := []NodeID{{1}, {2}, {3}, {4}}
 
-	conf := EpochConfig{
-		MaxProposalWait:     DefaultMaxProposalWaitTime,
-		Logger:              l,
-		ID:                  nodes[1],
-		Signer:              &testSigner{},
-		WAL:                 wal,
-		Verifier:            &testVerifier{},
-		Storage:             storage,
-		Comm:                noopComm(nodes),
-		BlockBuilder:        bb,
-		SignatureAggregator: &testSignatureAggregator{},
-	}
+			conf := EpochConfig{
+				MaxProposalWait:     DefaultMaxProposalWaitTime,
+				Logger:              l,
+				ID:                  nodes[1],
+				Signer:              &testSigner{},
+				WAL:                 wal,
+				Verifier:            &testVerifier{},
+				Storage:             storage,
+				Comm:                noopComm(nodes),
+				BlockBuilder:        bb,
+				SignatureAggregator: &testSignatureAggregator{},
+			}
 
-	e, err := NewEpoch(conf)
-	require.NoError(t, err)
-
-	require.NoError(t, e.Start())
-
-	leader := nodes[0]
-
-	md := e.Metadata()
-	_, ok := bb.BuildBlock(context.Background(), md)
-	require.True(t, ok)
-	require.Equal(t, md.Round, md.Seq)
-
-	onlyVerifyOnce := make(chan struct{})
-	block := <-bb.out
-	block.onVerify = func() {
-		close(onlyVerifyOnce)
-	}
-
-	vote, err := newTestVote(block, leader)
-	require.NoError(t, err)
-
-	var wg sync.WaitGroup
-	wg.Add(DefaultMaxPendingBlocks)
-
-	for i := 0; i < DefaultMaxPendingBlocks; i++ {
-		go func() {
-			defer wg.Done()
-
-			err := e.HandleMessage(&Message{
-				BlockMessage: &BlockMessage{
-					Vote:  *vote,
-					Block: block,
-				},
-			}, leader)
+			e, err := NewEpoch(conf)
 			require.NoError(t, err)
-		}()
-	}
-	wg.Wait()
 
-	select {
-	case <-onlyVerifyOnce:
-	case <-time.After(time.Minute):
-		require.Fail(t, "timeout waiting for shouldOnlyBeClosedOnce")
+			require.NoError(t, e.Start())
+
+			leader := nodes[0]
+
+			md := e.Metadata()
+			_, ok := bb.BuildBlock(context.Background(), md)
+			require.True(t, ok)
+			require.Equal(t, md.Round, md.Seq)
+
+			onlyVerifyOnce := make(chan struct{})
+			block := <-bb.out
+			block.onVerify = func() {
+				close(onlyVerifyOnce)
+			}
+			block.verificationError = test.err
+
+			vote, err := newTestVote(block, leader)
+			require.NoError(t, err)
+
+			var wg sync.WaitGroup
+			wg.Add(DefaultMaxPendingBlocks)
+
+			for i := 0; i < DefaultMaxPendingBlocks; i++ {
+				go func() {
+					defer wg.Done()
+
+					err := e.HandleMessage(&Message{
+						BlockMessage: &BlockMessage{
+							Vote:  *vote,
+							Block: block,
+						},
+					}, leader)
+					require.NoError(t, err)
+				}()
+			}
+			wg.Wait()
+
+			select {
+			case <-onlyVerifyOnce:
+			case <-time.After(time.Minute):
+				require.Fail(t, "timeout waiting for shouldOnlyBeClosedOnce")
+			}
+		})
 	}
 }
 

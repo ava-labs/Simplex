@@ -161,6 +161,7 @@ func (otv *oneTimeVerifier) Wrap(block Block) Block {
 }
 
 type verifiedResult struct {
+	seq uint64
 	vb  VerifiedBlock
 	err error
 }
@@ -180,10 +181,9 @@ func (block *oneTimeVerifiedBlock) Verify(ctx context.Context) (VerifiedBlock, e
 
 	// cleanup
 	defer func() {
-		for _, vr := range block.otv.digests {
-			bh := vr.vb.BlockHeader()
-			if bh.Seq < seq {
-				delete(block.otv.digests, bh.Digest)
+		for digest, vr := range block.otv.digests {
+			if vr.seq < seq {
+				delete(block.otv.digests, digest)
 			}
 		}
 	}()
@@ -195,11 +195,10 @@ func (block *oneTimeVerifiedBlock) Verify(ctx context.Context) (VerifiedBlock, e
 
 	vb, err := block.Block.Verify(ctx)
 
-	if err == nil {
-		block.otv.digests[digest] = verifiedResult{
-			vb:  vb,
-			err: err,
-		}
+	block.otv.digests[digest] = verifiedResult{
+		seq: seq,
+		vb:  vb,
+		err: err,
 	}
 
 	return vb, err

@@ -5,6 +5,7 @@ package simplex_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync/atomic"
 	"testing"
@@ -657,6 +658,8 @@ func TestEpochLeaderFailoverTwice(t *testing.T) {
 }
 
 func TestEpochLeaderFailoverBecauseOfBadBlock(t *testing.T) {
+	// This test ensures that if a block is proposed by a node, but it is invalid,
+	// the node will immediately proceed to notarize the empty block.
 	l := testutil.MakeLogger(t, 1)
 
 	bb := &testBlockBuilder{out: make(chan *testBlock, 1), blockShouldBeBuilt: make(chan struct{}, 1)}
@@ -695,7 +698,7 @@ func TestEpochLeaderFailoverBecauseOfBadBlock(t *testing.T) {
 	_, ok := bb.BuildBlock(context.Background(), md)
 	require.True(t, ok)
 	block := <-bb.out
-	block.verificationError = fmt.Errorf("invalid block")
+	block.verificationError = errors.New("invalid block")
 
 	vote, err := newTestVote(block, nodes[1])
 	require.NoError(t, err)
