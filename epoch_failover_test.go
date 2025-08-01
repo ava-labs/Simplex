@@ -237,6 +237,43 @@ func TestEpochLeaderFailoverReceivesEmptyVotesEarly(t *testing.T) {
 
 }
 
+func TestReceiveEmptyNotarizationWithNoQC(t *testing.T) {
+	l := testutil.MakeLogger(t, 1)
+
+	bb := &testBlockBuilder{out: make(chan *testBlock, 1), blockShouldBeBuilt: make(chan struct{}, 1)}
+	storage := newInMemStorage()
+
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+
+	wal := newTestWAL(t)
+
+	start := time.Now()
+	conf := EpochConfig{
+		MaxProposalWait:     DefaultMaxProposalWaitTime,
+		StartTime:           start,
+		Logger:              l,
+		ID:                  nodes[1],
+		Signer:              &testSigner{},
+		WAL:                 wal,
+		Verifier:            &testVerifier{},
+		Storage:             storage,
+		Comm:                noopComm(nodes),
+		BlockBuilder:        bb,
+		SignatureAggregator: &testSignatureAggregator{},
+	}
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+
+	require.NoError(t, e.Start())
+
+	emptyNotarization := newEmptyNotarization(nodes[:3], 0, 0)
+
+	e.HandleMessage(&Message{
+		EmptyNotarization: &EmptyNotarization{Vote: emptyNotarization.Vote},
+	}, nodes[0])
+}
+
 func TestEpochLeaderFailover(t *testing.T) {
 	l := testutil.MakeLogger(t, 1)
 
