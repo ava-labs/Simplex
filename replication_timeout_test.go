@@ -327,6 +327,9 @@ func (c *collectNotarizationComm) Broadcast(msg *simplex.Message) {
 }
 
 func (c *collectNotarizationComm) removeFinalizationsFromReplicationResponses(msg *simplex.Message, from, to simplex.NodeID) bool {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
 	if msg.VerifiedReplicationResponse != nil || msg.ReplicationResponse != nil {
 		newData := make([]simplex.VerifiedQuorumRound, 0, len(msg.VerifiedReplicationResponse.Data))
 

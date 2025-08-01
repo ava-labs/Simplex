@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"sync"
 	"time"
 
 	"go.uber.org/zap"
@@ -40,6 +41,7 @@ func newSignedSequenceFromRound(round QuorumRound) (*signedSequence, error) {
 }
 
 type ReplicationState struct {
+	lock           *sync.Mutex
 	logger         Logger
 	enabled        bool
 	maxRoundWindow uint64
@@ -61,8 +63,9 @@ type ReplicationState struct {
 	timeoutHandler *TimeoutHandler
 }
 
-func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundWindow uint64, enabled bool, start time.Time) *ReplicationState {
+func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundWindow uint64, enabled bool, start time.Time, lock *sync.Mutex) *ReplicationState {
 	return &ReplicationState{
+		lock:                 lock,
 		logger:               logger,
 		enabled:              enabled,
 		comm:                 comm,
@@ -157,6 +160,8 @@ func (r *ReplicationState) sendRequestToNode(start uint64, end uint64, nodes []N
 
 func (r *ReplicationState) createReplicationTimeoutTask(start, end uint64, nodes []NodeID, index int) *TimeoutTask {
 	taskFunc := func() {
+		r.lock.Lock()
+		defer r.lock.Unlock()
 		r.sendRequestToNode(start, end, nodes, (index+1)%len(nodes))
 	}
 	timeoutTask := &TimeoutTask{
