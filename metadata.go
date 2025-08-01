@@ -4,7 +4,6 @@
 package simplex
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
 )
@@ -16,8 +15,9 @@ const (
 	metadataSeqLen     = 8
 	metadataPrevLen    = 32
 	metadataDigestLen  = 32
+	blacklistDigestLen = 32
 
-	ProtocolMetadataLen = metadataVersionLen + metadataEpochLen + metadataRoundLen + metadataSeqLen + metadataPrevLen
+	ProtocolMetadataLen = metadataVersionLen + metadataEpochLen + metadataRoundLen + metadataSeqLen + metadataPrevLen + blacklistDigestLen
 	BlockHeaderLen      = ProtocolMetadataLen + metadataDigestLen
 )
 
@@ -39,6 +39,9 @@ type ProtocolMetadata struct {
 	Seq uint64
 	// Prev returns the digest of the previous data block
 	Prev Digest
+	// BlacklistDigest is a digest of the representation of nodes that are blacklisted from being leader nodes.
+	// It is put in place for consistency.
+	BlacklistDigest Digest
 }
 
 // BlockHeader encodes a succinct and collision-free representation of a block.
@@ -46,6 +49,11 @@ type ProtocolMetadata struct {
 // or which block is finalized.
 type BlockHeader struct {
 	ProtocolMetadata
+
+	BlackList Blacklist
+
+	Proposer NodeID
+
 	// Digest returns a collision resistant short representation of the block's bytes
 	Digest Digest
 }
@@ -60,15 +68,16 @@ func (d Digest) String() string {
 	return fmt.Sprintf("%x...", (d)[:digestFormatSize])
 }
 
-func (bh BlockHeader) String() string {
+func (bh *BlockHeader) String() string {
 	return fmt.Sprintf("BlockHeader{Digest: %s, Prev: %s, Epoch: %d, Round: %d, Seq: %d, Version: %d}",
 		bh.Digest.String(), bh.Prev.String(), bh.Epoch, bh.Round, bh.Seq, bh.Version)
 }
 
-func (bh *BlockHeader) Equals(other *BlockHeader) bool {
-	return bytes.Equal(bh.Digest[:], other.Digest[:]) &&
-		bytes.Equal(bh.Prev[:], other.Prev[:]) && bh.Epoch == other.Epoch &&
-		bh.Round == other.Round && bh.Seq == other.Seq && bh.Version == other.Version
+func (bh BlockHeader) Equals(other BlockHeader) bool {
+	return bh.Digest == other.Digest  &&
+		bh.Prev == other.Prev && bh.Epoch == other.Epoch &&
+		bh.Round == other.Round && bh.Seq == other.Seq &&
+		bh.Version == other.Version && bh.BlacklistDigest == other.BlacklistDigest
 }
 
 func (bh *BlockHeader) Bytes() []byte {
@@ -138,6 +147,9 @@ func (md *ProtocolMetadata) Bytes() []byte {
 	pos += metadataSeqLen
 
 	copy(buff[pos:], md.Prev[:])
+	pos += metadataPrevLen
+
+	copy(buff[pos:], md.BlacklistDigest[:])
 
 	return buff
 }

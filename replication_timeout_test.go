@@ -411,7 +411,7 @@ func TestReplicationRequestWithoutFinalization(t *testing.T) {
 	missedSeqs := uint64(0)
 	// normal nodes continue to make progress
 	for i := uint64(0); i < endDisconnect; i++ {
-		emptyRound := bytes.Equal(simplex.LeaderForRound(nodes, i), nodes[3])
+		emptyRound := bytes.Equal(simplex.LeaderForRoundOrPanic(nodes, i), nodes[3])
 		if emptyRound {
 			advanceWithoutLeader(t, net, bb, epochTimes, i, laggingNode.e.ID)
 			missedSeqs++

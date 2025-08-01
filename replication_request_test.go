@@ -135,7 +135,7 @@ func TestReplicationRequestMixed(t *testing.T) {
 	rounds := make(map[uint64]simplex.VerifiedQuorumRound)
 	// only produce a notarization for blocks we are the leader, otherwise produce an empty notarization
 	for i := range numBlocks {
-		leaderForRound := bytes.Equal(simplex.LeaderForRound(nodes, uint64(i)), e.ID)
+		leaderForRound := bytes.Equal(simplex.LeaderForRoundOrPanic(nodes, uint64(i)), e.ID)
 		emptyBlock := !leaderForRound
 		if emptyBlock {
 			emptyNotarization := newEmptyNotarization(nodes, uint64(i))

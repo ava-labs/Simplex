@@ -27,7 +27,7 @@ func TestBasicReplication(t *testing.T) {
 		testName := fmt.Sprintf("Basic replication_of_%d_blocks", i)
 
 		// lagging node cannot be the leader after node disconnects
-		isLaggingNodeLeader := bytes.Equal(simplex.LeaderForRound(nodes, uint64(i)), nodes[3])
+		isLaggingNodeLeader := bytes.Equal(simplex.LeaderForRoundOrPanic(nodes, uint64(i)), nodes[3])
 		if isLaggingNodeLeader {
 			continue
 		}
@@ -192,7 +192,7 @@ func TestRebroadcastingWithReplication(t *testing.T) {
 	net.setAllNodesMessageFilter(denyFinalizationMessages)
 	// normal nodes continue to make progress
 	for i := uint64(1); i < uint64(numNotarizations); i++ {
-		emptyRound := bytes.Equal(simplex.LeaderForRound(nodes, i), laggingNode.e.ID)
+		emptyRound := bytes.Equal(simplex.LeaderForRoundOrPanic(nodes, i), laggingNode.e.ID)
 		if emptyRound {
 			advanceWithoutLeader(t, net, bb, epochTimes, i, laggingNode.e.ID)
 			missedSeqs++
@@ -237,7 +237,7 @@ func TestReplicationEmptyNotarizations(t *testing.T) {
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}, {5}, {6}}
 
 	for endRound := uint64(2); endRound <= 2*simplex.DefaultMaxRoundWindow; endRound++ {
-		isLaggingNodeLeader := bytes.Equal(simplex.LeaderForRound(nodes, endRound), nodes[5])
+		isLaggingNodeLeader := bytes.Equal(simplex.LeaderForRoundOrPanic(nodes, endRound), nodes[5])
 		if isLaggingNodeLeader {
 			continue
 		}
@@ -291,7 +291,7 @@ func testReplicationEmptyNotarizations(t *testing.T, nodes []simplex.NodeID, end
 
 	// normal nodes continue to make progress
 	for i := uint64(1); i < endRound; i++ {
-		leader := simplex.LeaderForRound(nodes, i)
+		leader := simplex.LeaderForRoundOrPanic(nodes, i)
 		if !leader.Equals(laggingNode.e.ID) {
 			bb.triggerNewBlock()
 		}
@@ -454,7 +454,7 @@ func TestReplicationAfterNodeDisconnects(t *testing.T) {
 	for startDisconnect := uint64(0); startDisconnect <= 5; startDisconnect++ {
 		for endDisconnect := uint64(10); endDisconnect <= 20; endDisconnect++ {
 			// lagging node cannot be the leader after node disconnects
-			isLaggingNodeLeader := bytes.Equal(simplex.LeaderForRound(nodes, endDisconnect), nodes[3])
+			isLaggingNodeLeader := bytes.Equal(simplex.LeaderForRoundOrPanic(nodes, endDisconnect), nodes[3])
 			if isLaggingNodeLeader {
 				continue
 			}
@@ -494,7 +494,7 @@ func testReplicationAfterNodeDisconnects(t *testing.T, nodes []simplex.NodeID, s
 	net.startInstances()
 
 	for i := uint64(0); i < startDisconnect; i++ {
-		if bytes.Equal(simplex.LeaderForRound(nodes, i), nodes[3]) {
+		if bytes.Equal(simplex.LeaderForRoundOrPanic(nodes, i), nodes[3]) {
 			laggingBb.triggerNewBlock()
 		} else {
 			bb.triggerNewBlock()
@@ -512,7 +512,7 @@ func testReplicationAfterNodeDisconnects(t *testing.T, nodes []simplex.NodeID, s
 	// lagging node disconnects
 	net.Disconnect(nodes[3])
 
-	isLaggingNodeLeader := bytes.Equal(simplex.LeaderForRound(nodes, startDisconnect), nodes[3])
+	isLaggingNodeLeader := bytes.Equal(simplex.LeaderForRoundOrPanic(nodes, startDisconnect), nodes[3])
 	if isLaggingNodeLeader {
 		laggingBb.triggerNewBlock()
 	}
@@ -520,7 +520,7 @@ func testReplicationAfterNodeDisconnects(t *testing.T, nodes []simplex.NodeID, s
 	missedSeqs := uint64(0)
 	// normal nodes continue to make progress
 	for i := startDisconnect; i < endDisconnect; i++ {
-		emptyRound := bytes.Equal(simplex.LeaderForRound(nodes, i), nodes[3])
+		emptyRound := bytes.Equal(simplex.LeaderForRoundOrPanic(nodes, i), nodes[3])
 		if emptyRound {
 			advanceWithoutLeader(t, net, bb, epochTimes, i, laggingNode.e.ID)
 			missedSeqs++
@@ -550,7 +550,7 @@ func testReplicationAfterNodeDisconnects(t *testing.T, nodes []simplex.NodeID, s
 	}
 
 	// the lagging node should build a block when triggered if its the leader
-	if bytes.Equal(simplex.LeaderForRound(nodes, endDisconnect+1), nodes[3]) {
+	if bytes.Equal(simplex.LeaderForRoundOrPanic(nodes, endDisconnect+1), nodes[3]) {
 		laggingBb.triggerNewBlock()
 	} else {
 		bb.triggerNewBlock()
@@ -663,7 +663,7 @@ func TestReplicationNodeDiverges(t *testing.T) {
 	// advance [numBlocks] while the lagging node is disconnected
 	missedSeqs := uint64(1) // missed the first seq
 	for i := uint64(1); i < 1+numBlocks; i++ {
-		emptyRound := bytes.Equal(simplex.LeaderForRound(nodes, i), laggingNode.e.ID)
+		emptyRound := bytes.Equal(simplex.LeaderForRoundOrPanic(nodes, i), laggingNode.e.ID)
 		if emptyRound {
 			advanceWithoutLeader(t, net, bb, startTimes, i, laggingNode.e.ID)
 			missedSeqs++
@@ -712,7 +712,7 @@ func TestReplicationNotarizationWithoutFinalizations(t *testing.T) {
 
 	for numBlocks := uint64(1); numBlocks <= 3*simplex.DefaultMaxRoundWindow; numBlocks++ {
 		// lagging node cannot be the leader after node disconnects
-		isLaggingNodeLeader := bytes.Equal(simplex.LeaderForRound(nodes, numBlocks), nodes[3])
+		isLaggingNodeLeader := bytes.Equal(simplex.LeaderForRoundOrPanic(nodes, numBlocks), nodes[3])
 		if isLaggingNodeLeader {
 			continue
 		}
@@ -802,7 +802,7 @@ func advanceWithoutLeader(t *testing.T, net *inMemNetwork, bb *testControlledBlo
 	}
 
 	for _, n := range net.instances {
-		leader := n.e.ID.Equals(simplex.LeaderForRound(net.nodes, n.e.Metadata().Round))
+		leader := n.e.ID.Equals(simplex.LeaderForRoundOrPanic(net.nodes, n.e.Metadata().Round))
 		if leader || laggingNodeId.Equals(n.e.ID) {
 			continue
 		}
@@ -812,7 +812,7 @@ func advanceWithoutLeader(t *testing.T, net *inMemNetwork, bb *testControlledBlo
 	for i, n := range net.instances {
 		// the leader will not write an empty vote to the wal
 		// because it cannot both propose a block & send an empty vote in the same round
-		leader := n.e.ID.Equals(simplex.LeaderForRound(net.nodes, n.e.Metadata().Round))
+		leader := n.e.ID.Equals(simplex.LeaderForRoundOrPanic(net.nodes, n.e.Metadata().Round))
 		if leader || laggingNodeId.Equals(n.e.ID) {
 			continue
 		}

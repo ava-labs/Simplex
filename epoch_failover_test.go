@@ -412,7 +412,7 @@ func TestEpochNoFinalizationAfterEmptyVote(t *testing.T) {
 	b, _, err := storage.Retrieve(0)
 	require.NoError(t, err)
 
-	leader := LeaderForRound(nodes, 1)
+	leader := LeaderForRoundOrPanic(nodes, 1)
 	_, ok := bb.BuildBlock(context.Background(), ProtocolMetadata{
 		Prev:  b.BlockHeader().Digest,
 		Round: 1,
@@ -498,7 +498,7 @@ func TestEpochLeaderFailoverAfterProposal(t *testing.T) {
 	wal.assertWALSize(6) // (block, notarization) x 3 rounds
 
 	// leader is the proposer of the new block for the given round
-	leader := LeaderForRound(nodes, 3)
+	leader := LeaderForRoundOrPanic(nodes, 3)
 	md := e.Metadata()
 	_, ok := bb.BuildBlock(context.Background(), md)
 	require.True(t, ok)

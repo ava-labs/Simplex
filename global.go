@@ -5,6 +5,8 @@ package simplex
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 )
@@ -41,4 +43,28 @@ func (nodes NodeIDs) Remove(targetNode NodeID) []NodeID {
 		}
 	}
 	return nodes
+}
+
+func (nodes NodeIDs) IndexOf(node NodeID) int {
+	for i, n := range nodes {
+		if n.Equals(node) {
+			return i
+		}
+	}
+	return -1
+}
+
+func (nodes NodeIDs) RandomNode(round uint64) int {
+	h := sha256.New()
+
+	roundBuff := make([]byte, 8)
+	binary.BigEndian.PutUint64(roundBuff, round)
+	h.Write(roundBuff)
+
+	for _, n := range nodes {
+		h.Write(n)
+	}
+	sum := h.Sum(nil)
+
+	return int(binary.BigEndian.Uint16(sum[:2]))
 }

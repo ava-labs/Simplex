@@ -191,7 +191,7 @@ func (e *Epoch) init() error {
 	e.timeoutHandler = NewTimeoutHandler(e.Logger, e.StartTime, e.nodes)
 
 	for _, node := range e.nodes {
-		e.futureMessages[string(node)] = make(map[uint64]*messagesForRound)
+		e.futureMessages[string(node)] = make(map[uint64]map[string]*messagesForRound)
 	}
 	for _, node := range e.nodes {
 		e.eligibleNodeIDs[string(node)] = struct{}{}
@@ -344,18 +344,20 @@ func (e *Epoch) resumeFromWal(records [][]byte) error {
 			return err
 		}
 
-		if e.sequenceAlreadyIndexed(block.BlockHeader().Seq) {
-			e.Logger.Debug("Block already indexed, skipping restoration", zap.Uint64("Sequence", block.BlockHeader().Seq))
+		header := block.BlockHeader()
+		if e.sequenceAlreadyIndexed(header.Seq) {
+			e.Logger.Debug("Block already indexed, skipping restoration", zap.Uint64("Sequence", header.Seq))
 			return nil
 		}
 
-		round, exists := e.rounds[block.BlockHeader().Round]
+		round, exists := e.rounds[header.Round]
 		if !exists {
 			// this should not happen, as we restored the block in `restoreBlockRecord`
-			return fmt.Errorf("could not find round %d for block", block.BlockHeader().Round)
+			return fmt.Errorf("could not find round %d for block", header.Round)
 		}
 
-		if e.ID.Equals(LeaderForRound(e.nodes, block.BlockHeader().Round)) {
+		// If we have sent this block, then we should re-broadcast it along with a vote on it.
+		if e.ID.Equals(header.Proposer) {
 			vote, err := e.voteOnBlock(round.block)
 			if err != nil {
 				return err
@@ -562,9 +564,16 @@ func (e *Epoch) handleFinalizationForPendingOrFutureRound(message *Finalization,
 		// delay collecting future finalization if we are verifying the proposal for that round
 		// and the finalization is for the current round
 		for _, msgs := range e.futureMessages {
-			msgForRound, exists := msgs[round]
-			if exists && msgForRound.proposal != nil {
-				msgForRound.finalization = message
+			msgForRoundByProposer, exists := msgs[round]
+			if ! exists {
+				continue
+			}
+			msgsForRound, exists := msgForRoundByProposer[string(message.Finalization.Proposer)]
+			if !exists {
+				continue
+			}
+			if msgsForRound.proposal != nil && msgsForRound.proposal.Block != nil && message.Finalization.Digest == msgsForRound.proposal.Block.BlockHeader().Digest {
+				msgsForRound.finalization = message
 				return
 			}
 		}
@@ -599,7 +608,7 @@ func (e *Epoch) handleFinalizeVoteMessage(message *FinalizeVote, from NodeID) er
 	if !exists && e.round == vote.Round {
 		e.Logger.Debug("Received a finalization for the current round",
 			zap.Uint64("round", vote.Round), zap.Stringer("from", from))
-		e.storeFutureFinalizeVote(message, from, vote.Round)
+		e.storeFutureFinalizeVote(message, from)
 		return nil
 	}
 
@@ -607,7 +616,7 @@ func (e *Epoch) handleFinalizeVoteMessage(message *FinalizeVote, from NodeID) er
 	// which we are still verifying.
 	if e.isWithinMaxRoundWindow(vote.Round) {
 		e.Logger.Debug("Got finalization for a future round", zap.Uint64("round", vote.Round), zap.Uint64("my round", e.round))
-		e.storeFutureFinalizeVote(message, from, vote.Round)
+		e.storeFutureFinalizeVote(message, from)
 		return nil
 	}
 
@@ -627,25 +636,23 @@ func (e *Epoch) handleFinalizeVoteMessage(message *FinalizeVote, from NodeID) er
 	}
 
 	round.finalizeVotes[string(from)] = message
-	e.deleteFutureFinalizeVote(from, vote.Round)
+	e.deleteFutureFinalizeVote(from, vote.Round, vote.Proposer)
 
 	return e.maybeCollectFinalization(round)
 }
 
-func (e *Epoch) storeFutureFinalizeVote(message *FinalizeVote, from NodeID, round uint64) {
-	msgsForRound, exists := e.futureMessages[string(from)][round]
-	if !exists {
-		msgsForRound = &messagesForRound{}
-		e.futureMessages[string(from)][round] = msgsForRound
+func (e *Epoch) storeFutureFinalizeVote(message *FinalizeVote, from NodeID) {
+	msgsForRound := e.getOrCreateMessagesForRound(from, message.Finalization.BlockHeader, message.Finalization.Proposer)
+	if msgsForRound.finalizeVote != nil {
+		return
 	}
 	msgsForRound.finalizeVote = message
 }
 
-func (e *Epoch) storeFutureNotarization(message *Notarization, from NodeID, round uint64) {
-	msgsForRound, exists := e.futureMessages[string(from)][round]
-	if !exists {
-		msgsForRound = &messagesForRound{}
-		e.futureMessages[string(from)][round] = msgsForRound
+func (e *Epoch) storeFutureNotarization(message *Notarization, from NodeID) {
+	msgsForRound := e.getOrCreateMessagesForRound(from, message.Vote.BlockHeader, message.Vote.Proposer)
+	if msgsForRound.notarization != nil {
+		return
 	}
 	msgsForRound.notarization = message
 }
@@ -762,7 +769,7 @@ func (e *Epoch) handleVoteMessage(message *Vote, from NodeID) error {
 	if _, exists := e.rounds[vote.Round]; !exists && e.round == vote.Round {
 		e.Logger.Debug("Received a vote for the current round",
 			zap.Uint64("round", vote.Round), zap.Stringer("from", from))
-		e.storeFutureVote(message, from, vote.Round)
+		e.storeFutureVote(message, from, vote.Round, vote.Proposer)
 		return nil
 	}
 
@@ -771,7 +778,7 @@ func (e *Epoch) handleVoteMessage(message *Vote, from NodeID) error {
 	if e.isWithinMaxRoundWindow(vote.Round) {
 		e.Logger.Debug("Got vote from a future round",
 			zap.Uint64("round", vote.Round), zap.Uint64("my round", e.round), zap.Stringer("from", from))
-		e.storeFutureVote(message, from, vote.Round)
+		e.storeFutureVote(message, from, vote.Round, vote.Proposer)
 		return nil
 	}
 
@@ -797,7 +804,7 @@ func (e *Epoch) handleVoteMessage(message *Vote, from NodeID) error {
 	}
 
 	e.rounds[vote.Round].votes[string(signature.Signer)] = message
-	e.deleteFutureVote(from, vote.Round)
+	e.deleteFutureVote(from, vote.Round, vote.Proposer)
 
 	return e.maybeCollectNotarization()
 }
@@ -807,45 +814,56 @@ func (e *Epoch) haveWeAlreadyTimedOutOnThisRound(round uint64) bool {
 	return exists && emptyVotes.timedOut
 }
 
-func (e *Epoch) storeFutureVote(message *Vote, from NodeID, round uint64) {
-	msgsForRound, exists := e.futureMessages[string(from)][round]
+func (e *Epoch) storeFutureVote(message *Vote, from NodeID, round uint64, proposer NodeID) {
+	msgsForRoundByProposer, exists := e.futureMessages[string(from)][round]
 	if !exists {
-		msgsForRound = &messagesForRound{}
-		e.futureMessages[string(from)][round] = msgsForRound
+		msgsForRoundByProposer = make(map[string]*messagesForRound)
+		e.futureMessages[string(from)][round] = msgsForRoundByProposer
 	}
-	msgsForRound.vote = message
+	if _, exists := msgsForRoundByProposer[string(proposer)]; !exists {
+		msgsForRoundByProposer[string(proposer)] = &messagesForRound{}
+	}
+	msgsForRoundByProposer[string(proposer)].vote = message
 }
 
-func (e *Epoch) deleteFutureVote(from NodeID, round uint64) {
-	msgsForRound, exists := e.futureMessages[string(from)][round]
+func (e *Epoch) deleteFutureVote(from NodeID, round uint64, proposer NodeID) {
+	msgsForRoundByProposer, exists := e.futureMessages[string(from)][round]
 	if !exists {
 		return
 	}
-	msgsForRound.vote = nil
+	if msgsForRound, exists := msgsForRoundByProposer[string(proposer)]; exists {
+		msgsForRound.vote = nil
+	}
 }
 
-func (e *Epoch) deleteFutureProposal(from NodeID, round uint64) {
-	msgsForRound, exists := e.futureMessages[string(from)][round]
+func (e *Epoch) deleteFutureProposal(from NodeID, round uint64, proposer NodeID) {
+	msgsForRoundByProposer, exists := e.futureMessages[string(from)][round]
 	if !exists {
 		return
 	}
-	msgsForRound.proposal = nil
+	if msgsForRound, exists := msgsForRoundByProposer[string(proposer)]; exists {
+		msgsForRound.proposal = nil
+	}
 }
 
-func (e *Epoch) deleteFutureFinalizeVote(from NodeID, round uint64) {
-	msgsForRound, exists := e.futureMessages[string(from)][round]
+func (e *Epoch) deleteFutureFinalizeVote(from NodeID, round uint64, proposer NodeID) {
+	msgsForRoundByProposer, exists := e.futureMessages[string(from)][round]
 	if !exists {
 		return
 	}
-	msgsForRound.finalizeVote = nil
+	if msgsForRound, exists := msgsForRoundByProposer[string(proposer)]; exists {
+		msgsForRound.finalizeVote = nil
+	}
 }
 
-func (e *Epoch) deleteFutureNotarization(from NodeID, round uint64) {
-	msgsForRound, exists := e.futureMessages[string(from)][round]
+func (e *Epoch) deleteFutureNotarization(from NodeID, round uint64, proposer NodeID) {
+	msgsForRoundByProposer, exists := e.futureMessages[string(from)][round]
 	if !exists {
 		return
 	}
-	msgsForRound.notarization = nil
+	if msgsForRound, exists := msgsForRoundByProposer[string(proposer)]; exists {
+		msgsForRound.notarization = nil
+	}
 }
 
 func (e *Epoch) isFinalizationValid(signature []byte, finalization ToBeSignedFinalization, from NodeID) bool {
@@ -1195,7 +1213,7 @@ func (e *Epoch) maybeCollectNotarization() error {
 	// Ensure we have enough votes for the same block header.
 	var voteCountForOurBlock int
 	for _, vote := range votesForCurrentRound {
-		if md == vote.Vote.BlockHeader {
+		if md.Equals(vote.Vote.BlockHeader) {
 			voteCountForOurBlock++
 		}
 	}
@@ -1364,12 +1382,12 @@ func (e *Epoch) handleNotarizationMessage(message *Notarization, from NodeID) er
 	// or for a future round, then store it for later use.
 	if !exists || e.round < vote.Round {
 		e.Logger.Debug("Received a notarization for a future round", zap.Uint64("round", vote.Round))
-		e.storeFutureNotarization(message, from, vote.Round)
+		e.storeFutureNotarization(message, from)
 		return nil
 	}
 
 	// We are about to persist the notarization, so delete it in case it came from the future messages.
-	e.deleteFutureNotarization(from, vote.Round)
+	e.deleteFutureNotarization(from, vote.Round, vote.Proposer)
 
 	// Else, this is a notarization for the current round, and we have stored the proposal for this round.
 	// Note that we don't need to check if we have timed out on this round,
@@ -1451,14 +1469,6 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 		return nil
 	}
 
-	// Check that the node is a leader for the round corresponding to the block.
-	if !LeaderForRound(e.nodes, md.Round).Equals(from) {
-		// The block is associated with a round in which the sender is not the leader,
-		// it should not be sending us any block at all.
-		e.Logger.Debug("Got block from a block proposer that is not the leader of the round", zap.Stringer("NodeID", from), zap.Uint64("round", md.Round))
-		return nil
-	}
-
 	// Check if we have verified this message in the past:
 	alreadyVerified := e.wasBlockAlreadyVerified(from, md)
 
@@ -1481,13 +1491,10 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 	// If this is a message from a more advanced round,
 	// only store it if it is up to `maxRoundWindow` ahead.
 	// TODO: test this
+	proposer := block.BlockHeader().Proposer
 	if e.isWithinMaxRoundWindow(md.Round) {
 		e.Logger.Debug("Got block of a future round", zap.Uint64("round", md.Round), zap.Uint64("my round", e.round))
-		msgsForRound, exists := e.futureMessages[string(from)][md.Round]
-		if !exists {
-			msgsForRound = &messagesForRound{}
-			e.futureMessages[string(from)][md.Round] = msgsForRound
-		}
+		msgsForRound := e.getOrCreateMessagesForRound(from, md, proposer)
 
 		// Has this node already sent us a proposal?
 		// If so, it cannot send it again.
@@ -1507,14 +1514,13 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 	}
 
 	// save in future messages while we are verifying the block
-	msgForRound, exists := e.futureMessages[string(from)][md.Round]
-	if !exists {
-		msgsForRound := &messagesForRound{}
-		msgsForRound.proposal = message
-		e.futureMessages[string(from)][md.Round] = msgsForRound
-	} else {
-		msgForRound.proposal = message
+	msgsForRound := e.getOrCreateMessagesForRound(from, md, proposer)
+	if msgsForRound.proposal != nil {
+		e.Logger.Warn("Already received a proposal from this node for the round",
+			zap.Stringer("NodeID", from), zap.Uint64("round", md.Round))
+		return nil
 	}
+	msgsForRound.proposal = message
 
 	// Create a task that will verify the block in the future, after its predecessors have also been verified.
 	task := e.createBlockVerificationTask(e.oneTimeVerifier.Wrap(block), from, vote)
@@ -1529,6 +1535,21 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 	e.sched.Schedule(task, md.Prev, canBeImmediatelyVerified)
 
 	return nil
+}
+
+func (e *Epoch) getOrCreateMessagesForRound(from NodeID, md BlockHeader, proposer NodeID) *messagesForRound {
+	msgsForRoundByProposer, exists := e.futureMessages[string(from)][md.Round]
+	if !exists {
+		msgsForRoundByProposer = make(map[string]*messagesForRound)
+		e.futureMessages[string(from)][md.Round] = msgsForRoundByProposer
+	}
+
+	msgsForRound, exists := msgsForRoundByProposer[string(proposer)]
+	if !exists {
+		msgsForRound = &messagesForRound{}
+		msgsForRoundByProposer[string(proposer)] = msgsForRound
+	}
+	return msgsForRound
 }
 
 // processFinalizedBlocks processes a block that has a finalization.
@@ -1644,8 +1665,39 @@ func (e *Epoch) processNotarizedBlock(block Block, notarization *Notarization) e
 }
 
 func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote) func() Digest {
+	md := block.BlockHeader()
+
 	return func() Digest {
-		md := block.BlockHeader()
+		e.lock.Lock()
+		prevBlockHeader, err := e.getPrevBlockHeader(md.ProtocolMetadata)
+		e.lock.Unlock()
+
+		if err != nil {
+			e.lock.Lock()
+			e.haltedError = err
+			e.lock.Unlock()
+
+			e.Logger.Error("Failed to get blacklist for block", zap.Error(err))
+			return md.Digest
+		}
+
+		leader, err := leaderForRound(e.nodes, md.Round, prevBlockHeader)
+		if err != nil {
+			e.lock.Lock()
+			e.haltedError = err
+			e.lock.Unlock()
+
+			e.Logger.Error("Failed to get leader for round", zap.Uint64("round", md.Round), zap.Error(err))
+			return md.Digest
+		}
+
+		// Check that the node is a leader for the round corresponding to the block.
+		if !leader.Equals(from) {
+			// The block is associated with a round in which the sender is not the leader,
+			// it should not be sending us any block at all.
+			e.Logger.Debug("Got block from a block proposer that is not the leader of the round", zap.Stringer("NodeID", from), zap.Uint64("round", md.Round))
+			return md.Digest
+		}
 
 		e.Logger.Debug("Block verification started", zap.Uint64("round", md.Round))
 		start := time.Now()
@@ -1656,7 +1708,6 @@ func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote)
 
 		verifiedBlock, err := block.Verify(context.Background())
 		if err != nil {
-			leader := LeaderForRound(e.nodes, md.Round)
 			e.Logger.Info("Triggering empty block agreement",
 				zap.String("reason", "Failed verifying block"),
 				zap.Uint64("round", md.Round),
@@ -1687,7 +1738,7 @@ func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote)
 			zap.Uint64("round", md.Round),
 			zap.Stringer("digest", md.Digest))
 
-		e.deleteFutureProposal(from, md.Round)
+		e.deleteFutureProposal(from, md.Round, md.Proposer)
 
 		if !e.storeProposal(verifiedBlock) {
 			e.Logger.Warn("Unable to store proposed block for the round", zap.Stringer("NodeID", from), zap.Uint64("round", md.Round))
@@ -1852,10 +1903,15 @@ func (e *Epoch) isBlockReadyToBeScheduled(seq uint64, prev Digest) bool {
 
 func (e *Epoch) wasBlockAlreadyVerified(from NodeID, md BlockHeader) bool {
 	var alreadyVerified bool
-	msgsForRound, exists := e.futureMessages[string(from)][md.Round]
+	msgsForRoundByProposer, exists := e.futureMessages[string(from)][md.Round]
+	if ! exists {
+		return false
+	}
+
+	msgsForRound, exists := msgsForRoundByProposer[string(md.Proposer)]
 	if exists && msgsForRound.proposal != nil {
 		bh := msgsForRound.proposal.Block.BlockHeader()
-		alreadyVerified = bh.Equals(&md)
+		alreadyVerified = bh.Equals(md)
 	}
 	return alreadyVerified
 }
@@ -1908,7 +1964,7 @@ func (e *Epoch) verifyProposalIsPartOfOurChain(block Block) bool {
 			Version: 0,
 		},
 	}
-	return expectedBH.Equals(&bh)
+	return expectedBH.Equals(bh)
 }
 
 // locateBlock locates a block:
@@ -1958,22 +2014,20 @@ func (e *Epoch) locateBlock(seq uint64, digest []byte) (VerifiedBlock, bool) {
 	return nil, false
 }
 
-func (e *Epoch) buildBlock() {
-	metadata := e.metadata()
-
-	task := e.createBlockBuildingTask(metadata)
+func (e *Epoch) buildBlock(metadata ProtocolMetadata, blacklist Blacklist) {
+	task := e.createBlockBuildingTask(metadata, blacklist)
 
 	e.Logger.Debug("Scheduling block building", zap.Uint64("round", metadata.Round))
 	e.sched.Schedule(task, metadata.Prev, true)
 }
 
-func (e *Epoch) createBlockBuildingTask(metadata ProtocolMetadata) func() Digest {
+func (e *Epoch) createBlockBuildingTask(metadata ProtocolMetadata, blacklist Blacklist) func() Digest {
 	return func() Digest {
 		e.lock.Lock()
 		e.blockBuilderCtx, e.blockBuilderCancelFunc = context.WithCancel(e.finishCtx)
 		e.lock.Unlock()
 
-		block, ok := e.BlockBuilder.BuildBlock(e.blockBuilderCtx, metadata)
+		block, ok := e.BlockBuilder.BuildBlock(e.blockBuilderCtx, metadata, blacklist)
 
 		e.lock.Lock()
 		defer e.lock.Unlock()
@@ -2130,7 +2184,7 @@ func (e *Epoch) addEmptyVoteRebroadcastTimeout(vote *EmptyVote) {
 	e.timeoutHandler.AddTask(task)
 }
 
-func (e *Epoch) monitorProgress(round uint64) {
+func (e *Epoch) monitorProgress(round uint64, leader NodeID) {
 	e.Logger.Debug("Monitoring progress", zap.Uint64("round", round))
 	ctx, cancelContext := context.WithCancel(context.Background())
 
@@ -2147,7 +2201,6 @@ func (e *Epoch) monitorProgress(round uint64) {
 	proposalWaitTimeExpired := func() {
 		e.lock.Lock()
 		defer e.lock.Unlock()
-		leader := LeaderForRound(e.nodes, round)
 		e.Logger.Debug("Triggering empty block agreement",
 			zap.String("reason", "Timed out on block agreement"),
 			zap.Uint64("round", round),
@@ -2195,17 +2248,85 @@ func (e *Epoch) monitorProgress(round uint64) {
 	}
 }
 
+func computeNewBlacklist(nodes NodeIDs, currentMetadata ProtocolMetadata, prevBlockHeader BlockHeader) (Blacklist, error) {
+	// Ensure the current sequence is exactly one more than the previous sequence.
+	if currentMetadata.Seq != prevBlockHeader.Seq+1 {
+		return Blacklist{}, fmt.Errorf("cannot compute new blacklist, " +
+			"current sequence %d is not one more than previous sequence %d", currentMetadata.Seq, prevBlockHeader.Seq)
+	}
+
+	if currentMetadata.Round == prevBlockHeader.Round {
+		// No new rounds have passed, so the blacklist remains the same.
+		return prevBlockHeader.BlackList, nil
+	}
+
+	if currentMetadata.Round < prevBlockHeader.Round {
+		return Blacklist{}, fmt.Errorf("cannot compute new blacklist, " +
+			"current round %d is less than previous round %d", currentMetadata.Round, prevBlockHeader.Round)
+	}
+
+	blackList := prevBlockHeader.BlackList
+	n := len(nodes)
+
+	// Override the node count in the blacklist,
+	// because if it's the empty blacklist then the node count is zero.
+	prevBlockHeader.BlackList.NodeCount = uint16(n)
+
+	prevLeader := prevBlockHeader.Proposer
+	prevLeaderIndex := nodes.IndexOf(prevLeader)
+	r := prevBlockHeader.Round + 1
+
+	faultyLeaders := make([]int, 0, currentMetadata.Round - prevBlockHeader.Round)
+
+	for {
+		if r == currentMetadata.Round {
+			break
+		}
+
+		leaderIndexForRoundR := findNextNonBlacklistedLeaderIndex(blackList, prevLeaderIndex, n)
+		if leaderIndexForRoundR == noLeader {
+			return Blacklist{}, fmt.Errorf("could not find a non-blacklisted leader for round %d", r)
+		}
+
+		faultyLeaders = append(faultyLeaders, int(leaderIndexForRoundR))
+
+		prevLeaderIndex = (prevLeaderIndex + 1) % n
+		r++
+	}
+
+	for _, faultyLeader := range faultyLeaders {
+		if blackList.IsBlacklisted(uint16(faultyLeader)) {
+			continue
+		}
+		if err := blackList.BlacklistNode(uint16(faultyLeader)); err != nil {
+			return Blacklist{}, fmt.Errorf("failed blacklisting node %d: %w", faultyLeader, err)
+		}
+	}
+
+	return blackList, nil
+}
+
 func (e *Epoch) startRound() error {
-	leaderForCurrentRound := LeaderForRound(e.nodes, e.round)
+	md := e.metadata()
+	prevBlockHeader, err := e.getPrevBlockHeader(md)
+	if err != nil {
+		return err
+	}
+
+	leaderForCurrentRound, err := leaderForRound(e.nodes, e.round, prevBlockHeader)
+	if err != nil {
+		return err
+	}
+
 
 	if e.ID.Equals(leaderForCurrentRound) {
-		e.buildBlock()
+		e.buildBlock(md, newBlacklist)
 		return nil
 	}
 
 	// We're not the leader, make sure if a block is not notarized within a timely manner,
 	// we will agree on an empty block.
-	e.monitorProgress(e.round)
+	e.monitorProgress(e.round, leaderForCurrentRound)
 
 	// If we're not the leader, check if we have received a proposal earlier for this round
 	msgsForRound, exists := e.futureMessages[string(leaderForCurrentRound)][e.round]
@@ -2214,6 +2335,19 @@ func (e *Epoch) startRound() error {
 	}
 
 	return e.handleBlockMessage(msgsForRound.proposal, leaderForCurrentRound)
+}
+
+func (e *Epoch) getPrevBlockHeader(md ProtocolMetadata) (BlockHeader, error) {
+	var bh BlockHeader
+	currentSeq := md.Seq
+	if currentSeq > 0 {
+		prevBlock, ok := e.locateBlock(currentSeq-1, md.Prev[:])
+		if !ok {
+			return BlockHeader{}, fmt.Errorf("could not find parent block for new round %d at seq %d", e.round, currentSeq-1)
+		}
+		bh = prevBlock.BlockHeader()
+	}
+	return bh, nil
 }
 
 func (e *Epoch) doProposed(block VerifiedBlock) error {
@@ -2284,11 +2418,9 @@ func (e *Epoch) increaseRound() {
 	e.timeoutHandler.RemoveTask(e.ID, EmptyVoteTimeoutID)
 	e.deleteEmptyVoteForPreviousRound()
 
-	leader := LeaderForRound(e.nodes, e.round)
 	e.Logger.Info("Moving to a new round",
 		zap.Uint64("old round", e.round),
-		zap.Uint64("new round", e.round+1),
-		zap.Stringer("leader", leader))
+		zap.Uint64("new round", e.round+1))
 	e.round++
 }
 
@@ -2356,36 +2488,38 @@ func (e *Epoch) maybeLoadFutureMessages() error {
 		nextSeqToCommit := e.nextSeqToCommit()
 
 		for from, messagesFromNode := range e.futureMessages {
-			if msgs, exists := messagesFromNode[round]; exists {
-				if msgs.proposal != nil {
-					if err := e.handleBlockMessage(msgs.proposal, NodeID(from)); err != nil {
-						return err
+			if msgsRelatedToProposerReceivedFromNode, exists := messagesFromNode[round]; exists {
+				for _, msgs := range msgsRelatedToProposerReceivedFromNode {
+					if msgs.proposal != nil {
+						if err := e.handleBlockMessage(msgs.proposal, NodeID(from)); err != nil {
+							return err
+						}
 					}
-				}
-				if msgs.finalization != nil {
-					if err := e.handleFinalizationMessage(msgs.finalization, NodeID(from)); err != nil {
-						return err
+					if msgs.finalization != nil {
+						if err := e.handleFinalizationMessage(msgs.finalization, NodeID(from)); err != nil {
+							return err
+						}
 					}
-				}
-				if msgs.vote != nil {
-					if err := e.handleVoteMessage(msgs.vote, NodeID(from)); err != nil {
-						return err
+					if msgs.vote != nil {
+						if err := e.handleVoteMessage(msgs.vote, NodeID(from)); err != nil {
+							return err
+						}
 					}
-				}
-				if msgs.notarization != nil {
-					if err := e.handleNotarizationMessage(msgs.notarization, NodeID(from)); err != nil {
-						return err
+					if msgs.notarization != nil {
+						if err := e.handleNotarizationMessage(msgs.notarization, NodeID(from)); err != nil {
+							return err
+						}
 					}
-				}
-				if msgs.finalizeVote != nil {
-					if err := e.handleFinalizeVoteMessage(msgs.finalizeVote, NodeID(from)); err != nil {
-						return err
+					if msgs.finalizeVote != nil {
+						if err := e.handleFinalizeVoteMessage(msgs.finalizeVote, NodeID(from)); err != nil {
+							return err
+						}
 					}
-				}
-				if e.futureMessagesForRoundEmpty(msgs) {
-					e.Logger.Debug("Deleting future messages",
-						zap.Stringer("from", NodeID(from)), zap.Uint64("round", round))
-					delete(messagesFromNode, round)
+					if e.futureMessagesForRoundEmpty(msgs) {
+						e.Logger.Debug("Deleting future messages",
+							zap.Stringer("from", NodeID(from)), zap.Uint64("round", round))
+						delete(messagesFromNode, round)
+					}
 				}
 			} else {
 				e.Logger.Debug("No future messages received for this round",
@@ -2782,9 +2916,83 @@ func sortNodes(nodes []NodeID) {
 	})
 }
 
-func LeaderForRound(nodes []NodeID, r uint64) NodeID {
+// LeaderForRound returns the leader for a given round based on the nodes and the previous block header.
+// The leader of a round is a non-blacklisted node selected in a round-robin fashion from the list of nodes,
+// according to the round number. For example, in a 10 node network if the leader that proposed a block in round 121 is the fifth node,
+// and nodes 8 and 9 are blacklisted, then the leader of the direct descendant block in round 130 will be the seventh node:
+// 121, 122, 123, 124, 125, 126, 127, 128, 129, 130
+//  5,   6,   7,   1,   2,   3,   4,   5,   6,   7
+func leaderForRound(nodes NodeIDs, round uint64, prevBlockHeader BlockHeader) (NodeID, error) {
 	n := len(nodes)
-	return nodes[r%uint64(n)]
+
+	if round == prevBlockHeader.Round {
+		return prevBlockHeader.Proposer, nil
+	}
+
+	// We cannot know what is the leader of a previous round to the `prevBlockHeader.Round`,
+	// because we have no knowledge of the blacklist in that round.
+	if round < prevBlockHeader.Round {
+		return NodeID{}, fmt.Errorf("cannot determine leader for round %d < %d", round, prevBlockHeader.Round)
+	}
+
+	blacklist := prevBlockHeader.BlackList
+	prevLeader := prevBlockHeader.Proposer
+	prevLeaderIndex := nodes.IndexOf(prevLeader)
+
+	// The previous leader isn't in the list of nodes, this is most likely due to a reconfiguration and an epoch transition.
+	// so select a random node as the leader from the current set of nodes to be the leader.
+	if prevLeaderIndex < 0 {
+		prevLeaderIndex = nodes.RandomNode(prevBlockHeader.Round)
+	}
+
+	// We now advance rounds until we hit the target round.
+
+	r := prevBlockHeader.Round
+
+	for {
+		leaderIndexForRoundR := findNextNonBlacklistedLeaderIndex(blacklist, prevLeaderIndex, n)
+		if leaderIndexForRoundR == noLeader {
+			return NodeID{}, fmt.Errorf("could not find a non-blacklisted leader for round %d", round)
+		}
+
+		if r == round {
+			return nodes[leaderIndexForRoundR], nil
+		}
+
+		prevLeaderIndex = (prevLeaderIndex + 1) % n
+		r++
+	}
+}
+
+
+func LeaderForRoundOrPanic(nodes NodeIDs, round uint64, prevBlockHeader BlockHeader) NodeID {
+	leader, err := leaderForRound(nodes, round, prevBlockHeader)
+	if err != nil {
+		panic(err)
+	}
+	return leader
+}
+
+type leaderIndex int
+
+const (
+	noLeader leaderIndex = -1
+)
+
+// findNextNonBlacklistedLeaderIndex finds the next non-blacklisted leader index given a blacklist,
+// the previous leader index and the total number of nodes.
+func findNextNonBlacklistedLeaderIndex(blacklist Blacklist, prevLeaderIndex int, nodeCount int) leaderIndex {
+	index := (prevLeaderIndex + 1) %nodeCount
+
+	for range nodeCount {
+		if blacklist.IsBlacklisted(uint16(index)) {
+			index = (index + 1) % nodeCount
+			continue
+		}
+		return leaderIndex(index)
+	}
+
+	return noLeader
 }
 
 func Quorum(n int) int {
@@ -2794,8 +3002,9 @@ func Quorum(n int) int {
 	return (n+f)/2 + 1
 }
 
-// messagesFromNode maps nodeIds to the messages it sent in a given round.
-type messagesFromNode map[string]map[uint64]*messagesForRound
+// messagesFromNode maps nodeIds to the messages it sent in a given round, assuming the block proposer
+// has a certain NodeID (encoded as string)
+type messagesFromNode map[string]map[uint64]map[string]*messagesForRound
 
 type messagesForRound struct {
 	proposal     *BlockMessage

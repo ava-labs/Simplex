@@ -66,7 +66,7 @@ func TestRecoverFromWALProposed(t *testing.T) {
 
 	rounds := uint64(100)
 	for i := uint64(0); i < rounds; i++ {
-		leader := LeaderForRound(nodes, uint64(i))
+		leader := LeaderForRoundOrPanic(nodes, uint64(i))
 		isEpochNode := leader.Equals(e.ID)
 		if !isEpochNode {
 			md := e.Metadata()

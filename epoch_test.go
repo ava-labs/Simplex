@@ -453,7 +453,7 @@ func TestEpochFinalizeThenNotarize(t *testing.T) {
 
 	t.Run("notarization after commit without notarizations", func(t *testing.T) {
 		// leader is the proposer of the new block for the given round
-		leader := LeaderForRound(nodes, uint64(100))
+		leader := LeaderForRoundOrPanic(nodes, uint64(100))
 		// only create blocks if we are not the node running the epoch
 		if !leader.Equals(e.ID) {
 			md := e.Metadata()
@@ -539,7 +539,7 @@ func TestEpochStartedTwice(t *testing.T) {
 }
 
 func advanceRoundFromEmpty(t *testing.T, e *Epoch) {
-	leader := LeaderForRound(e.Comm.Nodes(), e.Metadata().Round)
+	leader := LeaderForRoundOrPanic(e.Comm.Nodes(), e.Metadata().Round)
 	require.False(t, e.ID.Equals(leader), "epoch cannot be the leader for the empty round")
 
 	emptyNote := newEmptyNotarization(e.Comm.Nodes(), e.Metadata().Round)
@@ -574,7 +574,7 @@ func advanceRound(t *testing.T, e *Epoch, bb *testBlockBuilder, notarize bool, f
 	nodes := e.Comm.Nodes()
 	quorum := Quorum(len(nodes))
 	// leader is the proposer of the new block for the given round
-	leader := LeaderForRound(nodes, e.Metadata().Round)
+	leader := LeaderForRoundOrPanic(nodes, e.Metadata().Round)
 	// only create blocks if we are not the node running the epoch
 	isEpochNode := leader.Equals(e.ID)
 	if !isEpochNode {
@@ -701,7 +701,7 @@ func createCallbacks(t *testing.T, rounds int, protocolMetadata ProtocolMetadata
 		protocolMetadata.Round++
 		protocolMetadata.Prev = block.BlockHeader().Digest
 
-		leader := LeaderForRound(nodes, uint64(i))
+		leader := LeaderForRoundOrPanic(nodes, uint64(i))
 
 		if !leader.Equals(e.ID) {
 			vote, err := newTestVote(block, leader)
