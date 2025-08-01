@@ -1301,6 +1301,11 @@ func (e *Epoch) handleEmptyNotarizationMessage(emptyNotarization *EmptyNotarizat
 
 func (e *Epoch) verifyEmptyNotarization(emptyNotarization *EmptyNotarization) bool {
 	// Check empty notarization was signed by only eligible nodes
+	if emptyNotarization.QC == nil {
+		e.Logger.Debug("Empty notarization quorum certificate is nil")
+		return false
+	}
+
 	for _, signer := range emptyNotarization.QC.Signers() {
 		if _, exists := e.eligibleNodeIDs[string(signer)]; !exists {
 			e.Logger.Warn("Empty notarization quorum certificate contains an unknown signer", zap.Stringer("signer", signer))
