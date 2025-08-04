@@ -216,7 +216,7 @@ type VerifiedReplicationResponse struct {
 	LatestRound *VerifiedQuorumRound
 }
 
-// QuorumRound represents a round that has acheived quorum on either
+// QuorumRound represents a round that has achieved quorum on either
 // (empty notarization), (block & notarization), or (block, finalization)
 type QuorumRound struct {
 	Block             Block
