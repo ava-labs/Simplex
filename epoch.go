@@ -85,6 +85,8 @@ type Epoch struct {
 	canReceiveMessages             atomic.Bool
 	finishCtx                      context.Context
 	finishFn                       context.CancelFunc
+	blockBuilderCtx                context.Context
+	blockBuilderCancelFunc         context.CancelFunc
 	nodes                          NodeIDs
 	eligibleNodeIDs                map[string]struct{}
 	quorumSize                     int
@@ -173,6 +175,8 @@ func (e *Epoch) init() error {
 	e.monitor = NewMonitor(e.StartTime, e.Logger)
 	e.cancelWaitForBlockNotarization = func() {}
 	e.finishCtx, e.finishFn = context.WithCancel(context.Background())
+	e.blockBuilderCtx = context.Background()
+	e.blockBuilderCancelFunc = func() {}
 	e.nodes = e.Comm.Nodes()
 	sortNodes(e.nodes)
 
@@ -1959,7 +1963,9 @@ func (e *Epoch) buildBlock() {
 
 func (e *Epoch) createBlockBuildingTask(metadata ProtocolMetadata) func() Digest {
 	return func() Digest {
-		block, ok := e.BlockBuilder.BuildBlock(e.finishCtx, metadata)
+		e.blockBuilderCtx, e.blockBuilderCancelFunc = context.WithCancel(e.finishCtx)
+		defer e.blockBuilderCancelFunc()
+		block, ok := e.BlockBuilder.BuildBlock(e.blockBuilderCtx, metadata)
 		if !ok {
 			e.Logger.Warn("Failed building block")
 			return Digest{}
@@ -2260,6 +2266,9 @@ func (e *Epoch) increaseRound() {
 	// In case we're waiting for a block to be notarized, cancel the wait because
 	// we advanced to the next round.
 	e.cancelWaitForBlockNotarization()
+
+	// If we are building a block, cancel the block builder context
+	e.blockBuilderCancelFunc()
 
 	// remove the rebroadcast empty vote task
 	e.timeoutHandler.RemoveTask(e.ID, EmptyVoteTimeoutID)
