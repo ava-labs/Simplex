@@ -783,6 +783,10 @@ func waitForBlockProposerTimeout(t *testing.T, e *Epoch, startTime *time.Time, s
 		if e.WAL.(*testWAL).containsEmptyVote(startRound) || e.WAL.(*testWAL).containsEmptyNotarization(startRound) {
 			return
 		}
+
+		// if we are expected to time out for this round, we should not have a notarization
+		require.False(t, e.WAL.(*testWAL).containsNotarization(startRound))
+
 		*startTime = startTime.Add(e.EpochConfig.MaxProposalWait / 5)
 		e.AdvanceTime(*startTime)
 		select {
