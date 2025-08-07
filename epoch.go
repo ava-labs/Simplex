@@ -183,7 +183,7 @@ func (e *Epoch) init() error {
 	e.maxPendingBlocks = DefaultMaxPendingBlocks
 	e.eligibleNodeIDs = make(map[string]struct{}, len(e.nodes))
 	e.futureMessages = make(messagesFromNode, len(e.nodes))
-	e.replicationState = NewReplicationState(e.Logger, e.Comm, e.ID, e.maxRoundWindow, e.ReplicationEnabled, e.StartTime)
+	e.replicationState = NewReplicationState(e.Logger, e.Comm, e.ID, e.maxRoundWindow, e.ReplicationEnabled, e.StartTime, &e.lock)
 	e.timeoutHandler = NewTimeoutHandler(e.Logger, e.StartTime, e.nodes)
 
 	for _, node := range e.nodes {
@@ -1315,6 +1315,11 @@ func (e *Epoch) verifyEmptyNotarization(emptyNotarization *EmptyNotarization) bo
 		return false
 	}
 	// Check empty notarization was signed by only eligible nodes
+	if emptyNotarization.QC == nil {
+		e.Logger.Debug("Empty notarization quorum certificate is nil")
+		return false
+	}
+
 	for _, signer := range emptyNotarization.QC.Signers() {
 		if _, exists := e.eligibleNodeIDs[string(signer)]; !exists {
 			e.Logger.Warn("Empty notarization quorum certificate contains an unknown signer", zap.Stringer("signer", signer))
