@@ -208,14 +208,16 @@ func TestReplicationRequestTimeoutMultiple(t *testing.T) {
 	laggingNode.storage.waitForBlockCommit(startSeq)
 }
 
-// modifies the replication response to only send every other quorum round
+// modifies the replication response to only send every even quorum round
 func incompleteReplicationResponseFilter(msg *simplex.Message, _, _ simplex.NodeID) bool {
 	if msg.VerifiedReplicationResponse != nil || msg.ReplicationResponse != nil {
 		newLen := len(msg.VerifiedReplicationResponse.Data) / 2
 		newData := make([]simplex.VerifiedQuorumRound, 0, newLen)
 
-		for i := 0; i < newLen; i += 2 {
-			newData = append(newData, msg.VerifiedReplicationResponse.Data[i])
+		for _, qr := range msg.VerifiedReplicationResponse.Data {
+			if qr.GetRound()%2 == 0 {
+				newData = append(newData, qr)
+			}
 		}
 		msg.VerifiedReplicationResponse.Data = newData
 	}
@@ -284,6 +286,9 @@ func TestReplicationRequestIncompleteResponses(t *testing.T) {
 
 	laggingNode.e.AdvanceTime(laggingNode.e.StartTime.Add(simplex.DefaultReplicationRequestTimeout))
 	laggingNode.storage.waitForBlockCommit(0)
+
+	// let the lagging node process previously sent replication responses before ticking
+	time.Sleep(100 * time.Millisecond)
 
 	net.setAllNodesMessageFilter(allowAllMessages)
 	// timeout again, now all nodes will respond

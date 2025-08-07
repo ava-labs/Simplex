@@ -618,7 +618,7 @@ func (e *Epoch) handleFinalizeVoteMessage(message *FinalizeVote, from NodeID) er
 	}
 
 	if round.finalization != nil {
-		e.Logger.Debug("Received finalization for an already finalized round", zap.Uint64("round", vote.Round))
+		e.Logger.Debug("Received finalization for an already finalized round", zap.Uint64("round", vote.Round), zap.Uint64("my round", e.round), zap.Stringer("from", from))
 		return nil
 	}
 
@@ -1101,6 +1101,11 @@ func (e *Epoch) maybeAssembleEmptyNotarization() error {
 
 	// Check if we found a quorum of votes for the same metadata
 	quorumSize := e.quorumSize
+	e.Logger.Debug("Checking for empty votes quorum",
+		zap.Uint64("round", e.round),
+		zap.Int("quorumSize", quorumSize),
+		zap.Int("emptyVotesSize", len(emptyVotes.votes)))
+
 	popularEmptyVote, signatures, found := findMostPopularEmptyVote(emptyVotes.votes, quorumSize)
 	if !found {
 		e.Logger.Debug("Could not find empty vote with a quorum or more votes", zap.Uint64("round", e.round))
@@ -1963,16 +1968,20 @@ func (e *Epoch) buildBlock() {
 
 func (e *Epoch) createBlockBuildingTask(metadata ProtocolMetadata) func() Digest {
 	return func() Digest {
+		e.lock.Lock()
 		e.blockBuilderCtx, e.blockBuilderCancelFunc = context.WithCancel(e.finishCtx)
-		defer e.blockBuilderCancelFunc()
+		e.lock.Unlock()
+
 		block, ok := e.BlockBuilder.BuildBlock(e.blockBuilderCtx, metadata)
+
+		e.lock.Lock()
+		defer e.lock.Unlock()
+
+		e.blockBuilderCancelFunc()
 		if !ok {
 			e.Logger.Warn("Failed building block")
 			return Digest{}
 		}
-
-		e.lock.Lock()
-		defer e.lock.Unlock()
 
 		e.proposeBlock(block)
 
@@ -2267,7 +2276,7 @@ func (e *Epoch) increaseRound() {
 	// we advanced to the next round.
 	e.cancelWaitForBlockNotarization()
 
-	// If we are building a block, cancel the block builder context
+	// Cancel the block building context since we have advanced a round and might still be building a block
 	e.blockBuilderCancelFunc()
 
 	// remove the rebroadcast empty vote task
@@ -2433,7 +2442,7 @@ func (e *Epoch) storeProposal(block VerifiedBlock) bool {
 
 // HandleRequest processes a request and returns a response. It also sends a response to the sender.
 func (e *Epoch) handleReplicationRequest(req *ReplicationRequest, from NodeID) error {
-	e.Logger.Debug("Received replication request", zap.Stringer("from", from), zap.Int("num seqs", len(req.Seqs)), zap.Uint64("latest round", req.LatestRound))
+	e.Logger.Debug("Received replication request", zap.Stringer("from", from), zap.Uint64s("num seqs", req.Seqs), zap.Uint64("latest round", req.LatestRound))
 	if !e.ReplicationEnabled {
 		return nil
 	}
