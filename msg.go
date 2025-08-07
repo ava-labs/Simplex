@@ -27,6 +27,10 @@ type ToBeSignedEmptyVote struct {
 	ProtocolMetadata
 }
 
+func (v *ToBeSignedEmptyVote) HasParent() bool {
+	return v.ProtocolMetadata.Prev != emptyDigest || v.ProtocolMetadata.Seq != 0
+}
+
 func (v *ToBeSignedEmptyVote) Bytes() []byte {
 	return v.ProtocolMetadata.Bytes()
 }
