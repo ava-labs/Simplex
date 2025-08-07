@@ -127,7 +127,6 @@ func newEmptyNotarization(nodes []NodeID, round uint64, seq uint64) *EmptyNotari
 		QC: qc,
 		Vote: ToBeSignedEmptyVote{ProtocolMetadata: ProtocolMetadata{
 			Round: round,
-			Seq:   seq,
 		}},
 	}
 }
@@ -213,7 +212,7 @@ func TestEpochLeaderFailoverReceivesEmptyVotesEarly(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, emptyVoteFrom1.Vote, emptyNotarization.Vote)
 		require.Equal(t, uint64(3), emptyNotarization.Vote.Round)
-		require.Equal(t, uint64(2), emptyNotarization.Vote.Seq)
+		require.Equal(t, uint64(0), emptyNotarization.Vote.Seq)
 		require.Equal(t, uint64(3), storage.Height())
 
 		header, _, err := ParseBlockRecord(rawProposal)
@@ -354,7 +353,7 @@ func TestEpochLeaderFailover(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, emptyVoteFrom1.Vote, emptyNotarization.Vote)
 		require.Equal(t, uint64(3), emptyNotarization.Vote.Round)
-		require.Equal(t, uint64(2), emptyNotarization.Vote.Seq)
+		require.Equal(t, uint64(0), emptyNotarization.Vote.Seq)
 		require.Equal(t, uint64(3), storage.Height())
 
 		nextBlockSeqToCommit := uint64(3)
@@ -572,7 +571,7 @@ func TestEpochLeaderFailoverAfterProposal(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, emptyVoteFrom1.Vote, emptyNotarization.Vote)
 		require.Equal(t, uint64(3), emptyNotarization.Vote.Round)
-		require.Equal(t, uint64(2), emptyNotarization.Vote.Seq)
+		require.Equal(t, uint64(0), emptyNotarization.Vote.Seq)
 		require.Equal(t, uint64(4), storage.Height())
 	})
 }
@@ -688,7 +687,7 @@ func TestEpochLeaderFailoverTwice(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, emptyVoteFrom1.Vote, emptyNotarization.Vote)
 			require.Equal(t, uint64(3), emptyNotarization.Vote.Round)
-			require.Equal(t, uint64(1), emptyNotarization.Vote.Seq)
+			require.Equal(t, uint64(0), emptyNotarization.Vote.Seq)
 			require.Equal(t, uint64(3), storage.Height())
 		})
 	})
@@ -747,7 +746,6 @@ func TestEpochLeaderFailoverBecauseOfBadBlock(t *testing.T) {
 	}, nodes[1])
 	require.NoError(t, err)
 
-	md.Seq--
 	waitForBlockProposerTimeout(t, e, &start, 1)
 	emptyVoteFrom1 := createEmptyVote(md, nodes[0])
 	emptyVoteFrom2 := createEmptyVote(md, nodes[2])
@@ -764,6 +762,8 @@ func TestEpochLeaderFailoverBecauseOfBadBlock(t *testing.T) {
 }
 
 func createEmptyVote(md ProtocolMetadata, signer NodeID) *EmptyVote {
+	md.Prev = Digest{}
+	md.Seq = 0
 	emptyVoteFrom2 := &EmptyVote{
 		Signature: Signature{
 			Signer: signer,

@@ -998,6 +998,86 @@ func TestEpochQCSignedByNonExistentNodes(t *testing.T) {
 	})
 }
 
+func TestEpochDiscardEmptyVotesWithParent(t *testing.T) {
+	loggedMessages := make(chan string, 100)
+	l := testutil.MakeLogger(t, 1)
+	l.Intercept(func(entry zapcore.Entry) error {
+		loggedMessages <- entry.Message
+		return nil
+	})
+	hasLogged := func(msg string) bool {
+		for len(loggedMessages) > 0 {
+			loggedMsg := <-loggedMessages
+			if loggedMsg == msg {
+				return true
+			}
+		}
+		return false
+	}
+
+	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
+	storage := newInMemStorage()
+
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	conf := EpochConfig{
+		MaxProposalWait:     DefaultMaxProposalWaitTime,
+		Logger:              l,
+		ID:                  nodes[0],
+		Signer:              &testSigner{},
+		WAL:                 newTestWAL(t),
+		Verifier:            &testVerifier{},
+		Storage:             storage,
+		Comm:                noopComm(nodes),
+		BlockBuilder:        bb,
+		SignatureAggregator: &testSignatureAggregator{},
+	}
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+
+	require.NoError(t, e.Start())
+
+	vb, _ := notarizeAndFinalizeRound(t, e, bb)
+	require.NotNil(t, vb)
+
+	emptyBlockMd := e.Metadata()
+	emptyBlockMd.Seq--
+
+	// Receive empty votes from all nodes, but with a parent set to the last block.
+	// While this is not a real scenario but an artificial one, we are testing it to ensure that we do not
+	// collect an empty notarization.
+	for i := 1; i <= 3; i++ {
+		emptyVote := createEmptyVote(emptyBlockMd, nodes[i])
+		emptyVote.Vote.Prev = vb.BlockHeader().Digest
+
+		require.False(t, hasLogged("Empty vote has a parent but should not have one"))
+
+		e.HandleMessage(&Message{
+			EmptyVoteMessage: emptyVote,
+		}, nodes[i])
+
+		require.True(t, hasLogged("Empty vote has a parent but should not have one"))
+	}
+
+	emptyNotarization := newEmptyNotarization(nodes, emptyBlockMd.Round, emptyBlockMd.Seq)
+	emptyNotarization.Vote.Prev = vb.BlockHeader().Digest
+
+	require.False(t, hasLogged("Empty notarization vote has a parent but should not have one"))
+
+	e.HandleMessage(&Message{
+		EmptyNotarization: emptyNotarization,
+	}, nodes[1])
+
+	require.True(t, hasLogged("Empty notarization vote has a parent but should not have one"))
+
+	vb, _ = notarizeAndFinalizeRound(t, e, bb)
+	require.NotNil(t, vb)
+
+	// Ensure the previous empty votes and empty notarization did not have any effect.
+	require.Equal(t, uint64(1), vb.BlockHeader().Round)
+
+}
+
 func TestEpochBlockSentFromNonLeader(t *testing.T) {
 	l := testutil.MakeLogger(t, 1)
 	nonLeaderMessage := false
