@@ -1057,7 +1057,7 @@ func cloneBlockChan(in chan *testBlock) chan *testBlock {
 type recordingComm struct {
 	Communication
 	BroadcastMessages chan *Message
-	SentMessages chan *Message
+	SentMessages      chan *Message
 }
 
 func (rc *recordingComm) Broadcast(msg *Message) {

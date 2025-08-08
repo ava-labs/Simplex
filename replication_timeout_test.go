@@ -261,7 +261,7 @@ func TestReplicationRequestIncompleteResponses(t *testing.T) {
 
 	laggingNode := newSimplexNode(t, nodes[3], net, bb, &testNodeConfig{
 		replicationEnabled: true,
-		comm: &recordingComm{Communication: comm, SentMessages: recordedMessages},
+		comm:               &recordingComm{Communication: comm, SentMessages: recordedMessages},
 	})
 
 	for _, node := range net.instances[:3] {
