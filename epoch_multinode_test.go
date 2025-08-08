@@ -654,7 +654,11 @@ func (n *inMemNetwork) addNode(node *testNode) {
 
 func (n *inMemNetwork) setAllNodesMessageFilter(filter messageFilter) {
 	for _, instance := range n.instances {
-		instance.e.Comm.(testNetworkCommunication).setFilter(filter)
+		comm, ok := instance.e.Comm.(testNetworkCommunication)
+		if ! ok {
+			continue
+		}
+		comm.setFilter(filter)
 	}
 }
 
