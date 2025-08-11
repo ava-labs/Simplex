@@ -3,6 +3,8 @@
 
 package simplex
 
+//go:generate go run github.com/StephenButtolph/canoto/canoto $GOFILE
+
 import (
 	"bytes"
 	"encoding/asn1"
@@ -23,30 +25,40 @@ type Message struct {
 	ReplicationRequest          *ReplicationRequest
 }
 
-type ToBeSignedEmptyVote struct {
-	ProtocolMetadata
+type EmptyVoteMetadata struct {
+	Round uint64
+	Epoch uint64
 }
 
-func (v *ToBeSignedEmptyVote) HasParent() bool {
-	return v.ProtocolMetadata.Prev != emptyDigest || v.ProtocolMetadata.Seq != 0
+type canotoEmptyVoteMetadata struct {
+	Round uint64 `canoto:"uint,4"`
+	Epoch uint64 `canoto:"uint,2"`
+
+	canotoData canotoData_canotoEmptyVoteMetadata
+}
+
+type ToBeSignedEmptyVote struct {
+	EmptyVoteMetadata
 }
 
 func (v *ToBeSignedEmptyVote) Bytes() []byte {
-	return v.ProtocolMetadata.Bytes()
+	canotoEV := canotoEmptyVoteMetadata{
+		Round: v.EmptyVoteMetadata.Round,
+		Epoch: v.EmptyVoteMetadata.Epoch,
+	}
+	return canotoEV.MarshalCanoto()
 }
 
 func (v *ToBeSignedEmptyVote) FromBytes(buff []byte) error {
-	if len(buff) != ProtocolMetadataLen {
-		return fmt.Errorf("invalid buffer length %d, expected %d", len(buff), ProtocolMetadataLen)
+	var emptyVoteMetadata canotoEmptyVoteMetadata
+	if err := emptyVoteMetadata.UnmarshalCanoto(buff); err != nil {
+		return fmt.Errorf("failed to unmarshal ToBeSignedEmptyVote: %w", err)
 	}
 
-	md, err := ProtocolMetadataFromBytes(buff[:ProtocolMetadataLen])
-	if err != nil {
-		return fmt.Errorf("failed to parse ProtocolMetadata: %w", err)
+	v.EmptyVoteMetadata = EmptyVoteMetadata{
+		Round: emptyVoteMetadata.Round,
+		Epoch: emptyVoteMetadata.Epoch,
 	}
-
-	v.ProtocolMetadata = *md
-
 	return nil
 }
 
@@ -255,10 +267,6 @@ func (q *QuorumRound) GetRound() uint64 {
 }
 
 func (q *QuorumRound) GetSequence() uint64 {
-	if q.EmptyNotarization != nil {
-		return q.EmptyNotarization.Vote.Seq
-	}
-
 	if q.Block != nil {
 		return q.Block.BlockHeader().Seq
 	}

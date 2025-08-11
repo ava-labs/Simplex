@@ -168,10 +168,10 @@ func TestGetHighestQuorumRound(t *testing.T) {
 		expectedQr *VerifiedQuorumRound
 	}{
 		{
-			name:  "only mpty notarization",
-			eNote: newEmptyNotarization(nodes, 1, 1),
+			name:  "only empty notarization",
+			eNote: newEmptyNotarization(nodes, 1),
 			expectedQr: &VerifiedQuorumRound{
-				EmptyNotarization: newEmptyNotarization(nodes, 1, 1),
+				EmptyNotarization: newEmptyNotarization(nodes, 1),
 			},
 		},
 		{
@@ -227,25 +227,14 @@ func TestGetHighestQuorumRound(t *testing.T) {
 		},
 		{
 			name:  "higher empty notarization",
-			eNote: newEmptyNotarization(nodes, 100, 100),
+			eNote: newEmptyNotarization(nodes, 100),
 			lastBlock: &VerifiedFinalizedBlock{
 				VerifiedBlock: block1,
 				Finalization:  finalization1,
 			},
 			round: SetRound(block10, &notarization10, nil),
 			expectedQr: &VerifiedQuorumRound{
-				EmptyNotarization: newEmptyNotarization(nodes, 100, 100),
-			},
-		},
-		{
-			name:  "higher empty notarization with same sequence",
-			eNote: newEmptyNotarization(nodes, 11, 10),
-			lastBlock: &VerifiedFinalizedBlock{
-				VerifiedBlock: block10,
-				Finalization:  finalization10,
-			},
-			expectedQr: &VerifiedQuorumRound{
-				EmptyNotarization: newEmptyNotarization(nodes, 11, 10),
+				EmptyNotarization: newEmptyNotarization(nodes, 100),
 			},
 		},
 	}

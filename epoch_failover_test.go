@@ -94,7 +94,7 @@ func TestEpochLeaderFailoverWithEmptyNotarization(t *testing.T) {
 		bb.in <- block.(*testBlock)
 	}
 
-	emptyNotarization := newEmptyNotarization(nodes[:3], 2, 1)
+	emptyNotarization := newEmptyNotarization(nodes[:3], 2)
 
 	e.HandleMessage(&Message{
 		EmptyNotarization: emptyNotarization,
@@ -116,7 +116,7 @@ func TestEpochLeaderFailoverWithEmptyNotarization(t *testing.T) {
 }
 
 // newEmptyNotarization creates a new empty notarization
-func newEmptyNotarization(nodes []NodeID, round uint64, seq uint64) *EmptyNotarization {
+func newEmptyNotarization(nodes []NodeID, round uint64) *EmptyNotarization {
 	var qc testQC
 
 	for i, node := range nodes {
@@ -125,7 +125,7 @@ func newEmptyNotarization(nodes []NodeID, round uint64, seq uint64) *EmptyNotari
 
 	return &EmptyNotarization{
 		QC: qc,
-		Vote: ToBeSignedEmptyVote{ProtocolMetadata: ProtocolMetadata{
+		Vote: ToBeSignedEmptyVote{EmptyVoteMetadata: EmptyVoteMetadata{
 			Round: round,
 		}},
 	}
@@ -212,7 +212,6 @@ func TestEpochLeaderFailoverReceivesEmptyVotesEarly(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, emptyVoteFrom1.Vote, emptyNotarization.Vote)
 		require.Equal(t, uint64(3), emptyNotarization.Vote.Round)
-		require.Equal(t, uint64(0), emptyNotarization.Vote.Seq)
 		require.Equal(t, uint64(3), storage.Height())
 
 		header, _, err := ParseBlockRecord(rawProposal)
@@ -266,7 +265,7 @@ func TestReceiveEmptyNotarizationWithNoQC(t *testing.T) {
 
 	require.NoError(t, e.Start())
 
-	emptyNotarization := newEmptyNotarization(nodes[:3], 0, 0)
+	emptyNotarization := newEmptyNotarization(nodes[:3], 0)
 
 	e.HandleMessage(&Message{
 		EmptyNotarization: &EmptyNotarization{Vote: emptyNotarization.Vote},
@@ -353,7 +352,6 @@ func TestEpochLeaderFailover(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, emptyVoteFrom1.Vote, emptyNotarization.Vote)
 		require.Equal(t, uint64(3), emptyNotarization.Vote.Round)
-		require.Equal(t, uint64(0), emptyNotarization.Vote.Seq)
 		require.Equal(t, uint64(3), storage.Height())
 
 		nextBlockSeqToCommit := uint64(3)
@@ -571,7 +569,6 @@ func TestEpochLeaderFailoverAfterProposal(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, emptyVoteFrom1.Vote, emptyNotarization.Vote)
 		require.Equal(t, uint64(3), emptyNotarization.Vote.Round)
-		require.Equal(t, uint64(0), emptyNotarization.Vote.Seq)
 		require.Equal(t, uint64(4), storage.Height())
 	})
 }
@@ -687,7 +684,6 @@ func TestEpochLeaderFailoverTwice(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, emptyVoteFrom1.Vote, emptyNotarization.Vote)
 			require.Equal(t, uint64(3), emptyNotarization.Vote.Round)
-			require.Equal(t, uint64(0), emptyNotarization.Vote.Seq)
 			require.Equal(t, uint64(3), storage.Height())
 		})
 	})
@@ -762,14 +758,15 @@ func TestEpochLeaderFailoverBecauseOfBadBlock(t *testing.T) {
 }
 
 func createEmptyVote(md ProtocolMetadata, signer NodeID) *EmptyVote {
-	md.Prev = Digest{}
-	md.Seq = 0
 	emptyVoteFrom2 := &EmptyVote{
 		Signature: Signature{
 			Signer: signer,
 		},
 		Vote: ToBeSignedEmptyVote{
-			ProtocolMetadata: md,
+			EmptyVoteMetadata: EmptyVoteMetadata{
+				Round: md.Round,
+				Epoch: 0,
+			},
 		},
 	}
 	return emptyVoteFrom2
@@ -951,7 +948,7 @@ func TestEpochRebroadcastsEmptyVote(t *testing.T) {
 		wal.assertWALSize(1)
 	}
 
-	emptyNotarization := newEmptyNotarization(nodes, 0, 0)
+	emptyNotarization := newEmptyNotarization(nodes, 0)
 	e.HandleMessage(&simplex.Message{
 		EmptyNotarization: emptyNotarization,
 	}, nodes[2])

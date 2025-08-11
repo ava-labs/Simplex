@@ -113,7 +113,7 @@ func GetLatestVerifiedQuorumRound(round *Round, emptyNotarization *EmptyNotariza
 			verifiedQuorumRound = &VerifiedQuorumRound{
 				EmptyNotarization: emptyNotarization,
 			}
-			highestRound = emptyNotarization.Vote.ProtocolMetadata.Round
+			highestRound = emptyNotarization.Vote.Round
 			exists = true
 		}
 	}
