@@ -1057,11 +1057,21 @@ func cloneBlockChan(in chan *testBlock) chan *testBlock {
 type recordingComm struct {
 	Communication
 	BroadcastMessages chan *Message
+	SentMessages      chan *Message
 }
 
 func (rc *recordingComm) Broadcast(msg *Message) {
-	rc.BroadcastMessages <- msg
+	if rc.BroadcastMessages != nil {
+		rc.BroadcastMessages <- msg
+	}
 	rc.Communication.Broadcast(msg)
+}
+
+func (rc *recordingComm) Send(msg *Message, node NodeID) {
+	if rc.SentMessages != nil {
+		rc.SentMessages <- msg
+	}
+	rc.Communication.Send(msg, node)
 }
 
 type epochExecution func(t *testing.T, e *Epoch, bb *testBlockBuilder, storage *InMemStorage, wal *testWAL)
