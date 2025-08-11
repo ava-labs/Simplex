@@ -1061,12 +1061,16 @@ type recordingComm struct {
 }
 
 func (rc *recordingComm) Broadcast(msg *Message) {
-	rc.BroadcastMessages <- msg
+	if rc.BroadcastMessages != nil {
+		rc.BroadcastMessages <- msg
+	}
 	rc.Communication.Broadcast(msg)
 }
 
 func (rc *recordingComm) Send(msg *Message, node NodeID) {
-	rc.SentMessages <- msg
+	if rc.SentMessages != nil {
+		rc.SentMessages <- msg
+	}
 	rc.Communication.Send(msg, node)
 }
 
