@@ -1108,10 +1108,6 @@ func (e *Epoch) maybeAssembleEmptyNotarization() error {
 
 	// Check if we found a quorum of votes for the same metadata
 	quorumSize := e.quorumSize
-	e.Logger.Debug("Checking for empty votes quorum",
-		zap.Uint64("round", e.round),
-		zap.Int("quorumSize", quorumSize),
-		zap.Int("emptyVotesSize", len(emptyVotes.votes)))
 
 	popularEmptyVote, signatures, found := findMostPopularEmptyVote(emptyVotes.votes, quorumSize)
 	if !found {
