@@ -541,7 +541,6 @@ func TestReplicationMalformedQuorumRound(t *testing.T) {
 	require.Equal(t, uint64(0), laggingNode.storage.Height())
 
 	laggingNode.e.AdvanceTime(laggingNode.e.StartTime.Add(simplex.DefaultReplicationRequestTimeout))
-	time.Sleep(100 * time.Millisecond) // give time for the lagging node to process the malformed response
 	require.Equal(t, uint64(0), laggingNode.storage.Height())
 
 	require.Eventually(t, func() bool {
