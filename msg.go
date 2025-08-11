@@ -3,11 +3,10 @@
 
 package simplex
 
-//go:generate go run github.com/StephenButtolph/canoto/canoto $GOFILE
-
 import (
 	"bytes"
 	"encoding/asn1"
+	"encoding/binary"
 	"fmt"
 )
 
@@ -30,34 +29,28 @@ type EmptyVoteMetadata struct {
 	Epoch uint64
 }
 
-type canotoEmptyVoteMetadata struct {
-	Round uint64 `canoto:"uint,4"`
-	Epoch uint64 `canoto:"uint,2"`
-
-	canotoData canotoData_canotoEmptyVoteMetadata
-}
-
 type ToBeSignedEmptyVote struct {
 	EmptyVoteMetadata
 }
 
 func (v *ToBeSignedEmptyVote) Bytes() []byte {
-	canotoEV := canotoEmptyVoteMetadata{
-		Round: v.EmptyVoteMetadata.Round,
-		Epoch: v.EmptyVoteMetadata.Epoch,
-	}
-	return canotoEV.MarshalCanoto()
+	bytes := make([]byte, 8+8) // Round + Epoch
+	binary.BigEndian.PutUint64(bytes[0:8], v.EmptyVoteMetadata.Round)
+	binary.BigEndian.PutUint64(bytes[8:16], v.EmptyVoteMetadata.Epoch)
+	return bytes
 }
 
 func (v *ToBeSignedEmptyVote) FromBytes(buff []byte) error {
-	var emptyVoteMetadata canotoEmptyVoteMetadata
-	if err := emptyVoteMetadata.UnmarshalCanoto(buff); err != nil {
-		return fmt.Errorf("failed to unmarshal ToBeSignedEmptyVote: %w", err)
+	if len(buff) != 16 {
+		return fmt.Errorf("invalid buffer length")
 	}
 
+	round := binary.BigEndian.Uint64(buff[0:8])
+	epoch := binary.BigEndian.Uint64(buff[8:16])
+
 	v.EmptyVoteMetadata = EmptyVoteMetadata{
-		Round: emptyVoteMetadata.Round,
-		Epoch: emptyVoteMetadata.Epoch,
+		Round: round,
+		Epoch: epoch,
 	}
 	return nil
 }
