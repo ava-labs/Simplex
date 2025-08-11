@@ -5,6 +5,7 @@ package simplex_test
 
 import (
 	"bytes"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -208,14 +209,16 @@ func TestReplicationRequestTimeoutMultiple(t *testing.T) {
 	laggingNode.storage.waitForBlockCommit(startSeq)
 }
 
-// modifies the replication response to only send every other quorum round
+// modifies the replication response to only send every even quorum round
 func incompleteReplicationResponseFilter(msg *simplex.Message, _, _ simplex.NodeID) bool {
 	if msg.VerifiedReplicationResponse != nil || msg.ReplicationResponse != nil {
 		newLen := len(msg.VerifiedReplicationResponse.Data) / 2
 		newData := make([]simplex.VerifiedQuorumRound, 0, newLen)
 
-		for i := 0; i < newLen; i += 2 {
-			newData = append(newData, msg.VerifiedReplicationResponse.Data[i])
+		for _, qr := range msg.VerifiedReplicationResponse.Data {
+			if qr.GetRound()%2 == 0 {
+				newData = append(newData, qr)
+			}
 		}
 		msg.VerifiedReplicationResponse.Data = newData
 	}
@@ -252,9 +255,18 @@ func TestReplicationRequestIncompleteResponses(t *testing.T) {
 	normalNode2 := newSimplexNode(t, nodes[1], net, bb, newNodeConfig(nodes[1]))
 	normalNode2.e.Comm.(*testComm).setFilter(mf.receivedReplicationRequest)
 	newSimplexNode(t, nodes[2], net, bb, newNodeConfig(nodes[2]))
+
+	recordedMessages := make(chan *simplex.Message, 1000)
+	comm := newTestComm(nodes[3], net, allowAllMessages)
+
 	laggingNode := newSimplexNode(t, nodes[3], net, bb, &testNodeConfig{
 		replicationEnabled: true,
+		comm:               &recordingComm{Communication: comm, SentMessages: recordedMessages},
 	})
+
+	for _, node := range net.instances[:3] {
+		node.Silence()
+	}
 
 	net.startInstances()
 	bb.triggerNewBlock()
@@ -284,6 +296,20 @@ func TestReplicationRequestIncompleteResponses(t *testing.T) {
 
 	laggingNode.e.AdvanceTime(laggingNode.e.StartTime.Add(simplex.DefaultReplicationRequestTimeout))
 	laggingNode.storage.waitForBlockCommit(0)
+
+	require.Eventually(t, func() bool {
+		msg, ok := <-recordedMessages
+		if !ok {
+			return false
+		}
+
+		if msg.ReplicationRequest == nil {
+			return false
+		}
+
+		return reflect.DeepEqual(msg.ReplicationRequest.Seqs, []uint64{3, 4, 5})
+
+	}, 30*time.Second, 10*time.Millisecond)
 
 	net.setAllNodesMessageFilter(allowAllMessages)
 	// timeout again, now all nodes will respond
