@@ -618,7 +618,7 @@ func (e *Epoch) handleFinalizeVoteMessage(message *FinalizeVote, from NodeID) er
 	}
 
 	if round.finalization != nil {
-		e.Logger.Debug("Received finalization for an already finalized round", zap.Uint64("round", vote.Round), zap.Uint64("my round", e.round), zap.Stringer("from", from))
+		e.Logger.Debug("Received finalization for an already finalized round", zap.Uint64("round", vote.Round))
 		return nil
 	}
 
@@ -1108,7 +1108,6 @@ func (e *Epoch) maybeAssembleEmptyNotarization() error {
 
 	// Check if we found a quorum of votes for the same metadata
 	quorumSize := e.quorumSize
-
 	popularEmptyVote, signatures, found := findMostPopularEmptyVote(emptyVotes.votes, quorumSize)
 	if !found {
 		e.Logger.Debug("Could not find empty vote with a quorum or more votes", zap.Uint64("round", e.round))
