@@ -463,3 +463,102 @@ func TestReplicationRequestWithoutFinalization(t *testing.T) {
 	laggingNode.e.AdvanceTime(laggingNode.e.StartTime.Add(simplex.DefaultReplicationRequestTimeout * 4))
 	laggingNode.storage.waitForBlockCommit(endDisconnect - missedSeqs)
 }
+
+// TestReplicationMalformedQuorumRound tests that a node resends a replication request when it receives a malformed quorum round message.
+func TestReplicationMalformedQuorumRound(t *testing.T) {
+	nodes := []simplex.NodeID{{1}, {2}, {3}, []byte("lagging")}
+	startSeq := uint64(8)
+
+	// node begins replication
+	bb := newTestControlledBlockBuilder(t)
+	net := newInMemNetwork(t, nodes)
+
+	storageData := createBlocks(t, nodes, &bb.testBlockBuilder, startSeq)
+
+	newNodeConfig := func(from simplex.NodeID) *testNodeConfig {
+		comm := newTestComm(from, net, rejectReplicationRequests)
+		return &testNodeConfig{
+			initialStorage:     storageData,
+			comm:               comm,
+			replicationEnabled: true,
+		}
+	}
+
+	mf := &testTimeoutMessageFilter{
+		t:                    t,
+		replicationResponses: make(chan struct{}, 1),
+	}
+
+	newSimplexNode(t, nodes[0], net, bb, newNodeConfig(nodes[0]))
+	normalNode2 := newSimplexNode(t, nodes[1], net, bb, newNodeConfig(nodes[1]))
+	normalNode2.e.Comm.(*testComm).setFilter(mf.receivedReplicationRequest)
+	newSimplexNode(t, nodes[2], net, bb, newNodeConfig(nodes[2]))
+
+	recordedMessages := make(chan *simplex.Message, 1000)
+	comm := newTestComm(nodes[3], net, allowAllMessages)
+
+	laggingNode := newSimplexNode(t, nodes[3], net, bb, &testNodeConfig{
+		replicationEnabled: true,
+		comm:               &recordingComm{Communication: comm, SentMessages: recordedMessages},
+	})
+
+	net.startInstances()
+	bb.triggerNewBlock()
+
+	// typically the lagging node would catch up here, but since we block
+	// replication requests, the lagging node will be forced to resend requests after a timeout
+	for i := 0; i <= int(startSeq); i++ {
+		for _, n := range net.instances {
+			if n.e.ID.Equals(laggingNode.e.ID) {
+				continue
+			}
+			n.storage.waitForBlockCommit(uint64(startSeq))
+		}
+	}
+
+	<-mf.replicationResponses
+
+	// assert the lagging node has not received any replication responses
+	require.Equal(t, uint64(0), laggingNode.storage.Height())
+	net.setAllNodesMessageFilter(
+		func(msg *simplex.Message, _, _ simplex.NodeID) bool {
+			if msg.VerifiedReplicationResponse != nil || msg.ReplicationResponse != nil {
+				newData := make([]simplex.VerifiedQuorumRound, 0, len(msg.VerifiedReplicationResponse.Data))
+
+				for _, qr := range msg.VerifiedReplicationResponse.Data {
+					qr.Notarization = nil // remove notarization
+					qr.Finalization = nil // remove finalization
+					newData = append(newData, qr)
+				}
+				msg.VerifiedReplicationResponse.Data = newData
+			}
+			return true
+		},
+	)
+
+	// after the timeout, only normalNode2 should respond, but with malformed data
+	laggingNode.e.AdvanceTime(laggingNode.e.StartTime.Add(simplex.DefaultReplicationRequestTimeout / 2))
+	require.Equal(t, uint64(0), laggingNode.storage.Height())
+
+	laggingNode.e.AdvanceTime(laggingNode.e.StartTime.Add(simplex.DefaultReplicationRequestTimeout))
+	require.Equal(t, uint64(0), laggingNode.storage.Height())
+
+	require.Eventually(t, func() bool {
+		msg, ok := <-recordedMessages
+		if !ok {
+			return false
+		}
+
+		if msg.ReplicationRequest == nil {
+			return false
+		}
+
+		return reflect.DeepEqual(msg.ReplicationRequest.Seqs, []uint64{3, 4, 5})
+
+	}, 30*time.Second, 10*time.Millisecond)
+
+	net.setAllNodesMessageFilter(allowAllMessages)
+	// timeout again, now all nodes will respond
+	laggingNode.e.AdvanceTime(laggingNode.e.StartTime.Add(simplex.DefaultReplicationRequestTimeout * 2))
+	laggingNode.storage.waitForBlockCommit(startSeq)
+}

@@ -2533,6 +2533,7 @@ func (e *Epoch) handleReplicationResponse(resp *ReplicationResponse, from NodeID
 	e.Logger.Debug("Received replication response", zap.Stringer("from", from), zap.Int("num seqs", len(resp.Data)), zap.Stringer("latest round", resp.LatestRound))
 	nextSeqToCommit := e.Storage.Height()
 
+	validRounds := make([]QuorumRound, 0, len(resp.Data))
 	for _, data := range resp.Data {
 		if err := data.IsWellFormed(); err != nil {
 			e.Logger.Debug("Malformed Quorum Round Received", zap.Error(err))
@@ -2555,6 +2556,7 @@ func (e *Epoch) handleReplicationResponse(resp *ReplicationResponse, from NodeID
 			continue
 		}
 
+		validRounds = append(validRounds, data)
 		e.replicationState.StoreQuorumRound(data)
 	}
 
@@ -2563,7 +2565,7 @@ func (e *Epoch) handleReplicationResponse(resp *ReplicationResponse, from NodeID
 		return nil
 	}
 
-	e.replicationState.receivedReplicationResponse(resp.Data, from)
+	e.replicationState.receivedReplicationResponse(validRounds, from)
 
 	return e.processReplicationState()
 }
