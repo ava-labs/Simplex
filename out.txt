@@ -1,0 +1,273 @@
+=== RUN   TestReplicationMalformedQuorumRound
+[08-11|14:41:21.062] DEBUG Simplex/notarization.go:93 Collected a finalize vote from node {"test": "TestReplicationMalformedQuorumRound", "node": 0, "NodeID": "0100000000000000", "round": 0}
+[08-11|14:41:21.063] DEBUG Simplex/notarization.go:93 Collected a finalize vote from node {"test": "TestReplicationMalformedQuorumRound", "node": 0, "NodeID": "0200000000000000", "round": 0}
+[08-11|14:41:21.063] DEBUG Simplex/notarization.go:93 Collected a finalize vote from node {"test": "TestReplicationMalformedQuorumRound", "node": 0, "NodeID": "0300000000000000", "round": 0}
+[08-11|14:41:21.063] DEBUG Simplex/notarization.go:93 Collected a finalize vote from node {"test": "TestReplicationMalformedQuorumRound", "node": 0, "NodeID": "6c616767696e6700", "round": 0}
+[08-11|14:41:21.063] DEBUG Simplex/notarization.go:93 Collected a finalize vote from node {"test": "TestReplicationMalformedQuorumRound", "node": 0, "NodeID": "0100000000000000", "round": 1}
+[08-11|14:41:21.063] DEBUG Simplex/notarization.go:93 Collected a finalize vote from node {"test": "TestReplicationMalformedQuorumRound", "node": 0, "NodeID": "0200000000000000", "round": 1}
+[08-11|14:41:21.063] DEBUG Simplex/notarization.go:93 Collected a finalize vote from node {"test": "TestReplicationMalformedQuorumRound", "node": 0, "NodeID": "0300000000000000", "round": 1}
+[08-11|14:41:21.063] DEBUG Simplex/notarization.go:93 Collected a finalize vote from node {"test": "TestReplicationMalformedQuorumRound", "node": 0, "NodeID": "6c616767696e6700", "round": 1}
+[08-11|14:41:21.063] DEBUG Simplex/notarization.go:93 Collected a finalize vote from node {"test": "TestReplicationMalformedQuorumRound", "node": 0, "NodeID": "0100000000000000", "round": 2}
+[08-11|14:41:21.063] DEBUG Simplex/notarization.go:93 Collected a finalize vote from node {"test": "TestReplicationMalformedQuorumRound", "node": 0, "NodeID": "0200000000000000", "round": 2}
+[08-11|14:41:21.063] DEBUG Simplex/notarization.go:93 Collected a finalize vote from node {"test": "TestReplicationMalformedQuorumRound", "node": 0, "NodeID": "0300000000000000", "round": 2}
+[08-11|14:41:21.063] DEBUG Simplex/notarization.go:93 Collected a finalize vote from node {"test": "TestReplicationMalformedQuorumRound", "node": 0, "NodeID": "6c616767696e6700", "round": 2}
+[08-11|14:41:21.063] DEBUG Simplex/notarization.go:93 Collected a finalize vote from node {"test": "TestReplicationMalformedQuorumRound", "node": 0, "NodeID": "0100000000000000", "round": 3}
+[08-11|14:41:21.063] DEBUG Simplex/notarization.go:93 Collected a finalize vote from node {"test": "TestReplicationMalformedQuorumRound", "node": 0, "NodeID": "0200000000000000", "round": 3}
+[08-11|14:41:21.063] DEBUG Simplex/notarization.go:93 Collected a finalize vote from node {"test": "TestReplicationMalformedQuorumRound", "node": 0, "NodeID": "0300000000000000", "round": 3}
+[08-11|14:41:21.063] DEBUG Simplex/notarization.go:93 Collected a finalize vote from node {"test": "TestReplicationMalformedQuorumRound", "node": 0, "NodeID": "6c616767696e6700", "round": 3}
+[08-11|14:41:21.063] DEBUG Simplex/notarization.go:93 Collected a finalize vote from node {"test": "TestReplicationMalformedQuorumRound", "node": 0, "NodeID": "0100000000000000", "round": 4}
+[08-11|14:41:21.063] DEBUG Simplex/notarization.go:93 Collected a finalize vote from node {"test": "TestReplicationMalformedQuorumRound", "node": 0, "NodeID": "0200000000000000", "round": 4}
+[08-11|14:41:21.063] DEBUG Simplex/notarization.go:93 Collected a finalize vote from node {"test": "TestReplicationMalformedQuorumRound", "node": 0, "NodeID": "0300000000000000", "round": 4}
+[08-11|14:41:21.063] DEBUG Simplex/notarization.go:93 Collected a finalize vote from node {"test": "TestReplicationMalformedQuorumRound", "node": 0, "NodeID": "6c616767696e6700", "round": 4}
+[08-11|14:41:21.063] DEBUG Simplex/notarization.go:93 Collected a finalize vote from node {"test": "TestReplicationMalformedQuorumRound", "node": 0, "NodeID": "0100000000000000", "round": 5}
+[08-11|14:41:21.063] DEBUG Simplex/notarization.go:93 Collected a finalize vote from node {"test": "TestReplicationMalformedQuorumRound", "node": 0, "NodeID": "0200000000000000", "round": 5}
+[08-11|14:41:21.063] DEBUG Simplex/notarization.go:93 Collected a finalize vote from node {"test": "TestReplicationMalformedQuorumRound", "node": 0, "NodeID": "0300000000000000", "round": 5}
+[08-11|14:41:21.063] DEBUG Simplex/notarization.go:93 Collected a finalize vote from node {"test": "TestReplicationMalformedQuorumRound", "node": 0, "NodeID": "6c616767696e6700", "round": 5}
+[08-11|14:41:21.063] DEBUG Simplex/notarization.go:93 Collected a finalize vote from node {"test": "TestReplicationMalformedQuorumRound", "node": 0, "NodeID": "0100000000000000", "round": 6}
+[08-11|14:41:21.063] DEBUG Simplex/notarization.go:93 Collected a finalize vote from node {"test": "TestReplicationMalformedQuorumRound", "node": 0, "NodeID": "0200000000000000", "round": 6}
+[08-11|14:41:21.063] DEBUG Simplex/notarization.go:93 Collected a finalize vote from node {"test": "TestReplicationMalformedQuorumRound", "node": 0, "NodeID": "0300000000000000", "round": 6}
+[08-11|14:41:21.063] DEBUG Simplex/notarization.go:93 Collected a finalize vote from node {"test": "TestReplicationMalformedQuorumRound", "node": 0, "NodeID": "6c616767696e6700", "round": 6}
+[08-11|14:41:21.063] DEBUG Simplex/notarization.go:93 Collected a finalize vote from node {"test": "TestReplicationMalformedQuorumRound", "node": 0, "NodeID": "0100000000000000", "round": 7}
+[08-11|14:41:21.063] DEBUG Simplex/notarization.go:93 Collected a finalize vote from node {"test": "TestReplicationMalformedQuorumRound", "node": 0, "NodeID": "0200000000000000", "round": 7}
+[08-11|14:41:21.063] DEBUG Simplex/notarization.go:93 Collected a finalize vote from node {"test": "TestReplicationMalformedQuorumRound", "node": 0, "NodeID": "0300000000000000", "round": 7}
+[08-11|14:41:21.063] DEBUG Simplex/notarization.go:93 Collected a finalize vote from node {"test": "TestReplicationMalformedQuorumRound", "node": 0, "NodeID": "6c616767696e6700", "round": 7}
+[08-11|14:41:21.063] INFO Simplex/epoch.go:204 Starting Simplex Epoch {"test": "TestReplicationMalformedQuorumRound", "node": 1, "ID": "0100000000000000", "nodes": "[0100000000000000 0200000000000000 0300000000000000 6c616767696e6700]"}
+[08-11|14:41:21.063] INFO Simplex/epoch.go:204 Starting Simplex Epoch {"test": "TestReplicationMalformedQuorumRound", "node": 2, "ID": "0200000000000000", "nodes": "[0100000000000000 0200000000000000 0300000000000000 6c616767696e6700]"}
+[08-11|14:41:21.063] INFO Simplex/epoch.go:204 Starting Simplex Epoch {"test": "TestReplicationMalformedQuorumRound", "node": 3, "ID": "0300000000000000", "nodes": "[0100000000000000 0200000000000000 0300000000000000 6c616767696e6700]"}
+[08-11|14:41:21.063] INFO Simplex/epoch.go:204 Starting Simplex Epoch {"test": "TestReplicationMalformedQuorumRound", "node": 108, "ID": "6c616767696e6700", "nodes": "[0100000000000000 0200000000000000 0300000000000000 6c616767696e6700]"}
+[08-11|14:41:21.063] DEBUG Simplex/sched.go:94 No ready tasks, going to sleep {"test": "TestReplicationMalformedQuorumRound", "node": 3}
+[08-11|14:41:21.063] DEBUG Simplex/sched.go:94 No ready tasks, going to sleep {"test": "TestReplicationMalformedQuorumRound", "node": 1}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:2143 Monitoring progress {"test": "TestReplicationMalformedQuorumRound", "node": 108, "round": 0}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:2143 Monitoring progress {"test": "TestReplicationMalformedQuorumRound", "node": 3, "round": 8}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:2143 Monitoring progress {"test": "TestReplicationMalformedQuorumRound", "node": 2, "round": 8}
+[08-11|14:41:21.063] DEBUG Simplex/monitor.go:80 Executing f {"test": "TestReplicationMalformedQuorumRound", "node": 108, "taskID": 0}
+[08-11|14:41:21.063] DEBUG Simplex/monitor.go:80 Executing f {"test": "TestReplicationMalformedQuorumRound", "node": 3, "taskID": 0}
+[08-11|14:41:21.063] DEBUG Simplex/sched.go:94 No ready tasks, going to sleep {"test": "TestReplicationMalformedQuorumRound", "node": 2}
+[08-11|14:41:21.063] DEBUG Simplex/monitor.go:80 Executing f {"test": "TestReplicationMalformedQuorumRound", "node": 2, "taskID": 0}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:1974 Scheduling block building {"test": "TestReplicationMalformedQuorumRound", "node": 1, "round": 8}
+[08-11|14:41:21.063] DEBUG Simplex/sched.go:94 No ready tasks, going to sleep {"test": "TestReplicationMalformedQuorumRound", "node": 108}
+[08-11|14:41:21.063] DEBUG Simplex/sched.go:136 Scheduling new ready task {"test": "TestReplicationMalformedQuorumRound", "node": 1, "dependency": "4f28e3c7e330eb13ab2b..."}
+[08-11|14:41:21.063] DEBUG Simplex/sched.go:96 Woken up from sleep {"test": "TestReplicationMalformedQuorumRound", "node": 1, "ready tasks": 1}
+[08-11|14:41:21.063] DEBUG Simplex/sched.go:106 Running task {"test": "TestReplicationMalformedQuorumRound", "node": 1, "remaining ready tasks": 0}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:2018 Wrote block to WAL {"test": "TestReplicationMalformedQuorumRound", "node": 1, "round": 8, "size": 125, "digest": "4f1666079265c27e47e6..."}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:2040 Proposal broadcast {"test": "TestReplicationMalformedQuorumRound", "node": 1, "round": 8, "size": 125, "digest": "4f1666079265c27e47e6..."}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:748 Received vote message {"test": "TestReplicationMalformedQuorumRound", "node": 1, "from": "0100000000000000", "round": 8, "digest": "4f1666079265c27e47e6..."}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:1191 Counting votes {"test": "TestReplicationMalformedQuorumRound", "node": 1, "round": 8, "votes": 1, "from": "[0100000000000000]"}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:2400 No future messages received for this round {"test": "TestReplicationMalformedQuorumRound", "node": 1, "from": "0100000000000000", "round": 8}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:2400 No future messages received for this round {"test": "TestReplicationMalformedQuorumRound", "node": 1, "from": "0200000000000000", "round": 8}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:2400 No future messages received for this round {"test": "TestReplicationMalformedQuorumRound", "node": 1, "from": "0300000000000000", "round": 8}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:2400 No future messages received for this round {"test": "TestReplicationMalformedQuorumRound", "node": 1, "from": "6c616767696e6700", "round": 8}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:2400 No future messages received for this round {"test": "TestReplicationMalformedQuorumRound", "node": 1, "from": "0100000000000000", "round": 8}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:2400 No future messages received for this round {"test": "TestReplicationMalformedQuorumRound", "node": 1, "from": "0200000000000000", "round": 8}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:2400 No future messages received for this round {"test": "TestReplicationMalformedQuorumRound", "node": 1, "from": "0300000000000000", "round": 8}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:2400 No future messages received for this round {"test": "TestReplicationMalformedQuorumRound", "node": 1, "from": "6c616767696e6700", "round": 8}
+[08-11|14:41:21.063] DEBUG Simplex/sched.go:108 Task finished execution {"test": "TestReplicationMalformedQuorumRound", "node": 1, "taskID": "4f1666079265c27e47e6..."}
+[08-11|14:41:21.063] DEBUG Simplex/sched.go:113 Enqueued newly ready tasks {"test": "TestReplicationMalformedQuorumRound", "node": 1, "number of ready tasks": 0}
+[08-11|14:41:21.063] DEBUG Simplex/sched.go:94 No ready tasks, going to sleep {"test": "TestReplicationMalformedQuorumRound", "node": 1}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:1441 Received block message {"test": "TestReplicationMalformedQuorumRound", "node": 2, "from": "0100000000000000", "round": 8}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:1453 Handling block message {"test": "TestReplicationMalformedQuorumRound", "node": 2, "digest": "4f1666079265c27e47e6...", "round": 8}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:1542 Scheduling block verification {"test": "TestReplicationMalformedQuorumRound", "node": 2, "round": 8}
+[08-11|14:41:21.063] DEBUG Simplex/sched.go:136 Scheduling new ready task {"test": "TestReplicationMalformedQuorumRound", "node": 2, "dependency": "4f28e3c7e330eb13ab2b..."}
+[08-11|14:41:21.063] DEBUG Simplex/sched.go:96 Woken up from sleep {"test": "TestReplicationMalformedQuorumRound", "node": 2, "ready tasks": 1}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:1441 Received block message {"test": "TestReplicationMalformedQuorumRound", "node": 3, "from": "0100000000000000", "round": 8}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:1453 Handling block message {"test": "TestReplicationMalformedQuorumRound", "node": 3, "digest": "4f1666079265c27e47e6...", "round": 8}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:1441 Received block message {"test": "TestReplicationMalformedQuorumRound", "node": 108, "from": "0100000000000000", "round": 8}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:1542 Scheduling block verification {"test": "TestReplicationMalformedQuorumRound", "node": 3, "round": 8}
+[08-11|14:41:21.063] DEBUG Simplex/sched.go:136 Scheduling new ready task {"test": "TestReplicationMalformedQuorumRound", "node": 3, "dependency": "4f28e3c7e330eb13ab2b..."}
+[08-11|14:41:21.063] DEBUG Simplex/sched.go:96 Woken up from sleep {"test": "TestReplicationMalformedQuorumRound", "node": 3, "ready tasks": 1}
+[08-11|14:41:21.063] DEBUG Simplex/sched.go:106 Running task {"test": "TestReplicationMalformedQuorumRound", "node": 3, "remaining ready tasks": 0}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:1453 Handling block message {"test": "TestReplicationMalformedQuorumRound", "node": 108, "digest": "4f1666079265c27e47e6...", "round": 8}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:1499 Got block of a future round {"test": "TestReplicationMalformedQuorumRound", "node": 108, "round": 8, "my round": 0}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:1664 Block verification started {"test": "TestReplicationMalformedQuorumRound", "node": 3, "round": 8}
+[08-11|14:41:21.063] DEBUG Simplex/sched.go:106 Running task {"test": "TestReplicationMalformedQuorumRound", "node": 2, "remaining ready tasks": 0}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:1700 Persisted block to WAL {"test": "TestReplicationMalformedQuorumRound", "node": 3, "round": 8, "digest": "4f1666079265c27e47e6..."}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:1664 Block verification started {"test": "TestReplicationMalformedQuorumRound", "node": 2, "round": 8}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:2400 No future messages received for this round {"test": "TestReplicationMalformedQuorumRound", "node": 3, "from": "0200000000000000", "round": 8}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:2400 No future messages received for this round {"test": "TestReplicationMalformedQuorumRound", "node": 3, "from": "0300000000000000", "round": 8}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:2400 No future messages received for this round {"test": "TestReplicationMalformedQuorumRound", "node": 3, "from": "6c616767696e6700", "round": 8}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:2242 Broadcasting vote {"test": "TestReplicationMalformedQuorumRound", "node": 3, "round": 8, "digest": "4f1666079265c27e47e6..."}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:748 Received vote message {"test": "TestReplicationMalformedQuorumRound", "node": 3, "from": "0300000000000000", "round": 8, "digest": "4f1666079265c27e47e6..."}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:1700 Persisted block to WAL {"test": "TestReplicationMalformedQuorumRound", "node": 2, "round": 8, "digest": "4f1666079265c27e47e6..."}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:748 Received vote message {"test": "TestReplicationMalformedQuorumRound", "node": 1, "from": "0300000000000000", "round": 8, "digest": "4f1666079265c27e47e6..."}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:1191 Counting votes {"test": "TestReplicationMalformedQuorumRound", "node": 3, "round": 8, "votes": 2, "from": "[0100000000000000 0300000000000000]"}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:2400 No future messages received for this round {"test": "TestReplicationMalformedQuorumRound", "node": 2, "from": "0200000000000000", "round": 8}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:2400 No future messages received for this round {"test": "TestReplicationMalformedQuorumRound", "node": 2, "from": "0300000000000000", "round": 8}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:748 Received vote message {"test": "TestReplicationMalformedQuorumRound", "node": 108, "from": "0300000000000000", "round": 8, "digest": "4f1666079265c27e47e6..."}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:1191 Counting votes {"test": "TestReplicationMalformedQuorumRound", "node": 1, "round": 8, "votes": 2, "from": "[0100000000000000 0300000000000000]"}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:779 Got vote from a future round {"test": "TestReplicationMalformedQuorumRound", "node": 108, "round": 8, "my round": 0, "from": "0300000000000000"}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:2400 No future messages received for this round {"test": "TestReplicationMalformedQuorumRound", "node": 1, "from": "0100000000000000", "round": 8}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:2400 No future messages received for this round {"test": "TestReplicationMalformedQuorumRound", "node": 1, "from": "0200000000000000", "round": 8}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:2400 No future messages received for this round {"test": "TestReplicationMalformedQuorumRound", "node": 1, "from": "0300000000000000", "round": 8}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:2400 No future messages received for this round {"test": "TestReplicationMalformedQuorumRound", "node": 1, "from": "6c616767696e6700", "round": 8}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:2400 No future messages received for this round {"test": "TestReplicationMalformedQuorumRound", "node": 2, "from": "6c616767696e6700", "round": 8}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:2242 Broadcasting vote {"test": "TestReplicationMalformedQuorumRound", "node": 2, "round": 8, "digest": "4f1666079265c27e47e6..."}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:748 Received vote message {"test": "TestReplicationMalformedQuorumRound", "node": 2, "from": "0200000000000000", "round": 8, "digest": "4f1666079265c27e47e6..."}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:1191 Counting votes {"test": "TestReplicationMalformedQuorumRound", "node": 2, "round": 8, "votes": 2, "from": "[0100000000000000 0200000000000000]"}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:2400 No future messages received for this round {"test": "TestReplicationMalformedQuorumRound", "node": 2, "from": "0200000000000000", "round": 8}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:2400 No future messages received for this round {"test": "TestReplicationMalformedQuorumRound", "node": 2, "from": "0300000000000000", "round": 8}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:2400 No future messages received for this round {"test": "TestReplicationMalformedQuorumRound", "node": 2, "from": "6c616767696e6700", "round": 8}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:748 Received vote message {"test": "TestReplicationMalformedQuorumRound", "node": 1, "from": "0200000000000000", "round": 8, "digest": "4f1666079265c27e47e6..."}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:1668 Block verification ended {"test": "TestReplicationMalformedQuorumRound", "node": 2, "round": 8, "elapsed": "100.583µs"}
+[08-11|14:41:21.063] DEBUG Simplex/sched.go:108 Task finished execution {"test": "TestReplicationMalformedQuorumRound", "node": 2, "taskID": "4f1666079265c27e47e6..."}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:748 Received vote message {"test": "TestReplicationMalformedQuorumRound", "node": 2, "from": "0300000000000000", "round": 8, "digest": "4f1666079265c27e47e6..."}
+[08-11|14:41:21.063] INFO Simplex/notarization.go:47 Collected Quorum of votes {"test": "TestReplicationMalformedQuorumRound", "node": 2, "round": 8, "votes": 3}
+[08-11|14:41:21.063] DEBUG Simplex/notarization.go:56 Collected vote from node {"test": "TestReplicationMalformedQuorumRound", "node": 2, "NodeID": "0100000000000000"}
+[08-11|14:41:21.063] DEBUG Simplex/notarization.go:56 Collected vote from node {"test": "TestReplicationMalformedQuorumRound", "node": 2, "NodeID": "0200000000000000"}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:748 Received vote message {"test": "TestReplicationMalformedQuorumRound", "node": 108, "from": "0200000000000000", "round": 8, "digest": "4f1666079265c27e47e6..."}
+[08-11|14:41:21.063] DEBUG Simplex/sched.go:113 Enqueued newly ready tasks {"test": "TestReplicationMalformedQuorumRound", "node": 2, "number of ready tasks": 0}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:779 Got vote from a future round {"test": "TestReplicationMalformedQuorumRound", "node": 108, "round": 8, "my round": 0, "from": "0200000000000000"}
+[08-11|14:41:21.063] INFO Simplex/notarization.go:47 Collected Quorum of votes {"test": "TestReplicationMalformedQuorumRound", "node": 1, "round": 8, "votes": 3}
+[08-11|14:41:21.063] DEBUG Simplex/sched.go:94 No ready tasks, going to sleep {"test": "TestReplicationMalformedQuorumRound", "node": 2}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:2400 No future messages received for this round {"test": "TestReplicationMalformedQuorumRound", "node": 3, "from": "6c616767696e6700", "round": 8}
+[08-11|14:41:21.063] DEBUG Simplex/notarization.go:56 Collected vote from node {"test": "TestReplicationMalformedQuorumRound", "node": 1, "NodeID": "0100000000000000"}
+[08-11|14:41:21.063] DEBUG Simplex/notarization.go:56 Collected vote from node {"test": "TestReplicationMalformedQuorumRound", "node": 1, "NodeID": "0300000000000000"}
+[08-11|14:41:21.063] DEBUG Simplex/notarization.go:56 Collected vote from node {"test": "TestReplicationMalformedQuorumRound", "node": 1, "NodeID": "0200000000000000"}
+[08-11|14:41:21.063] DEBUG Simplex/notarization.go:56 Collected vote from node {"test": "TestReplicationMalformedQuorumRound", "node": 2, "NodeID": "0300000000000000"}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:2400 No future messages received for this round {"test": "TestReplicationMalformedQuorumRound", "node": 3, "from": "0200000000000000", "round": 8}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:2400 No future messages received for this round {"test": "TestReplicationMalformedQuorumRound", "node": 3, "from": "0300000000000000", "round": 8}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:1668 Block verification ended {"test": "TestReplicationMalformedQuorumRound", "node": 3, "round": 8, "elapsed": "194.5µs"}
+[08-11|14:41:21.063] DEBUG Simplex/sched.go:108 Task finished execution {"test": "TestReplicationMalformedQuorumRound", "node": 3, "taskID": "4f1666079265c27e47e6..."}
+[08-11|14:41:21.063] DEBUG Simplex/sched.go:113 Enqueued newly ready tasks {"test": "TestReplicationMalformedQuorumRound", "node": 3, "number of ready tasks": 0}
+[08-11|14:41:21.063] DEBUG Simplex/sched.go:94 No ready tasks, going to sleep {"test": "TestReplicationMalformedQuorumRound", "node": 3}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:748 Received vote message {"test": "TestReplicationMalformedQuorumRound", "node": 3, "from": "0200000000000000", "round": 8, "digest": "4f1666079265c27e47e6..."}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:1237 Persisted notarization to WAL {"test": "TestReplicationMalformedQuorumRound", "node": 2, "size": 129, "round": 8, "digest": "4f1666079265c27e47e6..."}
+[08-11|14:41:21.063] INFO Simplex/notarization.go:47 Collected Quorum of votes {"test": "TestReplicationMalformedQuorumRound", "node": 3, "round": 8, "votes": 3}
+[08-11|14:41:21.063] DEBUG Simplex/notarization.go:56 Collected vote from node {"test": "TestReplicationMalformedQuorumRound", "node": 3, "NodeID": "0300000000000000"}
+[08-11|14:41:21.063] INFO Simplex/epoch.go:2297 Moving to a new round {"test": "TestReplicationMalformedQuorumRound", "node": 2, "old round": 8, "new round": 9, "leader": "0100000000000000"}
+[08-11|14:41:21.063] DEBUG Simplex/notarization.go:56 Collected vote from node {"test": "TestReplicationMalformedQuorumRound", "node": 3, "NodeID": "0200000000000000"}
+[08-11|14:41:21.063] DEBUG Simplex/notarization.go:56 Collected vote from node {"test": "TestReplicationMalformedQuorumRound", "node": 3, "NodeID": "0100000000000000"}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:1359 Received notarization message {"test": "TestReplicationMalformedQuorumRound", "node": 108, "from": "0200000000000000", "round": 8}
+[08-11|14:41:21.063] DEBUG Simplex/monitor.go:82 Task executed {"test": "TestReplicationMalformedQuorumRound", "node": 2, "taskID": 0}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:1380 Received a notarization for a future round {"test": "TestReplicationMalformedQuorumRound", "node": 108, "round": 8}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:1237 Persisted notarization to WAL {"test": "TestReplicationMalformedQuorumRound", "node": 1, "size": 129, "round": 8, "digest": "4f1666079265c27e47e6..."}
+[08-11|14:41:21.063] INFO Simplex/epoch.go:2297 Moving to a new round {"test": "TestReplicationMalformedQuorumRound", "node": 1, "old round": 8, "new round": 9, "leader": "0100000000000000"}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:1269 Broadcast notarization {"test": "TestReplicationMalformedQuorumRound", "node": 1, "round": 8, "digest": "4f1666079265c27e47e6..."}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:1237 Persisted notarization to WAL {"test": "TestReplicationMalformedQuorumRound", "node": 3, "size": 129, "round": 8, "digest": "4f1666079265c27e47e6..."}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:1359 Received notarization message {"test": "TestReplicationMalformedQuorumRound", "node": 108, "from": "0100000000000000", "round": 8}
+[08-11|14:41:21.063] DEBUG Simplex/monitor.go:82 Task executed {"test": "TestReplicationMalformedQuorumRound", "node": 3, "taskID": 0}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:2143 Monitoring progress {"test": "TestReplicationMalformedQuorumRound", "node": 1, "round": 9}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:581 Received finalization message {"test": "TestReplicationMalformedQuorumRound", "node": 1, "from": "0100000000000000", "round": 8}
+[08-11|14:41:21.064] DEBUG Simplex/monitor.go:80 Executing f {"test": "TestReplicationMalformedQuorumRound", "node": 1, "taskID": 0}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:1269 Broadcast notarization {"test": "TestReplicationMalformedQuorumRound", "node": 2, "round": 8, "digest": "4f1666079265c27e47e6..."}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:1974 Scheduling block building {"test": "TestReplicationMalformedQuorumRound", "node": 2, "round": 9}
+[08-11|14:41:21.064] DEBUG Simplex/sched.go:136 Scheduling new ready task {"test": "TestReplicationMalformedQuorumRound", "node": 2, "dependency": "4f1666079265c27e47e6..."}
+[08-11|14:41:21.063] INFO Simplex/epoch.go:2297 Moving to a new round {"test": "TestReplicationMalformedQuorumRound", "node": 3, "old round": 8, "new round": 9, "leader": "0100000000000000"}
+[08-11|14:41:21.064] DEBUG Simplex/sched.go:96 Woken up from sleep {"test": "TestReplicationMalformedQuorumRound", "node": 2, "ready tasks": 1}
+[08-11|14:41:21.064] DEBUG Simplex/sched.go:106 Running task {"test": "TestReplicationMalformedQuorumRound", "node": 2, "remaining ready tasks": 0}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:886 Counting finalize votes {"test": "TestReplicationMalformedQuorumRound", "node": 1, "round": 9, "votes": 1}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:1269 Broadcast notarization {"test": "TestReplicationMalformedQuorumRound", "node": 3, "round": 8, "digest": "4f1666079265c27e47e6..."}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:581 Received finalization message {"test": "TestReplicationMalformedQuorumRound", "node": 2, "from": "0200000000000000", "round": 8}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:2143 Monitoring progress {"test": "TestReplicationMalformedQuorumRound", "node": 3, "round": 9}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:2400 No future messages received for this round {"test": "TestReplicationMalformedQuorumRound", "node": 1, "from": "0100000000000000", "round": 9}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:581 Received finalization message {"test": "TestReplicationMalformedQuorumRound", "node": 3, "from": "0300000000000000", "round": 8}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:886 Counting finalize votes {"test": "TestReplicationMalformedQuorumRound", "node": 2, "round": 9, "votes": 1}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:2400 No future messages received for this round {"test": "TestReplicationMalformedQuorumRound", "node": 2, "from": "0100000000000000", "round": 9}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:2400 No future messages received for this round {"test": "TestReplicationMalformedQuorumRound", "node": 1, "from": "0200000000000000", "round": 9}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:2400 No future messages received for this round {"test": "TestReplicationMalformedQuorumRound", "node": 2, "from": "0200000000000000", "round": 9}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:2400 No future messages received for this round {"test": "TestReplicationMalformedQuorumRound", "node": 1, "from": "0300000000000000", "round": 9}
+[08-11|14:41:21.063] DEBUG Simplex/epoch.go:1380 Received a notarization for a future round {"test": "TestReplicationMalformedQuorumRound", "node": 108, "round": 8}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:2400 No future messages received for this round {"test": "TestReplicationMalformedQuorumRound", "node": 1, "from": "6c616767696e6700", "round": 9}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:886 Counting finalize votes {"test": "TestReplicationMalformedQuorumRound", "node": 3, "round": 9, "votes": 1}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:2400 No future messages received for this round {"test": "TestReplicationMalformedQuorumRound", "node": 3, "from": "6c616767696e6700", "round": 9}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:2400 No future messages received for this round {"test": "TestReplicationMalformedQuorumRound", "node": 3, "from": "0100000000000000", "round": 9}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:2400 No future messages received for this round {"test": "TestReplicationMalformedQuorumRound", "node": 3, "from": "0200000000000000", "round": 9}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:2400 No future messages received for this round {"test": "TestReplicationMalformedQuorumRound", "node": 3, "from": "0300000000000000", "round": 9}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:1359 Received notarization message {"test": "TestReplicationMalformedQuorumRound", "node": 1, "from": "0200000000000000", "round": 8}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:1359 Received notarization message {"test": "TestReplicationMalformedQuorumRound", "node": 3, "from": "0200000000000000", "round": 8}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:1359 Received notarization message {"test": "TestReplicationMalformedQuorumRound", "node": 3, "from": "0100000000000000", "round": 8}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:581 Received finalization message {"test": "TestReplicationMalformedQuorumRound", "node": 3, "from": "0100000000000000", "round": 8}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:2400 No future messages received for this round {"test": "TestReplicationMalformedQuorumRound", "node": 2, "from": "0300000000000000", "round": 9}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:2400 No future messages received for this round {"test": "TestReplicationMalformedQuorumRound", "node": 2, "from": "6c616767696e6700", "round": 9}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:1359 Received notarization message {"test": "TestReplicationMalformedQuorumRound", "node": 2, "from": "0100000000000000", "round": 8}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:581 Received finalization message {"test": "TestReplicationMalformedQuorumRound", "node": 2, "from": "0100000000000000", "round": 8}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:581 Received finalization message {"test": "TestReplicationMalformedQuorumRound", "node": 108, "from": "0100000000000000", "round": 8}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:609 Got finalization for a future round {"test": "TestReplicationMalformedQuorumRound", "node": 108, "round": 8, "my round": 0}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:886 Counting finalize votes {"test": "TestReplicationMalformedQuorumRound", "node": 2, "round": 9, "votes": 2}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:581 Received finalization message {"test": "TestReplicationMalformedQuorumRound", "node": 108, "from": "0200000000000000", "round": 8}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:1359 Received notarization message {"test": "TestReplicationMalformedQuorumRound", "node": 2, "from": "0300000000000000", "round": 8}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:609 Got finalization for a future round {"test": "TestReplicationMalformedQuorumRound", "node": 108, "round": 8, "my round": 0}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:581 Received finalization message {"test": "TestReplicationMalformedQuorumRound", "node": 2, "from": "0300000000000000", "round": 8}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:1359 Received notarization message {"test": "TestReplicationMalformedQuorumRound", "node": 108, "from": "0300000000000000", "round": 8}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:1380 Received a notarization for a future round {"test": "TestReplicationMalformedQuorumRound", "node": 108, "round": 8}
+[08-11|14:41:21.064] DEBUG Simplex/notarization.go:93 Collected a finalize vote from node {"test": "TestReplicationMalformedQuorumRound", "node": 2, "NodeID": "0200000000000000", "round": 8}
+[08-11|14:41:21.064] DEBUG Simplex/monitor.go:80 Executing f {"test": "TestReplicationMalformedQuorumRound", "node": 3, "taskID": 1}
+[08-11|14:41:21.064] DEBUG Simplex/notarization.go:93 Collected a finalize vote from node {"test": "TestReplicationMalformedQuorumRound", "node": 2, "NodeID": "0100000000000000", "round": 8}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:886 Counting finalize votes {"test": "TestReplicationMalformedQuorumRound", "node": 3, "round": 9, "votes": 2}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:581 Received finalization message {"test": "TestReplicationMalformedQuorumRound", "node": 108, "from": "0300000000000000", "round": 8}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:581 Received finalization message {"test": "TestReplicationMalformedQuorumRound", "node": 3, "from": "0200000000000000", "round": 8}
+[08-11|14:41:21.064] DEBUG Simplex/notarization.go:93 Collected a finalize vote from node {"test": "TestReplicationMalformedQuorumRound", "node": 2, "NodeID": "0300000000000000", "round": 8}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:933 Received enough finalize votes to finalize a block {"test": "TestReplicationMalformedQuorumRound", "node": 2, "round": 8}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:581 Received finalization message {"test": "TestReplicationMalformedQuorumRound", "node": 1, "from": "0200000000000000", "round": 8}
+[08-11|14:41:21.064] INFO Simplex/epoch.go:1085 Committed block {"test": "TestReplicationMalformedQuorumRound", "node": 2, "round": 8, "sequence": 8, "digest": "4f1666079265c27e47e6..."}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:926 Progressing rounds due to commit {"test": "TestReplicationMalformedQuorumRound", "node": 2, "round": 9, "current round": 9}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:609 Got finalization for a future round {"test": "TestReplicationMalformedQuorumRound", "node": 108, "round": 8, "my round": 0}
+[08-11|14:41:21.064] DEBUG Simplex/notarization.go:93 Collected a finalize vote from node {"test": "TestReplicationMalformedQuorumRound", "node": 3, "NodeID": "0300000000000000", "round": 8}
+[08-11|14:41:21.064] DEBUG Simplex/notarization.go:93 Collected a finalize vote from node {"test": "TestReplicationMalformedQuorumRound", "node": 3, "NodeID": "0100000000000000", "round": 8}
+[08-11|14:41:21.064] DEBUG Simplex/notarization.go:93 Collected a finalize vote from node {"test": "TestReplicationMalformedQuorumRound", "node": 3, "NodeID": "0200000000000000", "round": 8}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:977 Broadcast finalization {"test": "TestReplicationMalformedQuorumRound", "node": 2, "round": 8, "digest": "4f1666079265c27e47e6..."}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:933 Received enough finalize votes to finalize a block {"test": "TestReplicationMalformedQuorumRound", "node": 3, "round": 8}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:886 Counting finalize votes {"test": "TestReplicationMalformedQuorumRound", "node": 1, "round": 9, "votes": 2}
+[08-11|14:41:21.064] INFO Simplex/epoch.go:1085 Committed block {"test": "TestReplicationMalformedQuorumRound", "node": 3, "round": 8, "sequence": 8, "digest": "4f1666079265c27e47e6..."}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:926 Progressing rounds due to commit {"test": "TestReplicationMalformedQuorumRound", "node": 3, "round": 9, "current round": 9}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:527 Received finalization message {"test": "TestReplicationMalformedQuorumRound", "node": 108, "from": "0200000000000000", "round": 8, "seq": 8}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:977 Broadcast finalization {"test": "TestReplicationMalformedQuorumRound", "node": 3, "round": 8, "digest": "4f1666079265c27e47e6..."}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:1359 Received notarization message {"test": "TestReplicationMalformedQuorumRound", "node": 1, "from": "0300000000000000", "round": 8}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:527 Received finalization message {"test": "TestReplicationMalformedQuorumRound", "node": 3, "from": "0200000000000000", "round": 8, "seq": 8}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:574 Received finalization for a future round {"test": "TestReplicationMalformedQuorumRound", "node": 108, "round": 8}
+[08-11|14:41:21.064] DEBUG Simplex/replication.go:108 Node is behind, requesting missing finalizations {"test": "TestReplicationMalformedQuorumRound", "node": 108, "seq": 8, "startSeq": 0, "endSeq": 8}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:527 Received finalization message {"test": "TestReplicationMalformedQuorumRound", "node": 2, "from": "0300000000000000", "round": 8, "seq": 8}
+[08-11|14:41:21.064] DEBUG Simplex/replication.go:125 Distributing replication requests {"test": "TestReplicationMalformedQuorumRound", "node": 108, "start": 0, "end": 8, "nodes": "[0100000000000000 0200000000000000 0300000000000000]"}
+[08-11|14:41:21.064] DEBUG Simplex/replication.go:140 Requesting missing finalizations  {"test": "TestReplicationMalformedQuorumRound", "node": 108, "from": "0100000000000000", "start": 0, "end": 2}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:581 Received finalization message {"test": "TestReplicationMalformedQuorumRound", "node": 1, "from": "0300000000000000", "round": 8}
+[08-11|14:41:21.064] DEBUG Simplex/notarization.go:93 Collected a finalize vote from node {"test": "TestReplicationMalformedQuorumRound", "node": 1, "NodeID": "0100000000000000", "round": 8}
+[08-11|14:41:21.064] DEBUG Simplex/notarization.go:93 Collected a finalize vote from node {"test": "TestReplicationMalformedQuorumRound", "node": 1, "NodeID": "0200000000000000", "round": 8}
+[08-11|14:41:21.064] DEBUG Simplex/notarization.go:93 Collected a finalize vote from node {"test": "TestReplicationMalformedQuorumRound", "node": 1, "NodeID": "0300000000000000", "round": 8}
+[08-11|14:41:21.064] DEBUG Simplex/timeout_handler.go:143 Adding timeout task {"test": "TestReplicationMalformedQuorumRound", "node": 108, "from": "0100000000000000", "taskid": "0_2"}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:933 Received enough finalize votes to finalize a block {"test": "TestReplicationMalformedQuorumRound", "node": 1, "round": 8}
+[08-11|14:41:21.064] INFO Simplex/epoch.go:1085 Committed block {"test": "TestReplicationMalformedQuorumRound", "node": 1, "round": 8, "sequence": 8, "digest": "4f1666079265c27e47e6..."}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:926 Progressing rounds due to commit {"test": "TestReplicationMalformedQuorumRound", "node": 1, "round": 9, "current round": 9}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:977 Broadcast finalization {"test": "TestReplicationMalformedQuorumRound", "node": 1, "round": 8, "digest": "4f1666079265c27e47e6..."}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:527 Received finalization message {"test": "TestReplicationMalformedQuorumRound", "node": 1, "from": "0200000000000000", "round": 8, "seq": 8}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:527 Received finalization message {"test": "TestReplicationMalformedQuorumRound", "node": 1, "from": "0300000000000000", "round": 8, "seq": 8}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:527 Received finalization message {"test": "TestReplicationMalformedQuorumRound", "node": 2, "from": "0100000000000000", "round": 8, "seq": 8}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:2455 Received replication request {"test": "TestReplicationMalformedQuorumRound", "node": 1, "from": "6c616767696e6700", "num seqs": 3, "latest round": 8}
+[08-11|14:41:21.064] DEBUG Simplex/replication.go:140 Requesting missing finalizations  {"test": "TestReplicationMalformedQuorumRound", "node": 108, "from": "0200000000000000", "start": 3, "end": 5}
+[08-11|14:41:21.064] DEBUG Simplex/timeout_handler.go:143 Adding timeout task {"test": "TestReplicationMalformedQuorumRound", "node": 108, "from": "0200000000000000", "taskid": "3_5"}
+[08-11|14:41:21.064] DEBUG Simplex/replication.go:140 Requesting missing finalizations  {"test": "TestReplicationMalformedQuorumRound", "node": 108, "from": "0300000000000000", "start": 6, "end": 8}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:527 Received finalization message {"test": "TestReplicationMalformedQuorumRound", "node": 3, "from": "0100000000000000", "round": 8, "seq": 8}
+[08-11|14:41:21.064] DEBUG Simplex/timeout_handler.go:143 Adding timeout task {"test": "TestReplicationMalformedQuorumRound", "node": 108, "from": "0300000000000000", "taskid": "6_8"}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:527 Received finalization message {"test": "TestReplicationMalformedQuorumRound", "node": 108, "from": "0300000000000000", "round": 8, "seq": 8}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:2455 Received replication request {"test": "TestReplicationMalformedQuorumRound", "node": 3, "from": "6c616767696e6700", "num seqs": 3, "latest round": 8}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:574 Received finalization for a future round {"test": "TestReplicationMalformedQuorumRound", "node": 108, "round": 8}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:2455 Received replication request {"test": "TestReplicationMalformedQuorumRound", "node": 2, "from": "6c616767696e6700", "num seqs": 3, "latest round": 8}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:527 Received finalization message {"test": "TestReplicationMalformedQuorumRound", "node": 108, "from": "0100000000000000", "round": 8, "seq": 8}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:574 Received finalization for a future round {"test": "TestReplicationMalformedQuorumRound", "node": 108, "round": 8}
+[08-11|14:41:21.064] DEBUG Simplex/timeout_handler.go:102 Executing timeout task {"test": "TestReplicationMalformedQuorumRound", "node": 108, "taskid": "0_2"}
+[08-11|14:41:21.064] DEBUG Simplex/replication.go:140 Requesting missing finalizations  {"test": "TestReplicationMalformedQuorumRound", "node": 108, "from": "0200000000000000", "start": 0, "end": 2}
+[08-11|14:41:21.064] DEBUG Simplex/timeout_handler.go:143 Adding timeout task {"test": "TestReplicationMalformedQuorumRound", "node": 108, "from": "0200000000000000", "taskid": "0_2"}
+[08-11|14:41:21.064] DEBUG Simplex/timeout_handler.go:102 Executing timeout task {"test": "TestReplicationMalformedQuorumRound", "node": 108, "taskid": "6_8"}
+[08-11|14:41:21.064] DEBUG Simplex/replication.go:140 Requesting missing finalizations  {"test": "TestReplicationMalformedQuorumRound", "node": 108, "from": "0100000000000000", "start": 6, "end": 8}
+[08-11|14:41:21.064] DEBUG Simplex/timeout_handler.go:143 Adding timeout task {"test": "TestReplicationMalformedQuorumRound", "node": 108, "from": "0100000000000000", "taskid": "6_8"}
+[08-11|14:41:21.064] DEBUG Simplex/timeout_handler.go:102 Executing timeout task {"test": "TestReplicationMalformedQuorumRound", "node": 108, "taskid": "3_5"}
+[08-11|14:41:21.064] DEBUG Simplex/replication.go:140 Requesting missing finalizations  {"test": "TestReplicationMalformedQuorumRound", "node": 108, "from": "0300000000000000", "start": 3, "end": 5}
+[08-11|14:41:21.064] DEBUG Simplex/timeout_handler.go:143 Adding timeout task {"test": "TestReplicationMalformedQuorumRound", "node": 108, "from": "0300000000000000", "taskid": "3_5"}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:2455 Received replication request {"test": "TestReplicationMalformedQuorumRound", "node": 2, "from": "6c616767696e6700", "num seqs": 3, "latest round": 8}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:2455 Received replication request {"test": "TestReplicationMalformedQuorumRound", "node": 1, "from": "6c616767696e6700", "num seqs": 3, "latest round": 8}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:2533 Received replication response {"test": "TestReplicationMalformedQuorumRound", "node": 108, "from": "0200000000000000", "num seqs": 3, "latest round": "QuorumRound{nil}"}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:2455 Received replication request {"test": "TestReplicationMalformedQuorumRound", "node": 3, "from": "6c616767696e6700", "num seqs": 3, "latest round": 8}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:2539 Malformed Quorum Round Received {"test": "TestReplicationMalformedQuorumRound", "node": 108, "error": "malformed QuorumRound"}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:2539 Malformed Quorum Round Received {"test": "TestReplicationMalformedQuorumRound", "node": 108, "error": "malformed QuorumRound"}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:2539 Malformed Quorum Round Received {"test": "TestReplicationMalformedQuorumRound", "node": 108, "error": "malformed QuorumRound"}
+[08-11|14:41:21.064] DEBUG Simplex/timeout_handler.go:162 Removing timeout task {"test": "TestReplicationMalformedQuorumRound", "node": 108, "from": "0200000000000000", "taskid": "0_2"}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:2533 Received replication response {"test": "TestReplicationMalformedQuorumRound", "node": 108, "from": "0100000000000000", "num seqs": 3, "latest round": "QuorumRound{nil}"}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:2539 Malformed Quorum Round Received {"test": "TestReplicationMalformedQuorumRound", "node": 108, "error": "malformed QuorumRound"}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:2539 Malformed Quorum Round Received {"test": "TestReplicationMalformedQuorumRound", "node": 108, "error": "malformed QuorumRound"}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:2539 Malformed Quorum Round Received {"test": "TestReplicationMalformedQuorumRound", "node": 108, "error": "malformed QuorumRound"}
+[08-11|14:41:21.064] DEBUG Simplex/timeout_handler.go:162 Removing timeout task {"test": "TestReplicationMalformedQuorumRound", "node": 108, "from": "0100000000000000", "taskid": "6_8"}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:2533 Received replication response {"test": "TestReplicationMalformedQuorumRound", "node": 108, "from": "0300000000000000", "num seqs": 3, "latest round": "QuorumRound{nil}"}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:2539 Malformed Quorum Round Received {"test": "TestReplicationMalformedQuorumRound", "node": 108, "error": "malformed QuorumRound"}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:2539 Malformed Quorum Round Received {"test": "TestReplicationMalformedQuorumRound", "node": 108, "error": "malformed QuorumRound"}
+[08-11|14:41:21.064] DEBUG Simplex/epoch.go:2539 Malformed Quorum Round Received {"test": "TestReplicationMalformedQuorumRound", "node": 108, "error": "malformed QuorumRound"}
+[08-11|14:41:21.064] DEBUG Simplex/timeout_handler.go:162 Removing timeout task {"test": "TestReplicationMalformedQuorumRound", "node": 108, "from": "0300000000000000", "taskid": "3_5"}
+signal: interrupt
+FAIL	github.com/ava-labs/simplex	3.540s
