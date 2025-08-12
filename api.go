@@ -50,7 +50,7 @@ var ErrBlockNotFound = fmt.Errorf("block not found")
 type Storage interface {
 	Height() uint64
 	// Retrieve returns the block and finalization at [seq].
-	// If [seq] is not found, returns an error.
+	// If [seq] the block cannot be found, returns ErrBlockNotFound.
 	Retrieve(seq uint64) (VerifiedBlock, Finalization, error)
 	Index(ctx context.Context, block VerifiedBlock, certificate Finalization) error
 }
