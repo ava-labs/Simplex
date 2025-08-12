@@ -27,12 +27,11 @@ func newSignedSequenceFromRound(round QuorumRound) (*signedSequence, error) {
 	case round.Finalization != nil:
 		ss.signers = round.Finalization.QC.Signers()
 		ss.seq = round.Finalization.Finalization.Seq
-	case round.EmptyNotarization != nil:
-		ss.signers = round.EmptyNotarization.QC.Signers()
-		ss.seq = round.EmptyNotarization.Vote.Seq
 	case round.Notarization != nil:
 		ss.signers = round.Notarization.QC.Signers()
 		ss.seq = round.Notarization.Vote.Seq
+	case round.EmptyNotarization != nil:
+		return nil, fmt.Errorf("should not create signed sequence from empty notarization")
 	default:
 		return nil, fmt.Errorf("round does not contain a finalization, empty notarization, or notarization")
 	}
@@ -278,7 +277,7 @@ func (r *ReplicationState) StoreQuorumRound(round QuorumRound) {
 		return
 	}
 
-	if round.GetSequence() > r.highestSequenceObserved.seq {
+	if round.EmptyNotarization == nil && round.GetSequence() > r.highestSequenceObserved.seq {
 		signedSeq, err := newSignedSequenceFromRound(round)
 		if err != nil {
 			// should never be here since we already checked the QuorumRound was valid

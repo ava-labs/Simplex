@@ -664,13 +664,6 @@ func (e *Epoch) handleEmptyVoteMessage(message *EmptyVote, from NodeID) error {
 		return nil
 	}
 
-	if vote.HasParent() {
-		e.Logger.Debug("Empty vote has a parent but should not have one",
-			zap.Uint64("round", vote.Round),
-			zap.Stringer("Prev", vote.Prev), zap.Uint64("Seq", vote.Seq))
-		return nil
-	}
-
 	if e.round > vote.Round {
 		e.Logger.Debug("Got empty vote from a past round",
 			zap.Uint64("round", vote.Round), zap.Uint64("my round", e.round), zap.Stringer("from", from))
@@ -1311,13 +1304,6 @@ func (e *Epoch) handleEmptyNotarizationMessage(emptyNotarization *EmptyNotarizat
 }
 
 func (e *Epoch) verifyEmptyNotarization(emptyNotarization *EmptyNotarization) bool {
-	if emptyNotarization.Vote.HasParent() {
-		e.Logger.Debug("Empty notarization vote has a parent but should not have one",
-			zap.Uint64("round", emptyNotarization.Vote.Round),
-			zap.Stringer("Prev", emptyNotarization.Vote.Prev),
-			zap.Uint64("Seq", emptyNotarization.Vote.Seq))
-		return false
-	}
 	// Check empty notarization was signed by only eligible nodes
 	if emptyNotarization.QC == nil {
 		e.Logger.Debug("Empty notarization quorum certificate is nil")
@@ -2086,11 +2072,10 @@ func (e *Epoch) metadata() ProtocolMetadata {
 }
 
 func (e *Epoch) triggerEmptyBlockNotarization(round uint64) {
-	md := e.metadata()
-	md.Seq = 0            // Empty votes have no sequence number because they don't have a parent block.
-	md.Prev = emptyDigest // Empty votes are orphans and do not have parent blocks.
-
-	emptyVote := ToBeSignedEmptyVote{ProtocolMetadata: md}
+	emptyVote := ToBeSignedEmptyVote{EmptyVoteMetadata: EmptyVoteMetadata{
+		Round: round,
+		Epoch: e.Epoch,
+	}}
 	rawSig, err := emptyVote.Sign(e.Signer)
 	if err != nil {
 		e.Logger.Error("Failed signing message", zap.Error(err))
@@ -2540,7 +2525,7 @@ func (e *Epoch) handleReplicationResponse(resp *ReplicationResponse, from NodeID
 			continue
 		}
 
-		if nextSeqToCommit > data.GetSequence() {
+		if data.EmptyNotarization == nil && nextSeqToCommit > data.GetSequence() {
 			e.Logger.Debug("Received quorum round for a seq that is too far behind", zap.Uint64("seq", data.GetSequence()))
 			continue
 		}
