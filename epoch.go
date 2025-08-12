@@ -2543,7 +2543,6 @@ func (e *Epoch) handleReplicationResponse(resp *ReplicationResponse, from NodeID
 
 		validRounds = append(validRounds, data)
 		e.replicationState.StoreQuorumRound(data)
-		validRounds = append(validRounds, data)
 	}
 
 	if err := e.processLatestRoundReceived(resp.LatestRound); err != nil {
