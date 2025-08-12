@@ -1953,8 +1953,8 @@ func (e *Epoch) locateBlock(seq uint64, digest []byte) (VerifiedBlock, bool) {
 		return nil, false
 	}
 
-	block, _, ok := e.Storage.Retrieve(seq)
-	if !ok {
+	block, _, err := e.Storage.Retrieve(seq)
+	if err != nil {
 		return nil, false
 	}
 
@@ -2514,15 +2514,15 @@ func (e *Epoch) locateQuorumRecord(seq uint64) *VerifiedQuorumRound {
 		}
 	}
 
-	block, finalization, exists := e.Storage.Retrieve(seq)
-	if exists {
-		return &VerifiedQuorumRound{
-			VerifiedBlock: block,
-			Finalization:  &finalization,
-		}
+	block, finalization, err := e.Storage.Retrieve(seq)
+	if err != nil {
+		return nil
 	}
 
-	return nil
+	return &VerifiedQuorumRound{
+		VerifiedBlock: block,
+		Finalization:  &finalization,
+	}
 }
 
 func (e *Epoch) handleReplicationResponse(resp *ReplicationResponse, from NodeID) error {

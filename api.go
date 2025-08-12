@@ -47,8 +47,8 @@ type BlockBuilder interface {
 type Storage interface {
 	Height() uint64
 	// Retrieve returns the block and finalization at [seq].
-	// If [seq] is not found, returns false.
-	Retrieve(seq uint64) (VerifiedBlock, Finalization, bool)
+	// If [seq] is not found, returns an error.
+	Retrieve(seq uint64) (VerifiedBlock, Finalization, error)
 	Index(ctx context.Context, block VerifiedBlock, certificate Finalization) error
 }
 

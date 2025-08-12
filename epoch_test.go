@@ -1639,9 +1639,9 @@ func (mem *InMemStorage) Clone() *InMemStorage {
 	mem.lock.Unlock()
 	for seq := uint64(0); seq < height; seq++ {
 		mem.lock.Lock()
-		block, finalization, ok := mem.Retrieve(seq)
-		if !ok {
-			panic(fmt.Sprintf("failed retrieving block %d", seq))
+		block, finalization, err := mem.Retrieve(seq)
+		if err != nil {
+			panic(fmt.Sprintf("failed retrieving block %d: %v", seq, err))
 		}
 		mem.lock.Unlock()
 		clone.Index(context.Background(), block, finalization)
@@ -1676,12 +1676,12 @@ func (mem *InMemStorage) Height() uint64 {
 	return uint64(len(mem.data))
 }
 
-func (mem *InMemStorage) Retrieve(seq uint64) (VerifiedBlock, Finalization, bool) {
+func (mem *InMemStorage) Retrieve(seq uint64) (VerifiedBlock, Finalization, error) {
 	item, ok := mem.data[seq]
 	if !ok {
-		return nil, Finalization{}, false
+		return nil, Finalization{}, fmt.Errorf("no block with seq %d", seq)
 	}
-	return item.VerifiedBlock, item.Finalization, true
+	return item.VerifiedBlock, item.Finalization, nil
 }
 
 func (mem *InMemStorage) Index(ctx context.Context, block VerifiedBlock, certificate Finalization) error {
