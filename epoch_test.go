@@ -1679,7 +1679,7 @@ func (mem *InMemStorage) Height() uint64 {
 func (mem *InMemStorage) Retrieve(seq uint64) (VerifiedBlock, Finalization, error) {
 	item, ok := mem.data[seq]
 	if !ok {
-		return nil, Finalization{}, fmt.Errorf("no block with seq %d", seq)
+		return nil, Finalization{}, fmt.Errorf("%w: seq %d", ErrBlockNotFound, seq)
 	}
 	return item.VerifiedBlock, item.Finalization, nil
 }
