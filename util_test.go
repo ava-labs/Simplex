@@ -4,7 +4,6 @@
 package simplex_test
 
 import (
-	"errors"
 	"testing"
 
 	. "github.com/ava-labs/simplex"
@@ -47,7 +46,7 @@ func TestRetrieveFromStorage(t *testing.T) {
 		{
 			description: "broken storage",
 			storage:     brokenStorage,
-			expectedErr: errors.New("failed retrieving last block from storage with seq 0"),
+			expectedErr: ErrBlockNotFound,
 		},
 		{
 			description: "normal storage",
@@ -60,7 +59,7 @@ func TestRetrieveFromStorage(t *testing.T) {
 	} {
 		t.Run(testCase.description, func(t *testing.T) {
 			lastBlock, err := RetrieveLastIndexFromStorage(testCase.storage)
-			require.Equal(t, testCase.expectedErr, err)
+			require.ErrorIs(t, err, testCase.expectedErr)
 
 			require.Equal(t, testCase.expectedVerifiedBlock, lastBlock)
 		})

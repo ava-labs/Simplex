@@ -1939,7 +1939,7 @@ func (e *Epoch) locateBlock(seq uint64, digest []byte) (VerifiedBlock, bool) {
 		return nil, false
 	}
 
-	block, _, ok := e.Storage.Retrieve(seq)
+	block, _, ok := e.retrieveBlockOrHalt(seq)
 	if !ok {
 		return nil, false
 	}
@@ -2499,15 +2499,15 @@ func (e *Epoch) locateQuorumRecord(seq uint64) *VerifiedQuorumRound {
 		}
 	}
 
-	block, finalization, exists := e.Storage.Retrieve(seq)
-	if exists {
-		return &VerifiedQuorumRound{
-			VerifiedBlock: block,
-			Finalization:  &finalization,
-		}
+	block, finalization, ok := e.retrieveBlockOrHalt(seq)
+	if !ok {
+		return nil
 	}
 
-	return nil
+	return &VerifiedQuorumRound{
+		VerifiedBlock: block,
+		Finalization:  &finalization,
+	}
 }
 
 func (e *Epoch) handleReplicationResponse(resp *ReplicationResponse, from NodeID) error {
@@ -2742,6 +2742,21 @@ func (e *Epoch) isRoundTooFarAhead(round uint64) bool {
 // isWithinMaxRoundWindow checks if [round] is within `maxRoundWindow` rounds ahead of the current round.
 func (e *Epoch) isWithinMaxRoundWindow(round uint64) bool {
 	return e.round < round && round-e.round < e.maxRoundWindow
+}
+
+func (e *Epoch) retrieveBlockOrHalt(seq uint64) (VerifiedBlock, Finalization, bool) {
+	block, finalization, err := e.Storage.Retrieve(seq)
+	if err == ErrBlockNotFound {
+		return nil, Finalization{}, false
+	}
+
+	if err != nil {
+		e.Logger.Error("Failed retrieving block from storage", zap.Uint64("seq", seq), zap.Error(err))
+		e.haltedError = err
+		return nil, Finalization{}, false
+	}
+
+	return block, finalization, true
 }
 
 // sortNodes sorts the nodes in place by their byte representations.
