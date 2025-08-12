@@ -2525,7 +2525,7 @@ func (e *Epoch) handleReplicationResponse(resp *ReplicationResponse, from NodeID
 			continue
 		}
 
-		if data.EmptyNotarization != nil && nextSeqToCommit > data.GetSequence() {
+		if data.EmptyNotarization == nil && nextSeqToCommit > data.GetSequence() {
 			e.Logger.Debug("Received quorum round for a seq that is too far behind", zap.Uint64("seq", data.GetSequence()))
 			continue
 		}
