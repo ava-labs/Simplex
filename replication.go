@@ -277,7 +277,7 @@ func (r *ReplicationState) StoreQuorumRound(round QuorumRound) {
 		return
 	}
 
-	if round.EmptyNotarization != nil && round.GetSequence() > r.highestSequenceObserved.seq {
+	if round.EmptyNotarization == nil && round.GetSequence() > r.highestSequenceObserved.seq {
 		signedSeq, err := newSignedSequenceFromRound(round)
 		if err != nil {
 			// should never be here since we already checked the QuorumRound was valid
