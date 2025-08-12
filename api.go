@@ -5,6 +5,7 @@ package simplex
 
 import (
 	"context"
+	"fmt"
 
 	"go.uber.org/zap"
 )
@@ -43,6 +44,8 @@ type BlockBuilder interface {
 	// or when the application signals that a block should be built.
 	IncomingBlock(ctx context.Context)
 }
+
+var ErrBlockNotFound = fmt.Errorf("block not found")
 
 type Storage interface {
 	Height() uint64
