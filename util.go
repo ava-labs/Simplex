@@ -19,8 +19,8 @@ func RetrieveLastIndexFromStorage(s Storage) (*VerifiedFinalizedBlock, error) {
 	if height == 0 {
 		return nil, nil
 	}
-	lastBlock, finalization, retrieved := s.Retrieve(height - 1)
-	if !retrieved {
+	lastBlock, finalization, err := s.Retrieve(height - 1)
+	if err != nil {
 		return nil, fmt.Errorf("failed retrieving last block from storage with seq %d", height-1)
 	}
 	return &VerifiedFinalizedBlock{

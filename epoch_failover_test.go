@@ -68,8 +68,8 @@ func TestEpochLeaderFailoverWithEmptyNotarization(t *testing.T) {
 
 	notarizeAndFinalizeRound(t, e, bb)
 
-	block0, _, ok := storage.Retrieve(0)
-	require.True(t, ok)
+	block0, _, err := storage.Retrieve(0)
+	require.NoError(t, err)
 
 	block1, ok := bb.BuildBlock(context.Background(), ProtocolMetadata{
 		Round: 1,
@@ -172,8 +172,8 @@ func TestEpochLeaderFailoverReceivesEmptyVotesEarly(t *testing.T) {
 		notarizeAndFinalizeRound(t, e, bb)
 	}
 
-	lastBlock, _, ok := storage.Retrieve(storage.Height() - 1)
-	require.True(t, ok)
+	lastBlock, _, err := storage.Retrieve(storage.Height() - 1)
+	require.NoError(t, err)
 
 	prev := lastBlock.BlockHeader().Digest
 
@@ -318,8 +318,8 @@ func TestEpochLeaderFailover(t *testing.T) {
 	waitForBlockProposerTimeout(t, e, &start, e.Metadata().Round)
 
 	runCrashAndRestartExecution(t, e, bb, wal, storage, func(t *testing.T, e *Epoch, bb *testBlockBuilder, storage *InMemStorage, wal *testWAL) {
-		lastBlock, _, ok := storage.Retrieve(storage.Height() - 1)
-		require.True(t, ok)
+		lastBlock, _, err := storage.Retrieve(storage.Height() - 1)
+		require.NoError(t, err)
 
 		prev := lastBlock.BlockHeader().Digest
 
@@ -411,11 +411,11 @@ func TestEpochNoFinalizationAfterEmptyVote(t *testing.T) {
 
 	bb.blockShouldBeBuilt <- struct{}{}
 	waitForBlockProposerTimeout(t, e, &start, e.Metadata().Round)
-	b, _, ok := storage.Retrieve(0)
-	require.True(t, ok)
+	b, _, err := storage.Retrieve(0)
+	require.Nil(t, err)
 
 	leader := LeaderForRound(nodes, 1)
-	_, ok = bb.BuildBlock(context.Background(), ProtocolMetadata{
+	_, ok := bb.BuildBlock(context.Background(), ProtocolMetadata{
 		Prev:  b.BlockHeader().Digest,
 		Round: 1,
 		Seq:   1,
@@ -527,8 +527,8 @@ func TestEpochLeaderFailoverAfterProposal(t *testing.T) {
 
 	runCrashAndRestartExecution(t, e, bb, wal, storage, func(t *testing.T, e *Epoch, bb *testBlockBuilder, storage *InMemStorage, wal *testWAL) {
 
-		lastBlock, _, ok := storage.Retrieve(storage.Height() - 1)
-		require.True(t, ok)
+		lastBlock, _, err := storage.Retrieve(storage.Height() - 1)
+		require.NoError(t, err)
 
 		prev := lastBlock.BlockHeader().Digest
 
@@ -617,8 +617,8 @@ func TestEpochLeaderFailoverTwice(t *testing.T) {
 	waitForBlockProposerTimeout(t, e, &start, e.Metadata().Round)
 
 	runCrashAndRestartExecution(t, e, bb, wal, storage, func(t *testing.T, e *Epoch, bb *testBlockBuilder, storage *InMemStorage, wal *testWAL) {
-		lastBlock, _, ok := storage.Retrieve(storage.Height() - 1)
-		require.True(t, ok)
+		lastBlock, _, err := storage.Retrieve(storage.Height() - 1)
+		require.NoError(t, err)
 
 		prev := lastBlock.BlockHeader().Digest
 

@@ -5,6 +5,7 @@ package simplex
 
 import (
 	"context"
+	"fmt"
 
 	"go.uber.org/zap"
 )
@@ -44,11 +45,15 @@ type BlockBuilder interface {
 	IncomingBlock(ctx context.Context)
 }
 
+var (
+	ErrBlockNotFound = fmt.Errorf("block not found")
+)
+
 type Storage interface {
 	Height() uint64
 	// Retrieve returns the block and finalization at [seq].
 	// If [seq] is not found, returns false.
-	Retrieve(seq uint64) (VerifiedBlock, Finalization, bool)
+	Retrieve(seq uint64) (VerifiedBlock, Finalization, error)
 	Index(ctx context.Context, block VerifiedBlock, certificate Finalization) error
 }
 
