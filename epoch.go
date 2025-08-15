@@ -1938,7 +1938,7 @@ func (e *Epoch) locateBlock(seq uint64, digest []byte) (VerifiedBlock, bool) {
 	if maxSeq < seq {
 		return nil, false
 	}
-	
+
 	if seq >= e.Storage.Height() {
 		e.Logger.Debug("Requested block sequence is higher or equal to the storage height",
 			zap.Uint64("requestedSeq", seq), zap.Uint64("storageHeight", e.Storage.Height()))
