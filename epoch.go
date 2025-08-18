@@ -2470,6 +2470,11 @@ func (e *Epoch) handleReplicationRequest(req *ReplicationRequest, from NodeID) e
 	}
 
 	response.Data = data
+	if len(data) == 0 && latestRound == nil {
+		e.Logger.Debug("No data found for replication request", zap.Stringer("from", from))
+		return nil
+	}
+
 	msg := &Message{VerifiedReplicationResponse: response}
 	e.Comm.Send(msg, from)
 	return nil
