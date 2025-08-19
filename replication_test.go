@@ -56,10 +56,10 @@ func testReplication(t *testing.T, startSeq uint64, nodes []simplex.NodeID) {
 		replicationEnabled: true,
 	})
 
-	require.Equal(t, startSeq, normalNode1.storage.Height())
-	require.Equal(t, startSeq, normalNode2.storage.Height())
-	require.Equal(t, startSeq, normalNode3.storage.Height())
-	require.Equal(t, uint64(0), laggingNode.storage.Height())
+	require.Equal(t, startSeq, normalNode1.storage.NumBlocks())
+	require.Equal(t, startSeq, normalNode2.storage.NumBlocks())
+	require.Equal(t, startSeq, normalNode3.storage.NumBlocks())
+	require.Equal(t, uint64(0), laggingNode.storage.NumBlocks())
 
 	net.startInstances()
 	bb.triggerNewBlock()
@@ -95,10 +95,10 @@ func TestReplicationAdversarialNode(t *testing.T) {
 		replicationEnabled: true,
 	})
 
-	require.Equal(t, uint64(0), doubleBlockProposalNode.storage.Height())
-	require.Equal(t, uint64(0), normalNode2.storage.Height())
-	require.Equal(t, uint64(0), normalNode3.storage.Height())
-	require.Equal(t, uint64(0), laggingNode.storage.Height())
+	require.Equal(t, uint64(0), doubleBlockProposalNode.storage.NumBlocks())
+	require.Equal(t, uint64(0), normalNode2.storage.NumBlocks())
+	require.Equal(t, uint64(0), normalNode3.storage.NumBlocks())
+	require.Equal(t, uint64(0), laggingNode.storage.NumBlocks())
 
 	net.startInstances()
 	doubleBlock := newTestBlock(doubleBlockProposalNode.e.Metadata())
@@ -126,7 +126,7 @@ func TestReplicationAdversarialNode(t *testing.T) {
 	}
 
 	// lagging node should not have commited the block
-	require.Equal(t, uint64(0), laggingNode.storage.Height())
+	require.Equal(t, uint64(0), laggingNode.storage.NumBlocks())
 	require.Equal(t, uint64(0), laggingNode.e.Metadata().Round)
 	net.Connect(laggingNode.e.ID)
 
@@ -166,7 +166,7 @@ func TestRebroadcastingWithReplication(t *testing.T) {
 	laggingNode := newSimplexNode(t, nodes[3], net, laggingBb, newNodeConfig(nodes[3]))
 
 	for _, n := range net.instances {
-		require.Equal(t, uint64(0), n.storage.Height())
+		require.Equal(t, uint64(0), n.storage.NumBlocks())
 	}
 
 	epochTimes := make([]time.Time, 0, len(nodes))
@@ -209,14 +209,14 @@ func TestRebroadcastingWithReplication(t *testing.T) {
 
 	for _, n := range net.instances {
 		if n.e.ID.Equals(laggingNode.e.ID) {
-			require.Equal(t, uint64(0), n.storage.Height())
+			require.Equal(t, uint64(0), n.storage.NumBlocks())
 			require.Equal(t, uint64(0), n.e.Metadata().Round)
 			continue
 		}
 
 		// assert metadata
 		require.Equal(t, uint64(numNotarizations), n.e.Metadata().Round)
-		require.Equal(t, uint64(1), n.e.Storage.Height())
+		require.Equal(t, uint64(1), n.e.Storage.NumBlocks())
 	}
 
 	net.setAllNodesMessageFilter(allowAllMessages)
@@ -271,7 +271,7 @@ func testReplicationEmptyNotarizations(t *testing.T, nodes []simplex.NodeID, end
 	laggingNode := newSimplexNode(t, nodes[5], net, laggingBb, newNodeConfig(nodes[5]))
 
 	for _, n := range net.instances {
-		require.Equal(t, uint64(0), n.storage.Height())
+		require.Equal(t, uint64(0), n.storage.NumBlocks())
 		startTimes = append(startTimes, n.e.StartTime)
 	}
 
@@ -301,7 +301,7 @@ func testReplicationEmptyNotarizations(t *testing.T, nodes []simplex.NodeID, end
 
 	for _, n := range net.instances {
 		if n.e.ID.Equals(laggingNode.e.ID) {
-			require.Equal(t, uint64(0), n.storage.Height())
+			require.Equal(t, uint64(0), n.storage.NumBlocks())
 			require.Equal(t, uint64(0), n.e.Metadata().Round)
 			continue
 		}
@@ -309,7 +309,7 @@ func testReplicationEmptyNotarizations(t *testing.T, nodes []simplex.NodeID, end
 		// assert metadata
 		require.Equal(t, uint64(endRound), n.e.Metadata().Round)
 		require.Equal(t, uint64(1), n.e.Metadata().Seq)
-		require.Equal(t, uint64(1), n.e.Storage.Height())
+		require.Equal(t, uint64(1), n.e.Storage.NumBlocks())
 	}
 
 	net.setAllNodesMessageFilter(allowAllMessages)
@@ -319,7 +319,7 @@ func testReplicationEmptyNotarizations(t *testing.T, nodes []simplex.NodeID, end
 		n.storage.waitForBlockCommit(1)
 	}
 
-	require.Equal(t, uint64(2), laggingNode.storage.Height())
+	require.Equal(t, uint64(2), laggingNode.storage.NumBlocks())
 	require.Equal(t, uint64(endRound+1), laggingNode.e.Metadata().Round)
 	require.Equal(t, uint64(2), laggingNode.e.Metadata().Seq)
 }
@@ -364,10 +364,10 @@ func TestReplicationStartsBeforeCurrentRound(t *testing.T) {
 	require.NoError(t, err)
 	laggingNode.wal.Append(secondNotarizationRecord)
 
-	require.Equal(t, startSeq, normalNode1.storage.Height())
-	require.Equal(t, startSeq, normalNode2.storage.Height())
-	require.Equal(t, startSeq, normalNode3.storage.Height())
-	require.Equal(t, uint64(0), laggingNode.storage.Height())
+	require.Equal(t, startSeq, normalNode1.storage.NumBlocks())
+	require.Equal(t, startSeq, normalNode2.storage.NumBlocks())
+	require.Equal(t, startSeq, normalNode3.storage.NumBlocks())
+	require.Equal(t, uint64(0), laggingNode.storage.NumBlocks())
 
 	net.startInstances()
 
@@ -438,7 +438,7 @@ func TestReplicationFutureFinalization(t *testing.T) {
 	block.verificationDelay <- struct{}{} // unblock the block verification
 
 	storedBlock := storage.waitForBlockCommit(0)
-	require.Equal(t, uint64(1), storage.Height())
+	require.Equal(t, uint64(1), storage.NumBlocks())
 	require.Equal(t, block, storedBlock)
 }
 
@@ -481,10 +481,10 @@ func testReplicationAfterNodeDisconnects(t *testing.T, nodes []simplex.NodeID, s
 	normalNode3 := newSimplexNode(t, nodes[2], net, bb, testConfig)
 	laggingNode := newSimplexNode(t, nodes[3], net, laggingBb, testConfig)
 
-	require.Equal(t, uint64(0), normalNode1.storage.Height())
-	require.Equal(t, uint64(0), normalNode2.storage.Height())
-	require.Equal(t, uint64(0), normalNode3.storage.Height())
-	require.Equal(t, uint64(0), laggingNode.storage.Height())
+	require.Equal(t, uint64(0), normalNode1.storage.NumBlocks())
+	require.Equal(t, uint64(0), normalNode2.storage.NumBlocks())
+	require.Equal(t, uint64(0), normalNode3.storage.NumBlocks())
+	require.Equal(t, uint64(0), laggingNode.storage.NumBlocks())
 
 	epochTimes := make([]time.Time, 0, 4)
 	for _, n := range net.instances {
@@ -506,7 +506,7 @@ func testReplicationAfterNodeDisconnects(t *testing.T, nodes []simplex.NodeID, s
 
 	// all nodes have commited `startDisconnect` blocks
 	for _, n := range net.instances {
-		require.Equal(t, startDisconnect, n.storage.Height())
+		require.Equal(t, startDisconnect, n.storage.NumBlocks())
 	}
 
 	// lagging node disconnects
@@ -533,9 +533,9 @@ func testReplicationAfterNodeDisconnects(t *testing.T, nodes []simplex.NodeID, s
 	}
 	// all nodes excpet for lagging node have progressed and commited [endDisconnect - missedSeqs] blocks
 	for _, n := range net.instances[:3] {
-		require.Equal(t, endDisconnect-missedSeqs, n.storage.Height())
+		require.Equal(t, endDisconnect-missedSeqs, n.storage.NumBlocks())
 	}
-	require.Equal(t, startDisconnect, laggingNode.storage.Height())
+	require.Equal(t, startDisconnect, laggingNode.storage.NumBlocks())
 	require.Equal(t, startDisconnect, laggingNode.e.Metadata().Round)
 	// lagging node reconnects
 	net.Connect(nodes[3])
@@ -545,7 +545,7 @@ func testReplicationAfterNodeDisconnects(t *testing.T, nodes []simplex.NodeID, s
 	}
 
 	for _, n := range net.instances {
-		require.Equal(t, endDisconnect-missedSeqs, n.storage.Height()-1)
+		require.Equal(t, endDisconnect-missedSeqs, n.storage.NumBlocks()-1)
 		require.Equal(t, endDisconnect+1, n.e.Metadata().Round)
 	}
 
@@ -620,7 +620,7 @@ func TestReplicationNodeDiverges(t *testing.T) {
 
 	startTimes := make([]time.Time, 0, len(nodes))
 	for _, n := range net.instances {
-		require.Equal(t, uint64(0), n.storage.Height())
+		require.Equal(t, uint64(0), n.storage.NumBlocks())
 		startTimes = append(startTimes, n.e.StartTime)
 	}
 
@@ -747,7 +747,7 @@ func testReplicationNotarizationWithoutFinalizations(t *testing.T, numBlocks uin
 	laggingNode := newSimplexNode(t, nodes[3], net, bb, nodeConfig(nodes[3]))
 
 	for _, n := range net.instances {
-		require.Equal(t, uint64(0), n.storage.Height())
+		require.Equal(t, uint64(0), n.storage.NumBlocks())
 	}
 
 	net.startInstances()
@@ -762,7 +762,7 @@ func testReplicationNotarizationWithoutFinalizations(t *testing.T, numBlocks uin
 	}
 
 	laggingNode.wal.assertNotarization(numBlocks - 1)
-	require.Equal(t, uint64(0), laggingNode.storage.Height())
+	require.Equal(t, uint64(0), laggingNode.storage.NumBlocks())
 	require.Equal(t, uint64(numBlocks), laggingNode.e.Metadata().Round)
 
 	net.setAllNodesMessageFilter(allowAllMessages)

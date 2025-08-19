@@ -107,7 +107,7 @@ func TestRecoverFromWALProposed(t *testing.T) {
 		require.Equal(t, block, block2)
 	}
 
-	require.Equal(t, rounds, e.Storage.Height())
+	require.Equal(t, rounds, e.Storage.NumBlocks())
 }
 
 // TestRecoverFromWALNotarized tests that the epoch can recover from a wal
@@ -177,7 +177,7 @@ func TestRecoverFromNotarization(t *testing.T) {
 	bBytes, err = block.Bytes()
 	require.NoError(t, err)
 	require.Equal(t, bBytes, committedData)
-	require.Equal(t, uint64(1), e.Storage.Height())
+	require.Equal(t, uint64(1), e.Storage.NumBlocks())
 }
 
 // TestRecoverFromWALFinalized tests that the epoch can recover from a wal
@@ -253,7 +253,7 @@ func TestRecoverFromWalWithStorage(t *testing.T) {
 	require.NoError(t, err)
 	bBytes, err = block.Bytes()
 	require.Equal(t, bBytes, committedData)
-	require.Equal(t, uint64(2), e.Storage.Height())
+	require.Equal(t, uint64(2), e.Storage.NumBlocks())
 }
 
 // TestWalCreated tests that the epoch correctly writes to the WAL
@@ -448,7 +448,7 @@ func TestWalWritesFinalization(t *testing.T) {
 
 	// increase the round but don't index storage
 	require.Equal(t, uint64(1), e.Metadata().Round)
-	require.Equal(t, uint64(0), e.Storage.Height())
+	require.Equal(t, uint64(0), e.Storage.NumBlocks())
 
 	vote, err := newTestVote(secondBlock, nodes[1])
 	require.NoError(t, err)
@@ -493,7 +493,7 @@ func TestWalWritesFinalization(t *testing.T) {
 
 	// ensure the finalization is not indexed
 	require.Equal(t, uint64(2), e.Metadata().Round)
-	require.Equal(t, uint64(0), e.Storage.Height())
+	require.Equal(t, uint64(0), e.Storage.NumBlocks())
 }
 
 // Appends to the wal -> block, notarization, second block, notarization block 2, finalization for block 2.
@@ -559,7 +559,7 @@ func TestRecoverFromMultipleNotarizations(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, uint64(2), e.Metadata().Round)
-	require.Equal(t, uint64(0), e.Storage.Height())
+	require.Equal(t, uint64(0), e.Storage.NumBlocks())
 
 	// now if we send finalization for block 1, we should index both 1 & 2
 	finalization1, _ := newFinalizationRecord(t, l, sigAggregrator, firstBlock, nodes[0:quorum])
@@ -568,7 +568,7 @@ func TestRecoverFromMultipleNotarizations(t *testing.T) {
 	}, nodes[1])
 	require.NoError(t, err)
 
-	require.Equal(t, uint64(2), e.Storage.Height())
+	require.Equal(t, uint64(2), e.Storage.NumBlocks())
 	storageBytes, err := storage.data[0].VerifiedBlock.Bytes()
 	require.NoError(t, err)
 	require.Equal(t, fBytes, storageBytes)
@@ -649,7 +649,7 @@ func TestRecoveryBlocksIndexed(t *testing.T) {
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
-	require.Equal(t, uint64(3), e.Storage.Height())
+	require.Equal(t, uint64(3), e.Storage.NumBlocks())
 	require.NoError(t, e.Start())
 
 	// ensure the round is properly set to 3
@@ -682,7 +682,7 @@ func TestEpochCorrectlyInitializesMetadataFromStorage(t *testing.T) {
 	conf.Storage.Index(ctx, block, Finalization{})
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
-	require.Equal(t, uint64(1), e.Storage.Height())
+	require.Equal(t, uint64(1), e.Storage.NumBlocks())
 	require.NoError(t, e.Start())
 
 	// ensure the round is properly set
@@ -719,7 +719,7 @@ func TestRecoveryAsLeader(t *testing.T) {
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
-	require.Equal(t, uint64(4), e.Storage.Height())
+	require.Equal(t, uint64(4), e.Storage.NumBlocks())
 	require.NoError(t, e.Start())
 
 	<-bb.out
