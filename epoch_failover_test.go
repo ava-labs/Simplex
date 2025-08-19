@@ -111,7 +111,7 @@ func TestEpochLeaderFailoverWithEmptyNotarization(t *testing.T) {
 		block, _ := notarizeAndFinalizeRound(t, e, bb)
 		require.Equal(t, nextBlockSeqToCommit, block.BlockHeader().Seq)
 		require.Equal(t, nextRoundToCommit, block.BlockHeader().Round)
-		require.Equal(t, uint64(3), storage.Height())
+		require.Equal(t, uint64(3), storage.NumBlocks())
 	})
 }
 
@@ -172,7 +172,7 @@ func TestEpochLeaderFailoverReceivesEmptyVotesEarly(t *testing.T) {
 		notarizeAndFinalizeRound(t, e, bb)
 	}
 
-	lastBlock, _, err := storage.Retrieve(storage.Height() - 1)
+	lastBlock, _, err := storage.Retrieve(storage.NumBlocks() - 1)
 	require.NoError(t, err)
 
 	prev := lastBlock.BlockHeader().Digest
@@ -212,7 +212,7 @@ func TestEpochLeaderFailoverReceivesEmptyVotesEarly(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, emptyVoteFrom1.Vote, emptyNotarization.Vote)
 		require.Equal(t, uint64(3), emptyNotarization.Vote.Round)
-		require.Equal(t, uint64(3), storage.Height())
+		require.Equal(t, uint64(3), storage.NumBlocks())
 
 		header, _, err := ParseBlockRecord(rawProposal)
 		require.NoError(t, err)
@@ -228,7 +228,7 @@ func TestEpochLeaderFailoverReceivesEmptyVotesEarly(t *testing.T) {
 
 		block2 := storage.waitForBlockCommit(3)
 		require.Equal(t, block, block2)
-		require.Equal(t, uint64(4), storage.Height())
+		require.Equal(t, uint64(4), storage.NumBlocks())
 		require.Equal(t, uint64(4), block2.BlockHeader().Round)
 		require.Equal(t, uint64(3), block2.BlockHeader().Seq)
 	})
@@ -317,7 +317,7 @@ func TestEpochLeaderFailover(t *testing.T) {
 	waitForBlockProposerTimeout(t, e, &start, e.Metadata().Round)
 
 	runCrashAndRestartExecution(t, e, bb, wal, storage, func(t *testing.T, e *Epoch, bb *testBlockBuilder, storage *InMemStorage, wal *testWAL) {
-		lastBlock, _, err := storage.Retrieve(storage.Height() - 1)
+		lastBlock, _, err := storage.Retrieve(storage.NumBlocks() - 1)
 		require.NoError(t, err)
 
 		prev := lastBlock.BlockHeader().Digest
@@ -352,7 +352,7 @@ func TestEpochLeaderFailover(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, emptyVoteFrom1.Vote, emptyNotarization.Vote)
 		require.Equal(t, uint64(3), emptyNotarization.Vote.Round)
-		require.Equal(t, uint64(3), storage.Height())
+		require.Equal(t, uint64(3), storage.NumBlocks())
 
 		nextBlockSeqToCommit := uint64(3)
 		nextRoundToCommit := uint64(4)
@@ -362,7 +362,7 @@ func TestEpochLeaderFailover(t *testing.T) {
 		require.Equal(t, nextRoundToCommit, block.BlockHeader().Round)
 		require.Equal(t, nextBlockSeqToCommit, block.BlockHeader().Seq)
 
-		require.Equal(t, uint64(4), storage.Height())
+		require.Equal(t, uint64(4), storage.NumBlocks())
 	})
 }
 
@@ -525,7 +525,7 @@ func TestEpochLeaderFailoverAfterProposal(t *testing.T) {
 
 	runCrashAndRestartExecution(t, e, bb, wal, storage, func(t *testing.T, e *Epoch, bb *testBlockBuilder, storage *InMemStorage, wal *testWAL) {
 
-		lastBlock, _, err := storage.Retrieve(storage.Height() - 1)
+		lastBlock, _, err := storage.Retrieve(storage.NumBlocks() - 1)
 		require.NoError(t, err)
 
 		prev := lastBlock.BlockHeader().Digest
@@ -569,7 +569,7 @@ func TestEpochLeaderFailoverAfterProposal(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, emptyVoteFrom1.Vote, emptyNotarization.Vote)
 		require.Equal(t, uint64(3), emptyNotarization.Vote.Round)
-		require.Equal(t, uint64(4), storage.Height())
+		require.Equal(t, uint64(4), storage.NumBlocks())
 	})
 }
 
@@ -614,7 +614,7 @@ func TestEpochLeaderFailoverTwice(t *testing.T) {
 	waitForBlockProposerTimeout(t, e, &start, e.Metadata().Round)
 
 	runCrashAndRestartExecution(t, e, bb, wal, storage, func(t *testing.T, e *Epoch, bb *testBlockBuilder, storage *InMemStorage, wal *testWAL) {
-		lastBlock, _, err := storage.Retrieve(storage.Height() - 1)
+		lastBlock, _, err := storage.Retrieve(storage.NumBlocks() - 1)
 		require.NoError(t, err)
 
 		prev := lastBlock.BlockHeader().Digest
@@ -684,7 +684,7 @@ func TestEpochLeaderFailoverTwice(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, emptyVoteFrom1.Vote, emptyNotarization.Vote)
 			require.Equal(t, uint64(3), emptyNotarization.Vote.Round)
-			require.Equal(t, uint64(3), storage.Height())
+			require.Equal(t, uint64(3), storage.NumBlocks())
 		})
 	})
 }

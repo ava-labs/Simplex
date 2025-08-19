@@ -135,17 +135,17 @@ func TestEpochIndexFinalization(t *testing.T) {
 
 	require.Equal(t, uint64(2), e.Metadata().Round)
 	require.Equal(t, uint64(2), e.Metadata().Seq)
-	require.Equal(t, uint64(0), e.Storage.Height())
+	require.Equal(t, uint64(0), e.Storage.NumBlocks())
 
 	advanceRoundFromEmpty(t, e)
 	require.Equal(t, uint64(3), e.Metadata().Round)
 	require.Equal(t, uint64(2), e.Metadata().Seq)
-	require.Equal(t, uint64(0), e.Storage.Height())
+	require.Equal(t, uint64(0), e.Storage.NumBlocks())
 
 	advanceRoundFromFinalization(t, e, bb)
 	require.Equal(t, uint64(4), e.Metadata().Round)
 	require.Equal(t, uint64(3), e.Metadata().Seq)
-	require.Equal(t, uint64(0), e.Storage.Height())
+	require.Equal(t, uint64(0), e.Storage.NumBlocks())
 
 	// at this point we are waiting on finalization of seq 0.
 	// when we receive that finalization, we should commit the rest of the finalizations for seqs
@@ -275,7 +275,7 @@ func TestEpochIncreasesRoundAfterFinalization(t *testing.T) {
 	block, _ := advanceRoundFromNotarization(t, e, bb)
 	advanceRoundFromFinalization(t, e, bb)
 	require.Equal(t, uint64(2), e.Metadata().Round)
-	require.Equal(t, uint64(0), storage.Height())
+	require.Equal(t, uint64(0), storage.NumBlocks())
 
 	// create the finalized block
 	finalization, _ := newFinalizationRecord(t, l, conf.SignatureAggregator, block, nodes)
@@ -283,7 +283,7 @@ func TestEpochIncreasesRoundAfterFinalization(t *testing.T) {
 
 	storage.waitForBlockCommit(1)
 	require.Equal(t, uint64(2), e.Metadata().Round)
-	require.Equal(t, uint64(2), storage.Height())
+	require.Equal(t, uint64(2), storage.NumBlocks())
 
 	// we are the leader, ensure we can continue & propose a block
 	notarizeAndFinalizeRound(t, e, bb)
@@ -372,7 +372,7 @@ func TestEpochNotarizeTwiceThenFinalize(t *testing.T) {
 
 	injectTestVote(t, e, block2, nodes[2])
 	wal.assertNotarization(3)
-	require.Equal(t, uint64(0), storage.Height())
+	require.Equal(t, uint64(0), storage.NumBlocks())
 
 	// drain the recorded messages
 	for len(recordedMessages) > 0 {
@@ -570,7 +570,7 @@ func notarizeAndFinalizeRound(t *testing.T, e *Epoch, bb *testBlockBuilder) (Ver
 // If [finalize] is set, the round will advance and the block will be indexed to storage.
 func advanceRound(t *testing.T, e *Epoch, bb *testBlockBuilder, notarize bool, finalize bool) (VerifiedBlock, *Notarization) {
 	require.True(t, notarize || finalize, "must either notarize or finalize a round to advance")
-	nextSeqToCommit := e.Storage.Height()
+	nextSeqToCommit := e.Storage.NumBlocks()
 	nodes := e.Comm.Nodes()
 	quorum := Quorum(len(nodes))
 	// leader is the proposer of the new block for the given round
@@ -1555,7 +1555,7 @@ func newInMemStorage() *InMemStorage {
 func (mem *InMemStorage) Clone() *InMemStorage {
 	clone := newInMemStorage()
 	mem.lock.Lock()
-	height := mem.Height()
+	height := mem.NumBlocks()
 	mem.lock.Unlock()
 	for seq := uint64(0); seq < height; seq++ {
 		mem.lock.Lock()
@@ -1592,7 +1592,7 @@ func (mem *InMemStorage) ensureNoBlockCommit(t *testing.T, seq uint64) {
 	}, time.Second, time.Millisecond*100, "block %d has been committed but shouldn't have been", seq)
 }
 
-func (mem *InMemStorage) Height() uint64 {
+func (mem *InMemStorage) NumBlocks() uint64 {
 	return uint64(len(mem.data))
 }
 

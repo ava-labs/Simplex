@@ -15,13 +15,13 @@ import (
 // Returns an error if it cannot be retrieved but the storage has some block.
 // Returns (nil, nil) if the storage is empty.
 func RetrieveLastIndexFromStorage(s Storage) (*VerifiedFinalizedBlock, error) {
-	height := s.Height()
-	if height == 0 {
+	numBlocks := s.NumBlocks()
+	if numBlocks == 0 {
 		return nil, nil
 	}
-	lastBlock, finalization, err := s.Retrieve(height - 1)
+	lastBlock, finalization, err := s.Retrieve(numBlocks - 1)
 	if err != nil {
-		return nil, fmt.Errorf("failed retrieving last block from storage with seq %d: %w", height-1, err)
+		return nil, fmt.Errorf("failed retrieving last block from storage with seq %d: %w", numBlocks-1, err)
 	}
 	return &VerifiedFinalizedBlock{
 		VerifiedBlock: lastBlock,

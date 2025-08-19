@@ -111,7 +111,7 @@ func TestSplitVotes(t *testing.T) {
 	splitNode3.wal.assertNotarization(0)
 
 	for _, n := range net.instances {
-		require.Equal(t, uint64(0), n.e.Storage.Height())
+		require.Equal(t, uint64(0), n.e.Storage.NumBlocks())
 		require.Equal(t, uint64(1), n.e.Metadata().Round)
 		require.Equal(t, uint64(1), n.e.Metadata().Seq)
 	}
@@ -123,7 +123,7 @@ func TestSplitVotes(t *testing.T) {
 	for _, n := range net.instances {
 		n.storage.waitForBlockCommit(0)
 		n.storage.waitForBlockCommit(1)
-		require.Equal(t, uint64(2), n.e.Storage.Height())
+		require.Equal(t, uint64(2), n.e.Storage.NumBlocks())
 		require.Equal(t, uint64(2), n.e.Metadata().Round)
 		require.Equal(t, uint64(2), n.e.Metadata().Seq)
 	}

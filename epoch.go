@@ -218,7 +218,7 @@ func (e *Epoch) Start() error {
 }
 
 func (e *Epoch) sequenceAlreadyIndexed(seq uint64) bool {
-	return seq < e.Storage.Height()
+	return seq < e.nextSeqToCommit()
 }
 
 func (e *Epoch) restoreBlockRecord(r []byte) error {
@@ -527,7 +527,7 @@ func (e *Epoch) handleFinalizationMessage(message *Finalization, from NodeID) er
 	e.Logger.Verbo("Received finalization message",
 		zap.Stringer("from", from), zap.Uint64("round", message.Finalization.Round), zap.Uint64("seq", message.Finalization.Seq))
 
-	nextSeqToCommit := e.Storage.Height()
+	nextSeqToCommit := e.nextSeqToCommit()
 	// Ignore finalizations for sequences we have already committed
 	if nextSeqToCommit > message.Finalization.Seq {
 		return nil
@@ -927,7 +927,7 @@ func (e *Epoch) persistFinalization(finalization Finalization) error {
 	// Check to see if we should commit this finalization to the storage as part of a block commit,
 	// or otherwise write it to the WAL in order to commit it later.
 	startRound := e.round
-	nextSeqToCommit := e.Storage.Height()
+	nextSeqToCommit := e.nextSeqToCommit()
 	if finalization.Finalization.Seq == nextSeqToCommit {
 		if err := e.indexFinalizations(finalization.Finalization.Round); err != nil {
 			e.Logger.Error("Failed to index finalizations", zap.Error(err))
@@ -1049,9 +1049,9 @@ func (e *Epoch) indexFinalizations(startRound uint64) error {
 		if round.finalization == nil {
 			break
 		}
-		if round.finalization.Finalization.Seq != e.Storage.Height() {
+		if round.finalization.Finalization.Seq != e.nextSeqToCommit() {
 			e.Logger.Debug("Finalization does not correspond to the next sequence to commit",
-				zap.Uint64("seq", round.finalization.Finalization.Seq), zap.Uint64("height", e.Storage.Height()))
+				zap.Uint64("seq", round.finalization.Finalization.Seq), zap.Uint64("height", e.nextSeqToCommit()))
 			return nil
 		}
 
@@ -1755,9 +1755,9 @@ func (e *Epoch) createFinalizedBlockVerificationTask(block Block, finalization F
 		// we started verifying the block when it was the next sequence to commit, however its
 		// possible we received a finalization for this block in the meantime. This check ensures we commit
 		// the block only if it is still the next sequence to commit.
-		if e.Storage.Height() != md.Seq {
+		if e.Storage.NumBlocks() != md.Seq {
 			e.Logger.Debug("Received finalized block that is not the next sequence to commit",
-				zap.Uint64("seq", md.Seq), zap.Uint64("height", e.Storage.Height()))
+				zap.Uint64("seq", md.Seq), zap.Uint64("height", e.nextSeqToCommit()))
 			return md.Digest
 		}
 
@@ -1926,7 +1926,7 @@ func (e *Epoch) locateBlock(seq uint64, digest []byte) (VerifiedBlock, bool) {
 		}
 	}
 
-	height := e.Storage.Height()
+	height := e.nextSeqToCommit()
 	// Not in memory, and no block resides in storage.
 	if height == 0 {
 		return nil, false
@@ -1939,9 +1939,9 @@ func (e *Epoch) locateBlock(seq uint64, digest []byte) (VerifiedBlock, bool) {
 		return nil, false
 	}
 
-	if seq >= e.Storage.Height() {
-		e.Logger.Debug("Requested block sequence is higher or equal to the storage height",
-			zap.Uint64("requestedSeq", seq), zap.Uint64("storageHeight", e.Storage.Height()))
+	if seq >= e.nextSeqToCommit() {
+		e.Logger.Debug("Requested block sequence we have not yet committed to storage",
+			zap.Uint64("requestedSeq", seq), zap.Uint64("numBlocks", e.nextSeqToCommit()))
 		return nil, false
 	}
 
@@ -2049,7 +2049,7 @@ func (e *Epoch) Metadata() ProtocolMetadata {
 
 func (e *Epoch) metadata() ProtocolMetadata {
 	var prev Digest
-	seq := e.Storage.Height()
+	seq := e.nextSeqToCommit()
 
 	highestRound := e.getHighestRound()
 	if highestRound != nil {
@@ -2353,7 +2353,7 @@ func (e *Epoch) storeNotarization(notarization Notarization) error {
 func (e *Epoch) maybeLoadFutureMessages() error {
 	for {
 		round := e.round
-		height := e.Storage.Height()
+		nextSeqToCommit := e.nextSeqToCommit()
 
 		for from, messagesFromNode := range e.futureMessages {
 			if msgs, exists := messagesFromNode[round]; exists {
@@ -2408,10 +2408,10 @@ func (e *Epoch) maybeLoadFutureMessages() error {
 			}
 		}
 
-		if e.round == round && height == e.Storage.Height() {
+		if e.round == round && nextSeqToCommit == e.nextSeqToCommit() {
 			return nil
 		}
-		e.Logger.Debug("Round or height was increased while processing future messages", zap.Uint64("epoch round", e.round), zap.Uint64("Round", round), zap.Uint64("height", height), zap.Uint64("storage height", e.Storage.Height()))
+		e.Logger.Debug("Round or height was increased while processing future messages", zap.Uint64("epoch round", e.round), zap.Uint64("Round", round), zap.Uint64("previous nextSeqToCommit", nextSeqToCommit), zap.Uint64("nextSeqToCommit", e.nextSeqToCommit()))
 	}
 }
 
@@ -2527,7 +2527,7 @@ func (e *Epoch) handleReplicationResponse(resp *ReplicationResponse, from NodeID
 	}
 
 	e.Logger.Debug("Received replication response", zap.Stringer("from", from), zap.Int("num seqs", len(resp.Data)), zap.Stringer("latest round", resp.LatestRound))
-	nextSeqToCommit := e.Storage.Height()
+	nextSeqToCommit := e.nextSeqToCommit()
 
 	validRounds := make([]QuorumRound, 0, len(resp.Data))
 	for _, data := range resp.Data {
@@ -2615,7 +2615,7 @@ func (e *Epoch) processLatestRoundReceived(latestRound *QuorumRound) error {
 }
 
 func (e *Epoch) processReplicationState() error {
-	nextSeqToCommit := e.Storage.Height()
+	nextSeqToCommit := e.nextSeqToCommit()
 
 	// check if we are done replicating and should start a new round
 	if e.replicationState.isReplicationComplete(nextSeqToCommit, e.round) {
@@ -2625,7 +2625,7 @@ func (e *Epoch) processReplicationState() error {
 		return e.startRound()
 	}
 
-	e.replicationState.maybeCollectFutureSequences(e.Storage.Height())
+	e.replicationState.maybeCollectFutureSequences(e.nextSeqToCommit())
 
 	// first we check if we can commit the next sequence, it is ok to try and commit the next sequence
 	// directly, since if there are any empty notarizations, `indexFinalization` will
@@ -2768,6 +2768,11 @@ func (e *Epoch) retrieveBlockOrHalt(seq uint64) (VerifiedBlock, Finalization, bo
 	}
 
 	return block, finalization, true
+}
+
+func (e *Epoch) nextSeqToCommit() uint64 {
+	// The next sequence to commit is always the number of blocks in the storage.
+	return e.Storage.NumBlocks()
 }
 
 // sortNodes sorts the nodes in place by their byte representations.

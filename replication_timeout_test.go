@@ -61,12 +61,12 @@ func TestReplicationRequestTimeout(t *testing.T) {
 	}
 
 	// assert the lagging node has not received any replication requests
-	require.Equal(t, uint64(0), laggingNode.storage.Height())
+	require.Equal(t, uint64(0), laggingNode.storage.NumBlocks())
 
 	// after the timeout, the nodes should respond and the lagging node will replicate
 	net.setAllNodesMessageFilter(allowAllMessages)
 	laggingNode.e.AdvanceTime(laggingNode.e.StartTime.Add(simplex.DefaultReplicationRequestTimeout / 2))
-	require.Equal(t, uint64(0), laggingNode.storage.Height())
+	require.Equal(t, uint64(0), laggingNode.storage.NumBlocks())
 
 	laggingNode.e.AdvanceTime(laggingNode.e.StartTime.Add(simplex.DefaultReplicationRequestTimeout * 2))
 	laggingNode.storage.waitForBlockCommit(uint64(numInitialSeqs))
@@ -193,12 +193,12 @@ func TestReplicationRequestTimeoutMultiple(t *testing.T) {
 	<-mf.replicationResponses
 
 	// assert the lagging node has not received any replication responses
-	require.Equal(t, uint64(0), laggingNode.storage.Height())
+	require.Equal(t, uint64(0), laggingNode.storage.NumBlocks())
 	normalNode2.e.Comm.(*testComm).setFilter(allowAllMessages)
 
 	// after the timeout, only normalNode2 should respond
 	laggingNode.e.AdvanceTime(laggingNode.e.StartTime.Add(simplex.DefaultReplicationRequestTimeout / 2))
-	require.Equal(t, uint64(0), laggingNode.storage.Height())
+	require.Equal(t, uint64(0), laggingNode.storage.NumBlocks())
 
 	laggingNode.e.AdvanceTime(laggingNode.e.StartTime.Add(simplex.DefaultReplicationRequestTimeout))
 	laggingNode.storage.waitForBlockCommit(startSeq / 3)
@@ -287,12 +287,12 @@ func TestReplicationRequestIncompleteResponses(t *testing.T) {
 	<-mf.replicationResponses
 
 	// assert the lagging node has not received any replication responses
-	require.Equal(t, uint64(0), laggingNode.storage.Height())
+	require.Equal(t, uint64(0), laggingNode.storage.NumBlocks())
 	net.setAllNodesMessageFilter(incompleteReplicationResponseFilter)
 
 	// after the timeout, only normalNode2 should respond(but with incomplete data)
 	laggingNode.e.AdvanceTime(laggingNode.e.StartTime.Add(simplex.DefaultReplicationRequestTimeout / 2))
-	require.Equal(t, uint64(0), laggingNode.storage.Height())
+	require.Equal(t, uint64(0), laggingNode.storage.NumBlocks())
 
 	laggingNode.e.AdvanceTime(laggingNode.e.StartTime.Add(simplex.DefaultReplicationRequestTimeout))
 	laggingNode.storage.waitForBlockCommit(0)
@@ -425,9 +425,9 @@ func TestReplicationRequestWithoutFinalization(t *testing.T) {
 
 	// all nodes excpet for lagging node have progressed and commited [endDisconnect - missedSeqs] blocks
 	for _, n := range net.instances[:3] {
-		require.Equal(t, endDisconnect-missedSeqs, n.storage.Height())
+		require.Equal(t, endDisconnect-missedSeqs, n.storage.NumBlocks())
 	}
-	require.Equal(t, uint64(0), laggingNode.storage.Height())
+	require.Equal(t, uint64(0), laggingNode.storage.NumBlocks())
 	require.Equal(t, uint64(0), laggingNode.e.Metadata().Round)
 	// lagging node reconnects
 	net.setAllNodesMessageFilter(notarizationComm.removeFinalizationsFromReplicationResponses)
@@ -445,7 +445,7 @@ func TestReplicationRequestWithoutFinalization(t *testing.T) {
 	// wait until the lagging nodes sends replication requests
 	// due to the removeFinalizationsFromReplicationResponses message filter
 	// the lagging node should not have processed any replication requests
-	require.Equal(t, uint64(0), laggingNode.storage.Height())
+	require.Equal(t, uint64(0), laggingNode.storage.NumBlocks())
 
 	// we should still have these replication requests in the timeout handler
 	laggingNode.e.AdvanceTime(laggingNode.e.StartTime.Add(simplex.DefaultReplicationRequestTimeout * 2))
@@ -456,7 +456,7 @@ func TestReplicationRequestWithoutFinalization(t *testing.T) {
 		<-notarizationComm.replicationResponses
 	}
 
-	require.Equal(t, uint64(0), laggingNode.storage.Height())
+	require.Equal(t, uint64(0), laggingNode.storage.NumBlocks())
 	// We should still have these replication requests in the timeout handler
 	// but now we allow the lagging node to process them
 	net.setAllNodesMessageFilter(allowAllMessages)
@@ -519,7 +519,7 @@ func TestReplicationMalformedQuorumRound(t *testing.T) {
 	<-mf.replicationResponses
 
 	// assert the lagging node has not received any replication responses
-	require.Equal(t, uint64(0), laggingNode.storage.Height())
+	require.Equal(t, uint64(0), laggingNode.storage.NumBlocks())
 	net.setAllNodesMessageFilter(
 		func(msg *simplex.Message, _, _ simplex.NodeID) bool {
 			if msg.VerifiedReplicationResponse != nil || msg.ReplicationResponse != nil {
@@ -538,10 +538,10 @@ func TestReplicationMalformedQuorumRound(t *testing.T) {
 
 	// after the timeout, only normalNode2 should respond, but with malformed data
 	laggingNode.e.AdvanceTime(laggingNode.e.StartTime.Add(simplex.DefaultReplicationRequestTimeout / 2))
-	require.Equal(t, uint64(0), laggingNode.storage.Height())
+	require.Equal(t, uint64(0), laggingNode.storage.NumBlocks())
 
 	laggingNode.e.AdvanceTime(laggingNode.e.StartTime.Add(simplex.DefaultReplicationRequestTimeout))
-	require.Equal(t, uint64(0), laggingNode.storage.Height())
+	require.Equal(t, uint64(0), laggingNode.storage.NumBlocks())
 
 	require.Eventually(t, func() bool {
 		msg, ok := <-recordedMessages
