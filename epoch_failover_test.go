@@ -734,15 +734,17 @@ func TestEpochLeaderFailoverBecauseOfBadBlock(t *testing.T) {
 
 	vote, err := newTestVote(block, nodes[1])
 	require.NoError(t, err)
-	err = e.HandleMessage(&Message{
-		BlockMessage: &BlockMessage{
-			Vote:  *vote,
-			Block: block,
-		},
-	}, nodes[1])
-	require.NoError(t, err)
 
-	waitForBlockProposerTimeout(t, e, &start, 1)
+	go func() {
+		err = e.HandleMessage(&Message{
+			BlockMessage: &BlockMessage{
+				Vote:  *vote,
+				Block: block,
+			},
+		}, nodes[1])
+		require.NoError(t, err)
+	}()
+
 	emptyVoteFrom1 := createEmptyVote(md, nodes[0])
 	emptyVoteFrom2 := createEmptyVote(md, nodes[2])
 
@@ -752,6 +754,8 @@ func TestEpochLeaderFailoverBecauseOfBadBlock(t *testing.T) {
 	e.HandleMessage(&Message{
 		EmptyVoteMessage: emptyVoteFrom2,
 	}, nodes[2])
+
+	waitForBlockProposerTimeout(t, e, &start, 1)
 
 	require.Equal(t, record.EmptyNotarizationRecordType, wal.assertNotarization(1))
 	notarizeAndFinalizeRound(t, e, bb)
