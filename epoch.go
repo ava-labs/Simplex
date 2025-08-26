@@ -1655,6 +1655,10 @@ func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote)
 		}()
 
 		verifiedBlock, err := block.Verify(context.Background())
+
+		e.lock.Lock()
+		defer e.lock.Unlock()
+
 		if err != nil {
 			leader := LeaderForRound(e.nodes, md.Round)
 			e.Logger.Info("Triggering empty block agreement",
@@ -1665,9 +1669,6 @@ func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote)
 			e.triggerEmptyBlockNotarization(md.Round)
 			return md.Digest
 		}
-
-		e.lock.Lock()
-		defer e.lock.Unlock()
 
 		blockBytes, err := verifiedBlock.Bytes()
 		if err != nil {
