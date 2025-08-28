@@ -578,20 +578,20 @@ func TestReplicationResendsFinalizedBlocksThatFailedVerification(t *testing.T) {
 	signatureAggregator := &testSignatureAggregator{}
 	sentMessages := make(chan *simplex.Message, 100)
 	conf := simplex.EpochConfig{
-		MaxProposalWait:     simplex.DefaultMaxProposalWaitTime,
-		Logger:              l,
-		ID:                  nodes[1],
-		Signer:              &testSigner{},
-		WAL:                 wal.NewMemWAL(t),
-		Verifier:            &testVerifier{},
-		Storage:             storage,
-		Comm:                &recordingComm{
+		MaxProposalWait: simplex.DefaultMaxProposalWaitTime,
+		Logger:          l,
+		ID:              nodes[1],
+		Signer:          &testSigner{},
+		WAL:             wal.NewMemWAL(t),
+		Verifier:        &testVerifier{},
+		Storage:         storage,
+		Comm: &recordingComm{
 			Communication: noopComm(nodes),
 			SentMessages:  sentMessages,
 		},
 		BlockBuilder:        bb,
 		SignatureAggregator: signatureAggregator,
-		ReplicationEnabled: true,
+		ReplicationEnabled:  true,
 	}
 
 	e, err := simplex.NewEpoch(conf)
@@ -607,7 +607,7 @@ func TestReplicationResendsFinalizedBlocksThatFailedVerification(t *testing.T) {
 	block.verificationError = errors.New("block verification failed")
 
 	finalization, _ := newFinalizationRecord(t, l, signatureAggregator, block, nodes[0:quorum])
-	
+
 	// send the finalization to start the replication process
 	e.HandleMessage(&simplex.Message{
 		Finalization: &finalization,
