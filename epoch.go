@@ -2516,7 +2516,7 @@ func (e *Epoch) locateQuorumRecord(seq uint64) *VerifiedQuorumRound {
 			zap.Uint64("seq", seq), zap.Uint64("height", e.nextSeqToCommit()))
 		return nil
 	}
-	
+
 	block, finalization, ok := e.retrieveBlockOrHalt(seq)
 	if !ok {
 		return nil
