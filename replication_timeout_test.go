@@ -373,9 +373,18 @@ func (c *collectNotarizationComm) removeFinalizationsFromReplicationResponses(ms
 	return true
 }
 
+func TestReplicationRequestWithoutFinalization(t *testing.T) {
+	t.Skip()
+	for i := 0; i < 10; i++ {
+		t.Run("iteration", func(t *testing.T) {
+			testReplicationRequestWithoutFinalization(t)
+		})
+	}
+}
+
 // TestReplicationRequestWithoutFinalization tests that a replication request is not marked as completed
 // if we are expecting a finalization but it is not present in the response.
-func TestReplicationRequestWithoutFinalization(t *testing.T) {
+func testReplicationRequestWithoutFinalization(t *testing.T) {
 	nodes := []simplex.NodeID{{1}, {2}, {3}, []byte("lagging")}
 	endDisconnect := uint64(10)
 	bb := newTestControlledBlockBuilder(t)

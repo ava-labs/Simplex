@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -37,6 +38,123 @@ func TestSimplexMultiNodeSimple(t *testing.T) {
 			n.storage.waitForBlockCommit(uint64(seq))
 		}
 	}
+}
+
+func TestSimplexMultiNodeBlacklist(t *testing.T) {
+	bb0 := newTestControlledBlockBuilder(t)
+	bb1 := newTestControlledBlockBuilder(t)
+	bb2 := newTestControlledBlockBuilder(t)
+	bb3 := newTestControlledBlockBuilder(t)
+
+	bbs := []*testControlledBlockBuilder{bb0, bb1, bb2, bb3}
+
+	nodes := NodeIDs{{1}, {2}, {3}, {4}}
+	net := newInMemNetwork(t, nodes)
+	testEpochConfig := &testNodeConfig{
+		replicationEnabled: true,
+	}
+	newSimplexNode(t, nodes[0], net, bb0, testEpochConfig)
+	newSimplexNode(t, nodes[1], net, bb1, testEpochConfig)
+	newSimplexNode(t, nodes[2], net, bb2, testEpochConfig)
+	newSimplexNode(t, nodes[3], net, bb3, testEpochConfig)
+
+	for _, n := range net.instances[:3] {
+		n.Silence()
+	}
+
+	net.startInstances()
+
+	// Advance to the fourth node's turn by building three blocks
+	for seq := 0; seq < 3; seq++ {
+		bbs[seq].triggerNewBlock()
+		for _, n := range net.instances {
+			n.storage.waitForBlockCommit(uint64(seq))
+		}
+	}
+
+	// The fourth node is disconnected, so the rest should time out on it.
+	net.Disconnect(nodes[3])
+
+	for i := range net.instances[:3] {
+		bbs[i].testBlockBuilder.blockShouldBeBuilt <- struct{}{}
+	}
+
+	for _, n := range net.instances[:3] {
+		waitForBlockProposerTimeout(t, n.e, &n.e.StartTime, 3)
+	}
+
+	// Build two more blocks, which should blacklist the fourth node.
+	// Ensure the fourth node is blacklisted by checking the blacklist on all nodes.
+
+	// Build a block, ensure the blacklist contains the fourth node as a suspect.
+	bbs[0].triggerNewBlock()
+	for _, n := range net.instances[:3] {
+		block := n.storage.waitForBlockCommit(uint64(3))
+		blacklist := block.Blacklist()
+		require.Equal(t, Blacklist{
+			NodeCount: 4,
+			SuspectedNodes: SuspectedNodes{{NodeIndex: 3, SuspectingCount: 1, OrbitSuspected: 1}},
+			Updates: []BlacklistUpdate{{NodeIndex: 3, Type: BlacklistOpType_NodeSuspected}},
+		}, blacklist)
+	}
+
+	// Reconnect the fourth node.
+	net.Connect(nodes[3])
+
+	// Build another block, ensure the blacklist contains the fourth node as blacklisted.
+	bbs[1].triggerNewBlock()
+	for _, n := range net.instances[:3] {
+		block := n.storage.waitForBlockCommit(uint64(4))
+		blacklist := block.Blacklist()
+		require.Equal(t, Blacklist{
+			NodeCount: 4,
+			SuspectedNodes: SuspectedNodes{{NodeIndex: 3, SuspectingCount: 2, OrbitSuspected: 1}},
+			Updates: []BlacklistUpdate{{NodeIndex: 3, Type: BlacklistOpType_NodeSuspected}},
+		}, blacklist)
+	}
+
+/*	// Make another block to make it replicate the missing blocks.
+	bbs[2].triggerNewBlock()
+	for _, n := range net.instances[:3] {
+		block = n.storage.waitForBlockCommit(uint64(5))
+		blacklist = block.Blacklist()
+		require.Equal(t, Blacklist{
+			NodeCount: 4,
+			SuspectedNodes: SuspectedNodes{{NodeIndex: 3, SuspectingCount: 2, OrbitSuspected: 1}},
+			Updates: make([]BlacklistUpdate, 0, 4), // Yes, this is intentional, otherwise the test fails.
+		}, blacklist)
+	}*/
+
+	net.instances[3].storage.waitForBlockCommit(4)
+
+	return
+
+
+/*	for {
+		blacklist := block.Blacklist()
+		leaderIndex := nodes.IndexOf(LeaderForRound(nodes, round))
+
+		// If the fourth node is blacklisted, and it is its turn, just wait for the nodes to agree on the empty block,
+		if blacklist.IsNodeSuspected(3) && leaderIndex == 3 {
+			for _, n := range net.instances[:3] {
+				waitForBlockProposerTimeout(t, n.e, &n.e.StartTime, round)
+			}
+			round++
+			continue
+		}
+
+		// Else, either the fourth node isn't blacklisted anymore or it is not its turn.
+		if ! blacklist.IsNodeSuspected(3) {
+			// Check if the fourth node has replicated the missing blocks.
+			if net.instances[3].e.Metadata() != net.instances[0].e.Metadata() {
+				// If not, then it cannot propose a block if it is its round.
+				if leaderIndex == 3 {
+
+				}
+			}
+		}
+	}*/
+
 }
 
 func onlySendBlockProposalsAndVotes(splitNodes []NodeID) messageFilter {
@@ -221,6 +339,11 @@ func (t *testNode) Silence() {
 }
 
 func (t *testNode) HandleMessage(msg *Message, from NodeID) error {
+	if msg.ReplicationResponse != nil {
+		for _, data := range msg.ReplicationResponse.Data {
+			fmt.Println(data.String())
+		}
+	}
 	err := t.e.HandleMessage(msg, from)
 	require.NoError(t.t, err)
 	return err
@@ -718,7 +841,11 @@ func (t *testControlledBlockBuilder) triggerNewBlock() {
 	}
 }
 
-func (t *testControlledBlockBuilder) BuildBlock(ctx context.Context, metadata ProtocolMetadata) (VerifiedBlock, bool) {
-	<-t.control
-	return t.testBlockBuilder.BuildBlock(ctx, metadata)
+func (t *testControlledBlockBuilder) BuildBlock(ctx context.Context, metadata ProtocolMetadata, blacklist Blacklist) (VerifiedBlock, bool) {
+	select {
+		case <- t.control:
+		case <- ctx.Done():
+			return nil, false
+	}
+	return t.testBlockBuilder.BuildBlock(ctx, metadata, blacklist)
 }
