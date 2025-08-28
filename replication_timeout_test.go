@@ -373,9 +373,17 @@ func (c *collectNotarizationComm) removeFinalizationsFromReplicationResponses(ms
 	return true
 }
 
+func TestReplicationRequestWithoutFinalization(t *testing.T) {
+	for i := 0; i < 10; i++ {
+		t.Run("iteration", func(t *testing.T) {
+			testReplicationRequestWithoutFinalization(t)
+		})
+	}
+}
+
 // TestReplicationRequestWithoutFinalization tests that a replication request is not marked as completed
 // if we are expecting a finalization but it is not present in the response.
-func TestReplicationRequestWithoutFinalization(t *testing.T) {
+func testReplicationRequestWithoutFinalization(t *testing.T) {
 	nodes := []simplex.NodeID{{1}, {2}, {3}, []byte("lagging")}
 	endDisconnect := uint64(10)
 	net := newInMemNetwork(t, nodes)
@@ -561,6 +569,7 @@ func TestReplicationMalformedQuorumRound(t *testing.T) {
 }
 
 func TestReplicationResendsFinalizedBlocksThatFailedVerification(t *testing.T) {
+
 	// send a block, then simultaneously send a finalization for the block
 	l := testutil.MakeLogger(t, 1)
 	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
@@ -592,7 +601,7 @@ func TestReplicationResendsFinalizedBlocksThatFailedVerification(t *testing.T) {
 	require.NoError(t, e.Start())
 
 	md := e.Metadata()
-	_, ok := bb.BuildBlock(context.Background(), md)
+	_, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
 	require.True(t, ok)
 	require.Equal(t, md.Round, md.Seq)
 
@@ -631,7 +640,10 @@ func TestReplicationResendsFinalizedBlocksThatFailedVerification(t *testing.T) {
 		}
 	}
 
-	block = newTestBlock(md)
+	block = newTestBlock(md, emptyBlacklist)
+	block.data = append(block.data, 0)
+	block.computeDigest()
+
 	finalization, _ = newFinalizationRecord(t, l, signatureAggregator, block, nodes[0:quorum])
 	replicationResponse = &simplex.ReplicationResponse{
 		Data: []simplex.QuorumRound{

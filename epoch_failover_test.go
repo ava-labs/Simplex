@@ -77,14 +77,14 @@ func TestEpochLeaderFailoverWithEmptyNotarization(t *testing.T) {
 		Round: 1,
 		Prev:  block0.BlockHeader().Digest,
 		Seq:   1,
-	})
+	}, emptyBlacklist)
 	require.True(t, ok)
 
 	block2, ok := bb.BuildBlock(context.Background(), ProtocolMetadata{
 		Round: 3,
 		Prev:  block1.BlockHeader().Digest,
 		Seq:   2,
-	})
+	}, emptyBlacklist)
 	require.True(t, ok)
 
 	// Artificially force the block builder to output the blocks we want.
@@ -494,7 +494,7 @@ func TestEpochNoFinalizationAfterEmptyVote(t *testing.T) {
 		Prev:  b.BlockHeader().Digest,
 		Round: 1,
 		Seq:   1,
-	})
+	}, emptyBlacklist)
 	require.True(t, ok)
 
 	block := <-bb.out
@@ -577,7 +577,7 @@ func TestEpochLeaderFailoverAfterProposal(t *testing.T) {
 	// leader is the proposer of the new block for the given round
 	leader := LeaderForRound(nodes, 3)
 	md := e.Metadata()
-	_, ok := bb.BuildBlock(context.Background(), md)
+	_, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
 	require.True(t, ok)
 	require.Equal(t, md.Round, md.Seq)
 
@@ -885,7 +885,7 @@ func TestEpochLeaderFailoverBecauseOfBadBlock(t *testing.T) {
 	notarizeAndFinalizeRound(t, e, bb)
 
 	md := e.Metadata()
-	_, ok := bb.BuildBlock(context.Background(), md)
+	_, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
 	require.True(t, ok)
 	block := <-bb.out
 	block.verificationError = errors.New("invalid block")
@@ -934,7 +934,7 @@ func createEmptyVote(md ProtocolMetadata, signer NodeID) *EmptyVote {
 	return emptyVoteFrom2
 }
 
-func waitForBlockProposerTimeout(t *testing.T, e *Epoch, startTime *time.Time, startRound uint64) {
+func waitForBlockProposerTimeout(t *testing.T, e *Epoch, startTime *time.Time, startRound uint64, blockMustBeBuilt ...chan struct{}) {
 	timeout := time.NewTimer(time.Minute)
 	defer timeout.Stop()
 
@@ -950,9 +950,16 @@ func waitForBlockProposerTimeout(t *testing.T, e *Epoch, startTime *time.Time, s
 		e.AdvanceTime(*startTime)
 		select {
 		case <-time.After(time.Millisecond * 10):
+			if len(blockMustBeBuilt) > 0 {
+				select {
+				case blockMustBeBuilt[0] <- struct{}{}:
+				default:
+
+				}
+			}
 			continue
 		case <-timeout.C:
-			require.Fail(t, "timed out waiting for event")
+			require.Fail(t, fmt.Sprintf("timed out waiting for event for node %s", e.ID))
 		}
 	}
 }
@@ -1009,7 +1016,7 @@ func TestEpochLeaderFailoverNotNeeded(t *testing.T) {
 	e.AdvanceTime(start.Add(conf.MaxProposalWait / 2))
 
 	md := e.Metadata()
-	_, ok := bb.BuildBlock(context.Background(), md)
+	_, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
 	require.True(t, ok)
 
 	block := <-bb.out
@@ -1035,6 +1042,241 @@ func TestEpochLeaderFailoverNotNeeded(t *testing.T) {
 	e.AdvanceTime(start.Add(conf.MaxProposalWait / 2))
 
 	require.False(t, timedOut.Load())
+}
+
+func TestEpochBlacklist(t *testing.T) {
+	blacklistedLeaderInLogs := make(chan struct{})
+
+	l := testutil.MakeLogger(t, 1)
+	l.Intercept(func(entry zapcore.Entry) error {
+		if strings.Contains(entry.Message, "Leader is blacklisted, will not wait for it to propose a block") {
+			select {
+			case <-blacklistedLeaderInLogs:
+			default:
+				close(blacklistedLeaderInLogs)
+			}
+		}
+		return nil
+	})
+
+	bb := &testBlockBuilder{out: make(chan *testBlock, 1), blockShouldBeBuilt: make(chan struct{}, 3)}
+	storage := newInMemStorage()
+
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+
+	wal := newTestWAL(t)
+
+	start := time.Now()
+	conf := EpochConfig{
+		MaxProposalWait:     time.Hour, // we want to time out manually. Otherwise, under heavy load the test can be flaky.
+		StartTime:           start,
+		Logger:              l,
+		ID:                  nodes[0],
+		Signer:              &testSigner{},
+		WAL:                 wal,
+		Verifier:            &testVerifier{},
+		Storage:             storage,
+		Comm:                noopComm(nodes),
+		BlockBuilder:        bb,
+		SignatureAggregator: &testSignatureAggregator{},
+	}
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+
+	require.NoError(t, e.Start())
+
+	// Run through 3 blocks, to make the block proposals be:
+	// 1 --> 2 --> 3 --> X (node 4 doesn't propose a block)
+
+	// Then, don't do anything and wait for our node
+	// to time out on the block and assist it to agree on an empty block.
+
+	for round := uint64(0); round < 3; round++ {
+		notarizeAndFinalizeRound(t, e, bb)
+	}
+
+	timedOutRound := e.Metadata().Round
+
+	// Forcefully time out the last node.
+	err = e.HandleMessage(&Message{
+		EmptyNotarization: newEmptyNotarization(nodes, timedOutRound),
+	}, nodes[1])
+	require.NoError(t, err)
+
+	waitForBlockProposerTimeout(t, e, &start, timedOutRound)
+
+	lastBlock, _, err := storage.Retrieve(storage.NumBlocks() - 1)
+	require.NoError(t, err)
+
+	prev := lastBlock.BlockHeader().Digest
+
+	emptyBlockMd := ProtocolMetadata{
+		Round: 3,
+		Seq:   2,
+		Prev:  prev,
+	}
+
+	emptyVoteFrom1 := createEmptyVote(emptyBlockMd, nodes[1])
+	emptyVoteFrom2 := createEmptyVote(emptyBlockMd, nodes[2])
+
+	e.HandleMessage(&Message{
+		EmptyVoteMessage: emptyVoteFrom1,
+	}, nodes[1])
+	e.HandleMessage(&Message{
+		EmptyVoteMessage: emptyVoteFrom2,
+	}, nodes[2])
+
+	e.WAL.(*testWAL).assertNotarization(emptyBlockMd.Round)
+
+	block, _ := notarizeAndFinalizeRound(t, e, bb)
+	require.Equal(t, nodes[0], LeaderForRound(nodes, block.BlockHeader().Round)) // our node will propose the empty block
+
+	// Make sure our node properly constructed the blacklist
+	require.Equal(t, Blacklist{
+		NodeCount:      4,
+		SuspectedNodes: SuspectedNodes{{NodeIndex: 3, SuspectingCount: 1, OrbitSuspected: 1}},
+		Updates:        []BlacklistUpdate{{Type: BlacklistOpType_NodeSuspected, NodeIndex: 3}},
+	}, block.Blacklist())
+
+	// Compute next blacklist
+	blacklist := NewBlacklist(4)
+	blacklist.Updates = []BlacklistUpdate{{Type: BlacklistOpType_NodeSuspected, NodeIndex: 3}}
+	blacklist.SuspectedNodes = []SuspectedNode{{NodeIndex: 3, SuspectingCount: 2, OrbitSuspected: 1}}
+
+	// Build the block and prime it to be proposed in the next round
+	block, _ = bb.BuildBlock(context.Background(), e.Metadata(), blacklist)
+
+	// Agree on the block
+	block, _ = notarizeAndFinalizeRound(t, e, bb)
+
+	// It should have the blacklist we have previously constructed
+	require.Equal(t, blacklist, block.Blacklist())
+
+	// Do it again but preserve the blacklist until we get to the round of the last node.
+	// This time, there are no updates to the blacklist, it just carries over.
+	blacklist.Updates = nil
+	block, _ = bb.BuildBlock(context.Background(), e.Metadata(), blacklist)
+	block, _ = notarizeAndFinalizeRound(t, e, bb)
+
+	// The next round is the fourth node's round, and since it is blacklisted,
+	// we should not time out but immediately vote on the empty block.
+	// Find evidence for this by looking at the logs.
+	select {
+	case <-blacklistedLeaderInLogs:
+	case <-time.After(time.Second * 15):
+		require.Fail(t, "timed out waiting for blacklisted leader log")
+	}
+
+	e.WAL.(*testWAL).assertEmptyVote(7)
+
+	emptyBlockMd = ProtocolMetadata{
+		Round: 7,
+	}
+	emptyVoteFrom1 = createEmptyVote(emptyBlockMd, nodes[1])
+	emptyVoteFrom2 = createEmptyVote(emptyBlockMd, nodes[2])
+
+	e.HandleMessage(&Message{
+		EmptyVoteMessage: emptyVoteFrom1,
+	}, nodes[1])
+	e.HandleMessage(&Message{
+		EmptyVoteMessage: emptyVoteFrom2,
+	}, nodes[2])
+
+	e.WAL.(*testWAL).assertNotarization(7)
+
+	// Now it's our turn to propose a new block.
+	bb.blockShouldBeBuilt <- struct{}{}
+
+	block = <-bb.out
+
+	// Inject specifically votes from the last two nodes, to ensure the blacklisted node will be redeemed
+	// the next time we will propose a block.
+	for _, node := range nodes[2:] {
+		injectTestVote(t, e, block, node)
+	}
+
+	e.WAL.(*testWAL).assertNotarization(8)
+
+	// Now node 2 proposes a block.
+	blacklist.Updates = nil
+	block, _ = bb.BuildBlock(context.Background(), e.Metadata(), blacklist)
+	block, _ = notarizeAndFinalizeRound(t, e, bb)
+
+	// Now node 3 proposes a block.
+	blacklist.Updates = nil
+	block, _ = bb.BuildBlock(context.Background(), e.Metadata(), blacklist)
+	block, _ = notarizeAndFinalizeRound(t, e, bb)
+
+	// Node 4 is still blacklisted.
+	emptyBlockMd = ProtocolMetadata{
+		Round: 11,
+	}
+	emptyVoteFrom1 = createEmptyVote(emptyBlockMd, nodes[1])
+	emptyVoteFrom2 = createEmptyVote(emptyBlockMd, nodes[2])
+
+	e.HandleMessage(&Message{
+		EmptyVoteMessage: emptyVoteFrom1,
+	}, nodes[1])
+	e.HandleMessage(&Message{
+		EmptyVoteMessage: emptyVoteFrom2,
+	}, nodes[2])
+
+	e.WAL.(*testWAL).assertNotarization(11)
+
+	// Now it's our turn to propose a new block.
+	bb.blockShouldBeBuilt <- struct{}{}
+
+	block = <-bb.out
+
+	require.Equal(t, Blacklist{
+		NodeCount: 4,
+		SuspectedNodes: SuspectedNodes{
+			{
+				NodeIndex:       3,
+				SuspectingCount: 2,
+				OrbitSuspected:  1,
+				RedeemingCount:  1,
+				OrbitToRedeem:   Orbit(12, 3, 4),
+			},
+		},
+		Updates: []BlacklistUpdate{{Type: BlacklistOpType_NodeRedeemed, NodeIndex: 3}},
+	}, block.Blacklist(), "Node should vote to redeem the previously failed node")
+
+	blacklist = Blacklist{
+		NodeCount: 4,
+		SuspectedNodes: SuspectedNodes{
+			{
+				NodeIndex:       3,
+				SuspectingCount: 2,
+				OrbitSuspected:  1,
+				RedeemingCount:  2,
+				OrbitToRedeem:   Orbit(12, 3, 4),
+			},
+		},
+		Updates: []BlacklistUpdate{{Type: BlacklistOpType_NodeRedeemed, NodeIndex: 3}},
+	}
+
+	block, _ = bb.BuildBlock(context.Background(), e.Metadata(), blacklist)
+	block, _ = notarizeAndFinalizeRound(t, e, bb)
+
+	// The next blacklist garbage collects node 3 from the blacklist.
+
+	blacklist = Blacklist{
+		NodeCount: 4,
+		Updates:   []BlacklistUpdate{{Type: BlacklistOpType_NodeRedeemed, NodeIndex: 3}},
+	}
+
+	block, _ = bb.BuildBlock(context.Background(), e.Metadata(), blacklist)
+	block, _ = notarizeAndFinalizeRound(t, e, bb)
+
+	// Node 4 can now propose a block
+	blacklist = Blacklist{
+		NodeCount: 4,
+	}
+
+	block, _ = bb.BuildBlock(context.Background(), e.Metadata(), blacklist)
+	notarizeAndFinalizeRound(t, e, bb)
 }
 
 type rebroadcastComm struct {
