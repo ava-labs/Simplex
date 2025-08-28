@@ -75,14 +75,14 @@ func TestEpochLeaderFailoverWithEmptyNotarization(t *testing.T) {
 		Round: 1,
 		Prev:  block0.BlockHeader().Digest,
 		Seq:   1,
-	})
+	}, emptyBlacklist)
 	require.True(t, ok)
 
 	block2, ok := bb.BuildBlock(context.Background(), ProtocolMetadata{
 		Round: 3,
 		Prev:  block1.BlockHeader().Digest,
 		Seq:   2,
-	})
+	}, emptyBlacklist)
 	require.True(t, ok)
 
 	// Artificially force the block builder to output the blocks we want.
@@ -417,7 +417,7 @@ func TestEpochNoFinalizationAfterEmptyVote(t *testing.T) {
 		Prev:  b.BlockHeader().Digest,
 		Round: 1,
 		Seq:   1,
-	})
+	}, emptyBlacklist)
 	require.True(t, ok)
 
 	block := <-bb.out
@@ -500,7 +500,7 @@ func TestEpochLeaderFailoverAfterProposal(t *testing.T) {
 	// leader is the proposer of the new block for the given round
 	leader := LeaderForRound(nodes, 3)
 	md := e.Metadata()
-	_, ok := bb.BuildBlock(context.Background(), md)
+	_, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
 	require.True(t, ok)
 	require.Equal(t, md.Round, md.Seq)
 
@@ -727,7 +727,7 @@ func TestEpochLeaderFailoverBecauseOfBadBlock(t *testing.T) {
 	notarizeAndFinalizeRound(t, e, bb)
 
 	md := e.Metadata()
-	_, ok := bb.BuildBlock(context.Background(), md)
+	_, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
 	require.True(t, ok)
 	block := <-bb.out
 	block.verificationError = errors.New("invalid block")
@@ -851,7 +851,7 @@ func TestEpochLeaderFailoverNotNeeded(t *testing.T) {
 	e.AdvanceTime(start.Add(conf.MaxProposalWait / 2))
 
 	md := e.Metadata()
-	_, ok := bb.BuildBlock(context.Background(), md)
+	_, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
 	require.True(t, ok)
 
 	block := <-bb.out

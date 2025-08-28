@@ -101,7 +101,7 @@ func TestReplicationAdversarialNode(t *testing.T) {
 	require.Equal(t, uint64(0), laggingNode.storage.NumBlocks())
 
 	net.startInstances()
-	doubleBlock := newTestBlock(doubleBlockProposalNode.e.Metadata())
+	doubleBlock := newTestBlock(doubleBlockProposalNode.e.Metadata(), emptyBlacklist)
 	doubleBlockVote, err := newTestVote(doubleBlock, doubleBlockProposalNode.e.ID)
 	require.NoError(t, err)
 	msg := &simplex.Message{
@@ -410,7 +410,7 @@ func TestReplicationFutureFinalization(t *testing.T) {
 	require.NoError(t, e.Start())
 
 	md := e.Metadata()
-	_, ok := bb.BuildBlock(context.Background(), md)
+	_, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
 	require.True(t, ok)
 	require.Equal(t, md.Round, md.Seq)
 
@@ -840,7 +840,7 @@ func createBlocks(t *testing.T, nodes []simplex.NodeID, bb simplex.BlockBuilder,
 			Prev:  prev,
 		}
 
-		block, ok := bb.BuildBlock(ctx, protocolMetadata)
+		block, ok := bb.BuildBlock(ctx, protocolMetadata, emptyBlacklist)
 		require.True(t, ok)
 		prev = block.BlockHeader().Digest
 		finalization, _ := newFinalizationRecord(t, logger, &testSignatureAggregator{}, block, nodes)
