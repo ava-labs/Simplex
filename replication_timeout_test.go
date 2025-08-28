@@ -5,12 +5,16 @@ package simplex_test
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"reflect"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/ava-labs/simplex"
+	"github.com/ava-labs/simplex/testutil"
+	"github.com/ava-labs/simplex/wal"
 
 	"github.com/stretchr/testify/require"
 )
@@ -561,4 +565,95 @@ func TestReplicationMalformedQuorumRound(t *testing.T) {
 	// timeout again, now all nodes will respond
 	laggingNode.e.AdvanceTime(laggingNode.e.StartTime.Add(simplex.DefaultReplicationRequestTimeout * 2))
 	laggingNode.storage.waitForBlockCommit(startSeq)
+}
+
+func TestReplicationResendsFinalizedBlocksThatFailedVerification(t *testing.T) {
+	// send a block, then simultaneously send a finalization for the block
+	l := testutil.MakeLogger(t, 1)
+	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
+	storage := newInMemStorage()
+
+	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
+	quorum := simplex.Quorum(len(nodes))
+	signatureAggregator := &testSignatureAggregator{}
+	sentMessages := make(chan *simplex.Message, 100)
+	conf := simplex.EpochConfig{
+		MaxProposalWait:     simplex.DefaultMaxProposalWaitTime,
+		Logger:              l,
+		ID:                  nodes[1],
+		Signer:              &testSigner{},
+		WAL:                 wal.NewMemWAL(t),
+		Verifier:            &testVerifier{},
+		Storage:             storage,
+		Comm:                &recordingComm{
+			Communication: noopComm(nodes),
+			SentMessages:  sentMessages,
+		},
+		BlockBuilder:        bb,
+		SignatureAggregator: signatureAggregator,
+		ReplicationEnabled: true,
+	}
+
+	e, err := simplex.NewEpoch(conf)
+	require.NoError(t, err)
+	require.NoError(t, e.Start())
+
+	md := e.Metadata()
+	_, ok := bb.BuildBlock(context.Background(), md)
+	require.True(t, ok)
+	require.Equal(t, md.Round, md.Seq)
+
+	block := <-bb.out
+	block.verificationError = errors.New("block verification failed")
+
+	finalization, _ := newFinalizationRecord(t, l, signatureAggregator, block, nodes[0:quorum])
+	
+	// send the finalization to start the replication process
+	e.HandleMessage(&simplex.Message{
+		Finalization: &finalization,
+	}, nodes[0])
+	// wait for the replication request to be sent
+	for {
+		msg := <-sentMessages
+		if msg.ReplicationRequest != nil {
+			break
+		}
+	}
+	replicationResponse := &simplex.ReplicationResponse{
+		Data: []simplex.QuorumRound{
+			{
+				Block:        block,
+				Finalization: &finalization,
+			},
+		},
+	}
+	e.HandleMessage(&simplex.Message{
+		ReplicationResponse: replicationResponse,
+	}, nodes[0])
+	// wait for the replication request to be sent again
+	for {
+		msg := <-sentMessages
+		if msg.ReplicationRequest != nil {
+			break
+		}
+	}
+
+	block = newTestBlock(md)
+	finalization, _ = newFinalizationRecord(t, l, signatureAggregator, block, nodes[0:quorum])
+	replicationResponse = &simplex.ReplicationResponse{
+		Data: []simplex.QuorumRound{
+			{
+				Block:        block,
+				Finalization: &finalization,
+			},
+		},
+	}
+
+	e.HandleMessage(&simplex.Message{
+		ReplicationResponse: replicationResponse,
+	}, nodes[0])
+
+	storedBlock := storage.waitForBlockCommit(0)
+	require.Equal(t, uint64(1), storage.NumBlocks())
+	require.Equal(t, block, storedBlock)
 }
