@@ -27,6 +27,10 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+var (
+	emptyBlacklist = Blacklist{}
+)
+
 func TestEpochHandleNotarizationFutureRound(t *testing.T) {
 	l := testutil.MakeLogger(t, 1)
 	bb := &testBlockBuilder{}
@@ -201,7 +205,7 @@ func TestEpochConsecutiveProposalsDoNotGetVerified(t *testing.T) {
 			leader := nodes[0]
 
 			md := e.Metadata()
-			_, ok := bb.BuildBlock(context.Background(), md)
+			_, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
 			require.True(t, ok)
 			require.Equal(t, md.Round, md.Seq)
 
@@ -337,7 +341,7 @@ func TestEpochNotarizeTwiceThenFinalize(t *testing.T) {
 
 	// Round 2
 	md := e.Metadata()
-	_, ok := bb.BuildBlock(context.Background(), md)
+	_, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
 	require.True(t, ok)
 	block1 := <-bb.out
 
@@ -356,7 +360,7 @@ func TestEpochNotarizeTwiceThenFinalize(t *testing.T) {
 
 	// Round 3
 	md = e.Metadata()
-	_, ok = bb.BuildBlock(context.Background(), md)
+	_, ok = bb.BuildBlock(context.Background(), md, emptyBlacklist)
 	require.True(t, ok)
 	block2 := <-bb.out
 
@@ -457,7 +461,7 @@ func TestEpochFinalizeThenNotarize(t *testing.T) {
 		// only create blocks if we are not the node running the epoch
 		if !leader.Equals(e.ID) {
 			md := e.Metadata()
-			_, ok := bb.BuildBlock(context.Background(), md)
+			_, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
 			require.True(t, ok)
 		}
 
@@ -579,7 +583,7 @@ func advanceRound(t *testing.T, e *Epoch, bb *testBlockBuilder, notarize bool, f
 	isEpochNode := leader.Equals(e.ID)
 	if !isEpochNode {
 		md := e.Metadata()
-		_, ok := bb.BuildBlock(context.Background(), md)
+		_, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
 		require.True(t, ok)
 	}
 
@@ -694,7 +698,7 @@ func createCallbacks(t *testing.T, rounds int, protocolMetadata ProtocolMetadata
 	callbacks := make([]func(), 0, rounds*4+len(blocks))
 
 	for i := 0; i < rounds; i++ {
-		block := newTestBlock(protocolMetadata)
+		block := newTestBlock(protocolMetadata, emptyBlacklist)
 		blocks = append(blocks, block)
 
 		protocolMetadata.Seq++
@@ -796,7 +800,7 @@ func TestEpochBlockSentTwice(t *testing.T) {
 	md := e.Metadata()
 	md.Round = 2
 
-	b, ok := bb.BuildBlock(context.Background(), md)
+	b, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
 	require.True(t, ok)
 
 	block := b.(Block)
@@ -1032,7 +1036,7 @@ func TestEpochBlockSentFromNonLeader(t *testing.T) {
 	require.NoError(t, e.Start())
 
 	md := e.Metadata()
-	b, ok := bb.BuildBlock(context.Background(), md)
+	b, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
 	require.True(t, ok)
 
 	block := b.(Block)
@@ -1097,7 +1101,7 @@ func TestEpochBlockTooHighRound(t *testing.T) {
 		md := e.Metadata()
 		md.Round = math.MaxUint64 - 3
 
-		b, ok := bb.BuildBlock(context.Background(), md)
+		b, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
 		require.True(t, ok)
 
 		block := b.(Block)
@@ -1122,7 +1126,7 @@ func TestEpochBlockTooHighRound(t *testing.T) {
 		}()
 
 		md := e.Metadata()
-		b, ok := bb.BuildBlock(context.Background(), md)
+		b, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
 		require.True(t, ok)
 
 		block := b.(Block)
@@ -1205,7 +1209,7 @@ func TestEpochVotesForEquivocatedVotes(t *testing.T) {
 	require.NoError(t, e.Start())
 
 	md := e.Metadata()
-	_, ok := bb.BuildBlock(context.Background(), md)
+	_, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
 	require.True(t, ok)
 
 	block := <-bb.out
@@ -1224,7 +1228,7 @@ func TestEpochVotesForEquivocatedVotes(t *testing.T) {
 	require.NoError(t, err)
 
 	// node 1 sends a vote for a different block
-	equivocatedBlock := newTestBlock(block.metadata)
+	equivocatedBlock := newTestBlock(block.metadata, emptyBlacklist)
 	injectTestVote(t, e, equivocatedBlock, nodes[1])
 
 	// We should not have sent a notarization yet, since we have not received enough votes for the block we received from the leader
@@ -1429,13 +1433,13 @@ type testBlockBuilder struct {
 }
 
 // BuildBlock builds a new testblock and sends it to the BlockBuilder channel
-func (t *testBlockBuilder) BuildBlock(_ context.Context, metadata ProtocolMetadata) (VerifiedBlock, bool) {
+func (t *testBlockBuilder) BuildBlock(_ context.Context, metadata ProtocolMetadata, blacklist Blacklist) (VerifiedBlock, bool) {
 	if len(t.in) > 0 {
 		block := <-t.in
 		return block, true
 	}
 
-	tb := newTestBlock(metadata)
+	tb := newTestBlock(metadata, blacklist)
 
 	select {
 	case t.out <- tb:
@@ -1455,10 +1459,15 @@ func (t *testBlockBuilder) IncomingBlock(ctx context.Context) {
 type testBlock struct {
 	data              []byte
 	metadata          ProtocolMetadata
+	blacklist Blacklist
 	digest            [32]byte
 	onVerify          func()
 	verificationDelay chan struct{}
 	verificationError error
+}
+
+func (tb *testBlock) Blacklist() Blacklist {
+	return tb.blacklist
 }
 
 func (tb *testBlock) Verify(context.Context) (VerifiedBlock, error) {
@@ -1481,15 +1490,15 @@ func (tb *testBlock) Verify(context.Context) (VerifiedBlock, error) {
 	return tb, nil
 }
 
-func newTestBlock(metadata ProtocolMetadata) *testBlock {
-	tb := testBlock{
-		metadata: metadata,
-		data:     make([]byte, 32),
-	}
-
-	_, err := rand.Read(tb.data)
+func newTestBlock(metadata ProtocolMetadata, blacklist Blacklist) *testBlock {
+	blb, err := blacklist.Bytes()
 	if err != nil {
-		panic(err)
+		panic(fmt.Sprintf("failed to serialize blacklist: %v", err))
+	}
+	tb := testBlock{
+		blacklist: blacklist,
+		metadata: metadata,
+		data:     blb,
 	}
 
 	tb.computeDigest()
@@ -1637,7 +1646,17 @@ func (b *blockDeserializer) DeserializeBlock(ctx context.Context, buff []byte) (
 		return nil, err
 	}
 
+	var blacklist Blacklist
+	if err := blacklist.FromBytes(buff[4 : 4+blockLen]); err != nil {
+		return nil, err
+	}
+
+	if blacklist.IsEmpty() {
+		blacklist = emptyBlacklist
+	}
+
 	tb := testBlock{
+		blacklist: blacklist,
 		data:              buff[4 : 4+blockLen],
 		metadata:          bh.ProtocolMetadata,
 		verificationDelay: b.delayedVerification,
@@ -1652,7 +1671,7 @@ func TestBlockDeserializer(t *testing.T) {
 	var blockDeserializer blockDeserializer
 
 	ctx := context.Background()
-	tb := newTestBlock(ProtocolMetadata{Seq: 1, Round: 2, Epoch: 3})
+	tb := newTestBlock(ProtocolMetadata{Seq: 1, Round: 2, Epoch: 3}, emptyBlacklist)
 	tbBytes, err := tb.Bytes()
 	require.NoError(t, err)
 	tb2, err := blockDeserializer.DeserializeBlock(ctx, tbBytes)

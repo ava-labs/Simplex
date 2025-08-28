@@ -6,6 +6,7 @@ package simplex_test
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
 	"testing"
 	"time"
 
@@ -47,7 +48,7 @@ func TestRecoverFromWALProposed(t *testing.T) {
 	require.NoError(t, err)
 
 	protocolMetadata := e.Metadata()
-	firstBlock, ok := bb.BuildBlock(ctx, protocolMetadata)
+	firstBlock, ok := bb.BuildBlock(ctx, protocolMetadata, emptyBlacklist)
 	require.True(t, ok)
 	fBytes, err := firstBlock.Bytes()
 	require.NoError(t, err)
@@ -70,7 +71,7 @@ func TestRecoverFromWALProposed(t *testing.T) {
 		isEpochNode := leader.Equals(e.ID)
 		if !isEpochNode {
 			md := e.Metadata()
-			_, ok := bb.BuildBlock(context.Background(), md)
+			_, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
 			require.True(t, ok)
 			require.NotEqual(t, 0, rounds)
 		}
@@ -140,7 +141,7 @@ func TestRecoverFromNotarization(t *testing.T) {
 	require.NoError(t, err)
 
 	protocolMetadata := e.Metadata()
-	block, ok := bb.BuildBlock(ctx, protocolMetadata)
+	block, ok := bb.BuildBlock(ctx, protocolMetadata, emptyBlacklist)
 	require.True(t, ok)
 	bBytes, err := block.Bytes()
 	require.NoError(t, err)
@@ -206,7 +207,7 @@ func TestRecoverFromWalWithStorage(t *testing.T) {
 		QCDeserializer:      &testQCDeserializer{t: t},
 	}
 
-	err := storage.Index(ctx, newTestBlock(ProtocolMetadata{Seq: 0, Round: 0, Epoch: 0}), Finalization{})
+	err := storage.Index(ctx, newTestBlock(ProtocolMetadata{Seq: 0, Round: 0, Epoch: 0}, emptyBlacklist), Finalization{})
 	require.NoError(t, err)
 
 	e, err := NewEpoch(conf)
@@ -214,7 +215,7 @@ func TestRecoverFromWalWithStorage(t *testing.T) {
 	require.Equal(t, uint64(1), e.Metadata().Round)
 
 	protocolMetadata := e.Metadata()
-	block, ok := bb.BuildBlock(ctx, protocolMetadata)
+	block, ok := bb.BuildBlock(ctx, protocolMetadata, emptyBlacklist)
 	require.True(t, ok)
 	bBytes, err := block.Bytes()
 	require.NoError(t, err)
@@ -369,7 +370,7 @@ func TestWalWritesBlockRecord(t *testing.T) {
 	require.Len(t, records, 0)
 
 	md := e.Metadata()
-	_, ok := bb.BuildBlock(context.Background(), md)
+	_, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
 	require.True(t, ok)
 
 	block := <-bb.out
@@ -432,6 +433,10 @@ func TestWalWritesFinalization(t *testing.T) {
 	require.Len(t, records, 2)
 	blockFromWal, err := BlockFromRecord(ctx, conf.BlockDeserializer, records[0])
 	require.NoError(t, err)
+
+	fmt.Println(">>>", firstBlock.blacklist, blockFromWal.(*testBlock).blacklist)
+	require.Equal(t, firstBlock.blacklist, blockFromWal.(*testBlock).blacklist)
+
 	require.Equal(t, firstBlock, blockFromWal)
 	expectedNotarizationRecord, err := newNotarizationRecord(l, sigAggregrator, firstBlock, nodes[0:quorum])
 	require.NoError(t, err)
@@ -442,7 +447,7 @@ func TestWalWritesFinalization(t *testing.T) {
 	md := e.Metadata()
 	md.Seq++
 	md.Prev = firstBlock.BlockHeader().Digest
-	_, ok := bb.BuildBlock(context.Background(), md)
+	_, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
 	require.True(t, ok)
 	secondBlock := <-bb.out
 
@@ -526,7 +531,7 @@ func TestRecoverFromMultipleNotarizations(t *testing.T) {
 	require.NoError(t, err)
 
 	protocolMetadata := e.Metadata()
-	firstBlock, ok := bb.BuildBlock(ctx, protocolMetadata)
+	firstBlock, ok := bb.BuildBlock(ctx, protocolMetadata, emptyBlacklist)
 	require.True(t, ok)
 	fBytes, err := firstBlock.Bytes()
 	require.NoError(t, err)
@@ -539,7 +544,7 @@ func TestRecoverFromMultipleNotarizations(t *testing.T) {
 
 	protocolMetadata.Round = 1
 	protocolMetadata.Seq = 1
-	secondBlock, ok := bb.BuildBlock(ctx, protocolMetadata)
+	secondBlock, ok := bb.BuildBlock(ctx, protocolMetadata, emptyBlacklist)
 	require.True(t, ok)
 	sBytes, err := secondBlock.Bytes()
 	require.NoError(t, err)
@@ -607,7 +612,7 @@ func TestRecoveryBlocksIndexed(t *testing.T) {
 	}
 
 	protocolMetadata := ProtocolMetadata{Seq: 0, Round: 0, Epoch: 0}
-	firstBlock, ok := bb.BuildBlock(ctx, protocolMetadata)
+	firstBlock, ok := bb.BuildBlock(ctx, protocolMetadata, emptyBlacklist)
 	fBytes, err := firstBlock.Bytes()
 	require.NoError(t, err)
 	require.True(t, ok)
@@ -623,7 +628,7 @@ func TestRecoveryBlocksIndexed(t *testing.T) {
 
 	protocolMetadata.Round = 1
 	protocolMetadata.Seq = 1
-	secondBlock, ok := bb.BuildBlock(ctx, protocolMetadata)
+	secondBlock, ok := bb.BuildBlock(ctx, protocolMetadata, emptyBlacklist)
 	require.True(t, ok)
 	sBytes, err := secondBlock.Bytes()
 	require.NoError(t, err)
@@ -632,7 +637,7 @@ func TestRecoveryBlocksIndexed(t *testing.T) {
 
 	protocolMetadata.Round = 2
 	protocolMetadata.Seq = 2
-	thirdBlock, ok := bb.BuildBlock(ctx, protocolMetadata)
+	thirdBlock, ok := bb.BuildBlock(ctx, protocolMetadata, emptyBlacklist)
 	require.True(t, ok)
 	tBytes, err := thirdBlock.Bytes()
 	require.NoError(t, err)
@@ -678,7 +683,7 @@ func TestEpochCorrectlyInitializesMetadataFromStorage(t *testing.T) {
 		QCDeserializer:    &testQCDeserializer{t: t},
 	}
 
-	block := newTestBlock(ProtocolMetadata{Seq: 0, Round: 0, Epoch: 0})
+	block := newTestBlock(ProtocolMetadata{Seq: 0, Round: 0, Epoch: 0}, emptyBlacklist)
 	conf.Storage.Index(ctx, block, Finalization{})
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
@@ -767,7 +772,7 @@ func TestRecoveryReVerifiesBlocks(t *testing.T) {
 	require.NoError(t, err)
 
 	protocolMetadata := e.Metadata()
-	firstBlock, ok := bb.BuildBlock(ctx, protocolMetadata)
+	firstBlock, ok := bb.BuildBlock(ctx, protocolMetadata, emptyBlacklist)
 	require.True(t, ok)
 	fBytes, err := firstBlock.Bytes()
 	require.NoError(t, err)
