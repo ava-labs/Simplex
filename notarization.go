@@ -48,12 +48,14 @@ func NewNotarization(logger Logger, signatureAggregator SignatureAggregator, vot
 
 	var toBeSignedVote *ToBeSignedVote
 	for _, vote := range votesForCurrentRound {
-		if vote.Vote.BlockHeader != blockHeader {
+		if !vote.Vote.BlockHeader.Equals(&blockHeader) {
 			logger.Debug("Skipping vote for block header different than the proposal block header",
 				zap.Stringer("voteDigest", vote.Vote.BlockHeader), zap.Stringer("NodeID", vote.Signature.Signer))
 			continue
 		}
-		logger.Debug("Collected vote from node", zap.Stringer("NodeID", vote.Signature.Signer))
+		logger.Debug("Collected vote from node", zap.Stringer("NodeID", vote.Signature.Signer),
+			zap.String("Digest", vote.Vote.Digest.String()), zap.Uint64("round", vote.Vote.Round),
+			zap.Uint64("seq", vote.Vote.Seq))
 		signatures = append(signatures, vote.Signature)
 		if toBeSignedVote == nil {
 			toBeSignedVote = &vote.Vote

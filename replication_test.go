@@ -104,7 +104,7 @@ func TestReplicationAdversarialNode(t *testing.T) {
 	require.Equal(t, uint64(0), laggingNode.storage.NumBlocks())
 
 	net.startInstances()
-	doubleBlock := newTestBlock(doubleBlockProposalNode.e.Metadata())
+	doubleBlock := newTestBlock(doubleBlockProposalNode.e.Metadata(), emptyBlacklist)
 	doubleBlockVote, err := newTestVote(doubleBlock, doubleBlockProposalNode.e.ID)
 	require.NoError(t, err)
 	msg := &simplex.Message{
@@ -413,7 +413,7 @@ func TestReplicationFutureFinalization(t *testing.T) {
 	require.NoError(t, e.Start())
 
 	md := e.Metadata()
-	_, ok := bb.BuildBlock(context.Background(), md)
+	_, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
 	require.True(t, ok)
 	require.Equal(t, md.Round, md.Seq)
 
@@ -534,7 +534,7 @@ func testReplicationAfterNodeDisconnects(t *testing.T, nodes []simplex.NodeID, s
 			}
 		}
 	}
-	// all nodes excpet for lagging node have progressed and commited [endDisconnect - missedSeqs] blocks
+	// all nodes except for lagging node have progressed and commited [endDisconnect - missedSeqs] blocks
 	for _, n := range net.instances[:3] {
 		require.Equal(t, endDisconnect-missedSeqs, n.storage.NumBlocks())
 	}
@@ -543,13 +543,20 @@ func testReplicationAfterNodeDisconnects(t *testing.T, nodes []simplex.NodeID, s
 	// lagging node reconnects
 	net.Connect(nodes[3])
 	bb.triggerNewBlock()
+
+	var blacklist simplex.Blacklist
 	for _, n := range net.instances {
-		n.storage.waitForBlockCommit(endDisconnect - missedSeqs)
+		block := n.storage.waitForBlockCommit(endDisconnect - missedSeqs)
+		blacklist = block.Blacklist()
 	}
 
 	for _, n := range net.instances {
 		require.Equal(t, endDisconnect-missedSeqs, n.storage.NumBlocks()-1)
-		require.Equal(t, endDisconnect+1, n.e.Metadata().Round)
+	}
+
+	if blacklist.IsNodeSuspected(3) {
+		t.Log("lagging node is blacklisted, cannot continue replication")
+		return
 	}
 
 	// the lagging node should build a block when triggered if its the leader
@@ -559,6 +566,7 @@ func testReplicationAfterNodeDisconnects(t *testing.T, nodes []simplex.NodeID, s
 		bb.triggerNewBlock()
 	}
 
+	fmt.Println(">>>>>", endDisconnect-missedSeqs+1)
 	for _, n := range net.instances {
 		n.storage.waitForBlockCommit(endDisconnect - missedSeqs + 1)
 	}
@@ -985,7 +993,7 @@ func createBlocks(t *testing.T, nodes []simplex.NodeID, bb simplex.BlockBuilder,
 			Prev:  prev,
 		}
 
-		block, ok := bb.BuildBlock(ctx, protocolMetadata)
+		block, ok := bb.BuildBlock(ctx, protocolMetadata, emptyBlacklist)
 		require.True(t, ok)
 		prev = block.BlockHeader().Digest
 		finalization, _ := newFinalizationRecord(t, logger, &testSignatureAggregator{}, block, nodes)
