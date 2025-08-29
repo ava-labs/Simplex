@@ -101,6 +101,8 @@ type Epoch struct {
 	cancelWaitForBlockNotarization context.CancelFunc
 	timeoutHandler                 *TimeoutHandler
 	replicationState               *ReplicationState
+	timedOutRounds                 map[uint16]uint64 // nodeIndex -> round
+	redeemedRounds                 map[uint16]uint64 // nodeIndex -> round
 }
 
 func NewEpoch(conf EpochConfig) (*Epoch, error) {
@@ -179,7 +181,8 @@ func (e *Epoch) init() error {
 	e.blockBuilderCancelFunc = func() {}
 	e.nodes = e.Comm.Nodes()
 	sortNodes(e.nodes)
-
+	e.timedOutRounds = make(map[uint16]uint64, len(e.nodes))
+	e.redeemedRounds = make(map[uint16]uint64, len(e.nodes))
 	e.quorumSize = Quorum(len(e.nodes))
 	e.rounds = make(map[uint64]*Round)
 	e.maxRoundWindow = DefaultMaxRoundWindow
@@ -1167,6 +1170,10 @@ func (e *Epoch) persistEmptyNotarization(emptyNotarization *EmptyNotarization, s
 			zap.Uint64("round", emptyNotarization.Vote.Round))
 	}
 
+	round := emptyNotarization.Vote.Round
+	leaderIndex := round%uint64(len(e.nodes))
+	e.timedOutRounds[uint16(leaderIndex)] = round
+
 	e.increaseRound()
 
 	return errors.Join(e.startRound(), e.maybeLoadFutureMessages())
@@ -1195,7 +1202,7 @@ func (e *Epoch) maybeCollectNotarization() error {
 	// Ensure we have enough votes for the same block header.
 	var voteCountForOurBlock int
 	for _, vote := range votesForCurrentRound {
-		if md == vote.Vote.BlockHeader {
+		if md.Equals(&vote.Vote.BlockHeader) {
 			voteCountForOurBlock++
 		}
 	}
@@ -1244,6 +1251,10 @@ func (e *Epoch) persistNotarization(notarization Notarization) error {
 	if err != nil {
 		return err
 	}
+
+	round := notarization.Vote.Round
+	leaderIndex := round%uint64(len(e.nodes))
+	e.redeemedRounds[uint16(leaderIndex)] = round
 
 	e.increaseRound()
 
@@ -1962,19 +1973,57 @@ func (e *Epoch) locateBlock(seq uint64, digest []byte) (VerifiedBlock, bool) {
 func (e *Epoch) buildBlock() {
 	metadata := e.metadata()
 
-	task := e.createBlockBuildingTask(metadata)
+	blacklist, ok := e.retrieveBlacklistOfParentBlock(metadata)
+	if ! ok {
+		return
+	}
+
+	prevBL := blacklist.String()
+
+	blacklist = e.computeBlacklistUpdates(metadata.Round, blacklist)
+
+	nextBL := blacklist.String()
+
+	e.Logger.Debug("Blacklist updated",
+		zap.Uint64("round", metadata.Round),
+		zap.String("prev", prevBL), zap.String("next", nextBL))
+
+	task := e.createBlockBuildingTask(metadata, blacklist)
 
 	e.Logger.Debug("Scheduling block building", zap.Uint64("round", metadata.Round))
 	e.sched.Schedule(task, metadata.Prev, true)
 }
 
-func (e *Epoch) createBlockBuildingTask(metadata ProtocolMetadata) func() Digest {
+func (e *Epoch) retrieveBlacklistOfParentBlock(metadata ProtocolMetadata) (Blacklist, bool) {
+	var blacklist Blacklist
+	if metadata.Seq > 0 {
+		prevBlock, ok := e.locateBlock(metadata.Seq-1, metadata.Prev[:])
+		if !ok {
+			e.Logger.Error("Failed locating previous block",
+				zap.Uint64("round", metadata.Round),
+				zap.Uint64("seq", metadata.Seq),
+				zap.Stringer("digest", metadata.Prev))
+			e.haltedError = fmt.Errorf("failed locating previous block (%d)", metadata.Seq)
+			return Blacklist{}, false
+		}
+
+		blacklist = prevBlock.Blacklist()
+	}
+
+	if blacklist.IsEmpty() {
+		blacklist = NewBlacklist(uint16(len(e.nodes)))
+	}
+
+	return blacklist, true
+}
+
+func (e *Epoch) createBlockBuildingTask(metadata ProtocolMetadata, blacklist Blacklist) func() Digest {
 	return func() Digest {
 		e.lock.Lock()
 		e.blockBuilderCtx, e.blockBuilderCancelFunc = context.WithCancel(e.finishCtx)
 		e.lock.Unlock()
 
-		block, ok := e.BlockBuilder.BuildBlock(e.blockBuilderCtx, metadata)
+		block, ok := e.BlockBuilder.BuildBlock(e.blockBuilderCtx, metadata, blacklist)
 
 		e.lock.Lock()
 		defer e.lock.Unlock()
@@ -2137,6 +2186,8 @@ func (e *Epoch) monitorProgress(round uint64) {
 
 	noop := func() {}
 
+	leader := LeaderForRound(e.nodes, round)
+
 	// If we have a task pending to be executed, remove it from execution because we're about to schedule
 	// a task for a higher round.
 	e.monitor.CancelTask()
@@ -2148,7 +2199,6 @@ func (e *Epoch) monitorProgress(round uint64) {
 	proposalWaitTimeExpired := func() {
 		e.lock.Lock()
 		defer e.lock.Unlock()
-		leader := LeaderForRound(e.nodes, round)
 		e.Logger.Debug("Triggering empty block agreement",
 			zap.String("reason", "Timed out on block agreement"),
 			zap.Uint64("round", round),
@@ -2168,6 +2218,20 @@ func (e *Epoch) monitorProgress(round uint64) {
 		}
 
 		e.Logger.Info("It is time to build a block", zap.Uint64("round", round))
+
+		metadata := e.metadata()
+		blacklist, ok := e.retrieveBlacklistOfParentBlock(metadata)
+		if ! ok {
+			return
+		}
+
+		// If the current leader is blacklisted, we should not wait for it to propose a block.
+		// Instead, we should immediately trigger the empty block agreement.
+		leaderIndex := e.nodes.IndexOf(leader)
+		if leaderIndex >= 0 && blacklist.IsNodeSuspected(uint16(leaderIndex)) {
+			proposalWaitTimeExpired()
+			return
+		}
 
 		// Once it's time to build a new block, wait a grace period of 'e.maxProposalWait' time,
 		// and if the monitor isn't cancelled by then, invoke proposalWaitTimeExpired() above.
@@ -2780,6 +2844,57 @@ func (e *Epoch) retrieveBlockOrHalt(seq uint64) (VerifiedBlock, Finalization, bo
 func (e *Epoch) nextSeqToCommit() uint64 {
 	// The next sequence to commit is always the number of blocks in the storage.
 	return e.Storage.NumBlocks()
+}
+
+func (e *Epoch) computeBlacklistUpdates(currentRound uint64, blacklist Blacklist) Blacklist {
+	blacklist.Updates = nil
+
+	updates := make([]BlacklistUpdate, 0, len(e.nodes))
+
+	for _, nodeID := range e.nodes {
+		nodeIndex := uint16(e.nodes.IndexOf(nodeID))
+
+		timedOutInRound, isTimedOut := e.timedOutRounds[nodeIndex]
+		redeemedInRound, isRedeemed := e.redeemedRounds[nodeIndex]
+
+		if blacklist.IsNodeSuspected(nodeIndex) {
+			if redeemedInRound <= timedOutInRound {
+				continue
+			}
+			if !isRedeemed {
+				continue
+			}
+			redeemOrbit := Orbit(redeemedInRound, nodeIndex, uint16(len(e.nodes)))
+			currentOrbit := Orbit(currentRound, nodeIndex, uint16(len(e.nodes)))
+			if redeemOrbit != currentOrbit {
+				continue
+			}
+			updates = append(updates, BlacklistUpdate{
+				NodeIndex: nodeIndex,
+				Type:   BlacklistOpType_NodeRedeemed,
+			})
+		} else {
+			if redeemedInRound > timedOutInRound {
+				continue
+			}
+			if !isTimedOut {
+				continue
+			}
+			timedOutOrbit := Orbit(timedOutInRound, nodeIndex, uint16(len(e.nodes)))
+			currentOrbit := Orbit(currentRound, nodeIndex, uint16(len(e.nodes)))
+			if timedOutOrbit != currentOrbit {
+				continue
+			}
+			updates = append(updates, BlacklistUpdate{
+				NodeIndex: nodeIndex,
+				Type:   BlacklistOpType_NodeSuspected,
+			})
+		}
+	}
+
+	blacklist.Update(updates, currentRound)
+
+	return blacklist
 }
 
 // sortNodes sorts the nodes in place by their byte representations.

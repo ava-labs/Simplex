@@ -46,6 +46,7 @@ type ProtocolMetadata struct {
 // or which block is finalized.
 type BlockHeader struct {
 	ProtocolMetadata
+
 	// Digest returns a collision resistant short representation of the block's bytes
 	Digest Digest
 }
