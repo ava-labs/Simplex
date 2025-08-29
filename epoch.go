@@ -1746,6 +1746,7 @@ func (e *Epoch) createFinalizedBlockVerificationTask(block Block, finalization F
 
 		verifiedBlock, err := block.Verify(context.Background())
 		if err != nil {
+			e.Logger.Debug("Failed verifying block", zap.Error(err))
 			// if we fail to verify the block, we should re-add to request timeout
 			index := int(md.Round) % len(finalization.QC.Signers())
 			e.replicationState.sendRequestToNode(md.Seq, md.Seq, finalization.QC.Signers(), index)
@@ -1769,7 +1770,6 @@ func (e *Epoch) createFinalizedBlockVerificationTask(block Block, finalization F
 			e.Logger.Error("Failed to index finalization", zap.Error(err))
 			return md.Digest
 		}
-		e.Logger.Info("Finalized block", zap.Uint64("round", md.Round), zap.Uint64("seq", md.Seq))
 		err = e.processReplicationState()
 
 		if err != nil {
