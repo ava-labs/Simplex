@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/rand/v2"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -1747,8 +1748,8 @@ func (e *Epoch) createFinalizedBlockVerificationTask(block Block, finalization F
 		verifiedBlock, err := block.Verify(context.Background())
 		if err != nil {
 			e.Logger.Debug("Failed verifying block", zap.Error(err))
-			// if we fail to verify the block, we should re-add to request timeout
-			index := int(md.Round) % len(finalization.QC.Signers())
+			// if we fail to verify the block, we re-add to request timeout
+			index := rand.Int() % len(e.nodes)
 			e.replicationState.sendRequestToNode(md.Seq, md.Seq, finalization.QC.Signers(), index)
 			return md.Digest
 		}
