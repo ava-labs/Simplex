@@ -2523,6 +2523,12 @@ func (e *Epoch) locateQuorumRecord(seq uint64) *VerifiedQuorumRound {
 		}
 	}
 
+	if seq >= e.nextSeqToCommit() {
+		e.Logger.Debug("Requested quorum record sequence we have not yet committed to storage",
+			zap.Uint64("seq", seq), zap.Uint64("height", e.nextSeqToCommit()))
+		return nil
+	}
+
 	block, finalization, ok := e.retrieveBlockOrHalt(seq)
 	if !ok {
 		return nil
