@@ -6,10 +6,12 @@ package simplex
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"math"
+	"math/big"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -1747,6 +1749,16 @@ func (e *Epoch) createFinalizedBlockVerificationTask(block Block, finalization F
 		verifiedBlock, err := block.Verify(context.Background())
 		if err != nil {
 			e.Logger.Debug("Failed verifying block", zap.Error(err))
+			// if we fail to verify the block, we re-add to request timeout
+			numSigners := int64(len(finalization.QC.Signers()))
+			index, err := rand.Int(rand.Reader, big.NewInt(numSigners))
+			if err != nil {
+				e.haltedError = err
+				e.Logger.Debug("Failed to generate random index", zap.Error(err))
+				return md.Digest
+			}
+
+			e.replicationState.sendRequestToNode(md.Seq, md.Seq, finalization.QC.Signers(), int(index.Int64()))
 			return md.Digest
 		}
 
