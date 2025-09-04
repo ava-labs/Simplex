@@ -718,7 +718,7 @@ func (t *testControlledBlockBuilder) triggerNewBlock() {
 	}
 }
 
-func (t *testControlledBlockBuilder) BuildBlock(ctx context.Context, metadata ProtocolMetadata) (VerifiedBlock, bool) {
+func (t *testControlledBlockBuilder) BuildBlock(ctx context.Context, metadata ProtocolMetadata, blacklist Blacklist) (VerifiedBlock, bool) {
 	<-t.control
-	return t.testBlockBuilder.BuildBlock(ctx, metadata)
+	return t.testBlockBuilder.BuildBlock(ctx, metadata, blacklist)
 }
