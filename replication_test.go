@@ -7,6 +7,9 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"go.uber.org/zap/zapcore"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -588,6 +591,148 @@ func sendVotesToOneNode(filteredInNode simplex.NodeID) messageFilter {
 
 		return false
 	}
+}
+
+func TestReplicationStuckInProposingBlock(t *testing.T) {
+	var aboutToBuildBlock sync.WaitGroup
+	aboutToBuildBlock.Add(2)
+
+	var cancelBlockBuilding sync.WaitGroup
+	cancelBlockBuilding.Add(1)
+
+	l := testutil.MakeLogger(t, 1)
+	l.Intercept(func(entry zapcore.Entry) error {
+		if strings.Contains(entry.Message, "Scheduling block building") {
+			aboutToBuildBlock.Done()
+		}
+		if strings.Contains(entry.Message, "We are the leader of this round, but a higher round has been finalized") {
+			cancelBlockBuilding.Done()
+		}
+		return nil
+	})
+	tempBB := &testBlockBuilder{out: make(chan *testBlock, 4), blockShouldBeBuilt: make(chan struct{}, 1), in: make(chan *testBlock, 1)}
+	tbb := &testBlockBuilder{out: make(chan *testBlock, 1), blockShouldBeBuilt: make(chan struct{}, 1), in: make(chan *testBlock, 1)}
+	bb := newTestControlledBlockBuilder(t)
+	bb.testBlockBuilder = *tbb
+	storage := newInMemStorage()
+	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
+	blocks := createBlocks(t, nodes, tempBB, 5)
+
+	wal := newTestWAL(t)
+
+	quorum := simplex.Quorum(len(nodes))
+	signatureAggregator := &testSignatureAggregator{}
+	sentMessages := make(chan *simplex.Message, 100)
+	conf := simplex.EpochConfig{
+		MaxProposalWait: simplex.DefaultMaxProposalWaitTime,
+		Logger:          l,
+		ID:              nodes[0],
+		Signer:          &testSigner{},
+		WAL:             wal,
+		Verifier:        &testVerifier{},
+		Storage:         storage,
+		Comm: &recordingComm{
+			Communication: noopComm(nodes),
+			SentMessages:  sentMessages,
+		},
+		BlockBuilder:        bb,
+		SignatureAggregator: signatureAggregator,
+		ReplicationEnabled:  true,
+	}
+
+	e, err := simplex.NewEpoch(conf)
+	e.ReplicationEnabled = true
+	require.NoError(t, err)
+	require.NoError(t, e.Start())
+
+	bb.in <- blocks[0].VerifiedBlock.(*testBlock)
+	bb.out <- blocks[0].VerifiedBlock.(*testBlock)
+
+	bb.triggerNewBlock()
+	notarizeAndFinalizeRound(t, e, &bb.testBlockBuilder)
+
+	gb := storage.waitForBlockCommit(0)
+	require.Equal(t, gb, blocks[0].VerifiedBlock.(*testBlock))
+
+	highBlock, _ := blocks[3].VerifiedBlock.(*testBlock)
+
+	highFinalization, _ := newFinalizationRecord(t, l, signatureAggregator, highBlock, nodes[0:quorum])
+
+	// Trigger the replication process to start by sending a finalization for a block we do not have
+	e.HandleMessage(&simplex.Message{
+		Finalization: &highFinalization,
+	}, nodes[1])
+
+	// Wait for the replication request to be sent
+	for {
+		msg := <-sentMessages
+		if msg.ReplicationRequest != nil {
+			break
+		}
+	}
+
+	// Drain the block builder channels
+	for len(bb.testBlockBuilder.blockShouldBeBuilt) > 0 && len(bb.out) > 0 {
+		select {
+		case <-bb.blockShouldBeBuilt:
+		default:
+		}
+		select {
+		case <-bb.out:
+		default:
+		}
+	}
+
+	// Prepare the quorum round answer to be sent as a response to the replication request
+	quorumRounds := make([]simplex.QuorumRound, 0, 4)
+	for i := uint64(1); i <= 4; i++ {
+		tb := blocks[i].VerifiedBlock.(*testBlock)
+		finalization := blocks[i].Finalization
+		quorumRounds = append(quorumRounds, simplex.QuorumRound{
+			Block:        tb,
+			Finalization: &finalization,
+		})
+	}
+
+	// Respond to the replication request with a block that has a notarization
+	replicationResponse := &simplex.ReplicationResponse{
+		LatestRound: &quorumRounds[2],
+		Data:        quorumRounds[:3],
+	}
+
+	e.HandleMessage(&simplex.Message{
+		ReplicationResponse: replicationResponse,
+	}, nodes[1])
+
+	// Wait for the second block to be attempted to be built
+	aboutToBuildBlock.Wait()
+
+	// Trigger the replication process to start by sending a finalization for a block we do not have
+	e.HandleMessage(&simplex.Message{
+		Finalization: &blocks[4].Finalization,
+	}, nodes[1])
+
+	// Wait for the replication request to be sent
+	for {
+		msg := <-sentMessages
+		if msg.ReplicationRequest != nil {
+			break
+		}
+	}
+
+	replicationResponse = &simplex.ReplicationResponse{
+		LatestRound: &quorumRounds[3],
+		Data:        quorumRounds[3:],
+	}
+
+	e.HandleMessage(&simplex.Message{
+		ReplicationResponse: replicationResponse,
+	}, nodes[1])
+
+	storage.waitForBlockCommit(4)
+
+	// Just for sanity, ensure that the block building was cancelled
+	cancelBlockBuilding.Wait()
 }
 
 // TestReplicationNodeDiverges tests that a node replicates blocks even if they
