@@ -180,7 +180,7 @@ func (e *Epoch) init() error {
 	e.blockBuilderCtx = context.Background()
 	e.blockBuilderCancelFunc = func() {}
 	e.nodes = e.Comm.Nodes()
-	sortNodes(e.nodes)
+	SortNodes(e.nodes)
 
 	e.quorumSize = Quorum(len(e.nodes))
 	e.rounds = make(map[uint64]*Round)
@@ -2794,8 +2794,9 @@ func (e *Epoch) nextSeqToCommit() uint64 {
 	return e.Storage.NumBlocks()
 }
 
-// sortNodes sorts the nodes in place by their byte representations.
-func sortNodes(nodes []NodeID) {
+// SortNodes sorts the nodes in place by their byte representations.
+// It is used to ensure a deterministic order of nodes when calculating block leaders.
+func SortNodes(nodes []NodeID) {
 	slices.SortFunc(nodes, func(a, b NodeID) int {
 		return bytes.Compare(a[:], b[:])
 	})
