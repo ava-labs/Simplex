@@ -267,13 +267,13 @@ func (q *QuorumRound) GetSequence() uint64 {
 	return 0
 }
 
-func (q *QuorumRound) Verify() error {
+func (q *QuorumRound) VerifyQCConsistentWithBlock() error {
 	if err := q.IsWellFormed(); err != nil {
 		return err
 	}
 
 	if q.EmptyNotarization != nil {
-		return q.EmptyNotarization.Verify()
+		return nil
 	}
 
 	// ensure the finalization or notarization we get relates to the block
@@ -283,17 +283,12 @@ func (q *QuorumRound) Verify() error {
 		if !bytes.Equal(blockDigest[:], q.Finalization.Finalization.Digest[:]) {
 			return fmt.Errorf("finalization does not match the block")
 		}
-		err := q.Finalization.Verify()
-		if err != nil {
-			return err
-		}
 	}
 
 	if q.Notarization != nil {
 		if !bytes.Equal(blockDigest[:], q.Notarization.Vote.Digest[:]) {
 			return fmt.Errorf("notarization does not match the block")
 		}
-		return q.Notarization.Verify()
 	}
 
 	return nil
@@ -336,4 +331,8 @@ func (q *VerifiedQuorumRound) GetRound() uint64 {
 type VerifiedFinalizedBlock struct {
 	VerifiedBlock VerifiedBlock
 	Finalization  Finalization
+}
+
+type verifiableMessage interface {
+	Verify() error
 }
