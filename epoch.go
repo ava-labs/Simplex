@@ -574,6 +574,10 @@ func (e *Epoch) handleFinalizationForPendingOrFutureRound(message *Finalization,
 
 	// TODO: delay requesting future finalizations and blocks, since blocks could be in transit
 	e.Logger.Debug("Received finalization for a future round", zap.Uint64("round", round))
+	if LeaderForRound(e.nodes, e.round).Equals(e.ID) {
+		e.Logger.Debug("We are the leader of this round, but a higher round has been finalized. Aborting block building.")
+		e.blockBuilderCancelFunc()
+	}
 	e.replicationState.replicateBlocks(message, nextSeqToCommit)
 }
 
@@ -1981,17 +1985,18 @@ func (e *Epoch) buildBlock() {
 }
 
 func (e *Epoch) createBlockBuildingTask(metadata ProtocolMetadata) func() Digest {
-	return func() Digest {
-		e.lock.Lock()
-		e.blockBuilderCtx, e.blockBuilderCancelFunc = context.WithCancel(e.finishCtx)
-		e.lock.Unlock()
+	e.blockBuilderCancelFunc()
+	e.blockBuilderCtx, e.blockBuilderCancelFunc = context.WithCancel(e.finishCtx)
+	context := e.blockBuilderCtx
+	cancel := e.blockBuilderCancelFunc
 
-		block, ok := e.BlockBuilder.BuildBlock(e.blockBuilderCtx, metadata)
+	return func() Digest {
+		block, ok := e.BlockBuilder.BuildBlock(context, metadata)
 
 		e.lock.Lock()
 		defer e.lock.Unlock()
 
-		e.blockBuilderCancelFunc()
+		cancel()
 		if !ok {
 			e.Logger.Warn("Failed building block")
 			return Digest{}

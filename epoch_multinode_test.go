@@ -719,6 +719,10 @@ func (t *testControlledBlockBuilder) triggerNewBlock() {
 }
 
 func (t *testControlledBlockBuilder) BuildBlock(ctx context.Context, metadata ProtocolMetadata) (VerifiedBlock, bool) {
-	<-t.control
+	select {
+	case <-t.control:
+	case <-ctx.Done():
+		return nil, false
+	}
 	return t.testBlockBuilder.BuildBlock(ctx, metadata)
 }
