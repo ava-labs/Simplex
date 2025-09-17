@@ -34,9 +34,6 @@ func IsFinalizationValid(eligibleSigners map[string]struct{}, finalization *Fina
 	if !valid {
 		return false
 	}
-	if !valid {
-		return false
-	}
 
 	return true
 }

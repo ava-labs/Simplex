@@ -833,7 +833,7 @@ func TestEpochQCSignedByNonExistentNodes(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(6)
 
-	//defer wg.Wait()
+	defer wg.Wait()
 
 	unknownNotarizationChan := make(chan struct{})
 	unknownEmptyNotarizationChan := make(chan struct{})
@@ -916,16 +916,17 @@ func TestEpochQCSignedByNonExistentNodes(t *testing.T) {
 		require.NoError(t, err)
 
 		time.Sleep(time.Second)
-		rawWAL, err := wal.WriteAheadLog.ReadAll()
-		require.NoError(t, err)
-		fmt.Println(">>>", len(rawWAL))
 
 		wal.assertWALSize(1)
 	})
 
 	t.Run("notarization with double signer isn't taken into account", func(t *testing.T) {
-		notarization, err := newNotarization(l, &testSignatureAggregator{}, block, []NodeID{{2}, {3}, {2}})
+		notarization, err := newNotarization(l, &testSignatureAggregator{}, block, []NodeID{{2}, {3}})
 		require.NoError(t, err)
+
+		tqc := notarization.QC.(testQC)
+		tqc = append(tqc, Signature{Signer: nodes[2], Value: []byte{0}})
+		notarization.QC = tqc
 
 		err = e.HandleMessage(&Message{
 			Notarization: &notarization,
