@@ -1978,7 +1978,17 @@ func (e *Epoch) locateBlock(seq uint64, digest []byte) (VerifiedBlock, bool) {
 func (e *Epoch) buildBlock() {
 	metadata := e.metadata()
 
-	task := e.createBlockBuildingTask(metadata)
+	buildTheBlock := e.createBlockBuildingTask(metadata)
+
+	round := e.round
+
+	task := func() Digest {
+		digest := buildTheBlock()
+		e.lock.Lock()
+		defer e.lock.Unlock()
+		e.monitorProgress(round)
+		return digest
+	}
 
 	e.Logger.Debug("Scheduling block building", zap.Uint64("round", metadata.Round))
 	e.sched.Schedule(task, metadata.Prev, true)

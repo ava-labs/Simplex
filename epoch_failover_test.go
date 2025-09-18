@@ -366,6 +366,81 @@ func TestEpochLeaderFailover(t *testing.T) {
 	})
 }
 
+func TestEpochLeaderFailoverInLeaderRound(t *testing.T) {
+	l := testutil.MakeLogger(t, 3)
+
+	bb := &testBlockBuilder{out: make(chan *testBlock, 1), blockShouldBeBuilt: make(chan struct{}, 1)}
+	storage := newInMemStorage()
+
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+
+	wal := newTestWAL(t)
+
+	recordedMessages := make(chan *Message, 100)
+	comm := &recordingComm{Communication: noopComm(nodes), BroadcastMessages: recordedMessages}
+
+	start := time.Now()
+	conf := EpochConfig{
+		MaxProposalWait:     DefaultMaxProposalWaitTime,
+		StartTime:           start,
+		Logger:              l,
+		ID:                  nodes[3],
+		Signer:              &testSigner{},
+		WAL:                 wal,
+		Verifier:            &testVerifier{},
+		Storage:             storage,
+		Comm:                comm,
+		BlockBuilder:        bb,
+		SignatureAggregator: &testSignatureAggregator{},
+	}
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+
+	require.NoError(t, e.Start())
+
+	// Round 0
+	notarizeAndFinalizeRound(t, e, bb)
+	// Round 1
+	notarizeAndFinalizeRound(t, e, bb)
+	// Round 2
+	notarizeAndFinalizeRound(t, e, bb)
+
+	// In the third round, we wait for our epoch to propose a block.
+
+	bb.blockShouldBeBuilt <- struct{}{}
+
+	var sentBlockMessage bool
+	for !sentBlockMessage {
+		select {
+		case <-time.After(10 * time.Second):
+			t.Fatal("timed out waiting for block proposal")
+		case msg := <-recordedMessages:
+			if msg.VerifiedBlockMessage != nil {
+				sentBlockMessage = true
+				break
+			}
+		}
+	}
+
+	block := <-bb.out
+	md := block.BlockHeader().ProtocolMetadata
+
+	// Receive empty votes from other nodes
+	emptyVoteFrom1 := createEmptyVote(md, nodes[1])
+	emptyVoteFrom2 := createEmptyVote(md, nodes[2])
+
+	e.HandleMessage(&Message{
+		EmptyVoteMessage: emptyVoteFrom1,
+	}, nodes[1])
+	e.HandleMessage(&Message{
+		EmptyVoteMessage: emptyVoteFrom2,
+	}, nodes[2])
+
+	startTime := e.StartTime
+	waitForBlockProposerTimeout(t, e, &startTime, md.Round)
+}
+
 func TestEpochNoFinalizationAfterEmptyVote(t *testing.T) {
 	l := testutil.MakeLogger(t, 1)
 
