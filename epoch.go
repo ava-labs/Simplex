@@ -2071,6 +2071,11 @@ func (e *Epoch) addEmptyVoteRebroadcastTimeout(vote *EmptyVote) {
 		Task: func() {
 			e.Logger.Debug("Rebroadcasting empty vote because round has not advanced", zap.Uint64("round", vote.Vote.Round))
 			e.Comm.Broadcast(&Message{EmptyVoteMessage: vote})
+			if finalization := e.getLastFinalization(); finalization != nil {
+				e.Logger.Debug("Rebroadcasting last finalization because round has not advanced",
+					zap.Uint64("round", vote.Vote.Round), zap.Uint64("finalizedRound", finalization.Finalization.Round))
+				e.Comm.Broadcast(&Message{Finalization: finalization})
+			}
 			e.addEmptyVoteRebroadcastTimeout(vote)
 		},
 	}
@@ -2366,6 +2371,31 @@ func (e *Epoch) maybeLoadFutureMessages() error {
 func (e *Epoch) futureMessagesForRoundEmpty(msgs *messagesForRound) bool {
 	return msgs.proposal == nil && msgs.vote == nil && msgs.finalizeVote == nil &&
 		msgs.notarization == nil && msgs.finalization != nil
+}
+
+func (e *Epoch) getLastFinalization() *Finalization {
+	var max uint64
+
+	var finalization *Finalization
+
+	for _, round := range e.rounds {
+		if round.num >= max && round.finalization != nil {
+			max = round.num
+			finalization = round.finalization
+		}
+	}
+
+	if e.lastBlock == nil {
+		return finalization
+	}
+
+	if finalization == nil {
+		return &e.lastBlock.Finalization
+	}
+	if e.lastBlock.Finalization.Finalization.Seq > finalization.Finalization.Seq {
+		return &e.lastBlock.Finalization
+	}
+	return finalization
 }
 
 // storeProposal stores a block in the epochs memory(NOT storage).
