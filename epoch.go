@@ -126,7 +126,7 @@ func (e *Epoch) HandleMessage(msg *Message, from NodeID) error {
 
 	// Guard against receiving messages before we are ready to handle them.
 	if !e.canReceiveMessages.Load() {
-		e.Logger.Warn("Cannot receive a message")
+		e.Logger.Debug("Cannot receive a message")
 		return nil
 	}
 
@@ -142,7 +142,7 @@ func (e *Epoch) HandleMessage(msg *Message, from NodeID) error {
 	// Guard against receiving messages from unknown nodes
 	_, known := e.eligibleNodeIDs[string(from)]
 	if !known {
-		e.Logger.Warn("Received message from an unknown node", zap.Stringer("nodeID", from))
+		e.Logger.Debug("Received message from an unknown node", zap.Stringer("nodeID", from))
 		return nil
 	}
 
@@ -166,7 +166,7 @@ func (e *Epoch) HandleMessage(msg *Message, from NodeID) error {
 	case msg.ReplicationRequest != nil:
 		return e.handleReplicationRequest(msg.ReplicationRequest, from)
 	default:
-		e.Logger.Warn("Invalid message type", zap.Stringer("from", from))
+		e.Logger.Debug("Invalid message type", zap.Stringer("from", from))
 		return nil
 	}
 }
@@ -1206,7 +1206,7 @@ func (e *Epoch) maybeCollectNotarization() error {
 	}
 
 	if voteCountForOurBlock < e.quorumSize {
-		e.Logger.Warn("Counting votes for the block we received from the leader",
+		e.Logger.Debug("Counting votes for the block we received from the leader",
 			zap.Uint64("round", e.round),
 			zap.Int("voteForOurBlock", voteCountForOurBlock),
 			zap.Int("total votes", voteCount))
@@ -1242,7 +1242,7 @@ func (e *Epoch) writeNotarizationToWal(notarization Notarization) error {
 
 func (e *Epoch) persistNotarization(notarization Notarization) error {
 	if err := e.writeNotarizationToWal(notarization); err != nil {
-		return nil
+		return err
 	}
 
 	err := e.storeNotarization(notarization)
@@ -1477,7 +1477,7 @@ func (e *Epoch) processFinalizedBlock(block Block, finalization Finalization) er
 		roundDigest := round.block.BlockHeader().Digest
 		seqDigest := finalization.Finalization.BlockHeader.Digest
 		if !bytes.Equal(roundDigest[:], seqDigest[:]) {
-			e.Logger.Warn("Received finalized block that is different from the one we have in the rounds map",
+			e.Logger.Debug("Received finalized block that is different from the one we have in the rounds map",
 				zap.Stringer("roundDigest", roundDigest), zap.Stringer("seqDigest", seqDigest))
 
 			delete(e.rounds, round.num)
@@ -1541,7 +1541,7 @@ func (e *Epoch) processNotarizedBlock(block Block, notarization *Notarization) e
 		roundDigest := round.block.BlockHeader().Digest
 		notarizedDigest := notarization.Vote.BlockHeader.Digest
 		if !bytes.Equal(roundDigest[:], notarizedDigest[:]) {
-			e.Logger.Warn("Received notarized block that is different from the one we have in the rounds map",
+			e.Logger.Debug("Received notarized block that is different from the one we have in the rounds map",
 				zap.Stringer("roundDigest", roundDigest), zap.Stringer("notarizedDigest", notarizedDigest))
 			// by deleting the round, and recursively calling processNotarizedBlock
 			// we will verify this new block and store the notarization.
@@ -1627,9 +1627,8 @@ func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote)
 		e.deleteFutureProposal(from, md.Round)
 
 		if !e.storeProposal(verifiedBlock) {
-			e.Logger.Warn("Unable to store proposed block for the round", zap.Stringer("NodeID", from), zap.Uint64("round", md.Round))
+			e.Logger.Debug("Unable to store proposed block for the round", zap.Stringer("NodeID", from), zap.Uint64("round", md.Round))
 			return md.Digest
-			// TODO: timeout
 		}
 
 		// We might have received votes and finalizations from future rounds before we received this block.
@@ -1662,7 +1661,7 @@ func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote)
 		round.votes[string(vote.Signature.Signer)] = &vote
 
 		if err := e.doProposed(verifiedBlock); err != nil {
-			e.Logger.Warn("Failed voting on block", zap.Error(err))
+			e.Logger.Error("Failed voting on block", zap.Error(err))
 		}
 
 		return md.Digest
@@ -1757,9 +1756,8 @@ func (e *Epoch) createNotarizedBlockVerificationTask(block Block, notarization N
 
 		// store the block in rounds
 		if !e.storeProposal(verifiedBlock) {
-			e.Logger.Warn("Unable to store proposed block for the round", zap.Uint64("round", md.Round))
+			e.Logger.Debug("Unable to store proposed block for the round", zap.Uint64("round", md.Round))
 			return md.Digest
-			// TODO: timeout
 		}
 
 		round, ok = e.rounds[block.BlockHeader().Round]
@@ -1928,7 +1926,11 @@ func (e *Epoch) createBlockBuildingTask(metadata ProtocolMetadata) func() Digest
 
 		cancel()
 		if !ok {
-			e.Logger.Warn("Failed building block")
+			select {
+			case <-context.Done():
+			default:
+				e.Logger.Warn("Failed building block")
+			}
 			return Digest{}
 		}
 
@@ -2379,7 +2381,7 @@ func (e *Epoch) storeProposal(block VerifiedBlock) bool {
 		// We have already received a block for this round in the past, refuse receiving an alternative block.
 		// We do this because we may have already voted for a different block.
 		// Refuse processing the block to not be coerced into voting for a different block.
-		e.Logger.Warn("Already received block for round", zap.Uint64("round", md.Round))
+		e.Logger.Debug("Already received block for round", zap.Uint64("round", md.Round))
 		return false
 	}
 
