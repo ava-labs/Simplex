@@ -1446,7 +1446,7 @@ func (t *testBlockBuilder) BuildBlock(_ context.Context, metadata ProtocolMetada
 	return tb, true
 }
 
-func (t *testBlockBuilder) IncomingBlock(ctx context.Context) {
+func (t *testBlockBuilder) WaitForPendingBlock(ctx context.Context) {
 	select {
 	case <-t.blockShouldBeBuilt:
 	case <-ctx.Done():
