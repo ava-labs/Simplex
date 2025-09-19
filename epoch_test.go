@@ -851,19 +851,19 @@ func TestEpochQCSignedByNonExistentNodes(t *testing.T) {
 			wg.Done()
 			close(unknownEmptyNotarizationChan)
 		},
-		"Finalization Quorum Certificate contains an unknown signer": func() {
+		"Finalization quorum certificate contains an unknown signer": func() {
 			wg.Done()
 			close(unknownFinalizationChan)
 		},
-		"A node has signed the notarization twice": func() {
+		"Notarization is signed by the same node more than once": func() {
 			wg.Done()
 			close(doubleNotarizationChan)
 		},
-		"A node has signed the empty notarization twice": func() {
+		"Empty notarization is signed by the same node more than once": func() {
 			wg.Done()
 			close(doubleEmptyNotarizationChan)
 		},
-		"Finalization signed twice by the same node": func() {
+		"Finalization is signed by the same node more than once": func() {
 			wg.Done()
 			close(doubleFinalizationChan)
 		},
@@ -1446,7 +1446,7 @@ func (t *testBlockBuilder) BuildBlock(_ context.Context, metadata ProtocolMetada
 	return tb, true
 }
 
-func (t *testBlockBuilder) IncomingBlock(ctx context.Context) {
+func (t *testBlockBuilder) WaitForPendingBlock(ctx context.Context) {
 	select {
 	case <-t.blockShouldBeBuilt:
 	case <-ctx.Done():

@@ -4,6 +4,7 @@
 package simplex_test
 
 import (
+	"fmt"
 	"testing"
 
 	. "github.com/ava-labs/simplex"
@@ -66,7 +67,13 @@ func TestRetrieveFromStorage(t *testing.T) {
 	}
 }
 
-func TestFinalizationValidation(t *testing.T) {
+type unverifiableQC struct{}
+
+func (u *unverifiableQC) Verify() error {
+	return fmt.Errorf("invalid QC")
+}
+
+func TestVerifyQC(t *testing.T) {
 	l := testutil.MakeLogger(t, 0)
 	nodes := []NodeID{{1}, {2}, {3}, {4}, {5}}
 	eligibleSigners := make(map[string]struct{})
@@ -80,7 +87,8 @@ func TestFinalizationValidation(t *testing.T) {
 		name         string
 		finalization Finalization
 		quorumSize   int
-		valid        bool
+		expectedErr  error
+		msgInvalid   bool
 	}{
 		{
 			name: "valid finalization",
@@ -90,7 +98,6 @@ func TestFinalizationValidation(t *testing.T) {
 				return finalization
 			}(),
 			quorumSize: quorumSize,
-			valid:      true,
 		}, {
 			name: "not enough signers",
 			finalization: func() Finalization {
@@ -98,8 +105,8 @@ func TestFinalizationValidation(t *testing.T) {
 				finalization, _ := newFinalizationRecord(t, l, signatureAggregator, block, nodes[:quorumSize-1])
 				return finalization
 			}(),
-			quorumSize: quorumSize,
-			valid:      false,
+			quorumSize:  quorumSize,
+			expectedErr: fmt.Errorf("finalization certificate signed by insufficient (3 < 4) nodes"),
 		},
 		{
 			name: "signer signed twice",
@@ -109,14 +116,14 @@ func TestFinalizationValidation(t *testing.T) {
 				finalization, _ := newFinalizationRecord(t, l, signatureAggregator, block, doubleNodes)
 				return finalization
 			}(),
-			quorumSize: quorumSize,
-			valid:      false,
+			quorumSize:  quorumSize,
+			expectedErr: fmt.Errorf("finalization is signed by the same node (0400000000000000) more than once"),
 		},
 		{
 			name:         "quorum certificate not in finalization",
 			finalization: Finalization{Finalization: ToBeSignedFinalization{}},
 			quorumSize:   quorumSize,
-			valid:        false,
+			expectedErr:  fmt.Errorf("nil QuorumCertificate"),
 		},
 		{
 			name: "nodes are not eligible signers",
@@ -126,14 +133,34 @@ func TestFinalizationValidation(t *testing.T) {
 				finalization, _ := newFinalizationRecord(t, l, signatureAggregator, block, signers)
 				return finalization
 			}(), quorumSize: quorumSize,
-			valid: false,
+			expectedErr: fmt.Errorf("finalization quorum certificate contains an unknown signer (0600000000000000)"),
+		},
+		{
+			name: "invalid QC",
+			finalization: func() Finalization {
+				block := newTestBlock(ProtocolMetadata{})
+				finalization, _ := newFinalizationRecord(t, l, signatureAggregator, block, nodes[:quorumSize])
+				return finalization
+			}(),
+			quorumSize:  quorumSize,
+			msgInvalid:  true,
+			expectedErr: fmt.Errorf("invalid QC"),
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			valid := simplex.IsFinalizationValid(eligibleSigners, &tt.finalization, tt.quorumSize, l)
-			require.Equal(t, tt.valid, valid)
+			if tt.msgInvalid {
+				err := VerifyQC(tt.finalization.QC, l, "Finalization", tt.quorumSize, eligibleSigners, &unverifiableQC{}, nil)
+				require.EqualError(t, err, tt.expectedErr.Error())
+			} else {
+				err := VerifyQC(tt.finalization.QC, l, "Finalization", tt.quorumSize, eligibleSigners, &tt.finalization, nil)
+				if tt.expectedErr != nil {
+					require.EqualError(t, err, tt.expectedErr.Error())
+				} else {
+					require.NoError(t, err)
+				}
+			}
 		})
 	}
 }

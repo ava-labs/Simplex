@@ -994,3 +994,205 @@ func createBlocks(t *testing.T, nodes []simplex.NodeID, bb simplex.BlockBuilder,
 	}
 	return data
 }
+
+func TestReplicationVerifyNotarization(t *testing.T) {
+	l := testutil.MakeLogger(t, 1)
+	bb := &testBlockBuilder{out: make(chan *testBlock, 1), blockShouldBeBuilt: make(chan struct{}, 1)}
+	storage := newInMemStorage()
+
+	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
+
+	// This function takes a QC and makes it that it is signed by only 2 out of 4 nodes,
+	// while still having a quorum of signatures.
+	corruptQC := func(qc simplex.QuorumCertificate) simplex.QuorumCertificate {
+		badQC := qc.(testQC)
+		// Duplicate the last signature
+		badQC = append(badQC, badQC[len(badQC)-1])
+		// Remove the first signature
+		badQC = badQC[1:]
+
+		// Finalization should have 3 signers
+		require.Len(t, badQC.Signers(), 3)
+
+		// But all these signers are either the second and third node.
+		require.Contains(t, badQC.Signers(), nodes[1])
+		require.Contains(t, badQC.Signers(), nodes[2])
+
+		// Not the first or the fourth node.
+		require.NotContains(t, badQC.Signers(), nodes[0])
+		require.NotContains(t, badQC.Signers(), nodes[3])
+
+		return badQC
+	}
+
+	wal := newTestWAL(t)
+
+	quorum := simplex.Quorum(len(nodes))
+	signatureAggregator := &testSignatureAggregator{}
+	sentMessages := make(chan *simplex.Message, 100)
+	conf := simplex.EpochConfig{
+		MaxProposalWait: simplex.DefaultMaxProposalWaitTime,
+		Logger:          l,
+		ID:              nodes[1],
+		Signer:          &testSigner{},
+		WAL:             wal,
+		Verifier:        &testVerifier{},
+		Storage:         storage,
+		Comm: &recordingComm{
+			Communication: noopComm(nodes),
+			SentMessages:  sentMessages,
+		},
+		BlockBuilder:        bb,
+		SignatureAggregator: signatureAggregator,
+		ReplicationEnabled:  true,
+	}
+
+	e, err := simplex.NewEpoch(conf)
+	require.NoError(t, err)
+	require.NoError(t, e.Start())
+
+	md := e.Metadata()
+	_, ok := bb.BuildBlock(context.Background(), md)
+	require.True(t, ok)
+	require.Equal(t, md.Round, md.Seq)
+
+	block := <-bb.out
+
+	finalization, _ := newFinalizationRecord(t, l, signatureAggregator, block, nodes[0:quorum])
+
+	// Trigger the replication process to start by sending a finalization for a block we do not have
+	e.HandleMessage(&simplex.Message{
+		Finalization: &finalization,
+	}, nodes[0])
+
+	// Wait for the replication request to be sent
+	for {
+		msg := <-sentMessages
+		if msg.ReplicationRequest != nil {
+			break
+		}
+	}
+
+	notarization, err := newNotarization(l, signatureAggregator, block, nodes[0:quorum])
+	require.NoError(t, err)
+
+	// Corrupt the QC
+	notarization.QC = corruptQC(notarization.QC)
+
+	// Respond to the replication request with a block that has a notarization
+	replicationResponse := &simplex.ReplicationResponse{
+		Data: []simplex.QuorumRound{
+			{
+				Block:        block,
+				Notarization: &notarization,
+			},
+		},
+	}
+	e.HandleMessage(&simplex.Message{
+		ReplicationResponse: replicationResponse,
+	}, nodes[0])
+
+	require.Never(t, func() bool {
+		return wal.containsNotarization(0)
+	}, time.Millisecond*500, time.Millisecond*10, "Did not expect block with a corrupt QC to be written to the WAL")
+}
+
+func TestReplicationVerifyEmptyNotarization(t *testing.T) {
+	l := testutil.MakeLogger(t, 1)
+	bb := &testBlockBuilder{out: make(chan *testBlock, 1), blockShouldBeBuilt: make(chan struct{}, 1)}
+	storage := newInMemStorage()
+
+	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
+
+	// This function takes a QC and makes it that it is signed by only 2 out of 4 nodes,
+	// while still having a quorum of signatures.
+	corruptQC := func(qc simplex.QuorumCertificate) simplex.QuorumCertificate {
+		badQC := qc.(testQC)
+		// Duplicate the last signature
+		badQC = append(badQC, badQC[len(badQC)-1])
+		// Remove the first signature
+		badQC = badQC[1:]
+
+		// Finalization should have 3 signers
+		require.Len(t, badQC.Signers(), 3)
+
+		// But all these signers are either the second and third node.
+		require.Contains(t, badQC.Signers(), nodes[1])
+		require.Contains(t, badQC.Signers(), nodes[2])
+
+		// Not the first or the fourth node.
+		require.NotContains(t, badQC.Signers(), nodes[0])
+		require.NotContains(t, badQC.Signers(), nodes[3])
+
+		return badQC
+	}
+
+	wal := newTestWAL(t)
+
+	quorum := simplex.Quorum(len(nodes))
+	signatureAggregator := &testSignatureAggregator{}
+	sentMessages := make(chan *simplex.Message, 100)
+	conf := simplex.EpochConfig{
+		MaxProposalWait: simplex.DefaultMaxProposalWaitTime,
+		Logger:          l,
+		ID:              nodes[1],
+		Signer:          &testSigner{},
+		WAL:             wal,
+		Verifier:        &testVerifier{},
+		Storage:         storage,
+		Comm: &recordingComm{
+			Communication: noopComm(nodes),
+			SentMessages:  sentMessages,
+		},
+		BlockBuilder:        bb,
+		SignatureAggregator: signatureAggregator,
+		ReplicationEnabled:  true,
+	}
+
+	e, err := simplex.NewEpoch(conf)
+	require.NoError(t, err)
+	require.NoError(t, e.Start())
+
+	md := e.Metadata()
+	_, ok := bb.BuildBlock(context.Background(), md)
+	require.True(t, ok)
+	require.Equal(t, md.Round, md.Seq)
+
+	block := <-bb.out
+
+	finalization, _ := newFinalizationRecord(t, l, signatureAggregator, block, nodes[0:quorum])
+
+	// Trigger the replication process to start by sending a finalization for a block we do not have
+	e.HandleMessage(&simplex.Message{
+		Finalization: &finalization,
+	}, nodes[0])
+
+	// Wait for the replication request to be sent
+	for {
+		msg := <-sentMessages
+		if msg.ReplicationRequest != nil {
+			break
+		}
+	}
+
+	emptyNotarization := newEmptyNotarization(nodes[0:quorum], 0)
+
+	// Corrupt the QC
+	emptyNotarization.QC = corruptQC(emptyNotarization.QC)
+
+	// Respond to the replication request with a block that has a notarization
+	replicationResponse := &simplex.ReplicationResponse{
+		Data: []simplex.QuorumRound{
+			{
+				EmptyNotarization: emptyNotarization,
+			},
+		},
+	}
+	e.HandleMessage(&simplex.Message{
+		ReplicationResponse: replicationResponse,
+	}, nodes[0])
+
+	require.Never(t, func() bool {
+		return wal.containsEmptyNotarization(0)
+	}, time.Millisecond*500, time.Millisecond*10, "Did not expect an empty notarization with a corrupt QC to be written to the WAL")
+}

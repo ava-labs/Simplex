@@ -7,6 +7,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -762,6 +764,87 @@ func TestEpochLeaderFailoverTwice(t *testing.T) {
 			require.Equal(t, uint64(3), storage.NumBlocks())
 		})
 	})
+}
+
+func TestEpochLeaderFailoverGarbageCollectedEmptyVotes(t *testing.T) {
+
+	l := testutil.MakeLogger(t, 1)
+
+	bb := &testBlockBuilder{out: make(chan *testBlock, 1), blockShouldBeBuilt: make(chan struct{}, 1)}
+	storage := newInMemStorage()
+
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+
+	var waitForTimeout sync.WaitGroup
+	waitForTimeout.Add(1)
+
+	var triggerEmptyBlockAgreement sync.WaitGroup
+	triggerEmptyBlockAgreement.Add(1)
+
+	wal := newTestWAL(t)
+
+	start := time.Now()
+	conf := EpochConfig{
+		MaxProposalWait:     DefaultMaxProposalWaitTime,
+		StartTime:           start,
+		Logger:              l,
+		ID:                  nodes[0],
+		Signer:              &testSigner{},
+		WAL:                 wal,
+		Verifier:            &testVerifier{},
+		Storage:             storage,
+		Comm:                noopComm(nodes),
+		BlockBuilder:        bb,
+		SignatureAggregator: &testSignatureAggregator{},
+	}
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+
+	l.Intercept(func(entry zapcore.Entry) error {
+		if strings.Contains(entry.Message, "It is time to build a block") {
+			emptyNotarization := newEmptyNotarization(nodes[1:], 3)
+			e.HandleMessage(&Message{
+				EmptyNotarization: emptyNotarization,
+			}, nodes[1])
+
+			waitForTimeout.Done()
+		}
+
+		if strings.Contains(entry.Message, "empty block agreement") {
+			triggerEmptyBlockAgreement.Done()
+		}
+
+		return nil
+	})
+
+	require.NoError(t, e.Start())
+
+	// Run through 3 blocks, to make the block proposals be:
+	// 1 --> 2 --> 3 --> X (node 4 doesn't propose a block)
+
+	// Then, don't do anything and wait for our node
+	// to start complaining about a block not being notarized
+
+	for round := uint64(0); round < 3; round++ {
+		notarizeAndFinalizeRound(t, e, bb)
+	}
+
+	bb.blockShouldBeBuilt <- struct{}{}
+
+	// Wait until we detect it is time to build a block, and we also advance to the next round because of it.
+	waitForTimeout.Wait()
+
+	startTime := e.StartTime
+	startTime = startTime.Add(e.EpochConfig.MaxProposalWait)
+	e.AdvanceTime(startTime)
+
+	triggerEmptyBlockAgreement.Wait()
+
+	// At this point, if we have initialized the timeout process, handling any message fails because we have a halted error.
+	// The halted error takes place because we attempted to timeout on a round that has already been garbage collected.
+	err = e.HandleMessage(&Message{}, nodes[1])
+	require.NoError(t, err)
 }
 
 func TestEpochLeaderFailoverBecauseOfBadBlock(t *testing.T) {

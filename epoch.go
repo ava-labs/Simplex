@@ -156,7 +156,7 @@ func (e *Epoch) HandleMessage(msg *Message, from NodeID) error {
 	case msg.Notarization != nil:
 		return e.handleNotarizationMessage(msg.Notarization, from)
 	case msg.EmptyNotarization != nil:
-		return e.handleEmptyNotarizationMessage(msg.EmptyNotarization)
+		return e.handleEmptyNotarizationMessage(msg.EmptyNotarization, from)
 	case msg.FinalizeVote != nil:
 		return e.handleFinalizeVoteMessage(msg.FinalizeVote, from)
 	case msg.Finalization != nil:
@@ -535,8 +535,7 @@ func (e *Epoch) handleFinalizationMessage(message *Finalization, from NodeID) er
 		return nil
 	}
 
-	valid := IsFinalizationValid(e.eligibleNodeIDs, message, e.quorumSize, e.Logger)
-	if !valid {
+	if err := VerifyQC(message.QC, e.Logger, "Finalization", e.quorumSize, e.eligibleNodeIDs, message, from); err != nil {
 		e.Logger.Debug("Received an invalid finalization",
 			zap.Int("round", int(message.Finalization.Round)),
 			zap.Stringer("NodeID", from))
@@ -1272,7 +1271,7 @@ func (e *Epoch) persistAndBroadcastNotarization(notarization Notarization) error
 	return errors.Join(e.doNotarized(notarization.Vote.Round), e.maybeLoadFutureMessages())
 }
 
-func (e *Epoch) handleEmptyNotarizationMessage(emptyNotarization *EmptyNotarization) error {
+func (e *Epoch) handleEmptyNotarizationMessage(emptyNotarization *EmptyNotarization, from NodeID) error {
 	vote := emptyNotarization.Vote
 
 	e.Logger.Verbo("Received empty notarization message", zap.Uint64("round", vote.Round))
@@ -1292,8 +1291,7 @@ func (e *Epoch) handleEmptyNotarizationMessage(emptyNotarization *EmptyNotarizat
 	}
 
 	// Otherwise, this round is not notarized or finalized yet, so verify the empty notarization and store it.
-
-	if !e.verifyEmptyNotarization(emptyNotarization) {
+	if err := VerifyQC(emptyNotarization.QC, e.Logger, "Empty notarization", e.quorumSize, e.eligibleNodeIDs, emptyNotarization, from); err != nil {
 		return nil
 	}
 
@@ -1309,42 +1307,6 @@ func (e *Epoch) handleEmptyNotarizationMessage(emptyNotarization *EmptyNotarizat
 	return e.persistEmptyNotarization(emptyNotarization, false)
 }
 
-func (e *Epoch) verifyEmptyNotarization(emptyNotarization *EmptyNotarization) bool {
-	// Check empty notarization was signed by only eligible nodes
-	if emptyNotarization.QC == nil {
-		e.Logger.Debug("Empty notarization quorum certificate is nil")
-		return false
-	}
-
-	for _, signer := range emptyNotarization.QC.Signers() {
-		if _, exists := e.eligibleNodeIDs[string(signer)]; !exists {
-			e.Logger.Warn("Empty notarization quorum certificate contains an unknown signer", zap.Stringer("signer", signer))
-			return false
-		}
-	}
-
-	// Ensure no node signed the empty notarization twice
-	doubleSigner, signedTwice := hasSomeNodeSignedTwice(emptyNotarization.QC.Signers(), e.Logger)
-	if signedTwice {
-		e.Logger.Warn("A node has signed the empty notarization twice", zap.Stringer("signer", doubleSigner))
-		return false
-	}
-
-	// Check enough signers signed the empty notarization
-	if e.quorumSize > len(emptyNotarization.QC.Signers()) {
-		e.Logger.Warn("Empty notarization signed by insufficient nodes",
-			zap.Int("count", len(emptyNotarization.QC.Signers())),
-			zap.Int("Quorum", e.quorumSize))
-		return false
-	}
-
-	if err := emptyNotarization.Verify(); err != nil {
-		e.Logger.Debug("Empty Notarization is invalid", zap.Error(err))
-		return false
-	}
-	return true
-}
-
 func (e *Epoch) handleNotarizationMessage(message *Notarization, from NodeID) error {
 	vote := message.Vote
 
@@ -1355,7 +1317,7 @@ func (e *Epoch) handleNotarizationMessage(message *Notarization, from NodeID) er
 		return nil
 	}
 
-	if !e.verifyNotarization(message, from) {
+	if err := VerifyQC(message.QC, e.Logger, "Notarization", e.quorumSize, e.eligibleNodeIDs, message, from); err != nil {
 		return nil
 	}
 
@@ -1381,38 +1343,6 @@ func (e *Epoch) handleNotarizationMessage(message *Notarization, from NodeID) er
 	// Note that we don't need to check if we have timed out on this round,
 	// because if we had collected an empty notarization for this round, we would have progressed to the next round.
 	return e.persistAndBroadcastNotarization(*message)
-}
-
-func (e *Epoch) verifyNotarization(message *Notarization, from NodeID) bool {
-	// Ensure no node signed the notarization twice
-	doubleSigner, signedTwice := hasSomeNodeSignedTwice(message.QC.Signers(), e.Logger)
-	if signedTwice {
-		e.Logger.Warn("A node has signed the notarization twice", zap.Stringer("signer", doubleSigner))
-		return false
-	}
-
-	// Check enough signers signed the notarization
-	if e.quorumSize > len(message.QC.Signers()) {
-		e.Logger.Warn("Notarization certificate signed by insufficient nodes",
-			zap.Int("count", len(message.QC.Signers())),
-			zap.Int("Quorum", e.quorumSize))
-		return false
-	}
-
-	// Check notarization was signed by only eligible nodes
-	for _, signer := range message.QC.Signers() {
-		if _, exists := e.eligibleNodeIDs[string(signer)]; !exists {
-			e.Logger.Warn("Notarization quorum certificate contains an unknown signer", zap.Stringer("signer", signer))
-			return false
-		}
-	}
-
-	if err := message.Verify(); err != nil {
-		e.Logger.Debug("Notarization quorum certificate is invalid",
-			zap.Stringer("NodeID", from), zap.Error(err))
-		return false
-	}
-	return true
 }
 
 func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
@@ -2175,6 +2105,13 @@ func (e *Epoch) monitorProgress(round uint64) {
 	proposalWaitTimeExpired := func() {
 		e.lock.Lock()
 		defer e.lock.Unlock()
+
+		// Check if we have advanced to a higher round in the meantime while this task was dispatched.
+		if round < e.round {
+			e.Logger.Debug("Not triggering empty block agreement because we advanced to a higher round")
+			return
+		}
+
 		leader := LeaderForRound(e.nodes, round)
 		e.Logger.Debug("Triggering empty block agreement",
 			zap.String("reason", "Timed out on block agreement"),
@@ -2187,7 +2124,7 @@ func (e *Epoch) monitorProgress(round uint64) {
 
 	blockShouldBeBuiltNotification := func() {
 		// This invocation blocks until the block builder tells us it's time to build a new block.
-		e.BlockBuilder.IncomingBlock(ctx)
+		e.BlockBuilder.WaitForPendingBlock(ctx)
 		// While we waited, a block might have been notarized.
 		// If so, then don't start monitoring for it being notarized.
 		if cancelled.Load() {
@@ -2424,7 +2361,7 @@ func (e *Epoch) maybeLoadFutureMessages() error {
 		emptyVotes, exists := e.emptyVotes[round]
 		if exists {
 			if emptyVotes.emptyNotarization != nil {
-				if err := e.handleEmptyNotarizationMessage(emptyVotes.emptyNotarization); err != nil {
+				if err := e.handleEmptyNotarizationMessage(emptyVotes.emptyNotarization, nil); err != nil {
 					return err
 				}
 			} else {
@@ -2581,7 +2518,7 @@ func (e *Epoch) handleReplicationResponse(resp *ReplicationResponse, from NodeID
 			continue
 		}
 
-		if err := e.verifyQuorumRound(data); err != nil {
+		if err := e.verifyQuorumRound(data, from); err != nil {
 			e.Logger.Debug("Received invalid quorum round", zap.Uint64("seq", data.GetSequence()), zap.Stringer("from", from))
 			continue
 		}
@@ -2590,7 +2527,7 @@ func (e *Epoch) handleReplicationResponse(resp *ReplicationResponse, from NodeID
 		e.replicationState.StoreQuorumRound(data)
 	}
 
-	if err := e.processLatestRoundReceived(resp.LatestRound); err != nil {
+	if err := e.processLatestRoundReceived(resp.LatestRound, from); err != nil {
 		e.Logger.Debug("Failed processing latest round", zap.Error(err))
 		return nil
 	}
@@ -2600,16 +2537,29 @@ func (e *Epoch) handleReplicationResponse(resp *ReplicationResponse, from NodeID
 	return e.processReplicationState()
 }
 
-func (e *Epoch) verifyQuorumRound(q QuorumRound) error {
-	if err := q.Verify(); err != nil {
+func (e *Epoch) verifyQuorumRound(q QuorumRound, from NodeID) error {
+	if err := q.VerifyQCConsistentWithBlock(); err != nil {
 		return err
 	}
 
 	if q.Finalization != nil {
 		// extra check needed if we have a finalized block
-		valid := IsFinalizationValid(e.eligibleNodeIDs, q.Finalization, e.quorumSize, e.Logger)
-		if !valid {
+		err := VerifyQC(q.Finalization.QC, e.Logger, "Finalization", e.quorumSize, e.eligibleNodeIDs, q.Finalization, from)
+		if err != nil {
 			return errors.New("invalid finalization")
+		}
+	}
+
+	if q.Notarization != nil {
+		if err := VerifyQC(q.Notarization.QC, e.Logger, "Notarization", e.quorumSize, e.eligibleNodeIDs, q.Notarization, from); err != nil {
+			return fmt.Errorf("invalid notarization: %v", err)
+		}
+	}
+
+	if q.EmptyNotarization != nil {
+		err := VerifyQC(q.EmptyNotarization.QC, e.Logger, "Empty notarization", e.quorumSize, e.eligibleNodeIDs, q.EmptyNotarization, from)
+		if err != nil {
+			return fmt.Errorf("invalid empty notarization QC: %v", err)
 		}
 	}
 
@@ -2628,7 +2578,7 @@ func (e *Epoch) processEmptyNotarization(emptyNotarization *EmptyNotarization) e
 	return e.processReplicationState()
 }
 
-func (e *Epoch) processLatestRoundReceived(latestRound *QuorumRound) error {
+func (e *Epoch) processLatestRoundReceived(latestRound *QuorumRound, from NodeID) error {
 	if latestRound == nil {
 		return nil
 	}
@@ -2639,7 +2589,7 @@ func (e *Epoch) processLatestRoundReceived(latestRound *QuorumRound) error {
 		return err
 	}
 
-	if err := e.verifyQuorumRound(*latestRound); err != nil {
+	if err := e.verifyQuorumRound(*latestRound, from); err != nil {
 		e.Logger.Debug("Received invalid latest round", zap.Error(err))
 		return err
 	}
