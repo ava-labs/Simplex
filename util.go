@@ -6,6 +6,7 @@ package simplex
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 
 	"go.uber.org/zap"
@@ -29,50 +30,6 @@ func RetrieveLastIndexFromStorage(s Storage) (*VerifiedFinalizedBlock, error) {
 	}, nil
 }
 
-func IsFinalizationValid(eligibleSigners map[string]struct{}, finalization *Finalization, quorumSize int, logger Logger) bool {
-	valid := validateFinalizationQC(eligibleSigners, finalization, quorumSize, logger)
-	if !valid {
-		return false
-	}
-
-	return true
-}
-
-func validateFinalizationQC(eligibleSigners map[string]struct{}, finalization *Finalization, quorumSize int, logger Logger) bool {
-	if finalization.QC == nil {
-		return false
-	}
-
-	// Check enough signers signed the finalization
-	if quorumSize > len(finalization.QC.Signers()) {
-		logger.Debug("ToBeSignedFinalization signed by insufficient nodes",
-			zap.Int("count", len(finalization.QC.Signers())),
-			zap.Int("Quorum", quorumSize))
-		return false
-	}
-
-	doubleSigner, signedTwice := hasSomeNodeSignedTwice(finalization.QC.Signers(), logger)
-
-	if signedTwice {
-		logger.Debug("Finalization signed twice by the same node", zap.Stringer("signer", doubleSigner))
-		return false
-	}
-
-	// Finally, check that all signers are eligible of signing, and we don't have made up identities
-	for _, signer := range finalization.QC.Signers() {
-		if _, exists := eligibleSigners[string(signer)]; !exists {
-			logger.Debug("Finalization Quorum Certificate contains an unknown signer", zap.Stringer("signer", signer))
-			return false
-		}
-	}
-
-	if err := finalization.Verify(); err != nil {
-		return false
-	}
-
-	return true
-}
-
 func hasSomeNodeSignedTwice(nodeIDs []NodeID, logger Logger) (NodeID, bool) {
 	seen := make(map[string]struct{}, len(nodeIDs))
 
@@ -85,6 +42,46 @@ func hasSomeNodeSignedTwice(nodeIDs []NodeID, logger Logger) (NodeID, bool) {
 	}
 
 	return NodeID{}, false
+}
+
+func VerifyQC(qc QuorumCertificate, logger Logger, messageType string, quorumSize int, eligibleSigners map[string]struct{}, messageToVerify verifiableMessage, from NodeID) error {
+	if qc == nil {
+		logger.Debug("Received nil QuorumCertificate")
+		return fmt.Errorf("nil QuorumCertificate")
+	}
+	msgTypeLowerCase := strings.ToLower(messageType)
+	// Ensure no node signed the QuorumCertificate twice
+	doubleSigner, signedTwice := hasSomeNodeSignedTwice(qc.Signers(), logger)
+	if signedTwice {
+		logger.Debug(fmt.Sprintf("%s is signed by the same node more than once", messageType), zap.Stringer("signer", doubleSigner))
+		return fmt.Errorf("%s is signed by the same node (%s) more than once", msgTypeLowerCase, doubleSigner)
+	}
+
+	// Check enough signers signed the QuorumCertificate
+	if quorumSize > len(qc.Signers()) {
+		logger.Debug(fmt.Sprintf("%s certificate signed by insufficient nodes", messageType),
+			zap.Int("count", len(qc.Signers())),
+			zap.Int("Quorum", quorumSize))
+		return fmt.Errorf("%s certificate signed by insufficient (%d < %d) nodes", msgTypeLowerCase, len(qc.Signers()), quorumSize)
+	}
+
+	// Check QuorumCertificate was signed by only eligible nodes
+	for _, signer := range qc.Signers() {
+		if _, exists := eligibleSigners[string(signer)]; !exists {
+			logger.Debug(fmt.Sprintf("%s quorum certificate contains an unknown signer", messageType), zap.Stringer("signer", signer))
+			return fmt.Errorf("%s quorum certificate contains an unknown signer (%s)", msgTypeLowerCase, signer)
+		}
+	}
+
+	if err := messageToVerify.Verify(); err != nil {
+		if len(from) > 0 {
+			logger.Debug(fmt.Sprintf("%s quorum certificate is invalid", messageType), zap.Stringer("NodeID", from), zap.Error(err))
+		} else {
+			logger.Debug(fmt.Sprintf("%s quorum certificate is invalid", messageType), zap.Error(err))
+		}
+		return err
+	}
+	return nil
 }
 
 // GetLatestVerifiedQuorumRound returns the latest verified quorum round given
