@@ -946,17 +946,15 @@ func advanceWithoutLeader(t *testing.T, net *inMemNetwork, bb *testControlledBlo
 		waitToEnterRound(t, n.e, round)
 	}
 
-	for _, n := range net.instances {
-		leader := n.e.ID.Equals(simplex.LeaderForRound(net.nodes, n.e.Metadata().Round))
-		if leader || laggingNodeId.Equals(n.e.ID) {
-			continue
+	for range net.instances {
+		select {
+		case bb.blockShouldBeBuilt <- struct{}{}:
+		default:
+
 		}
-		bb.blockShouldBeBuilt <- struct{}{}
 	}
 
 	for i, n := range net.instances {
-		// the leader will not write an empty vote to the wal
-		// because it cannot both propose a block & send an empty vote in the same round
 		leader := n.e.ID.Equals(simplex.LeaderForRound(net.nodes, n.e.Metadata().Round))
 		if leader || laggingNodeId.Equals(n.e.ID) {
 			continue
