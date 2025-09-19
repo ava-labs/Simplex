@@ -181,6 +181,19 @@ func (r *ReplicationState) createReplicationTimeoutTask(start, end uint64, nodes
 func (r *ReplicationState) receivedReplicationResponse(data []QuorumRound, node NodeID) {
 	seqs := make([]uint64, 0, len(data))
 
+	if r.highestSequenceObserved == nil {
+		var ss signedSequence
+
+		for _, qr := range r.receivedQuorumRounds {
+			if ss.seq < qr.GetSequence() {
+				ss.seq = qr.GetSequence()
+				ss.signers = qr.Notarization.QC.Signers()
+			}
+		}
+
+		r.highestSequenceObserved = &ss
+	}
+
 	// remove all sequences where we expect a finalization but only received a notarization
 	highestSeq := r.highestSequenceObserved.seq
 	for _, qr := range data {
