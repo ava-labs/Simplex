@@ -424,9 +424,9 @@ type BlockBuilder interface {
     // When the given context is cancelled by the caller, returns false.
     BuildBlock(ctx Context, metadata ProtocolMetadata) (Block, bool)
 
-    // IncomingBlock returns when either the given context is cancelled,
+    // WaitForPendingBlock returns when either the given context is cancelled,
     // or when the application signals that a block should be built.
-    IncomingBlock(ctx Context)
+    WaitForPendingBlock(ctx Context)
 }
 ```
 
