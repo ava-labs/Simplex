@@ -40,9 +40,9 @@ type BlockBuilder interface {
 	// When the given context is cancelled by the caller, returns false.
 	BuildBlock(ctx context.Context, metadata ProtocolMetadata) (VerifiedBlock, bool)
 
-	// IncomingBlock returns when either the given context is cancelled,
+	// WaitForPendingBlock returns when either the given context is cancelled,
 	// or when the application signals that a block should be built.
-	IncomingBlock(ctx context.Context)
+	WaitForPendingBlock(ctx context.Context)
 }
 
 var ErrBlockNotFound = fmt.Errorf("block not found")

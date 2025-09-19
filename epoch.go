@@ -2184,7 +2184,7 @@ func (e *Epoch) monitorProgress(round uint64) {
 
 	blockShouldBeBuiltNotification := func() {
 		// This invocation blocks until the block builder tells us it's time to build a new block.
-		e.BlockBuilder.IncomingBlock(ctx)
+		e.BlockBuilder.WaitForPendingBlock(ctx)
 		// While we waited, a block might have been notarized.
 		// If so, then don't start monitoring for it being notarized.
 		if cancelled.Load() {
