@@ -2249,11 +2249,14 @@ func (e *Epoch) increaseRound() {
 	e.timeoutHandler.RemoveTask(e.ID, EmptyVoteTimeoutID)
 	e.deleteEmptyVoteForPreviousRound()
 
-	leader := LeaderForRound(e.nodes, e.round)
+	prevLeader := LeaderForRound(e.nodes, e.round)
+	nextLeader := LeaderForRound(e.nodes, e.round+1)
+
 	e.Logger.Info("Moving to a new round",
-		zap.Uint64("old round", e.round),
-		zap.Uint64("new round", e.round+1),
-		zap.Stringer("leader", leader))
+		zap.Uint64("prev round", e.round),
+		zap.Uint64("next round", e.round+1),
+		zap.Stringer("prev leader", prevLeader),
+		zap.Stringer("next leader", nextLeader))
 	e.round++
 }
 
