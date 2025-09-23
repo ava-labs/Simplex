@@ -1906,7 +1906,17 @@ func (e *Epoch) locateBlock(seq uint64, digest []byte) (VerifiedBlock, bool) {
 func (e *Epoch) buildBlock() {
 	metadata := e.metadata()
 
-	task := e.createBlockBuildingTask(metadata)
+	buildTheBlock := e.createBlockBuildingTask(metadata)
+
+	round := e.round
+
+	task := func() Digest {
+		digest := buildTheBlock()
+		e.lock.Lock()
+		defer e.lock.Unlock()
+		e.monitorProgress(round)
+		return digest
+	}
 
 	e.Logger.Debug("Scheduling block building", zap.Uint64("round", metadata.Round))
 	e.sched.Schedule(task, metadata.Prev, true)
@@ -2241,11 +2251,14 @@ func (e *Epoch) increaseRound() {
 	e.timeoutHandler.RemoveTask(e.ID, EmptyVoteTimeoutID)
 	e.deleteEmptyVoteForPreviousRound()
 
-	leader := LeaderForRound(e.nodes, e.round)
+	prevLeader := LeaderForRound(e.nodes, e.round)
+	nextLeader := LeaderForRound(e.nodes, e.round+1)
+
 	e.Logger.Info("Moving to a new round",
-		zap.Uint64("old round", e.round),
-		zap.Uint64("new round", e.round+1),
-		zap.Stringer("leader", leader))
+		zap.Uint64("prev round", e.round),
+		zap.Uint64("next round", e.round+1),
+		zap.Stringer("prev leader", prevLeader),
+		zap.Stringer("next leader", nextLeader))
 	e.round++
 }
 
