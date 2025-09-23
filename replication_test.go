@@ -225,6 +225,25 @@ func TestRebroadcastingWithReplication(t *testing.T) {
 	net.Connect(laggingNode.e.ID)
 	block := net.triggerLeaderBlockBuilder(numNotarizations)
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	
+	// because replication requests can be outdated(if nodes have not received rebroadcasted finalizations), we may need
+	// to trigger replication timeouts.
+	go func() {
+		for {
+			for i, n := range net.instances {
+				// advance time
+				epochTimes[i] = epochTimes[i].Add(2 * simplex.DefaultMaxProposalWaitTime)
+				n.e.AdvanceTime(epochTimes[i])
+			}
+			if ctx.Err() != nil {
+				return
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+	}()
+
 	for i := uint64(0); i <= block.metadata.Seq; i++ {
 		for _, n := range net.instances {
 			n.storage.waitForBlockCommit(i)
