@@ -29,10 +29,9 @@ func TestReplicationRequestTimeout(t *testing.T) {
 	numInitialSeqs := uint64(8)
 
 	// node begins replication
-	bb := newTestControlledBlockBuilder(t)
 	net := newInMemNetwork(t, nodes)
 
-	storageData := createBlocks(t, nodes, &bb.testBlockBuilder, numInitialSeqs)
+	storageData := createBlocks(t, nodes, numInitialSeqs)
 
 	newNodeConfig := func(from simplex.NodeID) *testNodeConfig {
 		comm := newTestComm(from, net, rejectReplicationRequests)
@@ -43,24 +42,24 @@ func TestReplicationRequestTimeout(t *testing.T) {
 		}
 	}
 
-	newSimplexNode(t, nodes[0], net, bb, newNodeConfig(nodes[0]))
-	newSimplexNode(t, nodes[1], net, bb, newNodeConfig(nodes[1]))
-	newSimplexNode(t, nodes[2], net, bb, newNodeConfig(nodes[2]))
-	laggingNode := newSimplexNode(t, nodes[3], net, bb, &testNodeConfig{
+	newSimplexNode(t, nodes[0], net, newNodeConfig(nodes[0]))
+	newSimplexNode(t, nodes[1], net, newNodeConfig(nodes[1]))
+	newSimplexNode(t, nodes[2], net, newNodeConfig(nodes[2]))
+	laggingNode := newSimplexNode(t, nodes[3], net, &testNodeConfig{
 		replicationEnabled: true,
 	})
 
 	net.startInstances()
-	bb.triggerNewBlock()
+	net.triggerLeaderBlockBuilder(0)
 
 	// typically the lagging node would catch up here, but since we block
 	// replication requests, the lagging node will be forced to resend requests after a timeout
-	for i := 0; i <= int(numInitialSeqs); i++ {
+	for i := uint64(0); i <= numInitialSeqs; i++ {
 		for _, n := range net.instances {
 			if n.e.ID.Equals(laggingNode.e.ID) {
 				continue
 			}
-			n.storage.waitForBlockCommit(uint64(numInitialSeqs))
+			n.storage.waitForBlockCommit(i)
 		}
 	}
 
@@ -102,24 +101,23 @@ func TestReplicationRequestTimeoutCancels(t *testing.T) {
 	nodes := []simplex.NodeID{{1}, {2}, {3}, []byte("lagging")}
 	startSeq := uint64(8)
 
-	bb := newTestControlledBlockBuilder(t)
 	net := newInMemNetwork(t, nodes)
 
 	// initiate a network with 4 nodes. one node is behind by startSeq blocks
-	storageData := createBlocks(t, nodes, &bb.testBlockBuilder, startSeq)
+	storageData := createBlocks(t, nodes, startSeq)
 	testEpochConfig := &testNodeConfig{
 		initialStorage:     storageData,
 		replicationEnabled: true,
 	}
-	newSimplexNode(t, nodes[0], net, bb, testEpochConfig)
-	newSimplexNode(t, nodes[1], net, bb, testEpochConfig)
-	newSimplexNode(t, nodes[2], net, bb, testEpochConfig)
-	laggingNode := newSimplexNode(t, nodes[3], net, bb, &testNodeConfig{
+	newSimplexNode(t, nodes[0], net, testEpochConfig)
+	newSimplexNode(t, nodes[1], net, testEpochConfig)
+	newSimplexNode(t, nodes[2], net, testEpochConfig)
+	laggingNode := newSimplexNode(t, nodes[3], net, &testNodeConfig{
 		replicationEnabled: true,
 	})
 
 	net.startInstances()
-	bb.triggerNewBlock()
+	net.triggerLeaderBlockBuilder(startSeq)
 
 	// all blocks except the lagging node start at round 8, seq 8.
 	// lagging node starts at round 0, seq 0.
@@ -138,9 +136,9 @@ func TestReplicationRequestTimeoutCancels(t *testing.T) {
 	laggingNode.e.AdvanceTime(laggingNode.e.StartTime.Add(simplex.DefaultReplicationRequestTimeout * 2))
 
 	// ensure enough time passes after advanceTime is called
-	bb.triggerNewBlock()
+	net.triggerLeaderBlockBuilder(startSeq + 1)
 	for _, n := range net.instances {
-		n.storage.waitForBlockCommit(uint64(startSeq + 1))
+		n.storage.waitForBlockCommit(startSeq + 1)
 	}
 }
 
@@ -151,10 +149,9 @@ func TestReplicationRequestTimeoutMultiple(t *testing.T) {
 	startSeq := uint64(8)
 
 	// node begins replication
-	bb := newTestControlledBlockBuilder(t)
 	net := newInMemNetwork(t, nodes)
 
-	storageData := createBlocks(t, nodes, &bb.testBlockBuilder, startSeq)
+	storageData := createBlocks(t, nodes, startSeq)
 
 	newNodeConfig := func(from simplex.NodeID) *testNodeConfig {
 		comm := newTestComm(from, net, rejectReplicationRequests)
@@ -170,16 +167,16 @@ func TestReplicationRequestTimeoutMultiple(t *testing.T) {
 		replicationResponses: make(chan struct{}, 1),
 	}
 
-	newSimplexNode(t, nodes[0], net, bb, newNodeConfig(nodes[0]))
-	normalNode2 := newSimplexNode(t, nodes[1], net, bb, newNodeConfig(nodes[1]))
+	newSimplexNode(t, nodes[0], net, newNodeConfig(nodes[0]))
+	normalNode2 := newSimplexNode(t, nodes[1], net, newNodeConfig(nodes[1]))
 	normalNode2.e.Comm.(*testComm).setFilter(mf.receivedReplicationRequest)
-	newSimplexNode(t, nodes[2], net, bb, newNodeConfig(nodes[2]))
-	laggingNode := newSimplexNode(t, nodes[3], net, bb, &testNodeConfig{
+	newSimplexNode(t, nodes[2], net, newNodeConfig(nodes[2]))
+	laggingNode := newSimplexNode(t, nodes[3], net, &testNodeConfig{
 		replicationEnabled: true,
 	})
 
 	net.startInstances()
-	bb.triggerNewBlock()
+	net.triggerLeaderBlockBuilder(0)
 
 	// typically the lagging node would catch up here, but since we block
 	// replication requests, the lagging node will be forced to resend requests after a timeout
@@ -236,10 +233,9 @@ func TestReplicationRequestIncompleteResponses(t *testing.T) {
 	startSeq := uint64(8)
 
 	// node begins replication
-	bb := newTestControlledBlockBuilder(t)
 	net := newInMemNetwork(t, nodes)
 
-	storageData := createBlocks(t, nodes, &bb.testBlockBuilder, startSeq)
+	storageData := createBlocks(t, nodes, startSeq)
 
 	newNodeConfig := func(from simplex.NodeID) *testNodeConfig {
 		comm := newTestComm(from, net, rejectReplicationRequests)
@@ -255,15 +251,15 @@ func TestReplicationRequestIncompleteResponses(t *testing.T) {
 		replicationResponses: make(chan struct{}, 1),
 	}
 
-	newSimplexNode(t, nodes[0], net, bb, newNodeConfig(nodes[0]))
-	normalNode2 := newSimplexNode(t, nodes[1], net, bb, newNodeConfig(nodes[1]))
+	newSimplexNode(t, nodes[0], net, newNodeConfig(nodes[0]))
+	normalNode2 := newSimplexNode(t, nodes[1], net, newNodeConfig(nodes[1]))
 	normalNode2.e.Comm.(*testComm).setFilter(mf.receivedReplicationRequest)
-	newSimplexNode(t, nodes[2], net, bb, newNodeConfig(nodes[2]))
+	newSimplexNode(t, nodes[2], net, newNodeConfig(nodes[2]))
 
 	recordedMessages := make(chan *simplex.Message, 1000)
 	comm := newTestComm(nodes[3], net, allowAllMessages)
 
-	laggingNode := newSimplexNode(t, nodes[3], net, bb, &testNodeConfig{
+	laggingNode := newSimplexNode(t, nodes[3], net, &testNodeConfig{
 		replicationEnabled: true,
 		comm:               &recordingComm{Communication: comm, SentMessages: recordedMessages},
 	})
@@ -273,7 +269,7 @@ func TestReplicationRequestIncompleteResponses(t *testing.T) {
 	}
 
 	net.startInstances()
-	bb.triggerNewBlock()
+	net.triggerLeaderBlockBuilder(startSeq)
 
 	// typically the lagging node would catch up here, but since we block
 	// replication requests, the lagging node will be forced to resend requests after a timeout
@@ -382,8 +378,6 @@ func (c *collectNotarizationComm) removeFinalizationsFromReplicationResponses(ms
 func TestReplicationRequestWithoutFinalization(t *testing.T) {
 	nodes := []simplex.NodeID{{1}, {2}, {3}, []byte("lagging")}
 	endDisconnect := uint64(10)
-	bb := newTestControlledBlockBuilder(t)
-	laggingBb := newTestControlledBlockBuilder(t)
 	net := newInMemNetwork(t, nodes)
 
 	notarizations := make(map[uint64]*simplex.Notarization)
@@ -396,13 +390,13 @@ func TestReplicationRequestWithoutFinalization(t *testing.T) {
 	}
 
 	notarizationComm := newCollectNotarizationComm(nodes[0], net, notarizations, mapLock)
-	newSimplexNode(t, nodes[0], net, bb, &testNodeConfig{
+	newSimplexNode(t, nodes[0], net, &testNodeConfig{
 		replicationEnabled: true,
 		comm:               notarizationComm,
 	})
-	newSimplexNode(t, nodes[1], net, bb, testConfig(nodes[1]))
-	newSimplexNode(t, nodes[2], net, bb, testConfig(nodes[2]))
-	laggingNode := newSimplexNode(t, nodes[3], net, laggingBb, testConfig(nodes[3]))
+	newSimplexNode(t, nodes[1], net, testConfig(nodes[1]))
+	newSimplexNode(t, nodes[2], net, testConfig(nodes[2]))
+	laggingNode := newSimplexNode(t, nodes[3], net, testConfig(nodes[3]))
 
 	epochTimes := make([]time.Time, 0, 4)
 	for _, n := range net.instances {
@@ -417,17 +411,17 @@ func TestReplicationRequestWithoutFinalization(t *testing.T) {
 	for i := uint64(0); i < endDisconnect; i++ {
 		emptyRound := bytes.Equal(simplex.LeaderForRound(nodes, i), nodes[3])
 		if emptyRound {
-			advanceWithoutLeader(t, net, bb, epochTimes, i, laggingNode.e.ID)
+			advanceWithoutLeader(t, net, epochTimes, i, laggingNode.e.ID)
 			missedSeqs++
 		} else {
-			bb.triggerNewBlock()
+			net.triggerLeaderBlockBuilder(i)
 			for _, n := range net.instances[:3] {
 				n.storage.waitForBlockCommit(i - missedSeqs)
 			}
 		}
 	}
 
-	// all nodes excpet for lagging node have progressed and commited [endDisconnect - missedSeqs] blocks
+	// all nodes except for lagging node have progressed and committed [endDisconnect - missedSeqs] blocks
 	for _, n := range net.instances[:3] {
 		require.Equal(t, endDisconnect-missedSeqs, n.storage.NumBlocks())
 	}
@@ -436,7 +430,7 @@ func TestReplicationRequestWithoutFinalization(t *testing.T) {
 	// lagging node reconnects
 	net.setAllNodesMessageFilter(notarizationComm.removeFinalizationsFromReplicationResponses)
 	net.Connect(nodes[3])
-	bb.triggerNewBlock()
+	net.triggerLeaderBlockBuilder(endDisconnect)
 	for _, n := range net.instances {
 		if n.e.ID.Equals(laggingNode.e.ID) {
 			continue
@@ -468,16 +462,15 @@ func TestReplicationRequestWithoutFinalization(t *testing.T) {
 	laggingNode.storage.waitForBlockCommit(endDisconnect - missedSeqs)
 }
 
-// TestReplicationMalformedQuorumRound tests that a node resends a replication request when it receives a malformed quorum round message.
+// TestReplicationMalformedQuorumRound tests that a node re-sends a replication request when it receives a malformed quorum round message.
 func TestReplicationMalformedQuorumRound(t *testing.T) {
 	nodes := []simplex.NodeID{{1}, {2}, {3}, []byte("lagging")}
 	startSeq := uint64(8)
 
 	// node begins replication
-	bb := newTestControlledBlockBuilder(t)
 	net := newInMemNetwork(t, nodes)
 
-	storageData := createBlocks(t, nodes, &bb.testBlockBuilder, startSeq)
+	storageData := createBlocks(t, nodes, startSeq)
 
 	newNodeConfig := func(from simplex.NodeID) *testNodeConfig {
 		comm := newTestComm(from, net, rejectReplicationRequests)
@@ -493,21 +486,21 @@ func TestReplicationMalformedQuorumRound(t *testing.T) {
 		replicationResponses: make(chan struct{}, 1),
 	}
 
-	newSimplexNode(t, nodes[0], net, bb, newNodeConfig(nodes[0]))
-	normalNode2 := newSimplexNode(t, nodes[1], net, bb, newNodeConfig(nodes[1]))
+	newSimplexNode(t, nodes[0], net, newNodeConfig(nodes[0]))
+	normalNode2 := newSimplexNode(t, nodes[1], net, newNodeConfig(nodes[1]))
 	normalNode2.e.Comm.(*testComm).setFilter(mf.receivedReplicationRequest)
-	newSimplexNode(t, nodes[2], net, bb, newNodeConfig(nodes[2]))
+	newSimplexNode(t, nodes[2], net, newNodeConfig(nodes[2]))
 
 	recordedMessages := make(chan *simplex.Message, 1000)
 	comm := newTestComm(nodes[3], net, allowAllMessages)
 
-	laggingNode := newSimplexNode(t, nodes[3], net, bb, &testNodeConfig{
+	laggingNode := newSimplexNode(t, nodes[3], net, &testNodeConfig{
 		replicationEnabled: true,
 		comm:               &recordingComm{Communication: comm, SentMessages: recordedMessages},
 	})
 
 	net.startInstances()
-	bb.triggerNewBlock()
+	net.triggerLeaderBlockBuilder(0)
 
 	// typically the lagging node would catch up here, but since we block
 	// replication requests, the lagging node will be forced to resend requests after a timeout

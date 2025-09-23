@@ -696,7 +696,7 @@ func TestRecoveryAsLeader(t *testing.T) {
 	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
 	ctx := context.Background()
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
-	finalizedBlocks := createBlocks(t, nodes, bb, 4)
+	finalizedBlocks := createBlocks(t, nodes, 4)
 	storage := newInMemStorage()
 	for _, finalizedBlock := range finalizedBlocks {
 		err := storage.Index(ctx, finalizedBlock.VerifiedBlock, finalizedBlock.Finalization)
@@ -737,7 +737,7 @@ func TestRecoveryReVerifiesBlocks(t *testing.T) {
 	ctx := context.Background()
 	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
-	finalizedBlocks := createBlocks(t, nodes, bb, 4)
+	finalizedBlocks := createBlocks(t, nodes, 4)
 	storage := newInMemStorage()
 	for _, finalizedBlock := range finalizedBlocks {
 		err := storage.Index(ctx, finalizedBlock.VerifiedBlock, finalizedBlock.Finalization)

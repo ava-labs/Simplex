@@ -20,7 +20,7 @@ func TestReplicationRequestIndexedBlocks(t *testing.T) {
 	conf.ReplicationEnabled = true
 
 	numBlocks := uint64(10)
-	seqs := createBlocks(t, nodes, bb, numBlocks)
+	seqs := createBlocks(t, nodes, numBlocks)
 	for _, data := range seqs {
 		err := conf.Storage.Index(ctx, data.VerifiedBlock, data.Finalization)
 		require.NoError(t, err)
@@ -186,11 +186,10 @@ func TestReplicationRequestMixed(t *testing.T) {
 }
 
 func TestNilReplicationResponse(t *testing.T) {
-	bb := newTestControlledBlockBuilder(t)
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
 	net := newInMemNetwork(t, nodes)
 
-	normalNode0 := newSimplexNode(t, nodes[0], net, bb, nil)
+	normalNode0 := newSimplexNode(t, nodes[0], net, nil)
 	normalNode0.start()
 
 	err := normalNode0.HandleMessage(&simplex.Message{
@@ -205,11 +204,10 @@ func TestNilReplicationResponse(t *testing.T) {
 // This replication response is malformeds since it must also include a notarization or
 // finalization.
 func TestMalformedReplicationResponse(t *testing.T) {
-	bb := newTestControlledBlockBuilder(t)
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
 	net := newInMemNetwork(t, nodes)
 
-	normalNode0 := newSimplexNode(t, nodes[0], net, bb, nil)
+	normalNode0 := newSimplexNode(t, nodes[0], net, nil)
 	normalNode0.start()
 
 	err := normalNode0.HandleMessage(&simplex.Message{

@@ -180,7 +180,7 @@ func (e *Epoch) init() error {
 	e.blockBuilderCtx = context.Background()
 	e.blockBuilderCancelFunc = func() {}
 	e.nodes = e.Comm.Nodes()
-	sortNodes(e.nodes)
+	SortNodes(e.nodes)
 
 	e.quorumSize = Quorum(len(e.nodes))
 	e.rounds = make(map[uint64]*Round)
@@ -574,7 +574,7 @@ func (e *Epoch) handleFinalizationForPendingOrFutureRound(message *Finalization,
 	// TODO: delay requesting future finalizations and blocks, since blocks could be in transit
 	e.Logger.Debug("Received finalization for a future round", zap.Uint64("round", round))
 	if LeaderForRound(e.nodes, e.round).Equals(e.ID) {
-		e.Logger.Debug("We are the leader of this round, but a higher round has been finalized. Aborting block building.")
+		e.Logger.Debug("We are the leader of the current round, but a higher round has been finalized. Aborting block building.")
 		e.blockBuilderCancelFunc()
 	}
 	e.replicationState.replicateBlocks(message, nextSeqToCommit)
@@ -988,6 +988,7 @@ func (e *Epoch) persistFinalization(finalization Finalization) error {
 func (e *Epoch) rebroadcastPastFinalizeVotes() error {
 	startRound := e.minRoundInRoundsMap()
 
+	rebroadcasted := make([]*BlockHeader, 0)
 	for r := startRound; r <= e.round; r++ {
 		round, exists := e.rounds[r]
 		if !exists {
@@ -1015,10 +1016,11 @@ func (e *Epoch) rebroadcastPastFinalizeVotes() error {
 			}
 			finalizeVoteMessage = msg
 		}
-		e.Logger.Debug("Rebroadcasting finalization", zap.Uint64("round", r), zap.Uint64("seq", finalizeVoteMessage.FinalizeVote.Finalization.Seq))
+		rebroadcasted = append(rebroadcasted, &finalizeVoteMessage.FinalizeVote.Finalization.BlockHeader)
 		e.Comm.Broadcast(finalizeVoteMessage)
 	}
 
+	e.Logger.Info("Rebroadcasted past finalize votes", zap.Int("count", len(rebroadcasted)), zap.Any("rounds", rebroadcasted))
 	return nil
 }
 
@@ -2257,6 +2259,7 @@ func (e *Epoch) increaseRound() {
 	e.Logger.Info("Moving to a new round",
 		zap.Uint64("prev round", e.round),
 		zap.Uint64("next round", e.round+1),
+		zap.Uint64("next seq", e.nextSeqToCommit()),
 		zap.Stringer("prev leader", prevLeader),
 		zap.Stringer("next leader", nextLeader))
 	e.round++
@@ -2628,7 +2631,6 @@ func (e *Epoch) processReplicationState() error {
 	qRound, ok := e.replicationState.receivedQuorumRounds[e.round]
 	if ok && qRound.Notarization != nil {
 		if qRound.Finalization != nil {
-			e.Logger.Debug("Delaying processing a QuorumRound that has an Finalization != NextSeqToCommit", zap.Stringer("QuourumRound", &qRound))
 			return nil
 		}
 		delete(e.replicationState.receivedQuorumRounds, e.round)
@@ -2764,8 +2766,8 @@ func (e *Epoch) nextSeqToCommit() uint64 {
 	return e.Storage.NumBlocks()
 }
 
-// sortNodes sorts the nodes in place by their byte representations.
-func sortNodes(nodes []NodeID) {
+// SortNodes sorts the nodes in place by their byte representations.
+func SortNodes(nodes []NodeID) {
 	slices.SortFunc(nodes, func(a, b NodeID) int {
 		return bytes.Compare(a[:], b[:])
 	})

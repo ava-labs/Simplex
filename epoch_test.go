@@ -32,7 +32,7 @@ func TestEpochHandleNotarizationFutureRound(t *testing.T) {
 	bb := &testBlockBuilder{}
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	// Create the two blocks ahead of time
-	blocks := createBlocks(t, nodes, bb, 2)
+	blocks := createBlocks(t, nodes, 2)
 	firstBlock := blocks[0].VerifiedBlock.(*testBlock)
 	secondBlock := blocks[1].VerifiedBlock.(*testBlock)
 	bb.out = make(chan *testBlock, 1)
@@ -1427,6 +1427,14 @@ type testBlockBuilder struct {
 	out                chan *testBlock
 	in                 chan *testBlock
 	blockShouldBeBuilt chan struct{}
+}
+
+func newTestBlockBuilder() *testBlockBuilder {
+	return &testBlockBuilder{
+		out:                make(chan *testBlock, 1),
+		in:                 make(chan *testBlock, 1),
+		blockShouldBeBuilt: make(chan struct{}, 1),
+	}
 }
 
 // BuildBlock builds a new testblock and sends it to the BlockBuilder channel
