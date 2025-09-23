@@ -454,6 +454,8 @@ func TestReplicationFutureFinalization(t *testing.T) {
 func TestReplicationAfterNodeDisconnects(t *testing.T) {
 	nodes := []simplex.NodeID{{1}, {2}, {3}, []byte("lagging")}
 
+	bla bla
+
 	for startDisconnect := uint64(0); startDisconnect <= 5; startDisconnect++ {
 		for endDisconnect := uint64(10); endDisconnect <= 20; endDisconnect++ {
 			// lagging node cannot be the leader after node disconnects
