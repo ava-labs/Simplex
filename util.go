@@ -35,7 +35,7 @@ func hasSomeNodeSignedTwice(nodeIDs []NodeID, logger Logger) (NodeID, bool) {
 
 	for _, nodeID := range nodeIDs {
 		if _, alreadySeen := seen[string(nodeID)]; alreadySeen {
-			logger.Warn("Observed a signature originating at least twice from the same node")
+			logger.Debug("Observed a signature originating at least twice from the same node")
 			return nodeID, true
 		}
 		seen[string(nodeID)] = struct{}{}
@@ -183,7 +183,7 @@ func (block *oneTimeVerifiedBlock) Verify(ctx context.Context) (VerifiedBlock, e
 	}()
 
 	if result, exists := block.otv.digests[digest]; exists {
-		block.otv.logger.Warn("Attempted to verify an already verified block", zap.Uint64("round", header.Round))
+		block.otv.logger.Debug("Attempted to verify an already verified block", zap.Uint64("round", header.Round))
 		return result.vb, result.err
 	}
 

@@ -470,7 +470,7 @@ func TestEpochFinalizeThenNotarize(t *testing.T) {
 				Vote:  *vote,
 				Block: block,
 			},
-		}, nodes[0])
+		}, nodes[1])
 		require.NoError(t, err)
 
 		for i := 1; i < quorum; i++ {
