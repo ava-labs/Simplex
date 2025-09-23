@@ -1,10 +1,22 @@
-#!/usr/bin/env -euxo pipefail bash
+#!/usr/bin/env -eux bash
 
-go test -v -race ./... | tee out.log 
+set -o pipefail
+
+go test -v -race ./... | tee out.log
+
+if [[ $? -ne 0 ]];then
+  echo "Tests failed"
+  exit 1
+fi
+
+echo "Checking for warnings or errors in the test output"
 
 grep -Eq "ERR|WARN" out.log 
 if [[ $? -eq 0 ]];then
 	echo "Found warnings or errors in the test run"
 	exit 1
 fi
+
+echo "No warnings or errors found in the test run"
+exit 0
 
