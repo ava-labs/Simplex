@@ -1276,6 +1276,12 @@ func (e *Epoch) handleEmptyNotarizationMessage(emptyNotarization *EmptyNotarizat
 
 	e.Logger.Verbo("Received empty notarization message", zap.Uint64("round", vote.Round))
 
+	if e.isRoundTooFarAhead(vote.Round) {
+		e.Logger.Debug("Received an empty notarization for a too high round",
+			zap.Uint64("round", vote.Round), zap.Uint64("our round", e.round))
+		return nil
+	}
+	
 	// Ignore votes for previous rounds
 	if !e.isVoteRoundValid(vote.Round) {
 		return nil
