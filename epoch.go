@@ -681,7 +681,7 @@ func (e *Epoch) handleEmptyVoteMessage(message *EmptyVote, from NodeID) error {
 	if e.round < vote.Round { //TODO: only handle it if it's within the max round window (&& vote.Round-e.round < e.maxRoundWindow)
 		e.Logger.Debug("Got empty vote from a future round",
 			zap.Uint64("round", vote.Round), zap.Uint64("my round", e.round), zap.Stringer("from", from))
-		//TODO: e.storeFutureEmptyVote(message, from, vote.Round)
+		// TODO: e.storeFutureEmptyVote(message, from, vote.Round)
 		return nil
 	}
 
@@ -1278,6 +1278,12 @@ func (e *Epoch) handleEmptyNotarizationMessage(emptyNotarization *EmptyNotarizat
 
 	e.Logger.Verbo("Received empty notarization message", zap.Uint64("round", vote.Round))
 
+	if e.isRoundTooFarAhead(vote.Round) {
+		e.Logger.Debug("Received an empty notarization for a too high round",
+			zap.Uint64("round", vote.Round), zap.Uint64("our round", e.round))
+		return nil
+	}
+	
 	// Ignore votes for previous rounds
 	if !e.isVoteRoundValid(vote.Round) {
 		return nil
