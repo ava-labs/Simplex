@@ -988,7 +988,6 @@ func (e *Epoch) persistFinalization(finalization Finalization) error {
 func (e *Epoch) rebroadcastPastFinalizeVotes() error {
 	startRound := e.minRoundInRoundsMap()
 
-	rebroadcasted := make([]*BlockHeader, 0)
 	for r := startRound; r <= e.round; r++ {
 		round, exists := e.rounds[r]
 		if !exists {
@@ -1016,11 +1015,10 @@ func (e *Epoch) rebroadcastPastFinalizeVotes() error {
 			}
 			finalizeVoteMessage = msg
 		}
-		rebroadcasted = append(rebroadcasted, &finalizeVoteMessage.FinalizeVote.Finalization.BlockHeader)
+		e.Logger.Debug("Rebroadcasting finalization", zap.Uint64("round", r), zap.Uint64("seq", finalizeVoteMessage.FinalizeVote.Finalization.Seq))
 		e.Comm.Broadcast(finalizeVoteMessage)
 	}
 
-	e.Logger.Info("Rebroadcasted past finalize votes", zap.Int("count", len(rebroadcasted)), zap.Any("rounds", rebroadcasted))
 	return nil
 }
 

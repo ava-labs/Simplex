@@ -464,7 +464,6 @@ func TestReplicationAfterNodeDisconnects(t *testing.T) {
 				testReplicationAfterNodeDisconnects(t, nodes, startDisconnect, endDisconnect)
 			})
 		}
-
 	}
 }
 
