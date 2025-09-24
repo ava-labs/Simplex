@@ -649,7 +649,7 @@ func newInMemNetwork(t *testing.T, nodes []NodeID) *inMemNetwork {
 func (n *inMemNetwork) triggerLeaderBlockBuilder(round uint64) *testBlock {
 	leader := simplex.LeaderForRound(n.nodes, round)
 	for _, instance := range n.instances {
-		if instance.e.ID.Equals(leader) {
+		if !instance.e.ID.Equals(leader) {
 			continue
 		}
 		if n.IsDisconnected(leader) {
