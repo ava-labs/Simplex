@@ -111,7 +111,7 @@ func TestSplitVotes(t *testing.T) {
 	splitNode3.wal.assertNotarization(0)
 
 	for _, n := range net.instances {
-		require.Equal(t, uint64(0), n.e.Storage.Height())
+		require.Equal(t, uint64(0), n.e.Storage.NumBlocks())
 		require.Equal(t, uint64(1), n.e.Metadata().Round)
 		require.Equal(t, uint64(1), n.e.Metadata().Seq)
 	}
@@ -123,7 +123,7 @@ func TestSplitVotes(t *testing.T) {
 	for _, n := range net.instances {
 		n.storage.waitForBlockCommit(0)
 		n.storage.waitForBlockCommit(1)
-		require.Equal(t, uint64(2), n.e.Storage.Height())
+		require.Equal(t, uint64(2), n.e.Storage.NumBlocks())
 		require.Equal(t, uint64(2), n.e.Metadata().Round)
 		require.Equal(t, uint64(2), n.e.Metadata().Seq)
 	}
@@ -144,7 +144,6 @@ type testNodeConfig struct {
 // newSimplexNode creates a new testNode and adds it to [net].
 func newSimplexNode(t *testing.T, nodeID NodeID, net *inMemNetwork, bb BlockBuilder, config *testNodeConfig) *testNode {
 	comm := newTestComm(nodeID, net, allowAllMessages)
-
 	epochConfig := defaultTestNodeEpochConfig(t, nodeID, comm, bb)
 
 	if config != nil {
@@ -171,7 +170,7 @@ func newSimplexNode(t *testing.T, nodeID NodeID, net *inMemNetwork, bb BlockBuil
 func updateEpochConfig(epochConfig *EpochConfig, testConfig *testNodeConfig) {
 	// set the initial storage
 	for _, data := range testConfig.initialStorage {
-		epochConfig.Storage.Index(data.VerifiedBlock, data.Finalization)
+		epochConfig.Storage.Index(context.Background(), data.VerifiedBlock, data.Finalization)
 	}
 
 	// TODO: remove optional replication flag
@@ -475,6 +474,13 @@ func onlyAllowEmptyRoundMessages(msg *Message, _, _ NodeID) bool {
 	return false
 }
 
+type testNetworkCommunication interface {
+	Communication
+	setFilter(filter messageFilter)
+}
+
+var _ testNetworkCommunication = (*testComm)(nil)
+
 type testComm struct {
 	from          NodeID
 	net           *inMemNetwork
@@ -490,11 +496,11 @@ func newTestComm(from NodeID, net *inMemNetwork, messageFilter messageFilter) *t
 	}
 }
 
-func (c *testComm) ListNodes() []NodeID {
+func (c *testComm) Nodes() []NodeID {
 	return c.net.nodes
 }
 
-func (c *testComm) SendMessage(msg *Message, destination NodeID) {
+func (c *testComm) Send(msg *Message, destination NodeID) {
 	if !c.isMessagePermitted(msg, destination) {
 		return
 	}
@@ -648,7 +654,11 @@ func (n *inMemNetwork) addNode(node *testNode) {
 
 func (n *inMemNetwork) setAllNodesMessageFilter(filter messageFilter) {
 	for _, instance := range n.instances {
-		instance.e.Comm.(*testComm).setFilter(filter)
+		comm, ok := instance.e.Comm.(testNetworkCommunication)
+		if !ok {
+			continue
+		}
+		comm.setFilter(filter)
 	}
 }
 
@@ -709,6 +719,10 @@ func (t *testControlledBlockBuilder) triggerNewBlock() {
 }
 
 func (t *testControlledBlockBuilder) BuildBlock(ctx context.Context, metadata ProtocolMetadata) (VerifiedBlock, bool) {
-	<-t.control
+	select {
+	case <-t.control:
+	case <-ctx.Done():
+		return nil, false
+	}
 	return t.testBlockBuilder.BuildBlock(ctx, metadata)
 }

@@ -5,6 +5,7 @@ package simplex
 
 import (
 	"context"
+	"fmt"
 
 	"go.uber.org/zap"
 )
@@ -39,26 +40,28 @@ type BlockBuilder interface {
 	// When the given context is cancelled by the caller, returns false.
 	BuildBlock(ctx context.Context, metadata ProtocolMetadata) (VerifiedBlock, bool)
 
-	// IncomingBlock returns when either the given context is cancelled,
+	// WaitForPendingBlock returns when either the given context is cancelled,
 	// or when the application signals that a block should be built.
-	IncomingBlock(ctx context.Context)
+	WaitForPendingBlock(ctx context.Context)
 }
 
+var ErrBlockNotFound = fmt.Errorf("block not found")
+
 type Storage interface {
-	Height() uint64
+	NumBlocks() uint64
 	// Retrieve returns the block and finalization at [seq].
-	// If [seq] is not found, returns false.
-	Retrieve(seq uint64) (VerifiedBlock, Finalization, bool)
-	Index(block VerifiedBlock, certificate Finalization)
+	// If [seq] the block cannot be found, returns ErrBlockNotFound.
+	Retrieve(seq uint64) (VerifiedBlock, Finalization, error)
+	Index(ctx context.Context, block VerifiedBlock, certificate Finalization) error
 }
 
 type Communication interface {
 
-	// ListNodes returns all nodes known to the application.
-	ListNodes() []NodeID
+	// Nodes returns all nodes that participate in the epoch.
+	Nodes() []NodeID
 
-	// SendMessage sends a message to the given destination node
-	SendMessage(msg *Message, destination NodeID)
+	// Send sends a message to the given destination node
+	Send(msg *Message, destination NodeID)
 
 	// Broadcast broadcasts the given message to all nodes.
 	// Does not send it to yourself.
@@ -91,7 +94,7 @@ type VerifiedBlock interface {
 	BlockHeader() BlockHeader
 
 	// Bytes returns a byte encoding of the block
-	Bytes() []byte
+	Bytes() ([]byte, error)
 }
 
 // BlockDeserializer deserializes blocks according to formatting
@@ -99,7 +102,7 @@ type VerifiedBlock interface {
 type BlockDeserializer interface {
 	// DeserializeBlock parses the given bytes and initializes a VerifiedBlock.
 	// Returns an error upon failure.
-	DeserializeBlock(bytes []byte) (VerifiedBlock, error)
+	DeserializeBlock(ctx context.Context, bytes []byte) (Block, error)
 }
 
 // Signature encodes a signature and the node that signed it, without the message it was signed on.

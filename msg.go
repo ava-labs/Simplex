@@ -6,6 +6,7 @@ package simplex
 import (
 	"bytes"
 	"encoding/asn1"
+	"encoding/binary"
 	"fmt"
 )
 
@@ -23,26 +24,34 @@ type Message struct {
 	ReplicationRequest          *ReplicationRequest
 }
 
+type EmptyVoteMetadata struct {
+	Round uint64
+	Epoch uint64
+}
+
 type ToBeSignedEmptyVote struct {
-	ProtocolMetadata
+	EmptyVoteMetadata
 }
 
 func (v *ToBeSignedEmptyVote) Bytes() []byte {
-	return v.ProtocolMetadata.Bytes()
+	bytes := make([]byte, 8+8) // Round + Epoch
+	binary.BigEndian.PutUint64(bytes[0:8], v.EmptyVoteMetadata.Round)
+	binary.BigEndian.PutUint64(bytes[8:16], v.EmptyVoteMetadata.Epoch)
+	return bytes
 }
 
 func (v *ToBeSignedEmptyVote) FromBytes(buff []byte) error {
-	if len(buff) != ProtocolMetadataLen {
-		return fmt.Errorf("invalid buffer length %d, expected %d", len(buff), ProtocolMetadataLen)
+	if len(buff) != 16 {
+		return fmt.Errorf("invalid buffer length")
 	}
 
-	md, err := ProtocolMetadataFromBytes(buff[:ProtocolMetadataLen])
-	if err != nil {
-		return fmt.Errorf("failed to parse ProtocolMetadata: %w", err)
+	round := binary.BigEndian.Uint64(buff[0:8])
+	epoch := binary.BigEndian.Uint64(buff[8:16])
+
+	v.EmptyVoteMetadata = EmptyVoteMetadata{
+		Round: round,
+		Epoch: epoch,
 	}
-
-	v.ProtocolMetadata = *md
-
 	return nil
 }
 
@@ -216,7 +225,7 @@ type VerifiedReplicationResponse struct {
 	LatestRound *VerifiedQuorumRound
 }
 
-// QuorumRound represents a round that has acheived quorum on either
+// QuorumRound represents a round that has achieved quorum on either
 // (empty notarization), (block & notarization), or (block, finalization)
 type QuorumRound struct {
 	Block             Block
@@ -251,10 +260,6 @@ func (q *QuorumRound) GetRound() uint64 {
 }
 
 func (q *QuorumRound) GetSequence() uint64 {
-	if q.EmptyNotarization != nil {
-		return q.EmptyNotarization.Vote.Seq
-	}
-
 	if q.Block != nil {
 		return q.Block.BlockHeader().Seq
 	}
@@ -262,13 +267,13 @@ func (q *QuorumRound) GetSequence() uint64 {
 	return 0
 }
 
-func (q *QuorumRound) Verify() error {
+func (q *QuorumRound) VerifyQCConsistentWithBlock() error {
 	if err := q.IsWellFormed(); err != nil {
 		return err
 	}
 
 	if q.EmptyNotarization != nil {
-		return q.EmptyNotarization.Verify()
+		return nil
 	}
 
 	// ensure the finalization or notarization we get relates to the block
@@ -278,17 +283,12 @@ func (q *QuorumRound) Verify() error {
 		if !bytes.Equal(blockDigest[:], q.Finalization.Finalization.Digest[:]) {
 			return fmt.Errorf("finalization does not match the block")
 		}
-		err := q.Finalization.Verify()
-		if err != nil {
-			return err
-		}
 	}
 
 	if q.Notarization != nil {
 		if !bytes.Equal(blockDigest[:], q.Notarization.Vote.Digest[:]) {
 			return fmt.Errorf("notarization does not match the block")
 		}
-		return q.Notarization.Verify()
 	}
 
 	return nil
@@ -331,4 +331,8 @@ func (q *VerifiedQuorumRound) GetRound() uint64 {
 type VerifiedFinalizedBlock struct {
 	VerifiedBlock VerifiedBlock
 	Finalization  Finalization
+}
+
+type verifiableMessage interface {
+	Verify() error
 }

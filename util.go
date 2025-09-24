@@ -6,6 +6,7 @@ package simplex
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 
 	"go.uber.org/zap"
@@ -15,13 +16,13 @@ import (
 // Returns an error if it cannot be retrieved but the storage has some block.
 // Returns (nil, nil) if the storage is empty.
 func RetrieveLastIndexFromStorage(s Storage) (*VerifiedFinalizedBlock, error) {
-	height := s.Height()
-	if height == 0 {
+	numBlocks := s.NumBlocks()
+	if numBlocks == 0 {
 		return nil, nil
 	}
-	lastBlock, finalization, retrieved := s.Retrieve(height - 1)
-	if !retrieved {
-		return nil, fmt.Errorf("failed retrieving last block from storage with seq %d", height-1)
+	lastBlock, finalization, err := s.Retrieve(numBlocks - 1)
+	if err != nil {
+		return nil, fmt.Errorf("failed retrieving last block from storage with seq %d: %w", numBlocks-1, err)
 	}
 	return &VerifiedFinalizedBlock{
 		VerifiedBlock: lastBlock,
@@ -29,65 +30,58 @@ func RetrieveLastIndexFromStorage(s Storage) (*VerifiedFinalizedBlock, error) {
 	}, nil
 }
 
-func IsFinalizationValid(eligibleSigners map[string]struct{}, finalization *Finalization, quorumSize int, logger Logger) bool {
-	valid := validateFinalizationQC(eligibleSigners, finalization, quorumSize, logger)
-	if !valid {
-		return false
-	}
-	if !valid {
-		return false
-	}
-
-	return true
-}
-
-func validateFinalizationQC(eligibleSigners map[string]struct{}, finalization *Finalization, quorumSize int, logger Logger) bool {
-	if finalization.QC == nil {
-		return false
-	}
-
-	// Check enough signers signed the finalization
-	if quorumSize > len(finalization.QC.Signers()) {
-		logger.Debug("ToBeSignedFinalization signed by insufficient nodes",
-			zap.Int("count", len(finalization.QC.Signers())),
-			zap.Int("Quorum", quorumSize))
-		return false
-	}
-
-	doubleSigner, signedTwice := hasSomeNodeSignedTwice(finalization.QC.Signers(), logger)
-
-	if signedTwice {
-		logger.Debug("Finalization signed twice by the same node", zap.Stringer("signer", doubleSigner))
-		return false
-	}
-
-	// Finally, check that all signers are eligible of signing, and we don't have made up identities
-	for _, signer := range finalization.QC.Signers() {
-		if _, exists := eligibleSigners[string(signer)]; !exists {
-			logger.Debug("Finalization Quorum Certificate contains an unknown signer", zap.Stringer("signer", signer))
-			return false
-		}
-	}
-
-	if err := finalization.Verify(); err != nil {
-		return false
-	}
-
-	return true
-}
-
 func hasSomeNodeSignedTwice(nodeIDs []NodeID, logger Logger) (NodeID, bool) {
 	seen := make(map[string]struct{}, len(nodeIDs))
 
 	for _, nodeID := range nodeIDs {
 		if _, alreadySeen := seen[string(nodeID)]; alreadySeen {
-			logger.Warn("Observed a signature originating at least twice from the same node")
+			logger.Debug("Observed a signature originating at least twice from the same node")
 			return nodeID, true
 		}
 		seen[string(nodeID)] = struct{}{}
 	}
 
 	return NodeID{}, false
+}
+
+func VerifyQC(qc QuorumCertificate, logger Logger, messageType string, quorumSize int, eligibleSigners map[string]struct{}, messageToVerify verifiableMessage, from NodeID) error {
+	if qc == nil {
+		logger.Debug("Received nil QuorumCertificate")
+		return fmt.Errorf("nil QuorumCertificate")
+	}
+	msgTypeLowerCase := strings.ToLower(messageType)
+	// Ensure no node signed the QuorumCertificate twice
+	doubleSigner, signedTwice := hasSomeNodeSignedTwice(qc.Signers(), logger)
+	if signedTwice {
+		logger.Debug(fmt.Sprintf("%s is signed by the same node more than once", messageType), zap.Stringer("signer", doubleSigner))
+		return fmt.Errorf("%s is signed by the same node (%s) more than once", msgTypeLowerCase, doubleSigner)
+	}
+
+	// Check enough signers signed the QuorumCertificate
+	if quorumSize > len(qc.Signers()) {
+		logger.Debug(fmt.Sprintf("%s certificate signed by insufficient nodes", messageType),
+			zap.Int("count", len(qc.Signers())),
+			zap.Int("Quorum", quorumSize))
+		return fmt.Errorf("%s certificate signed by insufficient (%d < %d) nodes", msgTypeLowerCase, len(qc.Signers()), quorumSize)
+	}
+
+	// Check QuorumCertificate was signed by only eligible nodes
+	for _, signer := range qc.Signers() {
+		if _, exists := eligibleSigners[string(signer)]; !exists {
+			logger.Debug(fmt.Sprintf("%s quorum certificate contains an unknown signer", messageType), zap.Stringer("signer", signer))
+			return fmt.Errorf("%s quorum certificate contains an unknown signer (%s)", msgTypeLowerCase, signer)
+		}
+	}
+
+	if err := messageToVerify.Verify(); err != nil {
+		if len(from) > 0 {
+			logger.Debug(fmt.Sprintf("%s quorum certificate is invalid", messageType), zap.Stringer("NodeID", from), zap.Error(err))
+		} else {
+			logger.Debug(fmt.Sprintf("%s quorum certificate is invalid", messageType), zap.Error(err))
+		}
+		return err
+	}
+	return nil
 }
 
 // GetLatestVerifiedQuorumRound returns the latest verified quorum round given
@@ -113,7 +107,7 @@ func GetLatestVerifiedQuorumRound(round *Round, emptyNotarization *EmptyNotariza
 			verifiedQuorumRound = &VerifiedQuorumRound{
 				EmptyNotarization: emptyNotarization,
 			}
-			highestRound = emptyNotarization.Vote.ProtocolMetadata.Round
+			highestRound = emptyNotarization.Vote.Round
 			exists = true
 		}
 	}
@@ -161,6 +155,7 @@ func (otv *oneTimeVerifier) Wrap(block Block) Block {
 }
 
 type verifiedResult struct {
+	seq uint64
 	vb  VerifiedBlock
 	err error
 }
@@ -180,22 +175,22 @@ func (block *oneTimeVerifiedBlock) Verify(ctx context.Context) (VerifiedBlock, e
 
 	// cleanup
 	defer func() {
-		for _, vr := range block.otv.digests {
-			bh := vr.vb.BlockHeader()
-			if bh.Seq < seq {
-				delete(block.otv.digests, bh.Digest)
+		for digest, vr := range block.otv.digests {
+			if vr.seq < seq {
+				delete(block.otv.digests, digest)
 			}
 		}
 	}()
 
 	if result, exists := block.otv.digests[digest]; exists {
-		block.otv.logger.Warn("Attempted to verify an already verified block", zap.Uint64("round", header.Round))
+		block.otv.logger.Debug("Attempted to verify an already verified block", zap.Uint64("round", header.Round))
 		return result.vb, result.err
 	}
 
 	vb, err := block.Block.Verify(ctx)
 
 	block.otv.digests[digest] = verifiedResult{
+		seq: seq,
 		vb:  vb,
 		err: err,
 	}

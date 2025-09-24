@@ -18,7 +18,7 @@ const (
 	metadataDigestLen  = 32
 
 	ProtocolMetadataLen = metadataVersionLen + metadataEpochLen + metadataRoundLen + metadataSeqLen + metadataPrevLen
-	blockHeaderLen      = ProtocolMetadataLen + metadataDigestLen
+	BlockHeaderLen      = ProtocolMetadataLen + metadataDigestLen
 )
 
 const (
@@ -52,8 +52,17 @@ type BlockHeader struct {
 
 type Digest [metadataDigestLen]byte
 
+var (
+	emptyDigest = Digest{}
+)
+
 func (d Digest) String() string {
 	return fmt.Sprintf("%x...", (d)[:digestFormatSize])
+}
+
+func (bh BlockHeader) String() string {
+	return fmt.Sprintf("BlockHeader{Digest: %s, Prev: %s, Epoch: %d, Round: %d, Seq: %d, Version: %d}",
+		bh.Digest.String(), bh.Prev.String(), bh.Epoch, bh.Round, bh.Seq, bh.Version)
 }
 
 func (bh *BlockHeader) Equals(other *BlockHeader) bool {
@@ -63,7 +72,7 @@ func (bh *BlockHeader) Equals(other *BlockHeader) bool {
 }
 
 func (bh *BlockHeader) Bytes() []byte {
-	buff := make([]byte, blockHeaderLen)
+	buff := make([]byte, BlockHeaderLen)
 
 	mdBytes := bh.ProtocolMetadata.Bytes()
 	copy(buff, mdBytes)
@@ -73,8 +82,8 @@ func (bh *BlockHeader) Bytes() []byte {
 }
 
 func (bh *BlockHeader) FromBytes(buff []byte) error {
-	if len(buff) != blockHeaderLen {
-		return fmt.Errorf("invalid buffer length %d, expected %d", len(buff), blockHeaderLen)
+	if len(buff) != BlockHeaderLen {
+		return fmt.Errorf("invalid buffer length %d, expected %d", len(buff), BlockHeaderLen)
 	}
 
 	md, err := ProtocolMetadataFromBytes(buff[:ProtocolMetadataLen])

@@ -49,7 +49,9 @@ func TestRecoverFromWALProposed(t *testing.T) {
 	protocolMetadata := e.Metadata()
 	firstBlock, ok := bb.BuildBlock(ctx, protocolMetadata)
 	require.True(t, ok)
-	record := BlockRecord(firstBlock.BlockHeader(), firstBlock.Bytes())
+	fBytes, err := firstBlock.Bytes()
+	require.NoError(t, err)
+	record := BlockRecord(firstBlock.BlockHeader(), fBytes)
 
 	// write block record to wal
 	require.NoError(t, wal.Append(record))
@@ -105,7 +107,7 @@ func TestRecoverFromWALProposed(t *testing.T) {
 		require.Equal(t, block, block2)
 	}
 
-	require.Equal(t, rounds, e.Storage.Height())
+	require.Equal(t, rounds, e.Storage.NumBlocks())
 }
 
 // TestRecoverFromWALNotarized tests that the epoch can recover from a wal
@@ -140,7 +142,9 @@ func TestRecoverFromNotarization(t *testing.T) {
 	protocolMetadata := e.Metadata()
 	block, ok := bb.BuildBlock(ctx, protocolMetadata)
 	require.True(t, ok)
-	blockRecord := BlockRecord(block.BlockHeader(), block.Bytes())
+	bBytes, err := block.Bytes()
+	require.NoError(t, err)
+	blockRecord := BlockRecord(block.BlockHeader(), bBytes)
 
 	// write block blockRecord to wal
 	require.NoError(t, wal.Append(blockRecord))
@@ -168,9 +172,12 @@ func TestRecoverFromNotarization(t *testing.T) {
 		injectTestFinalizeVote(t, e, block, nodes[i])
 	}
 
-	committedData := storage.data[0].VerifiedBlock.Bytes()
-	require.Equal(t, block.Bytes(), committedData)
-	require.Equal(t, uint64(1), e.Storage.Height())
+	committedData, err := storage.data[0].VerifiedBlock.Bytes()
+	require.NoError(t, err)
+	bBytes, err = block.Bytes()
+	require.NoError(t, err)
+	require.Equal(t, bBytes, committedData)
+	require.Equal(t, uint64(1), e.Storage.NumBlocks())
 }
 
 // TestRecoverFromWALFinalized tests that the epoch can recover from a wal
@@ -199,7 +206,9 @@ func TestRecoverFromWalWithStorage(t *testing.T) {
 		QCDeserializer:      &testQCDeserializer{t: t},
 	}
 
-	storage.Index(newTestBlock(ProtocolMetadata{Seq: 0, Round: 0, Epoch: 0}), Finalization{})
+	err := storage.Index(ctx, newTestBlock(ProtocolMetadata{Seq: 0, Round: 0, Epoch: 0}), Finalization{})
+	require.NoError(t, err)
+
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
 	require.Equal(t, uint64(1), e.Metadata().Round)
@@ -207,7 +216,9 @@ func TestRecoverFromWalWithStorage(t *testing.T) {
 	protocolMetadata := e.Metadata()
 	block, ok := bb.BuildBlock(ctx, protocolMetadata)
 	require.True(t, ok)
-	record := BlockRecord(block.BlockHeader(), block.Bytes())
+	bBytes, err := block.Bytes()
+	require.NoError(t, err)
+	record := BlockRecord(block.BlockHeader(), bBytes)
 
 	// write block record to wal
 	require.NoError(t, wal.Append(record))
@@ -238,14 +249,17 @@ func TestRecoverFromWalWithStorage(t *testing.T) {
 		injectTestFinalizeVote(t, e, block, nodes[i])
 	}
 
-	committedData := storage.data[1].VerifiedBlock.Bytes()
-	require.Equal(t, block.Bytes(), committedData)
-	require.Equal(t, uint64(2), e.Storage.Height())
+	committedData, err := storage.data[1].VerifiedBlock.Bytes()
+	require.NoError(t, err)
+	bBytes, err = block.Bytes()
+	require.Equal(t, bBytes, committedData)
+	require.Equal(t, uint64(2), e.Storage.NumBlocks())
 }
 
 // TestWalCreated tests that the epoch correctly writes to the WAL
 func TestWalCreatedProperly(t *testing.T) {
 	l := testutil.MakeLogger(t, 1)
+	ctx := context.Background()
 	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
 	storage := newInMemStorage()
 
@@ -284,7 +298,7 @@ func TestWalCreatedProperly(t *testing.T) {
 	records, err = e.WAL.ReadAll()
 	require.NoError(t, err)
 	require.Len(t, records, 1)
-	blockFromWal, err := BlockFromRecord(conf.BlockDeserializer, records[0])
+	blockFromWal, err := BlockFromRecord(ctx, conf.BlockDeserializer, records[0])
 	require.NoError(t, err)
 	block := <-bb.out
 	require.Equal(t, blockFromWal, block)
@@ -310,14 +324,17 @@ func TestWalCreatedProperly(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, records, 2)
 
-	committedData := storage.data[0].VerifiedBlock.Bytes()
-	require.Equal(t, block.Bytes(), committedData)
+	committedData, err := storage.data[0].VerifiedBlock.Bytes()
+	require.NoError(t, err)
+	bBytes, err := block.Bytes()
+	require.Equal(t, bBytes, committedData)
 }
 
 // TestWalWritesBlockRecord tests that the epoch correctly writes to the WAL
 // a block proposed by a node other than the epoch node
 func TestWalWritesBlockRecord(t *testing.T) {
 	l := testutil.MakeLogger(t, 1)
+	ctx := context.Background()
 	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
 	storage := newInMemStorage()
 	blockDeserializer := &blockDeserializer{}
@@ -372,13 +389,14 @@ func TestWalWritesBlockRecord(t *testing.T) {
 	records, err = e.WAL.ReadAll()
 	require.NoError(t, err)
 	require.Len(t, records, 1)
-	blockFromWal, err := BlockFromRecord(blockDeserializer, records[0])
+	blockFromWal, err := BlockFromRecord(ctx, blockDeserializer, records[0])
 	require.NoError(t, err)
 	require.Equal(t, block, blockFromWal)
 }
 
 func TestWalWritesFinalization(t *testing.T) {
 	l := testutil.MakeLogger(t, 1)
+	ctx := context.Background()
 	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
 	storage := newInMemStorage()
 	sigAggregrator := &testSignatureAggregator{}
@@ -412,7 +430,7 @@ func TestWalWritesFinalization(t *testing.T) {
 	records, err := e.WAL.ReadAll()
 	require.NoError(t, err)
 	require.Len(t, records, 2)
-	blockFromWal, err := BlockFromRecord(conf.BlockDeserializer, records[0])
+	blockFromWal, err := BlockFromRecord(ctx, conf.BlockDeserializer, records[0])
 	require.NoError(t, err)
 	require.Equal(t, firstBlock, blockFromWal)
 	expectedNotarizationRecord, err := newNotarizationRecord(l, sigAggregrator, firstBlock, nodes[0:quorum])
@@ -430,7 +448,7 @@ func TestWalWritesFinalization(t *testing.T) {
 
 	// increase the round but don't index storage
 	require.Equal(t, uint64(1), e.Metadata().Round)
-	require.Equal(t, uint64(0), e.Storage.Height())
+	require.Equal(t, uint64(0), e.Storage.NumBlocks())
 
 	vote, err := newTestVote(secondBlock, nodes[1])
 	require.NoError(t, err)
@@ -451,7 +469,7 @@ func TestWalWritesFinalization(t *testing.T) {
 	records, err = e.WAL.ReadAll()
 	require.NoError(t, err)
 	require.Len(t, records, 4)
-	blockFromWal, err = BlockFromRecord(conf.BlockDeserializer, records[2])
+	blockFromWal, err = BlockFromRecord(ctx, conf.BlockDeserializer, records[2])
 	require.NoError(t, err)
 	require.Equal(t, secondBlock, blockFromWal)
 	expectedNotarizationRecord, err = newNotarizationRecord(l, sigAggregrator, secondBlock, nodes[0:quorum])
@@ -475,7 +493,7 @@ func TestWalWritesFinalization(t *testing.T) {
 
 	// ensure the finalization is not indexed
 	require.Equal(t, uint64(2), e.Metadata().Round)
-	require.Equal(t, uint64(0), e.Storage.Height())
+	require.Equal(t, uint64(0), e.Storage.NumBlocks())
 }
 
 // Appends to the wal -> block, notarization, second block, notarization block 2, finalization for block 2.
@@ -510,7 +528,9 @@ func TestRecoverFromMultipleNotarizations(t *testing.T) {
 	protocolMetadata := e.Metadata()
 	firstBlock, ok := bb.BuildBlock(ctx, protocolMetadata)
 	require.True(t, ok)
-	record := BlockRecord(firstBlock.BlockHeader(), firstBlock.Bytes())
+	fBytes, err := firstBlock.Bytes()
+	require.NoError(t, err)
+	record := BlockRecord(firstBlock.BlockHeader(), fBytes)
 	wal.Append(record)
 
 	firstNotarizationRecord, err := newNotarizationRecord(l, sigAggregrator, firstBlock, nodes[0:quorum])
@@ -521,7 +541,9 @@ func TestRecoverFromMultipleNotarizations(t *testing.T) {
 	protocolMetadata.Seq = 1
 	secondBlock, ok := bb.BuildBlock(ctx, protocolMetadata)
 	require.True(t, ok)
-	record = BlockRecord(secondBlock.BlockHeader(), secondBlock.Bytes())
+	sBytes, err := secondBlock.Bytes()
+	require.NoError(t, err)
+	record = BlockRecord(secondBlock.BlockHeader(), sBytes)
 	wal.Append(record)
 
 	// Add notarization for second block
@@ -537,7 +559,7 @@ func TestRecoverFromMultipleNotarizations(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, uint64(2), e.Metadata().Round)
-	require.Equal(t, uint64(0), e.Storage.Height())
+	require.Equal(t, uint64(0), e.Storage.NumBlocks())
 
 	// now if we send finalization for block 1, we should index both 1 & 2
 	finalization1, _ := newFinalizationRecord(t, l, sigAggregrator, firstBlock, nodes[0:quorum])
@@ -546,16 +568,21 @@ func TestRecoverFromMultipleNotarizations(t *testing.T) {
 	}, nodes[1])
 	require.NoError(t, err)
 
-	require.Equal(t, uint64(2), e.Storage.Height())
-	require.Equal(t, firstBlock.Bytes(), storage.data[0].VerifiedBlock.Bytes())
-	require.Equal(t, secondBlock.Bytes(), storage.data[1].VerifiedBlock.Bytes())
+	require.Equal(t, uint64(2), e.Storage.NumBlocks())
+	storageBytes, err := storage.data[0].VerifiedBlock.Bytes()
+	require.NoError(t, err)
+	require.Equal(t, fBytes, storageBytes)
+
+	storageBytes, err = storage.data[1].VerifiedBlock.Bytes()
+	require.NoError(t, err)
+	require.Equal(t, sBytes, storageBytes)
 	require.Equal(t, finalization1, storage.data[0].Finalization)
 	require.Equal(t, finalization2, storage.data[1].Finalization)
 }
 
-// TestRecoversFromMultipleNotarizations tests that the epoch can recover from a wal
-// with its last notarization record being from a less recent round.
-func TestRecoveryWithoutNotarization(t *testing.T) {
+// TestRecoveryBlocksIndexed tests that the epoch properly skips
+// block records that are already indexed in the storage.
+func TestRecoveryBlocksIndexed(t *testing.T) {
 	l := testutil.MakeLogger(t, 1)
 	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
 	wal := wal.NewMemWAL(t)
@@ -581,39 +608,48 @@ func TestRecoveryWithoutNotarization(t *testing.T) {
 
 	protocolMetadata := ProtocolMetadata{Seq: 0, Round: 0, Epoch: 0}
 	firstBlock, ok := bb.BuildBlock(ctx, protocolMetadata)
+	fBytes, err := firstBlock.Bytes()
+	require.NoError(t, err)
 	require.True(t, ok)
-	record := BlockRecord(firstBlock.BlockHeader(), firstBlock.Bytes())
+	record := BlockRecord(firstBlock.BlockHeader(), fBytes)
 	wal.Append(record)
 
 	firstNotarizationRecord, err := newNotarizationRecord(l, sigAggregrator, firstBlock, nodes[0:quorum])
 	require.NoError(t, err)
 	wal.Append(firstNotarizationRecord)
 
+	_, finalizationBytes := newFinalizationRecord(t, l, sigAggregrator, firstBlock, nodes[0:quorum])
+	wal.Append(finalizationBytes)
+
 	protocolMetadata.Round = 1
 	protocolMetadata.Seq = 1
 	secondBlock, ok := bb.BuildBlock(ctx, protocolMetadata)
 	require.True(t, ok)
-	record = BlockRecord(secondBlock.BlockHeader(), secondBlock.Bytes())
+	sBytes, err := secondBlock.Bytes()
+	require.NoError(t, err)
+	record = BlockRecord(secondBlock.BlockHeader(), sBytes)
 	wal.Append(record)
 
 	protocolMetadata.Round = 2
 	protocolMetadata.Seq = 2
 	thirdBlock, ok := bb.BuildBlock(ctx, protocolMetadata)
 	require.True(t, ok)
-	record = BlockRecord(thirdBlock.BlockHeader(), thirdBlock.Bytes())
+	tBytes, err := thirdBlock.Bytes()
+	require.NoError(t, err)
+	record = BlockRecord(thirdBlock.BlockHeader(), tBytes)
 	wal.Append(record)
 
 	finalization1, _ := newFinalizationRecord(t, l, sigAggregrator, firstBlock, nodes[0:quorum])
 	finalization2, _ := newFinalizationRecord(t, l, sigAggregrator, secondBlock, nodes[0:quorum])
 	fCer3, _ := newFinalizationRecord(t, l, sigAggregrator, thirdBlock, nodes[0:quorum])
 
-	conf.Storage.Index(firstBlock, finalization1)
-	conf.Storage.Index(secondBlock, finalization2)
-	conf.Storage.Index(thirdBlock, fCer3)
+	conf.Storage.Index(ctx, firstBlock, finalization1)
+	conf.Storage.Index(ctx, secondBlock, finalization2)
+	conf.Storage.Index(ctx, thirdBlock, fCer3)
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
-	require.Equal(t, uint64(3), e.Storage.Height())
+	require.Equal(t, uint64(3), e.Storage.NumBlocks())
 	require.NoError(t, e.Start())
 
 	// ensure the round is properly set to 3
@@ -624,6 +660,7 @@ func TestRecoveryWithoutNotarization(t *testing.T) {
 
 func TestEpochCorrectlyInitializesMetadataFromStorage(t *testing.T) {
 	l := testutil.MakeLogger(t, 1)
+	ctx := context.Background()
 	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
 	storage := newInMemStorage()
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
@@ -642,10 +679,10 @@ func TestEpochCorrectlyInitializesMetadataFromStorage(t *testing.T) {
 	}
 
 	block := newTestBlock(ProtocolMetadata{Seq: 0, Round: 0, Epoch: 0})
-	conf.Storage.Index(block, Finalization{})
+	conf.Storage.Index(ctx, block, Finalization{})
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
-	require.Equal(t, uint64(1), e.Storage.Height())
+	require.Equal(t, uint64(1), e.Storage.NumBlocks())
 	require.NoError(t, e.Start())
 
 	// ensure the round is properly set
@@ -657,11 +694,13 @@ func TestEpochCorrectlyInitializesMetadataFromStorage(t *testing.T) {
 func TestRecoveryAsLeader(t *testing.T) {
 	l := testutil.MakeLogger(t, 1)
 	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
+	ctx := context.Background()
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	finalizedBlocks := createBlocks(t, nodes, bb, 4)
 	storage := newInMemStorage()
 	for _, finalizedBlock := range finalizedBlocks {
-		storage.Index(finalizedBlock.VerifiedBlock, finalizedBlock.Finalization)
+		err := storage.Index(ctx, finalizedBlock.VerifiedBlock, finalizedBlock.Finalization)
+		require.NoError(t, err)
 	}
 
 	conf := EpochConfig{
@@ -680,7 +719,7 @@ func TestRecoveryAsLeader(t *testing.T) {
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
-	require.Equal(t, uint64(4), e.Storage.Height())
+	require.Equal(t, uint64(4), e.Storage.NumBlocks())
 	require.NoError(t, e.Start())
 
 	<-bb.out
@@ -691,4 +730,51 @@ func TestRecoveryAsLeader(t *testing.T) {
 	// ensure the round is properly set
 	require.Equal(t, uint64(4), e.Metadata().Round)
 	require.Equal(t, uint64(4), e.Metadata().Seq)
+}
+
+func TestRecoveryReVerifiesBlocks(t *testing.T) {
+	l := testutil.MakeLogger(t, 1)
+	ctx := context.Background()
+	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	finalizedBlocks := createBlocks(t, nodes, bb, 4)
+	storage := newInMemStorage()
+	for _, finalizedBlock := range finalizedBlocks {
+		err := storage.Index(ctx, finalizedBlock.VerifiedBlock, finalizedBlock.Finalization)
+		require.NoError(t, err)
+	}
+
+	deserializer := &blockDeserializer{
+		delayedVerification: make(chan struct{}, 1),
+	}
+	wal := wal.NewMemWAL(t)
+	conf := EpochConfig{
+		MaxProposalWait:   DefaultMaxProposalWaitTime,
+		Logger:            l,
+		ID:                nodes[0],
+		Signer:            &testSigner{},
+		WAL:               wal,
+		Verifier:          &testVerifier{},
+		Storage:           storage,
+		Comm:              noopComm(nodes),
+		BlockBuilder:      bb,
+		BlockDeserializer: deserializer,
+		QCDeserializer:    &testQCDeserializer{t: t},
+	}
+
+	// Create first block and write to WAL
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+
+	protocolMetadata := e.Metadata()
+	firstBlock, ok := bb.BuildBlock(ctx, protocolMetadata)
+	require.True(t, ok)
+	fBytes, err := firstBlock.Bytes()
+	require.NoError(t, err)
+	record := BlockRecord(firstBlock.BlockHeader(), fBytes)
+	wal.Append(record)
+
+	deserializer.delayedVerification <- struct{}{}
+	require.NoError(t, e.Start())
+	require.Len(t, deserializer.delayedVerification, 0)
 }

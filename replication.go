@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"sync"
 	"time"
 
 	"go.uber.org/zap"
@@ -26,12 +27,11 @@ func newSignedSequenceFromRound(round QuorumRound) (*signedSequence, error) {
 	case round.Finalization != nil:
 		ss.signers = round.Finalization.QC.Signers()
 		ss.seq = round.Finalization.Finalization.Seq
-	case round.EmptyNotarization != nil:
-		ss.signers = round.EmptyNotarization.QC.Signers()
-		ss.seq = round.EmptyNotarization.Vote.Seq
 	case round.Notarization != nil:
 		ss.signers = round.Notarization.QC.Signers()
 		ss.seq = round.Notarization.Vote.Seq
+	case round.EmptyNotarization != nil:
+		return nil, fmt.Errorf("should not create signed sequence from empty notarization")
 	default:
 		return nil, fmt.Errorf("round does not contain a finalization, empty notarization, or notarization")
 	}
@@ -40,6 +40,7 @@ func newSignedSequenceFromRound(round QuorumRound) (*signedSequence, error) {
 }
 
 type ReplicationState struct {
+	lock           *sync.Mutex
 	logger         Logger
 	enabled        bool
 	maxRoundWindow uint64
@@ -61,15 +62,16 @@ type ReplicationState struct {
 	timeoutHandler *TimeoutHandler
 }
 
-func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundWindow uint64, enabled bool, start time.Time) *ReplicationState {
+func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundWindow uint64, enabled bool, start time.Time, lock *sync.Mutex) *ReplicationState {
 	return &ReplicationState{
+		lock:                 lock,
 		logger:               logger,
 		enabled:              enabled,
 		comm:                 comm,
 		id:                   id,
 		maxRoundWindow:       maxRoundWindow,
 		receivedQuorumRounds: make(map[uint64]QuorumRound),
-		timeoutHandler:       NewTimeoutHandler(logger, start, comm.ListNodes()),
+		timeoutHandler:       NewTimeoutHandler(logger, start, comm.Nodes()),
 	}
 }
 
@@ -152,11 +154,13 @@ func (r *ReplicationState) sendRequestToNode(start uint64, end uint64, nodes []N
 
 	r.timeoutHandler.AddTask(task)
 
-	r.comm.SendMessage(msg, nodes[index])
+	r.comm.Send(msg, nodes[index])
 }
 
 func (r *ReplicationState) createReplicationTimeoutTask(start, end uint64, nodes []NodeID, index int) *TimeoutTask {
 	taskFunc := func() {
+		r.lock.Lock()
+		defer r.lock.Unlock()
 		r.sendRequestToNode(start, end, nodes, (index+1)%len(nodes))
 	}
 	timeoutTask := &TimeoutTask{
@@ -177,7 +181,14 @@ func (r *ReplicationState) createReplicationTimeoutTask(start, end uint64, nodes
 func (r *ReplicationState) receivedReplicationResponse(data []QuorumRound, node NodeID) {
 	seqs := make([]uint64, 0, len(data))
 
+	// remove all sequences where we expect a finalization but only received a notarization
+	highestSeq := r.highestSequenceObserved.seq
 	for _, qr := range data {
+		if qr.GetSequence() <= highestSeq && qr.Finalization == nil && qr.Notarization != nil {
+			r.logger.Debug("Received notarization without finalization, skipping", zap.Stringer("from", node), zap.Uint64("seq", qr.GetSequence()))
+			continue
+		}
+
 		seqs = append(seqs, qr.GetSequence())
 	}
 
@@ -185,7 +196,7 @@ func (r *ReplicationState) receivedReplicationResponse(data []QuorumRound, node 
 
 	task := FindReplicationTask(r.timeoutHandler, node, seqs)
 	if task == nil {
-		r.logger.Debug("Could not find a timeout task associated with the replication response", zap.Stringer("from", node))
+		r.logger.Debug("Could not find a timeout task associated with the replication response", zap.Stringer("from", node), zap.Any("seqs", seqs))
 		return
 	}
 	r.timeoutHandler.RemoveTask(node, task.TaskID)
@@ -266,7 +277,7 @@ func (r *ReplicationState) StoreQuorumRound(round QuorumRound) {
 		return
 	}
 
-	if round.GetSequence() > r.highestSequenceObserved.seq {
+	if round.EmptyNotarization == nil && round.GetSequence() > r.highestSequenceObserved.seq {
 		signedSeq, err := newSignedSequenceFromRound(round)
 		if err != nil {
 			// should never be here since we already checked the QuorumRound was valid
