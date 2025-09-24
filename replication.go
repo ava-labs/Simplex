@@ -13,7 +13,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// signedSequence is a sequence that has been signed by a qourum certificate.
+// signedSequence is a sequence that has been signed by a quorum certificate.
 // it essentially is a quorum round without the enforcement of needing a block with a
 // finalization or notarization.
 type signedSequence struct {
@@ -315,7 +315,7 @@ func (r *ReplicationState) highestKnownRound() uint64 {
 	return highestRound
 }
 
-func (r *ReplicationState) GetQuroumRoundWithSeq(seq uint64) *QuorumRound {
+func (r *ReplicationState) GetQuorumRoundWithSeq(seq uint64) *QuorumRound {
 	for _, round := range r.receivedQuorumRounds {
 		if round.GetSequence() == seq {
 			return &round
