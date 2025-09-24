@@ -574,7 +574,7 @@ func (e *Epoch) handleFinalizationForPendingOrFutureRound(message *Finalization,
 	// TODO: delay requesting future finalizations and blocks, since blocks could be in transit
 	e.Logger.Debug("Received finalization for a future round", zap.Uint64("round", round))
 	if LeaderForRound(e.nodes, e.round).Equals(e.ID) {
-		e.Logger.Debug("We are the leader of the current round, but a higher round has been finalized. Aborting block building.")
+		e.Logger.Debug("We are the leader of this round, but a higher round has been finalized. Aborting block building.")
 		e.blockBuilderCancelFunc()
 	}
 	e.replicationState.replicateBlocks(message, nextSeqToCommit)
@@ -2257,7 +2257,6 @@ func (e *Epoch) increaseRound() {
 	e.Logger.Info("Moving to a new round",
 		zap.Uint64("prev round", e.round),
 		zap.Uint64("next round", e.round+1),
-		zap.Uint64("next seq", e.nextSeqToCommit()),
 		zap.Stringer("prev leader", prevLeader),
 		zap.Stringer("next leader", nextLeader))
 	e.round++
@@ -2629,7 +2628,7 @@ func (e *Epoch) processReplicationState() error {
 	qRound, ok := e.replicationState.receivedQuorumRounds[e.round]
 	if ok && qRound.Notarization != nil {
 		if qRound.Finalization != nil {
-			e.Logger.Debug("Delaying processing a QuorumRound that has an Finalization != NextSeqToCommit", zap.Stringer("QuorumRound", &qRound))
+			e.Logger.Debug("Delaying processing a QuorumRound that has an Finalization != NextSeqToCommit", zap.Stringer("QuourumRound", &qRound))
 			return nil
 		}
 		delete(e.replicationState.receivedQuorumRounds, e.round)

@@ -588,7 +588,7 @@ func TestReplicationStuckInProposingBlock(t *testing.T) {
 		if strings.Contains(entry.Message, "Scheduling block building") {
 			aboutToBuildBlock.Done()
 		}
-		if strings.Contains(entry.Message, "We are the leader of the current round, but a higher round has been finalized. Aborting block building.") {
+		if strings.Contains(entry.Message, "We are the leader of this round, but a higher round has been finalized. Aborting block building.") {
 			cancelBlockBuilding.Done()
 		}
 		return nil
