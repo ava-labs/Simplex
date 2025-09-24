@@ -218,7 +218,10 @@ type testNode struct {
 
 // triggerBlockShouldBeBuilt signals this nodes block builder it is expecting a block to be built.
 func (t *testNode) triggerBlockShouldBeBuilt() {
-	t.bb.blockShouldBeBuilt <- struct{}{}
+	select {
+	case t.bb.blockShouldBeBuilt <- struct{}{}:
+	default:
+	}
 }
 
 func (t *testNode) Silence() {
