@@ -650,13 +650,15 @@ func (n *inMemNetwork) triggerLeaderBlockBuilder(round uint64) *testBlock {
 	leader := simplex.LeaderForRound(n.nodes, round)
 	for _, instance := range n.instances {
 		if instance.e.ID.Equals(leader) {
-			if n.IsDisconnected(leader) {
-				instance.e.Logger.Info("triggering block build on disconnected leader", zap.Stringer("leader", leader))
-			}
-			instance.bb.triggerNewBlock()
-			return <-instance.bb.out
+			continue
 		}
+		if n.IsDisconnected(leader) {
+			instance.e.Logger.Info("triggering block build on disconnected leader", zap.Stringer("leader", leader))
+		}
+		instance.bb.triggerNewBlock()
+		return <-instance.bb.out
 	}
+	
 	// we should always find the leader
 	require.Fail(n.t, "leader not found")
 	return nil

@@ -926,10 +926,6 @@ func advanceWithoutLeader(t *testing.T, net *inMemNetwork, epochTimes []time.Tim
 	}
 
 	for _, n := range net.instances {
-		leader := n.e.ID.Equals(simplex.LeaderForRound(net.nodes, n.e.Metadata().Round))
-		if leader || laggingNodeId.Equals(n.e.ID) {
-			continue
-		}
 		n.triggerBlockShouldBeBuilt()
 	}
 
