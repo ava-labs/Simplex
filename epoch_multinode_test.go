@@ -658,7 +658,7 @@ func (n *inMemNetwork) triggerLeaderBlockBuilder(round uint64) *testBlock {
 		instance.bb.triggerNewBlock()
 		return <-instance.bb.out
 	}
-	
+
 	// we should always find the leader
 	require.Fail(n.t, "leader not found")
 	return nil
