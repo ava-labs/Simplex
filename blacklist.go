@@ -182,8 +182,7 @@ func (bl *Blacklist) ApplyUpdates(updates []BlacklistUpdate, round uint64) Black
 		Updates:        make([]BlacklistUpdate, len(updates)),
 	}
 
-	copy(newBlacklist.SuspectedNodes, bl.SuspectedNodes)
-	newBlacklist.advanceRound(round)
+	newBlacklist.SuspectedNodes = bl.newSuspectingNodesForRound(round)
 
 	for _, update := range updates {
 		orbit := Orbit(round, update.NodeIndex, bl.NodeCount)
@@ -200,65 +199,30 @@ func (bl *Blacklist) ApplyUpdates(updates []BlacklistUpdate, round uint64) Black
 	return newBlacklist
 }
 
-// advanceRound advances the blacklist to the given round.
-// It will remove nodes that are no longer suspected or have been redeemed from the blacklist.
+// newSuspectingNodesForRound returns a new list of suspected nodes for the given round.
+// If nodes are no longer suspected or have been redeemed, they will not be included in the returned list.
 // It will also garbage-collect any votes from past orbits to blacklist or redeem nodes, unless
 // they have surpassed the threshold of f+1.
-func (bl *Blacklist) advanceRound(round uint64) {
+// It does not modify the current blacklist.
+func (bl *Blacklist) newSuspectingNodesForRound(round uint64) SuspectedNodes {
 	newSuspectedNodes := make([]SuspectedNode, 0, len(bl.SuspectedNodes))
-	garbageCollectedSuspectedNodeIndices := make(map[uint16]struct{}, len(bl.SuspectedNodes))
 	threshold := bl.computeThreshold()
+
 	for _, sn := range bl.SuspectedNodes {
 		orbit := Orbit(round, sn.NodeIndex, bl.NodeCount)
-		bl.advanceOrbit(orbit, sn.NodeIndex, threshold, bl.SuspectedNodes, garbageCollectedSuspectedNodeIndices)
+		if sn.isStillSuspected(threshold, orbit) {
+			newSuspectedNode := sn
+
+			//  Reset the redeemingCount and orbitToRedeem if it was a past orbit.
+			if sn.OrbitToRedeem < orbit {
+				newSuspectedNode.RedeemingCount = 0
+				newSuspectedNode.OrbitToRedeem = 0
+			}
+			newSuspectedNodes = append(newSuspectedNodes, newSuspectedNode)
+		}
 	}
-	for i, sn := range bl.SuspectedNodes {
-		if _, deleted := garbageCollectedSuspectedNodeIndices[uint16(i)]; !deleted {
-			newSuspectedNodes = append(newSuspectedNodes, sn)
-		}
-	}
-	bl.SuspectedNodes = newSuspectedNodes
-}
 
-// advanceOrbit advances the blacklist to the given orbit for the given node.
-// It will remove the node from the blacklist if it is no longer suspected or has been redeemed.
-func (bl *Blacklist) advanceOrbit(orbit uint64, nodeIndex uint16, threshold uint16, suspectedNodes SuspectedNodes, deletedIndices map[uint16]struct{}) {
-	// Search for the node in the suspected list and remove it if it wasn't blacklisted in the previous orbit.
-	for i, sn := range suspectedNodes {
-		if sn.NodeIndex != nodeIndex {
-			// This isn't the node we're looking for.
-			continue
-		}
-
-		if sn.OrbitSuspected >= orbit {
-			// Orbit hasn't advanced.
-			continue
-		}
-
-		// Else, the orbit has advanced (sn.OrbitSuspected < orbit).
-		if sn.SuspectingCount < threshold {
-			// The node is not blacklisted, so since we've advanced to a new orbit,
-			// we can just drop it as not enough nodes suspected it.
-			deletedIndices[uint16(i)] = struct{}{}
-			continue
-		}
-
-		// Else, the node is blacklisted. We need to see if it has been redeemed by enough nodes.
-		if sn.RedeemingCount >= threshold {
-			// The node has been redeemed by enough nodes, so we can remove it from the blacklist.
-			deletedIndices[uint16(i)] = struct{}{}
-			continue
-		}
-
-		// Else, the node is still blacklisted. Reset the redeem counter and orbit to redeem if it was a past orbit.
-		newSN := sn
-		if sn.OrbitToRedeem < orbit {
-			newSN.RedeemingCount = 0
-			newSN.OrbitToRedeem = 0
-		}
-		// Update the suspected node
-		suspectedNodes[i] = newSN
-	}
+	return newSuspectedNodes
 }
 
 func (bl *Blacklist) nodeSuspected(orbit uint64, nodeIndex uint16) {
@@ -792,4 +756,27 @@ func (sn *SuspectedNode) Len() int {
 	}
 
 	return buffSize + 1 + 2 // +1 for bitmask, +2 for node index
+}
+
+// isStillSuspected returns true if the suspected node is still suspected in the given orbit.
+func (sn *SuspectedNode) isStillSuspected(threshold uint16, orbit uint64) bool {
+	if sn.OrbitSuspected >= orbit {
+		// Orbit hasn't advanced.
+		return true
+	}
+
+	// Else, the orbit has advanced (sn.OrbitSuspected < orbit).
+	if sn.SuspectingCount < threshold {
+		// The node is not blacklisted, so since we've advanced to a new orbit,
+		// we can just drop it as not enough nodes suspected it.
+		return false
+	}
+
+	// Else, the node is blacklisted. We need to see if it has been redeemed by enough nodes.
+	if sn.RedeemingCount >= threshold {
+		return false
+	}
+
+	// Else, the node is still blacklisted.
+	return true
 }

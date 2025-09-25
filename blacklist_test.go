@@ -6,10 +6,11 @@ package simplex
 import (
 	"crypto/rand"
 	"fmt"
-	"github.com/stretchr/testify/require"
 	"math"
 	mathrand "math/rand"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestBlacklistVerifyProposedBlacklist(t *testing.T) {
@@ -224,7 +225,7 @@ func TestBlacklistSimpleFlow(t *testing.T) {
 	bl.nodeSuspected(1, 2)
 	require.True(t, bl.IsNodeSuspected(2))
 
-	bl.advanceRound(5)
+	bl.SuspectedNodes = bl.newSuspectingNodesForRound(5)
 	require.True(t, bl.IsNodeSuspected(2), "Suspected node is still suspected even if its OrbitSuspected advanced")
 
 	bl.nodeRedeemed(3, 2)
@@ -507,12 +508,12 @@ func TestAdvanceRound(t *testing.T) {
 				SuspectedNodes: testCases[round].suspectedNodesBefore,
 			}
 
-			blacklist.advanceRound(round)
+			suspectingNodes := blacklist.newSuspectingNodesForRound(round)
 
 			if testCases[round].noChange {
-				require.Equal(t, testCases[round].suspectedNodesBefore, blacklist.SuspectedNodes)
+				require.Equal(t, testCases[round].suspectedNodesBefore, suspectingNodes)
 			} else {
-				require.Equal(t, testCases[round].suspectedNodesAfter, blacklist.SuspectedNodes)
+				require.Equal(t, testCases[round].suspectedNodesAfter, suspectingNodes)
 			}
 		})
 	}
