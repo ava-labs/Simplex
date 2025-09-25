@@ -1592,18 +1592,21 @@ func newInMemStorage() *InMemStorage {
 	return s
 }
 
+func (mem *InMemStorage) NumBlocks() uint64 {
+	mem.lock.Lock()
+	defer mem.lock.Unlock()
+
+	return uint64(len(mem.data))
+}
+
 func (mem *InMemStorage) Clone() *InMemStorage {
 	clone := newInMemStorage()
-	mem.lock.Lock()
 	height := mem.NumBlocks()
-	mem.lock.Unlock()
 	for seq := uint64(0); seq < height; seq++ {
-		mem.lock.Lock()
 		block, finalization, err := mem.Retrieve(seq)
 		if err != nil {
 			panic(fmt.Sprintf("failed retrieving block %d: %v", seq, err))
 		}
-		mem.lock.Unlock()
 		clone.Index(context.Background(), block, finalization)
 	}
 	return clone
@@ -1632,11 +1635,10 @@ func (mem *InMemStorage) ensureNoBlockCommit(t *testing.T, seq uint64) {
 	}, time.Second, time.Millisecond*100, "block %d has been committed but shouldn't have been", seq)
 }
 
-func (mem *InMemStorage) NumBlocks() uint64 {
-	return uint64(len(mem.data))
-}
-
 func (mem *InMemStorage) Retrieve(seq uint64) (VerifiedBlock, Finalization, error) {
+	mem.lock.Lock()
+	defer mem.lock.Unlock()
+
 	item, ok := mem.data[seq]
 	if !ok {
 		return nil, Finalization{}, fmt.Errorf("%w: seq %d", ErrBlockNotFound, seq)

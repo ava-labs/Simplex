@@ -370,6 +370,16 @@ func (c *collectNotarizationComm) removeFinalizationsFromReplicationResponses(ms
 		msg.VerifiedReplicationResponse.Data = newData
 		c.replicationResponses <- struct{}{}
 	}
+
+	if msg.Finalization != nil && msg.Finalization.Finalization.Round == 0 {
+		// we drop a finalization here because the lagging node could timeout on round 0
+		// therefore it would send an empty vote message to a node.
+		// When nodes receive empty votes, they send back a finalization/notarization to a lagging node.
+		// Since we are testing replication, lets block this finalization to ensure the lagging node
+		// has to rely on replication to get notarizations/finalizations.
+		return false
+	}
+
 	return true
 }
 
@@ -455,19 +465,32 @@ func testReplicationRequestWithoutFinalization(t *testing.T) {
 
 	// we should still have these replication requests in the timeout handler
 	laggingNode.e.AdvanceTime(laggingNode.e.StartTime.Add(simplex.DefaultReplicationRequestTimeout * 2))
-
 	for range net.instances[:3] {
 		// the lagging node should have sent replication requests
 		// and the normal nodes should have responded
 		<-notarizationComm.replicationResponses
 	}
-
 	require.Equal(t, uint64(0), laggingNode.storage.NumBlocks())
 	// We should still have these replication requests in the timeout handler
 	// but now we allow the lagging node to process them
 	net.setAllNodesMessageFilter(allowAllMessages)
-	laggingNode.e.AdvanceTime(laggingNode.e.StartTime.Add(simplex.DefaultReplicationRequestTimeout * 4))
-	laggingNode.storage.waitForBlockCommit(endDisconnect - missedSeqs)
+
+	timeout := time.After(1 * time.Minute)
+
+	// we may be in the process of creating timeout requests
+	for {
+		laggingNode.e.AdvanceTime(laggingNode.e.StartTime.Add(simplex.DefaultReplicationRequestTimeout * 4))
+		if laggingNode.storage.NumBlocks() > endDisconnect-missedSeqs {
+			break
+		}
+
+		select {
+		case <-time.After(100 * time.Millisecond):
+			continue
+		case <-timeout:
+			t.Fatalf("Lagging node did not catch up after timeout")
+		}
+	}
 }
 
 // TestReplicationMalformedQuorumRound tests that a node re-sends a replication request when it receives a malformed quorum round message.

@@ -817,6 +817,11 @@ func (n *inMemNetwork) triggerLeaderBlockBuilder(round uint64) *testBlock {
 		if n.IsDisconnected(leader) {
 			instance.e.Logger.Info("triggering block build on disconnected leader", zap.Stringer("leader", leader))
 		}
+
+		// wait for the node to enter the round we expect it to propose a block for
+		// otherwise we may trigger a build block too early
+		waitToEnterRound(n.t, instance.e, round)
+
 		instance.bb.triggerNewBlock()
 		return <-instance.bb.out
 	}
