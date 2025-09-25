@@ -371,7 +371,6 @@ func (c *collectNotarizationComm) removeFinalizationsFromReplicationResponses(ms
 		c.replicationResponses <- struct{}{}
 	}
 
-
 	if msg.Finalization != nil && msg.Finalization.Finalization.Round == 0 {
 		// we drop a finalization here because the lagging node could timeout on round 0
 		// therefore it would send an empty vote message to a node.
@@ -380,7 +379,7 @@ func (c *collectNotarizationComm) removeFinalizationsFromReplicationResponses(ms
 		// has to rely on replication to get notarizations/finalizations.
 		return false
 	}
-	
+
 	return true
 }
 
@@ -469,19 +468,19 @@ func TestReplicationRequestWithoutFinalization(t *testing.T) {
 	net.setAllNodesMessageFilter(allowAllMessages)
 
 	timeout := time.After(1 * time.Minute)
-	
+
 	// we may be in the process of creating timeout requests
 	for {
 		laggingNode.e.AdvanceTime(laggingNode.e.StartTime.Add(simplex.DefaultReplicationRequestTimeout * 4))
 		if laggingNode.storage.NumBlocks() > endDisconnect-missedSeqs {
 			break
 		}
-		
+
 		select {
-			case <-time.After(100 * time.Millisecond):
-				continue
-			case <-timeout:
-				t.Fatalf("Lagging node did not catch up after timeout")
+		case <-time.After(100 * time.Millisecond):
+			continue
+		case <-timeout:
+			t.Fatalf("Lagging node did not catch up after timeout")
 		}
 	}
 }
