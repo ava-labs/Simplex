@@ -1281,7 +1281,7 @@ func (e *Epoch) handleEmptyNotarizationMessage(emptyNotarization *EmptyNotarizat
 			zap.Uint64("round", vote.Round), zap.Uint64("our round", e.round))
 		return nil
 	}
-	
+
 	// Ignore votes for previous rounds
 	if !e.isVoteRoundValid(vote.Round) {
 		return nil

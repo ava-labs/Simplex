@@ -30,91 +30,93 @@ import (
 // notarize and finalize block for round 1
 // we expect the future empty notarization for round 2 to increment the round
 func TestEpochLeaderFailoverWithEmptyNotarization(t *testing.T) {
-	l := testutil.MakeLogger(t, 1)
+	for range 100 {
+		l := testutil.MakeLogger(t, 1)
 
-	bb := &testBlockBuilder{
-		out:                make(chan *testBlock, 2),
-		blockShouldBeBuilt: make(chan struct{}, 1),
-		in:                 make(chan *testBlock, 2),
+		bb := &testBlockBuilder{
+			out:                make(chan *testBlock, 2),
+			blockShouldBeBuilt: make(chan struct{}, 1),
+			in:                 make(chan *testBlock, 2),
+		}
+		storage := newInMemStorage()
+
+		nodes := []NodeID{{1}, {2}, {3}, {4}}
+
+		wal := newTestWAL(t)
+
+		start := time.Now()
+		conf := EpochConfig{
+			MaxProposalWait:     DefaultMaxProposalWaitTime,
+			StartTime:           start,
+			Logger:              l,
+			ID:                  nodes[0],
+			Signer:              &testSigner{},
+			WAL:                 wal,
+			Verifier:            &testVerifier{},
+			Storage:             storage,
+			Comm:                noopComm(nodes),
+			BlockBuilder:        bb,
+			SignatureAggregator: &testSignatureAggregator{},
+		}
+
+		e, err := NewEpoch(conf)
+		require.NoError(t, err)
+
+		require.NoError(t, e.Start())
+
+		// Agree on the first block, and then receive an empty notarization for round 3.
+		// Afterward, run through rounds 1 and 2.
+		// The node should move to round 4 via the empty notarization it has received
+		// from earlier.
+
+		notarizeAndFinalizeRound(t, e, bb)
+
+		block0, _, err := storage.Retrieve(0)
+		require.NoError(t, err)
+
+		block1, ok := bb.BuildBlock(context.Background(), ProtocolMetadata{
+			Round: 1,
+			Prev:  block0.BlockHeader().Digest,
+			Seq:   1,
+		})
+		require.True(t, ok)
+
+		block2, ok := bb.BuildBlock(context.Background(), ProtocolMetadata{
+			Round: 3,
+			Prev:  block1.BlockHeader().Digest,
+			Seq:   2,
+		})
+		require.True(t, ok)
+
+		// Artificially force the block builder to output the blocks we want.
+		for len(bb.out) > 0 {
+			<-bb.out
+		}
+		for _, block := range []VerifiedBlock{block1, block2} {
+			bb.out <- block.(*testBlock)
+			bb.in <- block.(*testBlock)
+		}
+
+		emptyNotarization := newEmptyNotarization(nodes[:3], 2)
+
+		e.HandleMessage(&Message{
+			EmptyNotarization: emptyNotarization,
+		}, nodes[1])
+
+		notarizeAndFinalizeRound(t, e, bb)
+
+		wal.assertNotarization(2)
+		nextBlockSeqToCommit := uint64(2)
+		nextRoundToCommit := uint64(3)
+
+		runCrashAndRestartExecution(t, e, bb, wal, storage, func(t *testing.T, e *Epoch, bb *testBlockBuilder, storage *InMemStorage, wal *testWAL) {
+			// Ensure our node proposes block with sequence 3 for round 4
+			block, _ := notarizeAndFinalizeRound(t, e, bb)
+			require.Equal(t, nextBlockSeqToCommit, block.BlockHeader().Seq)
+			require.Equal(t, nextRoundToCommit, block.BlockHeader().Round)
+			require.Equal(t, uint64(3), storage.NumBlocks())
+		})
 	}
-	storage := newInMemStorage()
-
-	nodes := []NodeID{{1}, {2}, {3}, {4}}
-
-	wal := newTestWAL(t)
-
-	start := time.Now()
-	conf := EpochConfig{
-		MaxProposalWait:     DefaultMaxProposalWaitTime,
-		StartTime:           start,
-		Logger:              l,
-		ID:                  nodes[0],
-		Signer:              &testSigner{},
-		WAL:                 wal,
-		Verifier:            &testVerifier{},
-		Storage:             storage,
-		Comm:                noopComm(nodes),
-		BlockBuilder:        bb,
-		SignatureAggregator: &testSignatureAggregator{},
-	}
-
-	e, err := NewEpoch(conf)
-	require.NoError(t, err)
-
-	require.NoError(t, e.Start())
-
-	// Agree on the first block, and then receive an empty notarization for round 3.
-	// Afterward, run through rounds 1 and 2.
-	// The node should move to round 4 via the empty notarization it has received
-	// from earlier.
-
-	notarizeAndFinalizeRound(t, e, bb)
-
-	block0, _, err := storage.Retrieve(0)
-	require.NoError(t, err)
-
-	block1, ok := bb.BuildBlock(context.Background(), ProtocolMetadata{
-		Round: 1,
-		Prev:  block0.BlockHeader().Digest,
-		Seq:   1,
-	})
-	require.True(t, ok)
-
-	block2, ok := bb.BuildBlock(context.Background(), ProtocolMetadata{
-		Round: 3,
-		Prev:  block1.BlockHeader().Digest,
-		Seq:   2,
-	})
-	require.True(t, ok)
-
-	// Artificially force the block builder to output the blocks we want.
-	for len(bb.out) > 0 {
-		<-bb.out
-	}
-	for _, block := range []VerifiedBlock{block1, block2} {
-		bb.out <- block.(*testBlock)
-		bb.in <- block.(*testBlock)
-	}
-
-	emptyNotarization := newEmptyNotarization(nodes[:3], 2)
-
-	e.HandleMessage(&Message{
-		EmptyNotarization: emptyNotarization,
-	}, nodes[1])
-
-	notarizeAndFinalizeRound(t, e, bb)
-
-	wal.assertNotarization(2)
-	nextBlockSeqToCommit := uint64(2)
-	nextRoundToCommit := uint64(3)
-
-	runCrashAndRestartExecution(t, e, bb, wal, storage, func(t *testing.T, e *Epoch, bb *testBlockBuilder, storage *InMemStorage, wal *testWAL) {
-		// Ensure our node proposes block with sequence 3 for round 4
-		block, _ := notarizeAndFinalizeRound(t, e, bb)
-		require.Equal(t, nextBlockSeqToCommit, block.BlockHeader().Seq)
-		require.Equal(t, nextRoundToCommit, block.BlockHeader().Round)
-		require.Equal(t, uint64(3), storage.NumBlocks())
-	})
 }
 
 // newEmptyNotarization creates a new empty notarization
