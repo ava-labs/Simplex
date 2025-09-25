@@ -225,10 +225,32 @@ func TestRebroadcastingWithReplication(t *testing.T) {
 	net.Connect(laggingNode.e.ID)
 	block := net.triggerLeaderBlockBuilder(numNotarizations)
 
+	timeout := time.NewTimer(30 * time.Second)
 	for i := uint64(0); i <= block.metadata.Seq; i++ {
 		for _, n := range net.instances {
-			n.storage.waitForBlockCommit(i)
+			for {
+				committed := n.storage.NumBlocks()
+				if committed > i {
+					break
+				}
+
+				// if we haven't indexed, advance the time to trigger rebroadcast/replication timeouts
+				select {
+				case <-time.After(time.Millisecond * 10):
+					for i, n := range net.instances {
+						epochTimes[i] = epochTimes[i].Add(2 * simplex.DefaultMaxProposalWaitTime)
+						n.e.AdvanceTime(epochTimes[i])
+					}
+					continue
+				case <-timeout.C:
+					require.Fail(t, "timed out waiting for event")
+				}
+			}
 		}
+	}
+
+	for _, n := range net.instances {
+		require.Equal(t, block.metadata.Seq+1, n.storage.NumBlocks())
 	}
 }
 
