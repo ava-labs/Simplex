@@ -11,30 +11,30 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ava-labs/simplex"
 	. "github.com/ava-labs/simplex"
 	"github.com/ava-labs/simplex/record"
 	"github.com/ava-labs/simplex/testutil"
 	"github.com/ava-labs/simplex/wal"
+	"go.uber.org/zap"
 
 	"github.com/stretchr/testify/require"
 )
 
 func TestSimplexMultiNodeSimple(t *testing.T) {
-	bb := newTestControlledBlockBuilder(t)
-
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	net := newInMemNetwork(t, nodes)
-	newSimplexNode(t, nodes[0], net, bb, nil)
-	newSimplexNode(t, nodes[1], net, bb, nil)
-	newSimplexNode(t, nodes[2], net, bb, nil)
-	newSimplexNode(t, nodes[3], net, bb, nil)
+	newSimplexNode(t, nodes[0], net, nil)
+	newSimplexNode(t, nodes[1], net, nil)
+	newSimplexNode(t, nodes[2], net, nil)
+	newSimplexNode(t, nodes[3], net, nil)
 
 	net.startInstances()
 
-	for seq := 0; seq < 10; seq++ {
-		bb.triggerNewBlock()
+	for seq := uint64(0); seq < 10; seq++ {
+		net.triggerLeaderBlockBuilder(seq)
 		for _, n := range net.instances {
-			n.storage.waitForBlockCommit(uint64(seq))
+			n.storage.waitForBlockCommit(seq)
 		}
 	}
 }
@@ -54,10 +54,8 @@ func onlySendBlockProposalsAndVotes(splitNodes []NodeID) messageFilter {
 }
 
 // TestSplitVotes ensures that nodes who have timeout out, while the rest of the network has
-// progressed due to notartizations, are able to collect the notarariztions and continue
+// progressed due to notarizations, are able to collect the notarizations and continue
 func TestSplitVotes(t *testing.T) {
-	bb := newTestControlledBlockBuilder(t)
-
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	net := newInMemNetwork(t, nodes)
 
@@ -67,18 +65,17 @@ func TestSplitVotes(t *testing.T) {
 		}
 	}
 
-	newSimplexNode(t, nodes[0], net, bb, config(nodes[0]))
-	newSimplexNode(t, nodes[1], net, bb, config(nodes[1]))
-	splitNode2 := newSimplexNode(t, nodes[2], net, bb, config(nodes[2]))
-	splitNode3 := newSimplexNode(t, nodes[3], net, bb, config(nodes[3]))
+	newSimplexNode(t, nodes[0], net, config(nodes[0]))
+	newSimplexNode(t, nodes[1], net, config(nodes[1]))
+	splitNode2 := newSimplexNode(t, nodes[2], net, config(nodes[2]))
+	splitNode3 := newSimplexNode(t, nodes[3], net, config(nodes[3]))
 
 	net.startInstances()
 
-	bb.triggerNewBlock()
-
+	net.triggerLeaderBlockBuilder(0)
 	for _, n := range net.instances {
 		n.wal.assertBlockProposal(0)
-		bb.blockShouldBeBuilt <- struct{}{}
+		n.triggerBlockShouldBeBuilt()
 
 		if n.e.ID.Equals(splitNode2.e.ID) || n.e.ID.Equals(splitNode3.e.ID) {
 			require.Equal(t, uint64(0), n.e.Metadata().Round)
@@ -118,7 +115,7 @@ func TestSplitVotes(t *testing.T) {
 
 	// once the new round gets finalized, it will re-broadcast
 	// all past notarizations allowing the nodes to index both seq 0 & 1
-	bb.triggerNewBlock()
+	net.triggerLeaderBlockBuilder(1)
 
 	for _, n := range net.instances {
 		n.storage.waitForBlockCommit(0)
@@ -142,8 +139,9 @@ type testNodeConfig struct {
 }
 
 // newSimplexNode creates a new testNode and adds it to [net].
-func newSimplexNode(t *testing.T, nodeID NodeID, net *inMemNetwork, bb BlockBuilder, config *testNodeConfig) *testNode {
+func newSimplexNode(t *testing.T, nodeID NodeID, net *inMemNetwork, config *testNodeConfig) *testNode {
 	comm := newTestComm(nodeID, net, allowAllMessages)
+	bb := newTestControlledBlockBuilder(t)
 	epochConfig := defaultTestNodeEpochConfig(t, nodeID, comm, bb)
 
 	if config != nil {
@@ -155,6 +153,7 @@ func newSimplexNode(t *testing.T, nodeID NodeID, net *inMemNetwork, bb BlockBuil
 	ti := &testNode{
 		l:       epochConfig.Logger.(*testutil.TestLogger),
 		wal:     epochConfig.WAL.(*testWAL),
+		bb:      bb,
 		e:       e,
 		t:       t,
 		storage: epochConfig.Storage.(*InMemStorage),
@@ -212,8 +211,17 @@ type testNode struct {
 		msg  *Message
 		from NodeID
 	}
-	l *testutil.TestLogger
-	t *testing.T
+	l  *testutil.TestLogger
+	t  *testing.T
+	bb *testControlledBlockBuilder
+}
+
+// triggerBlockShouldBeBuilt signals this nodes block builder it is expecting a block to be built.
+func (t *testNode) triggerBlockShouldBeBuilt() {
+	select {
+	case t.bb.blockShouldBeBuilt <- struct{}{}:
+	default:
+	}
 }
 
 func (t *testNode) Silence() {
@@ -631,6 +639,7 @@ type inMemNetwork struct {
 // newInMemNetwork creates an in-memory network. Node IDs must be provided before
 // adding instances, as nodes require prior knowledge of all participants.
 func newInMemNetwork(t *testing.T, nodes []NodeID) *inMemNetwork {
+	simplex.SortNodes(nodes)
 	net := &inMemNetwork{
 		t:            t,
 		nodes:        nodes,
@@ -638,6 +647,24 @@ func newInMemNetwork(t *testing.T, nodes []NodeID) *inMemNetwork {
 		disconnected: make(map[string]struct{}),
 	}
 	return net
+}
+
+func (n *inMemNetwork) triggerLeaderBlockBuilder(round uint64) *testBlock {
+	leader := simplex.LeaderForRound(n.nodes, round)
+	for _, instance := range n.instances {
+		if !instance.e.ID.Equals(leader) {
+			continue
+		}
+		if n.IsDisconnected(leader) {
+			instance.e.Logger.Info("triggering block build on disconnected leader", zap.Stringer("leader", leader))
+		}
+		instance.bb.triggerNewBlock()
+		return <-instance.bb.out
+	}
+
+	// we should always find the leader
+	require.Fail(n.t, "leader not found")
+	return nil
 }
 
 func (n *inMemNetwork) addNode(node *testNode) {
@@ -694,19 +721,19 @@ func (n *inMemNetwork) startInstances() {
 	}
 }
 
-// testControlledBlockBuilder is a test block builder that blocks
-// block building until a trigger is received
 type testControlledBlockBuilder struct {
 	t       *testing.T
 	control chan struct{}
 	testBlockBuilder
 }
 
+// newTestControlledBlockBuilder returns a BlockBuilder that only builds a block
+// when triggerNewBlock is called.
 func newTestControlledBlockBuilder(t *testing.T) *testControlledBlockBuilder {
 	return &testControlledBlockBuilder{
 		t:                t,
 		control:          make(chan struct{}, 1),
-		testBlockBuilder: testBlockBuilder{out: make(chan *testBlock, 1), blockShouldBeBuilt: make(chan struct{}, 1)},
+		testBlockBuilder: *newTestBlockBuilder(),
 	}
 }
 
