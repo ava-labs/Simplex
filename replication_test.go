@@ -909,7 +909,7 @@ func waitToEnterRound(t *testing.T, e *simplex.Epoch, round uint64) {
 		case <-time.After(time.Millisecond * 10):
 			continue
 		case <-timeout.C:
-			require.Fail(t, "timed out waiting for event")
+			require.Fail(t, "timed out waiting to enter round", "current round %d, waiting for round %d", e.Metadata().Round, round)
 		}
 	}
 }
