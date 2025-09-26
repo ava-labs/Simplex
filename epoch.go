@@ -2682,18 +2682,6 @@ func (e *Epoch) maybeAdvanceRoundFromEmptyNotarizations() (bool, error) {
 		}
 	}
 
-	// if there is no sequence, then maybe there is one with the same sequence but an empty notarization
-	sameSeqQuorum := e.replicationState.GetQuroumRoundWithSeq(expectedSeq - 1)
-	if sameSeqQuorum != nil && sameSeqQuorum.EmptyNotarization != nil {
-		// num empty notarizations
-		if round < nextSeqQuorum.GetRound() {
-			for range sameSeqQuorum.GetRound() - round {
-				e.increaseRound()
-			}
-			return true, nil
-		}
-	}
-
 	return false, nil
 }
 
