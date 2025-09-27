@@ -38,7 +38,8 @@ type BlockBuilder interface {
 	// BuildBlock blocks until some transactions are available to be batched into a block,
 	// in which case a block and true are returned.
 	// When the given context is cancelled by the caller, returns false.
-	BuildBlock(ctx context.Context, metadata ProtocolMetadata) (VerifiedBlock, bool)
+	// The given metadata and blacklist are encoded into the built block.
+	BuildBlock(ctx context.Context, metadata ProtocolMetadata, blacklist Blacklist) (VerifiedBlock, bool)
 
 	// WaitForPendingBlock returns when either the given context is cancelled,
 	// or when the application signals that a block should be built.
@@ -85,6 +86,8 @@ type Block interface {
 	// BlockHeader encodes a succinct and collision-free representation of a block.
 	BlockHeader() BlockHeader
 
+	Blacklist() Blacklist
+
 	// Verify verifies the block by speculatively executing it on top of its ancestor.
 	Verify(ctx context.Context) (VerifiedBlock, error)
 }
@@ -92,6 +95,8 @@ type Block interface {
 type VerifiedBlock interface {
 	// BlockHeader encodes a succinct and collision-free representation of a block.
 	BlockHeader() BlockHeader
+
+	Blacklist() Blacklist
 
 	// Bytes returns a byte encoding of the block
 	Bytes() ([]byte, error)

@@ -584,6 +584,7 @@ func TestReplicationMalformedQuorumRound(t *testing.T) {
 }
 
 func TestReplicationResendsFinalizedBlocksThatFailedVerification(t *testing.T) {
+
 	// send a block, then simultaneously send a finalization for the block
 	l := testutil.MakeLogger(t, 1)
 	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
@@ -615,7 +616,7 @@ func TestReplicationResendsFinalizedBlocksThatFailedVerification(t *testing.T) {
 	require.NoError(t, e.Start())
 
 	md := e.Metadata()
-	_, ok := bb.BuildBlock(context.Background(), md)
+	_, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
 	require.True(t, ok)
 	require.Equal(t, md.Round, md.Seq)
 
@@ -654,7 +655,10 @@ func TestReplicationResendsFinalizedBlocksThatFailedVerification(t *testing.T) {
 		}
 	}
 
-	block = newTestBlock(md)
+	block = newTestBlock(md, emptyBlacklist)
+	block.data = append(block.data, 0)
+	block.computeDigest()
+
 	finalization, _ = newFinalizationRecord(t, l, signatureAggregator, block, nodes[0:quorum])
 	replicationResponse = &simplex.ReplicationResponse{
 		Data: []simplex.QuorumRound{

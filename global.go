@@ -42,3 +42,12 @@ func (nodes NodeIDs) Remove(targetNode NodeID) []NodeID {
 	}
 	return nodes
 }
+
+func (nodes NodeIDs) IndexOf(id NodeID) int {
+	for i, n := range nodes {
+		if n.Equals(id) {
+			return i
+		}
+	}
+	return -1
+}

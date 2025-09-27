@@ -1,7 +1,7 @@
 #!/usr/bin/env -euxo pipefail bash
 
 rand=$RANDOM
-x=$(( $rand % 5 ))
+x=$(( $rand % 2 ))
 if [[ $x -ne 0 ]]; then
   echo "Skipping fuzz run"
   exit 0
