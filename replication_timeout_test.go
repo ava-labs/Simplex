@@ -23,6 +23,89 @@ func rejectReplicationRequests(msg *simplex.Message, _, _ simplex.NodeID) bool {
 	return msg.ReplicationRequest == nil && msg.ReplicationResponse == nil && msg.VerifiedReplicationResponse == nil
 }
 
+func TestReplicationOfTailEmptyNotarization(t *testing.T) {
+	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
+
+	// node begins replication
+	bb0 := newTestControlledBlockBuilder(t)
+	bb := newTestControlledBlockBuilder(t)
+	net := newInMemNetwork(t, nodes)
+
+	newNodeConfig := func(from simplex.NodeID) *testNodeConfig {
+		comm := newTestComm(from, net, allowAllMessages)
+		return &testNodeConfig{
+			comm:               comm,
+			replicationEnabled: true,
+		}
+	}
+
+	newSimplexNode(t, nodes[0], net, bb, newNodeConfig(nodes[0]))
+	newSimplexNode(t, nodes[1], net, bb, newNodeConfig(nodes[1]))
+	newSimplexNode(t, nodes[2], net, bb, newNodeConfig(nodes[2]))
+	newSimplexNode(t, nodes[3], net, bb0, newNodeConfig(nodes[2]))
+
+	startTimes := []time.Time{net.instances[0].e.StartTime, net.instances[1].e.StartTime, net.instances[2].e.StartTime}
+
+	net.Disconnect(nodes[3])
+
+	net.startInstances()
+
+	// Advance three rounds until the disconnected node is the leader
+	for i := 0; i < 3; i++ {
+		bb.triggerNewBlock()
+		for _, n := range net.instances {
+			if n.e.ID.Equals(nodes[3]) {
+				continue
+			}
+			n.storage.waitForBlockCommit(uint64(i))
+		}
+	}
+
+	advanceWithoutLeader(t, net, bb, startTimes, 3, nodes[3])
+
+	// Reconnect the fourth node
+	net.Connect(nodes[3])
+
+	// Disconnect the first node
+	net.Disconnect(nodes[0])
+
+	// Trigger a new block, which will be an empty notarization round - this time 4.
+	currentTime := net.instances[0].e.StartTime
+
+	var allTimedOut bool
+
+	for ! allTimedOut {
+		select {
+		case bb.blockShouldBeBuilt <- struct{}{}:
+		default:
+		}
+
+		currentTime = currentTime.Add(simplex.DefaultMaxProposalWaitTime)
+
+		// Advance time on all nodes to trigger the block build
+		for _, n := range net.instances {
+			n.e.AdvanceTime(currentTime)
+		}
+
+		var someoneHasNotTimedOut bool
+
+		for _, n := range net.instances[1:] {
+			if ! n.wal.containsEmptyNotarization(4) {
+				someoneHasNotTimedOut = true
+				break
+			}
+		}
+
+		allTimedOut = ! someoneHasNotTimedOut
+
+		time.Sleep(time.Second)
+	}
+
+	// Wait until the fourth node replicates the missing blocks as well as the empty notarization for round 3
+	net.instances[3].storage.waitForBlockCommit(2)
+	net.instances[3].e.WAL.(*testWAL).containsEmptyNotarization(3)
+}
+
 // A node attempts to request blocks to replicate, but fails to receive them
 func TestReplicationRequestTimeout(t *testing.T) {
 	nodes := []simplex.NodeID{{1}, {2}, {3}, []byte("lagging")}
