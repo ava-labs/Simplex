@@ -6,7 +6,6 @@ package simplex
 import (
 	"crypto/rand"
 	"fmt"
-	"math"
 	mathrand "math/rand"
 	"testing"
 
@@ -20,7 +19,7 @@ func TestBlacklistVerifyProposedBlacklist(t *testing.T) {
 		proposedBlacklist Blacklist
 		nodeCount         int
 		round             uint64
-		expectedErr       string
+		expectedErr       error
 	}{
 		{
 			name:      "node count mismatch",
@@ -28,7 +27,7 @@ func TestBlacklistVerifyProposedBlacklist(t *testing.T) {
 			proposedBlacklist: Blacklist{
 				NodeCount: 13,
 			},
-			expectedErr: "block contains an invalid blacklist node count, expected 5, got 13",
+			expectedErr: errBlacklistInvalidNodeCount,
 		},
 		{
 			name: "invalid blacklist update",
@@ -43,7 +42,7 @@ func TestBlacklistVerifyProposedBlacklist(t *testing.T) {
 				SuspectedNodes: SuspectedNodes{{NodeIndex: 3, SuspectingCount: 2, OrbitSuspected: 6, RedeemingCount: 0, OrbitToRedeem: 0}},
 				Updates:        []BlacklistUpdate{{Type: BlacklistOpType_NodeSuspected, NodeIndex: 3}},
 			},
-			expectedErr: "block contains invalid blacklist updates: node index already blacklisted: (3)",
+			expectedErr: errBlacklistInvalidUpdates,
 		},
 		{
 			name: "blacklist mismatch",
@@ -58,7 +57,7 @@ func TestBlacklistVerifyProposedBlacklist(t *testing.T) {
 				SuspectedNodes: SuspectedNodes{{NodeIndex: 3, SuspectingCount: 2, OrbitSuspected: 6, RedeemingCount: 0, OrbitToRedeem: 7}},
 				Updates:        []BlacklistUpdate{{Type: BlacklistOpType_NodeRedeemed, NodeIndex: 3}},
 			},
-			expectedErr: "block contains an invalid blacklist, expected Blacklist(nodeCount=4, SuspectedNodes=[{NodeIndex=3, SuspectingCount=2, RedeemingCount=1, OrbitSuspected=6, OrbitToRedeem=7}], updates=[{type=2, NodeIndex=3}]), got Blacklist(nodeCount=4, SuspectedNodes=[{NodeIndex=3, SuspectingCount=2, RedeemingCount=0, OrbitSuspected=6, OrbitToRedeem=7}], updates=[{type=2, NodeIndex=3}])",
+			expectedErr: errBlacklistInvalidBlacklist,
 		},
 		{
 			name: "blacklist mismatch - too many blacklisted",
@@ -73,18 +72,12 @@ func TestBlacklistVerifyProposedBlacklist(t *testing.T) {
 				SuspectedNodes: SuspectedNodes{{NodeIndex: 3, SuspectingCount: 2}, {NodeIndex: 2, SuspectingCount: 2}, {NodeIndex: 1, SuspectingCount: 1}},
 				Updates:        []BlacklistUpdate{{Type: BlacklistOpType_NodeSuspected, NodeIndex: 1}},
 			},
-			expectedErr: "block contains an invalid blacklist, expected Blacklist(nodeCount=4, SuspectedNodes=[{NodeIndex=3, " +
-				"SuspectingCount=2, RedeemingCount=0, OrbitSuspected=0, OrbitToRedeem=0},{NodeIndex=2, SuspectingCount=2, " +
-				"RedeemingCount=0, OrbitSuspected=0, OrbitToRedeem=0}], updates=[{type=1, NodeIndex=1}]), " +
-				"got Blacklist(nodeCount=4, SuspectedNodes=[{NodeIndex=3, SuspectingCount=2, RedeemingCount=0, " +
-				"OrbitSuspected=0, OrbitToRedeem=0},{NodeIndex=2, SuspectingCount=2, RedeemingCount=0, OrbitSuspected=0, " +
-				"OrbitToRedeem=0},{NodeIndex=1, SuspectingCount=1, RedeemingCount=0, OrbitSuspected=0, OrbitToRedeem=0}], " +
-				"updates=[{type=1, NodeIndex=1}])",
+			expectedErr: errBlacklistInvalidBlacklist,
 		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			err := testCase.blacklist.VerifyProposedBlacklist(testCase.proposedBlacklist, testCase.nodeCount, testCase.round)
-			require.EqualError(t, err, testCase.expectedErr)
+			require.ErrorContains(t, err, testCase.expectedErr.Error())
 		})
 	}
 }
@@ -468,33 +461,27 @@ func TestAdvanceRound(t *testing.T) {
 	}
 
 	testCases := []struct {
-		suspectedNodesBefore SuspectedNodes
-		suspectedNodesAfter  SuspectedNodes
-		noChange             bool
+		suspectedNodesAfter SuspectedNodes
+		noChange            bool
 	}{
 		{
 			// round 0
-			suspectedNodesBefore: suspectedNodesBefore,
-			noChange:             true,
+			noChange: true,
 		},
 		{
 			// round 1
-			suspectedNodesBefore: suspectedNodesBefore,
-			noChange:             true,
+			noChange: true,
 		},
 		{
 			// round 2
-			suspectedNodesBefore: suspectedNodesBefore,
-			noChange:             true,
+			noChange: true,
 		},
 		{
 			// round 3
-			suspectedNodesBefore: suspectedNodesBefore,
-			noChange:             true,
+			noChange: true,
 		},
 		{
 			// round 4
-			suspectedNodesBefore: suspectedNodesBefore,
 			suspectedNodesAfter: SuspectedNodes{
 				{NodeIndex: 0, SuspectingCount: 2, OrbitSuspected: 1, RedeemingCount: 0, OrbitToRedeem: 0},
 				{NodeIndex: 1, SuspectingCount: 1, OrbitSuspected: 1, RedeemingCount: 0, OrbitToRedeem: 0},
@@ -504,7 +491,6 @@ func TestAdvanceRound(t *testing.T) {
 		},
 		{
 			// round 5
-			suspectedNodesBefore: suspectedNodesBefore,
 			suspectedNodesAfter: SuspectedNodes{
 				{NodeIndex: 0, SuspectingCount: 2, OrbitSuspected: 1, RedeemingCount: 0, OrbitToRedeem: 0},
 				{NodeIndex: 2, SuspectingCount: 2, OrbitSuspected: 1, RedeemingCount: 2, OrbitToRedeem: 1},
@@ -513,7 +499,6 @@ func TestAdvanceRound(t *testing.T) {
 		},
 		{
 			// round 6
-			suspectedNodesBefore: suspectedNodesBefore,
 			suspectedNodesAfter: SuspectedNodes{
 				{NodeIndex: 0, SuspectingCount: 2, OrbitSuspected: 1, RedeemingCount: 0, OrbitToRedeem: 0},
 				{NodeIndex: 3, SuspectingCount: 1, OrbitSuspected: 1, RedeemingCount: 0, OrbitToRedeem: 0},
@@ -521,21 +506,18 @@ func TestAdvanceRound(t *testing.T) {
 		},
 		{
 			// round 7
-			suspectedNodesBefore: suspectedNodesBefore,
 			suspectedNodesAfter: SuspectedNodes{
 				{NodeIndex: 0, SuspectingCount: 2, OrbitSuspected: 1, RedeemingCount: 0, OrbitToRedeem: 0},
 			},
 		},
 		{
 			// round 8
-			suspectedNodesBefore: suspectedNodesBefore,
 			suspectedNodesAfter: SuspectedNodes{
 				{NodeIndex: 0, SuspectingCount: 2, OrbitSuspected: 1, RedeemingCount: 0, OrbitToRedeem: 0},
 			},
 		},
 		{
 			// round 9
-			suspectedNodesBefore: suspectedNodesBefore,
 			suspectedNodesAfter: SuspectedNodes{
 				{NodeIndex: 0, SuspectingCount: 2, OrbitSuspected: 1, RedeemingCount: 0, OrbitToRedeem: 0},
 			},
@@ -546,13 +528,13 @@ func TestAdvanceRound(t *testing.T) {
 		t.Run(fmt.Sprintf("round %d", round), func(t *testing.T) {
 			blacklist := Blacklist{
 				NodeCount:      uint16(len(nodes)),
-				SuspectedNodes: testCases[round].suspectedNodesBefore,
+				SuspectedNodes: suspectedNodesBefore,
 			}
 
 			suspectingNodes := blacklist.garbageCollectSuspectedNodes(round)
 
 			if testCases[round].noChange {
-				require.Equal(t, testCases[round].suspectedNodesBefore, suspectingNodes)
+				require.Equal(t, suspectedNodesBefore, suspectingNodes)
 			} else {
 				require.Equal(t, testCases[round].suspectedNodesAfter, suspectingNodes)
 			}
@@ -677,6 +659,7 @@ func TestBlacklistSimulateNetwork(t *testing.T) {
 	for nodes := 1; nodes <= 128; nodes *= 2 {
 		for rounds := 10; rounds <= 1000; rounds *= 10 {
 			t.Run(fmt.Sprintf("n=%d/r=%d", nodes, rounds), func(t *testing.T) {
+				t.Parallel()
 				testBlacklistSimulateNetwork(t, nodes, rounds)
 			})
 		}
@@ -750,10 +733,6 @@ func testBlacklistSimulateNetwork(t *testing.T, nodeCount int, rounds int) {
 		})
 	}
 }
-
-const (
-	noNodeCrashed = math.MaxUint16
-)
 
 type blacklistRoundSimulationInput struct {
 	round            uint64

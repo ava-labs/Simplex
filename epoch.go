@@ -1964,7 +1964,7 @@ func (e *Epoch) buildBlock() {
 
 	// If I'm blacklisted, I cannot propose a block.
 	if prevBlacklist.IsNodeSuspected(uint16(e.nodes.IndexOf(e.ID))) {
-		e.Logger.Info("I'm blacklisted, cannot propose a block", zap.Uint64("round", metadata.Round))
+		e.Logger.Debug("I'm blacklisted, cannot propose a block", zap.Uint64("round", metadata.Round))
 		e.triggerEmptyBlockNotarization(metadata.Round)
 		return
 	}
@@ -2245,7 +2245,7 @@ func (e *Epoch) monitorProgress(round uint64) {
 		// Instead, we should immediately trigger the empty block agreement.
 		leaderIndex := e.nodes.IndexOf(leader)
 		if leaderIndex >= 0 && blacklist.IsNodeSuspected(uint16(leaderIndex)) {
-			e.Logger.Info("Leader is blacklisted, will not wait for it to propose a block",
+			e.Logger.Debug("Leader is blacklisted, will not wait for it to propose a block",
 				zap.Uint64("round", round), zap.Stringer("leader", leader))
 			proposalWaitTimeExpired()
 			return

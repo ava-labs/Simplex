@@ -16,6 +16,9 @@ var (
 	errBlacklistNodeAlreadyBlacklisted  = fmt.Errorf("node index already blacklisted")
 	errBlacklistNodeNotBlacklisted      = fmt.Errorf("node index not blacklisted, cannot be redeemed")
 	errBlacklistInvalidUpdateType       = fmt.Errorf("invalid blacklist update type")
+	errBlacklistInvalidNodeCount        = fmt.Errorf("block contains an invalid blacklist node count")
+	errBlacklistInvalidUpdates          = fmt.Errorf("block contains invalid blacklist updates")
+	errBlacklistInvalidBlacklist        = fmt.Errorf("block contains an invalid blacklist")
 )
 
 // Orbit returns the total number of times the given node has been selected as leader
@@ -423,18 +426,18 @@ func (bl *Blacklist) FromBytes(buff []byte) error {
 
 func (bl *Blacklist) VerifyProposedBlacklist(candidateBlacklist Blacklist, nodeCount int, round uint64) error {
 	if candidateBlacklist.NodeCount != uint16(nodeCount) {
-		return fmt.Errorf("block contains an invalid blacklist node count, expected %d, got %d", nodeCount, candidateBlacklist.NodeCount)
+		return fmt.Errorf("%s, expected %d, got %d", errBlacklistInvalidNodeCount, nodeCount, candidateBlacklist.NodeCount)
 	}
 	// 1) First thing we check that the updates even make sense.
 	if err := bl.verifyBlacklistUpdates(candidateBlacklist.Updates, nodeCount); err != nil {
-		return fmt.Errorf("block contains invalid blacklist updates: %w", err)
+		return fmt.Errorf("%s: %w", errBlacklistInvalidUpdates, err)
 	}
 	updates := candidateBlacklist.Updates
 	// 2) We then proceed by applying the updates to the blacklist of the previous round.
 	expectedBlacklist := bl.ApplyUpdates(updates, round)
 
 	if !candidateBlacklist.Equals(&expectedBlacklist) {
-		return fmt.Errorf("block contains an invalid blacklist, expected %s, got %s", expectedBlacklist.String(), candidateBlacklist.String())
+		return fmt.Errorf("%s, expected %s, got %s", errBlacklistInvalidBlacklist, expectedBlacklist.String(), candidateBlacklist.String())
 	}
 
 	return nil
