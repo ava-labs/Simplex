@@ -269,7 +269,7 @@ func TestEpochLeaderFailover(t *testing.T) {
 	})
 }
 
-func TestEpochLeaderRecursivelyFetchNotarizedBlocks(t *testing.T) {
+func TestEpochLeaderQuicklyAdvanceRounds(t *testing.T) {
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1), BlockShouldBeBuilt: make(chan struct{}, 1)}
 
@@ -317,6 +317,151 @@ func TestEpochLeaderRecursivelyFetchNotarizedBlocks(t *testing.T) {
 		wal.AssertNotarization(round)
 		testutil.WaitToEnterRound(t, e, round)
 	}
+}
+
+func TestEpochLeaderProposalBuiltOnTimedOutRound(t *testing.T) {
+	l := testutil.MakeLogger(t, 3)
+
+	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1), BlockShouldBeBuilt: make(chan struct{}, 1)}
+	storage := testutil.NewInMemStorage()
+
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+
+	wal := testutil.NewTestWAL(t)
+
+	recordedMessages := make(chan *Message, 100)
+	comm := &recordingComm{Communication: testutil.NoopComm(nodes), SentMessages: recordedMessages}
+
+	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[3], comm, bb)
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+
+	require.NoError(t, e.Start())
+
+	firstBlockMD := e.Metadata()
+
+	firstRoundBlock, _ := bb.BuildBlock(context.Background(), firstBlockMD, emptyBlacklist)
+
+	finalizationOnfirstBlock, _ := testutil.NewFinalizationRecord(t, l, &testutil.TestSignatureAggregator{}, firstRoundBlock, nodes[0:3])
+
+	md := firstRoundBlock.BlockHeader().ProtocolMetadata
+
+	// Receive empty votes from other nodes
+	emptyVoteFrom1 := createEmptyVote(md, nodes[1])
+	emptyVoteFrom2 := createEmptyVote(md, nodes[2])
+
+	bb.BlockShouldBeBuilt <- struct{}{}
+
+	startTime := e.StartTime
+	testutil.WaitForBlockProposerTimeout(t, e, &startTime, md.Round)
+
+	// Send
+	err = e.HandleMessage(&Message{
+		EmptyVoteMessage: emptyVoteFrom1,
+	}, nodes[1])
+	require.NoError(t, err)
+
+	err = e.HandleMessage(&Message{
+		EmptyVoteMessage: emptyVoteFrom2,
+	}, nodes[2])
+	require.NoError(t, err)
+
+	wal.AssertNotarization(0)
+
+	md = ProtocolMetadata{
+		Prev:  firstRoundBlock.BlockHeader().Digest,
+		Round: 1,
+		Seq:   1,
+	}
+
+	secondBlock, _ := bb.BuildBlock(context.Background(), md, emptyBlacklist)
+
+	voteOnSecondBlock, err := testutil.NewTestVote(secondBlock, nodes[1])
+	require.NoError(t, err)
+
+	finalizationOnSecondBlock, _ := testutil.NewFinalizationRecord(t, l, &testutil.TestSignatureAggregator{}, secondBlock, nodes[0:3])
+
+	md = ProtocolMetadata{
+		Prev:  firstRoundBlock.BlockHeader().Digest,
+		Round: 2,
+		Seq:   2,
+	}
+
+	thirdBlock, _ := bb.BuildBlock(context.Background(), md, emptyBlacklist)
+
+	finalizationOnThirdBlock, _ := testutil.NewFinalizationRecord(t, l, &testutil.TestSignatureAggregator{}, thirdBlock, nodes[0:3])
+
+	voteOnThirdBlock, err := testutil.NewTestVote(thirdBlock, nodes[2])
+
+	err = e.HandleMessage(&Message{
+		BlockMessage: &BlockMessage{
+			Block: thirdBlock.(*testutil.TestBlock),
+			Vote:  *voteOnThirdBlock,
+		},
+	}, nodes[2])
+	require.NoError(t, err)
+
+	err = e.HandleMessage(&Message{
+		Finalization: &finalizationOnThirdBlock,
+	}, nodes[2])
+	require.NoError(t, err)
+
+	err = e.HandleMessage(&Message{
+		BlockMessage: &BlockMessage{
+			Block: secondBlock.(*testutil.TestBlock),
+			Vote:  *voteOnSecondBlock,
+		},
+	}, nodes[1])
+	require.NoError(t, err)
+
+	anotherVoteOnSecondBlock, err := testutil.NewTestVote(secondBlock, nodes[2])
+	require.NoError(t, err)
+
+	err = e.HandleMessage(&Message{
+		VoteMessage: anotherVoteOnSecondBlock,
+	}, nodes[2])
+	require.NoError(t, err)
+
+	timeout := time.NewTimer(time.Second * 30)
+	var sentNBR bool // NBR: Notarized Block Request
+
+	for !sentNBR {
+		select {
+		case <-timeout.C:
+			t.Fatal("timed out waiting for notarization")
+		case msg := <-recordedMessages:
+			if nbr := msg.NotarizedBlockRequest; nbr != nil {
+				require.Equal(t, NotarizedBlockRequest{IncludeBlock: true}, *nbr)
+				sentNBR = true
+			}
+		}
+	}
+
+	notarization, err := testutil.NewNotarization(l, &testutil.TestSignatureAggregator{}, firstRoundBlock, nodes[1:])
+	require.NoError(t, err)
+
+	err = e.HandleMessage(&Message{
+		NotarizedBlockResponse: &NotarizedBlockResponse{
+			Notarization: &notarization,
+			Block:        firstRoundBlock.(*testutil.TestBlock),
+		}},
+		nodes[1])
+	require.NoError(t, err)
+
+	wal.AssertNotarization(1)
+
+	err = e.HandleMessage(&Message{
+		Finalization: &finalizationOnSecondBlock,
+	}, nodes[2])
+	require.NoError(t, err)
+
+	err = e.HandleMessage(&Message{
+		Finalization: &finalizationOnfirstBlock,
+	}, nodes[2])
+	require.NoError(t, err)
+
+	storage.WaitForBlockCommit(2)
 }
 
 func TestEpochLeaderFailoverInLeaderRound(t *testing.T) {
@@ -826,6 +971,319 @@ func TestEpochLeaderFailoverNotNeeded(t *testing.T) {
 	e.AdvanceTime(e.StartTime.Add(conf.MaxProposalWait))
 
 	require.False(t, timedOut.Load())
+}
+
+func TestEpochLeaderRecursivelyFetchPastNotarizedBlocks(t *testing.T) {
+	l := testutil.MakeLogger(t, 3)
+
+	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1), BlockShouldBeBuilt: make(chan struct{}, 1)}
+
+	nodes := NodeIDs{{1}, {2}, {3}, {4}}
+
+	nodeID := nodes[0]
+
+	recordedMessages := make(chan *Message, 100)
+	comm := &recordingComm{Communication: testutil.NoopComm(nodes), SentMessages: recordedMessages, BroadcastMessages: recordedMessages}
+
+	bb2 := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1), BlockShouldBeBuilt: make(chan struct{}, 1)}
+	roundCount := 7
+	var blocks []simplex.VerifiedBlock
+	var notarizations []Notarization
+
+	// Create blocks from 0 to roundCount - 1, skipping the rounds where the first node is the leader.
+	var prevDigest Digest
+	for round := 0; round < roundCount; round++ {
+		if LeaderForRound(nodes, uint64(round)).Equals(nodeID) {
+			continue
+		}
+
+		md := ProtocolMetadata{
+			Round: uint64(round),
+			Seq:   uint64(len(blocks)),
+			Prev:  prevDigest,
+		}
+
+		block, ok := bb2.BuildBlock(context.Background(), md, emptyBlacklist)
+		require.True(t, ok)
+
+		prevDigest = block.BlockHeader().Digest
+
+		notarization, err := testutil.NewNotarization(l, &testutil.TestSignatureAggregator{}, block, nodes[1:])
+		require.NoError(t, err)
+
+		blocks = append(blocks, block)
+		notarizations = append(notarizations, notarization)
+	}
+
+	// Send the last block and notarization
+	lastBlock := blocks[len(blocks)-1]
+	lastNotarization := notarizations[len(blocks)-1]
+
+	t.Log("Last block is", lastBlock.BlockHeader().Seq, "for round", lastBlock.BlockHeader().Round)
+
+	leaderIndexOfLastBlock := (int(lastBlock.BlockHeader().Round)) % len(nodes)
+	voteOnLastBlock, err := testutil.NewTestVote(lastBlock, nodes[leaderIndexOfLastBlock])
+
+	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], comm, bb)
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+
+	require.NoError(t, e.Start())
+
+	// Feed the node empty notarizations until it advances to the round of the last block.
+	lastRound := lastBlock.BlockHeader().Round - 1
+	notarizeEmptyRounds(t, e, lastRound)
+
+	createResponseAndNodeOrigin := func(msg *Message) ([]*Message, []NodeID) {
+		if msg.FinalizeVote != nil {
+			var block simplex.VerifiedBlock
+			// Find the block this finalize vote is for
+			for _, b := range blocks {
+				if b.BlockHeader().Seq == msg.FinalizeVote.Finalization.Seq {
+					block = b
+				}
+			}
+			require.NotNil(t, block)
+
+			fv1 := testutil.NewTestFinalizeVote(t, block, nodes[1])
+			fv2 := testutil.NewTestFinalizeVote(t, block, nodes[2])
+
+			msg1 := &Message{
+				FinalizeVote: fv1,
+			}
+
+			msg2 := &Message{
+				FinalizeVote: fv2,
+			}
+
+			return []*Message{msg1, msg2}, []NodeID{nodes[1], nodes[2]}
+		}
+
+		nbr := msg.NotarizedBlockRequest
+		if nbr == nil {
+			return nil, nil
+		}
+		seq := msg.NotarizedBlockRequest.Seq
+		for i, b := range blocks {
+			if b.BlockHeader().Seq == seq {
+				response := &NotarizedBlockResponse{
+					Block:        b.(*testutil.TestBlock),
+					Notarization: &notarizations[i],
+				}
+				round := response.Block.BlockHeader().Round
+				leaderForRound := int(round) % len(nodes)
+				return []*Message{{
+					NotarizedBlockResponse: response,
+				}}, []NodeID{nodes[leaderForRound]}
+			}
+		}
+		require.FailNow(t, "could not find block with seq", seq)
+		return nil, nil
+	}
+
+	quit := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	defer wg.Wait()
+	defer close(quit)
+
+	go func() {
+		defer wg.Done()
+		respondToNotarizationRequests(t, e, quit, recordedMessages, createResponseAndNodeOrigin)
+	}()
+
+	err = e.HandleMessage(&Message{
+		BlockMessage: &BlockMessage{
+			Block: lastBlock.(*testutil.TestBlock),
+			Vote:  *voteOnLastBlock,
+		},
+	}, nodes[leaderIndexOfLastBlock])
+	require.NoError(t, err)
+
+	err = e.HandleMessage(&Message{
+		Notarization: &lastNotarization,
+	}, nodes[leaderIndexOfLastBlock])
+	require.NoError(t, err)
+
+	wal.AssertNotarization(lastBlock.BlockHeader().Round)
+
+	err = e.HandleMessage(&Message{
+		FinalizeVote: testutil.NewTestFinalizeVote(t, lastBlock, nodes[1]),
+	}, nodes[1])
+	require.NoError(t, err)
+
+	err = e.HandleMessage(&Message{
+		FinalizeVote: testutil.NewTestFinalizeVote(t, lastBlock, nodes[2]),
+	}, nodes[2])
+	require.NoError(t, err)
+
+	t.Log("Waiting for block commit of last block", lastBlock.BlockHeader().Seq)
+	storage.WaitForBlockCommit(lastBlock.BlockHeader().Seq)
+}
+
+func TestEpochLeaderRecursivelyFetchPastFinalizedBlocks(t *testing.T) {
+	l := testutil.MakeLogger(t, 3)
+
+	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1), BlockShouldBeBuilt: make(chan struct{}, 1)}
+
+	nodes := NodeIDs{{1}, {2}, {3}, {4}}
+
+	nodeID := nodes[0]
+
+	recordedMessages := make(chan *Message, 100)
+	comm := &recordingComm{Communication: testutil.NoopComm(nodes), SentMessages: recordedMessages}
+
+	bb2 := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1), BlockShouldBeBuilt: make(chan struct{}, 1)}
+	roundCount := 7
+	var blocks []simplex.VerifiedFinalizedBlock
+
+	// Create blocks from 0 to roundCount - 1, skipping the rounds where the first node is the leader.
+	var prevDigest Digest
+	for round := 0; round < roundCount; round++ {
+		if LeaderForRound(nodes, uint64(round)).Equals(nodeID) {
+			continue
+		}
+
+		md := ProtocolMetadata{
+			Round: uint64(round),
+			Seq:   uint64(len(blocks)),
+			Prev:  prevDigest,
+		}
+
+		block, ok := bb2.BuildBlock(context.Background(), md, emptyBlacklist)
+		require.True(t, ok)
+
+		prevDigest = block.BlockHeader().Digest
+
+		finalization, _ := testutil.NewFinalizationRecord(t, l, &testutil.TestSignatureAggregator{}, block, nodes[1:])
+
+		blocks = append(blocks, VerifiedFinalizedBlock{
+			VerifiedBlock: block,
+			Finalization:  finalization,
+		})
+	}
+
+	// Send the last block and notarization
+	lastBlock := blocks[len(blocks)-1].VerifiedBlock
+	lastFinalization := blocks[len(blocks)-1].Finalization
+	leaderIndexOfLastBlock := (int(lastBlock.BlockHeader().Round)) % len(nodes)
+	voteOnLastBlock, err := testutil.NewTestVote(lastBlock, nodes[leaderIndexOfLastBlock])
+
+	conf, _, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], comm, bb)
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+
+	require.NoError(t, e.Start())
+
+	// Feed the node empty notarizations until it advances to the round of the last block.
+	lastRound := lastBlock.BlockHeader().Round - 1
+	notarizeEmptyRounds(t, e, lastRound)
+
+	createResponseAndNodeOrigin := func(msg *Message) ([]*Message, []NodeID) {
+		nbr := msg.NotarizedBlockRequest
+		if nbr == nil {
+			return nil, nil
+		}
+		seq := msg.NotarizedBlockRequest.Seq
+		for _, b := range blocks {
+			t.Log("Checking if current block with seq of", b.VerifiedBlock.BlockHeader().Seq, "matches requested seq", seq)
+			if b.VerifiedBlock.BlockHeader().Seq == seq {
+				response := &NotarizedBlockResponse{
+					Finalization: &b.Finalization,
+					Block:        b.VerifiedBlock.(*testutil.TestBlock),
+				}
+				round := response.Block.BlockHeader().Round
+				leaderForRound := int(round) % len(nodes)
+				return []*Message{{
+					NotarizedBlockResponse: response,
+				}}, []NodeID{nodes[leaderForRound]}
+			}
+		}
+		require.FailNow(t, "could not find block with seq", seq)
+		return nil, nil
+	}
+
+	quit := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	defer wg.Wait()
+	defer close(quit)
+
+	go func() {
+		defer wg.Done()
+		respondToNotarizationRequests(t, e, quit, recordedMessages, createResponseAndNodeOrigin)
+	}()
+
+	err = e.HandleMessage(&Message{
+		Finalization: &lastFinalization,
+	}, nodes[leaderIndexOfLastBlock])
+	require.NoError(t, err)
+
+	err = e.HandleMessage(&Message{
+		BlockMessage: &BlockMessage{
+			Block: lastBlock.(*testutil.TestBlock),
+			Vote:  *voteOnLastBlock,
+		},
+	}, nodes[leaderIndexOfLastBlock])
+	require.NoError(t, err)
+
+	t.Log("Waiting for block commit of last block", lastBlock.BlockHeader().Seq)
+	storage.WaitForBlockCommit(lastBlock.BlockHeader().Seq)
+}
+
+func notarizeEmptyRounds(t *testing.T, e *Epoch, lastRound uint64) {
+	nodes := e.Comm.Nodes()
+	nodeID := e.EpochConfig.ID
+	bb := e.BlockBuilder.(*testutil.TestBlockBuilder)
+	wal := e.WAL.(*testutil.TestWAL)
+	startTime := e.StartTime
+	for round := uint64(0); round <= lastRound; round++ {
+		emptyNotarization := testutil.NewEmptyNotarization(nodes[1:], round)
+
+		if LeaderForRound(nodes, round).Equals(nodeID) {
+			testutil.WaitToEnterRound(t, e, round)
+			t.Log("Triggering block to be built for round", round)
+			bb.BlockShouldBeBuilt <- struct{}{}
+			testutil.WaitForBlockProposerTimeout(t, e, &startTime, round)
+
+			err := e.HandleMessage(&Message{
+				EmptyNotarization: emptyNotarization,
+			}, nodes[2])
+			require.NoError(t, err)
+
+			wal.AssertNotarization(round)
+			continue
+		}
+
+		// Otherwise, just receive the empty notarization
+		// and advance to the next round
+		err := e.HandleMessage(&Message{
+			EmptyNotarization: emptyNotarization,
+		}, nodes[2])
+		require.NoError(t, err)
+		wal.AssertNotarization(round)
+		testutil.WaitToEnterRound(t, e, round)
+	}
+}
+
+func respondToNotarizationRequests(t *testing.T, e *Epoch, quit chan struct{}, recordedMessages chan *Message, f func(msg *Message) ([]*Message, []NodeID)) {
+	for {
+		select {
+		case <-quit:
+			return
+		case msg := <-recordedMessages:
+			responses, origins := f(msg)
+			if len(responses) == 0 {
+				continue
+			}
+			for i, response := range responses {
+				err := e.HandleMessage(response, origins[i])
+				require.NoError(t, err)
+			}
+		}
+	}
 }
 
 func TestEpochBlacklist(t *testing.T) {
