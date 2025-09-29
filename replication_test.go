@@ -544,7 +544,7 @@ func testReplicationAfterNodeDisconnects(t *testing.T, nodes []simplex.NodeID, s
 			}
 		}
 	}
-	// all nodes except for lagging node have progressed and commited [endDisconnect - missedSeqs] blocks
+	// all nodes except for lagging node have progressed and committed [endDisconnect - missedSeqs] blocks
 	for _, n := range net.instances[:3] {
 		require.Equal(t, endDisconnect-missedSeqs, n.storage.NumBlocks())
 	}

@@ -1419,21 +1419,21 @@ func (n noopComm) Broadcast(msg *Message) {
 
 }
 
-// ListnerComm is a comm that listens for incoming messages
+// ListenerComm is a comm that listens for incoming messages
 // and sends them to the [in] channel
-type listnerComm struct {
+type listenerComm struct {
 	noopComm
 	in chan *Message
 }
 
-func NewListenerComm(nodeIDs []NodeID) *listnerComm {
-	return &listnerComm{
+func NewListenerComm(nodeIDs []NodeID) *listenerComm {
+	return &listenerComm{
 		noopComm: noopComm(nodeIDs),
 		in:       make(chan *Message, 1),
 	}
 }
 
-func (b *listnerComm) Send(msg *Message, id NodeID) {
+func (b *listenerComm) Send(msg *Message, id NodeID) {
 	b.in <- msg
 }
 
