@@ -83,7 +83,7 @@ type Epoch struct {
 	oneTimeVerifier                *oneTimeVerifier
 	sched                          *scheduler
 	lock                           sync.Mutex
-	lastBlock                      *VerifiedFinalizedBlock // latest block & finalization commited
+	lastBlock                      *VerifiedFinalizedBlock // latest block & finalization committed
 	canReceiveMessages             atomic.Bool
 	finishCtx                      context.Context
 	finishFn                       context.CancelFunc
@@ -1093,7 +1093,7 @@ func (e *Epoch) indexFinalization(block VerifiedBlock, finalization Finalization
 		Finalization:  finalization,
 	}
 
-	// We have commited because we have collected a finalization.
+	// We have committed because we have collected a finalization.
 	// However, we may have not witnessed a notarization.
 	// Regardless of that, we can safely progress to the round succeeding the finalization.
 	e.progressRoundsDueToCommit(finalization.Finalization.Round + 1)
