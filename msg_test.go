@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/ava-labs/simplex"
+	"github.com/ava-labs/simplex/testutil"
 
 	"github.com/stretchr/testify/require"
 )
@@ -32,21 +33,21 @@ func TestQuorumRoundMalformed(t *testing.T) {
 		}, {
 			name: "block and notarization",
 			qr: simplex.QuorumRound{
-				Block:        &testBlock{},
+				Block:        &testutil.TestBlock{},
 				Notarization: &simplex.Notarization{},
 			},
 			expectedErr: false,
 		}, {
 			name: "block and finalization",
 			qr: simplex.QuorumRound{
-				Block:        &testBlock{},
+				Block:        &testutil.TestBlock{},
 				Finalization: &simplex.Finalization{},
 			},
 			expectedErr: false,
 		}, {
 			name: "block and empty notarization",
 			qr: simplex.QuorumRound{
-				Block:             &testBlock{},
+				Block:             &testutil.TestBlock{},
 				EmptyNotarization: &simplex.EmptyNotarization{},
 			},
 			expectedErr: true,
@@ -54,7 +55,7 @@ func TestQuorumRoundMalformed(t *testing.T) {
 		{
 			name: "block and notarization and finalization",
 			qr: simplex.QuorumRound{
-				Block:        &testBlock{},
+				Block:        &testutil.TestBlock{},
 				Notarization: &simplex.Notarization{},
 				Finalization: &simplex.Finalization{},
 			},
@@ -77,7 +78,7 @@ func TestQuorumRoundMalformed(t *testing.T) {
 		{
 			name: "just block",
 			qr: simplex.QuorumRound{
-				Block: &testBlock{},
+				Block: &testutil.TestBlock{},
 			},
 			expectedErr: true,
 		},

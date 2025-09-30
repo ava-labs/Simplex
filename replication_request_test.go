@@ -6,17 +6,18 @@ import (
 	"testing"
 
 	"github.com/ava-labs/simplex"
+	"github.com/ava-labs/simplex/testutil"
 
 	"github.com/stretchr/testify/require"
 )
 
 // TestReplicationRequestIndexedBlocks tests replication requests for indexed blocks.
 func TestReplicationRequestIndexedBlocks(t *testing.T) {
-	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
+	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1)}
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
 	comm := NewListenerComm(nodes)
 	ctx := context.Background()
-	conf := defaultTestNodeEpochConfig(t, nodes[0], comm, bb)
+	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], comm, bb)
 	conf.ReplicationEnabled = true
 
 	numBlocks := uint64(10)
@@ -67,10 +68,10 @@ func TestReplicationRequestIndexedBlocks(t *testing.T) {
 // TestReplicationRequestNotarizations tests replication requests for notarized blocks.
 func TestReplicationRequestNotarizations(t *testing.T) {
 	// generate 5 blocks & notarizations
-	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
+	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1)}
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
 	comm := NewListenerComm(nodes)
-	conf := defaultTestNodeEpochConfig(t, nodes[0], comm, bb)
+	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], comm, bb)
 	conf.ReplicationEnabled = true
 
 	e, err := simplex.NewEpoch(conf)
@@ -121,10 +122,10 @@ func TestReplicationRequestNotarizations(t *testing.T) {
 // TestReplicationRequestMixed ensures the replication response also includes empty notarizations
 func TestReplicationRequestMixed(t *testing.T) {
 	// generate 5 blocks & notarizations
-	bb := &testBlockBuilder{out: make(chan *testBlock, 1)}
+	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1)}
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
 	comm := NewListenerComm(nodes)
-	conf := defaultTestNodeEpochConfig(t, nodes[0], comm, bb)
+	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], comm, bb)
 	conf.ReplicationEnabled = true
 
 	e, err := simplex.NewEpoch(conf)
@@ -138,11 +139,11 @@ func TestReplicationRequestMixed(t *testing.T) {
 		leaderForRound := bytes.Equal(simplex.LeaderForRound(nodes, uint64(i)), e.ID)
 		emptyBlock := !leaderForRound
 		if emptyBlock {
-			emptyNotarization := newEmptyNotarization(nodes, uint64(i))
+			emptyNotarization := testutil.NewEmptyNotarization(nodes, uint64(i))
 			e.HandleMessage(&simplex.Message{
 				EmptyNotarization: emptyNotarization,
 			}, nodes[1])
-			e.WAL.(*testWAL).assertNotarization(uint64(i))
+			wal.AssertNotarization(uint64(i))
 			rounds[i] = simplex.VerifiedQuorumRound{
 				EmptyNotarization: emptyNotarization,
 			}
@@ -187,10 +188,10 @@ func TestReplicationRequestMixed(t *testing.T) {
 
 func TestNilReplicationResponse(t *testing.T) {
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
-	net := newInMemNetwork(t, nodes)
+	net := testutil.NewInMemNetwork(t, nodes)
 
-	normalNode0 := newSimplexNode(t, nodes[0], net, nil)
-	normalNode0.start()
+	normalNode0 := testutil.NewSimplexNode(t, nodes[0], net, nil)
+	normalNode0.Start()
 
 	err := normalNode0.HandleMessage(&simplex.Message{
 		ReplicationResponse: &simplex.ReplicationResponse{
@@ -205,15 +206,15 @@ func TestNilReplicationResponse(t *testing.T) {
 // finalization.
 func TestMalformedReplicationResponse(t *testing.T) {
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
-	net := newInMemNetwork(t, nodes)
+	net := testutil.NewInMemNetwork(t, nodes)
 
-	normalNode0 := newSimplexNode(t, nodes[0], net, nil)
-	normalNode0.start()
+	normalNode0 := testutil.NewSimplexNode(t, nodes[0], net, nil)
+	normalNode0.Start()
 
 	err := normalNode0.HandleMessage(&simplex.Message{
 		ReplicationResponse: &simplex.ReplicationResponse{
 			Data: []simplex.QuorumRound{{
-				Block: &testBlock{},
+				Block: &testutil.TestBlock{},
 			}},
 		},
 	}, nodes[1])
