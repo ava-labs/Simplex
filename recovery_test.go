@@ -587,7 +587,7 @@ func TestRecoveryReVerifiesBlocks(t *testing.T) {
 	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1)}
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	finalizedBlocks := createBlocks(t, nodes, 4)
-	
+
 	deserializer := &testutil.BlockDeserializer{
 		DelayedVerification: make(chan struct{}, 1),
 	}
