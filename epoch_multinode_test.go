@@ -39,6 +39,165 @@ func TestSimplexMultiNodeSimple(t *testing.T) {
 	}
 }
 
+func TestSimplexMultiNodeBlacklist(t *testing.T) {
+	nodes := NodeIDs{{1}, {2}, {3}, {4}}
+	net := newInMemNetwork(t, nodes)
+	testEpochConfig := &testNodeConfig{
+		replicationEnabled: true,
+	}
+	newSimplexNode(t, nodes[0], net, testEpochConfig)
+	newSimplexNode(t, nodes[1], net, testEpochConfig)
+	newSimplexNode(t, nodes[2], net, testEpochConfig)
+	newSimplexNode(t, nodes[3], net, testEpochConfig)
+
+	for _, n := range net.instances[:3] {
+		n.Silence()
+	}
+
+	net.startInstances()
+
+	// Advance to the fourth node's turn by building three blocks
+	for seq := 0; seq < 3; seq++ {
+		net.triggerLeaderBlockBuilder(uint64(seq))
+		for _, n := range net.instances {
+			n.storage.waitForBlockCommit(uint64(seq))
+		}
+	}
+
+	// The fourth node is disconnected, so the rest should time out on it.
+	net.Disconnect(nodes[3])
+
+	for i := range net.instances[:3] {
+		select {
+		case net.instances[i].bb.blockShouldBeBuilt <- struct{}{}:
+		default:
+
+		}
+	}
+
+	for _, n := range net.instances[:3] {
+		waitForBlockProposerTimeout(t, n.e, &n.e.StartTime, 3)
+	}
+
+	// Build two more blocks, which should blacklist the fourth node.
+	// Ensure the fourth node is blacklisted by checking the blacklist on all nodes.
+
+	// Build a block, ensure the blacklist contains the fourth node as a suspect.
+	net.triggerLeaderBlockBuilder(uint64(4))
+	for _, n := range net.instances[:3] {
+		block := n.storage.waitForBlockCommit(uint64(3))
+		blacklist := block.Blacklist()
+		require.Equal(t, Blacklist{
+			NodeCount:      4,
+			SuspectedNodes: SuspectedNodes{{NodeIndex: 3, SuspectingCount: 1, OrbitSuspected: 1}},
+			Updates:        []BlacklistUpdate{{NodeIndex: 3, Type: BlacklistOpType_NodeSuspected}},
+		}, blacklist)
+	}
+
+	// Reconnect the fourth node.
+	net.Connect(nodes[3])
+
+	// Build another block, ensure the blacklist contains the fourth node as blacklisted.
+	net.instances[1].bb.triggerNewBlock()
+	for _, n := range net.instances[:3] {
+		block := n.storage.waitForBlockCommit(uint64(4))
+		blacklist := block.Blacklist()
+		require.Equal(t, Blacklist{
+			NodeCount:      4,
+			SuspectedNodes: SuspectedNodes{{NodeIndex: 3, SuspectingCount: 2, OrbitSuspected: 1}},
+			Updates:        []BlacklistUpdate{{NodeIndex: 3, Type: BlacklistOpType_NodeSuspected}},
+		}, blacklist)
+	}
+
+	// Wait for the node to replicate the missing blocks.
+	net.instances[3].bb.triggerNewBlock()
+	block := net.instances[3].storage.waitForBlockCommit(4)
+	require.Equal(t, Blacklist{
+		NodeCount:      4,
+		SuspectedNodes: SuspectedNodes{{NodeIndex: 3, SuspectingCount: 2, OrbitSuspected: 1}},
+		Updates:        []BlacklistUpdate{{NodeIndex: 3, Type: BlacklistOpType_NodeSuspected}},
+	}, block.Blacklist())
+
+	// Make another block.
+	net.instances[2].bb.triggerNewBlock()
+	for _, n := range net.instances {
+		n.storage.waitForBlockCommit(uint64(5))
+	}
+
+	// The fourth node is still blacklisted, so it should not be able to propose a block.
+	net.instances[3].bb.triggerNewBlock() // This shouldn't be here, this is just to side-step a bug.
+	for _, n := range net.instances {
+		waitForBlockProposerTimeout(t, n.e, &n.e.StartTime, 7)
+	}
+
+	// Disconnect the third node to force messages from the fourth node to be taken into account.
+	net.Disconnect(nodes[2])
+
+	// Make two blocks.
+	allButThirdNode := []*testNode{net.instances[0], net.instances[1], net.instances[3]}
+	for i := 0; i < 2; i++ {
+		net.instances[i].bb.triggerNewBlock()
+		for _, n := range allButThirdNode {
+			n.bb.blockShouldBeBuilt <- struct{}{}
+			n.storage.waitForBlockCommit(uint64(6 + i))
+		}
+	}
+
+	// Skip the third node because it is disconnected.
+	for i := range allButThirdNode {
+		select {
+		case net.instances[i].bb.blockShouldBeBuilt <- struct{}{}:
+		default:
+
+		}
+	}
+
+	for _, n := range allButThirdNode {
+		waitForBlockProposerTimeout(t, n.e, &n.e.StartTime, 10)
+	}
+
+	// Since the fourth node is still blacklisted, we should skip this round.
+	for _, n := range allButThirdNode {
+		waitForBlockProposerTimeout(t, n.e, &n.e.StartTime, 11)
+	}
+
+	var lastBlacklist Blacklist
+
+	// Create two blocks
+	for i := 0; i < 2; i++ {
+		net.instances[i].bb.triggerNewBlock()
+		for _, n := range allButThirdNode {
+			n.bb.blockShouldBeBuilt <- struct{}{}
+			block := n.storage.waitForBlockCommit(uint64(8 + i))
+			lastBlacklist = block.Blacklist()
+		}
+	}
+
+	// The last node is not suspected anymore, it has been redeemed.
+	require.False(t, lastBlacklist.IsNodeSuspected(3))
+
+	// The third node will now time out.
+	for i := range allButThirdNode {
+		select {
+		case net.instances[i].bb.blockShouldBeBuilt <- struct{}{}:
+		default:
+
+		}
+	}
+
+	for _, n := range allButThirdNode {
+		waitForBlockProposerTimeout(t, n.e, &n.e.StartTime, 14)
+	}
+
+	// The fourth node should now be able to propose a block.
+	net.instances[3].bb.triggerNewBlock()
+	for _, n := range allButThirdNode {
+		n.bb.blockShouldBeBuilt <- struct{}{}
+		block := n.storage.waitForBlockCommit(uint64(10))
+		lastBlacklist = block.Blacklist()
+	}
+}
+
 func onlySendBlockProposalsAndVotes(splitNodes []NodeID) messageFilter {
 	return func(m *Message, _, to NodeID) bool {
 		if m.BlockMessage != nil {
@@ -750,11 +909,11 @@ func (t *testControlledBlockBuilder) triggerNewBlock() {
 	}
 }
 
-func (t *testControlledBlockBuilder) BuildBlock(ctx context.Context, metadata ProtocolMetadata) (VerifiedBlock, bool) {
+func (t *testControlledBlockBuilder) BuildBlock(ctx context.Context, metadata ProtocolMetadata, blacklist Blacklist) (VerifiedBlock, bool) {
 	select {
 	case <-t.control:
 	case <-ctx.Done():
 		return nil, false
 	}
-	return t.testBlockBuilder.BuildBlock(ctx, metadata)
+	return t.testBlockBuilder.BuildBlock(ctx, metadata, blacklist)
 }
