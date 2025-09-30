@@ -564,7 +564,7 @@ func (e *Epoch) handleFinalizationForPendingOrFutureRound(message *Finalization,
 		// and the finalization is for the current round
 		for _, msgs := range e.futureMessages {
 			msgForRound, exists := msgs[round]
-			if exists && msgForRound.proposal != nil {
+			if exists && msgForRound.proposalBeingProcessed {
 				msgForRound.finalization = message
 				return
 			}
@@ -835,6 +835,7 @@ func (e *Epoch) deleteFutureProposal(from NodeID, round uint64) {
 		return
 	}
 	msgsForRound.proposal = nil
+	msgsForRound.proposalBeingProcessed = false
 }
 
 func (e *Epoch) deleteFutureFinalizeVote(from NodeID, round uint64) {
@@ -1448,14 +1449,14 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 		return nil
 	}
 
-	// save in future messages while we are verifying the block
+	// mark in future messages while we are verifying the block
 	msgForRound, exists := e.futureMessages[string(from)][md.Round]
 	if !exists {
 		msgsForRound := &messagesForRound{}
-		msgsForRound.proposal = message
+		msgsForRound.proposalBeingProcessed = true
 		e.futureMessages[string(from)][md.Round] = msgsForRound
 	} else {
-		msgForRound.proposal = message
+		msgForRound.proposalBeingProcessed = true
 	}
 
 	// Create a task that will verify the block in the future, after its predecessors have also been verified.
@@ -2793,9 +2794,10 @@ func Quorum(n int) int {
 type messagesFromNode map[string]map[uint64]*messagesForRound
 
 type messagesForRound struct {
-	proposal     *BlockMessage
-	vote         *Vote
-	finalizeVote *FinalizeVote
-	finalization *Finalization
-	notarization *Notarization
+	proposalBeingProcessed bool
+	proposal               *BlockMessage
+	vote                   *Vote
+	finalizeVote           *FinalizeVote
+	finalization           *Finalization
+	notarization           *Notarization
 }
