@@ -928,6 +928,7 @@ func (e *Epoch) assembleFinalization(round *Round, finalizationVotes []*Finalize
 func (e *Epoch) progressRoundsDueToCommit(round uint64) {
 	e.Logger.Debug("Progressing rounds due to commit", zap.Uint64("round", round), zap.Uint64("current round", e.round))
 	for e.round < round {
+		fmt.Println("actually increasing the round")
 		e.increaseRound()
 	}
 }
@@ -2235,6 +2236,7 @@ func (e *Epoch) monitorProgress(round uint64) {
 	var cancelled atomic.Bool
 
 	blockShouldBeBuiltNotification := func() {
+		fmt.Println("running task with round", round)
 		blacklist, ok := e.retrieveLastPersistedBlacklist()
 		if !ok {
 			return
@@ -2257,6 +2259,7 @@ func (e *Epoch) monitorProgress(round uint64) {
 		// While we waited, a block might have been notarized.
 		// If so, then don't start monitoring for it being notarized.
 		if cancelled.Load() {
+			e.Logger.Warn("dropping channel send", zap.Uint64("round", round), zap.Stringer("leader", leader), zap.Uint64("currentRound", e.round))
 			return
 		}
 
@@ -2282,6 +2285,7 @@ func (e *Epoch) monitorProgress(round uint64) {
 	// If we notarize a block for this round we should cancel the monitor,
 	// so first stop it and then cancel the context.
 	e.cancelWaitForBlockNotarization = func() {
+		fmt.Println("cancelling wait for block notarization")
 		e.monitor.CancelFutureTask()
 		cancelled.Store(true)
 		cancelContext()
