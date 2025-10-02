@@ -1999,6 +1999,13 @@ func (e *Epoch) buildBlock() {
 		digest := buildTheBlock()
 		e.lock.Lock()
 		defer e.lock.Unlock()
+
+		if round != e.round {
+			// We have moved to the next round while building the block.
+			// No need to monitor progress for this round, as we have already moved on.
+			return digest
+		}
+
 		e.monitorProgress(round)
 		return digest
 	}
