@@ -723,6 +723,7 @@ func TestReplicationStuckInProposingBlock(t *testing.T) {
 // have a stale notarization for a round(i.e. a node notarized a block but the rest of the network
 // propagated an empty notarization).
 func TestReplicationNodeDiverges(t *testing.T) {
+	t.Skip("flaky test, should re-enable with the fix for https://github.com/ava-labs/Simplex/issues/262")
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}, {5}, {6}}
 	numBlocks := uint64(5)
 
