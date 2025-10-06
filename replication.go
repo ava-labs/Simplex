@@ -13,14 +13,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// signedSequence is a sequence that has been signed by a qourum certificate.
-// it essentially is a quorum round without the enforcement of needing a block with a
-// finalization or notarization.
-type signedSequence struct {
-	seq     uint64
-	signers NodeIDs
-}
-
 func newSignedSequenceFromRound(round QuorumRound) (*signedSequence, error) {
 	ss := &signedSequence{}
 	switch {
@@ -40,53 +32,42 @@ func newSignedSequenceFromRound(round QuorumRound) (*signedSequence, error) {
 }
 
 type ReplicationState struct {
+	enabled        bool
 	lock           *sync.Mutex
 	logger         Logger
-	enabled        bool
-	maxRoundWindow uint64
-	comm           Communication
-	id             NodeID
-
-	// latest seq requested
-	lastSequenceRequested uint64
-
-	// highest sequence we have received
-	highestSequenceObserved *signedSequence
-
-	// receivedQuorumRounds maps rounds to quorum rounds
-	receivedQuorumRounds map[uint64]QuorumRound
-
-	// request iterator
-	requestIterator int
-
-	timeoutHandler *TimeoutHandler
+	sequenceReplicator *SequenceReplicator
 }
 
 func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundWindow uint64, enabled bool, start time.Time, lock *sync.Mutex) *ReplicationState {
+	if !enabled {
+		return &ReplicationState{
+			enabled: enabled,
+			lock:    lock,
+			logger:  logger,
+		}
+	}
+
 	return &ReplicationState{
 		lock:                 lock,
 		logger:               logger,
 		enabled:              enabled,
-		comm:                 comm,
-		id:                   id,
-		maxRoundWindow:       maxRoundWindow,
-		receivedQuorumRounds: make(map[uint64]QuorumRound),
-		timeoutHandler:       NewTimeoutHandler(logger, start, comm.Nodes()),
+		sequenceReplicator:   NewSequenceReplicator(logger, comm, id, maxRoundWindow, start),
 	}
 }
 
 func (r *ReplicationState) AdvanceTime(now time.Time) {
-	r.timeoutHandler.Tick(now)
+	r.sequenceReplicator.AdvanceTime(now)
 }
 
 // isReplicationComplete returns true if we have finished the replication process.
 // The process is considered finished once [currentRound] has caught up to the highest round received.
 func (r *ReplicationState) isReplicationComplete(nextSeqToCommit uint64, currentRound uint64) bool {
-	if r.highestSequenceObserved == nil {
+	if !r.enabled {
 		return true
 	}
 
-	return nextSeqToCommit > r.highestSequenceObserved.seq && currentRound > r.highestKnownRound()
+	// TODO: their would be a round replicator as well
+	return r.sequenceReplicator.IsReplicationComplete(nextSeqToCommit) && currentRound > r.highestKnownRound()
 }
 
 func (r *ReplicationState) collectMissingSequences(observedSignedSeq *signedSequence, nextSeqToCommit uint64) {
@@ -315,7 +296,7 @@ func (r *ReplicationState) highestKnownRound() uint64 {
 	return highestRound
 }
 
-func (r *ReplicationState) GetQuroumRoundWithSeq(seq uint64) *QuorumRound {
+func (r *ReplicationState) GetQuorumRoundWithSeq(seq uint64) *QuorumRound {
 	for _, round := range r.receivedQuorumRounds {
 		if round.GetSequence() == seq {
 			return &round
