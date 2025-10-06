@@ -2252,6 +2252,17 @@ func (e *Epoch) monitorProgress(round uint64) {
 			return
 		}
 
+		// Check if we have advanced to a higher round in the meantime while this task was dispatched.
+		e.lock.Lock()
+		shouldAbort := round < e.round
+		e.lock.Unlock()
+
+		if shouldAbort {
+			e.Logger.Debug("Aborting monitoring progress for round because we advanced to a higher round",
+				zap.Uint64("monitored round", round), zap.Uint64("new round", e.round))
+			return
+		}
+
 		// This invocation blocks until the block builder tells us it's time to build a new block.
 		e.BlockBuilder.WaitForPendingBlock(ctx)
 		// While we waited, a block might have been notarized.
