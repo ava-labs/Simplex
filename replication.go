@@ -5,8 +5,6 @@ package simplex
 
 import (
 	"fmt"
-	"math"
-	"slices"
 	"sync"
 	"time"
 
@@ -35,7 +33,7 @@ type ReplicationState struct {
 	enabled        bool
 	lock           *sync.Mutex
 	logger         Logger
-	sequenceReplicator *SequenceReplicator
+	sequenceReplicator *sequenceReplicator
 }
 
 func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundWindow uint64, enabled bool, start time.Time, lock *sync.Mutex) *ReplicationState {
@@ -51,12 +49,12 @@ func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundW
 		lock:                 lock,
 		logger:               logger,
 		enabled:              enabled,
-		sequenceReplicator:   NewSequenceReplicator(logger, comm, id, maxRoundWindow, start),
+		sequenceReplicator:   newSequenceReplicator(logger, comm, id, maxRoundWindow, start),
 	}
 }
 
 func (r *ReplicationState) AdvanceTime(now time.Time) {
-	r.sequenceReplicator.AdvanceTime(now)
+	r.sequenceReplicator.advanceTime(now)
 }
 
 // isReplicationComplete returns true if we have finished the replication process.
@@ -67,186 +65,46 @@ func (r *ReplicationState) isReplicationComplete(nextSeqToCommit uint64, current
 	}
 
 	// TODO: their would be a round replicator as well
-	return r.sequenceReplicator.IsReplicationComplete(nextSeqToCommit) && currentRound > r.highestKnownRound()
+	return r.sequenceReplicator.isReplicationComplete(nextSeqToCommit) && currentRound > r.highestKnownRound()
 }
 
-func (r *ReplicationState) collectMissingSequences(observedSignedSeq *signedSequence, nextSeqToCommit uint64) {
-	observedSeq := observedSignedSeq.seq
-	// Node is behind, but we've already sent messages to collect future finalizations
-	if r.lastSequenceRequested >= observedSeq && r.highestSequenceObserved != nil {
+func (r *ReplicationState) receivedFutureFinalization(finalization *Finalization, nextSeqToCommit uint64) {
+	if !r.enabled {
 		return
 	}
 
-	if r.highestSequenceObserved == nil || observedSeq > r.highestSequenceObserved.seq {
-		r.highestSequenceObserved = observedSignedSeq
-	}
-
-	startSeq := math.Max(float64(nextSeqToCommit), float64(r.lastSequenceRequested))
-	// Don't exceed the max round window
-	endSeq := math.Min(float64(observedSeq), float64(r.maxRoundWindow+nextSeqToCommit))
-
-	r.logger.Debug("Node is behind, requesting missing finalizations", zap.Uint64("seq", observedSeq), zap.Uint64("startSeq", uint64(startSeq)), zap.Uint64("endSeq", uint64(endSeq)))
-	r.sendReplicationRequests(uint64(startSeq), uint64(endSeq))
-}
-
-// sendReplicationRequests sends requests for missing sequences for the
-// range of sequences [start, end] <- inclusive. It does so by splitting the
-// range of sequences equally amount the nodes that have signed [highestSequenceObserved].
-func (r *ReplicationState) sendReplicationRequests(start uint64, end uint64) {
-	// it's possible our node has signed [highestSequenceObserved].
-	// For example this may happen if our node has sent a finalization
-	// for [highestSequenceObserved] and has not received the
-	// finalization from the network.
-	nodes := r.highestSequenceObserved.signers.Remove(r.id)
-	numNodes := len(nodes)
-
-	seqRequests := DistributeSequenceRequests(start, end, numNodes)
-
-	r.logger.Debug("Distributing replication requests", zap.Uint64("start", start), zap.Uint64("end", end), zap.Stringer("nodes", NodeIDs(nodes)))
-	for i, seqs := range seqRequests {
-		index := (i + r.requestIterator) % numNodes
-		r.sendRequestToNode(seqs.Start, seqs.End, nodes, index)
-	}
-
-	r.lastSequenceRequested = end
-	// next time we send requests, we start with a different permutation
-	r.requestIterator++
-}
-
-// sendRequestToNode requests the sequences [start, end] from nodes[index].
-// In case the nodes[index] does not respond, we create a timeout that will
-// re-send the request.
-func (r *ReplicationState) sendRequestToNode(start uint64, end uint64, nodes []NodeID, index int) {
-	r.logger.Debug("Requesting missing finalizations ",
-		zap.Stringer("from", nodes[index]),
-		zap.Uint64("start", start),
-		zap.Uint64("end", end))
-	seqs := make([]uint64, (end+1)-start)
-	for i := start; i <= end; i++ {
-		seqs[i-start] = i
-	}
-	request := &ReplicationRequest{
-		Seqs:        seqs,
-		LatestRound: r.highestSequenceObserved.seq,
-	}
-	msg := &Message{ReplicationRequest: request}
-
-	task := r.createReplicationTimeoutTask(start, end, nodes, index)
-
-	r.timeoutHandler.AddTask(task)
-
-	r.comm.Send(msg, nodes[index])
-}
-
-func (r *ReplicationState) createReplicationTimeoutTask(start, end uint64, nodes []NodeID, index int) *TimeoutTask {
-	taskFunc := func() {
-		r.lock.Lock()
-		defer r.lock.Unlock()
-		r.sendRequestToNode(start, end, nodes, (index+1)%len(nodes))
-	}
-	timeoutTask := &TimeoutTask{
-		Start:    start,
-		End:      end,
-		NodeID:   nodes[index],
-		TaskID:   getTimeoutID(start, end),
-		Task:     taskFunc,
-		Deadline: r.timeoutHandler.GetTime().Add(DefaultReplicationRequestTimeout),
-	}
-
-	return timeoutTask
+	r.sequenceReplicator.receivedFutureSequence(finalization, nextSeqToCommit)
+	// TODO: also update the roundReplicator and ensure the round replicator stops timeout tasks for the rounds < finalization.Round
 }
 
 // receivedReplicationResponse notifies the task handler a response was received. If the response
 // was incomplete(meaning our timeout expected more seqs), then we will create a new timeout
 // for the missing sequences and send the request to a different node.
 func (r *ReplicationState) receivedReplicationResponse(data []QuorumRound, node NodeID) {
-	seqs := make([]uint64, 0, len(data))
+	finalizedSeqs := make([]uint64, 0, len(data))
+	quorumRounds := make([]QuorumRound, 0, len(data))
 
-	// remove all sequences where we expect a finalization but only received a notarization
-	highestSeq := r.highestSequenceObserved.seq
 	for _, qr := range data {
-		if qr.GetSequence() <= highestSeq && qr.Finalization == nil && qr.Notarization != nil {
-			r.logger.Debug("Received notarization without finalization, skipping", zap.Stringer("from", node), zap.Uint64("seq", qr.GetSequence()))
-			continue
-		}
-
-		seqs = append(seqs, qr.GetSequence())
-	}
-
-	slices.Sort(seqs)
-
-	task := FindReplicationTask(r.timeoutHandler, node, seqs)
-	if task == nil {
-		r.logger.Debug("Could not find a timeout task associated with the replication response", zap.Stringer("from", node), zap.Any("seqs", seqs))
-		return
-	}
-	r.timeoutHandler.RemoveTask(node, task.TaskID)
-
-	// we found the timeout, now make sure all seqs were returned
-	missing := findMissingNumbersInRange(task.Start, task.End, seqs)
-	if len(missing) == 0 {
-		return
-	}
-
-	// if not all sequences were returned, create new timeouts
-	r.logger.Debug("Received missing sequences in the replication response", zap.Stringer("from", node), zap.Any("missing", missing))
-	nodes := r.highestSequenceObserved.signers.Remove(r.id)
-	numNodes := len(nodes)
-	segments := CompressSequences(missing)
-	for i, seqs := range segments {
-		index := i % numNodes
-		newTask := r.createReplicationTimeoutTask(seqs.Start, seqs.End, nodes, index)
-		r.timeoutHandler.AddTask(newTask)
-	}
-}
-
-// findMissingNumbersInRange finds numbers in an array constructed by [start...end] that are not in [nums]
-// ex. (3, 10, [1,2,3,4,5,6]) -> [7,8,9,10]
-func findMissingNumbersInRange(start, end uint64, nums []uint64) []uint64 {
-	numMap := make(map[uint64]struct{})
-	for _, num := range nums {
-		numMap[num] = struct{}{}
-	}
-
-	var result []uint64
-
-	for i := start; i <= end; i++ {
-		if _, exists := numMap[i]; !exists {
-			result = append(result, i)
+		if qr.Finalization != nil {
+			finalizedSeqs = append(finalizedSeqs, qr.GetSequence())
+		} else {
+			quorumRounds = append(quorumRounds, qr)
 		}
 	}
-
-	return result
+	
+	r.sequenceReplicator.receivedFinalizationSeqs(finalizedSeqs, node)
+	// todo: also notify the round replicator of the received quorum rounds
 }
 
-func (r *ReplicationState) replicateBlocks(finalization *Finalization, nextSeqToCommit uint64) {
-	if !r.enabled {
-		return
-	}
-
-	signedSequence := &signedSequence{
-		seq:     finalization.Finalization.Seq,
-		signers: finalization.QC.Signers(),
-	}
-
-	r.collectMissingSequences(signedSequence, nextSeqToCommit)
-}
-
-// maybeCollectFutureSequences attempts to collect future sequences if
+// maybeSendFutureRequests attempts to collect future sequences if
 // there are more to be collected and the round has caught up for us to send the request.
-func (r *ReplicationState) maybeCollectFutureSequences(nextSequenceToCommit uint64) {
+func (r *ReplicationState) maybeAdvancedState(nextSequenceToCommit uint64, currentRound uint64) {
 	if !r.enabled {
 		return
 	}
 
-	if r.lastSequenceRequested >= r.highestSequenceObserved.seq {
-		return
-	}
-
-	// we send out more requests once our seq has caught up to 1/2 of the maxRoundWindow
-	if nextSequenceToCommit+r.maxRoundWindow/2 > r.lastSequenceRequested {
-		r.collectMissingSequences(r.highestSequenceObserved, nextSequenceToCommit)
-	}
+	r.sequenceReplicator.maybeAdvancedState(nextSequenceToCommit)
+	// todo: maybe advance the round replicator as well
 }
 
 func (r *ReplicationState) StoreQuorumRound(round QuorumRound) {
@@ -296,14 +154,7 @@ func (r *ReplicationState) highestKnownRound() uint64 {
 	return highestRound
 }
 
-func (r *ReplicationState) GetQuorumRoundWithSeq(seq uint64) *QuorumRound {
-	for _, round := range r.receivedQuorumRounds {
-		if round.GetSequence() == seq {
-			return &round
-		}
-	}
-	return nil
-}
+
 
 // FindReplicationTask returns a TimeoutTask assigned to [node] that contains the lowest sequence in [seqs].
 // A sequence is considered "contained" if it falls between a task's Start (inclusive) and End (inclusive).
@@ -323,4 +174,23 @@ func FindReplicationTask(t *TimeoutHandler, node NodeID, seqs []uint64) *Timeout
 	})
 
 	return lowestTask
+}
+
+// findMissingNumbersInRange finds numbers in an array constructed by [start...end] that are not in [nums]
+// ex. (3, 10, [1,2,3,4,5,6]) -> [7,8,9,10]
+func findMissingNumbersInRange(start, end uint64, nums []uint64) []uint64 {
+	numMap := make(map[uint64]struct{})
+	for _, num := range nums {
+		numMap[num] = struct{}{}
+	}
+
+	var result []uint64
+
+	for i := start; i <= end; i++ {
+		if _, exists := numMap[i]; !exists {
+			result = append(result, i)
+		}
+	}
+
+	return result
 }

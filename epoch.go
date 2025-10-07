@@ -2760,7 +2760,7 @@ func (e *Epoch) processReplicationState() error {
 		return e.startRound()
 	}
 
-	e.replicationState.maybeCollectFutureSequences(e.nextSeqToCommit())
+	e.replicationState.maybeAdvancedState(e.nextSeqToCommit(), e.round)
 
 	// first we check if we can commit the next sequence, it is ok to try and commit the next sequence
 	// directly, since if there are any empty notarizations, `indexFinalization` will
@@ -2811,7 +2811,7 @@ func (e *Epoch) maybeAdvanceRoundFromEmptyNotarizations() (bool, error) {
 	round := e.round
 	expectedSeq := e.metadata().Seq
 
-	nextSeqQuorum := e.replicationState.GetQuroumRoundWithSeq(expectedSeq)
+	nextSeqQuorum := e.replicationState.GetQuorumRoundWithSeq(expectedSeq)
 	if nextSeqQuorum != nil {
 		// num empty notarizations
 		if round < nextSeqQuorum.GetRound() {
