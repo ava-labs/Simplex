@@ -220,3 +220,7 @@ func (s *sequenceReplicator) receivedFinalizationSeqs(seqs []uint64, node NodeID
 		s.timeoutHandler.AddTask(newTask)
 	}
 }
+
+func (s *sequenceReplicator) storeQuorumRound(round QuorumRound) {
+	s.receivedQuorumRounds[round.GetSequence()] = round
+}
