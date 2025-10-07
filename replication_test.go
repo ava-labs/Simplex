@@ -1099,7 +1099,6 @@ func TestReplicationVerifyEmptyNotarization(t *testing.T) {
 	}, time.Millisecond*500, time.Millisecond*10, "Did not expect an empty notarization with a corrupt QC to be written to the WAL")
 }
 
-
 func onlyAllowBlockProposalsAndNotarizationsForAllNodes(msg *simplex.Message, from, _ simplex.NodeID) bool {
 	// block finalized votes and finalizations
 	if msg.Finalization != nil || msg.FinalizeVote != nil {
@@ -1116,7 +1115,7 @@ func onlyAllowBlockProposalsAndNotarizationsForAllNodes(msg *simplex.Message, fr
 // a string of tailing empty notarizations. It then ensure that the lagging node can build
 // on top of the replicated empty notarizations.
 func TestReplicationTailingEmptyNotarizations(t *testing.T) {
-	
+
 }
 
 // TestReplicationVotesForNotarizations tests that a lagging node will replicate
@@ -1134,7 +1133,7 @@ func TestReplicationVotesForNotarizations(t *testing.T) {
 	nodeConfig := func(from simplex.NodeID) *TestNodeConfig {
 		comm := NewTestComm(from, net, onlyAllowBlockProposalsAndNotarizationsForAllNodes)
 		return &TestNodeConfig{
-			InitialStorage:          storageData,
+			InitialStorage:     storageData,
 			Comm:               comm,
 			ReplicationEnabled: true,
 		}
@@ -1163,7 +1162,7 @@ func TestReplicationVotesForNotarizations(t *testing.T) {
 	net.StartInstances()
 
 	// normal nodes continue to make progress
-	for round := numFinalizedBlocks; round < numFinalizedBlocks + numNotarizedBlocks; round++ {
+	for round := numFinalizedBlocks; round < numFinalizedBlocks+numNotarizedBlocks; round++ {
 		emptyRound := bytes.Equal(simplex.LeaderForRound(nodes, round), laggingNode.E.ID)
 		if emptyRound {
 			net.AdvanceWithoutLeader(startTimes, round, laggingNode.E.ID)
@@ -1186,7 +1185,7 @@ func TestReplicationVotesForNotarizations(t *testing.T) {
 			continue
 		}
 		require.Equal(t, numFinalizedBlocks, n.Storage.NumBlocks())
-		require.Equal(t, numFinalizedBlocks + numNotarizedBlocks, n.E.Metadata().Round)
+		require.Equal(t, numFinalizedBlocks+numNotarizedBlocks, n.E.Metadata().Round)
 	}
 
 	// at this point in time, the adversarial node will disconnect
@@ -1197,16 +1196,16 @@ func TestReplicationVotesForNotarizations(t *testing.T) {
 	net.SetAllNodesMessageFilter(AllowAllMessages)
 
 	// the adversary should not be the leader(to simplify test)
-	isAdversaryLeader := bytes.Equal(simplex.LeaderForRound(nodes, numFinalizedBlocks + numNotarizedBlocks), adversary.E.ID)
+	isAdversaryLeader := bytes.Equal(simplex.LeaderForRound(nodes, numFinalizedBlocks+numNotarizedBlocks), adversary.E.ID)
 	require.False(t, isAdversaryLeader)
 
 	// lagging node should not be leader
-	isLaggingNodeLeader := bytes.Equal(simplex.LeaderForRound(nodes, numFinalizedBlocks + numNotarizedBlocks), laggingNode.E.ID)
+	isLaggingNodeLeader := bytes.Equal(simplex.LeaderForRound(nodes, numFinalizedBlocks+numNotarizedBlocks), laggingNode.E.ID)
 	require.False(t, isLaggingNodeLeader)
 
 	// trigger block building, but we only have 2 connected nodes so the nodes will time out
 	net.TriggerLeaderBlockBuilder(numFinalizedBlocks + numNotarizedBlocks)
 
 	// the lagging node should now timeout and begin replication
-	net.AdvanceWithoutLeader(startTimes, numFinalizedBlocks + numNotarizedBlocks, adversary.E.ID)
+	net.AdvanceWithoutLeader(startTimes, numFinalizedBlocks+numNotarizedBlocks, adversary.E.ID)
 }

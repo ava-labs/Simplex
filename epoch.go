@@ -6,12 +6,10 @@ package simplex
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"math"
-	"math/big"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -31,7 +29,8 @@ const (
 	DefaultMaxProposalWaitTime         = 5 * time.Second
 	DefaultReplicationRequestTimeout   = 5 * time.Second
 	DefaultEmptyVoteRebroadcastTimeout = 5 * time.Second
-	EmptyVoteTimeoutID                 = "rebroadcast_empty_vote"
+	
+	EmptyVoteTimeoutID uint64 = 1
 )
 
 type EmptyVoteSet struct {
@@ -193,7 +192,7 @@ func (e *Epoch) init() error {
 	e.eligibleNodeIDs = make(map[string]struct{}, len(e.nodes))
 	e.futureMessages = make(messagesFromNode, len(e.nodes))
 	e.replicationState = NewReplicationState(e.Logger, e.Comm, e.ID, e.maxRoundWindow, e.ReplicationEnabled, e.StartTime, &e.lock)
-	e.timeoutHandler = NewTimeoutHandler(e.Logger, e.StartTime, e.nodes)
+	e.timeoutHandler = NewTimeoutHandler(e.Logger, e.StartTime, e.MaxRebroadcastWait, e.emptyVoteTimeoutTaskRunner)
 
 	for _, node := range e.nodes {
 		e.futureMessages[string(node)] = make(map[uint64]*messagesForRound)
@@ -580,7 +579,8 @@ func (e *Epoch) handleFinalizationForPendingOrFutureRound(message *Finalization,
 		e.Logger.Debug("We are the leader of this round, but a higher round has been finalized. Aborting block building.")
 		e.blockBuilderCancelFunc()
 	}
-	e.replicationState.replicateBlocks(message, nextSeqToCommit)
+
+	e.replicationState.receivedFutureFinalization(message, nextSeqToCommit)
 }
 
 func (e *Epoch) handleFinalizeVoteMessage(message *FinalizeVote, from NodeID) error {
@@ -958,7 +958,7 @@ func (e *Epoch) persistFinalization(finalization Finalization) error {
 
 		// we receive a finalization for a future round
 		e.Logger.Debug("Received a finalization for a future sequence", zap.Uint64("seq", finalization.Finalization.Seq), zap.Uint64("nextSeqToCommit", nextSeqToCommit))
-		e.replicationState.replicateBlocks(&finalization, nextSeqToCommit)
+		e.replicationState.receivedFutureFinalization(&finalization, nextSeqToCommit)
 
 		if err := e.rebroadcastPastFinalizeVotes(); err != nil {
 			return err
@@ -1727,16 +1727,13 @@ func (e *Epoch) createFinalizedBlockVerificationTask(block Block, finalization F
 		verifiedBlock, err := block.Verify(context.Background())
 		if err != nil {
 			e.Logger.Debug("Failed verifying block", zap.Error(err))
+			
 			// if we fail to verify the block, we re-add to request timeout
-			numSigners := int64(len(finalization.QC.Signers()))
-			index, err := rand.Int(rand.Reader, big.NewInt(numSigners))
+			err = e.replicationState.resendFinalizationRequest(md.Seq, finalization.QC.Signers())
 			if err != nil {
 				e.haltedError = err
-				e.Logger.Debug("Failed to generate random index", zap.Error(err))
-				return md.Digest
+				e.Logger.Debug("Failed to resend finalization", zap.Error(err))
 			}
-
-			e.replicationState.sendRequestToNode(md.Seq, md.Seq, finalization.QC.Signers(), int(index.Int64()))
 			return md.Digest
 		}
 
@@ -1783,6 +1780,7 @@ func (e *Epoch) createNotarizedBlockVerificationTask(block Block, notarization N
 		verifiedBlock, err := block.Verify(context.Background())
 		if err != nil {
 			e.Logger.Debug("Failed verifying block", zap.Error(err))
+			// TODO: if we fail to verify the block, we re-add to request timeout
 			return md.Digest
 		}
 
@@ -2183,19 +2181,25 @@ func (e *Epoch) triggerEmptyBlockNotarization(round uint64) {
 	}
 }
 
-func (e *Epoch) addEmptyVoteRebroadcastTimeout(vote *EmptyVote) {
-	task := &TimeoutTask{
-		NodeID:   e.ID,
-		TaskID:   EmptyVoteTimeoutID,
-		Deadline: e.timeoutHandler.GetTime().Add(e.EpochConfig.MaxRebroadcastWait),
-		Task: func() {
-			e.Logger.Debug("Rebroadcasting empty vote because round has not advanced", zap.Uint64("round", vote.Vote.Round))
-			e.Comm.Broadcast(&Message{EmptyVoteMessage: vote})
-			e.addEmptyVoteRebroadcastTimeout(vote)
-		},
+func (e *Epoch) emptyVoteTimeoutTaskRunner(_ []uint64)  {
+	roundVotes, ok := e.emptyVotes[e.round]
+	if !ok {
+		e.Logger.Warn("No empty vote set found to rebroadcast, yet expected to rebroadcast", zap.Uint64("round", e.round))
+		return
 	}
 
-	e.timeoutHandler.AddTask(task)
+	ourVote, voted := roundVotes.votes[string(e.ID)]
+	if !voted {
+		e.Logger.Debug("Our empty vote not found in the set to rebroadcast, yet expected to rebroadcast", zap.Uint64("round", e.round))
+		return
+	}
+	
+	e.Logger.Debug("Rebroadcasting empty vote because round has not advanced", zap.Uint64("round", ourVote.Vote.Round))
+	e.Comm.Broadcast(&Message{EmptyVoteMessage: ourVote})
+}
+
+func (e *Epoch) addEmptyVoteRebroadcastTimeout(vote *EmptyVote) {
+	e.timeoutHandler.AddTask(EmptyVoteTimeoutID)
 }
 
 func (e *Epoch) monitorProgress(round uint64) {
@@ -2394,7 +2398,7 @@ func (e *Epoch) increaseRound() {
 	e.blockBuilderCancelFunc()
 
 	// remove the rebroadcast empty vote task
-	e.timeoutHandler.RemoveTask(e.ID, EmptyVoteTimeoutID)
+	e.timeoutHandler.RemoveTask(EmptyVoteTimeoutID)
 	e.deleteEmptyVoteForPreviousRound()
 
 	prevLeader := LeaderForRound(e.nodes, e.round)
@@ -2565,6 +2569,8 @@ func (e *Epoch) handleReplicationRequest(req *ReplicationRequest, from NodeID) e
 	}
 	response := &VerifiedReplicationResponse{}
 
+	// TODO: check if latestRound = 0 or latestSeq = 0. if so dont send latest round
+	// TODO: grab latest round and seq
 	latestRound := e.getLatestVerifiedQuorumRound()
 
 	if latestRound != nil && latestRound.GetRound() > req.LatestRound {
@@ -2675,7 +2681,7 @@ func (e *Epoch) handleReplicationResponse(resp *ReplicationResponse, from NodeID
 		}
 
 		validRounds = append(validRounds, data)
-		e.replicationState.StoreQuorumRound(data)
+		e.replicationState.handleQuorumRound(data, from)
 	}
 
 	if err := e.processLatestRoundReceived(resp.LatestRound, from); err != nil {
@@ -2683,7 +2689,7 @@ func (e *Epoch) handleReplicationResponse(resp *ReplicationResponse, from NodeID
 		return nil
 	}
 
-	e.replicationState.receivedReplicationResponse(validRounds, from)
+	// e.replicationState.receivedReplicationResponse(validRounds, from)
 
 	return e.processReplicationState()
 }
@@ -2745,7 +2751,7 @@ func (e *Epoch) processLatestRoundReceived(latestRound *QuorumRound, from NodeID
 		return err
 	}
 
-	e.replicationState.StoreQuorumRound(*latestRound)
+	e.replicationState.handleQuorumRound(*latestRound, from)
 	return nil
 }
 
@@ -2765,25 +2771,22 @@ func (e *Epoch) processReplicationState() error {
 	// first we check if we can commit the next sequence, it is ok to try and commit the next sequence
 	// directly, since if there are any empty notarizations, `indexFinalization` will
 	// increment the round properly.
-	block, finalization, exists := e.replicationState.GetFinalizedBlockForSequence(nextSeqToCommit)
+	block, finalization, exists := e.replicationState.getFinalizedBlockForSequence(nextSeqToCommit)
 	if exists {
-		delete(e.replicationState.receivedQuorumRounds, block.BlockHeader().Round)
 		return e.processFinalizedBlock(block, finalization)
 	}
 
-	qRound, ok := e.replicationState.receivedQuorumRounds[e.round]
-	if ok && qRound.Notarization != nil {
+	qRound := e.replicationState.getNonFinalizedQuorumRound(e.round)
+	if qRound != nil && qRound.Notarization != nil {
 		if qRound.Finalization != nil {
-			e.Logger.Debug("Delaying processing a QuorumRound that has an Finalization != NextSeqToCommit", zap.Stringer("QuorumRound", &qRound))
+			e.Logger.Debug("Delaying processing a QuorumRound that has an Finalization != NextSeqToCommit", zap.Stringer("QuorumRound", qRound))
 			return nil
 		}
-		delete(e.replicationState.receivedQuorumRounds, e.round)
 		return e.processNotarizedBlock(qRound.Block, qRound.Notarization)
 	}
 
 	// the current round is an empty notarization
-	if ok && qRound.EmptyNotarization != nil {
-		delete(e.replicationState.receivedQuorumRounds, qRound.GetRound())
+	if qRound != nil && qRound.EmptyNotarization != nil {
 		return e.processEmptyNotarization(qRound.EmptyNotarization)
 	}
 
@@ -2811,11 +2814,12 @@ func (e *Epoch) maybeAdvanceRoundFromEmptyNotarizations() (bool, error) {
 	round := e.round
 	expectedSeq := e.metadata().Seq
 
-	nextSeqQuorum := e.replicationState.GetQuorumRoundWithSeq(expectedSeq)
-	if nextSeqQuorum != nil {
+	block, _, exists := e.replicationState.getFinalizedBlockForSequence(expectedSeq)
+	if exists {
+		bh := block.BlockHeader()
 		// num empty notarizations
-		if round < nextSeqQuorum.GetRound() {
-			for range nextSeqQuorum.GetRound() - round {
+		if round < bh.Round {
+			for range bh.Round - round {
 				e.increaseRound()
 			}
 			return true, nil

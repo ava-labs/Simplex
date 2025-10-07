@@ -1,8 +1,8 @@
 package simplex
 
 import (
+	"fmt"
 	"math"
-	"slices"
 	"sync"
 	"time"
 
@@ -15,19 +15,22 @@ import (
 type signedSequence struct {
 	seq     uint64
 	signers NodeIDs
+
+	// for optimization(allows us to find the highest known finalized round quickly)
+	round uint64
 }
 
 // sequenceReplicator manages the state for replicating sequences up until highestSequenceObserved.
 type sequenceReplicator struct {
-	sender Sender
-	myNodeID NodeID
-	logger Logger
+	sender         Sender
+	myNodeID       NodeID
+	logger         Logger
 	maxRoundWindow uint64
 	// highest seq we have requested. must be <= highestSequenceObserved
-	// this is used to limit the number of outstanding requests we have and ensure 
+	// this is used to limit the number of outstanding requests we have and ensure
 	// we don't request the same sequence multiple times. Ex. if the highestSequenceObserved is 100 ahead of us, we will
-	// request in batches of 10 and wait for those to be fulfilled before requesting more and updating lastSequenceRequested.
-	lastSequenceRequested uint64
+	// request in batches of 10 and wait for those to be fulfilled before requesting more and updating highestSequenceRequested.
+	highestSequenceRequested uint64
 
 	// highest sequence we have received
 	highestSequenceObserved *signedSequence
@@ -44,17 +47,18 @@ type sequenceReplicator struct {
 	timeoutHandler *TimeoutHandler
 }
 
-func newSequenceReplicator(logger Logger, comm Communication, ourNodeID NodeID, maxRoundWindow uint64, start time.Time) *sequenceReplicator {
-	return &sequenceReplicator{
+func newSequenceReplicator(logger Logger, sender Sender, ourNodeID NodeID, maxRoundWindow uint64, start time.Time) *sequenceReplicator {
+	s := &sequenceReplicator{
 		receivedQuorumRounds: make(map[uint64]QuorumRound),
-		sender:               comm,
-		myNodeID:            ourNodeID,
+		sender:               sender,
+		myNodeID:             ourNodeID,
 		logger:               logger,
 		maxRoundWindow:       maxRoundWindow,
-		timeoutHandler:      NewTimeoutHandler(logger, start, comm.Nodes()),
 	}
+	
+	s.timeoutHandler = NewTimeoutHandler(logger, start, DefaultReplicationRequestTimeout, s.resendReplicationRequests)
+	return s
 }
-
 
 func (s *sequenceReplicator) advanceTime(now time.Time) {
 	s.timeoutHandler.Tick(now)
@@ -63,7 +67,7 @@ func (s *sequenceReplicator) advanceTime(now time.Time) {
 // we have finished replicating sequences if the `nextSeqToCommit` is greater than the highestSequenceObserved
 func (s *sequenceReplicator) isReplicationComplete(nextSeqToCommit uint64) bool {
 	if s.highestSequenceObserved == nil {
-		return false
+		return true // TODO: make sure this should be true or false, seems like if its nil so vacously we must be done
 	}
 
 	return nextSeqToCommit > s.highestSequenceObserved.seq
@@ -73,6 +77,7 @@ func (s *sequenceReplicator) receivedFutureSequence(finalization *Finalization, 
 	signedSequence := &signedSequence{
 		seq:     finalization.Finalization.Seq,
 		signers: finalization.QC.Signers(),
+		round:   finalization.Finalization.Round,
 	}
 
 	s.maybeRequestMoreSequences(signedSequence, nextSeqToCommit)
@@ -82,12 +87,12 @@ func (s *sequenceReplicator) maybeRequestMoreSequences(observedSignedSeq *signed
 	observedSeq := observedSignedSeq.seq
 
 	// we've observed a sequence we've already requested
-	if observedSeq < s.lastSequenceRequested && s.highestSequenceObserved != nil {
+	if observedSeq < s.highestSequenceRequested && s.highestSequenceObserved != nil {
 		return
 	}
 
 	// we've already requested up to the highest sequence observed
-	if s.highestSequenceObserved != nil && s.lastSequenceRequested >= s.highestSequenceObserved.seq {
+	if s.highestSequenceObserved != nil && s.highestSequenceRequested >= s.highestSequenceObserved.seq {
 		return
 	}
 
@@ -98,7 +103,7 @@ func (s *sequenceReplicator) maybeRequestMoreSequences(observedSignedSeq *signed
 		s.highestSequenceObservedLock.Unlock()
 	}
 
-	startSeq := math.Max(float64(nextSeqToCommit), float64(s.lastSequenceRequested))
+	startSeq := math.Max(float64(nextSeqToCommit), float64(s.highestSequenceRequested))
 	// we limit the number of outstanding requests to be at most maxRoundWindow ahead of nextSeqToCommit
 	endSeq := math.Min(float64(observedSeq), float64(s.maxRoundWindow+nextSeqToCommit))
 
@@ -107,8 +112,10 @@ func (s *sequenceReplicator) maybeRequestMoreSequences(observedSignedSeq *signed
 }
 
 func (s *sequenceReplicator) maybeAdvancedState(nextSeqToCommit uint64) {
+	s.timeoutHandler.RemoveOldTasks(nextSeqToCommit)
+
 	// we send out more requests once our seq has caught up to 1/2 of the maxRoundWindow
-	if nextSeqToCommit+s.maxRoundWindow/2 > s.lastSequenceRequested {
+	if nextSeqToCommit+s.maxRoundWindow/2 > s.highestSequenceRequested {
 		s.maybeRequestMoreSequences(s.highestSequenceObserved, nextSeqToCommit)
 	}
 }
@@ -132,7 +139,6 @@ func (s *sequenceReplicator) sendReplicationRequests(start uint64, end uint64) {
 		s.sendRequestToNode(seqs.Start, seqs.End, nodes, index)
 	}
 
-	s.lastSequenceRequested = end
 	// next time we send requests, we start with a different permutation
 	s.requestIterator++
 }
@@ -148,79 +154,101 @@ func (s *sequenceReplicator) sendRequestToNode(start uint64, end uint64, nodes [
 	seqs := make([]uint64, (end+1)-start)
 	for i := start; i <= end; i++ {
 		seqs[i-start] = i
+		// ensure we set a timeout for this sequence
+		s.timeoutHandler.AddTask(i)
 	}
-	
+
 	s.highestSequenceObservedLock.Lock()
 	request := &ReplicationRequest{
 		Seqs:        seqs,
-		LatestRound: s.highestSequenceObserved.seq,
+		LatestSeq: s.highestSequenceObserved.seq,
 	}
 	s.highestSequenceObservedLock.Unlock()
 
 	msg := &Message{ReplicationRequest: request}
 
-	task := s.createReplicationTimeoutTask(start, end, nodes, index)
-
-	s.timeoutHandler.AddTask(task)
-
 	s.sender.Send(msg, nodes[index])
-}
 
-func (s *sequenceReplicator) createReplicationTimeoutTask(start, end uint64, nodes []NodeID, index int) *TimeoutTask {
-	taskFunc := func() {
-		s.sendRequestToNode(start, end, nodes, (index+1)%len(nodes))
+	if s.highestSequenceRequested < end {
+		s.highestSequenceRequested = end
 	}
-	timeoutTask := &TimeoutTask{
-		Start:    start,
-		End:      end,
-		NodeID:   nodes[index],
-		TaskID:   getTimeoutID(start, end),
-		Task:     taskFunc,
-		Deadline: s.timeoutHandler.GetTime().Add(DefaultReplicationRequestTimeout),
-	}
-
-	return timeoutTask
 }
 
 func (s *sequenceReplicator) getQuorumRoundWithSeq(seq uint64) *QuorumRound {
-	for _, round := range s.receivedQuorumRounds {
-		if round.GetSequence() == seq {
-			return &round
-		}
+	qr, ok := s.receivedQuorumRounds[seq]
+	if ok {
+		return &qr
 	}
 	return nil
 }
 
-// TODO: don't make this associated with the node that sent the response, simply make it node agnostic
-func (s *sequenceReplicator) receivedFinalizationSeqs(seqs []uint64, node NodeID) {
-	slices.Sort(seqs)
-
-	// TODO: here we find them by nodes. make this node agnostics
-	task := FindReplicationTask(s.timeoutHandler, node, seqs)
-	if task == nil {
-		s.logger.Debug("Could not find a timeout task associated with the replication response", zap.Stringer("from", node), zap.Any("seqs", seqs))
-		return
-	}
-	s.timeoutHandler.RemoveTask(node, task.TaskID)
-
-	// we found the timeout, now make sure all seqs were returned
-	missing := findMissingNumbersInRange(task.Start, task.End, seqs)
-	if len(missing) == 0 {
-		return
+func (s *sequenceReplicator) retrieveFinalizedBlock(seq uint64) (Block, Finalization, bool) {
+	qr, ok := s.receivedQuorumRounds[seq]
+	// if we have a quorum round, it should have a finalization and block but we check anyway
+	if ok && qr.Finalization != nil && qr.Block != nil {
+		return qr.Block, *qr.Finalization, true
 	}
 
-	// if not all sequences were returned, create new timeouts
-	s.logger.Debug("Received missing sequences in the replication response", zap.Stringer("from", node), zap.Any("missing", missing))
-	nodes := s.highestSequenceObserved.signers.Remove(s.myNodeID)
-	numNodes := len(nodes)
-	segments := CompressSequences(missing)
-	for i, seqs := range segments {
-		index := i % numNodes
-		newTask := s.createReplicationTimeoutTask(seqs.Start, seqs.End, nodes, index)
-		s.timeoutHandler.AddTask(newTask)
-	}
+	return nil, Finalization{}, false
 }
 
-func (s *sequenceReplicator) storeQuorumRound(round QuorumRound) {
-	s.receivedQuorumRounds[round.GetSequence()] = round
+func (s *sequenceReplicator) highestKnownRound() uint64 {
+	s.highestSequenceObservedLock.Lock()
+	defer s.highestSequenceObservedLock.Unlock()
+	
+	if s.highestSequenceObserved == nil {
+		return 0
+	}
+	return s.highestSequenceObserved.round
+}
+
+func (s *sequenceReplicator) storeQuorumRound(round QuorumRound, from NodeID) {
+	// check if this seq is the highest we have seen
+	seq := round.GetSequence()
+	if seq > s.highestSequenceObserved.seq {
+		signedSeq, err := newSignedSequenceFromRound(round)
+		if err != nil {
+			// should never be here since we already checked the QuorumRound was valid
+			s.logger.Error("Error creating signed sequence from round", zap.Error(err))
+			return
+		}
+
+		s.highestSequenceObserved = signedSeq
+	}
+
+	s.receivedQuorumRounds[seq] = round
+	
+	// we received this sequence, remove the timeout task
+	s.timeoutHandler.RemoveTask(seq)
+	s.logger.Debug("Stored quorum round ", zap.Stringer("qr", &round), zap.String("from", from.String()))
+}
+
+func newSignedSequenceFromRound(round QuorumRound) (*signedSequence, error) {
+	ss := &signedSequence{}
+	switch {
+	case round.Finalization != nil:
+		ss.signers = round.Finalization.QC.Signers()
+		ss.seq = round.Finalization.Finalization.Seq
+		ss.round = round.Finalization.Finalization.Round
+	case round.Notarization != nil:
+		ss.signers = round.Notarization.QC.Signers()
+		ss.seq = round.Notarization.Vote.Seq
+		ss.round = round.Notarization.Vote.Round
+	case round.EmptyNotarization != nil:
+		return nil, fmt.Errorf("should not create signed sequence from empty notarization")
+	default:
+		return nil, fmt.Errorf("round does not contain a finalization, empty notarization, or notarization")
+	}
+
+	return ss, nil
+}
+
+func (s *sequenceReplicator) resendReplicationRequests(missingSeqs []uint64) {
+	nodes := s.highestSequenceObserved.signers.Remove(s.myNodeID)
+	numNodes := len(nodes)
+	segments := CompressSequences(missingSeqs)
+	for i, seqs := range segments {
+		index := i % numNodes
+		s.sendRequestToNode(seqs.Start, seqs.End, nodes, (index+1)%len(nodes))
+	}
 }

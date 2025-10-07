@@ -213,6 +213,7 @@ type QuorumCertificate interface {
 type ReplicationRequest struct {
 	Seqs        []uint64 // sequences we are requesting
 	LatestRound uint64   // latest round that we are aware of
+	LatestSeq  uint64   // latest sequence that we are aware of
 }
 
 type ReplicationResponse struct {
