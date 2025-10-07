@@ -108,6 +108,11 @@ func (r *ReplicationState) maybeAdvancedState(nextSequenceToCommit uint64, curre
 }
 
 func (r *ReplicationState) StoreQuorumRound(round QuorumRound) {
+	if round.Finalization != nil {
+		r.sequenceReplicator.storeQuorumRound(round)
+	}
+
+
 	if _, ok := r.receivedQuorumRounds[round.GetRound()]; ok {
 		// maybe this quorum round was behind
 		if r.receivedQuorumRounds[round.GetRound()].Finalization == nil && round.Finalization != nil {
