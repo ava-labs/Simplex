@@ -8,6 +8,8 @@ import (
 	"math/big"
 	"sync"
 	"time"
+
+	"go.uber.org/zap"
 )
 
 type ReplicationState struct {
@@ -49,12 +51,12 @@ func (r *ReplicationState) isReplicationComplete(nextSeqToCommit uint64, current
 	}
 
 	highestSeqObserved := r.sequenceReplicator.getHighestObserved()
-	if highestSeqObserved != nil && highestSeqObserved.value >= nextSeqToCommit {
+	if highestSeqObserved != nil && highestSeqObserved.value() >= nextSeqToCommit {
 		return false
 	}
 
 	highestRoundObserved := r.roundReplicator.getHighestObserved()
-	if highestRoundObserved != nil && highestRoundObserved.value >= currentRound {
+	if highestRoundObserved != nil && highestRoundObserved.value() >= currentRound {
 		return false
 	}
 
@@ -82,9 +84,9 @@ func (r *ReplicationState) handleQuorumRound(round QuorumRound, from NodeID) {
 	// otherwise we are storing a round without finalization
 	// don't bother storing rounds that are older than the highest finalized round we know
 	// todo: grab a lock for sequence replicator
-	// if r.sequenceReplicator.highestObserved.value.round >= round.GetRound() {
-	// 	return
-	// }
+	if r.sequenceReplicator.highestObserved.round >= round.GetRound() {
+		return
+	}
 
 	r.roundReplicator.storeQuorumRound(round, from, round.GetRound())
 }
@@ -130,9 +132,11 @@ func (r *ReplicationState) receivedFutureFinalization(finalization *Finalization
 		return
 	}
 
-	signedSequence := &signedValue{
-		value:   finalization.Finalization.Seq,
+	signedSequence := &signerRoundOrSeq{
+		round:   finalization.Finalization.Round,
+		seq:     finalization.Finalization.Seq,
 		signers: finalization.QC.Signers(),
+		isRound: false,
 	}
 
 	r.sequenceReplicator.receivedFutureValue(signedSequence, nextSeqToCommit)
@@ -141,36 +145,22 @@ func (r *ReplicationState) receivedFutureFinalization(finalization *Finalization
 	r.roundReplicator.removeOldValues(finalization.Finalization.BlockHeader.Round)
 }
 
-// func (r *ReplicationState) receivedFutureRound(round uint64) {
-// 	if !r.enabled {
-// 		return
-// 	}
-
-// 	// check if we have a finalization > than this round
-// 	// if r.sequenceReplicator.highestSequenceObserved.round >= round {
-// 	// 	r.logger.Debug("Ignoring round replication for a future round since we have a finalization for a higher round", zap.Uint64("round", round))
-// 	// 	return
-// 	// }
-
-// 	signedSequence := &signedValue{
-// 		value: round,
-// }
-
 func (r *ReplicationState) receivedFutureRound(round uint64, signers []NodeID, currentRound uint64) {
 	if !r.enabled {
 		return
 	}
 
-	signedSequence := &signedValue{
-		value:   round,
+	signedSequence := &signerRoundOrSeq{
+		round:   round,
+		seq:     0, // seq not needed for round replicator
 		signers: signers,
 		isRound: true,
 	}
 
 	// 	// check if we have a finalization > than this round
-	// 	// if r.sequenceReplicator.highestSequenceObserved.round >= round {
-	// 	// 	r.logger.Debug("Ignoring round replication for a future round since we have a finalization for a higher round", zap.Uint64("round", round))
-	// 	// 	return
-	// 	// }
+	if r.sequenceReplicator.highestObserved.round >= round {
+		r.logger.Debug("Ignoring round replication for a future round since we have a finalization for a higher round", zap.Uint64("round", round))
+		return
+	}
 	r.roundReplicator.receivedFutureValue(signedSequence, currentRound)
 }

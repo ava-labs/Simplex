@@ -12,10 +12,44 @@ import (
 // signedSequence is a sequence that has been signed by a quorum certificate.
 // it essentially is a quorum round without the enforcement of needing a block with a
 // finalization or notarization.
-type signedValue struct {
-	value   uint64
+type signerRoundOrSeq struct {
+	round   uint64
+	seq     uint64
 	signers NodeIDs
 	isRound bool
+}
+
+func newSignedRoundOrSeq(round QuorumRound) (*signerRoundOrSeq, error) {
+	ss := &signerRoundOrSeq{}
+	switch {
+	case round.Finalization != nil:
+		ss.signers = round.Finalization.QC.Signers()
+		ss.round = round.GetRound()
+		ss.seq = round.GetSequence()
+		ss.isRound = false
+	case round.Notarization != nil:
+		ss.signers = round.Notarization.QC.Signers()
+		ss.round = round.GetRound()
+		ss.seq = round.GetSequence()
+		ss.isRound = true
+	case round.EmptyNotarization != nil:
+		ss.signers = round.EmptyNotarization.QC.Signers()
+		ss.round = round.GetRound()
+		ss.seq = 0
+		ss.isRound = true
+	default:
+		return nil, fmt.Errorf("round does not contain a finalization, empty notarization, or notarization")
+	}
+
+	return ss, nil
+}
+
+// this is the key in the map of stored quorum rounds
+func (s *signerRoundOrSeq) value() uint64 {
+	if s.isRound {
+		return s.round
+	}
+	return s.seq
 }
 
 // replicator manages the state for replicating sequences up until highestSequenceObserved.
@@ -32,7 +66,7 @@ type replicator struct {
 	highestRequested uint64
 
 	// highest sequence we have received
-	highestObserved *signedValue
+	highestObserved *signerRoundOrSeq
 	// we lock since we use highestObserved in multiple goroutines(via timeout tasks)
 	highestObservedLock sync.Mutex
 
@@ -72,18 +106,18 @@ func (r *replicator) resendReplicationRequests(missingIds []uint64) {
 	}
 }
 
-func (r *replicator) getHighestObserved() *signedValue {
+func (r *replicator) getHighestObserved() *signerRoundOrSeq {
 	return r.highestObserved
 }
 
 // minValue could be nextSeqToCOmmite or currentRound
-func (r *replicator) receivedFutureValue(ss *signedValue, minValue uint64) {
+func (r *replicator) receivedFutureValue(ss *signerRoundOrSeq, minValue uint64) {
 	r.maybeSendMoreReplicationRequests(ss, minValue)
 }
 
 // either nextSeqToCommit or currentRound depending on if we are replicating sequences or rounds
-func (r *replicator) maybeSendMoreReplicationRequests(observed *signedValue, minValue uint64) {
-	val := observed.value
+func (r *replicator) maybeSendMoreReplicationRequests(observed *signerRoundOrSeq, minValue uint64) {
+	val := observed.value()
 
 	// we've observed a sequence we've already requested
 	if val < r.highestRequested && r.highestObserved != nil {
@@ -91,11 +125,11 @@ func (r *replicator) maybeSendMoreReplicationRequests(observed *signedValue, min
 	}
 
 	// we've already requested up to the highest sequence observed
-	if r.highestObserved != nil && r.highestRequested >= r.highestObserved.value {
+	if r.highestObserved != nil && r.highestRequested >= r.highestObserved.value() {
 		return
 	}
 
-	if r.highestObserved == nil || val > r.highestObserved.value {
+	if r.highestObserved == nil || val > r.highestObserved.value() {
 		// we have observed a higher sequence than before
 		r.highestObservedLock.Lock()
 		r.highestObserved = observed
@@ -172,9 +206,9 @@ func (r *replicator) sendRequestToNode(start uint64, end uint64, nodes []NodeID,
 		Seqs: seqs,
 	}
 	if r.highestObserved.isRound {
-		request.LatestRound = r.highestObserved.value
+		request.LatestRound = r.highestObserved.value()
 	} else {
-		request.LatestSeq = r.highestObserved.value
+		request.LatestSeq = r.highestObserved.value()
 	}
 	r.highestObservedLock.Unlock()
 
@@ -187,21 +221,10 @@ func (r *replicator) sendRequestToNode(start uint64, end uint64, nodes []NodeID,
 	}
 }
 
-// func (s *sequenceReplicator) retrieveFinalizedBlock(seq uint64) (Block, Finalization, bool) {
-// 	qr, ok := s.receivedQuorumRounds[seq]
-// 	// if we have a quorum round, it should have a finalization and block but we check anyway
-// 	if ok && qr.Finalization != nil && qr.Block != nil {
-// 		return qr.Block, *qr.Finalization, true
-// 	}
-
-// 	return nil, Finalization{}, false
-// }
-
 func (r *replicator) storeQuorumRound(round QuorumRound, from NodeID, key uint64) {
-	// check if this is the highest we have seen
-	// seq := round.GetSequence() // key is either seq or round
-	if key > r.highestObserved.value {
-		signedSeq, err := newSignedValueFromRound(round, key)
+	// check if this is the highest round or seq we have seen
+	if key > r.highestObserved.value() {
+		signedSeq, err := newSignedRoundOrSeq(round)
 		if err != nil {
 			// should never be here since we already checked the QuorumRound was valid
 			r.logger.Error("Error creating signed sequence from round", zap.Error(err))
@@ -222,23 +245,6 @@ func (r *replicator) storeQuorumRound(round QuorumRound, from NodeID, key uint64
 	// we received this sequence, remove the timeout task
 	r.timeoutHandler.RemoveTask(key)
 	r.logger.Debug("Stored quorum round ", zap.Stringer("qr", &round), zap.String("from", from.String()))
-}
-
-func newSignedValueFromRound(round QuorumRound, value uint64) (*signedValue, error) {
-	ss := &signedValue{}
-	ss.value = value
-	switch {
-	case round.Finalization != nil:
-		ss.signers = round.Finalization.QC.Signers()
-	case round.Notarization != nil:
-		ss.signers = round.Notarization.QC.Signers()
-	case round.EmptyNotarization != nil:
-		ss.signers = round.EmptyNotarization.QC.Signers()
-	default:
-		return nil, fmt.Errorf("round does not contain a finalization, empty notarization, or notarization")
-	}
-
-	return ss, nil
 }
 
 func (r *replicator) retrieveQuorumRound(key uint64) (*QuorumRound, bool) {
