@@ -1188,7 +1188,7 @@ func (e *Epoch) persistEmptyNotarization(emptyNotarization *EmptyNotarization, s
 
 	e.increaseRound()
 
-	return errors.Join(e.startRound(), e.maybeLoadFutureMessages())
+	return e.startRound()
 }
 
 func (e *Epoch) maybeMarkLeaderAsTimedOutForFutureBlacklisting(emptyNotarization *EmptyNotarization) error {
@@ -1219,10 +1219,7 @@ func (e *Epoch) maybeCollectNotarization() error {
 		}
 		e.Logger.Verbo("Counting votes", zap.Uint64("round", e.round),
 			zap.Int("votes", voteCount), zap.String("from", fmt.Sprintf("%s", from)))
-
-		// As a last resort, check if we have received a notarization message for this round
-		// by attempting to load it from the future messages.
-		return e.maybeLoadFutureMessages()
+		return nil
 	}
 
 	block := e.rounds[e.round].block
@@ -1242,9 +1239,7 @@ func (e *Epoch) maybeCollectNotarization() error {
 			zap.Int("voteForOurBlock", voteCountForOurBlock),
 			zap.Int("total votes", voteCount))
 
-		// As a last resort, check if we have received a notarization message for this round
-		// by attempting to load it from the future messages.
-		return e.maybeLoadFutureMessages()
+		return nil
 	}
 
 	notarization, err := NewNotarization(e.Logger, e.SignatureAggregator, votesForCurrentRound, block.BlockHeader())
@@ -1309,7 +1304,7 @@ func (e *Epoch) persistAndBroadcastNotarization(notarization Notarization) error
 		zap.Uint64("round", notarization.Vote.Round),
 		zap.Stringer("digest", notarization.Vote.BlockHeader.Digest))
 
-	return errors.Join(e.doNotarized(notarization.Vote.Round), e.maybeLoadFutureMessages())
+	return e.doNotarized(notarization.Vote.Round)
 }
 
 func (e *Epoch) handleEmptyNotarizationMessage(emptyNotarization *EmptyNotarization, from NodeID) error {
@@ -2324,6 +2319,11 @@ func (e *Epoch) retrieveLastPersistedBlacklist() (Blacklist, bool) {
 }
 
 func (e *Epoch) startRound() error {
+	// before starting the round, load any future messages we might have received
+	if err := e.maybeLoadFutureMessages(); err != nil {
+		return err
+	}
+
 	leaderForCurrentRound := LeaderForRound(e.nodes, e.round)
 
 	if e.ID.Equals(leaderForCurrentRound) {
