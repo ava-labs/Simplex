@@ -113,7 +113,6 @@ func GetLatestVerifiedQuorumRound(round *Round, emptyNotarization *EmptyNotariza
 	return verifiedQuorumRound
 }
 
-
 // SetRound is a helper function that is used for tests to create a round.
 func SetRound(block VerifiedBlock, notarization *Notarization, finalization *Finalization) *Round {
 	round := &Round{

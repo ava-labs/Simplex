@@ -11,15 +11,14 @@ import (
 	"go.uber.org/zap"
 )
 
-
-type timeoutRunner func (ids []uint64) 
+type timeoutRunner func(ids []uint64)
 
 type TimeoutHandler struct {
-	lock sync.Mutex
+	lock        sync.Mutex
 	runInterval time.Duration
-	taskRunner timeoutRunner
-	ticks chan time.Time
-	close chan struct{}
+	taskRunner  timeoutRunner
+	ticks       chan time.Time
+	close       chan struct{}
 	// maps id to a task
 	tasks map[uint64]struct{}
 	now   time.Time
@@ -31,13 +30,13 @@ type TimeoutHandler struct {
 // listens for ticks and executes TimeoutTasks.
 func NewTimeoutHandler(log Logger, startTime time.Time, runInterval time.Duration, taskRunner timeoutRunner) *TimeoutHandler {
 	t := &TimeoutHandler{
-		now:        startTime,
-		tasks:     make(map[uint64]struct{}),
-		ticks:    make(chan time.Time, 1),
-		close:    make(chan struct{}),
+		now:         startTime,
+		tasks:       make(map[uint64]struct{}),
+		ticks:       make(chan time.Time, 1),
+		close:       make(chan struct{}),
 		runInterval: runInterval,
-		taskRunner: taskRunner,
-		log:   log,
+		taskRunner:  taskRunner,
+		log:         log,
 	}
 
 	go t.run()
@@ -71,7 +70,7 @@ func (t *TimeoutHandler) maybeRunTasks() {
 	// go through the heap executing relevant tasks
 	// grab all sequences
 	ids := make([]uint64, 0, len(t.tasks))
-	
+
 	t.lock.Lock()
 	for id := range t.tasks {
 		ids = append(ids, id)
@@ -128,8 +127,8 @@ func (t *TimeoutHandler) RemoveTask(ID uint64) {
 func (t *TimeoutHandler) RemoveOldTasks(cutoff uint64) {
 	t.lock.Lock()
 	defer t.lock.Unlock()
-	
-	for id := range t.tasks {	
+
+	for id := range t.tasks {
 		if id < cutoff {
 			t.log.Debug("Removing old timeout task", zap.Uint64("id", id))
 			delete(t.tasks, id)

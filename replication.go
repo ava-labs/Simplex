@@ -14,8 +14,8 @@ type ReplicationState struct {
 	enabled            bool
 	lock               *sync.Mutex
 	logger             Logger
-	sequenceReplicator *sequenceReplicator
-	roundReplicator    *roundReplicator
+	sequenceReplicator *replicator
+	roundReplicator    *replicator
 }
 
 func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundWindow uint64, enabled bool, start time.Time, lock *sync.Mutex) *ReplicationState {
@@ -31,13 +31,14 @@ func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundW
 		lock:               lock,
 		logger:             logger,
 		enabled:            enabled,
-		sequenceReplicator: newSequenceReplicator(logger, comm, id, maxRoundWindow, start),
-		roundReplicator:    newRoundReplicator(logger, comm, id, maxRoundWindow, start),
+		sequenceReplicator: newReplicator(logger, comm, id, maxRoundWindow, start),
+		roundReplicator:    newReplicator(logger, comm, id, maxRoundWindow, start),
 	}
 }
 
 func (r *ReplicationState) AdvanceTime(now time.Time) {
 	r.sequenceReplicator.advanceTime(now)
+	r.roundReplicator.advanceTime(now)
 }
 
 // isReplicationComplete returns true if we have finished the replication process.
@@ -47,17 +48,17 @@ func (r *ReplicationState) isReplicationComplete(nextSeqToCommit uint64, current
 		return true
 	}
 
-	return r.sequenceReplicator.isReplicationComplete(nextSeqToCommit) && r.roundReplicator.isReplicationComplete(currentRound)
-}
-
-// receivedFutureFinalization processes a finalization that was created in a future round.
-func (r *ReplicationState) receivedFutureFinalization(finalization *Finalization, nextSeqToCommit uint64) {
-	if !r.enabled {
-		return
+	highestSeqObserved := r.sequenceReplicator.getHighestObserved()
+	if highestSeqObserved != nil && highestSeqObserved.value >= nextSeqToCommit {
+		return false
 	}
 
-	r.sequenceReplicator.receivedFutureSequence(finalization, nextSeqToCommit)
-	r.roundReplicator.receivedFutureRound(finalization.Finalization.BlockHeader.Round)
+	highestRoundObserved := r.roundReplicator.getHighestObserved()
+	if highestRoundObserved != nil && highestRoundObserved.value >= currentRound {
+		return false
+	}
+
+	return true
 }
 
 // maybeSendFutureRequests attempts to collect future sequences if
@@ -67,29 +68,34 @@ func (r *ReplicationState) maybeAdvancedState(nextSequenceToCommit uint64, curre
 		return
 	}
 
-	r.sequenceReplicator.maybeAdvancedState(nextSequenceToCommit)
-	// TODO: we need to ensure that if the sequenceReplicator advances, the roundReplicator deoes not send out extra requests
-	r.roundReplicator.receivedFutureRound(currentRound)
+	r.sequenceReplicator.updateState(nextSequenceToCommit)
+	r.roundReplicator.updateState(currentRound)
 }
 
 func (r *ReplicationState) handleQuorumRound(round QuorumRound, from NodeID) {
 	if round.Finalization != nil {
-		r.sequenceReplicator.storeQuorumRound(round, from)
-		r.roundReplicator.receivedFutureRound(round.GetRound())
+		r.sequenceReplicator.storeQuorumRound(round, from, round.Finalization.Finalization.Seq)
+		r.roundReplicator.removeOldValues(round.Finalization.Finalization.Round)
 		return
 	}
 
+	// otherwise we are storing a round without finalization
 	// don't bother storing rounds that are older than the highest finalized round we know
 	// todo: grab a lock for sequence replicator
-	if r.sequenceReplicator.highestSequenceObserved.round >= round.GetRound() {
-		return
-	}
+	// if r.sequenceReplicator.highestObserved.value.round >= round.GetRound() {
+	// 	return
+	// }
 
-	r.roundReplicator.storeQuorumRound(round, from)
+	r.roundReplicator.storeQuorumRound(round, from, round.GetRound())
 }
 
 func (r *ReplicationState) getFinalizedBlockForSequence(seq uint64) (Block, Finalization, bool) {
-	return r.sequenceReplicator.retrieveFinalizedBlock(seq)
+	qr, ok := r.sequenceReplicator.retrieveQuorumRound(seq)
+	if !ok || qr.Finalization == nil || qr.Block == nil {
+		return nil, Finalization{}, false
+	}
+
+	return qr.Block, *qr.Finalization, true
 }
 
 func (r *ReplicationState) resendFinalizationRequest(seq uint64, signers []NodeID) error {
@@ -111,9 +117,60 @@ func (r *ReplicationState) resendFinalizationRequest(seq uint64, signers []NodeI
 }
 
 func (r *ReplicationState) getNonFinalizedQuorumRound(round uint64) *QuorumRound {
-	qr, ok := r.roundReplicator.rounds[round]
+	qr, ok := r.sequenceReplicator.retrieveQuorumRound(round)
 	if ok {
-		return &qr
+		return qr
 	}
 	return nil
+}
+
+// receivedFutureFinalization processes a finalization that was created in a future round.
+func (r *ReplicationState) receivedFutureFinalization(finalization *Finalization, nextSeqToCommit uint64) {
+	if !r.enabled {
+		return
+	}
+
+	signedSequence := &signedValue{
+		value:   finalization.Finalization.Seq,
+		signers: finalization.QC.Signers(),
+	}
+
+	r.sequenceReplicator.receivedFutureValue(signedSequence, nextSeqToCommit)
+	// maybe this finalization was for a round that we initially thought only had notarizations
+	// remove from the round replicator since we now have a finalization for this round
+	r.roundReplicator.removeOldValues(finalization.Finalization.BlockHeader.Round)
+}
+
+// func (r *ReplicationState) receivedFutureRound(round uint64) {
+// 	if !r.enabled {
+// 		return
+// 	}
+
+// 	// check if we have a finalization > than this round
+// 	// if r.sequenceReplicator.highestSequenceObserved.round >= round {
+// 	// 	r.logger.Debug("Ignoring round replication for a future round since we have a finalization for a higher round", zap.Uint64("round", round))
+// 	// 	return
+// 	// }
+
+// 	signedSequence := &signedValue{
+// 		value: round,
+// }
+
+func (r *ReplicationState) receivedFutureRound(round uint64, signers []NodeID, currentRound uint64) {
+	if !r.enabled {
+		return
+	}
+
+	signedSequence := &signedValue{
+		value:   round,
+		signers: signers,
+		isRound: true,
+	}
+
+	// 	// check if we have a finalization > than this round
+	// 	// if r.sequenceReplicator.highestSequenceObserved.round >= round {
+	// 	// 	r.logger.Debug("Ignoring round replication for a future round since we have a finalization for a higher round", zap.Uint64("round", round))
+	// 	// 	return
+	// 	// }
+	r.roundReplicator.receivedFutureValue(signedSequence, currentRound)
 }
