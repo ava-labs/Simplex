@@ -1072,10 +1072,14 @@ func (e *Epoch) indexFinalizations(startRound uint64) error {
 		}
 
 		e.deleteRounds(round.num)
-		// Clean up the future messages - Remove all messages we may have stored for the round
-		// the finalization is about.
+		// Clean up the future messages - Remove all messages we may have stored for all rounds until this round
 		for _, messagesFromNode := range e.futureMessages {
-			delete(messagesFromNode, finalization.Finalization.Round)
+			for round := range messagesFromNode {
+				if round > finalization.Finalization.Round {
+					continue
+				}
+				delete(messagesFromNode, finalization.Finalization.Round)
+			}
 		}
 	}
 	return nil
