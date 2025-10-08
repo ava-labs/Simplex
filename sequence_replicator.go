@@ -174,14 +174,6 @@ func (s *sequenceReplicator) sendRequestToNode(start uint64, end uint64, nodes [
 	}
 }
 
-func (s *sequenceReplicator) getQuorumRoundWithSeq(seq uint64) *QuorumRound {
-	qr, ok := s.receivedQuorumRounds[seq]
-	if ok {
-		return &qr
-	}
-	return nil
-}
-
 func (s *sequenceReplicator) retrieveFinalizedBlock(seq uint64) (Block, Finalization, bool) {
 	qr, ok := s.receivedQuorumRounds[seq]
 	// if we have a quorum round, it should have a finalization and block but we check anyway
@@ -190,16 +182,6 @@ func (s *sequenceReplicator) retrieveFinalizedBlock(seq uint64) (Block, Finaliza
 	}
 
 	return nil, Finalization{}, false
-}
-
-func (s *sequenceReplicator) highestKnownRound() uint64 {
-	s.highestSequenceObservedLock.Lock()
-	defer s.highestSequenceObservedLock.Unlock()
-	
-	if s.highestSequenceObserved == nil {
-		return 0
-	}
-	return s.highestSequenceObserved.round
 }
 
 func (s *sequenceReplicator) storeQuorumRound(round QuorumRound, from NodeID) {

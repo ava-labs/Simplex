@@ -85,8 +85,8 @@ func VerifyQC(qc QuorumCertificate, logger Logger, messageType string, quorumSiz
 }
 
 // GetLatestVerifiedQuorumRound returns the latest verified quorum round given
-// a round, empty notarization, and last block. If all are nil, it returns nil.
-func GetLatestVerifiedQuorumRound(round *Round, emptyNotarization *EmptyNotarization, lastBlock *VerifiedFinalizedBlock) *VerifiedQuorumRound {
+// a round and empty notarization. If both are nil, it returns nil.
+func GetLatestVerifiedQuorumRound(round *Round, emptyNotarization *EmptyNotarization) *VerifiedQuorumRound {
 	var verifiedQuorumRound *VerifiedQuorumRound
 	var highestRound uint64
 	var exists bool
@@ -107,20 +107,12 @@ func GetLatestVerifiedQuorumRound(round *Round, emptyNotarization *EmptyNotariza
 			verifiedQuorumRound = &VerifiedQuorumRound{
 				EmptyNotarization: emptyNotarization,
 			}
-			highestRound = emptyNotarization.Vote.Round
-			exists = true
-		}
-	}
-
-	if lastBlock != nil && (lastBlock.VerifiedBlock.BlockHeader().Round > highestRound || !exists) {
-		verifiedQuorumRound = &VerifiedQuorumRound{
-			VerifiedBlock: lastBlock.VerifiedBlock,
-			Finalization:  &lastBlock.Finalization,
 		}
 	}
 
 	return verifiedQuorumRound
 }
+
 
 // SetRound is a helper function that is used for tests to create a round.
 func SetRound(block VerifiedBlock, notarization *Notarization, finalization *Finalization) *Round {

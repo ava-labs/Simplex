@@ -32,7 +32,7 @@ func newRoundReplicator(logger Logger, comm Communication, ourNodeID NodeID, max
 		rounds:         make(map[uint64]QuorumRound),
 	}
 
-	r.timeoutHandler = NewTimeoutHandler(logger, start, DefaultReplicationRequestTimeout, r.handleTimeout)
+	r.timeoutHandler = NewTimeoutHandler(logger, start, DefaultReplicationRequestTimeout, r.resendReplicationRequests)
 	return r
 }
 
@@ -60,22 +60,53 @@ func (r *roundReplicator) storeQuorumRound(qr QuorumRound, from NodeID) {
 	r.logger.Debug("Stored quorum round from replication", zap.Uint64("round", round), zap.String("from", from.String()), zap.String("node", r.myNodeID.String()))
 }
 
-func (r *roundReplicator) highestKnownRound() uint64 {
-	highestRound := uint64(0)
-	for round := range r.rounds {
-		if round > highestRound {
-			highestRound = round
-		}
-	}
-	return highestRound
-}
-
 func (r *roundReplicator) receivedFutureRound(round uint64) {
 	r.timeoutHandler.RemoveOldTasks(round)
 
-	for storedRound, _ := range r.rounds {
+	for storedRound := range r.rounds {
 		if storedRound < round {
 			delete(r.rounds, storedRound)
 		}
+	}
+}
+
+func (r *roundReplicator) resendReplicationRequests(missingSeqs []uint64) {
+	nodes := r.highestRoundObserved.signers.Remove(r.myNodeID)
+	numNodes := len(nodes)
+	segments := CompressSequences(missingSeqs)
+	for i, seqs := range segments {
+		index := i % numNodes
+		r.sendRequestToNode(seqs.Start, seqs.End, nodes, (index+1)%len(nodes))
+	}
+}
+
+// sendRequestToNode requests the sequences [start, end] from nodes[index].
+// In case the nodes[index] does not respond, we create a timeout that will
+// re-send the request.
+func (r *roundReplicator) sendRequestToNode(start uint64, end uint64, nodes []NodeID, index int) {
+	r.logger.Debug("Requesting missing notarized rounds ",
+		zap.Stringer("from", nodes[index]),
+		zap.Uint64("start", start),
+		zap.Uint64("end", end))
+	seqs := make([]uint64, (end+1)-start)
+	for i := start; i <= end; i++ {
+		seqs[i-start] = i
+		// ensure we set a timeout for this sequence
+		r.timeoutHandler.AddTask(i)
+	}
+
+	r.highestRoundObservedLock.Lock()
+	request := &ReplicationRequest{
+		Seqs:        seqs,
+		LatestSeq: r.highestRoundObserved.seq,
+	}
+	r.highestRoundObservedLock.Unlock()
+
+	msg := &Message{ReplicationRequest: request}
+
+	r.sender.Send(msg, nodes[index])
+
+	if r.highestRoundRequested < end {
+		r.highestRoundRequested = end
 	}
 }

@@ -224,6 +224,7 @@ type ReplicationResponse struct {
 type VerifiedReplicationResponse struct {
 	Data        []VerifiedQuorumRound
 	LatestRound *VerifiedQuorumRound
+	LatestSeq   *VerifiedQuorumRound
 }
 
 // QuorumRound represents a round that has achieved quorum on either
