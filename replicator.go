@@ -154,7 +154,7 @@ func (r *replicator) maybeSendMoreReplicationRequests(observed *signerRoundOrSeq
 
 	// we've observed something we've already requested
 	if r.highestRequested >= val && r.highestObserved != nil {
-		r.logger.Debug("Already requested observed value, skipping", zap.Uint64("value", val))
+		r.logger.Debug("Already requested observed value, skipping", zap.Uint64("value", val), zap.Bool("isRound", observed.isRound))
 		return
 	}
 
@@ -169,7 +169,7 @@ func (r *replicator) maybeSendMoreReplicationRequests(observed *signerRoundOrSeq
 	// we limit the number of outstanding requests to be at most maxRoundWindow ahead of nextSeqToCommit
 	endSeq := math.Min(float64(val), float64(r.maxRoundWindow+base))
 
-	r.logger.Debug("Node is behind, requesting missing values", zap.Uint64("value", val), zap.Uint64("start", uint64(startSeq)), zap.Uint64("end", uint64(endSeq)), zap.Bool("isRound", observed.isRound))
+	r.logger.Debug("Node is behind, attempting to request missing values", zap.Uint64("value", val), zap.Uint64("start", uint64(startSeq)), zap.Uint64("end", uint64(endSeq)), zap.Bool("isRound", observed.isRound))
 	r.sendReplicationRequests(uint64(startSeq), uint64(endSeq))
 }
 
@@ -219,32 +219,34 @@ func (r *replicator) sendReplicationRequests(start uint64, end uint64) {
 // In case the nodes[index] does not respond, we create a timeout that will
 // re-send the request.
 func (r *replicator) sendRequestToNode(start uint64, end uint64, nodes []NodeID, index int) {
-	r.logger.Debug("Requesting missing rounds/sequences ",
-		zap.Stringer("from", nodes[index]),
-		zap.Uint64("start", start),
-		zap.Uint64("end", end),
-		zap.Bool("isRound", r.highestObserved.isRound),
-	)
-	seqs := make([]uint64, (end+1)-start)
+	roundsOrSeqs := make([]uint64, (end+1)-start)
 	for i := start; i <= end; i++ {
-		seqs[i-start] = i
+		roundsOrSeqs[i-start] = i
 		// ensure we set a timeout for this sequence
 		r.timeoutHandler.AddTask(i)
 	}
 
 	r.highestObservedLock.Lock()
-	request := &ReplicationRequest{
-		Seqs: seqs,
-	}
+	request := &ReplicationRequest{}
 	if r.highestObserved.isRound {
 		request.LatestRound = r.highestObserved.value()
+		request.Rounds = roundsOrSeqs
 	} else {
 		request.LatestSeq = r.highestObserved.value()
+		request.Seqs = roundsOrSeqs
 	}
 	r.highestObservedLock.Unlock()
 
 	msg := &Message{ReplicationRequest: request}
 
+	r.logger.Debug("Requesting missing rounds/sequences ",
+		zap.Stringer("from", nodes[index]),
+		zap.Uint64("start", start),
+		zap.Uint64("end", end),
+		zap.Bool("isRound", r.highestObserved.isRound),
+		zap.Uint64("latestRound", request.LatestRound),
+		zap.Uint64("latestSeq", request.LatestSeq),
+	)
 	r.sender.Send(msg, nodes[index])
 
 	if r.highestRequested < end {
@@ -252,9 +254,9 @@ func (r *replicator) sendRequestToNode(start uint64, end uint64, nodes []NodeID,
 	}
 }
 
-func (r *replicator) storeQuorumRound(round QuorumRound, from NodeID, key uint64) {
+func (r *replicator) storeQuorumRound(round QuorumRound, from NodeID, roundOrSeq uint64) {
 	// check if this is the highest round or seq we have seen
-	if r.highestObserved == nil || key > r.highestObserved.value() {
+	if r.highestObserved == nil || roundOrSeq > r.highestObserved.value() {
 		signedSeq, err := newSignedRoundOrSeq(round, r.myNodeID)
 		if err != nil {
 			// should never be here since we already checked the QuorumRound was valid
@@ -263,18 +265,22 @@ func (r *replicator) storeQuorumRound(round QuorumRound, from NodeID, key uint64
 		}
 
 		r.highestObserved = signedSeq
+		// this quorum round may have been for a round where we did not expect a finalization
+		// ex. we thought round 10 only had an empty notarization, but now we received a finalization for round 10
+		// so we should
+		// r.maybeSendMoreReplicationRequests(signedSeq, nextSeqToCommit)
 	}
 
-	if _, exists := r.receivedQuorumRounds[key]; exists {
+	if _, exists := r.receivedQuorumRounds[roundOrSeq]; exists {
 		// we've already stored this round
 		// TODO: add a test where we receive a notarization first from replication, but the chain actually had an empty notarization
 		return
 	}
 
-	r.receivedQuorumRounds[key] = round
+	r.receivedQuorumRounds[roundOrSeq] = round
 
 	// we received this sequence, remove the timeout task
-	r.timeoutHandler.RemoveTask(key)
+	r.timeoutHandler.RemoveTask(roundOrSeq)
 	r.logger.Debug("Stored quorum round ", zap.Stringer("qr", &round), zap.String("from", from.String()))
 }
 
@@ -282,6 +288,15 @@ func (r *replicator) retrieveQuorumRound(key uint64) (*QuorumRound, bool) {
 	qr, ok := r.receivedQuorumRounds[key]
 	if ok {
 		return &qr, true
+	}
+	return nil, false
+}
+
+func (r *replicator) retrieveQuorumRoundBySeq(seq uint64) (*QuorumRound, bool) {
+	for _, qr := range r.receivedQuorumRounds {
+		if qr.Block != nil && qr.Block.BlockHeader().Seq == seq {
+			return &qr, true
+		}
 	}
 	return nil, false
 }

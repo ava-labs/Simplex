@@ -90,6 +90,21 @@ func (r *ReplicationState) getFinalizedBlockForSequence(seq uint64) (Block, Fina
 	return qr.Block, *qr.Finalization, true
 }
 
+func (r *ReplicationState) getBlockWithSeq(seq uint64) (Block, bool) {
+	qr, ok := r.sequenceReplicator.retrieveQuorumRound(seq)
+	if ok && qr.Block != nil {
+		return qr.Block, true
+	}
+
+	// check notarization replicator
+	qr, ok = r.roundReplicator.retrieveQuorumRoundBySeq(seq)
+	if ok && qr.Block != nil {
+		return qr.Block, true
+	}
+
+	return nil, false
+}
+
 func (r *ReplicationState) resendFinalizationRequest(seq uint64, signers []NodeID) error {
 	if !r.enabled {
 		return nil
