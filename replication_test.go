@@ -723,7 +723,6 @@ func TestReplicationStuckInProposingBlock(t *testing.T) {
 // have a stale notarization for a round(i.e. a node notarized a block but the rest of the network
 // propagated an empty notarization).
 func TestReplicationNodeDiverges(t *testing.T) {
-	t.Skip("flaky test, should re-enable with the fix for https://github.com/ava-labs/Simplex/issues/262")
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}, {5}, {6}}
 	numBlocks := uint64(5)
 
@@ -807,7 +806,19 @@ func TestReplicationNodeDiverges(t *testing.T) {
 	}
 
 	net.Connect(laggingNode.E.ID)
-	net.TriggerLeaderBlockBuilder(numBlocks + 1)
+
+	for _, n := range net.Instances {
+		// TODO: remove when replication can be initiated with empty notarizations
+		if n.E.ID.Equals(laggingNode.E.ID) {
+			continue
+		}
+		WaitToEnterRound(t, n.E, numBlocks+1)
+	}
+
+	// we are in round 6(which means node 1 should be leader(but it is blacklisted))
+	net.AdvanceWithoutLeader(startTimes, 1+numBlocks, laggingNode.E.ID)
+
+	net.TriggerLeaderBlockBuilder(numBlocks + 2)
 	for _, n := range net.Instances {
 		n.Storage.WaitForBlockCommit(numBlocks - missedSeqs + 1)
 	}
