@@ -2728,16 +2728,6 @@ func (e *Epoch) handleReplicationResponse(resp *ReplicationResponse, from NodeID
 	nextSeqToCommit := e.nextSeqToCommit()
 
 	for _, data := range resp.Data {
-		if err := data.IsWellFormed(); err != nil {
-			e.Logger.Debug("Malformed Quorum Round Received", zap.Error(err))
-			continue
-		}
-
-		if data.EmptyNotarization == nil && nextSeqToCommit > data.GetSequence() {
-			e.Logger.Debug("Received quorum round for a seq that is too far behind", zap.Uint64("seq", data.GetSequence()))
-			continue
-		}
-
 		if data.Finalization != nil && data.GetSequence() > nextSeqToCommit+e.maxRoundWindow {
 			e.Logger.Debug("Received quorum round for a seq that is too far ahead", zap.Uint64("seq", data.GetSequence()))
 			// we are too far behind, we should ignore this message
@@ -2750,17 +2740,17 @@ func (e *Epoch) handleReplicationResponse(resp *ReplicationResponse, from NodeID
 			continue
 		}
 
-		if err := e.verifyQuorumRound(data, from); err != nil {
-			e.Logger.Debug("Received invalid quorum round", zap.Uint64("seq", data.GetSequence()), zap.Stringer("from", from))
-			continue
+		if err := e.processQuorumRound(&data, from); err != nil {
+			e.Logger.Debug("Failed processing quorum round", zap.Error(err))
 		}
-
-		e.replicationState.handleQuorumRound(data, from)
 	}
 
-	if err := e.processLatestRoundReceived(resp.LatestRound, from); err != nil {
+	if err := e.processQuorumRound(resp.LatestRound, from); err != nil {
 		e.Logger.Debug("Failed processing latest round", zap.Error(err))
-		return nil
+	}
+
+	if err := e.processQuorumRound(resp.LatestSeq, from); err != nil {
+		e.Logger.Debug("Failed processing latest seq", zap.Error(err))
 	}
 
 	return e.processReplicationState()
@@ -2807,23 +2797,28 @@ func (e *Epoch) processEmptyNotarization(emptyNotarization *EmptyNotarization) e
 	return e.processReplicationState()
 }
 
-func (e *Epoch) processLatestRoundReceived(latestRound *QuorumRound, from NodeID) error {
+// processQuorumRound processes a quorum round received from another node.
+// It verifies the quorum round and stores it in the replication state if valid.
+func (e *Epoch) processQuorumRound(latestRound *QuorumRound, from NodeID) error {
 	if latestRound == nil {
 		return nil
 	}
 
+	nextSeqToCommit := e.nextSeqToCommit()
+	if latestRound.EmptyNotarization == nil && nextSeqToCommit > latestRound.GetSequence() {
+		return fmt.Errorf("quorum round too far behind: %d > %d", nextSeqToCommit, latestRound.GetSequence())
+	}
+
 	// make sure the latest round is well formed
 	if err := latestRound.IsWellFormed(); err != nil {
-		e.Logger.Debug("Received invalid latest round", zap.Error(err))
-		return err
+		return fmt.Errorf("received malformed latest round: %w", err)
 	}
 
 	if err := e.verifyQuorumRound(*latestRound, from); err != nil {
-		e.Logger.Debug("Received invalid latest round", zap.Error(err))
-		return err
+		return fmt.Errorf("failed verifying latest round: %w", err)
 	}
 
-	e.replicationState.handleQuorumRound(*latestRound, from)
+	e.replicationState.storeQuorumRound(*latestRound, from)
 	return nil
 }
 

@@ -219,6 +219,7 @@ type ReplicationRequest struct {
 type ReplicationResponse struct {
 	Data        []QuorumRound
 	LatestRound *QuorumRound
+	LatestSeq   *QuorumRound
 }
 
 type VerifiedReplicationResponse struct {

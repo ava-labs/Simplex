@@ -91,7 +91,7 @@ func GetLatestVerifiedQuorumRound(round *Round, emptyNotarization *EmptyNotariza
 	var highestRound uint64
 	var exists bool
 
-	if round != nil {
+	if round != nil && (round.finalization != nil || round.notarization != nil) {
 		highestRound = round.num
 		verifiedQuorumRound = &VerifiedQuorumRound{
 			VerifiedBlock: round.block,

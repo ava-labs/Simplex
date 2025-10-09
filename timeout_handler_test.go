@@ -4,8 +4,6 @@
 package simplex_test
 
 import (
-	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -15,206 +13,93 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const testRunInterval = 1 * time.Second
+
 func TestAddAndRunTask(t *testing.T) {
 	start := time.Now()
 	l := testutil.MakeLogger(t, 1)
-	nodes := []simplex.NodeID{{1}, {2}}
-	handler := simplex.NewTimeoutHandler(l, start, nodes)
-	defer handler.Close()
-
-	sent := make(chan struct{}, 1)
-	var count atomic.Int64
-
-	task := &simplex.TimeoutTask{
-		NodeID:   nodes[0],
-		TaskID:   "simplerun",
-		Deadline: start.Add(5 * time.Second),
-		Task: func() {
-			sent <- struct{}{}
-			count.Add(1)
-		},
+	ran := make(chan uint64, 1)
+	runner := func(ids []uint64) {
+		require.Len(t, ids, 1)
+		ran <- ids[0]
 	}
 
-	handler.AddTask(task)
-	handler.Tick(start.Add(2 * time.Second))
-	time.Sleep(10 * time.Millisecond)
+	handler := simplex.NewTimeoutHandler(l, start, testRunInterval, runner)
+	defer handler.Close()
 
-	require.Zero(t, len(sent))
-	handler.Tick(start.Add(6 * time.Second))
-	<-sent
-	require.Equal(t, int64(1), count.Load())
+	handler.AddTask(1)
+	handler.Tick(start.Add(testRunInterval))
+	value := <-ran
+	require.Equal(t, uint64(1), value)
 
-	// test we only execute task once
-	handler.Tick(start.Add(12 * time.Second))
-	time.Sleep(10 * time.Millisecond)
-	require.Equal(t, int64(1), count.Load())
+	// if we dont remove the task, it should run again
+	handler.Tick(start.Add(2 * testRunInterval))
+	value = <-ran
+	require.Equal(t, uint64(1), value)
+
+	handler.RemoveTask(1)
+	handler.Tick(start.Add(3 * testRunInterval))
+	time.Sleep(100 * time.Millisecond) // give some time for the task to run if it was going to
+	require.Empty(t, ran)
 }
 
 func TestRemoveTask(t *testing.T) {
 	start := time.Now()
 	l := testutil.MakeLogger(t, 1)
-	nodes := []simplex.NodeID{{1}, {2}}
-	handler := simplex.NewTimeoutHandler(l, start, nodes)
+	runner := func(ids []uint64) {
+		require.Fail(t, "shouldn't run")
+	}
+	handler := simplex.NewTimeoutHandler(l, start, testRunInterval, runner)
 	defer handler.Close()
 
-	var ran bool
-	task := &simplex.TimeoutTask{
-		NodeID:   nodes[0],
-		TaskID:   "task2",
-		Deadline: start.Add(1 * time.Second),
-		Task: func() {
-			ran = true
-		},
+	handler.AddTask(1)
+	handler.Tick(start.Add(testRunInterval / 2))
+	handler.RemoveTask(1)
+	handler.Tick(start.Add(testRunInterval))
+	time.Sleep(100 * time.Millisecond) // give some time for the task to run if it was going to
+}
+
+func TestMultipleTasks(t *testing.T) {
+	start := time.Now()
+	l := testutil.MakeLogger(t, 1)
+	ran := make(chan uint64, 2)
+	runner := func(ids []uint64) {
+		for _, id := range ids {
+			ran <- id
+		}
 	}
 
-	handler.AddTask(task)
-	handler.RemoveTask(nodes[0], "task2")
-	handler.Tick(start.Add(2 * time.Second))
-	require.False(t, ran)
-
-	// ensure no panic
-	handler.RemoveTask(nodes[1], "task-doesn't-exist")
-}
-
-func TestTaskOrder(t *testing.T) {
-	start := time.Now()
-	l := testutil.MakeLogger(t, 1)
-	nodes := []simplex.NodeID{{1}, {2}}
-	handler := simplex.NewTimeoutHandler(l, start, nodes)
+	handler := simplex.NewTimeoutHandler(l, start, testRunInterval, runner)
 	defer handler.Close()
 
-	finished := make(chan struct{})
+	handler.AddTask(1)
+	handler.AddTask(2)
+	handler.Tick(start.Add(testRunInterval))
+	value1 := <-ran
+	value2 := <-ran
+	require.Contains(t, []uint64{1, 2}, value1)
+	require.Contains(t, []uint64{1, 2}, value2)
+	require.NotEqual(t, value1, value2)
 
-	var mu sync.Mutex
-	var results []string
-
-	handler.AddTask(&simplex.TimeoutTask{
-		NodeID:   nodes[0],
-		TaskID:   "first",
-		Deadline: start.Add(1 * time.Second),
-		Task: func() {
-			mu.Lock()
-			results = append(results, "first")
-			finished <- struct{}{}
-			mu.Unlock()
-		},
-	})
-
-	handler.AddTask(&simplex.TimeoutTask{
-		NodeID:   nodes[1],
-		TaskID:   "second",
-		Deadline: start.Add(2 * time.Second),
-		Task: func() {
-			mu.Lock()
-			results = append(results, "second")
-			finished <- struct{}{}
-			mu.Unlock()
-		},
-	})
-
-	handler.AddTask(&simplex.TimeoutTask{
-		NodeID:   nodes[0],
-		TaskID:   "noruntask",
-		Deadline: start.Add(4 * time.Second),
-		Task: func() {
-			mu.Lock()
-			results = append(results, "norun")
-			mu.Unlock()
-		},
-	})
-
-	handler.Tick(start.Add(3 * time.Second))
-
-	<-finished
-	<-finished
-
-	mu.Lock()
-	defer mu.Unlock()
-
-	require.Equal(t, 2, len(results))
-	require.Equal(t, results[0], "first")
-	require.Equal(t, results[1], "second")
+	// remove one task, the other should still run
+	handler.RemoveTask(value1)
+	handler.Tick(start.Add(2 * testRunInterval))
+	value := <-ran
+	require.Equal(t, value2, value)
+	require.Empty(t, ran)
 }
 
-func TestAddTasksOutOfOrder(t *testing.T) {
+func TestClosed(t *testing.T) {
 	start := time.Now()
 	l := testutil.MakeLogger(t, 1)
-	nodes := []simplex.NodeID{{1}, {2}}
-	handler := simplex.NewTimeoutHandler(l, start, nodes)
-	defer handler.Close()
+	runner := func(ids []uint64) {
+		require.Fail(t, "shouldn't run")
+	}
 
-	finished := make(chan struct{})
-	var mu sync.Mutex
-	var results []string
+	handler := simplex.NewTimeoutHandler(l, start, testRunInterval, runner)
 
-	handler.AddTask(&simplex.TimeoutTask{
-		NodeID:   nodes[0],
-		TaskID:   "third",
-		Deadline: start.Add(3 * time.Second),
-		Task: func() {
-			mu.Lock()
-			results = append(results, "third")
-			finished <- struct{}{}
-			mu.Unlock()
-		},
-	})
-
-	handler.AddTask(&simplex.TimeoutTask{
-		NodeID:   nodes[0],
-		TaskID:   "second",
-		Deadline: start.Add(2 * time.Second),
-		Task: func() {
-			mu.Lock()
-			results = append(results, "second")
-			finished <- struct{}{}
-			mu.Unlock()
-		},
-	})
-
-	handler.AddTask(&simplex.TimeoutTask{
-		NodeID:   nodes[1],
-		TaskID:   "fourth",
-		Deadline: start.Add(4 * time.Second),
-		Task: func() {
-			mu.Lock()
-			results = append(results, "fourth")
-			finished <- struct{}{}
-			mu.Unlock()
-		},
-	})
-
-	handler.AddTask(&simplex.TimeoutTask{
-		NodeID:   nodes[0],
-		TaskID:   "first",
-		Deadline: start.Add(1 * time.Second),
-		Task: func() {
-			mu.Lock()
-			results = append(results, "first")
-			finished <- struct{}{}
-			mu.Unlock()
-		},
-	})
-
-	handler.Tick(start.Add(1 * time.Second))
-	<-finished
-	mu.Lock()
-	require.Equal(t, 1, len(results))
-	require.Equal(t, results[0], "first")
-	mu.Unlock()
-
-	handler.Tick(start.Add(3 * time.Second))
-	<-finished
-	<-finished
-	mu.Lock()
-	require.Equal(t, 3, len(results))
-	require.Equal(t, results[1], "second")
-	require.Equal(t, results[2], "third")
-	mu.Unlock()
-
-	handler.Tick(start.Add(4 * time.Second))
-	<-finished
-	mu.Lock()
-	require.Equal(t, 4, len(results))
-	require.Equal(t, results[3], "fourth")
-	mu.Unlock()
+	handler.Close()
+	handler.AddTask(1)
+	handler.Tick(start.Add(testRunInterval))
+	time.Sleep(100 * time.Millisecond) // give some time for the task to run if it was going to
 }

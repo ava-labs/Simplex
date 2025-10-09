@@ -4,7 +4,6 @@
 package simplex
 
 import (
-	"slices"
 	"sync"
 	"time"
 
@@ -77,7 +76,9 @@ func (t *TimeoutHandler) maybeRunTasks() {
 	}
 	t.lock.Unlock()
 
-	slices.Sort(ids)
+	if len(ids) == 0 {
+		return
+	}
 
 	t.taskRunner(ids)
 }
