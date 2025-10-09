@@ -466,118 +466,118 @@ func TestReplicationFutureFinalization(t *testing.T) {
 
 // TestReplicationAfterNodeDisconnects tests the replication process of a node that
 // disconnects from the network and reconnects after the rest of the network has made progress.
-//
+
 // All nodes make progress for `startDisconnect` blocks. The lagging node disconnects
 // and the rest of the nodes continue to make progress for another `endDisconnect - startDisconnect` blocks.
 // The lagging node reconnects and the after the next `finalization` is sent, the lagging node catches up to the latest height.
-// func TestReplicationAfterNodeDisconnects(t *testing.T) {
-// 	nodes := []simplex.NodeID{{1}, {2}, {3}, []byte("lagging")}
+func TestReplicationAfterNodeDisconnects(t *testing.T) {
+	nodes := []simplex.NodeID{{1}, {2}, {3}, []byte("lagging")}
 
-// 	for startDisconnect := uint64(0); startDisconnect <= 5; startDisconnect++ {
-// 		for endDisconnect := uint64(10); endDisconnect <= 20; endDisconnect++ {
-// 			// lagging node cannot be the leader after node disconnects
-// 			isLaggingNodeLeader := bytes.Equal(simplex.LeaderForRound(nodes, endDisconnect), nodes[3])
-// 			if isLaggingNodeLeader {
-// 				continue
-// 			}
+	for startDisconnect := uint64(0); startDisconnect <= 5; startDisconnect++ {
+		for endDisconnect := uint64(10); endDisconnect <= 20; endDisconnect++ {
+			// lagging node cannot be the leader after node disconnects
+			isLaggingNodeLeader := bytes.Equal(simplex.LeaderForRound(nodes, endDisconnect), nodes[3])
+			if isLaggingNodeLeader {
+				continue
+			}
 
-// 			testName := fmt.Sprintf("Disconnect_%d_to_%d", startDisconnect, endDisconnect)
+			testName := fmt.Sprintf("Disconnect_%d_to_%d", startDisconnect, endDisconnect)
 
-// 			t.Run(testName, func(t *testing.T) {
-// 				t.Parallel()
-// 				testReplicationAfterNodeDisconnects(t, nodes, startDisconnect, endDisconnect)
-// 			})
-// 		}
-// 	}
-// }
+			t.Run(testName, func(t *testing.T) {
+				t.Parallel()
+				testReplicationAfterNodeDisconnects(t, nodes, startDisconnect, endDisconnect)
+			})
+		}
+	}
+}
 
-// func testReplicationAfterNodeDisconnects(t *testing.T, nodes []simplex.NodeID, startDisconnect, endDisconnect uint64) {
-// 	net := NewInMemNetwork(t, nodes)
-// 	testConfig := &TestNodeConfig{
-// 		ReplicationEnabled: true,
-// 	}
-// 	normalNode1 := NewSimplexNode(t, nodes[0], net, testConfig)
-// 	normalNode2 := NewSimplexNode(t, nodes[1], net, testConfig)
-// 	normalNode3 := NewSimplexNode(t, nodes[2], net, testConfig)
-// 	laggingNode := NewSimplexNode(t, nodes[3], net, testConfig)
+func testReplicationAfterNodeDisconnects(t *testing.T, nodes []simplex.NodeID, startDisconnect, endDisconnect uint64) {
+	net := NewInMemNetwork(t, nodes)
+	testConfig := &TestNodeConfig{
+		ReplicationEnabled: true,
+	}
+	normalNode1 := NewSimplexNode(t, nodes[0], net, testConfig)
+	normalNode2 := NewSimplexNode(t, nodes[1], net, testConfig)
+	normalNode3 := NewSimplexNode(t, nodes[2], net, testConfig)
+	laggingNode := NewSimplexNode(t, nodes[3], net, testConfig)
 
-// 	require.Equal(t, uint64(0), normalNode1.Storage.NumBlocks())
-// 	require.Equal(t, uint64(0), normalNode2.Storage.NumBlocks())
-// 	require.Equal(t, uint64(0), normalNode3.Storage.NumBlocks())
-// 	require.Equal(t, uint64(0), laggingNode.Storage.NumBlocks())
+	require.Equal(t, uint64(0), normalNode1.Storage.NumBlocks())
+	require.Equal(t, uint64(0), normalNode2.Storage.NumBlocks())
+	require.Equal(t, uint64(0), normalNode3.Storage.NumBlocks())
+	require.Equal(t, uint64(0), laggingNode.Storage.NumBlocks())
 
-// 	epochTimes := make([]time.Time, 0, 4)
-// 	for _, n := range net.Instances {
-// 		epochTimes = append(epochTimes, n.E.StartTime)
-// 	}
+	epochTimes := make([]time.Time, 0, 4)
+	for _, n := range net.Instances {
+		epochTimes = append(epochTimes, n.E.StartTime)
+	}
 
-// 	net.StartInstances()
+	net.StartInstances()
 
-// 	for i := uint64(0); i < startDisconnect; i++ {
-// 		net.TriggerLeaderBlockBuilder(i)
-// 		for _, n := range net.Instances {
-// 			n.Storage.WaitForBlockCommit(i)
-// 		}
-// 	}
+	for i := uint64(0); i < startDisconnect; i++ {
+		net.TriggerLeaderBlockBuilder(i)
+		for _, n := range net.Instances {
+			n.Storage.WaitForBlockCommit(i)
+		}
+	}
 
-// 	// all nodes have committed `startDisconnect` blocks
-// 	for _, n := range net.Instances {
-// 		require.Equal(t, startDisconnect, n.Storage.NumBlocks())
-// 	}
+	// all nodes have committed `startDisconnect` blocks
+	for _, n := range net.Instances {
+		require.Equal(t, startDisconnect, n.Storage.NumBlocks())
+	}
 
-// 	// lagging node disconnects
-// 	net.Disconnect(laggingNode.E.ID)
-// 	isLaggingNodeLeader := bytes.Equal(simplex.LeaderForRound(nodes, startDisconnect), laggingNode.E.ID)
-// 	if isLaggingNodeLeader {
-// 		net.TriggerLeaderBlockBuilder(startDisconnect)
-// 	}
+	// lagging node disconnects
+	net.Disconnect(laggingNode.E.ID)
+	isLaggingNodeLeader := bytes.Equal(simplex.LeaderForRound(nodes, startDisconnect), laggingNode.E.ID)
+	if isLaggingNodeLeader {
+		net.TriggerLeaderBlockBuilder(startDisconnect)
+	}
 
-// 	missedSeqs := uint64(0)
-// 	// normal nodes continue to make progress
-// 	for i := startDisconnect; i < endDisconnect; i++ {
-// 		emptyRound := bytes.Equal(simplex.LeaderForRound(nodes, i), nodes[3])
-// 		if emptyRound {
-// 			net.AdvanceWithoutLeader(epochTimes, i, laggingNode.E.ID)
-// 			missedSeqs++
-// 		} else {
-// 			net.TriggerLeaderBlockBuilder(i)
-// 			for _, n := range net.Instances[:3] {
-// 				n.Storage.WaitForBlockCommit(i - missedSeqs)
-// 			}
-// 		}
-// 	}
+	missedSeqs := uint64(0)
+	// normal nodes continue to make progress
+	for i := startDisconnect; i < endDisconnect; i++ {
+		emptyRound := bytes.Equal(simplex.LeaderForRound(nodes, i), nodes[3])
+		if emptyRound {
+			net.AdvanceWithoutLeader(epochTimes, i, laggingNode.E.ID)
+			missedSeqs++
+		} else {
+			net.TriggerLeaderBlockBuilder(i)
+			for _, n := range net.Instances[:3] {
+				n.Storage.WaitForBlockCommit(i - missedSeqs)
+			}
+		}
+	}
 
-// 	// all nodes except for lagging node have progressed and committed [endDisconnect - missedSeqs] blocks
-// 	for _, n := range net.Instances[:3] {
-// 		require.Equal(t, endDisconnect-missedSeqs, n.Storage.NumBlocks())
-// 	}
-// 	require.Equal(t, startDisconnect, laggingNode.Storage.NumBlocks())
-// 	require.Equal(t, startDisconnect, laggingNode.E.Metadata().Round)
-// 	// lagging node reconnects
-// 	net.Connect(laggingNode.E.ID)
-// 	net.TriggerLeaderBlockBuilder(endDisconnect)
+	// all nodes except for lagging node have progressed and committed [endDisconnect - missedSeqs] blocks
+	for _, n := range net.Instances[:3] {
+		require.Equal(t, endDisconnect-missedSeqs, n.Storage.NumBlocks())
+	}
+	require.Equal(t, startDisconnect, laggingNode.Storage.NumBlocks())
+	require.Equal(t, startDisconnect, laggingNode.E.Metadata().Round)
+	// lagging node reconnects
+	net.Connect(laggingNode.E.ID)
+	net.TriggerLeaderBlockBuilder(endDisconnect)
 
-// 	var blacklist simplex.Blacklist
-// 	for _, n := range net.Instances {
-// 		block := n.Storage.WaitForBlockCommit(endDisconnect - missedSeqs)
-// 		blacklist = block.Blacklist()
-// 	}
+	var blacklist simplex.Blacklist
+	for _, n := range net.Instances {
+		block := n.Storage.WaitForBlockCommit(endDisconnect - missedSeqs)
+		blacklist = block.Blacklist()
+	}
 
-// 	for _, n := range net.Instances {
-// 		require.Equal(t, endDisconnect-missedSeqs, n.Storage.NumBlocks()-1)
-// 	}
+	for _, n := range net.Instances {
+		require.Equal(t, endDisconnect-missedSeqs, n.Storage.NumBlocks()-1)
+	}
 
-// 	if blacklist.IsNodeSuspected(3) {
-// 		t.Log("lagging node is blacklisted, cannot continue replication")
-// 		return
-// 	}
+	if blacklist.IsNodeSuspected(3) {
+		t.Log("lagging node is blacklisted, cannot continue replication")
+		return
+	}
 
-// 	// the lagging node should build a block when triggered if its the leader
-// 	net.TriggerLeaderBlockBuilder(endDisconnect + 1)
-// 	for _, n := range net.Instances {
-// 		n.Storage.WaitForBlockCommit(endDisconnect - missedSeqs + 1)
-// 	}
-// }
+	// the lagging node should build a block when triggered if its the leader
+	net.TriggerLeaderBlockBuilder(endDisconnect + 1)
+	for _, n := range net.Instances {
+		n.Storage.WaitForBlockCommit(endDisconnect - missedSeqs + 1)
+	}
+}
 
 func onlyAllowBlockProposalsAndNotarizations(msg *simplex.Message, _, to simplex.NodeID) bool {
 	// TODO: remove hardcoded node id
@@ -618,7 +618,6 @@ func TestReplicationStuckInProposingBlock(t *testing.T) {
 	tbb := &TestBlockBuilder{Out: make(chan *TestBlock, 1), BlockShouldBeBuilt: make(chan struct{}, 1), In: make(chan *TestBlock, 1)}
 	bb := NewTestControlledBlockBuilder(t)
 	bb.TestBlockBuilder = *tbb
-	storage := NewInMemStorage()
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
 	blocks := createBlocks(t, nodes, 5)
 
