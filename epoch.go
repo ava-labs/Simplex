@@ -614,19 +614,19 @@ func (e *Epoch) handleFinalizeVoteMessage(message *FinalizeVote, from NodeID) er
 	// This finalization may correspond to a proposal from a future round, or to the proposal of the current round
 	// which we are still verifying.
 	if e.isWithinMaxRoundWindow(vote.Round) {
-		e.Logger.Debug("Got finalization for a future round", zap.Uint64("round", vote.Round), zap.Uint64("my round", e.round))
+		e.Logger.Debug("Got finalize vote for a future round", zap.Uint64("round", vote.Round), zap.Uint64("my round", e.round))
 		e.storeFutureFinalizeVote(message, from, vote.Round)
 		return nil
 	}
 
 	// Finalization for a future round that is too far in the future
 	if !exists {
-		e.Logger.Debug("Received finalization for an unknown round", zap.Uint64("ourRound", e.round), zap.Uint64("round", vote.Round))
+		e.Logger.Debug("Received finalize vote for an unknown round", zap.Uint64("ourRound", e.round), zap.Uint64("round", vote.Round))
 		return nil
 	}
 
 	if round.finalization != nil {
-		e.Logger.Debug("Received finalization for an already finalized round", zap.Uint64("round", vote.Round))
+		e.Logger.Debug("Received finalize vote for an already finalized round", zap.Uint64("round", vote.Round))
 		return nil
 	}
 
@@ -1621,6 +1621,7 @@ func (e *Epoch) processFinalizedBlock(block Block, finalization Finalization) er
 // if the block has already been verified, it will persist the notarization,
 // otherwise it will verify the block first.
 func (e *Epoch) processNotarizedBlock(block Block, notarization *Notarization) error {
+	fmt.Println("Processing notarized block for round", notarization.Vote.Round)
 	md := block.BlockHeader()
 	round, exists := e.rounds[md.Round]
 

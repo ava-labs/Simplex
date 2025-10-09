@@ -34,13 +34,15 @@ func TestBasicReplication(t *testing.T) {
 		}
 
 		t.Run(testName, func(t *testing.T) {
-			t.Parallel()
+			// t.Parallel()
 			testReplication(t, uint64(i), nodes)
 		})
 	}
 }
 
 func testReplication(t *testing.T, startSeq uint64, nodes []simplex.NodeID) {
+	fmt.Println("Iteration Testing replication with startSeq:", startSeq)
+
 	net := NewInMemNetwork(t, nodes)
 
 	// initiate a network with 4 nodes. one node is behind by startSeq blocks
@@ -56,6 +58,10 @@ func testReplication(t *testing.T, startSeq uint64, nodes []simplex.NodeID) {
 		ReplicationEnabled: true,
 	})
 
+	normalNode1.Silence()
+	normalNode2.Silence()
+	normalNode3.Silence()
+
 	require.Equal(t, startSeq, normalNode1.Storage.NumBlocks())
 	require.Equal(t, startSeq, normalNode2.Storage.NumBlocks())
 	require.Equal(t, startSeq, normalNode3.Storage.NumBlocks())
@@ -67,10 +73,10 @@ func testReplication(t *testing.T, startSeq uint64, nodes []simplex.NodeID) {
 	// all blocks except the lagging node start at round startSeq, seq startSeq.
 	// lagging node starts at round 0, seq 0.
 	// this asserts that the lagging node catches up to the latest round
-	for i := 0; i <= int(startSeq); i++ {
-		for _, n := range net.Instances {
-			n.Storage.WaitForBlockCommit(uint64(startSeq))
-		}
+	for _, n := range net.Instances {
+		fmt.Println("waiting for node", n.E.ID, "to commit block", startSeq)
+		n.Storage.WaitForBlockCommit(startSeq)
+		fmt.Println("node", n.E.ID, "committed block", startSeq)
 	}
 }
 

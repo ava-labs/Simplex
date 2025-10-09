@@ -153,12 +153,8 @@ func (r *replicator) maybeSendMoreReplicationRequests(observed *signerRoundOrSeq
 	val := observed.value()
 
 	// we've observed something we've already requested
-	if val < r.highestRequested && r.highestObserved != nil {
-		return
-	}
-
-	// we've already requested up to the highest observed
-	if r.highestObserved != nil && r.highestRequested >= r.highestObserved.value() {
+	if r.highestRequested >= val && r.highestObserved != nil {
+		r.logger.Debug("Already requested observed value, skipping", zap.Uint64("value", val))
 		return
 	}
 
@@ -223,10 +219,12 @@ func (r *replicator) sendReplicationRequests(start uint64, end uint64) {
 // In case the nodes[index] does not respond, we create a timeout that will
 // re-send the request.
 func (r *replicator) sendRequestToNode(start uint64, end uint64, nodes []NodeID, index int) {
-	r.logger.Debug("Requesting missing finalizations ",
+	r.logger.Debug("Requesting missing rounds/sequences ",
 		zap.Stringer("from", nodes[index]),
 		zap.Uint64("start", start),
-		zap.Uint64("end", end))
+		zap.Uint64("end", end),
+		zap.Bool("isRound", r.highestObserved.isRound),
+	)
 	seqs := make([]uint64, (end+1)-start)
 	for i := start; i <= end; i++ {
 		seqs[i-start] = i
@@ -287,4 +285,3 @@ func (r *replicator) retrieveQuorumRound(key uint64) (*QuorumRound, bool) {
 	}
 	return nil, false
 }
-
