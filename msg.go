@@ -22,6 +22,8 @@ type Message struct {
 	ReplicationResponse         *ReplicationResponse
 	VerifiedReplicationResponse *VerifiedReplicationResponse
 	ReplicationRequest          *ReplicationRequest
+	NotarizedBlockRequest       *NotarizedBlockRequest
+	NotarizedBlockResponse      *NotarizedBlockResponse
 }
 
 type EmptyVoteMetadata struct {
@@ -335,4 +337,19 @@ type VerifiedFinalizedBlock struct {
 
 type verifiableMessage interface {
 	Verify() error
+}
+
+type NotarizedBlockRequest struct {
+	Epoch uint64
+	Seq   uint64
+	// IncludeBlock specifies whether the block should be included in the response.
+	// If false, only either the notarization or finalization should be included.
+	IncludeBlock bool
+}
+
+type NotarizedBlockResponse struct {
+	Block         Block
+	VerifiedBlock VerifiedBlock
+	Notarization  *Notarization
+	Finalization  *Finalization
 }
