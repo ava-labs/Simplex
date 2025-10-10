@@ -1181,10 +1181,12 @@ func TestReplicationVotesForNotarizations(t *testing.T) {
 
 	net.StartInstances()
 
+	missedSeqs := uint64(0)
 	// normal nodes continue to make progress
 	for round := numFinalizedBlocks; round < numFinalizedBlocks+numNotarizedBlocks; round++ {
 		emptyRound := bytes.Equal(simplex.LeaderForRound(nodes, round), laggingNode.E.ID)
 		if emptyRound {
+			missedSeqs++
 			net.AdvanceWithoutLeader(startTimes, round, laggingNode.E.ID)
 		} else {
 			net.TriggerLeaderBlockBuilder(round)
@@ -1231,10 +1233,31 @@ func TestReplicationVotesForNotarizations(t *testing.T) {
 	// time out all nodes
 	n1.TimeoutOnRound(numFinalizedBlocks + numNotarizedBlocks)
 	n2.TimeoutOnRound(numFinalizedBlocks + numNotarizedBlocks)
+	fmt.Println("What round is lagging node on?", laggingNode.E.Metadata().Round)
+	require.Equal(t, uint64(0), laggingNode.E.Metadata().Round)
+	laggingNode.TimeoutOnRound(0)
+
+	// when the lagging node times out it should catch up & send out its finalized vote messages
+	// laggingNode.Storage.WaitForBlockCommit(numFinalizedBlocks + numNotarizedBlocks - 1)
+
+	// because the adversarial node is offline , we may need to send replication requests many times
+	for {
+		time.Sleep(time.Millisecond * 100)
+		if laggingNode.Storage.NumBlocks() == numFinalizedBlocks+numNotarizedBlocks-missedSeqs {
+			break
+		}
+
+		startTimes[3] = startTimes[3].Add(simplex.DefaultReplicationRequestTimeout)
+		laggingNode.E.AdvanceTime(startTimes[3])
+		fmt.Println("Advancing time for lagging node to", laggingNode.E.Metadata().Round, laggingNode.Storage.NumBlocks(), missedSeqs)
+		// lagging node re-requests replication
+	}
+
+	// we should have timed out for the round numFinalizedBlocks + numNotarizedBlocks
+	// ensure the lagging node also empty votes for this round and an empty notarization is created
 }
 
 // a node is behind and all other nodes moved to a higher round but cannot progress
 // the lagging node will send an empty vote, and then the other nodes should respond by sending them their latest state
 func TestReplicationInitiatedByEmptyVote(t *testing.T) {
 }
-

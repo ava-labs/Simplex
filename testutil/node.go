@@ -116,16 +116,18 @@ func (t *TestNode) TimeoutOnRound(round uint64) {
 		if currentRound > round {
 			return
 		}
+		if len(t.BB.BlockShouldBeBuilt) == 0 {
+			t.BB.BlockShouldBeBuilt <- struct{}{}
+		}
 		startTime = startTime.Add(t.E.MaxProposalWait)
 		t.E.AdvanceTime(startTime)
 
 		// check the wal for an empty vote for that round
-		if hasVote := t.WAL.ContainsEmptyVote(round) ; hasVote {
+		if hasVote := t.WAL.ContainsEmptyVote(round); hasVote {
 			return
 		}
 
 		fmt.Println("still waiting to time out on round", "current", currentRound, "target", round)
-
 		time.Sleep(100 * time.Millisecond)
 	}
 }

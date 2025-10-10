@@ -34,6 +34,9 @@ func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundW
 }
 
 func (r *ReplicationState) AdvanceTime(now time.Time) {
+	if !r.enabled {
+		return
+	}
 	r.sequenceReplicator.advanceTime(now)
 	r.roundReplicator.advanceTime(now)
 }
