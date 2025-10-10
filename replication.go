@@ -11,7 +11,6 @@ import (
 	"go.uber.org/zap"
 )
 
-//
 type ReplicationState struct {
 	enabled            bool
 	logger             Logger

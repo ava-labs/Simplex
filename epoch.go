@@ -1659,6 +1659,18 @@ func (e *Epoch) processNotarizedBlock(block Block, notarization *Notarization) e
 			return nil
 		}
 
+		finalizeVote, finalizeVoteMsg, err := e.constructFinalizeVoteMessage(md)
+		if err != nil {
+			e.Logger.Warn("Failed to construct finalize vote message", zap.Error(err))
+			return err
+		}
+		e.Comm.Broadcast(finalizeVoteMsg)
+
+		if err := e.handleFinalizeVoteMessage(&finalizeVote, e.ID); err != nil {
+			e.Logger.Warn("Failed to handle finalize vote message", zap.Error(err))
+			return err
+		}
+
 		return e.processReplicationState()
 	}
 
@@ -1871,6 +1883,23 @@ func (e *Epoch) createNotarizedBlockVerificationTask(block Block, notarization N
 
 		if err := e.persistNotarization(notarization); err != nil {
 			e.haltedError = err
+			e.Logger.Error("Failed to persist notarization", zap.Error(err))
+			return md.Digest
+		}
+
+		// create finalized votes for notarizations we process during replication
+		finalizeVote, finalizeVoteMsg, err := e.constructFinalizeVoteMessage(md)
+		if err != nil {
+			e.haltedError = err
+			e.Logger.Error("Failed to construct finalize vote message", zap.Error(err))
+			return md.Digest
+		}
+		e.Comm.Broadcast(finalizeVoteMsg)
+
+		if err := e.handleFinalizeVoteMessage(&finalizeVote, e.ID); err != nil {
+			e.haltedError = err
+			e.Logger.Error("Failed to handle finalize vote message", zap.Error(err))
+			return md.Digest
 		}
 
 		err = e.processReplicationState()
@@ -2488,6 +2517,7 @@ func (e *Epoch) doNotarized(r uint64) error {
 		e.Logger.Info("We have already timed out on this round, will not finalize it", zap.Uint64("round", r))
 		return e.startRound()
 	}
+	err1 := e.startRound()
 
 	round := e.rounds[r]
 	block := round.block
@@ -2500,7 +2530,6 @@ func (e *Epoch) doNotarized(r uint64) error {
 	}
 	e.Comm.Broadcast(finalizeVoteMsg)
 
-	err1 := e.startRound()
 	err2 := e.handleFinalizeVoteMessage(&finalizeVote, e.ID)
 
 	return errors.Join(err1, err2)
