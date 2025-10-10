@@ -2083,11 +2083,19 @@ func (e *Epoch) proposeBlock(block VerifiedBlock) error {
 
 	// Write record to WAL before broadcasting it, so that
 	// if we crash during broadcasting, we know what we sent.
-
 	rawBlock, err := block.Bytes()
 	if err != nil {
 		e.Logger.Error("Failed serializing block", zap.Error(err))
 		return err
+	}
+
+	vote, err := e.voteOnBlock(block)
+	if err != nil {
+		return err
+	}
+
+	if !e.storeProposal(block) {
+		return errors.New("failed to store block proposed by me")
 	}
 
 	record := BlockRecord(block.BlockHeader(), rawBlock)
@@ -2100,20 +2108,11 @@ func (e *Epoch) proposeBlock(block VerifiedBlock) error {
 		zap.Int("size", len(rawBlock)),
 		zap.Stringer("digest", md.Digest))
 
-	vote, err := e.voteOnBlock(block)
-	if err != nil {
-		return err
-	}
-
 	proposal := &Message{
 		VerifiedBlockMessage: &VerifiedBlockMessage{
 			VerifiedBlock: block,
 			Vote:          vote,
 		},
-	}
-
-	if !e.storeProposal(block) {
-		return errors.New("failed to store block proposed by me")
 	}
 
 	e.Comm.Broadcast(proposal)
