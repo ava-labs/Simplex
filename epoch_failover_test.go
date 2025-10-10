@@ -97,6 +97,52 @@ func TestEpochLeaderFailoverWithEmptyNotarization(t *testing.T) {
 	})
 }
 
+func TestEpochRebroadcastsEmptyVoteAfterBlockProposalReceived(t *testing.T) {
+	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1), BlockShouldBeBuilt: make(chan struct{}, 1)}
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+
+	comm := newRebroadcastComm(nodes)
+	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[3], comm, bb)
+	epochTime := conf.StartTime
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+
+	require.NoError(t, e.Start())
+	require.Equal(t, uint64(0), e.Metadata().Round)
+	require.Equal(t, uint64(0), e.Metadata().Round)
+	require.False(t, wal.ContainsEmptyVote(0))
+
+	bb.BlockShouldBeBuilt <- struct{}{}
+
+	// receive the block proposal for round 0
+	md := e.Metadata()
+	_, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
+	require.True(t, ok)
+	block := <-bb.Out
+
+	vote, err := testutil.NewTestVote(block, nodes[0])
+	require.NoError(t, err)
+	err = e.HandleMessage(&Message{
+		BlockMessage: &BlockMessage{
+			Vote:  *vote,
+			Block: block,
+		},
+	}, nodes[0])
+	require.NoError(t, err)
+
+	// ensure we have the block in our wal
+	wal.AssertBlockProposal(0)
+	wal.AssertWALSize(1)
+
+	// wait for the initial empty vote broadcast
+	waitForEmptyVote(t, comm, e, 0, epochTime)
+	require.Len(t, comm.emptyVotes, 0)
+
+	// advance another rebroadcast period and ensure more empty votes are sent
+	waitForEmptyVote(t, comm, e, 0, epochTime)
+	require.Len(t, comm.emptyVotes, 0)
+}
+
 func TestEpochLeaderFailoverReceivesEmptyVotesEarly(t *testing.T) {
 	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1), BlockShouldBeBuilt: make(chan struct{}, 1)}
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
