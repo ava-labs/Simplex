@@ -4,12 +4,119 @@
 package simplex_test
 
 import (
-	"testing"
-
 	"github.com/ava-labs/simplex"
 	"github.com/ava-labs/simplex/testutil"
 	"github.com/stretchr/testify/require"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
 )
+
+func TestSimplexRebroadcastFinalizationVotes(t *testing.T) {
+	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
+	net := testutil.NewInMemNetwork(t, nodes)
+
+	var allowFinalizeVotes atomic.Bool
+
+	var numFinalizeVotesSent atomic.Uint32
+
+	config := func(from simplex.NodeID) *testutil.TestNodeConfig {
+		return &testutil.TestNodeConfig{
+			Comm: testutil.NewTestComm(from, net, func(msg *simplex.Message, from simplex.NodeID, to simplex.NodeID) bool {
+				if msg.Finalization != nil && !allowFinalizeVotes.Load() {
+					return false
+				}
+				if allowFinalizeVotes.Load() && msg.FinalizeVote != nil {
+					numFinalizeVotesSent.Add(1)
+				}
+				return allowFinalizeVotes.Load() || msg.FinalizeVote == nil
+			}),
+		}
+	}
+
+	testutil.NewSimplexNode(t, nodes[0], net, config(nodes[0]))
+	testutil.NewSimplexNode(t, nodes[1], net, config(nodes[1]))
+	testutil.NewSimplexNode(t, nodes[2], net, config(nodes[2]))
+	testutil.NewSimplexNode(t, nodes[3], net, config(nodes[3]))
+
+	net.StartInstances()
+
+	lastSeq := uint64(9)
+
+	for seq := uint64(0); seq <= lastSeq; seq++ {
+		for _, n := range net.Instances {
+			testutil.WaitToEnterRound(t, n.E, seq)
+		}
+		net.TriggerLeaderBlockBuilder(seq)
+		for _, n := range net.Instances {
+			n.WAL.AssertNotarization(seq)
+		}
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(len(net.Instances))
+
+	for _, n := range net.Instances {
+		go func(n *testutil.TestNode) {
+			defer wg.Done()
+			n.Storage.EnsureNoBlockCommit(t, 0)
+		}(n)
+	}
+
+	wg.Wait()
+
+	allowFinalizeVotes.Store(true)
+
+	require.Eventually(t, func() bool {
+		var allHaveFinalized bool = true
+		for _, n := range net.Instances {
+			if n.Storage.NumBlocks() < lastSeq+1 {
+				allHaveFinalized = false
+				break
+			}
+		}
+
+		if allHaveFinalized {
+			return true
+		}
+
+		for _, n := range net.Instances {
+			n.AdvanceTime(simplex.DefaultFinalizationRebroadcastTimeout / 3)
+		}
+
+		return false
+
+	}, time.Second*10, time.Millisecond*100)
+
+	// Close the recorded messages channel. A message sent to this channel will cause a panic.
+	finalizeVoteSentCount := numFinalizeVotesSent.Load()
+
+	// Advance the time to make sure we do not continue to send finalize votes.
+	for _, n := range net.Instances {
+		n.AdvanceTime(simplex.DefaultFinalizationRebroadcastTimeout * 2)
+		n.AdvanceTime(simplex.DefaultFinalizationRebroadcastTimeout * 2)
+		n.AdvanceTime(simplex.DefaultFinalizationRebroadcastTimeout * 2)
+	}
+
+	require.Equal(t, finalizeVoteSentCount, numFinalizeVotesSent.Load(), "no more finalize votes should have been sent")
+
+	// Next, we run the nodes and notarize 100 blocks, and ensure that less than 400 finalize votes were sent.
+	previousVoteSentCount := finalizeVoteSentCount // We copy the value just to give it a better name.
+	for seq := lastSeq + 1; seq < lastSeq+101; seq++ {
+		for _, n := range net.Instances {
+			testutil.WaitToEnterRound(t, n.E, seq)
+		}
+		net.TriggerLeaderBlockBuilder(seq)
+		for _, n := range net.Instances {
+			n.Storage.WaitForBlockCommit(seq)
+			n.AdvanceTime(simplex.DefaultFinalizationRebroadcastTimeout)
+		}
+	}
+
+	require.LessOrEqual(t, previousVoteSentCount+400, numFinalizeVotesSent.Load())
+
+}
 
 func TestSimplexMultiNodeSimple(t *testing.T) {
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}

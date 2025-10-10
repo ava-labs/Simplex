@@ -18,20 +18,21 @@ func DefaultTestNodeEpochConfig(t *testing.T, nodeID simplex.NodeID, comm simple
 	storage := NewInMemStorage()
 	wal := NewTestWAL(t)
 	conf := simplex.EpochConfig{
-		MaxProposalWait:     simplex.DefaultMaxProposalWaitTime,
-		MaxRebroadcastWait:  simplex.DefaultEmptyVoteRebroadcastTimeout,
-		Comm:                comm,
-		Logger:              l,
-		ID:                  nodeID,
-		Signer:              &testSigner{},
-		WAL:                 wal,
-		Verifier:            &testVerifier{},
-		Storage:             storage,
-		BlockBuilder:        bb,
-		SignatureAggregator: &TestSignatureAggregator{},
-		BlockDeserializer:   &BlockDeserializer{},
-		QCDeserializer:      &testQCDeserializer{t: t},
-		StartTime:           time.Now(),
+		MaxProposalWait:                simplex.DefaultMaxProposalWaitTime,
+		MaxRebroadcastWait:             simplex.DefaultEmptyVoteRebroadcastTimeout,
+		FinalizationRebroadcastTimeout: simplex.DefaultFinalizationRebroadcastTimeout,
+		Comm:                           comm,
+		Logger:                         l,
+		ID:                             nodeID,
+		Signer:                         &testSigner{},
+		WAL:                            wal,
+		Verifier:                       &testVerifier{},
+		Storage:                        storage,
+		BlockBuilder:                   bb,
+		SignatureAggregator:            &TestSignatureAggregator{},
+		BlockDeserializer:              &BlockDeserializer{},
+		QCDeserializer:                 &testQCDeserializer{t: t},
+		StartTime:                      time.Now(),
 	}
 	return conf, wal, storage
 }
