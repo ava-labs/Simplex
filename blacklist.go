@@ -315,6 +315,10 @@ func (bl *Blacklist) setNodeRedeemed(orbit uint64, nodeIndex uint16) {
 		sn := &bl.SuspectedNodes[i]
 		// Only increment the count if the orbit is the same.
 		if sn.NodeIndex == nodeIndex {
+			if sn.OrbitSuspected == orbit {
+				// It is too early to redeem a node that was suspected in the current orbit.
+				return
+			}
 			if sn.OrbitToRedeem == 0 {
 				// This is the first time the node is redeemed.
 				sn.OrbitToRedeem = orbit

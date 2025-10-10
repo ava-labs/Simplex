@@ -45,6 +45,21 @@ func TestBlacklistVerifyProposedBlacklist(t *testing.T) {
 			expectedErr: errBlacklistInvalidUpdates,
 		},
 		{
+			name: "node redeemed in the same orbit it was suspected in",
+			blacklist: Blacklist{
+				NodeCount:      4,
+				SuspectedNodes: SuspectedNodes{{NodeIndex: 3, SuspectingCount: 2, OrbitSuspected: 7, RedeemingCount: 0, OrbitToRedeem: 0}},
+			},
+			nodeCount: 4,
+			round:     29,
+			proposedBlacklist: Blacklist{
+				NodeCount:      4,
+				SuspectedNodes: SuspectedNodes{{NodeIndex: 3, SuspectingCount: 2, OrbitSuspected: 7, RedeemingCount: 1, OrbitToRedeem: 7}},
+				Updates:        []BlacklistUpdate{{Type: BlacklistOpType_NodeRedeemed, NodeIndex: 3}},
+			},
+			expectedErr: errBlacklistInvalidBlacklist,
+		},
+		{
 			name: "blacklist mismatch",
 			blacklist: Blacklist{
 				NodeCount:      4,

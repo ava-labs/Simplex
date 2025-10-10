@@ -70,7 +70,7 @@ func MakeLogger(t *testing.T, node ...int) *TestLogger {
 	traceVerboseLogger = traceVerboseLogger.With(zap.String("test", t.Name()))
 
 	if len(node) > 0 {
-		traceVerboseLogger = traceVerboseLogger.With(zap.Int("node", node[0]))
+		traceVerboseLogger = traceVerboseLogger.With(zap.Int("myNodeID", node[0]))
 	}
 
 	l := &TestLogger{Logger: logger, traceVerboseLogger: traceVerboseLogger}

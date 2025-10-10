@@ -586,7 +586,7 @@ func (e *Epoch) handleFinalizationForPendingOrFutureRound(message *Finalization,
 func (e *Epoch) handleFinalizeVoteMessage(message *FinalizeVote, from NodeID) error {
 	vote := message.Finalization
 
-	e.Logger.Verbo("Received finalize vote message",
+	e.Logger.Verbo("Received finalize vote",
 		zap.Stringer("from", from), zap.Uint64("round", vote.Round))
 
 	// Only process a point to point finalizations.
@@ -605,7 +605,7 @@ func (e *Epoch) handleFinalizeVoteMessage(message *FinalizeVote, from NodeID) er
 	// yet we may receive the corresponding finalization.
 	// This may happen if we're asynchronously verifying the proposal at the moment.
 	if !exists && e.round == vote.Round {
-		e.Logger.Debug("Received a finalization for the current round",
+		e.Logger.Debug("Received a finalize vote for the current round",
 			zap.Uint64("round", vote.Round), zap.Stringer("from", from))
 		e.storeFutureFinalizeVote(message, from, vote.Round)
 		return nil
@@ -1008,6 +1008,7 @@ func (e *Epoch) persistFinalization(finalization Finalization) error {
 
 		e.Logger.Debug("Persisted finalization to WAL",
 			zap.Uint64("round", finalization.Finalization.Round),
+			zap.Uint64("seq", finalization.Finalization.Seq),
 			zap.Uint64("height", nextSeqToCommit),
 			zap.Int("size", len(recordBytes)),
 			zap.Stringer("digest", finalization.Finalization.BlockHeader.Digest))
@@ -1052,16 +1053,19 @@ func (e *Epoch) rebroadcastPastFinalizeVotes() error {
 	for r := startRound; r <= e.round; r++ {
 		round, exists := e.rounds[r]
 		if !exists {
+			e.Logger.Debug("Round not found when rebroadcasting finalize votes", zap.Uint64("round", r))
 			continue
 		}
 
 		// Already collected a finalization
 		if round.finalization != nil {
+			e.Logger.Debug("Round already finalized when rebroadcasting finalize votes", zap.Uint64("round", r))
 			continue
 		}
 
 		// Has notarized this round?
 		if round.notarization == nil {
+			e.Logger.Debug("Round not notarized when rebroadcasting finalize votes", zap.Uint64("round", r))
 			continue
 		}
 
@@ -1106,6 +1110,11 @@ func (e *Epoch) minRoundInRoundsMap() uint64 {
 func (e *Epoch) indexFinalizations(startRound uint64) error {
 	maxRound := e.maxRoundInRoundsMap()
 
+	e.Logger.Debug("Indexing finalizations",
+		zap.Uint64("startRound", startRound),
+		zap.Uint64("maxRound", maxRound),
+		zap.Uint64("nextSeqToCommit", e.nextSeqToCommit()))
+
 	for currentRound := startRound; currentRound <= maxRound; currentRound++ {
 		round, exists := e.rounds[currentRound]
 		if !exists {
@@ -1128,10 +1137,14 @@ func (e *Epoch) indexFinalizations(startRound uint64) error {
 		}
 
 		e.deleteRounds(round.num)
-		// Clean up the future messages - Remove all messages we may have stored for the round
-		// the finalization is about.
+		// Clean up the future messages - Remove all messages we may have stored for all rounds until this round
 		for _, messagesFromNode := range e.futureMessages {
-			delete(messagesFromNode, finalization.Finalization.Round)
+			for round := range messagesFromNode {
+				if round > finalization.Finalization.Round {
+					continue
+				}
+				delete(messagesFromNode, finalization.Finalization.Round)
+			}
 		}
 	}
 	return nil
@@ -1239,6 +1252,7 @@ func (e *Epoch) persistEmptyNotarization(emptyNotarization *EmptyNotarization, s
 	}
 
 	e.increaseRound()
+  
 	return e.startRound()
 }
 
@@ -1353,6 +1367,7 @@ func (e *Epoch) persistAndBroadcastNotarization(notarization Notarization) error
 
 	e.Logger.Debug("Broadcast notarization",
 		zap.Uint64("round", notarization.Vote.Round),
+		zap.Uint64("seq", notarization.Vote.BlockHeader.Seq),
 		zap.Stringer("digest", notarization.Vote.BlockHeader.Digest))
 
 	return e.doNotarized(notarization.Vote.Round)
@@ -1464,7 +1479,9 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 	}
 
 	e.Logger.Verbo("Received block message",
-		zap.Stringer("from", from), zap.Uint64("round", md.Round))
+		zap.Stringer("from", from),
+		zap.Uint64("round", md.Round),
+		zap.Stringer("digest", md.Digest))
 
 	pendingBlocks := e.sched.Size()
 	if pendingBlocks > e.maxPendingBlocks {
@@ -1990,7 +2007,16 @@ func (e *Epoch) verifyProposalMetadataAndBlacklist(block Block) bool {
 			Version: 0,
 		},
 	}
-	return expectedBH.Equals(&bh)
+
+	equals := expectedBH.Equals(&bh)
+
+	if !equals {
+		e.Logger.Debug("Received block with an incorrect header",
+			zap.Stringer("expected", expectedBH),
+			zap.Stringer("received", bh))
+	}
+
+	return equals
 }
 
 // locateBlock locates a block:
@@ -2343,6 +2369,17 @@ func (e *Epoch) monitorProgress(round uint64) {
 			return
 		}
 
+		// Check if we have advanced to a higher round in the meantime while this task was dispatched.
+		e.lock.Lock()
+		shouldAbort := round < e.round
+		e.lock.Unlock()
+
+		if shouldAbort {
+			e.Logger.Debug("Aborting monitoring progress for round because we advanced to a higher round",
+				zap.Uint64("monitored round", round), zap.Uint64("new round", e.round))
+			return
+		}
+
 		// This invocation blocks until the block builder tells us it's time to build a new block.
 		e.BlockBuilder.WaitForPendingBlock(ctx)
 		// While we waited, a block might have been notarized.
@@ -2400,8 +2437,8 @@ func (e *Epoch) retrieveLastPersistedBlacklist() (Blacklist, bool) {
 }
 
 func (e *Epoch) startRound() error {
-	err := e.maybeLoadFutureMessages()
-	if err != nil {
+	// before starting the round, load any future messages we might have received
+	if err := e.maybeLoadFutureMessages(); err != nil {
 		return err
 	}
 
@@ -2527,6 +2564,12 @@ func (e *Epoch) doNotarized(r uint64) error {
 		return err
 	}
 	e.Comm.Broadcast(finalizeVoteMsg)
+
+	e.Logger.Debug("Broadcasting finalize vote",
+		zap.Uint64("round", md.Round),
+		zap.Uint64("seq", md.Seq),
+		zap.Stringer("digest", md.Digest))
+
 	err1 := e.startRound()
 	err2 := e.handleFinalizeVoteMessage(&finalizeVote, e.ID)
 
@@ -2655,6 +2698,11 @@ func (e *Epoch) storeProposal(block VerifiedBlock) bool {
 
 	round := NewRound(block)
 	e.rounds[md.Round] = round
+
+	e.Logger.Debug("Stored proposal in memory",
+		zap.Uint64("round", md.Round),
+		zap.Uint64("seq", md.Seq),
+		zap.Stringer("digest", md.Digest))
 
 	return true
 }

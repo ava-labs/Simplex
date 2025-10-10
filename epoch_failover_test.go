@@ -269,6 +269,56 @@ func TestEpochLeaderFailover(t *testing.T) {
 	})
 }
 
+func TestEpochLeaderRecursivelyFetchNotarizedBlocks(t *testing.T) {
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1), BlockShouldBeBuilt: make(chan struct{}, 1)}
+
+	recordedMessages := make(chan *Message, 100)
+
+	comm := &recordingComm{Communication: testutil.NoopComm(nodes), SentMessages: recordedMessages}
+	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], comm, bb)
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+
+	nodeID := nodes[0]
+
+	// Send the last block and notarization
+
+	require.NoError(t, e.Start())
+
+	startTime := e.StartTime
+
+	// Feed the node empty notarizations until it advances to the round of the last block.
+	for round := uint64(0); round < 6; round++ {
+		emptyNotarization := testutil.NewEmptyNotarization(nodes[1:], round)
+
+		if LeaderForRound(nodes, round).Equals(nodeID) {
+			testutil.WaitToEnterRound(t, e, round)
+			t.Log("Triggering block to be built for round", round)
+			bb.BlockShouldBeBuilt <- struct{}{}
+			testutil.WaitForBlockProposerTimeout(t, e, &startTime, round)
+
+			err = e.HandleMessage(&Message{
+				EmptyNotarization: emptyNotarization,
+			}, nodes[2])
+			require.NoError(t, err)
+
+			wal.AssertNotarization(round)
+			continue
+		}
+
+		// Otherwise, just receive the empty notarization
+		// and advance to the next round
+		err = e.HandleMessage(&Message{
+			EmptyNotarization: emptyNotarization,
+		}, nodes[2])
+		require.NoError(t, err)
+		wal.AssertNotarization(round)
+		testutil.WaitToEnterRound(t, e, round)
+	}
+}
+
 func TestEpochLeaderFailoverInLeaderRound(t *testing.T) {
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 
