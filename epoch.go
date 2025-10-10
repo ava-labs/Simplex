@@ -58,7 +58,7 @@ func NewRound(block VerifiedBlock) *Round {
 }
 
 type EpochConfig struct {
-	MaxProposalWait     time.Duration // time to wait before timing out on a block
+	MaxProposalWait     time.Duration
 	MaxRebroadcastWait  time.Duration
 	QCDeserializer      QCDeserializer
 	Logger              Logger
@@ -732,7 +732,7 @@ func (e *Epoch) sendHighestRound(to NodeID) {
 	latestQR := e.getLatestVerifiedQuorumRound()
 
 	if latestQR == nil {
-		e.Logger.Debug("No blocks committed yet, cannot send latest round", zap.Stringer("to", to))
+		e.Logger.Debug("Cannot send latest round because there is none", zap.Stringer("to", to))
 		return
 	}
 
@@ -760,7 +760,7 @@ func (e *Epoch) maybeSendNotarizationOrFinalization(to NodeID, round uint64) {
 	r, ok := e.rounds[round]
 
 	if !ok {
-		// it could be an empty notarization
+		// round could be an empty notarized round
 		evs, ok := e.emptyVotes[round]
 		if ok && evs.emptyNotarization != nil {
 			msg := &Message{
@@ -1850,7 +1850,7 @@ func (e *Epoch) createNotarizedBlockVerificationTask(block Block, notarization N
 		verifiedBlock, err := block.Verify(context.Background())
 		if err != nil {
 			e.Logger.Debug("Failed verifying block", zap.Error(err))
-			// TODO: if we fail to verify the block, we re-add to request timeout
+			// TODO: if we fail to verify the block, we should re-request it from the replication state
 			return md.Digest
 		}
 
@@ -2516,7 +2516,6 @@ func (e *Epoch) doNotarized(r uint64) error {
 		e.Logger.Info("We have already timed out on this round, will not finalize it", zap.Uint64("round", r))
 		return e.startRound()
 	}
-	err1 := e.startRound()
 
 	round := e.rounds[r]
 	block := round.block
@@ -2528,7 +2527,7 @@ func (e *Epoch) doNotarized(r uint64) error {
 		return err
 	}
 	e.Comm.Broadcast(finalizeVoteMsg)
-
+	err1 := e.startRound()
 	err2 := e.handleFinalizeVoteMessage(&finalizeVote, e.ID)
 
 	return errors.Join(err1, err2)
