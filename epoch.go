@@ -2079,11 +2079,14 @@ func (e *Epoch) createBlockBuildingTask(metadata ProtocolMetadata, blacklist Bla
 }
 
 func (e *Epoch) proposeBlock(block VerifiedBlock) error {
+	if !e.storeProposal(block) {
+		return errors.New("failed to store block proposed by me")
+	}
+
 	md := block.BlockHeader()
 
 	// Write record to WAL before broadcasting it, so that
 	// if we crash during broadcasting, we know what we sent.
-
 	rawBlock, err := block.Bytes()
 	if err != nil {
 		e.Logger.Error("Failed serializing block", zap.Error(err))
@@ -2110,10 +2113,6 @@ func (e *Epoch) proposeBlock(block VerifiedBlock) error {
 			VerifiedBlock: block,
 			Vote:          vote,
 		},
-	}
-
-	if !e.storeProposal(block) {
-		return errors.New("failed to store block proposed by me")
 	}
 
 	e.Comm.Broadcast(proposal)
