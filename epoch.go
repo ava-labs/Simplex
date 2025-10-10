@@ -191,7 +191,7 @@ func (e *Epoch) init() error {
 	e.maxPendingBlocks = DefaultMaxPendingBlocks
 	e.eligibleNodeIDs = make(map[string]struct{}, len(e.nodes))
 	e.futureMessages = make(messagesFromNode, len(e.nodes))
-	e.replicationState = NewReplicationState(e.Logger, e.Comm, e.ID, e.maxRoundWindow, e.ReplicationEnabled, e.StartTime, &e.lock)
+	e.replicationState = NewReplicationState(e.Logger, e.Comm, e.ID, e.maxRoundWindow, e.ReplicationEnabled, e.StartTime)
 	e.timeoutHandler = NewTimeoutHandler(e.Logger, e.StartTime, e.MaxRebroadcastWait, e.emptyVoteTimeoutTaskRunner)
 
 	for _, node := range e.nodes {

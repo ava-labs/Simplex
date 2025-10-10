@@ -1226,3 +1226,9 @@ func TestReplicationTailingEmptyNotarizations(t *testing.T) {
 // 	// the lagging node should now timeout and begin replication
 // 	net.AdvanceWithoutLeader(startTimes, numFinalizedBlocks+numNotarizedBlocks, adversary.E.ID)
 // }
+
+
+// a node is behind and all other nodes moved to a higher round but cannot progress
+// the lagging node will send an empty vote, and then the other nodes should respond by sending them their latest state
+func TestReplicationInitiatedByEmptyVote(t *testing.T) {
+}

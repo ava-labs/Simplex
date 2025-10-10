@@ -6,32 +6,28 @@ package simplex
 import (
 	"crypto/rand"
 	"math/big"
-	"sync"
 	"time"
 
 	"go.uber.org/zap"
 )
 
+//
 type ReplicationState struct {
 	enabled            bool
-	lock               *sync.Mutex
 	logger             Logger
 	sequenceReplicator *replicator
 	roundReplicator    *replicator
 }
 
-func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundWindow uint64, enabled bool, start time.Time, lock *sync.Mutex) *ReplicationState {
+func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundWindow uint64, enabled bool, start time.Time) *ReplicationState {
 	if !enabled {
 		return &ReplicationState{
 			enabled: enabled,
-			lock:    lock,
 			logger:  logger,
 		}
 	}
 
 	return &ReplicationState{
-		lock:               lock,
-		logger:             logger,
 		enabled:            enabled,
 		sequenceReplicator: newReplicator(logger, comm, id, maxRoundWindow, start),
 		roundReplicator:    newReplicator(logger, comm, id, maxRoundWindow, start),
