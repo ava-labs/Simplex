@@ -5,13 +5,16 @@ package testutil
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/ava-labs/simplex"
 	"github.com/stretchr/testify/require"
 )
 
 type TestNode struct {
+	currentTime atomic.Int64
 	WAL     *TestWAL
 	Storage *InMemStorage
 	E       *simplex.Epoch
@@ -47,6 +50,8 @@ func NewSimplexNode(t *testing.T, nodeID simplex.NodeID, net *InMemNetwork, conf
 			msg  *simplex.Message
 			from simplex.NodeID
 		}, 100)}
+
+	ti.currentTime.Store(epochConfig.StartTime.UnixMilli())
 
 	net.addNode(ti)
 	return ti
@@ -85,6 +90,12 @@ func (t *TestNode) TriggerBlockShouldBeBuilt() {
 	case t.BB.BlockShouldBeBuilt <- struct{}{}:
 	default:
 	}
+}
+
+func (t *TestNode) AdvanceTime(duration time.Duration) {
+	now := time.UnixMilli(t.currentTime.Load()).Add(duration)
+	t.currentTime.Store(now.UnixMilli())
+	t.E.AdvanceTime(now)
 }
 
 func (t *TestNode) Silence() {

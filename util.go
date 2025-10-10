@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"go.uber.org/zap"
 )
@@ -272,4 +273,46 @@ func DistributeSequenceRequests(start, end uint64, numNodes int) []Segment {
 	}
 
 	return segments
+}
+
+type NotarizationTime struct {
+	finalizationRebroadcastTimeout     time.Duration
+	haveUnFinalizedNotarization        func() (uint64, bool)
+	rebroadcastFinalizationVotes       func()
+	oldestUnFinalizedNotarizationTime  time.Time
+	oldestUnFinalizedNotarizationRound uint64
+}
+
+func NewNotarizationTime(
+	finalizationRebroadcastTimeout time.Duration,
+	haveUnFinalizedNotarization func() (uint64, bool),
+	rebroadcastFinalizationVotes func(),
+) NotarizationTime {
+	return NotarizationTime{
+		finalizationRebroadcastTimeout: finalizationRebroadcastTimeout,
+		haveUnFinalizedNotarization:    haveUnFinalizedNotarization,
+		rebroadcastFinalizationVotes:   rebroadcastFinalizationVotes,
+	}
+}
+
+func (nt *NotarizationTime) CheckForUnFinalizedNotarizedBlocks(now time.Time) {
+	oldestUnFinalizedRound, haveUnFinalizedRound := nt.haveUnFinalizedNotarization()
+	if !haveUnFinalizedRound {
+		nt.oldestUnFinalizedNotarizationTime = time.Time{}
+		nt.oldestUnFinalizedNotarizationRound = 0
+		return
+	}
+
+	oldestUnFinalizedNotarizationTime := nt.oldestUnFinalizedNotarizationTime
+	if oldestUnFinalizedNotarizationTime.IsZero() {
+		nt.oldestUnFinalizedNotarizationTime = now
+		nt.oldestUnFinalizedNotarizationRound = oldestUnFinalizedRound
+		return
+	}
+
+	if oldestUnFinalizedNotarizationTime.Add(nt.finalizationRebroadcastTimeout).Before(now) &&
+		nt.oldestUnFinalizedNotarizationRound == oldestUnFinalizedRound {
+		nt.oldestUnFinalizedNotarizationTime = time.Time{}
+		nt.rebroadcastFinalizationVotes()
+	}
 }

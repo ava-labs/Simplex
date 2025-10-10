@@ -20,6 +20,7 @@ func DefaultTestNodeEpochConfig(t *testing.T, nodeID simplex.NodeID, comm simple
 	conf := simplex.EpochConfig{
 		MaxProposalWait:     simplex.DefaultMaxProposalWaitTime,
 		MaxRebroadcastWait:  simplex.DefaultEmptyVoteRebroadcastTimeout,
+		FinalizationRebroadcastTimeout: simplex.DefaultFinalizationRebroadcastTimeout,
 		Comm:                comm,
 		Logger:              l,
 		ID:                  nodeID,

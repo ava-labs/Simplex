@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	. "github.com/ava-labs/simplex"
 	"github.com/ava-labs/simplex/testutil"
@@ -406,4 +407,57 @@ func TestDistributeSequenceRequests(t *testing.T) {
 			require.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+func TestNotarizationTime(t *testing.T) {
+	defaultFinalizationRebroadcastTimeout := time.Second * 5
+
+	var round uint64
+	var have bool
+	haveUnFinalizedNotarization := func() (uint64, bool) {
+		return round, have
+	}
+
+	var invoked int
+	rebroadcastFinalizationVotes := func() {
+		invoked++
+	}
+	nt := NewNotarizationTime(
+		defaultFinalizationRebroadcastTimeout,
+		haveUnFinalizedNotarization,
+		rebroadcastFinalizationVotes)
+
+	// First call should set the time
+	have = true
+	round = 100
+	now := time.Now()
+	nt.CheckForUnFinalizedNotarizedBlocks(now)
+
+	// Next call doesn't do anything as not enough time has passed
+	now = now.Add(defaultFinalizationRebroadcastTimeout / 2)
+	nt.CheckForUnFinalizedNotarizedBlocks(now)
+	require.Equal(t, 0, invoked)
+
+	// After enough time passes, we should invoke the rebroadcast
+	now = now.Add(defaultFinalizationRebroadcastTimeout / 2)
+	now = now.Add(time.Millisecond)
+	nt.CheckForUnFinalizedNotarizedBlocks(now)
+	require.Equal(t, 1, invoked)
+
+	// Next call happens shortly after, no rebroadcast should happen.
+	now = now.Add(defaultFinalizationRebroadcastTimeout / 2)
+	nt.CheckForUnFinalizedNotarizedBlocks(now)
+	require.Equal(t, 1, invoked)
+
+	// We now change the round, even though enough time has passed, no rebroadcast should happen.
+	round = 101
+	now = now.Add(2 * defaultFinalizationRebroadcastTimeout)
+	nt.CheckForUnFinalizedNotarizedBlocks(now)
+	require.Equal(t, 1, invoked)
+
+	// We now finalized everything, so no rebroadcast should happen.
+	have = false
+	now = now.Add(2 * defaultFinalizationRebroadcastTimeout)
+	nt.CheckForUnFinalizedNotarizedBlocks(now)
+	require.Equal(t, 1, invoked)
 }
