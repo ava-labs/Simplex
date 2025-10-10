@@ -5,7 +5,9 @@ package testutil
 
 import (
 	"context"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/ava-labs/simplex"
 	"github.com/stretchr/testify/require"
@@ -104,5 +106,26 @@ func (t *TestNode) handleMessages() {
 		if err != nil {
 			return
 		}
+	}
+}
+
+func (t *TestNode) TimeoutOnRound(round uint64) {
+	startTime := t.E.StartTime
+	for {
+		currentRound := t.E.Metadata().Round
+		if currentRound > round {
+			return
+		}
+		startTime = startTime.Add(t.E.MaxProposalWait)
+		t.E.AdvanceTime(startTime)
+
+		// check the wal for an empty vote for that round
+		if hasVote := t.WAL.ContainsEmptyVote(round) ; hasVote {
+			return
+		}
+
+		fmt.Println("still waiting to time out on round", "current", currentRound, "target", round)
+
+		time.Sleep(100 * time.Millisecond)
 	}
 }

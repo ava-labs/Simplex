@@ -1137,97 +1137,104 @@ func TestReplicationTailingEmptyNotarizations(t *testing.T) {
 
 // TestReplicationVotesForNotarizations tests that a lagging node will replicate
 // finalizations, but then also sends votes for notarizations for rounds without finalizations.
-// func TestReplicationVotesForNotarizations(t *testing.T) {
-// 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
+func TestReplicationVotesForNotarizations(t *testing.T) {
+	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
 
-// 	// numFinalized and numNotarized could be parameterized to test different scenarios
-// 	numFinalizedBlocks := uint64(5)
-// 	// number of notarized blocks after the finalized blocks
-// 	numNotarizedBlocks := uint64(11)
-// 	net := NewInMemNetwork(t, nodes)
+	// numFinalized and numNotarized could be parameterized to test different scenarios
+	numFinalizedBlocks := uint64(5)
+	// number of notarized blocks after the finalized blocks
+	numNotarizedBlocks := uint64(11)
+	net := NewInMemNetwork(t, nodes)
 
-// 	storageData := createBlocks(t, nodes, numFinalizedBlocks)
-// 	nodeConfig := func(from simplex.NodeID) *TestNodeConfig {
-// 		comm := NewTestComm(from, net, onlyAllowBlockProposalsAndNotarizationsForAllNodes)
-// 		return &TestNodeConfig{
-// 			InitialStorage:     storageData,
-// 			Comm:               comm,
-// 			ReplicationEnabled: true,
-// 		}
-// 	}
+	storageData := createBlocks(t, nodes, numFinalizedBlocks)
+	nodeConfig := func(from simplex.NodeID) *TestNodeConfig {
+		comm := NewTestComm(from, net, onlyAllowBlockProposalsAndNotarizationsForAllNodes)
+		return &TestNodeConfig{
+			InitialStorage:     storageData,
+			Comm:               comm,
+			ReplicationEnabled: true,
+		}
+	}
 
-// 	NewSimplexNode(t, nodes[0], net, nodeConfig(nodes[0]))
-// 	NewSimplexNode(t, nodes[1], net, nodeConfig(nodes[1]))
-// 	adversary := NewSimplexNode(t, nodes[2], net, nodeConfig(nodes[2]))
-// 	laggingNode := NewSimplexNode(t, nodes[3], net, &TestNodeConfig{
-// 		ReplicationEnabled: true,
-// 	})
+	n1 := NewSimplexNode(t, nodes[0], net, nodeConfig(nodes[0]))
+	n2 := NewSimplexNode(t, nodes[1], net, nodeConfig(nodes[1]))
+	adversary := NewSimplexNode(t, nodes[2], net, nodeConfig(nodes[2]))
+	laggingNode := NewSimplexNode(t, nodes[3], net, &TestNodeConfig{
+		ReplicationEnabled: true,
+	})
 
-// 	startTimes := make([]time.Time, 0, len(nodes))
-// 	for _, n := range net.Instances {
-// 		startTimes = append(startTimes, n.E.StartTime)
-// 		if n.E.ID.Equals(laggingNode.E.ID) {
-// 			require.Equal(t, uint64(0), n.Storage.NumBlocks())
-// 			continue
-// 		}
-// 		require.Equal(t, numFinalizedBlocks, n.Storage.NumBlocks())
-// 	}
+	n1.Silence()
+	n2.Silence()
 
-// 	// lagging node should be disconnected while nodes create notarizations without finalizations
-// 	net.Disconnect(laggingNode.E.ID)
+	startTimes := make([]time.Time, 0, len(nodes))
+	for _, n := range net.Instances {
+		startTimes = append(startTimes, n.E.StartTime)
+		if n.E.ID.Equals(laggingNode.E.ID) {
+			require.Equal(t, uint64(0), n.Storage.NumBlocks())
+			continue
+		}
+		require.Equal(t, numFinalizedBlocks, n.Storage.NumBlocks())
+	}
 
-// 	net.StartInstances()
+	// lagging node should be disconnected while nodes create notarizations without finalizations
+	net.Disconnect(laggingNode.E.ID)
 
-// 	// normal nodes continue to make progress
-// 	for round := numFinalizedBlocks; round < numFinalizedBlocks+numNotarizedBlocks; round++ {
-// 		emptyRound := bytes.Equal(simplex.LeaderForRound(nodes, round), laggingNode.E.ID)
-// 		if emptyRound {
-// 			net.AdvanceWithoutLeader(startTimes, round, laggingNode.E.ID)
-// 		} else {
-// 			net.TriggerLeaderBlockBuilder(round)
-// 			for _, n := range net.Instances {
-// 				if n.E.ID.Equals(laggingNode.E.ID) {
-// 					continue
-// 				}
-// 				n.WAL.AssertNotarization(round)
-// 			}
-// 		}
-// 	}
+	net.StartInstances()
 
-// 	// all nodes should be on round [numFinalizedBlocks + numNotarizedBlocks - 1]
-// 	for _, n := range net.Instances {
-// 		if n.E.ID.Equals(laggingNode.E.ID) {
-// 			require.Equal(t, uint64(0), n.Storage.NumBlocks())
-// 			require.Equal(t, uint64(0), n.E.Metadata().Round)
-// 			continue
-// 		}
-// 		require.Equal(t, numFinalizedBlocks, n.Storage.NumBlocks())
-// 		require.Equal(t, numFinalizedBlocks+numNotarizedBlocks, n.E.Metadata().Round)
-// 	}
+	// normal nodes continue to make progress
+	for round := numFinalizedBlocks; round < numFinalizedBlocks+numNotarizedBlocks; round++ {
+		emptyRound := bytes.Equal(simplex.LeaderForRound(nodes, round), laggingNode.E.ID)
+		if emptyRound {
+			net.AdvanceWithoutLeader(startTimes, round, laggingNode.E.ID)
+		} else {
+			net.TriggerLeaderBlockBuilder(round)
+			for _, n := range net.Instances {
+				if n.E.ID.Equals(laggingNode.E.ID) {
+					continue
+				}
+				n.WAL.AssertNotarization(round)
+			}
+		}
+	}
 
-// 	// at this point in time, the adversarial node will disconnect
-// 	// since each node has sent 2 finalized votes, which is one short of a quorum
-// 	// the lagging node will need to replicate the finalizations, and then send votes for notarizations
-// 	net.Disconnect(adversary.E.ID)
-// 	net.Connect(laggingNode.E.ID)
-// 	net.SetAllNodesMessageFilter(AllowAllMessages)
+	// all nodes should be on round [numFinalizedBlocks + numNotarizedBlocks - 1]
+	for _, n := range net.Instances {
+		if n.E.ID.Equals(laggingNode.E.ID) {
+			require.Equal(t, uint64(0), n.Storage.NumBlocks())
+			require.Equal(t, uint64(0), n.E.Metadata().Round)
+			continue
+		}
+		require.Equal(t, numFinalizedBlocks, n.Storage.NumBlocks())
+		require.Equal(t, numFinalizedBlocks+numNotarizedBlocks, n.E.Metadata().Round)
+	}
 
-// 	// the adversary should not be the leader(to simplify test)
-// 	isAdversaryLeader := bytes.Equal(simplex.LeaderForRound(nodes, numFinalizedBlocks+numNotarizedBlocks), adversary.E.ID)
-// 	require.False(t, isAdversaryLeader)
+	// at this point in time, the adversarial node will disconnect
+	// since each node has sent 2 finalized votes, which is one short of a quorum
+	// the lagging node will need to replicate the finalizations, and then send votes for notarizations
+	net.Disconnect(adversary.E.ID)
+	net.Connect(laggingNode.E.ID)
+	net.SetAllNodesMessageFilter(AllowAllMessages)
 
-// 	// lagging node should not be leader
-// 	isLaggingNodeLeader := bytes.Equal(simplex.LeaderForRound(nodes, numFinalizedBlocks+numNotarizedBlocks), laggingNode.E.ID)
-// 	require.False(t, isLaggingNodeLeader)
+	// the adversary should not be the leader(to simplify test)
+	isAdversaryLeader := bytes.Equal(simplex.LeaderForRound(nodes, numFinalizedBlocks+numNotarizedBlocks), adversary.E.ID)
+	require.False(t, isAdversaryLeader)
 
-// 	// trigger block building, but we only have 2 connected nodes so the nodes will time out
-// 	net.TriggerLeaderBlockBuilder(numFinalizedBlocks + numNotarizedBlocks)
+	// lagging node should not be leader
+	isLaggingNodeLeader := bytes.Equal(simplex.LeaderForRound(nodes, numFinalizedBlocks+numNotarizedBlocks), laggingNode.E.ID)
+	require.False(t, isLaggingNodeLeader)
 
-// 	// the lagging node should now timeout and begin replication
-// 	net.AdvanceWithoutLeader(startTimes, numFinalizedBlocks+numNotarizedBlocks, adversary.E.ID)
-// }
+	// trigger block building, but we only have 2 connected nodes so the nodes will time out
+	net.TriggerLeaderBlockBuilder(numFinalizedBlocks + numNotarizedBlocks)
+	fmt.Println("Triggered block building for round", numFinalizedBlocks+numNotarizedBlocks)
+	// the lagging node should now timeout and begin replication
+
+	// time out all nodes
+	n1.TimeoutOnRound(numFinalizedBlocks + numNotarizedBlocks)
+	n2.TimeoutOnRound(numFinalizedBlocks + numNotarizedBlocks)
+}
 
 // a node is behind and all other nodes moved to a higher round but cannot progress
 // the lagging node will send an empty vote, and then the other nodes should respond by sending them their latest state
 func TestReplicationInitiatedByEmptyVote(t *testing.T) {
 }
+
