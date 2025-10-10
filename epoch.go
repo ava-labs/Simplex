@@ -1252,7 +1252,7 @@ func (e *Epoch) persistEmptyNotarization(emptyNotarization *EmptyNotarization, s
 	}
 
 	e.increaseRound()
-  
+
 	return e.startRound()
 }
 
