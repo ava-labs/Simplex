@@ -1280,7 +1280,90 @@ func TestReplicationVotesForNotarizations(t *testing.T) {
 	}
 }
 
-// a node is behind and all other nodes moved to a higher round but cannot progress
-// the lagging node will send an empty vote, and then the other nodes should respond by sending them their latest state
-func TestReplicationInitiatedByEmptyVote(t *testing.T) {
+
+// TestReplicationEmptyNotarizations ensures a lagging node will properly replicate
+// a tail of empty notarizations.
+func TestReplicationEmptyNotarizationsTail(t *testing.T) {
+	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}, {5}, {6}}
+
+	for endRound := uint64(2); endRound <= 2*simplex.DefaultMaxRoundWindow; endRound++ {
+		isLaggingNodeLeader := bytes.Equal(simplex.LeaderForRound(nodes, endRound), nodes[5])
+		if isLaggingNodeLeader {
+			continue
+		}
+
+		testName := fmt.Sprintf("Empty_notarizations_end_round%d", endRound)
+		t.Run(testName, func(t *testing.T) {
+			t.Parallel()
+			testReplicationEmptyNotarizationsTail(t, nodes, endRound)
+		})
+	}
+}
+
+func testReplicationEmptyNotarizationsTail(t *testing.T, nodes []simplex.NodeID, endRound uint64) {
+	fmt.Println("Iteration Testing replication with endRound:", endRound)
+	net := NewInMemNetwork(t, nodes)
+	newNodeConfig := func(from simplex.NodeID) *TestNodeConfig {
+		comm := NewTestComm(from, net, AllowAllMessages)
+		return &TestNodeConfig{
+			Comm:               comm,
+			ReplicationEnabled: true,
+		}
+	}
+
+	startTimes := make([]time.Time, 0, len(nodes))
+	n1 := NewSimplexNode(t, nodes[0], net, newNodeConfig(nodes[0]))
+	n2 := NewSimplexNode(t, nodes[1], net, newNodeConfig(nodes[1]))
+	n3 := NewSimplexNode(t, nodes[2], net, newNodeConfig(nodes[2]))
+	n4 := NewSimplexNode(t, nodes[3], net, newNodeConfig(nodes[3]))
+	n5 := NewSimplexNode(t, nodes[4], net, newNodeConfig(nodes[4]))
+	laggingNode := NewSimplexNode(t, nodes[5], net, newNodeConfig(nodes[5]))
+	n1.Silence()
+	n2.Silence()
+	n3.Silence()
+	n4.Silence()
+	n5.Silence()
+	for _, n := range net.Instances {
+		require.Equal(t, uint64(0), n.Storage.NumBlocks())
+		startTimes = append(startTimes, n.E.StartTime)
+	}
+
+	net.StartInstances()
+
+	net.Disconnect(laggingNode.E.ID)
+	net.SetAllNodesMessageFilter(onlyAllowEmptyRoundMessages)
+
+	// normal nodes continue to make progress
+	for i := uint64(0); i < endRound; i++ {
+		leader := simplex.LeaderForRound(nodes, i)
+		if !leader.Equals(laggingNode.E.ID) {
+			net.TriggerLeaderBlockBuilder(i)
+		}
+
+		net.AdvanceWithoutLeader(startTimes, i, laggingNode.E.ID)
+	}
+
+	for _, n := range net.Instances {
+		if n.E.ID.Equals(laggingNode.E.ID) {
+			require.Equal(t, uint64(0), n.Storage.NumBlocks())
+			require.Equal(t, uint64(0), n.E.Metadata().Round)
+			continue
+		}
+
+		// assert metadata
+		require.Equal(t, uint64(endRound), n.E.Metadata().Round)
+		require.Equal(t, uint64(0), n.E.Metadata().Seq)
+		require.Equal(t, uint64(0), n.E.Storage.NumBlocks())
+	}
+
+	net.Connect(laggingNode.E.ID)
+	net.SetAllNodesMessageFilter(AllowAllMessages)
+
+	// have the lagging node timeout to trigger replication
+	laggingNode.E.AdvanceTime(time.Now().Add(laggingNode.E.MaxProposalWait))
+	
+	for _, n := range net.Instances {
+		WaitToEnterRound(t, n.E, endRound)
+		require.Equal(t, uint64(endRound), n.E.Metadata().Round)
+	}
 }
