@@ -69,9 +69,7 @@ func testReplication(t *testing.T, startSeq uint64, nodes []simplex.NodeID) {
 	// lagging node starts at round 0, seq 0.
 	// this asserts that the lagging node catches up to the latest round
 	for _, n := range net.Instances {
-		fmt.Println("waiting for node", n.E.ID, "to commit block", startSeq)
 		n.Storage.WaitForBlockCommit(startSeq)
-		fmt.Println("node", n.E.ID, "committed block", startSeq)
 	}
 }
 
@@ -273,7 +271,6 @@ func TestReplicationEmptyNotarizations(t *testing.T) {
 }
 
 func testReplicationEmptyNotarizations(t *testing.T, nodes []simplex.NodeID, endRound uint64) {
-	fmt.Println("Iteration Testing replication with endRound:", endRound)
 	net := NewInMemNetwork(t, nodes)
 	newNodeConfig := func(from simplex.NodeID) *TestNodeConfig {
 		comm := NewTestComm(from, net, AllowAllMessages)
@@ -314,7 +311,6 @@ func testReplicationEmptyNotarizations(t *testing.T, nodes []simplex.NodeID, end
 
 	net.SetAllNodesMessageFilter(onlyAllowEmptyRoundMessages)
 
-	fmt.Println("Disconnected lagging node, now at round 0, rest of network will progress to round", endRound)
 	// normal nodes continue to make progress
 	for i := uint64(1); i < endRound; i++ {
 		leader := simplex.LeaderForRound(nodes, i)
@@ -1228,13 +1224,11 @@ func TestReplicationVotesForNotarizations(t *testing.T) {
 
 	// trigger block building, but we only have 2 connected nodes so the nodes will time out
 	net.TriggerLeaderBlockBuilder(numFinalizedBlocks + numNotarizedBlocks)
-	fmt.Println("Triggered block building for round", numFinalizedBlocks+numNotarizedBlocks)
 	// the lagging node should now timeout and begin replication
 
 	// time out all nodes
 	n1.TimeoutOnRound(numFinalizedBlocks + numNotarizedBlocks)
 	n2.TimeoutOnRound(numFinalizedBlocks + numNotarizedBlocks)
-	fmt.Println("What round is lagging node on?", laggingNode.E.Metadata().Round)
 	require.Equal(t, uint64(0), laggingNode.E.Metadata().Round)
 	laggingNode.TimeoutOnRound(0)
 
@@ -1251,7 +1245,6 @@ func TestReplicationVotesForNotarizations(t *testing.T) {
 
 		startTimes[3] = startTimes[3].Add(simplex.DefaultReplicationRequestTimeout)
 		laggingNode.E.AdvanceTime(startTimes[3])
-		fmt.Println("Advancing time for lagging node to", laggingNode.E.Metadata().Round, laggingNode.Storage.NumBlocks(), missedSeqs)
 		// lagging node re-requests replication
 	}
 
@@ -1279,7 +1272,6 @@ func TestReplicationVotesForNotarizations(t *testing.T) {
 		WaitToEnterRound(t, n.E, numFinalizedBlocks+numNotarizedBlocks+1)
 	}
 }
-
 
 // TestReplicationEmptyNotarizations ensures a lagging node will properly replicate
 // a tail of empty notarizations.
@@ -1361,7 +1353,7 @@ func testReplicationEmptyNotarizationsTail(t *testing.T, nodes []simplex.NodeID,
 
 	// have the lagging node timeout to trigger replication
 	laggingNode.E.AdvanceTime(time.Now().Add(laggingNode.E.MaxProposalWait))
-	
+
 	for _, n := range net.Instances {
 		WaitToEnterRound(t, n.E, endRound)
 		require.Equal(t, uint64(endRound), n.E.Metadata().Round)

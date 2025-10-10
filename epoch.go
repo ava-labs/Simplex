@@ -1621,7 +1621,6 @@ func (e *Epoch) processFinalizedBlock(block Block, finalization Finalization) er
 // if the block has already been verified, it will persist the notarization,
 // otherwise it will verify the block first.
 func (e *Epoch) processNotarizedBlock(block Block, notarization *Notarization) error {
-	fmt.Println("Processing notarized block for round", notarization.Vote.Round)
 	md := block.BlockHeader()
 	round, exists := e.rounds[md.Round]
 

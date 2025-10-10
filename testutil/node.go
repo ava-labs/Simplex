@@ -5,7 +5,6 @@ package testutil
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 
@@ -127,7 +126,6 @@ func (t *TestNode) TimeoutOnRound(round uint64) {
 			return
 		}
 
-		fmt.Println("still waiting to time out on round", "current", currentRound, "target", round)
 		time.Sleep(100 * time.Millisecond)
 	}
 }
