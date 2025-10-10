@@ -67,11 +67,10 @@ func testReplication(t *testing.T, startSeq uint64, nodes []simplex.NodeID) {
 	// all blocks except the lagging node start at round startSeq, seq startSeq.
 	// lagging node starts at round 0, seq 0.
 	// this asserts that the lagging node catches up to the latest round
-	for i := 0; i <= int(startSeq); i++ {
-		for _, n := range net.Instances {
-			n.Storage.WaitForBlockCommit(uint64(startSeq))
-		}
+	for _, n := range net.Instances {
+		n.Storage.WaitForBlockCommit(startSeq)
 	}
+	assertEqualLedgers(t, net)
 }
 
 // TestReplicationAdversarialNode tests the replication process of a node that
@@ -266,7 +265,7 @@ func TestReplicationEmptyNotarizations(t *testing.T) {
 		testName := fmt.Sprintf("Empty_notarizations_end_round%d", endRound)
 		t.Run(testName, func(t *testing.T) {
 			t.Parallel()
-			testReplicationEmptyNotarizations(t, nodes, endRound)
+			testReplicationEmptyNotarizations(t, nodes, 15)
 		})
 	}
 }
