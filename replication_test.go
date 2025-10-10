@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/ava-labs/simplex"
+	"github.com/ava-labs/simplex/record"
 	. "github.com/ava-labs/simplex/testutil"
 	"go.uber.org/zap/zapcore"
 
@@ -1240,10 +1241,11 @@ func TestReplicationVotesForNotarizations(t *testing.T) {
 	// when the lagging node times out it should catch up & send out its finalized vote messages
 	// laggingNode.Storage.WaitForBlockCommit(numFinalizedBlocks + numNotarizedBlocks - 1)
 
+	expectedNumBlocks := numFinalizedBlocks + numNotarizedBlocks - missedSeqs
 	// because the adversarial node is offline , we may need to send replication requests many times
 	for {
 		time.Sleep(time.Millisecond * 100)
-		if laggingNode.Storage.NumBlocks() == numFinalizedBlocks+numNotarizedBlocks-missedSeqs {
+		if laggingNode.Storage.NumBlocks() == expectedNumBlocks {
 			break
 		}
 
@@ -1253,8 +1255,29 @@ func TestReplicationVotesForNotarizations(t *testing.T) {
 		// lagging node re-requests replication
 	}
 
-	// we should have timed out for the round numFinalizedBlocks + numNotarizedBlocks
-	// ensure the lagging node also empty votes for this round and an empty notarization is created
+	for _, n := range net.Instances {
+		if n.E.ID.Equals(adversary.E.ID) {
+			continue
+		}
+		n.Storage.WaitForBlockCommit(expectedNumBlocks - 1) // subtract -1 because we expec
+	}
+
+	// advance time to rebroadcast empty votes
+	for i := range startTimes {
+		startTimes[i] = startTimes[i].Add(simplex.DefaultEmptyVoteRebroadcastTimeout)
+		net.Instances[i].E.AdvanceTime(startTimes[i])
+	}
+
+	for _, n := range net.Instances {
+		if n.E.ID.Equals(adversary.E.ID) {
+			continue
+		}
+
+		// assert all nodes other than adversarial empty notarized the round
+		noteType := n.WAL.AssertNotarization(numFinalizedBlocks + numNotarizedBlocks)
+		require.Equal(t, record.EmptyNotarizationRecordType, noteType)
+		WaitToEnterRound(t, n.E, numFinalizedBlocks+numNotarizedBlocks+1)
+	}
 }
 
 // a node is behind and all other nodes moved to a higher round but cannot progress

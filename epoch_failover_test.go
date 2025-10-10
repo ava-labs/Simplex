@@ -1204,6 +1204,11 @@ func TestEpochRebroadcastsEmptyVoteAfterBlockProposalReceived(t *testing.T) {
 			// wait for the initial empty vote broadcast
 			waitForEmptyVote(t, comm, e, 0, epochTime)
 			require.Len(t, comm.emptyVotes, 0)
+
+			// advance another rebroadcast period and ensure no more empty votes are sent
+			waitForEmptyVote(t, comm, e, 0, epochTime)
+			require.Len(t, comm.emptyVotes, 0)
+
 		})
 	}
 
