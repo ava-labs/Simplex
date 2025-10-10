@@ -35,7 +35,7 @@ func TestBasicReplication(t *testing.T) {
 		}
 
 		t.Run(testName, func(t *testing.T) {
-			// t.Parallel()
+			t.Parallel()
 			testReplication(t, uint64(i), nodes)
 		})
 	}
@@ -281,17 +281,12 @@ func testReplicationEmptyNotarizations(t *testing.T, nodes []simplex.NodeID, end
 	}
 
 	startTimes := make([]time.Time, 0, len(nodes))
-	n1 := NewSimplexNode(t, nodes[0], net, newNodeConfig(nodes[0]))
-	n2 := NewSimplexNode(t, nodes[1], net, newNodeConfig(nodes[1]))
-	n3 := NewSimplexNode(t, nodes[2], net, newNodeConfig(nodes[2]))
-	n4 := NewSimplexNode(t, nodes[3], net, newNodeConfig(nodes[3]))
-	n5 := NewSimplexNode(t, nodes[4], net, newNodeConfig(nodes[4]))
+	NewSimplexNode(t, nodes[0], net, newNodeConfig(nodes[0]))
+	NewSimplexNode(t, nodes[1], net, newNodeConfig(nodes[1]))
+	NewSimplexNode(t, nodes[2], net, newNodeConfig(nodes[2]))
+	NewSimplexNode(t, nodes[3], net, newNodeConfig(nodes[3]))
+	NewSimplexNode(t, nodes[4], net, newNodeConfig(nodes[4]))
 	laggingNode := NewSimplexNode(t, nodes[5], net, newNodeConfig(nodes[5]))
-	n1.Silence()
-	n2.Silence()
-	n3.Silence()
-	n4.Silence()
-	n5.Silence()
 	for _, n := range net.Instances {
 		require.Equal(t, uint64(0), n.Storage.NumBlocks())
 		startTimes = append(startTimes, n.E.StartTime)
@@ -463,7 +458,6 @@ func TestReplicationFutureFinalization(t *testing.T) {
 
 // TestReplicationAfterNodeDisconnects tests the replication process of a node that
 // disconnects from the network and reconnects after the rest of the network has made progress.
-
 // All nodes make progress for `startDisconnect` blocks. The lagging node disconnects
 // and the rest of the nodes continue to make progress for another `endDisconnect - startDisconnect` blocks.
 // The lagging node reconnects and the after the next `finalization` is sent, the lagging node catches up to the latest height.
@@ -1136,19 +1130,13 @@ func onlyAllowBlockProposalsAndNotarizationsForAllNodes(msg *simplex.Message, fr
 	return true
 }
 
-// TestReplicationTailingEmptyNotarizations tests that a lagging node will replicate
-// a string of tailing empty notarizations. It then ensure that the lagging node can build
-// on top of the replicated empty notarizations.
-func TestReplicationTailingEmptyNotarizations(t *testing.T) {
-
-}
-
 // TestReplicationVotesForNotarizations tests that a lagging node will replicate
-// finalizations, but then also sends votes for notarizations for rounds without finalizations.
+// finalizations and notarizations. It ensures the node sends finalized votes for rounds
+// without finalizations.
 func TestReplicationVotesForNotarizations(t *testing.T) {
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
 
-	// numFinalized and numNotarized could be parameterized to test different scenarios
+	// TODO: numFinalized and numNotarized could be parameterized to test different scenarios
 	numFinalizedBlocks := uint64(5)
 	// number of notarized blocks after the finalized blocks
 	numNotarizedBlocks := uint64(11)
@@ -1170,9 +1158,6 @@ func TestReplicationVotesForNotarizations(t *testing.T) {
 	laggingNode := NewSimplexNode(t, nodes[3], net, &TestNodeConfig{
 		ReplicationEnabled: true,
 	})
-
-	n1.Silence()
-	n2.Silence()
 
 	startTimes := make([]time.Time, 0, len(nodes))
 	for _, n := range net.Instances {
@@ -1235,16 +1220,12 @@ func TestReplicationVotesForNotarizations(t *testing.T) {
 
 	// trigger block building, but we only have 2 connected nodes so the nodes will time out
 	net.TriggerLeaderBlockBuilder(numFinalizedBlocks + numNotarizedBlocks)
-	// the lagging node should now timeout and begin replication
 
-	// time out all nodes
+	// ensure time out on required nodes
 	n1.TimeoutOnRound(numFinalizedBlocks + numNotarizedBlocks)
 	n2.TimeoutOnRound(numFinalizedBlocks + numNotarizedBlocks)
 	require.Equal(t, uint64(0), laggingNode.E.Metadata().Round)
 	laggingNode.TimeoutOnRound(0)
-
-	// when the lagging node times out it should catch up & send out its finalized vote messages
-	// laggingNode.Storage.WaitForBlockCommit(numFinalizedBlocks + numNotarizedBlocks - 1)
 
 	expectedNumBlocks := numFinalizedBlocks + numNotarizedBlocks - missedSeqs
 	// because the adversarial node is offline , we may need to send replication requests many times
@@ -1256,14 +1237,13 @@ func TestReplicationVotesForNotarizations(t *testing.T) {
 
 		startTimes[3] = startTimes[3].Add(simplex.DefaultReplicationRequestTimeout)
 		laggingNode.E.AdvanceTime(startTimes[3])
-		// lagging node re-requests replication
 	}
 
 	for _, n := range net.Instances {
 		if n.E.ID.Equals(adversary.E.ID) {
 			continue
 		}
-		n.Storage.WaitForBlockCommit(expectedNumBlocks - 1) // subtract -1 because we expec
+		n.Storage.WaitForBlockCommit(expectedNumBlocks - 1) // subtract -1 because seq starts at 0
 	}
 
 	// advance time to rebroadcast empty votes
@@ -1304,7 +1284,6 @@ func TestReplicationEmptyNotarizationsTail(t *testing.T) {
 }
 
 func testReplicationEmptyNotarizationsTail(t *testing.T, nodes []simplex.NodeID, endRound uint64) {
-	fmt.Println("Iteration Testing replication with endRound:", endRound)
 	net := NewInMemNetwork(t, nodes)
 	newNodeConfig := func(from simplex.NodeID) *TestNodeConfig {
 		comm := NewTestComm(from, net, AllowAllMessages)
@@ -1315,17 +1294,12 @@ func testReplicationEmptyNotarizationsTail(t *testing.T, nodes []simplex.NodeID,
 	}
 
 	startTimes := make([]time.Time, 0, len(nodes))
-	n1 := NewSimplexNode(t, nodes[0], net, newNodeConfig(nodes[0]))
-	n2 := NewSimplexNode(t, nodes[1], net, newNodeConfig(nodes[1]))
-	n3 := NewSimplexNode(t, nodes[2], net, newNodeConfig(nodes[2]))
-	n4 := NewSimplexNode(t, nodes[3], net, newNodeConfig(nodes[3]))
-	n5 := NewSimplexNode(t, nodes[4], net, newNodeConfig(nodes[4]))
+	NewSimplexNode(t, nodes[0], net, newNodeConfig(nodes[0]))
+	NewSimplexNode(t, nodes[1], net, newNodeConfig(nodes[1]))
+	NewSimplexNode(t, nodes[2], net, newNodeConfig(nodes[2]))
+	NewSimplexNode(t, nodes[3], net, newNodeConfig(nodes[3]))
+	NewSimplexNode(t, nodes[4], net, newNodeConfig(nodes[4]))
 	laggingNode := NewSimplexNode(t, nodes[5], net, newNodeConfig(nodes[5]))
-	n1.Silence()
-	n2.Silence()
-	n3.Silence()
-	n4.Silence()
-	n5.Silence()
 	for _, n := range net.Instances {
 		require.Equal(t, uint64(0), n.Storage.NumBlocks())
 		startTimes = append(startTimes, n.E.StartTime)
