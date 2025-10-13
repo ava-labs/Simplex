@@ -265,7 +265,7 @@ func TestReplicationEmptyNotarizations(t *testing.T) {
 		testName := fmt.Sprintf("Empty_notarizations_end_round%d", endRound)
 		t.Run(testName, func(t *testing.T) {
 			t.Parallel()
-			testReplicationEmptyNotarizations(t, nodes, 15)
+			testReplicationEmptyNotarizations(t, nodes, endRound)
 		})
 	}
 }
