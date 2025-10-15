@@ -121,16 +121,17 @@ func TestReplicationRequestTimeoutCancels(t *testing.T) {
 	// all blocks except the lagging node start at round 8, seq 8.
 	// lagging node starts at round 0, seq 0.
 	// this asserts that the lagging node catches up to the latest round
-	for i := 0; i <= int(startSeq); i++ {
-		for _, n := range net.Instances {
-			n.Storage.WaitForBlockCommit(uint64(startSeq))
-		}
+	for _, n := range net.Instances {
+		n.Storage.WaitForBlockCommit(startSeq)
 	}
 
 	// ensure lagging node doesn't resend requests
 	mf := &testTimeoutMessageFilter{
 		t: t,
 	}
+
+	// allow the replication state to cancel the request before setting filter
+	time.Sleep(100 * time.Millisecond)
 	laggingNode.E.Comm.(*testutil.TestComm).SetFilter(mf.failOnReplicationRequest)
 	laggingNode.E.AdvanceTime(laggingNode.E.StartTime.Add(simplex.DefaultReplicationRequestTimeout * 2))
 

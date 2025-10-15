@@ -56,13 +56,15 @@ type Storage interface {
 	Index(ctx context.Context, block VerifiedBlock, certificate Finalization) error
 }
 
-type Communication interface {
-
-	// Nodes returns all nodes that participate in the epoch.
-	Nodes() []NodeID
-
+type Sender interface {
 	// Send sends a message to the given destination node
 	Send(msg *Message, destination NodeID)
+}
+
+type Communication interface {
+	Sender
+	// Nodes returns all nodes that participate in the epoch.
+	Nodes() []NodeID
 
 	// Broadcast broadcasts the given message to all nodes.
 	// Does not send it to yourself.

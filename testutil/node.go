@@ -6,6 +6,7 @@ package testutil
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/ava-labs/simplex"
 	"github.com/stretchr/testify/require"
@@ -104,5 +105,28 @@ func (t *TestNode) handleMessages() {
 		if err != nil {
 			return
 		}
+	}
+}
+
+// TimeoutOnRound advances time until the node times out of the given round.
+func (t *TestNode) TimeoutOnRound(round uint64) {
+	startTime := t.E.StartTime
+	for {
+		currentRound := t.E.Metadata().Round
+		if currentRound > round {
+			return
+		}
+		if len(t.BB.BlockShouldBeBuilt) == 0 {
+			t.BB.BlockShouldBeBuilt <- struct{}{}
+		}
+		startTime = startTime.Add(t.E.MaxProposalWait)
+		t.E.AdvanceTime(startTime)
+
+		// check the wal for an empty vote for that round
+		if hasVote := t.WAL.ContainsEmptyVote(round); hasVote {
+			return
+		}
+
+		time.Sleep(100 * time.Millisecond)
 	}
 }
