@@ -28,10 +28,11 @@ const (
 	DefaultMaxRoundWindow   = 10
 	DefaultMaxPendingBlocks = 20
 
-	DefaultMaxProposalWaitTime         = 5 * time.Second
-	DefaultReplicationRequestTimeout   = 5 * time.Second
-	DefaultEmptyVoteRebroadcastTimeout = 5 * time.Second
-	EmptyVoteTimeoutID                 = "rebroadcast_empty_vote"
+	DefaultMaxProposalWaitTime            = 5 * time.Second
+	DefaultReplicationRequestTimeout      = 5 * time.Second
+	DefaultEmptyVoteRebroadcastTimeout    = 5 * time.Second
+	DefaultFinalizeVoteRebroadcastTimeout = 6 * time.Second
+	EmptyVoteTimeoutID                    = "rebroadcast_empty_vote"
 )
 
 type EmptyVoteSet struct {
@@ -59,22 +60,23 @@ func NewRound(block VerifiedBlock) *Round {
 }
 
 type EpochConfig struct {
-	MaxProposalWait     time.Duration
-	MaxRebroadcastWait  time.Duration
-	QCDeserializer      QCDeserializer
-	Logger              Logger
-	ID                  NodeID
-	Signer              Signer
-	Verifier            SignatureVerifier
-	BlockDeserializer   BlockDeserializer
-	SignatureAggregator SignatureAggregator
-	Comm                Communication
-	Storage             Storage
-	WAL                 WriteAheadLog
-	BlockBuilder        BlockBuilder
-	Epoch               uint64
-	StartTime           time.Time
-	ReplicationEnabled  bool
+	MaxProposalWait            time.Duration
+	MaxRebroadcastWait         time.Duration
+	FinalizeRebroadcastTimeout time.Duration
+	QCDeserializer             QCDeserializer
+	Logger                     Logger
+	ID                         NodeID
+	Signer                     Signer
+	Verifier                   SignatureVerifier
+	BlockDeserializer          BlockDeserializer
+	SignatureAggregator        SignatureAggregator
+	Comm                       Communication
+	Storage                    Storage
+	WAL                        WriteAheadLog
+	BlockBuilder               BlockBuilder
+	Epoch                      uint64
+	StartTime                  time.Time
+	ReplicationEnabled         bool
 }
 
 type Epoch struct {
@@ -94,6 +96,7 @@ type Epoch struct {
 	quorumSize                     int
 	rounds                         map[uint64]*Round
 	emptyVotes                     map[uint64]*EmptyVoteSet
+	oldestNotFinalizedNotarization NotarizationTime
 	futureMessages                 messagesFromNode
 	round                          uint64 // The current round we notarize
 	maxRoundWindow                 uint64
@@ -119,6 +122,7 @@ func (e *Epoch) AdvanceTime(t time.Time) {
 	e.monitor.AdvanceTime(t)
 	e.replicationState.AdvanceTime(t)
 	e.timeoutHandler.Tick(t)
+	e.oldestNotFinalizedNotarization.CheckForNotFinalizedNotarizedBlocks(t)
 }
 
 // HandleMessage notifies the engine about a reception of a message.
@@ -174,6 +178,8 @@ func (e *Epoch) HandleMessage(msg *Message, from NodeID) error {
 }
 
 func (e *Epoch) init() error {
+	e.maybeAssignDefaultConfig()
+	e.initOldestNotFinalizedNotarization()
 	e.oneTimeVerifier = newOneTimeVerifier(e.Logger)
 	e.sched = NewScheduler(e.Logger)
 	e.monitor = NewMonitor(e.StartTime, e.Logger)
@@ -209,6 +215,40 @@ func (e *Epoch) init() error {
 	e.Logger.Info("Starting Simplex Epoch", zap.String("ID", e.ID.String()), zap.Stringer("nodes", e.nodes))
 
 	return e.setMetadataFromStorage()
+}
+
+func (e *Epoch) initOldestNotFinalizedNotarization() {
+	rebroadcastFinalizationVotes := func() {
+		e.lock.Lock()
+		defer e.lock.Unlock()
+
+		if err := e.rebroadcastPastFinalizeVotes(); err != nil {
+			e.Logger.Error("Could not rebroadcast past finalization votes", zap.Error(err))
+		}
+	}
+	e.oldestNotFinalizedNotarization = NewNotarizationTime(
+		e.FinalizeRebroadcastTimeout,
+		e.haveNotFinalizedNotarizedRound,
+		rebroadcastFinalizationVotes, e.getRound)
+}
+
+func (e *Epoch) getRound() uint64 {
+	e.lock.Lock()
+	defer e.lock.Unlock()
+
+	return e.round
+}
+
+func (e *Epoch) maybeAssignDefaultConfig() {
+	if e.FinalizeRebroadcastTimeout == 0 {
+		e.FinalizeRebroadcastTimeout = DefaultFinalizeVoteRebroadcastTimeout
+	}
+	if e.MaxProposalWait == 0 {
+		e.MaxProposalWait = DefaultMaxProposalWaitTime
+	}
+	if e.MaxRebroadcastWait == 0 {
+		e.MaxRebroadcastWait = DefaultEmptyVoteRebroadcastTimeout
+	}
 }
 
 func (e *Epoch) Start() error {
@@ -2686,6 +2726,24 @@ func (e *Epoch) locateQuorumRecord(seq uint64) *VerifiedQuorumRound {
 		VerifiedBlock: block,
 		Finalization:  &finalization,
 	}
+}
+
+func (e *Epoch) haveNotFinalizedNotarizedRound() (uint64, bool) {
+	e.lock.Lock()
+	defer e.lock.Unlock()
+
+	var minRoundNum uint64
+	var found bool
+	for _, round := range e.rounds {
+		if !found {
+			minRoundNum = round.num
+			found = true
+		} else if round.num < minRoundNum {
+			minRoundNum = round.num
+		}
+	}
+
+	return minRoundNum, found
 }
 
 func (e *Epoch) handleReplicationResponse(resp *ReplicationResponse, from NodeID) error {
