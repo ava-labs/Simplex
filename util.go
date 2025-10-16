@@ -281,7 +281,7 @@ type NotarizationTime struct {
 	haveUnFinalizedNotarization    func() (uint64, bool)
 	rebroadcastFinalizationVotes   func()
 	checkInterval                  time.Duration
-	finalizationRebroadcastTimeout time.Duration
+	finalizeVoteRebroadcastTimeout time.Duration
 	// state
 	lastSampleTime          time.Time
 	latestRound             uint64
@@ -290,17 +290,17 @@ type NotarizationTime struct {
 }
 
 func NewNotarizationTime(
-	finalizationRebroadcastTimeout time.Duration,
+	finalizeVoteRebroadcastTimeout time.Duration,
 	haveUnFinalizedNotarization func() (uint64, bool),
 	rebroadcastFinalizationVotes func(),
 	getRound func() uint64,
 ) NotarizationTime {
 	return NotarizationTime{
-		finalizationRebroadcastTimeout: finalizationRebroadcastTimeout,
+		finalizeVoteRebroadcastTimeout: finalizeVoteRebroadcastTimeout,
 		haveUnFinalizedNotarization:    haveUnFinalizedNotarization,
 		rebroadcastFinalizationVotes:   rebroadcastFinalizationVotes,
 		getRound:                       getRound,
-		checkInterval:                  finalizationRebroadcastTimeout / 3,
+		checkInterval:                  finalizeVoteRebroadcastTimeout / 3,
 	}
 }
 
@@ -336,7 +336,7 @@ func (nt *NotarizationTime) CheckForNotFinalizedNotarizedBlocks(now time.Time) {
 		return
 	}
 
-	if lastRebroadcastTime.Add(nt.finalizationRebroadcastTimeout).Before(now) &&
+	if lastRebroadcastTime.Add(nt.finalizeVoteRebroadcastTimeout).Before(now) &&
 		nt.oldestNotFinalizedRound == oldestNotFinalizedRound {
 		nt.rebroadcastFinalizationVotes()
 		nt.lastRebroadcastTime = now

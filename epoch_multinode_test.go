@@ -82,7 +82,7 @@ func TestSimplexRebroadcastFinalizationVotes(t *testing.T) {
 		}
 
 		for _, n := range net.Instances {
-			n.AdvanceTime(simplex.DefaultFinalizationRebroadcastTimeout / 3)
+			n.AdvanceTime(simplex.DefaultFinalizeVoteRebroadcastTimeout / 3)
 		}
 
 		return false
@@ -94,9 +94,9 @@ func TestSimplexRebroadcastFinalizationVotes(t *testing.T) {
 
 	// Advance the time to make sure we do not continue to send finalize votes.
 	for _, n := range net.Instances {
-		n.AdvanceTime(simplex.DefaultFinalizationRebroadcastTimeout * 2)
-		n.AdvanceTime(simplex.DefaultFinalizationRebroadcastTimeout * 2)
-		n.AdvanceTime(simplex.DefaultFinalizationRebroadcastTimeout * 2)
+		n.AdvanceTime(simplex.DefaultFinalizeVoteRebroadcastTimeout * 2)
+		n.AdvanceTime(simplex.DefaultFinalizeVoteRebroadcastTimeout * 2)
+		n.AdvanceTime(simplex.DefaultFinalizeVoteRebroadcastTimeout * 2)
 	}
 
 	require.Equal(t, finalizeVoteSentCount, numFinalizeVotesSent.Load(), "no more finalize votes should have been sent")
@@ -110,7 +110,7 @@ func TestSimplexRebroadcastFinalizationVotes(t *testing.T) {
 		net.TriggerLeaderBlockBuilder(seq)
 		for _, n := range net.Instances {
 			n.Storage.WaitForBlockCommit(seq)
-			n.AdvanceTime(simplex.DefaultFinalizationRebroadcastTimeout)
+			n.AdvanceTime(simplex.DefaultFinalizeVoteRebroadcastTimeout)
 		}
 	}
 

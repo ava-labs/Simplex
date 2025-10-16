@@ -31,7 +31,7 @@ const (
 	DefaultMaxProposalWaitTime            = 5 * time.Second
 	DefaultReplicationRequestTimeout      = 5 * time.Second
 	DefaultEmptyVoteRebroadcastTimeout    = 5 * time.Second
-	DefaultFinalizationRebroadcastTimeout = 6 * time.Second
+	DefaultFinalizeVoteRebroadcastTimeout = 6 * time.Second
 	EmptyVoteTimeoutID                    = "rebroadcast_empty_vote"
 )
 
@@ -60,23 +60,23 @@ func NewRound(block VerifiedBlock) *Round {
 }
 
 type EpochConfig struct {
-	MaxProposalWait                time.Duration
-	MaxRebroadcastWait             time.Duration
-	FinalizationRebroadcastTimeout time.Duration
-	QCDeserializer                 QCDeserializer
-	Logger                         Logger
-	ID                             NodeID
-	Signer                         Signer
-	Verifier                       SignatureVerifier
-	BlockDeserializer              BlockDeserializer
-	SignatureAggregator            SignatureAggregator
-	Comm                           Communication
-	Storage                        Storage
-	WAL                            WriteAheadLog
-	BlockBuilder                   BlockBuilder
-	Epoch                          uint64
-	StartTime                      time.Time
-	ReplicationEnabled             bool
+	MaxProposalWait            time.Duration
+	MaxRebroadcastWait         time.Duration
+	FinalizeRebroadcastTimeout time.Duration
+	QCDeserializer             QCDeserializer
+	Logger                     Logger
+	ID                         NodeID
+	Signer                     Signer
+	Verifier                   SignatureVerifier
+	BlockDeserializer          BlockDeserializer
+	SignatureAggregator        SignatureAggregator
+	Comm                       Communication
+	Storage                    Storage
+	WAL                        WriteAheadLog
+	BlockBuilder               BlockBuilder
+	Epoch                      uint64
+	StartTime                  time.Time
+	ReplicationEnabled         bool
 }
 
 type Epoch struct {
@@ -227,7 +227,7 @@ func (e *Epoch) initOldestNotFinalizedNotarization() {
 		}
 	}
 	e.oldestNotFinalizedNotarization = NewNotarizationTime(
-		e.FinalizationRebroadcastTimeout,
+		e.FinalizeRebroadcastTimeout,
 		e.haveNotFinalizedNotarizedRound,
 		rebroadcastFinalizationVotes, e.getRound)
 }
@@ -240,8 +240,8 @@ func (e *Epoch) getRound() uint64 {
 }
 
 func (e *Epoch) maybeAssignDefaultConfig() {
-	if e.FinalizationRebroadcastTimeout == 0 {
-		e.FinalizationRebroadcastTimeout = DefaultFinalizationRebroadcastTimeout
+	if e.FinalizeRebroadcastTimeout == 0 {
+		e.FinalizeRebroadcastTimeout = DefaultFinalizeVoteRebroadcastTimeout
 	}
 	if e.MaxProposalWait == 0 {
 		e.MaxProposalWait = DefaultMaxProposalWaitTime
