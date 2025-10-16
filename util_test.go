@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	. "github.com/ava-labs/simplex"
 	"github.com/ava-labs/simplex/testutil"
@@ -379,4 +380,90 @@ func TestDistributeSequenceRequests(t *testing.T) {
 			require.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+func TestNotarizationTime(t *testing.T) {
+	defaultFinalizeVoteRebroadcastTimeout := time.Second * 6
+
+	var round uint64
+	var have bool
+	var checkedIfWeHaveNotFinalizedRoud int
+	haveNotFinalizedRound := func() (uint64, bool) {
+		checkedIfWeHaveNotFinalizedRoud++
+		return round, have
+	}
+
+	var invoked int
+	rebroadcastFinalizationVotes := func() {
+		invoked++
+	}
+	nt := NewNotarizationTime(
+		defaultFinalizeVoteRebroadcastTimeout,
+		haveNotFinalizedRound,
+		rebroadcastFinalizationVotes,
+		func() uint64 {
+			return round
+		})
+
+	// First call should set the time and the round.
+	have = true
+	round = 100
+	now := time.Now()
+	nt.CheckForNotFinalizedNotarizedBlocks(now)
+	require.Zero(t, checkedIfWeHaveNotFinalizedRoud)
+
+	// Next call happens just before we would check if we have not finalized.
+
+	now = now.Add(defaultFinalizeVoteRebroadcastTimeout / 3).Add(-time.Millisecond)
+	nt.CheckForNotFinalizedNotarizedBlocks(now)
+	require.Equal(t, 0, invoked)
+	require.Zero(t, checkedIfWeHaveNotFinalizedRoud)
+
+	// Next call happens just after we would check if we have not finalized.
+
+	now = now.Add(time.Millisecond)
+	nt.CheckForNotFinalizedNotarizedBlocks(now)
+	require.Equal(t, 0, invoked)
+	require.Equal(t, 1, checkedIfWeHaveNotFinalizedRoud)
+
+	// Advance the time some more. We still haven't reached defaultFinalizeVoteRebroadcastTimeout so no rebroadcast just yet.
+
+	now = now.Add(defaultFinalizeVoteRebroadcastTimeout / 3)
+	nt.CheckForNotFinalizedNotarizedBlocks(now)
+	require.Equal(t, 0, invoked)
+	require.Equal(t, 2, checkedIfWeHaveNotFinalizedRoud)
+
+	// We need to wait a full defaultFinalizeVoteRebroadcastTimeout before we rebroadcast.
+	// This is because we are unaware when was our last rebroadcast time.
+
+	now = now.Add(defaultFinalizeVoteRebroadcastTimeout)
+	nt.CheckForNotFinalizedNotarizedBlocks(now)
+	require.Equal(t, 1, invoked)
+	require.Equal(t, 3, checkedIfWeHaveNotFinalizedRoud)
+
+	// Next call happens shortly after, no rebroadcast should happen.
+	now = now.Add(defaultFinalizeVoteRebroadcastTimeout / 2)
+	nt.CheckForNotFinalizedNotarizedBlocks(now)
+	require.Equal(t, 1, invoked)
+	require.Equal(t, 4, checkedIfWeHaveNotFinalizedRoud)
+
+	// Next rebroadcast happens after exactly the timeout.
+	now = now.Add(defaultFinalizeVoteRebroadcastTimeout / 2).Add(time.Millisecond)
+	nt.CheckForNotFinalizedNotarizedBlocks(now)
+	require.Equal(t, 2, invoked)
+	require.Equal(t, 5, checkedIfWeHaveNotFinalizedRoud)
+
+	// We now change the round, even though enough time has passed, no rebroadcast should happen.
+	// Since we have advanced the round, we don't check if we have not finalized.
+	round = 101
+	now = now.Add(2 * defaultFinalizeVoteRebroadcastTimeout)
+	nt.CheckForNotFinalizedNotarizedBlocks(now)
+	require.Equal(t, 2, invoked)
+	require.Equal(t, 5, checkedIfWeHaveNotFinalizedRoud)
+
+	// We now finalized everything, so no rebroadcast should happen.
+	have = false
+	now = now.Add(defaultFinalizeVoteRebroadcastTimeout)
+	nt.CheckForNotFinalizedNotarizedBlocks(now)
+	require.Equal(t, 2, invoked)
 }
