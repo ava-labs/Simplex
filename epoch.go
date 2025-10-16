@@ -23,13 +23,13 @@ import (
 var ErrAlreadyStarted = errors.New("epoch already started")
 
 const (
-	DefaultMaxRoundWindow   = 10
-	DefaultMaxPendingBlocks = 20
-	DefaultMaxProposalWaitTime            = 5 * time.Second
-	DefaultReplicationRequestTimeout      = 5 * time.Second
-	DefaultEmptyVoteRebroadcastTimeout    = 5 * time.Second
-	DefaultFinalizeVoteRebroadcastTimeout = 6 * time.Second
-	EmptyVoteTimeoutID uint64 = 1
+	DefaultMaxRoundWindow                        = 10
+	DefaultMaxPendingBlocks                      = 20
+	DefaultMaxProposalWaitTime                   = 5 * time.Second
+	DefaultReplicationRequestTimeout             = 5 * time.Second
+	DefaultEmptyVoteRebroadcastTimeout           = 5 * time.Second
+	DefaultFinalizeVoteRebroadcastTimeout        = 6 * time.Second
+	EmptyVoteTimeoutID                    uint64 = 1
 )
 
 type EmptyVoteSet struct {
