@@ -368,7 +368,10 @@ func (c *collectNotarizationComm) removeFinalizationsFromReplicationResponses(ms
 			newData = append(newData, qr)
 		}
 		msg.VerifiedReplicationResponse.Data = newData
-		c.replicationResponses <- struct{}{}
+		select {
+		case c.replicationResponses <- struct{}{}:
+		default:
+		}
 	}
 
 	if msg.Finalization != nil && msg.Finalization.Finalization.Round == 0 {
