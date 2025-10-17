@@ -2328,7 +2328,7 @@ func (e *Epoch) triggerEmptyBlockNotarization(round uint64) {
 
 	e.Comm.Broadcast(&Message{EmptyVoteMessage: &signedEV})
 
-	e.addEmptyVoteRebroadcastTimeout(&signedEV)
+	e.addEmptyVoteRebroadcastTimeout()
 
 	if err := e.maybeAssembleEmptyNotarization(); err != nil {
 		e.Logger.Error("Failed assembling empty notarization", zap.Error(err))
@@ -2342,7 +2342,7 @@ func (e *Epoch) emptyVoteTimeoutTaskRunner(_ []uint64) {
 	e.lock.Unlock()
 
 	if !ok {
-		e.Logger.Info("No empty vote set found to rebroadcast, yet expected to rebroadcast", zap.Uint64("round", e.round))
+		e.Logger.Debug("No empty vote set found to rebroadcast, yet expected to rebroadcast", zap.Uint64("round", e.round))
 		return
 	}
 
@@ -2356,7 +2356,7 @@ func (e *Epoch) emptyVoteTimeoutTaskRunner(_ []uint64) {
 	e.Comm.Broadcast(&Message{EmptyVoteMessage: ourVote})
 }
 
-func (e *Epoch) addEmptyVoteRebroadcastTimeout(vote *EmptyVote) {
+func (e *Epoch) addEmptyVoteRebroadcastTimeout() {
 	e.timeoutHandler.AddTask(EmptyVoteTimeoutID)
 }
 

@@ -82,7 +82,6 @@ func TestEpochLeaderFailoverWithEmptyNotarization(t *testing.T) {
 		EmptyNotarization: emptyNotarization,
 	}, nodes[1])
 
-	fmt.Println("Sent empty notarization for round 2")
 	notarizeAndFinalizeRound(t, e, bb)
 
 	wal.AssertNotarization(2)

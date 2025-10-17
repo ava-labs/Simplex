@@ -108,8 +108,8 @@ func (c *TestComm) maybeTranslateOutoingToIncomingMessageTypes(msg *simplex.Mess
 			data = append(data, quorumRound)
 		}
 
-		latestRound := convertVerifiedQuorumRound(msg.VerifiedReplicationResponse.LatestRound)
-		latestSeq := convertVerifiedQuorumRound(msg.VerifiedReplicationResponse.LatestFinalizedSeq)
+		latestRound := verifiedQRtoQR(msg.VerifiedReplicationResponse.LatestRound)
+		latestSeq := verifiedQRtoQR(msg.VerifiedReplicationResponse.LatestFinalizedSeq)
 
 		require.Nil(
 			c.net.t,
@@ -133,7 +133,7 @@ func (c *TestComm) maybeTranslateOutoingToIncomingMessageTypes(msg *simplex.Mess
 	}
 }
 
-func convertVerifiedQuorumRound(qr *simplex.VerifiedQuorumRound) *simplex.QuorumRound {
+func verifiedQRtoQR(qr *simplex.VerifiedQuorumRound) *simplex.QuorumRound {
 	if qr == nil {
 		return nil
 	}

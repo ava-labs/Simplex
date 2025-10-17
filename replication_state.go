@@ -119,7 +119,7 @@ func (r *ReplicationState) resendFinalizationRequest(seq uint64, signers []NodeI
 	// because we are resending because the block failed to verify, we should remove the stored quorum round
 	// so that we can try to get a new block & finalization
 	delete(r.sequenceReplicator.receivedQuorumRounds, seq)
-	r.sequenceReplicator.sendRequestToNode(seq, seq, signers, int(index.Int64()))
+	r.sequenceReplicator.sendRequestToNode(seq, seq, signers[index.Int64()])
 	return nil
 }
 
@@ -139,10 +139,10 @@ func (r *ReplicationState) receivedFutureFinalization(finalization *Finalization
 
 	signedSequence := newSignedRoundOrSeqFromFinalization(finalization, r.sequenceReplicator.myNodeID)
 
-	r.sequenceReplicator.maybeSendMoreReplicationRequests(signedSequence, nextSeqToCommit)
 	// maybe this finalization was for a round that we initially thought only had notarizations
 	// remove from the round replicator since we now have a finalization for this round
 	r.roundReplicator.removeOldValues(finalization.Finalization.BlockHeader.Round)
+	r.sequenceReplicator.maybeSendMoreReplicationRequests(signedSequence, nextSeqToCommit)
 }
 
 func (r *ReplicationState) receivedFutureRound(round uint64, signers []NodeID, currentRound uint64) {

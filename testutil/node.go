@@ -120,7 +120,7 @@ func (t *TestNode) handleMessages() {
 
 // TimeoutOnRound advances time until the node times out of the given round.
 func (t *TestNode) TimeoutOnRound(round uint64) {
-	startTime := t.E.StartTime
+	startTime := time.UnixMilli(t.currentTime.Load())
 	for {
 		currentRound := t.E.Metadata().Round
 		if currentRound > round {
@@ -137,6 +137,6 @@ func (t *TestNode) TimeoutOnRound(round uint64) {
 			return
 		}
 
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(50 * time.Millisecond)
 	}
 }

@@ -1,3 +1,6 @@
+// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// See the file LICENSE for licensing terms.
+
 package simplex
 
 import (
@@ -49,14 +52,12 @@ func newSignedRoundOrSeq(round QuorumRound, myNodeID NodeID) (*signerRoundOrSeq,
 }
 
 func newSignedRoundOrSeqFromFinalization(finalization *Finalization, myNodeID NodeID) *signerRoundOrSeq {
-	ss := &signerRoundOrSeq{
+	return &signerRoundOrSeq{
 		round:   finalization.Finalization.Round,
 		seq:     finalization.Finalization.Seq,
-		signers: finalization.QC.Signers(),
+		signers: NodeIDs(finalization.QC.Signers()).Remove(myNodeID),
 		isRound: false,
 	}
-	ss.signers = ss.signers.Remove(myNodeID)
-	return ss
 }
 
 func newSignedRoundOrSeqFromRound(round uint64, signers NodeIDs, myNodeID NodeID) *signerRoundOrSeq {
@@ -78,9 +79,14 @@ func (s *signerRoundOrSeq) value() uint64 {
 	return s.seq
 }
 
+type sender interface {
+	// Send sends a message to the given destination node
+	Send(msg *Message, destination NodeID)
+}
+
 // replicator manages the state for replicating sequences or rounds until highestObserved.
 type replicator struct {
-	sender         Sender
+	sender         sender
 	myNodeID       NodeID
 	logger         Logger
 	maxRoundWindow uint64
@@ -103,7 +109,7 @@ type replicator struct {
 	timeoutHandler *TimeoutHandler
 }
 
-func newReplicator(logger Logger, sender Sender, ourNodeID NodeID, maxRoundWindow uint64, start time.Time, lock *sync.Mutex) *replicator {
+func newReplicator(logger Logger, sender sender, ourNodeID NodeID, maxRoundWindow uint64, start time.Time, lock *sync.Mutex) *replicator {
 	r := &replicator{
 		receivedQuorumRounds: make(map[uint64]QuorumRound),
 		sender:               sender,
@@ -133,7 +139,7 @@ func (r *replicator) resendReplicationRequests(missingIds []uint64) {
 	segments := CompressSequences(missingIds)
 	for i, seqs := range segments {
 		index := (i + r.requestIterator) % numNodes
-		r.sendRequestToNode(seqs.Start, seqs.End, nodes, index)
+		r.sendRequestToNode(seqs.Start, seqs.End, nodes[index])
 	}
 
 	r.requestIterator++
@@ -216,7 +222,7 @@ func (r *replicator) sendReplicationRequests(start uint64, end uint64) {
 	r.logger.Debug("Distributing replication requests", zap.Uint64("start", start), zap.Uint64("end", end), zap.Stringer("nodes", NodeIDs(nodes)))
 	for i, seqs := range seqRequests {
 		index := (i + r.requestIterator) % numNodes
-		r.sendRequestToNode(seqs.Start, seqs.End, nodes, index)
+		r.sendRequestToNode(seqs.Start, seqs.End, r.highestObserved.signers[index])
 	}
 
 	// next time we send requests, we start with a different permutation
@@ -226,7 +232,7 @@ func (r *replicator) sendReplicationRequests(start uint64, end uint64) {
 // sendRequestToNode requests the sequences [start, end] from nodes[index].
 // In case the nodes[index] does not respond, we create a timeout that will
 // re-send the request.
-func (r *replicator) sendRequestToNode(start uint64, end uint64, nodes []NodeID, index int) {
+func (r *replicator) sendRequestToNode(start uint64, end uint64, node NodeID) {
 	roundsOrSeqs := make([]uint64, (end+1)-start)
 	for i := start; i <= end; i++ {
 		roundsOrSeqs[i-start] = i
@@ -251,14 +257,14 @@ func (r *replicator) sendRequestToNode(start uint64, end uint64, nodes []NodeID,
 	msg := &Message{ReplicationRequest: request}
 
 	r.logger.Debug("Requesting missing rounds/sequences ",
-		zap.Stringer("from", nodes[index]),
+		zap.Stringer("from", node),
 		zap.Uint64("start", start),
 		zap.Uint64("end", end),
 		zap.Bool("isRound", r.highestObserved.isRound),
 		zap.Uint64("latestRound", request.LatestRound),
 		zap.Uint64("latestSeq", request.LatestFinalizedSeq),
 	)
-	r.sender.Send(msg, nodes[index])
+	r.sender.Send(msg, node)
 }
 
 func (r *replicator) storeQuorumRound(round QuorumRound, from NodeID, roundOrSeq uint64) {
