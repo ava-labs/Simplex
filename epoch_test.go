@@ -995,6 +995,72 @@ func (b *listenerComm) Send(msg *Message, id NodeID) {
 	b.in <- msg
 }
 
+
+// garbageCollectSuspectedNodes progresses [e] to a new round. If [notarize] is set, the round will progress due to a notarization.
+// If [finalize] is set, the round will advance and the block will be indexed to storage.
+func advanceRoundWithMD(t *testing.T, e *simplex.Epoch, bb *testutil.TestBlockBuilder, notarize bool, finalize bool, md simplex.ProtocolMetadata) (simplex.VerifiedBlock, *simplex.Notarization) {
+	require.True(t, notarize || finalize, "must either notarize or finalize a round to advance")
+	nextSeqToCommit := e.Storage.NumBlocks()
+	nodes := e.Comm.Nodes()
+	quorum := simplex.Quorum(len(nodes))
+	// leader is the proposer of the new block for the given round
+	leader := simplex.LeaderForRound(nodes, md.Round)
+	// only create blocks if we are not the node running the epoch
+	isEpochNode := leader.Equals(e.ID)
+	if !isEpochNode {
+		_, ok := bb.BuildBlock(context.Background(), md, simplex.Blacklist{
+			NodeCount: uint16(len(e.EpochConfig.Comm.Nodes())),
+		})
+		require.True(t, ok)
+	}
+
+	block := <-bb.Out
+
+	if !isEpochNode {
+		// send node a message from the leader
+		vote, err := testutil.NewTestVote(block, leader)
+		require.NoError(t, err)
+		err = e.HandleMessage(&simplex.Message{
+			BlockMessage: &simplex.BlockMessage{
+				Vote:  *vote,
+				Block: block,
+			},
+		}, leader)
+		require.NoError(t, err)
+	}
+
+	var notarization *simplex.Notarization
+	if notarize {
+		// start at one since our node has already voted
+		n, err := testutil.NewNotarization(e.Logger, e.SignatureAggregator, block, nodes[0:quorum])
+		testutil.InjectTestNotarization(t, e, n, nodes[1])
+
+		e.WAL.(*testutil.TestWAL).AssertNotarization(block.Metadata.Round)
+		require.NoError(t, err)
+		notarization = &n
+	}
+
+	if finalize {
+		for i := 0; i <= quorum; i++ {
+			if nodes[i].Equals(e.ID) {
+				continue
+			}
+			testutil.InjectTestFinalizeVote(t, e, block, nodes[i])
+		}
+
+		if nextSeqToCommit != block.Metadata.Seq {
+			testutil.WaitToEnterRound(t, e, block.Metadata.Round+1)
+			return block, notarization
+		}
+
+		blockFromStorage := e.Storage.(*testutil.InMemStorage).WaitForBlockCommit(block.Metadata.Seq)
+		require.Equal(t, block, blockFromStorage)
+	}
+
+	return block, notarization
+}
+
+
 // garbageCollectSuspectedNodes progresses [e] to a new round. If [notarize] is set, the round will progress due to a notarization.
 // If [finalize] is set, the round will advance and the block will be indexed to storage.
 func advanceRound(t *testing.T, e *simplex.Epoch, bb *testutil.TestBlockBuilder, notarize bool, finalize bool) (simplex.VerifiedBlock, *simplex.Notarization) {
