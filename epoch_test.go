@@ -92,6 +92,67 @@ func TestEpochHandleNotarizationFutureRound(t *testing.T) {
 	require.Equal(t, secondBlock, blockCommitted)
 }
 
+
+func TestEpochTimedOut(t *testing.T) {
+	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1)}
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[3], testutil.NewNoopComm(nodes), bb)
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+
+	require.NoError(t, e.Start())
+
+	_, ok := bb.BuildBlock(context.Background(), e.Metadata(), emptyBlacklist)
+	require.True(t, ok)
+	firstBlock := <-bb.Out
+	vote, err := testutil.NewTestVote(firstBlock, nodes[0])
+	require.NoError(t, err)
+
+	// we get stuck if we never received the block
+	// e.HandleMessage(&Message{
+	// 	BlockMessage: &BlockMessage{
+	// 		Block: firstBlock,
+	// 		Vote: *vote,
+	// 	},
+	// }, nodes[0])
+
+	advanceRoundFromEmpty(t, e)
+
+	require.Equal(t, uint64(1), e.Metadata().Round)
+	require.Equal(t, uint64(0), storage.NumBlocks())
+
+	// Round 1 Begins. Node 0 & 1 are online and send votes
+	// Our node got an empty notarization for the previous round
+	_, ok = bb.BuildBlock(context.Background(), simplex.ProtocolMetadata{
+		Round: 1,
+		Seq:   1, 
+		Prev:  firstBlock.BlockHeader().Digest,
+	}, emptyBlacklist)
+	require.True(t, ok)
+	secondBlock := <-bb.Out
+	vote, err = testutil.NewTestVote(secondBlock, nodes[1])
+	require.NoError(t, err)
+
+	e.HandleMessage(&Message{
+		BlockMessage: &BlockMessage{
+			Block: secondBlock,
+			Vote: *vote,
+		},
+	}, nodes[1])
+
+	vote2, err := testutil.NewTestVote(secondBlock, nodes[0])
+	require.NoError(t, err)
+	e.HandleMessage(&Message{
+		VoteMessage: vote2,	
+	}, nodes[0])
+
+	// arent we stuck here?
+	// node 0 & 1 have voted for this block
+	// node 2 is unresponsive
+	// it cannot be valid by our node 3(since we never received the prev block)
+	wal.AssertNotarization(1)
+}
+
 // TestEpochIndexFinalization ensures that we properly index past finalizations when
 // there have been empty rounds
 func TestEpochIndexFinalization(t *testing.T) {
