@@ -13,16 +13,16 @@ import (
 	"go.uber.org/zap"
 )
 
-// signerRoundOrSeq is a round or sequence that has been signed by a quorum certificate.
-type signerRoundOrSeq struct {
+// signedRoundOrSeq is a round or sequence that has been signed by a quorum certificate.
+type signedRoundOrSeq struct {
 	round   uint64
 	seq     uint64
 	signers NodeIDs
 	isRound bool
 }
 
-func newSignedRoundOrSeq(round QuorumRound, myNodeID NodeID) (*signerRoundOrSeq, error) {
-	ss := &signerRoundOrSeq{}
+func newSignedRoundOrSeq(round QuorumRound, myNodeID NodeID) (*signedRoundOrSeq, error) {
+	ss := &signedRoundOrSeq{}
 	switch {
 	case round.Finalization != nil:
 		ss.signers = round.Finalization.QC.Signers()
@@ -51,8 +51,8 @@ func newSignedRoundOrSeq(round QuorumRound, myNodeID NodeID) (*signerRoundOrSeq,
 	return ss, nil
 }
 
-func newSignedRoundOrSeqFromFinalization(finalization *Finalization, myNodeID NodeID) *signerRoundOrSeq {
-	return &signerRoundOrSeq{
+func newSignedRoundOrSeqFromFinalization(finalization *Finalization, myNodeID NodeID) *signedRoundOrSeq {
+	return &signedRoundOrSeq{
 		round:   finalization.Finalization.Round,
 		seq:     finalization.Finalization.Seq,
 		signers: NodeIDs(finalization.QC.Signers()).Remove(myNodeID),
@@ -60,8 +60,8 @@ func newSignedRoundOrSeqFromFinalization(finalization *Finalization, myNodeID No
 	}
 }
 
-func newSignedRoundOrSeqFromRound(round uint64, signers NodeIDs, myNodeID NodeID) *signerRoundOrSeq {
-	ss := &signerRoundOrSeq{
+func newSignedRoundOrSeqFromRound(round uint64, signers NodeIDs, myNodeID NodeID) *signedRoundOrSeq {
+	ss := &signedRoundOrSeq{
 		round:   round,
 		seq:     0, // seq not needed for round replicator
 		signers: signers.Remove(myNodeID),
@@ -70,9 +70,9 @@ func newSignedRoundOrSeqFromRound(round uint64, signers NodeIDs, myNodeID NodeID
 	return ss
 }
 
-// value returns either the round or sequence depending on whether the replicator is
+// roundOrSeq returns either the round or sequence depending on whether the replicator is
 // replicating rounds or sequences.
-func (s *signerRoundOrSeq) value() uint64 {
+func (s *signedRoundOrSeq) roundOrSeq() uint64 {
 	if s.isRound {
 		return s.round
 	}
@@ -98,7 +98,7 @@ type replicator struct {
 	highestRequested uint64
 
 	// highest we have received
-	highestObserved *signerRoundOrSeq
+	highestObserved *signedRoundOrSeq
 
 	// receivedQuorumRounds maps either sequences or rounds to quorum rounds
 	receivedQuorumRounds map[uint64]QuorumRound
@@ -137,9 +137,9 @@ func (r *replicator) resendReplicationRequests(missingIds []uint64) {
 	numNodes := len(nodes)
 	slices.Sort(missingIds)
 	segments := CompressSequences(missingIds)
-	for i, seqs := range segments {
+	for i, seqsOrRounds := range segments {
 		index := (i + r.requestIterator) % numNodes
-		r.sendRequestToNode(seqs.Start, seqs.End, nodes[index])
+		r.sendRequestToNode(seqsOrRounds.Start, seqsOrRounds.End, nodes[index])
 	}
 
 	r.requestIterator++
@@ -149,7 +149,7 @@ func (r *replicator) resendReplicationRequests(missingIds []uint64) {
 // The process is considered finished once highestObserved has caught up to the target
 // (either nextSeqToCommit or currentRound).
 func (r *replicator) isReplicationComplete(target uint64) bool {
-	if r.highestObserved != nil && r.highestObserved.value() >= target {
+	if r.highestObserved != nil && r.highestObserved.roundOrSeq() >= target {
 		return false
 	}
 	return true
@@ -163,10 +163,10 @@ func (r *replicator) getHighestRound() uint64 {
 }
 
 // maybeSendMoreReplicationRequests checks if we need to send more replication requests given an observed round or sequence.
-// it limits the amount of outstanding requests to be at most [maxRoundWindow] ahead of [base] which is
+// it limits the amount of outstanding requests to be at most [maxRoundWindow] ahead of [currentRoundOrNextSequence] which is
 // either nextSeqToCommit or currentRound depending on if we are replicating sequences or rounds.
-func (r *replicator) maybeSendMoreReplicationRequests(observed *signerRoundOrSeq, base uint64) {
-	val := observed.value()
+func (r *replicator) maybeSendMoreReplicationRequests(observed *signedRoundOrSeq, currentRoundOrNextSequence uint64) {
+	val := observed.roundOrSeq()
 
 	// we've observed something we've already requested
 	if r.highestRequested >= val && r.highestObserved != nil {
@@ -175,24 +175,24 @@ func (r *replicator) maybeSendMoreReplicationRequests(observed *signerRoundOrSeq
 	}
 
 	// if this is the highest observed sequence or round, update our state
-	if r.highestObserved == nil || val > r.highestObserved.value() {
+	if r.highestObserved == nil || val > r.highestObserved.roundOrSeq() {
 		r.highestObserved = observed
 	}
 
-	startSeq := math.Max(float64(base), float64(r.highestRequested))
+	start := math.Max(float64(currentRoundOrNextSequence), float64(r.highestRequested))
 	// we limit the number of outstanding requests to be at most maxRoundWindow ahead of nextSeqToCommit
-	endSeq := math.Min(float64(val), float64(r.maxRoundWindow+base))
+	end := math.Min(float64(val), float64(r.maxRoundWindow+currentRoundOrNextSequence))
 
-	r.logger.Debug("Node is behind, attempting to request missing values", zap.Uint64("value", val), zap.Uint64("start", uint64(startSeq)), zap.Uint64("end", uint64(endSeq)), zap.Bool("isRound", observed.isRound))
-	r.sendReplicationRequests(uint64(startSeq), uint64(endSeq))
+	r.logger.Debug("Node is behind, attempting to request missing values", zap.Uint64("value", val), zap.Uint64("start", uint64(start)), zap.Uint64("end", uint64(end)), zap.Bool("isRound", observed.isRound))
+	r.sendReplicationRequests(uint64(start), uint64(end))
 }
 
-func (r *replicator) updateState(newValue uint64) {
-	r.removeOldValues(newValue)
+func (r *replicator) updateState(currentRoundOrNextSeq uint64) {
+	r.removeOldValues(currentRoundOrNextSeq)
 
 	// we send out more requests once our seq has caught up to 1/2 of the maxRoundWindow
-	if newValue+r.maxRoundWindow/2 > r.highestRequested && r.highestObserved != nil {
-		r.maybeSendMoreReplicationRequests(r.highestObserved, newValue)
+	if currentRoundOrNextSeq+r.maxRoundWindow/2 > r.highestRequested && r.highestObserved != nil {
+		r.maybeSendMoreReplicationRequests(r.highestObserved, currentRoundOrNextSeq)
 	}
 }
 
@@ -220,9 +220,9 @@ func (r *replicator) sendReplicationRequests(start uint64, end uint64) {
 	seqRequests := DistributeSequenceRequests(start, end, numNodes)
 
 	r.logger.Debug("Distributing replication requests", zap.Uint64("start", start), zap.Uint64("end", end), zap.Stringer("nodes", NodeIDs(nodes)))
-	for i, seqs := range seqRequests {
+	for i, seqsOrRounds := range seqRequests {
 		index := (i + r.requestIterator) % numNodes
-		r.sendRequestToNode(seqs.Start, seqs.End, r.highestObserved.signers[index])
+		r.sendRequestToNode(seqsOrRounds.Start, seqsOrRounds.End, r.highestObserved.signers[index])
 	}
 
 	// next time we send requests, we start with a different permutation
@@ -240,7 +240,7 @@ func (r *replicator) sendRequestToNode(start uint64, end uint64, node NodeID) {
 		r.timeoutHandler.AddTask(i)
 	}
 
-	val := r.highestObserved.value()
+	val := r.highestObserved.roundOrSeq()
 	if r.highestRequested < end {
 		r.highestRequested = end
 	}
@@ -269,7 +269,7 @@ func (r *replicator) sendRequestToNode(start uint64, end uint64, node NodeID) {
 
 func (r *replicator) storeQuorumRound(round QuorumRound, from NodeID, roundOrSeq uint64) {
 	// check if this is the highest round or seq we have seen
-	if r.highestObserved == nil || roundOrSeq > r.highestObserved.value() {
+	if r.highestObserved == nil || roundOrSeq > r.highestObserved.roundOrSeq() {
 		signedSeq, err := newSignedRoundOrSeq(round, r.myNodeID)
 		if err != nil {
 			// should never be here since we already checked the QuorumRound was valid

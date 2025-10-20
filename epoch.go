@@ -1426,7 +1426,6 @@ func (e *Epoch) handleEmptyNotarizationMessage(emptyNotarization *EmptyNotarizat
 		return nil
 	}
 
-	// for future rounds
 	if e.round < vote.Round {
 		e.Logger.Debug("Received an empty notarization for a higher round",
 			zap.Uint64("round", vote.Round), zap.Uint64("our round", e.round))
