@@ -166,24 +166,24 @@ func (r *replicator) getHighestRound() uint64 {
 // it limits the amount of outstanding requests to be at most [maxRoundWindow] ahead of [currentRoundOrNextSequence] which is
 // either nextSeqToCommit or currentRound depending on if we are replicating sequences or rounds.
 func (r *replicator) maybeSendMoreReplicationRequests(observed *signedRoundOrSeq, currentRoundOrNextSequence uint64) {
-	val := observed.roundOrSeq()
+	observedRoundOrSeq := observed.roundOrSeq()
 
 	// we've observed something we've already requested
-	if r.highestRequested >= val && r.highestObserved != nil {
-		r.logger.Debug("Already requested observed value, skipping", zap.Uint64("value", val), zap.Bool("isRound", observed.isRound))
+	if r.highestRequested >= observedRoundOrSeq && r.highestObserved != nil {
+		r.logger.Debug("Already requested observed value, skipping", zap.Uint64("value", observedRoundOrSeq), zap.Bool("isRound", observed.isRound))
 		return
 	}
 
 	// if this is the highest observed sequence or round, update our state
-	if r.highestObserved == nil || val > r.highestObserved.roundOrSeq() {
+	if r.highestObserved == nil || observedRoundOrSeq > r.highestObserved.roundOrSeq() {
 		r.highestObserved = observed
 	}
 
 	start := math.Max(float64(currentRoundOrNextSequence), float64(r.highestRequested))
 	// we limit the number of outstanding requests to be at most maxRoundWindow ahead of nextSeqToCommit
-	end := math.Min(float64(val), float64(r.maxRoundWindow+currentRoundOrNextSequence))
+	end := math.Min(float64(observedRoundOrSeq), float64(r.maxRoundWindow+currentRoundOrNextSequence))
 
-	r.logger.Debug("Node is behind, attempting to request missing values", zap.Uint64("value", val), zap.Uint64("start", uint64(start)), zap.Uint64("end", uint64(end)), zap.Bool("isRound", observed.isRound))
+	r.logger.Debug("Node is behind, attempting to request missing values", zap.Uint64("value", observedRoundOrSeq), zap.Uint64("start", uint64(start)), zap.Uint64("end", uint64(end)), zap.Bool("isRound", observed.isRound))
 	r.sendReplicationRequests(uint64(start), uint64(end))
 }
 
