@@ -12,6 +12,7 @@ import (
 	rand2 "math/rand"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -31,6 +32,71 @@ var (
 		Updates:        []BlacklistUpdate{},
 	}
 )
+
+func TestBlockNotVerifiedIfParentNotNotarized(t *testing.T) {
+	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1)}
+
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+
+	comm := testutil.NewNoopComm(nodes)
+	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[3], comm, bb)
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+
+	require.NoError(t, e.Start())
+
+	blocks := createBlocks(t, nodes, 2)
+
+	var block1Verified atomic.Bool
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	block0 := blocks[0].VerifiedBlock.(*testutil.TestBlock)
+	block0.OnVerify = func() {
+		wg.Done()
+	}
+	block1 := blocks[1].VerifiedBlock.(*testutil.TestBlock)
+	block1.OnVerify = func() {
+		block1Verified.Store(true)
+	}
+
+	v0, err := testutil.NewTestVote(block0, nodes[0])
+	require.NoError(t, err)
+
+	v1, err := testutil.NewTestVote(block1, nodes[1])
+	require.NoError(t, err)
+
+	emptyNotarization := testutil.NewEmptyNotarization(nodes, 0)
+
+	err = e.HandleMessage(&Message{
+		BlockMessage: &BlockMessage{
+			Vote:  *v0,
+			Block: block0,
+		},
+	}, nodes[0])
+	require.NoError(t, err)
+
+	wg.Wait()
+
+	err = e.HandleMessage(&Message{
+		BlockMessage: &BlockMessage{
+			Vote:  *v1,
+			Block: block1,
+		},
+	}, nodes[1])
+	require.NoError(t, err)
+
+	err = e.HandleMessage(&Message{
+		EmptyNotarization: emptyNotarization,
+	}, nodes[1])
+	require.NoError(t, err)
+
+	require.Never(t, func() bool {
+		return block1Verified.Load()
+	}, time.Second, 100*time.Millisecond)
+}
 
 func TestEpochHandleNotarizationFutureRound(t *testing.T) {
 	bb := &testutil.TestBlockBuilder{}
