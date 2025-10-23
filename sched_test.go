@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	rand2 "math/rand"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -52,7 +53,7 @@ func TestAsyncScheduler(t *testing.T) {
 			defer wg.Done()
 			<-ticks
 			return dig2
-		}, dig1, true)
+		}, dig1, 0, true)
 
 		ticks <- struct{}{}
 		wg.Wait()
@@ -70,7 +71,7 @@ func TestAsyncScheduler(t *testing.T) {
 		as.Schedule(func() simplex.Digest {
 			close(ticks)
 			return dig2
-		}, dig1, true)
+		}, dig1, 0, true)
 
 		ticks <- struct{}{}
 	})
@@ -108,6 +109,73 @@ func TestAsyncScheduler(t *testing.T) {
 	})
 }
 
+func TestSchedulerKill(t *testing.T) {
+	as := simplex.NewScheduler(testutil.MakeLogger(t))
+	defer as.Close()
+
+	var d1 simplex.Digest
+	var d2 simplex.Digest
+	var d3 simplex.Digest
+	var d4 simplex.Digest
+
+	_, err := rand.Read(d1[:])
+	require.NoError(t, err)
+
+	_, err = rand.Read(d2[:])
+	require.NoError(t, err)
+
+	_, err = rand.Read(d3[:])
+	require.NoError(t, err)
+
+	_, err = rand.Read(d4[:])
+	require.NoError(t, err)
+
+	var wg0 sync.WaitGroup
+	wg0.Add(1)
+
+	var task1Ran, task2Ran, task3Ran, task4Ran atomic.Bool
+
+	// All tasks depend on the first task.
+	// The first task is ready to run immediately.
+
+	as.Schedule(func() simplex.Digest {
+		task1Ran.Store(true)
+		wg0.Wait()
+		return d1
+	}, simplex.Digest{}, 1, true)
+
+	as.Schedule(func() simplex.Digest {
+		task2Ran.Store(true)
+		wg0.Wait()
+		return d2
+	}, d1, 2, false)
+
+	as.Schedule(func() simplex.Digest {
+		task3Ran.Store(true)
+		wg0.Wait()
+		return d3
+	}, d1, 0, false)
+
+	as.Schedule(func() simplex.Digest {
+		task4Ran.Store(true)
+		wg0.Wait()
+		return d4
+	}, d1, 1, false)
+
+	require.Equal(t, 3, as.PendingCount())
+
+	as.Kill(1)
+	wg0.Done()
+
+	require.Eventually(t, func() bool {
+		return task1Ran.Load()
+	}, 2*time.Second, 10*time.Millisecond)
+	require.True(t, task1Ran.Load())
+	require.True(t, task2Ran.Load())
+	require.False(t, task3Ran.Load())
+	require.False(t, task4Ran.Load())
+}
+
 func scheduleTask(lock *sync.Mutex, finished map[simplex.Digest]struct{}, dependency simplex.Digest, id simplex.Digest, wg *sync.WaitGroup, as *simplex.Scheduler, i int) func() {
 	var dep simplex.Digest
 	copy(dep[:], dependency[:])
@@ -126,7 +194,7 @@ func scheduleTask(lock *sync.Mutex, finished map[simplex.Digest]struct{}, depend
 			return id
 		}
 
-		as.Schedule(task, dep, i == 0 || hasFinished)
+		as.Schedule(task, dep, 0, i == 0 || hasFinished)
 	}
 }
 

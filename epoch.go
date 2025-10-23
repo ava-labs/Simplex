@@ -83,7 +83,7 @@ type Epoch struct {
 	EpochConfig
 	// Runtime
 	oneTimeVerifier                *oneTimeVerifier
-	sched                          *Scheduler
+	Sched                          *Scheduler
 	lock                           sync.Mutex
 	lastBlock                      *VerifiedFinalizedBlock // latest block & finalization committed
 	canReceiveMessages             atomic.Bool
@@ -181,7 +181,7 @@ func (e *Epoch) init() error {
 	e.maybeAssignDefaultConfig()
 	e.initOldestNotFinalizedNotarization()
 	e.oneTimeVerifier = newOneTimeVerifier(e.Logger)
-	e.sched = NewScheduler(e.Logger)
+	e.Sched = NewScheduler(e.Logger)
 	e.monitor = NewMonitor(e.StartTime, e.Logger)
 	e.cancelWaitForBlockNotarization = func() {}
 	e.finishCtx, e.finishFn = context.WithCancel(context.Background())
@@ -1147,6 +1147,8 @@ func (e *Epoch) indexFinalization(block VerifiedBlock, finalization Finalization
 		Finalization:  finalization,
 	}
 
+	e.Sched.Kill(block.BlockHeader().Seq)
+
 	// We have committed because we have collected a finalization.
 	// However, we may have not witnessed a notarization.
 	// Regardless of that, we can safely progress to the round succeeding the finalization.
@@ -1459,7 +1461,7 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 		zap.Uint64("round", md.Round),
 		zap.Stringer("digest", md.Digest))
 
-	pendingBlocks := e.sched.Size()
+	pendingBlocks := e.Sched.Size()
 	if pendingBlocks > e.maxPendingBlocks {
 		e.Logger.Warn("Too many blocks being verified to ingest another one", zap.Int("pendingBlocks", pendingBlocks))
 		return nil
@@ -1533,11 +1535,6 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 		return nil
 	}
 
-	if !e.verifyProposalMetadataAndBlacklist(block) {
-		e.Logger.Debug("Got invalid block in a BlockMessage")
-		return nil
-	}
-
 	// mark in future messages while we are verifying the block
 	msgForRound, exists := e.futureMessages[string(from)][md.Round]
 	if !exists {
@@ -1558,7 +1555,7 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 	// Schedule the block to be verified once its direct predecessor have been verified,
 	// or if it can be verified immediately.
 	e.Logger.Debug("Scheduling block verification", zap.Uint64("round", md.Round))
-	e.sched.Schedule(task, md.Prev, canBeImmediatelyVerified)
+	e.Sched.Schedule(task, md.Prev, md.Seq, canBeImmediatelyVerified)
 
 	return nil
 }
@@ -1588,7 +1585,7 @@ func (e *Epoch) processFinalizedBlock(block Block, finalization Finalization) er
 		return e.processReplicationState()
 	}
 
-	pendingBlocks := e.sched.Size()
+	pendingBlocks := e.Sched.Size()
 	if pendingBlocks > e.maxPendingBlocks {
 		e.Logger.Warn("Too many blocks being verified to ingest another one", zap.Int("pendingBlocks", pendingBlocks))
 		return nil
@@ -1605,7 +1602,7 @@ func (e *Epoch) processFinalizedBlock(block Block, finalization Finalization) er
 	// Schedule the block to be verified once its direct predecessor have been verified,
 	// or if it can be verified immediately.
 	e.Logger.Debug("Scheduling block verification", zap.Uint64("round", md.Round))
-	e.sched.Schedule(task, md.Prev, canBeImmediatelyVerified)
+	e.Sched.Schedule(task, md.Prev, md.Seq, canBeImmediatelyVerified)
 
 	return nil
 }
@@ -1654,7 +1651,7 @@ func (e *Epoch) processNotarizedBlock(block Block, notarization *Notarization) e
 		return e.processReplicationState()
 	}
 
-	pendingBlocks := e.sched.Size()
+	pendingBlocks := e.Sched.Size()
 	if pendingBlocks > e.maxPendingBlocks {
 		e.Logger.Warn("Too many blocks being verified to ingest another one", zap.Int("pendingBlocks", pendingBlocks))
 		return nil
@@ -1670,7 +1667,7 @@ func (e *Epoch) processNotarizedBlock(block Block, notarization *Notarization) e
 	// Schedule the block to be verified once its direct predecessor have been verified,
 	// or if it can be verified immediately.
 	e.Logger.Debug("Scheduling block verification", zap.Uint64("round", md.Round))
-	e.sched.Schedule(task, md.Prev, canBeImmediatelyVerified)
+	e.Sched.Schedule(task, md.Prev, md.Seq, canBeImmediatelyVerified)
 
 	return nil
 }
@@ -1685,6 +1682,18 @@ func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote)
 			elapsed := time.Since(start)
 			e.Logger.Debug("Block verification ended", zap.Uint64("round", md.Round), zap.Duration("elapsed", elapsed))
 		}()
+
+		e.lock.Lock()
+		correctProposalAndMetadata := e.verifyProposalMetadataAndBlacklist(block)
+		e.lock.Unlock()
+
+		if !correctProposalAndMetadata {
+			e.Logger.Debug("Got invalid block in a BlockMessage",
+				zap.Uint64("round", md.Round),
+				zap.Uint64("seq", md.Seq),
+				zap.Stringer("NodeID", from))
+			return md.Digest
+		}
 
 		verifiedBlock, err := block.Verify(context.Background())
 
@@ -2064,7 +2073,7 @@ func (e *Epoch) buildBlock() {
 	}
 
 	e.Logger.Debug("Scheduling block building", zap.Uint64("round", metadata.Round))
-	e.sched.Schedule(task, metadata.Prev, true)
+	e.Sched.Schedule(task, metadata.Prev, metadata.Seq, true)
 }
 
 func (e *Epoch) retrieveBlacklistOfParentBlock(metadata ProtocolMetadata) (Blacklist, bool) {

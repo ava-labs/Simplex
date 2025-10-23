@@ -32,6 +32,99 @@ var (
 	}
 )
 
+func TestEpochBlockScheduledNotIndexed(t *testing.T) {
+	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1)}
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[3], testutil.NewNoopComm(nodes), bb)
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+
+	require.NoError(t, e.Start())
+
+	blocks := createBlocks(t, nodes, 2)
+
+	correctPrevDigest := blocks[0].VerifiedBlock.BlockHeader().Digest
+	var incorrectPrevDigest Digest
+	copy(incorrectPrevDigest[:], correctPrevDigest[:])
+	incorrectPrevDigest[0] ^= 0x1
+	orphanBlock := testutil.NewTestBlock(ProtocolMetadata{
+		Round: 1,
+		Seq:   1,
+		Prev:  incorrectPrevDigest,
+	}, emptyBlacklist)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	orphanBlock.OnVerify = func() {
+		wg.Wait()
+	}
+
+	vote0, err := testutil.NewTestVote(blocks[0].VerifiedBlock, nodes[0])
+	require.NoError(t, err)
+
+	voteOrphan, err := testutil.NewTestVote(orphanBlock, nodes[1])
+	require.NoError(t, err)
+
+	voteNonOrphan, err := testutil.NewTestVote(blocks[1].VerifiedBlock, nodes[1])
+	require.NoError(t, err)
+
+	err = e.HandleMessage(&Message{
+		BlockMessage: &BlockMessage{
+			Vote:  *vote0,
+			Block: blocks[0].VerifiedBlock.(*testutil.TestBlock),
+		},
+	}, nodes[0])
+	require.NoError(t, err)
+
+	not0, err := testutil.NewNotarization(conf.Logger, conf.SignatureAggregator, blocks[0].VerifiedBlock, nodes)
+	require.NoError(t, err)
+
+	err = e.HandleMessage(&Message{
+		Notarization: &not0,
+	}, nodes[1])
+	require.NoError(t, err)
+
+	wal.AssertNotarization(0)
+
+	err = e.HandleMessage(&Message{
+		BlockMessage: &BlockMessage{
+			Vote:  *voteOrphan,
+			Block: orphanBlock,
+		},
+	}, nodes[1])
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		return e.Sched.PendingCount() == 1
+	}, 2*time.Second, time.Millisecond*100, e.Sched.PendingCount())
+	wg.Done()
+
+	err = e.HandleMessage(&Message{
+		BlockMessage: &BlockMessage{
+			Vote:  *voteNonOrphan,
+			Block: blocks[1].VerifiedBlock.(*testutil.TestBlock),
+		},
+	}, nodes[1])
+	require.NoError(t, err)
+
+	finalization1, _ := testutil.NewFinalizationRecord(t, conf.Logger, conf.SignatureAggregator, blocks[1].VerifiedBlock, nodes)
+	finalization0, _ := testutil.NewFinalizationRecord(t, conf.Logger, conf.SignatureAggregator, blocks[0].VerifiedBlock, nodes)
+
+	err = e.HandleMessage(&Message{
+		Finalization: &finalization1,
+	}, nodes[1])
+	require.NoError(t, err)
+
+	err = e.HandleMessage(&Message{
+		Finalization: &finalization0,
+	}, nodes[1])
+	require.NoError(t, err)
+
+	storage.WaitForBlockCommit(0)
+	storage.WaitForBlockCommit(1)
+	require.Equal(t, 0, e.Sched.PendingCount())
+}
+
 func TestEpochHandleNotarizationFutureRound(t *testing.T) {
 	bb := &testutil.TestBlockBuilder{}
 	nodes := []NodeID{{1}, {2}, {3}, {4}}

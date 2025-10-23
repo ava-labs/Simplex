@@ -114,7 +114,7 @@ func (as *Scheduler) run() {
 	}
 }
 
-func (as *Scheduler) Schedule(f func() Digest, prev Digest, ready bool) {
+func (as *Scheduler) Schedule(f func() Digest, prev Digest, seq uint64, ready bool) {
 	as.lock.Lock()
 	defer as.lock.Unlock()
 
@@ -125,6 +125,7 @@ func (as *Scheduler) Schedule(f func() Digest, prev Digest, ready bool) {
 	task := Task{
 		F:      f,
 		Parent: prev,
+		Seq:    seq,
 	}
 
 	if !ready {
@@ -140,9 +141,46 @@ func (as *Scheduler) Schedule(f func() Digest, prev Digest, ready bool) {
 	as.signal.Broadcast() // (11)
 }
 
+// Kill removes all tasks with sequence number less than or equal to seq.
+func (as *Scheduler) Kill(seq uint64) {
+	as.lock.Lock()
+	defer as.lock.Unlock()
+
+	for dig, tasks := range as.pending.dependsOn {
+		var newTasks []Task
+		for _, task := range tasks {
+			if task.Seq > seq {
+				// We keep the task.
+				newTasks = append(newTasks, task)
+				continue
+			}
+			// Else, task.Seq <= seq, so we don't keep it.
+		}
+		if len(newTasks) == 0 {
+			delete(as.pending.dependsOn, dig)
+		} else {
+			as.pending.dependsOn[dig] = newTasks
+		}
+	}
+}
+
+func (as *Scheduler) PendingCount() int {
+	as.lock.Lock()
+	defer as.lock.Unlock()
+
+	var count int
+
+	for _, tasks := range as.pending.dependsOn {
+		count += len(tasks)
+	}
+
+	return count
+}
+
 type Task struct {
 	F      func() Digest
 	Parent Digest
+	Seq    uint64
 }
 
 type dependencies struct {
