@@ -1319,12 +1319,14 @@ func (e *Epoch) writeNotarizationToWal(notarization Notarization) error {
 }
 
 func (e *Epoch) persistNotarization(notarization Notarization) error {
-	if err := e.writeNotarizationToWal(notarization); err != nil {
-		return err
+	r, exists := e.rounds[notarization.Vote.Round]
+	if !exists {
+		return fmt.Errorf("attempted to store notarization of a non existent round %d", notarization.Vote.Round)
 	}
 
-	err := e.storeNotarization(notarization)
-	if err != nil {
+	r.notarization = &notarization
+
+	if err := e.writeNotarizationToWal(notarization); err != nil {
 		return err
 	}
 
@@ -1869,7 +1871,6 @@ func (e *Epoch) createNotarizedBlockVerificationTask(block Block, notarization N
 			e.Logger.Warn("Unable to get proposed block for the round", zap.Uint64("round", md.Round))
 			return md.Digest
 		}
-		round.notarization = &notarization
 
 		if err := e.persistNotarization(notarization); err != nil {
 			e.haltedError = err
@@ -2548,18 +2549,6 @@ func (e *Epoch) constructFinalizeVoteMessage(md BlockHeader) (FinalizeVote, *Mes
 		FinalizeVote: &vote,
 	}
 	return vote, finalizationMsg, nil
-}
-
-// stores a notarization in the epoch's memory.
-func (e *Epoch) storeNotarization(notarization Notarization) error {
-	round := notarization.Vote.Round
-	r, exists := e.rounds[round]
-	if !exists {
-		return fmt.Errorf("attempted to store notarization of a non existent round %d", round)
-	}
-
-	r.notarization = &notarization
-	return nil
 }
 
 func (e *Epoch) maybeLoadFutureMessages() error {
