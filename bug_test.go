@@ -24,16 +24,44 @@ func TestChainBreak(t *testing.T) {
 	require.NoError(t, e.Start())
 	require.Equal(t, uint64(1), e.Metadata().Seq)
 
-	// we receive a block, but then empty notarize
+	// we receive a block and then notarize(this sends out a finalize vote for the block)
 	advanceRoundFromNotarization(t, e, bb)
 	require.Equal(t, uint64(2), e.Metadata().Seq)
 	require.Equal(t, uint64(2), e.Metadata().Round)
 
+	// wait for finalize votes
+	for {
+		msg := <-recordingComm.BroadcastMessages
+		if msg.FinalizeVote != nil {
+			require.Equal(t, uint64(1), msg.FinalizeVote.Finalization.Round)
+			require.Equal(t, uint64(1), msg.FinalizeVote.Finalization.Seq)
+			break
+		}
+	}
+
+	// clear the recorded messages
+	for len(recordingComm.BroadcastMessages) > 0 {
+		<-recordingComm.BroadcastMessages
+	}
 
 	advanceRoundWithMD(t, e, bb, true, true,  ProtocolMetadata{
 		Round: 2,
 		Seq:   1, // next seq is 1 not 2
 		Prev:  initialBlock.VerifiedBlock.BlockHeader().Digest,
 	})
-	require.Equal(t, uint64(3), e.Metadata().Seq)
+
+
+	for {
+		msg := <-recordingComm.BroadcastMessages
+		if msg.FinalizeVote != nil {
+			// we should not have sent two different finalize votes for the same seq
+			require.NotEqual(t, uint64(2), msg.FinalizeVote.Finalization.Round)
+			require.NotEqual(t, uint64(1), msg.FinalizeVote.Finalization.Seq)
+			break
+		}
+
+		if len(recordingComm.BroadcastMessages) == 0 {
+			break
+		}
+	}
 }
