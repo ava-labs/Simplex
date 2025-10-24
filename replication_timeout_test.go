@@ -64,7 +64,8 @@ func TestReplicationRequestTimeout(t *testing.T) {
 
 	// assert the lagging node has not received any replication requests
 	require.Equal(t, uint64(0), laggingNode.Storage.NumBlocks())
-
+	// allow the replication state to cancel the request before setting filter
+	time.Sleep(100 * time.Millisecond)
 	// after the timeout, the nodes should respond and the lagging node will replicate
 	net.SetAllNodesMessageFilter(testutil.AllowAllMessages)
 	laggingNode.E.AdvanceTime(laggingNode.E.StartTime.Add(simplex.DefaultReplicationRequestTimeout / 2))
@@ -121,16 +122,17 @@ func TestReplicationRequestTimeoutCancels(t *testing.T) {
 	// all blocks except the lagging node start at round 8, seq 8.
 	// lagging node starts at round 0, seq 0.
 	// this asserts that the lagging node catches up to the latest round
-	for i := 0; i <= int(startSeq); i++ {
-		for _, n := range net.Instances {
-			n.Storage.WaitForBlockCommit(uint64(startSeq))
-		}
+	for _, n := range net.Instances {
+		n.Storage.WaitForBlockCommit(startSeq)
 	}
 
 	// ensure lagging node doesn't resend requests
 	mf := &testTimeoutMessageFilter{
 		t: t,
 	}
+
+	// allow the replication state to cancel the request before setting filter
+	time.Sleep(100 * time.Millisecond)
 	laggingNode.E.Comm.(*testutil.TestComm).SetFilter(mf.failOnReplicationRequest)
 	laggingNode.E.AdvanceTime(laggingNode.E.StartTime.Add(simplex.DefaultReplicationRequestTimeout * 2))
 
@@ -367,7 +369,10 @@ func (c *collectNotarizationComm) removeFinalizationsFromReplicationResponses(ms
 			newData = append(newData, qr)
 		}
 		msg.VerifiedReplicationResponse.Data = newData
-		c.replicationResponses <- struct{}{}
+		select {
+		case c.replicationResponses <- struct{}{}:
+		default:
+		}
 	}
 
 	if msg.Finalization != nil && msg.Finalization.Finalization.Round == 0 {

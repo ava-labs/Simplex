@@ -211,18 +211,22 @@ type QuorumCertificate interface {
 }
 
 type ReplicationRequest struct {
-	Seqs        []uint64 // sequences we are requesting
-	LatestRound uint64   // latest round that we are aware of
+	Seqs               []uint64 // sequences we are requesting
+	Rounds             []uint64 // rounds we are requesting
+	LatestRound        uint64   // latest round that we are aware of
+	LatestFinalizedSeq uint64   // latest finalized sequence that we are aware of
 }
 
 type ReplicationResponse struct {
 	Data        []QuorumRound
 	LatestRound *QuorumRound
+	LatestSeq   *QuorumRound
 }
 
 type VerifiedReplicationResponse struct {
-	Data        []VerifiedQuorumRound
-	LatestRound *VerifiedQuorumRound
+	Data               []VerifiedQuorumRound
+	LatestRound        *VerifiedQuorumRound
+	LatestFinalizedSeq *VerifiedQuorumRound
 }
 
 // QuorumRound represents a round that has achieved quorum on either
@@ -302,7 +306,7 @@ func (q *QuorumRound) String() string {
 		if err != nil {
 			return fmt.Sprintf("QuorumRound{Error: %s}", err)
 		} else {
-			return fmt.Sprintf("QuorumRound{Round: %d, Seq: %d}", q.GetRound(), q.GetSequence())
+			return fmt.Sprintf("QuorumRound{Round: %d, Seq: %d, Finalized: %t}", q.GetRound(), q.GetSequence(), q.Finalization != nil)
 		}
 	}
 
