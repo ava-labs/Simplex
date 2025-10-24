@@ -64,7 +64,8 @@ func TestReplicationRequestTimeout(t *testing.T) {
 
 	// assert the lagging node has not received any replication requests
 	require.Equal(t, uint64(0), laggingNode.Storage.NumBlocks())
-
+	// allow the replication state to cancel the request before setting filter
+	time.Sleep(100 * time.Millisecond)
 	// after the timeout, the nodes should respond and the lagging node will replicate
 	net.SetAllNodesMessageFilter(testutil.AllowAllMessages)
 	laggingNode.E.AdvanceTime(laggingNode.E.StartTime.Add(simplex.DefaultReplicationRequestTimeout / 2))
