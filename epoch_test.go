@@ -419,6 +419,7 @@ func TestEpochStartedTwice(t *testing.T) {
 	require.ErrorIs(t, e.Start(), ErrAlreadyStarted)
 }
 
+
 func advanceRoundFromEmpty(t *testing.T, e *Epoch) {
 	leader := LeaderForRound(e.Comm.Nodes(), e.Metadata().Round)
 	require.False(t, e.ID.Equals(leader), "epoch cannot be the leader for the empty round")
