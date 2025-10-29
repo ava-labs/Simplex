@@ -581,6 +581,10 @@ func TestUpdateBytesEqualsLen(t *testing.T) {
 }
 
 func TestVerifyBlacklistUpdates(t *testing.T) {
+	testBlacklist := Blacklist{
+		NodeCount: 4,
+	}
+
 	for _, testCase := range []struct {
 		name        string
 		Blacklist   Blacklist
@@ -604,6 +608,7 @@ func TestVerifyBlacklistUpdates(t *testing.T) {
 				{Type: 3, NodeIndex: 1},
 			},
 			expectedErr: errBlacklistInvalidUpdateType,
+			Blacklist:   testBlacklist,
 		},
 		{
 			name: "invalid index",
@@ -611,6 +616,7 @@ func TestVerifyBlacklistUpdates(t *testing.T) {
 				{Type: BlacklistOpType_NodeRedeemed, NodeIndex: 4},
 			},
 			expectedErr: errBlacklistInvalidNodeIndex,
+			Blacklist:   testBlacklist,
 		},
 		{
 			name: "double vote",
@@ -620,6 +626,7 @@ func TestVerifyBlacklistUpdates(t *testing.T) {
 				{Type: BlacklistOpType_NodeSuspected, NodeIndex: 3},
 			},
 			expectedErr: errBlacklistNodeIndexAlreadyUpdated,
+			Blacklist:   testBlacklist,
 		},
 		{
 			name: "already blacklisted",
