@@ -1938,7 +1938,7 @@ func (e *Epoch) verifyProposalMetadataAndBlacklist(block Block) bool {
 		prevBlacklist = prevBlock.Blacklist()
 	}
 
-	if err := prevBlacklist.VerifyProposedBlacklist(block.Blacklist(), len(e.nodes), e.round); err != nil {
+	if err := prevBlacklist.VerifyProposedBlacklist(block.Blacklist(), e.round); err != nil {
 		e.Logger.Debug("Block contains an invalid blacklist", zap.Error(err))
 		return false
 	}
