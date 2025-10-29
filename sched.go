@@ -140,6 +140,23 @@ func (as *Scheduler) Schedule(f func() Digest, prev Digest, ready bool) {
 	as.signal.Broadcast() // (11)
 }
 
+func (as *Scheduler) ExecuteDependents(dep Digest) {
+	as.lock.Lock()
+	defer as.lock.Unlock()
+
+	if as.close {
+		return
+	}
+
+	newlyReadyTasks := as.pending.Remove(dep)
+	if len(newlyReadyTasks) == 0 {
+		return
+	}
+	as.ready = append(as.ready, newlyReadyTasks...)
+
+	as.signal.Broadcast()
+}
+
 type Task struct {
 	F      func() Digest
 	Parent Digest
