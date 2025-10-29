@@ -1492,8 +1492,7 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 	}
 
 	// Check if we have verified this message in the past:
-	err := e.VerifyBlockMessageVote(from, md, vote)
-	if err != nil {
+	if err := e.VerifyBlockMessageVote(from, md, vote); err != nil {
 		return nil
 	}
 
