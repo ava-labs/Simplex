@@ -91,7 +91,7 @@ func TestBlacklistVerifyProposedBlacklist(t *testing.T) {
 		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			err := testCase.blacklist.VerifyProposedBlacklist(testCase.proposedBlacklist, testCase.nodeCount, testCase.round)
+			err := testCase.blacklist.VerifyProposedBlacklist(testCase.proposedBlacklist, testCase.round)
 			require.ErrorContains(t, err, testCase.expectedErr.Error())
 		})
 	}
@@ -581,6 +581,10 @@ func TestUpdateBytesEqualsLen(t *testing.T) {
 }
 
 func TestVerifyBlacklistUpdates(t *testing.T) {
+	testBlacklist := Blacklist{
+		NodeCount: 4,
+	}
+
 	for _, testCase := range []struct {
 		name        string
 		Blacklist   Blacklist
@@ -604,6 +608,7 @@ func TestVerifyBlacklistUpdates(t *testing.T) {
 				{Type: 3, NodeIndex: 1},
 			},
 			expectedErr: errBlacklistInvalidUpdateType,
+			Blacklist:   testBlacklist,
 		},
 		{
 			name: "invalid index",
@@ -611,6 +616,7 @@ func TestVerifyBlacklistUpdates(t *testing.T) {
 				{Type: BlacklistOpType_NodeRedeemed, NodeIndex: 4},
 			},
 			expectedErr: errBlacklistInvalidNodeIndex,
+			Blacklist:   testBlacklist,
 		},
 		{
 			name: "double vote",
@@ -620,6 +626,7 @@ func TestVerifyBlacklistUpdates(t *testing.T) {
 				{Type: BlacklistOpType_NodeSuspected, NodeIndex: 3},
 			},
 			expectedErr: errBlacklistNodeIndexAlreadyUpdated,
+			Blacklist:   testBlacklist,
 		},
 		{
 			name: "already blacklisted",
@@ -646,7 +653,7 @@ func TestVerifyBlacklistUpdates(t *testing.T) {
 		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			err := testCase.Blacklist.verifyBlacklistUpdates(testCase.updates, 4)
+			err := testCase.Blacklist.verifyBlacklistUpdates(testCase.updates)
 			require.ErrorContains(t, err, testCase.expectedErr.Error())
 		})
 	}
@@ -797,7 +804,7 @@ func simulateRound(t *testing.T, blrsi blacklistRoundSimulationInput) Blacklist 
 
 	newBlacklist := prevBlacklist.ApplyUpdates(updates, round)
 
-	err := prevBlacklist.VerifyProposedBlacklist(newBlacklist, nodeCount, round)
+	err := prevBlacklist.VerifyProposedBlacklist(newBlacklist, round)
 	require.NoError(t, err, "round %d", round)
 
 	return newBlacklist
