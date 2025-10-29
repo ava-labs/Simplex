@@ -1455,12 +1455,6 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 
 	md := block.BlockHeader()
 
-	if e.Epoch != md.Epoch {
-		e.Logger.Debug("Got block message but the epoch mismatches our epoch",
-			zap.Uint64("our epoch", e.Epoch), zap.Uint64("block epoch", md.Epoch))
-		return nil
-	}
-
 	e.Logger.Verbo("Received block message",
 		zap.Stringer("from", from),
 		zap.Uint64("round", md.Round),
@@ -1476,7 +1470,6 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 	from = vote.Signature.Signer
 
 	e.Logger.Debug("Handling block message", zap.Stringer("digest", md.Digest), zap.Uint64("round", md.Round))
-
 	// Don't bother processing blocks from the past
 	if e.round > md.Round {
 		return nil
@@ -1499,22 +1492,9 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 	}
 
 	// Check if we have verified this message in the past:
-	alreadyVerified := e.wasBlockAlreadyVerified(from, md)
-
-	if !alreadyVerified {
-		// Ensure the block was voted on by its block producer:
-
-		// 1) Verify block digest corresponds to the digest voted on
-		if !bytes.Equal(vote.Vote.Digest[:], md.Digest[:]) {
-			e.Logger.Debug("ToBeSignedVote digest mismatches block digest", zap.Stringer("voteDigest", vote.Vote.Digest),
-				zap.Stringer("blockDigest", md.Digest))
-			return nil
-		}
-		// 2) Verify the vote is properly signed
-		if err := vote.Vote.Verify(vote.Signature.Value, e.Verifier, vote.Signature.Signer); err != nil {
-			e.Logger.Debug("ToBeSignedVote verification failed", zap.Stringer("NodeID", vote.Signature.Signer), zap.Error(err))
-			return nil
-		}
+	err := e.VerifyBlockMessageVote(from, md, vote)
+	if err != nil {
+		return nil
 	}
 
 	// If this is a message from a more advanced round,
@@ -1897,23 +1877,36 @@ func (e *Epoch) isBlockReadyToBeScheduled(seq uint64, prev Digest) bool {
 	return true
 }
 
-func (e *Epoch) wasBlockAlreadyVerified(from NodeID, md BlockHeader) bool {
-	var alreadyVerified bool
+// VerifyBlockMessageVote checks if we have the block in the future messages map.
+// If so, it means we have already verified the vote associated with this proposal.
+func (e *Epoch) VerifyBlockMessageVote(from NodeID, md BlockHeader, vote Vote) error {
 	msgsForRound, exists := e.futureMessages[string(from)][md.Round]
 	if exists && msgsForRound.proposal != nil {
 		bh := msgsForRound.proposal.Block.BlockHeader()
-		alreadyVerified = bh.Equals(&md)
+		if bh.Equals(&md) {
+			return nil
+		}
 	}
-	return alreadyVerified
+
+	// Ensure the block was voted on by its block producer:
+
+	// 1) Verify block digest corresponds to the digest voted on
+	if !bytes.Equal(vote.Vote.Digest[:], md.Digest[:]) {
+		e.Logger.Debug("ToBeSignedVote digest mismatches block digest", zap.Stringer("voteDigest", vote.Vote.Digest),
+			zap.Stringer("blockDigest", md.Digest))
+		return errors.New("vote digest mismatches block digest")
+	}
+	// 2) Verify the vote is properly signed
+	if err := vote.Vote.Verify(vote.Signature.Value, e.Verifier, vote.Signature.Signer); err != nil {
+		e.Logger.Debug("ToBeSignedVote verification failed", zap.Stringer("NodeID", vote.Signature.Signer), zap.Error(err))
+		return errors.New("vote signature verification failed")
+	}
+
+	return nil
 }
 
 func (e *Epoch) verifyProposalMetadataAndBlacklist(block Block) bool {
 	bh := block.BlockHeader()
-
-	if bh.Version != 0 {
-		e.Logger.Debug("Got block message with wrong version number, expected 0", zap.Uint8("version", bh.Version))
-		return false
-	}
 
 	var expectedSeq uint64
 	var expectedPrevDigest Digest
@@ -1941,13 +1934,6 @@ func (e *Epoch) verifyProposalMetadataAndBlacklist(block Block) bool {
 	if err := prevBlacklist.VerifyProposedBlacklist(block.Blacklist(), len(e.nodes), e.round); err != nil {
 		e.Logger.Debug("Block contains an invalid blacklist", zap.Error(err))
 		return false
-	}
-
-	if bh.Seq != expectedSeq {
-		e.Logger.Debug("Received block with an incorrect sequence",
-			zap.Uint64("round", bh.Round),
-			zap.Uint64("seq", bh.Seq),
-			zap.Uint64("expected seq", expectedSeq))
 	}
 
 	digest := block.BlockHeader().Digest
