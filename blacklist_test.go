@@ -91,7 +91,7 @@ func TestBlacklistVerifyProposedBlacklist(t *testing.T) {
 		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			err := testCase.blacklist.VerifyProposedBlacklist(testCase.proposedBlacklist, testCase.nodeCount, testCase.round)
+			err := testCase.blacklist.VerifyProposedBlacklist(testCase.proposedBlacklist, testCase.round)
 			require.ErrorContains(t, err, testCase.expectedErr.Error())
 		})
 	}
@@ -646,7 +646,7 @@ func TestVerifyBlacklistUpdates(t *testing.T) {
 		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			err := testCase.Blacklist.verifyBlacklistUpdates(testCase.updates, 4)
+			err := testCase.Blacklist.verifyBlacklistUpdates(testCase.updates)
 			require.ErrorContains(t, err, testCase.expectedErr.Error())
 		})
 	}
@@ -797,7 +797,7 @@ func simulateRound(t *testing.T, blrsi blacklistRoundSimulationInput) Blacklist 
 
 	newBlacklist := prevBlacklist.ApplyUpdates(updates, round)
 
-	err := prevBlacklist.VerifyProposedBlacklist(newBlacklist, nodeCount, round)
+	err := prevBlacklist.VerifyProposedBlacklist(newBlacklist, round)
 	require.NoError(t, err, "round %d", round)
 
 	return newBlacklist
