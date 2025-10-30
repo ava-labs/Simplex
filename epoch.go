@@ -1867,13 +1867,14 @@ func (e *Epoch) createNotarizedBlockVerificationTask(block Block, notarization N
 }
 
 func (e *Epoch) isBlockReadyToBeScheduled(seq uint64, prev Digest) bool {
-	if seq > 0 {
-		// A block can be scheduled if its predecessor is either notarized or finalized.
-		_, notarizedOrFinalized, _ := e.locateBlock(seq-1, prev[:])
-		return notarizedOrFinalized != nil
+	if seq == 0 {
+		return true
 	}
-	// The first block is always ready to be scheduled
-	return true
+
+	// A block can be scheduled if its predecessor is either notarized or finalized.
+	// AND we have empty notarizations for all the rounds in between. 
+	_, notarizedOrFinalized, _ := e.locateBlock(seq-1, prev[:])
+	return notarizedOrFinalized != nil
 }
 
 // VerifyBlockMessageVote checks if we have the block in the future messages map.

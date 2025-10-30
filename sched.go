@@ -159,16 +159,26 @@ func (as *Scheduler) ExecuteDependents(dep Digest) {
 
 type Task struct {
 	F      func() Digest
+	
 	Parent Digest
+	RequiredEmptyNotarizationRound []uint64
 }
 
 type dependencies struct {
-	dependsOn map[Digest][]Task // values depend on key.
+	blockDependencies map[Digest][]Task // values depend on key.
+	
+	emptyNotarizationDependencies map[uint64][]Task // values depend on key.
+
+
+
+	// just have a list of all the tasks
+	tasks []Task
 }
 
 func NewDependencies() dependencies {
 	return dependencies{
-		dependsOn: make(map[Digest][]Task),
+		blockDependencies: make(map[Digest][]Task),
+		emptyNotarizationDependencies: make(map[uint64][]Task),
 	}
 }
 
@@ -181,8 +191,23 @@ func (d *dependencies) Insert(t Task) {
 	d.dependsOn[dependency] = append(d.dependsOn[dependency], t)
 }
 
-func (t *dependencies) Remove(id Digest) []Task {
-	dependents := t.dependsOn[id]
-	delete(t.dependsOn, id)
+func (t *dependencies) RemoveDigest(id Digest) []Task {
+	dependents := t.blockDependencies[id]
+	delete(t.blockDependencies, id)
+
+	// for all the dependents we need to check if they also depend on empty notarizations
+	var ready []Task
+	for _, dep := range dependents {
+		for _,_ := t.emptyNotarizationDependencies {
+
+		}
+	}
+
+	return dependents
+}
+
+func (d *dependencies) RemoveEmptyNotarization(round uint64) []Task {
+	dependents := d.emptyNotarizationDependencies[round]
+	delete(d.emptyNotarizationDependencies, round)
 	return dependents
 }
