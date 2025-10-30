@@ -979,7 +979,7 @@ func (e *Epoch) persistFinalization(finalization Finalization) error {
 	startRound := e.round
 	nextSeqToCommit := e.nextSeqToCommit()
 
-	e.sched.ExecuteDependents(finalization.Finalization.Digest)
+	e.sched.ExecuteBlockDependents(finalization.Finalization.Digest)
 
 	if finalization.Finalization.Seq == nextSeqToCommit {
 		if err := e.indexFinalizations(finalization.Finalization.Round); err != nil {
@@ -1226,11 +1226,17 @@ func (e *Epoch) persistEmptyNotarization(emptyNotarization *EmptyNotarization, s
 		zap.Int("size", len(emptyNotarizationRecord)),
 		zap.Uint64("round", emptyNotarization.Vote.Round))
 
+	e.sched.ExecuteEmptyNotarizationDependents(emptyNotarization.Vote.Round)
+
 	if shouldBroadcast {
 		notarizationMessage := &Message{EmptyNotarization: emptyNotarization}
 		e.Comm.Broadcast(notarizationMessage)
 		e.Logger.Debug("Broadcast empty notarization",
 			zap.Uint64("round", emptyNotarization.Vote.Round))
+	}
+
+	if e.round != emptyNotarization.Vote.Round {
+		return nil
 	}
 
 	err := e.maybeMarkLeaderAsTimedOutForFutureBlacklisting(emptyNotarization)
@@ -1330,7 +1336,7 @@ func (e *Epoch) persistNotarization(notarization Notarization) error {
 		return err
 	}
 
-	e.sched.ExecuteDependents(notarization.Vote.Digest)
+	e.sched.ExecuteBlockDependents(notarization.Vote.Digest)
 
 	round := notarization.Vote.Round
 	for _, signer := range notarization.QC.Signers() {
@@ -1376,9 +1382,15 @@ func (e *Epoch) handleEmptyNotarizationMessage(emptyNotarization *EmptyNotarizat
 	}
 
 	// Ignore votes for previous rounds
-	if !e.isVoteRoundValid(vote.Round) {
-		e.Logger.Debug("Empty notarization is invalid",
-			zap.Uint64("round", vote.Round), zap.Uint64("our round", e.round))
+	// TODO: check if this impacts the wal(since we may have rounds stored out of order)
+	// if !e.isVoteRoundValid(vote.Round) {
+	// 	e.Logger.Debug("Empty notarization is invalid",
+	// 		zap.Uint64("round", vote.Round), zap.Uint64("our round", e.round))
+	// 	return nil
+	// }
+	if e.isVoteRoundTooFarBehind(vote.Round) {
+		e.Logger.Debug("Received a vote for a round too far behind",
+			zap.Uint64("round", vote.Round))
 		return nil
 	}
 
@@ -1386,26 +1398,48 @@ func (e *Epoch) handleEmptyNotarizationMessage(emptyNotarization *EmptyNotarizat
 	// If we did, then we don't need to process an empty notarization,
 	// because we have a way to progress to the successive round, regardless if
 	// it's our current round or not.
-	round, exists := e.rounds[vote.Round]
-	if exists && (round.notarization != nil || round.finalization != nil) {
-		return nil
-	}
+	// round, exists := e.rounds[vote.Round]
+	// if exists && (round.notarization != nil || round.finalization != nil) {
+	// 	return nil
+	// }
 
 	// Otherwise, this round is not notarized or finalized yet, so verify the empty notarization and store it.
 	if err := VerifyQC(emptyNotarization.QC, e.Logger, "Empty notarization", e.quorumSize, e.eligibleNodeIDs, emptyNotarization, from); err != nil {
+		e.Logger.Debug("Empty notarization QC verification failed", zap.Uint64("round", vote.Round), zap.Error(err))
 		return nil
 	}
 
 	emptyVotes := e.getOrCreateEmptyVoteSetForRound(vote.Round)
 	emptyVotes.emptyNotarization = emptyNotarization
-	if e.round != vote.Round {
-		e.Logger.Debug("Received empty notarization for a future round",
-			zap.Uint64("round", vote.Round), zap.Uint64("our round", e.round))
-		return nil
-	}
+	// if e.round != vote.Round {
+	// 	e.Logger.Debug("Received empty notarization for a future round",
+	// 		zap.Uint64("round", vote.Round), zap.Uint64("our round", e.round))
+	// 	return nil
+	// }
 
 	// The empty notarization is for this round, so store it but don't broadcast it, as we've received it via a broadcast.
 	return e.persistEmptyNotarization(emptyNotarization, false)
+}
+
+// we do not care to process votes for rounds where we have finalized
+func (e *Epoch) isVoteRoundTooFarBehind(round uint64) bool {
+	max := uint64(0)
+
+	for _, round := range e.rounds {
+		if round.num >= max {
+			if round.finalization == nil {
+				continue
+			}
+			max = round.num
+		}
+	}
+
+	// check if highest is in storage
+	if e.lastBlock.Finalization.Finalization.Round >= max {
+		max = e.lastBlock.Finalization.Finalization.Round
+	}
+
+	return round < max 
 }
 
 func (e *Epoch) handleNotarizationMessage(message *Notarization, from NodeID) error {
@@ -1432,7 +1466,7 @@ func (e *Epoch) handleNotarizationMessage(message *Notarization, from NodeID) er
 	// If this notarization is for a round we are currently processing its proposal,
 	// or for a future round, then store it for later use.
 	if !exists || e.round < vote.Round {
-		e.Logger.Debug("Received a notarization for a future round", zap.Uint64("round", vote.Round))
+		e.Logger.Debug("Received a notarization for a future round", zap.Uint64("round", vote.Round), zap.Uint64("my round", e.round))
 		e.storeFutureNotarization(message, from, vote.Round)
 		return nil
 	}
@@ -1537,19 +1571,53 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 	// Create a task that will verify the block in the future, after its predecessors have also been verified.
 	task := e.createBlockVerificationTask(e.oneTimeVerifier.Wrap(block), from, vote)
 
-	// isBlockReadyToBeScheduled checks if the block is known to us either from some previous round,
-	// or from storage. If so, then we have verified it in the past, since only verified blocks are saved in memory.
-	canBeImmediatelyVerified := e.isBlockReadyToBeScheduled(md.Seq, md.Prev)
+	prevBlockDependency, emptyNotarizationDependency := e.blockDependencies(md)
 
 	// Schedule the block to be verified once its direct predecessor have been verified,
 	// or if it can be verified immediately.
 	e.Logger.Debug("Scheduling block verification",
 		zap.Uint64("round", md.Round),
 		zap.Uint64("seq", md.Seq),
-		zap.Bool("ready", canBeImmediatelyVerified))
-	e.sched.Schedule(task, md.Prev, canBeImmediatelyVerified)
+		zap.Stringer("prevBlockDependency", prevBlockDependency),
+		zap.Uint64s("emptyNotarizationDependency", emptyNotarizationDependency))
+
+	e.sched.Schedule(task, prevBlockDependency, emptyNotarizationDependency)
 
 	return nil
+}
+
+// isBlockReadyToBeScheduled checks if the block is known to us either from some previous round,
+// or from storage. If so, then we have verified it in the past, since only verified blocks are saved in memory.
+// if we have a finalization we don't care about verifying previous empty blocks first
+// TODO: we should request empty notarizations if we don't have them
+func (e *Epoch) blockDependencies(bh BlockHeader) (Digest, []uint64) {
+	prevBlockDependency := bh.Prev
+
+	prevBlock, notarizationOrFinalization, found := e.locateBlock(bh.Seq-1, bh.Prev[:])
+	if !found {
+		// should never happen since we check this when we verify the proposal metadata
+		e.Logger.Error("Could not find predecessor block for proposal scheduling",
+			zap.Uint64("seq", bh.Seq-1),
+			zap.Stringer("prev", bh.Prev))
+
+		return emptyDigest, nil
+	}
+
+	// no block dependency if we already have a notarization or finalization for the previous block
+	if notarizationOrFinalization != nil {
+		prevBlockDependency = emptyDigest
+	}
+
+	// missing empty rounds
+	missingRounds := []uint64{}
+	for round := prevBlock.BlockHeader().Round + 1; round < bh.Round; round++ {
+		emptyVotes, exists := e.emptyVotes[round]
+		if !exists || emptyVotes.emptyNotarization == nil {
+			missingRounds = append(missingRounds, round)
+		}
+	}
+
+	return prevBlockDependency, missingRounds
 }
 
 // processFinalizedBlocks processes a block that has a finalization.
@@ -1587,14 +1655,12 @@ func (e *Epoch) processFinalizedBlock(block Block, finalization Finalization) er
 	// Create a task that will verify the block in the future, after its predecessors have also been verified.
 	task := e.createFinalizedBlockVerificationTask(e.oneTimeVerifier.Wrap(block), finalization)
 
-	// isBlockReadyToBeScheduled checks if the block is known to us either from some previous round,
-	// or from storage. If so, then we have verified it in the past, since only verified blocks are saved in memory.
-	canBeImmediatelyVerified := e.isBlockReadyToBeScheduled(md.Seq, md.Prev)
+	finalizedBlockDependency := e.finalizedBlockDependency(md)
 
 	// Schedule the block to be verified once its direct predecessor have been verified,
 	// or if it can be verified immediately.
 	e.Logger.Debug("Scheduling block verification", zap.Uint64("round", md.Round))
-	e.sched.Schedule(task, md.Prev, canBeImmediatelyVerified)
+	e.sched.Schedule(task, finalizedBlockDependency, nil)
 
 	return nil
 }
@@ -1652,14 +1718,12 @@ func (e *Epoch) processNotarizedBlock(block Block, notarization *Notarization) e
 	// Create a task that will verify the block in the future, after its predecessors have also been verified.
 	task := e.createNotarizedBlockVerificationTask(e.oneTimeVerifier.Wrap(block), *notarization)
 
-	// isBlockReadyToBeScheduled checks if the block is known to us either from some previous round,
-	// or from storage. If so, then we have verified it in the past, since only verified blocks are saved in memory.
-	canBeImmediatelyVerified := e.isBlockReadyToBeScheduled(md.Seq, md.Prev)
+	parentBlockDependency, emptyRoundDep := e.blockDependencies(md)
 
 	// Schedule the block to be verified once its direct predecessor have been verified,
 	// or if it can be verified immediately.
 	e.Logger.Debug("Scheduling block verification", zap.Uint64("round", md.Round))
-	e.sched.Schedule(task, md.Prev, canBeImmediatelyVerified)
+	e.sched.Schedule(task, parentBlockDependency, emptyRoundDep)
 
 	return nil
 }
@@ -1866,15 +1930,15 @@ func (e *Epoch) createNotarizedBlockVerificationTask(block Block, notarization N
 	}
 }
 
-func (e *Epoch) isBlockReadyToBeScheduled(seq uint64, prev Digest) bool {
-	if seq == 0 {
-		return true
+func (e *Epoch) finalizedBlockDependency(md BlockHeader) Digest {
+	// A block can be scheduled if its predecessor is either notarized or finalized.
+	// We do not care about empty notarizations since this block is finalized.
+	_, notarizedOrFinalized, _ := e.locateBlock(md.Seq-1, md.Prev[:])
+	if notarizedOrFinalized == nil {
+		return emptyDigest
 	}
 
-	// A block can be scheduled if its predecessor is either notarized or finalized.
-	// AND we have empty notarizations for all the rounds in between. 
-	_, notarizedOrFinalized, _ := e.locateBlock(seq-1, prev[:])
-	return notarizedOrFinalized != nil
+	return md.Prev
 }
 
 // VerifyBlockMessageVote checks if we have the block in the future messages map.
@@ -2067,7 +2131,7 @@ func (e *Epoch) buildBlock() {
 	}
 
 	e.Logger.Debug("Scheduling block building", zap.Uint64("round", metadata.Round))
-	e.sched.Schedule(task, metadata.Prev, true)
+	e.sched.Schedule(task, emptyDigest, []uint64{})
 }
 
 func (e *Epoch) retrieveBlacklistOfParentBlock(metadata ProtocolMetadata) (Blacklist, bool) {
