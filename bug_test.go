@@ -122,6 +122,113 @@ func TestChainBreak(t *testing.T) {
 	// }
 }
 
+// TestChainBreakComplement does the complement of TestChainBreak. It assumes our node gets an empty notarization first, but then receives a block assuming there was a notarization.
+func TestChainBreakComplement(t *testing.T) {
+	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1), BlockShouldBeBuilt: make(chan struct{}, 1)}
+	ctx := context.Background()
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	initialBlock := createBlocks(t, nodes, 1)[0]
+	recordingComm := &recordingComm{Communication: testutil.NewNoopComm(nodes), BroadcastMessages: make(chan *Message, 100), SentMessages: make(chan *Message, 100)}
+	conf, _, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], recordingComm, bb)
+	storage.Index(ctx, initialBlock.VerifiedBlock, initialBlock.Finalization)
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+
+	require.NoError(t, e.Start())
+	require.Equal(t, uint64(1), e.Metadata().Seq)
+
+	// we receive a block and then notarize(this sends out a finalize vote for the block)
+	advanceRoundFromEmpty(t, e)
+	require.Equal(t, uint64(1), e.Metadata().Seq)
+	require.Equal(t, uint64(2), e.Metadata().Round)
+
+	_, ok := bb.BuildBlock(context.Background(), ProtocolMetadata{
+		Round: 1,
+		Seq:   1,
+		Prev:  initialBlock.VerifiedBlock.BlockHeader().Digest,
+	}, simplex.Blacklist{
+		NodeCount: uint16(len(e.EpochConfig.Comm.Nodes())),
+	})
+	require.True(t, ok)
+	missingNotarizationBlock := <-bb.Out
+
+	md := ProtocolMetadata{
+		Round: 2,
+		Seq:   2, // set next seq to 2(our node expects 1)
+		Prev:  missingNotarizationBlock.Digest,
+	}
+	_, ok = bb.BuildBlock(context.Background(), md, simplex.Blacklist{
+		NodeCount: uint16(len(e.EpochConfig.Comm.Nodes())),
+	})
+	require.True(t, ok)
+	round2Block := <-bb.Out
+
+
+	round2Block.OnVerify = func() {
+		require.Fail(t, "block should not be verified since we don't have empty notarization for round 1")
+	}
+
+	// send block from leader
+	vote, err := testutil.NewTestVote(round2Block, nodes[2])
+	require.NoError(t, err)
+	err = e.HandleMessage(&simplex.Message{
+		BlockMessage: &simplex.BlockMessage{
+			Vote:  *vote,
+			Block: round2Block,
+		},
+	}, nodes[2])
+	require.NoError(t, err)
+
+	// currently we reject blocks if we dont have its parent ^
+	// but we shouldnt when we receive a notarization for that block
+
+	// create a notarization and now we should send a finalize vote for seq 1 again
+	notarization, err := testutil.NewNotarization(e.Logger, e.SignatureAggregator, round2Block, nodes[1:])
+	require.NoError(t, err)
+	testutil.InjectTestNotarization(t, e, notarization, nodes[1])
+
+	// wal.AssertNotarization(block.Metadata.Round)
+
+	// // wait for finalize votes
+	// for {
+	// 	msg := <-recordingComm.BroadcastMessages
+	// 	if msg.FinalizeVote != nil {
+	// 		require.Equal(t, uint64(2), msg.FinalizeVote.Finalization.Round)
+	// 		require.Equal(t, uint64(1), msg.FinalizeVote.Finalization.Seq)
+	// 		break
+	// 	}
+	// }
+
+	// require.Equal(t, uint64(2), e.Metadata().Seq)
+	// require.Equal(t, uint64(3), e.Metadata().Round)
+	// advanceRoundWithMD(t, e, bb, true, true,  ProtocolMetadata{
+	// 	Round: 2,
+	// 	Seq:   1, // next seq is 1 not 2
+	// 	Prev:  initialBlock.VerifiedBlock.BlockHeader().Digest,
+	// })
+
+
+	// for {
+	// 	msg := <-recordingComm.BroadcastMessages
+	// 	if msg.FinalizeVote != nil {
+	// 		// we should not have sent two different finalize votes for the same seq
+	// 		require.NotEqual(t, uint64(2), msg.FinalizeVote.Finalization.Round)
+	// 		require.NotEqual(t, uint64(1), msg.FinalizeVote.Finalization.Seq)
+	// 		break
+	// 	}
+
+	// 	if len(recordingComm.BroadcastMessages) == 0 {
+	// 		break
+	// 	}
+	// }
+}
+
+
+
+// TODO: test where we have the case above, but we received the block proposal
+// ^^ hmm we would have received the block proposal but never added it to rounds since there is no prev digest
+
 // returns the seq and the digest we have sent a finalize vote for
 func advanceWithFinalizeCheck(t *testing.T, e *Epoch, recordingComm *recordingComm, bb *testutil.TestBlockBuilder) (uint64, Digest){
 	round := e.Metadata().Round

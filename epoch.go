@@ -1448,11 +1448,19 @@ func (e *Epoch) handleNotarizationMessage(message *Notarization, from NodeID) er
 	e.Logger.Verbo("Received notarization message",
 		zap.Stringer("from", from), zap.Uint64("round", vote.Round))
 
-	if !e.isVoteRoundValid(vote.Round) {
+	// if !e.isVoteRoundValid(vote.Round) {
+	// 	e.Logger.Debug("Notarization is invalid",
+	// 		zap.Uint64("round", vote.Round), zap.Uint64("our round", e.round))
+	// 	return nil
+	// }
+	if e.isVoteRoundTooFarBehind(vote.Round) {
+		e.Logger.Debug("Received a vote for a round too far behind",
+			zap.Uint64("round", vote.Round))
 		return nil
 	}
 
 	if err := VerifyQC(message.QC, e.Logger, "Notarization", e.quorumSize, e.eligibleNodeIDs, message, from); err != nil {
+		e.Logger.Debug("Notarization QC verification failed", zap.Uint64("round", vote.Round), zap.Error(err))
 		return nil
 	}
 
