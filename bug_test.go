@@ -3,6 +3,7 @@ package simplex_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/ava-labs/simplex"
 	. "github.com/ava-labs/simplex"
@@ -10,9 +11,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestChainBreak tests that a node should not send two finalize votes for the same sequence number
-// It does so by advancing round 1 from a notarization, then advancing round 2 using a block built off an supposed empty notarization from round 1.
-func TestChainBreak(t *testing.T) {
+// TestFinalizeSameSequence tests that a node only verifies a block after it receives all the empty notarizations the block depends on.
+// This means the node can(and should) send a finalize vote for the same sequence if and only if a valid empty notarization has been verified.
+//
+// The test does this
+// Round 0 := finalized block of seq 0
+// Round 1 := receive block of seq 1, round 1 advance from notarization & send finalize vote
+// Round 2 := receive block of seq 1, round 2 and are unable to verify(because we don't have empty notarization yet)
+//
+//	once we receive the empty notarization, we verify the block and send out a finalize vote
+func TestFinalizeSameSequence(t *testing.T) {
 	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1), BlockShouldBeBuilt: make(chan struct{}, 1)}
 	ctx := context.Background()
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
@@ -73,7 +81,10 @@ func TestChainBreak(t *testing.T) {
 	}, nodes[2])
 	require.NoError(t, err)
 
+	// give some time for block to be (not)verified
+	time.Sleep(100 * time.Millisecond)
 	block.OnVerify = nil
+
 	// now lets send empty notarization
 	emptyNotarization := testutil.NewEmptyNotarization(nodes, 1)
 	err = e.HandleMessage(&simplex.Message{
@@ -100,30 +111,10 @@ func TestChainBreak(t *testing.T) {
 
 	require.Equal(t, uint64(2), e.Metadata().Seq)
 	require.Equal(t, uint64(3), e.Metadata().Round)
-	// advanceRoundWithMD(t, e, bb, true, true,  ProtocolMetadata{
-	// 	Round: 2,
-	// 	Seq:   1, // next seq is 1 not 2
-	// 	Prev:  initialBlock.VerifiedBlock.BlockHeader().Digest,
-	// })
-
-
-	// for {
-	// 	msg := <-recordingComm.BroadcastMessages
-	// 	if msg.FinalizeVote != nil {
-	// 		// we should not have sent two different finalize votes for the same seq
-	// 		require.NotEqual(t, uint64(2), msg.FinalizeVote.Finalization.Round)
-	// 		require.NotEqual(t, uint64(1), msg.FinalizeVote.Finalization.Seq)
-	// 		break
-	// 	}
-
-	// 	if len(recordingComm.BroadcastMessages) == 0 {
-	// 		break
-	// 	}
-	// }
 }
 
-// TestChainBreakComplement does the complement of TestChainBreak. It assumes our node gets an empty notarization first, but then receives a block assuming there was a notarization.
-func TestChainBreakComplement(t *testing.T) {
+// TestFinalizeSameSequenceComplement does the complement of TestFinalizeSameSequence. It assumes our node gets an empty notarization first, but then receives a block assuming there was a notarization.
+func TestFinalizeSameSequenceComplement(t *testing.T) {
 	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1), BlockShouldBeBuilt: make(chan struct{}, 1)}
 	ctx := context.Background()
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
@@ -163,7 +154,6 @@ func TestChainBreakComplement(t *testing.T) {
 	})
 	require.True(t, ok)
 	round2Block := <-bb.Out
-
 
 	round2Block.OnVerify = func() {
 		require.Fail(t, "block should not be verified since we don't have empty notarization for round 1")
@@ -208,7 +198,6 @@ func TestChainBreakComplement(t *testing.T) {
 	// 	Prev:  initialBlock.VerifiedBlock.BlockHeader().Digest,
 	// })
 
-
 	// for {
 	// 	msg := <-recordingComm.BroadcastMessages
 	// 	if msg.FinalizeVote != nil {
@@ -224,102 +213,100 @@ func TestChainBreakComplement(t *testing.T) {
 	// }
 }
 
-
-
 // TODO: test where we have the case above, but we received the block proposal
 // ^^ hmm we would have received the block proposal but never added it to rounds since there is no prev digest
 
 // returns the seq and the digest we have sent a finalize vote for
-func advanceWithFinalizeCheck(t *testing.T, e *Epoch, recordingComm *recordingComm, bb *testutil.TestBlockBuilder) (uint64, Digest){
-	round := e.Metadata().Round
-	seq := e.Metadata().Seq
-	advanceRoundFromNotarization(t, e, bb)
+// func advanceWithFinalizeCheck(t *testing.T, e *Epoch, recordingComm *recordingComm, bb *testutil.TestBlockBuilder) (uint64, Digest){
+// 	round := e.Metadata().Round
+// 	seq := e.Metadata().Seq
+// 	advanceRoundFromNotarization(t, e, bb)
 
-	// wait for finalize votes for the round
-	for {
-		msg := <-recordingComm.BroadcastMessages
-		if msg.FinalizeVote != nil {
-			require.Equal(t, round, msg.FinalizeVote.Finalization.Round)
-			require.Equal(t, seq, msg.FinalizeVote.Finalization.Seq)
-			return seq, msg.FinalizeVote.Finalization.Digest
-		}
-	}
-}
+// 	// wait for finalize votes for the round
+// 	for {
+// 		msg := <-recordingComm.BroadcastMessages
+// 		if msg.FinalizeVote != nil {
+// 			require.Equal(t, round, msg.FinalizeVote.Finalization.Round)
+// 			require.Equal(t, seq, msg.FinalizeVote.Finalization.Seq)
+// 			return seq, msg.FinalizeVote.Finalization.Digest
+// 		}
+// 	}
+// }
 
-func TestChainBreakLargeGap(t *testing.T) {
-	for numEmpty := range uint64(5) {
-		for numNotarizations := range uint64(5) {
-			for seqToDoubleFinalize := range numNotarizations {
-				testChainBreakLargeGap(t, numEmpty, numNotarizations, seqToDoubleFinalize)
-			}
-		}
-	} 
-}
+// func TestChainBreakLargeGap(t *testing.T) {
+// 	for numEmpty := range uint64(5) {
+// 		for numNotarizations := range uint64(5) {
+// 			for seqToDoubleFinalize := range numNotarizations {
+// 				testChainBreakLargeGap(t, numEmpty, numNotarizations, seqToDoubleFinalize)
+// 			}
+// 		}
+// 	}
+// }
 
-func testChainBreakLargeGap(t *testing.T, numEmptyNotarizations uint64, numNotarizations uint64, seqToDoubleFinalize uint64) {
-	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1), BlockShouldBeBuilt: make(chan struct{}, 1)}
-	ctx := context.Background()
-	nodes := []NodeID{{1}, {2}, {3}, {4}}
-	initialBlock := createBlocks(t, nodes, 1)[0]
-	recordingComm := &recordingComm{Communication: testutil.NewNoopComm(nodes), BroadcastMessages: make(chan *Message, 100), SentMessages: make(chan *Message, 100)}
-	conf, _, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], recordingComm, bb)
-	storage.Index(ctx, initialBlock.VerifiedBlock, initialBlock.Finalization)
+// func testChainBreakLargeGap(t *testing.T, numEmptyNotarizations uint64, numNotarizations uint64, seqToDoubleFinalize uint64) {
+// 	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1), BlockShouldBeBuilt: make(chan struct{}, 1)}
+// 	ctx := context.Background()
+// 	nodes := []NodeID{{1}, {2}, {3}, {4}}
+// 	initialBlock := createBlocks(t, nodes, 1)[0]
+// 	recordingComm := &recordingComm{Communication: testutil.NewNoopComm(nodes), BroadcastMessages: make(chan *Message, 100), SentMessages: make(chan *Message, 100)}
+// 	conf, _, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], recordingComm, bb)
+// 	storage.Index(ctx, initialBlock.VerifiedBlock, initialBlock.Finalization)
 
-	finalizeVoteSeqs := make(map[uint64]Digest)
-	e, err := NewEpoch(conf)
-	require.NoError(t, err)
+// 	finalizeVoteSeqs := make(map[uint64]Digest)
+// 	e, err := NewEpoch(conf)
+// 	require.NoError(t, err)
 
-	require.NoError(t, e.Start())
-	require.Equal(t, uint64(1), e.Metadata().Seq)
+// 	require.NoError(t, e.Start())
+// 	require.Equal(t, uint64(1), e.Metadata().Seq)
 
-	notarizationsLeft := numNotarizations
-	for i := uint64(0); i < numEmptyNotarizations; i++ {
-		leader := LeaderForRound(e.Comm.Nodes(), e.Metadata().Round)
-		if e.ID.Equals(leader) {
-			require.NotZero(t, notarizationsLeft)
-			seq, digest := advanceWithFinalizeCheck(t, e, recordingComm, bb)
-			finalizeVoteSeqs[seq] = digest
-			notarizationsLeft--
-			i--
-			continue
-		}
+// 	notarizationsLeft := numNotarizations
+// 	for i := uint64(0); i < numEmptyNotarizations; i++ {
+// 		leader := LeaderForRound(e.Comm.Nodes(), e.Metadata().Round)
+// 		if e.ID.Equals(leader) {
+// 			require.NotZero(t, notarizationsLeft)
+// 			seq, digest := advanceWithFinalizeCheck(t, e, recordingComm, bb)
+// 			finalizeVoteSeqs[seq] = digest
+// 			notarizationsLeft--
+// 			i--
+// 			continue
+// 		}
 
-		advanceRoundFromEmpty(t, e)
-	}
+// 		advanceRoundFromEmpty(t, e)
+// 	}
 
-	for range notarizationsLeft {
-		seq, digest := advanceWithFinalizeCheck(t, e, recordingComm, bb)
-		finalizeVoteSeqs[seq] = digest
-	}
+// 	for range notarizationsLeft {
+// 		seq, digest := advanceWithFinalizeCheck(t, e, recordingComm, bb)
+// 		finalizeVoteSeqs[seq] = digest
+// 	}
 
-	require.Equal(t, 1+numEmptyNotarizations+numNotarizations, e.Metadata().Round)
-	require.Equal(t, 1 + numNotarizations, e.Metadata().Seq)
+// 	require.Equal(t, 1+numEmptyNotarizations+numNotarizations, e.Metadata().Round)
+// 	require.Equal(t, 1 + numNotarizations, e.Metadata().Seq)
 
-	// clear the recorded messages
-	for len(recordingComm.BroadcastMessages) > 0 {
-		<-recordingComm.BroadcastMessages
-	}
+// 	// clear the recorded messages
+// 	for len(recordingComm.BroadcastMessages) > 0 {
+// 		<-recordingComm.BroadcastMessages
+// 	}
 
-	advanceRoundWithMD(t, e, bb, true, true,  ProtocolMetadata{
-		Round: e.Metadata().Round,
-		Seq:   seqToDoubleFinalize,
-		Prev:  finalizeVoteSeqs[seqToDoubleFinalize-1],
-	})
+// 	advanceRoundWithMD(t, e, bb, true, true,  ProtocolMetadata{
+// 		Round: e.Metadata().Round,
+// 		Seq:   seqToDoubleFinalize,
+// 		Prev:  finalizeVoteSeqs[seqToDoubleFinalize-1],
+// 	})
 
-	for {
-		msg := <-recordingComm.BroadcastMessages
-		if msg.FinalizeVote != nil {
-			// we should not have sent two different finalize votes for the same seq
-			// require.NotEqual(t, e, msg.FinalizeVote.Finalization.Round)
-			require.NotEqual(t, seqToDoubleFinalize, msg.FinalizeVote.Finalization.Seq)
-			break
-		}
+// 	for {
+// 		msg := <-recordingComm.BroadcastMessages
+// 		if msg.FinalizeVote != nil {
+// 			// we should not have sent two different finalize votes for the same seq
+// 			// require.NotEqual(t, e, msg.FinalizeVote.Finalization.Round)
+// 			require.NotEqual(t, seqToDoubleFinalize, msg.FinalizeVote.Finalization.Seq)
+// 			break
+// 		}
 
-		if len(recordingComm.BroadcastMessages) == 0 {
-			break
-		}
-	}
-}
+// 		if len(recordingComm.BroadcastMessages) == 0 {
+// 			break
+// 		}
+// 	}
+// }
 
 // garbageCollectSuspectedNodes progresses [e] to a new round. If [notarize] is set, the round will progress due to a notarization.
 // If [finalize] is set, the round will advance and the block will be indexed to storage.

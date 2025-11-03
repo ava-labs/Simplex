@@ -1439,7 +1439,7 @@ func (e *Epoch) isVoteRoundTooFarBehind(round uint64) bool {
 		max = e.lastBlock.Finalization.Finalization.Round
 	}
 
-	return round < max 
+	return round < max
 }
 
 func (e *Epoch) handleNotarizationMessage(message *Notarization, from NodeID) error {

@@ -129,10 +129,10 @@ func TestSchedulerWithEmptyRoundDependencies(t *testing.T) {
 		var counter atomic.Int32
 		var wg sync.WaitGroup
 		tasks := make(chan struct{})
-		
+
 		dig1 := makeDigest(t)
 		dig2 := makeDigest(t)
-		
+
 		// this task depends on dig1 and empty round 1. dig1 will run, but we ensure this doesn't
 		// start running until we get empty round 1
 		wg.Add(1)
