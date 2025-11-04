@@ -981,7 +981,7 @@ func (e *Epoch) persistFinalization(finalization Finalization) error {
 
 	e.sched.ExecuteBlockDependents(finalization.Finalization.Digest)
 	e.deleteOldEmptyVotes(finalization.Finalization.Round)
-	
+
 	if finalization.Finalization.Seq == nextSeqToCommit {
 		if err := e.indexFinalizations(finalization.Finalization.Round); err != nil {
 			e.Logger.Error("Failed to index finalizations", zap.Error(err))
