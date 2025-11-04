@@ -116,7 +116,7 @@ func TestFinalizeSameSequence(t *testing.T) {
 // TestFinalizeSameSequenceComplement does the complement of TestFinalizeSameSequence. It assumes our node gets an empty notarization first, but then receives a block assuming there was a notarization.
 // Round 0 := finalized block of seq 0
 // Round 1 := advance the round from an empty notarization for round 1
-// Round 2 := 
+// Round 2 :=
 func TestFinalizeSameSequenceComplement(t *testing.T) {
 	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1), BlockShouldBeBuilt: make(chan struct{}, 1)}
 	ctx := context.Background()
@@ -176,7 +176,7 @@ func TestFinalizeSameSequenceComplement(t *testing.T) {
 	require.NoError(t, err)
 
 	time.Sleep(100 * time.Millisecond)
-	
+
 	// TODO: we can either send the notarization & block for round1 before or after the notarization for round 2
 }
 

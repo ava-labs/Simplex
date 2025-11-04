@@ -17,8 +17,9 @@ import (
 )
 
 func TestWalOutOfOrderRecords(t *testing.T) {
-	// TODO: empty notarization appended to wal out of order 
+	// TODO: empty notarization appended to wal out of order
 }
+
 // TestRecoverFromWALProposed tests that the epoch can recover from
 // a wal with a single block record written to it(that we have proposed).
 func TestRecoverFromWALProposed(t *testing.T) {
