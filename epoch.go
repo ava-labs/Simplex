@@ -1235,6 +1235,7 @@ func (e *Epoch) persistEmptyNotarization(emptyNotarization *EmptyNotarization, s
 			zap.Uint64("round", emptyNotarization.Vote.Round))
 	}
 
+	// don't increase the round if this is a empty notarization for a past round
 	if e.round != emptyNotarization.Vote.Round {
 		return nil
 	}
@@ -1381,13 +1382,6 @@ func (e *Epoch) handleEmptyNotarizationMessage(emptyNotarization *EmptyNotarizat
 		return nil
 	}
 
-	// Ignore votes for previous rounds
-	// TODO: check if this impacts the wal(since we may have rounds stored out of order)
-	// if !e.isVoteRoundValid(vote.Round) {
-	// 	e.Logger.Debug("Empty notarization is invalid",
-	// 		zap.Uint64("round", vote.Round), zap.Uint64("our round", e.round))
-	// 	return nil
-	// }
 	if e.isVoteRoundTooFarBehind(vote.Round) {
 		e.Logger.Debug("Received a vote for a round too far behind",
 			zap.Uint64("round", vote.Round))

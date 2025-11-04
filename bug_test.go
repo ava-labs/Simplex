@@ -19,7 +19,7 @@ import (
 // Round 1 := receive block of seq 1, round 1 advance from notarization & send finalize vote
 // Round 2 := receive block of seq 1, round 2 and are unable to verify(because we don't have empty notarization yet)
 //
-//	once we receive the empty notarization, we verify the block and send out a finalize vote
+// Once we receive the empty notarization, we can verify the block(seq 1, round 2) and send out a finalize vote
 func TestFinalizeSameSequence(t *testing.T) {
 	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1), BlockShouldBeBuilt: make(chan struct{}, 1)}
 	ctx := context.Background()
@@ -114,6 +114,9 @@ func TestFinalizeSameSequence(t *testing.T) {
 }
 
 // TestFinalizeSameSequenceComplement does the complement of TestFinalizeSameSequence. It assumes our node gets an empty notarization first, but then receives a block assuming there was a notarization.
+// Round 0 := finalized block of seq 0
+// Round 1 := advance the round from an empty notarization for round 1
+// Round 2 := 
 func TestFinalizeSameSequenceComplement(t *testing.T) {
 	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1), BlockShouldBeBuilt: make(chan struct{}, 1)}
 	ctx := context.Background()
@@ -129,7 +132,6 @@ func TestFinalizeSameSequenceComplement(t *testing.T) {
 	require.NoError(t, e.Start())
 	require.Equal(t, uint64(1), e.Metadata().Seq)
 
-	// we receive a block and then notarize(this sends out a finalize vote for the block)
 	advanceRoundFromEmpty(t, e)
 	require.Equal(t, uint64(1), e.Metadata().Seq)
 	require.Equal(t, uint64(2), e.Metadata().Round)
@@ -156,12 +158,15 @@ func TestFinalizeSameSequenceComplement(t *testing.T) {
 	round2Block := <-bb.Out
 
 	round2Block.OnVerify = func() {
-		require.Fail(t, "block should not be verified since we don't have empty notarization for round 1")
+		require.Fail(t, "block should not be verified since we don't have block & notarization for round 1")
 	}
 
 	// send block from leader
 	vote, err := testutil.NewTestVote(round2Block, nodes[2])
 	require.NoError(t, err)
+
+	// We reject blocks when we don't have the notarization or parent for that round.
+	// TODO: we should auto request the block & notarization when receiving this message
 	err = e.HandleMessage(&simplex.Message{
 		BlockMessage: &simplex.BlockMessage{
 			Vote:  *vote,
@@ -170,47 +175,9 @@ func TestFinalizeSameSequenceComplement(t *testing.T) {
 	}, nodes[2])
 	require.NoError(t, err)
 
-	// currently we reject blocks if we dont have its parent ^
-	// but we shouldnt when we receive a notarization for that block
-
-	// create a notarization and now we should send a finalize vote for seq 1 again
-	notarization, err := testutil.NewNotarization(e.Logger, e.SignatureAggregator, round2Block, nodes[1:])
-	require.NoError(t, err)
-	testutil.InjectTestNotarization(t, e, notarization, nodes[1])
-
-	// wal.AssertNotarization(block.Metadata.Round)
-
-	// // wait for finalize votes
-	// for {
-	// 	msg := <-recordingComm.BroadcastMessages
-	// 	if msg.FinalizeVote != nil {
-	// 		require.Equal(t, uint64(2), msg.FinalizeVote.Finalization.Round)
-	// 		require.Equal(t, uint64(1), msg.FinalizeVote.Finalization.Seq)
-	// 		break
-	// 	}
-	// }
-
-	// require.Equal(t, uint64(2), e.Metadata().Seq)
-	// require.Equal(t, uint64(3), e.Metadata().Round)
-	// advanceRoundWithMD(t, e, bb, true, true,  ProtocolMetadata{
-	// 	Round: 2,
-	// 	Seq:   1, // next seq is 1 not 2
-	// 	Prev:  initialBlock.VerifiedBlock.BlockHeader().Digest,
-	// })
-
-	// for {
-	// 	msg := <-recordingComm.BroadcastMessages
-	// 	if msg.FinalizeVote != nil {
-	// 		// we should not have sent two different finalize votes for the same seq
-	// 		require.NotEqual(t, uint64(2), msg.FinalizeVote.Finalization.Round)
-	// 		require.NotEqual(t, uint64(1), msg.FinalizeVote.Finalization.Seq)
-	// 		break
-	// 	}
-
-	// 	if len(recordingComm.BroadcastMessages) == 0 {
-	// 		break
-	// 	}
-	// }
+	time.Sleep(100 * time.Millisecond)
+	
+	// TODO: we can either send the notarization & block for round1 before or after the notarization for round 2
 }
 
 // TODO: test where we have the case above, but we received the block proposal
