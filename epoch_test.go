@@ -1079,7 +1079,6 @@ func advanceRound(t *testing.T, e *simplex.Epoch, bb *testutil.TestBlockBuilder,
 		})
 		require.True(t, ok)
 	}
-
 	block := <-bb.Out
 
 	if !isEpochNode {

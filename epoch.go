@@ -980,7 +980,8 @@ func (e *Epoch) persistFinalization(finalization Finalization) error {
 	nextSeqToCommit := e.nextSeqToCommit()
 
 	e.sched.ExecuteBlockDependents(finalization.Finalization.Digest)
-
+	e.deleteOldEmptyVotes(finalization.Finalization.Round)
+	
 	if finalization.Finalization.Seq == nextSeqToCommit {
 		if err := e.indexFinalizations(finalization.Finalization.Round); err != nil {
 			e.Logger.Error("Failed to index finalizations", zap.Error(err))
@@ -2514,11 +2515,12 @@ func (e *Epoch) deleteRounds(round uint64) {
 	}
 }
 
-func (e *Epoch) deleteEmptyVoteForPreviousRound() {
-	if e.round == 0 {
-		return
+func (e *Epoch) deleteOldEmptyVotes(finalizedRound uint64) {
+	for r := range e.emptyVotes {
+		if r < finalizedRound {
+			delete(e.emptyVotes, r)
+		}
 	}
-	delete(e.emptyVotes, e.round-1)
 }
 
 func (e *Epoch) increaseRound() {
@@ -2531,7 +2533,6 @@ func (e *Epoch) increaseRound() {
 
 	// remove the rebroadcast empty vote task
 	e.timeoutHandler.RemoveTask(e.ID, EmptyVoteTimeoutID)
-	e.deleteEmptyVoteForPreviousRound()
 
 	prevLeader := LeaderForRound(e.nodes, e.round)
 	nextLeader := LeaderForRound(e.nodes, e.round+1)
