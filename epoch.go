@@ -1421,7 +1421,7 @@ func (e *Epoch) isVoteRoundTooFarBehind(round uint64) bool {
 	}
 
 	// check if highest is in storage
-	if e.lastBlock.Finalization.Finalization.Round >= max {
+	if e.lastBlock != nil && e.lastBlock.Finalization.Finalization.Round >= max {
 		max = e.lastBlock.Finalization.Finalization.Round
 	}
 
