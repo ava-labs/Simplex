@@ -1558,7 +1558,6 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 
 	// Create a task that will verify the block in the future, after its predecessors have also been verified.
 	task := e.createBlockVerificationTask(e.oneTimeVerifier.Wrap(block), from, vote)
-
 	prevBlockDependency, emptyNotarizationDependency := e.blockDependencies(md)
 
 	// Schedule the block to be verified once its direct predecessor have been verified,
@@ -1579,6 +1578,11 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 // as well as a list of rounds for which it needs to verify empty notarizations.
 // TODO: we should request empty notarizations if we don't have them
 func (e *Epoch) blockDependencies(bh BlockHeader) (Digest, []uint64) {
+	if bh.Seq == 0 {
+		// genesis block has no dependencies
+		return emptyDigest, nil
+	}
+
 	prevBlockDependency := bh.Prev
 
 	prevBlock, notarizationOrFinalization, found := e.locateBlock(bh.Seq-1, bh.Prev[:])
