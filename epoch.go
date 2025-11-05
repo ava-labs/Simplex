@@ -1929,6 +1929,11 @@ func (e *Epoch) createNotarizedBlockVerificationTask(block Block, notarization N
 // finalizedBlockDependency returns the dependency digest for a block that has a finalization.
 // We do not care about empty notarizations since the block is finalized.
 func (e *Epoch) finalizedBlockDependency(md BlockHeader) Digest {
+	if md.Seq == 0 {
+		// genesis block has no dependencies
+		return emptyDigest
+	}
+
 	// A block can be scheduled if its predecessor is either notarized or finalized.
 	// We do not care about empty notarizations since this block is finalized.
 	_, notarizedOrFinalized, found := e.locateBlock(md.Seq-1, md.Prev[:])
