@@ -615,7 +615,7 @@ func (e *Epoch) handleFinalizationForPendingOrFutureRound(message *Finalization,
 	}
 
 	// TODO: delay requesting future finalizations and blocks, since blocks could be in transit
-	e.Logger.Debug("Received finalization for a future round", zap.Uint64("round", round))
+	e.Logger.Debug("Received finalization for a future round", zap.Uint64("round", round), zap.Uint64("my round", e.round))
 	if LeaderForRound(e.nodes, e.round).Equals(e.ID) {
 		e.Logger.Debug("We are the leader of this round, but a higher round has been finalized. Aborting block building.")
 		e.blockBuilderCancelFunc()
@@ -1927,8 +1927,16 @@ func (e *Epoch) createNotarizedBlockVerificationTask(block Block, notarization N
 func (e *Epoch) finalizedBlockDependency(md BlockHeader) Digest {
 	// A block can be scheduled if its predecessor is either notarized or finalized.
 	// We do not care about empty notarizations since this block is finalized.
-	_, notarizedOrFinalized, _ := e.locateBlock(md.Seq-1, md.Prev[:])
-	if notarizedOrFinalized == nil {
+	_, notarizedOrFinalized, found := e.locateBlock(md.Seq-1, md.Prev[:])
+	if !found {
+		e.Logger.Error("Could not find predecessor block for finalized proposal scheduling",
+			zap.Uint64("seq", md.Seq-1),
+			zap.Stringer("prev", md.Prev))
+
+		return emptyDigest
+	}
+
+	if notarizedOrFinalized != nil {
 		return emptyDigest
 	}
 

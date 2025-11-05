@@ -4,13 +4,14 @@
 package simplex_test
 
 import (
-	"github.com/ava-labs/simplex"
-	"github.com/ava-labs/simplex/testutil"
-	"github.com/stretchr/testify/require"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/ava-labs/simplex"
+	"github.com/ava-labs/simplex/testutil"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSimplexRebroadcastFinalizationVotes(t *testing.T) {
