@@ -6,6 +6,7 @@ package simplex
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -341,4 +342,92 @@ func (nt *NotarizationTime) CheckForNotFinalizedNotarizedBlocks(now time.Time) {
 		nt.rebroadcastFinalizationVotes()
 		nt.lastRebroadcastTime = now
 	}
+}
+
+type RoundRange map[uint64]struct{}
+
+func (rr RoundRange) max() uint64 {
+	var max uint64
+	for round := range rr {
+		if round > max {
+			max = round
+		}
+	}
+	return max
+}
+
+type RoundRanges []RoundRange
+
+func (rrs RoundRanges) max() uint64{
+	var max uint64
+	for _, rr := range rrs {
+		rrMax := rr.max()
+		if rrMax > max {
+			max = rrMax
+		}
+	}
+	return max
+}
+
+func (rrs RoundRanges) allEmpty() bool {
+	allEmpty := true
+	for _, roundRange := range rrs {
+		if len(roundRange) > 0 {
+			return false
+		}
+	}
+	return allEmpty
+}
+
+type EmptyRoundsDependencies map[Digest]RoundRanges
+
+func (erd EmptyRoundsDependencies) MarkNotMissing(round uint64, onEmpty func(digest Digest)) {
+	for digest, roundRanges := range erd {
+		for _, roundRange := range roundRanges {
+			if _, exists := roundRange[round]; ! exists {
+				continue
+			}
+			delete(roundRange, round)
+			if len(roundRange) == 0 {
+				onEmpty(digest)
+			}
+		}
+		erd.maybeGarbageCollectEmptyRoundRanges(digest)
+	}
+}
+
+func (erd EmptyRoundsDependencies) PurgeOldRounds(round uint64) {
+	for digest, roundRanges := range erd {
+		if roundRanges.max() < round {
+			delete(erd, digest)
+			continue
+		}
+	}
+}
+
+func (erd EmptyRoundsDependencies) maybeGarbageCollectEmptyRoundRanges(digest Digest) {
+	roundRanges := erd[digest]
+	if roundRanges.allEmpty() {
+		delete(erd, digest)
+	}
+}
+
+func (erd EmptyRoundsDependencies) MissingEmptyRounds() []uint64 {
+	missing := make(map[uint64]struct{})
+	for _, roundRanges := range erd { // Digest --> []RoundRange
+		for _, roundRange := range roundRanges { // []RoundRange
+			for round := range roundRange { // map[uint64]struct{}
+				missing[round] = struct{}{}
+			}
+		}
+	}
+
+	res := make([]uint64, 0, len(missing))
+	for round := range missing {
+		res = append(res, round)
+	}
+
+	slices.Sort(res)
+
+	return res
 }

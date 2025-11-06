@@ -746,6 +746,64 @@ func TestEpochLeaderFailoverGarbageCollectedEmptyVotes(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestEpochLeaderFailoverDoNotPersistEmptyRoundTwice(t *testing.T) {
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1), BlockShouldBeBuilt: make(chan struct{}, 1)}
+	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+
+	require.NoError(t, e.Start())
+
+	for round := uint64(0); round < 3; round++ {
+		notarizeAndFinalizeRound(t, e, bb)
+	}
+
+	bb.BlockShouldBeBuilt <- struct{}{}
+
+	testutil.WaitForBlockProposerTimeout(t, e, &e.StartTime, e.Metadata().Round)
+
+	emptyBlockMd := ProtocolMetadata{
+		Round: 3,
+		Seq:   2,
+	}
+
+	emptyVoteFrom1 := createEmptyVote(emptyBlockMd, nodes[1])
+	emptyVoteFrom2 := createEmptyVote(emptyBlockMd, nodes[2])
+
+	err = e.HandleMessage(&Message{
+		EmptyVoteMessage: emptyVoteFrom1,
+	}, nodes[1])
+	require.NoError(t, err)
+
+	err = e.HandleMessage(&Message{
+		EmptyVoteMessage: emptyVoteFrom2,
+	}, nodes[2])
+	require.NoError(t, err)
+
+	require.True(t, wal.ContainsEmptyNotarization(3))
+
+	walContent, err := wal.ReadAll()
+	require.NoError(t, err)
+
+	prevWALSize := len(walContent)
+
+	en := testutil.NewEmptyNotarization(nodes, 3)
+
+	err = e.HandleMessage(&Message{
+		EmptyNotarization: en,
+	}, nodes[2])
+	require.NoError(t, err)
+
+	walContent, err = wal.ReadAll()
+	require.NoError(t, err)
+
+	nextWALSize := len(walContent)
+
+	require.Equal(t, prevWALSize, nextWALSize, "WAL size should not increase after receiving duplicate empty notarization")
+}
+
 func TestEpochLeaderFailoverBecauseOfBadBlock(t *testing.T) {
 	// This test ensures that if a block is proposed by a node, but it is invalid,
 	// the node will immediately proceed to notarize the empty block.

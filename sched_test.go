@@ -5,10 +5,8 @@ package simplex_test
 
 import (
 	"crypto/rand"
-	"fmt"
 	rand2 "math/rand"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -18,146 +16,57 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var emptyDigest = simplex.Digest{}
+func noopPredicate() bool {
+	return true
+}
 
 func TestDependencyTree(t *testing.T) {
 	dt := simplex.NewDependencies()
 
 	for i := 0; i < 5; i++ {
-		dt.Insert(simplex.Task{
-			F: func() simplex.Digest {
-				return simplex.Digest{uint8(i + 1)}
-			}, ParentBlockDependency: simplex.Digest{uint8(i)},
-		},
-		)
+		dt.Insert(simplex.Task{F: func() simplex.Digest {
+			return simplex.Digest{uint8(i + 1)}
+		}, Parent: simplex.Digest{uint8(i)}})
 	}
 
 	require.Equal(t, 5, dt.Size())
 
 	for i := 0; i < 5; i++ {
-		j := dt.RemoveDigest(simplex.Digest{uint8(i)})
+		j := dt.Remove(simplex.Digest{uint8(i)})
 		require.Len(t, j, 1)
 		require.Equal(t, simplex.Digest{uint8(i + 1)}, j[0].F())
 	}
+
 }
 
-func TestSchedulerWithEmptyRoundDependencies(t *testing.T) {
-	t.Run("Single Empty Round", func(t *testing.T) {
-		as := simplex.NewScheduler(testutil.MakeLogger(t))
-		defer as.Close()
+func TestExecuteDependents(t *testing.T) {
+	as := simplex.NewScheduler(testutil.MakeLogger(t))
+	defer as.Close()
 
-		var counter atomic.Int32
-		var wg sync.WaitGroup
-		wg.Add(1)
+	var wg sync.WaitGroup
+	wg.Add(1)
 
-		dig2 := makeDigest(t)
+	var ready bool
 
-		as.Schedule(func() simplex.Digest {
-			defer wg.Done()
-			counter.Add(1)
-			return dig2
-		}, emptyDigest, []uint64{1})
+	var executed bool
 
-		require.Zero(t, counter.Load())
-		as.ExecuteEmptyNotarizationDependents(1)
-		wg.Wait()
-		require.Equal(t, int32(1), counter.Load())
-	})
-	t.Run("Multiple Empty Rounds", func(t *testing.T) {
-		as := simplex.NewScheduler(testutil.MakeLogger(t))
-		defer as.Close()
+	isReady := func() bool {
+		return ready
+	}
 
-		var counter atomic.Int32
-		var wg sync.WaitGroup
-		ticks := make(chan struct{})
+	as.Schedule(func() simplex.Digest {
+		defer wg.Done()
+		executed = true
+		return simplex.Digest{}
+	}, simplex.Digest{123}, isReady)
 
-		wg.Add(1)
-		as.Schedule(func() simplex.Digest {
-			defer wg.Done()
-			counter.Add(1)
-			return makeDigest(t)
-		}, emptyDigest, []uint64{1, 2, 3})
+	as.ExecuteDependents(simplex.Digest{123})
+	require.False(t, executed, "Task should not have executed yet")
 
-		wg.Add(1)
-		as.Schedule(func() simplex.Digest {
-			defer wg.Done()
-			counter.Add(2)
-			ticks <- struct{}{}
-			return makeDigest(t)
-		}, emptyDigest, []uint64{1})
-
-		require.Zero(t, counter.Load())
-		as.ExecuteEmptyNotarizationDependents(1)
-		<-ticks
-		require.Equal(t, int32(2), counter.Load())
-
-		as.ExecuteEmptyNotarizationDependents(2)
-		as.ExecuteEmptyNotarizationDependents(3)
-		wg.Wait()
-		require.Equal(t, int32(3), counter.Load())
-	})
-
-	t.Run("Empty Round With Digest", func(t *testing.T) {
-		as := simplex.NewScheduler(testutil.MakeLogger(t))
-		defer as.Close()
-
-		var counter atomic.Int32
-		var wg sync.WaitGroup
-		wg.Add(1)
-
-		dig1 := makeDigest(t)
-		dig2 := makeDigest(t)
-
-		as.Schedule(func() simplex.Digest {
-			defer wg.Done()
-			counter.Add(1)
-			return dig2
-		}, dig1, []uint64{1})
-
-		require.Zero(t, counter.Load())
-		as.ExecuteEmptyNotarizationDependents(1)
-		require.Zero(t, counter.Load())
-		as.ExecuteBlockDependents(dig1)
-		wg.Wait()
-		require.Equal(t, int32(1), counter.Load())
-	})
-
-	t.Run("Parent Digest But Child Still Has Empty Rounds", func(t *testing.T) {
-		as := simplex.NewScheduler(testutil.MakeLogger(t))
-		defer as.Close()
-
-		var counter atomic.Int32
-		var wg sync.WaitGroup
-		tasks := make(chan struct{})
-
-		dig1 := makeDigest(t)
-		dig2 := makeDigest(t)
-
-		// this task depends on dig1 and empty round 1. dig1 will run, but we ensure this doesn't
-		// start running until we get empty round 1
-		wg.Add(1)
-		as.Schedule(func() simplex.Digest {
-			defer wg.Done()
-			counter.Add(1)
-			return dig2
-		}, dig1, []uint64{1})
-
-		require.Zero(t, counter.Load())
-
-		wg.Add(1)
-		fmt.Println("done scheduling second task")
-		as.Schedule(func() simplex.Digest {
-			defer wg.Done()
-			tasks <- struct{}{}
-			return dig1
-		}, emptyDigest, nil)
-
-		<-tasks
-		require.Zero(t, counter.Load())
-		as.ExecuteEmptyNotarizationDependents(1)
-		wg.Wait()
-		require.Equal(t, int32(1), counter.Load())
-	})
+	ready = true
+	as.ExecuteDependents(simplex.Digest{123})
+	wg.Wait()
+	require.True(t, executed, "Task should have executed")
 }
 
 func TestAsyncScheduler(t *testing.T) {
@@ -170,13 +79,14 @@ func TestAsyncScheduler(t *testing.T) {
 		var wg sync.WaitGroup
 		wg.Add(1)
 
+		dig1 := makeDigest(t)
 		dig2 := makeDigest(t)
 
 		as.Schedule(func() simplex.Digest {
 			defer wg.Done()
 			<-ticks
 			return dig2
-		}, emptyDigest, []uint64{})
+		}, dig1, noopPredicate)
 
 		ticks <- struct{}{}
 		wg.Wait()
@@ -188,12 +98,13 @@ func TestAsyncScheduler(t *testing.T) {
 
 		as.Close()
 
+		dig1 := makeDigest(t)
 		dig2 := makeDigest(t)
 
 		as.Schedule(func() simplex.Digest {
 			close(ticks)
 			return dig2
-		}, emptyDigest, []uint64{})
+		}, dig1, noopPredicate)
 
 		ticks <- struct{}{}
 	})
@@ -249,12 +160,9 @@ func scheduleTask(lock *sync.Mutex, finished map[simplex.Digest]struct{}, depend
 			return id
 		}
 
-		dep := emptyDigest
-		if !hasFinished {
-			dep = dependency
-		}
-
-		as.Schedule(task, dep, []uint64{})
+		as.Schedule(task, dep, func() bool {
+			return i == 0 || hasFinished
+		})
 	}
 }
 

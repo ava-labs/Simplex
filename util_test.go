@@ -494,3 +494,121 @@ func TestNotarizationTime(t *testing.T) {
 	nt.CheckForNotFinalizedNotarizedBlocks(now)
 	require.Equal(t, 2, invoked)
 }
+
+func TestMarkNotMissing(t *testing.T) {
+	for _, testCase := range []struct{
+		name string
+		notMissing EmptyRoundsDependencies
+		round uint64
+		expectedOnEmpty []Digest
+		expectedNotMissing EmptyRoundsDependencies
+	}{
+		{
+			name: "unrelated",
+			notMissing: EmptyRoundsDependencies{
+				Digest{1}: RoundRanges{{5: {}}},
+			},
+			expectedNotMissing: EmptyRoundsDependencies{
+				Digest{1}: RoundRanges{{5: {}}},
+			},
+			round: 4,
+		},
+		{
+			name: "related but no need for garbage collection",
+			notMissing: EmptyRoundsDependencies{
+				Digest{1}: RoundRanges{{5: {}, 6: {}, 7: {}}},
+			},
+			expectedNotMissing: EmptyRoundsDependencies{
+				Digest{1}: RoundRanges{{5: {}, 7: {}}},
+			},
+			round: 6,
+		},
+		{
+			name: "related and on empty is invoked",
+			notMissing: EmptyRoundsDependencies{
+				Digest{1}: RoundRanges{{ 6: {}}},
+				Digest{2}: RoundRanges{{ 7: {}}},
+			},
+			expectedNotMissing: EmptyRoundsDependencies{
+				Digest{2}: RoundRanges{{ 7: {}}},
+			},
+			expectedOnEmpty: []Digest{{1}},
+			round: 6,
+		},
+		{
+			name: "related and there is a need to garbage collect",
+			notMissing: EmptyRoundsDependencies{
+				Digest{1}: RoundRanges{{ 6: {}}},
+				Digest{2}: RoundRanges{{ 6: {}}},
+			},
+			expectedNotMissing: EmptyRoundsDependencies{},
+			expectedOnEmpty: []Digest{{1}, {2}},
+			round: 6,
+		},
+	}{
+		t.Run(testCase.name, func(t *testing.T) {
+			var onEmpty []Digest
+			testCase.notMissing.MarkNotMissing(testCase.round, func(d Digest) {
+				onEmpty = append(onEmpty, d)
+			})
+			require.Equal(t, testCase.expectedOnEmpty, onEmpty)
+			require.Equal(t, testCase.expectedNotMissing, testCase.notMissing)
+		})
+	}
+}
+
+func TestPurgeOldRounds(t *testing.T) {
+	for _, testCase := range []struct{
+		name string
+		notMissing EmptyRoundsDependencies
+		round uint64
+		expected EmptyRoundsDependencies
+	}{
+		{
+			name: "no rounds to purge",
+			notMissing: EmptyRoundsDependencies{
+				Digest{1}: RoundRanges{{5: {}, 6: {}, 7: {}}},
+			},
+			expected: EmptyRoundsDependencies{
+				Digest{1}: RoundRanges{{5: {}, 6: {}, 7: {}}},
+			},
+			round: 6,
+		},
+		{
+			name: "all rounds to purge",
+			notMissing: EmptyRoundsDependencies{
+				Digest{1}: RoundRanges{{5: {}, 6: {}}},
+				Digest{2}: RoundRanges{{4: {}}},
+			},
+			expected: EmptyRoundsDependencies{},
+			round: 7,
+		},
+	}{
+		t.Run(testCase.name, func(t *testing.T) {
+			testCase.notMissing.PurgeOldRounds(testCase.round)
+			require.Equal(t, testCase.expected, testCase.notMissing)
+		})
+	}
+}
+
+func TestMissingEmptyRounds(t *testing.T) {
+	for _, testCase := range []struct{
+		name string
+		notMissing EmptyRoundsDependencies
+		expected []uint64
+	}{
+		{
+			name: "missing",
+			notMissing: EmptyRoundsDependencies{
+				Digest{1}: RoundRanges{{5: {}, 7: {}}},
+				Digest{2}: RoundRanges{{3: {}, 4: {}}},
+			},
+			expected: []uint64{3, 4, 5, 7},
+		},
+	}{
+		t.Run(testCase.name, func(t *testing.T) {
+			result := testCase.notMissing.MissingEmptyRounds()
+			require.Equal(t, testCase.expected, result)
+		})
+	}
+}
