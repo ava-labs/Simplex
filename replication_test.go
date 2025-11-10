@@ -320,7 +320,7 @@ func testReplicationEmptyNotarizations(t *testing.T, nodes []simplex.NodeID, end
 	net.SetAllNodesMessageFilter(AllowAllMessages)
 	net.Connect(laggingNode.E.ID)
 	net.TriggerLeaderBlockBuilder(endRound)
-	for i, n := range net.Instances {
+	for _, n := range net.Instances {
 		if n.E.ID.Equals(laggingNode.E.ID) {
 			// maybe lagging node has requested finalizations to a node without it, we may need to resend the request
 			for {
@@ -328,8 +328,7 @@ func testReplicationEmptyNotarizations(t *testing.T, nodes []simplex.NodeID, end
 					break
 				}
 				time.Sleep(10 * time.Millisecond)
-				startTimes[i] = startTimes[i].Add(2 * simplex.DefaultMaxProposalWaitTime)
-				n.E.AdvanceTime(startTimes[i])
+				n.AdvanceTime(2 * simplex.DefaultMaxProposalWaitTime)
 			}
 			continue
 		}
@@ -1136,9 +1135,7 @@ func TestReplicationVotesForNotarizations(t *testing.T) {
 		ReplicationEnabled: true,
 	})
 
-	startTimes := make([]time.Time, 0, len(nodes))
 	for _, n := range net.Instances {
-		startTimes = append(startTimes, n.E.StartTime)
 		if n.E.ID.Equals(laggingNode.E.ID) {
 			require.Equal(t, uint64(0), n.Storage.NumBlocks())
 			continue
@@ -1157,7 +1154,7 @@ func TestReplicationVotesForNotarizations(t *testing.T) {
 		emptyRound := bytes.Equal(simplex.LeaderForRound(nodes, round), laggingNode.E.ID)
 		if emptyRound {
 			missedSeqs++
-			net.AdvanceWithoutLeader(startTimes, round, laggingNode.E.ID)
+			net.AdvanceWithoutLeader(round, laggingNode.E.ID)
 		} else {
 			net.TriggerLeaderBlockBuilder(round)
 			for _, n := range net.Instances {
@@ -1212,8 +1209,7 @@ func TestReplicationVotesForNotarizations(t *testing.T) {
 			break
 		}
 
-		startTimes[3] = startTimes[3].Add(simplex.DefaultReplicationRequestTimeout)
-		laggingNode.E.AdvanceTime(startTimes[3])
+		laggingNode.AdvanceTime(simplex.DefaultReplicationRequestTimeout)
 	}
 
 	for _, n := range net.Instances {
@@ -1262,17 +1258,12 @@ func testReplicationEmptyNotarizationsTail(t *testing.T, nodes []simplex.NodeID,
 		}
 	}
 
-	startTimes := make([]time.Time, 0, len(nodes))
 	NewSimplexNode(t, nodes[0], net, newNodeConfig(nodes[0]))
 	NewSimplexNode(t, nodes[1], net, newNodeConfig(nodes[1]))
 	NewSimplexNode(t, nodes[2], net, newNodeConfig(nodes[2]))
 	NewSimplexNode(t, nodes[3], net, newNodeConfig(nodes[3]))
 	NewSimplexNode(t, nodes[4], net, newNodeConfig(nodes[4]))
 	laggingNode := NewSimplexNode(t, nodes[5], net, newNodeConfig(nodes[5]))
-	for _, n := range net.Instances {
-		require.Equal(t, uint64(0), n.Storage.NumBlocks())
-		startTimes = append(startTimes, n.E.StartTime)
-	}
 
 	net.StartInstances()
 
@@ -1286,7 +1277,7 @@ func testReplicationEmptyNotarizationsTail(t *testing.T, nodes []simplex.NodeID,
 			net.TriggerLeaderBlockBuilder(i)
 		}
 
-		net.AdvanceWithoutLeader(startTimes, i, laggingNode.E.ID)
+		net.AdvanceWithoutLeader(i, laggingNode.E.ID)
 	}
 
 	for _, n := range net.Instances {
