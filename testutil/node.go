@@ -117,3 +117,26 @@ func (t *TestNode) handleMessages() {
 		}
 	}
 }
+
+// TimeoutOnRound advances time until the node times out of the given round.
+func (t *TestNode) TimeoutOnRound(round uint64) {
+	startTime := time.UnixMilli(t.currentTime.Load())
+	for {
+		currentRound := t.E.Metadata().Round
+		if currentRound > round {
+			return
+		}
+		if len(t.BB.BlockShouldBeBuilt) == 0 {
+			t.BB.BlockShouldBeBuilt <- struct{}{}
+		}
+		startTime = startTime.Add(t.E.MaxProposalWait)
+		t.E.AdvanceTime(startTime)
+
+		// check the wal for an empty vote for that round
+		if hasVote := t.WAL.ContainsEmptyVote(round); hasVote {
+			return
+		}
+
+		time.Sleep(50 * time.Millisecond)
+	}
+}
