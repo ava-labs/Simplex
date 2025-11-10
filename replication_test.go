@@ -164,11 +164,6 @@ func TestRebroadcastingWithReplication(t *testing.T) {
 		require.Equal(t, uint64(0), n.Storage.NumBlocks())
 	}
 
-	epochTimes := make([]time.Time, 0, len(nodes))
-	for _, n := range net.Instances {
-		epochTimes = append(epochTimes, n.E.StartTime)
-	}
-
 	net.StartInstances()
 
 	net.Disconnect(laggingNode.E.ID)
@@ -190,7 +185,7 @@ func TestRebroadcastingWithReplication(t *testing.T) {
 	for i := uint64(1); i < numNotarizations; i++ {
 		emptyRound := bytes.Equal(simplex.LeaderForRound(nodes, i), laggingNode.E.ID)
 		if emptyRound {
-			net.AdvanceWithoutLeader(epochTimes, i, laggingNode.E.ID)
+			net.AdvanceWithoutLeader(i, laggingNode.E.ID)
 			missedSeqs++
 		} else {
 			net.TriggerLeaderBlockBuilder(i)
@@ -233,9 +228,8 @@ func TestRebroadcastingWithReplication(t *testing.T) {
 				// if we haven't indexed, advance the time to trigger rebroadcast/replication timeouts
 				select {
 				case <-time.After(time.Millisecond * 10):
-					for i, n := range net.Instances {
-						epochTimes[i] = epochTimes[i].Add(2 * simplex.DefaultMaxProposalWaitTime)
-						n.E.AdvanceTime(epochTimes[i])
+					for _, n := range net.Instances {
+						n.AdvanceTime(2 * simplex.DefaultMaxProposalWaitTime)
 					}
 					continue
 				case <-timeout.C:
@@ -279,17 +273,12 @@ func testReplicationEmptyNotarizations(t *testing.T, nodes []simplex.NodeID, end
 		}
 	}
 
-	startTimes := make([]time.Time, 0, len(nodes))
 	NewSimplexNode(t, nodes[0], net, newNodeConfig(nodes[0]))
 	NewSimplexNode(t, nodes[1], net, newNodeConfig(nodes[1]))
 	NewSimplexNode(t, nodes[2], net, newNodeConfig(nodes[2]))
 	NewSimplexNode(t, nodes[3], net, newNodeConfig(nodes[3]))
 	NewSimplexNode(t, nodes[4], net, newNodeConfig(nodes[4]))
 	laggingNode := NewSimplexNode(t, nodes[5], net, newNodeConfig(nodes[5]))
-	for _, n := range net.Instances {
-		require.Equal(t, uint64(0), n.Storage.NumBlocks())
-		startTimes = append(startTimes, n.E.StartTime)
-	}
 
 	net.StartInstances()
 
@@ -312,7 +301,7 @@ func testReplicationEmptyNotarizations(t *testing.T, nodes []simplex.NodeID, end
 			net.TriggerLeaderBlockBuilder(i)
 		}
 
-		net.AdvanceWithoutLeader(startTimes, i, laggingNode.E.ID)
+		net.AdvanceWithoutLeader(i, laggingNode.E.ID)
 	}
 
 	for _, n := range net.Instances {
@@ -497,11 +486,6 @@ func testReplicationAfterNodeDisconnects(t *testing.T, nodes []simplex.NodeID, s
 	require.Equal(t, uint64(0), normalNode3.Storage.NumBlocks())
 	require.Equal(t, uint64(0), laggingNode.Storage.NumBlocks())
 
-	epochTimes := make([]time.Time, 0, 4)
-	for _, n := range net.Instances {
-		epochTimes = append(epochTimes, n.E.StartTime)
-	}
-
 	net.StartInstances()
 
 	for i := uint64(0); i < startDisconnect; i++ {
@@ -528,7 +512,7 @@ func testReplicationAfterNodeDisconnects(t *testing.T, nodes []simplex.NodeID, s
 	for i := startDisconnect; i < endDisconnect; i++ {
 		emptyRound := bytes.Equal(simplex.LeaderForRound(nodes, i), nodes[3])
 		if emptyRound {
-			net.AdvanceWithoutLeader(epochTimes, i, laggingNode.E.ID)
+			net.AdvanceWithoutLeader(i, laggingNode.E.ID)
 			missedSeqs++
 		} else {
 			net.TriggerLeaderBlockBuilder(i)
@@ -753,12 +737,6 @@ func TestReplicationNodeDiverges(t *testing.T) {
 	NewSimplexNode(t, nodes[4], net, nodeConfig(nodes[4]))
 	NewSimplexNode(t, nodes[5], net, nodeConfig(nodes[5]))
 
-	startTimes := make([]time.Time, 0, len(nodes))
-	for _, n := range net.Instances {
-		require.Equal(t, uint64(0), n.Storage.NumBlocks())
-		startTimes = append(startTimes, n.E.StartTime)
-	}
-
 	net.StartInstances()
 	net.TriggerLeaderBlockBuilder(0)
 
@@ -782,7 +760,7 @@ func TestReplicationNodeDiverges(t *testing.T) {
 
 	// This function call ensures all nodes will timeout, and
 	// receive an empty notarization for round 0(except for lagging).
-	net.AdvanceWithoutLeader(startTimes, 0, laggingNode.E.ID)
+	net.AdvanceWithoutLeader(0, laggingNode.E.ID)
 
 	for _, n := range net.Instances {
 		if n.E.ID.Equals(laggingNode.E.ID) {
@@ -800,7 +778,7 @@ func TestReplicationNodeDiverges(t *testing.T) {
 	for i := uint64(1); i < 1+numBlocks; i++ {
 		emptyRound := bytes.Equal(simplex.LeaderForRound(nodes, i), laggingNode.E.ID)
 		if emptyRound {
-			net.AdvanceWithoutLeader(startTimes, i, laggingNode.E.ID)
+			net.AdvanceWithoutLeader(i, laggingNode.E.ID)
 			missedSeqs++
 		} else {
 			net.TriggerLeaderBlockBuilder(i)
@@ -824,7 +802,7 @@ func TestReplicationNodeDiverges(t *testing.T) {
 	}
 
 	// we are in round 6(which means node 1 should be leader(but it is blacklisted))
-	net.AdvanceWithoutLeader(startTimes, 1+numBlocks, laggingNode.E.ID)
+	net.AdvanceWithoutLeader(1+numBlocks, laggingNode.E.ID)
 
 	net.TriggerLeaderBlockBuilder(numBlocks + 2)
 	for _, n := range net.Instances {

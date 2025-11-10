@@ -1032,6 +1032,9 @@ func (e *Epoch) persistFinalization(finalization Finalization) error {
 	// or otherwise write it to the WAL in order to commit it later.
 	startRound := e.round
 	nextSeqToCommit := e.nextSeqToCommit()
+
+	e.sched.ExecuteDependents(finalization.Finalization.Digest)
+
 	if finalization.Finalization.Seq == nextSeqToCommit {
 		if err := e.indexFinalizations(finalization.Finalization.Round); err != nil {
 			e.Logger.Error("Failed to index finalizations", zap.Error(err))
@@ -1370,14 +1373,18 @@ func (e *Epoch) writeNotarizationToWal(notarization Notarization) error {
 }
 
 func (e *Epoch) persistNotarization(notarization Notarization) error {
+	r, exists := e.rounds[notarization.Vote.Round]
+	if !exists {
+		return fmt.Errorf("attempted to store notarization of a non existent round %d", notarization.Vote.Round)
+	}
+
+	r.notarization = &notarization
+
 	if err := e.writeNotarizationToWal(notarization); err != nil {
 		return err
 	}
 
-	err := e.storeNotarization(notarization)
-	if err != nil {
-		return err
-	}
+	e.sched.ExecuteDependents(notarization.Vote.Digest)
 
 	round := notarization.Vote.Round
 	for _, signer := range notarization.QC.Signers() {
@@ -1515,12 +1522,6 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 
 	md := block.BlockHeader()
 
-	if e.Epoch != md.Epoch {
-		e.Logger.Debug("Got block message but the epoch mismatches our epoch",
-			zap.Uint64("our epoch", e.Epoch), zap.Uint64("block epoch", md.Epoch))
-		return nil
-	}
-
 	e.Logger.Verbo("Received block message",
 		zap.Stringer("from", from),
 		zap.Uint64("round", md.Round),
@@ -1536,7 +1537,6 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 	from = vote.Signature.Signer
 
 	e.Logger.Debug("Handling block message", zap.Stringer("digest", md.Digest), zap.Uint64("round", md.Round))
-
 	// Don't bother processing blocks from the past
 	if e.round > md.Round {
 		return nil
@@ -1559,22 +1559,8 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 	}
 
 	// Check if we have verified this message in the past:
-	alreadyVerified := e.wasBlockAlreadyVerified(from, md)
-
-	if !alreadyVerified {
-		// Ensure the block was voted on by its block producer:
-
-		// 1) Verify block digest corresponds to the digest voted on
-		if !bytes.Equal(vote.Vote.Digest[:], md.Digest[:]) {
-			e.Logger.Debug("ToBeSignedVote digest mismatches block digest", zap.Stringer("voteDigest", vote.Vote.Digest),
-				zap.Stringer("blockDigest", md.Digest))
-			return nil
-		}
-		// 2) Verify the vote is properly signed
-		if err := vote.Vote.Verify(vote.Signature.Value, e.Verifier, vote.Signature.Signer); err != nil {
-			e.Logger.Debug("ToBeSignedVote verification failed", zap.Stringer("NodeID", vote.Signature.Signer), zap.Error(err))
-			return nil
-		}
+	if err := e.VerifyBlockMessageVote(from, md, vote); err != nil {
+		return nil
 	}
 
 	// If this is a message from a more advanced round,
@@ -1624,7 +1610,10 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 
 	// Schedule the block to be verified once its direct predecessor have been verified,
 	// or if it can be verified immediately.
-	e.Logger.Debug("Scheduling block verification", zap.Uint64("round", md.Round))
+	e.Logger.Debug("Scheduling block verification",
+		zap.Uint64("round", md.Round),
+		zap.Uint64("seq", md.Seq),
+		zap.Bool("ready", canBeImmediatelyVerified))
 	e.sched.Schedule(task, md.Prev, canBeImmediatelyVerified)
 
 	return nil
@@ -1937,7 +1926,6 @@ func (e *Epoch) createNotarizedBlockVerificationTask(block Block, notarization N
 			e.Logger.Warn("Unable to get proposed block for the round", zap.Uint64("round", md.Round))
 			return md.Digest
 		}
-		round.notarization = &notarization
 
 		if err := e.persistNotarization(notarization); err != nil {
 			e.haltedError = err
@@ -1973,34 +1961,44 @@ func (e *Epoch) createNotarizedBlockVerificationTask(block Block, notarization N
 
 func (e *Epoch) isBlockReadyToBeScheduled(seq uint64, prev Digest) bool {
 	if seq > 0 {
-		// A block can be scheduled if its predecessor either exists in storage,
-		// or there exists a round object for it.
-		// Since we only create a round object after we verify the block,
-		// it means we have verified this block in the past.
-		_, ok := e.locateBlock(seq-1, prev[:])
-		return ok
+		// A block can be scheduled if its predecessor is either notarized or finalized.
+		_, notarizedOrFinalized, _ := e.locateBlock(seq-1, prev[:])
+		return notarizedOrFinalized != nil
 	}
 	// The first block is always ready to be scheduled
 	return true
 }
 
-func (e *Epoch) wasBlockAlreadyVerified(from NodeID, md BlockHeader) bool {
-	var alreadyVerified bool
+// VerifyBlockMessageVote checks if we have the block in the future messages map.
+// If so, it means we have already verified the vote associated with this proposal.
+func (e *Epoch) VerifyBlockMessageVote(from NodeID, md BlockHeader, vote Vote) error {
 	msgsForRound, exists := e.futureMessages[string(from)][md.Round]
 	if exists && msgsForRound.proposal != nil {
 		bh := msgsForRound.proposal.Block.BlockHeader()
-		alreadyVerified = bh.Equals(&md)
+		if bh.Equals(&md) {
+			return nil
+		}
 	}
-	return alreadyVerified
+
+	// Ensure the block was voted on by its block producer:
+
+	// 1) Verify block digest corresponds to the digest voted on
+	if !bytes.Equal(vote.Vote.Digest[:], md.Digest[:]) {
+		e.Logger.Debug("ToBeSignedVote digest mismatches block digest", zap.Stringer("voteDigest", vote.Vote.Digest),
+			zap.Stringer("blockDigest", md.Digest))
+		return errors.New("vote digest mismatches block digest")
+	}
+	// 2) Verify the vote is properly signed
+	if err := vote.Vote.Verify(vote.Signature.Value, e.Verifier, vote.Signature.Signer); err != nil {
+		e.Logger.Debug("ToBeSignedVote verification failed", zap.Stringer("NodeID", vote.Signature.Signer), zap.Error(err))
+		return errors.New("vote signature verification failed")
+	}
+
+	return nil
 }
 
 func (e *Epoch) verifyProposalMetadataAndBlacklist(block Block) bool {
 	bh := block.BlockHeader()
-
-	if bh.Version != 0 {
-		e.Logger.Debug("Got block message with wrong version number, expected 0", zap.Uint8("version", bh.Version))
-		return false
-	}
 
 	var expectedSeq uint64
 	var expectedPrevDigest Digest
@@ -2010,7 +2008,7 @@ func (e *Epoch) verifyProposalMetadataAndBlacklist(block Block) bool {
 	// If it's the former, we need to find the parent of the block and ensure it is correct.
 	prevBlacklist := NewBlacklist(uint16(len(e.nodes)))
 	if bh.Seq > 0 {
-		prevBlock, found := e.locateBlock(bh.Seq-1, bh.Prev[:])
+		prevBlock, _, found := e.locateBlock(bh.Seq-1, bh.Prev[:])
 		if !found {
 			e.Logger.Debug("Could not find parent block with given digest",
 				zap.Uint64("blockSeq", bh.Seq-1),
@@ -2025,16 +2023,9 @@ func (e *Epoch) verifyProposalMetadataAndBlacklist(block Block) bool {
 		prevBlacklist = prevBlock.Blacklist()
 	}
 
-	if err := prevBlacklist.VerifyProposedBlacklist(block.Blacklist(), len(e.nodes), e.round); err != nil {
+	if err := prevBlacklist.VerifyProposedBlacklist(block.Blacklist(), e.round); err != nil {
 		e.Logger.Debug("Block contains an invalid blacklist", zap.Error(err))
 		return false
-	}
-
-	if bh.Seq != expectedSeq {
-		e.Logger.Debug("Received block with an incorrect sequence",
-			zap.Uint64("round", bh.Round),
-			zap.Uint64("seq", bh.Seq),
-			zap.Uint64("expected seq", expectedSeq))
 	}
 
 	digest := block.BlockHeader().Digest
@@ -2066,46 +2057,57 @@ func (e *Epoch) verifyProposalMetadataAndBlacklist(block Block) bool {
 // 2) Else, on storage.
 // Compares to the given digest, and if it's the same, returns it.
 // Otherwise, returns false.
-func (e *Epoch) locateBlock(seq uint64, digest []byte) (VerifiedBlock, bool) {
+func (e *Epoch) locateBlock(seq uint64, digest []byte) (VerifiedBlock, *notarizationOrFinalization, bool) {
 	// TODO index rounds by digest too to make it quicker
 	// TODO: optimize this by building an index from digest to round
 	for _, round := range e.rounds {
 		dig := round.block.BlockHeader().Digest
 		if bytes.Equal(dig[:], digest) {
-			return round.block, true
+			nof := &notarizationOrFinalization{
+				Notarization: round.notarization,
+				Finalization: round.finalization,
+			}
+			if nof.Notarization == nil && nof.Finalization == nil {
+				return nil, nil, false
+			}
+			return round.block, nof, true
 		}
 	}
 
 	height := e.nextSeqToCommit()
 	// Not in memory, and no block resides in storage.
 	if height == 0 {
-		return nil, false
+		return nil, nil, false
 	}
 
 	// If the given block has a sequence that is higher than the last block we committed to storage,
 	// we don't have the block in our storage.
 	maxSeq := height - 1
 	if maxSeq < seq {
-		return nil, false
+		return nil, nil, false
 	}
 
 	if seq >= e.nextSeqToCommit() {
 		e.Logger.Debug("Requested block sequence we have not yet committed to storage",
 			zap.Uint64("requestedSeq", seq), zap.Uint64("numBlocks", e.nextSeqToCommit()))
-		return nil, false
+		return nil, nil, false
 	}
 
-	block, _, ok := e.retrieveBlockOrHalt(seq)
+	block, finalization, ok := e.retrieveBlockOrHalt(seq)
 	if !ok {
-		return nil, false
+		return nil, nil, false
+	}
+
+	nof := &notarizationOrFinalization{
+		Finalization: &finalization,
 	}
 
 	dig := block.BlockHeader().Digest
 	if bytes.Equal(dig[:], digest) {
-		return block, true
+		return block, nof, true
 	}
 
-	return nil, false
+	return nil, nil, false
 }
 
 func (e *Epoch) buildBlock() {
@@ -2163,7 +2165,7 @@ func (e *Epoch) buildBlock() {
 func (e *Epoch) retrieveBlacklistOfParentBlock(metadata ProtocolMetadata) (Blacklist, bool) {
 	var blacklist Blacklist
 	if metadata.Seq > 0 {
-		prevBlock, ok := e.locateBlock(metadata.Seq-1, metadata.Prev[:])
+		prevBlock, _, ok := e.locateBlock(metadata.Seq-1, metadata.Prev[:])
 		if !ok {
 			e.Logger.Error("Failed locating previous block",
 				zap.Uint64("round", metadata.Round),
@@ -2641,18 +2643,6 @@ func (e *Epoch) constructFinalizeVoteMessage(md BlockHeader) (FinalizeVote, *Mes
 		FinalizeVote: &vote,
 	}
 	return vote, finalizationMsg, nil
-}
-
-// stores a notarization in the epoch's memory.
-func (e *Epoch) storeNotarization(notarization Notarization) error {
-	round := notarization.Vote.Round
-	r, exists := e.rounds[round]
-	if !exists {
-		return fmt.Errorf("attempted to store notarization of a non existent round %d", round)
-	}
-
-	r.notarization = &notarization
-	return nil
 }
 
 func (e *Epoch) maybeLoadFutureMessages() error {
@@ -3187,4 +3177,9 @@ type messagesForRound struct {
 	finalizeVote           *FinalizeVote
 	finalization           *Finalization
 	notarization           *Notarization
+}
+
+type notarizationOrFinalization struct {
+	*Notarization
+	*Finalization
 }

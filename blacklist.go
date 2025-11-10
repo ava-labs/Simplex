@@ -428,12 +428,12 @@ func (bl *Blacklist) FromBytes(buff []byte) error {
 	return nil
 }
 
-func (bl *Blacklist) VerifyProposedBlacklist(candidateBlacklist Blacklist, nodeCount int, round uint64) error {
-	if candidateBlacklist.NodeCount != uint16(nodeCount) {
-		return fmt.Errorf("%s, expected %d, got %d", errBlacklistInvalidNodeCount, nodeCount, candidateBlacklist.NodeCount)
+func (bl *Blacklist) VerifyProposedBlacklist(candidateBlacklist Blacklist, round uint64) error {
+	if candidateBlacklist.NodeCount != bl.NodeCount {
+		return fmt.Errorf("%s, expected %d, got %d", errBlacklistInvalidNodeCount, bl.NodeCount, candidateBlacklist.NodeCount)
 	}
 	// 1) First thing we check that the updates even make sense.
-	if err := bl.verifyBlacklistUpdates(candidateBlacklist.Updates, nodeCount); err != nil {
+	if err := bl.verifyBlacklistUpdates(candidateBlacklist.Updates); err != nil {
 		return fmt.Errorf("%s: %w", errBlacklistInvalidUpdates, err)
 	}
 	updates := candidateBlacklist.Updates
@@ -447,15 +447,15 @@ func (bl *Blacklist) VerifyProposedBlacklist(candidateBlacklist Blacklist, nodeC
 	return nil
 }
 
-func (bl *Blacklist) verifyBlacklistUpdates(updates []BlacklistUpdate, nodeCount int) error {
+func (bl *Blacklist) verifyBlacklistUpdates(updates []BlacklistUpdate) error {
 	seen := make(map[uint16]struct{})
-	if len(updates) > nodeCount {
-		return fmt.Errorf("%w: %d, only %d nodes exist", errBlacklistTooManyUpdates, len(updates), nodeCount)
+	if len(updates) > int(bl.NodeCount) {
+		return fmt.Errorf("%w: %d, only %d nodes exist", errBlacklistTooManyUpdates, len(updates), bl.NodeCount)
 	}
 	for _, update := range updates {
-		if int(update.NodeIndex) >= nodeCount {
+		if update.NodeIndex >= bl.NodeCount {
 			return fmt.Errorf("%w: %d, needs to be in [%d, %d]",
-				errBlacklistInvalidNodeIndex, update.NodeIndex, 0, nodeCount-1)
+				errBlacklistInvalidNodeIndex, update.NodeIndex, 0, bl.NodeCount-1)
 		}
 
 		if _, exists := seen[update.NodeIndex]; exists {
