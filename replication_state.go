@@ -68,13 +68,14 @@ func (r *ReplicationState) storeQuorumRound(round QuorumRound, from NodeID) {
 	if round.Finalization != nil {
 		r.sequenceReplicator.storeQuorumRound(round, from, round.Finalization.Finalization.Seq)
 		r.roundReplicator.removeOldValues(round.Finalization.Finalization.Round)
+		r.logger.Debug("Round has finalization")
 		return
 	}
 
 	// otherwise we are storing a round without finalization
 	// don't bother storing rounds that are older than the highest finalized round we know
 	// todo: grab a lock for sequence replicator
-	if r.sequenceReplicator.getHighestRound() >= round.GetRound() {
+	if r.sequenceReplicator.getHighestRound() >= round.GetRound() && r.sequenceReplicator.getHighestRound() != 0 {
 		return
 	}
 

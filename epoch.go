@@ -2581,7 +2581,7 @@ func (e *Epoch) increaseRound() {
 
 	// remove the rebroadcast empty vote task
 	e.timeoutHandler.RemoveTask(EmptyVoteTimeoutID)
-	e.maybeDeleteEmptyVotes()
+	// e.maybeDeleteEmptyVotes()
 
 	prevLeader := LeaderForRound(e.nodes, e.round)
 	nextLeader := LeaderForRound(e.nodes, e.round+1)
@@ -2901,10 +2901,11 @@ func (e *Epoch) handleReplicationResponse(resp *ReplicationResponse, from NodeID
 		return nil
 	}
 
-	e.Logger.Debug("Received replication response", zap.Stringer("from", from), zap.Int("num seqs", len(resp.Data)), zap.Stringer("latest round", resp.LatestRound), zap.Stringer("latest seq", resp.LatestSeq))
+	e.Logger.Debug("Received replication response", zap.Stringer("from", from), zap.Int("num quorum rounds", len(resp.Data)), zap.Stringer("latest round", resp.LatestRound), zap.Stringer("latest seq", resp.LatestSeq))
 	nextSeqToCommit := e.nextSeqToCommit()
 
 	for _, data := range resp.Data {
+		fmt.Println("Processing replication data for seq:", data.GetSequence(), " round:", data.GetRound())
 		if data.Finalization != nil && data.GetSequence() > nextSeqToCommit+e.maxRoundWindow {
 			e.Logger.Debug("Received quorum round for a seq that is too far ahead", zap.Uint64("seq", data.GetSequence()))
 			// we are too far behind, we should ignore this message
@@ -2968,10 +2969,23 @@ func (e *Epoch) processEmptyNotarization(emptyNotarization *EmptyNotarization) e
 	emptyVotes := e.getOrCreateEmptyVoteSetForRound(emptyNotarization.Vote.Round)
 	emptyVotes.emptyNotarization = emptyNotarization
 
-	err := e.persistEmptyNotarization(emptyVotes.emptyNotarization, false)
+	// we do our own logic to make sure not to start the the round multiple times
+	emptyNotarizationRecord := NewEmptyNotarizationRecord(emptyNotarization)
+	if err := e.WAL.Append(emptyNotarizationRecord); err != nil {
+		e.Logger.Error("Failed to append empty block record to WAL", zap.Error(err))
+		return err
+	}
+
+	e.Logger.Debug("Persisted empty block to WAL",
+		zap.Int("size", len(emptyNotarizationRecord)),
+		zap.Uint64("round", emptyNotarization.Vote.Round))
+
+	err := e.maybeMarkLeaderAsTimedOutForFutureBlacklisting(emptyNotarization)
 	if err != nil {
 		return err
 	}
+
+	e.increaseRound()
 
 	return e.processReplicationState()
 }
@@ -3002,6 +3016,7 @@ func (e *Epoch) processQuorumRound(latestRound *QuorumRound, from NodeID) error 
 }
 
 func (e *Epoch) processReplicationState() error {
+	e.Logger.Debug("Processing replication state", zap.Uint64("nextSeqToCommit", e.nextSeqToCommit()), zap.Uint64("currentRound", e.round))
 	// We might have advanced the rounds from non-replicating paths such as future messages. clean up replication map accordingly.
 	e.replicationState.maybeAdvancedState(e.nextSeqToCommit(), e.round)
 
@@ -3012,6 +3027,7 @@ func (e *Epoch) processReplicationState() error {
 		// TODO: an adversarial node can send multiple empty replication responses, causing us
 		// to call start round multiple times. This is potentially bad if we are the leader, since we will
 		// propose multiple blocks for the same round.
+		e.Logger.Info("Replication complete, starting new round")
 		return e.startRound()
 	}
 
@@ -3044,7 +3060,7 @@ func (e *Epoch) processReplicationState() error {
 	if roundAdvanced {
 		return e.processReplicationState()
 	}
-
+	fmt.Println("nothgin to process")
 	return nil
 }
 
