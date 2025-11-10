@@ -118,7 +118,7 @@ func (n *InMemNetwork) Disconnect(node simplex.NodeID) {
 	n.disconnected[string(node)] = struct{}{}
 }
 
-func (n *InMemNetwork) AdvanceWithoutLeader(epochTimes []time.Time, round uint64, laggingNodeId simplex.NodeID) {
+func (n *InMemNetwork) AdvanceWithoutLeader(round uint64, laggingNodeId simplex.NodeID) {
 	// we need to ensure all blocks are waiting for the channel before proceeding
 	// otherwise, we may send to a channel that is not ready to receive
 	for _, n := range n.Instances {
@@ -133,12 +133,13 @@ func (n *InMemNetwork) AdvanceWithoutLeader(epochTimes []time.Time, round uint64
 		n.TriggerBlockShouldBeBuilt()
 	}
 
-	for i, n := range n.Instances {
+	for _, n := range n.Instances {
 		leader := n.E.ID.Equals(simplex.LeaderForRound(n.E.Comm.Nodes(), n.E.Metadata().Round))
 		if leader || laggingNodeId.Equals(n.E.ID) {
 			continue
 		}
-		WaitForBlockProposerTimeout(n.t, n.E, &epochTimes[i], round)
+		epochTime := time.UnixMilli(n.currentTime.Load())
+		WaitForBlockProposerTimeout(n.t, n.E, &epochTime, round)
 	}
 
 	for _, n := range n.Instances {
