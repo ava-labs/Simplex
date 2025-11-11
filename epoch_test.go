@@ -1023,8 +1023,9 @@ func TestFinalizeSameSequence(t *testing.T) {
 	require.True(t, ok)
 
 	block := <-bb.Out
+	var verified atomic.Bool
 	block.OnVerify = func() {
-		require.Fail(t, "block should not be verified since we don't have empty notarization for round 1")
+		verified.Store(true)
 	}
 
 	// send block from leader
@@ -1039,8 +1040,9 @@ func TestFinalizeSameSequence(t *testing.T) {
 	require.NoError(t, err)
 
 	// give some time for block to be (not)verified
-	time.Sleep(100 * time.Millisecond)
-	block.OnVerify = nil
+	require.Never(t, func() bool {
+		return verified.Load()
+	}, 200*time.Millisecond, 50*time.Millisecond)
 
 	// now lets send empty notarization
 	emptyNotarization := testutil.NewEmptyNotarization(nodes, 1)
@@ -1048,6 +1050,10 @@ func TestFinalizeSameSequence(t *testing.T) {
 		EmptyNotarization: emptyNotarization,
 	}, nodes[3])
 	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		return verified.Load()
+	}, time.Second * 5, time.Millisecond * 100)
 
 	// create a notarization and now we should send a finalize vote for seq 1 again
 	notarization, err := testutil.NewNotarization(e.Logger, e.SignatureAggregator, block, nodes[1:])
