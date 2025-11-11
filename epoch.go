@@ -39,6 +39,7 @@ type EmptyVoteSet struct {
 	timedOut          bool
 	votes             map[string]*EmptyVote
 	emptyNotarization *EmptyNotarization
+	persisted bool
 }
 
 type Round struct {
@@ -108,6 +109,7 @@ type Epoch struct {
 	replicationState               *ReplicationState
 	timedOutRounds                 map[uint16]uint64 // NodeIndex -> round
 	redeemedRounds                 map[uint16]uint64 // NodeIndex -> round
+	emptyRoundDependencies EmptyRoundsDependencies
 }
 
 func NewEpoch(conf EpochConfig) (*Epoch, error) {
@@ -189,6 +191,7 @@ func (e *Epoch) init() error {
 	e.blockBuilderCancelFunc = func() {}
 	e.nodes = e.Comm.Nodes()
 	SortNodes(e.nodes)
+	e.emptyRoundDependencies = make(EmptyRoundsDependencies, len(e.nodes))
 	e.timedOutRounds = make(map[uint16]uint64, len(e.nodes))
 	e.redeemedRounds = make(map[uint16]uint64, len(e.nodes))
 	e.quorumSize = Quorum(len(e.nodes))
@@ -979,7 +982,7 @@ func (e *Epoch) persistFinalization(finalization Finalization) error {
 	startRound := e.round
 	nextSeqToCommit := e.nextSeqToCommit()
 
-	e.sched.ExecuteBlockDependents(finalization.Finalization.Digest)
+	e.sched.ExecuteDependents(finalization.Finalization.Digest)
 	e.deleteOldEmptyVotes(finalization.Finalization.Round)
 
 	if finalization.Finalization.Seq == nextSeqToCommit {
@@ -1217,6 +1220,17 @@ func findMostPopularEmptyVote(votes map[string]*EmptyVote, quorumSize int) (ToBe
 }
 
 func (e *Epoch) persistEmptyNotarization(emptyNotarization *EmptyNotarization, shouldBroadcast bool) error {
+	emptyVotes := e.getOrCreateEmptyVoteSetForRound(emptyNotarization.Vote.Round)
+	if emptyVotes == nil {
+		return fmt.Errorf("could not find empty vote set for round %d", emptyNotarization.Vote.Round)
+	}
+	if emptyVotes.persisted {
+		e.Logger.Debug("Already persisted empty notarization for this round",
+			zap.Uint64("round", emptyNotarization.Vote.Round))
+		return nil
+	}
+	emptyVotes.persisted = true
+
 	emptyNotarizationRecord := NewEmptyNotarizationRecord(emptyNotarization)
 	if err := e.WAL.Append(emptyNotarizationRecord); err != nil {
 		e.Logger.Error("Failed to append empty block record to WAL", zap.Error(err))
@@ -1227,7 +1241,7 @@ func (e *Epoch) persistEmptyNotarization(emptyNotarization *EmptyNotarization, s
 		zap.Int("size", len(emptyNotarizationRecord)),
 		zap.Uint64("round", emptyNotarization.Vote.Round))
 
-	e.sched.ExecuteEmptyNotarizationDependents(emptyNotarization.Vote.Round)
+	e.emptyRoundDependencies.MarkNotMissing(emptyNotarization.Vote.Round, e.sched.ExecuteDependents)
 
 	if shouldBroadcast {
 		notarizationMessage := &Message{EmptyNotarization: emptyNotarization}
@@ -1338,7 +1352,7 @@ func (e *Epoch) persistNotarization(notarization Notarization) error {
 		return err
 	}
 
-	e.sched.ExecuteBlockDependents(notarization.Vote.Digest)
+	e.sched.ExecuteDependents(notarization.Vote.Digest)
 
 	round := notarization.Vote.Round
 	for _, signer := range notarization.QC.Signers() {
@@ -1558,58 +1572,56 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 
 	// Create a task that will verify the block in the future, after its predecessors have also been verified.
 	task := e.createBlockVerificationTask(e.oneTimeVerifier.Wrap(block), from, vote)
-	prevBlockDependency, emptyNotarizationDependency := e.blockDependencies(md)
+
+	// locateMissingEmptyGaps checks if the block is known to us either from some previous round,
+	// or from storage. If so, then we have verified it in the past, since only verified blocks are saved in memory.
+	e.locateMissingEmptyGaps(md)
 
 	// Schedule the block to be verified once its direct predecessor have been verified,
 	// or if it can be verified immediately.
 	e.Logger.Debug("Scheduling block verification",
 		zap.Uint64("round", md.Round),
-		zap.Uint64("seq", md.Seq),
-		zap.Stringer("prevBlockDependency", prevBlockDependency),
-		zap.Uint64s("emptyNotarizationDependency", emptyNotarizationDependency))
+		zap.Uint64("seq", md.Seq))
 
-	e.sched.Schedule(task, prevBlockDependency, emptyNotarizationDependency)
+	e.sched.Schedule(task, md.Prev, e.readyToBeVerifiedPredicate(md))
 
 	return nil
 }
 
-// blockDependencies returns the dependencies bh has before it can be verified.
-// It returns the digest of the previous block it depends on (or emptyDigest if none),
-// as well as a list of rounds for which it needs to verify empty notarizations.
+// readyToBeVerifiedPredicate returns the dependencies bh has before it can be verified.
+// It returns the digest of the previous block it depends on,
+// as well as a predicate that is satisfied once all empty notarizations for missing rounds have been received.
 // TODO: we should request empty notarizations if we don't have them
-func (e *Epoch) blockDependencies(bh BlockHeader) (Digest, []uint64) {
+func (e *Epoch) readyToBeVerifiedPredicate(bh BlockHeader) func() bool {
 	if bh.Seq == 0 {
 		// genesis block has no dependencies
-		return emptyDigest, nil
-	}
-
-	prevBlockDependency := bh.Prev
-
-	prevBlock, notarizationOrFinalization, found := e.locateBlock(bh.Seq-1, bh.Prev[:])
-	if !found {
-		// should never happen since we check this when we verify the proposal metadata
-		e.Logger.Error("Could not find predecessor block for proposal scheduling",
-			zap.Uint64("seq", bh.Seq-1),
-			zap.Stringer("prev", bh.Prev))
-
-		return emptyDigest, nil
-	}
-
-	// no block dependency if we already have a notarization or finalization for the previous block
-	if notarizationOrFinalization != nil {
-		prevBlockDependency = emptyDigest
-	}
-
-	// missing empty rounds
-	missingRounds := []uint64{}
-	for round := prevBlock.BlockHeader().Round + 1; round < bh.Round; round++ {
-		emptyVotes, exists := e.emptyVotes[round]
-		if !exists || emptyVotes.emptyNotarization == nil {
-			missingRounds = append(missingRounds, round)
+		return func() bool {
+			return true
 		}
 	}
 
-	return prevBlockDependency, missingRounds
+	return func() bool {
+		prevBlock, notarizationOrFinalization, _ := e.locateBlock(bh.Seq-1, bh.Prev[:])
+		if notarizationOrFinalization == nil || prevBlock == nil {
+			return false
+		}
+
+		missingEmptyNotarizations := ComputeMissingEmptyRounds(prevBlock.BlockHeader(), e.emptyVotes, bh.Round)
+
+		return len(missingEmptyNotarizations) == 0
+	}
+}
+
+func ComputeMissingEmptyRounds(prevBlock BlockHeader, emptyVotes map[uint64]*EmptyVoteSet, currentRound uint64) []uint64 {
+	var missingEmptyNotarizations []uint64
+
+	for round := prevBlock.Round + 1; round < currentRound; round++ {
+		emptyVotes, exists := emptyVotes[round]
+		if !exists || emptyVotes.emptyNotarization == nil {
+			missingEmptyNotarizations = append(missingEmptyNotarizations, round)
+		}
+	}
+	return missingEmptyNotarizations
 }
 
 // processFinalizedBlocks processes a block that has a finalization.
@@ -1647,14 +1659,18 @@ func (e *Epoch) processFinalizedBlock(block Block, finalization Finalization) er
 	// Create a task that will verify the block in the future, after its predecessors have also been verified.
 	task := e.createFinalizedBlockVerificationTask(e.oneTimeVerifier.Wrap(block), finalization)
 
-	// TODO: if we have a dependency here then this signifies a bigger issue.
-	// It means we have a finalization where nextSeqToCommit.prev != lastBlock.digest
-	finalizedBlockDependency := e.finalizedBlockDependency(md)
+	havePrevBlock := func() bool {
+		if md.Seq == 0 {
+			return true
+		}
+		prevBlock, notarizationOrFinalization, _ := e.locateBlock(md.Seq-1, md.Prev[:])
+		return prevBlock != nil && notarizationOrFinalization != nil
+	}
 
 	// Schedule the block to be verified once its direct predecessor have been verified,
 	// or if it can be verified immediately.
 	e.Logger.Debug("Scheduling block verification", zap.Uint64("round", md.Round))
-	e.sched.Schedule(task, finalizedBlockDependency, nil)
+	e.sched.Schedule(task, md.Prev, havePrevBlock)
 
 	return nil
 }
@@ -1714,12 +1730,16 @@ func (e *Epoch) processNotarizedBlock(block Block, notarization *Notarization) e
 
 	// TODO: if we have dependencies during replication, we are stuck since this means a node
 	// must have sent us an empty notarization for a round this block depends on.
-	parentBlockDependency, emptyRoundDep := e.blockDependencies(md)
+
+	// locateMissingEmptyGaps checks if the block is known to us either from some previous round,
+	// or from storage. If so, then we have verified it in the past, since only verified blocks are saved in memory.
+	e.locateMissingEmptyGaps(md)
+
 
 	// Schedule the block to be verified once its direct predecessor have been verified,
 	// or if it can be verified immediately.
 	e.Logger.Debug("Scheduling block verification", zap.Uint64("round", md.Round))
-	e.sched.Schedule(task, parentBlockDependency, emptyRoundDep)
+	e.sched.Schedule(task, md.Prev,e.readyToBeVerifiedPredicate(md))
 
 	return nil
 }
@@ -1926,30 +1946,28 @@ func (e *Epoch) createNotarizedBlockVerificationTask(block Block, notarization N
 	}
 }
 
-// finalizedBlockDependency returns the dependency digest for a block that has a finalization.
-// We do not care about empty notarizations since the block is finalized.
-func (e *Epoch) finalizedBlockDependency(md BlockHeader) Digest {
-	if md.Seq == 0 {
-		// genesis block has no dependencies
-		return emptyDigest
+func (e *Epoch) locateMissingEmptyGaps(currentBlock BlockHeader) {
+	if currentBlock.Seq == 0 {
+		// The first block is always ready to be scheduled
+		return
 	}
 
 	// A block can be scheduled if its predecessor is either notarized or finalized.
-	// We do not care about empty notarizations since this block is finalized.
-	_, notarizedOrFinalized, found := e.locateBlock(md.Seq-1, md.Prev[:])
-	if !found {
-		e.Logger.Error("Could not find predecessor block for finalized proposal scheduling",
-			zap.Uint64("seq", md.Seq-1),
-			zap.Stringer("prev", md.Prev))
+	prevBlock, _, _ := e.locateBlock(currentBlock.Seq-1, currentBlock.Prev[:])
 
-		return emptyDigest
+	missingEmptyNotarizations := ComputeMissingEmptyRounds(prevBlock.BlockHeader(), e.emptyVotes, currentBlock.Round)
+
+	if len(missingEmptyNotarizations) == 0 {
+		return
 	}
 
-	if notarizedOrFinalized != nil {
-		return emptyDigest
+	rr := make(RoundRange)
+
+	for _, round := range missingEmptyNotarizations {
+		rr[round] = struct{}{}
 	}
 
-	return md.Prev
+	e.emptyRoundDependencies[currentBlock.Prev] = append(e.emptyRoundDependencies[currentBlock.Prev], rr)
 }
 
 // VerifyBlockMessageVote checks if we have the block in the future messages map.
@@ -2142,7 +2160,9 @@ func (e *Epoch) buildBlock() {
 	}
 
 	e.Logger.Debug("Scheduling block building", zap.Uint64("round", metadata.Round))
-	e.sched.Schedule(task, emptyDigest, []uint64{})
+	e.sched.Schedule(task, metadata.Prev, func() bool {
+		return true
+	})
 }
 
 func (e *Epoch) retrieveBlacklistOfParentBlock(metadata ProtocolMetadata) (Blacklist, bool) {
@@ -2537,6 +2557,8 @@ func (e *Epoch) deleteOldEmptyVotes(finalizedRound uint64) {
 			delete(e.emptyVotes, r)
 		}
 	}
+
+	e.emptyRoundDependencies.PurgeOldRounds(finalizedRound)
 }
 
 func (e *Epoch) increaseRound() {
