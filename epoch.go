@@ -1577,13 +1577,13 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 // It returns the digest of the previous block it depends on (or emptyDigest if none),
 // as well as a list of rounds for which it needs to verify empty notarizations.
 // TODO: we should request empty notarizations if we don't have them
-func (e *Epoch) blockDependencies(bh BlockHeader) (Digest, []uint64) {
+func (e *Epoch) blockDependencies(bh BlockHeader) (*Digest, []uint64) {
 	if bh.Seq == 0 {
 		// genesis block has no dependencies
-		return emptyDigest, nil
+		return nil, nil
 	}
 
-	prevBlockDependency := bh.Prev
+	prevBlockDependency := &bh.Prev
 
 	prevBlock, notarizationOrFinalization, found := e.locateBlock(bh.Seq-1, bh.Prev[:])
 	if !found {
@@ -1592,12 +1592,12 @@ func (e *Epoch) blockDependencies(bh BlockHeader) (Digest, []uint64) {
 			zap.Uint64("seq", bh.Seq-1),
 			zap.Stringer("prev", bh.Prev))
 
-		return emptyDigest, nil
+		return nil, nil
 	}
 
 	// no block dependency if we already have a notarization or finalization for the previous block
 	if notarizationOrFinalization != nil {
-		prevBlockDependency = emptyDigest
+		prevBlockDependency = nil
 	}
 
 	// missing empty rounds
@@ -1928,10 +1928,10 @@ func (e *Epoch) createNotarizedBlockVerificationTask(block Block, notarization N
 
 // finalizedBlockDependency returns the dependency digest for a block that has a finalization.
 // We do not care about empty notarizations since the block is finalized.
-func (e *Epoch) finalizedBlockDependency(md BlockHeader) Digest {
+func (e *Epoch) finalizedBlockDependency(md BlockHeader) *Digest {
 	if md.Seq == 0 {
 		// genesis block has no dependencies
-		return emptyDigest
+		return nil
 	}
 
 	// A block can be scheduled if its predecessor is either notarized or finalized.
@@ -1942,14 +1942,14 @@ func (e *Epoch) finalizedBlockDependency(md BlockHeader) Digest {
 			zap.Uint64("seq", md.Seq-1),
 			zap.Stringer("prev", md.Prev))
 
-		return emptyDigest
+		return nil
 	}
 
 	if notarizedOrFinalized != nil {
-		return emptyDigest
+		return nil
 	}
 
-	return md.Prev
+	return &md.Prev
 }
 
 // VerifyBlockMessageVote checks if we have the block in the future messages map.
@@ -2142,7 +2142,7 @@ func (e *Epoch) buildBlock() {
 	}
 
 	e.Logger.Debug("Scheduling block building", zap.Uint64("round", metadata.Round))
-	e.sched.Schedule(task, emptyDigest, []uint64{})
+	e.sched.Schedule(task, nil, []uint64{})
 }
 
 func (e *Epoch) retrieveBlacklistOfParentBlock(metadata ProtocolMetadata) (Blacklist, bool) {

@@ -114,7 +114,7 @@ func (as *Scheduler) run() {
 	}
 }
 
-func (as *Scheduler) Schedule(f func() Digest, prevDependency Digest, emptyRounds []uint64) {
+func (as *Scheduler) Schedule(f func() Digest, prevDependency *Digest, emptyRounds []uint64) {
 	as.lock.Lock()
 	defer as.lock.Unlock()
 
@@ -133,7 +133,7 @@ func (as *Scheduler) Schedule(f func() Digest, prevDependency Digest, emptyRound
 		EmptyRoundsDependency: emptyRoundDependencies,
 	}
 
-	ready := prevDependency == emptyDigest && len(emptyRoundDependencies) == 0
+	ready := prevDependency == nil && len(emptyRoundDependencies) == 0
 	if !ready {
 		as.logger.Debug("Scheduling task", zap.Stringer("block dependency", prevDependency), zap.Uint64s("empty round dependencies", emptyRounds))
 		as.pending.Insert(task) // (9)
@@ -184,7 +184,7 @@ func (as *Scheduler) ExecuteEmptyNotarizationDependents(round uint64) {
 type Task struct {
 	F func() Digest
 
-	ParentBlockDependency Digest
+	ParentBlockDependency *Digest
 	EmptyRoundsDependency map[uint64]struct{}
 }
 
@@ -218,9 +218,13 @@ func (d *dependencies) RemoveDigest(id Digest) []Task {
 
 	for _, task := range d.tasks {
 		var removed bool
+		if task.ParentBlockDependency == nil {
+			continue
+		}
+
 		// Check if the task depends on the given digest
-		if task.ParentBlockDependency == id {
-			task.ParentBlockDependency = emptyDigest
+		if *task.ParentBlockDependency == id {
+			task.ParentBlockDependency = nil
 			// If the task has no other dependencies, it's ready to run
 			if len(task.EmptyRoundsDependency) == 0 {
 				ready = append(ready, task)
@@ -250,7 +254,7 @@ func (d *dependencies) RemoveEmptyNotarization(round uint64) []Task {
 		if _, exists := task.EmptyRoundsDependency[round]; exists {
 			delete(task.EmptyRoundsDependency, round)
 			// If the task has no other dependencies, it's ready to run
-			if task.ParentBlockDependency == emptyDigest && len(task.EmptyRoundsDependency) == 0 {
+			if task.ParentBlockDependency == nil && len(task.EmptyRoundsDependency) == 0 {
 				ready = append(ready, task)
 				removed = true
 			}
