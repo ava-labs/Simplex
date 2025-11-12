@@ -108,13 +108,13 @@ func (as *Scheduler) run() {
 		as.logger.Debug("Task finished execution", zap.Stringer("taskID", id))
 		as.lock.Lock()
 
-		newlyReadyTasks := as.pending.Remove(id)        // (7)
+		newlyReadyTasks := as.pending.RemoveDigest(id)  // (7)
 		as.ready = append(as.ready, newlyReadyTasks...) // (8)
 		as.logger.Trace("Enqueued newly ready tasks", zap.Int("number of ready tasks", len(newlyReadyTasks)))
 	}
 }
 
-func (as *Scheduler) Schedule(f func() Digest, prev Digest, ready bool) {
+func (as *Scheduler) Schedule(f func() Digest, prevDependency *Digest, emptyRounds []uint64) {
 	as.lock.Lock()
 	defer as.lock.Unlock()
 
@@ -122,25 +122,32 @@ func (as *Scheduler) Schedule(f func() Digest, prev Digest, ready bool) {
 		return
 	}
 
-	task := Task{
-		F:      f,
-		Parent: prev,
+	emptyRoundDependencies := make(map[uint64]struct{}, len(emptyRounds))
+	for _, round := range emptyRounds {
+		emptyRoundDependencies[round] = struct{}{}
 	}
 
+	task := Task{
+		F:                     f,
+		ParentBlockDependency: prevDependency,
+		EmptyRoundsDependency: emptyRoundDependencies,
+	}
+
+	ready := prevDependency == nil && len(emptyRoundDependencies) == 0
 	if !ready {
-		as.logger.Debug("Scheduling task", zap.Stringer("dependency", prev))
+		as.logger.Debug("Scheduling task", zap.Stringer("block dependency", prevDependency), zap.Uint64s("empty round dependencies", emptyRounds))
 		as.pending.Insert(task) // (9)
 		return
 	}
 
-	as.logger.Debug("Scheduling new ready task", zap.Stringer("dependency", prev))
+	as.logger.Debug("Scheduling new ready task", zap.Stringer("dependency", prevDependency), zap.Uint64s("empty round dependencies", emptyRounds))
 
 	as.ready = append(as.ready, task) // (10)
 
 	as.signal.Broadcast() // (11)
 }
 
-func (as *Scheduler) ExecuteDependents(dep Digest) {
+func (as *Scheduler) ExecuteBlockDependents(dep Digest) {
 	as.lock.Lock()
 	defer as.lock.Unlock()
 
@@ -148,7 +155,24 @@ func (as *Scheduler) ExecuteDependents(dep Digest) {
 		return
 	}
 
-	newlyReadyTasks := as.pending.Remove(dep)
+	newlyReadyTasks := as.pending.RemoveDigest(dep)
+	if len(newlyReadyTasks) == 0 {
+		return
+	}
+	as.ready = append(as.ready, newlyReadyTasks...)
+
+	as.signal.Broadcast()
+}
+
+func (as *Scheduler) ExecuteEmptyNotarizationDependents(round uint64) {
+	as.lock.Lock()
+	defer as.lock.Unlock()
+
+	if as.close {
+		return
+	}
+
+	newlyReadyTasks := as.pending.RemoveEmptyNotarization(round)
 	if len(newlyReadyTasks) == 0 {
 		return
 	}
@@ -158,31 +182,86 @@ func (as *Scheduler) ExecuteDependents(dep Digest) {
 }
 
 type Task struct {
-	F      func() Digest
-	Parent Digest
+	F func() Digest
+
+	ParentBlockDependency *Digest
+	EmptyRoundsDependency map[uint64]struct{}
 }
 
 type dependencies struct {
-	dependsOn map[Digest][]Task // values depend on key.
+	lock sync.Mutex
+
+	tasks []Task
 }
 
 func NewDependencies() dependencies {
-	return dependencies{
-		dependsOn: make(map[Digest][]Task),
-	}
+	return dependencies{}
 }
 
 func (d *dependencies) Size() int {
-	return len(d.dependsOn)
+	return len(d.tasks)
 }
 
 func (d *dependencies) Insert(t Task) {
-	dependency := t.Parent
-	d.dependsOn[dependency] = append(d.dependsOn[dependency], t)
+	d.lock.Lock()
+	defer d.lock.Unlock()
+
+	d.tasks = append(d.tasks, t)
 }
 
-func (t *dependencies) Remove(id Digest) []Task {
-	dependents := t.dependsOn[id]
-	delete(t.dependsOn, id)
-	return dependents
+func (d *dependencies) RemoveDigest(id Digest) []Task {
+	d.lock.Lock()
+	defer d.lock.Unlock()
+
+	var ready []Task
+	var newTasks []Task
+
+	for _, task := range d.tasks {
+		var removed bool
+
+		// Check if the task depends on the given digest
+		if task.ParentBlockDependency != nil && *task.ParentBlockDependency == id {
+			task.ParentBlockDependency = nil
+			// If the task has no other dependencies, it's ready to run
+			if len(task.EmptyRoundsDependency) == 0 {
+				ready = append(ready, task)
+				removed = true
+			}
+		}
+
+		if !removed {
+			newTasks = append(newTasks, task)
+		}
+	}
+
+	d.tasks = newTasks
+	return ready
+}
+
+func (d *dependencies) RemoveEmptyNotarization(round uint64) []Task {
+	d.lock.Lock()
+	defer d.lock.Unlock()
+
+	var ready []Task
+	var newTasks []Task
+	for _, task := range d.tasks {
+		var removed bool
+
+		// Check if the task depends on the given empty notarization round
+		if _, exists := task.EmptyRoundsDependency[round]; exists {
+			delete(task.EmptyRoundsDependency, round)
+			// If the task has no other dependencies, it's ready to run
+			if task.ParentBlockDependency == nil && len(task.EmptyRoundsDependency) == 0 {
+				ready = append(ready, task)
+				removed = true
+			}
+		}
+
+		if !removed {
+			newTasks = append(newTasks, task)
+		}
+	}
+
+	d.tasks = newTasks
+	return ready
 }
