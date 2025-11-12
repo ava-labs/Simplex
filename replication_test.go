@@ -1430,4 +1430,13 @@ func TestReplicationChain(t *testing.T) {
 		WaitToEnterRound(t, n.E, numNotarizations+1)
 		require.Equal(t, numNotarizations + 1 - missedNotarizations, n.Storage.NumBlocks())
 	}
+
+
+
+
+
+	// The solution is that "if we have notarization or finalization for a round with dependencies" then we specifically request those digests. 
+	// we then process those digests, and if those digests have dependencies we request those as well(recursively). We don't retry if we receive the digest, but we do retry if we know it should exist but dont receive it.
+	// Then when we process the digest, we can mark it as done in the scheduler and the scheduler will automatically retry any dependent rounds.
+	// we can do the same for empty notarizations(i.e. we get a notarized block that depends on empty notarizations we do not have yet). 
 }
