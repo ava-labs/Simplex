@@ -147,6 +147,17 @@ func (as *Scheduler) Schedule(f func() Digest, prevDependency *Digest, emptyRoun
 	as.signal.Broadcast() // (11)
 }
 
+func (as *Scheduler) RemoveConflictingBlocks(finalizedRound uint64) {
+	as.lock.Lock()
+	defer as.lock.Unlock()
+
+	if as.close {
+		return
+	}
+
+	as.pending.RemoveConflictingBlocks(finalizedRound)
+}
+
 func (as *Scheduler) ExecuteBlockDependents(dep Digest) {
 	as.lock.Lock()
 	defer as.lock.Unlock()
@@ -264,4 +275,19 @@ func (d *dependencies) RemoveEmptyNotarization(round uint64) []Task {
 
 	d.tasks = newTasks
 	return ready
+}
+
+// RemoveConflictingBlocks removes tasks which have an empty dependency on a round that has been finalized.
+// TODO: should update to remove if they have a lower round dependency as well.
+func (d *dependencies) RemoveConflictingBlocks(finalizedRound uint64) {
+	d.lock.Lock()
+	defer d.lock.Unlock()
+
+	var newTasks []Task
+	for _, task := range d.tasks {
+		if _, exists := task.EmptyRoundsDependency[finalizedRound]; !exists {
+			newTasks = append(newTasks, task)
+		}
+	}
+	d.tasks = newTasks
 }

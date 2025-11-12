@@ -981,6 +981,7 @@ func (e *Epoch) persistFinalization(finalization Finalization) error {
 
 	e.sched.ExecuteBlockDependents(finalization.Finalization.Digest)
 	e.deleteOldEmptyVotes(finalization.Finalization.Round)
+	e.sched.RemoveConflictingBlocks(finalization.Finalization.BlockHeader.Round)
 
 	if finalization.Finalization.Seq == nextSeqToCommit {
 		if err := e.indexFinalizations(finalization.Finalization.Round); err != nil {
