@@ -218,12 +218,9 @@ func (d *dependencies) RemoveDigest(id Digest) []Task {
 
 	for _, task := range d.tasks {
 		var removed bool
-		if task.ParentBlockDependency == nil {
-			continue
-		}
 
 		// Check if the task depends on the given digest
-		if *task.ParentBlockDependency == id {
+		if task.ParentBlockDependency != nil && *task.ParentBlockDependency == id {
 			task.ParentBlockDependency = nil
 			// If the task has no other dependencies, it's ready to run
 			if len(task.EmptyRoundsDependency) == 0 {

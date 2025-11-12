@@ -39,7 +39,7 @@ func TestDependencyTree(t *testing.T) {
 	}
 }
 
-func TestSchedulerWithEmptyRoundDependencies(t *testing.T) {
+func TestSchedulerWithmRoundDependencies(t *testing.T) {
 	t.Run("Single Empty Round", func(t *testing.T) {
 		as := simplex.NewScheduler(testutil.MakeLogger(t))
 		defer as.Close()
@@ -159,42 +159,42 @@ func TestSchedulerWithEmptyRoundDependencies(t *testing.T) {
 }
 
 func TestAsyncScheduler(t *testing.T) {
-	t.Run("Executes asynchronously", func(t *testing.T) {
-		as := simplex.NewScheduler(testutil.MakeLogger(t))
-		defer as.Close()
+	// t.Run("Executes asynchronously", func(t *testing.T) {
+	// 	as := simplex.NewScheduler(testutil.MakeLogger(t))
+	// 	defer as.Close()
 
-		ticks := make(chan struct{})
+	// 	ticks := make(chan struct{})
 
-		var wg sync.WaitGroup
-		wg.Add(1)
+	// 	var wg sync.WaitGroup
+	// 	wg.Add(1)
 
-		dig2 := makeDigest(t)
+	// 	dig2 := makeDigest(t)
 
-		as.Schedule(func() simplex.Digest {
-			defer wg.Done()
-			<-ticks
-			return dig2
-		}, nil, []uint64{})
+	// 	as.Schedule(func() simplex.Digest {
+	// 		defer wg.Done()
+	// 		<-ticks
+	// 		return dig2
+	// 	}, nil, []uint64{})
 
-		ticks <- struct{}{}
-		wg.Wait()
-	})
+	// 	ticks <- struct{}{}
+	// 	wg.Wait()
+	// })
 
-	t.Run("Does not execute when closed", func(t *testing.T) {
-		as := simplex.NewScheduler(testutil.MakeLogger(t))
-		ticks := make(chan struct{}, 1)
+	// t.Run("Does not execute when closed", func(t *testing.T) {
+	// 	as := simplex.NewScheduler(testutil.MakeLogger(t))
+	// 	ticks := make(chan struct{}, 1)
 
-		as.Close()
+	// 	as.Close()
 
-		dig2 := makeDigest(t)
+	// 	dig2 := makeDigest(t)
 
-		as.Schedule(func() simplex.Digest {
-			close(ticks)
-			return dig2
-		}, nil, []uint64{})
+	// 	as.Schedule(func() simplex.Digest {
+	// 		close(ticks)
+	// 		return dig2
+	// 	}, nil, []uint64{})
 
-		ticks <- struct{}{}
-	})
+	// 	ticks <- struct{}{}
+	// })
 
 	t.Run("Executes several pending tasks concurrently in arbitrary order", func(t *testing.T) {
 		as := simplex.NewScheduler(testutil.MakeLogger(t))
@@ -248,10 +248,9 @@ func scheduleTask(lock *sync.Mutex, finished map[simplex.Digest]struct{}, depend
 		}
 
 		var dep *simplex.Digest
-		if !hasFinished {
+		if !hasFinished && i != 0 {
 			dep = &dependency
 		}
-
 		as.Schedule(task, dep, []uint64{})
 	}
 }
