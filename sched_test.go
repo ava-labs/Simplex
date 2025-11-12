@@ -18,8 +18,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var emptyDigest = simplex.Digest{}
-
 func TestDependencyTree(t *testing.T) {
 	dt := simplex.NewDependencies()
 
@@ -27,7 +25,7 @@ func TestDependencyTree(t *testing.T) {
 		dt.Insert(simplex.Task{
 			F: func() simplex.Digest {
 				return simplex.Digest{uint8(i + 1)}
-			}, ParentBlockDependency: simplex.Digest{uint8(i)},
+			}, ParentBlockDependency: &simplex.Digest{uint8(i)},
 		},
 		)
 	}
@@ -56,7 +54,7 @@ func TestSchedulerWithEmptyRoundDependencies(t *testing.T) {
 			defer wg.Done()
 			counter.Add(1)
 			return dig2
-		}, emptyDigest, []uint64{1})
+		}, nil, []uint64{1})
 
 		require.Zero(t, counter.Load())
 		as.ExecuteEmptyNotarizationDependents(1)
@@ -76,7 +74,7 @@ func TestSchedulerWithEmptyRoundDependencies(t *testing.T) {
 			defer wg.Done()
 			counter.Add(1)
 			return makeDigest(t)
-		}, emptyDigest, []uint64{1, 2, 3})
+		}, nil, []uint64{1, 2, 3})
 
 		wg.Add(1)
 		as.Schedule(func() simplex.Digest {
@@ -84,7 +82,7 @@ func TestSchedulerWithEmptyRoundDependencies(t *testing.T) {
 			counter.Add(2)
 			ticks <- struct{}{}
 			return makeDigest(t)
-		}, emptyDigest, []uint64{1})
+		}, nil, []uint64{1})
 
 		require.Zero(t, counter.Load())
 		as.ExecuteEmptyNotarizationDependents(1)
@@ -112,7 +110,7 @@ func TestSchedulerWithEmptyRoundDependencies(t *testing.T) {
 			defer wg.Done()
 			counter.Add(1)
 			return dig2
-		}, dig1, []uint64{1})
+		}, &dig1, []uint64{1})
 
 		require.Zero(t, counter.Load())
 		as.ExecuteEmptyNotarizationDependents(1)
@@ -140,7 +138,7 @@ func TestSchedulerWithEmptyRoundDependencies(t *testing.T) {
 			defer wg.Done()
 			counter.Add(1)
 			return dig2
-		}, dig1, []uint64{1})
+		}, &dig1, []uint64{1})
 
 		require.Zero(t, counter.Load())
 
@@ -150,7 +148,7 @@ func TestSchedulerWithEmptyRoundDependencies(t *testing.T) {
 			defer wg.Done()
 			tasks <- struct{}{}
 			return dig1
-		}, emptyDigest, nil)
+		}, nil, nil)
 
 		<-tasks
 		require.Zero(t, counter.Load())
@@ -176,7 +174,7 @@ func TestAsyncScheduler(t *testing.T) {
 			defer wg.Done()
 			<-ticks
 			return dig2
-		}, emptyDigest, []uint64{})
+		}, nil, []uint64{})
 
 		ticks <- struct{}{}
 		wg.Wait()
@@ -193,7 +191,7 @@ func TestAsyncScheduler(t *testing.T) {
 		as.Schedule(func() simplex.Digest {
 			close(ticks)
 			return dig2
-		}, emptyDigest, []uint64{})
+		}, nil, []uint64{})
 
 		ticks <- struct{}{}
 	})
@@ -249,9 +247,9 @@ func scheduleTask(lock *sync.Mutex, finished map[simplex.Digest]struct{}, depend
 			return id
 		}
 
-		dep := emptyDigest
+		var dep *simplex.Digest
 		if !hasFinished {
-			dep = dependency
+			dep = &dependency
 		}
 
 		as.Schedule(task, dep, []uint64{})
