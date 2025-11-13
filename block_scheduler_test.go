@@ -4,7 +4,6 @@
 package simplex_test
 
 import (
-	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -154,7 +153,9 @@ func TestBlockVerificationScheduler(t *testing.T) {
 	t.Run("Max pending limit enforced (dependencies + queued)", func(t *testing.T) {
 		// Set max to 1 so a single pending item trips the limit.
 		const max = uint64(1)
-		bvs := simplex.NewBlockVerificationScheduler(testutil.MakeLogger(t), max)
+		noLogger := testutil.MakeLogger(t)
+		noLogger.Silence() // we silence because CI fails when we get WARN logs but this is expected in this test
+		bvs := simplex.NewBlockVerificationScheduler(noLogger, max)
 		defer bvs.Close()
 
 		prev := makeDigest(t)
@@ -169,8 +170,7 @@ func TestBlockVerificationScheduler(t *testing.T) {
 			return makeDigest(t)
 		}, 0, &prev, nil)
 
-		require.Error(t, err)
-		require.True(t, errors.Is(err, simplex.ErrTooManyPendingVerifications), "should wrap sentinel error")
+		require.ErrorIs(t, err, simplex.ErrTooManyPendingVerifications)
 	})
 
 	t.Run("Multiple unrelated dependency resolutions don't trigger others", func(t *testing.T) {
