@@ -21,8 +21,8 @@ type BlockVerificationScheduler struct {
 
 type TaskWithDependents struct {
 	Task Task
-	
-	BlockSeq uint64 // the seq of the block being verified
+
+	BlockSeq    uint64 // the seq of the block being verified
 	prevBlock   *Digest
 	emptyRounds map[uint64]struct{}
 }
@@ -120,7 +120,7 @@ func (bs *BlockVerificationScheduler) ScheduleTaskWithDependencies(task Task, pr
 func (bs *BlockVerificationScheduler) RemoveOldTasks(seq uint64) {
 	bs.lock.Lock()
 	defer bs.lock.Unlock()
-	
+
 	var remainingDeps []TaskWithDependents
 	for _, taskWithDeps := range bs.dependencies {
 		if taskWithDeps.BlockSeq <= seq {
