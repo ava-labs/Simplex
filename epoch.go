@@ -978,6 +978,7 @@ func (e *Epoch) persistFinalization(finalization Finalization) error {
 	nextSeqToCommit := e.nextSeqToCommit()
 
 	e.blockVerificationScheduler.ExecuteBlockDependents(finalization.Finalization.Digest)
+	e.blockVerificationScheduler.RemoveOldTasks(finalization.Finalization.Seq)
 	e.deleteOldEmptyVotes(finalization.Finalization.Round)
 
 	if finalization.Finalization.Seq == nextSeqToCommit {
