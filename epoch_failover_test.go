@@ -84,16 +84,16 @@ func TestEpochLeaderFailoverWithEmptyNotarization(t *testing.T) {
 	notarizeAndFinalizeRound(t, e, bb)
 
 	wal.AssertNotarization(2)
-	// nextBlockSeqToCommit := uint64(2)
-	// nextRoundToCommit := uint64(3)
+	nextBlockSeqToCommit := uint64(2)
+	nextRoundToCommit := uint64(3)
 
-	// runCrashAndRestartExecution(t, e, bb, wal, storage, func(t *testing.T, e *Epoch, bb *testutil.TestBlockBuilder, storage *testutil.InMemStorage, wal *testutil.TestWAL) {
-	// 	// Ensure our node proposes block with sequence 3 for round 4
-	// 	block, _ := notarizeAndFinalizeRound(t, e, bb)
-	// 	require.Equal(t, nextBlockSeqToCommit, block.BlockHeader().Seq)
-	// 	require.Equal(t, nextRoundToCommit, block.BlockHeader().Round)
-	// 	require.Equal(t, uint64(3), storage.NumBlocks())
-	// })
+	runCrashAndRestartExecution(t, e, bb, wal, storage, func(t *testing.T, e *Epoch, bb *testutil.TestBlockBuilder, storage *testutil.InMemStorage, wal *testutil.TestWAL) {
+		// Ensure our node proposes block with sequence 3 for round 4
+		block, _ := notarizeAndFinalizeRound(t, e, bb)
+		require.Equal(t, nextBlockSeqToCommit, block.BlockHeader().Seq)
+		require.Equal(t, nextRoundToCommit, block.BlockHeader().Round)
+		require.Equal(t, uint64(3), storage.NumBlocks())
+	})
 }
 
 func TestEpochRebroadcastsEmptyVoteAfterBlockProposalReceived(t *testing.T) {
