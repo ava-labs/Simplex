@@ -63,15 +63,15 @@ func TestAsyncScheduler(t *testing.T) {
 	t.Run("Does not execute when closed", func(t *testing.T) {
 		as := simplex.NewScheduler(testutil.MakeLogger(t), defaultMaxTasks, func(d simplex.Digest) {})
 		ticks := make(chan struct{}, 1)
-	
+
 		as.Close()
-	
+
 		dig := makeDigest(t)
 		as.Schedule(func() simplex.Digest {
 			close(ticks)
 			return dig
 		})
-	
+
 		ticks <- struct{}{}
 	})
 }

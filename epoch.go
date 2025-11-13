@@ -1389,6 +1389,12 @@ func (e *Epoch) handleEmptyNotarizationMessage(emptyNotarization *EmptyNotarizat
 	}
 
 	emptyVotes := e.getOrCreateEmptyVoteSetForRound(vote.Round)
+	if emptyVotes.emptyNotarization != nil {
+		e.Logger.Debug("Received an empty notarization for an already notarized round",
+			zap.Uint64("round", vote.Round))
+		return nil
+	}
+
 	emptyVotes.emptyNotarization = emptyNotarization
 	if vote.Round > e.round {
 		e.Logger.Debug("Received empty notarization for a future round",
@@ -2829,6 +2835,12 @@ func (e *Epoch) verifyQuorumRound(q QuorumRound, from NodeID) error {
 
 func (e *Epoch) processEmptyNotarization(emptyNotarization *EmptyNotarization) error {
 	emptyVotes := e.getOrCreateEmptyVoteSetForRound(emptyNotarization.Vote.Round)
+	if emptyVotes.emptyNotarization != nil {
+		e.Logger.Debug("Received an empty notarization for an already notarized round", zap.Uint64("round", emptyNotarization.Vote.Round))
+		// already processed
+		return nil
+	}
+
 	emptyVotes.emptyNotarization = emptyNotarization
 
 	err := e.persistEmptyNotarization(emptyVotes.emptyNotarization, false)

@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	defaultMaxDeps = uint64(1000)
+	defaultMaxDeps      = uint64(1000)
 	defaultWaitDuration = 500 * time.Millisecond
 )
 
