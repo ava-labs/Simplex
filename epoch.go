@@ -1542,7 +1542,7 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 	// Create a task that will verify the block in the future, after its predecessors have also been verified.
 	task := e.createBlockVerificationTask(e.oneTimeVerifier.Wrap(block), from, vote)
 
-	if err := e.blockVerificationScheduler.ScheduleTaskWithDependencies(task, prevBlockDependency, missingRounds); err != nil {
+	if err := e.blockVerificationScheduler.ScheduleTaskWithDependencies(task, md.Seq, prevBlockDependency, missingRounds); err != nil {
 		return nil
 	}
 
@@ -1637,7 +1637,7 @@ func (e *Epoch) processFinalizedBlock(block Block, finalization Finalization) er
 	task := e.createFinalizedBlockVerificationTask(e.oneTimeVerifier.Wrap(block), finalization)
 
 	// TODO: in a future PR, we need to handle collecting any potential dependencies for finalized blocks
-	e.blockVerificationScheduler.ScheduleTaskWithDependencies(task, nil, []uint64{})
+	e.blockVerificationScheduler.ScheduleTaskWithDependencies(task, block.BlockHeader().Seq, nil, []uint64{})
 
 	return nil
 }
@@ -1692,7 +1692,7 @@ func (e *Epoch) processNotarizedBlock(block Block, notarization *Notarization) e
 
 	// TODO: if we have dependencies during replication, we are stuck since this means a node
 	// must have sent us an empty notarization for a round this block depends on.
-	e.blockVerificationScheduler.ScheduleTaskWithDependencies(task, blockDependency, missingRounds)
+	e.blockVerificationScheduler.ScheduleTaskWithDependencies(task, md.Seq, blockDependency, missingRounds)
 
 	return nil
 }
@@ -2090,7 +2090,7 @@ func (e *Epoch) buildBlock() {
 	}
 
 	e.Logger.Debug("Scheduling block building", zap.Uint64("round", metadata.Round))
-	e.blockVerificationScheduler.ScheduleTaskWithDependencies(task, nil, []uint64{})
+	e.blockVerificationScheduler.ScheduleTaskWithDependencies(task, metadata.Seq, nil, []uint64{})
 }
 
 func (e *Epoch) retrieveBlacklistOfParentBlock(metadata ProtocolMetadata) (Blacklist, bool) {
