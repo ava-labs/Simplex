@@ -38,75 +38,75 @@ func NewBlockVerificationScheduler(logger Logger, maxDeps uint64) *BlockVerifica
 }
 
 // ExecuteBlockDependents removes the given digest from dependent tasks and schedules any whose dependencies are now resolved.
-func (ds *BlockVerificationScheduler) ExecuteBlockDependents(digest Digest) {
-	ds.lock.Lock()
-	defer ds.lock.Unlock()
+func (bs *BlockVerificationScheduler) ExecuteBlockDependents(digest Digest) {
+	bs.lock.Lock()
+	defer bs.lock.Unlock()
 
 	var remainingDeps []TaskWithDependents
 
-	for _, taskWithDeps := range ds.dependencies {
+	for _, taskWithDeps := range bs.dependencies {
 		if taskWithDeps.prevBlock != nil && *taskWithDeps.prevBlock == digest {
 			taskWithDeps.prevBlock = nil
 		}
 
 		if len(taskWithDeps.emptyRounds) == 0 && taskWithDeps.prevBlock == nil {
-			ds.logger.Debug("Scheduling block verification task as all dependencies are met", zap.Stringer("taskID", digest))
-			ds.scheduler.Schedule(taskWithDeps.Task)
+			bs.logger.Debug("Scheduling block verification task as all dependencies are met", zap.Stringer("taskID", digest))
+			bs.scheduler.Schedule(taskWithDeps.Task)
 			continue
 		}
 
 		remainingDeps = append(remainingDeps, taskWithDeps)
 	}
 
-	ds.dependencies = remainingDeps
+	bs.dependencies = remainingDeps
 }
 
 // ExecuteEmptyRoundDependents removes the given empty round from dependent tasks and schedules any whose dependencies are now resolved.
-func (ds *BlockVerificationScheduler) ExecuteEmptyRoundDependents(emptyRound uint64) {
-	ds.lock.Lock()
-	defer ds.lock.Unlock()
+func (bs *BlockVerificationScheduler) ExecuteEmptyRoundDependents(emptyRound uint64) {
+	bs.lock.Lock()
+	defer bs.lock.Unlock()
 
 	var remainingDeps []TaskWithDependents
 
-	for _, taskWithDeps := range ds.dependencies {
+	for _, taskWithDeps := range bs.dependencies {
 		delete(taskWithDeps.emptyRounds, emptyRound)
 
 		if len(taskWithDeps.emptyRounds) == 0 && taskWithDeps.prevBlock == nil {
-			ds.logger.Debug("Scheduling block verification task as all dependencies are met")
-			ds.scheduler.Schedule(taskWithDeps.Task)
+			bs.logger.Debug("Scheduling block verification task as all dependencies are met")
+			bs.scheduler.Schedule(taskWithDeps.Task)
 			continue
 		}
 
 		remainingDeps = append(remainingDeps, taskWithDeps)
 	}
 
-	ds.dependencies = remainingDeps
+	bs.dependencies = remainingDeps
 }
 
-func (ds *BlockVerificationScheduler) ScheduleTaskWithDependencies(task Task, prevBlock *Digest, emptyRounds []uint64) error {
-	ds.lock.Lock()
-	defer ds.lock.Unlock()
+func (bs *BlockVerificationScheduler) ScheduleTaskWithDependencies(task Task, prevBlock *Digest, emptyRounds []uint64) error {
+	bs.lock.Lock()
+	defer bs.lock.Unlock()
 
-	totalSize := uint64(len(ds.dependencies) + ds.scheduler.Size())
-	if totalSize >= ds.maxDeps {
-		ds.logger.Warn("Too many blocks being verified to ingest another one", zap.Uint64("pendingBlocks", totalSize))
-		return fmt.Errorf("%w: %d pending verifications (max %d)", ErrTooManyPendingVerifications, totalSize, ds.maxDeps)
+	totalSize := uint64(len(bs.dependencies) + bs.scheduler.Size())
+	if totalSize >= bs.maxDeps {
+		bs.logger.Warn("Too many blocks being verified to ingest another one", zap.Uint64("pendingBlocks", totalSize))
+		return fmt.Errorf("%w: %d pending verifications (max %d)", ErrTooManyPendingVerifications, totalSize, bs.maxDeps)
 	}
 
 	if prevBlock == nil && len(emptyRounds) == 0 {
 		// fmt.Println("No dependencies, scheduling directly:", task)
-		ds.logger.Debug("Scheduling block verification task with no dependencies")
-		ds.scheduler.Schedule(task)
+		bs.logger.Debug("Scheduling block verification task with no dependencies")
+		bs.scheduler.Schedule(task)
 		return nil
 	}
 
-	ds.logger.Debug("Adding block verification task with dependencies", zap.Any("prevBlock", prevBlock), zap.Uint64s("emptyRounds", emptyRounds))
+	bs.logger.Debug("Adding block verification task with dependencies", zap.Any("prevBlock", prevBlock), zap.Uint64s("emptyRounds", emptyRounds))
 	emptyRoundsSet := make(map[uint64]struct{})
 	for _, round := range emptyRounds {
 		emptyRoundsSet[round] = struct{}{}
 	}
 
-	ds.dependencies = append(ds.dependencies, TaskWithDependents{
+	bs.dependencies = append(bs.dependencies, TaskWithDependents{
 		Task:        task,
 		prevBlock:   prevBlock,
 		emptyRounds: emptyRoundsSet,
@@ -115,6 +115,6 @@ func (ds *BlockVerificationScheduler) ScheduleTaskWithDependencies(task Task, pr
 	return nil
 }
 
-func (ds *BlockVerificationScheduler) Close() {
-	ds.scheduler.Close()
+func (bs *BlockVerificationScheduler) Close() {
+	bs.scheduler.Close()
 }
