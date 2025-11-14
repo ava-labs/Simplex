@@ -4,7 +4,6 @@
 package simplex_test
 
 import (
-	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -50,7 +49,7 @@ func TestBlockVerificationScheduler(t *testing.T) {
 			return makeDigest(t)
 		}
 
-		require.NoError(t, bvs.ScheduleTaskWithDependencies(task, nil, nil))
+		require.NoError(t, bvs.ScheduleTaskWithDependencies(task, 0, nil, nil))
 		wg.Wait()
 	})
 
@@ -66,7 +65,7 @@ func TestBlockVerificationScheduler(t *testing.T) {
 			return makeDigest(t)
 		}
 
-		require.NoError(t, bvs.ScheduleTaskWithDependencies(task, &prev, nil))
+		require.NoError(t, bvs.ScheduleTaskWithDependencies(task, 0, &prev, nil))
 
 		// Should not run until we satisfy the dependency.
 		waitNoReceive(t, done)
@@ -85,7 +84,7 @@ func TestBlockVerificationScheduler(t *testing.T) {
 			return makeDigest(t)
 		}
 
-		require.NoError(t, bvs.ScheduleTaskWithDependencies(task, nil, []uint64{11, 22}))
+		require.NoError(t, bvs.ScheduleTaskWithDependencies(task, 0, nil, []uint64{11, 22}))
 
 		// Removing one is not enough.
 		bvs.ExecuteEmptyRoundDependents(11)
@@ -107,7 +106,7 @@ func TestBlockVerificationScheduler(t *testing.T) {
 			return makeDigest(t)
 		}
 
-		require.NoError(t, bvs.ScheduleTaskWithDependencies(task, &prev, []uint64{1, 2, 3}))
+		require.NoError(t, bvs.ScheduleTaskWithDependencies(task, 0, &prev, []uint64{1, 2, 3}))
 
 		// Satisfy rounds first — still blocked by prevBlock.
 		bvs.ExecuteEmptyRoundDependents(1)
@@ -140,12 +139,12 @@ func TestBlockVerificationScheduler(t *testing.T) {
 		}
 
 		// Schedule B with dependency; it should not run yet.
-		require.NoError(t, bvs.ScheduleTaskWithDependencies(taskB, &Aout, nil))
+		require.NoError(t, bvs.ScheduleTaskWithDependencies(taskB, 0, &Aout, nil))
 		waitNoReceive(t, bRan)
 
 		// Schedule A with no dependencies; when it finishes, the scheduler's
 		// onTaskFinished should call ExecuteBlockDependents(Aout), unblocking B.
-		require.NoError(t, bvs.ScheduleTaskWithDependencies(taskA, nil, nil))
+		require.NoError(t, bvs.ScheduleTaskWithDependencies(taskA, 0, nil, nil))
 
 		waitReceive(t, aRan)
 		waitReceive(t, bRan)
@@ -154,7 +153,9 @@ func TestBlockVerificationScheduler(t *testing.T) {
 	t.Run("Max pending limit enforced (dependencies + queued)", func(t *testing.T) {
 		// Set max to 1 so a single pending item trips the limit.
 		const max = uint64(1)
-		bvs := simplex.NewBlockVerificationScheduler(testutil.MakeLogger(t), max)
+		noLogger := testutil.MakeLogger(t)
+		noLogger.Silence() // we silence because CI fails when we get WARN logs but this is expected in this test
+		bvs := simplex.NewBlockVerificationScheduler(noLogger, max)
 		defer bvs.Close()
 
 		prev := makeDigest(t)
@@ -162,15 +163,14 @@ func TestBlockVerificationScheduler(t *testing.T) {
 		// First: add one task with a dependency (it will sit in ds.dependencies)
 		require.NoError(t, bvs.ScheduleTaskWithDependencies(func() simplex.Digest {
 			return makeDigest(t)
-		}, &prev, nil))
+		}, 0, &prev, nil))
 
 		// Second: trying to add another should exceed the limit.
 		err := bvs.ScheduleTaskWithDependencies(func() simplex.Digest {
 			return makeDigest(t)
-		}, &prev, nil)
+		}, 0, &prev, nil)
 
-		require.Error(t, err)
-		require.True(t, errors.Is(err, simplex.ErrTooManyPendingVerifications), "should wrap sentinel error")
+		require.ErrorIs(t, err, simplex.ErrTooManyPendingVerifications)
 	})
 
 	t.Run("Multiple unrelated dependency resolutions don't trigger others", func(t *testing.T) {
@@ -192,8 +192,8 @@ func TestBlockVerificationScheduler(t *testing.T) {
 			return makeDigest(t)
 		}
 
-		require.NoError(t, bvs.ScheduleTaskWithDependencies(task1, &prev1, []uint64{7}))
-		require.NoError(t, bvs.ScheduleTaskWithDependencies(task2, &prev2, []uint64{8}))
+		require.NoError(t, bvs.ScheduleTaskWithDependencies(task1, 0, &prev1, []uint64{7}))
+		require.NoError(t, bvs.ScheduleTaskWithDependencies(task2, 0, &prev2, []uint64{8}))
 
 		// Resolve only part of task1's deps; neither should run.
 		bvs.ExecuteEmptyRoundDependents(7)
@@ -210,5 +210,47 @@ func TestBlockVerificationScheduler(t *testing.T) {
 		// Finally resolve task2's round; it should run now.
 		bvs.ExecuteEmptyRoundDependents(8)
 		waitReceive(t, done2)
+	})
+
+	t.Run("RemoveOldTasks removes tasks with blockSeq <= finalized seq", func(t *testing.T) {
+		bvs := simplex.NewBlockVerificationScheduler(testutil.MakeLogger(t), defaultMaxDeps)
+
+		// Both tasks depend on round 10 being cleared, so neither should run yet.
+		const depRound uint64 = 10
+
+		oldRan := make(chan struct{}, 1)
+		newRan := make(chan struct{}, 1)
+
+		taskOld := func() simplex.Digest {
+			oldRan <- struct{}{}
+			return makeDigest(t)
+		}
+		taskNew := func() simplex.Digest {
+			newRan <- struct{}{}
+			return makeDigest(t)
+		}
+
+		// Block sequences: old=5, new=8
+		// RemoveOldTasks(seq) should drop tasks with blockSeq <= seq.
+		const oldSeq uint64 = 5
+		const newSeq uint64 = 8
+
+		require.NoError(t, bvs.ScheduleTaskWithDependencies(taskOld, oldSeq, nil, []uint64{depRound}))
+		require.NoError(t, bvs.ScheduleTaskWithDependencies(taskNew, newSeq, nil, []uint64{depRound}))
+
+		// Nothing should run yet.
+		waitNoReceive(t, oldRan)
+		waitNoReceive(t, newRan)
+
+		// Finalize up to seq=6 — this should remove the old task (seq=5) but keep the new one (seq=8).
+		bvs.RemoveOldTasks(6)
+
+		// Now resolve the dependency round. Only the "new" task should execute.
+		bvs.ExecuteEmptyRoundDependents(depRound)
+
+		// Old was removed, so it must not run.
+		waitNoReceive(t, oldRan)
+		// New remains and should be scheduled.
+		waitReceive(t, newRan)
 	})
 }

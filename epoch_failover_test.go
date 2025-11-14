@@ -77,7 +77,6 @@ func TestEpochLeaderFailoverWithEmptyNotarization(t *testing.T) {
 	}
 
 	emptyNotarization := testutil.NewEmptyNotarization(nodes[:3], 2)
-
 	e.HandleMessage(&Message{
 		EmptyNotarization: emptyNotarization,
 	}, nodes[1])

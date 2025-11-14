@@ -39,6 +39,7 @@ type EmptyVoteSet struct {
 	timedOut          bool
 	votes             map[string]*EmptyVote
 	emptyNotarization *EmptyNotarization
+	persisted         bool
 }
 
 type Round struct {
@@ -978,6 +979,7 @@ func (e *Epoch) persistFinalization(finalization Finalization) error {
 	nextSeqToCommit := e.nextSeqToCommit()
 
 	e.blockVerificationScheduler.ExecuteBlockDependents(finalization.Finalization.Digest)
+	e.blockVerificationScheduler.RemoveOldTasks(finalization.Finalization.Seq)
 	e.deleteOldEmptyVotes(finalization.Finalization.Round)
 
 	if finalization.Finalization.Seq == nextSeqToCommit {
@@ -1183,7 +1185,7 @@ func (e *Epoch) maybeAssembleEmptyNotarization() error {
 	emptyVotes.emptyNotarization = emptyNotarization
 
 	// Persist the empty notarization and also broadcast it to everyone
-	return e.persistEmptyNotarization(emptyNotarization, true)
+	return e.persistEmptyNotarization(emptyVotes, true)
 }
 
 func findMostPopularEmptyVote(votes map[string]*EmptyVote, quorumSize int) (ToBeSignedEmptyVote, []Signature, bool) {
@@ -1214,7 +1216,8 @@ func findMostPopularEmptyVote(votes map[string]*EmptyVote, quorumSize int) (ToBe
 	return popularEmptyVotes[0].Vote, sigs, true
 }
 
-func (e *Epoch) persistEmptyNotarization(emptyNotarization *EmptyNotarization, shouldBroadcast bool) error {
+func (e *Epoch) persistEmptyNotarization(emptyVotes *EmptyVoteSet, shouldBroadcast bool) error {
+	emptyNotarization := emptyVotes.emptyNotarization
 	emptyNotarizationRecord := NewEmptyNotarizationRecord(emptyNotarization)
 	if err := e.WAL.Append(emptyNotarizationRecord); err != nil {
 		e.Logger.Error("Failed to append empty block record to WAL", zap.Error(err))
@@ -1225,6 +1228,7 @@ func (e *Epoch) persistEmptyNotarization(emptyNotarization *EmptyNotarization, s
 		zap.Int("size", len(emptyNotarizationRecord)),
 		zap.Uint64("round", emptyNotarization.Vote.Round))
 
+	emptyVotes.persisted = true
 	if shouldBroadcast {
 		notarizationMessage := &Message{EmptyNotarization: emptyNotarization}
 		e.Comm.Broadcast(notarizationMessage)
@@ -1380,6 +1384,8 @@ func (e *Epoch) handleEmptyNotarizationMessage(emptyNotarization *EmptyNotarizat
 	}
 
 	if e.isVoteRoundTooFarBehind(vote.Round) {
+		e.Logger.Debug("Received an empty notarization for a too low round",
+			zap.Uint64("round", vote.Round), zap.Uint64("our round", e.round))
 		return nil
 	}
 
@@ -1389,12 +1395,11 @@ func (e *Epoch) handleEmptyNotarizationMessage(emptyNotarization *EmptyNotarizat
 	}
 
 	emptyVotes := e.getOrCreateEmptyVoteSetForRound(vote.Round)
-	if emptyVotes.emptyNotarization != nil {
-		e.Logger.Debug("Received an empty notarization for an already notarized round",
+	if emptyVotes.persisted {
+		e.Logger.Debug("Received an empty notarization for a persisted round",
 			zap.Uint64("round", vote.Round))
 		return nil
 	}
-
 	emptyVotes.emptyNotarization = emptyNotarization
 	if vote.Round > e.round {
 		e.Logger.Debug("Received empty notarization for a future round",
@@ -1403,7 +1408,7 @@ func (e *Epoch) handleEmptyNotarizationMessage(emptyNotarization *EmptyNotarizat
 	}
 
 	// The empty notarization is for this round, so store it but don't broadcast it, as we've received it via a broadcast.
-	return e.persistEmptyNotarization(emptyNotarization, false)
+	return e.persistEmptyNotarization(emptyVotes, false)
 }
 
 // we do not care to process votes for rounds where we have finalized
@@ -1541,7 +1546,7 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 	// Create a task that will verify the block in the future, after its predecessors have also been verified.
 	task := e.createBlockVerificationTask(e.oneTimeVerifier.Wrap(block), from, vote)
 
-	if err := e.blockVerificationScheduler.ScheduleTaskWithDependencies(task, prevBlockDependency, missingRounds); err != nil {
+	if err := e.blockVerificationScheduler.ScheduleTaskWithDependencies(task, md.Seq, prevBlockDependency, missingRounds); err != nil {
 		return nil
 	}
 
@@ -1636,7 +1641,7 @@ func (e *Epoch) processFinalizedBlock(block Block, finalization Finalization) er
 	task := e.createFinalizedBlockVerificationTask(e.oneTimeVerifier.Wrap(block), finalization)
 
 	// TODO: in a future PR, we need to handle collecting any potential dependencies for finalized blocks
-	e.blockVerificationScheduler.ScheduleTaskWithDependencies(task, nil, []uint64{})
+	e.blockVerificationScheduler.ScheduleTaskWithDependencies(task, block.BlockHeader().Seq, nil, []uint64{})
 
 	return nil
 }
@@ -1691,7 +1696,7 @@ func (e *Epoch) processNotarizedBlock(block Block, notarization *Notarization) e
 
 	// TODO: if we have dependencies during replication, we are stuck since this means a node
 	// must have sent us an empty notarization for a round this block depends on.
-	e.blockVerificationScheduler.ScheduleTaskWithDependencies(task, blockDependency, missingRounds)
+	e.blockVerificationScheduler.ScheduleTaskWithDependencies(task, md.Seq, blockDependency, missingRounds)
 
 	return nil
 }
@@ -2089,7 +2094,7 @@ func (e *Epoch) buildBlock() {
 	}
 
 	e.Logger.Debug("Scheduling block building", zap.Uint64("round", metadata.Round))
-	e.blockVerificationScheduler.ScheduleTaskWithDependencies(task, nil, []uint64{})
+	e.blockVerificationScheduler.ScheduleTaskWithDependencies(task, metadata.Seq, nil, []uint64{})
 }
 
 func (e *Epoch) retrieveBlacklistOfParentBlock(metadata ProtocolMetadata) (Blacklist, bool) {
@@ -2835,15 +2840,15 @@ func (e *Epoch) verifyQuorumRound(q QuorumRound, from NodeID) error {
 
 func (e *Epoch) processEmptyNotarization(emptyNotarization *EmptyNotarization) error {
 	emptyVotes := e.getOrCreateEmptyVoteSetForRound(emptyNotarization.Vote.Round)
-	if emptyVotes.emptyNotarization != nil {
-		e.Logger.Debug("Received an empty notarization for an already notarized round", zap.Uint64("round", emptyNotarization.Vote.Round))
+	if emptyVotes.persisted {
+		e.Logger.Debug("Received an empty notarization for an already persisted round", zap.Uint64("round", emptyNotarization.Vote.Round))
 		// already processed
 		return nil
 	}
 
 	emptyVotes.emptyNotarization = emptyNotarization
 
-	err := e.persistEmptyNotarization(emptyVotes.emptyNotarization, false)
+	err := e.persistEmptyNotarization(emptyVotes, false)
 	if err != nil {
 		return err
 	}

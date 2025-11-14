@@ -22,6 +22,7 @@ type BlockVerificationScheduler struct {
 type TaskWithDependents struct {
 	Task Task
 
+	blockSeq    uint64 // the seq of the block being verified
 	prevBlock   *Digest
 	emptyRounds map[uint64]struct{}
 }
@@ -83,7 +84,7 @@ func (bs *BlockVerificationScheduler) ExecuteEmptyRoundDependents(emptyRound uin
 	bs.dependencies = remainingDeps
 }
 
-func (bs *BlockVerificationScheduler) ScheduleTaskWithDependencies(task Task, prevBlock *Digest, emptyRounds []uint64) error {
+func (bs *BlockVerificationScheduler) ScheduleTaskWithDependencies(task Task, blockSeq uint64, prevBlock *Digest, emptyRounds []uint64) error {
 	bs.lock.Lock()
 	defer bs.lock.Unlock()
 
@@ -110,9 +111,27 @@ func (bs *BlockVerificationScheduler) ScheduleTaskWithDependencies(task Task, pr
 		Task:        task,
 		prevBlock:   prevBlock,
 		emptyRounds: emptyRoundsSet,
+		blockSeq:    blockSeq,
 	})
 
 	return nil
+}
+
+// We can remove all tasks that have an empty notarization dependency for a round that has been finalized.
+func (bs *BlockVerificationScheduler) RemoveOldTasks(seq uint64) {
+	bs.lock.Lock()
+	defer bs.lock.Unlock()
+
+	var remainingDeps []TaskWithDependents
+	for _, taskWithDeps := range bs.dependencies {
+		if taskWithDeps.blockSeq <= seq {
+			bs.logger.Debug("Removing block verification task as its block seq is less than or equal to finalized seq", zap.Uint64("blockSeq", taskWithDeps.blockSeq), zap.Uint64("finalizedSeq", seq))
+			continue
+		}
+		remainingDeps = append(remainingDeps, taskWithDeps)
+	}
+
+	bs.dependencies = remainingDeps
 }
 
 func (bs *BlockVerificationScheduler) Close() {
