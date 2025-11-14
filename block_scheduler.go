@@ -66,7 +66,7 @@ func (bs *BlockDependencyManager) ExecuteBlockDependents(prev Digest) {
 	bs.lock.Lock()
 	defer bs.lock.Unlock()
 
-	var remainingDeps []TaskWithDependents
+	remainingDeps := make([]TaskWithDependents, 0, len(bs.dependencies))
 
 	for _, taskWithDeps := range bs.dependencies {
 		if taskWithDeps.prevBlock != nil && *taskWithDeps.prevBlock == prev {
@@ -95,7 +95,7 @@ func (bs *BlockDependencyManager) ExecuteEmptyRoundDependents(emptyRound uint64)
 	bs.lock.Lock()
 	defer bs.lock.Unlock()
 
-	var remainingDeps []TaskWithDependents
+	remainingDeps := make([]TaskWithDependents, 0, len(bs.dependencies))
 
 	for _, taskWithDeps := range bs.dependencies {
 		delete(taskWithDeps.emptyRounds, emptyRound)
@@ -163,7 +163,7 @@ func (bs *BlockDependencyManager) RemoveOldTasks(seq uint64) {
 	bs.lock.Lock()
 	defer bs.lock.Unlock()
 
-	var remainingDeps []TaskWithDependents
+	remainingDeps := make([]TaskWithDependents, 0, len(bs.dependencies))
 	for _, taskWithDeps := range bs.dependencies {
 		if taskWithDeps.blockSeq <= seq {
 			bs.logger.Debug("Removing block verification task as its block seq is less than or equal to finalized seq", zap.Uint64("blockSeq", taskWithDeps.blockSeq), zap.Uint64("finalizedSeq", seq))
