@@ -52,6 +52,7 @@ func TestEpochLeaderFailoverWithEmptyNotarization(t *testing.T) {
 
 	block0, _, err := storage.Retrieve(0)
 	require.NoError(t, err)
+
 	block1, ok := bb.BuildBlock(context.Background(), ProtocolMetadata{
 		Round: 1,
 		Prev:  block0.BlockHeader().Digest,
@@ -76,7 +77,6 @@ func TestEpochLeaderFailoverWithEmptyNotarization(t *testing.T) {
 	}
 
 	emptyNotarization := testutil.NewEmptyNotarization(nodes[:3], 2)
-	fmt.Println("Sending empty notarization for round 2:", emptyNotarization)
 	e.HandleMessage(&Message{
 		EmptyNotarization: emptyNotarization,
 	}, nodes[1])
