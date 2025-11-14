@@ -16,12 +16,18 @@ import (
 
 var ErrTooManyPendingVerifications = errors.New("too many blocks being verified to ingest another one")
 
+type Scheduler interface {
+	Schedule(task Task)
+	Size() int
+	Close()
+}
+
 // BlockDependencyManager manages block verification tasks with dependencies on previous blocks and empty rounds.
 // It schedules tasks when their dependencies are resolved.
 type BlockDependencyManager struct {
 	lock      sync.Mutex
 	logger    Logger
-	scheduler *Scheduler
+	scheduler Scheduler
 
 	dependencies []TaskWithDependents
 	maxDeps      uint64
@@ -44,13 +50,13 @@ func (t *TaskWithDependents) String() string {
 	return fmt.Sprintf("BlockVerificationTask{blockSeq: %d, prevBlock: %v, emptyRounds: %v}", t.blockSeq, t.prevBlock, slices.Collect(maps.Keys(t.emptyRounds)))
 }
 
-func NewBlockVerificationScheduler(logger Logger, maxDeps uint64) *BlockDependencyManager {
+func NewBlockVerificationScheduler(logger Logger, maxDeps uint64, scheduler Scheduler) *BlockDependencyManager {
 	b := &BlockDependencyManager{
-		logger:  logger,
-		maxDeps: maxDeps,
+		logger:    logger,
+		maxDeps:   maxDeps,
+		scheduler: scheduler,
 	}
 
-	b.scheduler = NewScheduler(logger, maxDeps, b.ExecuteBlockDependents)
 	b.logger.Debug("Created BlockVerificationScheduler", zap.Uint64("maxDeps", maxDeps))
 	return b
 }
@@ -118,6 +124,12 @@ func (bs *BlockDependencyManager) ScheduleTaskWithDependencies(task Task, blockS
 		return nil
 	}
 
+	wrappedTask := func() Digest {
+		id := task()
+		bs.ExecuteBlockDependents(id)
+		return id
+	}
+
 	totalSize := uint64(len(bs.dependencies) + bs.scheduler.Size())
 	if totalSize >= bs.maxDeps {
 		bs.logger.Warn("Too many blocks being verified to ingest another one", zap.Uint64("pendingBlocks", totalSize))
@@ -126,7 +138,7 @@ func (bs *BlockDependencyManager) ScheduleTaskWithDependencies(task Task, blockS
 
 	if prev == nil && len(emptyRounds) == 0 {
 		bs.logger.Debug("Scheduling block verification task with no dependencies")
-		bs.scheduler.Schedule(task)
+		bs.scheduler.Schedule(wrappedTask)
 		return nil
 	}
 
@@ -137,7 +149,7 @@ func (bs *BlockDependencyManager) ScheduleTaskWithDependencies(task Task, blockS
 	}
 
 	bs.dependencies = append(bs.dependencies, TaskWithDependents{
-		Task:        task,
+		Task:        wrappedTask,
 		prevBlock:   prev,
 		emptyRounds: emptyRoundsSet,
 		blockSeq:    blockSeq,
