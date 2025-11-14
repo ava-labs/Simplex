@@ -494,9 +494,9 @@ func TestEpochConsecutiveProposalsDoNotGetVerified(t *testing.T) {
 			require.NoError(t, err)
 
 			var wg sync.WaitGroup
-			wg.Add(DefaultMaxPendingBlocks)
+			wg.Add(DefaultProcessingBlocks)
 
-			for i := 0; i < DefaultMaxPendingBlocks; i++ {
+			for i := 0; i < DefaultProcessingBlocks; i++ {
 				go func() {
 					defer wg.Done()
 

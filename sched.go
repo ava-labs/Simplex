@@ -36,8 +36,6 @@ func (as *Scheduler) Size() int {
 }
 
 func (as *Scheduler) Close() {
-	close(as.tasks)
-
 	as.closed.Store(true)
 }
 
@@ -48,6 +46,10 @@ func (as *Scheduler) run() {
 		as.logger.Debug("Task finished execution", zap.Stringer("taskID", id))
 
 		as.onTaskFinished(id)
+
+		if as.closed.Load() {
+			return
+		}
 	}
 }
 

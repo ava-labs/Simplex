@@ -26,7 +26,7 @@ var ErrAlreadyStarted = errors.New("epoch already started")
 
 const (
 	DefaultMaxRoundWindow   = 10
-	DefaultMaxPendingBlocks = 20
+	DefaultProcessingBlocks = 500
 
 	DefaultMaxProposalWaitTime            = 5 * time.Second
 	DefaultReplicationRequestTimeout      = 5 * time.Second
@@ -84,7 +84,7 @@ type Epoch struct {
 	EpochConfig
 	// Runtime
 	oneTimeVerifier                *oneTimeVerifier
-	blockVerificationScheduler     *BlockVerificationScheduler
+	blockVerificationScheduler     *BlockDependencyManager
 	lock                           sync.Mutex
 	lastBlock                      *VerifiedFinalizedBlock // latest block & finalization committed
 	canReceiveMessages             atomic.Bool
@@ -181,7 +181,7 @@ func (e *Epoch) init() error {
 	e.maybeAssignDefaultConfig()
 	e.initOldestNotFinalizedNotarization()
 	e.oneTimeVerifier = newOneTimeVerifier(e.Logger)
-	e.blockVerificationScheduler = NewBlockVerificationScheduler(e.Logger, DefaultMaxPendingBlocks)
+	e.blockVerificationScheduler = NewBlockVerificationScheduler(e.Logger, DefaultProcessingBlocks)
 	e.monitor = NewMonitor(e.StartTime, e.Logger)
 	e.cancelWaitForBlockNotarization = func() {}
 	e.finishCtx, e.finishFn = context.WithCancel(context.Background())
