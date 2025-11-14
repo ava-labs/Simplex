@@ -1596,7 +1596,7 @@ func (e *Epoch) blockDependencies(bh BlockHeader) (*Digest, []uint64) {
 			zap.Uint64("seq", bh.Seq-1),
 			zap.Stringer("prev", bh.Prev))
 
-		return nil, nil
+		return &bh.Prev, nil
 	}
 
 	// no block dependency if we already have a notarization or finalization for the previous block
