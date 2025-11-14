@@ -1218,6 +1218,12 @@ func findMostPopularEmptyVote(votes map[string]*EmptyVote, quorumSize int) (ToBe
 }
 
 func (e *Epoch) persistEmptyNotarization(emptyVotes *EmptyVoteSet, shouldBroadcast bool) error {
+	if emptyVotes.persisted {
+		e.Logger.Debug("Received an empty notarization for a persisted round",
+			zap.Uint64("round", emptyVotes.emptyNotarization.Vote.Round))
+		return nil
+	}
+
 	emptyNotarization := emptyVotes.emptyNotarization
 	emptyNotarizationRecord := NewEmptyNotarizationRecord(emptyNotarization)
 	if err := e.WAL.Append(emptyNotarizationRecord); err != nil {
@@ -1238,6 +1244,8 @@ func (e *Epoch) persistEmptyNotarization(emptyVotes *EmptyVoteSet, shouldBroadca
 	}
 
 	e.blockVerificationScheduler.ExecuteEmptyRoundDependents(emptyNotarization.Vote.Round)
+
+	// don't increase the round if this is a empty notarization for a past round
 	if e.round != emptyNotarization.Vote.Round {
 		return nil
 	}
@@ -1384,7 +1392,7 @@ func (e *Epoch) handleEmptyNotarizationMessage(emptyNotarization *EmptyNotarizat
 		return nil
 	}
 
-	if e.isVoteRoundTooFarBehind(vote.Round) {
+	if e.isVoteForFinalizedRound(vote.Round) {
 		e.Logger.Debug("Received an empty notarization for a too low round",
 			zap.Uint64("round", vote.Round), zap.Uint64("our round", e.round))
 		return nil
@@ -1396,11 +1404,6 @@ func (e *Epoch) handleEmptyNotarizationMessage(emptyNotarization *EmptyNotarizat
 	}
 
 	emptyVotes := e.getOrCreateEmptyVoteSetForRound(vote.Round)
-	if emptyVotes.persisted {
-		e.Logger.Debug("Received an empty notarization for a persisted round",
-			zap.Uint64("round", vote.Round))
-		return nil
-	}
 	emptyVotes.emptyNotarization = emptyNotarization
 	if vote.Round > e.round {
 		e.Logger.Debug("Received empty notarization for a future round",
@@ -1413,7 +1416,7 @@ func (e *Epoch) handleEmptyNotarizationMessage(emptyNotarization *EmptyNotarizat
 }
 
 // we do not care to process votes for rounds where we have finalized
-func (e *Epoch) isVoteRoundTooFarBehind(round uint64) bool {
+func (e *Epoch) isVoteForFinalizedRound(round uint64) bool {
 	max := uint64(0)
 
 	for _, round := range e.rounds {
@@ -1602,7 +1605,7 @@ func (e *Epoch) blockDependencies(bh BlockHeader) (*Digest, []uint64) {
 	}
 
 	// missing empty rounds
-	missingRounds := []uint64{}
+	var missingRounds []uint64
 	for round := prevBlock.BlockHeader().Round + 1; round < bh.Round; round++ {
 		emptyVotes, exists := e.emptyVotes[round]
 		if !exists || emptyVotes.emptyNotarization == nil {
@@ -2841,12 +2844,6 @@ func (e *Epoch) verifyQuorumRound(q QuorumRound, from NodeID) error {
 
 func (e *Epoch) processEmptyNotarization(emptyNotarization *EmptyNotarization) error {
 	emptyVotes := e.getOrCreateEmptyVoteSetForRound(emptyNotarization.Vote.Round)
-	if emptyVotes.persisted {
-		e.Logger.Debug("Received an empty notarization for an already persisted round", zap.Uint64("round", emptyNotarization.Vote.Round))
-		// already processed
-		return nil
-	}
-
 	emptyVotes.emptyNotarization = emptyNotarization
 
 	err := e.persistEmptyNotarization(emptyVotes, false)
