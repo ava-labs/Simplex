@@ -38,7 +38,8 @@ func waitReceive(t *testing.T, ch <-chan struct{}) {
 
 func TestBlockVerificationScheduler(t *testing.T) {
 	t.Run("Schedules immediately when no dependencies", func(t *testing.T) {
-		bvs := simplex.NewBlockVerificationScheduler(testutil.MakeLogger(t), defaultMaxDeps)
+		scheduler := simplex.NewScheduler(testutil.MakeLogger(t), defaultMaxDeps)
+		bvs := simplex.NewBlockVerificationScheduler(testutil.MakeLogger(t), defaultMaxDeps, scheduler)
 		defer bvs.Close()
 
 		wg := sync.WaitGroup{}
@@ -54,7 +55,8 @@ func TestBlockVerificationScheduler(t *testing.T) {
 	})
 
 	t.Run("Defers until prevBlock is satisfied (manual ExecuteBlockDependents)", func(t *testing.T) {
-		bvs := simplex.NewBlockVerificationScheduler(testutil.MakeLogger(t), defaultMaxDeps)
+		scheduler := simplex.NewScheduler(testutil.MakeLogger(t), defaultMaxDeps)
+		bvs := simplex.NewBlockVerificationScheduler(testutil.MakeLogger(t), defaultMaxDeps, scheduler)
 		defer bvs.Close()
 
 		prev := makeDigest(t)
@@ -75,7 +77,8 @@ func TestBlockVerificationScheduler(t *testing.T) {
 	})
 
 	t.Run("Defers until all emptyRounds are satisfied", func(t *testing.T) {
-		bvs := simplex.NewBlockVerificationScheduler(testutil.MakeLogger(t), defaultMaxDeps)
+		scheduler := simplex.NewScheduler(testutil.MakeLogger(t), defaultMaxDeps)
+		bvs := simplex.NewBlockVerificationScheduler(testutil.MakeLogger(t), defaultMaxDeps, scheduler)
 		defer bvs.Close()
 
 		done := make(chan struct{}, 1)
@@ -96,7 +99,8 @@ func TestBlockVerificationScheduler(t *testing.T) {
 	})
 
 	t.Run("Defers until both prevBlock and all emptyRounds are satisfied", func(t *testing.T) {
-		bvs := simplex.NewBlockVerificationScheduler(testutil.MakeLogger(t), defaultMaxDeps)
+		scheduler := simplex.NewScheduler(testutil.MakeLogger(t), defaultMaxDeps)
+		bvs := simplex.NewBlockVerificationScheduler(testutil.MakeLogger(t), defaultMaxDeps, scheduler)
 		defer bvs.Close()
 
 		prev := makeDigest(t)
@@ -120,7 +124,8 @@ func TestBlockVerificationScheduler(t *testing.T) {
 	})
 
 	t.Run("Chained scheduling via onTaskFinished (A finishes -> B unblocked)", func(t *testing.T) {
-		bvs := simplex.NewBlockVerificationScheduler(testutil.MakeLogger(t), defaultMaxDeps)
+		scheduler := simplex.NewScheduler(testutil.MakeLogger(t), defaultMaxDeps)
+		bvs := simplex.NewBlockVerificationScheduler(testutil.MakeLogger(t), defaultMaxDeps, scheduler)
 		defer bvs.Close()
 
 		// Task A produces digest 'Aout'
@@ -153,9 +158,10 @@ func TestBlockVerificationScheduler(t *testing.T) {
 	t.Run("Max pending limit enforced (dependencies + queued)", func(t *testing.T) {
 		// Set max to 1 so a single pending item trips the limit.
 		const max = uint64(1)
+		limitedScheduler := simplex.NewScheduler(testutil.MakeLogger(t), defaultMaxDeps)
 		noLogger := testutil.MakeLogger(t)
 		noLogger.Silence() // we silence because CI fails when we get WARN logs but this is expected in this test
-		bvs := simplex.NewBlockVerificationScheduler(noLogger, max)
+		bvs := simplex.NewBlockVerificationScheduler(noLogger, max, limitedScheduler)
 		defer bvs.Close()
 
 		prev := makeDigest(t)
@@ -174,7 +180,8 @@ func TestBlockVerificationScheduler(t *testing.T) {
 	})
 
 	t.Run("Multiple unrelated dependency resolutions don't trigger others", func(t *testing.T) {
-		bvs := simplex.NewBlockVerificationScheduler(testutil.MakeLogger(t), defaultMaxDeps)
+		scheduler := simplex.NewScheduler(testutil.MakeLogger(t), defaultMaxDeps)
+		bvs := simplex.NewBlockVerificationScheduler(testutil.MakeLogger(t), defaultMaxDeps, scheduler)
 		defer bvs.Close()
 
 		prev1 := makeDigest(t)
@@ -213,7 +220,8 @@ func TestBlockVerificationScheduler(t *testing.T) {
 	})
 
 	t.Run("RemoveOldTasks removes tasks with blockSeq <= finalized seq", func(t *testing.T) {
-		bvs := simplex.NewBlockVerificationScheduler(testutil.MakeLogger(t), defaultMaxDeps)
+		scheduler := simplex.NewScheduler(testutil.MakeLogger(t), defaultMaxDeps)
+		bvs := simplex.NewBlockVerificationScheduler(testutil.MakeLogger(t), defaultMaxDeps, scheduler)
 
 		// Both tasks depend on round 10 being cleared, so neither should run yet.
 		const depRound uint64 = 10

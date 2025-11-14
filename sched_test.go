@@ -17,7 +17,7 @@ var defaultMaxTasks uint64 = 1000
 
 func TestAsyncScheduler(t *testing.T) {
 	t.Run("Executes asynchronously", func(t *testing.T) {
-		as := simplex.NewScheduler(testutil.MakeLogger(t), defaultMaxTasks, func(d simplex.Digest) {})
+		as := simplex.NewScheduler(testutil.MakeLogger(t), defaultMaxTasks)
 		defer as.Close()
 
 		ticks := make(chan struct{})
@@ -37,31 +37,8 @@ func TestAsyncScheduler(t *testing.T) {
 		wg.Wait()
 	})
 
-	t.Run("Executes onTaskFinished properly", func(t *testing.T) {
-		var wg sync.WaitGroup
-		wg.Add(1)
-
-		digest := makeDigest(t)
-
-		wg.Add(1)
-		finished := func(d simplex.Digest) {
-			require.Equal(t, digest, d)
-			wg.Done()
-		}
-
-		as := simplex.NewScheduler(testutil.MakeLogger(t), defaultMaxTasks, finished)
-		defer as.Close()
-
-		as.Schedule(func() simplex.Digest {
-			defer wg.Done()
-			return digest
-		})
-
-		wg.Wait()
-	})
-
 	t.Run("Does not execute when closed", func(t *testing.T) {
-		as := simplex.NewScheduler(testutil.MakeLogger(t), defaultMaxTasks, func(d simplex.Digest) {})
+		as := simplex.NewScheduler(testutil.MakeLogger(t), defaultMaxTasks)
 		ticks := make(chan struct{}, 1)
 
 		as.Close()
