@@ -77,7 +77,6 @@ func TestEpochLeaderFailoverWithEmptyNotarization(t *testing.T) {
 	}
 
 	emptyNotarization := testutil.NewEmptyNotarization(nodes[:3], 2)
-
 	e.HandleMessage(&Message{
 		EmptyNotarization: emptyNotarization,
 	}, nodes[1])
@@ -299,6 +298,63 @@ func TestEpochLeaderFailover(t *testing.T) {
 
 		require.Equal(t, uint64(4), storage.NumBlocks())
 	})
+}
+
+func TestEpochLeaderFailoverDoNotPersistEmptyRoundTwice(t *testing.T) {
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1), BlockShouldBeBuilt: make(chan struct{}, 1)}
+	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
+	numRounds := uint64(2)
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+
+	require.NoError(t, e.Start())
+
+	for range numRounds {
+		notarizeAndFinalizeRound(t, e, bb)
+	}
+
+	bb.BlockShouldBeBuilt <- struct{}{}
+
+	testutil.WaitForBlockProposerTimeout(t, e, &e.StartTime, e.Metadata().Round)
+
+	emptyBlockMd := EmptyVoteMetadata{
+		Round: numRounds,
+	}
+
+	emptyVoteFrom1 := createEmptyVote(emptyBlockMd, nodes[1])
+	emptyVoteFrom2 := createEmptyVote(emptyBlockMd, nodes[2])
+
+	err = e.HandleMessage(&Message{
+		EmptyVoteMessage: emptyVoteFrom1,
+	}, nodes[1])
+	require.NoError(t, err)
+
+	err = e.HandleMessage(&Message{
+		EmptyVoteMessage: emptyVoteFrom2,
+	}, nodes[2])
+	require.NoError(t, err)
+
+	require.True(t, wal.ContainsEmptyNotarization(numRounds))
+
+	walContent, err := wal.ReadAll()
+	require.NoError(t, err)
+
+	prevWALSize := len(walContent)
+
+	en := testutil.NewEmptyNotarization(nodes, numRounds)
+
+	err = e.HandleMessage(&Message{
+		EmptyNotarization: en,
+	}, nodes[2])
+	require.NoError(t, err)
+
+	walContent, err = wal.ReadAll()
+	require.NoError(t, err)
+
+	nextWALSize := len(walContent)
+
+	require.Equal(t, prevWALSize, nextWALSize, "WAL size should not increase after receiving duplicate empty notarization")
 }
 
 func TestEpochLeaderRecursivelyFetchNotarizedBlocks(t *testing.T) {
