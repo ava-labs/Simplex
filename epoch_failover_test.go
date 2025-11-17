@@ -318,7 +318,7 @@ func TestEpochLeaderFailoverDoNotPersistEmptyRoundTwice(t *testing.T) {
 
 	testutil.WaitForBlockProposerTimeout(t, e, &e.StartTime, e.Metadata().Round)
 
-	emptyBlockMd := ProtocolMetadata{
+	emptyBlockMd := EmptyVoteMetadata{
 		Round: numRounds,
 	}
 
