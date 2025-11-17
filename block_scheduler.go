@@ -101,7 +101,7 @@ func (bs *BlockDependencyManager) ExecuteEmptyRoundDependents(emptyRound uint64)
 		delete(taskWithDeps.emptyRounds, emptyRound)
 
 		if taskWithDeps.isReady() {
-			bs.logger.Debug("Scheduling block verification task as all dependencies are met")
+			bs.logger.Debug("Scheduling block verification task as all dependencies are met", zap.Stringer("task", &taskWithDeps))
 			bs.scheduler.Schedule(taskWithDeps.Task)
 			continue
 		}
@@ -137,7 +137,7 @@ func (bs *BlockDependencyManager) ScheduleTaskWithDependencies(task Task, blockS
 	}
 
 	if prev == nil && len(emptyRounds) == 0 {
-		bs.logger.Debug("Scheduling block verification task with no dependencies")
+		bs.logger.Debug("Scheduling block verification task with no dependencies", zap.Uint64("blockSeq", blockSeq))
 		bs.scheduler.Schedule(wrappedTask)
 		return nil
 	}
