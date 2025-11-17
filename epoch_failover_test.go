@@ -164,20 +164,13 @@ func TestEpochLeaderFailoverReceivesEmptyVotesEarly(t *testing.T) {
 		notarizeAndFinalizeRound(t, e, bb)
 	}
 
-	lastBlock, _, err := storage.Retrieve(storage.NumBlocks() - 1)
-	require.NoError(t, err)
-
-	prev := lastBlock.BlockHeader().Digest
-
-	emptyBlockMd := ProtocolMetadata{
+	emptyBlockMd := EmptyVoteMetadata{
 		Round: 3,
-		Seq:   2,
-		Prev:  prev,
+		Epoch: 0,
 	}
 
 	emptyVoteFrom1 := createEmptyVote(emptyBlockMd, nodes[1])
 	emptyVoteFrom2 := createEmptyVote(emptyBlockMd, nodes[2])
-
 	e.HandleMessage(&Message{
 		EmptyVoteMessage: emptyVoteFrom1,
 	}, nodes[1])
@@ -267,15 +260,8 @@ func TestEpochLeaderFailover(t *testing.T) {
 	testutil.WaitForBlockProposerTimeout(t, e, &e.StartTime, e.Metadata().Round)
 
 	runCrashAndRestartExecution(t, e, bb, wal, storage, func(t *testing.T, e *Epoch, bb *testutil.TestBlockBuilder, storage *testutil.InMemStorage, wal *testutil.TestWAL) {
-		lastBlock, _, err := storage.Retrieve(storage.NumBlocks() - 1)
-		require.NoError(t, err)
-
-		prev := lastBlock.BlockHeader().Digest
-
-		emptyBlockMd := ProtocolMetadata{
+		emptyBlockMd := EmptyVoteMetadata{
 			Round: 3,
-			Seq:   2,
-			Prev:  prev,
 		}
 
 		emptyVoteFrom1 := createEmptyVote(emptyBlockMd, nodes[1])
@@ -459,7 +445,9 @@ func TestEpochLeaderFailoverInLeaderRound(t *testing.T) {
 	}
 
 	block := <-bb.Out
-	md := block.BlockHeader().ProtocolMetadata
+	md := EmptyVoteMetadata{
+		Round: block.Metadata.Round,
+	}
 
 	// Receive empty votes from other nodes
 	emptyVoteFrom1 := createEmptyVote(md, nodes[1])
@@ -595,16 +583,8 @@ func TestEpochLeaderFailoverAfterProposal(t *testing.T) {
 	testutil.WaitForBlockProposerTimeout(t, e, &e.StartTime, e.Metadata().Round)
 
 	runCrashAndRestartExecution(t, e, bb, wal, storage, func(t *testing.T, e *Epoch, bb *testutil.TestBlockBuilder, storage *testutil.InMemStorage, wal *testutil.TestWAL) {
-
-		lastBlock, _, err := storage.Retrieve(storage.NumBlocks() - 1)
-		require.NoError(t, err)
-
-		prev := lastBlock.BlockHeader().Digest
-
-		md = ProtocolMetadata{
+		md := EmptyVoteMetadata{
 			Round: 3,
-			Seq:   2,
-			Prev:  prev,
 		}
 
 		nextBlockSeqToCommit := uint64(3)
@@ -666,15 +646,8 @@ func TestEpochLeaderFailoverTwice(t *testing.T) {
 	testutil.WaitForBlockProposerTimeout(t, e, &e.StartTime, e.Metadata().Round)
 
 	runCrashAndRestartExecution(t, e, bb, wal, storage, func(t *testing.T, e *Epoch, bb *testutil.TestBlockBuilder, storage *testutil.InMemStorage, wal *testutil.TestWAL) {
-		lastBlock, _, err := storage.Retrieve(storage.NumBlocks() - 1)
-		require.NoError(t, err)
-
-		prev := lastBlock.BlockHeader().Digest
-
-		md := ProtocolMetadata{
+		md := EmptyVoteMetadata{
 			Round: 2,
-			Seq:   1,
-			Prev:  prev,
 		}
 
 		emptyVoteFrom2 := createEmptyVote(md, nodes[2])
@@ -696,10 +669,8 @@ func TestEpochLeaderFailoverTwice(t *testing.T) {
 		testutil.WaitForBlockProposerTimeout(t, e, &e.StartTime, e.Metadata().Round)
 
 		runCrashAndRestartExecution(t, e, bb, wal, storage, func(t *testing.T, e *Epoch, bb *testutil.TestBlockBuilder, storage *testutil.InMemStorage, wal *testutil.TestWAL) {
-			md := ProtocolMetadata{
+			md := EmptyVoteMetadata{
 				Round: 3,
-				Seq:   1,
-				Prev:  prev,
 			}
 
 			emptyVoteFrom1 := createEmptyVote(md, nodes[1])
@@ -819,8 +790,12 @@ func TestEpochLeaderFailoverBecauseOfBadBlock(t *testing.T) {
 
 	notarizeAndFinalizeRound(t, e, bb)
 
-	md := e.Metadata()
-	_, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
+	emptyVoteMD := EmptyVoteMetadata{
+		Round: e.Metadata().Round,
+		Epoch: e.Metadata().Epoch,
+	}
+
+	_, ok := bb.BuildBlock(context.Background(), e.Metadata(), emptyBlacklist)
 	require.True(t, ok)
 	block := <-bb.Out
 	block.VerificationError = errors.New("invalid block")
@@ -838,8 +813,8 @@ func TestEpochLeaderFailoverBecauseOfBadBlock(t *testing.T) {
 		require.NoError(t, err)
 	}()
 
-	emptyVoteFrom1 := createEmptyVote(md, nodes[0])
-	emptyVoteFrom2 := createEmptyVote(md, nodes[2])
+	emptyVoteFrom1 := createEmptyVote(emptyVoteMD, nodes[0])
+	emptyVoteFrom2 := createEmptyVote(emptyVoteMD, nodes[2])
 
 	e.HandleMessage(&Message{
 		EmptyVoteMessage: emptyVoteFrom1,
@@ -854,15 +829,15 @@ func TestEpochLeaderFailoverBecauseOfBadBlock(t *testing.T) {
 	notarizeAndFinalizeRound(t, e, bb)
 }
 
-func createEmptyVote(md ProtocolMetadata, signer NodeID) *EmptyVote {
+func createEmptyVote(emptyVoteMD EmptyVoteMetadata, signer NodeID) *EmptyVote {
 	emptyVoteFrom2 := &EmptyVote{
 		Signature: Signature{
 			Signer: signer,
 		},
 		Vote: ToBeSignedEmptyVote{
 			EmptyVoteMetadata: EmptyVoteMetadata{
-				Round: md.Round,
-				Epoch: 0,
+				Round: emptyVoteMD.Round,
+				Epoch: emptyVoteMD.Epoch,
 			},
 		},
 	}
@@ -936,7 +911,7 @@ func TestEpochBlacklist(t *testing.T) {
 
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 
-	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
+	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
 	l := conf.Logger.(*testutil.TestLogger)
 	l.Intercept(func(entry zapcore.Entry) error {
 		if strings.Contains(entry.Message, "Leader is blacklisted, will not wait for it to propose a block") {
@@ -974,15 +949,8 @@ func TestEpochBlacklist(t *testing.T) {
 
 	testutil.WaitForBlockProposerTimeout(t, e, &e.StartTime, timedOutRound)
 
-	lastBlock, _, err := storage.Retrieve(storage.NumBlocks() - 1)
-	require.NoError(t, err)
-
-	prev := lastBlock.BlockHeader().Digest
-
-	emptyBlockMd := ProtocolMetadata{
+	emptyBlockMd := EmptyVoteMetadata{
 		Round: 3,
-		Seq:   2,
-		Prev:  prev,
 	}
 
 	emptyVoteFrom1 := createEmptyVote(emptyBlockMd, nodes[1])
@@ -1038,7 +1006,7 @@ func TestEpochBlacklist(t *testing.T) {
 
 	wal.AssertEmptyVote(7)
 
-	emptyBlockMd = ProtocolMetadata{
+	emptyBlockMd = EmptyVoteMetadata{
 		Round: 7,
 	}
 	emptyVoteFrom1 = createEmptyVote(emptyBlockMd, nodes[1])
@@ -1068,16 +1036,16 @@ func TestEpochBlacklist(t *testing.T) {
 
 	// Now node 2 proposes a block.
 	blacklist.Updates = nil
-	block, _ = bb.BuildBlock(context.Background(), e.Metadata(), blacklist)
-	block, _ = notarizeAndFinalizeRound(t, e, bb)
+	bb.BuildBlock(context.Background(), e.Metadata(), blacklist)
+	notarizeAndFinalizeRound(t, e, bb)
 
 	// Now node 3 proposes a block.
 	blacklist.Updates = nil
-	block, _ = bb.BuildBlock(context.Background(), e.Metadata(), blacklist)
-	block, _ = notarizeAndFinalizeRound(t, e, bb)
+	bb.BuildBlock(context.Background(), e.Metadata(), blacklist)
+	notarizeAndFinalizeRound(t, e, bb)
 
 	// Node 4 is still blacklisted.
-	emptyBlockMd = ProtocolMetadata{
+	emptyBlockMd = EmptyVoteMetadata{
 		Round: 11,
 	}
 	emptyVoteFrom1 = createEmptyVote(emptyBlockMd, nodes[1])
