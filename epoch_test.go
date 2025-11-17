@@ -88,8 +88,9 @@ func TestFinalizeSameSequence(t *testing.T) {
 	require.True(t, ok)
 
 	block := <-bb.Out
+	var verified atomic.Bool
 	block.OnVerify = func() {
-		require.Fail(t, "block should not be verified since we don't have empty notarization for round 1")
+		verified.Store(true)
 	}
 
 	// send block from leader
@@ -104,8 +105,9 @@ func TestFinalizeSameSequence(t *testing.T) {
 	require.NoError(t, err)
 
 	// give some time for block to be (not)verified
-	time.Sleep(100 * time.Millisecond)
-	block.OnVerify = nil
+	require.Never(t, func() bool {
+		return verified.Load()
+	}, 200*time.Millisecond, 50*time.Millisecond)
 
 	// now lets send empty notarization
 	emptyNotarization := testutil.NewEmptyNotarization(nodes, 1)
@@ -197,7 +199,7 @@ func testFinalizeSameSequenceGap(t *testing.T, nodes []NodeID, numEmptyNotarizat
 		finalizeVoteSeqs[fVote.Finalization.Seq] = fVote
 	}
 
-	for i := uint64(0); i < numEmptyNotarizations; i++ {
+	for range numEmptyNotarizations {
 		leader := LeaderForRound(e.Comm.Nodes(), e.Metadata().Round)
 		if e.ID.Equals(leader) {
 			fVote := advanceWithFinalizeCheck(t, e, recordingComm, bb)
@@ -227,8 +229,9 @@ func testFinalizeSameSequenceGap(t *testing.T, nodes []NodeID, numEmptyNotarizat
 	require.True(t, ok)
 
 	block := <-bb.Out
+	verified := make(chan struct{}, 1)
 	block.OnVerify = func() {
-		require.Fail(t, "block should not be verified since we don't have empty notarization for round 1")
+		verified <- struct{}{}
 	}
 
 	leader := LeaderForRound(e.Comm.Nodes(), 1+numEmptyNotarizations+numNotarizations)
@@ -248,11 +251,9 @@ func testFinalizeSameSequenceGap(t *testing.T, nodes []NodeID, numEmptyNotarizat
 	require.NoError(t, err)
 
 	// give some time for block to be (not)verified
-	time.Sleep(100 * time.Millisecond)
-	verified := make(chan struct{}, 1)
-	block.OnVerify = func() {
-		verified <- struct{}{}
-	}
+	require.Never(t, func() bool {
+		return len(verified) > 0
+	}, 200*time.Millisecond, 50*time.Millisecond)
 
 	// now lets send empty notarizations seqToDoubleFinalize.round - seqToDoubleFinalize-1.round
 	startMissingNotarizationRound := finalizeVoteSeqs[seqToDoubleFinalize-1].Finalization.Round + 1
