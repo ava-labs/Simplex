@@ -29,7 +29,7 @@ type BlockDependencyManager struct {
 	logger    Logger
 	scheduler Scheduler
 
-	dependencies []TaskWithDependents
+	dependencies []*TaskWithDependents
 	maxDeps      uint64
 	closed       atomic.Bool
 }
@@ -66,7 +66,7 @@ func (bs *BlockDependencyManager) ExecuteBlockDependents(prev Digest) {
 	bs.lock.Lock()
 	defer bs.lock.Unlock()
 
-	remainingDeps := make([]TaskWithDependents, 0, len(bs.dependencies))
+	remainingDeps := make([]*TaskWithDependents, 0, len(bs.dependencies))
 
 	for _, taskWithDeps := range bs.dependencies {
 		if taskWithDeps.prevBlock != nil && *taskWithDeps.prevBlock == prev {
@@ -81,7 +81,7 @@ func (bs *BlockDependencyManager) ExecuteBlockDependents(prev Digest) {
 
 		bs.logger.Debug("Block verification task has unsatisfied dependencies",
 			zap.Any("prevBlock", prev),
-			zap.Stringer("task", &taskWithDeps),
+			zap.Stringer("task", taskWithDeps),
 		)
 
 		remainingDeps = append(remainingDeps, taskWithDeps)
@@ -95,20 +95,20 @@ func (bs *BlockDependencyManager) ExecuteEmptyRoundDependents(emptyRound uint64)
 	bs.lock.Lock()
 	defer bs.lock.Unlock()
 
-	remainingDeps := make([]TaskWithDependents, 0, len(bs.dependencies))
+	remainingDeps := make([]*TaskWithDependents, 0, len(bs.dependencies))
 
 	for _, taskWithDeps := range bs.dependencies {
 		delete(taskWithDeps.emptyRounds, emptyRound)
 
 		if taskWithDeps.isReady() {
-			bs.logger.Debug("Scheduling block verification task as all dependencies are met", zap.Stringer("task", &taskWithDeps))
+			bs.logger.Debug("Scheduling block verification task as all dependencies are met", zap.Stringer("task", taskWithDeps))
 			bs.scheduler.Schedule(taskWithDeps.Task)
 			continue
 		}
 
 		bs.logger.Debug("Block verification task has unsatisfied dependencies",
 			zap.Any("emptyRound", emptyRound),
-			zap.Stringer("task", &taskWithDeps),
+			zap.Stringer("task", taskWithDeps),
 		)
 		remainingDeps = append(remainingDeps, taskWithDeps)
 	}
@@ -148,7 +148,7 @@ func (bs *BlockDependencyManager) ScheduleTaskWithDependencies(task Task, blockS
 		emptyRoundsSet[round] = struct{}{}
 	}
 
-	bs.dependencies = append(bs.dependencies, TaskWithDependents{
+	bs.dependencies = append(bs.dependencies, &TaskWithDependents{
 		Task:        wrappedTask,
 		prevBlock:   prev,
 		emptyRounds: emptyRoundsSet,
@@ -163,7 +163,7 @@ func (bs *BlockDependencyManager) RemoveOldTasks(seq uint64) {
 	bs.lock.Lock()
 	defer bs.lock.Unlock()
 
-	remainingDeps := make([]TaskWithDependents, 0, len(bs.dependencies))
+	remainingDeps := make([]*TaskWithDependents, 0, len(bs.dependencies))
 	for _, taskWithDeps := range bs.dependencies {
 		if taskWithDeps.blockSeq <= seq {
 			bs.logger.Debug("Removing block verification task as its block seq is less than or equal to finalized seq", zap.Uint64("blockSeq", taskWithDeps.blockSeq), zap.Uint64("finalizedSeq", seq))
