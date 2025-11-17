@@ -53,10 +53,6 @@ type BlockHeader struct {
 
 type Digest [metadataDigestLen]byte
 
-var (
-	emptyDigest = Digest{}
-)
-
 func (d Digest) String() string {
 	return fmt.Sprintf("%x...", (d)[:digestFormatSize])
 }
