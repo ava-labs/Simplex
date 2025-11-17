@@ -123,6 +123,31 @@ func TestBlockVerificationScheduler(t *testing.T) {
 		waitReceive(t, done)
 	})
 
+	t.Run("Defers until both prevBlock and all emptyRounds are satisfied swapped order", func(t *testing.T) {
+		scheduler := simplex.NewScheduler(testutil.MakeLogger(t), defaultMaxDeps)
+		bvs := simplex.NewBlockVerificationScheduler(testutil.MakeLogger(t), defaultMaxDeps, scheduler)
+		defer bvs.Close()
+
+		prev := makeDigest(t)
+		done := make(chan struct{}, 1)
+		task := func() simplex.Digest {
+			done <- struct{}{}
+			return makeDigest(t)
+		}
+
+		require.NoError(t, bvs.ScheduleTaskWithDependencies(task, 0, &prev, []uint64{1, 2, 3}))
+
+		// first satisfy prev block dep
+		bvs.ExecuteBlockDependents(prev)
+		waitNoReceive(t, done)
+
+		// next satisfy the empty rounds
+		bvs.ExecuteEmptyRoundDependents(1)
+		bvs.ExecuteEmptyRoundDependents(2)
+		bvs.ExecuteEmptyRoundDependents(3)
+		waitReceive(t, done)
+	})
+
 	t.Run("Chained scheduling via onTaskFinished (A finishes -> B unblocked)", func(t *testing.T) {
 		scheduler := simplex.NewScheduler(testutil.MakeLogger(t), defaultMaxDeps)
 		bvs := simplex.NewBlockVerificationScheduler(testutil.MakeLogger(t), defaultMaxDeps, scheduler)
