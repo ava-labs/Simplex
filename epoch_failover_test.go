@@ -318,13 +318,13 @@ func TestEpochLeaderFailoverDoNotPersistEmptyRoundTwice(t *testing.T) {
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1), BlockShouldBeBuilt: make(chan struct{}, 1)}
 	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
-
+	numRounds := uint64(2)
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
 
 	require.NoError(t, e.Start())
 
-	for round := uint64(0); round < 3; round++ {
+	for range numRounds {
 		notarizeAndFinalizeRound(t, e, bb)
 	}
 
@@ -333,8 +333,7 @@ func TestEpochLeaderFailoverDoNotPersistEmptyRoundTwice(t *testing.T) {
 	testutil.WaitForBlockProposerTimeout(t, e, &e.StartTime, e.Metadata().Round)
 
 	emptyBlockMd := ProtocolMetadata{
-		Round: 3,
-		Seq:   2,
+		Round: numRounds,
 	}
 
 	emptyVoteFrom1 := createEmptyVote(emptyBlockMd, nodes[1])
@@ -350,14 +349,14 @@ func TestEpochLeaderFailoverDoNotPersistEmptyRoundTwice(t *testing.T) {
 	}, nodes[2])
 	require.NoError(t, err)
 
-	require.True(t, wal.ContainsEmptyNotarization(3))
+	require.True(t, wal.ContainsEmptyNotarization(numRounds))
 
 	walContent, err := wal.ReadAll()
 	require.NoError(t, err)
 
 	prevWALSize := len(walContent)
 
-	en := testutil.NewEmptyNotarization(nodes, 3)
+	en := testutil.NewEmptyNotarization(nodes, numRounds)
 
 	err = e.HandleMessage(&Message{
 		EmptyNotarization: en,
