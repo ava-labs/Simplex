@@ -4,19 +4,16 @@
 package simplex
 
 import (
-	"crypto/rand"
-	"math/big"
 	"sync"
 	"time"
-
-	"go.uber.org/zap"
 )
 
 type ReplicationState struct {
 	enabled            bool
 	logger             Logger
-	sequenceReplicator *replicator
-	roundReplicator    *replicator
+	sequenceReplicator *finalizationReplicator
+	roundReplicator *roundReplicator
+	// roundReplicator    *finalizationReplicator
 }
 
 func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundWindow uint64, enabled bool, start time.Time, lock *sync.Mutex) *ReplicationState {
@@ -30,7 +27,7 @@ func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundW
 	return &ReplicationState{
 		enabled:            enabled,
 		sequenceReplicator: newReplicator(logger, comm, id, maxRoundWindow, start, lock),
-		roundReplicator:    newReplicator(logger, comm, id, maxRoundWindow, start, lock),
+		// roundReplicator:    newReplicator(logger, comm, id, maxRoundWindow, start, lock),
 		logger:             logger,
 	}
 }
@@ -40,7 +37,7 @@ func (r *ReplicationState) AdvanceTime(now time.Time) {
 		return
 	}
 	r.sequenceReplicator.advanceTime(now)
-	r.roundReplicator.advanceTime(now)
+	// r.roundReplicator.advanceTime(now)
 }
 
 // isReplicationComplete returns true if we have finished the replication process.
@@ -50,7 +47,10 @@ func (r *ReplicationState) isReplicationComplete(nextSeqToCommit uint64, current
 		return true
 	}
 
-	return r.sequenceReplicator.isReplicationComplete(nextSeqToCommit) && r.roundReplicator.isReplicationComplete(currentRound)
+	return r.sequenceReplicator.isReplicationComplete(nextSeqToCommit)
+
+	// do we even need isReplicationComplete? since we are potentially handling old rounds we can never gaurentee we re done with it. 
+	// return r.sequenceReplicator.isReplicationComplete(nextSeqToCommit) && r.roundReplicator.isReplicationComplete(currentRound)
 }
 
 // maybeSendFutureRequests attempts to collect future sequences if
@@ -61,13 +61,13 @@ func (r *ReplicationState) maybeAdvancedState(nextSequenceToCommit uint64, curre
 	}
 
 	r.sequenceReplicator.updateState(nextSequenceToCommit)
-	r.roundReplicator.updateState(currentRound)
+	// r.roundReplicator.updateState(currentRound)
 }
 
 func (r *ReplicationState) storeQuorumRound(round QuorumRound, from NodeID) {
 	if round.Finalization != nil {
-		r.sequenceReplicator.storeQuorumRound(round, from, round.Finalization.Finalization.Seq)
-		r.roundReplicator.removeOldValues(round.Finalization.Finalization.Round)
+		r.sequenceReplicator.storeFinalization(&round.Block, round.Finalization, from)
+		// r.roundReplicator.removeOldValues(round.Finalization.Finalization.Round)
 		return
 	}
 
@@ -78,29 +78,24 @@ func (r *ReplicationState) storeQuorumRound(round QuorumRound, from NodeID) {
 		return
 	}
 
-	r.roundReplicator.storeQuorumRound(round, from, round.GetRound())
+	// r.roundReplicator.storeQuorumRound(round, from, round.GetRound())
 }
 
-func (r *ReplicationState) getFinalizedBlockForSequence(seq uint64) (Block, Finalization, bool) {
-	qr, ok := r.sequenceReplicator.retrieveQuorumRound(seq)
-	if !ok || qr.Finalization == nil || qr.Block == nil {
-		return nil, Finalization{}, false
-	}
-
-	return qr.Block, *qr.Finalization, true
+func (r *ReplicationState) getFinalizedBlockForSequence(seq uint64) (Block, *Finalization, bool) {
+	return r.sequenceReplicator.retrieveBlockAndFinalization(seq)
 }
 
 func (r *ReplicationState) getBlockWithSeq(seq uint64) (Block, bool) {
-	qr, ok := r.sequenceReplicator.retrieveQuorumRound(seq)
-	if ok && qr.Block != nil {
-		return qr.Block, true
+	block, _,  ok := r.sequenceReplicator.retrieveBlockAndFinalization(seq)
+	if ok && block != nil {
+		return block, true
 	}
 
 	// check notarization replicator
-	qr, ok = r.roundReplicator.retrieveQuorumRoundBySeq(seq)
-	if ok && qr.Block != nil {
-		return qr.Block, true
-	}
+	// qr, ok = r.roundReplicator.retrieveQuorumRoundBySeq(seq)
+	// if ok && qr.Block != nil {
+	// 	return qr.Block, true
+	// }
 
 	return nil, false
 }
@@ -110,24 +105,14 @@ func (r *ReplicationState) resendFinalizationRequest(seq uint64, signers []NodeI
 		return nil
 	}
 
-	numSigners := int64(len(signers))
-	index, err := rand.Int(rand.Reader, big.NewInt(numSigners))
-	if err != nil {
-		return err
-	}
-
-	// because we are resending because the block failed to verify, we should remove the stored quorum round
-	// so that we can try to get a new block & finalization
-	delete(r.sequenceReplicator.receivedQuorumRounds, seq)
-	r.sequenceReplicator.sendRequestToNode(seq, seq, signers[index.Int64()])
-	return nil
+	return r.sequenceReplicator.resendFinalizationRequest(seq, signers)
 }
 
 func (r *ReplicationState) getNonFinalizedQuorumRound(round uint64) *QuorumRound {
-	qr, ok := r.roundReplicator.retrieveQuorumRound(round)
-	if ok {
-		return qr
-	}
+	// qr, ok := r.roundReplicator.retrieveQuorumRound(round)
+	// if ok {
+	// 	return qr
+	// }
 	return nil
 }
 
@@ -137,11 +122,11 @@ func (r *ReplicationState) receivedFutureFinalization(finalization *Finalization
 		return
 	}
 
-	signedSequence := newSignedRoundOrSeqFromFinalization(finalization, r.sequenceReplicator.myNodeID)
+	signedSequence := newSignedSeq(finalization, r.sequenceReplicator.myNodeID)
 
 	// maybe this finalization was for a round that we initially thought only had notarizations
 	// remove from the round replicator since we now have a finalization for this round
-	r.roundReplicator.removeOldValues(finalization.Finalization.BlockHeader.Round)
+	// r.roundReplicator.removeOldValues(finalization.Finalization.BlockHeader.Round)
 	r.sequenceReplicator.maybeSendMoreReplicationRequests(signedSequence, nextSeqToCommit)
 }
 
@@ -150,11 +135,11 @@ func (r *ReplicationState) receivedFutureRound(round uint64, signers []NodeID, c
 		return
 	}
 
-	if r.sequenceReplicator.getHighestRound() >= round {
-		r.logger.Debug("Ignoring round replication for a future round since we have a finalization for a higher round", zap.Uint64("round", round))
-		return
-	}
+	// if r.sequenceReplicator.getHighestRound() >= round {
+	// 	r.logger.Debug("Ignoring round replication for a future round since we have a finalization for a higher round", zap.Uint64("round", round))
+	// 	return
+	// }
 
-	signedSequence := newSignedRoundOrSeqFromRound(round, signers, r.roundReplicator.myNodeID)
-	r.roundReplicator.maybeSendMoreReplicationRequests(signedSequence, currentRound)
+	// signedSequence := newSignedRoundOrSeqFromRound(round, signers, r.roundReplicator.myNodeID)
+	// r.roundReplicator.maybeSendMoreReplicationRequests(signedSequence, currentRound)
 }

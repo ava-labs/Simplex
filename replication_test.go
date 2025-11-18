@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/ava-labs/simplex"
+	"github.com/ava-labs/simplex/record"
 	. "github.com/ava-labs/simplex/testutil"
 	"go.uber.org/zap/zapcore"
 
@@ -1306,3 +1307,160 @@ func testReplicationEmptyNotarizationsTail(t *testing.T, nodes []simplex.NodeID,
 		require.Equal(t, uint64(endRound), n.E.Metadata().Round)
 	}
 }
+
+
+func sendEmptyNotarizationQuorumRounds(emptyNotes map[uint64]*simplex.EmptyNotarization) MessageFilter {
+	return func(msg *simplex.Message, from, to simplex.NodeID) bool {
+		if msg.VerifiedReplicationResponse != nil {
+			newData := make([]simplex.VerifiedQuorumRound, 0, len(msg.VerifiedReplicationResponse.Data))
+			for _, qr := range msg.VerifiedReplicationResponse.Data {
+				 newQR := qr
+				 newQR.Notarization = nil
+				 if newQR.EmptyNotarization == nil {
+					newQR.EmptyNotarization = emptyNotes[qr.GetRound()]
+				 }
+				 newData = append(newData, newQR)
+			}
+			msg.VerifiedReplicationResponse.Data = newData
+		}
+
+		return allowFinalizeVotes(msg, from, to)
+	}
+}
+
+func allowFinalizeVotes(msg *simplex.Message, from, to simplex.NodeID) bool {
+	if msg.Finalization != nil  || msg.FinalizeVote != nil {
+		if to.Equals(simplex.NodeID{3}) || from.Equals(simplex.NodeID{3}) {
+			// fmt.Println("blocking finalize vote from", from, "to", to)
+			return false
+		}
+	}
+	return true
+}
+
+// TestReplicationChain tests that a node can both empty notarizations and notarizations for the same round.
+func TestReplicationChain(t *testing.T) {
+    nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
+    net := NewInMemNetwork(t, nodes)
+    
+    newNodeConfig := func(from simplex.NodeID) *TestNodeConfig {
+        comm := NewTestComm(from, net, allowFinalizeVotes)
+        return &TestNodeConfig{
+            Comm:               comm,
+            ReplicationEnabled: true,
+        }
+    }
+
+    // full nodes operate normally
+    fullNode1 := NewSimplexNode(t, nodes[0], net, newNodeConfig(nodes[0]))
+    fullNode2 := NewSimplexNode(t, nodes[1], net, newNodeConfig(nodes[1]))
+
+    fullNode1.Silence()
+    fullNode2.Silence()
+    // node 3 will not receive finalize votes & finalizations
+    blockFinalize3 := NewSimplexNode(t, nodes[2], net, newNodeConfig(nodes[2]))
+    blockFinalize3.Silence()
+    // lagging node is disconnected initially. It initially receives only empty notarizations
+    // but then later receives notarizations and must send finalize votes for them
+    laggingNode := NewSimplexNode(t, nodes[3], net, newNodeConfig(nodes[3]))
+    // laggingNode.Silence()
+
+    net.StartInstances()
+    net.Disconnect(laggingNode.E.ID)
+
+    emptyNotarizations := make(map[uint64]*simplex.EmptyNotarization)
+    numNotarizations := uint64(8)
+    missedNotarizations := uint64(0)
+    for i := range numNotarizations {
+        // every round has an empty notarization(possible due to timeouts)
+        emptyNotarization := NewEmptyNotarization(nodes, i)
+        emptyNotarizations[i] = emptyNotarization
+
+        leader := simplex.LeaderForRound(nodes, i)
+        if !leader.Equals(laggingNode.E.ID) {
+            net.TriggerLeaderBlockBuilder(i)
+            continue
+        }
+
+        net.AdvanceWithoutLeader(i, laggingNode.E.ID)
+        missedNotarizations++
+    }
+
+    for _, n := range net.Instances {
+        if n.E.ID.Equals(laggingNode.E.ID) {
+            require.Equal(t, uint64(0), n.Storage.NumBlocks())
+            require.Equal(t, uint64(0), n.E.Metadata().Round)
+            continue
+        }
+        
+        n.WAL.AssertNotarization(numNotarizations - 1)
+        // assert metadata
+        require.Equal(t, numNotarizations, n.E.Metadata().Round)
+        require.Equal(t, numNotarizations - missedNotarizations, n.E.Metadata().Seq)
+        require.Equal(t, uint64(0), n.E.Storage.NumBlocks())
+    }
+
+    fmt.Println("full node reconnects", fullNode1.E.ID)
+    fmt.Println("full node reconnects", fullNode2.E.ID)
+    fmt.Println("block finalize node reconnects", blockFinalize3.E.ID)
+    // lagging node should not be the leader after reconnect
+    leader := simplex.LeaderForRound(nodes, numNotarizations)
+    require.NotEqual(t, laggingNode.E.ID, leader)
+
+    net.SetAllNodesMessageFilter(sendEmptyNotarizationQuorumRounds(emptyNotarizations))
+    net.Connect(laggingNode.E.ID)
+    net.TriggerLeaderBlockBuilder(numNotarizations)
+
+
+    // now the lagging node should send replication responses
+    empty := laggingNode.WAL.AssertNotarization(numNotarizations-1)
+    require.Equal(t, empty, record.EmptyNotarizationRecordType)
+
+    // all we were given were empty notarizations, so seq should be 0
+    require.Equal(t, numNotarizations, laggingNode.E.Metadata().Round)
+    require.Equal(t, uint64(0), laggingNode.E.Metadata().Seq)
+
+    fmt.Println("allowing")
+    net.SetAllNodesMessageFilter(allowFinalizeVotes)
+
+    time.Sleep(time.Millisecond * 100)
+    // we can just not mark the block as done in the replicator. only mark it done once we have an empty notarization + notarization
+    // therefore we would keep re-trying until we reach the highest known round
+    laggingNode.AdvanceTime(simplex.DefaultReplicationRequestTimeout)
+    time.Sleep(1 * time.Second)
+
+    for _, n := range net.Instances {
+        WaitToEnterRound(t, n.E, numNotarizations+1)
+        require.Equal(t, numNotarizations + 1 - missedNotarizations, n.Storage.NumBlocks())
+    }
+
+    // The solution is that "if we have notarization or finalization for a round with dependencies" then we specifically request those digests. 
+    // we then process those digests, and if those digests have dependencies we request those as well(recursively). We don't retry if we receive the digest, but we do retry if we know it should exist but dont receive it.
+    // Then when we process the digest, we can mark it as done in the scheduler and the scheduler will automatically retry any dependent rounds.
+    // we can do the same for empty notarizations(i.e. we get a notarized block that depends on empty notarizations we do not have yet). 
+
+
+}
+
+/**
+    Replicate blocks by round(current flow)
+
+    Three things can happen when we process replication state:
+    
+    1. we process an empty notarization
+        - this can be done at any time
+    2. we process a block
+        - the block has no dependencies and can be scheduled and progress replication
+        - the block has a dependency on an empty round
+            -- we put this block in the scheduler and then re-add a timeout task to replication specifically to receive the empty rounds(since its a quorum round, at least 1 honest node should have it)
+            -- we can process these empty notarizations at any point
+        - the block has a dependency on a previous digest
+            -- we put a timeout task for this digest(we do not know what round it is from)
+            -- once we receive it we can recursively go back to step 2. 
+
+    
+
+	- handleBlockMessage, handleNotarizationMessage
+		- allow messages from previous rounds. as long as they are greater than highest finalized round
+
+*/

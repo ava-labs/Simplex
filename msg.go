@@ -242,13 +242,15 @@ type QuorumRound struct {
 // (block, notarization) or (block, finalization) or
 // (empty notarization)
 func (q *QuorumRound) IsWellFormed() error {
-	if q.EmptyNotarization != nil && q.Block == nil {
-		return nil
-	} else if q.Block != nil && (q.Notarization != nil || q.Finalization != nil) {
-		return nil
+	if q.Block == nil && q.EmptyNotarization == nil {
+		return fmt.Errorf("malformed QuorumRound, empty block and notarization fields")
 	}
 
-	return fmt.Errorf("malformed QuorumRound")
+	if q.Block != nil && (q.Notarization == nil && q.Finalization == nil) {
+		return fmt.Errorf("malformed QuorumRound")
+	}
+
+	return nil
 }
 
 func (q *QuorumRound) GetRound() uint64 {
@@ -276,8 +278,13 @@ func (q *QuorumRound) VerifyQCConsistentWithBlock() error {
 		return err
 	}
 
-	if q.EmptyNotarization != nil {
+	if q.Block == nil {
 		return nil
+	}
+
+	// Ensure the .GetRound() & .GetSequence() are consistent
+	if q.EmptyNotarization != nil && q.EmptyNotarization.Vote.Round != q.Block.BlockHeader().Round {
+		return fmt.Errorf("empty round does not match block round")
 	}
 
 	// ensure the finalization or notarization we get relates to the block
