@@ -1192,7 +1192,6 @@ func TestReplicationVotesForNotarizations(t *testing.T) {
 	isLaggingNodeLeader := bytes.Equal(simplex.LeaderForRound(nodes, numFinalizedBlocks+numNotarizedBlocks), laggingNode.E.ID)
 	require.False(t, isLaggingNodeLeader)
 
-	fmt.Println("!!!triggering block for ", numFinalizedBlocks+numNotarizedBlocks)
 	// trigger block building, but we only have 2 connected nodes so the nodes will time out
 	net.TriggerLeaderBlockBuilder(numFinalizedBlocks + numNotarizedBlocks)
 

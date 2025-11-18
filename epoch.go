@@ -1569,8 +1569,6 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 
 	// Don't bother processing blocks from the past
 	if e.round > md.Round {
-		e.Logger.Fatal("block from the past", zap.Uint64("round", md.Round), zap.Uint64("epoch round", e.round))
-		panic("block")
 		return nil
 	}
 
