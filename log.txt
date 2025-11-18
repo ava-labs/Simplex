@@ -1,0 +1,471 @@
+11-18|11:44:03.110] DEBUG Simplex/epoch.go:2762 Stored proposal in memory {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "round": 16, "seq": 13, "digest": "b24a94419d2a501bccf8..."}
+[11-18|11:44:03.110] DEBUG Simplex/epoch.go:2275 Wrote block to WAL {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "round": 16, "size": 82, "digest": "b24a94419d2a501bccf8..."}
+[11-18|11:44:03.110] DEBUG Simplex/epoch.go:2288 Proposal broadcast {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "round": 16, "size": 82, "digest": "b24a94419d2a501bccf8..."}
+[11-18|11:44:03.111] DEBUG Simplex/epoch.go:844 Received vote message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "from": "0100000000000000", "round": 16, "digest": "b24a94419d2a501bccf8..."}
+[11-18|11:44:03.111] DEBUG Simplex/epoch.go:1553 Received block message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "from": "0100000000000000", "round": 16, "digest": "b24a94419d2a501bccf8..."}
+[11-18|11:44:03.111] DEBUG Simplex/epoch.go:1344 Counting votes {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "round": 16, "votes": 1, "from": "[0100000000000000]"}
+[11-18|11:44:03.111] DEBUG Simplex/epoch.go:2712 No future messages received for this round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "from": "0300000000000000", "round": 16}
+[11-18|11:44:03.111] DEBUG Simplex/block_scheduler.go:140 Scheduling block verification task with no dependencies {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "blockSeq": 13}
+[11-18|11:44:03.111] DEBUG Simplex/epoch.go:2712 No future messages received for this round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "from": "0400000000000000", "round": 16}
+[11-18|11:44:03.111] DEBUG Simplex/sched.go:57 Scheduling new ready task {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "ready tasks": 1}
+[11-18|11:44:03.111] DEBUG Simplex/epoch.go:1628 Scheduling block verification {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "round": 16, "seq": 13, "digest": "b24a94419d2a501bccf8...", "prev dependency": "<nil>", "missing empty notarization rounds": []}
+[11-18|11:44:03.111] DEBUG Simplex/epoch.go:1553 Received block message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0100000000000000", "round": 16, "digest": "b24a94419d2a501bccf8..."}
+[11-18|11:44:03.111] DEBUG Simplex/epoch.go:2712 No future messages received for this round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "from": "0100000000000000", "round": 16}
+[11-18|11:44:03.111] DEBUG Simplex/sched.go:42 Running task {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "remaining ready tasks": 0}
+[11-18|11:44:03.111] DEBUG Simplex/epoch.go:1571 Received a block message for a too high round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 16, "our round": 0}
+[11-18|11:44:03.111] DEBUG Simplex/epoch.go:2712 No future messages received for this round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "from": "0200000000000000", "round": 16}
+[11-18|11:44:03.111] DEBUG Simplex/epoch.go:2399 Monitoring progress {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "round": 16, "currentRound": 16}
+[11-18|11:44:03.111] DEBUG Simplex/epoch.go:1793 Block verification started {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "round": 16}
+[11-18|11:44:03.111] DEBUG Simplex/monitor.go:80 Executing f {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "taskID": 44}
+[11-18|11:44:03.111] INFO Simplex/epoch.go:2471 It is time to build a block {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "round": 16}
+[11-18|11:44:03.111] DEBUG Simplex/monitor.go:151 Scheduling task {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "timeout": "5s", "deadline": "[11-18|11:44:07.008]"}
+[11-18|11:44:03.111] DEBUG Simplex/monitor.go:82 Task executed {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "taskID": 44}
+[11-18|11:44:03.111] DEBUG Simplex/monitor.go:62 Ticked {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "taskID": 45, "time": "[11-18|11:44:07.008]"}
+[11-18|11:44:03.111] DEBUG Simplex/sched.go:44 Task finished execution {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "taskID": "b24a94419d2a501bccf8..."}
+[11-18|11:44:03.111] DEBUG Simplex/epoch.go:1830 Persisted block to WAL {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "round": 16, "digest": "b24a94419d2a501bccf8..."}
+[11-18|11:44:03.111] DEBUG Simplex/epoch.go:2762 Stored proposal in memory {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "round": 16, "seq": 13, "digest": "b24a94419d2a501bccf8..."}
+[11-18|11:44:03.111] DEBUG Simplex/epoch.go:2712 No future messages received for this round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "from": "0200000000000000", "round": 16}
+[11-18|11:44:03.111] DEBUG Simplex/epoch.go:2712 No future messages received for this round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "from": "0300000000000000", "round": 16}
+[11-18|11:44:03.111] DEBUG Simplex/epoch.go:2712 No future messages received for this round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "from": "0400000000000000", "round": 16}
+[11-18|11:44:03.111] DEBUG Simplex/epoch.go:2559 Broadcasting vote {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "round": 16, "digest": "b24a94419d2a501bccf8..."}
+[11-18|11:44:03.111] DEBUG Simplex/epoch.go:844 Received vote message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "from": "0200000000000000", "round": 16, "digest": "b24a94419d2a501bccf8..."}
+[11-18|11:44:03.111] DEBUG Simplex/epoch.go:1344 Counting votes {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "round": 16, "votes": 2, "from": "[0100000000000000 0200000000000000]"}
+[11-18|11:44:03.111] DEBUG Simplex/epoch.go:1797 Block verification ended {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "round": 16, "elapsed": "86.209µs"}
+[11-18|11:44:03.111] DEBUG Simplex/sched.go:44 Task finished execution {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "taskID": "b24a94419d2a501bccf8..."}
+[11-18|11:44:03.111] DEBUG Simplex/epoch.go:844 Received vote message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "from": "0200000000000000", "round": 16, "digest": "b24a94419d2a501bccf8..."}
+[11-18|11:44:03.111] DEBUG Simplex/epoch.go:1344 Counting votes {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "round": 16, "votes": 2, "from": "[0100000000000000 0200000000000000]"}
+[11-18|11:44:03.111] DEBUG Simplex/epoch.go:844 Received vote message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0200000000000000", "round": 16, "digest": "b24a94419d2a501bccf8..."}
+[11-18|11:44:03.111] DEBUG Simplex/epoch.go:972 Received a vote for a too advanced round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 16, "my round": 0}
+[11-18|11:44:03.162] DEBUG Simplex/monitor.go:65 Executing f {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "taskID": 46, "deadline": "[11-18|11:44:12.008]"}
+[11-18|11:44:03.162] DEBUG Simplex/epoch.go:2425 Triggering empty block agreement {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "reason": "Timed out on block agreement", "round": 16, "leader": "0100000000000000"}
+[11-18|11:44:03.162] DEBUG Simplex/epoch.go:2352 Persisted empty vote to WAL {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "round": 16, "size": 18}
+[11-18|11:44:03.162] DEBUG Simplex/timeout_handler.go:116 Adding timeout task {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "id": 1}
+[11-18|11:44:03.162] DEBUG Simplex/epoch.go:1229 Could not find empty vote with a quorum or more votes {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "round": 16}
+[11-18|11:44:03.162] DEBUG Simplex/epoch.go:703 Received empty vote message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "from": "0100000000000000", "round": 16, "our round": 16}
+[11-18|11:44:03.162] DEBUG Simplex/epoch.go:738 Received an empty vote for the current round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "round": 16, "from": "0100000000000000", "isReplicationDone": true}
+[11-18|11:44:03.162] DEBUG Simplex/epoch.go:703 Received empty vote message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0100000000000000", "round": 16, "our round": 0}
+[11-18|11:44:03.162] DEBUG Simplex/epoch.go:1229 Could not find empty vote with a quorum or more votes {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "round": 16}
+[11-18|11:44:03.162] DEBUG Simplex/epoch.go:730 Got empty vote from a future round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 16, "my round": 0, "from": "0100000000000000"}
+[11-18|11:44:03.162] DEBUG Simplex/monitor.go:67 Executed f {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "taskID": 46, "time": "[11-18|11:44:12.008]", "deadline": "[11-18|11:44:12.008]"}
+[11-18|11:44:03.162] DEBUG Simplex/monitor.go:71 Ticked {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "taskID": 46, "time": "[11-18|11:44:12.008]"}
+[11-18|11:44:03.213] DEBUG Simplex/monitor.go:62 Ticked {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "taskID": 47, "time": "[11-18|11:44:17.008]"}
+[11-18|11:44:03.213] INFO Simplex/epoch.go:2471 It is time to build a block {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "round": 16}
+[11-18|11:44:03.213] DEBUG Simplex/monitor.go:151 Scheduling task {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "timeout": "5s", "deadline": "[11-18|11:44:07.008]"}
+[11-18|11:44:03.213] DEBUG Simplex/monitor.go:82 Task executed {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "taskID": 44}
+[11-18|11:44:03.213] DEBUG Simplex/monitor.go:62 Ticked {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "taskID": 45, "time": "[11-18|11:44:07.008]"}
+[11-18|11:44:03.264] DEBUG Simplex/monitor.go:65 Executing f {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "taskID": 46, "deadline": "[11-18|11:44:12.008]"}
+[11-18|11:44:03.264] DEBUG Simplex/epoch.go:2425 Triggering empty block agreement {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "reason": "Timed out on block agreement", "round": 16, "leader": "0100000000000000"}
+[11-18|11:44:03.264] DEBUG Simplex/epoch.go:2352 Persisted empty vote to WAL {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "round": 16, "size": 18}
+[11-18|11:44:03.264] DEBUG Simplex/timeout_handler.go:116 Adding timeout task {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "id": 1}
+[11-18|11:44:03.264] DEBUG Simplex/epoch.go:1229 Could not find empty vote with a quorum or more votes {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "round": 16}
+[11-18|11:44:03.264] DEBUG Simplex/monitor.go:67 Executed f {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "taskID": 46, "time": "[11-18|11:44:12.008]", "deadline": "[11-18|11:44:12.008]"}
+[11-18|11:44:03.264] DEBUG Simplex/monitor.go:71 Ticked {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "taskID": 46, "time": "[11-18|11:44:12.008]"}
+[11-18|11:44:03.264] DEBUG Simplex/epoch.go:703 Received empty vote message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0200000000000000", "round": 16, "our round": 0}
+[11-18|11:44:03.265] DEBUG Simplex/epoch.go:730 Got empty vote from a future round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 16, "my round": 0, "from": "0200000000000000"}
+[11-18|11:44:03.265] DEBUG Simplex/epoch.go:703 Received empty vote message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "from": "0200000000000000", "round": 16, "our round": 16}
+[11-18|11:44:03.265] DEBUG Simplex/epoch.go:738 Received an empty vote for the current round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "round": 16, "from": "0200000000000000", "isReplicationDone": true}
+[11-18|11:44:03.265] DEBUG Simplex/epoch.go:1229 Could not find empty vote with a quorum or more votes {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "round": 16}
+[11-18|11:44:03.315] DEBUG Simplex/monitor.go:62 Ticked {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "taskID": 47, "time": "[11-18|11:44:17.008]"}
+[11-18|11:44:03.315] DEBUG Simplex/monitor.go:62 Ticked {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "taskID": 1, "time": "[11-18|11:44:07.008]"}
+[11-18|11:44:03.366] DEBUG Simplex/monitor.go:65 Executing f {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "taskID": 2, "deadline": "[11-18|11:44:07.008]"}
+[11-18|11:44:03.366] DEBUG Simplex/epoch.go:2425 Triggering empty block agreement {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "reason": "Timed out on block agreement", "round": 0, "leader": "0100000000000000"}
+[11-18|11:44:03.366] DEBUG Simplex/epoch.go:2352 Persisted empty vote to WAL {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 0, "size": 18}
+[11-18|11:44:03.366] DEBUG Simplex/timeout_handler.go:116 Adding timeout task {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "id": 1}
+[11-18|11:44:03.366] DEBUG Simplex/epoch.go:1229 Could not find empty vote with a quorum or more votes {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 0}
+[11-18|11:44:03.367] DEBUG Simplex/monitor.go:67 Executed f {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "taskID": 2, "time": "[11-18|11:44:12.008]", "deadline": "[11-18|11:44:07.008]"}
+[11-18|11:44:03.367] DEBUG Simplex/epoch.go:703 Received empty vote message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "from": "0400000000000000", "round": 0, "our round": 16}
+[11-18|11:44:03.367] DEBUG Simplex/monitor.go:71 Ticked {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "taskID": 2, "time": "[11-18|11:44:12.008]"}
+[11-18|11:44:03.367] DEBUG Simplex/epoch.go:715 Got empty vote from a past round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "round": 0, "my round": 16, "from": "0400000000000000"}
+[11-18|11:44:03.367] DEBUG Simplex/epoch.go:703 Received empty vote message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "from": "0400000000000000", "round": 0, "our round": 16}
+[11-18|11:44:03.367] DEBUG Simplex/epoch.go:766 Node appears behind, sending them the latest block {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "to": "0400000000000000", "round": 4}
+[11-18|11:44:03.367] DEBUG Simplex/epoch.go:715 Got empty vote from a past round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "round": 0, "my round": 16, "from": "0400000000000000"}
+[11-18|11:44:03.367] DEBUG Simplex/epoch.go:766 Node appears behind, sending them the latest block {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "to": "0400000000000000", "round": 4}
+[11-18|11:44:03.367] DEBUG Simplex/epoch.go:791 Node appears behind, sending them the highest empty notarized round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "to": "0400000000000000", "round": 15}
+[11-18|11:44:03.367] DEBUG Simplex/epoch.go:791 Node appears behind, sending them the highest empty notarized round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "to": "0400000000000000", "round": 15}
+[11-18|11:44:03.367] DEBUG Simplex/epoch.go:570 Received finalization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0100000000000000", "round": 4, "seq": 4}
+[11-18|11:44:03.367] DEBUG Simplex/epoch.go:616 Received finalization for a future round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 4}
+[11-18|11:44:03.367] DEBUG Simplex/replicator.go:186 Node is behind, attempting to request missing values {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "value": 4, "start": 0, "end": 4, "isRound": false}
+[11-18|11:44:03.367] DEBUG Simplex/replicator.go:222 Distributing replication requests {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "start": 0, "end": 4, "nodes": "[0100000000000000 0200000000000000 0300000000000000]"}
+[11-18|11:44:03.367] DEBUG Simplex/timeout_handler.go:116 Adding timeout task {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "id": 0}
+[11-18|11:44:03.367] DEBUG Simplex/timeout_handler.go:116 Adding timeout task {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "id": 1}
+[11-18|11:44:03.367] DEBUG Simplex/replicator.go:259 Requesting missing rounds/sequences  {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0100000000000000", "start": 0, "end": 1, "isRound": false, "latestRound": 0, "latestSeq": 4}
+[11-18|11:44:03.367] DEBUG Simplex/timeout_handler.go:116 Adding timeout task {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "id": 2}
+[11-18|11:44:03.367] DEBUG Simplex/timeout_handler.go:116 Adding timeout task {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "id": 3}
+[11-18|11:44:03.367] DEBUG Simplex/replicator.go:259 Requesting missing rounds/sequences  {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0200000000000000", "start": 2, "end": 3, "isRound": false, "latestRound": 0, "latestSeq": 4}
+[11-18|11:44:03.367] DEBUG Simplex/timeout_handler.go:116 Adding timeout task {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "id": 4}
+[11-18|11:44:03.367] DEBUG Simplex/replicator.go:259 Requesting missing rounds/sequences  {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0300000000000000", "start": 4, "end": 4, "isRound": false, "latestRound": 0, "latestSeq": 4}
+[11-18|11:44:03.367] DEBUG Simplex/epoch.go:2772 Received replication request {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "from": "0400000000000000", "num seqs": 2, "latest round": 0}
+[11-18|11:44:03.367] DEBUG Simplex/epoch.go:570 Received finalization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0200000000000000", "round": 4, "seq": 4}
+[11-18|11:44:03.367] DEBUG Simplex/epoch.go:616 Received finalization for a future round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 4}
+[11-18|11:44:03.367] DEBUG Simplex/replicator.go:173 Already requested observed value, skipping {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "value": 4, "isRound": false}
+[11-18|11:44:03.367] DEBUG Simplex/epoch.go:2772 Received replication request {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "from": "0400000000000000", "num seqs": 2, "latest round": 0}
+[11-18|11:44:03.367] DEBUG Simplex/epoch.go:1442 Received empty notarization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 15}
+[11-18|11:44:03.367] DEBUG Simplex/epoch.go:1470 Received empty notarization for a future round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 15, "our round": 0}
+[11-18|11:44:03.367] DEBUG Simplex/epoch.go:1442 Received empty notarization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 15}
+[11-18|11:44:03.367] DEBUG Simplex/epoch.go:1470 Received empty notarization for a future round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 15, "our round": 0}
+[11-18|11:44:03.367] DEBUG Simplex/epoch.go:2930 Received replication response {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0100000000000000", "num seqs": 2, "latest round": "QuorumRound{nil}", "latest seq": "QuorumRound{nil}"}
+[11-18|11:44:03.367] DEBUG Simplex/timeout_handler.go:129 Removing timeout task {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "id": 0}
+[11-18|11:44:03.367] DEBUG Simplex/replicator.go:292 Stored quorum round  {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "qr": "QuorumRound{Round: 0, Seq: 0, Finalized: true}", "from": "0100000000000000"}
+[11-18|11:44:03.367] DEBUG Simplex/timeout_handler.go:129 Removing timeout task {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "id": 1}
+[11-18|11:44:03.367] DEBUG Simplex/replicator.go:292 Stored quorum round  {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "qr": "QuorumRound{Round: 1, Seq: 1, Finalized: true}", "from": "0100000000000000"}
+[11-18|11:44:03.367] DEBUG Simplex/replicator.go:173 Already requested observed value, skipping {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "value": 4, "isRound": false}
+[11-18|11:44:03.367] DEBUG Simplex/block_scheduler.go:140 Scheduling block verification task with no dependencies {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "blockSeq": 0}
+[11-18|11:44:03.367] DEBUG Simplex/sched.go:57 Scheduling new ready task {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "ready tasks": 1}
+[11-18|11:44:03.367] DEBUG Simplex/epoch.go:2930 Received replication response {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0200000000000000", "num seqs": 2, "latest round": "QuorumRound{nil}", "latest seq": "QuorumRound{nil}"}
+[11-18|11:44:03.367] DEBUG Simplex/timeout_handler.go:129 Removing timeout task {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "id": 2}
+[11-18|11:44:03.367] DEBUG Simplex/replicator.go:292 Stored quorum round  {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "qr": "QuorumRound{Round: 2, Seq: 2, Finalized: true}", "from": "0200000000000000"}
+[11-18|11:44:03.367] DEBUG Simplex/timeout_handler.go:129 Removing timeout task {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "id": 3}
+[11-18|11:44:03.367] DEBUG Simplex/replicator.go:292 Stored quorum round  {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "qr": "QuorumRound{Round: 3, Seq: 3, Finalized: true}", "from": "0200000000000000"}
+[11-18|11:44:03.367] DEBUG Simplex/replicator.go:173 Already requested observed value, skipping {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "value": 4, "isRound": false}
+[11-18|11:44:03.367] DEBUG Simplex/block_scheduler.go:140 Scheduling block verification task with no dependencies {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "blockSeq": 0}
+[11-18|11:44:03.367] DEBUG Simplex/sched.go:57 Scheduling new ready task {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "ready tasks": 1}
+[11-18|11:44:03.367] DEBUG Simplex/sched.go:42 Running task {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "remaining ready tasks": 0}
+[11-18|11:44:03.367] DEBUG Simplex/epoch.go:1882 Block verification started {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 0}
+[11-18|11:44:03.367] INFO Simplex/epoch.go:1201 Committed block {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 0, "sequence": 0, "digest": "01aae0544a3c5596aeac..."}
+[11-18|11:44:03.367] DEBUG Simplex/epoch.go:1024 Progressing rounds due to commit {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 1, "current round": 0}
+[11-18|11:44:03.367] DEBUG Simplex/timeout_handler.go:129 Removing timeout task {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "id": 1}
+[11-18|11:44:03.367] INFO Simplex/epoch.go:2615 Moving to a new round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "prev round": 0, "next round": 1, "prev leader": "0100000000000000", "next leader": "0200000000000000"}
+[11-18|11:44:03.367] DEBUG Simplex/replicator.go:173 Already requested observed value, skipping {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "value": 4, "isRound": false}
+[11-18|11:44:03.367] DEBUG Simplex/block_scheduler.go:140 Scheduling block verification task with no dependencies {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "blockSeq": 1}
+[11-18|11:44:03.367] DEBUG Simplex/sched.go:57 Scheduling new ready task {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "ready tasks": 2}
+[11-18|11:44:03.367] DEBUG Simplex/epoch.go:1886 Block verification ended {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 0, "elapsed": "56.625µs"}
+[11-18|11:44:03.367] DEBUG Simplex/sched.go:44 Task finished execution {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "taskID": "01aae0544a3c5596aeac..."}
+[11-18|11:44:03.367] DEBUG Simplex/sched.go:42 Running task {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "remaining ready tasks": 1}
+[11-18|11:44:03.367] DEBUG Simplex/epoch.go:1882 Block verification started {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 0}
+[11-18|11:44:03.367] DEBUG Simplex/util.go:178 Attempted to verify an already verified block {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 0}
+[11-18|11:44:03.367] DEBUG Simplex/epoch.go:1908 Received finalized block that is not the next sequence to commit {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "seq": 0, "height": 1}
+[11-18|11:44:03.367] DEBUG Simplex/epoch.go:1886 Block verification ended {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 0, "elapsed": "11.917µs"}
+[11-18|11:44:03.367] DEBUG Simplex/sched.go:44 Task finished execution {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "taskID": "01aae0544a3c5596aeac..."}
+[11-18|11:44:03.367] DEBUG Simplex/sched.go:42 Running task {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "remaining ready tasks": 0}
+[11-18|11:44:03.367] DEBUG Simplex/epoch.go:1882 Block verification started {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 1}
+[11-18|11:44:03.367] INFO Simplex/epoch.go:1201 Committed block {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 1, "sequence": 1, "digest": "773d8fe9a6be0f222598..."}
+[11-18|11:44:03.367] DEBUG Simplex/epoch.go:1024 Progressing rounds due to commit {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 2, "current round": 1}
+[11-18|11:44:03.367] INFO Simplex/epoch.go:2615 Moving to a new round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "prev round": 1, "next round": 2, "prev leader": "0200000000000000", "next leader": "0300000000000000"}
+[11-18|11:44:03.367] DEBUG Simplex/replicator.go:173 Already requested observed value, skipping {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "value": 4, "isRound": false}
+[11-18|11:44:03.367] DEBUG Simplex/block_scheduler.go:140 Scheduling block verification task with no dependencies {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "blockSeq": 2}
+[11-18|11:44:03.367] DEBUG Simplex/sched.go:57 Scheduling new ready task {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "ready tasks": 1}
+[11-18|11:44:03.367] DEBUG Simplex/epoch.go:1886 Block verification ended {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 1, "elapsed": "34.125µs"}
+[11-18|11:44:03.367] DEBUG Simplex/sched.go:44 Task finished execution {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "taskID": "773d8fe9a6be0f222598..."}
+[11-18|11:44:03.367] DEBUG Simplex/sched.go:42 Running task {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "remaining ready tasks": 0}
+[11-18|11:44:03.367] DEBUG Simplex/epoch.go:1882 Block verification started {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 2}
+[11-18|11:44:03.367] INFO Simplex/epoch.go:1201 Committed block {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 2, "sequence": 2, "digest": "3f5a1c3d4988ccb58e9b..."}
+[11-18|11:44:03.367] DEBUG Simplex/epoch.go:1024 Progressing rounds due to commit {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 3, "current round": 2}
+[11-18|11:44:03.367] INFO Simplex/epoch.go:2615 Moving to a new round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "prev round": 2, "next round": 3, "prev leader": "0300000000000000", "next leader": "0400000000000000"}
+[11-18|11:44:03.367] DEBUG Simplex/replicator.go:173 Already requested observed value, skipping {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "value": 4, "isRound": false}
+[11-18|11:44:03.367] DEBUG Simplex/block_scheduler.go:140 Scheduling block verification task with no dependencies {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "blockSeq": 3}
+[11-18|11:44:03.367] DEBUG Simplex/sched.go:57 Scheduling new ready task {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "ready tasks": 1}
+[11-18|11:44:03.367] DEBUG Simplex/epoch.go:1886 Block verification ended {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 2, "elapsed": "34.709µs"}
+[11-18|11:44:03.367] DEBUG Simplex/sched.go:44 Task finished execution {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "taskID": "3f5a1c3d4988ccb58e9b..."}
+[11-18|11:44:03.367] DEBUG Simplex/sched.go:42 Running task {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "remaining ready tasks": 0}
+[11-18|11:44:03.367] DEBUG Simplex/epoch.go:1882 Block verification started {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 3}
+[11-18|11:44:03.367] INFO Simplex/epoch.go:1201 Committed block {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 3, "sequence": 3, "digest": "96939a73439f8f56b86b..."}
+[11-18|11:44:03.367] DEBUG Simplex/epoch.go:1024 Progressing rounds due to commit {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 4, "current round": 3}
+[11-18|11:44:03.367] INFO Simplex/epoch.go:2615 Moving to a new round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "prev round": 3, "next round": 4, "prev leader": "0400000000000000", "next leader": "0100000000000000"}
+[11-18|11:44:03.367] DEBUG Simplex/replicator.go:173 Already requested observed value, skipping {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "value": 4, "isRound": false}
+[11-18|11:44:03.367] DEBUG Simplex/epoch.go:1886 Block verification ended {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 3, "elapsed": "20.958µs"}
+[11-18|11:44:03.367] DEBUG Simplex/sched.go:44 Task finished execution {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "taskID": "96939a73439f8f56b86b..."}
+[11-18|11:44:03.519] DEBUG Simplex/monitor.go:62 Ticked {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "taskID": 3, "time": "[11-18|11:44:07.008]"}
+[11-18|11:44:03.620] DEBUG Simplex/monitor.go:62 Ticked {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "taskID": 4, "time": "[11-18|11:44:12.008]"}
+[11-18|11:44:03.721] DEBUG Simplex/monitor.go:62 Ticked {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "taskID": 5, "time": "[11-18|11:44:17.008]"}
+[11-18|11:44:03.721] DEBUG Simplex/timeout_handler.go:87 Running task ids {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "task ids": [4]}
+[11-18|11:44:03.721] DEBUG Simplex/timeout_handler.go:116 Adding timeout task {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "id": 4}
+[11-18|11:44:03.721] DEBUG Simplex/replicator.go:259 Requesting missing rounds/sequences  {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0200000000000000", "start": 4, "end": 4, "isRound": false, "latestRound": 0, "latestSeq": 4}
+[11-18|11:44:03.721] DEBUG Simplex/epoch.go:2772 Received replication request {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "from": "0400000000000000", "num seqs": 1, "latest round": 0}
+[11-18|11:44:03.721] DEBUG Simplex/epoch.go:2930 Received replication response {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0200000000000000", "num seqs": 1, "latest round": "QuorumRound{nil}", "latest seq": "QuorumRound{nil}"}
+[11-18|11:44:03.721] DEBUG Simplex/timeout_handler.go:129 Removing timeout task {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "id": 4}
+[11-18|11:44:03.721] DEBUG Simplex/replicator.go:292 Stored quorum round  {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "qr": "QuorumRound{Round: 4, Seq: 4, Finalized: true}", "from": "0200000000000000"}
+[11-18|11:44:03.721] DEBUG Simplex/replicator.go:173 Already requested observed value, skipping {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "value": 4, "isRound": false}
+[11-18|11:44:03.721] DEBUG Simplex/block_scheduler.go:140 Scheduling block verification task with no dependencies {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "blockSeq": 4}
+[11-18|11:44:03.721] DEBUG Simplex/sched.go:57 Scheduling new ready task {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "ready tasks": 1}
+[11-18|11:44:03.721] DEBUG Simplex/sched.go:42 Running task {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "remaining ready tasks": 0}
+[11-18|11:44:03.721] DEBUG Simplex/epoch.go:1882 Block verification started {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 4}
+[11-18|11:44:03.721] INFO Simplex/epoch.go:1201 Committed block {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 4, "sequence": 4, "digest": "e508cda66f55ba9062d3..."}
+[11-18|11:44:03.721] DEBUG Simplex/epoch.go:1024 Progressing rounds due to commit {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 5, "current round": 4}
+[11-18|11:44:03.721] INFO Simplex/epoch.go:2615 Moving to a new round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "prev round": 4, "next round": 5, "prev leader": "0100000000000000", "next leader": "0200000000000000"}
+[11-18|11:44:03.721] DEBUG Simplex/replicator.go:173 Already requested observed value, skipping {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "value": 4, "isRound": false}
+[11-18|11:44:03.721] DEBUG Simplex/epoch.go:2712 No future messages received for this round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0100000000000000", "round": 5}
+[11-18|11:44:03.722] DEBUG Simplex/epoch.go:2712 No future messages received for this round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0200000000000000", "round": 5}
+[11-18|11:44:03.722] DEBUG Simplex/epoch.go:2712 No future messages received for this round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0300000000000000", "round": 5}
+[11-18|11:44:03.722] DEBUG Simplex/epoch.go:2712 No future messages received for this round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0400000000000000", "round": 5}
+[11-18|11:44:03.722] DEBUG Simplex/epoch.go:2399 Monitoring progress {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 5, "currentRound": 5}
+[11-18|11:44:03.722] DEBUG Simplex/epoch.go:1886 Block verification ended {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 4, "elapsed": "169.875µs"}
+[11-18|11:44:03.722] DEBUG Simplex/sched.go:44 Task finished execution {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "taskID": "e508cda66f55ba9062d3..."}
+[11-18|11:44:03.722] DEBUG Simplex/monitor.go:80 Executing f {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "taskID": 6}
+[11-18|11:44:03.722] INFO Simplex/epoch.go:2471 It is time to build a block {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 5}
+[11-18|11:44:03.722] DEBUG Simplex/monitor.go:151 Scheduling task {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "timeout": "5s", "deadline": "[11-18|11:44:17.008]"}
+[11-18|11:44:03.722] DEBUG Simplex/monitor.go:82 Task executed {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "taskID": 6}
+[11-18|11:44:03.822] DEBUG Simplex/monitor.go:65 Executing f {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "taskID": 7, "deadline": "[11-18|11:44:22.008]"}
+[11-18|11:44:03.822] DEBUG Simplex/epoch.go:2425 Triggering empty block agreement {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "reason": "Timed out on block agreement", "round": 5, "leader": "0200000000000000"}
+[11-18|11:44:03.822] DEBUG Simplex/epoch.go:2352 Persisted empty vote to WAL {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 5, "size": 18}
+[11-18|11:44:03.822] DEBUG Simplex/timeout_handler.go:116 Adding timeout task {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "id": 1}
+[11-18|11:44:03.822] DEBUG Simplex/epoch.go:1229 Could not find empty vote with a quorum or more votes {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 5}
+[11-18|11:44:03.822] DEBUG Simplex/monitor.go:67 Executed f {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "taskID": 7, "time": "[11-18|11:44:22.008]", "deadline": "[11-18|11:44:22.008]"}
+[11-18|11:44:03.822] DEBUG Simplex/monitor.go:71 Ticked {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "taskID": 7, "time": "[11-18|11:44:22.008]"}
+[11-18|11:44:03.822] DEBUG Simplex/epoch.go:703 Received empty vote message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "from": "0400000000000000", "round": 5, "our round": 16}
+[11-18|11:44:03.822] DEBUG Simplex/epoch.go:715 Got empty vote from a past round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "round": 5, "my round": 16, "from": "0400000000000000"}
+[11-18|11:44:03.822] DEBUG Simplex/epoch.go:766 Node appears behind, sending them the latest block {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "to": "0400000000000000", "round": 4}
+[11-18|11:44:03.822] DEBUG Simplex/epoch.go:791 Node appears behind, sending them the highest empty notarized round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "to": "0400000000000000", "round": 15}
+[11-18|11:44:03.822] DEBUG Simplex/epoch.go:823 Node appears behind, sending them a notarization {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "to": "0400000000000000", "round": 5}
+[11-18|11:44:03.822] DEBUG Simplex/epoch.go:570 Received finalization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0200000000000000", "round": 4, "seq": 4}
+[11-18|11:44:03.822] DEBUG Simplex/epoch.go:1442 Received empty notarization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 15}
+[11-18|11:44:03.823] DEBUG Simplex/epoch.go:1470 Received empty notarization for a future round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 15, "our round": 5}
+[11-18|11:44:03.823] DEBUG Simplex/epoch.go:1503 Received notarization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0200000000000000", "round": 5}
+[11-18|11:44:03.823] DEBUG Simplex/epoch.go:1530 Received a notarization for a future round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 5, "epoch round": 5}
+[11-18|11:44:03.823] DEBUG Simplex/epoch.go:703 Received empty vote message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "from": "0400000000000000", "round": 5, "our round": 16}
+[11-18|11:44:03.823] DEBUG Simplex/epoch.go:715 Got empty vote from a past round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "round": 5, "my round": 16, "from": "0400000000000000"}
+[11-18|11:44:03.823] DEBUG Simplex/epoch.go:766 Node appears behind, sending them the latest block {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "to": "0400000000000000", "round": 4}
+[11-18|11:44:03.823] DEBUG Simplex/epoch.go:791 Node appears behind, sending them the highest empty notarized round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "to": "0400000000000000", "round": 15}
+[11-18|11:44:03.823] DEBUG Simplex/epoch.go:823 Node appears behind, sending them a notarization {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "to": "0400000000000000", "round": 5}
+[11-18|11:44:03.823] DEBUG Simplex/epoch.go:570 Received finalization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0100000000000000", "round": 4, "seq": 4}
+[11-18|11:44:03.823] DEBUG Simplex/epoch.go:1442 Received empty notarization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 15}
+[11-18|11:44:03.823] DEBUG Simplex/epoch.go:1470 Received empty notarization for a future round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 15, "our round": 5}
+[11-18|11:44:03.823] DEBUG Simplex/epoch.go:1503 Received notarization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0100000000000000", "round": 5}
+[11-18|11:44:03.823] DEBUG Simplex/epoch.go:1530 Received a notarization for a future round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 5, "epoch round": 5}
+[11-18|11:44:03.923] DEBUG Simplex/timeout_handler.go:87 Running task ids {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "task ids": [1]}
+[11-18|11:44:03.923] DEBUG Simplex/epoch.go:2390 Rebroadcasting empty vote because round has not advanced {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 5}
+[11-18|11:44:03.923] DEBUG Simplex/epoch.go:703 Received empty vote message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "from": "0400000000000000", "round": 5, "our round": 16}
+[11-18|11:44:03.923] DEBUG Simplex/epoch.go:715 Got empty vote from a past round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "round": 5, "my round": 16, "from": "0400000000000000"}
+[11-18|11:44:03.923] DEBUG Simplex/epoch.go:766 Node appears behind, sending them the latest block {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "to": "0400000000000000", "round": 4}
+[11-18|11:44:03.923] DEBUG Simplex/epoch.go:791 Node appears behind, sending them the highest empty notarized round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "to": "0400000000000000", "round": 15}
+[11-18|11:44:03.923] DEBUG Simplex/epoch.go:823 Node appears behind, sending them a notarization {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "to": "0400000000000000", "round": 5}
+[11-18|11:44:03.923] DEBUG Simplex/monitor.go:62 Ticked {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "taskID": 8, "time": "[11-18|11:44:27.008]"}
+[11-18|11:44:03.923] DEBUG Simplex/epoch.go:570 Received finalization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0200000000000000", "round": 4, "seq": 4}
+[11-18|11:44:03.923] DEBUG Simplex/epoch.go:703 Received empty vote message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "from": "0400000000000000", "round": 5, "our round": 16}
+[11-18|11:44:03.923] DEBUG Simplex/epoch.go:1442 Received empty notarization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 15}
+[11-18|11:44:03.923] DEBUG Simplex/epoch.go:715 Got empty vote from a past round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "round": 5, "my round": 16, "from": "0400000000000000"}
+[11-18|11:44:03.923] DEBUG Simplex/epoch.go:766 Node appears behind, sending them the latest block {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "to": "0400000000000000", "round": 4}
+[11-18|11:44:03.923] DEBUG Simplex/epoch.go:791 Node appears behind, sending them the highest empty notarized round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "to": "0400000000000000", "round": 15}
+[11-18|11:44:03.924] DEBUG Simplex/epoch.go:823 Node appears behind, sending them a notarization {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "to": "0400000000000000", "round": 5}
+[11-18|11:44:03.924] DEBUG Simplex/epoch.go:1470 Received empty notarization for a future round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 15, "our round": 5}
+[11-18|11:44:03.924] DEBUG Simplex/epoch.go:1503 Received notarization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0200000000000000", "round": 5}
+[11-18|11:44:03.924] DEBUG Simplex/epoch.go:1530 Received a notarization for a future round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 5, "epoch round": 5}
+[11-18|11:44:03.924] DEBUG Simplex/epoch.go:570 Received finalization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0100000000000000", "round": 4, "seq": 4}
+[11-18|11:44:03.924] DEBUG Simplex/epoch.go:1442 Received empty notarization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 15}
+[11-18|11:44:03.924] DEBUG Simplex/epoch.go:1470 Received empty notarization for a future round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 15, "our round": 5}
+[11-18|11:44:03.924] DEBUG Simplex/epoch.go:1503 Received notarization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0100000000000000", "round": 5}
+[11-18|11:44:03.924] DEBUG Simplex/epoch.go:1530 Received a notarization for a future round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 5, "epoch round": 5}
+[11-18|11:44:04.024] DEBUG Simplex/monitor.go:62 Ticked {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "taskID": 9, "time": "[11-18|11:44:32.008]"}
+[11-18|11:44:04.024] DEBUG Simplex/timeout_handler.go:87 Running task ids {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "task ids": [1]}
+[11-18|11:44:04.024] DEBUG Simplex/epoch.go:2390 Rebroadcasting empty vote because round has not advanced {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 5}
+[11-18|11:44:04.024] DEBUG Simplex/epoch.go:703 Received empty vote message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "from": "0400000000000000", "round": 5, "our round": 16}
+[11-18|11:44:04.024] DEBUG Simplex/epoch.go:715 Got empty vote from a past round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "round": 5, "my round": 16, "from": "0400000000000000"}
+[11-18|11:44:04.024] DEBUG Simplex/epoch.go:766 Node appears behind, sending them the latest block {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "to": "0400000000000000", "round": 4}
+[11-18|11:44:04.024] DEBUG Simplex/epoch.go:791 Node appears behind, sending them the highest empty notarized round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "to": "0400000000000000", "round": 15}
+[11-18|11:44:04.024] DEBUG Simplex/epoch.go:823 Node appears behind, sending them a notarization {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "to": "0400000000000000", "round": 5}
+[11-18|11:44:04.024] DEBUG Simplex/epoch.go:570 Received finalization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0200000000000000", "round": 4, "seq": 4}
+[11-18|11:44:04.024] DEBUG Simplex/epoch.go:1442 Received empty notarization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 15}
+[11-18|11:44:04.024] DEBUG Simplex/epoch.go:703 Received empty vote message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "from": "0400000000000000", "round": 5, "our round": 16}
+[11-18|11:44:04.025] DEBUG Simplex/epoch.go:715 Got empty vote from a past round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "round": 5, "my round": 16, "from": "0400000000000000"}
+[11-18|11:44:04.025] DEBUG Simplex/epoch.go:1470 Received empty notarization for a future round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 15, "our round": 5}
+[11-18|11:44:04.025] DEBUG Simplex/epoch.go:1503 Received notarization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0200000000000000", "round": 5}
+[11-18|11:44:04.025] DEBUG Simplex/epoch.go:1530 Received a notarization for a future round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 5, "epoch round": 5}
+[11-18|11:44:04.025] DEBUG Simplex/epoch.go:766 Node appears behind, sending them the latest block {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "to": "0400000000000000", "round": 4}
+[11-18|11:44:04.025] DEBUG Simplex/epoch.go:791 Node appears behind, sending them the highest empty notarized round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "to": "0400000000000000", "round": 15}
+[11-18|11:44:04.025] DEBUG Simplex/epoch.go:823 Node appears behind, sending them a notarization {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "to": "0400000000000000", "round": 5}
+[11-18|11:44:04.025] DEBUG Simplex/epoch.go:570 Received finalization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0100000000000000", "round": 4, "seq": 4}
+[11-18|11:44:04.025] DEBUG Simplex/epoch.go:1442 Received empty notarization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 15}
+[11-18|11:44:04.025] DEBUG Simplex/epoch.go:1470 Received empty notarization for a future round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 15, "our round": 5}
+[11-18|11:44:04.025] DEBUG Simplex/epoch.go:1503 Received notarization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0100000000000000", "round": 5}
+[11-18|11:44:04.025] DEBUG Simplex/epoch.go:1530 Received a notarization for a future round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 5, "epoch round": 5}
+[11-18|11:44:04.124] DEBUG Simplex/timeout_handler.go:87 Running task ids {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "task ids": [1]}
+[11-18|11:44:04.124] DEBUG Simplex/monitor.go:62 Ticked {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "taskID": 10, "time": "[11-18|11:44:37.008]"}
+[11-18|11:44:04.125] DEBUG Simplex/epoch.go:2390 Rebroadcasting empty vote because round has not advanced {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 5}
+[11-18|11:44:04.125] DEBUG Simplex/epoch.go:703 Received empty vote message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "from": "0400000000000000", "round": 5, "our round": 16}
+[11-18|11:44:04.125] DEBUG Simplex/epoch.go:715 Got empty vote from a past round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "round": 5, "my round": 16, "from": "0400000000000000"}
+[11-18|11:44:04.125] DEBUG Simplex/epoch.go:766 Node appears behind, sending them the latest block {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "to": "0400000000000000", "round": 4}
+[11-18|11:44:04.125] DEBUG Simplex/epoch.go:791 Node appears behind, sending them the highest empty notarized round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "to": "0400000000000000", "round": 15}
+[11-18|11:44:04.125] DEBUG Simplex/epoch.go:823 Node appears behind, sending them a notarization {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "to": "0400000000000000", "round": 5}
+[11-18|11:44:04.125] DEBUG Simplex/epoch.go:570 Received finalization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0200000000000000", "round": 4, "seq": 4}
+[11-18|11:44:04.125] DEBUG Simplex/epoch.go:1442 Received empty notarization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 15}
+[11-18|11:44:04.125] DEBUG Simplex/epoch.go:1470 Received empty notarization for a future round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 15, "our round": 5}
+[11-18|11:44:04.125] DEBUG Simplex/epoch.go:1503 Received notarization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0200000000000000", "round": 5}
+[11-18|11:44:04.125] DEBUG Simplex/epoch.go:1530 Received a notarization for a future round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 5, "epoch round": 5}
+[11-18|11:44:04.125] DEBUG Simplex/epoch.go:703 Received empty vote message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "from": "0400000000000000", "round": 5, "our round": 16}
+[11-18|11:44:04.125] DEBUG Simplex/epoch.go:715 Got empty vote from a past round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "round": 5, "my round": 16, "from": "0400000000000000"}
+[11-18|11:44:04.125] DEBUG Simplex/epoch.go:766 Node appears behind, sending them the latest block {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "to": "0400000000000000", "round": 4}
+[11-18|11:44:04.125] DEBUG Simplex/epoch.go:791 Node appears behind, sending them the highest empty notarized round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "to": "0400000000000000", "round": 15}
+[11-18|11:44:04.125] DEBUG Simplex/epoch.go:823 Node appears behind, sending them a notarization {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "to": "0400000000000000", "round": 5}
+[11-18|11:44:04.125] DEBUG Simplex/epoch.go:570 Received finalization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0100000000000000", "round": 4, "seq": 4}
+[11-18|11:44:04.125] DEBUG Simplex/epoch.go:1442 Received empty notarization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 15}
+[11-18|11:44:04.125] DEBUG Simplex/epoch.go:1470 Received empty notarization for a future round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 15, "our round": 5}
+[11-18|11:44:04.125] DEBUG Simplex/epoch.go:1503 Received notarization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0100000000000000", "round": 5}
+[11-18|11:44:04.125] DEBUG Simplex/epoch.go:1530 Received a notarization for a future round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 5, "epoch round": 5}
+[11-18|11:44:04.226] DEBUG Simplex/timeout_handler.go:87 Running task ids {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "task ids": [1]}
+[11-18|11:44:04.226] DEBUG Simplex/epoch.go:2390 Rebroadcasting empty vote because round has not advanced {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 5}
+[11-18|11:44:04.226] DEBUG Simplex/epoch.go:703 Received empty vote message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "from": "0400000000000000", "round": 5, "our round": 16}
+[11-18|11:44:04.226] DEBUG Simplex/epoch.go:715 Got empty vote from a past round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "round": 5, "my round": 16, "from": "0400000000000000"}
+[11-18|11:44:04.226] DEBUG Simplex/epoch.go:766 Node appears behind, sending them the latest block {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "to": "0400000000000000", "round": 4}
+[11-18|11:44:04.226] DEBUG Simplex/epoch.go:791 Node appears behind, sending them the highest empty notarized round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "to": "0400000000000000", "round": 15}
+[11-18|11:44:04.226] DEBUG Simplex/epoch.go:823 Node appears behind, sending them a notarization {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "to": "0400000000000000", "round": 5}
+[11-18|11:44:04.226] DEBUG Simplex/monitor.go:62 Ticked {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "taskID": 11, "time": "[11-18|11:44:42.008]"}
+[11-18|11:44:04.226] DEBUG Simplex/epoch.go:570 Received finalization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0200000000000000", "round": 4, "seq": 4}
+[11-18|11:44:04.226] DEBUG Simplex/epoch.go:703 Received empty vote message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "from": "0400000000000000", "round": 5, "our round": 16}
+[11-18|11:44:04.226] DEBUG Simplex/epoch.go:1442 Received empty notarization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 15}
+[11-18|11:44:04.226] DEBUG Simplex/epoch.go:715 Got empty vote from a past round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "round": 5, "my round": 16, "from": "0400000000000000"}
+[11-18|11:44:04.226] DEBUG Simplex/epoch.go:766 Node appears behind, sending them the latest block {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "to": "0400000000000000", "round": 4}
+[11-18|11:44:04.226] DEBUG Simplex/epoch.go:1470 Received empty notarization for a future round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 15, "our round": 5}
+[11-18|11:44:04.226] DEBUG Simplex/epoch.go:791 Node appears behind, sending them the highest empty notarized round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "to": "0400000000000000", "round": 15}
+[11-18|11:44:04.226] DEBUG Simplex/epoch.go:823 Node appears behind, sending them a notarization {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "to": "0400000000000000", "round": 5}
+[11-18|11:44:04.226] DEBUG Simplex/epoch.go:1503 Received notarization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0200000000000000", "round": 5}
+[11-18|11:44:04.226] DEBUG Simplex/epoch.go:1530 Received a notarization for a future round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 5, "epoch round": 5}
+[11-18|11:44:04.226] DEBUG Simplex/epoch.go:570 Received finalization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0100000000000000", "round": 4, "seq": 4}
+[11-18|11:44:04.226] DEBUG Simplex/epoch.go:1442 Received empty notarization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 15}
+[11-18|11:44:04.226] DEBUG Simplex/epoch.go:1470 Received empty notarization for a future round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 15, "our round": 5}
+[11-18|11:44:04.226] DEBUG Simplex/epoch.go:1503 Received notarization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0100000000000000", "round": 5}
+[11-18|11:44:04.226] DEBUG Simplex/epoch.go:1530 Received a notarization for a future round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 5, "epoch round": 5}
+[11-18|11:44:04.327] DEBUG Simplex/timeout_handler.go:87 Running task ids {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "task ids": [1]}
+[11-18|11:44:04.327] DEBUG Simplex/monitor.go:62 Ticked {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "taskID": 12, "time": "[11-18|11:44:47.008]"}
+[11-18|11:44:04.327] DEBUG Simplex/epoch.go:2390 Rebroadcasting empty vote because round has not advanced {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 5}
+[11-18|11:44:04.327] DEBUG Simplex/epoch.go:703 Received empty vote message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "from": "0400000000000000", "round": 5, "our round": 16}
+[11-18|11:44:04.327] DEBUG Simplex/epoch.go:715 Got empty vote from a past round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "round": 5, "my round": 16, "from": "0400000000000000"}
+[11-18|11:44:04.327] DEBUG Simplex/epoch.go:766 Node appears behind, sending them the latest block {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "to": "0400000000000000", "round": 4}
+[11-18|11:44:04.327] DEBUG Simplex/epoch.go:791 Node appears behind, sending them the highest empty notarized round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "to": "0400000000000000", "round": 15}
+[11-18|11:44:04.327] DEBUG Simplex/epoch.go:823 Node appears behind, sending them a notarization {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "to": "0400000000000000", "round": 5}
+[11-18|11:44:04.327] DEBUG Simplex/epoch.go:570 Received finalization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0200000000000000", "round": 4, "seq": 4}
+[11-18|11:44:04.327] DEBUG Simplex/epoch.go:1442 Received empty notarization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 15}
+[11-18|11:44:04.327] DEBUG Simplex/epoch.go:703 Received empty vote message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "from": "0400000000000000", "round": 5, "our round": 16}
+[11-18|11:44:04.327] DEBUG Simplex/epoch.go:715 Got empty vote from a past round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "round": 5, "my round": 16, "from": "0400000000000000"}
+[11-18|11:44:04.327] DEBUG Simplex/epoch.go:766 Node appears behind, sending them the latest block {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "to": "0400000000000000", "round": 4}
+[11-18|11:44:04.327] DEBUG Simplex/epoch.go:1470 Received empty notarization for a future round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 15, "our round": 5}
+[11-18|11:44:04.327] DEBUG Simplex/epoch.go:791 Node appears behind, sending them the highest empty notarized round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "to": "0400000000000000", "round": 15}
+[11-18|11:44:04.327] DEBUG Simplex/epoch.go:1503 Received notarization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0200000000000000", "round": 5}
+[11-18|11:44:04.327] DEBUG Simplex/epoch.go:823 Node appears behind, sending them a notarization {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "to": "0400000000000000", "round": 5}
+[11-18|11:44:04.327] DEBUG Simplex/epoch.go:1530 Received a notarization for a future round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 5, "epoch round": 5}
+[11-18|11:44:04.327] DEBUG Simplex/epoch.go:570 Received finalization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0100000000000000", "round": 4, "seq": 4}
+[11-18|11:44:04.327] DEBUG Simplex/epoch.go:1442 Received empty notarization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 15}
+[11-18|11:44:04.327] DEBUG Simplex/epoch.go:1470 Received empty notarization for a future round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 15, "our round": 5}
+[11-18|11:44:04.327] DEBUG Simplex/epoch.go:1503 Received notarization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0100000000000000", "round": 5}
+[11-18|11:44:04.327] DEBUG Simplex/epoch.go:1530 Received a notarization for a future round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 5, "epoch round": 5}
+[11-18|11:44:04.427] DEBUG Simplex/timeout_handler.go:87 Running task ids {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "task ids": [1]}
+[11-18|11:44:04.427] DEBUG Simplex/monitor.go:62 Ticked {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "taskID": 13, "time": "[11-18|11:44:52.008]"}
+[11-18|11:44:04.428] DEBUG Simplex/epoch.go:2390 Rebroadcasting empty vote because round has not advanced {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 5}
+[11-18|11:44:04.428] DEBUG Simplex/epoch.go:703 Received empty vote message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "from": "0400000000000000", "round": 5, "our round": 16}
+[11-18|11:44:04.428] DEBUG Simplex/epoch.go:715 Got empty vote from a past round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "round": 5, "my round": 16, "from": "0400000000000000"}
+[11-18|11:44:04.428] DEBUG Simplex/epoch.go:766 Node appears behind, sending them the latest block {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "to": "0400000000000000", "round": 4}
+[11-18|11:44:04.428] DEBUG Simplex/epoch.go:791 Node appears behind, sending them the highest empty notarized round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "to": "0400000000000000", "round": 15}
+[11-18|11:44:04.428] DEBUG Simplex/epoch.go:823 Node appears behind, sending them a notarization {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "to": "0400000000000000", "round": 5}
+[11-18|11:44:04.428] DEBUG Simplex/epoch.go:570 Received finalization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0200000000000000", "round": 4, "seq": 4}
+[11-18|11:44:04.428] DEBUG Simplex/epoch.go:1442 Received empty notarization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 15}
+[11-18|11:44:04.428] DEBUG Simplex/epoch.go:1470 Received empty notarization for a future round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 15, "our round": 5}
+[11-18|11:44:04.428] DEBUG Simplex/epoch.go:1503 Received notarization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0200000000000000", "round": 5}
+[11-18|11:44:04.428] DEBUG Simplex/epoch.go:1530 Received a notarization for a future round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 5, "epoch round": 5}
+[11-18|11:44:04.428] DEBUG Simplex/epoch.go:703 Received empty vote message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "from": "0400000000000000", "round": 5, "our round": 16}
+[11-18|11:44:04.428] DEBUG Simplex/epoch.go:715 Got empty vote from a past round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "round": 5, "my round": 16, "from": "0400000000000000"}
+[11-18|11:44:04.428] DEBUG Simplex/epoch.go:766 Node appears behind, sending them the latest block {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "to": "0400000000000000", "round": 4}
+[11-18|11:44:04.428] DEBUG Simplex/epoch.go:791 Node appears behind, sending them the highest empty notarized round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "to": "0400000000000000", "round": 15}
+[11-18|11:44:04.428] DEBUG Simplex/epoch.go:823 Node appears behind, sending them a notarization {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "to": "0400000000000000", "round": 5}
+[11-18|11:44:04.428] DEBUG Simplex/epoch.go:570 Received finalization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0100000000000000", "round": 4, "seq": 4}
+[11-18|11:44:04.428] DEBUG Simplex/epoch.go:1442 Received empty notarization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 15}
+[11-18|11:44:04.428] DEBUG Simplex/epoch.go:1470 Received empty notarization for a future round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 15, "our round": 5}
+[11-18|11:44:04.428] DEBUG Simplex/epoch.go:1503 Received notarization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0100000000000000", "round": 5}
+[11-18|11:44:04.428] DEBUG Simplex/epoch.go:1530 Received a notarization for a future round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 5, "epoch round": 5}
+[11-18|11:44:04.529] DEBUG Simplex/timeout_handler.go:87 Running task ids {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "task ids": [1]}
+[11-18|11:44:04.529] DEBUG Simplex/epoch.go:2390 Rebroadcasting empty vote because round has not advanced {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 5}
+[11-18|11:44:04.529] DEBUG Simplex/epoch.go:703 Received empty vote message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "from": "0400000000000000", "round": 5, "our round": 16}
+[11-18|11:44:04.529] DEBUG Simplex/epoch.go:715 Got empty vote from a past round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "round": 5, "my round": 16, "from": "0400000000000000"}
+[11-18|11:44:04.529] DEBUG Simplex/epoch.go:766 Node appears behind, sending them the latest block {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "to": "0400000000000000", "round": 4}
+[11-18|11:44:04.529] DEBUG Simplex/epoch.go:791 Node appears behind, sending them the highest empty notarized round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "to": "0400000000000000", "round": 15}
+[11-18|11:44:04.529] DEBUG Simplex/epoch.go:823 Node appears behind, sending them a notarization {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "to": "0400000000000000", "round": 5}
+[11-18|11:44:04.529] DEBUG Simplex/epoch.go:570 Received finalization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0200000000000000", "round": 4, "seq": 4}
+[11-18|11:44:04.529] DEBUG Simplex/epoch.go:1442 Received empty notarization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 15}
+[11-18|11:44:04.529] DEBUG Simplex/epoch.go:1470 Received empty notarization for a future round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 15, "our round": 5}
+[11-18|11:44:04.529] DEBUG Simplex/epoch.go:1503 Received notarization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0200000000000000", "round": 5}
+[11-18|11:44:04.529] DEBUG Simplex/epoch.go:1530 Received a notarization for a future round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 5, "epoch round": 5}
+[11-18|11:44:04.529] DEBUG Simplex/monitor.go:62 Ticked {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "taskID": 14, "time": "[11-18|11:44:57.008]"}
+[11-18|11:44:04.529] DEBUG Simplex/epoch.go:703 Received empty vote message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "from": "0400000000000000", "round": 5, "our round": 16}
+[11-18|11:44:04.529] DEBUG Simplex/epoch.go:715 Got empty vote from a past round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "round": 5, "my round": 16, "from": "0400000000000000"}
+[11-18|11:44:04.529] DEBUG Simplex/epoch.go:766 Node appears behind, sending them the latest block {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "to": "0400000000000000", "round": 4}
+[11-18|11:44:04.529] DEBUG Simplex/epoch.go:791 Node appears behind, sending them the highest empty notarized round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "to": "0400000000000000", "round": 15}
+[11-18|11:44:04.529] DEBUG Simplex/epoch.go:823 Node appears behind, sending them a notarization {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "to": "0400000000000000", "round": 5}
+[11-18|11:44:04.529] DEBUG Simplex/epoch.go:570 Received finalization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0100000000000000", "round": 4, "seq": 4}
+[11-18|11:44:04.529] DEBUG Simplex/epoch.go:1442 Received empty notarization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 15}
+[11-18|11:44:04.529] DEBUG Simplex/epoch.go:1470 Received empty notarization for a future round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 15, "our round": 5}
+[11-18|11:44:04.529] DEBUG Simplex/epoch.go:1503 Received notarization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0100000000000000", "round": 5}
+[11-18|11:44:04.529] DEBUG Simplex/epoch.go:1530 Received a notarization for a future round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 5, "epoch round": 5}
+[11-18|11:44:04.630] DEBUG Simplex/monitor.go:62 Ticked {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "taskID": 15, "time": "[11-18|11:45:02.008]"}
+[11-18|11:44:04.630] DEBUG Simplex/timeout_handler.go:87 Running task ids {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "task ids": [1]}
+[11-18|11:44:04.630] DEBUG Simplex/epoch.go:2390 Rebroadcasting empty vote because round has not advanced {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 5}
+[11-18|11:44:04.630] DEBUG Simplex/epoch.go:703 Received empty vote message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "from": "0400000000000000", "round": 5, "our round": 16}
+[11-18|11:44:04.630] DEBUG Simplex/epoch.go:715 Got empty vote from a past round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "round": 5, "my round": 16, "from": "0400000000000000"}
+[11-18|11:44:04.630] DEBUG Simplex/epoch.go:766 Node appears behind, sending them the latest block {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "to": "0400000000000000", "round": 4}
+[11-18|11:44:04.630] DEBUG Simplex/epoch.go:791 Node appears behind, sending them the highest empty notarized round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "to": "0400000000000000", "round": 15}
+[11-18|11:44:04.630] DEBUG Simplex/epoch.go:823 Node appears behind, sending them a notarization {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "to": "0400000000000000", "round": 5}
+[11-18|11:44:04.630] DEBUG Simplex/epoch.go:570 Received finalization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0200000000000000", "round": 4, "seq": 4}
+[11-18|11:44:04.630] DEBUG Simplex/epoch.go:1442 Received empty notarization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 15}
+[11-18|11:44:04.630] DEBUG Simplex/epoch.go:1470 Received empty notarization for a future round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 15, "our round": 5}
+[11-18|11:44:04.630] DEBUG Simplex/epoch.go:1503 Received notarization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0200000000000000", "round": 5}
+[11-18|11:44:04.630] DEBUG Simplex/epoch.go:1530 Received a notarization for a future round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 5, "epoch round": 5}
+[11-18|11:44:04.630] DEBUG Simplex/epoch.go:703 Received empty vote message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "from": "0400000000000000", "round": 5, "our round": 16}
+[11-18|11:44:04.630] DEBUG Simplex/epoch.go:715 Got empty vote from a past round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "round": 5, "my round": 16, "from": "0400000000000000"}
+[11-18|11:44:04.630] DEBUG Simplex/epoch.go:766 Node appears behind, sending them the latest block {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "to": "0400000000000000", "round": 4}
+[11-18|11:44:04.630] DEBUG Simplex/epoch.go:791 Node appears behind, sending them the highest empty notarized round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "to": "0400000000000000", "round": 15}
+[11-18|11:44:04.630] DEBUG Simplex/epoch.go:823 Node appears behind, sending them a notarization {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "to": "0400000000000000", "round": 5}
+[11-18|11:44:04.630] DEBUG Simplex/epoch.go:570 Received finalization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0100000000000000", "round": 4, "seq": 4}
+[11-18|11:44:04.630] DEBUG Simplex/epoch.go:1442 Received empty notarization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 15}
+[11-18|11:44:04.631] DEBUG Simplex/epoch.go:1470 Received empty notarization for a future round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 15, "our round": 5}
+[11-18|11:44:04.631] DEBUG Simplex/epoch.go:1503 Received notarization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0100000000000000", "round": 5}
+[11-18|11:44:04.631] DEBUG Simplex/epoch.go:1530 Received a notarization for a future round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 5, "epoch round": 5}
+[11-18|11:44:04.731] DEBUG Simplex/monitor.go:62 Ticked {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "taskID": 16, "time": "[11-18|11:45:07.008]"}
+[11-18|11:44:04.731] DEBUG Simplex/timeout_handler.go:87 Running task ids {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "task ids": [1]}
+[11-18|11:44:04.731] DEBUG Simplex/epoch.go:2390 Rebroadcasting empty vote because round has not advanced {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 5}
+[11-18|11:44:04.731] DEBUG Simplex/epoch.go:703 Received empty vote message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "from": "0400000000000000", "round": 5, "our round": 16}
+[11-18|11:44:04.731] DEBUG Simplex/epoch.go:715 Got empty vote from a past round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "round": 5, "my round": 16, "from": "0400000000000000"}
+[11-18|11:44:04.731] DEBUG Simplex/epoch.go:766 Node appears behind, sending them the latest block {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "to": "0400000000000000", "round": 4}
+[11-18|11:44:04.731] DEBUG Simplex/epoch.go:791 Node appears behind, sending them the highest empty notarized round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "to": "0400000000000000", "round": 15}
+[11-18|11:44:04.731] DEBUG Simplex/epoch.go:823 Node appears behind, sending them a notarization {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "to": "0400000000000000", "round": 5}
+[11-18|11:44:04.731] DEBUG Simplex/epoch.go:570 Received finalization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0200000000000000", "round": 4, "seq": 4}
+[11-18|11:44:04.731] DEBUG Simplex/epoch.go:703 Received empty vote message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "from": "0400000000000000", "round": 5, "our round": 16}
+[11-18|11:44:04.731] DEBUG Simplex/epoch.go:1442 Received empty notarization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 15}
+[11-18|11:44:04.731] DEBUG Simplex/epoch.go:715 Got empty vote from a past round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "round": 5, "my round": 16, "from": "0400000000000000"}
+[11-18|11:44:04.731] DEBUG Simplex/epoch.go:766 Node appears behind, sending them the latest block {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "to": "0400000000000000", "round": 4}
+[11-18|11:44:04.731] DEBUG Simplex/epoch.go:1470 Received empty notarization for a future round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 15, "our round": 5}
+[11-18|11:44:04.731] DEBUG Simplex/epoch.go:791 Node appears behind, sending them the highest empty notarized round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "to": "0400000000000000", "round": 15}
+[11-18|11:44:04.731] DEBUG Simplex/epoch.go:1503 Received notarization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0200000000000000", "round": 5}
+[11-18|11:44:04.731] DEBUG Simplex/epoch.go:1530 Received a notarization for a future round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 5, "epoch round": 5}
+[11-18|11:44:04.731] DEBUG Simplex/epoch.go:570 Received finalization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0100000000000000", "round": 4, "seq": 4}
+[11-18|11:44:04.731] DEBUG Simplex/epoch.go:1442 Received empty notarization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 15}
+[11-18|11:44:04.731] DEBUG Simplex/epoch.go:1470 Received empty notarization for a future round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 15, "our round": 5}
+[11-18|11:44:04.731] DEBUG Simplex/epoch.go:823 Node appears behind, sending them a notarization {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "to": "0400000000000000", "round": 5}
+[11-18|11:44:04.732] DEBUG Simplex/epoch.go:1503 Received notarization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0100000000000000", "round": 5}
+[11-18|11:44:04.732] DEBUG Simplex/epoch.go:1530 Received a notarization for a future round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 5, "epoch round": 5}
+[11-18|11:44:04.832] DEBUG Simplex/timeout_handler.go:87 Running task ids {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "task ids": [1]}
+[11-18|11:44:04.832] DEBUG Simplex/epoch.go:2390 Rebroadcasting empty vote because round has not advanced {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 5}
+[11-18|11:44:04.832] DEBUG Simplex/epoch.go:703 Received empty vote message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "from": "0400000000000000", "round": 5, "our round": 16}
+[11-18|11:44:04.832] DEBUG Simplex/epoch.go:715 Got empty vote from a past round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "round": 5, "my round": 16, "from": "0400000000000000"}
+[11-18|11:44:04.832] DEBUG Simplex/epoch.go:766 Node appears behind, sending them the latest block {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "to": "0400000000000000", "round": 4}
+[11-18|11:44:04.832] DEBUG Simplex/epoch.go:791 Node appears behind, sending them the highest empty notarized round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "to": "0400000000000000", "round": 15}
+[11-18|11:44:04.832] DEBUG Simplex/epoch.go:823 Node appears behind, sending them a notarization {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "to": "0400000000000000", "round": 5}
+[11-18|11:44:04.832] DEBUG Simplex/epoch.go:570 Received finalization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0200000000000000", "round": 4, "seq": 4}
+[11-18|11:44:04.832] DEBUG Simplex/epoch.go:1442 Received empty notarization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 15}
+[11-18|11:44:04.832] DEBUG Simplex/epoch.go:1470 Received empty notarization for a future round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 15, "our round": 5}
+[11-18|11:44:04.833] DEBUG Simplex/epoch.go:1503 Received notarization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0200000000000000", "round": 5}
+[11-18|11:44:04.833] DEBUG Simplex/monitor.go:62 Ticked {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "taskID": 17, "time": "[11-18|11:45:12.008]"}
+[11-18|11:44:04.833] DEBUG Simplex/epoch.go:1530 Received a notarization for a future round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 5, "epoch round": 5}
+[11-18|11:44:04.833] DEBUG Simplex/epoch.go:703 Received empty vote message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "from": "0400000000000000", "round": 5, "our round": 16}
+[11-18|11:44:04.833] DEBUG Simplex/epoch.go:715 Got empty vote from a past round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "round": 5, "my round": 16, "from": "0400000000000000"}
+[11-18|11:44:04.833] DEBUG Simplex/epoch.go:766 Node appears behind, sending them the latest block {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "to": "0400000000000000", "round": 4}
+[11-18|11:44:04.833] DEBUG Simplex/epoch.go:791 Node appears behind, sending them the highest empty notarized round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "to": "0400000000000000", "round": 15}
+[11-18|11:44:04.833] DEBUG Simplex/epoch.go:823 Node appears behind, sending them a notarization {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "to": "0400000000000000", "round": 5}
+[11-18|11:44:04.833] DEBUG Simplex/epoch.go:570 Received finalization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0100000000000000", "round": 4, "seq": 4}
+[11-18|11:44:04.833] DEBUG Simplex/epoch.go:1442 Received empty notarization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 15}
+[11-18|11:44:04.833] DEBUG Simplex/epoch.go:1470 Received empty notarization for a future round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 15, "our round": 5}
+[11-18|11:44:04.833] DEBUG Simplex/epoch.go:1503 Received notarization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0100000000000000", "round": 5}
+[11-18|11:44:04.833] DEBUG Simplex/epoch.go:1530 Received a notarization for a future round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 5, "epoch round": 5}
+[11-18|11:44:04.933] DEBUG Simplex/timeout_handler.go:87 Running task ids {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "task ids": [1]}
+[11-18|11:44:04.933] DEBUG Simplex/epoch.go:2390 Rebroadcasting empty vote because round has not advanced {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 5}
+[11-18|11:44:04.933] DEBUG Simplex/epoch.go:703 Received empty vote message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "from": "0400000000000000", "round": 5, "our round": 16}
+[11-18|11:44:04.933] DEBUG Simplex/epoch.go:715 Got empty vote from a past round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "round": 5, "my round": 16, "from": "0400000000000000"}
+[11-18|11:44:04.933] DEBUG Simplex/epoch.go:766 Node appears behind, sending them the latest block {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "to": "0400000000000000", "round": 4}
+[11-18|11:44:04.933] DEBUG Simplex/epoch.go:791 Node appears behind, sending them the highest empty notarized round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "to": "0400000000000000", "round": 15}
+[11-18|11:44:04.933] DEBUG Simplex/epoch.go:823 Node appears behind, sending them a notarization {"test": "TestReplicationVotesForNotarizations", "myNodeID": 2, "to": "0400000000000000", "round": 5}
+[11-18|11:44:04.934] DEBUG Simplex/epoch.go:570 Received finalization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0200000000000000", "round": 4, "seq": 4}
+[11-18|11:44:04.934] DEBUG Simplex/epoch.go:1442 Received empty notarization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 15}
+[11-18|11:44:04.934] DEBUG Simplex/epoch.go:1470 Received empty notarization for a future round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 15, "our round": 5}
+[11-18|11:44:04.934] DEBUG Simplex/epoch.go:1503 Received notarization message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "from": "0200000000000000", "round": 5}
+[11-18|11:44:04.934] DEBUG Simplex/epoch.go:1530 Received a notarization for a future round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "round": 5, "epoch round": 5}
+[11-18|11:44:04.933] DEBUG Simplex/monitor.go:62 Ticked {"test": "TestReplicationVotesForNotarizations", "myNodeID": 4, "taskID": 18, "time": "[11-18|11:45:17.008]"}
+[11-18|11:44:04.934] DEBUG Simplex/epoch.go:703 Received empty vote message {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "from": "0400000000000000", "round": 5, "our round": 16}
+[11-18|11:44:04.934] DEBUG Simplex/epoch.go:715 Got empty vote from a past round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "round": 5, "my round": 16, "from": "0400000000000000"}
+[11-18|11:44:04.934] DEBUG Simplex/epoch.go:766 Node appears behind, sending them the latest block {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "to": "0400000000000000", "round": 4}
+[11-18|11:44:04.934] DEBUG Simplex/epoch.go:791 Node appears behind, sending them the highest empty notarized round {"test": "TestReplicationVotesForNotarizations", "myNodeID": 1, "to": "0400000000000000", "round": 15}
+[11-18|11:44:04.934] DEBUG Simplex/epoch.go:823 Node appears behind, sending them 

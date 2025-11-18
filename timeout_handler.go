@@ -84,6 +84,7 @@ func (t *TimeoutHandler) maybeRunTasks() {
 		return
 	}
 
+	t.log.Debug("Running task ids", zap.Uint64s("task ids", ids))
 	t.taskRunner(ids)
 }
 

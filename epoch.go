@@ -1459,6 +1459,20 @@ func (e *Epoch) handleEmptyNotarizationMessage(emptyNotarization *EmptyNotarizat
 		return nil
 	}
 
+	if e.round < vote.Round {
+		e.Logger.Debug("Received an empty notarization for a higher round",
+			zap.Uint64("round", vote.Round), zap.Uint64("our round", e.round))
+
+		e.replicationState.receivedFutureRound(vote.Round, emptyNotarization.QC.Signers(), e.round)
+
+		// store in future state if within max round window
+		if e.isWithinMaxRoundWindow(vote.Round) {
+			emptyVotes := e.getOrCreateEmptyVoteSetForRound(vote.Round)
+			emptyVotes.emptyNotarization = emptyNotarization
+		}
+		return nil
+	}
+
 	// Otherwise, this round is not notarized or finalized yet, so verify the empty notarization and store it.
 	if err := VerifyQC(emptyNotarization.QC, e.Logger, "Empty notarization", e.quorumSize, e.eligibleNodeIDs, emptyNotarization, from); err != nil {
 		return nil
@@ -1466,11 +1480,6 @@ func (e *Epoch) handleEmptyNotarizationMessage(emptyNotarization *EmptyNotarizat
 
 	emptyVotes := e.getOrCreateEmptyVoteSetForRound(vote.Round)
 	emptyVotes.emptyNotarization = emptyNotarization
-	if vote.Round > e.round {
-		e.Logger.Debug("Received empty notarization for a future round",
-			zap.Uint64("round", vote.Round), zap.Uint64("our round", e.round))
-		return nil
-	}
 
 	// The empty notarization is for this round, so store it but don't broadcast it, as we've received it via a broadcast.
 	return e.persistEmptyNotarization(emptyVotes, false)
@@ -1527,7 +1536,7 @@ func (e *Epoch) handleNotarizationMessage(message *Notarization, from NodeID) er
 	// If this notarization is for a round we are currently processing its proposal,
 	// or for a future round, then store it for later use.
 	if !exists || e.round < vote.Round {
-		e.Logger.Debug("Received a notarization for a future round", zap.Uint64("round", vote.Round))
+		e.Logger.Debug("Received a notarization for a future round", zap.Uint64("round", vote.Round), zap.Uint64("epoch round", e.round))
 		e.storeFutureNotarization(message, from, vote.Round)
 		return nil
 	}
@@ -1560,6 +1569,8 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 
 	// Don't bother processing blocks from the past
 	if e.round > md.Round {
+		e.Logger.Fatal("block from the past", zap.Uint64("round", md.Round), zap.Uint64("epoch round", e.round))
+		panic("block")
 		return nil
 	}
 
