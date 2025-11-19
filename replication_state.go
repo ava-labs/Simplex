@@ -12,7 +12,7 @@ type ReplicationState struct {
 	enabled            bool
 	logger             Logger
 	sequenceReplicator *finalizationReplicator
-	roundReplicator *roundReplicator
+	roundReplicator    *roundReplicator
 	// roundReplicator    *finalizationReplicator
 }
 
@@ -28,7 +28,7 @@ func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundW
 		enabled:            enabled,
 		sequenceReplicator: newReplicator(logger, comm, id, maxRoundWindow, start, lock),
 		// roundReplicator:    newReplicator(logger, comm, id, maxRoundWindow, start, lock),
-		logger:             logger,
+		logger: logger,
 	}
 }
 
@@ -38,19 +38,6 @@ func (r *ReplicationState) AdvanceTime(now time.Time) {
 	}
 	r.sequenceReplicator.advanceTime(now)
 	// r.roundReplicator.advanceTime(now)
-}
-
-// isReplicationComplete returns true if we have finished the replication process.
-// The process is considered finished once [currentRound] has caught up to the highest round received.
-func (r *ReplicationState) isReplicationComplete(nextSeqToCommit uint64, currentRound uint64) bool {
-	if !r.enabled {
-		return true
-	}
-
-	return r.sequenceReplicator.isReplicationComplete(nextSeqToCommit)
-
-	// do we even need isReplicationComplete? since we are potentially handling old rounds we can never gaurentee we re done with it. 
-	// return r.sequenceReplicator.isReplicationComplete(nextSeqToCommit) && r.roundReplicator.isReplicationComplete(currentRound)
 }
 
 // maybeSendFutureRequests attempts to collect future sequences if
@@ -64,10 +51,10 @@ func (r *ReplicationState) maybeAdvancedState(nextSequenceToCommit uint64, curre
 	// r.roundReplicator.updateState(currentRound)
 }
 
-func (r *ReplicationState) storeQuorumRound(round QuorumRound, from NodeID) {
+func (r *ReplicationState) storeQuorumRound(round *QuorumRound, from NodeID) {
 	if round.Finalization != nil {
-		r.sequenceReplicator.storeFinalization(&round.Block, round.Finalization, from)
-		// r.roundReplicator.removeOldValues(round.Finalization.Finalization.Round)
+		r.sequenceReplicator.storeFinalization(round.Block, round.Finalization, from)
+		r.roundReplicator.deleteOldRounds(round.Finalization.Finalization.Round)
 		return
 	}
 
@@ -78,26 +65,23 @@ func (r *ReplicationState) storeQuorumRound(round QuorumRound, from NodeID) {
 		return
 	}
 
-	// r.roundReplicator.storeQuorumRound(round, from, round.GetRound())
+	r.roundReplicator.storeQuorumRound(round)
 }
 
 func (r *ReplicationState) getFinalizedBlockForSequence(seq uint64) (Block, *Finalization, bool) {
 	return r.sequenceReplicator.retrieveBlockAndFinalization(seq)
 }
 
-func (r *ReplicationState) getBlockWithSeq(seq uint64) (Block, bool) {
-	block, _,  ok := r.sequenceReplicator.retrieveBlockAndFinalization(seq)
-	if ok && block != nil {
-		return block, true
+func (r *ReplicationState) getBlockWithSeq(seq uint64) Block {
+	block, _, _ := r.sequenceReplicator.retrieveBlockAndFinalization(seq)
+	if block != nil {
+		return block
 	}
 
-	// check notarization replicator
-	// qr, ok = r.roundReplicator.retrieveQuorumRoundBySeq(seq)
-	// if ok && qr.Block != nil {
-	// 	return qr.Block, true
-	// }
-
-	return nil, false
+	// check notarization replicator.
+	// note: this is not deterministic since we can have multiple blocks notarized with the same seq
+	// its fine to return since the caller can still optimistically advance the round
+	return r.roundReplicator.getBlockWithSeq(seq)
 }
 
 func (r *ReplicationState) resendFinalizationRequest(seq uint64, signers []NodeID) error {

@@ -15,7 +15,7 @@ import (
 )
 
 type finalizedQuorumRound struct {
-	block *Block
+	block        Block
 	finalization *Finalization
 }
 
@@ -33,8 +33,8 @@ func newSignedSeq(finalization *Finalization, myNodeID NodeID) *signedSeq {
 	// finalization from the network.
 	return &signedSeq{
 		signers: NodeIDs(finalization.QC.Signers()).Remove(myNodeID),
-		round: finalization.Finalization.Round,
-		seq: finalization.Finalization.Seq,
+		round:   finalization.Finalization.Round,
+		seq:     finalization.Finalization.Seq,
 	}
 }
 
@@ -71,11 +71,11 @@ type finalizationReplicator struct {
 func newReplicator(logger Logger, sender sender, ourNodeID NodeID, maxRoundWindow uint64, start time.Time, lock *sync.Mutex) *finalizationReplicator {
 	r := &finalizationReplicator{
 		receivedFinalizations: make(map[uint64]*finalizedQuorumRound),
-		sender:               sender,
-		myNodeID:             ourNodeID,
-		logger:               logger,
-		maxRoundWindow:       maxRoundWindow,
-		epochLock:            lock,
+		sender:                sender,
+		myNodeID:              ourNodeID,
+		logger:                logger,
+		maxRoundWindow:        maxRoundWindow,
+		epochLock:             lock,
 	}
 
 	r.timeoutHandler = NewTimeoutHandler(logger, start, DefaultReplicationRequestTimeout, r.resendReplicationRequests)
@@ -107,7 +107,7 @@ func (r *finalizationReplicator) resendReplicationRequests(missingIds []uint64) 
 // isReplicationComplete returns true if we have finished the replication process.
 // The process is considered finished once highestObserved has caught up to nextSeqToCommit
 func (r *finalizationReplicator) isReplicationComplete(nextSeqToCommit uint64) bool {
-	return r.highestObserved == nil ||  nextSeqToCommit > r.highestObserved.seq
+	return r.highestObserved == nil || nextSeqToCommit > r.highestObserved.seq
 }
 
 func (r *finalizationReplicator) getHighestRound() uint64 {
@@ -209,7 +209,7 @@ func (r *finalizationReplicator) sendRequestToNode(start uint64, end uint64, nod
 	r.sender.Send(msg, node)
 }
 
-func (r *finalizationReplicator) storeFinalization(block *Block, finalization *Finalization, from NodeID) {
+func (r *finalizationReplicator) storeFinalization(block Block, finalization *Finalization, from NodeID) {
 	if _, exists := r.receivedFinalizations[finalization.Finalization.Seq]; exists {
 		// we've already stored this round
 		return
@@ -221,7 +221,7 @@ func (r *finalizationReplicator) storeFinalization(block *Block, finalization *F
 	}
 
 	r.receivedFinalizations[finalization.Finalization.Seq] = &finalizedQuorumRound{
-		block: block,
+		block:        block,
 		finalization: finalization,
 	}
 
@@ -233,7 +233,7 @@ func (r *finalizationReplicator) storeFinalization(block *Block, finalization *F
 func (r *finalizationReplicator) retrieveBlockAndFinalization(seq uint64) (Block, *Finalization, bool) {
 	qr, ok := r.receivedFinalizations[seq]
 	if ok {
-		return *qr.block, qr.finalization,  true
+		return qr.block, qr.finalization, true
 	}
 	return nil, nil, false
 }

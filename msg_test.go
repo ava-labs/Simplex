@@ -85,8 +85,8 @@ func TestQuorumRoundMalformed(t *testing.T) {
 		{
 			name: "block and notarization and empty notarization",
 			qr: simplex.QuorumRound{
-				Block:        &testutil.TestBlock{},
-				Notarization: &simplex.Notarization{},
+				Block:             &testutil.TestBlock{},
+				Notarization:      &simplex.Notarization{},
 				EmptyNotarization: &simplex.EmptyNotarization{},
 			},
 			expectedErr: false,
@@ -94,8 +94,8 @@ func TestQuorumRoundMalformed(t *testing.T) {
 		{
 			name: "block and finalization and empty notarization",
 			qr: simplex.QuorumRound{
-				Block:        &testutil.TestBlock{},
-				Finalization: &simplex.Finalization{},
+				Block:             &testutil.TestBlock{},
+				Finalization:      &simplex.Finalization{},
 				EmptyNotarization: &simplex.EmptyNotarization{},
 			},
 			expectedErr: false,
