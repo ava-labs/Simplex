@@ -13,7 +13,7 @@ type ReplicationState struct {
 	logger             Logger
 	sequenceReplicator *finalizationReplicator
 	roundReplicator    *roundReplicator
-	// roundReplicator    *finalizationReplicator
+	myNodeID           NodeID
 }
 
 func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundWindow uint64, enabled bool, start time.Time, lock *sync.Mutex) *ReplicationState {
@@ -26,9 +26,10 @@ func NewReplicationState(logger Logger, comm Communication, id NodeID, maxRoundW
 
 	return &ReplicationState{
 		enabled:            enabled,
-		sequenceReplicator: newReplicator(logger, comm, id, maxRoundWindow, start, lock),
-		// roundReplicator:    newReplicator(logger, comm, id, maxRoundWindow, start, lock),
-		logger: logger,
+		sequenceReplicator: newSeqReplicator(logger, comm, id, maxRoundWindow, start, lock),
+		roundReplicator:    newReplicator(logger, comm, id, maxRoundWindow, start, lock),
+		logger:   logger,
+		myNodeID: id,
 	}
 }
 
@@ -53,7 +54,7 @@ func (r *ReplicationState) maybeAdvancedState(nextSequenceToCommit uint64, curre
 
 func (r *ReplicationState) storeQuorumRound(round *QuorumRound, from NodeID) {
 	if round.Finalization != nil {
-		r.sequenceReplicator.storeFinalization(round.Block, round.Finalization, from)
+		r.sequenceReplicator.storeQuorumRound(round)
 		r.roundReplicator.deleteOldRounds(round.Finalization.Finalization.Round)
 		return
 	}
@@ -106,12 +107,12 @@ func (r *ReplicationState) receivedFutureFinalization(finalization *Finalization
 		return
 	}
 
-	signedSequence := newSignedSeq(finalization, r.sequenceReplicator.myNodeID)
+	signedSequence := newSignedQuorum(finalization, r.myNodeID)
 
 	// maybe this finalization was for a round that we initially thought only had notarizations
 	// remove from the round replicator since we now have a finalization for this round
 	// r.roundReplicator.removeOldValues(finalization.Finalization.BlockHeader.Round)
-	r.sequenceReplicator.maybeSendMoreReplicationRequests(signedSequence, nextSeqToCommit)
+	r.sequenceReplicator.requestor.maybeSendMoreReplicationRequests(signedSequence, nextSeqToCommit)
 }
 
 func (r *ReplicationState) receivedFutureRound(round uint64, signers []NodeID, currentRound uint64) {
