@@ -1792,7 +1792,7 @@ func (e *Epoch) processNotarizedBlock(block Block, notarization *Notarization) e
 	task := e.createNotarizedBlockVerificationTask(e.oneTimeVerifier.Wrap(block), *notarization)
 	blockDependency, missingRounds := e.blockDependencies(md)
 
-	e.replicationState.CreateDependencyTasks(blockDependency, md.Seq - 1, missingRounds)
+	e.replicationState.CreateDependencyTasks(blockDependency, md.Seq-1, missingRounds)
 
 	e.blockVerificationScheduler.ScheduleTaskWithDependencies(task, md.Seq, blockDependency, missingRounds)
 

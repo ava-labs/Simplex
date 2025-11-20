@@ -4,6 +4,7 @@
 package simplex_test
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -13,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const testRunInterval       = 200 * time.Millisecond
+const testRunInterval = 200 * time.Millisecond
 
 func waitNoReceive[T any](t *testing.T, ch <-chan T) {
 	select {
@@ -49,7 +50,7 @@ func TestTimeoutHandlerRunsOnlyOnInterval(t *testing.T) {
 		ran <- cp
 	}
 
-	h := simplex.NewTimeoutHandler[uint64](log, start, testRunInterval, runner, lessUint)
+	h := simplex.NewTimeoutHandler(log, start, testRunInterval, runner, lessUint)
 	defer h.Close()
 
 	h.AddTask(1)
@@ -71,7 +72,7 @@ func TestTimeoutHandlerRunsOnlyOnInterval(t *testing.T) {
 	// At 2*interval: should run again
 	h.Tick(start.Add(2 * testRunInterval))
 	batch = waitReceive(t, ran)
-	require.Equal(t, []uint64{1,2}, sorted(batch))
+	require.Equal(t, []uint64{1, 2}, sorted(batch))
 }
 
 // Add & Remove single task, verifying it stops running after removal.
@@ -82,7 +83,7 @@ func TestTimeoutHandler_AddThenRemoveTask(t *testing.T) {
 	ran := make(chan []uint64, 2)
 	runner := func(ids []uint64) { ran <- append([]uint64(nil), ids...) }
 
-	h := simplex.NewTimeoutHandler[uint64](log, start, testRunInterval, runner, lessUint)
+	h := simplex.NewTimeoutHandler(log, start, testRunInterval, runner, lessUint)
 	defer h.Close()
 
 	h.AddTask(7)
@@ -103,7 +104,7 @@ func TestTimeoutHandler_MultipleTasksBatchAndPersist(t *testing.T) {
 	ran := make(chan []uint64, 2)
 	runner := func(ids []uint64) { ran <- append([]uint64(nil), ids...) }
 
-	h := simplex.NewTimeoutHandler[uint64](log, start, testRunInterval, runner, lessUint)
+	h := simplex.NewTimeoutHandler(log, start, testRunInterval, runner, lessUint)
 	defer h.Close()
 
 	h.AddTask(1)
@@ -130,7 +131,7 @@ func TestTimeoutHandler_AddDuplicateTaskIsIdempotent(t *testing.T) {
 	ran := make(chan []uint64, 1)
 	runner := func(ids []uint64) { ran <- append([]uint64(nil), ids...) }
 
-	h := simplex.NewTimeoutHandler[uint64](log, start, testRunInterval, runner, lessUint)
+	h := simplex.NewTimeoutHandler(log, start, testRunInterval, runner, lessUint)
 	defer h.Close()
 
 	h.AddTask(42)
@@ -150,7 +151,7 @@ func TestTimeoutHandler_RemoveOldTasks(t *testing.T) {
 	ran := make(chan []uint64, 2)
 	runner := func(ids []uint64) { ran <- append([]uint64(nil), ids...) }
 
-	h := simplex.NewTimeoutHandler[uint64](log, start, testRunInterval, runner, lessUint)
+	h := simplex.NewTimeoutHandler(log, start, testRunInterval, runner, lessUint)
 	defer h.Close()
 
 	for _, id := range []uint64{1, 2, 3, 4, 5} {
@@ -178,7 +179,7 @@ func TestTimeoutHandler_CloseStopsRunner(t *testing.T) {
 	ran := make(chan []uint64, 1)
 	runner := func(ids []uint64) { ran <- append([]uint64(nil), ids...) }
 
-	h := simplex.NewTimeoutHandler[uint64](log, start, testRunInterval, runner, lessUint)
+	h := simplex.NewTimeoutHandler(log, start, testRunInterval, runner, lessUint)
 
 	h.Close()
 	// Calls after Close should be safe and no-ops for scheduling.
@@ -197,12 +198,12 @@ func TestTimeoutHandler_BackToBackTicksUnderIntervalDontRun(t *testing.T) {
 	ran := make(chan []uint64, 2)
 	runner := func(ids []uint64) { ran <- append([]uint64(nil), ids...) }
 
-	h := simplex.NewTimeoutHandler[uint64](log, start, testRunInterval, runner, lessUint)
+	h := simplex.NewTimeoutHandler(log, start, testRunInterval, runner, lessUint)
 	defer h.Close()
 
 	h.AddTask(100)
 
-	h.Tick(start.Add(testRunInterval))                // should run
+	h.Tick(start.Add(testRunInterval)) // should run
 	require.Equal(t, []uint64{100}, sorted(waitReceive(t, ran)))
 	h.Tick(start.Add(testRunInterval + time.Millisecond)) // < interval since lastTickTime -> no run
 	waitNoReceive(t, ran)
@@ -212,19 +213,8 @@ func TestTimeoutHandler_BackToBackTicksUnderIntervalDontRun(t *testing.T) {
 	require.Equal(t, []uint64{100}, sorted(waitReceive(t, ran)))
 }
 
-// Helpers
 func sorted(v []uint64) []uint64 {
-	if len(v) <= 1 {
-		return v
-	}
-	// simple insertion sort to avoid importing "sort"
-	out := append([]uint64(nil), v...)
-	for i := 1; i < len(out); i++ {
-		j := i
-		for j > 0 && out[j-1] > out[j] {
-			out[j-1], out[j] = out[j], out[j-1]
-			j--
-		}
-	}
-	return out
+	sorted := append([]uint64(nil), v...)
+	slices.Sort(sorted)
+	return sorted
 }

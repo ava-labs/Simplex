@@ -52,8 +52,8 @@ func newSingedQuorumFromFinalization(finalization *Finalization, nodeID NodeID) 
 
 func newSignedQuorumFromRound(round, seq uint64, signers []NodeID, myNodeID NodeID) *signedQuorum {
 	return &signedQuorum{
-		round: round,
-		seq: seq,
+		round:   round,
+		seq:     seq,
 		signers: NodeIDs(signers).Remove(myNodeID),
 	}
 }

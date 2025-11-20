@@ -18,20 +18,19 @@ type finalizedQuorumRound struct {
 }
 
 type ReplicationState struct {
-	enabled            bool
-	logger             Logger
-	myNodeID           NodeID
-
+	enabled  bool
+	logger   Logger
+	myNodeID NodeID
 
 	// receivedFinalizations maps either sequences or rounds to quorum rounds
-	seqs map[uint64]*finalizedQuorumRound
+	seqs                  map[uint64]*finalizedQuorumRound
 	finalizationRequestor *requestor
 
 	// for rounds
 	rounds         map[uint64]*QuorumRound
 	digestTimeouts *TimeoutHandler[Digest]
 	// used to remove old Digests from the digest timeout
-	seqsToDigests map[uint64]Digest
+	seqsToDigests  map[uint64]Digest
 	roundTimeouts  *TimeoutHandler[uint64]
 	roundRequestor *requestor
 }
@@ -45,11 +44,11 @@ func NewReplicationState(logger Logger, comm Communication, myNodeID NodeID, max
 	}
 
 	r := &ReplicationState{
-		enabled:            enabled,
-		myNodeID:           myNodeID,
-		
+		enabled:  enabled,
+		myNodeID: myNodeID,
+
 		// seq replication
-		seqs: 			 make(map[uint64]*finalizedQuorumRound),
+		seqs:                  make(map[uint64]*finalizedQuorumRound),
 		finalizationRequestor: newRequestor(logger, start, lock, maxRoundWindow, comm, myNodeID, true),
 
 		// round replication
@@ -131,7 +130,6 @@ func (r *ReplicationState) StoreQuorumRound(round *QuorumRound, from NodeID) {
 		return
 	}
 
-
 	r.storeRound(round)
 	r.roundRequestor.receivedSignedQuorum(newSignedQuorum(round, r.myNodeID))
 }
@@ -198,7 +196,6 @@ func (r *ReplicationState) CreateDependencyTasks(parent *Digest, parentSeq uint6
 }
 
 func (r *ReplicationState) clearDependencyTasks(parent *Digest) {}
-
 
 // maybeSendFutureRequests attempts to collect future sequences if
 // there are more to be collected and the round has caught up for us to send the request.
