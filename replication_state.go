@@ -53,6 +53,7 @@ func NewReplicationState(logger Logger, comm Communication, myNodeID NodeID, max
 
 		// round replication
 		rounds: make(map[uint64]*QuorumRound),
+		roundRequestor: newRequestor(logger, start, lock, maxRoundWindow, comm, myNodeID, false),
 	}
 
 	r.digestTimeouts = NewTimeoutHandler(logger, start, DefaultReplicationRequestTimeout, r.requestDigests, alwaysFalseRemover[Digest])
