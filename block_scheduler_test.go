@@ -18,23 +18,23 @@ const (
 	defaultWaitDuration = 500 * time.Millisecond
 )
 
-func waitNoReceive(t *testing.T, ch <-chan struct{}) {
-	select {
-	case <-ch:
-		t.Fatal("channel unexpectedly signaled")
-	case <-time.After(defaultWaitDuration):
-		// good
-	}
-}
+// func waitNoReceive(t *testing.T, ch <-chan struct{}) {
+// 	select {
+// 	case <-ch:
+// 		t.Fatal("channel unexpectedly signaled")
+// 	case <-time.After(defaultWaitDuration):
+// 		// good
+// 	}
+// }
 
-func waitReceive(t *testing.T, ch <-chan struct{}) {
-	select {
-	case <-ch:
-		// good
-	case <-time.After(defaultWaitDuration):
-		t.Fatal("timed out waiting for signal")
-	}
-}
+// func waitReceive(t *testing.T, ch <-chan struct{}) {
+// 	select {
+// 	case <-ch:
+// 		// good
+// 	case <-time.After(defaultWaitDuration):
+// 		t.Fatal("timed out waiting for signal")
+// 	}
+// }
 
 func TestBlockVerificationScheduler(t *testing.T) {
 	t.Run("Schedules immediately when no dependencies", func(t *testing.T) {
