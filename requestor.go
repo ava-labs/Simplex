@@ -44,6 +44,20 @@ func newSignedQuorum(qr *QuorumRound, myNodeID NodeID) *signedQuorum {
 	}
 }
 
+func newSingedQuorumFromFinalization(finalization *Finalization, nodeID NodeID) *signedQuorum {
+	return newSignedQuorum(&QuorumRound{
+		Finalization: finalization,
+	}, nodeID)
+}
+
+func newSignedQuorumFromRound(round, seq uint64, signers []NodeID, myNodeID NodeID) *signedQuorum {
+	return &signedQuorum{
+		round: round,
+		seq: seq,
+		signers: NodeIDs(signers).Remove(myNodeID),
+	}
+}
+
 type sender interface {
 	// Send sends a message to the given destination node
 	Send(msg *Message, destination NodeID)
