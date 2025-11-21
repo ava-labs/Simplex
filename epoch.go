@@ -1714,7 +1714,8 @@ func (e *Epoch) processFinalizedBlock(block Block, finalization *Finalization) e
 	}
 
 	blockDependency, missingRounds := e.blockDependencies(block.BlockHeader())
-	if blockDependency != nil || len(missingRounds) > 0 {
+	// because its finalized we don't care about empty rounds
+	if blockDependency != nil {
 		e.Logger.Error(
 			"Received a finalization for nextSeqToCommit that breaks our chain",
 			zap.Stringer("block digest", block.BlockHeader().Digest),
@@ -1727,7 +1728,7 @@ func (e *Epoch) processFinalizedBlock(block Block, finalization *Finalization) e
 	task := e.createFinalizedBlockVerificationTask(e.oneTimeVerifier.Wrap(block), finalization)
 
 	// TODO: in a future PR, we need to handle collecting any potential dependencies for finalized blocks
-	e.blockVerificationScheduler.ScheduleTaskWithDependencies(task, block.BlockHeader().Seq, blockDependency, missingRounds)
+	e.blockVerificationScheduler.ScheduleTaskWithDependencies(task, block.BlockHeader().Seq, blockDependency, []uint64{})
 
 	return nil
 }
@@ -2776,7 +2777,7 @@ func (e *Epoch) storeProposal(block VerifiedBlock) bool {
 
 // HandleRequest processes a request and returns a response. It also sends a response to the sender.
 func (e *Epoch) handleReplicationRequest(req *ReplicationRequest, from NodeID) error {
-	e.Logger.Debug("Received replication request", zap.Stringer("from", from), zap.Int("num seqs", len(req.Seqs)), zap.Uint64("latest round", req.LatestRound))
+	e.Logger.Debug("Received replication request", zap.Stringer("from", from), zap.Int("num seqs", len(req.Seqs)), zap.Int("num rounds", len(req.Rounds)), zap.Uint64("latest round", req.LatestRound))
 	if !e.ReplicationEnabled {
 		return nil
 	}
@@ -3022,7 +3023,7 @@ func (e *Epoch) processQuorumRound(round *QuorumRound, from NodeID) error {
 	}
 
 	if e.isVoteForFinalizedRound(round.GetRound()) {
-		return fmt.Errorf("received a quorum round for a too far behind round")
+		return fmt.Errorf("received a quorum round for a too far behind. round: %d", round.GetRound())
 	}
 	if err := e.verifyQuorumRound(*round, from); err != nil {
 		return fmt.Errorf("failed verifying latest round: %w", err)

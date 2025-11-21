@@ -46,13 +46,14 @@ func NewReplicationState(logger Logger, comm Communication, myNodeID NodeID, max
 	r := &ReplicationState{
 		enabled:  enabled,
 		myNodeID: myNodeID,
+		logger: logger,
 
 		// seq replication
 		seqs:                  make(map[uint64]*finalizedQuorumRound),
 		finalizationRequestor: newRequestor(logger, start, lock, maxRoundWindow, comm, myNodeID, true),
 
 		// round replication
-		rounds: make(map[uint64]*QuorumRound),
+		rounds:         make(map[uint64]*QuorumRound),
 		roundRequestor: newRequestor(logger, start, lock, maxRoundWindow, comm, myNodeID, false),
 	}
 
@@ -116,10 +117,10 @@ func (r *ReplicationState) storeRound(qr *QuorumRound) {
 }
 
 func (r *ReplicationState) StoreQuorumRound(round *QuorumRound, from NodeID) {
+	r.logger.Debug("Replication State Storing Quorum Round", zap.Stringer("QR", round))
 	if round.Finalization != nil {
 		r.storeSequence(round.Block, round.Finalization)
 		r.finalizationRequestor.receivedSignedQuorum(newSignedQuorum(round, r.myNodeID))
-
 		r.deleteOldRounds(round.Finalization.Finalization.Round)
 		return
 	}
@@ -128,6 +129,7 @@ func (r *ReplicationState) StoreQuorumRound(round *QuorumRound, from NodeID) {
 	// don't bother storing rounds that are older than the highest finalized round we know
 	// todo: grab a lock for sequence replicator
 	if r.finalizationRequestor.getHighestRound() >= round.GetRound() {
+		r.logger.Debug("Replication state received a finalized quorum round for a round we know is finalized.")
 		return
 	}
 

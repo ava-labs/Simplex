@@ -132,7 +132,7 @@ func (r *requestor) maybeSendMoreReplicationRequests(observed *signedQuorum, cur
 
 	// we've observed something we've already requested
 	if r.highestRequested >= observedSeqOrRound && r.highestObserved != nil {
-		r.logger.Debug("Already requested observed value, skipping", zap.Uint64("value", observedSeqOrRound))
+		r.logger.Debug("Already requested observed value, skipping", zap.Uint64("value", observedSeqOrRound), zap.Bool("Seq Replication", r.replicateSeqs))
 		return
 	}
 
