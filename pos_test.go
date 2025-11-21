@@ -1,0 +1,102 @@
+// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// See the file LICENSE for licensing terms.
+
+package simplex_test
+
+import (
+	"bytes"
+	"github.com/ava-labs/simplex"
+	"github.com/ava-labs/simplex/testutil"
+	"github.com/stretchr/testify/require"
+	"testing"
+)
+
+func TestPoS(t *testing.T) {
+	weights := map[int]uint64{
+		1: 2,
+		2: 2,
+		3: 5,
+		4: 1,
+	}
+
+	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
+
+	posSigAggregator := &testutil.TestSignatureAggregator{
+		IsQuorumFunc: func(signatures []simplex.NodeID) bool {
+			var totalWeight uint64
+			for _, signer := range signatures {
+				totalWeight += weights[int(signer[0])]
+			}
+			return totalWeight > 6
+		},
+	}
+	testConf := &testutil.TestNodeConfig{SigAggregator: posSigAggregator, ReplicationEnabled: true}
+
+	net := testutil.NewInMemNetwork(t, nodes)
+	testutil.NewSimplexNode(t, nodes[0], net, testConf)
+	testutil.NewSimplexNode(t, nodes[1], net, testConf)
+	testutil.NewSimplexNode(t, nodes[2], net, testConf)
+	testutil.NewSimplexNode(t, nodes[3], net, testConf)
+
+	net.StartInstances()
+
+	// Totally order 4 blocks, each proposed by a different node
+
+	for seq := uint64(0); seq < 5; seq++ {
+		net.TriggerLeaderBlockBuilder(seq)
+		for _, n := range net.Instances {
+			n.Storage.WaitForBlockCommit(seq)
+		}
+	}
+
+	for i := range net.Instances {
+		require.Equal(t, uint64(5), net.Instances[i].E.Metadata().Round)
+	}
+
+	// Next, disconnect the second node which has half of the stake
+	net.Disconnect(nodes[1])
+
+	net.AdvanceWithoutLeader(5, nodes[1])
+
+	// Re-connect it and ensure it catches up
+	net.Connect(nodes[1])
+
+	net.TriggerLeaderBlockBuilder(6)
+	for i, n := range net.Instances {
+		if i == 1 {
+			continue
+		}
+		n.Storage.WaitForBlockCommit(5)
+	}
+
+	net.Instances[1].Storage.WaitForBlockCommit(5)
+
+	net.TriggerLeaderBlockBuilder(7)
+	for _, n := range net.Instances {
+		n.Storage.WaitForBlockCommit(6)
+	}
+
+	net.TriggerLeaderBlockBuilder(8)
+	for _, n := range net.Instances {
+		n.Storage.WaitForBlockCommit(7)
+	}
+
+	// Ensure the leader is the second node
+	require.Equal(t, nodes[1], simplex.LeaderForRound(nodes, 9))
+
+	// Take down the first node and the last node, leave only the second and third node.
+	net.Disconnect(nodes[0])
+	net.Disconnect(nodes[3])
+
+	// At this point the second node is blacklisted, so we skip this round.
+	testutil.WaitToEnterRound(t, net.Instances[1].E, 10)
+	testutil.WaitToEnterRound(t, net.Instances[2].E, 10)
+
+	net.TriggerLeaderBlockBuilder(10)
+	for _, n := range net.Instances {
+		if bytes.Equal(n.E.ID, nodes[0]) || bytes.Equal(n.E.ID, nodes[3]) {
+			continue
+		}
+		n.Storage.WaitForBlockCommit(8)
+	}
+}

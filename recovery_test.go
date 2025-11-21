@@ -100,7 +100,7 @@ func TestRecoverFromNotarization(t *testing.T) {
 	ctx := context.Background()
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	quorum := Quorum(len(nodes))
-	sigAggregrator := &testutil.TestSignatureAggregator{}
+	sigAggregrator := &testutil.TestSignatureAggregator{N: 4}
 	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
 
 	e, err := NewEpoch(conf)
@@ -154,7 +154,7 @@ func TestRecoverFromWalWithStorage(t *testing.T) {
 	ctx := context.Background()
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	quorum := Quorum(len(nodes))
-	sigAggregrator := &testutil.TestSignatureAggregator{}
+	sigAggregrator := &testutil.TestSignatureAggregator{N: 4}
 	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
 
 	err := storage.Index(ctx, testutil.NewTestBlock(ProtocolMetadata{Seq: 0, Round: 0, Epoch: 0}, emptyBlacklist), Finalization{})
@@ -320,7 +320,7 @@ func TestWalWritesBlockRecord(t *testing.T) {
 func TestWalWritesFinalization(t *testing.T) {
 	ctx := context.Background()
 	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1)}
-	sigAggregrator := &testutil.TestSignatureAggregator{}
+	sigAggregrator := &testutil.TestSignatureAggregator{N: 4}
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	quorum := Quorum(len(nodes))
 	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
