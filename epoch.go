@@ -3002,6 +3002,7 @@ func (e *Epoch) verifyQuorumRound(q QuorumRound, from NodeID) error {
 }
 
 func (e *Epoch) processEmptyNotarization(emptyNotarization *EmptyNotarization) error {
+	e.Logger.Debug("Processing empty notarization due to replication", zap.Uint64("round", emptyNotarization.Vote.Round), zap.Uint64("our round", e.round))
 	emptyVotes := e.getOrCreateEmptyVoteSetForRound(emptyNotarization.Vote.Round)
 	emptyVotes.emptyNotarization = emptyNotarization
 
@@ -3053,6 +3054,9 @@ func (e *Epoch) processReplicationState() error {
 	// process the lowest round in our replication state(up to and including the current epoch round)
 	lowestRound := e.replicationState.GetLowestRound()
 	if lowestRound != nil && lowestRound.GetRound() <= e.round {
+		e.Logger.Debug("Process replication state", zap.Stringer("lowest round", lowestRound), zap.Uint64("Our round", e.round))
+		// delete before we process to avoid infinite recursion(processEmptyNotarization(lowestRound) -> processReplicationState -> processEmptyNotarization(lowestRound))
+		e.replicationState.DeleteRound(lowestRound.GetRound())
 		if lowestRound.Notarization != nil {
 			if err := e.processNotarizedBlock(lowestRound.Block, lowestRound.Notarization); err != nil {
 				return err
@@ -3065,7 +3069,6 @@ func (e *Epoch) processReplicationState() error {
 			}
 		}
 
-		// e.replicationState.roundReplicator.deleteRound(lowestRound.GetRound())
 	}
 
 	// maybe there are no replication rounds < our round but we can still advance from empty notarizations

@@ -135,6 +135,9 @@ func (r *ReplicationState) StoreQuorumRound(round *QuorumRound, from NodeID) {
 
 	r.storeRound(round)
 	r.roundRequestor.receivedSignedQuorum(newSignedQuorum(round, r.myNodeID))
+	if round.EmptyNotarization != nil {
+		r.roundTimeouts.RemoveTask(round.GetRound())
+	}
 }
 
 // receivedFutureFinalization processes a finalization that was created in a future round.
@@ -271,4 +274,11 @@ func (r *ReplicationState) requestEmptyRounds(emptyRounds []uint64) {
 		// we could also group them
 		r.roundRequestor.sendReplicationRequests(emptyRound, emptyRound)
 	}
+}
+
+func (r *ReplicationState) DeleteRound(round uint64) {
+	r.roundTimeouts.RemoveTask(round)
+	r.roundRequestor.removeOldTasks(round)
+	r.logger.Debug("Removing round", zap.Uint64("round", round))
+	delete(r.rounds, round)
 }

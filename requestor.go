@@ -145,7 +145,7 @@ func (r *requestor) maybeSendMoreReplicationRequests(observed *signedQuorum, cur
 	// we limit the number of outstanding requests to be at most maxRoundWindow ahead of nextSeqToCommit
 	end := math.Min(float64(observedSeqOrRound), float64(r.maxRoundWindow+currentSeqOrRound))
 
-	r.logger.Debug("Node is behind, attempting to request missing values", zap.Uint64("value", observedSeqOrRound), zap.Uint64("start", uint64(start)), zap.Uint64("end", uint64(end)))
+	r.logger.Debug("Node is behind, attempting to request missing values", zap.Uint64("value", observedSeqOrRound), zap.Uint64("start", uint64(start)), zap.Uint64("end", uint64(end)), zap.Bool("seq requestor", r.replicateSeqs))
 	r.sendReplicationRequests(uint64(start), uint64(end))
 }
 
@@ -214,7 +214,7 @@ func (r *requestor) receivedSignedQuorum(signedQuorum *signedQuorum) {
 
 	// we received this sequence, remove the timeout task
 	r.timeoutHandler.RemoveTask(seqOrRound)
-	r.logger.Debug("Received future quorum round", zap.Uint64("key", seqOrRound), zap.Bool("is finalization", r.replicateSeqs))
+	r.logger.Debug("Received future quorum round", zap.Uint64("seq or round", seqOrRound), zap.Bool("is finalization", r.replicateSeqs))
 }
 
 func (r *requestor) updateState(currentRoundOrNextSeq uint64) {
