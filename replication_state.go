@@ -46,7 +46,7 @@ func NewReplicationState(logger Logger, comm Communication, myNodeID NodeID, max
 	r := &ReplicationState{
 		enabled:  enabled,
 		myNodeID: myNodeID,
-		logger: logger,
+		logger:   logger,
 
 		// seq replication
 		seqs:                  make(map[uint64]*finalizedQuorumRound),

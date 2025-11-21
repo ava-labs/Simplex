@@ -689,12 +689,12 @@ func (e *Epoch) storeFutureFinalizeVote(message *FinalizeVote, from NodeID, roun
 }
 
 func (e *Epoch) storeFutureNotarization(message *Notarization, from NodeID, round uint64) {
-	// msgsForRound, exists := e.futureMessages[string(from)][round]
-	// if !exists {
-	// 	msgsForRound = &messagesForRound{}
-	// 	e.futureMessages[string(from)][round] = msgsForRound
-	// }
-	// msgsForRound.notarization = message
+	msgsForRound, exists := e.futureMessages[string(from)][round]
+	if !exists {
+		msgsForRound = &messagesForRound{}
+		e.futureMessages[string(from)][round] = msgsForRound
+	}
+	msgsForRound.notarization = message
 }
 
 func (e *Epoch) handleEmptyVoteMessage(message *EmptyVote, from NodeID) error {
@@ -1451,7 +1451,7 @@ func (e *Epoch) handleEmptyNotarizationMessage(emptyNotarization *EmptyNotarizat
 		return nil
 	}
 
-	if e.round < vote.Round {
+	if vote.Round > e.round {
 		e.Logger.Debug("Received an empty notarization for a higher round",
 			zap.Uint64("round", vote.Round), zap.Uint64("our round", e.round))
 
@@ -1462,11 +1462,6 @@ func (e *Epoch) handleEmptyNotarizationMessage(emptyNotarization *EmptyNotarizat
 			emptyVotes := e.getOrCreateEmptyVoteSetForRound(vote.Round)
 			emptyVotes.emptyNotarization = emptyNotarization
 		}
-		return nil
-	}
-
-	// Otherwise, this round is not notarized or finalized yet, so verify the empty notarization and store it.
-	if err := VerifyQC(emptyNotarization.QC, e.Logger, "Empty notarization", e.quorumSize, e.eligibleNodeIDs, emptyNotarization, from); err != nil {
 		return nil
 	}
 
@@ -1508,13 +1503,18 @@ func (e *Epoch) handleNotarizationMessage(message *Notarization, from NodeID) er
 		return nil
 	}
 
-	if e.round < vote.Round {
+	if e.isVoteForFinalizedRound(vote.Round) {
+		return nil
+	}
+
+	if vote.Round > e.round {
 		e.Logger.Debug("Received a notarization for a future round",
 			zap.Uint64("round", vote.Round), zap.Uint64("our round", e.round))
 		e.replicationState.ReceivedFutureRound(vote.Round, vote.Seq, e.round, message.QC.Signers())
-	}
+		if e.isWithinMaxRoundWindow(vote.Round) {
+			e.storeFutureNotarization(message, from, vote.Round)
+		}
 
-	if e.isVoteForFinalizedRound(vote.Round) {
 		return nil
 	}
 
@@ -1530,10 +1530,11 @@ func (e *Epoch) handleNotarizationMessage(message *Notarization, from NodeID) er
 	// or for a future round, then store it for later use.
 	if !exists {
 		// I put a warn here for now just curiously to see when this is actually called
+		// answer: advance round, occasionally can receive the notarization before the block
 		e.Logger.Warn("Received a notarization for this round, but we don't have a block for it yet", zap.Uint64("round", vote.Round), zap.Uint64("epoch round", e.round))
 		e.storeFutureNotarization(message, from, vote.Round)
 
-		// we need to request the block
+		// TODO: we need to request the block.
 		return nil
 	}
 

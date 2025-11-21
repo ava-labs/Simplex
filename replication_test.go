@@ -247,6 +247,7 @@ func TestRebroadcastingWithReplication(t *testing.T) {
 
 // TestReplicationEmptyNotarizations ensures a lagging node will properly replicate
 // many empty notarizations in a row.
+// This test sometimes takes > 30 sec
 func TestReplicationEmptyNotarizations(t *testing.T) {
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}, {5}, {6}}
 
