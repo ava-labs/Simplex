@@ -600,7 +600,7 @@ func (e *Epoch) handleFinalizationMessage(message *Finalization, from NodeID) er
 }
 
 func (e *Epoch) handleFinalizationForPendingOrFutureRound(message *Finalization, round uint64, nextSeqToCommit uint64) {
-	if round < e.round {
+	if round <= e.round {
 		// delay collecting future finalization if we are verifying the proposal for that round
 		// and the finalization is for the current round
 		for _, msgs := range e.futureMessages {
@@ -613,7 +613,7 @@ func (e *Epoch) handleFinalizationForPendingOrFutureRound(message *Finalization,
 	}
 
 	// TODO: delay requesting future finalizations and blocks, since blocks could be in transit
-	e.Logger.Debug("Received finalization for a future round", zap.Uint64("round", round), zap.Uint64("our round", e.round))
+	e.Logger.Debug("Received finalization for a pending or future round, and we don't have the block", zap.Uint64("round", round), zap.Uint64("our round", e.round))
 	if LeaderForRound(e.nodes, e.round).Equals(e.ID) {
 		e.Logger.Debug("We are the leader of this round, but a higher round has been finalized. Aborting block building.")
 		e.blockBuilderCancelFunc()
@@ -1413,7 +1413,9 @@ func (e *Epoch) persistNotarization(notarization Notarization) error {
 		}
 	}
 
-	e.increaseRound()
+	if notarization.Vote.Round == e.round && r.finalization == nil {
+		e.increaseRound()
+	}
 
 	return nil
 }
