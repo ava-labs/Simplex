@@ -24,13 +24,12 @@ var ErrAlreadyStarted = errors.New("epoch already started")
 
 const (
 	DefaultMaxRoundWindow                 = 10
-	DefaultMaxPendingBlocks               = 20
 	DefaultProcessingBlocks               = 500
 	DefaultMaxProposalWaitTime            = 5 * time.Second
 	DefaultReplicationRequestTimeout      = 5 * time.Second
 	DefaultEmptyVoteRebroadcastTimeout    = 5 * time.Second
 	DefaultFinalizeVoteRebroadcastTimeout = 6 * time.Second
-	EmptyVoteTimeoutID                    = "empty-vote"
+	EmptyVoteTimeoutID                    = "rebroadcast_empty_vote"
 )
 
 type EmptyVoteSet struct {
@@ -602,7 +601,7 @@ func (e *Epoch) handleFinalizationMessage(message *Finalization, from NodeID) er
 func (e *Epoch) handleFinalizationForPendingOrFutureRound(message *Finalization, round uint64, nextSeqToCommit uint64) {
 	if round <= e.round {
 		// delay collecting future finalization if we are verifying the proposal for that round
-		// and the finalization is for the current round
+		// and the finalization is for rounds we have
 		for _, msgs := range e.futureMessages {
 			msgForRound, exists := msgs[round]
 			if exists && msgForRound.proposalBeingProcessed {
@@ -762,7 +761,7 @@ func (e *Epoch) sendLatestFinalization(to NodeID) {
 	msg := &Message{
 		Finalization: &e.lastBlock.Finalization,
 	}
-	e.Logger.Debug("Node appears behind, sending them the latest block", zap.Stringer("to", to), zap.Uint64("round", e.lastBlock.VerifiedBlock.BlockHeader().Round))
+	e.Logger.Debug("Node appears behind, sending them the latest finalization", zap.Stringer("to", to), zap.Uint64("round", e.lastBlock.Finalization.Finalization.Round), zap.Uint64("sequence", e.lastBlock.Finalization.Finalization.Seq))
 	e.Comm.Send(msg, to)
 }
 
@@ -1298,7 +1297,7 @@ func (e *Epoch) persistEmptyNotarization(emptyVotes *EmptyVoteSet, shouldBroadca
 	}
 
 	e.blockVerificationScheduler.ExecuteEmptyRoundDependents(emptyNotarization.Vote.Round)
-
+	e.replicationState.DeleteRound(emptyNotarization.Vote.Round)
 	// don't increase the round if this is a empty notarization for a past round
 	if e.round != emptyNotarization.Vote.Round {
 		return nil
@@ -1442,14 +1441,14 @@ func (e *Epoch) handleEmptyNotarizationMessage(emptyNotarization *EmptyNotarizat
 
 	e.Logger.Verbo("Received empty notarization message", zap.Uint64("round", vote.Round))
 
-	if err := VerifyQC(emptyNotarization.QC, e.Logger, "Empty notarization", e.quorumSize, e.eligibleNodeIDs, emptyNotarization, from); err != nil {
-		return nil
-	}
-
 	if e.isVoteForFinalizedRound(vote.Round) {
 		e.Logger.Debug("Received an empty notarization for a too low round",
 			zap.Uint64("round", vote.Round), zap.Uint64("our round", e.round))
 
+		return nil
+	}
+
+	if err := VerifyQC(emptyNotarization.QC, e.Logger, "Empty notarization", e.quorumSize, e.eligibleNodeIDs, emptyNotarization, from); err != nil {
 		return nil
 	}
 
@@ -1501,11 +1500,11 @@ func (e *Epoch) handleNotarizationMessage(message *Notarization, from NodeID) er
 	e.Logger.Verbo("Received notarization message",
 		zap.Stringer("from", from), zap.Uint64("round", vote.Round))
 
-	if err := VerifyQC(message.QC, e.Logger, "Notarization", e.quorumSize, e.eligibleNodeIDs, message, from); err != nil {
+	if e.isVoteForFinalizedRound(vote.Round) {
 		return nil
 	}
 
-	if e.isVoteForFinalizedRound(vote.Round) {
+	if err := VerifyQC(message.QC, e.Logger, "Notarization", e.quorumSize, e.eligibleNodeIDs, message, from); err != nil {
 		return nil
 	}
 

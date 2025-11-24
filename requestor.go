@@ -249,3 +249,7 @@ func (r *requestor) getSeqOrRound(signedQuorum *signedQuorum) uint64 {
 func (r *requestor) removeOldTasks(seqOrRound uint64) {
 	r.timeoutHandler.RemoveOldTasks(seqOrRound + 1)
 }
+
+func (r *requestor) removeTask(seqOrRound uint64) {
+	r.timeoutHandler.RemoveTask(seqOrRound)
+}

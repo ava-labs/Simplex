@@ -293,8 +293,12 @@ func (r *ReplicationState) requestEmptyRounds(emptyRounds []uint64) {
 }
 
 func (r *ReplicationState) DeleteRound(round uint64) {
+	if !r.enabled {
+		return
+	}
+
 	r.logger.Debug("Removing round", zap.Uint64("round", round))
 	r.emptyRoundTimeouts.RemoveTask(round)
-	r.roundRequestor.removeOldTasks(round)
+	r.roundRequestor.removeTask(round)
 	delete(r.rounds, round)
 }
