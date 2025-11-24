@@ -117,6 +117,7 @@ func (r *ReplicationState) storeRound(qr *QuorumRound) {
 	existing, exists := r.rounds[qr.GetRound()]
 	if !exists {
 		r.rounds[qr.GetRound()] = qr
+		return
 	}
 
 	if qr.EmptyNotarization != nil && existing.EmptyNotarization == nil {
@@ -168,7 +169,7 @@ func (r *ReplicationState) ReceivedFutureFinalization(finalization *Finalization
 
 	// maybe this finalization was for a round that we initially thought only had notarizations
 	// remove from the round replicator since we now have a finalization for this round
-	r.deleteOldRounds(finalization.Finalization.BlockHeader.Round)
+	// r.deleteOldRounds(finalization.Finalization.BlockHeader.Round)
 
 	// potentially send out requests for blocks/finalizations in between
 	r.finalizationRequestor.maybeSendMoreReplicationRequests(signedSequence, nextSeqToCommit)
@@ -232,7 +233,9 @@ func (r *ReplicationState) MaybeAdvancedState(nextSequenceToCommit uint64, curre
 		return
 	}
 
-	r.deleteOldRounds(nextSequenceToCommit - 1)
+	if nextSequenceToCommit > 0 {
+		r.deleteOldRounds(nextSequenceToCommit - 1)
+	}
 
 	// update the requestors in case they need to send more requests
 	r.finalizationRequestor.updateState(nextSequenceToCommit)
@@ -301,4 +304,12 @@ func (r *ReplicationState) DeleteRound(round uint64) {
 	r.emptyRoundTimeouts.RemoveTask(round)
 	r.roundRequestor.removeTask(round)
 	delete(r.rounds, round)
+}
+
+func (r *ReplicationState) DeleteSeq(seq uint64) {
+	if !r.enabled {
+		return
+	}
+
+	delete(r.seqs, seq)
 }

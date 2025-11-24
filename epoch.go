@@ -1694,6 +1694,8 @@ func (e *Epoch) blockDependencies(bh BlockHeader) (*Digest, []uint64) {
 // if the block has already been verified, it will index the finalization,
 // otherwise it will verify the block first.
 func (e *Epoch) processFinalizedBlock(block Block, finalization *Finalization) error {
+	e.Logger.Debug("Processing finalized block during replication", zap.Uint64("round", finalization.Finalization.Round), zap.Uint64("sequence", finalization.Finalization.Seq))
+
 	round, exists := e.rounds[finalization.Finalization.Round]
 	// dont create a block verification task if the block is already in the rounds map
 	if exists {
@@ -1737,6 +1739,7 @@ func (e *Epoch) processFinalizedBlock(block Block, finalization *Finalization) e
 // if the block has already been verified, it will persist the notarization,
 // otherwise it will verify the block first.
 func (e *Epoch) processNotarizedBlock(block Block, notarization *Notarization) error {
+	e.Logger.Debug("Processing notarized block during replication", zap.Uint64("round", notarization.Vote.Round), zap.Uint64("sequence", notarization.Vote.Seq))
 	md := block.BlockHeader()
 	round, exists := e.rounds[md.Round]
 
@@ -3034,8 +3037,8 @@ func (e *Epoch) processQuorumRound(round *QuorumRound, from NodeID) error {
 		return fmt.Errorf("received malformed latest round: %w", err)
 	}
 
-	if e.isVoteForFinalizedRound(round.GetRound()) {
-		return fmt.Errorf("received a quorum round for a too far behind. round: %d", round.GetRound())
+	if round.Finalization == nil && e.isVoteForFinalizedRound(round.GetRound()) {
+		return fmt.Errorf("received a quorum round for a too far behind. round: %d; seq: %d", round.GetRound(), round.GetSequence())
 	}
 	if err := e.verifyQuorumRound(*round, from); err != nil {
 		return fmt.Errorf("failed verifying latest round: %w", err)
@@ -3056,6 +3059,7 @@ func (e *Epoch) processReplicationState() error {
 	// increment the round properly.
 	block, finalization, exists := e.replicationState.GetFinalizedBlockForSequence(nextSeqToCommit)
 	if exists {
+		e.replicationState.DeleteSeq(nextSeqToCommit)
 		return e.processFinalizedBlock(block, finalization)
 	}
 
@@ -3081,7 +3085,13 @@ func (e *Epoch) processReplicationState() error {
 	}
 
 	// maybe there are no replication rounds < our round but we can still advance from empty notarizations
-	return e.maybeAdvanceRoundFromEmptyNotarizations()
+	err := e.maybeAdvanceRoundFromEmptyNotarizations()
+	if err != nil {
+		return err
+	}
+
+	e.Logger.Debug("Nothing to process in replication state", zap.Uint64("Our round", e.round), zap.Uint64("NextSeqToCommit", nextSeqToCommit), zap.Stringer("lowest replication round", lowestRound))
+	return nil
 }
 
 // maybeAdvanceRoundFromEmptyNotarizations advances the round if

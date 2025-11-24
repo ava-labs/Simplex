@@ -1115,7 +1115,6 @@ func almostFinalizeBlocks(msg *simplex.Message, from, _ simplex.NodeID) bool {
 func TestReplicationVotesForNotarizations(t *testing.T) {
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
 
-	// TODO: numFinalized and numNotarized could be parameterized to test different scenarios
 	numFinalizedBlocks := uint64(5)
 	// number of notarized blocks after the finalized blocks
 	numNotarizedBlocks := uint64(11)
