@@ -59,13 +59,13 @@ type Storage interface {
 type Communication interface {
 	// Nodes returns all nodes that participate in the epoch.
 	Nodes() []NodeID
-	
-	// Broadcast broadcasts the given message to all nodes.
-	// Does not send it to yourself.
-	Broadcast(msg *Message)
 
 	// Send sends a message to the given destination node
 	Send(msg *Message, destination NodeID)
+
+	// Broadcast broadcasts the given message to all nodes.
+	// Does not send it to yourself.
+	Broadcast(msg *Message)
 }
 
 type Signer interface {
