@@ -4,6 +4,7 @@
 package simplex_test
 
 import (
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -139,163 +140,164 @@ func TestSimplexMultiNodeSimple(t *testing.T) {
 
 func TestSimplexMultiNodeBlacklist(t *testing.T) {
 	for range 100 {
-	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
-	net := testutil.NewInMemNetwork(t, nodes)
-	testEpochConfig := &testutil.TestNodeConfig{
-		ReplicationEnabled: true,
-	}
-	testutil.NewSimplexNode(t, nodes[0], net, testEpochConfig)
-	testutil.NewSimplexNode(t, nodes[1], net, testEpochConfig)
-	testutil.NewSimplexNode(t, nodes[2], net, testEpochConfig)
-	testutil.NewSimplexNode(t, nodes[3], net, testEpochConfig)
-
-	for _, n := range net.Instances[1:] {
-		n.Silence()
-	}
-
-	net.StartInstances()
-
-	// Advance to the fourth node's turn by building three blocks
-	for seq := 0; seq < 3; seq++ {
-		net.TriggerLeaderBlockBuilder(uint64(seq))
-		for _, n := range net.Instances {
-			n.Storage.WaitForBlockCommit(uint64(seq))
+		fmt.Println("iteration!!")
+		nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
+		net := testutil.NewInMemNetwork(t, nodes)
+		testEpochConfig := &testutil.TestNodeConfig{
+			ReplicationEnabled: true,
 		}
-	}
+		testutil.NewSimplexNode(t, nodes[0], net, testEpochConfig)
+		testutil.NewSimplexNode(t, nodes[1], net, testEpochConfig)
+		testutil.NewSimplexNode(t, nodes[2], net, testEpochConfig)
+		testutil.NewSimplexNode(t, nodes[3], net, testEpochConfig)
 
-	// The fourth node is disconnected, so the rest should time out on it.
-	net.Disconnect(nodes[3])
-
-	for i := range net.Instances[:3] {
-		select {
-		case net.Instances[i].BB.BlockShouldBeBuilt <- struct{}{}:
-		default:
-
+		for _, n := range net.Instances[1:] {
+			n.Silence()
 		}
-	}
 
-	for _, n := range net.Instances[:3] {
-		testutil.WaitForBlockProposerTimeout(t, n.E, &n.E.StartTime, 3)
-	}
+		net.StartInstances()
 
-	// Build two more blocks, which should blacklist the fourth node.
-	// Ensure the fourth node is blacklisted by checking the blacklist on all nodes.
+		// Advance to the fourth node's turn by building three blocks
+		for seq := 0; seq < 3; seq++ {
+			net.TriggerLeaderBlockBuilder(uint64(seq))
+			for _, n := range net.Instances {
+				n.Storage.WaitForBlockCommit(uint64(seq))
+			}
+		}
 
-	// Build a block, ensure the blacklist contains the fourth node as a suspect.
-	net.TriggerLeaderBlockBuilder(uint64(4))
-	for _, n := range net.Instances[:3] {
-		block := n.Storage.WaitForBlockCommit(uint64(3))
-		blacklist := block.Blacklist()
-		require.Equal(t, simplex.Blacklist{
-			NodeCount:      4,
-			SuspectedNodes: simplex.SuspectedNodes{{NodeIndex: 3, SuspectingCount: 1, OrbitSuspected: 1}},
-			Updates:        []simplex.BlacklistUpdate{{NodeIndex: 3, Type: simplex.BlacklistOpType_NodeSuspected}},
-		}, blacklist)
-	}
+		// The fourth node is disconnected, so the rest should time out on it.
+		net.Disconnect(nodes[3])
 
-	// Reconnect the fourth node.
-	net.Connect(nodes[3])
+		for i := range net.Instances[:3] {
+			select {
+			case net.Instances[i].BB.BlockShouldBeBuilt <- struct{}{}:
+			default:
 
-	// Build another block, ensure the blacklist contains the fourth node as blacklisted.
-	net.Instances[1].BB.TriggerNewBlock()
-	for _, n := range net.Instances[:3] {
-		block := n.Storage.WaitForBlockCommit(uint64(4))
-		blacklist := block.Blacklist()
+			}
+		}
+
+		for _, n := range net.Instances[:3] {
+			testutil.WaitForBlockProposerTimeout(t, n.E, &n.E.StartTime, 3)
+		}
+
+		// Build two more blocks, which should blacklist the fourth node.
+		// Ensure the fourth node is blacklisted by checking the blacklist on all nodes.
+
+		// Build a block, ensure the blacklist contains the fourth node as a suspect.
+		net.TriggerLeaderBlockBuilder(uint64(4))
+		for _, n := range net.Instances[:3] {
+			block := n.Storage.WaitForBlockCommit(uint64(3))
+			blacklist := block.Blacklist()
+			require.Equal(t, simplex.Blacklist{
+				NodeCount:      4,
+				SuspectedNodes: simplex.SuspectedNodes{{NodeIndex: 3, SuspectingCount: 1, OrbitSuspected: 1}},
+				Updates:        []simplex.BlacklistUpdate{{NodeIndex: 3, Type: simplex.BlacklistOpType_NodeSuspected}},
+			}, blacklist)
+		}
+
+		// Reconnect the fourth node.
+		net.Connect(nodes[3])
+
+		// Build another block, ensure the blacklist contains the fourth node as blacklisted.
+		net.Instances[1].BB.TriggerNewBlock()
+		for _, n := range net.Instances[:3] {
+			block := n.Storage.WaitForBlockCommit(uint64(4))
+			blacklist := block.Blacklist()
+			require.Equal(t, simplex.Blacklist{
+				NodeCount:      4,
+				SuspectedNodes: simplex.SuspectedNodes{{NodeIndex: 3, SuspectingCount: 2, OrbitSuspected: 1}},
+				Updates:        []simplex.BlacklistUpdate{{NodeIndex: 3, Type: simplex.BlacklistOpType_NodeSuspected}},
+			}, blacklist)
+		}
+
+		// Wait for the node to replicate the missing blocks.
+		net.Instances[3].BB.TriggerNewBlock()
+		block := net.Instances[3].Storage.WaitForBlockCommit(4)
 		require.Equal(t, simplex.Blacklist{
 			NodeCount:      4,
 			SuspectedNodes: simplex.SuspectedNodes{{NodeIndex: 3, SuspectingCount: 2, OrbitSuspected: 1}},
 			Updates:        []simplex.BlacklistUpdate{{NodeIndex: 3, Type: simplex.BlacklistOpType_NodeSuspected}},
-		}, blacklist)
-	}
+		}, block.Blacklist())
 
-	// Wait for the node to replicate the missing blocks.
-	net.Instances[3].BB.TriggerNewBlock()
-	block := net.Instances[3].Storage.WaitForBlockCommit(4)
-	require.Equal(t, simplex.Blacklist{
-		NodeCount:      4,
-		SuspectedNodes: simplex.SuspectedNodes{{NodeIndex: 3, SuspectingCount: 2, OrbitSuspected: 1}},
-		Updates:        []simplex.BlacklistUpdate{{NodeIndex: 3, Type: simplex.BlacklistOpType_NodeSuspected}},
-	}, block.Blacklist())
+		// Make another block.
+		net.Instances[2].BB.TriggerNewBlock()
+		for _, n := range net.Instances {
+			n.Storage.WaitForBlockCommit(uint64(5))
+		}
 
-	// Make another block.
-	net.Instances[2].BB.TriggerNewBlock()
-	for _, n := range net.Instances {
-		n.Storage.WaitForBlockCommit(uint64(5))
-	}
+		// The fourth node is still blacklisted, so it should not be able to propose a block.
+		net.Instances[3].BB.TriggerNewBlock() // This shouldn't be here, this is just to side-step a bug.
+		for _, n := range net.Instances {
+			testutil.WaitForBlockProposerTimeout(t, n.E, &n.E.StartTime, 7)
+		}
 
-	// The fourth node is still blacklisted, so it should not be able to propose a block.
-	net.Instances[3].BB.TriggerNewBlock() // This shouldn't be here, this is just to side-step a bug.
-	for _, n := range net.Instances {
-		testutil.WaitForBlockProposerTimeout(t, n.E, &n.E.StartTime, 7)
-	}
+		// Disconnect the third node to force messages from the fourth node to be taken into account.
+		net.Disconnect(nodes[2])
 
-	// Disconnect the third node to force messages from the fourth node to be taken into account.
-	net.Disconnect(nodes[2])
+		// Make two blocks.
+		allButThirdNode := []*testutil.TestNode{net.Instances[0], net.Instances[1], net.Instances[3]}
+		for i := 0; i < 2; i++ {
+			net.Instances[i].BB.TriggerNewBlock()
+			for _, n := range allButThirdNode {
+				n.BB.BlockShouldBeBuilt <- struct{}{}
+				n.Storage.WaitForBlockCommit(uint64(6 + i))
+			}
+		}
 
-	// Make two blocks.
-	allButThirdNode := []*testutil.TestNode{net.Instances[0], net.Instances[1], net.Instances[3]}
-	for i := 0; i < 2; i++ {
-		net.Instances[i].BB.TriggerNewBlock()
+		// Skip the third node because it is disconnected.
+		for i := range allButThirdNode {
+			select {
+			case net.Instances[i].BB.BlockShouldBeBuilt <- struct{}{}:
+			default:
+
+			}
+		}
+
+		for _, n := range allButThirdNode {
+			testutil.WaitForBlockProposerTimeout(t, n.E, &n.E.StartTime, 10)
+		}
+
+		// Since the fourth node is still blacklisted, we should skip this round.
+		for _, n := range allButThirdNode {
+			testutil.WaitForBlockProposerTimeout(t, n.E, &n.E.StartTime, 11)
+		}
+
+		var lastBlacklist simplex.Blacklist
+
+		// Create two blocks
+		for i := 0; i < 2; i++ {
+			net.Instances[i].BB.TriggerNewBlock()
+			for _, n := range allButThirdNode {
+				n.BB.BlockShouldBeBuilt <- struct{}{}
+				block := n.Storage.WaitForBlockCommit(uint64(8 + i))
+				lastBlacklist = block.Blacklist()
+			}
+		}
+
+		// The last node is not suspected anymore, it has been redeemed.
+		require.False(t, lastBlacklist.IsNodeSuspected(3))
+
+		// The third node will now time out.
+		for i := range allButThirdNode {
+			select {
+			case net.Instances[i].BB.BlockShouldBeBuilt <- struct{}{}:
+			default:
+
+			}
+		}
+
+		for _, n := range allButThirdNode {
+			testutil.WaitForBlockProposerTimeout(t, n.E, &n.E.StartTime, 14)
+		}
+
+		// The fourth node should now be able to propose a block.
+		net.Instances[3].BB.TriggerNewBlock()
 		for _, n := range allButThirdNode {
 			n.BB.BlockShouldBeBuilt <- struct{}{}
-			n.Storage.WaitForBlockCommit(uint64(6 + i))
-		}
-	}
-
-	// Skip the third node because it is disconnected.
-	for i := range allButThirdNode {
-		select {
-		case net.Instances[i].BB.BlockShouldBeBuilt <- struct{}{}:
-		default:
-
-		}
-	}
-
-	for _, n := range allButThirdNode {
-		testutil.WaitForBlockProposerTimeout(t, n.E, &n.E.StartTime, 10)
-	}
-
-	// Since the fourth node is still blacklisted, we should skip this round.
-	for _, n := range allButThirdNode {
-		testutil.WaitForBlockProposerTimeout(t, n.E, &n.E.StartTime, 11)
-	}
-
-	var lastBlacklist simplex.Blacklist
-
-	// Create two blocks
-	for i := 0; i < 2; i++ {
-		net.Instances[i].BB.TriggerNewBlock()
-		for _, n := range allButThirdNode {
-			n.BB.BlockShouldBeBuilt <- struct{}{}
-			block := n.Storage.WaitForBlockCommit(uint64(8 + i))
+			block := n.Storage.WaitForBlockCommit(uint64(10))
 			lastBlacklist = block.Blacklist()
 		}
 	}
-
-	// The last node is not suspected anymore, it has been redeemed.
-	require.False(t, lastBlacklist.IsNodeSuspected(3))
-
-	// The third node will now time out.
-	for i := range allButThirdNode {
-		select {
-		case net.Instances[i].BB.BlockShouldBeBuilt <- struct{}{}:
-		default:
-
-		}
-	}
-
-	for _, n := range allButThirdNode {
-		testutil.WaitForBlockProposerTimeout(t, n.E, &n.E.StartTime, 14)
-	}
-
-	// The fourth node should now be able to propose a block.
-	net.Instances[3].BB.TriggerNewBlock()
-	for _, n := range allButThirdNode {
-		n.BB.BlockShouldBeBuilt <- struct{}{}
-		block := n.Storage.WaitForBlockCommit(uint64(10))
-		lastBlacklist = block.Blacklist()
-	}
-}
 }
 
 func onlySendBlockProposalsAndVotes(splitNodes []simplex.NodeID) testutil.MessageFilter {
