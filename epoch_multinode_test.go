@@ -4,13 +4,14 @@
 package simplex_test
 
 import (
-	"github.com/ava-labs/simplex"
-	"github.com/ava-labs/simplex/testutil"
-	"github.com/stretchr/testify/require"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/ava-labs/simplex"
+	"github.com/ava-labs/simplex/testutil"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSimplexRebroadcastFinalizationVotes(t *testing.T) {
@@ -137,6 +138,7 @@ func TestSimplexMultiNodeSimple(t *testing.T) {
 }
 
 func TestSimplexMultiNodeBlacklist(t *testing.T) {
+	for range 100 {
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
 	net := testutil.NewInMemNetwork(t, nodes)
 	testEpochConfig := &testutil.TestNodeConfig{
@@ -147,7 +149,7 @@ func TestSimplexMultiNodeBlacklist(t *testing.T) {
 	testutil.NewSimplexNode(t, nodes[2], net, testEpochConfig)
 	testutil.NewSimplexNode(t, nodes[3], net, testEpochConfig)
 
-	for _, n := range net.Instances[:3] {
+	for _, n := range net.Instances[1:] {
 		n.Silence()
 	}
 
@@ -293,6 +295,7 @@ func TestSimplexMultiNodeBlacklist(t *testing.T) {
 		block := n.Storage.WaitForBlockCommit(uint64(10))
 		lastBlacklist = block.Blacklist()
 	}
+}
 }
 
 func onlySendBlockProposalsAndVotes(splitNodes []simplex.NodeID) testutil.MessageFilter {

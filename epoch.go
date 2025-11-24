@@ -979,7 +979,7 @@ func (e *Epoch) maybeCollectFinalization(round *Round) error {
 	finalizationCount := len(round.finalizeVotes)
 
 	if finalizationCount < e.quorumSize {
-		e.Logger.Verbo("Counting finalize votes", zap.Uint64("round", e.round), zap.Int("votes", finalizationCount))
+		e.Logger.Verbo("Counting finalize votes", zap.Uint64("round", round.num), zap.Uint64("out round", e.round), zap.Int("votes", finalizationCount))
 		return nil
 	}
 
@@ -1314,6 +1314,7 @@ func (e *Epoch) persistEmptyNotarization(emptyVotes *EmptyVoteSet, shouldBroadca
 }
 
 func (e *Epoch) maybeMarkLeaderAsTimedOutForFutureBlacklisting(emptyNotarization *EmptyNotarization) error {
+	e.Logger.Debug("Marking the leader as timed out", zap.Uint64("round", emptyNotarization.Vote.Round), zap.Stringer("leader", LeaderForRound(e.nodes, emptyNotarization.Vote.Round)))
 	var blacklist Blacklist
 	if e.lastBlock != nil {
 		if e.lastBlock.VerifiedBlock == nil {
