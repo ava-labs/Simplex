@@ -1728,8 +1728,6 @@ func (e *Epoch) processFinalizedBlock(block Block, finalization *Finalization) e
 
 	// Create a task that will verify the block in the future, after its predecessors have also been verified.
 	task := e.createFinalizedBlockVerificationTask(e.oneTimeVerifier.Wrap(block), finalization)
-
-	// TODO: in a future PR, we need to handle collecting any potential dependencies for finalized blocks
 	e.blockVerificationScheduler.ScheduleTaskWithDependencies(task, block.BlockHeader().Seq, blockDependency, []uint64{})
 
 	return nil
@@ -1776,16 +1774,20 @@ func (e *Epoch) processNotarizedBlock(block Block, notarization *Notarization) e
 			return nil
 		}
 
-		finalizeVote, finalizeVoteMsg, err := e.constructFinalizeVoteMessage(md)
-		if err != nil {
-			e.Logger.Warn("Failed to construct finalize vote message", zap.Error(err))
-			return err
-		}
-		e.Comm.Broadcast(finalizeVoteMsg)
+		// if we haven't timed out on the round, send a finalized vote message
+		emptyVoteSet, exists := e.emptyVotes[md.Round]
+		if !exists || (exists && !emptyVoteSet.timedOut) {
+			finalizeVote, finalizeVoteMsg, err := e.constructFinalizeVoteMessage(md)
+			if err != nil {
+				e.Logger.Warn("Failed to construct finalize vote message", zap.Error(err))
+				return err
+			}
+			e.Comm.Broadcast(finalizeVoteMsg)
 
-		if err := e.handleFinalizeVoteMessage(&finalizeVote, e.ID); err != nil {
-			e.Logger.Warn("Failed to handle finalize vote message", zap.Error(err))
-			return err
+			if err := e.handleFinalizeVoteMessage(&finalizeVote, e.ID); err != nil {
+				e.Logger.Warn("Failed to handle finalize vote message", zap.Error(err))
+				return err
+			}
 		}
 
 		return e.processReplicationState()
