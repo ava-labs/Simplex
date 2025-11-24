@@ -138,3 +138,22 @@ func (t *TestNode) TimeoutOnRound(round uint64) {
 		time.Sleep(50 * time.Millisecond)
 	}
 }
+
+func (t *TestNode) TickUntilRoundAdvanced(round uint64, tick time.Duration) {
+	timeout := time.NewTimer(time.Minute)
+	defer timeout.Stop()
+
+	for {
+		if t.E.Metadata().Round >= round {
+			return
+		}
+
+		select {
+		case <-time.After(time.Millisecond * 10):
+			t.AdvanceTime(tick)
+			continue
+		case <-timeout.C:
+			require.Fail(t.t, "timed out waiting to enter round", "current round %d, waiting for round %d", t.E.Metadata().Round, round)
+		}
+	}
+}

@@ -13,6 +13,8 @@ import (
 type timeoutRunner[T comparable] func(ids []T)
 type shouldRemoveFunc[T comparable] func(a T, b T) bool
 type TimeoutHandler[T comparable] struct {
+	// helpful for logging
+	name string
 	// how often to run through the tasks
 	runInterval time.Duration
 	// function to run tasks
@@ -30,8 +32,9 @@ type TimeoutHandler[T comparable] struct {
 
 // NewTimeoutHandler returns a TimeoutHandler and starts a new goroutine that
 // listens for ticks and executes TimeoutTasks.
-func NewTimeoutHandler[T comparable](log Logger, startTime time.Time, runInterval time.Duration, taskRunner timeoutRunner[T], shouldRemove shouldRemoveFunc[T]) *TimeoutHandler[T] {
+func NewTimeoutHandler[T comparable](log Logger, name string, startTime time.Time, runInterval time.Duration, taskRunner timeoutRunner[T], shouldRemove shouldRemoveFunc[T]) *TimeoutHandler[T] {
 	t := &TimeoutHandler[T]{
+		name:         name,
 		now:          startTime,
 		tasks:        make(map[T]struct{}),
 		ticks:        make(chan time.Time, 1),
@@ -85,7 +88,7 @@ func (t *TimeoutHandler[T]) maybeRunTasks() {
 		return
 	}
 
-	t.log.Debug("Running task ids", zap.Any("task ids", ids))
+	t.log.Debug("Running task ids", zap.Any("task ids", ids), zap.String("name", t.name))
 	t.taskRunner(ids)
 }
 
@@ -105,7 +108,7 @@ func (t *TimeoutHandler[T]) Tick(now time.Time) {
 		t.now = now
 		t.lock.Unlock()
 	default:
-		t.log.Debug("Dropping tick in timeouthandler")
+		t.log.Debug("Dropping tick in timeouthandler", zap.String("name", t.name))
 	}
 }
 
@@ -114,7 +117,7 @@ func (t *TimeoutHandler[T]) AddTask(id T) {
 	defer t.lock.Unlock()
 
 	t.tasks[id] = struct{}{}
-	t.log.Debug("Adding timeout task", zap.Any("id", id))
+	t.log.Debug("Adding timeout task", zap.Any("id", id), zap.String("name", t.name))
 }
 
 func (t *TimeoutHandler[T]) RemoveTask(ID T) {
@@ -127,7 +130,7 @@ func (t *TimeoutHandler[T]) RemoveTask(ID T) {
 
 	// find the task using the task map
 	// remove it from the heap using the index
-	t.log.Debug("Removing timeout task", zap.Any("id", ID))
+	t.log.Debug("Removing timeout task", zap.Any("id", ID), zap.String("name", t.name))
 	delete(t.tasks, ID)
 }
 
@@ -138,7 +141,7 @@ func (t *TimeoutHandler[T]) RemoveOldTasks(cutoff T) {
 	for id := range t.tasks {
 		// id < cutoff {
 		if t.shouldRemove(id, cutoff) {
-			t.log.Debug("Removing old timeout task", zap.Any("id", id))
+			t.log.Debug("Removing old timeout task", zap.Any("id", id), zap.String("name", t.name))
 			delete(t.tasks, id)
 		}
 	}

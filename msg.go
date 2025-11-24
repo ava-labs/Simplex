@@ -247,7 +247,7 @@ func (q *QuorumRound) IsWellFormed() error {
 	}
 
 	if q.Block != nil && (q.Notarization == nil && q.Finalization == nil) {
-		return fmt.Errorf("malformed QuorumRound")
+		return fmt.Errorf("malformed QuorumRound, block but no notarization or finalization")
 	}
 
 	return nil

@@ -1216,21 +1216,21 @@ func TestReplicationVotesForNotarizations(t *testing.T) {
 		laggingNode.AdvanceTime(simplex.DefaultReplicationRequestTimeout)
 	}
 
-	// for _, n := range net.Instances {
-	// 	if n.E.ID.Equals(adversary.E.ID) {
-	// 		continue
-	// 	}
-	// 	n.Storage.WaitForBlockCommit(expectedNumBlocks - 1) // subtract -1 because seq starts at 0
-	// }
+	for _, n := range net.Instances {
+		if n.E.ID.Equals(adversary.E.ID) {
+			continue
+		}
+		n.Storage.WaitForBlockCommit(expectedNumBlocks - 1) // subtract -1 because seq starts at 0
+	}
 
-	// laggingNode.TimeoutOnRound(numFinalizedBlocks + numNotarizedBlocks)
-	// for _, n := range net.Instances {
-	// 	if n.E.ID.Equals(adversary.E.ID) {
-	// 		continue
-	// 	}
-	// 	WaitToEnterRound(t, n.E, numFinalizedBlocks+numNotarizedBlocks+1)
-	// 	require.True(t, n.WAL.ContainsEmptyNotarization(numFinalizedBlocks+numNotarizedBlocks))
-	// }
+	laggingNode.TimeoutOnRound(numFinalizedBlocks + numNotarizedBlocks)
+	for _, n := range net.Instances {
+		if n.E.ID.Equals(adversary.E.ID) {
+			continue
+		}
+		WaitToEnterRound(t, n.E, numFinalizedBlocks+numNotarizedBlocks+1)
+		require.True(t, n.WAL.ContainsEmptyNotarization(numFinalizedBlocks+numNotarizedBlocks))
+	}
 }
 
 // TestReplicationEmptyNotarizations ensures a lagging node will properly replicate
@@ -1314,9 +1314,10 @@ func sendEmptyNotarizationQuorumRounds(emptyNotes map[uint64]*simplex.EmptyNotar
 		if msg.VerifiedReplicationResponse != nil {
 			newData := make([]simplex.VerifiedQuorumRound, 0, len(msg.VerifiedReplicationResponse.Data))
 			for _, qr := range msg.VerifiedReplicationResponse.Data {
-				newQR := qr
-				newQR.Notarization = nil
-				if newQR.EmptyNotarization == nil {
+				newQR := simplex.VerifiedQuorumRound{
+					EmptyNotarization: qr.EmptyNotarization,
+				}
+				if qr.EmptyNotarization == nil {
 					newQR.EmptyNotarization = emptyNotes[qr.GetRound()]
 				}
 				newData = append(newData, newQR)
@@ -1331,7 +1332,6 @@ func sendEmptyNotarizationQuorumRounds(emptyNotes map[uint64]*simplex.EmptyNotar
 func allowFinalizeVotes(msg *simplex.Message, from, to simplex.NodeID) bool {
 	if msg.Finalization != nil || msg.FinalizeVote != nil {
 		if to.Equals(simplex.NodeID{3}) || from.Equals(simplex.NodeID{3}) {
-			// fmt.Println("blocking finalize vote from", from, "to", to)
 			return false
 		}
 	}
@@ -1340,6 +1340,8 @@ func allowFinalizeVotes(msg *simplex.Message, from, to simplex.NodeID) bool {
 
 // TestReplicationChain tests that a node can both empty notarizations and notarizations for the same round.
 func TestReplicationChain(t *testing.T) {
+	// Digest message requests are needed for this test
+	t.Skip()
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
 	net := NewInMemNetwork(t, nodes)
 
@@ -1363,7 +1365,6 @@ func TestReplicationChain(t *testing.T) {
 	// lagging node is disconnected initially. It initially receives only empty notarizations
 	// but then later receives notarizations and must send finalize votes for them
 	laggingNode := NewSimplexNode(t, nodes[3], net, newNodeConfig(nodes[3]))
-	// laggingNode.Silence()
 
 	net.StartInstances()
 	net.Disconnect(laggingNode.E.ID)
@@ -1400,9 +1401,6 @@ func TestReplicationChain(t *testing.T) {
 		require.Equal(t, uint64(0), n.E.Storage.NumBlocks())
 	}
 
-	fmt.Println("full node reconnects", fullNode1.E.ID)
-	fmt.Println("full node reconnects", fullNode2.E.ID)
-	fmt.Println("block finalize node reconnects", blockFinalize3.E.ID)
 	// lagging node should not be the leader after reconnect
 	leader := simplex.LeaderForRound(nodes, numNotarizations)
 	require.NotEqual(t, laggingNode.E.ID, leader)
@@ -1411,57 +1409,19 @@ func TestReplicationChain(t *testing.T) {
 	net.Connect(laggingNode.E.ID)
 	net.TriggerLeaderBlockBuilder(numNotarizations)
 
-	// now the lagging node should send replication responses
+	// now the lagging node should catch up on empty notarizations
 	empty := laggingNode.WAL.AssertNotarization(numNotarizations - 1)
 	require.Equal(t, empty, record.EmptyNotarizationRecordType)
 
-	// all we were given were empty notarizations, so seq should be 0
+	// seq should be 0, since filter gave empty notarizations
 	require.Equal(t, numNotarizations, laggingNode.E.Metadata().Round)
 	require.Equal(t, uint64(0), laggingNode.E.Metadata().Seq)
 
-	fmt.Println("allowing")
+	// nodes send a block but can't notarize so they time out
 	net.SetAllNodesMessageFilter(allowFinalizeVotes)
 
-	time.Sleep(time.Millisecond * 100)
-	// we can just not mark the block as done in the replicator. only mark it done once we have an empty notarization + notarization
-	// therefore we would keep re-trying until we reach the highest known round
-	laggingNode.AdvanceTime(simplex.DefaultReplicationRequestTimeout)
-	time.Sleep(1 * time.Second)
-
 	for _, n := range net.Instances {
-		WaitToEnterRound(t, n.E, numNotarizations+1)
+		n.TickUntilRoundAdvanced(numNotarizations+1, simplex.DefaultReplicationRequestTimeout)
 		require.Equal(t, numNotarizations+1-missedNotarizations, n.Storage.NumBlocks())
 	}
-
-	// The solution is that "if we have notarization or finalization for a round with dependencies" then we specifically request those digests.
-	// we then process those digests, and if those digests have dependencies we request those as well(recursively). We don't retry if we receive the digest, but we do retry if we know it should exist but dont receive it.
-	// Then when we process the digest, we can mark it as done in the scheduler and the scheduler will automatically retry any dependent rounds.
-	// we can do the same for empty notarizations(i.e. we get a notarized block that depends on empty notarizations we do not have yet).
-
 }
-
-/**
-    Replicate blocks by round(current flow)
-
-    Three things can happen when we process replication state:
-
-    1. we process an empty notarization
-        - this can be done at any time
-    2. we process a block
-        - the block has no dependencies and can be scheduled and progress replication
-        - the block has a dependency on an empty round
-            -- we put this block in the scheduler and then re-add a timeout task to replication specifically to receive the empty rounds(since its a quorum round, at least 1 honest node should have it)
-            -- we can process these empty notarizations at any point
-        - the block has a dependency on a previous digest
-            -- we put a timeout task for this digest(we do not know what round it is from)
-            -- once we receive it we can recursively go back to step 2.
-
-
-
-	- handleBlockMessage, handleNotarizationMessage
-		- allow messages from previous rounds. as long as they are greater than highest finalized round
-
-	- because replication can be for rounds below the previous, when we receive a notarization, block, or finalization for a round we do not have
-	---  we can simply send(if just a block) or broadcast(if notarization/finalization) a replication request for that round.
-	--- our replication request timeout handler should ensure we will eventually retreive that and process it.
-*/

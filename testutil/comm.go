@@ -95,14 +95,15 @@ func (c *TestComm) maybeTranslateOutoingToIncomingMessageTypes(msg *simplex.Mess
 			quorumRound := simplex.QuorumRound{}
 			if verifiedQuorumRound.EmptyNotarization != nil {
 				quorumRound.EmptyNotarization = verifiedQuorumRound.EmptyNotarization
-			} else {
+			}
+			if verifiedQuorumRound.VerifiedBlock != nil {
 				quorumRound.Block = verifiedQuorumRound.VerifiedBlock.(simplex.Block)
-				if verifiedQuorumRound.Notarization != nil {
-					quorumRound.Notarization = verifiedQuorumRound.Notarization
-				}
-				if verifiedQuorumRound.Finalization != nil {
-					quorumRound.Finalization = verifiedQuorumRound.Finalization
-				}
+			}
+			if verifiedQuorumRound.Notarization != nil {
+				quorumRound.Notarization = verifiedQuorumRound.Notarization
+			}
+			if verifiedQuorumRound.Finalization != nil {
+				quorumRound.Finalization = verifiedQuorumRound.Finalization
 			}
 
 			data = append(data, quorumRound)

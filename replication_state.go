@@ -5,6 +5,7 @@ package simplex
 
 import (
 	"crypto/rand"
+	"fmt"
 	"math/big"
 	"sync"
 	"time"
@@ -62,6 +63,7 @@ func NewReplicationState(logger Logger, comm Communication, myNodeID NodeID, max
 
 		// seq replication
 		seqs:                  make(map[uint64]*finalizedQuorumRound),
+		seqsToDigests:         make(map[uint64]Digest),
 		finalizationRequestor: newRequestor(logger, start, lock, maxRoundWindow, comm, true),
 
 		// round replication
@@ -69,8 +71,8 @@ func NewReplicationState(logger Logger, comm Communication, myNodeID NodeID, max
 		roundRequestor: newRequestor(logger, start, lock, maxRoundWindow, comm, false),
 	}
 
-	r.digestTimeouts = NewTimeoutHandler(logger, start, DefaultReplicationRequestTimeout, r.requestDigests, alwaysFalseRemover[Digest])
-	r.emptyRoundTimeouts = NewTimeoutHandler(logger, start, DefaultReplicationRequestTimeout, r.requestEmptyRounds, shouldRemoveFunc[uint64](shouldDelete))
+	r.digestTimeouts = NewTimeoutHandler(logger, "digest", start, DefaultReplicationRequestTimeout, r.requestDigests, alwaysFalseRemover[Digest])
+	r.emptyRoundTimeouts = NewTimeoutHandler(logger, "empty", start, DefaultReplicationRequestTimeout, r.requestEmptyRounds, shouldRemoveFunc[uint64](shouldDelete))
 
 	return r
 }
@@ -90,6 +92,7 @@ func (r *ReplicationState) AdvanceTime(now time.Time) {
 func (r *ReplicationState) deleteOldRounds(finalizedRound uint64) {
 	for round := range r.rounds {
 		if round <= finalizedRound {
+			r.logger.Debug("Replication State Deleing Old Round", zap.Uint64("round", round))
 			delete(r.rounds, round)
 		}
 	}
@@ -147,7 +150,7 @@ func (r *ReplicationState) StoreQuorumRound(round *QuorumRound, from NodeID) {
 
 	// otherwise we are storing a round without finalization
 	// don't bother storing rounds that are older than the highest finalized round we know
-	if r.finalizationRequestor.getHighestRound() >= round.GetRound() {
+	if observed := r.finalizationRequestor.getHighestObserved(); observed != nil && observed.round >= round.GetRound() {
 		r.logger.Debug("Replication State received a finalized quorum round for a round we know is finalized.")
 		return
 	}
@@ -169,7 +172,7 @@ func (r *ReplicationState) ReceivedFutureFinalization(finalization *Finalization
 
 	// maybe this finalization was for a round that we initially thought only had notarizations
 	// remove from the round replicator since we now have a finalization for this round
-	// r.deleteOldRounds(finalization.Finalization.BlockHeader.Round)
+	r.deleteOldRounds(finalization.Finalization.BlockHeader.Round)
 
 	// potentially send out requests for blocks/finalizations in between
 	r.finalizationRequestor.maybeSendMoreReplicationRequests(signedSequence, nextSeqToCommit)
@@ -181,7 +184,7 @@ func (r *ReplicationState) ReceivedFutureRound(round, seq, currentRound uint64, 
 		return
 	}
 
-	if r.finalizationRequestor.getHighestRound() >= round {
+	if observed := r.finalizationRequestor.getHighestObserved(); observed != nil && observed.round >= round {
 		r.logger.Debug("Ignoring round replication for a future round since we have a finalization for a higher round", zap.Uint64("round", round))
 		return
 	}
@@ -255,6 +258,7 @@ func (r *ReplicationState) GetLowestRound() *QuorumRound {
 	var lowestRound *QuorumRound
 
 	for round, qr := range r.rounds {
+		fmt.Println("round", round)
 		if lowestRound == nil {
 			lowestRound = qr
 			continue
@@ -286,8 +290,9 @@ func (r *ReplicationState) GetBlockWithSeq(seq uint64) Block {
 	return nil
 }
 
-func (r *ReplicationState) requestDigests(digest []Digest) {
-	// TODO: create a specific message for this
+func (r *ReplicationState) requestDigests(digests []Digest) {
+	// TODO: In a future PR, I will add a message that requests a specific digest.
+	r.logger.Debug("Not implemented yet", zap.Stringers("Digests", digests))
 }
 
 func (r *ReplicationState) requestEmptyRounds(emptyRounds []uint64) {
@@ -300,7 +305,7 @@ func (r *ReplicationState) DeleteRound(round uint64) {
 		return
 	}
 
-	r.logger.Debug("Removing round", zap.Uint64("round", round))
+	r.logger.Debug("Replication State Removing Round", zap.Uint64("round", round))
 	r.emptyRoundTimeouts.RemoveTask(round)
 	r.roundRequestor.removeTask(round)
 	delete(r.rounds, round)

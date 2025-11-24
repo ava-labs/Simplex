@@ -101,7 +101,11 @@ func newRequestor(logger Logger, start time.Time, lock *sync.Mutex, maxRoundWind
 		sender:         sender,
 		replicateSeqs:  replicateSeqs,
 	}
-	r.timeoutHandler = NewTimeoutHandler(logger, start, DefaultReplicationRequestTimeout, r.resendReplicationRequests, shouldRemoveFunc[uint64](shouldDelete))
+	name := "seq-th"
+	if !replicateSeqs {
+		name = "round-th"
+	}
+	r.timeoutHandler = NewTimeoutHandler(logger, name, start, DefaultReplicationRequestTimeout, r.resendReplicationRequests, shouldRemoveFunc[uint64](shouldDelete))
 	return r
 }
 
@@ -226,11 +230,8 @@ func (r *requestor) updateState(currentRoundOrNextSeq uint64) {
 	}
 }
 
-func (r *requestor) getHighestRound() uint64 {
-	if r.highestObserved != nil {
-		return r.highestObserved.round
-	}
-	return 0
+func (r *requestor) getHighestObserved() *signedQuorum {
+	return r.highestObserved
 }
 
 func shouldDelete(seqOrRound, currentSeqOrRound uint64) bool {
