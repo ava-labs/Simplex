@@ -2892,15 +2892,18 @@ func (e *Epoch) locateQuorumRecord(seq uint64) *VerifiedQuorumRound {
 
 // if this round is storage, we do not need to retrieve it from storage
 func (e *Epoch) locateQuorumRecordByRound(targetRound uint64) *VerifiedQuorumRound {
+	var qr *VerifiedQuorumRound
+
 	for _, round := range e.rounds {
 		blockRound := round.block.BlockHeader().Round
 		if blockRound == targetRound {
 			if round.finalization != nil || round.notarization != nil {
-				return &VerifiedQuorumRound{
+				qr = &VerifiedQuorumRound{
 					VerifiedBlock: round.block,
 					Finalization:  round.finalization,
 					Notarization:  round.notarization,
 				}
+				break
 			}
 		}
 	}
@@ -2908,12 +2911,16 @@ func (e *Epoch) locateQuorumRecordByRound(targetRound uint64) *VerifiedQuorumRou
 	// check if the round is empty notarized
 	emptyVoteForRound, exists := e.emptyVotes[targetRound]
 	if exists && emptyVoteForRound.emptyNotarization != nil {
-		return &VerifiedQuorumRound{
+		if qr != nil {
+			qr.EmptyNotarization = emptyVoteForRound.emptyNotarization
+			return qr
+		}
+		qr = &VerifiedQuorumRound{
 			EmptyNotarization: emptyVoteForRound.emptyNotarization,
 		}
 	}
 
-	return nil
+	return qr
 }
 
 func (e *Epoch) haveNotFinalizedNotarizedRound() (uint64, bool) {
@@ -3039,10 +3046,10 @@ func (e *Epoch) processQuorumRound(round *QuorumRound, from NodeID) error {
 }
 
 func (e *Epoch) processReplicationState() error {
-	// We might have advanced the rounds from non-replicating paths such as future messages. clean up replication map accordingly.
-	e.replicationState.MaybeAdvancedState(e.nextSeqToCommit(), e.round)
-
 	nextSeqToCommit := e.nextSeqToCommit()
+
+	// We might have advanced the rounds from non-replicating paths such as future messages. Advance replication state accordingly.
+	e.replicationState.MaybeAdvancedState(nextSeqToCommit, e.round)
 
 	// first we check if we can commit the next sequence, it is ok to try and commit the next sequence
 	// directly, since if there are any empty notarizations, `indexFinalization` will
@@ -3056,7 +3063,8 @@ func (e *Epoch) processReplicationState() error {
 	lowestRound := e.replicationState.GetLowestRound()
 	if lowestRound != nil && lowestRound.GetRound() <= e.round {
 		e.Logger.Debug("Process replication state", zap.Stringer("lowest round", lowestRound), zap.Uint64("Our round", e.round))
-		// delete before we process to avoid infinite recursion(processEmptyNotarization(lowestRound) -> processReplicationState -> processEmptyNotarization(lowestRound))
+
+		// Remove before processing to avoid infinite recursion
 		e.replicationState.DeleteRound(lowestRound.GetRound())
 		if lowestRound.Notarization != nil {
 			if err := e.processNotarizedBlock(lowestRound.Block, lowestRound.Notarization); err != nil {
