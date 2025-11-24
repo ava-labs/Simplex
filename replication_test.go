@@ -452,7 +452,6 @@ func TestReplicationFutureFinalization(t *testing.T) {
 // and the rest of the nodes continue to make progress for another `endDisconnect - startDisconnect` blocks.
 // The lagging node reconnects and the after the next `finalization` is sent, the lagging node catches up to the latest height.
 func TestReplicationAfterNodeDisconnects(t *testing.T) {
-	t.Skip()
 	nodes := []simplex.NodeID{{1}, {2}, {3}, []byte("lagging")}
 
 	for startDisconnect := uint64(0); startDisconnect <= 5; startDisconnect++ {
