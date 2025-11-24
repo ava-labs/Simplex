@@ -22,17 +22,29 @@ type ReplicationState struct {
 	logger   Logger
 	myNodeID NodeID
 
-	// receivedFinalizations maps either sequences or rounds to quorum rounds
-	seqs                  map[uint64]*finalizedQuorumRound
-	finalizationRequestor *requestor
+	// receivedFinalizations maps sequences to a block and its associated finalization
+	seqs map[uint64]*finalizedQuorumRound
 
-	// for rounds
-	rounds         map[uint64]*QuorumRound
+	// rounds maps round numbers to QuorumRounds
+	rounds map[uint64]*QuorumRound
+
+	// digestTimeouts handles timeouts for fetching missing block digests.
+	// When a notarization depends on a block we haven’t received yet,
+	// it means a prior notarization for that block exists but is missing.
+	// Since we may not know which round that dependency belongs to,
+	// digestTimeouts ensures we re-request the missing digest until it arrives.
 	digestTimeouts *TimeoutHandler[Digest]
-	// used to remove old Digests from the digest timeout
-	seqsToDigests  map[uint64]Digest
-	roundTimeouts  *TimeoutHandler[uint64]
-	roundRequestor *requestor
+
+	// emptyRoundTimeouts handles timeouts for fetching missing empty round notarizations.
+	// When replication encounters a notarized block that depends on an empty round we haven't received,
+	// emptyRoundTimeouts ensures we re-request those empty rounds until they are received.
+	emptyRoundTimeouts *TimeoutHandler[uint64]
+
+	// seqsToDigests stores a mapping of sequences to digests. It is used to remove old Digests from the digest timeout, when we have
+	seqsToDigests map[uint64]Digest
+
+	roundRequestor        *requestor
+	finalizationRequestor *requestor
 }
 
 func NewReplicationState(logger Logger, comm Communication, myNodeID NodeID, maxRoundWindow uint64, enabled bool, start time.Time, lock *sync.Mutex) *ReplicationState {
@@ -50,15 +62,15 @@ func NewReplicationState(logger Logger, comm Communication, myNodeID NodeID, max
 
 		// seq replication
 		seqs:                  make(map[uint64]*finalizedQuorumRound),
-		finalizationRequestor: newRequestor(logger, start, lock, maxRoundWindow, comm, myNodeID, true),
+		finalizationRequestor: newRequestor(logger, start, lock, maxRoundWindow, comm, true),
 
 		// round replication
 		rounds:         make(map[uint64]*QuorumRound),
-		roundRequestor: newRequestor(logger, start, lock, maxRoundWindow, comm, myNodeID, false),
+		roundRequestor: newRequestor(logger, start, lock, maxRoundWindow, comm, false),
 	}
 
 	r.digestTimeouts = NewTimeoutHandler(logger, start, DefaultReplicationRequestTimeout, r.requestDigests, alwaysFalseRemover[Digest])
-	r.roundTimeouts = NewTimeoutHandler(logger, start, DefaultReplicationRequestTimeout, r.requestEmptyRounds, alwaysFalseRemover[uint64])
+	r.emptyRoundTimeouts = NewTimeoutHandler(logger, start, DefaultReplicationRequestTimeout, r.requestEmptyRounds, shouldRemoveFunc[uint64](shouldDelete))
 
 	return r
 }
@@ -71,9 +83,10 @@ func (r *ReplicationState) AdvanceTime(now time.Time) {
 	r.finalizationRequestor.advanceTime(now)
 	r.roundRequestor.advanceTime(now)
 	r.digestTimeouts.Tick(now)
-	r.roundTimeouts.Tick(now)
+	r.emptyRoundTimeouts.Tick(now)
 }
 
+// deleteOldRounds cleans up the replication state for round replication after receiving a finalized round.
 func (r *ReplicationState) deleteOldRounds(finalizedRound uint64) {
 	for round := range r.rounds {
 		if round <= finalizedRound {
@@ -81,14 +94,13 @@ func (r *ReplicationState) deleteOldRounds(finalizedRound uint64) {
 		}
 	}
 
-	// we don't want to call RemoveOldTasks since we still may need empty rounds < finalized round
-	r.roundTimeouts.RemoveTask(finalizedRound)
 	r.roundRequestor.removeOldTasks(finalizedRound)
+	r.emptyRoundTimeouts.RemoveOldTasks(finalizedRound)
 }
 
+// storeSequence stores a block and finalization into the replication state
 func (r *ReplicationState) storeSequence(block Block, finalization *Finalization) {
 	if _, exists := r.seqs[finalization.Finalization.Seq]; exists {
-		// we've already stored this round
 		return
 	}
 
@@ -98,26 +110,33 @@ func (r *ReplicationState) storeSequence(block Block, finalization *Finalization
 	}
 }
 
+// storeRound adds or updates a quorum round in the replication state.
+// If the round already exists, it merges any missing notarizations or empty notarizations
+// from the provided quorum round. Otherwise, it stores the new round as is.
 func (r *ReplicationState) storeRound(qr *QuorumRound) {
-	// check if a round exists already. if exists we may need to merge the notarizations and empty notarizations
-	if existingQR, exists := r.rounds[qr.GetRound()]; exists {
-		if qr.EmptyNotarization != nil && existingQR.EmptyNotarization == nil {
-			existingQR.EmptyNotarization = qr.EmptyNotarization
-		}
+	existing, exists := r.rounds[qr.GetRound()]
+	if !exists {
+		r.rounds[qr.GetRound()] = qr
+	}
 
-		if (qr.Block == nil && qr.Notarization == nil) && (existingQR.Notarization != nil && existingQR.EmptyNotarization != nil) {
-			existingQR.Notarization = qr.Notarization
-			existingQR.Block = qr.Block
-		}
+	if qr.EmptyNotarization != nil && existing.EmptyNotarization == nil {
+		existing.EmptyNotarization = qr.EmptyNotarization
+	}
 
+	if (qr.Notarization != nil && qr.Block != nil) && existing.Block == nil {
+		existing.Notarization = qr.Notarization
+		existing.Block = qr.Block
+	}
+}
+
+// StoreQuorumRound stores the quorum round into the replication state.
+func (r *ReplicationState) StoreQuorumRound(round *QuorumRound, from NodeID) {
+	if !r.enabled {
 		return
 	}
 
-	r.rounds[qr.GetRound()] = qr
-}
-
-func (r *ReplicationState) StoreQuorumRound(round *QuorumRound, from NodeID) {
 	r.logger.Debug("Replication State Storing Quorum Round", zap.Stringer("QR", round))
+
 	if round.Finalization != nil {
 		r.storeSequence(round.Block, round.Finalization)
 		r.finalizationRequestor.receivedSignedQuorum(newSignedQuorum(round, r.myNodeID))
@@ -127,20 +146,19 @@ func (r *ReplicationState) StoreQuorumRound(round *QuorumRound, from NodeID) {
 
 	// otherwise we are storing a round without finalization
 	// don't bother storing rounds that are older than the highest finalized round we know
-	// todo: grab a lock for sequence replicator
 	if r.finalizationRequestor.getHighestRound() >= round.GetRound() {
-		r.logger.Debug("Replication state received a finalized quorum round for a round we know is finalized.")
+		r.logger.Debug("Replication State received a finalized quorum round for a round we know is finalized.")
 		return
 	}
 
 	r.storeRound(round)
 	r.roundRequestor.receivedSignedQuorum(newSignedQuorum(round, r.myNodeID))
 	if round.EmptyNotarization != nil {
-		r.roundTimeouts.RemoveTask(round.GetRound())
+		r.emptyRoundTimeouts.RemoveTask(round.GetRound())
 	}
 }
 
-// receivedFutureFinalization processes a finalization that was created in a future round.
+// receivedFutureFinalization notifies the replication state a finalization was created in a future round.
 func (r *ReplicationState) ReceivedFutureFinalization(finalization *Finalization, nextSeqToCommit uint64) {
 	if !r.enabled {
 		return
@@ -156,6 +174,7 @@ func (r *ReplicationState) ReceivedFutureFinalization(finalization *Finalization
 	r.finalizationRequestor.maybeSendMoreReplicationRequests(signedSequence, nextSeqToCommit)
 }
 
+// receivedFutureRound notifies the replication state of a future round.
 func (r *ReplicationState) ReceivedFutureRound(round, seq, currentRound uint64, signers []NodeID) {
 	if !r.enabled {
 		return
@@ -170,6 +189,7 @@ func (r *ReplicationState) ReceivedFutureRound(round, seq, currentRound uint64, 
 	r.roundRequestor.maybeSendMoreReplicationRequests(sq, currentRound)
 }
 
+// ResendFinalizationRequest notifies the replication state that `seq` should be re-requested.
 func (r *ReplicationState) ResendFinalizationRequest(seq uint64, signers []NodeID) error {
 	if !r.enabled {
 		return nil
@@ -188,6 +208,8 @@ func (r *ReplicationState) ResendFinalizationRequest(seq uint64, signers []NodeI
 	return nil
 }
 
+// CreateDependencyTasks creates tasks to refetch the given parent digest and empty rounds. If there are no
+// dependencies, no tasks are created.
 func (r *ReplicationState) CreateDependencyTasks(parent *Digest, parentSeq uint64, emptyRounds []uint64) {
 	if parent != nil {
 		r.digestTimeouts.AddTask(*parent)
@@ -196,7 +218,7 @@ func (r *ReplicationState) CreateDependencyTasks(parent *Digest, parentSeq uint6
 
 	if len(emptyRounds) > 0 {
 		for _, round := range emptyRounds {
-			r.roundTimeouts.AddTask(round)
+			r.emptyRoundTimeouts.AddTask(round)
 		}
 	}
 }
@@ -266,19 +288,13 @@ func (r *ReplicationState) requestDigests(digest []Digest) {
 }
 
 func (r *ReplicationState) requestEmptyRounds(emptyRounds []uint64) {
-	// we can just request quorum rounds for this.
-	// we can optimize the reuqest by adding a flag for just emoty notarization but for now we don't
-
-	for _, emptyRound := range emptyRounds {
-		// we could use sendRequestToNode, but this is nice since it distributes
-		// we could also group them
-		r.roundRequestor.sendReplicationRequests(emptyRound, emptyRound)
-	}
+	r.logger.Debug("Replication State requesting empty rounds", zap.Uint64s("empty rounds", emptyRounds))
+	r.roundRequestor.resendReplicationRequests(emptyRounds)
 }
 
 func (r *ReplicationState) DeleteRound(round uint64) {
-	r.roundTimeouts.RemoveTask(round)
-	r.roundRequestor.removeOldTasks(round)
 	r.logger.Debug("Removing round", zap.Uint64("round", round))
+	r.emptyRoundTimeouts.RemoveTask(round)
+	r.roundRequestor.removeOldTasks(round)
 	delete(r.rounds, round)
 }

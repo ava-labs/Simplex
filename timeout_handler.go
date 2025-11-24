@@ -11,13 +11,13 @@ import (
 )
 
 type timeoutRunner[T comparable] func(ids []T)
-type lessThanFunc[T comparable] func(a T, b T) bool
+type shouldRemoveFunc[T comparable] func(a T, b T) bool
 type TimeoutHandler[T comparable] struct {
 	// how often to run through the tasks
 	runInterval time.Duration
 	// function to run tasks
 	taskRunner   timeoutRunner[T]
-	shouldRemove lessThanFunc[T]
+	shouldRemove shouldRemoveFunc[T]
 	lock         sync.Mutex
 	ticks        chan time.Time
 	close        chan struct{}
@@ -30,7 +30,7 @@ type TimeoutHandler[T comparable] struct {
 
 // NewTimeoutHandler returns a TimeoutHandler and starts a new goroutine that
 // listens for ticks and executes TimeoutTasks.
-func NewTimeoutHandler[T comparable](log Logger, startTime time.Time, runInterval time.Duration, taskRunner timeoutRunner[T], lessThanFunc lessThanFunc[T]) *TimeoutHandler[T] {
+func NewTimeoutHandler[T comparable](log Logger, startTime time.Time, runInterval time.Duration, taskRunner timeoutRunner[T], shouldRemove shouldRemoveFunc[T]) *TimeoutHandler[T] {
 	t := &TimeoutHandler[T]{
 		now:          startTime,
 		tasks:        make(map[T]struct{}),
@@ -38,7 +38,7 @@ func NewTimeoutHandler[T comparable](log Logger, startTime time.Time, runInterva
 		close:        make(chan struct{}),
 		runInterval:  runInterval,
 		taskRunner:   taskRunner,
-		shouldRemove: lessThanFunc,
+		shouldRemove: shouldRemove,
 		log:          log,
 	}
 

@@ -10,6 +10,7 @@ import (
 )
 
 // signedQuorum is a round that has been signed by a quorum certificate.
+// if the round was empty notarized, seq is set to 0.
 type signedQuorum struct {
 	round   uint64
 	seq     uint64
@@ -63,43 +64,44 @@ type sender interface {
 	Send(msg *Message, destination NodeID)
 }
 
+// requestor fetches quorum rounds up to [highestObserved] from the network,
+// allowing up to [maxRoundWindow] concurrent requests to limit memory use.
+// Ensures all rounds/sequences are eventually received.
 type requestor struct {
 	epochLock *sync.Mutex
 
-	// highest sequence we have requested. Ensures we don't request the
-	// same sequence or round multiple times, also allows us to limit the number of
-	// outstanding requests to be at most [maxRoundWindow] ahead of highestRequested
+	// highestSequenceRequested prevents duplicates and limits outstanding requests.
 	highestRequested uint64
 
-	// highest we have received
+	// the requestor stops requesting once all sequences/rounds up to an including `highestObserved` have been received.
 	highestObserved *signedQuorum
 
-	// request iterator
-	requestIterator int
-
+	// Handles timeouts and retries for missing sequences/rounds.
 	timeoutHandler *TimeoutHandler[uint64]
 
 	logger Logger
 
+	// maxRoundWindow is the maximum number of requests we can request past highestRequested.
 	maxRoundWindow uint64
 
 	sender sender
 
-	myNodeID NodeID
+	// requestIterator is an iterator over NodeIDs in order to request quorum rounds
+	requestIterator int
 
+	// replicateSeqs is set true if this requestor is for replicating sequences, and false if for rounds.
 	replicateSeqs bool
 }
 
-func newRequestor(logger Logger, start time.Time, lock *sync.Mutex, maxRoundWindow uint64, sender sender, myNodeID NodeID, replicateSeqs bool) *requestor {
+func newRequestor(logger Logger, start time.Time, lock *sync.Mutex, maxRoundWindow uint64, sender sender, replicateSeqs bool) *requestor {
 	r := &requestor{
 		logger:         logger,
 		epochLock:      lock,
 		maxRoundWindow: maxRoundWindow,
 		sender:         sender,
-		myNodeID:       myNodeID,
 		replicateSeqs:  replicateSeqs,
 	}
-	r.timeoutHandler = NewTimeoutHandler(logger, start, DefaultReplicationRequestTimeout, r.resendReplicationRequests, lessThanFunc[uint64](shouldDelete))
+	r.timeoutHandler = NewTimeoutHandler(logger, start, DefaultReplicationRequestTimeout, r.resendReplicationRequests, shouldRemoveFunc[uint64](shouldDelete))
 	return r
 }
 
@@ -231,8 +233,8 @@ func (r *requestor) getHighestRound() uint64 {
 	return 0
 }
 
-func shouldDelete(seq, nextSeqToCommit uint64) bool {
-	return seq < nextSeqToCommit
+func shouldDelete(seqOrRound, currentSeqOrRound uint64) bool {
+	return seqOrRound < currentSeqOrRound
 }
 
 func (r *requestor) getSeqOrRound(signedQuorum *signedQuorum) uint64 {
