@@ -282,7 +282,7 @@ func (q *QuorumRound) VerifyQCConsistentWithBlock() error {
 		return nil
 	}
 
-	// Ensure the .GetRound() & .GetSequence() are consistent
+	// if an empty notarization is included, ensure the round is equal to the block round
 	if q.EmptyNotarization != nil && q.EmptyNotarization.Vote.Round != q.Block.BlockHeader().Round {
 		return fmt.Errorf("empty round does not match block round")
 	}
