@@ -133,22 +133,22 @@ func (c *TestComm) maybeTranslateOutoingToIncomingMessageTypes(msg *simplex.Mess
 	}
 }
 
-func verifiedQRtoQR(qr *simplex.VerifiedQuorumRound) *simplex.QuorumRound {
-	if qr == nil {
+func verifiedQRtoQR(vqr *simplex.VerifiedQuorumRound) *simplex.QuorumRound {
+	if vqr == nil {
 		return nil
 	}
 
-	if qr.EmptyNotarization != nil {
-		return &simplex.QuorumRound{
-			EmptyNotarization: qr.EmptyNotarization,
-		}
+	qr := &simplex.QuorumRound{
+		Notarization:      vqr.Notarization,
+		Finalization:      vqr.Finalization,
+		EmptyNotarization: vqr.EmptyNotarization,
 	}
 
-	return &simplex.QuorumRound{
-		Block:        qr.VerifiedBlock.(simplex.Block),
-		Notarization: qr.Notarization,
-		Finalization: qr.Finalization,
+	if vqr.VerifiedBlock != nil {
+		qr.Block = vqr.VerifiedBlock.(simplex.Block)
 	}
+
+	return qr
 }
 
 func (c *TestComm) isMessagePermitted(msg *simplex.Message, destination simplex.NodeID) bool {
