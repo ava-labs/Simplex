@@ -160,9 +160,9 @@ func TestReplicationRequestMixed(t *testing.T) {
 	rounds := make(map[uint64]simplex.VerifiedQuorumRound)
 
 	numExpectedRounds := 0
-	tailNotarizations := 0
 	// only produce a notarization for blocks we are the leader, otherwise produce an empty notarization
 	for i := range numBlocks {
+		numExpectedRounds++
 		leaderForRound := bytes.Equal(simplex.LeaderForRound(nodes, uint64(i)), e.ID)
 		emptyBlock := !leaderForRound
 		if emptyBlock {
@@ -174,7 +174,6 @@ func TestReplicationRequestMixed(t *testing.T) {
 			rounds[i] = simplex.VerifiedQuorumRound{
 				EmptyNotarization: emptyNotarization,
 			}
-			tailNotarizations++
 			continue
 		}
 		block, notarization := advanceRoundFromNotarization(t, e, bb)
@@ -184,11 +183,8 @@ func TestReplicationRequestMixed(t *testing.T) {
 			Notarization:  notarization,
 		}
 
-		numExpectedRounds++
-		tailNotarizations = 0
 	}
 
-	numExpectedRounds += tailNotarizations
 	require.Equal(t, uint64(numBlocks), e.Metadata().Round)
 	roundsRequested := make([]uint64, 0, len(rounds))
 	for k := range rounds {
