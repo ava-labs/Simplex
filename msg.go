@@ -211,18 +211,22 @@ type QuorumCertificate interface {
 }
 
 type ReplicationRequest struct {
-	Seqs        []uint64 // sequences we are requesting
-	LatestRound uint64   // latest round that we are aware of
+	Seqs               []uint64 // sequences we are requesting
+	Rounds             []uint64 // rounds we are requesting
+	LatestRound        uint64   // latest round that we are aware of
+	LatestFinalizedSeq uint64   // latest finalized sequence that we are aware of
 }
 
 type ReplicationResponse struct {
 	Data        []QuorumRound
 	LatestRound *QuorumRound
+	LatestSeq   *QuorumRound
 }
 
 type VerifiedReplicationResponse struct {
-	Data        []VerifiedQuorumRound
-	LatestRound *VerifiedQuorumRound
+	Data               []VerifiedQuorumRound
+	LatestRound        *VerifiedQuorumRound
+	LatestFinalizedSeq *VerifiedQuorumRound
 }
 
 // QuorumRound represents a round that has achieved quorum on either
@@ -238,13 +242,15 @@ type QuorumRound struct {
 // (block, notarization) or (block, finalization) or
 // (empty notarization)
 func (q *QuorumRound) IsWellFormed() error {
-	if q.EmptyNotarization != nil && q.Block == nil {
-		return nil
-	} else if q.Block != nil && (q.Notarization != nil || q.Finalization != nil) {
-		return nil
+	if q.Block == nil && q.EmptyNotarization == nil {
+		return fmt.Errorf("malformed QuorumRound, empty block and notarization fields")
 	}
 
-	return fmt.Errorf("malformed QuorumRound")
+	if q.Block != nil && (q.Notarization == nil && q.Finalization == nil) {
+		return fmt.Errorf("malformed QuorumRound, block but no notarization or finalization")
+	}
+
+	return nil
 }
 
 func (q *QuorumRound) GetRound() uint64 {
@@ -272,8 +278,13 @@ func (q *QuorumRound) VerifyQCConsistentWithBlock() error {
 		return err
 	}
 
-	if q.EmptyNotarization != nil {
+	if q.Block == nil {
 		return nil
+	}
+
+	// if an empty notarization is included, ensure the round is equal to the block round
+	if q.EmptyNotarization != nil && q.EmptyNotarization.Vote.Round != q.Block.BlockHeader().Round {
+		return fmt.Errorf("empty round does not match block round")
 	}
 
 	// ensure the finalization or notarization we get relates to the block
@@ -302,7 +313,7 @@ func (q *QuorumRound) String() string {
 		if err != nil {
 			return fmt.Sprintf("QuorumRound{Error: %s}", err)
 		} else {
-			return fmt.Sprintf("QuorumRound{Round: %d, Seq: %d}", q.GetRound(), q.GetSequence())
+			return fmt.Sprintf("QuorumRound{Round: %d, Seq: %d, Finalized: %t}", q.GetRound(), q.GetSequence(), q.Finalization != nil)
 		}
 	}
 
