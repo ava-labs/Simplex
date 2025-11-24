@@ -1530,9 +1530,7 @@ func (e *Epoch) handleNotarizationMessage(message *Notarization, from NodeID) er
 	// If this notarization is for a round we are currently processing its proposal,
 	// or for a future round, then store it for later use.
 	if !exists {
-		// I put a warn here for now just curiously to see when this is actually called
-		// answer: advance round, occasionally can receive the notarization before the block
-		e.Logger.Warn("Received a notarization for this round, but we don't have a block for it yet", zap.Uint64("round", vote.Round), zap.Uint64("epoch round", e.round))
+		e.Logger.Info("Received a notarization for this round, but we don't have a block for it yet", zap.Uint64("round", vote.Round), zap.Uint64("epoch round", e.round))
 		e.storeFutureNotarization(message, from, vote.Round)
 
 		// TODO: we need to request the block.
