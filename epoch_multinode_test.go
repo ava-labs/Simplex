@@ -4,13 +4,14 @@
 package simplex_test
 
 import (
-	"github.com/ava-labs/simplex"
-	"github.com/ava-labs/simplex/testutil"
-	"github.com/stretchr/testify/require"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/ava-labs/simplex"
+	"github.com/ava-labs/simplex/testutil"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSimplexRebroadcastFinalizationVotes(t *testing.T) {
@@ -136,6 +137,13 @@ func TestSimplexMultiNodeSimple(t *testing.T) {
 	}
 }
 
+func dontVoteFilter(msg *simplex.Message, _, _ simplex.NodeID) bool {
+	if msg.VoteMessage != nil || msg.EmptyVoteMessage != nil || msg.Notarization != nil || msg.FinalizeVote != nil {
+		return false
+	}
+	return true
+}
+
 func TestSimplexMultiNodeBlacklist(t *testing.T) {
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
 	net := testutil.NewInMemNetwork(t, nodes)
@@ -191,7 +199,8 @@ func TestSimplexMultiNodeBlacklist(t *testing.T) {
 		}, blacklist)
 	}
 
-	// Reconnect the fourth node.
+	// Reconnect the fourth node but don't let it un-blacklist itself prematurely.
+	net.SetNodeMessageFilter(nodes[3], dontVoteFilter)
 	net.Connect(nodes[3])
 
 	// Build another block, ensure the blacklist contains the fourth node as blacklisted.
@@ -229,6 +238,7 @@ func TestSimplexMultiNodeBlacklist(t *testing.T) {
 
 	// Disconnect the third node to force messages from the fourth node to be taken into account.
 	net.Disconnect(nodes[2])
+	net.SetNodeMessageFilter(nodes[3], testutil.AllowAllMessages)
 
 	// Make two blocks.
 	allButThirdNode := []*testutil.TestNode{net.Instances[0], net.Instances[1], net.Instances[3]}

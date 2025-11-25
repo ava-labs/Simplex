@@ -2027,12 +2027,10 @@ func (e *Epoch) buildBlock() {
 
 	// If I'm blacklisted, I cannot propose a block.
 	if prevBlacklist.IsNodeSuspected(uint16(e.nodes.IndexOf(e.ID))) {
-		e.Logger.Debug("I'm blacklisted, cannot propose a block", zap.Uint64("round", metadata.Round))
+		e.Logger.Debug("I'm blacklisted, cannot propose a block", zap.Uint64("round", metadata.Round), zap.Stringer("blacklist", &prevBlacklist))
 		e.triggerEmptyBlockNotarization(metadata.Round)
 		return
 	}
-
-	prevBL := prevBlacklist.String()
 
 	// Create the blacklist for the next round:
 
@@ -2046,12 +2044,10 @@ func (e *Epoch) buildBlock() {
 	// 3) Apply the updates to the blacklist.
 	nextBlacklist := prevBlacklist.ApplyUpdates(updates, metadata.Round)
 
-	nextBL := nextBlacklist.String()
-
 	e.Logger.Debug("Blacklist updated",
 		zap.Uint64("round", metadata.Round),
-		zap.String("Update", fmt.Sprintf("%v", updates)),
-		zap.String("prev", prevBL), zap.String("next", nextBL))
+		zap.String("Update", blacklistUpdatesAsString(updates)),
+		zap.Stringer("prev", &prevBlacklist), zap.Stringer("next", &nextBlacklist))
 
 	buildTheBlock := e.createBlockBuildingTask(metadata, nextBlacklist)
 
