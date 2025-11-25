@@ -137,9 +137,14 @@ func TestSimplexMultiNodeSimple(t *testing.T) {
 	}
 }
 
+func dontVoteFilter(msg *simplex.Message, _, _ simplex.NodeID) bool {
+	if msg.VoteMessage != nil || msg.EmptyVoteMessage != nil || msg.Notarization != nil || msg.FinalizeVote != nil {
+		return false
+	}
+	return true
+}
+
 func TestSimplexMultiNodeBlacklist(t *testing.T) {
-	// for range 100 {
-	// 	fmt.Println("iteration!!")
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
 	net := testutil.NewInMemNetwork(t, nodes)
 	testEpochConfig := &testutil.TestNodeConfig{
@@ -149,10 +154,6 @@ func TestSimplexMultiNodeBlacklist(t *testing.T) {
 	testutil.NewSimplexNode(t, nodes[1], net, testEpochConfig)
 	testutil.NewSimplexNode(t, nodes[2], net, testEpochConfig)
 	testutil.NewSimplexNode(t, nodes[3], net, testEpochConfig)
-
-	for _, n := range net.Instances[1:] {
-		n.Silence()
-	}
 
 	net.StartInstances()
 
@@ -194,6 +195,7 @@ func TestSimplexMultiNodeBlacklist(t *testing.T) {
 		}, blacklist)
 	}
 
+	net.SetNodeMessageFilter(nodes[3], dontVoteFilter)
 	// Reconnect the fourth node.
 	net.Connect(nodes[3])
 
@@ -232,7 +234,7 @@ func TestSimplexMultiNodeBlacklist(t *testing.T) {
 
 	// Disconnect the third node to force messages from the fourth node to be taken into account.
 	net.Disconnect(nodes[2])
-
+	net.SetNodeMessageFilter(nodes[3], testutil.AllowAllMessages)
 	// Make two blocks.
 	allButThirdNode := []*testutil.TestNode{net.Instances[0], net.Instances[1], net.Instances[3]}
 	for i := 0; i < 2; i++ {
@@ -296,7 +298,6 @@ func TestSimplexMultiNodeBlacklist(t *testing.T) {
 		block := n.Storage.WaitForBlockCommit(uint64(10))
 		lastBlacklist = block.Blacklist()
 	}
-	// }
 }
 
 func onlySendBlockProposalsAndVotes(splitNodes []simplex.NodeID) testutil.MessageFilter {
