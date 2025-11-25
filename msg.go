@@ -139,16 +139,28 @@ type Vote struct {
 	Signature Signature
 }
 
+func (v *Vote) Signer() NodeID {
+	return v.Signature.Signer
+}
+
 // EmptyVote represents a signed vote for an empty block.
 type EmptyVote struct {
 	Vote      ToBeSignedEmptyVote
 	Signature Signature
 }
 
+func (v *EmptyVote) Signer() NodeID {
+	return v.Signature.Signer
+}
+
 // FinalizeVote represents a vote to finalize a block.
 type FinalizeVote struct {
 	Finalization ToBeSignedFinalization
 	Signature    Signature
+}
+
+func (v *FinalizeVote) Signer() NodeID {
+	return v.Signature.Signer
 }
 
 // Finalization represents a block that has reached quorum on block. This
