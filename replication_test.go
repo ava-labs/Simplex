@@ -588,9 +588,6 @@ func TestReplicationStuckInProposingBlock(t *testing.T) {
 	var aboutToBuildBlock sync.WaitGroup
 	aboutToBuildBlock.Add(1)
 
-	var cancelBlockBuilding sync.WaitGroup
-	cancelBlockBuilding.Add(1)
-
 	tbb := &TestBlockBuilder{Out: make(chan *TestBlock, 1), BlockShouldBeBuilt: make(chan struct{}, 1), In: make(chan *TestBlock, 1)}
 	bb := NewTestControlledBlockBuilder(t)
 	bb.TestBlockBuilder = *tbb
@@ -610,9 +607,6 @@ func TestReplicationStuckInProposingBlock(t *testing.T) {
 	l.Intercept(func(entry zapcore.Entry) error {
 		if strings.Contains(entry.Message, "Scheduling block building") {
 			aboutToBuildBlock.Done()
-		}
-		if strings.Contains(entry.Message, "We are the leader of this round, but a higher round has been finalized. Aborting block building.") {
-			cancelBlockBuilding.Done()
 		}
 		return nil
 	})
@@ -707,9 +701,6 @@ func TestReplicationStuckInProposingBlock(t *testing.T) {
 	}, nodes[1])
 
 	storage.WaitForBlockCommit(4)
-
-	// Just for sanity, ensure that the block building was cancelled
-	// cancelBlockBuilding.Wait()
 }
 
 // TestReplicationNodeDiverges tests that a node replicates blocks even if they
