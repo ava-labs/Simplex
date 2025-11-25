@@ -69,7 +69,7 @@ func (bl *Blacklist) String() string {
 		if i > 0 {
 			buf = append(buf, ',')
 		}
-		buf = append(buf, fmt.Sprintf("{type=%d, NodeIndex=%d}", u.Type, u.NodeIndex)...)
+		buf = append(buf, u.String()...)
 	}
 	buf = append(buf, "])"...)
 	return string(buf)

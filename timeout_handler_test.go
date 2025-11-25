@@ -4,8 +4,7 @@
 package simplex_test
 
 import (
-	"sync"
-	"sync/atomic"
+	"slices"
 	"testing"
 	"time"
 
@@ -15,317 +14,208 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestAddAndRunTask(t *testing.T) {
-	start := time.Now()
-	l := testutil.MakeLogger(t, 1)
-	nodes := []simplex.NodeID{{1}, {2}}
-	handler := simplex.NewTimeoutHandler(l, start, nodes)
-	defer handler.Close()
+const testName = "test"
+const testRunInterval = 200 * time.Millisecond
 
-	sent := make(chan struct{}, 1)
-	var count atomic.Int64
-
-	task := &simplex.TimeoutTask{
-		NodeID:   nodes[0],
-		TaskID:   "simplerun",
-		Deadline: start.Add(5 * time.Second),
-		Task: func() {
-			sent <- struct{}{}
-			count.Add(1)
-		},
+func waitNoReceive[T any](t *testing.T, ch <-chan T) {
+	select {
+	case <-ch:
+		t.Fatal("channel unexpectedly signaled")
+	case <-time.After(defaultWaitDuration):
+		// good
 	}
-
-	handler.AddTask(task)
-	handler.Tick(start.Add(2 * time.Second))
-	time.Sleep(10 * time.Millisecond)
-
-	require.Zero(t, len(sent))
-	handler.Tick(start.Add(6 * time.Second))
-	<-sent
-	require.Equal(t, int64(1), count.Load())
-
-	// test we only execute task once
-	handler.Tick(start.Add(12 * time.Second))
-	time.Sleep(10 * time.Millisecond)
-	require.Equal(t, int64(1), count.Load())
 }
 
-func TestRemoveTask(t *testing.T) {
-	start := time.Now()
-	l := testutil.MakeLogger(t, 1)
-	nodes := []simplex.NodeID{{1}, {2}}
-	handler := simplex.NewTimeoutHandler(l, start, nodes)
-	defer handler.Close()
-
-	var ran bool
-	task := &simplex.TimeoutTask{
-		NodeID:   nodes[0],
-		TaskID:   "task2",
-		Deadline: start.Add(1 * time.Second),
-		Task: func() {
-			ran = true
-		},
+func waitReceive[T any](t *testing.T, ch <-chan T) T {
+	select {
+	case v := <-ch:
+		return v
+	case <-time.After(defaultWaitDuration):
+		t.Fatal("timed out waiting for signal")
+		return *new(T)
 	}
-
-	handler.AddTask(task)
-	handler.RemoveTask(nodes[0], "task2")
-	handler.Tick(start.Add(2 * time.Second))
-	require.False(t, ran)
-
-	// ensure no panic
-	handler.RemoveTask(nodes[1], "task-doesn't-exist")
 }
 
-func TestTaskOrder(t *testing.T) {
+func lessUint(a, b uint64) bool { return a < b }
+
+// Ensures tasks only run when at/after the runInterval boundary, and that
+// "too-early" ticks are ignored by the runner loop.
+func TestTimeoutHandlerRunsOnlyOnInterval(t *testing.T) {
 	start := time.Now()
-	l := testutil.MakeLogger(t, 1)
-	nodes := []simplex.NodeID{{1}, {2}}
-	handler := simplex.NewTimeoutHandler(l, start, nodes)
-	defer handler.Close()
+	log := testutil.MakeLogger(t)
 
-	finished := make(chan struct{})
+	ran := make(chan []uint64, 4)
+	runner := func(ids []uint64) {
+		// copy since ids is reused by caller
+		cp := append([]uint64(nil), ids...)
+		ran <- cp
+	}
 
-	var mu sync.Mutex
-	var results []string
+	h := simplex.NewTimeoutHandler(log, testName, start, testRunInterval, runner, lessUint)
+	defer h.Close()
 
-	handler.AddTask(&simplex.TimeoutTask{
-		NodeID:   nodes[0],
-		TaskID:   "first",
-		Deadline: start.Add(1 * time.Second),
-		Task: func() {
-			mu.Lock()
-			results = append(results, "first")
-			finished <- struct{}{}
-			mu.Unlock()
-		},
-	})
+	h.AddTask(1)
 
-	handler.AddTask(&simplex.TimeoutTask{
-		NodeID:   nodes[1],
-		TaskID:   "second",
-		Deadline: start.Add(2 * time.Second),
-		Task: func() {
-			mu.Lock()
-			results = append(results, "second")
-			finished <- struct{}{}
-			mu.Unlock()
-		},
-	})
+	// Too early: < runInterval since last tick -> should not run
+	h.Tick(start.Add(testRunInterval / 2))
+	waitNoReceive(t, ran)
 
-	handler.AddTask(&simplex.TimeoutTask{
-		NodeID:   nodes[0],
-		TaskID:   "noruntask",
-		Deadline: start.Add(4 * time.Second),
-		Task: func() {
-			mu.Lock()
-			results = append(results, "norun")
-			mu.Unlock()
-		},
-	})
+	// Exactly at interval: should run once with id=1
+	h.Tick(start.Add(testRunInterval))
+	batch := waitReceive(t, ran)
+	require.Equal(t, []uint64{1}, sorted(batch))
 
-	handler.Tick(start.Add(3 * time.Second))
+	h.AddTask(2)
+	// Another tick but less than interval since the lastTickTime: should not run
+	h.Tick(start.Add(testRunInterval + testRunInterval/2))
+	waitNoReceive(t, ran)
 
-	<-finished
-	<-finished
-
-	mu.Lock()
-	defer mu.Unlock()
-
-	require.Equal(t, 2, len(results))
-	require.Equal(t, results[0], "first")
-	require.Equal(t, results[1], "second")
+	// At 2*interval: should run again
+	h.Tick(start.Add(2 * testRunInterval))
+	batch = waitReceive(t, ran)
+	require.Equal(t, []uint64{1, 2}, sorted(batch))
 }
 
-func TestAddTasksOutOfOrder(t *testing.T) {
+// Add & Remove single task, verifying it stops running after removal.
+func TestTimeoutHandler_AddThenRemoveTask(t *testing.T) {
 	start := time.Now()
-	l := testutil.MakeLogger(t, 1)
-	nodes := []simplex.NodeID{{1}, {2}}
-	handler := simplex.NewTimeoutHandler(l, start, nodes)
-	defer handler.Close()
+	log := testutil.MakeLogger(t)
 
-	finished := make(chan struct{})
-	var mu sync.Mutex
-	var results []string
+	ran := make(chan []uint64, 2)
+	runner := func(ids []uint64) { ran <- append([]uint64(nil), ids...) }
 
-	handler.AddTask(&simplex.TimeoutTask{
-		NodeID:   nodes[0],
-		TaskID:   "third",
-		Deadline: start.Add(3 * time.Second),
-		Task: func() {
-			mu.Lock()
-			results = append(results, "third")
-			finished <- struct{}{}
-			mu.Unlock()
-		},
-	})
+	h := simplex.NewTimeoutHandler(log, testName, start, testRunInterval, runner, lessUint)
+	defer h.Close()
 
-	handler.AddTask(&simplex.TimeoutTask{
-		NodeID:   nodes[0],
-		TaskID:   "second",
-		Deadline: start.Add(2 * time.Second),
-		Task: func() {
-			mu.Lock()
-			results = append(results, "second")
-			finished <- struct{}{}
-			mu.Unlock()
-		},
-	})
+	h.AddTask(7)
+	h.Tick(start.Add(testRunInterval))
+	require.Equal(t, []uint64{7}, sorted(waitReceive(t, ran)))
 
-	handler.AddTask(&simplex.TimeoutTask{
-		NodeID:   nodes[1],
-		TaskID:   "fourth",
-		Deadline: start.Add(4 * time.Second),
-		Task: func() {
-			mu.Lock()
-			results = append(results, "fourth")
-			finished <- struct{}{}
-			mu.Unlock()
-		},
-	})
-
-	handler.AddTask(&simplex.TimeoutTask{
-		NodeID:   nodes[0],
-		TaskID:   "first",
-		Deadline: start.Add(1 * time.Second),
-		Task: func() {
-			mu.Lock()
-			results = append(results, "first")
-			finished <- struct{}{}
-			mu.Unlock()
-		},
-	})
-
-	handler.Tick(start.Add(1 * time.Second))
-	<-finished
-	mu.Lock()
-	require.Equal(t, 1, len(results))
-	require.Equal(t, results[0], "first")
-	mu.Unlock()
-
-	handler.Tick(start.Add(3 * time.Second))
-	<-finished
-	<-finished
-	mu.Lock()
-	require.Equal(t, 3, len(results))
-	require.Equal(t, results[1], "second")
-	require.Equal(t, results[2], "third")
-	mu.Unlock()
-
-	handler.Tick(start.Add(4 * time.Second))
-	<-finished
-	mu.Lock()
-	require.Equal(t, 4, len(results))
-	require.Equal(t, results[3], "fourth")
-	mu.Unlock()
+	// Remove then tick again; nothing should run
+	h.RemoveTask(7)
+	h.Tick(start.Add(2 * testRunInterval))
+	waitNoReceive(t, ran)
 }
 
-func TestFindTask(t *testing.T) {
-	// Setup a mock logger
-	l := testutil.MakeLogger(t, 1)
-	nodes := []simplex.NodeID{{1}, {2}}
-	startTime := time.Now()
+// Multiple tasks get batched and delivered together; removing one leaves the rest.
+func TestTimeoutHandler_MultipleTasksBatchAndPersist(t *testing.T) {
+	start := time.Now()
+	log := testutil.MakeLogger(t)
 
-	handler := simplex.NewTimeoutHandler(l, startTime, nodes)
-	defer handler.Close()
+	ran := make(chan []uint64, 2)
+	runner := func(ids []uint64) { ran <- append([]uint64(nil), ids...) }
 
-	// Create some test tasks
-	task1 := &simplex.TimeoutTask{
-		TaskID: "task1",
-		NodeID: nodes[0],
-		Start:  5,
-		End:    10,
+	h := simplex.NewTimeoutHandler(log, testName, start, testRunInterval, runner, lessUint)
+	defer h.Close()
+
+	h.AddTask(1)
+	h.AddTask(2)
+	h.AddTask(3)
+
+	// First run: should see all three (order not guaranteed)
+	h.Tick(start.Add(testRunInterval))
+	got := sorted(waitReceive(t, ran))
+	require.Equal(t, []uint64{1, 2, 3}, got)
+
+	// Remove one; remaining should continue to run on next valid tick
+	h.RemoveTask(2)
+	h.Tick(start.Add(2 * testRunInterval))
+	got = sorted(waitReceive(t, ran))
+	require.Equal(t, []uint64{1, 3}, got)
+}
+
+// Adding the same task twice should not duplicate it in the batch (set semantics).
+func TestTimeoutHandler_AddDuplicateTaskIsIdempotent(t *testing.T) {
+	start := time.Now()
+	log := testutil.MakeLogger(t)
+
+	ran := make(chan []uint64, 1)
+	runner := func(ids []uint64) { ran <- append([]uint64(nil), ids...) }
+
+	h := simplex.NewTimeoutHandler(log, testName, start, testRunInterval, runner, lessUint)
+	defer h.Close()
+
+	h.AddTask(42)
+	h.AddTask(42) // duplicate
+
+	h.Tick(start.Add(testRunInterval))
+	got := sorted(waitReceive(t, ran))
+	require.Equal(t, []uint64{42}, got)
+}
+
+// RemoveOldTasks should drop tasks where shouldRemove(id, cutoff) == true.
+// With lessUint(a,b), that means id < cutoff.
+func TestTimeoutHandler_RemoveOldTasks(t *testing.T) {
+	start := time.Now()
+	log := testutil.MakeLogger(t)
+
+	ran := make(chan []uint64, 2)
+	runner := func(ids []uint64) { ran <- append([]uint64(nil), ids...) }
+
+	h := simplex.NewTimeoutHandler(log, testName, start, testRunInterval, runner, lessUint)
+	defer h.Close()
+
+	for _, id := range []uint64{1, 2, 3, 4, 5} {
+		h.AddTask(id)
 	}
 
-	taskSameRangeDiffNode := &simplex.TimeoutTask{
-		TaskID: "taskSameDiff",
-		NodeID: nodes[1],
-		Start:  5,
-		End:    10,
-	}
+	// Remove everything with id < 3 -> removes 1,2 ; keeps 3,4,5
+	h.RemoveOldTasks(3)
+	h.Tick(start.Add(testRunInterval))
+	got := sorted(waitReceive(t, ran))
+	require.Equal(t, []uint64{3, 4, 5}, got)
 
-	task3 := &simplex.TimeoutTask{
-		TaskID: "task3",
-		NodeID: nodes[1],
-		Start:  25,
-		End:    30,
-	}
+	// Now remove everything with id < 5 -> removes 3,4 ; keeps 5
+	h.RemoveOldTasks(5)
+	h.Tick(start.Add(2 * testRunInterval))
+	got = sorted(waitReceive(t, ran))
+	require.Equal(t, []uint64{5}, got)
+}
 
-	task4 := &simplex.TimeoutTask{
-		TaskID: "task4",
-		NodeID: nodes[1],
-		Start:  31,
-		End:    36,
-	}
+// After Close, the goroutine stops and further ticks should not cause runs.
+func TestTimeoutHandler_CloseStopsRunner(t *testing.T) {
+	start := time.Now()
+	log := testutil.MakeLogger(t)
 
-	// Add tasks to handler
-	handler.AddTask(task1)
-	handler.AddTask(taskSameRangeDiffNode)
-	handler.AddTask(task3)
-	handler.AddTask(task4)
+	ran := make(chan []uint64, 1)
+	runner := func(ids []uint64) { ran <- append([]uint64(nil), ids...) }
 
-	tests := []struct {
-		name     string
-		node     simplex.NodeID
-		seqs     []uint64
-		expected *simplex.TimeoutTask
-	}{
-		{
-			name:     "Find task with sequence in middle of range",
-			node:     nodes[0],
-			seqs:     []uint64{7, 8, 9},
-			expected: task1,
-		},
-		{
-			name:     "Find task with sequence at boundary (inclusive)",
-			node:     nodes[0],
-			seqs:     []uint64{5, 7},
-			expected: task1,
-		},
-		{
-			name:     "Find task with mixed sequences (first valid sequence)",
-			node:     nodes[0],
-			seqs:     []uint64{3, 4, 5, 11},
-			expected: task1, // 5 is in range
-		},
-		{
-			name:     "Same sequences, but different node",
-			node:     nodes[1],
-			seqs:     []uint64{7, 8, 9},
-			expected: taskSameRangeDiffNode,
-		},
-		{
-			name:     "No sequences in range",
-			node:     nodes[0],
-			seqs:     []uint64{1, 2, 3, 4, 11, 12, 13, 14},
-			expected: nil,
-		},
-		{
-			name:     "Span across many tasks",
-			node:     nodes[1],
-			seqs:     []uint64{26, 27, 30, 31, 33},
-			expected: task3,
-		},
-		{
-			name:     "Unknown node",
-			node:     simplex.NodeID("unknown"),
-			seqs:     []uint64{5, 15, 25},
-			expected: nil,
-		},
-		{
-			name:     "Empty sequence list",
-			node:     nodes[1],
-			seqs:     []uint64{},
-			expected: nil,
-		},
-	}
+	h := simplex.NewTimeoutHandler(log, testName, start, testRunInterval, runner, lessUint)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := simplex.FindReplicationTask(handler, tt.node, tt.seqs)
-			if tt.expected != result {
-				require.Fail(t, "not equal")
-			}
-			require.Equal(t, tt.expected, result)
-		})
-	}
+	h.Close()
+	// Calls after Close should be safe and no-ops for scheduling.
+	h.AddTask(9)
+	h.Tick(start.Add(testRunInterval))
+	waitNoReceive(t, ran)
+}
+
+// If ticks come in faster than runInterval, the second "too-soon" tick should
+// not trigger execution (interval gating). This overlaps with RunsOnlyOnInterval,
+// but emphasizes back-to-back ticks.
+func TestTimeoutHandler_BackToBackTicksUnderIntervalDontRun(t *testing.T) {
+	start := time.Now()
+	log := testutil.MakeLogger(t)
+
+	ran := make(chan []uint64, 2)
+	runner := func(ids []uint64) { ran <- append([]uint64(nil), ids...) }
+
+	h := simplex.NewTimeoutHandler(log, testName, start, testRunInterval, runner, lessUint)
+	defer h.Close()
+
+	h.AddTask(100)
+
+	h.Tick(start.Add(testRunInterval)) // should run
+	require.Equal(t, []uint64{100}, sorted(waitReceive(t, ran)))
+	h.Tick(start.Add(testRunInterval + time.Millisecond)) // < interval since lastTickTime -> no run
+	waitNoReceive(t, ran)
+
+	// Next valid interval boundary -> runs again
+	h.Tick(start.Add(2 * testRunInterval))
+	require.Equal(t, []uint64{100}, sorted(waitReceive(t, ran)))
+}
+
+func sorted(v []uint64) []uint64 {
+	sorted := append([]uint64(nil), v...)
+	slices.Sort(sorted)
+	return sorted
 }

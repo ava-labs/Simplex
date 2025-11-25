@@ -5,6 +5,7 @@ package testutil
 
 import (
 	"encoding/asn1"
+	"fmt"
 	"testing"
 	"time"
 
@@ -187,13 +188,15 @@ func WaitForBlockProposerTimeout(t *testing.T, e *simplex.Epoch, startTime *time
 	timeout := time.NewTimer(time.Minute)
 	defer timeout.Stop()
 
+	fmt.Println("checking notarizatin for", startRound, e.ID)
 	for {
 		if e.WAL.(*TestWAL).ContainsEmptyVote(startRound) || e.WAL.(*TestWAL).ContainsEmptyNotarization(startRound) {
 			return
 		}
 
 		// if we are expected to time out for this round, we should not have a notarization
-		require.False(t, e.WAL.(*TestWAL).ContainsNotarization(startRound))
+		// TODO: this line is breaking TestSimplexMultiNodeBlacklist but i do not know why yet
+		require.False(t, e.WAL.(*TestWAL).ContainsNotarization(startRound), fmt.Sprintf("should not have notarized %d for node %s", startRound, e.ID))
 
 		*startTime = startTime.Add(e.EpochConfig.MaxProposalWait / 5)
 		e.AdvanceTime(*startTime)
