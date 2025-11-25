@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"slices"
+	"strings"
 )
 
 var (
@@ -56,23 +57,25 @@ func NewBlacklist(nodeCount uint16) Blacklist {
 }
 
 func (bl *Blacklist) String() string {
-	var buf []byte
-	buf = append(buf, fmt.Sprintf("Blacklist(nodeCount=%d, SuspectedNodes=[", bl.NodeCount)...)
-	for i, sn := range bl.SuspectedNodes {
-		if i > 0 {
-			buf = append(buf, ',')
-		}
-		buf = append(buf, sn.String()...)
+	sn := make([]string, len(bl.SuspectedNodes))
+	for i, n := range bl.SuspectedNodes {
+		sn[i] = n.String()
 	}
-	buf = append(buf, "], updates=["...)
-	for i, u := range bl.Updates {
-		if i > 0 {
-			buf = append(buf, ',')
-		}
-		buf = append(buf, fmt.Sprintf("{type=%d, NodeIndex=%d}", u.Type, u.NodeIndex)...)
+
+	return fmt.Sprintf(
+		"Blacklist(nodeCount=%d, SuspectedNodes=[%s], updates=[%s])",
+		bl.NodeCount,
+		strings.Join(sn, ","),
+		blacklistUpdatesAsString(bl.Updates), // helper receives array
+	)
+}
+
+func blacklistUpdatesAsString(updates []BlacklistUpdate) string {
+	out := make([]string, len(updates))
+	for i, u := range updates {
+		out[i] = u.String()
 	}
-	buf = append(buf, "])"...)
-	return string(buf)
+	return strings.Join(out, ",")
 }
 
 func (bl *Blacklist) Equals(b2 *Blacklist) bool {
