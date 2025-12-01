@@ -128,6 +128,8 @@ func (r *requestor) resendReplicationRequests(missingIds []uint64) {
 	r.requestIterator++
 }
 
+// observedSignedQuorum is called when we observe a signed quorum for a future round/sequence.
+// we do not mix sequences and rounds because we have separate instances of requestor for each.
 func (r *requestor) observedSignedQuorum(observed *signedQuorum, currentSeqOrRound uint64) {
 	observedSeqOrRound := r.getSeqOrRound(observed)
 
