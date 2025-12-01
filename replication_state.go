@@ -41,9 +41,6 @@ type ReplicationState struct {
 	// emptyRoundTimeouts ensures we re-request those empty rounds until they are received.
 	emptyRoundTimeouts *TimeoutHandler[uint64]
 
-	// seqsToDigests stores a mapping of sequences to digests. It is used to remove old Digests from the digest timeout, when we have
-	seqsToDigests map[uint64]Digest
-
 	roundRequestor        *requestor
 	finalizationRequestor *requestor
 }
@@ -63,7 +60,6 @@ func NewReplicationState(logger Logger, comm Communication, myNodeID NodeID, max
 
 		// seq replication
 		seqs:                  make(map[uint64]*finalizedQuorumRound),
-		seqsToDigests:         make(map[uint64]Digest),
 		finalizationRequestor: newRequestor(logger, start, lock, maxRoundWindow, comm, true),
 
 		// round replication
@@ -92,7 +88,7 @@ func (r *ReplicationState) AdvanceTime(now time.Time) {
 func (r *ReplicationState) deleteOldRounds(finalizedRound uint64) {
 	for round := range r.rounds {
 		if round <= finalizedRound {
-			r.logger.Debug("Replication State Deleing Old Round", zap.Uint64("round", round))
+			r.logger.Debug("Replication State Deleting Old Round", zap.Uint64("round", round))
 			delete(r.rounds, round)
 		}
 	}
@@ -111,6 +107,8 @@ func (r *ReplicationState) storeSequence(block Block, finalization *Finalization
 		block:        block,
 		finalization: finalization,
 	}
+
+	r.finalizationRequestor.removeTask(finalization.Finalization.Seq)
 }
 
 // storeRound adds or updates a quorum round in the replication state.
@@ -168,7 +166,7 @@ func (r *ReplicationState) ReceivedFutureFinalization(finalization *Finalization
 		return
 	}
 
-	signedSequence := newSingedQuorumFromFinalization(finalization, r.myNodeID)
+	signedSequence := newSignedQuorumFromFinalization(finalization, r.myNodeID)
 
 	// maybe this finalization was for a round that we initially thought only had notarizations
 	// remove from the round replicator since we now have a finalization for this round
@@ -217,7 +215,6 @@ func (r *ReplicationState) ResendFinalizationRequest(seq uint64, signers []NodeI
 func (r *ReplicationState) CreateDependencyTasks(parent *Digest, parentSeq uint64, emptyRounds []uint64) {
 	if parent != nil {
 		r.digestTimeouts.AddTask(*parent)
-		r.seqsToDigests[parentSeq] = *parent
 	}
 
 	if len(emptyRounds) > 0 {
@@ -227,7 +224,9 @@ func (r *ReplicationState) CreateDependencyTasks(parent *Digest, parentSeq uint6
 	}
 }
 
-func (r *ReplicationState) clearDependencyTasks(parent *Digest) {}
+func (r *ReplicationState) clearDependencyTasks(parent *Digest) {
+	// TODO: for a future PR
+}
 
 // maybeSendFutureRequests attempts to collect future sequences if
 // there are more to be collected and the round has caught up for us to send the request.

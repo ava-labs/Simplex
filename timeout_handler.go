@@ -134,13 +134,13 @@ func (t *TimeoutHandler[T]) RemoveTask(ID T) {
 	delete(t.tasks, ID)
 }
 
-func (t *TimeoutHandler[T]) RemoveOldTasks(cutoff T) {
+// RemoveOldTasks removes all tasks where shouldRemove(id, task) is true.
+func (t *TimeoutHandler[T]) RemoveOldTasks(task T) {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 
 	for id := range t.tasks {
-		// id < cutoff {
-		if t.shouldRemove(id, cutoff) {
+		if t.shouldRemove(id, task) {
 			t.log.Debug("Removing old timeout task", zap.Any("id", id), zap.String("name", t.name))
 			delete(t.tasks, id)
 		}

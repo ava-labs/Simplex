@@ -1,3 +1,6 @@
+// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// See the file LICENSE for licensing terms.
+
 package simplex
 
 import (
@@ -45,7 +48,7 @@ func newSignedQuorum(qr *QuorumRound, myNodeID NodeID) *signedQuorum {
 	}
 }
 
-func newSingedQuorumFromFinalization(finalization *Finalization, nodeID NodeID) *signedQuorum {
+func newSignedQuorumFromFinalization(finalization *Finalization, nodeID NodeID) *signedQuorum {
 	return newSignedQuorum(&QuorumRound{
 		Finalization: finalization,
 	}, nodeID)
@@ -101,9 +104,9 @@ func newRequestor(logger Logger, start time.Time, lock *sync.Mutex, maxRoundWind
 		sender:         sender,
 		replicateSeqs:  replicateSeqs,
 	}
-	name := "seq-th"
+	name := "seq-timeout-handler"
 	if !replicateSeqs {
-		name = "round-th"
+		name = "round-timeout-handler"
 	}
 	r.timeoutHandler = NewTimeoutHandler(logger, name, start, DefaultReplicationRequestTimeout, r.resendReplicationRequests, shouldRemoveFunc[uint64](shouldDelete))
 	return r
@@ -234,8 +237,9 @@ func (r *requestor) getHighestObserved() *signedQuorum {
 	return r.highestObserved
 }
 
-func shouldDelete(seqOrRound, currentSeqOrRound uint64) bool {
-	return seqOrRound < currentSeqOrRound
+// shouldDelete returns true if value <= target
+func shouldDelete(value, target uint64) bool {
+	return value <= target
 }
 
 func (r *requestor) getSeqOrRound(signedQuorum *signedQuorum) uint64 {
@@ -246,9 +250,9 @@ func (r *requestor) getSeqOrRound(signedQuorum *signedQuorum) uint64 {
 	return signedQuorum.round
 }
 
-// removes all tasks <= seqOrRound
+// removes all tasks in the handler that are <= seqOrRound
 func (r *requestor) removeOldTasks(seqOrRound uint64) {
-	r.timeoutHandler.RemoveOldTasks(seqOrRound + 1)
+	r.timeoutHandler.RemoveOldTasks(seqOrRound)
 }
 
 func (r *requestor) removeTask(seqOrRound uint64) {
