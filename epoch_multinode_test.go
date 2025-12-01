@@ -319,7 +319,6 @@ func onlySendBlockProposalsAndVotes(splitNodes []simplex.NodeID) testutil.Messag
 // TestSplitVotes ensures that nodes who have timeout out, while the rest of the network has
 // progressed due to notarizations, are able to collect the notarizations and continue
 func TestSplitVotes(t *testing.T) {
-	for range 100 {
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
 	net := testutil.NewInMemNetwork(t, nodes)
 
@@ -353,7 +352,7 @@ func TestSplitVotes(t *testing.T) {
 
 	// allow outstanding messages to be dropped
 	time.Sleep(100 * time.Millisecond)
-	
+
 	net.SetAllNodesMessageFilter(testutil.AllowAllMessages)
 
 	time2 := splitNode2.E.StartTime
@@ -391,7 +390,6 @@ func TestSplitVotes(t *testing.T) {
 		require.Equal(t, uint64(2), n.E.Metadata().Round)
 		require.Equal(t, uint64(2), n.E.Metadata().Seq)
 	}
-}
 }
 
 // denyFinalizationMessages blocks any messages that would cause nodes in
