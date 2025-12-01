@@ -5,7 +5,6 @@ package simplex
 
 import (
 	"math"
-	"slices"
 	"sync"
 	"time"
 
@@ -122,14 +121,9 @@ func (r *requestor) resendReplicationRequests(missingIds []uint64) {
 	r.epochLock.Lock()
 	defer r.epochLock.Unlock()
 
-	nodes := r.highestObserved.signers
-	numNodes := len(nodes)
-	slices.Sort(missingIds)
 	segments := CompressSequences(missingIds)
-	for i, seqsOrRounds := range segments {
-		index := (i + r.requestIterator) % numNodes
-		r.sendRequestToNode(seqsOrRounds.Start, seqsOrRounds.End, nodes[index])
-	}
+
+	r.sendSegments(segments)
 
 	r.requestIterator++
 }
@@ -166,15 +160,20 @@ func (r *requestor) sendReplicationRequests(start uint64, end uint64) {
 	numNodes := len(nodes)
 
 	seqRequests := DistributeSequenceRequests(start, end, numNodes)
-
 	r.logger.Debug("Distributing replication requests", zap.Uint64("start", start), zap.Uint64("end", end), zap.Stringer("nodes", NodeIDs(nodes)))
-	for i, seqsOrRounds := range seqRequests {
-		index := (i + r.requestIterator) % numNodes
-		r.sendRequestToNode(seqsOrRounds.Start, seqsOrRounds.End, r.highestObserved.signers[index])
-	}
+
+	r.sendSegments(seqRequests)
 
 	// next time we send requests, we start with a different permutation
 	r.requestIterator++
+}
+
+func (r *requestor) sendSegments(segments []Segment) {
+	numNodes := len(r.highestObserved.signers)
+	for i, seqsOrRounds := range segments {
+		index := (i + r.requestIterator) % numNodes
+		r.sendRequestToNode(seqsOrRounds.Start, seqsOrRounds.End, r.highestObserved.signers[index])
+	}
 }
 
 // sendRequestToNode requests [start, end] from nodes[index].

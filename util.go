@@ -6,6 +6,7 @@ package simplex
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -194,10 +195,11 @@ type Segment struct {
 	End   uint64
 }
 
-// compressSequences takes a sorted slice of uint64 values representing
+// compressSequences takes a slice of uint64 values representing
 // missing sequence numbers and compresses consecutive numbers into segments.
 // Each segment represents a continuous block of missing sequence numbers.
 func CompressSequences(missingSeqs []uint64) []Segment {
+	slices.Sort(missingSeqs)
 	var segments []Segment
 
 	if len(missingSeqs) == 0 {
