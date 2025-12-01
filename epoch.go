@@ -790,7 +790,6 @@ func (e *Epoch) sendHighestRound(to NodeID) {
 	}
 }
 
-// send notarization or finalization for this round as well
 func (e *Epoch) maybeSendNotarizationOrFinalization(to NodeID, round uint64) {
 	r, ok := e.rounds[round]
 
@@ -804,6 +803,7 @@ func (e *Epoch) maybeSendNotarizationOrFinalization(to NodeID, round uint64) {
 			e.Logger.Debug("Node appears behind, sending them an empty notarization", zap.Stringer("to", to), zap.Uint64("round", round))
 			e.Comm.Send(msg, to)
 		}
+
 		return
 	}
 
@@ -1744,22 +1744,6 @@ func (e *Epoch) processNotarizedBlock(block Block, notarization *Notarization) e
 			e.Logger.Warn("Failed to persist notarization", zap.Error(err))
 			e.haltedError = err
 			return nil
-		}
-
-		// if we haven't timed out on the round, send a finalized vote message
-		emptyVoteSet, exists := e.emptyVotes[md.Round]
-		if !exists || (exists && !emptyVoteSet.timedOut) {
-			finalizeVote, finalizeVoteMsg, err := e.constructFinalizeVoteMessage(md)
-			if err != nil {
-				e.Logger.Warn("Failed to construct finalize vote message", zap.Error(err))
-				return err
-			}
-			e.Comm.Broadcast(finalizeVoteMsg)
-
-			if err := e.handleFinalizeVoteMessage(&finalizeVote, e.ID); err != nil {
-				e.Logger.Warn("Failed to handle finalize vote message", zap.Error(err))
-				return err
-			}
 		}
 
 		return e.processReplicationState()
