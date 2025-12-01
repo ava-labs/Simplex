@@ -195,8 +195,8 @@ func TestSimplexMultiNodeBlacklist(t *testing.T) {
 		}, blacklist)
 	}
 
+	// Reconnect the fourth node but don't let it un-blacklist itself prematurely.
 	net.SetNodeMessageFilter(nodes[3], dontVoteFilter)
-	// Reconnect the fourth node.
 	net.Connect(nodes[3])
 
 	// Build another block, ensure the blacklist contains the fourth node as blacklisted.
@@ -235,6 +235,7 @@ func TestSimplexMultiNodeBlacklist(t *testing.T) {
 	// Disconnect the third node to force messages from the fourth node to be taken into account.
 	net.Disconnect(nodes[2])
 	net.SetNodeMessageFilter(nodes[3], testutil.AllowAllMessages)
+
 	// Make two blocks.
 	allButThirdNode := []*testutil.TestNode{net.Instances[0], net.Instances[1], net.Instances[3]}
 	for i := 0; i < 2; i++ {

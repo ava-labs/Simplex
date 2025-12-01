@@ -91,7 +91,6 @@ type Epoch struct {
 	blockBuilderCancelFunc         context.CancelFunc
 	nodes                          NodeIDs
 	eligibleNodeIDs                map[string]struct{}
-	quorumSize                     int
 	rounds                         map[uint64]*Round
 	emptyVotes                     map[uint64]*EmptyVoteSet
 	oldestNotFinalizedNotarization NotarizationTime
@@ -189,7 +188,6 @@ func (e *Epoch) init() error {
 	SortNodes(e.nodes)
 	e.timedOutRounds = make(map[uint16]uint64, len(e.nodes))
 	e.redeemedRounds = make(map[uint16]uint64, len(e.nodes))
-	e.quorumSize = Quorum(len(e.nodes))
 	e.rounds = make(map[uint64]*Round)
 	e.maxRoundWindow = DefaultMaxRoundWindow
 	e.emptyVotes = make(map[uint64]*EmptyVoteSet)
@@ -575,7 +573,7 @@ func (e *Epoch) handleFinalizationMessage(message *Finalization, from NodeID) er
 		return nil
 	}
 
-	if err := VerifyQC(message.QC, e.Logger, "Finalization", e.quorumSize, e.eligibleNodeIDs, message, from); err != nil {
+	if err := VerifyQC(message.QC, e.Logger, "Finalization", e.SignatureAggregator.IsQuorum, e.eligibleNodeIDs, message, from); err != nil {
 		e.Logger.Debug("Received an invalid finalization",
 			zap.Int("round", int(message.Finalization.Round)),
 			zap.Stringer("NodeID", from))
@@ -976,13 +974,6 @@ func (e *Epoch) isVoteRoundValid(round uint64) bool {
 }
 
 func (e *Epoch) maybeCollectFinalization(round *Round) error {
-	finalizationCount := len(round.finalizeVotes)
-
-	if finalizationCount < e.quorumSize {
-		e.Logger.Verbo("Counting finalize votes", zap.Uint64("round", round.num), zap.Uint64("out round", e.round), zap.Int("votes", finalizationCount))
-		return nil
-	}
-
 	// Divide finalizations into sets that agree on the same metadata
 	finalizationsByMD := make(map[string][]*FinalizeVote)
 
@@ -994,7 +985,7 @@ func (e *Epoch) maybeCollectFinalization(round *Round) error {
 	var finalizations []*FinalizeVote
 
 	for _, finalizationsWithTheSameDigest := range finalizationsByMD {
-		if len(finalizationsWithTheSameDigest) >= e.quorumSize {
+		if e.SignatureAggregator.IsQuorum(NodeIDsFromVotes(finalizationsWithTheSameDigest)) {
 			finalizations = finalizationsWithTheSameDigest
 			break
 		}
@@ -1221,8 +1212,7 @@ func (e *Epoch) maybeAssembleEmptyNotarization() error {
 	}
 
 	// Check if we found a quorum of votes for the same metadata
-	quorumSize := e.quorumSize
-	popularEmptyVote, signatures, found := findMostPopularEmptyVote(emptyVotes.votes, quorumSize)
+	popularEmptyVote, signatures, found := findEmptyVoteThatIsQuorum(emptyVotes.votes, e.SignatureAggregator.IsQuorum)
 	if !found {
 		e.Logger.Debug("Could not find empty vote with a quorum or more votes", zap.Uint64("round", e.round))
 		return nil
@@ -1242,32 +1232,20 @@ func (e *Epoch) maybeAssembleEmptyNotarization() error {
 	return e.persistEmptyNotarization(emptyVotes, true)
 }
 
-func findMostPopularEmptyVote(votes map[string]*EmptyVote, quorumSize int) (ToBeSignedEmptyVote, []Signature, bool) {
+func findEmptyVoteThatIsQuorum(votes map[string]*EmptyVote, isQuorum func([]NodeID) bool) (ToBeSignedEmptyVote, []Signature, bool) {
 	votesByBytes := make(map[string][]*EmptyVote)
 	for _, vote := range votes {
 		key := string(vote.Vote.Bytes())
 		votesByBytes[key] = append(votesByBytes[key], vote)
 	}
 
-	var popularEmptyVotes []*EmptyVote
-
 	for _, votes := range votesByBytes {
-		if len(votes) >= quorumSize {
-			popularEmptyVotes = votes
-			break
+		if len(votes) > 0 && isQuorum(NodeIDsFromVotes(votes)) {
+			return votes[0].Vote, emptyVotesToSignatures(votes), true
 		}
 	}
 
-	if len(popularEmptyVotes) == 0 {
-		return ToBeSignedEmptyVote{}, nil, false
-	}
-
-	sigs := make([]Signature, 0, len(popularEmptyVotes))
-	for _, vote := range popularEmptyVotes {
-		sigs = append(sigs, vote.Signature)
-	}
-
-	return popularEmptyVotes[0].Vote, sigs, true
+	return ToBeSignedEmptyVote{}, nil, false
 }
 
 func (e *Epoch) persistEmptyNotarization(emptyVotes *EmptyVoteSet, shouldBroadcast bool) error {
@@ -1335,33 +1313,23 @@ func (e *Epoch) maybeCollectNotarization() error {
 	votesForCurrentRound := e.rounds[e.round].votes
 	voteCount := len(votesForCurrentRound)
 
-	if voteCount < e.quorumSize {
-		from := make([]NodeID, 0, voteCount)
-		for _, vote := range votesForCurrentRound {
-			from = append(from, vote.Signature.Signer)
-		}
-		e.Logger.Verbo("Counting votes", zap.Uint64("round", e.round),
-			zap.Int("votes", voteCount), zap.String("from", fmt.Sprintf("%s", from)))
-		return nil
-	}
-
 	block := e.rounds[e.round].block
 	md := block.BlockHeader()
 
+	votesForOurBlock := make([]*Vote, 0, voteCount)
+
 	// Ensure we have enough votes for the same block header.
-	var voteCountForOurBlock int
 	for _, vote := range votesForCurrentRound {
 		if md.Equals(&vote.Vote.BlockHeader) {
-			voteCountForOurBlock++
+			votesForOurBlock = append(votesForOurBlock, vote)
 		}
 	}
 
-	if voteCountForOurBlock < e.quorumSize {
-		e.Logger.Debug("Counting votes for the block we received from the leader",
+	if !e.SignatureAggregator.IsQuorum(NodeIDsFromVotes(votesForOurBlock)) {
+		e.Logger.Debug("Not enough votes to form a notarization for our block",
 			zap.Uint64("round", e.round),
-			zap.Int("voteForOurBlock", voteCountForOurBlock),
+			zap.Int("voteForOurBlock", len(votesForOurBlock)),
 			zap.Int("total votes", voteCount))
-
 		return nil
 	}
 
@@ -1449,7 +1417,8 @@ func (e *Epoch) handleEmptyNotarizationMessage(emptyNotarization *EmptyNotarizat
 		return nil
 	}
 
-	if err := VerifyQC(emptyNotarization.QC, e.Logger, "Empty notarization", e.quorumSize, e.eligibleNodeIDs, emptyNotarization, from); err != nil {
+	// Otherwise, this round is not notarized or finalized yet, so verify the empty notarization and store it.
+	if err := VerifyQC(emptyNotarization.QC, e.Logger, "Empty notarization", e.SignatureAggregator.IsQuorum, e.eligibleNodeIDs, emptyNotarization, from); err != nil {
 		return nil
 	}
 
@@ -1505,7 +1474,7 @@ func (e *Epoch) handleNotarizationMessage(message *Notarization, from NodeID) er
 		return nil
 	}
 
-	if err := VerifyQC(message.QC, e.Logger, "Notarization", e.quorumSize, e.eligibleNodeIDs, message, from); err != nil {
+	if err := VerifyQC(message.QC, e.Logger, "Notarization", e.SignatureAggregator.IsQuorum, e.eligibleNodeIDs, message, from); err != nil {
 		return nil
 	}
 
@@ -2186,14 +2155,9 @@ func (e *Epoch) buildBlock() {
 	// 3) Apply the updates to the blacklist.
 	nextBlacklist := prevBlacklist.ApplyUpdates(updates, metadata.Round)
 
-	updateStrs := make([]string, len(updates))
-	for i, update := range updates {
-		updateStrs[i] = update.String()
-	}
-
 	e.Logger.Debug("Blacklist updated",
 		zap.Uint64("round", metadata.Round),
-		zap.Strings("Update", updateStrs),
+		zap.String("Update", blacklistUpdatesAsString(updates)),
 		zap.Stringer("prev", &prevBlacklist), zap.Stringer("next", &nextBlacklist))
 
 	buildTheBlock := e.createBlockBuildingTask(metadata, nextBlacklist)
@@ -2991,20 +2955,20 @@ func (e *Epoch) verifyQuorumRound(q QuorumRound, from NodeID) error {
 
 	if q.Finalization != nil {
 		// extra check needed if we have a finalized block
-		err := VerifyQC(q.Finalization.QC, e.Logger, "Finalization", e.quorumSize, e.eligibleNodeIDs, q.Finalization, from)
+		err := VerifyQC(q.Finalization.QC, e.Logger, "Finalization", e.SignatureAggregator.IsQuorum, e.eligibleNodeIDs, q.Finalization, from)
 		if err != nil {
 			return errors.New("invalid finalization")
 		}
 	}
 
 	if q.Notarization != nil {
-		if err := VerifyQC(q.Notarization.QC, e.Logger, "Notarization", e.quorumSize, e.eligibleNodeIDs, q.Notarization, from); err != nil {
+		if err := VerifyQC(q.Notarization.QC, e.Logger, "Notarization", e.SignatureAggregator.IsQuorum, e.eligibleNodeIDs, q.Notarization, from); err != nil {
 			return fmt.Errorf("invalid notarization: %v", err)
 		}
 	}
 
 	if q.EmptyNotarization != nil {
-		err := VerifyQC(q.EmptyNotarization.QC, e.Logger, "Empty notarization", e.quorumSize, e.eligibleNodeIDs, q.EmptyNotarization, from)
+		err := VerifyQC(q.EmptyNotarization.QC, e.Logger, "Empty notarization", e.SignatureAggregator.IsQuorum, e.eligibleNodeIDs, q.EmptyNotarization, from)
 		if err != nil {
 			return fmt.Errorf("invalid empty notarization QC: %v", err)
 		}

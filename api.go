@@ -128,4 +128,9 @@ type QCDeserializer interface {
 type SignatureAggregator interface {
 	// Aggregate aggregates several signatures into a QuorumCertificate
 	Aggregate([]Signature) (QuorumCertificate, error)
+
+	// IsQuorum returns true if the given signers constitute a quorum.
+	// In the case of PoA, this means at least a quorum of the nodes are given.
+	// In the case of PoS, this means at least two thirds of the st.
+	IsQuorum([]NodeID) bool
 }

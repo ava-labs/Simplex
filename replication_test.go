@@ -909,7 +909,7 @@ func createBlocks(t *testing.T, nodes []simplex.NodeID, seqCount uint64) []simpl
 		block, ok := bb.BuildBlock(ctx, protocolMetadata, emptyBlacklist)
 		require.True(t, ok)
 		prev = block.BlockHeader().Digest
-		finalization, _ := NewFinalizationRecord(t, logger, &TestSignatureAggregator{}, block, nodes)
+		finalization, _ := NewFinalizationRecord(t, logger, &TestSignatureAggregator{N: len(nodes)}, block, nodes)
 		data = append(data, simplex.VerifiedFinalizedBlock{
 			VerifiedBlock: block,
 			Finalization:  finalization,

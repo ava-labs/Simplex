@@ -82,7 +82,7 @@ func TestVerifyQC(t *testing.T) {
 		eligibleSigners[string(n)] = struct{}{}
 	}
 	quorumSize := Quorum(len(nodes))
-	signatureAggregator := &testutil.TestSignatureAggregator{}
+	signatureAggregator := &testutil.TestSignatureAggregator{N: len(nodes)}
 	// Test
 	tests := []struct {
 		name         string
@@ -107,7 +107,7 @@ func TestVerifyQC(t *testing.T) {
 				return finalization
 			}(),
 			quorumSize:  quorumSize,
-			expectedErr: fmt.Errorf("finalization certificate signed by insufficient (3 < 4) nodes"),
+			expectedErr: fmt.Errorf("finalization certificate signed by insufficient (3) nodes"),
 		},
 		{
 			name: "signer signed twice",
@@ -151,11 +151,14 @@ func TestVerifyQC(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			isQuorum := func(signers []NodeID) bool {
+				return len(signers) >= tt.quorumSize
+			}
 			if tt.msgInvalid {
-				err := VerifyQC(tt.finalization.QC, l, "Finalization", tt.quorumSize, eligibleSigners, &unverifiableQC{}, nil)
+				err := VerifyQC(tt.finalization.QC, l, "Finalization", isQuorum, eligibleSigners, &unverifiableQC{}, nil)
 				require.EqualError(t, err, tt.expectedErr.Error())
 			} else {
-				err := VerifyQC(tt.finalization.QC, l, "Finalization", tt.quorumSize, eligibleSigners, &tt.finalization, nil)
+				err := VerifyQC(tt.finalization.QC, l, "Finalization", isQuorum, eligibleSigners, &tt.finalization, nil)
 				if tt.expectedErr != nil {
 					require.EqualError(t, err, tt.expectedErr.Error())
 				} else {
@@ -170,7 +173,7 @@ func TestGetHighestQuorumRound(t *testing.T) {
 	// Test
 	nodes := []NodeID{{1}, {2}, {3}, {4}, {5}}
 	l := testutil.MakeLogger(t, 0)
-	signatureAggregator := &testutil.TestSignatureAggregator{}
+	signatureAggregator := &testutil.TestSignatureAggregator{N: len(nodes)}
 
 	// seq 1
 	block1 := testutil.NewTestBlock(ProtocolMetadata{
@@ -466,4 +469,17 @@ func TestNotarizationTime(t *testing.T) {
 	now = now.Add(defaultFinalizeVoteRebroadcastTimeout)
 	nt.CheckForNotFinalizedNotarizedBlocks(now)
 	require.Equal(t, 2, invoked)
+}
+
+func TestNodeIDsFromVotes(t *testing.T) {
+	nodes := []NodeID{{1}, {2}, {3}, {4}, {5}}
+	votes := make([]*Vote, len(nodes))
+	for i, n := range nodes {
+		votes[i] = &Vote{Signature: Signature{Signer: n}}
+	}
+
+	result := NodeIDsFromVotes(votes)
+	require.Equal(t, nodes[1:4], result[1:4])
+	require.Equal(t, nodes[:1], result[:1])
+	require.Equal(t, nodes, result)
 }

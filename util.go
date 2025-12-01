@@ -45,7 +45,7 @@ func hasSomeNodeSignedTwice(nodeIDs []NodeID, logger Logger) (NodeID, bool) {
 	return NodeID{}, false
 }
 
-func VerifyQC(qc QuorumCertificate, logger Logger, messageType string, quorumSize int, eligibleSigners map[string]struct{}, messageToVerify verifiableMessage, from NodeID) error {
+func VerifyQC(qc QuorumCertificate, logger Logger, messageType string, isQuorum func(signers []NodeID) bool, eligibleSigners map[string]struct{}, messageToVerify verifiableMessage, from NodeID) error {
 	if qc == nil {
 		logger.Debug("Received nil QuorumCertificate")
 		return fmt.Errorf("nil QuorumCertificate")
@@ -59,11 +59,10 @@ func VerifyQC(qc QuorumCertificate, logger Logger, messageType string, quorumSiz
 	}
 
 	// Check enough signers signed the QuorumCertificate
-	if quorumSize > len(qc.Signers()) {
+	if !isQuorum(qc.Signers()) {
 		logger.Debug(fmt.Sprintf("%s certificate signed by insufficient nodes", messageType),
-			zap.Int("count", len(qc.Signers())),
-			zap.Int("Quorum", quorumSize))
-		return fmt.Errorf("%s certificate signed by insufficient (%d < %d) nodes", msgTypeLowerCase, len(qc.Signers()), quorumSize)
+			zap.Int("count", len(qc.Signers())))
+		return fmt.Errorf("%s certificate signed by insufficient (%d) nodes", msgTypeLowerCase, len(qc.Signers()))
 	}
 
 	// Check QuorumCertificate was signed by only eligible nodes
@@ -332,4 +331,24 @@ func (nt *NotarizationTime) CheckForNotFinalizedNotarizedBlocks(now time.Time) {
 		nt.rebroadcastFinalizationVotes()
 		nt.lastRebroadcastTime = now
 	}
+}
+
+type voteSigner interface {
+	Signer() NodeID
+}
+
+func NodeIDsFromVotes[VS voteSigner](votes []VS) []NodeID {
+	nodeIDs := make([]NodeID, 0, len(votes))
+	for _, vote := range votes {
+		nodeIDs = append(nodeIDs, vote.Signer())
+	}
+	return nodeIDs
+}
+
+func emptyVotesToSignatures(votes []*EmptyVote) []Signature {
+	sigs := make([]Signature, 0, len(votes))
+	for _, vote := range votes {
+		sigs = append(sigs, vote.Signature)
+	}
+	return sigs
 }

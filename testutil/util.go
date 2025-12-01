@@ -30,7 +30,7 @@ func DefaultTestNodeEpochConfig(t *testing.T, nodeID simplex.NodeID, comm simple
 		Verifier:                   &testVerifier{},
 		Storage:                    storage,
 		BlockBuilder:               bb,
-		SignatureAggregator:        &TestSignatureAggregator{},
+		SignatureAggregator:        &TestSignatureAggregator{N: len(comm.Nodes())},
 		BlockDeserializer:          &BlockDeserializer{},
 		QCDeserializer:             &testQCDeserializer{t: t},
 		StartTime:                  time.Now(),
@@ -119,11 +119,24 @@ func (t *testQCDeserializer) DeserializeQuorumCertificate(bytes []byte) (simplex
 }
 
 type TestSignatureAggregator struct {
-	Err error
+	Err          error
+	N            int
+	IsQuorumFunc func(signatures []simplex.NodeID) bool
 }
 
 func (t *TestSignatureAggregator) Aggregate(signatures []simplex.Signature) (simplex.QuorumCertificate, error) {
 	return TestQC(signatures), t.Err
+}
+
+func (t *TestSignatureAggregator) IsQuorum(signers []simplex.NodeID) bool {
+	if t.IsQuorumFunc != nil {
+		return t.IsQuorumFunc(signers)
+	}
+	if t.N == 0 {
+		panic("uninitialized TestSignatureAggregator")
+	}
+
+	return len(signers) >= simplex.Quorum(t.N)
 }
 
 type TestQC []simplex.Signature
