@@ -132,7 +132,7 @@ func (r *ReplicationState) storeRound(qr *QuorumRound) {
 }
 
 // StoreQuorumRound stores the quorum round into the replication state.
-func (r *ReplicationState) StoreQuorumRound(round *QuorumRound, from NodeID) {
+func (r *ReplicationState) StoreQuorumRound(round *QuorumRound) {
 	if !r.enabled {
 		return
 	}
@@ -197,6 +197,7 @@ func (r *ReplicationState) ResendFinalizationRequest(seq uint64, signers []NodeI
 		return nil
 	}
 
+	signers = NodeIDs(signers).Remove(r.myNodeID)
 	numSigners := int64(len(signers))
 	index, err := rand.Int(rand.Reader, big.NewInt(numSigners))
 	if err != nil {
@@ -212,6 +213,7 @@ func (r *ReplicationState) ResendFinalizationRequest(seq uint64, signers []NodeI
 
 // CreateDependencyTasks creates tasks to refetch the given parent digest and empty rounds. If there are no
 // dependencies, no tasks are created.
+// TODO: in a future PR, these requests will be sent as specific digest requests.
 func (r *ReplicationState) CreateDependencyTasks(parent *Digest, parentSeq uint64, emptyRounds []uint64) {
 	if parent != nil {
 		r.digestTimeouts.AddTask(*parent)

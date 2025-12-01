@@ -3014,7 +3014,7 @@ func (e *Epoch) processQuorumRound(round *QuorumRound, from NodeID) error {
 		return fmt.Errorf("failed verifying latest round: %w", err)
 	}
 
-	e.replicationState.StoreQuorumRound(round, from)
+	e.replicationState.StoreQuorumRound(round)
 	return nil
 }
 
