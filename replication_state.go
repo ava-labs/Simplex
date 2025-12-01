@@ -108,12 +108,17 @@ func (r *ReplicationState) storeSequence(block Block, finalization *Finalization
 	}
 
 	r.finalizationRequestor.removeTask(finalization.Finalization.Seq)
+	r.digestTimeouts.RemoveTask(block.BlockHeader().Digest)
 }
 
 // storeRound adds or updates a quorum round in the replication state.
 // If the round already exists, it merges any missing notarizations or empty notarizations
 // from the provided quorum round. Otherwise, it stores the new round as is.
 func (r *ReplicationState) storeRound(qr *QuorumRound) {
+	if qr.Block != nil {
+		r.digestTimeouts.RemoveTask(qr.Block.BlockHeader().Digest)
+	}
+
 	existing, exists := r.rounds[qr.GetRound()]
 	if !exists {
 		r.rounds[qr.GetRound()] = qr
@@ -172,7 +177,7 @@ func (r *ReplicationState) ReceivedFutureFinalization(finalization *Finalization
 	r.deleteOldRounds(finalization.Finalization.BlockHeader.Round)
 
 	// potentially send out requests for blocks/finalizations in between
-	r.finalizationRequestor.maybeSendMoreReplicationRequests(signedSequence, nextSeqToCommit)
+	r.finalizationRequestor.observedSignedQuorum(signedSequence, nextSeqToCommit)
 }
 
 // receivedFutureRound notifies the replication state of a future round.
@@ -187,7 +192,7 @@ func (r *ReplicationState) ReceivedFutureRound(round, seq, currentRound uint64, 
 	}
 
 	sq := newSignedQuorumFromRound(round, seq, signers, r.myNodeID)
-	r.roundRequestor.maybeSendMoreReplicationRequests(sq, currentRound)
+	r.roundRequestor.observedSignedQuorum(sq, currentRound)
 }
 
 // ResendFinalizationRequest notifies the replication state that `seq` should be re-requested.

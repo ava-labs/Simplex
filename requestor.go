@@ -128,9 +128,7 @@ func (r *requestor) resendReplicationRequests(missingIds []uint64) {
 	r.requestIterator++
 }
 
-// maybeSendMoreReplicationRequests checks if we need to send more replication requests given an observed quorum.
-// it limits the amount of outstanding requests to be at most [maxRoundWindow] ahead of [currentSeqOrRound].
-func (r *requestor) maybeSendMoreReplicationRequests(observed *signedQuorum, currentSeqOrRound uint64) {
+func (r *requestor) observedSignedQuorum(observed *signedQuorum, currentSeqOrRound uint64) {
 	observedSeqOrRound := r.getSeqOrRound(observed)
 
 	// we've observed something we've already requested
@@ -144,6 +142,12 @@ func (r *requestor) maybeSendMoreReplicationRequests(observed *signedQuorum, cur
 		r.highestObserved = observed
 	}
 
+	r.sendMoreReplicationRequests(observedSeqOrRound, currentSeqOrRound)
+}
+
+// maybeSendMoreReplicationRequests checks if we need to send more replication requests given an observed quorum.
+// it limits the amount of outstanding requests to be at most [maxRoundWindow] ahead of [currentSeqOrRound].
+func (r *requestor) sendMoreReplicationRequests(observedSeqOrRound, currentSeqOrRound uint64) {
 	start := math.Max(float64(currentSeqOrRound), float64(r.highestRequested))
 	// we limit the number of outstanding requests to be at most maxRoundWindow ahead of nextSeqToCommit
 	end := math.Min(float64(observedSeqOrRound), float64(r.maxRoundWindow+currentSeqOrRound))
@@ -228,7 +232,7 @@ func (r *requestor) receivedSignedQuorum(signedQuorum *signedQuorum) {
 func (r *requestor) updateState(currentRoundOrNextSeq uint64) {
 	// we send out more requests once our seq has caught up to 1/2 of the maxRoundWindow
 	if currentRoundOrNextSeq+r.maxRoundWindow/2 > r.highestRequested && r.highestObserved != nil {
-		r.maybeSendMoreReplicationRequests(r.highestObserved, currentRoundOrNextSeq)
+		r.observedSignedQuorum(r.highestObserved, currentRoundOrNextSeq)
 	}
 }
 
