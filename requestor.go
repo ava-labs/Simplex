@@ -21,7 +21,7 @@ type signedQuorum struct {
 }
 
 func newSignedQuorum(qr *QuorumRound, myNodeID NodeID) *signedQuorum {
-	// it's possible our node has signed this ss.
+	// it's possible our node has signed this quorum.
 	// For example this may happen if our node has sent a finalized vote
 	// for this round and has not received the
 	// finalization from the network.

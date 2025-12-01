@@ -2997,14 +2997,19 @@ func (e *Epoch) processQuorumRound(round *QuorumRound, from NodeID) error {
 		return nil
 	}
 
-	// make sure the latest round is well formed
+	// make sure the round is well formed
 	if err := round.IsWellFormed(); err != nil {
 		return fmt.Errorf("received malformed latest round: %w", err)
 	}
 
 	if round.Finalization == nil && e.isVoteForFinalizedRound(round.GetRound()) {
-		return fmt.Errorf("received a quorum round for a too far behind. round: %d; seq: %d", round.GetRound(), round.GetSequence())
+		return fmt.Errorf("received a quorum round for a round that has been finalized. round: %d; seq: %d", round.GetRound(), round.GetSequence())
 	}
+
+	if round.Finalization != nil && e.lastBlock != nil && e.lastBlock.VerifiedBlock.BlockHeader().Seq > round.Finalization.Finalization.Seq {
+		return fmt.Errorf("received a finalized round for a committed sequence. round: %d; seq: %d", round.GetRound(), round.GetSequence())
+	}
+
 	if err := e.verifyQuorumRound(*round, from); err != nil {
 		return fmt.Errorf("failed verifying latest round: %w", err)
 	}
