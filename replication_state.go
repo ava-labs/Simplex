@@ -5,7 +5,6 @@ package simplex
 
 import (
 	"crypto/rand"
-	"fmt"
 	"math/big"
 	"sync"
 	"time"
@@ -23,7 +22,7 @@ type ReplicationState struct {
 	logger   Logger
 	myNodeID NodeID
 
-	// receivedFinalizations maps sequences to a block and its associated finalization
+	// seqs maps sequences to a block and its associated finalization
 	seqs map[uint64]*finalizedQuorumRound
 
 	// rounds maps round numbers to QuorumRounds
@@ -259,7 +258,6 @@ func (r *ReplicationState) GetLowestRound() *QuorumRound {
 	var lowestRound *QuorumRound
 
 	for round, qr := range r.rounds {
-		fmt.Println("round", round)
 		if lowestRound == nil {
 			lowestRound = qr
 			continue
