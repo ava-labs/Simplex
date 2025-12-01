@@ -1944,21 +1944,6 @@ func (e *Epoch) createNotarizedBlockVerificationTask(block Block, notarization N
 			return md.Digest
 		}
 
-		// create finalized votes for notarizations we process during replication
-		finalizeVote, finalizeVoteMsg, err := e.constructFinalizeVoteMessage(md)
-		if err != nil {
-			e.haltedError = err
-			e.Logger.Error("Failed to construct finalize vote message", zap.Error(err))
-			return md.Digest
-		}
-		e.Comm.Broadcast(finalizeVoteMsg)
-
-		if err := e.handleFinalizeVoteMessage(&finalizeVote, e.ID); err != nil {
-			e.haltedError = err
-			e.Logger.Error("Failed to handle finalize vote message", zap.Error(err))
-			return md.Digest
-		}
-
 		err = e.processReplicationState()
 		if err != nil {
 			e.haltedError = err
