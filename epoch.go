@@ -597,7 +597,7 @@ func (e *Epoch) handleFinalizationMessage(message *Finalization, from NodeID) er
 }
 
 func (e *Epoch) handleFinalizationForPendingOrFutureRound(message *Finalization, round uint64, nextSeqToCommit uint64) {
-	if round <= e.round {
+	if round == e.round {
 		// delay collecting future finalization if we are verifying the proposal for that round
 		// and the finalization is for rounds we have
 		for _, msgs := range e.futureMessages {
