@@ -2724,6 +2724,15 @@ func (e *Epoch) handleReplicationRequest(req *ReplicationRequest, from NodeID) e
 	}
 	response := &VerifiedReplicationResponse{}
 
+	if len(req.Seqs) > int(e.maxRoundWindow) && len(req.Rounds) > int(e.maxRoundWindow) {
+		e.Logger.Info("Replication request exceeds maximum allowed seqs and rounds",
+			zap.Stringer("from", from),
+			zap.Int("num seqs", len(req.Seqs)),
+			zap.Int("num rounds", len(req.Rounds)),
+			zap.Uint64("max round window", e.maxRoundWindow))
+		return nil
+	}
+
 	if req.LatestRound > 0 {
 		latestRound := e.getLatestVerifiedQuorumRound()
 		if latestRound != nil && latestRound.GetRound() > req.LatestRound {

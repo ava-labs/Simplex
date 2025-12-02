@@ -51,7 +51,7 @@ func TestTimeoutHandlerRunsOnlyOnInterval(t *testing.T) {
 		ran <- cp
 	}
 
-	h := simplex.NewTimeoutHandler(log, testName, start, testRunInterval, runner, lessUint)
+	h := simplex.NewTimeoutHandler(log, testName, start, testRunInterval, runner)
 	defer h.Close()
 
 	h.AddTask(1)
@@ -84,7 +84,7 @@ func TestTimeoutHandler_AddThenRemoveTask(t *testing.T) {
 	ran := make(chan []uint64, 2)
 	runner := func(ids []uint64) { ran <- append([]uint64(nil), ids...) }
 
-	h := simplex.NewTimeoutHandler(log, testName, start, testRunInterval, runner, lessUint)
+	h := simplex.NewTimeoutHandler(log, testName, start, testRunInterval, runner)
 	defer h.Close()
 
 	h.AddTask(7)
@@ -105,7 +105,7 @@ func TestTimeoutHandler_MultipleTasksBatchAndPersist(t *testing.T) {
 	ran := make(chan []uint64, 2)
 	runner := func(ids []uint64) { ran <- append([]uint64(nil), ids...) }
 
-	h := simplex.NewTimeoutHandler(log, testName, start, testRunInterval, runner, lessUint)
+	h := simplex.NewTimeoutHandler(log, testName, start, testRunInterval, runner)
 	defer h.Close()
 
 	h.AddTask(1)
@@ -132,7 +132,7 @@ func TestTimeoutHandler_AddDuplicateTaskIsIdempotent(t *testing.T) {
 	ran := make(chan []uint64, 1)
 	runner := func(ids []uint64) { ran <- append([]uint64(nil), ids...) }
 
-	h := simplex.NewTimeoutHandler(log, testName, start, testRunInterval, runner, lessUint)
+	h := simplex.NewTimeoutHandler(log, testName, start, testRunInterval, runner)
 	defer h.Close()
 
 	h.AddTask(42)
@@ -152,7 +152,7 @@ func TestTimeoutHandler_RemoveOldTasks(t *testing.T) {
 	ran := make(chan []uint64, 2)
 	runner := func(ids []uint64) { ran <- append([]uint64(nil), ids...) }
 
-	h := simplex.NewTimeoutHandler(log, testName, start, testRunInterval, runner, lessUint)
+	h := simplex.NewTimeoutHandler(log, testName, start, testRunInterval, runner)
 	defer h.Close()
 
 	for _, id := range []uint64{1, 2, 3, 4, 5} {
@@ -160,13 +160,17 @@ func TestTimeoutHandler_RemoveOldTasks(t *testing.T) {
 	}
 
 	// Remove everything with id < 3 -> removes 1,2 ; keeps 3,4,5
-	h.RemoveOldTasks(3)
+	h.RemoveOldTasks(func(id uint64, _ struct{}) bool {
+		return id < 3
+	})
 	h.Tick(start.Add(testRunInterval))
 	got := sorted(waitReceive(t, ran))
 	require.Equal(t, []uint64{3, 4, 5}, got)
 
 	// Now remove everything with id < 5 -> removes 3,4 ; keeps 5
-	h.RemoveOldTasks(5)
+	h.RemoveOldTasks(func(id uint64, _ struct{}) bool {
+		return id < 5
+	})
 	h.Tick(start.Add(2 * testRunInterval))
 	got = sorted(waitReceive(t, ran))
 	require.Equal(t, []uint64{5}, got)
@@ -180,7 +184,7 @@ func TestTimeoutHandler_CloseStopsRunner(t *testing.T) {
 	ran := make(chan []uint64, 1)
 	runner := func(ids []uint64) { ran <- append([]uint64(nil), ids...) }
 
-	h := simplex.NewTimeoutHandler(log, testName, start, testRunInterval, runner, lessUint)
+	h := simplex.NewTimeoutHandler(log, testName, start, testRunInterval, runner)
 
 	h.Close()
 	// Calls after Close should be safe and no-ops for scheduling.
@@ -199,7 +203,7 @@ func TestTimeoutHandler_BackToBackTicksUnderIntervalDontRun(t *testing.T) {
 	ran := make(chan []uint64, 2)
 	runner := func(ids []uint64) { ran <- append([]uint64(nil), ids...) }
 
-	h := simplex.NewTimeoutHandler(log, testName, start, testRunInterval, runner, lessUint)
+	h := simplex.NewTimeoutHandler(log, testName, start, testRunInterval, runner)
 	defer h.Close()
 
 	h.AddTask(100)
