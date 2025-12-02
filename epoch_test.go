@@ -1263,14 +1263,12 @@ func TestEpochVotesForEquivocatedVotes(t *testing.T) {
 	equivocatedBlock.Data = []byte{1, 2, 3}
 	equivocatedBlock.ComputeDigest()
 	testutil.InjectTestVote(t, e, equivocatedBlock, nodes[1])
-	eqbh := equivocatedBlock.BlockHeader()
 
 	// We should not have sent a notarization yet, since we have not received enough votes for the block we received from the leader
 	require.Never(t, func() bool {
 		select {
 		case msg := <-recordedMessages:
 			if msg.Notarization != nil {
-				fmt.Println(msg.Notarization.Vote.BlockHeader.Equals(&eqbh))
 				return true
 			}
 		default:

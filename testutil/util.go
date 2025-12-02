@@ -201,7 +201,6 @@ func WaitForBlockProposerTimeout(t *testing.T, e *simplex.Epoch, startTime *time
 	timeout := time.NewTimer(time.Minute)
 	defer timeout.Stop()
 
-	fmt.Println("checking notarizatin for", startRound, e.ID)
 	for {
 		if e.WAL.(*TestWAL).ContainsEmptyVote(startRound) || e.WAL.(*TestWAL).ContainsEmptyNotarization(startRound) {
 			return

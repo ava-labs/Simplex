@@ -74,8 +74,6 @@ func (t *TimeoutHandler[T]) run(startTime time.Time) {
 }
 
 func (t *TimeoutHandler[T]) maybeRunTasks() {
-	// go through the heap executing relevant tasks
-	// grab all sequences
 	ids := make([]T, 0, len(t.tasks))
 
 	t.lock.Lock()
@@ -128,8 +126,6 @@ func (t *TimeoutHandler[T]) RemoveTask(ID T) {
 		return
 	}
 
-	// find the task using the task map
-	// remove it from the heap using the index
 	t.log.Debug("Removing timeout task", zap.Any("id", ID), zap.String("name", t.name))
 	delete(t.tasks, ID)
 }

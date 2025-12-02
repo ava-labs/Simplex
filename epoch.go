@@ -194,7 +194,7 @@ func (e *Epoch) init() error {
 	e.eligibleNodeIDs = make(map[string]struct{}, len(e.nodes))
 	e.futureMessages = make(messagesFromNode, len(e.nodes))
 	e.replicationState = NewReplicationState(e.Logger, e.Comm, e.ID, e.maxRoundWindow, e.ReplicationEnabled, e.StartTime, &e.lock)
-	e.timeoutHandler = NewTimeoutHandler[string](e.Logger, "epoch", e.StartTime, e.MaxRebroadcastWait, e.emptyVoteTimeoutTaskRunner, alwaysFalseRemover[string])
+	e.timeoutHandler = NewTimeoutHandler(e.Logger, "emptyVoteRebroadcast", e.StartTime, e.MaxRebroadcastWait, e.emptyVoteTimeoutTaskRunner, alwaysFalseRemover[string])
 
 	for _, node := range e.nodes {
 		e.futureMessages[string(node)] = make(map[uint64]*messagesForRound)
@@ -2827,7 +2827,6 @@ func (e *Epoch) locateQuorumRecord(seq uint64) *VerifiedQuorumRound {
 	}
 }
 
-// if this round is storage, we do not need to retrieve it from storage
 func (e *Epoch) locateQuorumRecordByRound(targetRound uint64) *VerifiedQuorumRound {
 	var qr *VerifiedQuorumRound
 
