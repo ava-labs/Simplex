@@ -2900,8 +2900,7 @@ func (e *Epoch) handleReplicationResponse(resp *ReplicationResponse, from NodeID
 			continue
 		}
 
-		// TODO: if empty notarizations occur for long periods, we may receive a nextSeqToCommit that has a round considered too far ahead.
-		// For now we allow only the nextSeqToCommit but we might want to accept a few more seqs ahead regardless of round.
+		// We may be really far behind, so we shouldn't process sequences unless they are the nextSequenceToCommit
 		if data.GetRound() > e.round+e.maxRoundWindow && data.GetSequence() != nextSeqToCommit {
 			e.Logger.Debug("Received quorum round for a round that is too far ahead", zap.Uint64("round", data.GetRound()))
 			// we are too far behind, we should ignore this message
