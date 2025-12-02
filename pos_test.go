@@ -5,12 +5,12 @@ package simplex_test
 
 import (
 	"bytes"
-	"fmt"
+	"testing"
+	"time"
+
 	"github.com/ava-labs/simplex"
 	"github.com/ava-labs/simplex/testutil"
 	"github.com/stretchr/testify/require"
-	"testing"
-	"time"
 )
 
 func TestPoS(t *testing.T) {
@@ -132,8 +132,6 @@ func TestPoS(t *testing.T) {
 	for _, n := range net.Instances {
 		testutil.WaitToEnterRound(t, n.E, 15)
 	}
-
-	fmt.Println(simplex.LeaderForRound(nodes, 15))
 
 	// Now, disconnect the node with the highest stake (node 3) and observe the network is stuck
 	net.Disconnect(nodes[2])

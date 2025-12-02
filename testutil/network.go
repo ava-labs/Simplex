@@ -86,6 +86,19 @@ type TestNetworkCommunication interface {
 	SetFilter(filter MessageFilter)
 }
 
+func (n *InMemNetwork) SetNodeMessageFilter(node simplex.NodeID, filter MessageFilter) {
+	for _, instance := range n.Instances {
+		if !instance.E.ID.Equals(node) {
+			continue
+		}
+		comm, ok := instance.E.Comm.(TestNetworkCommunication)
+		if !ok {
+			continue
+		}
+		comm.SetFilter(filter)
+	}
+}
+
 func (n *InMemNetwork) SetAllNodesMessageFilter(filter MessageFilter) {
 	for _, instance := range n.Instances {
 		comm, ok := instance.E.Comm.(TestNetworkCommunication)
@@ -148,18 +161,5 @@ func (n *InMemNetwork) AdvanceWithoutLeader(round uint64, laggingNodeId simplex.
 		}
 		recordType := n.WAL.AssertNotarization(round)
 		require.Equal(n.t, record.EmptyNotarizationRecordType, recordType)
-	}
-}
-
-func (n *InMemNetwork) SetNodeMessageFilter(node simplex.NodeID, filter MessageFilter) {
-	for _, instance := range n.Instances {
-		if !instance.E.ID.Equals(node) {
-			continue
-		}
-		comm, ok := instance.E.Comm.(TestNetworkCommunication)
-		if !ok {
-			continue
-		}
-		comm.SetFilter(filter)
 	}
 }

@@ -95,34 +95,22 @@ func (c *TestComm) maybeTranslateOutoingToIncomingMessageTypes(msg *simplex.Mess
 			quorumRound := simplex.QuorumRound{}
 			if verifiedQuorumRound.EmptyNotarization != nil {
 				quorumRound.EmptyNotarization = verifiedQuorumRound.EmptyNotarization
-			} else {
+			}
+			if verifiedQuorumRound.VerifiedBlock != nil {
 				quorumRound.Block = verifiedQuorumRound.VerifiedBlock.(simplex.Block)
-				if verifiedQuorumRound.Notarization != nil {
-					quorumRound.Notarization = verifiedQuorumRound.Notarization
-				}
-				if verifiedQuorumRound.Finalization != nil {
-					quorumRound.Finalization = verifiedQuorumRound.Finalization
-				}
+			}
+			if verifiedQuorumRound.Notarization != nil {
+				quorumRound.Notarization = verifiedQuorumRound.Notarization
+			}
+			if verifiedQuorumRound.Finalization != nil {
+				quorumRound.Finalization = verifiedQuorumRound.Finalization
 			}
 
 			data = append(data, quorumRound)
 		}
 
-		var latestRound *simplex.QuorumRound
-		if msg.VerifiedReplicationResponse.LatestRound != nil {
-			if msg.VerifiedReplicationResponse.LatestRound.EmptyNotarization != nil {
-				latestRound = &simplex.QuorumRound{
-					EmptyNotarization: msg.VerifiedReplicationResponse.LatestRound.EmptyNotarization,
-				}
-			} else {
-				latestRound = &simplex.QuorumRound{
-					Block:             msg.VerifiedReplicationResponse.LatestRound.VerifiedBlock.(simplex.Block),
-					Notarization:      msg.VerifiedReplicationResponse.LatestRound.Notarization,
-					Finalization:      msg.VerifiedReplicationResponse.LatestRound.Finalization,
-					EmptyNotarization: msg.VerifiedReplicationResponse.LatestRound.EmptyNotarization,
-				}
-			}
-		}
+		latestRound := verifiedQRtoQR(msg.VerifiedReplicationResponse.LatestRound)
+		latestSeq := verifiedQRtoQR(msg.VerifiedReplicationResponse.LatestFinalizedSeq)
 
 		require.Nil(
 			c.net.t,
@@ -133,6 +121,7 @@ func (c *TestComm) maybeTranslateOutoingToIncomingMessageTypes(msg *simplex.Mess
 		msg.ReplicationResponse = &simplex.ReplicationResponse{
 			Data:        data,
 			LatestRound: latestRound,
+			LatestSeq:   latestSeq,
 		}
 	}
 
@@ -143,6 +132,24 @@ func (c *TestComm) maybeTranslateOutoingToIncomingMessageTypes(msg *simplex.Mess
 			Vote:  msg.VerifiedBlockMessage.Vote,
 		}
 	}
+}
+
+func verifiedQRtoQR(vqr *simplex.VerifiedQuorumRound) *simplex.QuorumRound {
+	if vqr == nil {
+		return nil
+	}
+
+	qr := &simplex.QuorumRound{
+		Notarization:      vqr.Notarization,
+		Finalization:      vqr.Finalization,
+		EmptyNotarization: vqr.EmptyNotarization,
+	}
+
+	if vqr.VerifiedBlock != nil {
+		qr.Block = vqr.VerifiedBlock.(simplex.Block)
+	}
+
+	return qr
 }
 
 func (c *TestComm) isMessagePermitted(msg *simplex.Message, destination simplex.NodeID) bool {

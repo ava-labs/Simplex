@@ -57,7 +57,6 @@ type Storage interface {
 }
 
 type Communication interface {
-
 	// Nodes returns all nodes that participate in the epoch.
 	Nodes() []NodeID
 
