@@ -1299,6 +1299,52 @@ func TestEpochVotesForEquivocatedVotes(t *testing.T) {
 	}
 }
 
+// Ensures we don't double increment the round on persisting a notarization
+func TestDoubleIncrementOnPersistNotarization(t *testing.T) {
+	// add an empty notarization, then a notarization for a previous round
+	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1)}
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[3], testutil.NewNoopComm(nodes), bb)
+	conf.ReplicationEnabled = true
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+
+	require.NoError(t, e.Start())
+
+	advanceRoundFromEmpty(t, e)
+	require.Equal(t, uint64(1), e.Metadata().Round)
+
+	// create a notarization for round 0
+	md := ProtocolMetadata{
+		Epoch: 0,
+		Round: 0,
+		Seq:   0,
+	}
+	_, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
+	require.True(t, ok)
+
+	block := <-bb.Out
+	notarization, err := testutil.NewNotarization(conf.Logger, conf.SignatureAggregator, block, nodes)
+	require.NoError(t, err)
+
+	err = e.HandleMessage(&Message{
+		ReplicationResponse: &ReplicationResponse{
+			Data: []QuorumRound{
+				{
+					Block:        block,
+					Notarization: &notarization,
+				},
+			},
+		},
+	}, nodes[0])
+	require.NoError(t, err)
+
+	wal.AssertWALSize(2)
+	// ensure the round is still 1
+	require.Equal(t, uint64(1), e.Metadata().Round)
+}
+
 // ListnerComm is a comm that listens for incoming messages
 // and sends them to the [in] channel
 type listenerComm struct {

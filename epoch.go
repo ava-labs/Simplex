@@ -1925,8 +1925,7 @@ func (e *Epoch) createNotarizedBlockVerificationTask(block Block, notarization N
 		// we started verifying the block when we didn't have a notarization, however its
 		// possible we received a notarization or empty notarization for this block in the meantime.
 		round, ok := e.rounds[md.Round]
-		emptyVote, emptyOk := e.emptyVotes[md.Round]
-		if (ok && round.notarization != nil) || (emptyOk && emptyVote.emptyNotarization != nil) {
+		if ok && round.notarization != nil {
 			e.Logger.Debug("Verifying notarized block that already has a notarization for the round",
 				zap.Uint64("round", md.Round))
 			return md.Digest
