@@ -89,14 +89,6 @@ type TestNodeConfig struct {
 	ReplicationEnabled bool
 }
 
-// TriggerBlockShouldBeBuilt signals this nodes block builder it is expecting a block to be built.
-func (t *TestNode) TriggerBlockShouldBeBuilt() {
-	select {
-	case t.BB.BlockShouldBeBuilt <- struct{}{}:
-	default:
-	}
-}
-
 func (t *TestNode) AdvanceTime(duration time.Duration) {
 	now := time.UnixMilli(t.currentTime.Load()).Add(duration)
 	t.currentTime.Store(now.UnixMilli())

@@ -31,11 +31,7 @@ import (
 // we expect the future empty notarization for round 2 to increment the round
 func TestEpochLeaderFailoverWithEmptyNotarization(t *testing.T) {
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
-	bb := &testutil.TestBlockBuilder{
-		Out:                make(chan *testutil.TestBlock, 2),
-		BlockShouldBeBuilt: make(chan struct{}, 1),
-		In:                 make(chan *testutil.TestBlock, 2),
-	}
+	bb := testutil.NewTestBlockBuilder().WithBuiltBuffer(2)
 	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
 
 	e, err := NewEpoch(conf)
@@ -49,39 +45,29 @@ func TestEpochLeaderFailoverWithEmptyNotarization(t *testing.T) {
 	// from earlier.
 
 	notarizeAndFinalizeRound(t, e, bb)
-
 	block0, _, err := storage.Retrieve(0)
 	require.NoError(t, err)
 
-	block1, ok := bb.BuildBlock(context.Background(), ProtocolMetadata{
+	block1 := testutil.NewTestBlock(ProtocolMetadata{
 		Round: 1,
 		Prev:  block0.BlockHeader().Digest,
 		Seq:   1,
 	}, emptyBlacklist)
-	require.True(t, ok)
 
-	block2, ok := bb.BuildBlock(context.Background(), ProtocolMetadata{
+	block2 := testutil.NewTestBlock(ProtocolMetadata{
 		Round: 3,
 		Prev:  block1.BlockHeader().Digest,
 		Seq:   2,
 	}, emptyBlacklist)
-	require.True(t, ok)
 
-	// Artificially force the block builder to output the blocks we want.
-	for len(bb.Out) > 0 {
-		<-bb.Out
-	}
-	for _, block := range []VerifiedBlock{block1, block2} {
-		bb.Out <- block.(*testutil.TestBlock)
-		bb.In <- block.(*testutil.TestBlock)
-	}
+	notarizeAndFinalizeRound(t, e, bb)
 
 	emptyNotarization := testutil.NewEmptyNotarization(nodes[:3], 2)
 	e.HandleMessage(&Message{
 		EmptyNotarization: emptyNotarization,
 	}, nodes[1])
 
-	notarizeAndFinalizeRound(t, e, bb)
+	notarizeAndFinalizeRoundWithMetadata(t, e, bb, &block1.Metadata)
 
 	wal.AssertNotarization(2)
 	nextBlockSeqToCommit := uint64(2)
@@ -89,7 +75,7 @@ func TestEpochLeaderFailoverWithEmptyNotarization(t *testing.T) {
 
 	runCrashAndRestartExecution(t, e, bb, wal, storage, func(t *testing.T, e *Epoch, bb *testutil.TestBlockBuilder, storage *testutil.InMemStorage, wal *testutil.TestWAL) {
 		// Ensure our node proposes block with sequence 3 for round 4
-		block, _ := notarizeAndFinalizeRound(t, e, bb)
+		block, _ := notarizeAndFinalizeRoundWithMetadata(t, e, bb, &block2.Metadata)
 		require.Equal(t, nextBlockSeqToCommit, block.BlockHeader().Seq)
 		require.Equal(t, nextRoundToCommit, block.BlockHeader().Round)
 		require.Equal(t, uint64(3), storage.NumBlocks())
@@ -97,7 +83,7 @@ func TestEpochLeaderFailoverWithEmptyNotarization(t *testing.T) {
 }
 
 func TestEpochRebroadcastsEmptyVoteAfterBlockProposalReceived(t *testing.T) {
-	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1), BlockShouldBeBuilt: make(chan struct{}, 1)}
+	bb := testutil.NewTestBlockBuilder()
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 
 	comm := newRebroadcastComm(nodes)
@@ -115,16 +101,15 @@ func TestEpochRebroadcastsEmptyVoteAfterBlockProposalReceived(t *testing.T) {
 
 	// receive the block proposal for round 0
 	md := e.Metadata()
-	_, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
+	block, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
 	require.True(t, ok)
-	block := <-bb.Out
 
 	vote, err := testutil.NewTestVote(block, nodes[0])
 	require.NoError(t, err)
 	err = e.HandleMessage(&Message{
 		BlockMessage: &BlockMessage{
 			Vote:  *vote,
-			Block: block,
+			Block: block.(*testutil.TestBlock),
 		},
 	}, nodes[0])
 	require.NoError(t, err)
@@ -143,7 +128,7 @@ func TestEpochRebroadcastsEmptyVoteAfterBlockProposalReceived(t *testing.T) {
 }
 
 func TestEpochLeaderFailoverReceivesEmptyVotesEarly(t *testing.T) {
-	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1), BlockShouldBeBuilt: make(chan struct{}, 1)}
+	bb := testutil.NewTestBlockBuilder()
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	quorum := Quorum(len(nodes))
 
@@ -182,6 +167,8 @@ func TestEpochLeaderFailoverReceivesEmptyVotesEarly(t *testing.T) {
 
 	testutil.WaitForBlockProposerTimeout(t, e, &e.StartTime, e.Metadata().Round)
 
+	block := bb.GetBuiltBlock()
+
 	runCrashAndRestartExecution(t, e, bb, wal, storage, func(t *testing.T, e *Epoch, bb *testutil.TestBlockBuilder, storage *testutil.InMemStorage, wal *testutil.TestWAL) {
 		walContent, err := wal.ReadAll()
 		require.NoError(t, err)
@@ -203,8 +190,6 @@ func TestEpochLeaderFailoverReceivesEmptyVotesEarly(t *testing.T) {
 		require.Equal(t, uint64(3), header.Seq)
 
 		// Ensure our node proposes block with sequence 3 for round 4
-		block := <-bb.Out
-
 		for i := 1; i <= quorum; i++ {
 			testutil.InjectTestFinalizeVote(t, e, block, nodes[i])
 		}
@@ -220,7 +205,7 @@ func TestEpochLeaderFailoverReceivesEmptyVotesEarly(t *testing.T) {
 
 func TestReceiveEmptyNotarizationWithNoQC(t *testing.T) {
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
-	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1), BlockShouldBeBuilt: make(chan struct{}, 1)}
+	bb := testutil.NewTestBlockBuilder()
 
 	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[1], testutil.NewNoopComm(nodes), bb)
 
@@ -237,7 +222,7 @@ func TestReceiveEmptyNotarizationWithNoQC(t *testing.T) {
 
 func TestEpochLeaderFailover(t *testing.T) {
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
-	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1), BlockShouldBeBuilt: make(chan struct{}, 1)}
+	bb := testutil.NewTestBlockBuilder()
 	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
 
 	e, err := NewEpoch(conf)
@@ -302,7 +287,7 @@ func TestEpochLeaderFailover(t *testing.T) {
 
 func TestEpochLeaderFailoverDoNotPersistEmptyRoundTwice(t *testing.T) {
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
-	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1), BlockShouldBeBuilt: make(chan struct{}, 1)}
+	bb := testutil.NewTestBlockBuilder()
 	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
 	numRounds := uint64(2)
 	e, err := NewEpoch(conf)
@@ -359,7 +344,7 @@ func TestEpochLeaderFailoverDoNotPersistEmptyRoundTwice(t *testing.T) {
 
 func TestEpochLeaderRecursivelyFetchNotarizedBlocks(t *testing.T) {
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
-	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1), BlockShouldBeBuilt: make(chan struct{}, 1)}
+	bb := testutil.NewTestBlockBuilder()
 
 	recordedMessages := make(chan *Message, 100)
 
@@ -410,7 +395,7 @@ func TestEpochLeaderRecursivelyFetchNotarizedBlocks(t *testing.T) {
 func TestEpochLeaderFailoverInLeaderRound(t *testing.T) {
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 
-	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1), BlockShouldBeBuilt: make(chan struct{}, 1)}
+	bb := testutil.NewTestBlockBuilder()
 	recordedMessages := make(chan *Message, 100)
 	comm := &recordingComm{Communication: testutil.NewNoopComm(nodes), BroadcastMessages: recordedMessages}
 	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[3], comm, bb)
@@ -444,7 +429,7 @@ func TestEpochLeaderFailoverInLeaderRound(t *testing.T) {
 		}
 	}
 
-	block := <-bb.Out
+	block := bb.GetBuiltBlock()
 	md := EmptyVoteMetadata{
 		Round: block.Metadata.Round,
 	}
@@ -465,7 +450,7 @@ func TestEpochLeaderFailoverInLeaderRound(t *testing.T) {
 }
 
 func TestEpochNoFinalizationAfterEmptyVote(t *testing.T) {
-	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1), BlockShouldBeBuilt: make(chan struct{}, 1)}
+	bb := testutil.NewTestBlockBuilder()
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	quorum := Quorum(len(nodes))
 
@@ -491,21 +476,19 @@ func TestEpochNoFinalizationAfterEmptyVote(t *testing.T) {
 	require.NoError(t, err)
 
 	leader := LeaderForRound(nodes, 1)
-	_, ok := bb.BuildBlock(context.Background(), ProtocolMetadata{
+	block, ok := bb.BuildBlock(context.Background(), ProtocolMetadata{
 		Prev:  b.BlockHeader().Digest,
 		Round: 1,
 		Seq:   1,
 	}, emptyBlacklist)
 	require.True(t, ok)
 
-	block := <-bb.Out
-
 	vote, err := testutil.NewTestVote(block, leader)
 	require.NoError(t, err)
 	err = e.HandleMessage(&Message{
 		BlockMessage: &BlockMessage{
 			Vote:  *vote,
-			Block: block,
+			Block: block.(*testutil.TestBlock),
 		},
 	}, leader)
 	require.NoError(t, err)
@@ -535,7 +518,7 @@ func TestEpochNoFinalizationAfterEmptyVote(t *testing.T) {
 }
 
 func TestEpochLeaderFailoverAfterProposal(t *testing.T) {
-	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1), BlockShouldBeBuilt: make(chan struct{}, 1)}
+	bb := testutil.NewTestBlockBuilder()
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 
 	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
@@ -560,10 +543,9 @@ func TestEpochLeaderFailoverAfterProposal(t *testing.T) {
 	leader := LeaderForRound(nodes, 3)
 	md := e.Metadata()
 	_, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
+	block := bb.GetBuiltBlock()
 	require.True(t, ok)
 	require.Equal(t, md.Round, md.Seq)
-
-	block := <-bb.Out
 
 	vote, err := testutil.NewTestVote(block, leader)
 	require.NoError(t, err)
@@ -625,7 +607,7 @@ func TestEpochLeaderFailoverAfterProposal(t *testing.T) {
 }
 
 func TestEpochLeaderFailoverTwice(t *testing.T) {
-	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1), BlockShouldBeBuilt: make(chan struct{}, 1)}
+	bb := testutil.NewTestBlockBuilder()
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 
 	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
@@ -713,7 +695,7 @@ func TestEpochLeaderFailoverTwice(t *testing.T) {
 }
 
 func TestEpochLeaderFailoverGarbageCollectedEmptyVotes(t *testing.T) {
-	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1), BlockShouldBeBuilt: make(chan struct{}, 1)}
+	bb := testutil.NewTestBlockBuilder()
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
 
@@ -777,7 +759,7 @@ func TestEpochLeaderFailoverBecauseOfBadBlock(t *testing.T) {
 	// This test ensures that if a block is proposed by a node, but it is invalid,
 	// the node will immediately proceed to notarize the empty block.
 
-	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1), BlockShouldBeBuilt: make(chan struct{}, 1)}
+	bb := testutil.NewTestBlockBuilder()
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 
 	recordedMessages := make(chan *Message, 100)
@@ -797,7 +779,7 @@ func TestEpochLeaderFailoverBecauseOfBadBlock(t *testing.T) {
 
 	_, ok := bb.BuildBlock(context.Background(), e.Metadata(), emptyBlacklist)
 	require.True(t, ok)
-	block := <-bb.Out
+	block := bb.GetBuiltBlock()
 	block.VerificationError = errors.New("invalid block")
 
 	vote, err := testutil.NewTestVote(block, nodes[1])
@@ -855,7 +837,7 @@ func TestEpochLeaderFailoverNotNeeded(t *testing.T) {
 		return nil
 	})
 
-	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1), BlockShouldBeBuilt: make(chan struct{}, 1)}
+	bb := testutil.NewTestBlockBuilder()
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	quorum := Quorum(len(nodes))
 
@@ -880,7 +862,7 @@ func TestEpochLeaderFailoverNotNeeded(t *testing.T) {
 	_, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
 	require.True(t, ok)
 
-	block := <-bb.Out
+	block := bb.GetBuiltBlock()
 
 	vote, err := testutil.NewTestVote(block, nodes[3])
 	require.NoError(t, err)
@@ -907,7 +889,7 @@ func TestEpochLeaderFailoverNotNeeded(t *testing.T) {
 
 func TestEpochBlacklist(t *testing.T) {
 	blacklistedLeaderInLogs := make(chan struct{})
-	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1), BlockShouldBeBuilt: make(chan struct{}, 3)}
+	bb := testutil.NewTestBlockBuilder().WithBlockShouldBeBuiltBuffer(3)
 
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 
@@ -1024,7 +1006,7 @@ func TestEpochBlacklist(t *testing.T) {
 	// Now it's our turn to propose a new block.
 	bb.BlockShouldBeBuilt <- struct{}{}
 
-	block = <-bb.Out
+	block = bb.GetBuiltBlock()
 
 	// Inject specifically votes from the last two nodes, to ensure the blacklisted node will be redeemed
 	// the next time we will propose a block.
@@ -1063,7 +1045,7 @@ func TestEpochBlacklist(t *testing.T) {
 	// Now it's our turn to propose a new block.
 	bb.BlockShouldBeBuilt <- struct{}{}
 
-	block = <-bb.Out
+	block = bb.GetBuiltBlock()
 
 	require.Equal(t, Blacklist{
 		NodeCount: 4,
@@ -1142,7 +1124,7 @@ func (r *rebroadcastComm) Broadcast(msg *Message) {
 }
 
 func TestEpochRebroadcastsEmptyVote(t *testing.T) {
-	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1), BlockShouldBeBuilt: make(chan struct{}, 1)}
+	bb := testutil.NewTestBlockBuilder()
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 
 	comm := newRebroadcastComm(nodes)
@@ -1218,11 +1200,7 @@ func runCrashAndRestartExecution(t *testing.T, e *Epoch, bb *testutil.TestBlockB
 	nodes := e.Comm.Nodes()
 
 	// Clone the block builder
-	bbAfterCrash := &testutil.TestBlockBuilder{
-		Out:                cloneBlockChan(bb.Out),
-		In:                 cloneBlockChan(bb.In),
-		BlockShouldBeBuilt: make(chan struct{}, cap(bb.BlockShouldBeBuilt)),
-	}
+	bbAfterCrash := testutil.NewTestBlockBuilder().WithBlockShouldBeBuiltBuffer(uint64(cap(bb.BlockShouldBeBuilt)))
 
 	// Case 1:
 	t.Run(fmt.Sprintf("%s-no-crash", t.Name()), func(t *testing.T) {
@@ -1241,23 +1219,6 @@ func runCrashAndRestartExecution(t *testing.T, e *Epoch, bb *testutil.TestBlockB
 		require.NoError(t, e.Start())
 		f(t, e, bbAfterCrash, cloneStorage, cloneWAL)
 	})
-}
-
-func cloneBlockChan(in chan *testutil.TestBlock) chan *testutil.TestBlock {
-	tmp := make(chan *testutil.TestBlock, cap(in))
-	out := make(chan *testutil.TestBlock, cap(in))
-
-	for len(in) > 0 {
-		block := <-in
-		tmp <- block
-		out <- block
-	}
-
-	for len(tmp) > 0 {
-		in <- <-tmp
-	}
-
-	return out
 }
 
 type recordingComm struct {
