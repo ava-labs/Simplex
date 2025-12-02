@@ -107,7 +107,7 @@ func newRequestor(logger Logger, start time.Time, lock *sync.Mutex, maxRoundWind
 	if !replicateSeqs {
 		name = "round-timeout-handler"
 	}
-	r.timeoutHandler = NewTimeoutHandler(logger, name, start, DefaultReplicationRequestTimeout, r.resendReplicationRequests, shouldRemoveFunc[uint64](shouldDelete))
+	r.timeoutHandler = NewTimeoutHandler(logger, name, start, DefaultReplicationRequestTimeout, r.resendReplicationRequests)
 	return r
 }
 
@@ -242,11 +242,6 @@ func (r *requestor) getHighestObserved() *signedQuorum {
 	return r.highestObserved
 }
 
-// shouldDelete returns true if value <= target
-func shouldDelete(value, target uint64) bool {
-	return value <= target
-}
-
 func (r *requestor) getSeqOrRound(signedQuorum *signedQuorum) uint64 {
 	if r.replicateSeqs {
 		return signedQuorum.seq
@@ -255,9 +250,11 @@ func (r *requestor) getSeqOrRound(signedQuorum *signedQuorum) uint64 {
 	return signedQuorum.round
 }
 
-// removes all tasks in the handler that are <= seqOrRound
-func (r *requestor) removeOldTasks(seqOrRound uint64) {
-	r.timeoutHandler.RemoveOldTasks(seqOrRound)
+// removes all tasks less or equal to the targetSeqOrRound
+func (r *requestor) removeOldTasks(targetSeqOrRound uint64) {
+	r.timeoutHandler.RemoveOldTasks(func(seqOrRound uint64, _ struct{}) bool {
+		return seqOrRound <= targetSeqOrRound
+	})
 }
 
 func (r *requestor) removeTask(seqOrRound uint64) {

@@ -4,6 +4,7 @@
 package simplex
 
 import (
+	"maps"
 	"sync"
 	"time"
 
@@ -18,11 +19,10 @@ type TimeoutHandler[T comparable] struct {
 	// how often to run through the tasks
 	runInterval time.Duration
 	// function to run tasks
-	taskRunner   timeoutRunner[T]
-	shouldRemove shouldRemoveFunc[T]
-	lock         sync.Mutex
-	ticks        chan time.Time
-	close        chan struct{}
+	taskRunner timeoutRunner[T]
+	lock       sync.Mutex
+	ticks      chan time.Time
+	close      chan struct{}
 	// maps id to a task
 	tasks map[T]struct{}
 	now   time.Time
@@ -32,17 +32,16 @@ type TimeoutHandler[T comparable] struct {
 
 // NewTimeoutHandler returns a TimeoutHandler and starts a new goroutine that
 // listens for ticks and executes TimeoutTasks.
-func NewTimeoutHandler[T comparable](log Logger, name string, startTime time.Time, runInterval time.Duration, taskRunner timeoutRunner[T], shouldRemove shouldRemoveFunc[T]) *TimeoutHandler[T] {
+func NewTimeoutHandler[T comparable](log Logger, name string, startTime time.Time, runInterval time.Duration, taskRunner timeoutRunner[T]) *TimeoutHandler[T] {
 	t := &TimeoutHandler[T]{
-		name:         name,
-		now:          startTime,
-		tasks:        make(map[T]struct{}),
-		ticks:        make(chan time.Time, 1),
-		close:        make(chan struct{}),
-		runInterval:  runInterval,
-		taskRunner:   taskRunner,
-		shouldRemove: shouldRemove,
-		log:          log,
+		name:        name,
+		now:         startTime,
+		tasks:       make(map[T]struct{}),
+		ticks:       make(chan time.Time, 1),
+		close:       make(chan struct{}),
+		runInterval: runInterval,
+		taskRunner:  taskRunner,
+		log:         log,
 	}
 
 	go t.run(startTime)
@@ -131,16 +130,23 @@ func (t *TimeoutHandler[T]) RemoveTask(ID T) {
 }
 
 // RemoveOldTasks removes all tasks where shouldRemove(id, task) is true.
-func (t *TimeoutHandler[T]) RemoveOldTasks(task T) {
+// func (t *TimeoutHandler[T]) RemoveOldTasks(task T) {
+// 	t.lock.Lock()
+// 	defer t.lock.Unlock()
+
+// 	for id := range t.tasks {
+// 		if t.shouldRemove(id, task) {
+// 			// t.log.Debug("Removing old timeout task", zap.Any("id", id), zap.String("name", t.name))
+// 			delete(t.tasks, id)
+// 		}
+// 	}
+// }
+
+func (t *TimeoutHandler[T]) RemoveOldTasks(shouldRemove func(id T, _ struct{}) bool) {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 
-	for id := range t.tasks {
-		if t.shouldRemove(id, task) {
-			t.log.Debug("Removing old timeout task", zap.Any("id", id), zap.String("name", t.name))
-			delete(t.tasks, id)
-		}
-	}
+	maps.DeleteFunc(t.tasks, shouldRemove)
 }
 
 func (t *TimeoutHandler[T]) Close() {

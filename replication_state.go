@@ -66,8 +66,8 @@ func NewReplicationState(logger Logger, comm Communication, myNodeID NodeID, max
 		roundRequestor: newRequestor(logger, start, lock, maxRoundWindow, comm, false),
 	}
 
-	r.digestTimeouts = NewTimeoutHandler(logger, "digest", start, DefaultReplicationRequestTimeout, r.requestDigests, alwaysFalseRemover[Digest])
-	r.emptyRoundTimeouts = NewTimeoutHandler(logger, "empty", start, DefaultReplicationRequestTimeout, r.requestEmptyRounds, shouldRemoveFunc[uint64](shouldDelete))
+	r.digestTimeouts = NewTimeoutHandler(logger, "digest", start, DefaultReplicationRequestTimeout, r.requestDigests)
+	r.emptyRoundTimeouts = NewTimeoutHandler(logger, "empty", start, DefaultReplicationRequestTimeout, r.requestEmptyRounds)
 
 	return r
 }
@@ -93,7 +93,9 @@ func (r *ReplicationState) deleteOldRounds(finalizedRound uint64) {
 	}
 
 	r.roundRequestor.removeOldTasks(finalizedRound)
-	r.emptyRoundTimeouts.RemoveOldTasks(finalizedRound)
+	r.emptyRoundTimeouts.RemoveOldTasks(func(r uint64, _ struct{}) bool {
+		return r <= finalizedRound
+	})
 }
 
 // storeSequence stores a block and finalization into the replication state
