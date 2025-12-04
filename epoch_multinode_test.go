@@ -173,11 +173,7 @@ func TestSimplexMultiNodeBlacklist(t *testing.T) {
 	net.Disconnect(nodes[3])
 
 	for i := range net.Instances[:3] {
-		select {
-		case net.Instances[i].BB.BlockShouldBeBuilt <- struct{}{}:
-		default:
-
-		}
+		net.Instances[i].BB.TriggerBlockShouldBeBuilt()
 	}
 
 	for _, n := range net.Instances[:3] {
@@ -245,18 +241,14 @@ func TestSimplexMultiNodeBlacklist(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		net.Instances[i].BB.TriggerNewBlock()
 		for _, n := range allButThirdNode {
-			n.BB.BlockShouldBeBuilt <- struct{}{}
+			n.BB.TriggerBlockShouldBeBuilt()
 			n.Storage.WaitForBlockCommit(uint64(6 + i))
 		}
 	}
 
 	// Skip the third node because it is disconnected.
 	for i := range allButThirdNode {
-		select {
-		case net.Instances[i].BB.BlockShouldBeBuilt <- struct{}{}:
-		default:
-
-		}
+		net.Instances[i].BB.TriggerBlockShouldBeBuilt()
 	}
 
 	for _, n := range allButThirdNode {
@@ -274,7 +266,7 @@ func TestSimplexMultiNodeBlacklist(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		net.Instances[i].BB.TriggerNewBlock()
 		for _, n := range allButThirdNode {
-			n.BB.BlockShouldBeBuilt <- struct{}{}
+			n.BB.TriggerBlockShouldBeBuilt()
 			block := n.Storage.WaitForBlockCommit(uint64(8 + i))
 			lastBlacklist = block.Blacklist()
 		}
@@ -285,11 +277,7 @@ func TestSimplexMultiNodeBlacklist(t *testing.T) {
 
 	// The third node will now time out.
 	for i := range allButThirdNode {
-		select {
-		case net.Instances[i].BB.BlockShouldBeBuilt <- struct{}{}:
-		default:
-
-		}
+		net.Instances[i].BB.TriggerBlockShouldBeBuilt()
 	}
 
 	for _, n := range allButThirdNode {
@@ -299,7 +287,7 @@ func TestSimplexMultiNodeBlacklist(t *testing.T) {
 	// The fourth node should now be able to propose a block.
 	net.Instances[3].BB.TriggerNewBlock()
 	for _, n := range allButThirdNode {
-		n.BB.BlockShouldBeBuilt <- struct{}{}
+		n.BB.TriggerBlockShouldBeBuilt()
 		block := n.Storage.WaitForBlockCommit(uint64(10))
 		lastBlacklist = block.Blacklist()
 	}
@@ -341,7 +329,7 @@ func TestSplitVotes(t *testing.T) {
 	net.TriggerLeaderBlockBuilder(0)
 	for _, n := range net.Instances {
 		n.WAL.AssertBlockProposal(0)
-		n.TriggerBlockShouldBeBuilt()
+		n.BB.TriggerBlockShouldBeBuilt()
 
 		if n.E.ID.Equals(splitNode2.E.ID) || n.E.ID.Equals(splitNode3.E.ID) {
 			require.Equal(t, uint64(0), n.E.Metadata().Round)

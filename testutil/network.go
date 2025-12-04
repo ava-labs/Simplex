@@ -46,7 +46,7 @@ func (n *InMemNetwork) StartInstances() {
 	}
 }
 
-func (n *InMemNetwork) TriggerLeaderBlockBuilder(round uint64) *TestBlock {
+func (n *InMemNetwork) TriggerLeaderBlockBuilder(round uint64) {
 	leader := simplex.LeaderForRound(n.nodes, round)
 	for _, instance := range n.Instances {
 		if !instance.E.ID.Equals(leader) {
@@ -61,12 +61,11 @@ func (n *InMemNetwork) TriggerLeaderBlockBuilder(round uint64) *TestBlock {
 		WaitToEnterRound(n.t, instance.E, round)
 
 		instance.BB.TriggerNewBlock()
-		return <-instance.BB.Out
+		return
 	}
 
 	// we should always find the leader
 	require.Fail(n.t, "leader not found")
-	return nil
 }
 
 func (n *InMemNetwork) addNode(node *TestNode) {
@@ -130,7 +129,7 @@ func (n *InMemNetwork) AdvanceWithoutLeader(round uint64, laggingNodeId simplex.
 	}
 
 	for _, n := range n.Instances {
-		n.TriggerBlockShouldBeBuilt()
+		n.BB.TriggerBlockShouldBeBuilt()
 	}
 
 	for _, n := range n.Instances {

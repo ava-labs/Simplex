@@ -12,14 +12,13 @@ import (
 	. "github.com/ava-labs/simplex"
 	"github.com/ava-labs/simplex/record"
 	"github.com/ava-labs/simplex/testutil"
-
 	"github.com/stretchr/testify/require"
 )
 
 // TestRecoverFromWALProposed tests that the epoch can recover from
 // a wal with a single block record written to it(that we have proposed).
 func TestRecoverFromWALProposed(t *testing.T) {
-	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1)}
+	bb := testutil.NewTestBlockBuilder()
 	ctx := context.Background()
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	quorum := Quorum(len(nodes))
@@ -58,7 +57,7 @@ func TestRecoverFromWALProposed(t *testing.T) {
 			require.NotEqual(t, 0, rounds)
 		}
 
-		block := <-bb.Out
+		block := bb.GetBuiltBlock()
 		if rounds == 0 {
 			require.Equal(t, firstBlock, block)
 		}
@@ -96,7 +95,7 @@ func TestRecoverFromWALProposed(t *testing.T) {
 // TestRecoverFromWALNotarized tests that the epoch can recover from a wal
 // with a block record written to it, and a notarization record.
 func TestRecoverFromNotarization(t *testing.T) {
-	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1)}
+	bb := testutil.NewTestBlockBuilder()
 	ctx := context.Background()
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	quorum := Quorum(len(nodes))
@@ -150,7 +149,7 @@ func TestRecoverFromNotarization(t *testing.T) {
 // TestRecoverFromWALFinalized tests that the epoch can recover from a wal
 // with a block already stored in the storage
 func TestRecoverFromWalWithStorage(t *testing.T) {
-	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1)}
+	bb := testutil.NewTestBlockBuilder()
 	ctx := context.Background()
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	quorum := Quorum(len(nodes))
@@ -212,7 +211,7 @@ func TestRecoverFromWalWithStorage(t *testing.T) {
 // TestWalCreated tests that the epoch correctly writes to the WAL
 func TestWalCreatedProperly(t *testing.T) {
 	ctx := context.Background()
-	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1)}
+	bb := testutil.NewTestBlockBuilder()
 
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	quorum := Quorum(len(nodes))
@@ -235,7 +234,7 @@ func TestWalCreatedProperly(t *testing.T) {
 	require.Len(t, records, 1)
 	blockFromWal, err := BlockFromRecord(ctx, conf.BlockDeserializer, records[0])
 	require.NoError(t, err)
-	block := <-bb.Out
+	block := bb.GetBuiltBlock()
 	require.Equal(t, blockFromWal, block)
 
 	// start at one since our node has already voted
@@ -264,6 +263,7 @@ func TestWalCreatedProperly(t *testing.T) {
 	committedData, err := blockRetrieved.Bytes()
 	require.NoError(t, err)
 	bBytes, err := block.Bytes()
+	require.NoError(t, err)
 	require.Equal(t, bBytes, committedData)
 }
 
@@ -271,9 +271,8 @@ func TestWalCreatedProperly(t *testing.T) {
 // a block proposed by a node other than the epoch node
 func TestWalWritesBlockRecord(t *testing.T) {
 	ctx := context.Background()
-	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1)}
+	bb := testutil.NewTestBlockBuilder()
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
-	wal := testutil.NewTestWAL(t)
 	// nodes[1] is not the leader for the first round
 	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[1], testutil.NewNoopComm(nodes), bb)
 
@@ -295,7 +294,7 @@ func TestWalWritesBlockRecord(t *testing.T) {
 	_, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
 	require.True(t, ok)
 
-	block := <-bb.Out
+	block := bb.GetBuiltBlock()
 	// send epoch node this block
 	vote, err := testutil.NewTestVote(block, nodes[0])
 	require.NoError(t, err)
@@ -319,7 +318,7 @@ func TestWalWritesBlockRecord(t *testing.T) {
 
 func TestWalWritesFinalization(t *testing.T) {
 	ctx := context.Background()
-	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1)}
+	bb := testutil.NewTestBlockBuilder()
 	sigAggregrator := &testutil.TestSignatureAggregator{N: 4}
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	quorum := Quorum(len(nodes))
@@ -329,7 +328,7 @@ func TestWalWritesFinalization(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, e.Start())
-	firstBlock := <-bb.Out
+	firstBlock := bb.GetBuiltBlock()
 	// notarize the first block
 	for i := 1; i < quorum; i++ {
 		testutil.InjectTestVote(t, e, firstBlock, nodes[i])
@@ -352,7 +351,7 @@ func TestWalWritesFinalization(t *testing.T) {
 	md.Prev = firstBlock.BlockHeader().Digest
 	_, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
 	require.True(t, ok)
-	secondBlock := <-bb.Out
+	secondBlock := bb.GetBuiltBlock()
 
 	// increase the round but don't index storage
 	require.Equal(t, uint64(1), e.Metadata().Round)
@@ -406,7 +405,7 @@ func TestWalWritesFinalization(t *testing.T) {
 
 // Appends to the wal -> block, notarization, second block, notarization block 2, finalization for block 2.
 func TestRecoverFromMultipleNotarizations(t *testing.T) {
-	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1)}
+	bb := testutil.NewTestBlockBuilder()
 	ctx := context.Background()
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	quorum := Quorum(len(nodes))
@@ -478,7 +477,7 @@ func TestRecoverFromMultipleNotarizations(t *testing.T) {
 // TestRecoveryBlocksIndexed tests that the epoch properly skips
 // block records that are already indexed in the storage.
 func TestRecoveryBlocksIndexed(t *testing.T) {
-	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1)}
+	bb := testutil.NewTestBlockBuilder()
 	ctx := context.Background()
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	quorum := Quorum(len(nodes))
@@ -538,7 +537,7 @@ func TestRecoveryBlocksIndexed(t *testing.T) {
 
 func TestEpochCorrectlyInitializesMetadataFromStorage(t *testing.T) {
 	ctx := context.Background()
-	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1)}
+	bb := testutil.NewTestBlockBuilder()
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
 
@@ -556,7 +555,7 @@ func TestEpochCorrectlyInitializesMetadataFromStorage(t *testing.T) {
 }
 
 func TestRecoveryAsLeader(t *testing.T) {
-	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1)}
+	bb := testutil.NewTestBlockBuilder()
 	ctx := context.Background()
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	finalizedBlocks := createBlocks(t, nodes, 4)
@@ -572,7 +571,7 @@ func TestRecoveryAsLeader(t *testing.T) {
 	require.Equal(t, uint64(4), e.Storage.NumBlocks())
 	require.NoError(t, e.Start())
 
-	<-bb.Out
+	bb.GetBuiltBlock()
 
 	// wait for the block to finish verifying
 	time.Sleep(50 * time.Millisecond)
@@ -584,7 +583,7 @@ func TestRecoveryAsLeader(t *testing.T) {
 
 func TestRecoveryReVerifiesBlocks(t *testing.T) {
 	ctx := context.Background()
-	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1)}
+	bb := testutil.NewTestBlockBuilder()
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	finalizedBlocks := createBlocks(t, nodes, 4)
 

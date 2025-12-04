@@ -14,7 +14,6 @@ import (
 
 	"github.com/ava-labs/simplex"
 	"github.com/ava-labs/simplex/testutil"
-
 	"github.com/stretchr/testify/require"
 )
 
@@ -587,7 +586,7 @@ func TestReplicationResendsFinalizedBlocksThatFailedVerification(t *testing.T) {
 
 	// send a block, then simultaneously send a finalization for the block
 	l := testutil.MakeLogger(t, 1)
-	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1)}
+	bb := testutil.NewTestBlockBuilder()
 
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
 	quorum := simplex.Quorum(len(nodes))
@@ -609,7 +608,7 @@ func TestReplicationResendsFinalizedBlocksThatFailedVerification(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, md.Round, md.Seq)
 
-	block := <-bb.Out
+	block := bb.GetBuiltBlock()
 	block.VerificationError = errors.New("block verification failed")
 
 	finalization, _ := testutil.NewFinalizationRecord(t, l, e.SignatureAggregator, block, nodes[0:quorum])
