@@ -50,11 +50,11 @@ func (t *TestBlockBuilder) GetBuiltBlock() *TestBlock {
 	defer timeout.Stop()
 
 	select {
-	case <-t.built:
+	case b := <-t.built:
+		return b
 	case <-timeout.C:
 		panic("timed out waiting for built block")
 	}
-	return <-t.built
 }
 
 func (t *TestBlockBuilder) SetBuiltBlock(block *TestBlock) {
