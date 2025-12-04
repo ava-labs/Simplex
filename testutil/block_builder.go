@@ -6,6 +6,7 @@ package testutil
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/ava-labs/simplex"
 )
@@ -45,6 +46,13 @@ func (t *TestBlockBuilder) BuildBlock(_ context.Context, metadata simplex.Protoc
 }
 
 func (t *TestBlockBuilder) GetBuiltBlock() *TestBlock {
+	timeout := time.NewTimer(10 * time.Second)
+
+	select {
+	case <-t.built:
+	case <-timeout.C:
+		panic("timed out waiting for built block")
+	}
 	return <-t.built
 }
 
@@ -52,6 +60,7 @@ func (t *TestBlockBuilder) SetBuiltBlock(block *TestBlock) {
 	select {
 	case t.built <- block:
 	default:
+		panic("built channel is full")
 	}
 }
 
