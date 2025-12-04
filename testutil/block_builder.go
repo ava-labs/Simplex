@@ -47,6 +47,7 @@ func (t *TestBlockBuilder) BuildBlock(_ context.Context, metadata simplex.Protoc
 
 func (t *TestBlockBuilder) GetBuiltBlock() *TestBlock {
 	timeout := time.NewTimer(10 * time.Second)
+	defer timeout.Stop()
 
 	select {
 	case <-t.built:
