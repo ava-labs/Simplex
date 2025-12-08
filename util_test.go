@@ -6,6 +6,7 @@ package simplex_test
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -400,13 +401,16 @@ func TestNotarizationTime(t *testing.T) {
 	rebroadcastFinalizationVotes := func() {
 		invoked++
 	}
+	lock := &sync.Mutex{}
 	nt := NewNotarizationTime(
 		defaultFinalizeVoteRebroadcastTimeout,
 		haveNotFinalizedRound,
 		rebroadcastFinalizationVotes,
 		func() uint64 {
 			return round
-		})
+		},
+		lock,
+	)
 
 	// First call should set the time and the round.
 	have = true

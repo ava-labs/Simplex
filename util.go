@@ -279,6 +279,9 @@ type NotarizationTime struct {
 	latestRound             uint64
 	lastRebroadcastTime     time.Time
 	oldestNotFinalizedRound uint64
+
+	// epoch lock
+	lock *sync.Mutex
 }
 
 func NewNotarizationTime(
@@ -286,6 +289,7 @@ func NewNotarizationTime(
 	haveUnFinalizedNotarization func() (uint64, bool),
 	rebroadcastFinalizationVotes func(),
 	getRound func() uint64,
+	lock *sync.Mutex,
 ) NotarizationTime {
 	return NotarizationTime{
 		finalizeVoteRebroadcastTimeout: finalizeVoteRebroadcastTimeout,
@@ -293,10 +297,14 @@ func NewNotarizationTime(
 		rebroadcastFinalizationVotes:   rebroadcastFinalizationVotes,
 		getRound:                       getRound,
 		checkInterval:                  finalizeVoteRebroadcastTimeout / 3,
+		lock:                           lock,
 	}
 }
 
 func (nt *NotarizationTime) CheckForNotFinalizedNotarizedBlocks(now time.Time) {
+	nt.lock.Lock()
+	defer nt.lock.Unlock()
+
 	// If we have recently checked, don't check again
 	if !nt.lastSampleTime.IsZero() && nt.lastSampleTime.Add(nt.checkInterval).After(now) {
 		return
@@ -305,7 +313,6 @@ func (nt *NotarizationTime) CheckForNotFinalizedNotarizedBlocks(now time.Time) {
 	nt.lastSampleTime = now
 
 	round := nt.getRound()
-
 	// As long as we make some progress, we don't check for a round not finalized.
 	if round > nt.latestRound {
 		nt.latestRound = round

@@ -214,9 +214,6 @@ func (e *Epoch) init() error {
 
 func (e *Epoch) initOldestNotFinalizedNotarization() {
 	rebroadcastFinalizationVotes := func() {
-		e.lock.Lock()
-		defer e.lock.Unlock()
-
 		if err := e.rebroadcastPastFinalizeVotes(); err != nil {
 			e.Logger.Error("Could not rebroadcast past finalization votes", zap.Error(err))
 		}
@@ -224,13 +221,13 @@ func (e *Epoch) initOldestNotFinalizedNotarization() {
 	e.oldestNotFinalizedNotarization = NewNotarizationTime(
 		e.FinalizeRebroadcastTimeout,
 		e.haveNotFinalizedNotarizedRound,
-		rebroadcastFinalizationVotes, e.getRound)
+		rebroadcastFinalizationVotes,
+		e.getRound,
+		&e.lock,
+	)
 }
 
 func (e *Epoch) getRound() uint64 {
-	e.lock.Lock()
-	defer e.lock.Unlock()
-
 	return e.round
 }
 
@@ -2869,9 +2866,6 @@ func (e *Epoch) locateQuorumRecordByRound(targetRound uint64) *VerifiedQuorumRou
 }
 
 func (e *Epoch) haveNotFinalizedNotarizedRound() (uint64, bool) {
-	e.lock.Lock()
-	defer e.lock.Unlock()
-
 	var minRoundNum uint64
 	var found bool
 	for _, round := range e.rounds {
