@@ -4,6 +4,7 @@
 package simplex_test
 
 import (
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -154,10 +155,6 @@ func TestSimplexMultiNodeBlacklist(t *testing.T) {
 	testutil.NewSimplexNode(t, nodes[1], net, testEpochConfig)
 	testutil.NewSimplexNode(t, nodes[2], net, testEpochConfig)
 	testutil.NewSimplexNode(t, nodes[3], net, testEpochConfig)
-
-	for _, n := range net.Instances[:3] {
-		n.Silence()
-	}
 
 	net.StartInstances()
 
@@ -341,6 +338,9 @@ func TestSplitVotes(t *testing.T) {
 		}
 	}
 
+	// allow outstanding messages to be dropped
+	time.Sleep(100 * time.Millisecond)
+
 	net.SetAllNodesMessageFilter(testutil.AllowAllMessages)
 
 	time2 := splitNode2.E.StartTime
@@ -362,7 +362,7 @@ func TestSplitVotes(t *testing.T) {
 	splitNode3.WAL.AssertNotarization(0)
 
 	for _, n := range net.Instances {
-		require.Equal(t, uint64(0), n.Storage.NumBlocks())
+		require.Equal(t, uint64(0), n.Storage.NumBlocks(), fmt.Sprintf("node %s should not have", n.E.ID))
 		require.Equal(t, uint64(1), n.E.Metadata().Round)
 		require.Equal(t, uint64(1), n.E.Metadata().Seq)
 	}

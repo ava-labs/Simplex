@@ -188,7 +188,6 @@ func TestGetHighestQuorumRound(t *testing.T) {
 	block10 := testutil.NewTestBlock(ProtocolMetadata{Seq: 10, Round: 10}, emptyBlacklist)
 	notarization10, err := testutil.NewNotarization(l, signatureAggregator, block10, nodes)
 	require.NoError(t, err)
-	finalization10, _ := testutil.NewFinalizationRecord(t, l, signatureAggregator, block10, nodes)
 
 	tests := []struct {
 		name       string
@@ -205,18 +204,11 @@ func TestGetHighestQuorumRound(t *testing.T) {
 			},
 		},
 		{
-			name: "only last block",
-			lastBlock: &VerifiedFinalizedBlock{
-				VerifiedBlock: block1,
-				Finalization:  finalization1,
-			},
-			expectedQr: &VerifiedQuorumRound{
-				VerifiedBlock: block1,
-				Finalization:  &finalization1,
-			},
+			name:       "nothing",
+			expectedQr: nil,
 		},
 		{
-			name:  "round",
+			name:  "round with finalization",
 			round: SetRound(block1, nil, &finalization1),
 			expectedQr: &VerifiedQuorumRound{
 				VerifiedBlock: block1,
@@ -232,36 +224,17 @@ func TestGetHighestQuorumRound(t *testing.T) {
 			},
 		},
 		{
-			name:  "higher notarized round than indexed",
+			name:  "higher round than empty notarization",
 			round: SetRound(block10, &notarization10, nil),
-			lastBlock: &VerifiedFinalizedBlock{
-				VerifiedBlock: block1,
-				Finalization:  finalization1,
-			},
+			eNote: testutil.NewEmptyNotarization(nodes, 1),
 			expectedQr: &VerifiedQuorumRound{
 				VerifiedBlock: block10,
 				Notarization:  &notarization10,
 			},
 		},
 		{
-			name:  "higher indexed than in round",
-			round: SetRound(block1, &notarization1, nil),
-			lastBlock: &VerifiedFinalizedBlock{
-				VerifiedBlock: block10,
-				Finalization:  finalization10,
-			},
-			expectedQr: &VerifiedQuorumRound{
-				VerifiedBlock: block10,
-				Finalization:  &finalization10,
-			},
-		},
-		{
 			name:  "higher empty notarization",
 			eNote: testutil.NewEmptyNotarization(nodes, 100),
-			lastBlock: &VerifiedFinalizedBlock{
-				VerifiedBlock: block1,
-				Finalization:  finalization1,
-			},
 			round: SetRound(block10, &notarization10, nil),
 			expectedQr: &VerifiedQuorumRound{
 				EmptyNotarization: testutil.NewEmptyNotarization(nodes, 100),
@@ -271,7 +244,7 @@ func TestGetHighestQuorumRound(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			qr := GetLatestVerifiedQuorumRound(tt.round, tt.eNote, tt.lastBlock)
+			qr := GetLatestVerifiedQuorumRound(tt.round, tt.eNote)
 			require.Equal(t, tt.expectedQr, qr)
 		})
 	}

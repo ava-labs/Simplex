@@ -5,6 +5,7 @@ package testutil
 
 import (
 	"encoding/asn1"
+	"fmt"
 	"testing"
 	"time"
 
@@ -206,7 +207,7 @@ func WaitForBlockProposerTimeout(t *testing.T, e *simplex.Epoch, startTime *time
 		}
 
 		// if we are expected to time out for this round, we should not have a notarization
-		require.False(t, e.WAL.(*TestWAL).ContainsNotarization(startRound))
+		require.False(t, e.WAL.(*TestWAL).ContainsNotarization(startRound), fmt.Sprintf("should not have notarized %d for node %s", startRound, e.ID))
 
 		*startTime = startTime.Add(e.EpochConfig.MaxProposalWait / 5)
 		e.AdvanceTime(*startTime)

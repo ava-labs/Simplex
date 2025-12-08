@@ -6,6 +6,7 @@ package simplex
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -85,13 +86,13 @@ func VerifyQC(qc QuorumCertificate, logger Logger, messageType string, isQuorum 
 }
 
 // GetLatestVerifiedQuorumRound returns the latest verified quorum round given
-// a round, empty notarization, and last block. If all are nil, it returns nil.
-func GetLatestVerifiedQuorumRound(round *Round, emptyNotarization *EmptyNotarization, lastBlock *VerifiedFinalizedBlock) *VerifiedQuorumRound {
+// a round and empty notarization. If both are nil, it returns nil.
+func GetLatestVerifiedQuorumRound(round *Round, emptyNotarization *EmptyNotarization) *VerifiedQuorumRound {
 	var verifiedQuorumRound *VerifiedQuorumRound
 	var highestRound uint64
 	var exists bool
 
-	if round != nil {
+	if round != nil && (round.finalization != nil || round.notarization != nil) {
 		highestRound = round.num
 		verifiedQuorumRound = &VerifiedQuorumRound{
 			VerifiedBlock: round.block,
@@ -107,15 +108,6 @@ func GetLatestVerifiedQuorumRound(round *Round, emptyNotarization *EmptyNotariza
 			verifiedQuorumRound = &VerifiedQuorumRound{
 				EmptyNotarization: emptyNotarization,
 			}
-			highestRound = emptyNotarization.Vote.Round
-			exists = true
-		}
-	}
-
-	if lastBlock != nil && (lastBlock.VerifiedBlock.BlockHeader().Round > highestRound || !exists) {
-		verifiedQuorumRound = &VerifiedQuorumRound{
-			VerifiedBlock: lastBlock.VerifiedBlock,
-			Finalization:  &lastBlock.Finalization,
 		}
 	}
 
@@ -203,10 +195,11 @@ type Segment struct {
 	End   uint64
 }
 
-// compressSequences takes a sorted slice of uint64 values representing
+// compressSequences takes a slice of uint64 values representing
 // missing sequence numbers and compresses consecutive numbers into segments.
 // Each segment represents a continuous block of missing sequence numbers.
 func CompressSequences(missingSeqs []uint64) []Segment {
+	slices.Sort(missingSeqs)
 	var segments []Segment
 
 	if len(missingSeqs) == 0 {

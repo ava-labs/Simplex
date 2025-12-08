@@ -1258,14 +1258,12 @@ func TestEpochVotesForEquivocatedVotes(t *testing.T) {
 	equivocatedBlock.Data = []byte{1, 2, 3}
 	equivocatedBlock.ComputeDigest()
 	testutil.InjectTestVote(t, e, equivocatedBlock, nodes[1])
-	eqbh := equivocatedBlock.BlockHeader()
 
 	// We should not have sent a notarization yet, since we have not received enough votes for the block we received from the leader
 	require.Never(t, func() bool {
 		select {
 		case msg := <-recordedMessages:
 			if msg.Notarization != nil {
-				fmt.Println(msg.Notarization.Vote.BlockHeader.Equals(&eqbh))
 				return true
 			}
 		default:
@@ -1294,6 +1292,52 @@ func TestEpochVotesForEquivocatedVotes(t *testing.T) {
 	for _, signer := range notarization.QC.(testutil.TestQC).Signers() {
 		require.NotEqual(t, nodes[1], signer, "Node 1 should not be in the notarization QC")
 	}
+}
+
+// Ensures we don't double increment the round on persisting a notarization
+func TestDoubleIncrementOnPersistNotarization(t *testing.T) {
+	// add an empty notarization, then a notarization for a previous round
+	bb := testutil.NewTestBlockBuilder()
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[3], testutil.NewNoopComm(nodes), bb)
+	conf.ReplicationEnabled = true
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+
+	require.NoError(t, e.Start())
+
+	advanceRoundFromEmpty(t, e)
+	require.Equal(t, uint64(1), e.Metadata().Round)
+
+	// create a notarization for round 0
+	md := ProtocolMetadata{
+		Epoch: 0,
+		Round: 0,
+		Seq:   0,
+	}
+	_, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
+	require.True(t, ok)
+
+	block := bb.GetBuiltBlock()
+	notarization, err := testutil.NewNotarization(conf.Logger, conf.SignatureAggregator, block, nodes)
+	require.NoError(t, err)
+
+	err = e.HandleMessage(&Message{
+		ReplicationResponse: &ReplicationResponse{
+			Data: []QuorumRound{
+				{
+					Block:        block,
+					Notarization: &notarization,
+				},
+			},
+		},
+	}, nodes[0])
+	require.NoError(t, err)
+
+	wal.AssertWALSize(2)
+	// ensure the round is still 1
+	require.Equal(t, uint64(1), e.Metadata().Round)
 }
 
 // ListnerComm is a comm that listens for incoming messages

@@ -6,12 +6,10 @@ package simplex
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"math"
-	"math/big"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -25,9 +23,8 @@ import (
 var ErrAlreadyStarted = errors.New("epoch already started")
 
 const (
-	DefaultMaxRoundWindow   = 10
-	DefaultProcessingBlocks = 500
-
+	DefaultMaxRoundWindow                 = 10
+	DefaultProcessingBlocks               = 500
 	DefaultMaxProposalWaitTime            = 5 * time.Second
 	DefaultReplicationRequestTimeout      = 5 * time.Second
 	DefaultEmptyVoteRebroadcastTimeout    = 5 * time.Second
@@ -103,7 +100,7 @@ type Epoch struct {
 	monitor                        *Monitor
 	haltedError                    error
 	cancelWaitForBlockNotarization context.CancelFunc
-	timeoutHandler                 *TimeoutHandler
+	timeoutHandler                 *TimeoutHandler[string]
 	replicationState               *ReplicationState
 	timedOutRounds                 map[uint16]uint64 // NodeIndex -> round
 	redeemedRounds                 map[uint16]uint64 // NodeIndex -> round
@@ -166,9 +163,9 @@ func (e *Epoch) HandleMessage(msg *Message, from NodeID) error {
 		return e.handleFinalizeVoteMessage(msg.FinalizeVote, from)
 	case msg.Finalization != nil:
 		return e.handleFinalizationMessage(msg.Finalization, from)
-	case msg.ReplicationResponse != nil:
+	case msg.ReplicationResponse != nil && e.ReplicationEnabled:
 		return e.handleReplicationResponse(msg.ReplicationResponse, from)
-	case msg.ReplicationRequest != nil:
+	case msg.ReplicationRequest != nil && e.ReplicationEnabled:
 		return e.handleReplicationRequest(msg.ReplicationRequest, from)
 	default:
 		e.Logger.Debug("Invalid message type", zap.Stringer("from", from))
@@ -197,7 +194,7 @@ func (e *Epoch) init() error {
 	e.eligibleNodeIDs = make(map[string]struct{}, len(e.nodes))
 	e.futureMessages = make(messagesFromNode, len(e.nodes))
 	e.replicationState = NewReplicationState(e.Logger, e.Comm, e.ID, e.maxRoundWindow, e.ReplicationEnabled, e.StartTime, &e.lock)
-	e.timeoutHandler = NewTimeoutHandler(e.Logger, e.StartTime, e.nodes)
+	e.timeoutHandler = NewTimeoutHandler(e.Logger, "emptyVoteRebroadcast", e.StartTime, e.MaxRebroadcastWait, e.emptyVoteTimeoutTaskRunner)
 
 	for _, node := range e.nodes {
 		e.futureMessages[string(node)] = make(map[uint64]*messagesForRound)
@@ -602,7 +599,7 @@ func (e *Epoch) handleFinalizationMessage(message *Finalization, from NodeID) er
 func (e *Epoch) handleFinalizationForPendingOrFutureRound(message *Finalization, round uint64, nextSeqToCommit uint64) {
 	if round == e.round {
 		// delay collecting future finalization if we are verifying the proposal for that round
-		// and the finalization is for the current round
+		// and the finalization is for rounds we have
 		for _, msgs := range e.futureMessages {
 			msgForRound, exists := msgs[round]
 			if exists && msgForRound.proposalBeingProcessed {
@@ -613,12 +610,13 @@ func (e *Epoch) handleFinalizationForPendingOrFutureRound(message *Finalization,
 	}
 
 	// TODO: delay requesting future finalizations and blocks, since blocks could be in transit
-	e.Logger.Debug("Received finalization for a future round", zap.Uint64("round", round))
+	e.Logger.Debug("Received finalization for a pending or future round, and we don't have the block", zap.Uint64("round", round), zap.Uint64("our round", e.round))
 	if LeaderForRound(e.nodes, e.round).Equals(e.ID) {
 		e.Logger.Debug("We are the leader of this round, but a higher round has been finalized. Aborting block building.")
 		e.blockBuilderCancelFunc()
 	}
-	e.replicationState.replicateBlocks(message, nextSeqToCommit)
+
+	e.replicationState.ReceivedFutureFinalization(message, nextSeqToCommit)
 }
 
 func (e *Epoch) handleFinalizeVoteMessage(message *FinalizeVote, from NodeID) error {
@@ -700,7 +698,7 @@ func (e *Epoch) handleEmptyVoteMessage(message *EmptyVote, from NodeID) error {
 	vote := message.Vote
 
 	e.Logger.Verbo("Received empty vote message",
-		zap.Stringer("from", from), zap.Uint64("round", vote.Round))
+		zap.Stringer("from", from), zap.Uint64("round", vote.Round), zap.Uint64("our round", e.round))
 
 	// Only process point to point empty votes.
 	// A node will never need to forward to us someone else's vote.
@@ -714,6 +712,12 @@ func (e *Epoch) handleEmptyVoteMessage(message *EmptyVote, from NodeID) error {
 		e.Logger.Debug("Got empty vote from a past round",
 			zap.Uint64("round", vote.Round), zap.Uint64("my round", e.round), zap.Stringer("from", from))
 
+		// if this node has sent us an empty vote for a past round, it may be behind
+		// send it both the latest finalization and the highest round to help it catch up and initiate the replication process
+		e.sendLatestFinalization(from)
+		e.sendHighestRound(from)
+
+		// also send the notarization or finalization for this round as well
 		e.maybeSendNotarizationOrFinalization(from, vote.Round)
 		return nil
 	}
@@ -727,7 +731,6 @@ func (e *Epoch) handleEmptyVoteMessage(message *EmptyVote, from NodeID) error {
 	}
 
 	// Else, this is an empty vote for current round
-
 	e.Logger.Debug("Received an empty vote for the current round",
 		zap.Uint64("round", vote.Round), zap.Stringer("from", from))
 
@@ -747,10 +750,60 @@ func (e *Epoch) handleEmptyVoteMessage(message *EmptyVote, from NodeID) error {
 	return e.maybeAssembleEmptyNotarization()
 }
 
+func (e *Epoch) sendLatestFinalization(to NodeID) {
+	if e.lastBlock == nil {
+		e.Logger.Debug("No blocks committed yet, cannot send latest block", zap.Stringer("to", to))
+		return
+	}
+
+	msg := &Message{
+		Finalization: &e.lastBlock.Finalization,
+	}
+	e.Logger.Debug("Node appears behind, sending it the latest finalization", zap.Stringer("to", to), zap.Uint64("round", e.lastBlock.Finalization.Finalization.Round), zap.Uint64("sequence", e.lastBlock.Finalization.Finalization.Seq))
+	e.Comm.Send(msg, to)
+}
+
+func (e *Epoch) sendHighestRound(to NodeID) {
+	latestQR := e.getLatestVerifiedQuorumRound()
+
+	if latestQR == nil {
+		e.Logger.Debug("Cannot send latest round because there is none", zap.Stringer("to", to))
+		return
+	}
+
+	if latestQR.Notarization != nil {
+		msg := &Message{
+			Notarization: latestQR.Notarization,
+		}
+		e.Logger.Debug("Node appears behind, sending it the highest round", zap.Stringer("to", to), zap.Uint64("round", latestQR.Notarization.Vote.Round))
+		e.Comm.Send(msg, to)
+		return
+	}
+
+	if latestQR.EmptyNotarization != nil {
+		msg := &Message{
+			EmptyNotarization: latestQR.EmptyNotarization,
+		}
+		e.Logger.Debug("Node appears behind, sending it the highest empty notarized round", zap.Stringer("to", to), zap.Uint64("round", latestQR.EmptyNotarization.Vote.Round))
+		e.Comm.Send(msg, to)
+		return
+	}
+}
+
 func (e *Epoch) maybeSendNotarizationOrFinalization(to NodeID, round uint64) {
 	r, ok := e.rounds[round]
 
 	if !ok {
+		// round could be an empty notarized round
+		evs, ok := e.emptyVotes[round]
+		if ok && evs.emptyNotarization != nil {
+			msg := &Message{
+				EmptyNotarization: evs.emptyNotarization,
+			}
+			e.Logger.Debug("Node appears behind, sending it an empty notarization", zap.Stringer("to", to), zap.Uint64("round", round))
+			e.Comm.Send(msg, to)
+		}
+
 		return
 	}
 
@@ -763,7 +816,7 @@ func (e *Epoch) maybeSendNotarizationOrFinalization(to NodeID, round uint64) {
 	}
 
 	if r.notarization != nil {
-		e.Logger.Debug("Node appears behind, sending them a notarization", zap.Stringer("to", to), zap.Uint64("round", round))
+		e.Logger.Debug("Node appears behind, sending it a notarization", zap.Stringer("to", to), zap.Uint64("round", round))
 		msg := &Message{
 			Notarization: r.notarization,
 		}
@@ -995,7 +1048,7 @@ func (e *Epoch) persistFinalization(finalization Finalization) error {
 
 		// we receive a finalization for a future round
 		e.Logger.Debug("Received a finalization for a future sequence", zap.Uint64("seq", finalization.Finalization.Seq), zap.Uint64("nextSeqToCommit", nextSeqToCommit))
-		e.replicationState.replicateBlocks(&finalization, nextSeqToCommit)
+		e.replicationState.ReceivedFutureFinalization(&finalization, nextSeqToCommit)
 
 		if err := e.rebroadcastPastFinalizeVotes(); err != nil {
 			return err
@@ -1222,7 +1275,7 @@ func (e *Epoch) persistEmptyNotarization(emptyVotes *EmptyVoteSet, shouldBroadca
 	}
 
 	e.blockVerificationScheduler.ExecuteEmptyRoundDependents(emptyNotarization.Vote.Round)
-
+	e.replicationState.DeleteRound(emptyNotarization.Vote.Round)
 	// don't increase the round if this is a empty notarization for a past round
 	if e.round != emptyNotarization.Vote.Round {
 		return nil
@@ -1239,6 +1292,7 @@ func (e *Epoch) persistEmptyNotarization(emptyVotes *EmptyVoteSet, shouldBroadca
 }
 
 func (e *Epoch) maybeMarkLeaderAsTimedOutForFutureBlacklisting(emptyNotarization *EmptyNotarization) error {
+	e.Logger.Debug("Marking the leader as timed out", zap.Uint64("round", emptyNotarization.Vote.Round), zap.Stringer("leader", LeaderForRound(e.nodes, emptyNotarization.Vote.Round)))
 	var blacklist Blacklist
 	if e.lastBlock != nil {
 		if e.lastBlock.VerifiedBlock == nil {
@@ -1327,7 +1381,9 @@ func (e *Epoch) persistNotarization(notarization Notarization) error {
 		}
 	}
 
-	e.increaseRound()
+	if notarization.Vote.Round == e.round {
+		e.increaseRound()
+	}
 
 	return nil
 }
@@ -1354,15 +1410,10 @@ func (e *Epoch) handleEmptyNotarizationMessage(emptyNotarization *EmptyNotarizat
 
 	e.Logger.Verbo("Received empty notarization message", zap.Uint64("round", vote.Round))
 
-	if e.isRoundTooFarAhead(vote.Round) {
-		e.Logger.Debug("Received an empty notarization for a too high round",
-			zap.Uint64("round", vote.Round), zap.Uint64("our round", e.round))
-		return nil
-	}
-
 	if e.isVoteForFinalizedRound(vote.Round) {
 		e.Logger.Debug("Received an empty notarization for a too low round",
 			zap.Uint64("round", vote.Round), zap.Uint64("our round", e.round))
+
 		return nil
 	}
 
@@ -1371,13 +1422,22 @@ func (e *Epoch) handleEmptyNotarizationMessage(emptyNotarization *EmptyNotarizat
 		return nil
 	}
 
-	emptyVotes := e.getOrCreateEmptyVoteSetForRound(vote.Round)
-	emptyVotes.emptyNotarization = emptyNotarization
 	if vote.Round > e.round {
-		e.Logger.Debug("Received empty notarization for a future round",
+		e.Logger.Debug("Received an empty notarization for a higher round",
 			zap.Uint64("round", vote.Round), zap.Uint64("our round", e.round))
+
+		e.replicationState.ReceivedFutureRound(vote.Round, 0, e.round, emptyNotarization.QC.Signers())
+
+		// store in future state if within max round window
+		if e.isWithinMaxRoundWindow(vote.Round) {
+			emptyVotes := e.getOrCreateEmptyVoteSetForRound(vote.Round)
+			emptyVotes.emptyNotarization = emptyNotarization
+		}
 		return nil
 	}
+
+	emptyVotes := e.getOrCreateEmptyVoteSetForRound(vote.Round)
+	emptyVotes.emptyNotarization = emptyNotarization
 
 	// The empty notarization is for this round, so store it but don't broadcast it, as we've received it via a broadcast.
 	return e.persistEmptyNotarization(emptyVotes, false)
@@ -1410,11 +1470,22 @@ func (e *Epoch) handleNotarizationMessage(message *Notarization, from NodeID) er
 	e.Logger.Verbo("Received notarization message",
 		zap.Stringer("from", from), zap.Uint64("round", vote.Round))
 
-	if !e.isVoteRoundValid(vote.Round) {
+	if e.isVoteForFinalizedRound(vote.Round) {
 		return nil
 	}
 
 	if err := VerifyQC(message.QC, e.Logger, "Notarization", e.SignatureAggregator.IsQuorum, e.eligibleNodeIDs, message, from); err != nil {
+		return nil
+	}
+
+	if vote.Round > e.round {
+		e.Logger.Debug("Received a notarization for a future round",
+			zap.Uint64("round", vote.Round), zap.Uint64("our round", e.round))
+		e.replicationState.ReceivedFutureRound(vote.Round, vote.Seq, e.round, message.QC.Signers())
+		if e.isWithinMaxRoundWindow(vote.Round) {
+			e.storeFutureNotarization(message, from, vote.Round)
+		}
+
 		return nil
 	}
 
@@ -1425,11 +1496,14 @@ func (e *Epoch) handleNotarizationMessage(message *Notarization, from NodeID) er
 		e.Logger.Debug("Received a notarization for an already notarized round")
 		return nil
 	}
+
 	// If this notarization is for a round we are currently processing its proposal,
 	// or for a future round, then store it for later use.
-	if !exists || e.round < vote.Round {
-		e.Logger.Debug("Received a notarization for a future round", zap.Uint64("round", vote.Round))
+	if !exists {
+		e.Logger.Info("Received a notarization for this round, but we don't have a block for it yet", zap.Uint64("round", vote.Round), zap.Uint64("epoch round", e.round))
 		e.storeFutureNotarization(message, from, vote.Round)
+
+		// TODO: we need to request the block.
 		return nil
 	}
 
@@ -1560,10 +1634,11 @@ func (e *Epoch) blockDependencies(bh BlockHeader) (*Digest, []uint64) {
 	prevBlock, notarizationOrFinalization, found := e.locateBlock(bh.Seq-1, bh.Prev[:])
 	if !found {
 		// should never happen since we check this when we verify the proposal metadata
-		e.Logger.Error("Could not find predecessor block for proposal scheduling",
+		e.Logger.Info("Could not find predecessor block for proposal scheduling",
 			zap.Uint64("seq", bh.Seq-1),
 			zap.Stringer("prev", bh.Prev))
 
+		// TODO: if not found we need to not schedule right away and wait to get the round of the parent so we know the empty round deps
 		return &bh.Prev, nil
 	}
 
@@ -1587,7 +1662,9 @@ func (e *Epoch) blockDependencies(bh BlockHeader) (*Digest, []uint64) {
 // processFinalizedBlocks processes a block that has a finalization.
 // if the block has already been verified, it will index the finalization,
 // otherwise it will verify the block first.
-func (e *Epoch) processFinalizedBlock(block Block, finalization Finalization) error {
+func (e *Epoch) processFinalizedBlock(block Block, finalization *Finalization) error {
+	e.Logger.Debug("Processing finalized block during replication", zap.Uint64("round", finalization.Finalization.Round), zap.Uint64("sequence", finalization.Finalization.Seq))
+
 	round, exists := e.rounds[finalization.Finalization.Round]
 	// dont create a block verification task if the block is already in the rounds map
 	if exists {
@@ -1600,7 +1677,7 @@ func (e *Epoch) processFinalizedBlock(block Block, finalization Finalization) er
 			delete(e.rounds, round.num)
 			return e.processFinalizedBlock(block, finalization)
 		}
-		round.finalization = &finalization
+		round.finalization = finalization
 		if err := e.indexFinalizations(round.num); err != nil {
 			e.Logger.Error("Failed to index finalization", zap.Error(err))
 			return err
@@ -1609,11 +1686,20 @@ func (e *Epoch) processFinalizedBlock(block Block, finalization Finalization) er
 		return e.processReplicationState()
 	}
 
+	blockDependency, missingRounds := e.blockDependencies(block.BlockHeader())
+	// because its finalized we don't care about empty rounds
+	if blockDependency != nil {
+		e.Logger.Error(
+			"Received a finalization for nextSeqToCommit that breaks our chain",
+			zap.Stringer("block digest", block.BlockHeader().Digest),
+			zap.Stringer("expected digest", blockDependency),
+			zap.Uint64s("missing rounds", missingRounds),
+		)
+	}
+
 	// Create a task that will verify the block in the future, after its predecessors have also been verified.
 	task := e.createFinalizedBlockVerificationTask(e.oneTimeVerifier.Wrap(block), finalization)
-
-	// TODO: in a future PR, we need to handle collecting any potential dependencies for finalized blocks
-	e.blockVerificationScheduler.ScheduleTaskWithDependencies(task, block.BlockHeader().Seq, nil, []uint64{})
+	e.blockVerificationScheduler.ScheduleTaskWithDependencies(task, block.BlockHeader().Seq, blockDependency, []uint64{})
 
 	return nil
 }
@@ -1622,10 +1708,11 @@ func (e *Epoch) processFinalizedBlock(block Block, finalization Finalization) er
 // if the block has already been verified, it will persist the notarization,
 // otherwise it will verify the block first.
 func (e *Epoch) processNotarizedBlock(block Block, notarization *Notarization) error {
+	e.Logger.Debug("Processing notarized block during replication", zap.Uint64("round", notarization.Vote.Round), zap.Uint64("sequence", notarization.Vote.Seq))
 	md := block.BlockHeader()
 	round, exists := e.rounds[md.Round]
 
-	// dont create a block verification task if the block is already in the rounds map
+	// don't create a block verification task if the block is already in the rounds map
 	if exists {
 		// We could have a block in the rounds map, as well as an empty notarization.
 		// its important to not create a conflicting notarization for that round.
@@ -1666,8 +1753,8 @@ func (e *Epoch) processNotarizedBlock(block Block, notarization *Notarization) e
 	task := e.createNotarizedBlockVerificationTask(e.oneTimeVerifier.Wrap(block), *notarization)
 	blockDependency, missingRounds := e.blockDependencies(md)
 
-	// TODO: if we have dependencies during replication, we are stuck since this means a node
-	// must have sent us an empty notarization for a round this block depends on.
+	e.replicationState.CreateDependencyTasks(blockDependency, md.Seq-1, missingRounds)
+
 	e.blockVerificationScheduler.ScheduleTaskWithDependencies(task, md.Seq, blockDependency, missingRounds)
 
 	return nil
@@ -1762,7 +1849,7 @@ func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote)
 	}
 }
 
-func (e *Epoch) createFinalizedBlockVerificationTask(block Block, finalization Finalization) func() Digest {
+func (e *Epoch) createFinalizedBlockVerificationTask(block Block, finalization *Finalization) func() Digest {
 	return func() Digest {
 		md := block.BlockHeader()
 
@@ -1777,15 +1864,11 @@ func (e *Epoch) createFinalizedBlockVerificationTask(block Block, finalization F
 		if err != nil {
 			e.Logger.Debug("Failed verifying block", zap.Error(err))
 			// if we fail to verify the block, we re-add to request timeout
-			numSigners := int64(len(finalization.QC.Signers()))
-			index, err := rand.Int(rand.Reader, big.NewInt(numSigners))
+			err = e.replicationState.ResendFinalizationRequest(md.Seq, finalization.QC.Signers())
 			if err != nil {
 				e.haltedError = err
-				e.Logger.Debug("Failed to generate random index", zap.Error(err))
-				return md.Digest
+				e.Logger.Debug("Failed to resend finalization", zap.Error(err))
 			}
-
-			e.replicationState.sendRequestToNode(md.Seq, md.Seq, finalization.QC.Signers(), int(index.Int64()))
 			return md.Digest
 		}
 
@@ -1801,7 +1884,7 @@ func (e *Epoch) createFinalizedBlockVerificationTask(block Block, finalization F
 			return md.Digest
 		}
 
-		if err := e.indexFinalization(verifiedBlock, finalization); err != nil {
+		if err := e.indexFinalization(verifiedBlock, *finalization); err != nil {
 			e.haltedError = err
 			e.Logger.Error("Failed to index finalization", zap.Error(err))
 			return md.Digest
@@ -1832,6 +1915,7 @@ func (e *Epoch) createNotarizedBlockVerificationTask(block Block, notarization N
 		verifiedBlock, err := block.Verify(context.Background())
 		if err != nil {
 			e.Logger.Debug("Failed verifying block", zap.Error(err))
+			// TODO: if we fail to verify the block, we should re-request it from the replication state
 			return md.Digest
 		}
 
@@ -1841,8 +1925,7 @@ func (e *Epoch) createNotarizedBlockVerificationTask(block Block, notarization N
 		// we started verifying the block when we didn't have a notarization, however its
 		// possible we received a notarization or empty notarization for this block in the meantime.
 		round, ok := e.rounds[md.Round]
-		emptyVote, emptyOk := e.emptyVotes[md.Round]
-		if (ok && round.notarization != nil) || (emptyOk && emptyVote.emptyNotarization != nil) {
+		if ok && round.notarization != nil {
 			e.Logger.Debug("Verifying notarized block that already has a notarization for the round",
 				zap.Uint64("round", md.Round))
 			return md.Digest
@@ -1854,14 +1937,10 @@ func (e *Epoch) createNotarizedBlockVerificationTask(block Block, notarization N
 			return md.Digest
 		}
 
-		round, ok = e.rounds[block.BlockHeader().Round]
-		if !ok {
-			e.Logger.Warn("Unable to get proposed block for the round", zap.Uint64("round", md.Round))
-			return md.Digest
-		}
-
 		if err := e.persistNotarization(notarization); err != nil {
 			e.haltedError = err
+			e.Logger.Error("Failed to persist notarization", zap.Error(err))
+			return md.Digest
 		}
 
 		err = e.processReplicationState()
@@ -2232,7 +2311,7 @@ func (e *Epoch) triggerEmptyBlockNotarization(round uint64) {
 
 	e.Comm.Broadcast(&Message{EmptyVoteMessage: &signedEV})
 
-	e.addEmptyVoteRebroadcastTimeout(&signedEV)
+	e.addEmptyVoteRebroadcastTimeout()
 
 	if err := e.maybeAssembleEmptyNotarization(); err != nil {
 		e.Logger.Error("Failed assembling empty notarization", zap.Error(err))
@@ -2240,23 +2319,33 @@ func (e *Epoch) triggerEmptyBlockNotarization(round uint64) {
 	}
 }
 
-func (e *Epoch) addEmptyVoteRebroadcastTimeout(vote *EmptyVote) {
-	task := &TimeoutTask{
-		NodeID:   e.ID,
-		TaskID:   EmptyVoteTimeoutID,
-		Deadline: e.timeoutHandler.GetTime().Add(e.EpochConfig.MaxRebroadcastWait),
-		Task: func() {
-			e.Logger.Debug("Rebroadcasting empty vote because round has not advanced", zap.Uint64("round", vote.Vote.Round))
-			e.Comm.Broadcast(&Message{EmptyVoteMessage: vote})
-			e.addEmptyVoteRebroadcastTimeout(vote)
-		},
+func (e *Epoch) emptyVoteTimeoutTaskRunner(_ []string) {
+	e.lock.Lock()
+	defer e.lock.Unlock()
+
+	roundVotes, ok := e.emptyVotes[e.round]
+
+	if !ok {
+		e.Logger.Debug("No empty vote set found to rebroadcast, yet expected to rebroadcast", zap.Uint64("round", e.round))
+		return
 	}
 
-	e.timeoutHandler.AddTask(task)
+	ourVote, voted := roundVotes.votes[string(e.ID)]
+	if !voted {
+		e.Logger.Debug("Our empty vote not found in the set to rebroadcast, yet expected to rebroadcast", zap.Uint64("round", e.round))
+		return
+	}
+
+	e.Logger.Debug("Rebroadcasting empty vote because round has not advanced", zap.Uint64("round", ourVote.Vote.Round))
+	e.Comm.Broadcast(&Message{EmptyVoteMessage: ourVote})
+}
+
+func (e *Epoch) addEmptyVoteRebroadcastTimeout() {
+	e.timeoutHandler.AddTask(EmptyVoteTimeoutID)
 }
 
 func (e *Epoch) monitorProgress(round uint64) {
-	e.Logger.Debug("Monitoring progress", zap.Uint64("round", round))
+	e.Logger.Debug("Monitoring progress", zap.Uint64("round", round), zap.Uint64("currentRound", e.round))
 	ctx, cancelContext := context.WithCancel(context.Background())
 
 	noop := func() {}
@@ -2468,8 +2557,7 @@ func (e *Epoch) increaseRound() {
 	e.blockBuilderCancelFunc()
 
 	// remove the rebroadcast empty vote task
-	e.timeoutHandler.RemoveTask(e.ID, EmptyVoteTimeoutID)
-
+	e.timeoutHandler.RemoveTask(EmptyVoteTimeoutID)
 	prevLeader := LeaderForRound(e.nodes, e.round)
 	nextLeader := LeaderForRound(e.nodes, e.round+1)
 
@@ -2630,34 +2718,68 @@ func (e *Epoch) storeProposal(block VerifiedBlock) bool {
 
 // HandleRequest processes a request and returns a response. It also sends a response to the sender.
 func (e *Epoch) handleReplicationRequest(req *ReplicationRequest, from NodeID) error {
-	e.Logger.Debug("Received replication request", zap.Stringer("from", from), zap.Int("num seqs", len(req.Seqs)), zap.Uint64("latest round", req.LatestRound))
+	e.Logger.Debug("Received replication request", zap.Stringer("from", from), zap.Int("num seqs", len(req.Seqs)), zap.Int("num rounds", len(req.Rounds)), zap.Uint64("latest round", req.LatestRound))
 	if !e.ReplicationEnabled {
 		return nil
 	}
 	response := &VerifiedReplicationResponse{}
 
-	latestRound := e.getLatestVerifiedQuorumRound()
+	if len(req.Seqs) > int(e.maxRoundWindow) || len(req.Rounds) > int(e.maxRoundWindow) {
+		e.Logger.Info("Replication request exceeds maximum allowed seqs and rounds",
+			zap.Stringer("from", from),
+			zap.Int("num seqs", len(req.Seqs)),
+			zap.Int("num rounds", len(req.Rounds)),
+			zap.Uint64("max round window", e.maxRoundWindow))
+		return nil
+	}
 
-	if latestRound != nil && latestRound.GetRound() > req.LatestRound {
-		response.LatestRound = latestRound
+	if req.LatestRound > 0 {
+		latestRound := e.getLatestVerifiedQuorumRound()
+		if latestRound != nil && latestRound.GetRound() > req.LatestRound {
+			response.LatestRound = latestRound
+		}
+	}
+	if req.LatestFinalizedSeq > 0 {
+		if e.lastBlock != nil && e.lastBlock.Finalization.Finalization.Seq > req.LatestFinalizedSeq {
+			response.LatestFinalizedSeq = &VerifiedQuorumRound{
+				VerifiedBlock: e.lastBlock.VerifiedBlock,
+				Finalization:  &e.lastBlock.Finalization,
+			}
+		}
 	}
 
 	seqs := req.Seqs
 	slices.Sort(seqs)
-	data := make([]VerifiedQuorumRound, len(seqs))
+	seqData := make([]VerifiedQuorumRound, len(seqs))
 	for i, seq := range seqs {
 		quorumRound := e.locateQuorumRecord(seq)
 		if quorumRound == nil {
 			// since we are sorted, we can break early
-			data = data[:i]
+			seqData = seqData[:i]
 			break
 		}
 
-		data[i] = *quorumRound
+		seqData[i] = *quorumRound
 	}
 
+	rounds := req.Rounds
+	roundData := make([]VerifiedQuorumRound, 0, len(rounds))
+	slices.Sort(rounds)
+	for _, roundNum := range rounds {
+		quorumRound := e.locateQuorumRecordByRound(roundNum)
+		if quorumRound == nil {
+			// we cannot break early since empty votes may
+			continue
+		}
+		roundData = append(roundData, *quorumRound)
+	}
+
+	data := make([]VerifiedQuorumRound, 0, len(seqData)+len(roundData))
+	data = append(data, seqData...)
+	data = append(data, roundData...)
 	response.Data = data
-	if len(data) == 0 && response.LatestRound == nil {
+
+	if len(data) == 0 && response.LatestRound == nil && response.LatestFinalizedSeq == nil {
 		e.Logger.Debug("No data found for replication request", zap.Stringer("from", from))
 		return nil
 	}
@@ -2714,6 +2836,38 @@ func (e *Epoch) locateQuorumRecord(seq uint64) *VerifiedQuorumRound {
 	}
 }
 
+func (e *Epoch) locateQuorumRecordByRound(targetRound uint64) *VerifiedQuorumRound {
+	var qr *VerifiedQuorumRound
+
+	for _, round := range e.rounds {
+		blockRound := round.block.BlockHeader().Round
+		if blockRound == targetRound {
+			if round.finalization != nil || round.notarization != nil {
+				qr = &VerifiedQuorumRound{
+					VerifiedBlock: round.block,
+					Finalization:  round.finalization,
+					Notarization:  round.notarization,
+				}
+				break
+			}
+		}
+	}
+
+	// check if the round is empty notarized
+	emptyVoteForRound, exists := e.emptyVotes[targetRound]
+	if exists && emptyVoteForRound.emptyNotarization != nil {
+		if qr != nil {
+			qr.EmptyNotarization = emptyVoteForRound.emptyNotarization
+			return qr
+		}
+		qr = &VerifiedQuorumRound{
+			EmptyNotarization: emptyVoteForRound.emptyNotarization,
+		}
+	}
+
+	return qr
+}
+
 func (e *Epoch) haveNotFinalizedNotarizedRound() (uint64, bool) {
 	e.lock.Lock()
 	defer e.lock.Unlock()
@@ -2737,42 +2891,35 @@ func (e *Epoch) handleReplicationResponse(resp *ReplicationResponse, from NodeID
 		return nil
 	}
 
-	e.Logger.Debug("Received replication response", zap.Stringer("from", from), zap.Int("num seqs", len(resp.Data)), zap.Stringer("latest round", resp.LatestRound))
+	e.Logger.Debug("Received replication response", zap.Stringer("from", from), zap.Int("num seqs", len(resp.Data)), zap.Stringer("latest round", resp.LatestRound), zap.Stringer("latest seq", resp.LatestSeq))
 	nextSeqToCommit := e.nextSeqToCommit()
 
-	validRounds := make([]QuorumRound, 0, len(resp.Data))
 	for _, data := range resp.Data {
-		if err := data.IsWellFormed(); err != nil {
-			e.Logger.Debug("Malformed Quorum Round Received", zap.Error(err))
-			continue
-		}
-
-		if data.EmptyNotarization == nil && nextSeqToCommit > data.GetSequence() {
-			e.Logger.Debug("Received quorum round for a seq that is too far behind", zap.Uint64("seq", data.GetSequence()))
-			continue
-		}
-
-		if data.GetSequence() > nextSeqToCommit+e.maxRoundWindow {
+		if data.Finalization != nil && data.GetSequence() > nextSeqToCommit+e.maxRoundWindow {
 			e.Logger.Debug("Received quorum round for a seq that is too far ahead", zap.Uint64("seq", data.GetSequence()))
 			// we are too far behind, we should ignore this message
 			continue
 		}
 
-		if err := e.verifyQuorumRound(data, from); err != nil {
-			e.Logger.Debug("Received invalid quorum round", zap.Uint64("seq", data.GetSequence()), zap.Stringer("from", from))
+		// We may be really far behind, so we shouldn't process sequences unless they are the nextSequenceToCommit
+		if data.GetRound() > e.round+e.maxRoundWindow && data.GetSequence() != nextSeqToCommit {
+			e.Logger.Debug("Received quorum round for a round that is too far ahead", zap.Uint64("round", data.GetRound()))
+			// we are too far behind, we should ignore this message
 			continue
 		}
 
-		validRounds = append(validRounds, data)
-		e.replicationState.StoreQuorumRound(data)
+		if err := e.processQuorumRound(&data, from); err != nil {
+			e.Logger.Debug("Failed processing quorum round", zap.Error(err))
+		}
 	}
 
-	if err := e.processLatestRoundReceived(resp.LatestRound, from); err != nil {
+	if err := e.processQuorumRound(resp.LatestRound, from); err != nil {
 		e.Logger.Debug("Failed processing latest round", zap.Error(err))
-		return nil
 	}
 
-	e.replicationState.receivedReplicationResponse(validRounds, from)
+	if err := e.processQuorumRound(resp.LatestSeq, from); err != nil {
+		e.Logger.Debug("Failed processing latest seq", zap.Error(err))
+	}
 
 	return e.processReplicationState()
 }
@@ -2807,6 +2954,7 @@ func (e *Epoch) verifyQuorumRound(q QuorumRound, from NodeID) error {
 }
 
 func (e *Epoch) processEmptyNotarization(emptyNotarization *EmptyNotarization) error {
+	e.Logger.Debug("Processing empty notarization due to replication", zap.Uint64("round", emptyNotarization.Vote.Round), zap.Uint64("our round", e.round))
 	emptyVotes := e.getOrCreateEmptyVoteSetForRound(emptyNotarization.Vote.Round)
 	emptyVotes.emptyNotarization = emptyNotarization
 
@@ -2818,72 +2966,77 @@ func (e *Epoch) processEmptyNotarization(emptyNotarization *EmptyNotarization) e
 	return e.processReplicationState()
 }
 
-func (e *Epoch) processLatestRoundReceived(latestRound *QuorumRound, from NodeID) error {
-	if latestRound == nil {
+// processQuorumRound processes a quorum round received from another node.
+// It verifies the quorum round and stores it in the replication state if valid.
+func (e *Epoch) processQuorumRound(round *QuorumRound, from NodeID) error {
+	if round == nil {
 		return nil
 	}
 
-	// make sure the latest round is well formed
-	if err := latestRound.IsWellFormed(); err != nil {
-		e.Logger.Debug("Received invalid latest round", zap.Error(err))
-		return err
+	// make sure the round is well formed
+	if err := round.IsWellFormed(); err != nil {
+		return fmt.Errorf("received malformed latest round: %w", err)
 	}
 
-	if err := e.verifyQuorumRound(*latestRound, from); err != nil {
-		e.Logger.Debug("Received invalid latest round", zap.Error(err))
-		return err
+	if round.Finalization == nil && e.isVoteForFinalizedRound(round.GetRound()) {
+		return fmt.Errorf("received a quorum round for a round that has been finalized. round: %d; seq: %d", round.GetRound(), round.GetSequence())
 	}
 
-	e.replicationState.StoreQuorumRound(*latestRound)
+	if round.Finalization != nil && e.lastBlock != nil && e.lastBlock.VerifiedBlock.BlockHeader().Seq > round.Finalization.Finalization.Seq {
+		return fmt.Errorf("received a finalized round for a committed sequence. round: %d; seq: %d", round.GetRound(), round.GetSequence())
+	}
+
+	if err := e.verifyQuorumRound(*round, from); err != nil {
+		return fmt.Errorf("failed verifying latest round: %w", err)
+	}
+
+	e.replicationState.StoreQuorumRound(round)
 	return nil
 }
 
 func (e *Epoch) processReplicationState() error {
 	nextSeqToCommit := e.nextSeqToCommit()
 
-	// check if we are done replicating and should start a new round
-	if e.replicationState.isReplicationComplete(nextSeqToCommit, e.round) {
-		// TODO: an adversarial node can send multiple empty replication responses, causing us
-		// to call start round multiple times. This is potentially bad if we are the leader, since we will
-		// propose multiple blocks for the same round.
-		return e.startRound()
-	}
-
-	e.replicationState.maybeCollectFutureSequences(e.nextSeqToCommit())
+	// We might have advanced the rounds from non-replicating paths such as future messages. Advance replication state accordingly.
+	e.replicationState.MaybeAdvanceState(nextSeqToCommit, e.round)
 
 	// first we check if we can commit the next sequence, it is ok to try and commit the next sequence
 	// directly, since if there are any empty notarizations, `indexFinalization` will
 	// increment the round properly.
 	block, finalization, exists := e.replicationState.GetFinalizedBlockForSequence(nextSeqToCommit)
 	if exists {
-		delete(e.replicationState.receivedQuorumRounds, block.BlockHeader().Round)
+		e.replicationState.DeleteSeq(nextSeqToCommit)
 		return e.processFinalizedBlock(block, finalization)
 	}
 
-	qRound, ok := e.replicationState.receivedQuorumRounds[e.round]
-	if ok && qRound.Notarization != nil {
-		if qRound.Finalization != nil {
-			e.Logger.Debug("Delaying processing a QuorumRound that has an Finalization != NextSeqToCommit", zap.Stringer("QuorumRound", &qRound))
-			return nil
+	// process the lowest round in our replication state(up to and including the current epoch round)
+	lowestRound := e.replicationState.GetLowestRound()
+	if lowestRound != nil && lowestRound.GetRound() <= e.round {
+		e.Logger.Debug("Process replication state", zap.Stringer("lowest round", lowestRound), zap.Uint64("Our round", e.round))
+
+		// Remove before processing to avoid infinite recursion
+		e.replicationState.DeleteRound(lowestRound.GetRound())
+		if lowestRound.Notarization != nil {
+			if err := e.processNotarizedBlock(lowestRound.Block, lowestRound.Notarization); err != nil {
+				return err
+			}
 		}
-		delete(e.replicationState.receivedQuorumRounds, e.round)
-		return e.processNotarizedBlock(qRound.Block, qRound.Notarization)
+		// we can also have an empty notarization
+		if lowestRound.EmptyNotarization != nil {
+			if err := e.processEmptyNotarization(lowestRound.EmptyNotarization); err != nil {
+				return err
+			}
+		}
+
 	}
 
-	// the current round is an empty notarization
-	if ok && qRound.EmptyNotarization != nil {
-		delete(e.replicationState.receivedQuorumRounds, qRound.GetRound())
-		return e.processEmptyNotarization(qRound.EmptyNotarization)
-	}
-
-	roundAdvanced, err := e.maybeAdvanceRoundFromEmptyNotarizations()
+	// maybe there are no replication rounds < our round but we can still advance from empty notarizations
+	err := e.maybeAdvanceRoundFromEmptyNotarizations()
 	if err != nil {
 		return err
 	}
-	if roundAdvanced {
-		return e.processReplicationState()
-	}
 
+	e.Logger.Debug("Nothing to process in replication state", zap.Uint64("Our round", e.round), zap.Uint64("NextSeqToCommit", nextSeqToCommit), zap.Stringer("lowest replication round", lowestRound))
 	return nil
 }
 
@@ -2896,22 +3049,24 @@ func (e *Epoch) processReplicationState() error {
 //	QRound2 { round 8, seq 1 }
 //
 // in this case we can infer there was 8-1 empty notarizations during rounds [2, 8].
-func (e *Epoch) maybeAdvanceRoundFromEmptyNotarizations() (bool, error) {
+func (e *Epoch) maybeAdvanceRoundFromEmptyNotarizations() error {
 	round := e.round
 	expectedSeq := e.metadata().Seq
 
-	nextSeqQuorum := e.replicationState.GetQuorumRoundWithSeq(expectedSeq)
-	if nextSeqQuorum != nil {
+	block := e.replicationState.GetBlockWithSeq(expectedSeq)
+	if block != nil {
+		bh := block.BlockHeader()
 		// num empty notarizations
-		if round < nextSeqQuorum.GetRound() {
-			for range nextSeqQuorum.GetRound() - round {
+		if round < bh.Round {
+			e.Logger.Debug("Advancing round from a gap in empty notarizations", zap.Uint64("epoch round", round), zap.Uint64("block round", bh.Round))
+			for range bh.Round - round {
 				e.increaseRound()
 			}
-			return true, nil
+			return e.processReplicationState()
 		}
 	}
 
-	return false, nil
+	return nil
 }
 
 // getHighestRound returns the highest round that has either a notarization or finalization
@@ -2953,7 +3108,6 @@ func (e *Epoch) getLatestVerifiedQuorumRound() *VerifiedQuorumRound {
 	return GetLatestVerifiedQuorumRound(
 		e.getHighestRound(),
 		e.getHighestEmptyNotarization(),
-		e.lastBlock,
 	)
 }
 

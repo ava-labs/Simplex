@@ -5,7 +5,6 @@ package simplex_test
 
 import (
 	"bytes"
-	"fmt"
 	"testing"
 	"time"
 
@@ -133,8 +132,6 @@ func TestPoS(t *testing.T) {
 	for _, n := range net.Instances {
 		testutil.WaitToEnterRound(t, n.E, 15)
 	}
-
-	fmt.Println(simplex.LeaderForRound(nodes, 15))
 
 	// Now, disconnect the node with the highest stake (node 3) and observe the network is stuck
 	net.Disconnect(nodes[2])
