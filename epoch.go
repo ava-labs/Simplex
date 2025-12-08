@@ -759,7 +759,7 @@ func (e *Epoch) sendLatestFinalization(to NodeID) {
 	msg := &Message{
 		Finalization: &e.lastBlock.Finalization,
 	}
-	e.Logger.Debug("Node appears behind, sending them the latest finalization", zap.Stringer("to", to), zap.Uint64("round", e.lastBlock.Finalization.Finalization.Round), zap.Uint64("sequence", e.lastBlock.Finalization.Finalization.Seq))
+	e.Logger.Debug("Node appears behind, sending it the latest finalization", zap.Stringer("to", to), zap.Uint64("round", e.lastBlock.Finalization.Finalization.Round), zap.Uint64("sequence", e.lastBlock.Finalization.Finalization.Seq))
 	e.Comm.Send(msg, to)
 }
 
@@ -775,7 +775,7 @@ func (e *Epoch) sendHighestRound(to NodeID) {
 		msg := &Message{
 			Notarization: latestQR.Notarization,
 		}
-		e.Logger.Debug("Node appears behind, sending them the highest round", zap.Stringer("to", to), zap.Uint64("round", latestQR.Notarization.Vote.Round))
+		e.Logger.Debug("Node appears behind, sending it the highest round", zap.Stringer("to", to), zap.Uint64("round", latestQR.Notarization.Vote.Round))
 		e.Comm.Send(msg, to)
 		return
 	}
@@ -784,7 +784,7 @@ func (e *Epoch) sendHighestRound(to NodeID) {
 		msg := &Message{
 			EmptyNotarization: latestQR.EmptyNotarization,
 		}
-		e.Logger.Debug("Node appears behind, sending them the highest empty notarized round", zap.Stringer("to", to), zap.Uint64("round", latestQR.EmptyNotarization.Vote.Round))
+		e.Logger.Debug("Node appears behind, sending it the highest empty notarized round", zap.Stringer("to", to), zap.Uint64("round", latestQR.EmptyNotarization.Vote.Round))
 		e.Comm.Send(msg, to)
 		return
 	}
@@ -800,7 +800,7 @@ func (e *Epoch) maybeSendNotarizationOrFinalization(to NodeID, round uint64) {
 			msg := &Message{
 				EmptyNotarization: evs.emptyNotarization,
 			}
-			e.Logger.Debug("Node appears behind, sending them an empty notarization", zap.Stringer("to", to), zap.Uint64("round", round))
+			e.Logger.Debug("Node appears behind, sending it an empty notarization", zap.Stringer("to", to), zap.Uint64("round", round))
 			e.Comm.Send(msg, to)
 		}
 
@@ -816,7 +816,7 @@ func (e *Epoch) maybeSendNotarizationOrFinalization(to NodeID, round uint64) {
 	}
 
 	if r.notarization != nil {
-		e.Logger.Debug("Node appears behind, sending them a notarization", zap.Stringer("to", to), zap.Uint64("round", round))
+		e.Logger.Debug("Node appears behind, sending it a notarization", zap.Stringer("to", to), zap.Uint64("round", round))
 		msg := &Message{
 			Notarization: r.notarization,
 		}
@@ -2321,8 +2321,9 @@ func (e *Epoch) triggerEmptyBlockNotarization(round uint64) {
 
 func (e *Epoch) emptyVoteTimeoutTaskRunner(_ []string) {
 	e.lock.Lock()
+	defer e.lock.Unlock()
+
 	roundVotes, ok := e.emptyVotes[e.round]
-	e.lock.Unlock()
 
 	if !ok {
 		e.Logger.Debug("No empty vote set found to rebroadcast, yet expected to rebroadcast", zap.Uint64("round", e.round))

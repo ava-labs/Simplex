@@ -36,8 +36,6 @@ func waitReceive[T any](t *testing.T, ch <-chan T) T {
 	}
 }
 
-func lessUint(a, b uint64) bool { return a < b }
-
 // Ensures tasks only run when at/after the runInterval boundary, and that
 // "too-early" ticks are ignored by the runner loop.
 func TestTimeoutHandlerRunsOnlyOnInterval(t *testing.T) {

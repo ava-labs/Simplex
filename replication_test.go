@@ -1088,17 +1088,6 @@ func TestReplicationVerifyEmptyNotarization(t *testing.T) {
 	}, time.Millisecond*500, time.Millisecond*10, "Did not expect an empty notarization with a corrupt QC to be written to the WAL")
 }
 
-// almostFinalizeBlocks is a message filter that allows all messages except for finalized votes
-// and finalizations, unless the message is from node 1. This way each node will have 2 finalized votes,
-// which is one short from quorum.
-func almostFinalizeBlocks(msg *simplex.Message, from, _ simplex.NodeID) bool {
-	// block finalized votes and finalizations
-	if msg.Finalization != nil || msg.FinalizeVote != nil {
-		return from.Equals(simplex.NodeID{1})
-	}
-	return true
-}
-
 // TestReplicationVotesForNotarizations tests that a lagging node will replicate
 // finalizations and notarizations. It ensures the node sends finalized votes for rounds
 // without finalizations.
@@ -1111,6 +1100,18 @@ func TestReplicationVotesForNotarizations(t *testing.T) {
 	net := NewInMemNetwork(t, nodes)
 
 	storageData := createBlocks(t, nodes, numFinalizedBlocks)
+
+	// almostFinalizeBlocks is a message filter that allows all messages except for finalized votes
+	// and finalizations, unless the message is from node 1. This way each node will have 2 finalized votes,
+	// which is one short from quorum.
+	almostFinalizeBlocks := func(msg *simplex.Message, from, _ simplex.NodeID) bool {
+		// block finalized votes and finalizations
+		if msg.Finalization != nil || msg.FinalizeVote != nil {
+			return from.Equals(simplex.NodeID{1})
+		}
+		return true
+	}
+
 	nodeConfig := func(from simplex.NodeID) *TestNodeConfig {
 		comm := NewTestComm(from, net, almostFinalizeBlocks)
 		return &TestNodeConfig{
@@ -1196,7 +1197,7 @@ func TestReplicationVotesForNotarizations(t *testing.T) {
 	laggingNode.TimeoutOnRound(0)
 
 	expectedNumBlocks := numFinalizedBlocks + numNotarizedBlocks - missedSeqs
-	// because the adversarial node is offline , we may need to send replication requests many times
+	// because the adversarial node is offline, we may need to send replication requests many times
 	for {
 		time.Sleep(time.Millisecond * 100)
 		if laggingNode.Storage.NumBlocks() == expectedNumBlocks {
@@ -1299,7 +1300,7 @@ func testReplicationEmptyNotarizationsTail(t *testing.T, nodes []simplex.NodeID,
 	}
 }
 
-func sendEmptyNotarizationQuorumRounds(emptyNotes map[uint64]*simplex.EmptyNotarization) MessageFilter {
+func sendEmptyNotarizationQuorumRounds(emptyNotarizations map[uint64]*simplex.EmptyNotarization) MessageFilter {
 	return func(msg *simplex.Message, from, to simplex.NodeID) bool {
 		if msg.VerifiedReplicationResponse != nil {
 			newData := make([]simplex.VerifiedQuorumRound, 0, len(msg.VerifiedReplicationResponse.Data))
@@ -1308,7 +1309,7 @@ func sendEmptyNotarizationQuorumRounds(emptyNotes map[uint64]*simplex.EmptyNotar
 					EmptyNotarization: qr.EmptyNotarization,
 				}
 				if qr.EmptyNotarization == nil {
-					newQR.EmptyNotarization = emptyNotes[qr.GetRound()]
+					newQR.EmptyNotarization = emptyNotarizations[qr.GetRound()]
 				}
 				newData = append(newData, newQR)
 			}

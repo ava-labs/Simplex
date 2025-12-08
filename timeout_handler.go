@@ -12,7 +12,7 @@ import (
 )
 
 type timeoutRunner[T comparable] func(ids []T)
-type shouldRemoveFunc[T comparable] func(a T, b T) bool
+
 type TimeoutHandler[T comparable] struct {
 	// helpful for logging
 	name string
@@ -129,19 +129,6 @@ func (t *TimeoutHandler[T]) RemoveTask(ID T) {
 	delete(t.tasks, ID)
 }
 
-// RemoveOldTasks removes all tasks where shouldRemove(id, task) is true.
-// func (t *TimeoutHandler[T]) RemoveOldTasks(task T) {
-// 	t.lock.Lock()
-// 	defer t.lock.Unlock()
-
-// 	for id := range t.tasks {
-// 		if t.shouldRemove(id, task) {
-// 			// t.log.Debug("Removing old timeout task", zap.Any("id", id), zap.String("name", t.name))
-// 			delete(t.tasks, id)
-// 		}
-// 	}
-// }
-
 func (t *TimeoutHandler[T]) RemoveOldTasks(shouldRemove func(id T, _ struct{}) bool) {
 	t.lock.Lock()
 	defer t.lock.Unlock()
@@ -156,8 +143,4 @@ func (t *TimeoutHandler[T]) Close() {
 	default:
 		close(t.close)
 	}
-}
-
-func alwaysFalseRemover[T comparable](a T, b T) bool {
-	return false
 }

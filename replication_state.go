@@ -236,9 +236,9 @@ func (r *ReplicationState) clearDependencyTasks(parent *Digest) {
 	// TODO: for a future PR
 }
 
-// maybeSendFutureRequests attempts to collect future sequences if
+// MaybeAdvanceState attempts to collect future sequences if
 // there are more to be collected and the round has caught up for us to send the request.
-func (r *ReplicationState) MaybeAdvancedState(nextSequenceToCommit uint64, currentRound uint64) {
+func (r *ReplicationState) MaybeAdvanceState(nextSequenceToCommit uint64, currentRound uint64) {
 	if !r.enabled {
 		return
 	}
