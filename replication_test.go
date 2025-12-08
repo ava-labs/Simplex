@@ -558,15 +558,6 @@ func testReplicationAfterNodeDisconnects(t *testing.T, nodes []simplex.NodeID, s
 	}
 }
 
-func onlyAllowBlockProposalsAndNotarizations(msg *simplex.Message, _, to simplex.NodeID) bool {
-	// TODO: remove hardcoded node id
-	if to.Equals(simplex.NodeID{4}) {
-		return (msg.BlockMessage != nil || msg.VerifiedBlockMessage != nil || msg.Notarization != nil)
-	}
-
-	return true
-}
-
 // sendVotesToOneNode allows block messages to be sent to all nodes, and only
 // passes vote messages to one node. This will allows that node to notarize the block,
 // while the other blocks will timeout
@@ -849,6 +840,14 @@ func TestReplicationNotarizationWithoutFinalizations(t *testing.T) {
 func testReplicationNotarizationWithoutFinalizations(t *testing.T, numBlocks uint64, nodes []simplex.NodeID) {
 	net := NewInMemNetwork(t, nodes)
 
+	onlyAllowBlockProposalsAndNotarizations := func(msg *simplex.Message, _, to simplex.NodeID) bool {
+		if to.Equals(nodes[3]) {
+			return (msg.BlockMessage != nil || msg.VerifiedBlockMessage != nil || msg.Notarization != nil)
+		}
+
+		return true
+	}
+
 	nodeConfig := func(from simplex.NodeID) *TestNodeConfig {
 		comm := NewTestComm(from, net, onlyAllowBlockProposalsAndNotarizations)
 		return &TestNodeConfig{
@@ -875,7 +874,6 @@ func testReplicationNotarizationWithoutFinalizations(t *testing.T, numBlocks uin
 		for _, n := range net.Instances[:3] {
 			n.Storage.WaitForBlockCommit(uint64(i))
 		}
-
 	}
 
 	laggingNode.WAL.AssertNotarization(numBlocks - 1)

@@ -663,6 +663,14 @@ func (e *Epoch) handleFinalizeVoteMessage(message *FinalizeVote, from NodeID) er
 
 	if round.finalization != nil {
 		e.Logger.Debug("Received finalize vote for an already finalized round", zap.Uint64("round", vote.Round))
+
+		if from.Equals(e.ID) {
+			return nil
+		}
+		// send the finalization to the sender in case they missed it
+		e.Comm.Send(&Message{
+			Finalization: round.finalization,
+		}, from)
 		return nil
 	}
 
@@ -1113,7 +1121,7 @@ func (e *Epoch) rebroadcastPastFinalizeVotes() error {
 			}
 			finalizeVoteMessage = msg
 		}
-		e.Logger.Debug("Rebroadcasting finalization", zap.Uint64("round", r), zap.Uint64("seq", finalizeVoteMessage.FinalizeVote.Finalization.Seq))
+		e.Logger.Debug("Rebroadcasting finalize vote", zap.Uint64("round", r), zap.Uint64("seq", finalizeVoteMessage.FinalizeVote.Finalization.Seq))
 		e.Comm.Broadcast(finalizeVoteMessage)
 	}
 

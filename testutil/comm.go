@@ -5,6 +5,7 @@ package testutil
 
 import (
 	"bytes"
+	"fmt"
 	"sync"
 
 	"github.com/ava-labs/simplex"
@@ -69,11 +70,17 @@ func (c *TestComm) Send(msg *simplex.Message, destination simplex.NodeID) {
 
 	for _, instance := range c.net.Instances {
 		if bytes.Equal(instance.E.ID, destination) {
-			instance.ingress <- struct {
+			select {
+			case instance.ingress <- struct {
 				msg  *simplex.Message
 				from simplex.NodeID
-			}{msg: msg, from: c.from}
-			return
+			}{msg: msg, from: c.from}:
+				return
+			default:
+				// drop the message if the ingress channel is full
+				formattedString := fmt.Sprintf("Ingress channel is too full, failing test. From %v -> to %v", c.from, destination)
+				panic(formattedString)
+			}
 		}
 	}
 }
