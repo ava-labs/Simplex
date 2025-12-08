@@ -215,7 +215,7 @@ func TestReplicationRequestMixed(t *testing.T) {
 }
 
 func TestReplicationRequestTailingEmptyNotarizations(t *testing.T) {
-	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1)}
+	bb := testutil.NewTestBlockBuilder()
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
 	comm := NewListenerComm(nodes)
 	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], comm, bb)
@@ -270,7 +270,7 @@ func TestReplicationRequestTailingEmptyNotarizations(t *testing.T) {
 }
 
 func TestReplicationRequestUnknownSeqsAndRounds(t *testing.T) {
-	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1)}
+	bb := testutil.NewTestBlockBuilder()
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
 	comm := NewListenerComm(nodes)
 	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], comm, bb)

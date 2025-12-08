@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap/zapcore"
 
+	"github.com/ava-labs/simplex/record"
 	"github.com/ava-labs/simplex/testutil"
 	. "github.com/ava-labs/simplex/testutil"
 )

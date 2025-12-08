@@ -5,7 +5,6 @@ package simplex_test
 
 import (
 	"bytes"
-	"fmt"
 	"testing"
 	"time"
 

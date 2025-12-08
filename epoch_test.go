@@ -1297,7 +1297,7 @@ func TestEpochVotesForEquivocatedVotes(t *testing.T) {
 // Ensures we don't double increment the round on persisting a notarization
 func TestDoubleIncrementOnPersistNotarization(t *testing.T) {
 	// add an empty notarization, then a notarization for a previous round
-	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1)}
+	bb := testutil.NewTestBlockBuilder()
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[3], testutil.NewNoopComm(nodes), bb)
 	conf.ReplicationEnabled = true
@@ -1319,7 +1319,7 @@ func TestDoubleIncrementOnPersistNotarization(t *testing.T) {
 	_, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
 	require.True(t, ok)
 
-	block := <-bb.Out
+	block := bb.GetBuiltBlock()
 	notarization, err := testutil.NewNotarization(conf.Logger, conf.SignatureAggregator, block, nodes)
 	require.NoError(t, err)
 
