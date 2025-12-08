@@ -2724,7 +2724,7 @@ func (e *Epoch) handleReplicationRequest(req *ReplicationRequest, from NodeID) e
 	}
 	response := &VerifiedReplicationResponse{}
 
-	if len(req.Seqs) > int(e.maxRoundWindow) && len(req.Rounds) > int(e.maxRoundWindow) {
+	if len(req.Seqs) > int(e.maxRoundWindow) || len(req.Rounds) > int(e.maxRoundWindow) {
 		e.Logger.Info("Replication request exceeds maximum allowed seqs and rounds",
 			zap.Stringer("from", from),
 			zap.Int("num seqs", len(req.Seqs)),
@@ -2998,7 +2998,7 @@ func (e *Epoch) processReplicationState() error {
 	nextSeqToCommit := e.nextSeqToCommit()
 
 	// We might have advanced the rounds from non-replicating paths such as future messages. Advance replication state accordingly.
-	e.replicationState.MaybeAdvancedState(nextSeqToCommit, e.round)
+	e.replicationState.MaybeAdvanceState(nextSeqToCommit, e.round)
 
 	// first we check if we can commit the next sequence, it is ok to try and commit the next sequence
 	// directly, since if there are any empty notarizations, `indexFinalization` will
