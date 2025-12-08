@@ -1381,7 +1381,7 @@ func (e *Epoch) persistNotarization(notarization Notarization) error {
 		}
 	}
 
-	if notarization.Vote.Round == e.round && r.finalization == nil {
+	if notarization.Vote.Round == e.round {
 		e.increaseRound()
 	}
 
