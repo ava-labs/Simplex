@@ -43,7 +43,7 @@ var (
 //
 // Once we receive the empty notarization, we can verify the block(seq 1, round 2) and send out a finalize vote
 func TestFinalizeSameSequence(t *testing.T) {
-	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1), BlockShouldBeBuilt: make(chan struct{}, 1)}
+	bb := testutil.NewTestBlockBuilder()
 	ctx := context.Background()
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	initialBlock := createBlocks(t, nodes, 1)[0]
@@ -82,12 +82,12 @@ func TestFinalizeSameSequence(t *testing.T) {
 		Seq:   1, // set next seq to 1 not 2
 		Prev:  initialBlock.VerifiedBlock.BlockHeader().Digest,
 	}
-	_, ok := bb.BuildBlock(context.Background(), md, simplex.Blacklist{
+	vb, ok := bb.BuildBlock(context.Background(), md, simplex.Blacklist{
 		NodeCount: uint16(len(e.EpochConfig.Comm.Nodes())),
 	})
 	require.True(t, ok)
 
-	block := <-bb.Out
+	block := vb.(*testutil.TestBlock)
 	var verified atomic.Bool
 	block.OnVerify = func() {
 		verified.Store(true)
@@ -174,7 +174,7 @@ func TestFinalizeSameSequenceGap(t *testing.T) {
 }
 
 func testFinalizeSameSequenceGap(t *testing.T, nodes []NodeID, numEmptyNotarizations uint64, numNotarizations uint64, seqToDoubleFinalize uint64) {
-	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1), BlockShouldBeBuilt: make(chan struct{}, 1)}
+	bb := testutil.NewTestBlockBuilder()
 	ctx := context.Background()
 	initialBlock := createBlocks(t, nodes, 1)[0]
 	recordingComm := &recordingComm{Communication: testutil.NewNoopComm(nodes), BroadcastMessages: make(chan *Message, 100), SentMessages: make(chan *Message, 100)}
@@ -223,12 +223,12 @@ func testFinalizeSameSequenceGap(t *testing.T, nodes []NodeID, numEmptyNotarizat
 		Seq:   seqToDoubleFinalize,
 		Prev:  finalizeVoteSeqs[seqToDoubleFinalize-1].Finalization.Digest,
 	}
-	_, ok := bb.BuildBlock(context.Background(), md, simplex.Blacklist{
+	vb, ok := bb.BuildBlock(context.Background(), md, simplex.Blacklist{
 		NodeCount: uint16(len(e.EpochConfig.Comm.Nodes())),
 	})
 	require.True(t, ok)
 
-	block := <-bb.Out
+	block := vb.(*testutil.TestBlock)
 	verified := make(chan struct{}, 1)
 	block.OnVerify = func() {
 		verified <- struct{}{}
@@ -292,7 +292,7 @@ func testFinalizeSameSequenceGap(t *testing.T, nodes []NodeID, numEmptyNotarizat
 }
 
 func TestBlockNotVerifiedIfParentNotNotarized(t *testing.T) {
-	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1)}
+	bb := testutil.NewTestBlockBuilder()
 
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 
@@ -357,14 +357,12 @@ func TestBlockNotVerifiedIfParentNotNotarized(t *testing.T) {
 }
 
 func TestEpochHandleNotarizationFutureRound(t *testing.T) {
-	bb := &testutil.TestBlockBuilder{}
+	bb := testutil.NewTestBlockBuilder()
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	// Create the two blocks ahead of time
 	blocks := createBlocks(t, nodes, 2)
 	firstBlock := blocks[0].VerifiedBlock.(*testutil.TestBlock)
 	secondBlock := blocks[1].VerifiedBlock.(*testutil.TestBlock)
-	bb.Out = make(chan *testutil.TestBlock, 1)
-	bb.In = make(chan *testutil.TestBlock, 1)
 
 	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
 	quorum := Quorum(len(nodes))
@@ -373,14 +371,6 @@ func TestEpochHandleNotarizationFutureRound(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, e.Start())
-
-	// Load the first block into the block builder, so it will not create its own block but use the pre-built one.
-	// Drain the out channel before loading it
-	//for len(bb.out) > 0 {
-	//	<-bb.out
-	//}
-	bb.In <- firstBlock
-	bb.Out <- firstBlock
 
 	// Create a notarization for round 1 which is a future round because we haven't gone through round 0 yet.
 	notarization, err := testutil.NewNotarization(conf.Logger, conf.SignatureAggregator, secondBlock, nodes)
@@ -392,7 +382,7 @@ func TestEpochHandleNotarizationFutureRound(t *testing.T) {
 	}, nodes[1])
 
 	// Run through round 0
-	notarizeAndFinalizeRound(t, e, bb)
+	notarizeAndFinalizeRoundWithMetadata(t, e, bb, &firstBlock.Metadata)
 
 	// Emulate round 1 by sending the block
 	vote, err := testutil.NewTestVote(secondBlock, nodes[1])
@@ -419,7 +409,7 @@ func TestEpochHandleNotarizationFutureRound(t *testing.T) {
 // TestEpochIndexFinalization ensures that we properly index past finalizations when
 // there have been empty rounds
 func TestEpochIndexFinalization(t *testing.T) {
-	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1)}
+	bb := testutil.NewTestBlockBuilder()
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	conf, _, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
 	e, err := NewEpoch(conf)
@@ -467,7 +457,7 @@ func TestEpochConsecutiveProposalsDoNotGetVerified(t *testing.T) {
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1)}
+			bb := testutil.NewTestBlockBuilder()
 			nodes := []NodeID{{1}, {2}, {3}, {4}}
 
 			conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[1], testutil.NewNoopComm(nodes), bb)
@@ -480,12 +470,13 @@ func TestEpochConsecutiveProposalsDoNotGetVerified(t *testing.T) {
 			leader := nodes[0]
 
 			md := e.Metadata()
-			_, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
+			vb, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
 			require.True(t, ok)
 			require.Equal(t, md.Round, md.Seq)
 
 			onlyVerifyOnce := make(chan struct{})
-			block := <-bb.Out
+
+			block := vb.(*testutil.TestBlock)
 			block.OnVerify = func() {
 				close(onlyVerifyOnce)
 			}
@@ -526,7 +517,7 @@ func TestEpochConsecutiveProposalsDoNotGetVerified(t *testing.T) {
 func TestEpochIncreasesRoundAfterFinalization(t *testing.T) {
 	l := testutil.MakeLogger(t, 1)
 
-	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1)}
+	bb := testutil.NewTestBlockBuilder()
 	nodes := []NodeID{{1}, {2}, {3}, {4}, {5}, {6}}
 
 	conf, _, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[2], testutil.NewNoopComm(nodes), bb)
@@ -553,7 +544,7 @@ func TestEpochIncreasesRoundAfterFinalization(t *testing.T) {
 }
 
 func TestEpochNotarizeTwiceThenFinalize(t *testing.T) {
-	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1)}
+	bb := testutil.NewTestBlockBuilder()
 
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 
@@ -568,7 +559,7 @@ func TestEpochNotarizeTwiceThenFinalize(t *testing.T) {
 	require.NoError(t, e.Start())
 
 	// Round 0
-	block0 := <-bb.Out
+	block0 := bb.GetBuiltBlock()
 
 	testutil.InjectTestVote(t, e, block0, nodes[1])
 	testutil.InjectTestVote(t, e, block0, nodes[2])
@@ -587,7 +578,7 @@ func TestEpochNotarizeTwiceThenFinalize(t *testing.T) {
 	md := e.Metadata()
 	_, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
 	require.True(t, ok)
-	block1 := <-bb.Out
+	block1 := bb.GetBuiltBlock()
 
 	vote, err := testutil.NewTestVote(block1, nodes[2])
 	require.NoError(t, err)
@@ -606,7 +597,7 @@ func TestEpochNotarizeTwiceThenFinalize(t *testing.T) {
 	md = e.Metadata()
 	_, ok = bb.BuildBlock(context.Background(), md, emptyBlacklist)
 	require.True(t, ok)
-	block2 := <-bb.Out
+	block2 := bb.GetBuiltBlock()
 
 	vote, err = testutil.NewTestVote(block2, nodes[3])
 	require.NoError(t, err)
@@ -666,7 +657,7 @@ func TestEpochNotarizeTwiceThenFinalize(t *testing.T) {
 }
 
 func TestEpochFinalizeThenNotarize(t *testing.T) {
-	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1)}
+	bb := testutil.NewTestBlockBuilder()
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	quorum := Quorum(len(nodes))
 
@@ -693,7 +684,7 @@ func TestEpochFinalizeThenNotarize(t *testing.T) {
 			require.True(t, ok)
 		}
 
-		block := <-bb.Out
+		block := bb.GetBuiltBlock()
 
 		vote, err := testutil.NewTestVote(block, nodes[0])
 		require.NoError(t, err)
@@ -715,7 +706,7 @@ func TestEpochFinalizeThenNotarize(t *testing.T) {
 }
 
 func TestEpochSimpleFlow(t *testing.T) {
-	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1)}
+	bb := testutil.NewTestBlockBuilder()
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
 
@@ -731,7 +722,7 @@ func TestEpochSimpleFlow(t *testing.T) {
 }
 
 func TestEpochStartedTwice(t *testing.T) {
-	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1)}
+	bb := testutil.NewTestBlockBuilder()
 
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
@@ -759,16 +750,20 @@ func advanceRoundFromEmpty(t *testing.T, e *Epoch) {
 }
 
 func advanceRoundFromNotarization(t *testing.T, e *Epoch, bb *testutil.TestBlockBuilder) (VerifiedBlock, *Notarization) {
-	return advanceRound(t, e, bb, true, false)
+	return advanceRound(t, e, bb, true, false, nil)
 }
 
 func advanceRoundFromFinalization(t *testing.T, e *Epoch, bb *testutil.TestBlockBuilder) VerifiedBlock {
-	block, _ := advanceRound(t, e, bb, false, true)
+	block, _ := advanceRound(t, e, bb, false, true, nil)
 	return block
 }
 
 func notarizeAndFinalizeRound(t *testing.T, e *Epoch, bb *testutil.TestBlockBuilder) (VerifiedBlock, *Notarization) {
-	return advanceRound(t, e, bb, true, true)
+	return advanceRound(t, e, bb, true, true, nil)
+}
+
+func notarizeAndFinalizeRoundWithMetadata(t *testing.T, e *Epoch, bb *testutil.TestBlockBuilder, md *ProtocolMetadata) (VerifiedBlock, *Notarization) {
+	return advanceRound(t, e, bb, true, true, md)
 }
 
 func FuzzEpochInterleavingMessages(f *testing.F) {
@@ -790,7 +785,7 @@ func TestEpochInterleavingMessages(t *testing.T) {
 
 func testEpochInterleavingMessages(t *testing.T, seed int64) {
 	rounds := 10
-	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, rounds)}
+	bb := testutil.NewTestBlockBuilder().WithBuiltBuffer(uint64(rounds))
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	conf, _, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
 
@@ -844,7 +839,7 @@ func createCallbacks(t *testing.T, rounds int, protocolMetadata ProtocolMetadata
 				}, leader)
 			})
 		} else {
-			bb.Out <- block
+			bb.SetBuiltBlock(block)
 		}
 
 		for j := 1; j <= 2; j++ {
@@ -882,7 +877,7 @@ func createCallbacks(t *testing.T, rounds int, protocolMetadata ProtocolMetadata
 func TestEpochBlockSentTwice(t *testing.T) {
 	var tooFarMsg, alreadyReceivedMsg bool
 
-	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1)}
+	bb := testutil.NewTestBlockBuilder()
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[1], testutil.NewNoopComm(nodes), bb)
 
@@ -979,7 +974,7 @@ func TestEpochQCSignedByNonExistentNodes(t *testing.T) {
 		},
 	}
 
-	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1)}
+	bb := testutil.NewTestBlockBuilder()
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
 	l := conf.Logger.(*testutil.TestLogger)
@@ -997,7 +992,7 @@ func TestEpochQCSignedByNonExistentNodes(t *testing.T) {
 
 	require.NoError(t, e.Start())
 
-	block := <-bb.Out
+	block := bb.GetBuiltBlock()
 
 	wal.AssertWALSize(1)
 
@@ -1097,7 +1092,7 @@ func TestEpochQCSignedByNonExistentNodes(t *testing.T) {
 func TestEpochBlockSentFromNonLeader(t *testing.T) {
 	nonLeaderMessage := false
 
-	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1)}
+	bb := testutil.NewTestBlockBuilder()
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[1], testutil.NewNoopComm(nodes), bb)
 	l := conf.Logger.(*testutil.TestLogger)
@@ -1138,7 +1133,7 @@ func TestEpochBlockSentFromNonLeader(t *testing.T) {
 func TestEpochBlockTooHighRound(t *testing.T) {
 	var rejectedBlock bool
 
-	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1)}
+	bb := testutil.NewTestBlockBuilder()
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[1], testutil.NewNoopComm(nodes), bb)
 
@@ -1211,7 +1206,7 @@ func TestEpochBlockTooHighRound(t *testing.T) {
 // TestMetadataProposedRound ensures the metadata only builds off blocks
 // with finalizations or notarizations
 func TestMetadataProposedRound(t *testing.T) {
-	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1)}
+	bb := testutil.NewTestBlockBuilder()
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
 
@@ -1227,7 +1222,7 @@ func TestMetadataProposedRound(t *testing.T) {
 }
 
 func TestEpochVotesForEquivocatedVotes(t *testing.T) {
-	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1)}
+	bb := testutil.NewTestBlockBuilder()
 
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	recordedMessages := make(chan *Message, 100)
@@ -1243,7 +1238,7 @@ func TestEpochVotesForEquivocatedVotes(t *testing.T) {
 	_, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
 	require.True(t, ok)
 
-	block := <-bb.Out
+	block := bb.GetBuiltBlock()
 
 	// the leader and this node are sending the votes for the same block
 	leader := nodes[0]
@@ -1363,26 +1358,43 @@ func (b *listenerComm) Send(msg *Message, id NodeID) {
 	b.in <- msg
 }
 
-// garbageCollectSuspectedNodes progresses [e] to a new round. If [notarize] is set, the round will progress due to a notarization.
+func TestBlockDeserializer(t *testing.T) {
+	var blockDeserializer testutil.BlockDeserializer
+
+	ctx := context.Background()
+	tb := testutil.NewTestBlock(ProtocolMetadata{Seq: 1, Round: 2, Epoch: 3}, emptyBlacklist)
+	tbBytes, err := tb.Bytes()
+	require.NoError(t, err)
+	tb2, err := blockDeserializer.DeserializeBlock(ctx, tbBytes)
+	require.NoError(t, err)
+	require.Equal(t, tb, tb2)
+}
+
+// advanceRound progresses [e] to a new round. If [notarize] is set, the round will progress due to a notarization.
 // If [finalize] is set, the round will advance and the block will be indexed to storage.
-func advanceRound(t *testing.T, e *simplex.Epoch, bb *testutil.TestBlockBuilder, notarize bool, finalize bool) (simplex.VerifiedBlock, *simplex.Notarization) {
+// If [injectedMD] is non-nil, it will be used as the metadata for the new block instead of generating one from the epoch.
+func advanceRound(t *testing.T, e *simplex.Epoch, bb *testutil.TestBlockBuilder, notarize bool, finalize bool, injectedMD *ProtocolMetadata) (simplex.VerifiedBlock, *simplex.Notarization) {
 	require.True(t, notarize || finalize, "must either notarize or finalize a round to advance")
 	nextSeqToCommit := e.Storage.NumBlocks()
 	nodes := e.Comm.Nodes()
 	quorum := simplex.Quorum(len(nodes))
 	// leader is the proposer of the new block for the given round
 	leader := simplex.LeaderForRound(nodes, e.Metadata().Round)
+	md := e.Metadata()
+	if injectedMD != nil {
+		md = *injectedMD
+	}
+
 	// only create blocks if we are not the node running the epoch
 	isEpochNode := leader.Equals(e.ID)
 	if !isEpochNode {
-		md := e.Metadata()
 		_, ok := bb.BuildBlock(context.Background(), md, simplex.Blacklist{
 			NodeCount: uint16(len(e.EpochConfig.Comm.Nodes())),
 		})
 		require.True(t, ok)
 	}
 
-	block := <-bb.Out
+	block := bb.GetBuiltBlock()
 
 	if !isEpochNode {
 		// send node a message from the leader
@@ -1426,18 +1438,6 @@ func advanceRound(t *testing.T, e *simplex.Epoch, bb *testutil.TestBlockBuilder,
 	}
 
 	return block, notarization
-}
-
-func TestBlockDeserializer(t *testing.T) {
-	var blockDeserializer testutil.BlockDeserializer
-
-	ctx := context.Background()
-	tb := testutil.NewTestBlock(ProtocolMetadata{Seq: 1, Round: 2, Epoch: 3}, emptyBlacklist)
-	tbBytes, err := tb.Bytes()
-	require.NoError(t, err)
-	tb2, err := blockDeserializer.DeserializeBlock(ctx, tbBytes)
-	require.NoError(t, err)
-	require.Equal(t, tb, tb2)
 }
 
 func TestQuorum(t *testing.T) {

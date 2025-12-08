@@ -6,39 +6,63 @@ package testutil
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/ava-labs/simplex"
 )
 
 type TestBlockBuilder struct {
-	Out                chan *TestBlock
-	In                 chan *TestBlock
+	// built is a channel that holds built test blocks
+	built              chan *TestBlock
 	BlockShouldBeBuilt chan struct{}
 }
 
 func NewTestBlockBuilder() *TestBlockBuilder {
 	return &TestBlockBuilder{
-		Out:                make(chan *TestBlock, 1),
-		In:                 make(chan *TestBlock, 1),
+		built:              make(chan *TestBlock, 1),
 		BlockShouldBeBuilt: make(chan struct{}, 1),
 	}
 }
 
-// BuildBlock builds a new testblock and sends it to the BlockBuilder channel
-func (t *TestBlockBuilder) BuildBlock(_ context.Context, metadata simplex.ProtocolMetadata, blacklist simplex.Blacklist) (simplex.VerifiedBlock, bool) {
-	if len(t.In) > 0 {
-		block := <-t.In
-		return block, true
-	}
+func (t *TestBlockBuilder) WithBuiltBuffer(buffer uint64) *TestBlockBuilder {
+	t.built = make(chan *TestBlock, buffer)
+	return t
+}
 
+func (t *TestBlockBuilder) WithBlockShouldBeBuiltBuffer(buffer uint64) *TestBlockBuilder {
+	t.BlockShouldBeBuilt = make(chan struct{}, buffer)
+	return t
+}
+
+func (t *TestBlockBuilder) BuildBlock(_ context.Context, metadata simplex.ProtocolMetadata, blacklist simplex.Blacklist) (simplex.VerifiedBlock, bool) {
 	tb := NewTestBlock(metadata, blacklist)
 
 	select {
-	case t.Out <- tb:
+	case t.built <- tb:
+		return tb, true
 	default:
 	}
-
 	return tb, true
+}
+
+func (t *TestBlockBuilder) GetBuiltBlock() *TestBlock {
+	timeout := time.NewTimer(10 * time.Second)
+	defer timeout.Stop()
+
+	select {
+	case b := <-t.built:
+		return b
+	case <-timeout.C:
+		panic("timed out waiting for built block")
+	}
+}
+
+func (t *TestBlockBuilder) SetBuiltBlock(block *TestBlock) {
+	select {
+	case t.built <- block:
+	default:
+		panic("built channel is full")
+	}
 }
 
 func (t *TestBlockBuilder) WaitForPendingBlock(ctx context.Context) {
@@ -48,6 +72,8 @@ func (t *TestBlockBuilder) WaitForPendingBlock(ctx context.Context) {
 	}
 }
 
+// testControlledBlockBuilder is a BlockBuilder that only builds a block when
+// a control signal is received.
 type testControlledBlockBuilder struct {
 	t       *testing.T
 	control chan struct{}
@@ -68,7 +94,13 @@ func (t *testControlledBlockBuilder) TriggerNewBlock() {
 	select {
 	case t.control <- struct{}{}:
 	default:
+	}
+}
 
+func (t *testControlledBlockBuilder) TriggerBlockShouldBeBuilt() {
+	select {
+	case t.BlockShouldBeBuilt <- struct{}{}:
+	default:
 	}
 }
 

@@ -8,13 +8,12 @@ import (
 
 	"github.com/ava-labs/simplex"
 	"github.com/ava-labs/simplex/testutil"
-
 	"github.com/stretchr/testify/require"
 )
 
 // TestReplicationRequestIndexedBlocks tests replication requests for indexed blocks.
 func TestReplicationRequestIndexedBlocks(t *testing.T) {
-	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1)}
+	bb := testutil.NewTestBlockBuilder()
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
 	comm := NewListenerComm(nodes)
 	ctx := context.Background()
@@ -68,7 +67,7 @@ func TestReplicationRequestIndexedBlocks(t *testing.T) {
 // TestReplicationRequestNotarizations tests replication requests for notarized blocks.
 func TestReplicationRequestNotarizations(t *testing.T) {
 	// generate 5 blocks & notarizations
-	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1)}
+	bb := testutil.NewTestBlockBuilder()
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
 	comm := NewListenerComm(nodes)
 	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], comm, bb)
@@ -146,7 +145,7 @@ func TestReplicationRequestNotarizations(t *testing.T) {
 // TestReplicationRequestMixed ensures the replication response also includes empty notarizations
 func TestReplicationRequestMixed(t *testing.T) {
 	// generate 5 blocks & notarizations
-	bb := &testutil.TestBlockBuilder{Out: make(chan *testutil.TestBlock, 1)}
+	bb := testutil.NewTestBlockBuilder()
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
 	comm := NewListenerComm(nodes)
 	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], comm, bb)

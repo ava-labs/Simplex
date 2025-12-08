@@ -13,11 +13,11 @@ import (
 	"time"
 
 	"github.com/ava-labs/simplex"
-	"github.com/ava-labs/simplex/record"
-	. "github.com/ava-labs/simplex/testutil"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap/zapcore"
 
-	"github.com/stretchr/testify/require"
+	"github.com/ava-labs/simplex/testutil"
+	. "github.com/ava-labs/simplex/testutil"
 )
 
 // TestReplication tests the replication process of a node that
@@ -114,12 +114,13 @@ func TestReplicationAdversarialNode(t *testing.T) {
 
 	blocks := []simplex.VerifiedBlock{}
 	for i := uint64(0); i < 2; i++ {
-		block := net.TriggerLeaderBlockBuilder(i)
+		net.TriggerLeaderBlockBuilder(i)
 
-		blocks = append(blocks, block)
-		for _, n := range net.Instances[:3] {
+		for j, n := range net.Instances[:3] {
 			committed := n.Storage.WaitForBlockCommit(i)
-			require.Equal(t, block, committed.(*TestBlock))
+			if j == 0 {
+				blocks = append(blocks, committed)
+			}
 		}
 	}
 
@@ -212,13 +213,14 @@ func TestRebroadcastingWithReplication(t *testing.T) {
 	}
 
 	// the lagging node has been asleep, it should be notified blocks are available
-	laggingNode.TriggerBlockShouldBeBuilt()
+	laggingNode.BB.TriggerBlockShouldBeBuilt()
 	net.SetAllNodesMessageFilter(AllowAllMessages)
 	net.Connect(laggingNode.E.ID)
-	block := net.TriggerLeaderBlockBuilder(numNotarizations)
+	net.TriggerLeaderBlockBuilder(numNotarizations)
 
 	timeout := time.NewTimer(30 * time.Second)
-	for i := uint64(0); i <= block.Metadata.Seq; i++ {
+	expectedSeq := numNotarizations - missedSeqs
+	for i := uint64(0); i <= expectedSeq; i++ {
 		for _, n := range net.Instances {
 			for {
 				committed := n.Storage.NumBlocks()
@@ -241,7 +243,7 @@ func TestRebroadcastingWithReplication(t *testing.T) {
 	}
 
 	for _, n := range net.Instances {
-		require.Equal(t, block.Metadata.Seq+1, n.Storage.NumBlocks())
+		require.Equal(t, expectedSeq+1, n.Storage.NumBlocks())
 	}
 }
 
@@ -401,7 +403,7 @@ func TestReplicationStartsBeforeCurrentRound(t *testing.T) {
 
 func TestReplicationFutureFinalization(t *testing.T) {
 	// send a block, then simultaneously send a finalization for the block
-	bb := &TestBlockBuilder{Out: make(chan *TestBlock, 1)}
+	bb := testutil.NewTestBlockBuilder()
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
 	quorum := simplex.Quorum(len(nodes))
 
@@ -417,7 +419,7 @@ func TestReplicationFutureFinalization(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, md.Round, md.Seq)
 
-	block := <-bb.Out
+	block := bb.GetBuiltBlock()
 	block.VerificationDelay = make(chan struct{}) // add a delay to the block verification
 
 	vote, err := NewTestVote(block, nodes[0])
@@ -588,7 +590,7 @@ func TestReplicationStuckInProposingBlock(t *testing.T) {
 	var aboutToBuildBlock sync.WaitGroup
 	aboutToBuildBlock.Add(1)
 
-	tbb := &TestBlockBuilder{Out: make(chan *TestBlock, 1), BlockShouldBeBuilt: make(chan struct{}, 1), In: make(chan *TestBlock, 1)}
+	tbb := testutil.NewTestBlockBuilder()
 	bb := NewTestControlledBlockBuilder(t)
 	bb.TestBlockBuilder = *tbb
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
@@ -616,11 +618,8 @@ func TestReplicationStuckInProposingBlock(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, e.Start())
 
-	bb.In <- blocks[0].VerifiedBlock.(*TestBlock)
-	bb.Out <- blocks[0].VerifiedBlock.(*TestBlock)
-
 	bb.TriggerNewBlock()
-	notarizeAndFinalizeRound(t, e, &bb.TestBlockBuilder)
+	notarizeAndFinalizeRoundWithMetadata(t, e, &bb.TestBlockBuilder, &blocks[0].Finalization.Finalization.ProtocolMetadata)
 
 	gb := storage.WaitForBlockCommit(0)
 	require.Equal(t, gb, blocks[0].VerifiedBlock.(*TestBlock))
@@ -643,13 +642,9 @@ func TestReplicationStuckInProposingBlock(t *testing.T) {
 	}
 
 	// Drain the block builder channels
-	for len(bb.TestBlockBuilder.BlockShouldBeBuilt) > 0 && len(bb.Out) > 0 {
+	for len(bb.TestBlockBuilder.BlockShouldBeBuilt) > 0 {
 		select {
 		case <-bb.TestBlockBuilder.BlockShouldBeBuilt:
-		default:
-		}
-		select {
-		case <-bb.Out:
 		default:
 		}
 	}
@@ -919,7 +914,7 @@ func createBlocks(t *testing.T, nodes []simplex.NodeID, seqCount uint64) []simpl
 }
 
 func TestReplicationVerifyNotarization(t *testing.T) {
-	bb := &TestBlockBuilder{Out: make(chan *TestBlock, 1), BlockShouldBeBuilt: make(chan struct{}, 1)}
+	bb := testutil.NewTestBlockBuilder()
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
 
 	// This function takes a QC and makes it that it is signed by only 2 out of 4 nodes,
@@ -963,7 +958,7 @@ func TestReplicationVerifyNotarization(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, md.Round, md.Seq)
 
-	block := <-bb.Out
+	block := bb.GetBuiltBlock()
 
 	finalization, _ := NewFinalizationRecord(t, e.Logger, e.SignatureAggregator, block, nodes[0:quorum])
 
@@ -1005,7 +1000,7 @@ func TestReplicationVerifyNotarization(t *testing.T) {
 }
 
 func TestReplicationVerifyEmptyNotarization(t *testing.T) {
-	bb := &TestBlockBuilder{Out: make(chan *TestBlock, 1), BlockShouldBeBuilt: make(chan struct{}, 1)}
+	bb := testutil.NewTestBlockBuilder()
 
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
 
@@ -1049,7 +1044,7 @@ func TestReplicationVerifyEmptyNotarization(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, md.Round, md.Seq)
 
-	block := <-bb.Out
+	block := bb.GetBuiltBlock()
 
 	finalization, _ := NewFinalizationRecord(t, e.Logger, e.SignatureAggregator, block, nodes[0:quorum])
 
