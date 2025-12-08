@@ -49,7 +49,7 @@ func NewSimplexNode(t *testing.T, nodeID simplex.NodeID, net *InMemNetwork, conf
 		ingress: make(chan struct {
 			msg  *simplex.Message
 			from simplex.NodeID
-		}, 100)}
+		}, 1000)}
 
 	ti.currentTime.Store(epochConfig.StartTime.UnixMilli())
 
