@@ -1802,6 +1802,13 @@ func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote)
 			return md.Digest
 		}
 
+		e.deleteFutureProposal(from, md.Round)
+
+		if !e.storeProposal(verifiedBlock) {
+			e.Logger.Debug("Unable to store proposed block for the round", zap.Stringer("NodeID", from), zap.Uint64("round", md.Round))
+			return md.Digest
+		}
+
 		record := BlockRecord(md, blockBytes)
 		if err := e.WAL.Append(record); err != nil {
 			e.haltedError = err
@@ -1813,12 +1820,6 @@ func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote)
 			zap.Uint64("round", md.Round),
 			zap.Stringer("digest", md.Digest))
 
-		e.deleteFutureProposal(from, md.Round)
-
-		if !e.storeProposal(verifiedBlock) {
-			e.Logger.Debug("Unable to store proposed block for the round", zap.Stringer("NodeID", from), zap.Uint64("round", md.Round))
-			return md.Digest
-		}
 
 		// We might have received votes and finalizations from future rounds before we received this block.
 		// So load the messages into our round data structure now that we have created it.
