@@ -1261,10 +1261,8 @@ func testReplicationEmptyNotarizationsTail(t *testing.T, nodes []simplex.NodeID,
 	for _, n := range net.Instances {
 		n.Silence()
 	}
-	
+
 	net.StartInstances()
-
-
 
 	net.Disconnect(laggingNode.E.ID)
 	net.SetAllNodesMessageFilter(onlyAllowEmptyRoundMessages)
