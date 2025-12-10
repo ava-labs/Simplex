@@ -1820,7 +1820,6 @@ func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote)
 			zap.Uint64("round", md.Round),
 			zap.Stringer("digest", md.Digest))
 
-
 		// We might have received votes and finalizations from future rounds before we received this block.
 		// So load the messages into our round data structure now that we have created it.
 		err = e.maybeLoadFutureMessages()
@@ -2490,14 +2489,7 @@ func (e *Epoch) startRound() error {
 	// We're not the leader, make sure if a block is not notarized within a timely manner,
 	// we will agree on an empty block.
 	e.monitorProgress(e.round)
-
-	// If we're not the leader, check if we have received a proposal earlier for this round
-	msgsForRound, exists := e.futureMessages[string(leaderForCurrentRound)][e.round]
-	if !exists || msgsForRound.proposal == nil {
-		return nil
-	}
-
-	return e.handleBlockMessage(msgsForRound.proposal, leaderForCurrentRound)
+	return nil
 }
 
 func (e *Epoch) doProposed(block VerifiedBlock) error {
