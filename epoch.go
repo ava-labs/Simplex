@@ -1632,7 +1632,7 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 }
 
 func (e *Epoch) sendMissingRoundsRequest(to NodeID, missingRounds []uint64) {
-	e.Logger.Info("Requesting missing empty notarizations for rounds",
+	e.Logger.Debug("Requesting missing empty notarizations for rounds",
 		zap.Stringer("to", to),
 		zap.Uint64s("missing rounds", missingRounds))
 
