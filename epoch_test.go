@@ -1203,6 +1203,79 @@ func TestEpochBlockTooHighRound(t *testing.T) {
 	})
 }
 
+// TestEpochSendsBlockDigestRequest ensures that we send a block digest request
+// when we receive a notarization for a block we don't have
+func TestEpochSendsBlockDigestRequest(t *testing.T) {
+	bb := testutil.NewTestBlockBuilder()
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	ctx := context.Background()
+	recordedMessages := make(chan *Message, 100)
+	comm := &recordingComm{Communication: testutil.NewNoopComm(nodes), SentMessages: recordedMessages}
+	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[3], comm, bb)
+	conf.ReplicationEnabled = true
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+
+	require.NoError(t, e.Start())
+
+	round0Empty := testutil.NewEmptyNotarization(nodes, 0)
+	err = e.HandleMessage(&Message{
+		EmptyNotarization: round0Empty,
+	}, nodes[0])
+	require.NoError(t, err)
+
+	emptyNote := wal.AssertNotarization(0)
+	require.NoError(t, err)
+	require.Equal(t, record.EmptyNotarizationRecordType, emptyNote)
+
+	_, built := bb.BuildBlock(ctx, ProtocolMetadata{}, emptyBlacklist)
+	require.True(t, built)
+	block := bb.GetBuiltBlock()
+
+	notarization, err := testutil.NewNotarization(conf.Logger, conf.SignatureAggregator, block, nodes)
+	require.NoError(t, err)
+
+	err = e.HandleMessage(&Message{
+		Notarization: &notarization,
+	}, nodes[1])
+	require.NoError(t, err)
+
+	// ensure we send the block digest request
+	for msg := range recordedMessages {
+		if msg.BlockDigestRequest != nil {
+			require.Equal(t, uint64(0), msg.BlockDigestRequest.Seq)
+			require.Equal(t, block.BlockHeader().Digest, msg.BlockDigestRequest.Digest)
+			break
+		}
+	}
+
+	// send the response with the block
+	replicationResponse := &ReplicationResponse{
+		Data: []QuorumRound{
+			{
+				Block:        block,
+				Notarization: &notarization,
+			},
+		},
+	}
+
+	err = e.HandleMessage(&Message{
+		ReplicationResponse: replicationResponse,
+	}, nodes[2])
+	require.NoError(t, err)
+
+	for {
+		if wal.ContainsNotarization(0) {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	// sanity check: ensure we didn't double increment the round!
+	require.Equal(t, uint64(1), e.Metadata().Round)
+}
+
 // TestMetadataProposedRound ensures the metadata only builds off blocks
 // with finalizations or notarizations
 func TestMetadataProposedRound(t *testing.T) {

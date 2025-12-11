@@ -12,6 +12,18 @@ import (
 	"go.uber.org/zap"
 )
 
+type seqAndDigest struct {
+	digest Digest
+	seq    uint64
+}
+
+func seqAndDigestFromBlock(block Block) seqAndDigest {
+	return seqAndDigest{
+		digest: block.BlockHeader().Digest,
+		seq:    block.BlockHeader().Seq,
+	}
+}
+
 type finalizedQuorumRound struct {
 	block        Block
 	finalization *Finalization
@@ -33,7 +45,7 @@ type ReplicationState struct {
 	// it means a prior notarization for that block exists but is missing.
 	// Since we may not know which round that dependency belongs to,
 	// digestTimeouts ensures we re-request the missing digest until it arrives.
-	digestTimeouts *TimeoutHandler[Digest]
+	digestTimeouts *TimeoutHandler[seqAndDigest]
 
 	// emptyRoundTimeouts handles timeouts for fetching missing empty round notarizations.
 	// When replication encounters a notarized block that depends on an empty round we haven't received,
@@ -42,6 +54,9 @@ type ReplicationState struct {
 
 	roundRequestor        *requestor
 	finalizationRequestor *requestor
+
+	sender    sender
+	epochLock *sync.Mutex
 }
 
 func NewReplicationState(logger Logger, comm Communication, myNodeID NodeID, maxRoundWindow uint64, enabled bool, start time.Time, lock *sync.Mutex) *ReplicationState {
@@ -64,6 +79,9 @@ func NewReplicationState(logger Logger, comm Communication, myNodeID NodeID, max
 		// round replication
 		rounds:         make(map[uint64]*QuorumRound),
 		roundRequestor: newRequestor(logger, start, lock, maxRoundWindow, comm, false),
+
+		sender:    comm,
+		epochLock: lock,
 	}
 
 	r.digestTimeouts = NewTimeoutHandler(logger, "digest", start, DefaultReplicationRequestTimeout, r.requestDigests)
@@ -110,7 +128,7 @@ func (r *ReplicationState) storeSequence(block Block, finalization *Finalization
 	}
 
 	r.finalizationRequestor.removeTask(finalization.Finalization.Seq)
-	r.digestTimeouts.RemoveTask(block.BlockHeader().Digest)
+	r.digestTimeouts.RemoveTask(seqAndDigestFromBlock(block))
 }
 
 // storeRound adds or updates a quorum round in the replication state.
@@ -118,7 +136,7 @@ func (r *ReplicationState) storeSequence(block Block, finalization *Finalization
 // from the provided quorum round. Otherwise, it stores the new round as is.
 func (r *ReplicationState) storeRound(qr *QuorumRound) {
 	if qr.Block != nil {
-		r.digestTimeouts.RemoveTask(qr.Block.BlockHeader().Digest)
+		r.digestTimeouts.RemoveTask(seqAndDigestFromBlock(qr.Block))
 	}
 
 	existing, exists := r.rounds[qr.GetRound()]
@@ -163,6 +181,9 @@ func (r *ReplicationState) StoreQuorumRound(round *QuorumRound) {
 	r.roundRequestor.receivedSignedQuorum(newSignedQuorum(round, r.myNodeID))
 	if round.EmptyNotarization != nil {
 		r.emptyRoundTimeouts.RemoveTask(round.GetRound())
+	}
+	if round.Block != nil {
+		r.digestTimeouts.RemoveTask(seqAndDigestFromBlock(round.Block))
 	}
 }
 
@@ -219,10 +240,9 @@ func (r *ReplicationState) ResendFinalizationRequest(seq uint64, signers []NodeI
 
 // CreateDependencyTasks creates tasks to refetch the given parent digest and empty rounds. If there are no
 // dependencies, no tasks are created.
-// TODO: in a future PR, these requests will be sent as specific digest requests.
 func (r *ReplicationState) CreateDependencyTasks(parent *Digest, parentSeq uint64, emptyRounds []uint64) {
 	if parent != nil {
-		r.digestTimeouts.AddTask(*parent)
+		r.digestTimeouts.AddTask(seqAndDigest{digest: *parent, seq: parentSeq})
 	}
 
 	if len(emptyRounds) > 0 {
@@ -232,8 +252,15 @@ func (r *ReplicationState) CreateDependencyTasks(parent *Digest, parentSeq uint6
 	}
 }
 
-func (r *ReplicationState) clearDependencyTasks(parent *Digest) {
-	// TODO: for a future PR
+func (r *ReplicationState) clearBlockDependencyTasks(digest Digest, seq uint64) {
+	if !r.enabled {
+		return
+	}
+
+	r.digestTimeouts.RemoveTask(seqAndDigest{
+		digest: digest,
+		seq:    seq,
+	})
 }
 
 // MaybeAdvanceState attempts to collect future sequences if
@@ -245,6 +272,9 @@ func (r *ReplicationState) MaybeAdvanceState(nextSequenceToCommit uint64, curren
 
 	if nextSequenceToCommit > 0 {
 		r.deleteOldRounds(nextSequenceToCommit - 1)
+		r.digestTimeouts.RemoveOldTasks(func(missingBlock seqAndDigest, _ struct{}) bool {
+			return missingBlock.seq < nextSequenceToCommit
+		})
 	}
 
 	// update the requestors in case they need to send more requests
@@ -296,9 +326,41 @@ func (r *ReplicationState) GetBlockWithSeq(seq uint64) Block {
 	return nil
 }
 
-func (r *ReplicationState) requestDigests(digests []Digest) {
-	// TODO: In a future PR, I will add a message that requests a specific digest.
-	r.logger.Debug("Not implemented yet", zap.Stringers("Digests", digests))
+func (r *ReplicationState) requestDigests(missingBlocks []seqAndDigest) {
+	// grab the lock since this is called in the timeout handler goroutine
+	r.epochLock.Lock()
+	defer r.epochLock.Unlock()
+
+	signedQuorum := r.roundRequestor.getHighestObserved()
+	if signedQuorum == nil {
+		signedQuorum = r.finalizationRequestor.getHighestObserved()
+	}
+	if signedQuorum == nil {
+		r.logger.Warn("Replication State cannot request missing block digests, no known nodes to request from")
+		return
+	}
+
+	randInt, err := rand.Int(rand.Reader, big.NewInt(int64(len(signedQuorum.signers))))
+	if err != nil {
+		r.logger.Info("Replication State failed to generate random starting index", zap.Error(err))
+		return
+	}
+	startingIndex := int(randInt.Int64())
+
+	for i, mb := range missingBlocks {
+		// grab the node to send it to
+		index := (i + startingIndex) % len(signedQuorum.signers)
+		node := signedQuorum.signers[index]
+
+		r.logger.Debug("Replication State requesting missing block digest", zap.Uint64("seq", mb.seq), zap.Stringer("digest", &mb.digest))
+		blockRequest := &BlockDigestRequest{
+			Seq:    mb.seq,
+			Digest: mb.digest,
+		}
+		r.sender.Send(&Message{
+			BlockDigestRequest: blockRequest,
+		}, node)
+	}
 }
 
 func (r *ReplicationState) requestEmptyRounds(emptyRounds []uint64) {
