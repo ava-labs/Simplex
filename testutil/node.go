@@ -30,7 +30,7 @@ type TestNode struct {
 func newTestNode(t *testing.T, nodeID simplex.NodeID, net *InMemNetwork, config *TestNodeConfig) *TestNode {
 	comm := NewTestComm(nodeID, net, AllowAllMessages)
 	var bb ControlledBlockBuilder = NewTestControlledBlockBuilder(t)
-	if config.BlockBuilder != nil {
+	if config != nil && config.BlockBuilder != nil {
 		bb = config.BlockBuilder
 	}
 
