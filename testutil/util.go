@@ -19,6 +19,7 @@ func DefaultTestNodeEpochConfig(t *testing.T, nodeID simplex.NodeID, comm simple
 	storage := NewInMemStorage()
 	wal := NewTestWAL(t)
 	conf := simplex.EpochConfig{
+		MaxRoundWindow:             simplex.DefaultMaxRoundWindow,
 		MaxProposalWait:            simplex.DefaultMaxProposalWaitTime,
 		MaxRebroadcastWait:         simplex.DefaultEmptyVoteRebroadcastTimeout,
 		FinalizeRebroadcastTimeout: simplex.DefaultFinalizeVoteRebroadcastTimeout,
@@ -193,6 +194,24 @@ func WaitToEnterRound(t *testing.T, e *simplex.Epoch, round uint64) {
 			continue
 		case <-timeout.C:
 			require.Fail(t, "timed out waiting to enter round", "current round %d, waiting for round %d", e.Metadata().Round, round)
+		}
+	}
+}
+
+func WaitToEnterRoundWithTimeout(t *testing.T, e *simplex.Epoch, round uint64, timeoutDuration time.Duration) {
+	timeout := time.NewTimer(timeoutDuration)
+	defer timeout.Stop()
+
+	for {
+		if e.Metadata().Round >= round {
+			return
+		}
+
+		select {
+		case <-time.After(time.Millisecond * 10):
+			continue
+		case <-timeout.C:
+			require.Fail(t, "timed out waiting to enter round", "Node ID %s, current round %d, waiting for round %d", e.ID, e.Metadata().Round, round)
 		}
 	}
 }

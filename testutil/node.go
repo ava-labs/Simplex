@@ -24,17 +24,26 @@ type TestNode struct {
 	}
 	l  *TestLogger
 	t  *testing.T
-	BB *testControlledBlockBuilder
+	BB ControlledBlockBuilder
 }
 
-// newSimplexNode creates a new testNode and adds it to [net].
-func NewSimplexNode(t *testing.T, nodeID simplex.NodeID, net *InMemNetwork, config *TestNodeConfig) *TestNode {
+func newTestNode(t *testing.T, nodeID simplex.NodeID, net *InMemNetwork, config *TestNodeConfig) *TestNode {
 	comm := NewTestComm(nodeID, net, AllowAllMessages)
-	bb := NewTestControlledBlockBuilder(t)
+	var bb ControlledBlockBuilder = NewTestControlledBlockBuilder(t)
+	if config.BlockBuilder != nil {
+		bb = config.BlockBuilder
+	}
+
 	epochConfig, wal, storage := DefaultTestNodeEpochConfig(t, nodeID, comm, bb)
 
 	if config != nil {
 		updateEpochConfig(&epochConfig, config)
+		if config.WAL != nil {
+			wal = config.WAL
+		}
+		if config.Storage != nil {
+			storage = config.Storage
+		}
 	}
 
 	e, err := simplex.NewEpoch(epochConfig)
@@ -49,9 +58,15 @@ func NewSimplexNode(t *testing.T, nodeID simplex.NodeID, net *InMemNetwork, conf
 		ingress: make(chan struct {
 			msg  *simplex.Message
 			from simplex.NodeID
-		}, 1000)}
+		}, 100000)}
 
 	ti.currentTime.Store(epochConfig.StartTime.UnixMilli())
+	return ti
+}
+
+// newSimplexNode creates a new testNode and adds it to [net].
+func NewSimplexNode(t *testing.T, nodeID simplex.NodeID, net *InMemNetwork, config *TestNodeConfig) *TestNode {
+	ti := newTestNode(t, nodeID, net, config)
 
 	net.addNode(ti)
 	return ti
@@ -74,11 +89,42 @@ func updateEpochConfig(epochConfig *simplex.EpochConfig, testConfig *TestNodeCon
 	if testConfig.SigAggregator != nil {
 		epochConfig.SignatureAggregator = testConfig.SigAggregator
 	}
+
+	if testConfig.BlockBuilder != nil {
+		epochConfig.BlockBuilder = testConfig.BlockBuilder
+	}
+
+	if testConfig.MaxRoundWindow != 0 {
+		epochConfig.MaxRoundWindow = testConfig.MaxRoundWindow
+	}
+
+	if testConfig.Logger != nil {
+		epochConfig.Logger = testConfig.Logger
+	}
+
+	if testConfig.WAL != nil {
+		epochConfig.WAL = testConfig.WAL
+	}
+
+	if testConfig.Storage != nil {
+		epochConfig.Storage = testConfig.Storage
+	}
+
+	if testConfig.StartTime != 0 {
+		epochConfig.StartTime = time.UnixMilli(testConfig.StartTime)
+	}
 }
 
 func (t *TestNode) Start() {
 	go t.handleMessages()
 	require.NoError(t.t, t.E.Start())
+}
+
+type ControlledBlockBuilder interface {
+	simplex.BlockBuilder
+	TriggerNewBlock()
+	TriggerBlockShouldBeBuilt()
+	ShouldBlockBeBuilt() bool
 }
 
 type TestNodeConfig struct {
@@ -87,6 +133,14 @@ type TestNodeConfig struct {
 	Comm               simplex.Communication
 	SigAggregator      simplex.SignatureAggregator
 	ReplicationEnabled bool
+	BlockBuilder       ControlledBlockBuilder
+
+	// Long Running Tests
+	MaxRoundWindow uint64
+	Logger         *TestLogger
+	WAL            *TestWAL
+	Storage        *InMemStorage
+	StartTime      int64
 }
 
 func (t *TestNode) AdvanceTime(duration time.Duration) {
@@ -97,6 +151,10 @@ func (t *TestNode) AdvanceTime(duration time.Duration) {
 
 func (t *TestNode) Silence() {
 	t.l.Silence()
+}
+
+func (t *TestNode) SilenceExceptKeywords(keywords ...string) {
+	t.l.SilenceExceptKeywords(keywords...)
 }
 
 func (t *TestNode) HandleMessage(msg *simplex.Message, from simplex.NodeID) error {
@@ -122,9 +180,11 @@ func (t *TestNode) TimeoutOnRound(round uint64) {
 		if currentRound > round {
 			return
 		}
-		if len(t.BB.BlockShouldBeBuilt) == 0 {
-			t.BB.BlockShouldBeBuilt <- struct{}{}
+
+		if !t.BB.ShouldBlockBeBuilt() {
+			t.BB.TriggerBlockShouldBeBuilt()
 		}
+
 		t.AdvanceTime(t.E.MaxProposalWait)
 
 		// check the wal for an empty vote for that round

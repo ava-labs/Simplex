@@ -4,6 +4,7 @@
 package testutil
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"sync"
@@ -110,4 +111,45 @@ func (mem *InMemStorage) Index(ctx context.Context, block simplex.VerifiedBlock,
 
 	mem.signal.Signal()
 	return nil
+}
+
+func (mem *InMemStorage) Compare(other *InMemStorage) bool {
+	mem.lock.Lock()
+	defer mem.lock.Unlock()
+
+	other.lock.Lock()
+	defer other.lock.Unlock()
+
+	if len(mem.data) != len(other.data) {
+		return false
+	}
+
+	for seq, item := range mem.data {
+		otherItem, ok := other.data[seq]
+		if !ok {
+			return false
+		}
+
+		// compare blocks
+		blockBytes, err := item.VerifiedBlock.Bytes()
+		if err != nil {
+			return false
+		}
+
+		otherBlockBytes, err := otherItem.VerifiedBlock.Bytes()
+		if err != nil {
+			return false
+		}
+
+		if !bytes.Equal(blockBytes, otherBlockBytes) {
+			return false
+		}
+
+		// compare finalizations
+		if item.Finalization.Finalization.Digest != otherItem.Finalization.Finalization.Digest {
+			return false
+		}
+	}
+
+	return true
 }
