@@ -2879,7 +2879,7 @@ func (e *Epoch) haveNotFinalizedNotarizedRound() (uint64, bool) {
 		if round.finalization != nil || round.notarization == nil {
 			continue
 		}
-		
+
 		if !found {
 			minRoundNum = round.num
 			found = true
