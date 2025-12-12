@@ -71,9 +71,10 @@ func (n *LongRunningInMemoryNetwork) CrashNodes(nodeIndexes ...uint64) {
 
 func (n *LongRunningInMemoryNetwork) RestartNodes(nodeIndexes ...uint64) {
 	for _, idx := range nodeIndexes {
+		n.lock.Lock()
 		instance := n.Instances[idx]
+
 		nodeID := instance.E.ID
-		logger := instance.l
 		bb := instance.BB
 		clonedWal := instance.WAL.Clone()
 		clonedStorage := instance.Storage.Clone()
@@ -82,13 +83,14 @@ func (n *LongRunningInMemoryNetwork) RestartNodes(nodeIndexes ...uint64) {
 			BlockBuilder:       bb,
 			ReplicationEnabled: true,
 			MaxRoundWindow:     longRunningMaxRoundWindow,
-			Logger:             logger,
+			Logger:             instance.l,
 			WAL:                clonedWal,
 			Storage:            clonedStorage,
 			StartTime:          instance.currentTime.Load(),
 		})
 
 		n.Instances[idx] = newNode
+		n.lock.Unlock()
 		newNode.Start()
 	}
 }

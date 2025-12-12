@@ -34,7 +34,6 @@ func TestLongRunningReplication(t *testing.T) {
 	net.StopAndAssert(false)
 }
 
-// Oh shoot, aws crashed node 3. will they recover....
 func TestLongRunningCrash(t *testing.T) {
 	net := testutil.NewDefaultLongRunningNetwork(t, 10)
 	for i, instance := range net.Instances {
