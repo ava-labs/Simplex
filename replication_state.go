@@ -245,7 +245,7 @@ func (r *ReplicationState) MaybeAdvanceState(nextSequenceToCommit uint64, curren
 
 	if nextSequenceToCommit > 0 {
 		r.deleteOldRounds(nextSequenceToCommit - 1)
-		r.finalizationRequestor.removeOldTasks(nextSequenceToCommit- 1)
+		r.finalizationRequestor.removeOldTasks(nextSequenceToCommit - 1)
 	}
 
 	// update the requestors in case they need to send more requests
