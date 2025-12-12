@@ -113,13 +113,14 @@ func (n *LongRunningInMemoryNetwork) ContinueBlocks() {
 	}
 }
 
-func (n *LongRunningInMemoryNetwork) WaitForAllNodesToEnterRound(round uint64) {
-	for _, instance := range n.Instances {
-		WaitToEnterRoundWithTimeout(n.t, instance.E, round, 3*time.Second)
+func (n *LongRunningInMemoryNetwork) WaitForNodesToEnterRound(round uint64, nodeIndexes ...uint64) {
+	// check if nodeIndexes have length 0
+	if len(nodeIndexes) == 0 {
+		for _, instance := range n.Instances {
+			WaitToEnterRoundWithTimeout(n.t, instance.E, round, 3*time.Second)
+		}
 	}
-}
 
-func (n *LongRunningInMemoryNetwork) WaitForCertainNodesToEnterRound(round uint64, nodeIndexes ...uint64) {
 	for _, idx := range nodeIndexes {
 		WaitToEnterRoundWithTimeout(n.t, n.Instances[idx].E, round, 3*time.Second)
 	}
