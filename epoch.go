@@ -2876,6 +2876,10 @@ func (e *Epoch) haveNotFinalizedNotarizedRound() (uint64, bool) {
 	var minRoundNum uint64
 	var found bool
 	for _, round := range e.rounds {
+		if round.finalization != nil || round.notarization == nil {
+			continue
+		}
+		
 		if !found {
 			minRoundNum = round.num
 			found = true
