@@ -59,6 +59,7 @@ func NewRound(block VerifiedBlock) *Round {
 
 type EpochConfig struct {
 	MaxProposalWait            time.Duration
+	MaxRoundWindow             uint64
 	MaxRebroadcastWait         time.Duration
 	FinalizeRebroadcastTimeout time.Duration
 	QCDeserializer             QCDeserializer
@@ -96,7 +97,6 @@ type Epoch struct {
 	oldestNotFinalizedNotarization NotarizationTime
 	futureMessages                 messagesFromNode
 	round                          uint64 // The current round we notarize
-	maxRoundWindow                 uint64
 	monitor                        *Monitor
 	haltedError                    error
 	cancelWaitForBlockNotarization context.CancelFunc
@@ -189,11 +189,10 @@ func (e *Epoch) init() error {
 	e.timedOutRounds = make(map[uint16]uint64, len(e.nodes))
 	e.redeemedRounds = make(map[uint16]uint64, len(e.nodes))
 	e.rounds = make(map[uint64]*Round)
-	e.maxRoundWindow = DefaultMaxRoundWindow
 	e.emptyVotes = make(map[uint64]*EmptyVoteSet)
 	e.eligibleNodeIDs = make(map[string]struct{}, len(e.nodes))
 	e.futureMessages = make(messagesFromNode, len(e.nodes))
-	e.replicationState = NewReplicationState(e.Logger, e.Comm, e.ID, e.maxRoundWindow, e.ReplicationEnabled, e.StartTime, &e.lock)
+	e.replicationState = NewReplicationState(e.Logger, e.Comm, e.ID, e.MaxRoundWindow, e.ReplicationEnabled, e.StartTime, &e.lock)
 	e.timeoutHandler = NewTimeoutHandler(e.Logger, "emptyVoteRebroadcast", e.StartTime, e.MaxRebroadcastWait, e.emptyVoteTimeoutTaskRunner)
 
 	for _, node := range e.nodes {
@@ -2535,7 +2534,7 @@ func (e *Epoch) voteOnBlock(block VerifiedBlock) (Vote, error) {
 // deletesRounds deletes all the rounds before [round] in the rounds map.
 func (e *Epoch) deleteRounds(round uint64) {
 	for i, r := range e.rounds {
-		if r.num+e.maxRoundWindow < round {
+		if r.num+e.MaxRoundWindow < round {
 			delete(e.rounds, i)
 		}
 	}
@@ -2725,12 +2724,12 @@ func (e *Epoch) handleReplicationRequest(req *ReplicationRequest, from NodeID) e
 	}
 	response := &VerifiedReplicationResponse{}
 
-	if len(req.Seqs) > int(e.maxRoundWindow) || len(req.Rounds) > int(e.maxRoundWindow) {
+	if len(req.Seqs) > int(e.MaxRoundWindow) || len(req.Rounds) > int(e.MaxRoundWindow) {
 		e.Logger.Info("Replication request exceeds maximum allowed seqs and rounds",
 			zap.Stringer("from", from),
 			zap.Int("num seqs", len(req.Seqs)),
 			zap.Int("num rounds", len(req.Rounds)),
-			zap.Uint64("max round window", e.maxRoundWindow))
+			zap.Uint64("max round window", e.MaxRoundWindow))
 		return nil
 	}
 
@@ -2896,14 +2895,14 @@ func (e *Epoch) handleReplicationResponse(resp *ReplicationResponse, from NodeID
 	nextSeqToCommit := e.nextSeqToCommit()
 
 	for _, data := range resp.Data {
-		if data.Finalization != nil && data.GetSequence() > nextSeqToCommit+e.maxRoundWindow {
+		if data.Finalization != nil && data.GetSequence() > nextSeqToCommit+e.MaxRoundWindow {
 			e.Logger.Debug("Received quorum round for a seq that is too far ahead", zap.Uint64("seq", data.GetSequence()))
 			// we are too far behind, we should ignore this message
 			continue
 		}
 
 		// We may be really far behind, so we shouldn't process sequences unless they are the nextSequenceToCommit
-		if data.GetRound() > e.round+e.maxRoundWindow && data.GetSequence() != nextSeqToCommit {
+		if data.GetRound() > e.round+e.MaxRoundWindow && data.GetSequence() != nextSeqToCommit {
 			e.Logger.Debug("Received quorum round for a round that is too far ahead", zap.Uint64("round", data.GetRound()))
 			// we are too far behind, we should ignore this message
 			continue
@@ -3114,12 +3113,12 @@ func (e *Epoch) getLatestVerifiedQuorumRound() *VerifiedQuorumRound {
 
 // isRoundTooFarAhead returns true if [round] is more than `maxRoundWindow` rounds ahead of the current round.
 func (e *Epoch) isRoundTooFarAhead(round uint64) bool {
-	return round > e.round+e.maxRoundWindow
+	return round > e.round+e.MaxRoundWindow
 }
 
 // isWithinMaxRoundWindow checks if [round] is within `maxRoundWindow` rounds ahead of the current round.
 func (e *Epoch) isWithinMaxRoundWindow(round uint64) bool {
-	return e.round < round && round-e.round < e.maxRoundWindow
+	return e.round < round && round-e.round < e.MaxRoundWindow
 }
 
 func (e *Epoch) retrieveBlockOrHalt(seq uint64) (VerifiedBlock, Finalization, bool) {

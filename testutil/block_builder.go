@@ -112,3 +112,7 @@ func (t *testControlledBlockBuilder) BuildBlock(ctx context.Context, metadata si
 	}
 	return t.TestBlockBuilder.BuildBlock(ctx, metadata, blacklist)
 }
+
+func (t *testControlledBlockBuilder) ShouldBlockBeBuilt() bool {
+	return len(t.BlockShouldBeBuilt) > 0
+}
