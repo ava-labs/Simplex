@@ -113,7 +113,7 @@ func (mem *InMemStorage) Index(ctx context.Context, block simplex.VerifiedBlock,
 	return nil
 }
 
-func (mem *InMemStorage) Compare(other *InMemStorage) bool {
+func (mem *InMemStorage) Compare(other *InMemStorage) error {
 	mem.lock.Lock()
 	defer mem.lock.Unlock()
 
@@ -121,35 +121,35 @@ func (mem *InMemStorage) Compare(other *InMemStorage) bool {
 	defer other.lock.Unlock()
 
 	if len(mem.data) != len(other.data) {
-		return false
+		return fmt.Errorf("storage lengths differ: %d vs %d", len(mem.data), len(other.data))
 	}
 
 	for seq, item := range mem.data {
 		otherItem, ok := other.data[seq]
 		if !ok {
-			return false
+			return fmt.Errorf("other storage missing seq %d", seq)
 		}
 
 		// compare blocks
 		blockBytes, err := item.VerifiedBlock.Bytes()
 		if err != nil {
-			return false
+			return fmt.Errorf("failed getting bytes for seq %d: %v", seq, err)
 		}
 
 		otherBlockBytes, err := otherItem.VerifiedBlock.Bytes()
 		if err != nil {
-			return false
+			return fmt.Errorf("failed getting bytes for seq %d: %v", seq, err)
 		}
 
 		if !bytes.Equal(blockBytes, otherBlockBytes) {
-			return false
+			return fmt.Errorf("blocks differ at seq %d", seq)
 		}
 
 		// compare finalizations
 		if item.Finalization.Finalization.Digest != otherItem.Finalization.Finalization.Digest {
-			return false
+			return fmt.Errorf("finalizations differ at seq %d", seq)
 		}
 	}
 
-	return true
+	return nil
 }

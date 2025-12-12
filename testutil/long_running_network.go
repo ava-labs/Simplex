@@ -140,6 +140,27 @@ func (n *LongRunningInMemoryNetwork) ConnectNodes(nodeIndexes ...uint64) {
 	}
 }
 
+func (n *LongRunningInMemoryNetwork) waitUntilAllRoundsEqual() {
+	maxWait := time.After(30 * time.Second)
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-maxWait:
+			n.t.Fatal("timed out waiting for all nodes to have the same round")
+		case <-ticker.C:
+			rounds := make(map[uint64]struct{})
+			for _, instance := range n.Instances {
+				rounds[instance.E.Metadata().Round] = struct{}{}
+			}
+			if len(rounds) == 1 {
+				return
+			}
+		}
+	}
+}
+
 // StopAndAssert stops all nodes and asserts their storage and WALs are consistent.
 // If tailingMessages is true, it will also assert that no extra messages are being sent
 // after telling the network no more blocks should be built.
@@ -148,11 +169,14 @@ func (n *LongRunningInMemoryNetwork) ConnectNodes(nodeIndexes ...uint64) {
 func (n *LongRunningInMemoryNetwork) StopAndAssert(tailingMessages bool) {
 	n.NoMoreBlocks()
 
+	// ensures all nodes have the same round before checking storage/WAL consistency
+	n.waitUntilAllRoundsEqual()
+
 	// check all the nodes have the same wal, storage, etc
 	for i, instance := range n.Instances {
 		instance.WAL.AssertHealthy(instance.E.BlockDeserializer, instance.E.QCDeserializer)
 		if i != 0 {
-			instance.Storage.Compare(n.Instances[0].Storage)
+			require.NoError(n.t, instance.Storage.Compare(n.Instances[0].Storage), "node %d storage does not match node 0 storage", i)
 		}
 		instance.E.Stop()
 	}
