@@ -1820,6 +1820,13 @@ func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote)
 			return md.Digest
 		}
 
+		e.deleteFutureProposal(from, md.Round)
+
+		if !e.storeProposal(verifiedBlock) {
+			e.Logger.Debug("Unable to store proposed block for the round", zap.Stringer("NodeID", from), zap.Uint64("round", md.Round))
+			return md.Digest
+		}
+
 		record := BlockRecord(md, blockBytes)
 		if err := e.WAL.Append(record); err != nil {
 			e.haltedError = err
@@ -1830,13 +1837,6 @@ func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote)
 		e.Logger.Debug("Persisted block to WAL",
 			zap.Uint64("round", md.Round),
 			zap.Stringer("digest", md.Digest))
-
-		e.deleteFutureProposal(from, md.Round)
-
-		if !e.storeProposal(verifiedBlock) {
-			e.Logger.Debug("Unable to store proposed block for the round", zap.Stringer("NodeID", from), zap.Uint64("round", md.Round))
-			return md.Digest
-		}
 
 		// We might have received votes and finalizations from future rounds before we received this block.
 		// So load the messages into our round data structure now that we have created it.
@@ -2507,14 +2507,7 @@ func (e *Epoch) startRound() error {
 	// We're not the leader, make sure if a block is not notarized within a timely manner,
 	// we will agree on an empty block.
 	e.monitorProgress(e.round)
-
-	// If we're not the leader, check if we have received a proposal earlier for this round
-	msgsForRound, exists := e.futureMessages[string(leaderForCurrentRound)][e.round]
-	if !exists || msgsForRound.proposal == nil {
-		return nil
-	}
-
-	return e.handleBlockMessage(msgsForRound.proposal, leaderForCurrentRound)
+	return nil
 }
 
 func (e *Epoch) doProposed(block VerifiedBlock) error {
@@ -2901,6 +2894,10 @@ func (e *Epoch) haveNotFinalizedNotarizedRound() (uint64, bool) {
 	var minRoundNum uint64
 	var found bool
 	for _, round := range e.rounds {
+		if round.finalization != nil || round.notarization == nil {
+			continue
+		}
+
 		if !found {
 			minRoundNum = round.num
 			found = true
