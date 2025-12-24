@@ -4,6 +4,7 @@
 package testutil
 
 import (
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -15,6 +16,25 @@ import (
 type TestLogger struct {
 	*zap.Logger
 	traceVerboseLogger *zap.Logger
+	panicOnError       bool
+	panicOnWarn        bool
+}
+
+// keywordFilterCore is a zapcore.Core wrapper that only logs entries whose
+// message contains at least one of the configured keywords.
+type keywordFilterCore struct {
+	zapcore.Core
+	keywords []string
+}
+
+func (k keywordFilterCore) Check(ent zapcore.Entry, ce *zapcore.CheckedEntry) *zapcore.CheckedEntry {
+	for _, kw := range k.keywords {
+		if strings.Contains(ent.Message, kw) {
+			return k.Core.Check(ent, ce)
+		}
+	}
+	// If no keyword matches, drop the entry by returning ce unchanged.
+	return ce
 }
 
 func (t *TestLogger) Intercept(hook func(entry zapcore.Entry) error) {
@@ -29,12 +49,48 @@ func (t *TestLogger) Silence() {
 	t.traceVerboseLogger = zap.New(core, zap.AddCaller(), zap.IncreaseLevel(atomicLevel))
 }
 
+// SilenceExceptKeywords silences all logs EXCEPT those whose message contains
+// at least one of the provided keywords.
+func (t *TestLogger) SilenceExceptKeywords(keywords ...string) {
+	core := t.Logger.Core()
+	filteredCore := keywordFilterCore{
+		Core:     core,
+		keywords: keywords,
+	}
+	t.Logger = zap.New(filteredCore, zap.AddCaller())
+	t.traceVerboseLogger = zap.New(filteredCore, zap.AddCaller())
+}
+
+func (t *TestLogger) SetPanicOnError(panicOnError bool) {
+	t.panicOnError = panicOnError
+}
+
+func (t *TestLogger) SetPanicOnWarn(panicOnWarn bool) {
+	t.panicOnWarn = panicOnWarn
+}
+
 func (tl *TestLogger) Trace(msg string, fields ...zap.Field) {
 	tl.traceVerboseLogger.Log(zapcore.DebugLevel, msg, fields...)
 }
 
 func (tl *TestLogger) Verbo(msg string, fields ...zap.Field) {
 	tl.traceVerboseLogger.Log(zapcore.DebugLevel, msg, fields...)
+}
+
+func (tl *TestLogger) Warn(msg string, fields ...zap.Field) {
+	if tl.panicOnWarn {
+		panicMsg := fmt.Sprintf("WARN: %s", msg)
+		panic(panicMsg)
+	}
+	tl.Logger.Warn(msg, fields...)
+}
+
+func (tl *TestLogger) Error(msg string, fields ...zap.Field) {
+	if tl.panicOnError {
+		panicMsg := fmt.Sprintf("ERROR: %s", msg)
+		panic(panicMsg)
+	}
+	tl.Logger.Error(msg, fields...)
 }
 
 func MakeLogger(t *testing.T, node ...int) *TestLogger {
