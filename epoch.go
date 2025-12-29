@@ -3031,7 +3031,11 @@ func (e *Epoch) processReplicationState() error {
 	nextSeqToCommit := e.nextSeqToCommit()
 
 	// We might have advanced the rounds from non-replicating paths such as future messages. Advance replication state accordingly.
-	e.replicationState.MaybeAdvanceState(nextSeqToCommit, e.round)
+	var lastCommittedRound uint64
+	if e.lastBlock != nil {
+		lastCommittedRound = e.lastBlock.VerifiedBlock.BlockHeader().Round
+	}
+	e.replicationState.MaybeAdvanceState(nextSeqToCommit, e.round, lastCommittedRound)
 
 	// first we check if we can commit the next sequence, it is ok to try and commit the next sequence
 	// directly, since if there are any empty notarizations, `indexFinalization` will
