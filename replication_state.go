@@ -324,3 +324,12 @@ func (r *ReplicationState) DeleteSeq(seq uint64) {
 
 	delete(r.seqs, seq)
 }
+
+func (r *ReplicationState) Close() {
+	if !r.enabled {
+		return
+	}
+
+	r.digestTimeouts.Close()
+	r.emptyRoundTimeouts.Close()
+}

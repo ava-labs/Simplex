@@ -4,6 +4,7 @@
 package simplex
 
 import (
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -18,6 +19,7 @@ type Monitor struct {
 	tasks      chan func()
 	cancelTask func()
 	futureTask atomic.Value
+	running    sync.WaitGroup
 }
 
 type futureTask struct {
@@ -36,6 +38,7 @@ func NewMonitor(startTime time.Time, logger Logger) *Monitor {
 
 	m.time.Store(startTime)
 
+	m.running.Add(1)
 	go m.run()
 
 	return m
@@ -71,9 +74,12 @@ func (m *Monitor) tick(now time.Time, taskID uint64) {
 }
 
 func (m *Monitor) run() {
+	defer m.running.Done()
 	var taskID uint64
 	for m.shouldRun() {
 		select {
+		case <-m.close:
+			return
 		case tick := <-m.ticks:
 			m.tick(tick, taskID)
 		case f := <-m.tasks:
@@ -95,6 +101,7 @@ func (m *Monitor) shouldRun() bool {
 }
 
 func (m *Monitor) Close() {
+	defer m.running.Wait()
 	select {
 	case <-m.close:
 		return

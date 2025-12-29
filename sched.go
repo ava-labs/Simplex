@@ -4,6 +4,7 @@
 package simplex
 
 import (
+	"sync"
 	"sync/atomic"
 
 	"go.uber.org/zap"
@@ -12,8 +13,10 @@ import (
 type BasicScheduler struct {
 	logger Logger
 
-	closed atomic.Bool
-	tasks  chan Task
+	closed  atomic.Bool
+	running sync.WaitGroup
+	tasks   chan Task
+	lock    sync.RWMutex
 }
 
 func NewScheduler(logger Logger, maxTasks uint64) *BasicScheduler {
@@ -24,6 +27,7 @@ func NewScheduler(logger Logger, maxTasks uint64) *BasicScheduler {
 
 	s.logger.Debug("Created Scheduler", zap.Uint64("maxTasks", maxTasks))
 
+	s.running.Add(1)
 	go s.run()
 
 	return s
@@ -34,22 +38,30 @@ func (as *BasicScheduler) Size() int {
 }
 
 func (as *BasicScheduler) Close() {
+	as.lock.Lock()
+	defer as.lock.Unlock()
+
 	as.closed.Store(true)
+	close(as.tasks)
+	defer as.running.Wait()
 }
 
 func (as *BasicScheduler) run() {
+	defer as.running.Done()
 	for task := range as.tasks {
-		as.logger.Debug("Running task", zap.Int("remaining ready tasks", len(as.tasks)))
-		id := task()
-		as.logger.Debug("Task finished execution", zap.Stringer("taskID", id))
-
 		if as.closed.Load() {
 			return
 		}
+		as.logger.Debug("Running task", zap.Int("remaining ready tasks", len(as.tasks)))
+		id := task()
+		as.logger.Debug("Task finished execution", zap.Stringer("taskID", id))
 	}
 }
 
 func (as *BasicScheduler) Schedule(task Task) {
+	as.lock.RLock()
+	defer as.lock.RUnlock()
+
 	if as.closed.Load() {
 		return
 	}
