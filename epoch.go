@@ -1597,6 +1597,10 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 
 	prevBlockDependency, missingRounds := e.blockDependencies(md)
 
+	if len(missingRounds) > 0 {
+		e.sendMissingRoundsRequest(from, missingRounds)
+	}
+
 	// Create a task that will verify the block in the future, after its predecessors have also been verified.
 	task := e.createBlockVerificationTask(e.oneTimeVerifier.Wrap(block), from, vote)
 
@@ -1625,6 +1629,20 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 	}
 
 	return nil
+}
+
+func (e *Epoch) sendMissingRoundsRequest(to NodeID, missingRounds []uint64) {
+	e.Logger.Debug("Requesting missing empty notarizations for rounds",
+		zap.Stringer("to", to),
+		zap.Uint64s("missing rounds", missingRounds))
+
+	request := &Message{
+		ReplicationRequest: &ReplicationRequest{
+			Rounds: missingRounds,
+		},
+	}
+
+	e.Comm.Send(request, to)
 }
 
 // blockDependencies returns the dependencies bh has before it can be verified.
