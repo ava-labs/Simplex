@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"go.uber.org/zap"
+	"go.uber.org/zap/buffer"
 	"go.uber.org/zap/zapcore"
 )
 
@@ -55,6 +56,9 @@ func MakeLogger(t *testing.T, node ...int) *TestLogger {
 	config.EncodeTime = zapcore.TimeEncoderOfLayout("[01-02|15:04:05.000]")
 	config.ConsoleSeparator = " "
 	encoder := zapcore.NewConsoleEncoder(config)
+	if strings.ToLower(os.Getenv("LOG_LEVEL")) == "info" {
+		encoder = &DebugSwallowingEncoder{consoleEncoder: encoder, ObjectEncoder: encoder, pool: buffer.NewPool()}
+	}
 
 	atomicLevel := zap.NewAtomicLevelAt(zapcore.DebugLevel)
 
@@ -76,4 +80,25 @@ func MakeLogger(t *testing.T, node ...int) *TestLogger {
 	l := &TestLogger{Logger: logger, traceVerboseLogger: traceVerboseLogger}
 
 	return l
+}
+
+type DebugSwallowingEncoder struct {
+	zapcore.ObjectEncoder
+	consoleEncoder zapcore.Encoder
+	pool           buffer.Pool
+}
+
+func (dse *DebugSwallowingEncoder) Clone() zapcore.Encoder {
+	return &DebugSwallowingEncoder{
+		pool:           dse.pool,
+		ObjectEncoder:  dse.ObjectEncoder,
+		consoleEncoder: dse.consoleEncoder.Clone(),
+	}
+}
+
+func (dse *DebugSwallowingEncoder) EncodeEntry(entry zapcore.Entry, fields []zapcore.Field) (*buffer.Buffer, error) {
+	if entry.Level == zapcore.DebugLevel {
+		return dse.pool.Get(), nil
+	}
+	return dse.consoleEncoder.EncodeEntry(entry, fields)
 }
