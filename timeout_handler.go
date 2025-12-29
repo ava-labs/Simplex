@@ -27,7 +27,8 @@ type TimeoutHandler[T comparable] struct {
 	tasks map[T]struct{}
 	now   time.Time
 
-	log Logger
+	log     Logger
+	running sync.WaitGroup
 }
 
 // NewTimeoutHandler returns a TimeoutHandler and starts a new goroutine that
@@ -44,12 +45,15 @@ func NewTimeoutHandler[T comparable](log Logger, name string, startTime time.Tim
 		log:         log,
 	}
 
+	t.running.Add(1)
 	go t.run(startTime)
 
 	return t
 }
 
 func (t *TimeoutHandler[T]) run(startTime time.Time) {
+	defer t.running.Done()
+
 	lastTickTime := startTime
 
 	for t.shouldRun() {
@@ -137,6 +141,7 @@ func (t *TimeoutHandler[T]) RemoveOldTasks(shouldRemove func(id T, _ struct{}) b
 }
 
 func (t *TimeoutHandler[T]) Close() {
+	defer t.running.Wait()
 	select {
 	case <-t.close:
 		return

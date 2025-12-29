@@ -41,6 +41,7 @@ func TestPoS(t *testing.T) {
 	testutil.NewSimplexNode(t, nodes[3], net, testConf)
 
 	net.StartInstances()
+	defer net.StopInstances()
 
 	// Totally order 4 blocks, each proposed by a different node
 
