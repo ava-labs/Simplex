@@ -53,10 +53,10 @@ func (n *LongRunningInMemoryNetwork) StartInstances() {
 	go n.UpdateTime(100*time.Millisecond, amount)
 }
 
-func (n *LongRunningInMemoryNetwork) UpdateTime(frequency time.Duration, amount time.Duration) {
+func (n *LongRunningInMemoryNetwork) UpdateTime(frequency time.Duration, increment time.Duration) {
 	for !n.stopped.Load() {
 		for _, instance := range n.Instances {
-			instance.AdvanceTime(amount)
+			instance.AdvanceTime(increment)
 		}
 		time.Sleep(frequency)
 	}
