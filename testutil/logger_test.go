@@ -28,10 +28,9 @@ func TestSilence(t *testing.T) {
 		return nil
 	})
 
-	l1.Debug("Debug message")
 	l1.Info("Info message")
+	l1.Info("Second info message")
 
-	l2.Debug("Debug message")
 	l2.Info("Info message")
 
 	require.Equal(t, 2, c)
