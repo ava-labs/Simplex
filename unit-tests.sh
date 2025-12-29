@@ -2,6 +2,8 @@
 
 set -o pipefail
 
+export LOG_LEVEL=info
+
 go test -v -race ./... | tee out.log
 
 if [[ $? -ne 0 ]];then

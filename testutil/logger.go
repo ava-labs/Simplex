@@ -56,24 +56,32 @@ func MakeLogger(t *testing.T, node ...int) *TestLogger {
 	config.ConsoleSeparator = " "
 	encoder := zapcore.NewConsoleEncoder(config)
 
-	atomicLevel := zap.NewAtomicLevelAt(zapcore.DebugLevel)
+	level := zapcore.DebugLevel
+	if lvl := strings.ToLower(os.Getenv("LOG_LEVEL")); lvl != "" {
+		if parsed, err := zapcore.ParseLevel(lvl); err == nil {
+			level = parsed
+		}
+	}
+	atomicLevel := zap.NewAtomicLevelAt(level)
 
 	core := zapcore.NewCore(encoder, zapcore.AddSync(os.Stdout), atomicLevel)
 
-	logger := zap.New(core, zap.AddCaller())
-	logger = logger.With(zap.String("test", t.Name()))
+	logger := zap.New(core, zap.AddCaller()).
+		With(zap.String("test", t.Name()))
+
+	traceVerboseLogger := zap.New(
+		core,
+		zap.AddCaller(),
+		zap.AddCallerSkip(1),
+	).With(zap.String("test", t.Name()))
+
 	if len(node) > 0 {
 		logger = logger.With(zap.Int("myNodeID", node[0]))
-	}
-
-	traceVerboseLogger := zap.New(core, zap.AddCaller(), zap.AddCallerSkip(1))
-	traceVerboseLogger = traceVerboseLogger.With(zap.String("test", t.Name()))
-
-	if len(node) > 0 {
 		traceVerboseLogger = traceVerboseLogger.With(zap.Int("myNodeID", node[0]))
 	}
 
-	l := &TestLogger{Logger: logger, traceVerboseLogger: traceVerboseLogger}
-
-	return l
+	return &TestLogger{
+		Logger:             logger,
+		traceVerboseLogger: traceVerboseLogger,
+	}
 }
