@@ -46,6 +46,12 @@ func (n *InMemNetwork) StartInstances() {
 	}
 }
 
+func (n *InMemNetwork) StopInstances() {
+	for _, instance := range n.Instances {
+		instance.Stop()
+	}
+}
+
 func (n *InMemNetwork) TriggerLeaderBlockBuilder(round uint64) {
 	leader := simplex.LeaderForRound(n.nodes, round)
 	for _, instance := range n.Instances {

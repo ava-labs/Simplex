@@ -1367,6 +1367,87 @@ func TestEpochVotesForEquivocatedVotes(t *testing.T) {
 	}
 }
 
+// TestEpochRequestsEmptyRoundDependency ensures that when we receive a block
+// that builds off an empty round we don't have, we request those missing empty notarizations.
+func TestEpochRequestsEmptyRoundDependency(t *testing.T) {
+	bb := testutil.NewTestBlockBuilder()
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	ctx := context.Background()
+	blocks := createBlocks(t, nodes, 1)
+	recordedMessages := make(chan *Message, 100)
+	comm := &recordingComm{Communication: testutil.NewNoopComm(nodes), SentMessages: recordedMessages}
+	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[3], comm, bb)
+	conf.ReplicationEnabled = true
+	storage.Index(ctx, blocks[0].VerifiedBlock, blocks[0].Finalization)
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+
+	require.NoError(t, e.Start())
+
+	advanceRoundFromNotarization(t, e, bb)
+	testutil.WaitToEnterRound(t, e, 2)
+
+	skippedMD := blocks[0].VerifiedBlock.BlockHeader().ProtocolMetadata
+	skippedMD.Round = 2
+	skippedMD.Seq = 1
+	skippedMD.Prev = blocks[0].VerifiedBlock.BlockHeader().Digest
+
+	// the next node, proposes a block that doesn't build off the first block. note seq = 1
+	_, built := bb.BuildBlock(ctx, skippedMD, emptyBlacklist)
+	require.True(t, built)
+	block2 := bb.GetBuiltBlock()
+
+	vote1, err := testutil.NewTestVote(block2, nodes[2])
+	require.NoError(t, err)
+
+	err = e.HandleMessage(&Message{
+		BlockMessage: &BlockMessage{
+			Block: block2,
+			Vote:  *vote1,
+		},
+	}, nodes[2])
+	require.NoError(t, err)
+
+	for msg := range recordedMessages {
+		if msg.ReplicationRequest != nil {
+			require.Equal(t, uint64(1), msg.ReplicationRequest.Rounds[0])
+			break
+		}
+	}
+
+	missingEmptyNotarization := testutil.NewEmptyNotarization(nodes, 1)
+
+	// send the response with the block
+	replicationResponse := &ReplicationResponse{
+		Data: []QuorumRound{
+			{
+				EmptyNotarization: missingEmptyNotarization,
+			},
+		},
+	}
+	err = e.HandleMessage(&Message{
+		ReplicationResponse: replicationResponse,
+	}, nodes[2])
+	require.NoError(t, err)
+
+	for {
+		if wal.ContainsEmptyNotarization(1) {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	// notarize the block and wait to increase the round
+	testutil.InjectTestVote(t, e, block2, nodes[0])
+	testutil.InjectTestVote(t, e, block2, nodes[1])
+
+	wal.AssertNotarization(2)
+	testutil.WaitToEnterRound(t, e, 3)
+
+	// sanity check: ensure we didn't double increment the round!
+	require.Equal(t, uint64(3), e.Metadata().Round)
+}
+
 // Ensures we don't double increment the round on persisting a notarization
 func TestDoubleIncrementOnPersistNotarization(t *testing.T) {
 	// add an empty notarization, then a notarization for a previous round

@@ -64,6 +64,7 @@ func testReplication(t *testing.T, startSeq uint64, nodes []simplex.NodeID) {
 	require.Equal(t, uint64(0), laggingNode.Storage.NumBlocks())
 
 	net.StartInstances()
+	defer net.StopInstances()
 	net.TriggerLeaderBlockBuilder(startSeq)
 
 	// all blocks except the lagging node start at round startSeq, seq startSeq.
@@ -1413,8 +1414,10 @@ func TestReplicationChain(t *testing.T) {
 			if numBlocks == numNotarizations-missedNotarizations+1 {
 				break
 			}
-
 			net.AdvanceTime(simplex.DefaultReplicationRequestTimeout)
+
+			// Allow time for messages to be processed
+			time.Sleep(100 * time.Millisecond)
 		}
 	}
 

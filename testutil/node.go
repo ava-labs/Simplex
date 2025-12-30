@@ -5,6 +5,8 @@ package testutil
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -17,6 +19,9 @@ type TestNode struct {
 	currentTime atomic.Int64
 	WAL         *TestWAL
 	Storage     *InMemStorage
+	lock        sync.RWMutex
+	running     sync.WaitGroup
+	shouldStop  atomic.Bool
 	E           *simplex.Epoch
 	ingress     chan struct {
 		msg  *simplex.Message
@@ -77,6 +82,7 @@ func updateEpochConfig(epochConfig *simplex.EpochConfig, testConfig *TestNodeCon
 }
 
 func (t *TestNode) Start() {
+	t.running.Add(1)
 	go t.handleMessages()
 	require.NoError(t.t, t.E.Start())
 }
@@ -106,7 +112,11 @@ func (t *TestNode) HandleMessage(msg *simplex.Message, from simplex.NodeID) erro
 }
 
 func (t *TestNode) handleMessages() {
+	defer t.running.Done()
 	for msg := range t.ingress {
+		if t.shouldStop.Load() {
+			return
+		}
 		err := t.HandleMessage(msg.msg, msg.from)
 		require.NoError(t.t, err)
 		if err != nil {
@@ -134,4 +144,52 @@ func (t *TestNode) TimeoutOnRound(round uint64) {
 
 		time.Sleep(50 * time.Millisecond)
 	}
+}
+
+func (t *TestNode) TickUntilRoundAdvanced(round uint64, tick time.Duration) {
+	timeout := time.NewTimer(time.Minute)
+	defer timeout.Stop()
+
+	for {
+		if t.E.Metadata().Round >= round {
+			return
+		}
+
+		select {
+		case <-time.After(time.Millisecond * 10):
+			t.AdvanceTime(tick)
+			continue
+		case <-timeout.C:
+			require.Fail(t.t, "timed out waiting to enter round", "current round %d, waiting for round %d", t.E.Metadata().Round, round)
+		}
+	}
+}
+
+func (t *TestNode) enqueue(msg *simplex.Message, from, to simplex.NodeID) {
+	t.lock.RLock()
+	defer t.lock.RUnlock()
+	if t.shouldStop.Load() {
+		return
+	}
+
+	select {
+	case t.ingress <- struct {
+		msg  *simplex.Message
+		from simplex.NodeID
+	}{msg: msg, from: from}:
+	default:
+		// drop the message if the ingress channel is full
+		formattedString := fmt.Sprintf("Ingress channel is too full, failing test. From %v -> to %v", from, to)
+		panic(formattedString)
+	}
+
+}
+
+func (t *TestNode) Stop() {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+	t.E.Stop()
+	t.shouldStop.Store(true)
+	close(t.ingress)
+	t.running.Wait()
 }

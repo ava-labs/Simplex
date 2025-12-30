@@ -182,9 +182,6 @@ func (r *ReplicationState) StoreQuorumRound(round *QuorumRound) {
 	if round.EmptyNotarization != nil {
 		r.emptyRoundTimeouts.RemoveTask(round.GetRound())
 	}
-	if round.Block != nil {
-		r.digestTimeouts.RemoveTask(seqAndDigestFromBlock(round.Block))
-	}
 }
 
 // receivedFutureFinalization notifies the replication state a finalization was created in a future round.
@@ -252,8 +249,17 @@ func (r *ReplicationState) CreateDependencyTasks(parent *Digest, parentSeq uint6
 	}
 }
 
-func (r *ReplicationState) clearBlockDependencyTasks(digest Digest, seq uint64) {
+func (r *ReplicationState) clearBlockDependencyTasks(digest Digest, seq uint64, finalizationPersisted bool) {
 	if !r.enabled {
+		return
+	}
+
+	// if the finalization is persisted, we can clear all tasks for sequences up to and including seq
+	if finalizationPersisted {
+		r.digestTimeouts.RemoveOldTasks(func(missingBlock seqAndDigest, _ struct{}) bool {
+			return missingBlock.seq <= seq
+		})
+
 		return
 	}
 
@@ -265,16 +271,20 @@ func (r *ReplicationState) clearBlockDependencyTasks(digest Digest, seq uint64) 
 
 // MaybeAdvanceState attempts to collect future sequences if
 // there are more to be collected and the round has caught up for us to send the request.
-func (r *ReplicationState) MaybeAdvanceState(nextSequenceToCommit uint64, currentRound uint64) {
+func (r *ReplicationState) MaybeAdvanceState(nextSequenceToCommit uint64, currentRound uint64, lastCommittedRound uint64) {
 	if !r.enabled {
 		return
 	}
 
+	if lastCommittedRound > 0 {
+		r.deleteOldRounds(lastCommittedRound)
+	}
+
 	if nextSequenceToCommit > 0 {
-		r.deleteOldRounds(nextSequenceToCommit - 1)
 		r.digestTimeouts.RemoveOldTasks(func(missingBlock seqAndDigest, _ struct{}) bool {
 			return missingBlock.seq < nextSequenceToCommit
 		})
+		r.finalizationRequestor.removeOldTasks(nextSequenceToCommit - 1)
 	}
 
 	// update the requestors in case they need to send more requests
@@ -340,9 +350,14 @@ func (r *ReplicationState) requestDigests(missingBlocks []seqAndDigest) {
 		return
 	}
 
+	if len(signedQuorum.signers) == 0 {
+		r.logger.Error("Replication State cannot request missing block digests, no known nodes to request from")
+		return
+	}
+
 	randInt, err := rand.Int(rand.Reader, big.NewInt(int64(len(signedQuorum.signers))))
 	if err != nil {
-		r.logger.Info("Replication State failed to generate random starting index", zap.Error(err))
+		r.logger.Warn("Replication State failed to generate random starting index", zap.Error(err))
 		return
 	}
 	startingIndex := int(randInt.Int64())
@@ -385,4 +400,13 @@ func (r *ReplicationState) DeleteSeq(seq uint64) {
 	}
 
 	delete(r.seqs, seq)
+}
+
+func (r *ReplicationState) Close() {
+	if !r.enabled {
+		return
+	}
+
+	r.digestTimeouts.Close()
+	r.emptyRoundTimeouts.Close()
 }

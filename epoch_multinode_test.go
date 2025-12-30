@@ -43,6 +43,7 @@ func TestSimplexRebroadcastFinalizationVotes(t *testing.T) {
 	testutil.NewSimplexNode(t, nodes[3], net, config(nodes[3]))
 
 	net.StartInstances()
+	defer net.StopInstances()
 
 	lastSeq := uint64(9)
 
@@ -117,7 +118,6 @@ func TestSimplexRebroadcastFinalizationVotes(t *testing.T) {
 	}
 
 	require.LessOrEqual(t, previousVoteSentCount+400, numFinalizeVotesSent.Load())
-
 }
 
 func TestSimplexMultiNodeSimple(t *testing.T) {
@@ -129,6 +129,7 @@ func TestSimplexMultiNodeSimple(t *testing.T) {
 	testutil.NewSimplexNode(t, nodes[3], net, nil)
 
 	net.StartInstances()
+	defer net.StopInstances()
 
 	for seq := uint64(0); seq < 10; seq++ {
 		net.TriggerLeaderBlockBuilder(seq)
@@ -157,6 +158,7 @@ func TestSimplexMultiNodeBlacklist(t *testing.T) {
 	testutil.NewSimplexNode(t, nodes[3], net, testEpochConfig)
 
 	net.StartInstances()
+	defer net.StopInstances()
 
 	// Advance to the fourth node's turn by building three blocks
 	for seq := 0; seq < 3; seq++ {
@@ -322,6 +324,7 @@ func TestSplitVotes(t *testing.T) {
 	splitNode3 := testutil.NewSimplexNode(t, nodes[3], net, config(nodes[3]))
 
 	net.StartInstances()
+	defer net.StopInstances()
 
 	net.TriggerLeaderBlockBuilder(0)
 	for _, n := range net.Instances {

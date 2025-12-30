@@ -2,12 +2,15 @@
 
 set -o pipefail
 
-go test -v -race ./... | tee out.log
+LOG_LEVEL=info go test -v -race ./... &> out.log
 
 if [[ $? -ne 0 ]];then
   echo "Tests failed"
+  cat out.log
   exit 1
 fi
+
+cat out.log
 
 echo "Checking for warnings or errors in the test output"
 
