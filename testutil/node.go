@@ -5,6 +5,8 @@ package testutil
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -17,14 +19,18 @@ type TestNode struct {
 	currentTime atomic.Int64
 	WAL         *TestWAL
 	Storage     *InMemStorage
+	lock        sync.RWMutex
+	running     sync.WaitGroup
+	shouldStop  atomic.Bool
 	E           *simplex.Epoch
 	ingress     chan struct {
 		msg  *simplex.Message
 		from simplex.NodeID
 	}
-	l  *TestLogger
-	t  *testing.T
-	BB ControlledBlockBuilder
+	l                *TestLogger
+	t                *testing.T
+	BB               ControlledBlockBuilder
+	messageTypesSent map[string]uint64
 }
 
 func newTestNode(t *testing.T, nodeID simplex.NodeID, net *InMemNetwork, config *TestNodeConfig) *TestNode {
@@ -49,12 +55,13 @@ func newTestNode(t *testing.T, nodeID simplex.NodeID, net *InMemNetwork, config 
 	e, err := simplex.NewEpoch(epochConfig)
 	require.NoError(t, err)
 	ti := &TestNode{
-		l:       epochConfig.Logger.(*TestLogger),
-		WAL:     wal,
-		BB:      bb,
-		E:       e,
-		t:       t,
-		Storage: storage,
+		l:                epochConfig.Logger.(*TestLogger),
+		WAL:              wal,
+		BB:               bb,
+		E:                e,
+		t:                t,
+		Storage:          storage,
+		messageTypesSent: make(map[string]uint64),
 		ingress: make(chan struct {
 			msg  *simplex.Message
 			from simplex.NodeID
@@ -116,6 +123,7 @@ func updateEpochConfig(epochConfig *simplex.EpochConfig, testConfig *TestNodeCon
 }
 
 func (t *TestNode) Start() {
+	t.running.Add(1)
 	go t.handleMessages()
 	require.NoError(t.t, t.E.Start())
 }
@@ -164,7 +172,11 @@ func (t *TestNode) HandleMessage(msg *simplex.Message, from simplex.NodeID) erro
 }
 
 func (t *TestNode) handleMessages() {
+	defer t.running.Done()
 	for msg := range t.ingress {
+		if t.shouldStop.Load() {
+			return
+		}
 		err := t.HandleMessage(msg.msg, msg.from)
 		require.NoError(t.t, err)
 		if err != nil {
@@ -213,4 +225,68 @@ func (t *TestNode) TickUntilRoundAdvanced(round uint64, tick time.Duration) {
 			require.Fail(t.t, "timed out waiting to enter round", "current round %d, waiting for round %d", t.E.Metadata().Round, round)
 		}
 	}
+}
+
+func (t *TestNode) enqueue(msg *simplex.Message, from, to simplex.NodeID) {
+	t.lock.RLock()
+	defer t.lock.RUnlock()
+	if t.shouldStop.Load() {
+		return
+	}
+
+	t.RecordMessageTypeSent(msg)
+
+	select {
+	case t.ingress <- struct {
+		msg  *simplex.Message
+		from simplex.NodeID
+	}{msg: msg, from: from}:
+	default:
+		// drop the message if the ingress channel is full
+		formattedString := fmt.Sprintf("Ingress channel is too full, failing test. From %v -> to %v", from, to)
+		panic(formattedString)
+	}
+
+}
+
+func (t *TestNode) Stop() {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+	t.E.Stop()
+	t.shouldStop.Store(true)
+	close(t.ingress)
+	t.running.Wait()
+}
+
+func (t *TestNode) RecordMessageTypeSent(msg *simplex.Message) {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+
+	switch {
+	case msg.BlockMessage != nil:
+		t.messageTypesSent["BlockMessage"]++
+	case msg.VerifiedBlockMessage != nil:
+		t.messageTypesSent["VerifiedBlockMessage"]++
+	case msg.ReplicationRequest != nil:
+		t.messageTypesSent["ReplicationRequest"]++
+	case msg.ReplicationResponse != nil:
+		t.messageTypesSent["ReplicationResponse"]++
+	case msg.Notarization != nil:
+		t.messageTypesSent["VerifiedReplicationRequest"]++
+	case msg.VerifiedReplicationResponse != nil:
+		t.messageTypesSent["VerifiedReplicationResponse"]++
+	case msg.Finalization != nil:
+		t.messageTypesSent["NotarizationMessage"]++
+	case msg.FinalizeVote != nil:
+		t.messageTypesSent["FinalizationMessage"]++
+	case msg.VoteMessage != nil:
+		t.messageTypesSent["VoteMessage"]++
+	case msg.EmptyVoteMessage != nil:
+		t.messageTypesSent["EmptyVoteMessage"]++
+	case msg.EmptyNotarization != nil:
+		t.messageTypesSent["EmptyNotarization"]++
+	default:
+		panic("unknown message type")
+	}
+
 }

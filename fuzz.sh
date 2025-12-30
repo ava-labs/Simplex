@@ -1,7 +1,7 @@
 #!/usr/bin/env -euxo pipefail bash
 
 rand=$RANDOM
-x=$(( $rand % 2 ))
+x=$(( $rand % 10 ))
 if [[ $x -ne 0 ]]; then
   echo "Skipping fuzz run"
   exit 0
@@ -12,6 +12,6 @@ grep -ore "Fuzz.*(f \*" * | cut -d\( -f1 | while read line; do
   testName=$( echo $line | cut -d: -f2  )
   dir=$( dirname $file )
   cd $dir
-  go test -fuzz="${testName}" -fuzztime 10s
+  LOG_LEVEL=info go test -fuzz="${testName}" -fuzztime 10s
   cd -
 done

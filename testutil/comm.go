@@ -5,7 +5,6 @@ package testutil
 
 import (
 	"bytes"
-	"fmt"
 	"sync"
 
 	"github.com/ava-labs/simplex"
@@ -42,16 +41,13 @@ type TestComm struct {
 	net           *InMemNetwork
 	messageFilter MessageFilter
 	lock          sync.RWMutex
-
-	messageTypesSent map[string]uint64
 }
 
 func NewTestComm(from simplex.NodeID, net *InMemNetwork, messageFilter MessageFilter) *TestComm {
 	return &TestComm{
-		from:             from,
-		net:              net,
-		messageFilter:    messageFilter,
-		messageTypesSent: make(map[string]uint64),
+		from:          from,
+		net:           net,
+		messageFilter: messageFilter,
 	}
 }
 
@@ -73,53 +69,10 @@ func (c *TestComm) Send(msg *simplex.Message, destination simplex.NodeID) {
 
 	for _, instance := range c.net.Instances {
 		if bytes.Equal(instance.E.ID, destination) {
-			c.RecordMessageTypeSent(msg)
-			select {
-			case instance.ingress <- struct {
-				msg  *simplex.Message
-				from simplex.NodeID
-			}{msg: msg, from: c.from}:
-				return
-			default:
-				// drop the message if the ingress channel is full
-				formattedString := fmt.Sprintf("Ingress channel is too full, failing test. From %v -> to %v. \n message being sent: %+v \n message types: %+v", c.from, destination, msg, c.messageTypesSent)
-				panic(formattedString)
-			}
+			instance.enqueue(msg, c.from, destination)
+			return
 		}
 	}
-}
-
-func (c *TestComm) RecordMessageTypeSent(msg *simplex.Message) {
-	c.lock.Lock()
-	defer c.lock.Unlock()
-
-	switch {
-	case msg.BlockMessage != nil:
-		c.messageTypesSent["BlockMessage"]++
-	case msg.VerifiedBlockMessage != nil:
-		c.messageTypesSent["VerifiedBlockMessage"]++
-	case msg.ReplicationRequest != nil:
-		c.messageTypesSent["ReplicationRequest"]++
-	case msg.ReplicationResponse != nil:
-		c.messageTypesSent["ReplicationResponse"]++
-	case msg.Notarization != nil:
-		c.messageTypesSent["VerifiedReplicationRequest"]++
-	case msg.VerifiedReplicationResponse != nil:
-		c.messageTypesSent["VerifiedReplicationResponse"]++
-	case msg.Finalization != nil:
-		c.messageTypesSent["NotarizationMessage"]++
-	case msg.FinalizeVote != nil:
-		c.messageTypesSent["FinalizationMessage"]++
-	case msg.VoteMessage != nil:
-		c.messageTypesSent["VoteMessage"]++
-	case msg.EmptyVoteMessage != nil:
-		c.messageTypesSent["EmptyVoteMessage"]++
-	case msg.EmptyNotarization != nil:
-		c.messageTypesSent["EmptyNotarization"]++
-	default:
-		panic("unknown message type")
-	}
-
 }
 
 func (c *TestComm) SetFilter(filter MessageFilter) {
@@ -219,11 +172,7 @@ func (c *TestComm) Broadcast(msg *simplex.Message) {
 			continue
 		}
 
-		c.RecordMessageTypeSent(msg)
-		instance.ingress <- struct {
-			msg  *simplex.Message
-			from simplex.NodeID
-		}{msg: msg, from: c.from}
+		instance.enqueue(msg, c.from, instance.E.ID)
 	}
 }
 

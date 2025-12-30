@@ -49,6 +49,7 @@ func TestReplicationRequestTimeout(t *testing.T) {
 	})
 
 	net.StartInstances()
+	defer net.StopInstances()
 	net.TriggerLeaderBlockBuilder(0)
 
 	// typically the lagging node would catch up here, but since we block
@@ -117,6 +118,7 @@ func TestReplicationRequestTimeoutCancels(t *testing.T) {
 	})
 
 	net.StartInstances()
+	defer net.StopInstances()
 	net.TriggerLeaderBlockBuilder(startSeq)
 
 	// all blocks except the lagging node start at round 8, seq 8.
@@ -177,6 +179,7 @@ func TestReplicationRequestTimeoutMultiple(t *testing.T) {
 	})
 
 	net.StartInstances()
+	defer net.StopInstances()
 	net.TriggerLeaderBlockBuilder(0)
 
 	// typically the lagging node would catch up here, but since we block
@@ -270,6 +273,7 @@ func TestReplicationRequestIncompleteResponses(t *testing.T) {
 	}
 
 	net.StartInstances()
+	defer net.StopInstances()
 	net.TriggerLeaderBlockBuilder(startSeq)
 
 	// typically the lagging node would catch up here, but since we block
@@ -419,6 +423,7 @@ func TestReplicationRequestWithoutFinalization(t *testing.T) {
 	// lagging node disconnects
 	net.Disconnect(nodes[3])
 	net.StartInstances()
+	defer net.StopInstances()
 
 	missedSeqs := uint64(0)
 	// normal nodes continue to make progress
@@ -527,6 +532,7 @@ func TestReplicationMalformedQuorumRound(t *testing.T) {
 	})
 
 	net.StartInstances()
+	defer net.StopInstances()
 	net.TriggerLeaderBlockBuilder(0)
 
 	// typically the lagging node would catch up here, but since we block

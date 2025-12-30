@@ -185,30 +185,18 @@ func (n *LongRunningInMemoryNetwork) StopAndAssert(tailingMessages bool) {
 
 	// print summary of messages sent
 	for i, instance := range n.Instances {
-		comm, ok := instance.E.Comm.(*TestComm)
-		if !ok {
-			continue
-		}
-		n.t.Logf("Node %d (%s) sent message types: %+v", i, instance.E.ID.String(), comm.messageTypesSent)
+		n.t.Logf("Node %d (%s) sent message types: %+v", i, instance.E.ID.String(), instance.messageTypesSent)
 	}
 
 	if tailingMessages {
 		// assert no extra messages/requests are being sent
 		time.Sleep(3 * time.Second)
 		for _, instance := range n.Instances {
-			comm, ok := instance.E.Comm.(*TestComm)
-			if !ok {
-				continue
-			}
-			comm.messageTypesSent = make(map[string]uint64)
+			instance.messageTypesSent = make(map[string]uint64)
 		}
 		time.Sleep(3 * time.Second)
 		for _, instance := range n.Instances {
-			comm, ok := instance.E.Comm.(*TestComm)
-			if !ok {
-				continue
-			}
-			require.Empty(n.t, comm.messageTypesSent, "expected no messages to be sent after telling the network no more blocks should be built, node ID: %s\n msg %+v", instance.E.ID.String(), comm.messageTypesSent)
+			require.Empty(n.t, instance.messageTypesSent, "expected no messages to be sent after telling the network no more blocks should be built, node ID: %s\n msg %+v", instance.E.ID.String(), instance.messageTypesSent)
 		}
 	}
 

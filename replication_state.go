@@ -238,13 +238,17 @@ func (r *ReplicationState) clearDependencyTasks(parent *Digest) {
 
 // MaybeAdvanceState attempts to collect future sequences if
 // there are more to be collected and the round has caught up for us to send the request.
-func (r *ReplicationState) MaybeAdvanceState(nextSequenceToCommit uint64, currentRound uint64) {
+func (r *ReplicationState) MaybeAdvanceState(nextSequenceToCommit uint64, currentRound uint64, lastCommittedRound uint64) {
 	if !r.enabled {
 		return
 	}
 
+	if lastCommittedRound > 0 {
+		r.deleteOldRounds(lastCommittedRound)
+	}
+
 	if nextSequenceToCommit > 0 {
-		r.deleteOldRounds(nextSequenceToCommit - 1)
+		r.finalizationRequestor.removeOldTasks(nextSequenceToCommit - 1)
 	}
 
 	// update the requestors in case they need to send more requests
@@ -323,4 +327,13 @@ func (r *ReplicationState) DeleteSeq(seq uint64) {
 	}
 
 	delete(r.seqs, seq)
+}
+
+func (r *ReplicationState) Close() {
+	if !r.enabled {
+		return
+	}
+
+	r.digestTimeouts.Close()
+	r.emptyRoundTimeouts.Close()
 }
