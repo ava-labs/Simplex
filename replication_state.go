@@ -281,9 +281,6 @@ func (r *ReplicationState) MaybeAdvanceState(nextSequenceToCommit uint64, curren
 	}
 
 	if nextSequenceToCommit > 0 {
-		r.digestTimeouts.RemoveOldTasks(func(missingBlock seqAndDigest, _ struct{}) bool {
-			return missingBlock.seq < nextSequenceToCommit
-		})
 		r.finalizationRequestor.removeOldTasks(nextSequenceToCommit - 1)
 	}
 
