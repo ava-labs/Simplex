@@ -65,7 +65,7 @@ func (n *LongRunningInMemoryNetwork) UpdateTime(frequency time.Duration, increme
 func (n *LongRunningInMemoryNetwork) CrashNodes(nodeIndexes ...uint64) {
 	for _, idx := range nodeIndexes {
 		instance := n.Instances[idx]
-		instance.E.Stop()
+		instance.Stop()
 	}
 }
 
@@ -220,50 +220,78 @@ type NetworkBlockBuilder struct {
 	mu sync.Mutex
 
 	blockPending bool
-	cond         *sync.Cond
+	changed      chan struct{} // signals blockPending state was changed
 }
 
 func NewNetworkBlockBuilder(t *testing.T) *NetworkBlockBuilder {
-	bb := &NetworkBlockBuilder{
+	return &NetworkBlockBuilder{
 		t:            t,
 		blockPending: true,
+		changed:      make(chan struct{}, 1),
 	}
-	bb.cond = sync.NewCond(&bb.mu)
-	return bb
 }
 
-func (b *NetworkBlockBuilder) BuildBlock(ctx context.Context, metadata simplex.ProtocolMetadata, blacklist simplex.Blacklist) (simplex.VerifiedBlock, bool) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	for !b.blockPending {
-		b.cond.Wait()
+func (b *NetworkBlockBuilder) notifyChanged() {
+	select {
+	case b.changed <- struct{}{}:
+	default:
 	}
+}
 
-	return NewTestBlock(metadata, blacklist), true
+func (b *NetworkBlockBuilder) BuildBlock(
+	ctx context.Context,
+	metadata simplex.ProtocolMetadata,
+	blacklist simplex.Blacklist,
+) (simplex.VerifiedBlock, bool) {
+	for {
+		b.mu.Lock()
+		pending := b.blockPending
+		b.mu.Unlock()
+
+		if pending {
+			return NewTestBlock(metadata, blacklist), true
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil, false
+		case <-b.changed:
+		}
+	}
 }
 
 func (b *NetworkBlockBuilder) WaitForPendingBlock(ctx context.Context) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
+	for {
+		b.mu.Lock()
+		pending := b.blockPending
+		b.mu.Unlock()
 
-	for !b.blockPending {
-		b.cond.Wait()
+		if pending {
+			return
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-b.changed:
+		}
 	}
 }
 
 func (b *NetworkBlockBuilder) TriggerBlockShouldBeBuilt() {
 	b.mu.Lock()
+	defer b.mu.Unlock()
+
 	b.blockPending = true
-	b.mu.Unlock()
-	b.cond.Broadcast()
+	b.notifyChanged()
 }
 
 func (b *NetworkBlockBuilder) TriggerBlockShouldNotBeBuilt() {
 	b.mu.Lock()
+	defer b.mu.Unlock()
+
 	b.blockPending = false
-	b.mu.Unlock()
-	b.cond.Broadcast()
+	b.notifyChanged()
 }
 
 func (b *NetworkBlockBuilder) ShouldBlockBeBuilt() bool {
