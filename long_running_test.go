@@ -21,7 +21,7 @@ func TestLongRunningSimple(t *testing.T) {
 func TestLongRunningReplication(t *testing.T) {
 	net := testutil.NewDefaultLongRunningNetwork(t, 10)
 	for _, instance := range net.Instances {
-		instance.SilenceExceptKeywords("Received replication response", "Resending replication requests for missing rounds/sequences", "1111")
+		instance.SilenceExceptKeywords("Received replication response", "Resending replication requests for missing rounds/sequences")
 	}
 	net.StartInstances()
 
