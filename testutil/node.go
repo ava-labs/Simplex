@@ -228,8 +228,8 @@ func (t *TestNode) TickUntilRoundAdvanced(round uint64, tick time.Duration) {
 }
 
 func (t *TestNode) enqueue(msg *simplex.Message, from, to simplex.NodeID) {
-	t.lock.RLock()
-	defer t.lock.RUnlock()
+	t.lock.Lock()
+	defer t.lock.Unlock()
 	if t.shouldStop.Load() {
 		return
 	}
@@ -259,9 +259,6 @@ func (t *TestNode) Stop() {
 }
 
 func (t *TestNode) RecordMessageTypeSent(msg *simplex.Message) {
-	t.lock.Lock()
-	defer t.lock.Unlock()
-
 	switch {
 	case msg.BlockMessage != nil:
 		t.messageTypesSent["BlockMessage"]++
