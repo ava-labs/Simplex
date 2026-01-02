@@ -2423,6 +2423,17 @@ func (e *Epoch) monitorProgress(round uint64) {
 	var cancelled atomic.Bool
 
 	blockShouldBeBuiltNotification := func() {
+		// Check if we have advanced to a higher round in the meantime while this task was dispatched.
+		e.lock.Lock()
+		shouldAbort := round < e.round
+		e.lock.Unlock()
+
+		if shouldAbort {
+			e.Logger.Debug("Aborting monitoring progress for round because we advanced to a higher round",
+				zap.Uint64("monitored round", round), zap.Uint64("new round", e.round))
+			return
+		}
+
 		blacklist, ok := e.retrieveLastPersistedBlacklist()
 		if !ok {
 			return
@@ -2440,16 +2451,6 @@ func (e *Epoch) monitorProgress(round uint64) {
 			return
 		}
 
-		// Check if we have advanced to a higher round in the meantime while this task was dispatched.
-		e.lock.Lock()
-		shouldAbort := round < e.round
-		e.lock.Unlock()
-
-		if shouldAbort {
-			e.Logger.Debug("Aborting monitoring progress for round because we advanced to a higher round",
-				zap.Uint64("monitored round", round), zap.Uint64("new round", e.round))
-			return
-		}
 
 		// This invocation blocks until the block builder tells us it's time to build a new block.
 		e.BlockBuilder.WaitForPendingBlock(ctx)
@@ -2508,6 +2509,7 @@ func (e *Epoch) retrieveLastPersistedBlacklist() (Blacklist, bool) {
 }
 
 func (e *Epoch) startRound() error {
+	e.Logger.Info("Starting round", zap.Uint64("round", e.round))
 	// before starting the round, load any future messages we might have received
 	if err := e.maybeLoadFutureMessages(); err != nil {
 		return err

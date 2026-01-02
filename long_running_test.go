@@ -26,7 +26,7 @@ func TestLongRunningReplication(t *testing.T) {
 			fmt.Println("iteration")
 			net := testutil.NewDefaultLongRunningNetwork(t, 10)
 			for _, instance := range net.Instances {
-				instance.SilenceExceptKeywords("WAL", "empty vote")
+				instance.SilenceExceptKeywords("WAL", "empty vote", "Triggering empty block agreement", "Leader is blacklisted, will not wait for it to propose", "I'm blacklisted, cannot propose", "It is time to build a block", "Starting round")
 			}
 
 			net.StartInstances()

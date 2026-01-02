@@ -81,6 +81,7 @@ func (tl *TestLogger) Verbo(msg string, fields ...zap.Field) {
 func (tl *TestLogger) Warn(msg string, fields ...zap.Field) {
 	if tl.panicOnWarn {
 		panicMsg := fmt.Sprintf("WARN: %s", msg)
+		tl.Logger.Error(msg, fields...)
 		panic(panicMsg)
 	}
 	tl.Logger.Warn(msg, fields...)
