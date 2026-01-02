@@ -79,19 +79,19 @@ func (tl *TestLogger) Verbo(msg string, fields ...zap.Field) {
 }
 
 func (tl *TestLogger) Warn(msg string, fields ...zap.Field) {
+	tl.Logger.Warn(msg, fields...)
 	if tl.panicOnWarn {
 		panicMsg := fmt.Sprintf("WARN: %s", msg)
 		panic(panicMsg)
 	}
-	tl.Logger.Warn(msg, fields...)
 }
 
 func (tl *TestLogger) Error(msg string, fields ...zap.Field) {
+	tl.Logger.Error(msg, fields...)
 	if tl.panicOnError {
 		panicMsg := fmt.Sprintf("ERROR: %s", msg)
 		panic(panicMsg)
 	}
-	tl.Logger.Error(msg, fields...)
 }
 
 func MakeLogger(t *testing.T, node ...int) *TestLogger {
