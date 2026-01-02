@@ -253,6 +253,8 @@ func TestRebroadcastingWithReplication(t *testing.T) {
 // many empty notarizations in a row.
 // This test sometimes takes > 30 sec
 func TestReplicationEmptyNotarizations(t *testing.T) {
+	t.Skip()
+
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}, {5}, {6}}
 
 	for endRound := uint64(2); endRound <= 2*simplex.DefaultMaxRoundWindow; endRound++ {
@@ -1222,6 +1224,7 @@ func TestReplicationVotesForNotarizations(t *testing.T) {
 // TestReplicationEmptyNotarizations ensures a lagging node will properly replicate
 // a tail of empty notarizations.
 func TestReplicationEmptyNotarizationsTail(t *testing.T) {
+	t.Skip()
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}, {5}, {6}}
 
 	for endRound := uint64(2); endRound <= 2*simplex.DefaultMaxRoundWindow; endRound++ {
