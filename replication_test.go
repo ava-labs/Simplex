@@ -1330,7 +1330,6 @@ func allowFinalizeVotes(msg *simplex.Message, from, to simplex.NodeID) bool {
 // TestReplicationChain tests that a node can both empty notarizations and notarizations for the same round.
 func TestReplicationChain(t *testing.T) {
 	// Digest message requests are needed for this test
-	t.Skip()
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
 	net := NewInMemNetwork(t, nodes)
 
@@ -1345,7 +1344,6 @@ func TestReplicationChain(t *testing.T) {
 	// full nodes operate normally
 	fullNode1 := NewSimplexNode(t, nodes[0], net, newNodeConfig(nodes[0]))
 	fullNode2 := NewSimplexNode(t, nodes[1], net, newNodeConfig(nodes[1]))
-
 	fullNode1.Silence()
 	fullNode2.Silence()
 	// node 3 will not receive finalize votes & finalizations
@@ -1354,7 +1352,6 @@ func TestReplicationChain(t *testing.T) {
 	// lagging node is disconnected initially. It initially receives only empty notarizations
 	// but then later receives notarizations and must send finalize votes for them
 	laggingNode := NewSimplexNode(t, nodes[3], net, newNodeConfig(nodes[3]))
-
 	net.StartInstances()
 	net.Disconnect(laggingNode.E.ID)
 
@@ -1410,7 +1407,31 @@ func TestReplicationChain(t *testing.T) {
 	net.SetAllNodesMessageFilter(allowFinalizeVotes)
 
 	for _, n := range net.Instances {
-		n.TickUntilRoundAdvanced(numNotarizations+1, simplex.DefaultReplicationRequestTimeout)
-		require.Equal(t, numNotarizations+1-missedNotarizations, n.Storage.NumBlocks())
+		// the message filter blocks finalizations for blockFinalize3
+		if n.E.ID.Equals(blockFinalize3.E.ID) {
+			continue
+		}
+
+		for {
+			numBlocks := n.Storage.NumBlocks()
+			if numBlocks == numNotarizations-missedNotarizations+1 {
+				break
+			}
+			net.AdvanceTime(simplex.DefaultReplicationRequestTimeout)
+
+			// Allow time for messages to be processed
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+
+	// Sanity check that blockFinalize3 can also catch up once the filter is removed
+	net.SetAllNodesMessageFilter(AllowAllMessages)
+	for {
+		numBlocks := blockFinalize3.Storage.NumBlocks()
+
+		if numBlocks == numNotarizations-missedNotarizations+1 {
+			break
+		}
+		net.AdvanceTime(simplex.DefaultReplicationRequestTimeout)
 	}
 }

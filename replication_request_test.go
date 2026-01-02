@@ -70,7 +70,8 @@ func TestReplicationRequestNotarizations(t *testing.T) {
 	bb := testutil.NewTestBlockBuilder()
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
 	comm := NewListenerComm(nodes)
-	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], comm, bb)
+	noop := testutil.NewNoopComm(nodes)
+	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], noop, bb)
 	conf.ReplicationEnabled = true
 
 	e, err := simplex.NewEpoch(conf)
@@ -102,6 +103,7 @@ func TestReplicationRequestNotarizations(t *testing.T) {
 		},
 	}
 
+	e.Comm = comm
 	err = e.HandleMessage(req, nodes[1])
 	require.NoError(t, err)
 
