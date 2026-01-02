@@ -2332,11 +2332,18 @@ func (e *Epoch) triggerEmptyBlockNotarization(round uint64) {
 		e.Logger.Error("Failed appending empty vote", zap.Error(err))
 		return
 	}
+
 	e.Logger.Debug("Persisted empty vote to WAL",
 		zap.Uint64("round", round),
 		zap.Int("size", len(emptyVoteRecord)))
 
 	emptyVotes := e.getOrCreateEmptyVoteSetForRound(round)
+	if emptyVotes.timedOut {
+		// We have already timed out on this round, no need to do it again.
+		e.Logger.Error("WAL Already triggered empty block notarization for this round", zap.Uint64("round", round))
+		panic("WAL Already triggered empty block notarization for this round")
+		return
+	}
 	emptyVotes.timedOut = true
 
 	signedEV := EmptyVote{Vote: emptyVote, Signature: Signature{Signer: e.ID, Value: rawSig}}

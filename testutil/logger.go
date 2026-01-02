@@ -88,9 +88,27 @@ func (tl *TestLogger) Warn(msg string, fields ...zap.Field) {
 
 func (tl *TestLogger) Error(msg string, fields ...zap.Field) {
 	if tl.panicOnError {
-		panicMsg := fmt.Sprintf("ERROR: %s", msg)
-		panic(panicMsg)
+		// Render fields using zap's own encoder so numeric fields (Uint64, Int, etc.)
+		// show their real values (they are not stored in Field.Interface).
+		encCfg := zap.NewDevelopmentEncoderConfig()
+		encCfg.TimeKey = "" // optional: don't include a timestamp in panic text
+
+		enc := zapcore.NewConsoleEncoder(encCfg)
+
+		entry := zapcore.Entry{
+			Level:   zapcore.ErrorLevel,
+			Message: msg,
+		}
+
+		buf, err := enc.EncodeEntry(entry, fields)
+		if err != nil {
+			panic(fmt.Sprintf("ERROR: %s (failed to encode fields: %v)", msg, err))
+		}
+		tl.Logger.Error(msg, fields...)
+		// buf.String() already includes msg + rendered fields.
+		panic(buf.String())
 	}
+
 	tl.Logger.Error(msg, fields...)
 }
 

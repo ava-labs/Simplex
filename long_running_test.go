@@ -4,6 +4,7 @@
 package simplex_test
 
 import (
+	"fmt"
 	"math"
 	"testing"
 
@@ -19,19 +20,29 @@ func TestLongRunningSimple(t *testing.T) {
 }
 
 func TestLongRunningReplication(t *testing.T) {
-	net := testutil.NewDefaultLongRunningNetwork(t, 10)
-	net.StartInstances()
+	for range 100 {
+		t.Run("replication", func(t *testing.T) {
+			t.Parallel()
+			fmt.Println("iteration")
+			net := testutil.NewDefaultLongRunningNetwork(t, 10)
+			for _, instance := range net.Instances {
+				instance.SilenceExceptKeywords("WAL", "empty vote")
+			}
 
-	net.WaitForNodesToEnterRound(40)
-	net.NoMoreBlocks()
-	net.DisconnectNodes(2)
-	net.ContinueBlocks()
-	net.WaitForNodesToEnterRound(70, 1, 3, 4, 5, 6)
-	net.DisconnectNodes(4)
-	net.WaitForNodesToEnterRound(90, 1, 3, 5, 6, 7, 8, 9)
-	net.ConnectNodes(2, 4)
-	net.WaitForNodesToEnterRound(150)
-	net.StopAndAssert(false)
+			net.StartInstances()
+
+			net.WaitForNodesToEnterRound(40)
+			net.NoMoreBlocks()
+			net.DisconnectNodes(2)
+			net.ContinueBlocks()
+			net.WaitForNodesToEnterRound(70, 1, 3, 4, 5, 6)
+			net.DisconnectNodes(4)
+			net.WaitForNodesToEnterRound(90, 1, 3, 5, 6, 7, 8, 9)
+			net.ConnectNodes(2, 4)
+			net.WaitForNodesToEnterRound(150)
+			net.StopAndAssert(false)
+		})
+	}
 }
 
 func TestLongRunningCrash(t *testing.T) {

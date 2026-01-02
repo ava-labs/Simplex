@@ -63,6 +63,9 @@ func (n *LongRunningInMemoryNetwork) UpdateTime(frequency time.Duration, increme
 }
 
 func (n *LongRunningInMemoryNetwork) CrashNodes(nodeIndexes ...uint64) {
+	n.lock.Lock()
+	defer n.lock.Unlock()
+
 	for _, idx := range nodeIndexes {
 		instance := n.Instances[idx]
 		instance.Stop()
