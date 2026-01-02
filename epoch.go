@@ -173,6 +173,8 @@ func (e *Epoch) HandleMessage(msg *Message, from NodeID) error {
 		return e.handleReplicationResponse(msg.ReplicationResponse, from)
 	case msg.ReplicationRequest != nil && e.ReplicationEnabled:
 		return e.handleReplicationRequest(msg.ReplicationRequest, from)
+	case msg.BlockDigestRequest != nil:
+		return e.handleBlockDigestRequest(msg.BlockDigestRequest, from)
 	default:
 		e.Logger.Debug("Invalid message type", zap.Stringer("from", from))
 		return nil
@@ -1042,6 +1044,7 @@ func (e *Epoch) persistFinalization(finalization Finalization) error {
 
 	e.blockVerificationScheduler.ExecuteBlockDependents(finalization.Finalization.Digest)
 	e.blockVerificationScheduler.RemoveOldTasks(finalization.Finalization.Seq)
+	e.replicationState.clearBlockDependencyTasks(finalization.Finalization.Digest, finalization.Finalization.Seq, true)
 	e.deleteOldEmptyVotes(finalization.Finalization.Round)
 
 	if finalization.Finalization.Seq == nextSeqToCommit {
@@ -1387,6 +1390,7 @@ func (e *Epoch) persistNotarization(notarization Notarization) error {
 	}
 
 	e.blockVerificationScheduler.ExecuteBlockDependents(notarization.Vote.Digest)
+	e.replicationState.clearBlockDependencyTasks(notarization.Vote.Digest, notarization.Vote.BlockHeader.Seq, false)
 
 	round := notarization.Vote.Round
 	for _, signer := range notarization.QC.Signers() {
@@ -1514,13 +1518,20 @@ func (e *Epoch) handleNotarizationMessage(message *Notarization, from NodeID) er
 		return nil
 	}
 
-	// If this notarization is for a round we are currently processing its proposal,
-	// or for a future round, then store it for later use.
+	// Either this notarization is for a round we are currently processing, or for a past round that
+	// was empty notarized. In both cases, request the notarization from the sender of the notarization.
 	if !exists {
 		e.Logger.Info("Received a notarization for this round, but we don't have a block for it yet", zap.Uint64("round", vote.Round), zap.Uint64("epoch round", e.round))
 		e.storeFutureNotarization(message, from, vote.Round)
 
-		// TODO: we need to request the block.
+		// we need to request the block
+		blockDigestRequest := &Message{
+			BlockDigestRequest: &BlockDigestRequest{
+				Digest: vote.Digest,
+				Seq:    vote.Seq,
+			},
+		}
+		e.Comm.Send(blockDigestRequest, from)
 		return nil
 	}
 
@@ -2916,6 +2927,35 @@ func (e *Epoch) haveNotFinalizedNotarizedRound() (uint64, bool) {
 	}
 
 	return minRoundNum, found
+}
+
+func (e *Epoch) handleBlockDigestRequest(req *BlockDigestRequest, from NodeID) error {
+	e.Logger.Debug("Received block digest request", zap.Stringer("from", from), zap.Uint64("seq", req.Seq))
+	block, notarizationOrFinalization, ok := e.locateBlock(req.Seq, req.Digest[:])
+
+	if !ok {
+		e.Logger.Debug("Block not found for digest request", zap.Uint64("seq", req.Seq), zap.Stringer("digest", req.Digest))
+		return nil
+	}
+
+	if notarizationOrFinalization == nil {
+		e.Logger.Debug("No notarization or finalization found for block digest request", zap.Uint64("seq", req.Seq), zap.Stringer("digest", req.Digest))
+		return nil
+	}
+
+	qr := VerifiedQuorumRound{
+		VerifiedBlock: block,
+		Notarization:  notarizationOrFinalization.Notarization,
+		Finalization:  notarizationOrFinalization.Finalization,
+	}
+
+	response := &VerifiedReplicationResponse{
+		Data: []VerifiedQuorumRound{qr},
+	}
+
+	msg := &Message{VerifiedReplicationResponse: response}
+	e.Comm.Send(msg, from)
+	return nil
 }
 
 func (e *Epoch) handleReplicationResponse(resp *ReplicationResponse, from NodeID) error {
