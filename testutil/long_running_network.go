@@ -1,0 +1,303 @@
+package testutil
+
+import (
+	"context"
+	"crypto/rand"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/ava-labs/simplex"
+	"github.com/stretchr/testify/require"
+)
+
+// Set this to a higher value so we don't overload lagging nodes with replication requests
+const longRunningMaxRoundWindow = 100
+
+type LongRunningInMemoryNetwork struct {
+	*InMemNetwork
+
+	stopped atomic.Bool
+}
+
+func NewDefaultLongRunningNetwork(t *testing.T, numNodes int) *LongRunningInMemoryNetwork {
+	nodes := make([]simplex.NodeID, numNodes)
+	for i := range numNodes {
+		nodes[i] = generateNodeID(t)
+	}
+
+	net := NewInMemNetwork(t, nodes)
+	for _, nodeID := range nodes {
+		node := NewSimplexNode(t, nodeID, net, &TestNodeConfig{
+			BlockBuilder:       NewNetworkBlockBuilder(t),
+			ReplicationEnabled: true,
+			MaxRoundWindow:     longRunningMaxRoundWindow,
+		})
+		node.l.SetPanicOnError(true)
+		node.l.SetPanicOnWarn(true)
+	}
+	return &LongRunningInMemoryNetwork{
+		InMemNetwork: net,
+	}
+}
+
+func (n *LongRunningInMemoryNetwork) StartInstances() {
+	require.Equal(n.t, len(n.nodes), len(n.Instances))
+
+	for i := len(n.nodes) - 1; i >= 0; i-- {
+		n.Instances[i].Start()
+	}
+
+	amount := simplex.DefaultEmptyVoteRebroadcastTimeout / 5
+	go n.UpdateTime(100*time.Millisecond, amount)
+}
+
+func (n *LongRunningInMemoryNetwork) UpdateTime(frequency time.Duration, increment time.Duration) {
+	for !n.stopped.Load() {
+		for _, instance := range n.Instances {
+			instance.AdvanceTime(increment)
+		}
+		time.Sleep(frequency)
+	}
+}
+
+func (n *LongRunningInMemoryNetwork) CrashNodes(nodeIndexes ...uint64) {
+	for _, idx := range nodeIndexes {
+		instance := n.Instances[idx]
+		instance.Stop()
+	}
+}
+
+func (n *LongRunningInMemoryNetwork) StartNodes(nodeIndexes ...uint64) {
+	for _, idx := range nodeIndexes {
+		n.lock.Lock()
+		instance := n.Instances[idx]
+
+		nodeID := instance.E.ID
+		bb := instance.BB
+		clonedWal := instance.WAL.Clone()
+		clonedStorage := instance.Storage.Clone()
+
+		newNode := newTestNode(n.t, nodeID, n.InMemNetwork, &TestNodeConfig{
+			BlockBuilder:       bb,
+			ReplicationEnabled: true,
+			MaxRoundWindow:     longRunningMaxRoundWindow,
+			Logger:             instance.l,
+			WAL:                clonedWal,
+			Storage:            clonedStorage,
+			StartTime:          instance.currentTime.Load(),
+		})
+
+		n.Instances[idx] = newNode
+		n.lock.Unlock()
+		newNode.Start()
+	}
+}
+
+func (n *LongRunningInMemoryNetwork) NoMoreBlocks() {
+	for _, instance := range n.Instances {
+		bb, ok := instance.BB.(*NetworkBlockBuilder)
+		if !ok {
+			continue
+		}
+		bb.TriggerBlockShouldNotBeBuilt()
+	}
+}
+
+func (n *LongRunningInMemoryNetwork) ContinueBlocks() {
+	for _, instance := range n.Instances {
+		bb, ok := instance.BB.(*NetworkBlockBuilder)
+		if !ok {
+			continue
+		}
+		bb.TriggerBlockShouldBeBuilt()
+	}
+}
+
+func (n *LongRunningInMemoryNetwork) WaitForNodesToEnterRound(round uint64, nodeIndexes ...uint64) {
+	// check if nodeIndexes have length 0
+	if len(nodeIndexes) == 0 {
+		for _, instance := range n.Instances {
+			WaitToEnterRoundWithTimeout(n.t, instance.E, round, 3*time.Second)
+		}
+	}
+
+	for _, idx := range nodeIndexes {
+		WaitToEnterRoundWithTimeout(n.t, n.Instances[idx].E, round, 3*time.Second)
+	}
+}
+
+func (n *LongRunningInMemoryNetwork) DisconnectNodes(nodeIndexes ...uint64) {
+	for _, idx := range nodeIndexes {
+		nodeID := n.Instances[idx].E.ID
+		n.Disconnect(nodeID)
+	}
+}
+
+func (n *LongRunningInMemoryNetwork) ConnectNodes(nodeIndexes ...uint64) {
+	for _, idx := range nodeIndexes {
+		nodeID := n.Instances[idx].E.ID
+		n.Connect(nodeID)
+	}
+}
+
+func (n *LongRunningInMemoryNetwork) waitUntilAllRoundsEqual() {
+	maxWait := time.After(30 * time.Second)
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-maxWait:
+			n.t.Fatal("timed out waiting for all nodes to have the same round")
+		case <-ticker.C:
+			rounds := make(map[uint64]struct{})
+			for _, instance := range n.Instances {
+				rounds[instance.E.Metadata().Round] = struct{}{}
+			}
+			if len(rounds) == 1 {
+				return
+			}
+		}
+	}
+}
+
+// StopAndAssert stops all nodes and asserts their storage and WALs are consistent.
+// If tailingMessages is true, it will also assert that no extra messages are being sent
+// after telling the network no more blocks should be built.
+// TailingMessages is useful for debugging, but is currently flakey because NoMoreBlocks does not stop block building
+// atomically for all nodes in the network. Therefore, some nodes may timeout on a block they think should be built, and keep resending empty votes.
+func (n *LongRunningInMemoryNetwork) StopAndAssert(tailingMessages bool) {
+	n.NoMoreBlocks()
+
+	// ensures all nodes have the same round before checking storage/WAL consistency
+	n.waitUntilAllRoundsEqual()
+
+	// check all the nodes have the same wal, storage, etc
+	for i, instance := range n.Instances {
+		instance.WAL.AssertHealthy(instance.E.BlockDeserializer, instance.E.QCDeserializer)
+		if i != 0 {
+			require.NoError(n.t, instance.Storage.Compare(n.Instances[0].Storage), "node %d storage does not match node 0 storage", i)
+		}
+		instance.Stop()
+	}
+
+	// print summary of messages sent
+	for i, instance := range n.Instances {
+		n.t.Logf("Node %d (%s) sent message types: %+v", i, instance.E.ID.String(), instance.messageTypesSent)
+	}
+
+	if tailingMessages {
+		// assert no extra messages/requests are being sent
+		time.Sleep(3 * time.Second)
+		for _, instance := range n.Instances {
+			instance.messageTypesSent = make(map[string]uint64)
+		}
+		time.Sleep(3 * time.Second)
+		for _, instance := range n.Instances {
+			require.Empty(n.t, instance.messageTypesSent, "expected no messages to be sent after telling the network no more blocks should be built, node ID: %s\n msg %+v", instance.E.ID.String(), instance.messageTypesSent)
+		}
+	}
+
+	n.stopped.Store(true)
+}
+
+func generateNodeID(t *testing.T) simplex.NodeID {
+	b := make([]byte, 32)
+
+	// fill with cryptographically secure random data
+	_, err := rand.Read(b)
+	require.NoError(t, err)
+
+	return simplex.NodeID(b)
+}
+
+var _ simplex.BlockBuilder = (*NetworkBlockBuilder)(nil)
+
+type NetworkBlockBuilder struct {
+	t  *testing.T
+	mu sync.Mutex
+
+	blockPending bool
+	changed      chan struct{} // signals blockPending state was changed
+}
+
+func NewNetworkBlockBuilder(t *testing.T) *NetworkBlockBuilder {
+	return &NetworkBlockBuilder{
+		t:            t,
+		blockPending: true,
+		changed:      make(chan struct{}, 1),
+	}
+}
+
+func (b *NetworkBlockBuilder) notifyChanged() {
+	select {
+	case b.changed <- struct{}{}:
+	default:
+	}
+}
+
+func (b *NetworkBlockBuilder) BuildBlock(
+	ctx context.Context,
+	metadata simplex.ProtocolMetadata,
+	blacklist simplex.Blacklist,
+) (simplex.VerifiedBlock, bool) {
+	for {
+		b.mu.Lock()
+		pending := b.blockPending
+		b.mu.Unlock()
+
+		if pending {
+			return NewTestBlock(metadata, blacklist), true
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil, false
+		case <-b.changed:
+		}
+	}
+}
+
+func (b *NetworkBlockBuilder) WaitForPendingBlock(ctx context.Context) {
+	for {
+		b.mu.Lock()
+		pending := b.blockPending
+		b.mu.Unlock()
+
+		if pending {
+			return
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-b.changed:
+		}
+	}
+}
+
+func (b *NetworkBlockBuilder) TriggerBlockShouldBeBuilt() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.blockPending = true
+	b.notifyChanged()
+}
+
+func (b *NetworkBlockBuilder) TriggerBlockShouldNotBeBuilt() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.blockPending = false
+	b.notifyChanged()
+}
+
+func (b *NetworkBlockBuilder) ShouldBlockBeBuilt() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.blockPending
+}
+
+func (b *NetworkBlockBuilder) TriggerNewBlock() {}
