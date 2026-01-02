@@ -43,7 +43,7 @@ func TestLongRunningCrash(t *testing.T) {
 	crashedNodeLatestBlock := net.Instances[3].Storage.NumBlocks()
 
 	net.WaitForNodesToEnterRound(80, 1, 2, 4, 5, 6, 7, 8, 9)
-	net.RestartNodes(3)
+	net.StartNodes(3)
 
 	waitForRound := math.Max(float64(crashedNodeLatestBlock*2), 150)
 	net.WaitForNodesToEnterRound(uint64(waitForRound))

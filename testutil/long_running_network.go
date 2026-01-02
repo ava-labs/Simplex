@@ -69,7 +69,7 @@ func (n *LongRunningInMemoryNetwork) CrashNodes(nodeIndexes ...uint64) {
 	}
 }
 
-func (n *LongRunningInMemoryNetwork) RestartNodes(nodeIndexes ...uint64) {
+func (n *LongRunningInMemoryNetwork) StartNodes(nodeIndexes ...uint64) {
 	for _, idx := range nodeIndexes {
 		n.lock.Lock()
 		instance := n.Instances[idx]
