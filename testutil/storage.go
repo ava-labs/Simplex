@@ -146,7 +146,7 @@ func (mem *InMemStorage) Compare(other *InMemStorage) error {
 		}
 
 		// compare finalizations
-		if item.Finalization.Finalization.Digest != otherItem.Finalization.Finalization.Digest {
+		if !bytes.Equal(item.Finalization.Finalization.Bytes(), otherItem.Finalization.Finalization.Bytes()) {
 			return fmt.Errorf("finalizations differ at seq %d", seq)
 		}
 	}

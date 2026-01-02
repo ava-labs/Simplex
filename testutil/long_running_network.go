@@ -183,24 +183,24 @@ func (n *LongRunningInMemoryNetwork) StopAndAssert(tailingMessages bool) {
 		instance.Stop()
 	}
 
-	// // print summary of messages sent
-	// for i, instance := range n.Instances {
-	// 	n.t.Logf("Node %d (%s) sent message types: %+v", i, instance.E.ID.String(), instance.messageTypesSent)
-	// }
+	// print summary of messages sent
+	for i, instance := range n.Instances {
+		n.t.Logf("Node %d (%s) sent message types: %+v", i, instance.E.ID.String(), instance.messageTypesSent)
+	}
 
-	// if tailingMessages {
-	// 	// assert no extra messages/requests are being sent
-	// 	time.Sleep(3 * time.Second)
-	// 	for _, instance := range n.Instances {
-	// 		instance.messageTypesSent = make(map[string]uint64)
-	// 	}
-	// 	time.Sleep(3 * time.Second)
-	// 	for _, instance := range n.Instances {
-	// 		require.Empty(n.t, instance.messageTypesSent, "expected no messages to be sent after telling the network no more blocks should be built, node ID: %s\n msg %+v", instance.E.ID.String(), instance.messageTypesSent)
-	// 	}
-	// }
+	if tailingMessages {
+		// assert no extra messages/requests are being sent
+		time.Sleep(3 * time.Second)
+		for _, instance := range n.Instances {
+			instance.messageTypesSent = make(map[string]uint64)
+		}
+		time.Sleep(3 * time.Second)
+		for _, instance := range n.Instances {
+			require.Empty(n.t, instance.messageTypesSent, "expected no messages to be sent after telling the network no more blocks should be built, node ID: %s\n msg %+v", instance.E.ID.String(), instance.messageTypesSent)
+		}
+	}
 
-	// n.stopped.Store(true)
+	n.stopped.Store(true)
 }
 
 func generateNodeID(t *testing.T) simplex.NodeID {

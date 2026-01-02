@@ -20,9 +20,6 @@ func TestLongRunningSimple(t *testing.T) {
 
 func TestLongRunningReplication(t *testing.T) {
 	net := testutil.NewDefaultLongRunningNetwork(t, 10)
-	for _, instance := range net.Instances {
-		instance.SilenceExceptKeywords("Received replication response", "Resending replication requests for missing rounds/sequences")
-	}
 	net.StartInstances()
 
 	net.WaitForNodesToEnterRound(40)
@@ -39,13 +36,6 @@ func TestLongRunningReplication(t *testing.T) {
 
 func TestLongRunningCrash(t *testing.T) {
 	net := testutil.NewDefaultLongRunningNetwork(t, 10)
-	for i, instance := range net.Instances {
-		if i == 3 {
-			instance.SilenceExceptKeywords("WAL")
-			continue
-		}
-		instance.Silence()
-	}
 
 	net.StartInstances()
 	net.WaitForNodesToEnterRound(30)
