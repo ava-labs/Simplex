@@ -1276,11 +1276,11 @@ func (e *Epoch) persistEmptyNotarization(emptyVotes *EmptyVoteSet, shouldBroadca
 	emptyNotarization := emptyVotes.emptyNotarization
 	emptyNotarizationRecord := NewEmptyNotarizationRecord(emptyNotarization)
 	if err := e.WAL.Append(emptyNotarizationRecord); err != nil {
-		e.Logger.Error("Failed to append empty block record to WAL", zap.Error(err))
+		e.Logger.Error("Failed to append empty notarization record to WAL", zap.Error(err))
 		return err
 	}
 
-	e.Logger.Debug("Persisted empty block to WAL",
+	e.Logger.Debug("Persisted empty notarization to WAL",
 		zap.Int("size", len(emptyNotarizationRecord)),
 		zap.Uint64("round", emptyNotarization.Vote.Round))
 
