@@ -1439,6 +1439,85 @@ func (b *listenerComm) Send(msg *Message, id NodeID) {
 	b.in <- msg
 }
 
+func TestRejectsOldNotarizationAndVotes(t *testing.T) {
+	bb := testutil.NewTestBlockBuilder()
+	ctx := context.Background()
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	initialBlock := createBlocks(t, nodes, 1)[0]
+	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[1], testutil.NewNoopComm(nodes), bb)
+	storage.Index(ctx, initialBlock.VerifiedBlock, initialBlock.Finalization)
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+
+	require.NoError(t, e.Start())
+	require.Equal(t, uint64(1), e.Metadata().Seq)
+
+	// send a block for round 1. then finalization then notarization for round 1
+	md := e.Metadata()
+	_, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
+	require.True(t, ok)
+
+	block := bb.GetBuiltBlock()
+
+	vote, err := testutil.NewTestVote(block, nodes[1])
+	require.NoError(t, err)
+	err = e.HandleMessage(&Message{
+		BlockMessage: &BlockMessage{
+			Vote:  *vote,
+			Block: block,
+		},
+	}, nodes[1])
+	require.NoError(t, err)
+	wal.AssertBlockProposal(1)
+
+	for i := 0; i < len(nodes); i++ {
+		if nodes[i].Equals(e.ID) {
+			continue
+		}
+		testutil.InjectTestFinalizeVote(t, e, block, nodes[i])
+	}
+	testutil.WaitToEnterRound(t, e, 2)
+
+	increment := 1
+	// wait for the empty vote
+	for !wal.ContainsEmptyVote(2) {
+		if len(bb.BlockShouldBeBuilt) == 0 {
+			bb.BlockShouldBeBuilt <- struct{}{}
+		}
+		e.AdvanceTime(e.StartTime.Add(conf.MaxProposalWait * time.Duration(increment)))
+		time.Sleep(100 * time.Millisecond)
+		increment++
+	}
+
+	// send notarization for round 1, after the finalization was sent
+	notarization, err := testutil.NewNotarization(conf.Logger, conf.SignatureAggregator, block, nodes)
+	require.NoError(t, err)
+
+	err = e.HandleMessage(&Message{
+		Notarization: &notarization,
+	}, nodes[0])
+	require.NoError(t, err)
+
+	timer := time.NewTimer(3 * time.Second)
+	defer timer.Stop()
+	for {
+		select {
+		case <-timer.C:
+			require.False(t, wal.ContainsNotarization(1), "notarization for old round should not be recorded")
+			return
+		default:
+			if len(bb.BlockShouldBeBuilt) == 0 {
+				bb.BlockShouldBeBuilt <- struct{}{}
+			}
+			wal.AssertHealthy(e.BlockDeserializer, e.QCDeserializer)
+			e.AdvanceTime(e.StartTime.Add(conf.MaxProposalWait * time.Duration(increment)))
+			time.Sleep(100 * time.Millisecond)
+			increment++
+		}
+	}
+}
+
 func TestBlockDeserializer(t *testing.T) {
 	var blockDeserializer testutil.BlockDeserializer
 

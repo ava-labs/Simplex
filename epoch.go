@@ -899,8 +899,8 @@ func (e *Epoch) handleVoteMessage(message *Vote, from NodeID) error {
 		return nil
 	}
 
-	if round.notarization != nil {
-		e.Logger.Debug("Round already notarized", zap.Uint64("round", vote.Round))
+	if round.notarization != nil || round.finalization != nil {
+		e.Logger.Debug("Round already notarized or finalized", zap.Uint64("round", vote.Round))
 		return nil
 	}
 
@@ -1510,8 +1510,8 @@ func (e *Epoch) handleNotarizationMessage(message *Notarization, from NodeID) er
 	// Can we handle this notarization right away or should we handle it later?
 	round, exists := e.rounds[vote.Round]
 	// If we have already notarized the round, no need to continue
-	if exists && round.notarization != nil {
-		e.Logger.Debug("Received a notarization for an already notarized round")
+	if exists && (round.notarization != nil || round.finalization != nil) {
+		e.Logger.Debug("Received a notarization for an already notarized or finalized round")
 		return nil
 	}
 
