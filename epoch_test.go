@@ -1517,7 +1517,7 @@ func TestRejectsOldNotarizationAndVotes(t *testing.T) {
 	ctx := context.Background()
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	initialBlock := createBlocks(t, nodes, 1)[0]
-	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[3], testutil.NewNoopComm(nodes), bb)
+	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[1], testutil.NewNoopComm(nodes), bb)
 	storage.Index(ctx, initialBlock.VerifiedBlock, initialBlock.Finalization)
 
 	e, err := NewEpoch(conf)
