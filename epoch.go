@@ -901,8 +901,8 @@ func (e *Epoch) handleVoteMessage(message *Vote, from NodeID) error {
 		return nil
 	}
 
-	if round.notarization != nil {
-		e.Logger.Debug("Round already notarized", zap.Uint64("round", vote.Round))
+	if round.notarization != nil || round.finalization != nil {
+		e.Logger.Debug("Round already notarized or finalized", zap.Uint64("round", vote.Round))
 		return nil
 	}
 
@@ -1279,11 +1279,11 @@ func (e *Epoch) persistEmptyNotarization(emptyVotes *EmptyVoteSet, shouldBroadca
 	emptyNotarization := emptyVotes.emptyNotarization
 	emptyNotarizationRecord := NewEmptyNotarizationRecord(emptyNotarization)
 	if err := e.WAL.Append(emptyNotarizationRecord); err != nil {
-		e.Logger.Error("Failed to append empty block record to WAL", zap.Error(err))
+		e.Logger.Error("Failed to append empty notarization record to WAL", zap.Error(err))
 		return err
 	}
 
-	e.Logger.Debug("Persisted empty block to WAL",
+	e.Logger.Debug("Persisted empty notarization to WAL",
 		zap.Int("size", len(emptyNotarizationRecord)),
 		zap.Uint64("round", emptyNotarization.Vote.Round))
 
@@ -1514,8 +1514,8 @@ func (e *Epoch) handleNotarizationMessage(message *Notarization, from NodeID) er
 	// Can we handle this notarization right away or should we handle it later?
 	round, exists := e.rounds[vote.Round]
 	// If we have already notarized the round, no need to continue
-	if exists && round.notarization != nil {
-		e.Logger.Debug("Received a notarization for an already notarized round")
+	if exists && (round.notarization != nil || round.finalization != nil) {
+		e.Logger.Debug("Received a notarization for an already notarized or finalized round")
 		return nil
 	}
 
