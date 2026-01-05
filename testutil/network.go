@@ -168,3 +168,9 @@ func (n *InMemNetwork) AdvanceWithoutLeader(round uint64, laggingNodeId simplex.
 		require.Equal(n.t, record.EmptyNotarizationRecordType, recordType)
 	}
 }
+
+func (n *InMemNetwork) AdvanceTime(duration time.Duration) {
+	for _, instance := range n.Instances {
+		instance.AdvanceTime(duration)
+	}
+}

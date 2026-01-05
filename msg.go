@@ -22,6 +22,7 @@ type Message struct {
 	ReplicationResponse         *ReplicationResponse
 	VerifiedReplicationResponse *VerifiedReplicationResponse
 	ReplicationRequest          *ReplicationRequest
+	BlockDigestRequest          *BlockDigestRequest
 }
 
 type EmptyVoteMetadata struct {
@@ -358,4 +359,9 @@ type VerifiedFinalizedBlock struct {
 
 type verifiableMessage interface {
 	Verify() error
+}
+
+type BlockDigestRequest struct {
+	Seq    uint64
+	Digest Digest
 }
