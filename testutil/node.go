@@ -282,6 +282,8 @@ func (t *TestNode) RecordMessageTypeSent(msg *simplex.Message) {
 		t.messageTypesSent["EmptyVoteMessage"]++
 	case msg.EmptyNotarization != nil:
 		t.messageTypesSent["EmptyNotarization"]++
+	case msg.BlockDigestRequest != nil:
+		t.messageTypesSent["BlockDigestRequest"]++
 	default:
 		panic("unknown message type")
 	}
