@@ -27,36 +27,53 @@ type TestNode struct {
 		msg  *simplex.Message
 		from simplex.NodeID
 	}
-	l  *TestLogger
-	t  *testing.T
-	BB *testControlledBlockBuilder
+	l                *TestLogger
+	t                *testing.T
+	BB               ControlledBlockBuilder
+	messageTypesSent map[string]uint64
 }
 
-// newSimplexNode creates a new testNode and adds it to [net].
-func NewSimplexNode(t *testing.T, nodeID simplex.NodeID, net *InMemNetwork, config *TestNodeConfig) *TestNode {
+func newTestNode(t *testing.T, nodeID simplex.NodeID, net *InMemNetwork, config *TestNodeConfig) *TestNode {
 	comm := NewTestComm(nodeID, net, AllowAllMessages)
-	bb := NewTestControlledBlockBuilder(t)
+	var bb ControlledBlockBuilder = NewTestControlledBlockBuilder(t)
+	if config != nil && config.BlockBuilder != nil {
+		bb = config.BlockBuilder
+	}
+
 	epochConfig, wal, storage := DefaultTestNodeEpochConfig(t, nodeID, comm, bb)
 
 	if config != nil {
 		updateEpochConfig(&epochConfig, config)
+		if config.WAL != nil {
+			wal = config.WAL
+		}
+		if config.Storage != nil {
+			storage = config.Storage
+		}
 	}
 
 	e, err := simplex.NewEpoch(epochConfig)
 	require.NoError(t, err)
 	ti := &TestNode{
-		l:       epochConfig.Logger.(*TestLogger),
-		WAL:     wal,
-		BB:      bb,
-		E:       e,
-		t:       t,
-		Storage: storage,
+		l:                epochConfig.Logger.(*TestLogger),
+		WAL:              wal,
+		BB:               bb,
+		E:                e,
+		t:                t,
+		Storage:          storage,
+		messageTypesSent: make(map[string]uint64),
 		ingress: make(chan struct {
 			msg  *simplex.Message
 			from simplex.NodeID
-		}, 1000)}
+		}, 100000)}
 
 	ti.currentTime.Store(epochConfig.StartTime.UnixMilli())
+	return ti
+}
+
+// newSimplexNode creates a new testNode and adds it to [net].
+func NewSimplexNode(t *testing.T, nodeID simplex.NodeID, net *InMemNetwork, config *TestNodeConfig) *TestNode {
+	ti := newTestNode(t, nodeID, net, config)
 
 	net.addNode(ti)
 	return ti
@@ -79,6 +96,30 @@ func updateEpochConfig(epochConfig *simplex.EpochConfig, testConfig *TestNodeCon
 	if testConfig.SigAggregator != nil {
 		epochConfig.SignatureAggregator = testConfig.SigAggregator
 	}
+
+	if testConfig.BlockBuilder != nil {
+		epochConfig.BlockBuilder = testConfig.BlockBuilder
+	}
+
+	if testConfig.MaxRoundWindow != 0 {
+		epochConfig.MaxRoundWindow = testConfig.MaxRoundWindow
+	}
+
+	if testConfig.Logger != nil {
+		epochConfig.Logger = testConfig.Logger
+	}
+
+	if testConfig.WAL != nil {
+		epochConfig.WAL = testConfig.WAL
+	}
+
+	if testConfig.Storage != nil {
+		epochConfig.Storage = testConfig.Storage
+	}
+
+	if testConfig.StartTime != 0 {
+		epochConfig.StartTime = time.UnixMilli(testConfig.StartTime)
+	}
 }
 
 func (t *TestNode) Start() {
@@ -87,12 +128,27 @@ func (t *TestNode) Start() {
 	require.NoError(t.t, t.E.Start())
 }
 
+type ControlledBlockBuilder interface {
+	simplex.BlockBuilder
+	TriggerNewBlock()
+	TriggerBlockShouldBeBuilt()
+	ShouldBlockBeBuilt() bool
+}
+
 type TestNodeConfig struct {
 	// optional
 	InitialStorage     []simplex.VerifiedFinalizedBlock
 	Comm               simplex.Communication
 	SigAggregator      simplex.SignatureAggregator
 	ReplicationEnabled bool
+	BlockBuilder       ControlledBlockBuilder
+
+	// Long Running Tests
+	MaxRoundWindow uint64
+	Logger         *TestLogger
+	WAL            *TestWAL
+	Storage        *InMemStorage
+	StartTime      int64
 }
 
 func (t *TestNode) AdvanceTime(duration time.Duration) {
@@ -103,6 +159,10 @@ func (t *TestNode) AdvanceTime(duration time.Duration) {
 
 func (t *TestNode) Silence() {
 	t.l.Silence()
+}
+
+func (t *TestNode) SilenceExceptKeywords(keywords ...string) {
+	t.l.SilenceExceptKeywords(keywords...)
 }
 
 func (t *TestNode) HandleMessage(msg *simplex.Message, from simplex.NodeID) error {
@@ -132,9 +192,11 @@ func (t *TestNode) TimeoutOnRound(round uint64) {
 		if currentRound > round {
 			return
 		}
-		if len(t.BB.BlockShouldBeBuilt) == 0 {
-			t.BB.BlockShouldBeBuilt <- struct{}{}
+
+		if !t.BB.ShouldBlockBeBuilt() {
+			t.BB.TriggerBlockShouldBeBuilt()
 		}
+
 		t.AdvanceTime(t.E.MaxProposalWait)
 
 		// check the wal for an empty vote for that round
@@ -166,11 +228,13 @@ func (t *TestNode) TickUntilRoundAdvanced(round uint64, tick time.Duration) {
 }
 
 func (t *TestNode) enqueue(msg *simplex.Message, from, to simplex.NodeID) {
-	t.lock.RLock()
-	defer t.lock.RUnlock()
+	t.lock.Lock()
+	defer t.lock.Unlock()
 	if t.shouldStop.Load() {
 		return
 	}
+
+	t.RecordMessageTypeSent(msg)
 
 	select {
 	case t.ingress <- struct {
@@ -192,4 +256,36 @@ func (t *TestNode) Stop() {
 	t.shouldStop.Store(true)
 	close(t.ingress)
 	t.running.Wait()
+}
+
+func (t *TestNode) RecordMessageTypeSent(msg *simplex.Message) {
+	switch {
+	case msg.BlockMessage != nil:
+		t.messageTypesSent["BlockMessage"]++
+	case msg.VerifiedBlockMessage != nil:
+		t.messageTypesSent["VerifiedBlockMessage"]++
+	case msg.ReplicationRequest != nil:
+		t.messageTypesSent["ReplicationRequest"]++
+	case msg.ReplicationResponse != nil:
+		t.messageTypesSent["ReplicationResponse"]++
+	case msg.Notarization != nil:
+		t.messageTypesSent["VerifiedReplicationRequest"]++
+	case msg.VerifiedReplicationResponse != nil:
+		t.messageTypesSent["VerifiedReplicationResponse"]++
+	case msg.Finalization != nil:
+		t.messageTypesSent["NotarizationMessage"]++
+	case msg.FinalizeVote != nil:
+		t.messageTypesSent["FinalizationMessage"]++
+	case msg.VoteMessage != nil:
+		t.messageTypesSent["VoteMessage"]++
+	case msg.EmptyVoteMessage != nil:
+		t.messageTypesSent["EmptyVoteMessage"]++
+	case msg.EmptyNotarization != nil:
+		t.messageTypesSent["EmptyNotarization"]++
+	case msg.BlockDigestRequest != nil:
+		t.messageTypesSent["BlockDigestRequest"]++
+	default:
+		panic("unknown message type")
+	}
+
 }
