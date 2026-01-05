@@ -601,7 +601,7 @@ func (e *Epoch) handleFinalizationMessage(message *Finalization, from NodeID) er
 	}
 
 	round.finalization = message
-
+	e.Logger.Debug("111Persisting finalization from message WAL", zap.Uint64("round", message.Finalization.Round), zap.Uint64("seq", message.Finalization.Seq), zap.Uint64("nextSeqToCommit", nextSeqToCommit))
 	return e.persistFinalization(*message)
 }
 
@@ -749,7 +749,7 @@ func (e *Epoch) handleEmptyVoteMessage(message *EmptyVote, from NodeID) error {
 
 	// Else, this is an empty vote for current round
 	e.Logger.Debug("Received an empty vote for the current round",
-		zap.Uint64("round", vote.Round), zap.Stringer("from", from))
+		zap.Uint64("round", vote.Round), zap.Stringer("from", from), zap.Uint64("our round", e.round))
 
 	signature := message.Signature
 
@@ -898,8 +898,8 @@ func (e *Epoch) handleVoteMessage(message *Vote, from NodeID) error {
 		return nil
 	}
 
-	if round.notarization != nil {
-		e.Logger.Debug("Round already notarized", zap.Uint64("round", vote.Round))
+	if round.notarization != nil || round.finalization != nil {
+		e.Logger.Debug("Round already notarized or finalized", zap.Uint64("round", vote.Round))
 		return nil
 	}
 
@@ -1023,6 +1023,7 @@ func (e *Epoch) assembleFinalization(round *Round, finalizationVotes []*Finalize
 	}
 
 	round.finalization = &finalization
+	e.Logger.Debug("111 Assembled finalization for round", zap.Uint64("round", finalization.Finalization.Round))
 	return e.persistFinalization(finalization)
 }
 
@@ -1060,6 +1061,7 @@ func (e *Epoch) persistFinalization(finalization Finalization) error {
 			zap.Uint64("round", finalization.Finalization.Round),
 			zap.Uint64("seq", finalization.Finalization.Seq),
 			zap.Uint64("height", nextSeqToCommit),
+			zap.Uint64("nextSeqToCommit", nextSeqToCommit),
 			zap.Int("size", len(recordBytes)),
 			zap.Stringer("digest", finalization.Finalization.BlockHeader.Digest))
 
@@ -1091,6 +1093,7 @@ func (e *Epoch) persistFinalization(finalization Finalization) error {
 	// If we have progressed to a new round while we committed blocks,
 	// start the new round.
 	if startRound < e.round {
+		e.Logger.Debug("Starting new round after committing finalizations", zap.Uint64("round", e.round), zap.Uint64("startRound", startRound))
 		return e.startRound()
 	}
 
@@ -1279,7 +1282,7 @@ func (e *Epoch) persistEmptyNotarization(emptyVotes *EmptyVoteSet, shouldBroadca
 		return err
 	}
 
-	e.Logger.Debug("Persisted empty block to WAL",
+	e.Logger.Debug("Persisted empty notarization to WAL",
 		zap.Int("size", len(emptyNotarizationRecord)),
 		zap.Uint64("round", emptyNotarization.Vote.Round))
 
@@ -1354,7 +1357,7 @@ func (e *Epoch) maybeCollectNotarization() error {
 	if err != nil {
 		return err
 	}
-
+	e.Logger.Debug("111 Persist and broadcast from collect")
 	return e.persistAndBroadcastNotarization(notarization)
 }
 
@@ -1509,8 +1512,8 @@ func (e *Epoch) handleNotarizationMessage(message *Notarization, from NodeID) er
 	// Can we handle this notarization right away or should we handle it later?
 	round, exists := e.rounds[vote.Round]
 	// If we have already notarized the round, no need to continue
-	if exists && round.notarization != nil {
-		e.Logger.Debug("Received a notarization for an already notarized round")
+	if exists && (round.notarization != nil || round.finalization != nil) {
+		e.Logger.Debug("Received a notarization for an already notarized or finalized round")
 		return nil
 	}
 
@@ -1530,6 +1533,7 @@ func (e *Epoch) handleNotarizationMessage(message *Notarization, from NodeID) er
 	// Else, this is a notarization for the current round, and we have stored the proposal for this round.
 	// Note that we don't need to check if we have timed out on this round,
 	// because if we had collected an empty notarization for this round, we would have progressed to the next round.
+	e.Logger.Debug("111 Persist and broadcast from handleNotarizationMessage", zap.Bool("finalization is nil", round.finalization == nil), zap.Bool("notarization is nil", round.notarization == nil))
 	return e.persistAndBroadcastNotarization(*message)
 }
 
@@ -2615,6 +2619,8 @@ func (e *Epoch) doNotarized(r uint64) error {
 	round := e.rounds[r]
 	block := round.block
 
+	// if ro
+
 	md := block.BlockHeader()
 
 	finalizeVote, finalizeVoteMsg, err := e.constructFinalizeVoteMessage(md)
@@ -3221,3 +3227,7 @@ type notarizationOrFinalization struct {
 	*Notarization
 	*Finalization
 }
+
+// LOG_LEVEL=DEBUG go test -timeout 300s -run ^TestLongRunningReplication$ github.com/ava-labs/simplex -v -count=1 > tmp2.txt
+
+// grep 'TestLongRunningReplication/replication#73' tmp2.txt | grep '"myNodeID": 100' > tmp.filtered && mv tmp.filtered tmp2.txt

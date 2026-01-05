@@ -1,0 +1,58 @@
+[01-05|09:57:36.337] DEBUG Simplex/epoch.go:1369 Persisted notarization to WAL {"test": "TestLongRunningReplication/replication#66", "myNodeID": 135, "size": 392, "round": 69, "digest": "bb445347055e81e0775b..."}
+[01-05|09:57:36.337] DEBUG Simplex/epoch.go:2626 Broadcasting finalize vote {"test": "TestLongRunningReplication/replication#66", "myNodeID": 135, "round": 69, "seq": 67, "digest": "bb445347055e81e0775b..."}
+[01-05|09:57:36.345] INFO Simplex/epoch.go:2512 Starting round {"test": "TestLongRunningReplication/replication#66", "myNodeID": 135, "round": 70}
+[01-05|09:57:36.345] DEBUG Simplex/epoch.go:2626 Broadcasting finalize vote {"test": "TestLongRunningReplication/replication#66", "myNodeID": 135, "round": 69, "seq": 67, "digest": "bb445347055e81e0775b..."}
+[01-05|09:57:36.346] INFO Simplex/epoch.go:2512 Starting round {"test": "TestLongRunningReplication/replication#66", "myNodeID": 135, "round": 70}
+[01-05|09:57:36.345] INFO Simplex/epoch.go:2463 It is time to build a block {"test": "TestLongRunningReplication/replication#66", "myNodeID": 135, "round": 70}
+[01-05|09:57:36.346] DEBUG Simplex/epoch.go:1846 Persisted block to WAL {"test": "TestLongRunningReplication/replication#66", "myNodeID": 135, "round": 70, "digest": "213eafcf3439a2c4e181..."}
+[01-05|09:57:36.346] DEBUG Simplex/epoch.go:1846 Persisted block to WAL {"test": "TestLongRunningReplication/replication#66", "myNodeID": 135, "round": 70, "digest": "213eafcf3439a2c4e181..."}
+[01-05|09:57:36.346] INFO Simplex/epoch.go:2463 It is time to build a block {"test": "TestLongRunningReplication/replication#66", "myNodeID": 135, "round": 70}
+[01-05|09:57:36.347] DEBUG Simplex/epoch.go:1369 Persisted notarization to WAL {"test": "TestLongRunningReplication/replication#66", "myNodeID": 135, "size": 392, "round": 70, "digest": "213eafcf3439a2c4e181..."}
+[01-05|09:57:36.347] DEBUG Simplex/epoch.go:1369 Persisted notarization to WAL {"test": "TestLongRunningReplication/replication#66", "myNodeID": 135, "size": 392, "round": 70, "digest": "213eafcf3439a2c4e181..."}
+[01-05|09:57:36.347] DEBUG Simplex/epoch.go:2626 Broadcasting finalize vote {"test": "TestLongRunningReplication/replication#66", "myNodeID": 135, "round": 70, "seq": 68, "digest": "213eafcf3439a2c4e181..."}
+[01-05|09:57:36.347] INFO Simplex/epoch.go:2512 Starting round {"test": "TestLongRunningReplication/replication#66", "myNodeID": 135, "round": 71}
+[01-05|09:57:36.347] DEBUG Simplex/epoch.go:2626 Broadcasting finalize vote {"test": "TestLongRunningReplication/replication#66", "myNodeID": 135, "round": 70, "seq": 68, "digest": "213eafcf3439a2c4e181..."}
+[01-05|09:57:36.348] DEBUG Simplex/epoch.go:1846 Persisted block to WAL {"test": "TestLongRunningReplication/replication#66", "myNodeID": 135, "round": 71, "digest": "e6ef8deafc3684941740..."}
+[01-05|09:57:36.348] INFO Simplex/epoch.go:2463 It is time to build a block {"test": "TestLongRunningReplication/replication#66", "myNodeID": 135, "round": 71}
+[01-05|09:57:36.355] DEBUG Simplex/epoch.go:1369 Persisted notarization to WAL {"test": "TestLongRunningReplication/replication#66", "myNodeID": 135, "size": 392, "round": 71, "digest": "e6ef8deafc3684941740..."}
+[01-05|09:57:36.355] DEBUG Simplex/epoch.go:2626 Broadcasting finalize vote {"test": "TestLongRunningReplication/replication#66", "myNodeID": 135, "round": 71, "seq": 69, "digest": "e6ef8deafc3684941740..."}
+[01-05|09:57:36.355] INFO Simplex/epoch.go:2512 Starting round {"test": "TestLongRunningReplication/replication#66", "myNodeID": 135, "round": 72}
+[01-05|09:57:36.355] DEBUG testutil/logger.go:78 Received empty vote message {"test": "TestLongRunningReplication/replication#66", "myNodeID": 135, "from": "6979cde0965f5a8c", "round": 72, "our round": 72}
+[01-05|09:57:36.348] INFO Simplex/epoch.go:2512 Starting round {"test": "TestLongRunningReplication/replication#66", "myNodeID": 135, "round": 71}
+[01-05|09:57:36.355] INFO Simplex/epoch.go:2463 It is time to build a block {"test": "TestLongRunningReplication/replication#66", "myNodeID": 135, "round": 71}
+[01-05|09:57:36.355] DEBUG testutil/logger.go:78 Received empty vote message {"test": "TestLongRunningReplication/replication#66", "myNodeID": 135, "from": "6979cde0965f5a8c", "round": 72, "our round": 71}
+[01-05|09:57:36.356] DEBUG Simplex/epoch.go:744 Got empty vote from a future round {"test": "TestLongRunningReplication/replication#66", "myNodeID": 135, "round": 72, "my round": 71, "from": "6979cde0965f5a8c"}
+[01-05|09:57:36.356] DEBUG testutil/logger.go:78 Received empty vote message {"test": "TestLongRunningReplication/replication#66", "myNodeID": 135, "from": "15249705305ff123", "round": 72, "our round": 71}
+[01-05|09:57:36.356] DEBUG Simplex/epoch.go:744 Got empty vote from a future round {"test": "TestLongRunningReplication/replication#66", "myNodeID": 135, "round": 72, "my round": 71, "from": "15249705305ff123"}
+[01-05|09:57:36.356] DEBUG testutil/logger.go:78 Received empty vote message {"test": "TestLongRunningReplication/replication#66", "myNodeID": 135, "from": "7ff4da3fe5b0f995", "round": 72, "our round": 71}
+[01-05|09:57:36.355] DEBUG Simplex/epoch.go:751 Received an empty vote for the current round {"test": "TestLongRunningReplication/replication#66", "myNodeID": 135, "round": 72, "from": "6979cde0965f5a8c", "our round": 72}
+[01-05|09:57:36.356] DEBUG Simplex/epoch.go:1234 Could not find empty vote with a quorum or more votes {"test": "TestLongRunningReplication/replication#66", "myNodeID": 135, "round": 72}
+[01-05|09:57:36.356] DEBUG testutil/logger.go:78 Received empty vote message {"test": "TestLongRunningReplication/replication#66", "myNodeID": 135, "from": "15249705305ff123", "round": 72, "our round": 72}
+[01-05|09:57:36.356] DEBUG Simplex/epoch.go:751 Received an empty vote for the current round {"test": "TestLongRunningReplication/replication#66", "myNodeID": 135, "round": 72, "from": "15249705305ff123", "our round": 72}
+[01-05|09:57:36.356] DEBUG Simplex/epoch.go:1234 Could not find empty vote with a quorum or more votes {"test": "TestLongRunningReplication/replication#66", "myNodeID": 135, "round": 72}
+[01-05|09:57:36.356] DEBUG Simplex/epoch.go:2448 Leader is blacklisted, will not wait for it to propose a block {"test": "TestLongRunningReplication/replication#66", "myNodeID": 135, "round": 72, "leader": "3948138de8b4ddf0"}
+[01-05|09:57:36.356] DEBUG testutil/logger.go:78 Received empty vote message {"test": "TestLongRunningReplication/replication#66", "myNodeID": 135, "from": "7ff4da3fe5b0f995", "round": 72, "our round": 72}
+[01-05|09:57:36.356] DEBUG Simplex/epoch.go:751 Received an empty vote for the current round {"test": "TestLongRunningReplication/replication#66", "myNodeID": 135, "round": 72, "from": "7ff4da3fe5b0f995", "our round": 72}
+[01-05|09:57:36.356] DEBUG Simplex/epoch.go:1234 Could not find empty vote with a quorum or more votes {"test": "TestLongRunningReplication/replication#66", "myNodeID": 135, "round": 72}
+[01-05|09:57:36.356] DEBUG testutil/logger.go:78 Received empty vote message {"test": "TestLongRunningReplication/replication#66", "myNodeID": 135, "from": "a0e198fe0d65bb94", "round": 72, "our round": 72}
+[01-05|09:57:36.356] DEBUG Simplex/epoch.go:744 Got empty vote from a future round {"test": "TestLongRunningReplication/replication#66", "myNodeID": 135, "round": 72, "my round": 71, "from": "7ff4da3fe5b0f995"}
+[01-05|09:57:36.357] DEBUG testutil/logger.go:78 Received empty vote message {"test": "TestLongRunningReplication/replication#66", "myNodeID": 135, "from": "a0e198fe0d65bb94", "round": 72, "our round": 71}
+[01-05|09:57:36.357] DEBUG Simplex/epoch.go:744 Got empty vote from a future round {"test": "TestLongRunningReplication/replication#66", "myNodeID": 135, "round": 72, "my round": 71, "from": "a0e198fe0d65bb94"}
+[01-05|09:57:36.357] DEBUG Simplex/epoch.go:1846 Persisted block to WAL {"test": "TestLongRunningReplication/replication#66", "myNodeID": 135, "round": 71, "digest": "e6ef8deafc3684941740..."}
+[01-05|09:57:36.357] INFO Simplex/epoch.go:2512 Starting round {"test": "TestLongRunningReplication/replication#66", "myNodeID": 135, "round": 72}
+[01-05|09:57:36.357] DEBUG Simplex/epoch.go:1369 Persisted notarization to WAL {"test": "TestLongRunningReplication/replication#66", "myNodeID": 135, "size": 392, "round": 71, "digest": "e6ef8deafc3684941740..."}
+[01-05|09:57:36.356] DEBUG Simplex/epoch.go:751 Received an empty vote for the current round {"test": "TestLongRunningReplication/replication#66", "myNodeID": 135, "round": 72, "from": "a0e198fe0d65bb94", "our round": 72}
+[01-05|09:57:36.357] DEBUG Simplex/epoch.go:2626 Broadcasting finalize vote {"test": "TestLongRunningReplication/replication#66", "myNodeID": 135, "round": 71, "seq": 69, "digest": "e6ef8deafc3684941740..."}
+[01-05|09:57:36.357] INFO Simplex/epoch.go:2512 Starting round {"test": "TestLongRunningReplication/replication#66", "myNodeID": 135, "round": 72}
+[01-05|09:57:36.357] DEBUG testutil/logger.go:78 Received empty vote message {"test": "TestLongRunningReplication/replication#66", "myNodeID": 135, "from": "3610948b536c6657", "round": 72, "our round": 72}
+[01-05|09:57:36.357] DEBUG Simplex/epoch.go:751 Received an empty vote for the current round {"test": "TestLongRunningReplication/replication#66", "myNodeID": 135, "round": 72, "from": "3610948b536c6657", "our round": 72}
+[01-05|09:57:36.357] DEBUG Simplex/epoch.go:1234 Could not find empty vote with a quorum or more votes {"test": "TestLongRunningReplication/replication#66", "myNodeID": 135, "round": 72}
+[01-05|09:57:36.357] DEBUG Simplex/epoch.go:2448 Leader is blacklisted, will not wait for it to propose a block {"test": "TestLongRunningReplication/replication#66", "myNodeID": 135, "round": 72, "leader": "3948138de8b4ddf0"}
+[01-05|09:57:36.357] DEBUG Simplex/epoch.go:2416 Triggering empty block agreement {"test": "TestLongRunningReplication/replication#66", "myNodeID": 135, "reason": "Timed out on block agreement", "round": 72, "leader": "3948138de8b4ddf0"}
+[01-05|09:57:36.357] DEBUG Simplex/epoch.go:2336 Persisted empty vote to WAL {"test": "TestLongRunningReplication/replication#66", "myNodeID": 135, "round": 72, "size": 18}
+[01-05|09:57:36.357] DEBUG Simplex/epoch.go:1234 Could not find empty vote with a quorum or more votes {"test": "TestLongRunningReplication/replication#66", "myNodeID": 135, "round": 72}
+[01-05|09:57:36.357] DEBUG Simplex/epoch.go:2448 Leader is blacklisted, will not wait for it to propose a block {"test": "TestLongRunningReplication/replication#66", "myNodeID": 135, "round": 72, "leader": "3948138de8b4ddf0"}
+[01-05|09:57:36.357] DEBUG Simplex/epoch.go:2416 Triggering empty block agreement {"test": "TestLongRunningReplication/replication#66", "myNodeID": 135, "reason": "Timed out on block agreement", "round": 72, "leader": "3948138de8b4ddf0"}
+[01-05|09:57:36.357] DEBUG Simplex/epoch.go:1234 Could not find empty vote with a quorum or more votes {"test": "TestLongRunningReplication/replication#66", "myNodeID": 135, "round": 72}
+[01-05|09:57:36.357] DEBUG Simplex/epoch.go:2336 Persisted empty vote to WAL {"test": "TestLongRunningReplication/replication#66", "myNodeID": 135, "round": 72, "size": 18}
+[01-05|09:57:36.357] ERROR testutil/logger.go:108 WAL Already triggered empty block notarization for this round {"test": "TestLongRunningReplication/replication#66", "myNodeID": 135, "round": 72}
