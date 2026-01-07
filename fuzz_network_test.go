@@ -1,0 +1,19 @@
+package simplex_test
+
+import (
+	"testing"
+
+	"github.com/ava-labs/simplex/testutil"
+	"github.com/ava-labs/simplex/testutil/random_network"
+	"github.com/stretchr/testify/require"
+)
+
+func FuzzNetworkSimple(t *testing.T) {
+	require := require.New(t)
+
+	l := testutil.MakeLogger(t)
+	config := random_network.DefaultFuzzConfig()
+	network := random_network.NewNetwork(config, l)
+	require.NoError(network.Start())
+
+}
