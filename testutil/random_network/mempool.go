@@ -80,7 +80,7 @@ func (m *Mempool) verifyTx(ctx context.Context, tx *TX, block *Block) error {
 		return errAlreadyAccepted
 	}
 
-	if m.isTxInChain(tx.ID, block.parent) {
+	if m.isTxInChain(tx.ID, block.metadata.Prev) {
 		return errAlreadyInChain
 	}
 
@@ -91,12 +91,8 @@ func (m *Mempool) verifyTx(ctx context.Context, tx *TX, block *Block) error {
 	return nil
 }
 
-func (m *Mempool) isTxInChain(txID txID, block *Block) bool {
-	if block == nil {
-		return false
-	}
-
-	_, exists := m.verifiedButNotAcceptedTXs[block.digest]
+func (m *Mempool) isTxInChain(txID txID, parentDigest simplex.Digest) bool {
+	block, exists := m.verifiedButNotAcceptedTXs[parentDigest]
 	if !exists {
 		return false
 	}
@@ -105,7 +101,7 @@ func (m *Mempool) isTxInChain(txID txID, block *Block) bool {
 		return true
 	}
 
-	return m.isTxInChain(txID, block.parent)
+	return m.isTxInChain(txID, block.metadata.Prev)
 }
 
 func (m *Mempool) AcceptBlock(b *Block) {

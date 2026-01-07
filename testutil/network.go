@@ -148,7 +148,7 @@ func (n *InMemNetwork) AdvanceWithoutLeader(round uint64, laggingNodeId simplex.
 	}
 
 	for _, n := range n.Instances {
-		n.BB.TriggerBlockShouldBeBuilt()
+		n.BlockShouldBeBuilt()
 	}
 
 	for _, n := range n.Instances {

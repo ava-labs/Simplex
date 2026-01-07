@@ -114,7 +114,7 @@ func TestPoS(t *testing.T) {
 			if bytes.Equal(n.E.ID, nodes[0]) || bytes.Equal(n.E.ID, nodes[3]) {
 				continue
 			}
-			n.BB.TriggerBlockShouldBeBuilt()
+			n.BlockShouldBeBuilt()
 			n.AdvanceTime(n.E.EpochConfig.MaxProposalWait / 4)
 		}
 
@@ -145,7 +145,7 @@ func TestPoS(t *testing.T) {
 			if bytes.Equal(n.E.ID, nodes[2]) {
 				continue
 			}
-			n.BB.TriggerBlockShouldBeBuilt()
+			n.BlockShouldBeBuilt()
 			n.AdvanceTime(n.E.EpochConfig.MaxProposalWait / 4)
 			if n.WAL.ContainsEmptyVote(15) {
 				timedOut[i] = struct{}{}

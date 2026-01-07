@@ -215,7 +215,8 @@ func TestRebroadcastingWithReplication(t *testing.T) {
 	}
 
 	// the lagging node has been asleep, it should be notified blocks are available
-	laggingNode.BB.TriggerBlockShouldBeBuilt()
+	laggingNode.BlockShouldBeBuilt()
+
 	net.SetAllNodesMessageFilter(AllowAllMessages)
 	net.Connect(laggingNode.E.ID)
 	net.TriggerLeaderBlockBuilder(numNotarizations)

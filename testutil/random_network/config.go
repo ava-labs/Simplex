@@ -14,7 +14,7 @@ type FuzzConfig struct{
 	MaxTxDelay time.Duration
 
 	// The probability that a transaction verification will fail. Default is 1%.
-	TxVVerificationFailure float64
+	TxVVerificationFailure int
 
 	// The minimum and maximum number of transactions per block. Default is between 5 and 20.
 	MinTxsPerBlock int
@@ -32,7 +32,7 @@ func DefaultFuzzConfig() *FuzzConfig {
 		MaxNodes:               10,
 		MinTxDelay:             10 * time.Millisecond,
 		MaxTxDelay:             100 * time.Millisecond,
-		TxVVerificationFailure: 0.01,
+		TxVVerificationFailure: 1,
 		MinTxsPerBlock:         5,
 		MaxTxsPerBlock:         20,
 		NumFinalizedBlocks:     1000,

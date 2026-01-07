@@ -32,7 +32,7 @@ func TestMempoolVerifiesTx(t *testing.T) {
 				tx := CreateNewTX()
 				mempool.AddUnverifiedTX(tx)
 
-				block := NewBlock(round0MD, emptyBlacklist, mempool, []*TX{tx}, nil)
+				block := NewBlock(round0MD, emptyBlacklist, mempool, []*TX{tx})
 
 				return mempool, block, nil
 			},
@@ -45,7 +45,7 @@ func TestMempoolVerifiesTx(t *testing.T) {
 				tx := CreateNewTX()
 				mempool.AddUnverifiedTX(tx)
 
-				block := NewBlock(round0MD, emptyBlacklist, mempool, []*TX{tx, tx}, nil)
+				block := NewBlock(round0MD, emptyBlacklist, mempool, []*TX{tx, tx})
 				return mempool, block, nil
 			},
 		},
@@ -55,7 +55,7 @@ func TestMempoolVerifiesTx(t *testing.T) {
 			setup: func() (*Mempool, *Block, error) {
 				mempool := NewMempool()
 				tx := CreateNewTX()
-				block := NewBlock(round0MD, emptyBlacklist, mempool, []*TX{tx}, nil)
+				block := NewBlock(round0MD, emptyBlacklist, mempool, []*TX{tx})
 
 				return mempool, block, nil
 			},
@@ -68,7 +68,7 @@ func TestMempoolVerifiesTx(t *testing.T) {
 				tx := CreateNewTX()
 				mempool.AddUnverifiedTX(tx)
 
-				block := NewBlock(round0MD, emptyBlacklist, mempool, []*TX{tx}, nil)
+				block := NewBlock(round0MD, emptyBlacklist, mempool, []*TX{tx})
 				mempool.AcceptBlock(block)
 
 				mempool.AddUnverifiedTX(tx)
@@ -83,14 +83,14 @@ func TestMempoolVerifiesTx(t *testing.T) {
 				tx := CreateNewTX()
 				mempool.AddUnverifiedTX(tx)
 
-				parentBlock := NewBlock(round0MD, emptyBlacklist, mempool, []*TX{tx}, nil)
+				parentBlock := NewBlock(round0MD, emptyBlacklist, mempool, []*TX{tx})
 				if err := mempool.VerifyBlock(ctx, parentBlock); err != nil {
 					return nil, nil, err
 				}
 
 				mempool.AddUnverifiedTX(tx)
 				md := NewProtocolMetadata(1, 1, parentBlock.digest)
-				block := NewBlock(md, emptyBlacklist, mempool, []*TX{tx}, parentBlock)
+				block := NewBlock(md, emptyBlacklist, mempool, []*TX{tx})
 				return mempool, block, nil
 			},
 		},
@@ -100,10 +100,10 @@ func TestMempoolVerifiesTx(t *testing.T) {
 			setup: func() (*Mempool, *Block, error) {
 				mempool := NewMempool()
 				tx := CreateNewTX()
-				tx.SetShouldFailVerification(true)
+				tx.SetShouldFailVerification()
 				mempool.AddUnverifiedTX(tx)
 
-				block := NewBlock(round0MD, emptyBlacklist, mempool, []*TX{tx}, nil)
+				block := NewBlock(round0MD, emptyBlacklist, mempool, []*TX{tx})
 
 				return mempool, block, nil
 			},
@@ -116,11 +116,11 @@ func TestMempoolVerifiesTx(t *testing.T) {
 				tx1 := CreateNewTX()
 				mempool.AddUnverifiedTX(tx1)
 
-				blockWithSameTxButNotParent := NewBlock(round0MD, emptyBlacklist, mempool, []*TX{tx1}, nil)
+				blockWithSameTxButNotParent := NewBlock(round0MD, emptyBlacklist, mempool, []*TX{tx1})
 				err := mempool.VerifyBlock(ctx, blockWithSameTxButNotParent)
 
 				mempool.AddUnverifiedTX(tx1)
-				block := NewBlock(NewProtocolMetadata(1, 1, simplex.Digest{}), emptyBlacklist, mempool, []*TX{tx1}, nil)
+				block := NewBlock(NewProtocolMetadata(1, 1, simplex.Digest{}), emptyBlacklist, mempool, []*TX{tx1})
 				return mempool, block, err
 			},
 		},
@@ -132,7 +132,7 @@ func TestMempoolVerifiesTx(t *testing.T) {
 				tx := CreateNewTX()
 				mempool.AddUnverifiedTX(tx)
 
-				block := NewBlock(round0MD, emptyBlacklist, mempool, []*TX{tx}, nil)
+				block := NewBlock(round0MD, emptyBlacklist, mempool, []*TX{tx})
 				err := mempool.VerifyBlock(ctx, block)
 				if err != nil {
 					return nil, nil, err

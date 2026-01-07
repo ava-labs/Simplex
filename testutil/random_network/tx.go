@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/asn1"
 	"errors"
+	"fmt"
 )
 
 var errTxVerification = errors.New("tx verification failed")
@@ -16,14 +17,19 @@ type TX struct {
 	shouldFailVerification bool
 }
 
+func (t *TX) String() string {
+	return fmt.Sprintf("%x", t.ID[:])
+}
+
 type asn1TX struct {
 	ID []byte
+	ShouldFailVerification bool
 }
 
 func (aTX asn1TX) toTX() *TX {
 	var idArr txID
 	copy(idArr[:], aTX.ID)
-	return &TX{ID: idArr}
+	return &TX{ID: idArr, shouldFailVerification: aTX.ShouldFailVerification}
 }
 
 func CreateNewTX() *TX {
@@ -39,12 +45,12 @@ func CreateNewTX() *TX {
 	return &TX{ID: idArr}
 }
 
-func (t *TX) SetShouldFailVerification(shouldFail bool) {
-	t.shouldFailVerification = shouldFail
+func (t *TX) SetShouldFailVerification() {
+	t.shouldFailVerification = true
 }
 
 func (t *TX) Bytes() ([]byte, error) {
-	return asn1.Marshal(asn1TX{ID: t.ID[:]})
+	return asn1.Marshal(asn1TX{ID: t.ID[:], ShouldFailVerification: t.shouldFailVerification})
 }
 
 func TxFromBytes(b []byte) (*TX, error) {

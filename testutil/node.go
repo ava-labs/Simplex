@@ -131,7 +131,6 @@ func (t *TestNode) Start() {
 type ControlledBlockBuilder interface {
 	simplex.BlockBuilder
 	TriggerNewBlock()
-	TriggerBlockShouldBeBuilt()
 	ShouldBlockBeBuilt() bool
 }
 
@@ -194,7 +193,7 @@ func (t *TestNode) TimeoutOnRound(round uint64) {
 		}
 
 		if !t.BB.ShouldBlockBeBuilt() {
-			t.BB.TriggerBlockShouldBeBuilt()
+			t.BlockShouldBeBuilt()
 		}
 
 		t.AdvanceTime(t.E.MaxProposalWait)
@@ -206,6 +205,10 @@ func (t *TestNode) TimeoutOnRound(round uint64) {
 
 		time.Sleep(50 * time.Millisecond)
 	}
+}
+
+func (t *TestNode) BlockShouldBeBuilt() {
+	t.BB.(*testControlledBlockBuilder).BlockShouldBeBuilt <- struct{}{}
 }
 
 func (t *TestNode) TickUntilRoundAdvanced(round uint64, tick time.Duration) {

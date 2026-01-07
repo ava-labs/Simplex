@@ -13,7 +13,6 @@ import (
 var _ simplex.Block = (*Block)(nil)
 
 type Block struct {
-	parent    *Block
 	blacklist simplex.Blacklist
 
 	// contents
@@ -27,13 +26,8 @@ type Block struct {
 	mempool *Mempool
 }
 
-func NewBlock(metadata simplex.ProtocolMetadata, blacklist simplex.Blacklist, mempool *Mempool, txs []*TX, prev *Block) *Block {
-	if prev != nil && metadata.Prev != prev.digest {
-		panic("block's prev digest does not match parent's digest")
-	}
-
+func NewBlock(metadata simplex.ProtocolMetadata, blacklist simplex.Blacklist, mempool *Mempool, txs []*TX) *Block {
 	b := &Block{
-		parent:    prev,
 		mempool:   mempool,
 		txs:       txs,
 		metadata:  metadata,
