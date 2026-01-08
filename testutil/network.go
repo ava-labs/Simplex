@@ -66,7 +66,7 @@ func (n *InMemNetwork) TriggerLeaderBlockBuilder(round uint64) {
 		// otherwise we may trigger a build block too early
 		WaitToEnterRound(n.t, instance.E, round)
 
-		instance.BB.TriggerNewBlock()
+		instance.TriggerNewBlock()
 		return
 	}
 

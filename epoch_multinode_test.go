@@ -199,7 +199,7 @@ func TestSimplexMultiNodeBlacklist(t *testing.T) {
 	net.Connect(nodes[3])
 
 	// Build another block, ensure the blacklist contains the fourth node as blacklisted.
-	net.Instances[1].BB.TriggerNewBlock()
+	net.Instances[1].TriggerNewBlock()
 	for _, n := range net.Instances[:3] {
 		block := n.Storage.WaitForBlockCommit(uint64(4))
 		blacklist := block.Blacklist()
@@ -211,7 +211,7 @@ func TestSimplexMultiNodeBlacklist(t *testing.T) {
 	}
 
 	// Wait for the node to replicate the missing blocks.
-	net.Instances[3].BB.TriggerNewBlock()
+	net.Instances[3].TriggerNewBlock()
 	block := net.Instances[3].Storage.WaitForBlockCommit(4)
 	require.Equal(t, simplex.Blacklist{
 		NodeCount:      4,
@@ -220,13 +220,13 @@ func TestSimplexMultiNodeBlacklist(t *testing.T) {
 	}, block.Blacklist())
 
 	// Make another block.
-	net.Instances[2].BB.TriggerNewBlock()
+	net.Instances[2].TriggerNewBlock()
 	for _, n := range net.Instances {
 		n.Storage.WaitForBlockCommit(uint64(5))
 	}
 
 	// The fourth node is still blacklisted, so it should not be able to propose a block.
-	net.Instances[3].BB.TriggerNewBlock() // This shouldn't be here, this is just to side-step a bug.
+	net.Instances[3].TriggerNewBlock() // This shouldn't be here, this is just to side-step a bug.
 	for _, n := range net.Instances {
 		testutil.WaitForBlockProposerTimeout(t, n.E, &n.E.StartTime, 7)
 	}
@@ -238,7 +238,7 @@ func TestSimplexMultiNodeBlacklist(t *testing.T) {
 	// Make two blocks.
 	allButThirdNode := []*testutil.TestNode{net.Instances[0], net.Instances[1], net.Instances[3]}
 	for i := 0; i < 2; i++ {
-		net.Instances[i].BB.TriggerNewBlock()
+		net.Instances[i].TriggerNewBlock()
 		for _, n := range allButThirdNode {
 			n.BlockShouldBeBuilt()
 			n.Storage.WaitForBlockCommit(uint64(6 + i))
@@ -263,7 +263,7 @@ func TestSimplexMultiNodeBlacklist(t *testing.T) {
 
 	// Create two blocks
 	for i := 0; i < 2; i++ {
-		net.Instances[i].BB.TriggerNewBlock()
+		net.Instances[i].TriggerNewBlock()
 		for _, n := range allButThirdNode {
 			n.BlockShouldBeBuilt()
 			block := n.Storage.WaitForBlockCommit(uint64(8 + i))
@@ -284,7 +284,7 @@ func TestSimplexMultiNodeBlacklist(t *testing.T) {
 	}
 
 	// The fourth node should now be able to propose a block.
-	net.Instances[3].BB.TriggerNewBlock()
+	net.Instances[3].TriggerNewBlock()
 	for _, n := range allButThirdNode {
 		n.BlockShouldBeBuilt()
 		block := n.Storage.WaitForBlockCommit(uint64(10))

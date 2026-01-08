@@ -6,10 +6,7 @@ import (
 	"time"
 
 	"github.com/ava-labs/simplex"
-	"github.com/ava-labs/simplex/testutil"
 )
-
-var _   testutil.ControlledBlockBuilder = (*RandomNetworkBlockBuilder)(nil)
 
 type RandomNetworkBlockBuilder struct {
 	MinTxDelay time.Duration
@@ -27,13 +24,13 @@ type RandomNetworkBlockBuilder struct {
 
 func NewNetworkBlockBuilder(config *FuzzConfig, l simplex.Logger) *RandomNetworkBlockBuilder {
 	return &RandomNetworkBlockBuilder{
-		MinTxDelay:            config.MinTxDelay,
-		MaxTxDelay:            config.MaxTxDelay,
+		MinTxDelay:             config.MinTxDelay,
+		MaxTxDelay:             config.MaxTxDelay,
 		txVVerificationFailure: config.TxVVerificationFailure,
-		minTxsPerBlock:        config.MinTxsPerBlock,
-		maxTxsPerBlock:        config.MaxTxsPerBlock,
-		mempool:               NewMempool(),
-		l:                     l,
+		minTxsPerBlock:         config.MinTxsPerBlock,
+		maxTxsPerBlock:         config.MaxTxsPerBlock,
+		mempool:                NewMempool(),
+		l:                      l,
 	}
 }
 
@@ -59,12 +56,4 @@ func (bb *RandomNetworkBlockBuilder) BuildBlock(ctx context.Context, md simplex.
 
 func (bb *RandomNetworkBlockBuilder) WaitForPendingBlock(ctx context.Context) {
 	// No-op for this implementation
-}
-
-func (bb *RandomNetworkBlockBuilder) TriggerNewBlock() {
-
-}
-
-func (bb *RandomNetworkBlockBuilder) ShouldBlockBeBuilt() bool {
-	return false
 }

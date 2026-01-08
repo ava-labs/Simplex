@@ -22,7 +22,7 @@ func (t *TX) String() string {
 }
 
 type asn1TX struct {
-	ID []byte
+	ID                     []byte
 	ShouldFailVerification bool
 }
 

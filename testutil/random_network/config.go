@@ -2,7 +2,7 @@ package random_network
 
 import "time"
 
-type FuzzConfig struct{
+type FuzzConfig struct {
 	// The minimum and maximum number of nodes in the network. Default is between 3 and 10.
 	MinNodes int
 	MaxNodes int

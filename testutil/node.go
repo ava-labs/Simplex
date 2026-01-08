@@ -15,27 +15,155 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type TestNode struct {
+// BasicNode is a simple representation of an instance running an epoch. It does not know about any particular custom types, its sole responsibility is to
+// run the epoch and handle messages.
+type BasicNode struct {
 	currentTime atomic.Int64
-	WAL         *TestWAL
-	Storage     *InMemStorage
+	shouldStop  atomic.Bool
 	lock        sync.RWMutex
 	running     sync.WaitGroup
-	shouldStop  atomic.Bool
 	E           *simplex.Epoch
-	ingress     chan struct {
+
+	ingress chan struct {
 		msg  *simplex.Message
 		from simplex.NodeID
 	}
 	l                *TestLogger
 	t                *testing.T
-	BB               ControlledBlockBuilder
 	messageTypesSent map[string]uint64
+}
+
+func (b *BasicNode) Start() {
+	b.running.Add(1)
+	go b.handleMessages()
+	require.NoError(b.t, b.E.Start())
+}
+
+func (b *BasicNode) AdvanceTime(duration time.Duration) {
+	now := time.UnixMilli(b.currentTime.Load()).Add(duration)
+	b.currentTime.Store(now.UnixMilli())
+	b.E.AdvanceTime(now)
+}
+
+func (b *BasicNode) Silence() {
+	b.l.Silence()
+}
+
+func (b *BasicNode) SilenceExceptKeywords(keywords ...string) {
+	b.l.SilenceExceptKeywords(keywords...)
+}
+
+func (b *BasicNode) HandleMessage(msg *simplex.Message, from simplex.NodeID) error {
+	err := b.E.HandleMessage(msg, from)
+	require.NoError(b.t, err)
+	return err
+}
+
+func (b *BasicNode) handleMessages() {
+	defer b.running.Done()
+	for msg := range b.ingress {
+		if b.shouldStop.Load() {
+			return
+		}
+		err := b.HandleMessage(msg.msg, msg.from)
+		require.NoError(b.t, err)
+		if err != nil {
+			return
+		}
+	}
+}
+
+func (b *BasicNode) enqueue(msg *simplex.Message, from, to simplex.NodeID) {
+	b.lock.Lock()
+	defer b.lock.Unlock()
+	if b.shouldStop.Load() {
+		return
+	}
+
+	b.RecordMessageTypeSent(msg)
+
+	select {
+	case b.ingress <- struct {
+		msg  *simplex.Message
+		from simplex.NodeID
+	}{msg: msg, from: from}:
+	default:
+		// drop the message if the ingress channel is full
+		formattedString := fmt.Sprintf("Ingress channel is too full, failing test. From %v -> to %v", from, to)
+		panic(formattedString)
+	}
+}
+
+func (b *BasicNode) Stop() {
+	b.lock.Lock()
+	defer b.lock.Unlock()
+	b.E.Stop()
+	b.shouldStop.Store(true)
+	close(b.ingress)
+	b.running.Wait()
+}
+
+func (b *BasicNode) RecordMessageTypeSent(msg *simplex.Message) {
+	switch {
+	case msg.BlockMessage != nil:
+		b.messageTypesSent["BlockMessage"]++
+	case msg.VerifiedBlockMessage != nil:
+		b.messageTypesSent["VerifiedBlockMessage"]++
+	case msg.ReplicationRequest != nil:
+		b.messageTypesSent["ReplicationRequest"]++
+	case msg.ReplicationResponse != nil:
+		b.messageTypesSent["ReplicationResponse"]++
+	case msg.Notarization != nil:
+		b.messageTypesSent["VerifiedReplicationRequest"]++
+	case msg.VerifiedReplicationResponse != nil:
+		b.messageTypesSent["VerifiedReplicationResponse"]++
+	case msg.Finalization != nil:
+		b.messageTypesSent["NotarizationMessage"]++
+	case msg.FinalizeVote != nil:
+		b.messageTypesSent["FinalizationMessage"]++
+	case msg.VoteMessage != nil:
+		b.messageTypesSent["VoteMessage"]++
+	case msg.EmptyVoteMessage != nil:
+		b.messageTypesSent["EmptyVoteMessage"]++
+	case msg.EmptyNotarization != nil:
+		b.messageTypesSent["EmptyNotarization"]++
+	case msg.BlockDigestRequest != nil:
+		b.messageTypesSent["BlockDigestRequest"]++
+	default:
+		panic("unknown message type")
+	}
+}
+
+type TestNode struct {
+	*BasicNode
+	bb *testControlledBlockBuilder
+	WAL *TestWAL
+	Storage *InMemStorage
+}
+
+func NewBasicNode(t *testing.T, epoch *simplex.Epoch, logger *TestLogger) *BasicNode {
+	currentTime := epoch.EpochConfig.StartTime.UnixMilli()
+	bn := BasicNode{
+		shouldStop: atomic.Bool{},
+		lock:       sync.RWMutex{},
+		running:    sync.WaitGroup{},
+		E:          epoch,
+		ingress: make(chan struct {
+			msg  *simplex.Message
+			from simplex.NodeID
+		}, 100000),
+		l:                logger,
+		t:                t,
+		messageTypesSent: make(map[string]uint64),
+	}
+
+	bn.currentTime.Store(currentTime)
+	return &bn
 }
 
 func newTestNode(t *testing.T, nodeID simplex.NodeID, net *InMemNetwork, config *TestNodeConfig) *TestNode {
 	comm := NewTestComm(nodeID, net, AllowAllMessages)
-	var bb ControlledBlockBuilder = NewTestControlledBlockBuilder(t)
+	bb := NewTestControlledBlockBuilder(t)
 	if config != nil && config.BlockBuilder != nil {
 		bb = config.BlockBuilder
 	}
@@ -55,19 +183,11 @@ func newTestNode(t *testing.T, nodeID simplex.NodeID, net *InMemNetwork, config 
 	e, err := simplex.NewEpoch(epochConfig)
 	require.NoError(t, err)
 	ti := &TestNode{
-		l:                epochConfig.Logger.(*TestLogger),
+		BasicNode: NewBasicNode(t, e, epochConfig.Logger.(*TestLogger)),
 		WAL:              wal,
-		BB:               bb,
-		E:                e,
-		t:                t,
+		bb:               bb,
 		Storage:          storage,
-		messageTypesSent: make(map[string]uint64),
-		ingress: make(chan struct {
-			msg  *simplex.Message
-			from simplex.NodeID
-		}, 100000)}
-
-	ti.currentTime.Store(epochConfig.StartTime.UnixMilli())
+	}
 	return ti
 }
 
@@ -122,25 +242,13 @@ func updateEpochConfig(epochConfig *simplex.EpochConfig, testConfig *TestNodeCon
 	}
 }
 
-func (t *TestNode) Start() {
-	t.running.Add(1)
-	go t.handleMessages()
-	require.NoError(t.t, t.E.Start())
-}
-
-type ControlledBlockBuilder interface {
-	simplex.BlockBuilder
-	TriggerNewBlock()
-	ShouldBlockBeBuilt() bool
-}
-
 type TestNodeConfig struct {
 	// optional
 	InitialStorage     []simplex.VerifiedFinalizedBlock
 	Comm               simplex.Communication
 	SigAggregator      simplex.SignatureAggregator
 	ReplicationEnabled bool
-	BlockBuilder       ControlledBlockBuilder
+	BlockBuilder       *testControlledBlockBuilder
 
 	// Long Running Tests
 	MaxRoundWindow uint64
@@ -148,40 +256,6 @@ type TestNodeConfig struct {
 	WAL            *TestWAL
 	Storage        *InMemStorage
 	StartTime      int64
-}
-
-func (t *TestNode) AdvanceTime(duration time.Duration) {
-	now := time.UnixMilli(t.currentTime.Load()).Add(duration)
-	t.currentTime.Store(now.UnixMilli())
-	t.E.AdvanceTime(now)
-}
-
-func (t *TestNode) Silence() {
-	t.l.Silence()
-}
-
-func (t *TestNode) SilenceExceptKeywords(keywords ...string) {
-	t.l.SilenceExceptKeywords(keywords...)
-}
-
-func (t *TestNode) HandleMessage(msg *simplex.Message, from simplex.NodeID) error {
-	err := t.E.HandleMessage(msg, from)
-	require.NoError(t.t, err)
-	return err
-}
-
-func (t *TestNode) handleMessages() {
-	defer t.running.Done()
-	for msg := range t.ingress {
-		if t.shouldStop.Load() {
-			return
-		}
-		err := t.HandleMessage(msg.msg, msg.from)
-		require.NoError(t.t, err)
-		if err != nil {
-			return
-		}
-	}
 }
 
 // TimeoutOnRound advances time until the node times out of the given round.
@@ -192,7 +266,7 @@ func (t *TestNode) TimeoutOnRound(round uint64) {
 			return
 		}
 
-		if !t.BB.ShouldBlockBeBuilt() {
+		if !t.ShouldBlockBeBuilt() {
 			t.BlockShouldBeBuilt()
 		}
 
@@ -207,8 +281,15 @@ func (t *TestNode) TimeoutOnRound(round uint64) {
 	}
 }
 
+func (t *TestNode) ShouldBlockBeBuilt() bool {
+	return len(t.bb.BlockShouldBeBuilt) > 0
+}
+
+func (t *TestNode) TriggerNewBlock() {
+	t.bb.TriggerNewBlock()
+}
 func (t *TestNode) BlockShouldBeBuilt() {
-	t.BB.(*testControlledBlockBuilder).BlockShouldBeBuilt <- struct{}{}
+	t.bb.BlockShouldBeBuilt <- struct{}{}
 }
 
 func (t *TestNode) TickUntilRoundAdvanced(round uint64, tick time.Duration) {
@@ -228,67 +309,4 @@ func (t *TestNode) TickUntilRoundAdvanced(round uint64, tick time.Duration) {
 			require.Fail(t.t, "timed out waiting to enter round", "current round %d, waiting for round %d", t.E.Metadata().Round, round)
 		}
 	}
-}
-
-func (t *TestNode) enqueue(msg *simplex.Message, from, to simplex.NodeID) {
-	t.lock.Lock()
-	defer t.lock.Unlock()
-	if t.shouldStop.Load() {
-		return
-	}
-
-	t.RecordMessageTypeSent(msg)
-
-	select {
-	case t.ingress <- struct {
-		msg  *simplex.Message
-		from simplex.NodeID
-	}{msg: msg, from: from}:
-	default:
-		// drop the message if the ingress channel is full
-		formattedString := fmt.Sprintf("Ingress channel is too full, failing test. From %v -> to %v", from, to)
-		panic(formattedString)
-	}
-
-}
-
-func (t *TestNode) Stop() {
-	t.lock.Lock()
-	defer t.lock.Unlock()
-	t.E.Stop()
-	t.shouldStop.Store(true)
-	close(t.ingress)
-	t.running.Wait()
-}
-
-func (t *TestNode) RecordMessageTypeSent(msg *simplex.Message) {
-	switch {
-	case msg.BlockMessage != nil:
-		t.messageTypesSent["BlockMessage"]++
-	case msg.VerifiedBlockMessage != nil:
-		t.messageTypesSent["VerifiedBlockMessage"]++
-	case msg.ReplicationRequest != nil:
-		t.messageTypesSent["ReplicationRequest"]++
-	case msg.ReplicationResponse != nil:
-		t.messageTypesSent["ReplicationResponse"]++
-	case msg.Notarization != nil:
-		t.messageTypesSent["VerifiedReplicationRequest"]++
-	case msg.VerifiedReplicationResponse != nil:
-		t.messageTypesSent["VerifiedReplicationResponse"]++
-	case msg.Finalization != nil:
-		t.messageTypesSent["NotarizationMessage"]++
-	case msg.FinalizeVote != nil:
-		t.messageTypesSent["FinalizationMessage"]++
-	case msg.VoteMessage != nil:
-		t.messageTypesSent["VoteMessage"]++
-	case msg.EmptyVoteMessage != nil:
-		t.messageTypesSent["EmptyVoteMessage"]++
-	case msg.EmptyNotarization != nil:
-		t.messageTypesSent["EmptyNotarization"]++
-	case msg.BlockDigestRequest != nil:
-		t.messageTypesSent["BlockDigestRequest"]++
-	default:
-		panic("unknown message type")
-	}
-
 }

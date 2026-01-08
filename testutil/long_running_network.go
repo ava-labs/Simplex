@@ -293,11 +293,3 @@ func (b *NetworkBlockBuilder) TriggerBlockShouldNotBeBuilt() {
 	b.blockPending = false
 	b.notifyChanged()
 }
-
-func (b *NetworkBlockBuilder) ShouldBlockBeBuilt() bool {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.blockPending
-}
-
-func (b *NetworkBlockBuilder) TriggerNewBlock() {}
