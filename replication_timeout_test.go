@@ -28,7 +28,7 @@ func TestReplicationRequestTimeout(t *testing.T) {
 	numInitialSeqs := uint64(8)
 
 	// node begins replication
-	net := testutil.NewInMemNetwork(t, nodes)
+	net := testutil.NewControlledNetwork(t, nodes)
 
 	storageData := createBlocks(t, nodes, numInitialSeqs)
 
@@ -41,10 +41,10 @@ func TestReplicationRequestTimeout(t *testing.T) {
 		}
 	}
 
-	testutil.NewSimplexNode(t, nodes[0], net, newNodeConfig(nodes[0]))
-	testutil.NewSimplexNode(t, nodes[1], net, newNodeConfig(nodes[1]))
-	testutil.NewSimplexNode(t, nodes[2], net, newNodeConfig(nodes[2]))
-	laggingNode := testutil.NewSimplexNode(t, nodes[3], net, &testutil.TestNodeConfig{
+	testutil.NewControlledSimplexNode(t, nodes[0], net, newNodeConfig(nodes[0]))
+	testutil.NewControlledSimplexNode(t, nodes[1], net, newNodeConfig(nodes[1]))
+	testutil.NewControlledSimplexNode(t, nodes[2], net, newNodeConfig(nodes[2]))
+	laggingNode := testutil.NewControlledSimplexNode(t, nodes[3], net, &testutil.TestNodeConfig{
 		ReplicationEnabled: true,
 	})
 
@@ -102,7 +102,7 @@ func TestReplicationRequestTimeoutCancels(t *testing.T) {
 	nodes := []simplex.NodeID{{1}, {2}, {3}, []byte("lagging")}
 	startSeq := uint64(8)
 
-	net := testutil.NewInMemNetwork(t, nodes)
+	net := testutil.NewControlledNetwork(t, nodes)
 
 	// initiate a network with 4 nodes. one node is behind by startSeq blocks
 	storageData := createBlocks(t, nodes, startSeq)
@@ -110,10 +110,10 @@ func TestReplicationRequestTimeoutCancels(t *testing.T) {
 		InitialStorage:     storageData,
 		ReplicationEnabled: true,
 	}
-	testutil.NewSimplexNode(t, nodes[0], net, testEpochConfig)
-	testutil.NewSimplexNode(t, nodes[1], net, testEpochConfig)
-	testutil.NewSimplexNode(t, nodes[2], net, testEpochConfig)
-	laggingNode := testutil.NewSimplexNode(t, nodes[3], net, &testutil.TestNodeConfig{
+	testutil.NewControlledSimplexNode(t, nodes[0], net, testEpochConfig)
+	testutil.NewControlledSimplexNode(t, nodes[1], net, testEpochConfig)
+	testutil.NewControlledSimplexNode(t, nodes[2], net, testEpochConfig)
+	laggingNode := testutil.NewControlledSimplexNode(t, nodes[3], net, &testutil.TestNodeConfig{
 		ReplicationEnabled: true,
 	})
 
@@ -152,7 +152,7 @@ func TestReplicationRequestTimeoutMultiple(t *testing.T) {
 	startSeq := uint64(8)
 
 	// node begins replication
-	net := testutil.NewInMemNetwork(t, nodes)
+	net := testutil.NewControlledNetwork(t, nodes)
 
 	storageData := createBlocks(t, nodes, startSeq)
 
@@ -170,11 +170,11 @@ func TestReplicationRequestTimeoutMultiple(t *testing.T) {
 		replicationResponses: make(chan struct{}, 1),
 	}
 
-	testutil.NewSimplexNode(t, nodes[0], net, newNodeConfig(nodes[0]))
-	normalNode2 := testutil.NewSimplexNode(t, nodes[1], net, newNodeConfig(nodes[1]))
+	testutil.NewControlledSimplexNode(t, nodes[0], net, newNodeConfig(nodes[0]))
+	normalNode2 := testutil.NewControlledSimplexNode(t, nodes[1], net, newNodeConfig(nodes[1]))
 	normalNode2.E.Comm.(*testutil.TestComm).SetFilter(mf.receivedReplicationRequest)
-	testutil.NewSimplexNode(t, nodes[2], net, newNodeConfig(nodes[2]))
-	laggingNode := testutil.NewSimplexNode(t, nodes[3], net, &testutil.TestNodeConfig{
+	testutil.NewControlledSimplexNode(t, nodes[2], net, newNodeConfig(nodes[2]))
+	laggingNode := testutil.NewControlledSimplexNode(t, nodes[3], net, &testutil.TestNodeConfig{
 		ReplicationEnabled: true,
 	})
 
@@ -237,7 +237,7 @@ func TestReplicationRequestIncompleteResponses(t *testing.T) {
 	startSeq := uint64(8)
 
 	// node begins replication
-	net := testutil.NewInMemNetwork(t, nodes)
+	net := testutil.NewControlledNetwork(t, nodes)
 
 	storageData := createBlocks(t, nodes, startSeq)
 
@@ -255,15 +255,15 @@ func TestReplicationRequestIncompleteResponses(t *testing.T) {
 		replicationResponses: make(chan struct{}, 1),
 	}
 
-	testutil.NewSimplexNode(t, nodes[0], net, newNodeConfig(nodes[0]))
-	normalNode2 := testutil.NewSimplexNode(t, nodes[1], net, newNodeConfig(nodes[1]))
+	testutil.NewControlledSimplexNode(t, nodes[0], net, newNodeConfig(nodes[0]))
+	normalNode2 := testutil.NewControlledSimplexNode(t, nodes[1], net, newNodeConfig(nodes[1]))
 	normalNode2.E.Comm.(*testutil.TestComm).SetFilter(mf.receivedReplicationRequest)
-	testutil.NewSimplexNode(t, nodes[2], net, newNodeConfig(nodes[2]))
+	testutil.NewControlledSimplexNode(t, nodes[2], net, newNodeConfig(nodes[2]))
 
 	recordedMessages := make(chan *simplex.Message, 1000)
 	comm := testutil.NewTestComm(nodes[3], net, testutil.AllowAllMessages)
 
-	laggingNode := testutil.NewSimplexNode(t, nodes[3], net, &testutil.TestNodeConfig{
+	laggingNode := testutil.NewControlledSimplexNode(t, nodes[3], net, &testutil.TestNodeConfig{
 		ReplicationEnabled: true,
 		Comm:               &recordingComm{Communication: comm, SentMessages: recordedMessages},
 	})
@@ -396,7 +396,7 @@ func (c *collectNotarizationComm) removeFinalizationsFromReplicationResponses(ms
 func TestReplicationRequestWithoutFinalization(t *testing.T) {
 	nodes := []simplex.NodeID{{1}, {2}, {3}, []byte("lagging")}
 	endDisconnect := uint64(10)
-	net := testutil.NewInMemNetwork(t, nodes)
+	net := testutil.NewControlledNetwork(t, nodes)
 
 	notarizations := make(map[uint64]*simplex.Notarization)
 	mapLock := &sync.Mutex{}
@@ -408,13 +408,13 @@ func TestReplicationRequestWithoutFinalization(t *testing.T) {
 	}
 
 	notarizationComm := newCollectNotarizationComm(nodes[0], net, notarizations, mapLock)
-	testutil.NewSimplexNode(t, nodes[0], net, &testutil.TestNodeConfig{
+	testutil.NewControlledSimplexNode(t, nodes[0], net, &testutil.TestNodeConfig{
 		ReplicationEnabled: true,
 		Comm:               notarizationComm,
 	})
-	testutil.NewSimplexNode(t, nodes[1], net, testConfig(nodes[1]))
-	testutil.NewSimplexNode(t, nodes[2], net, testConfig(nodes[2]))
-	laggingNode := testutil.NewSimplexNode(t, nodes[3], net, testConfig(nodes[3]))
+	testutil.NewControlledSimplexNode(t, nodes[1], net, testConfig(nodes[1]))
+	testutil.NewControlledSimplexNode(t, nodes[2], net, testConfig(nodes[2]))
+	laggingNode := testutil.NewControlledSimplexNode(t, nodes[3], net, testConfig(nodes[3]))
 
 	epochTimes := make([]time.Time, 0, 4)
 	for _, n := range net.Instances {
@@ -500,7 +500,7 @@ func TestReplicationMalformedQuorumRound(t *testing.T) {
 	startSeq := uint64(8)
 
 	// node begins replication
-	net := testutil.NewInMemNetwork(t, nodes)
+	net := testutil.NewControlledNetwork(t, nodes)
 
 	storageData := createBlocks(t, nodes, startSeq)
 
@@ -518,15 +518,15 @@ func TestReplicationMalformedQuorumRound(t *testing.T) {
 		replicationResponses: make(chan struct{}, 1),
 	}
 
-	testutil.NewSimplexNode(t, nodes[0], net, newNodeConfig(nodes[0]))
-	normalNode2 := testutil.NewSimplexNode(t, nodes[1], net, newNodeConfig(nodes[1]))
+	testutil.NewControlledSimplexNode(t, nodes[0], net, newNodeConfig(nodes[0]))
+	normalNode2 := testutil.NewControlledSimplexNode(t, nodes[1], net, newNodeConfig(nodes[1]))
 	normalNode2.E.Comm.(*testutil.TestComm).SetFilter(mf.receivedReplicationRequest)
-	testutil.NewSimplexNode(t, nodes[2], net, newNodeConfig(nodes[2]))
+	testutil.NewControlledSimplexNode(t, nodes[2], net, newNodeConfig(nodes[2]))
 
 	recordedMessages := make(chan *simplex.Message, 1000)
 	comm := testutil.NewTestComm(nodes[3], net, testutil.AllowAllMessages)
 
-	laggingNode := testutil.NewSimplexNode(t, nodes[3], net, &testutil.TestNodeConfig{
+	laggingNode := testutil.NewControlledSimplexNode(t, nodes[3], net, &testutil.TestNodeConfig{
 		ReplicationEnabled: true,
 		Comm:               &recordingComm{Communication: comm, SentMessages: recordedMessages},
 	})

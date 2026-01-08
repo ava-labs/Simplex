@@ -34,11 +34,11 @@ func TestPoS(t *testing.T) {
 	}
 	testConf := &testutil.TestNodeConfig{SigAggregator: posSigAggregator, ReplicationEnabled: true}
 
-	net := testutil.NewInMemNetwork(t, nodes)
-	testutil.NewSimplexNode(t, nodes[0], net, testConf)
-	testutil.NewSimplexNode(t, nodes[1], net, testConf)
-	testutil.NewSimplexNode(t, nodes[2], net, testConf)
-	testutil.NewSimplexNode(t, nodes[3], net, testConf)
+	net := testutil.NewControlledNetwork(t, nodes)
+	testutil.NewControlledSimplexNode(t, nodes[0], net, testConf)
+	testutil.NewControlledSimplexNode(t, nodes[1], net, testConf)
+	testutil.NewControlledSimplexNode(t, nodes[2], net, testConf)
+	testutil.NewControlledSimplexNode(t, nodes[3], net, testConf)
 
 	net.StartInstances()
 	defer net.StopInstances()

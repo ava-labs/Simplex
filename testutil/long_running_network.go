@@ -16,7 +16,7 @@ import (
 const longRunningMaxRoundWindow = 100
 
 type LongRunningInMemoryNetwork struct {
-	*InMemNetwork
+	// *InMemNetwork
 
 	stopped atomic.Bool
 }
@@ -27,9 +27,9 @@ func NewDefaultLongRunningNetwork(t *testing.T, numNodes int) *LongRunningInMemo
 		nodes[i] = generateNodeID(t)
 	}
 
-	net := NewInMemNetwork(t, nodes)
+	net := NewControlledNetwork(t, nodes)
 	for _, nodeID := range nodes {
-		node := NewSimplexNode(t, nodeID, net, &TestNodeConfig{
+		node := NewControlledSimplexNode(t, nodeID, net, &TestNodeConfig{
 			BlockBuilder:       NewNetworkBlockBuilder(t),
 			ReplicationEnabled: true,
 			MaxRoundWindow:     longRunningMaxRoundWindow,

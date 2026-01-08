@@ -134,7 +134,7 @@ func (b *BasicNode) RecordMessageTypeSent(msg *simplex.Message) {
 	}
 }
 
-type TestNode struct {
+type ControlledNode struct {
 	*BasicNode
 	bb *testControlledBlockBuilder
 	WAL *TestWAL
@@ -161,7 +161,8 @@ func NewBasicNode(t *testing.T, epoch *simplex.Epoch, logger *TestLogger) *Basic
 	return &bn
 }
 
-func newTestNode(t *testing.T, nodeID simplex.NodeID, net *InMemNetwork, config *TestNodeConfig) *TestNode {
+// newSimplexNode creates a new testNode and adds it to [net].
+func NewControlledSimplexNode(t *testing.T, nodeID simplex.NodeID, net *ControlledInMemoryNetwork, config *TestNodeConfig) *ControlledNode {
 	comm := NewTestComm(nodeID, net, AllowAllMessages)
 	bb := NewTestControlledBlockBuilder(t)
 	if config != nil && config.BlockBuilder != nil {
@@ -182,18 +183,12 @@ func newTestNode(t *testing.T, nodeID simplex.NodeID, net *InMemNetwork, config 
 
 	e, err := simplex.NewEpoch(epochConfig)
 	require.NoError(t, err)
-	ti := &TestNode{
+	ti := &ControlledNode{
 		BasicNode: NewBasicNode(t, e, epochConfig.Logger.(*TestLogger)),
 		WAL:              wal,
 		bb:               bb,
 		Storage:          storage,
 	}
-	return ti
-}
-
-// newSimplexNode creates a new testNode and adds it to [net].
-func NewSimplexNode(t *testing.T, nodeID simplex.NodeID, net *InMemNetwork, config *TestNodeConfig) *TestNode {
-	ti := newTestNode(t, nodeID, net, config)
 
 	net.addNode(ti)
 	return ti
@@ -259,7 +254,7 @@ type TestNodeConfig struct {
 }
 
 // TimeoutOnRound advances time until the node times out of the given round.
-func (t *TestNode) TimeoutOnRound(round uint64) {
+func (t *ControlledNode) TimeoutOnRound(round uint64) {
 	for {
 		currentRound := t.E.Metadata().Round
 		if currentRound > round {
@@ -281,18 +276,18 @@ func (t *TestNode) TimeoutOnRound(round uint64) {
 	}
 }
 
-func (t *TestNode) ShouldBlockBeBuilt() bool {
+func (t *ControlledNode) ShouldBlockBeBuilt() bool {
 	return len(t.bb.BlockShouldBeBuilt) > 0
 }
 
-func (t *TestNode) TriggerNewBlock() {
+func (t *ControlledNode) TriggerNewBlock() {
 	t.bb.TriggerNewBlock()
 }
-func (t *TestNode) BlockShouldBeBuilt() {
+func (t *ControlledNode) BlockShouldBeBuilt() {
 	t.bb.BlockShouldBeBuilt <- struct{}{}
 }
 
-func (t *TestNode) TickUntilRoundAdvanced(round uint64, tick time.Duration) {
+func (t *ControlledNode) TickUntilRoundAdvanced(round uint64, tick time.Duration) {
 	timeout := time.NewTimer(time.Minute)
 	defer timeout.Stop()
 

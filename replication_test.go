@@ -43,7 +43,7 @@ func TestBasicReplication(t *testing.T) {
 }
 
 func testReplication(t *testing.T, startSeq uint64, nodes []simplex.NodeID) {
-	net := NewInMemNetwork(t, nodes)
+	net := NewControlledNetwork(t, nodes)
 
 	// initiate a network with 4 nodes. one node is behind by startSeq blocks
 	storageData := createBlocks(t, nodes, startSeq)
@@ -51,10 +51,10 @@ func testReplication(t *testing.T, startSeq uint64, nodes []simplex.NodeID) {
 		InitialStorage:     storageData,
 		ReplicationEnabled: true,
 	}
-	normalNode1 := NewSimplexNode(t, nodes[0], net, testEpochConfig)
-	normalNode2 := NewSimplexNode(t, nodes[1], net, testEpochConfig)
-	normalNode3 := NewSimplexNode(t, nodes[2], net, testEpochConfig)
-	laggingNode := NewSimplexNode(t, nodes[3], net, &TestNodeConfig{
+	normalNode1 := NewControlledSimplexNode(t, nodes[0], net, testEpochConfig)
+	normalNode2 := NewControlledSimplexNode(t, nodes[1], net, testEpochConfig)
+	normalNode3 := NewControlledSimplexNode(t, nodes[2], net, testEpochConfig)
+	laggingNode := NewControlledSimplexNode(t, nodes[3], net, &TestNodeConfig{
 		ReplicationEnabled: true,
 	})
 
@@ -81,17 +81,17 @@ func testReplication(t *testing.T, startSeq uint64, nodes []simplex.NodeID) {
 func TestReplicationAdversarialNode(t *testing.T) {
 	nodes := []simplex.NodeID{{1}, {2}, {3}, []byte("lagging")}
 	quorum := simplex.Quorum(len(nodes))
-	net := NewInMemNetwork(t, nodes)
+	net := NewControlledNetwork(t, nodes)
 
 	testEpochConfig := &TestNodeConfig{
 		ReplicationEnabled: true,
 	}
 
 	// doubleBlockProposalNode will propose two blocks for the same round
-	doubleBlockProposalNode := NewSimplexNode(t, nodes[0], net, testEpochConfig)
-	normalNode2 := NewSimplexNode(t, nodes[1], net, testEpochConfig)
-	normalNode3 := NewSimplexNode(t, nodes[2], net, testEpochConfig)
-	laggingNode := NewSimplexNode(t, nodes[3], net, &TestNodeConfig{
+	doubleBlockProposalNode := NewControlledSimplexNode(t, nodes[0], net, testEpochConfig)
+	normalNode2 := NewControlledSimplexNode(t, nodes[1], net, testEpochConfig)
+	normalNode3 := NewControlledSimplexNode(t, nodes[2], net, testEpochConfig)
+	laggingNode := NewControlledSimplexNode(t, nodes[3], net, &TestNodeConfig{
 		ReplicationEnabled: true,
 	})
 
@@ -148,7 +148,7 @@ func TestReplicationAdversarialNode(t *testing.T) {
 // finalizations and index all blocks.
 func TestRebroadcastingWithReplication(t *testing.T) {
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
-	net := NewInMemNetwork(t, nodes)
+	net := NewControlledNetwork(t, nodes)
 
 	newNodeConfig := func(from simplex.NodeID) *TestNodeConfig {
 		comm := NewTestComm(from, net, AllowAllMessages)
@@ -158,11 +158,11 @@ func TestRebroadcastingWithReplication(t *testing.T) {
 		}
 	}
 
-	NewSimplexNode(t, nodes[0], net, newNodeConfig(nodes[0]))
-	NewSimplexNode(t, nodes[1], net, newNodeConfig(nodes[1]))
-	NewSimplexNode(t, nodes[2], net, newNodeConfig(nodes[2]))
+	NewControlledSimplexNode(t, nodes[0], net, newNodeConfig(nodes[0]))
+	NewControlledSimplexNode(t, nodes[1], net, newNodeConfig(nodes[1]))
+	NewControlledSimplexNode(t, nodes[2], net, newNodeConfig(nodes[2]))
 	// we do not expect the lagging node to build any blocks
-	laggingNode := NewSimplexNode(t, nodes[3], net, newNodeConfig(nodes[3]))
+	laggingNode := NewControlledSimplexNode(t, nodes[3], net, newNodeConfig(nodes[3]))
 
 	for _, n := range net.Instances {
 		require.Equal(t, uint64(0), n.Storage.NumBlocks())
@@ -273,7 +273,7 @@ func TestReplicationEmptyNotarizations(t *testing.T) {
 }
 
 func testReplicationEmptyNotarizations(t *testing.T, nodes []simplex.NodeID, endRound uint64) {
-	net := NewInMemNetwork(t, nodes)
+	net := NewControlledNetwork(t, nodes)
 	newNodeConfig := func(from simplex.NodeID) *TestNodeConfig {
 		comm := NewTestComm(from, net, AllowAllMessages)
 		return &TestNodeConfig{
@@ -282,12 +282,12 @@ func testReplicationEmptyNotarizations(t *testing.T, nodes []simplex.NodeID, end
 		}
 	}
 
-	NewSimplexNode(t, nodes[0], net, newNodeConfig(nodes[0]))
-	NewSimplexNode(t, nodes[1], net, newNodeConfig(nodes[1]))
-	NewSimplexNode(t, nodes[2], net, newNodeConfig(nodes[2]))
-	NewSimplexNode(t, nodes[3], net, newNodeConfig(nodes[3]))
-	NewSimplexNode(t, nodes[4], net, newNodeConfig(nodes[4]))
-	laggingNode := NewSimplexNode(t, nodes[5], net, newNodeConfig(nodes[5]))
+	NewControlledSimplexNode(t, nodes[0], net, newNodeConfig(nodes[0]))
+	NewControlledSimplexNode(t, nodes[1], net, newNodeConfig(nodes[1]))
+	NewControlledSimplexNode(t, nodes[2], net, newNodeConfig(nodes[2]))
+	NewControlledSimplexNode(t, nodes[3], net, newNodeConfig(nodes[3]))
+	NewControlledSimplexNode(t, nodes[4], net, newNodeConfig(nodes[4]))
+	laggingNode := NewControlledSimplexNode(t, nodes[5], net, newNodeConfig(nodes[5]))
 
 	net.StartInstances()
 
@@ -354,17 +354,17 @@ func testReplicationEmptyNotarizations(t *testing.T, nodes []simplex.NodeID, end
 func TestReplicationStartsBeforeCurrentRound(t *testing.T) {
 	nodes := []simplex.NodeID{{1}, {2}, {3}, []byte("lagging")}
 	quorum := simplex.Quorum(len(nodes))
-	net := NewInMemNetwork(t, nodes)
+	net := NewControlledNetwork(t, nodes)
 	startSeq := uint64(simplex.DefaultMaxRoundWindow + 3)
 	storageData := createBlocks(t, nodes, startSeq)
 	testEpochConfig := &TestNodeConfig{
 		InitialStorage:     storageData,
 		ReplicationEnabled: true,
 	}
-	normalNode1 := NewSimplexNode(t, nodes[0], net, testEpochConfig)
-	normalNode2 := NewSimplexNode(t, nodes[1], net, testEpochConfig)
-	normalNode3 := NewSimplexNode(t, nodes[2], net, testEpochConfig)
-	laggingNode := NewSimplexNode(t, nodes[3], net, &TestNodeConfig{
+	normalNode1 := NewControlledSimplexNode(t, nodes[0], net, testEpochConfig)
+	normalNode2 := NewControlledSimplexNode(t, nodes[1], net, testEpochConfig)
+	normalNode3 := NewControlledSimplexNode(t, nodes[2], net, testEpochConfig)
+	laggingNode := NewControlledSimplexNode(t, nodes[3], net, &TestNodeConfig{
 		ReplicationEnabled: true,
 	})
 
@@ -480,14 +480,14 @@ func TestReplicationAfterNodeDisconnects(t *testing.T) {
 }
 
 func testReplicationAfterNodeDisconnects(t *testing.T, nodes []simplex.NodeID, startDisconnect, endDisconnect uint64) {
-	net := NewInMemNetwork(t, nodes)
+	net := NewControlledNetwork(t, nodes)
 	testConfig := &TestNodeConfig{
 		ReplicationEnabled: true,
 	}
-	normalNode1 := NewSimplexNode(t, nodes[0], net, testConfig)
-	normalNode2 := NewSimplexNode(t, nodes[1], net, testConfig)
-	normalNode3 := NewSimplexNode(t, nodes[2], net, testConfig)
-	laggingNode := NewSimplexNode(t, nodes[3], net, testConfig)
+	normalNode1 := NewControlledSimplexNode(t, nodes[0], net, testConfig)
+	normalNode2 := NewControlledSimplexNode(t, nodes[1], net, testConfig)
+	normalNode3 := NewControlledSimplexNode(t, nodes[2], net, testConfig)
+	laggingNode := NewControlledSimplexNode(t, nodes[3], net, testConfig)
 
 	require.Equal(t, uint64(0), normalNode1.Storage.NumBlocks())
 	require.Equal(t, uint64(0), normalNode2.Storage.NumBlocks())
@@ -701,7 +701,7 @@ func TestReplicationNodeDiverges(t *testing.T) {
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}, {5}, {6}}
 	numBlocks := uint64(5)
 
-	net := NewInMemNetwork(t, nodes)
+	net := NewControlledNetwork(t, nodes)
 
 	nodeConfig := func(from simplex.NodeID) *TestNodeConfig {
 		comm := NewTestComm(from, net, sendVotesToOneNode(nodes[3]))
@@ -711,14 +711,14 @@ func TestReplicationNodeDiverges(t *testing.T) {
 		}
 	}
 
-	NewSimplexNode(t, nodes[0], net, nodeConfig(nodes[0]))
-	NewSimplexNode(t, nodes[1], net, nodeConfig(nodes[1]))
-	NewSimplexNode(t, nodes[2], net, nodeConfig(nodes[2]))
-	laggingNode := NewSimplexNode(t, nodes[3], net, nodeConfig(nodes[3]))
+	NewControlledSimplexNode(t, nodes[0], net, nodeConfig(nodes[0]))
+	NewControlledSimplexNode(t, nodes[1], net, nodeConfig(nodes[1]))
+	NewControlledSimplexNode(t, nodes[2], net, nodeConfig(nodes[2]))
+	laggingNode := NewControlledSimplexNode(t, nodes[3], net, nodeConfig(nodes[3]))
 
 	// we need at least 6 nodes since the lagging node & leader will not timeout
-	NewSimplexNode(t, nodes[4], net, nodeConfig(nodes[4]))
-	NewSimplexNode(t, nodes[5], net, nodeConfig(nodes[5]))
+	NewControlledSimplexNode(t, nodes[4], net, nodeConfig(nodes[4]))
+	NewControlledSimplexNode(t, nodes[5], net, nodeConfig(nodes[5]))
 
 	net.StartInstances()
 	net.TriggerLeaderBlockBuilder(0)
@@ -842,7 +842,7 @@ func TestReplicationNotarizationWithoutFinalizations(t *testing.T) {
 // TestReplicationNotarizationWithoutFinalizations tests that a lagging node will replicate
 // blocks that have notarizations but no finalizations.
 func testReplicationNotarizationWithoutFinalizations(t *testing.T, numBlocks uint64, nodes []simplex.NodeID) {
-	net := NewInMemNetwork(t, nodes)
+	net := NewControlledNetwork(t, nodes)
 
 	onlyAllowBlockProposalsAndNotarizations := func(msg *simplex.Message, _, to simplex.NodeID) bool {
 		if to.Equals(nodes[3]) {
@@ -860,11 +860,11 @@ func testReplicationNotarizationWithoutFinalizations(t *testing.T, numBlocks uin
 		}
 	}
 
-	NewSimplexNode(t, nodes[0], net, nodeConfig(nodes[0]))
-	NewSimplexNode(t, nodes[1], net, nodeConfig(nodes[1]))
-	NewSimplexNode(t, nodes[2], net, nodeConfig(nodes[2]))
+	NewControlledSimplexNode(t, nodes[0], net, nodeConfig(nodes[0]))
+	NewControlledSimplexNode(t, nodes[1], net, nodeConfig(nodes[1]))
+	NewControlledSimplexNode(t, nodes[2], net, nodeConfig(nodes[2]))
 
-	laggingNode := NewSimplexNode(t, nodes[3], net, nodeConfig(nodes[3]))
+	laggingNode := NewControlledSimplexNode(t, nodes[3], net, nodeConfig(nodes[3]))
 
 	for _, n := range net.Instances {
 		require.Equal(t, uint64(0), n.Storage.NumBlocks())
@@ -1095,7 +1095,7 @@ func TestReplicationVotesForNotarizations(t *testing.T) {
 	numFinalizedBlocks := uint64(5)
 	// number of notarized blocks after the finalized blocks
 	numNotarizedBlocks := uint64(11)
-	net := NewInMemNetwork(t, nodes)
+	net := NewControlledNetwork(t, nodes)
 
 	storageData := createBlocks(t, nodes, numFinalizedBlocks)
 
@@ -1119,10 +1119,10 @@ func TestReplicationVotesForNotarizations(t *testing.T) {
 		}
 	}
 
-	n1 := NewSimplexNode(t, nodes[0], net, nodeConfig(nodes[0]))
-	n2 := NewSimplexNode(t, nodes[1], net, nodeConfig(nodes[1]))
-	adversary := NewSimplexNode(t, nodes[2], net, nodeConfig(nodes[2]))
-	laggingNode := NewSimplexNode(t, nodes[3], net, &TestNodeConfig{
+	n1 := NewControlledSimplexNode(t, nodes[0], net, nodeConfig(nodes[0]))
+	n2 := NewControlledSimplexNode(t, nodes[1], net, nodeConfig(nodes[1]))
+	adversary := NewControlledSimplexNode(t, nodes[2], net, nodeConfig(nodes[2]))
+	laggingNode := NewControlledSimplexNode(t, nodes[3], net, &TestNodeConfig{
 		ReplicationEnabled: true,
 	})
 
@@ -1243,7 +1243,7 @@ func TestReplicationEmptyNotarizationsTail(t *testing.T) {
 }
 
 func testReplicationEmptyNotarizationsTail(t *testing.T, nodes []simplex.NodeID, endRound uint64) {
-	net := NewInMemNetwork(t, nodes)
+	net := NewControlledNetwork(t, nodes)
 	newNodeConfig := func(from simplex.NodeID) *TestNodeConfig {
 		comm := NewTestComm(from, net, AllowAllMessages)
 		return &TestNodeConfig{
@@ -1252,12 +1252,12 @@ func testReplicationEmptyNotarizationsTail(t *testing.T, nodes []simplex.NodeID,
 		}
 	}
 
-	NewSimplexNode(t, nodes[0], net, newNodeConfig(nodes[0]))
-	NewSimplexNode(t, nodes[1], net, newNodeConfig(nodes[1]))
-	NewSimplexNode(t, nodes[2], net, newNodeConfig(nodes[2]))
-	NewSimplexNode(t, nodes[3], net, newNodeConfig(nodes[3]))
-	NewSimplexNode(t, nodes[4], net, newNodeConfig(nodes[4]))
-	laggingNode := NewSimplexNode(t, nodes[5], net, newNodeConfig(nodes[5]))
+	NewControlledSimplexNode(t, nodes[0], net, newNodeConfig(nodes[0]))
+	NewControlledSimplexNode(t, nodes[1], net, newNodeConfig(nodes[1]))
+	NewControlledSimplexNode(t, nodes[2], net, newNodeConfig(nodes[2]))
+	NewControlledSimplexNode(t, nodes[3], net, newNodeConfig(nodes[3]))
+	NewControlledSimplexNode(t, nodes[4], net, newNodeConfig(nodes[4]))
+	laggingNode := NewControlledSimplexNode(t, nodes[5], net, newNodeConfig(nodes[5]))
 
 	net.StartInstances()
 
@@ -1332,7 +1332,7 @@ func allowFinalizeVotes(msg *simplex.Message, from, to simplex.NodeID) bool {
 func TestReplicationChain(t *testing.T) {
 	// Digest message requests are needed for this test
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
-	net := NewInMemNetwork(t, nodes)
+	net := NewControlledNetwork(t, nodes)
 
 	newNodeConfig := func(from simplex.NodeID) *TestNodeConfig {
 		comm := NewTestComm(from, net, allowFinalizeVotes)
@@ -1343,16 +1343,16 @@ func TestReplicationChain(t *testing.T) {
 	}
 
 	// full nodes operate normally
-	fullNode1 := NewSimplexNode(t, nodes[0], net, newNodeConfig(nodes[0]))
-	fullNode2 := NewSimplexNode(t, nodes[1], net, newNodeConfig(nodes[1]))
+	fullNode1 := NewControlledSimplexNode(t, nodes[0], net, newNodeConfig(nodes[0]))
+	fullNode2 := NewControlledSimplexNode(t, nodes[1], net, newNodeConfig(nodes[1]))
 	fullNode1.Silence()
 	fullNode2.Silence()
 	// node 3 will not receive finalize votes & finalizations
-	blockFinalize3 := NewSimplexNode(t, nodes[2], net, newNodeConfig(nodes[2]))
+	blockFinalize3 := NewControlledSimplexNode(t, nodes[2], net, newNodeConfig(nodes[2]))
 	blockFinalize3.Silence()
 	// lagging node is disconnected initially. It initially receives only empty notarizations
 	// but then later receives notarizations and must send finalize votes for them
-	laggingNode := NewSimplexNode(t, nodes[3], net, newNodeConfig(nodes[3]))
+	laggingNode := NewControlledSimplexNode(t, nodes[3], net, newNodeConfig(nodes[3]))
 	net.StartInstances()
 	net.Disconnect(laggingNode.E.ID)
 
