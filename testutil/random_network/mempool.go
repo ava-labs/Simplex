@@ -3,6 +3,7 @@ package random_network
 import (
 	"context"
 	"errors"
+	"sync"
 
 	"github.com/ava-labs/simplex"
 )
@@ -24,6 +25,8 @@ type Mempool struct {
 
 	// txID -> struct{}
 	acceptedTXs map[txID]struct{}
+
+	containsTxSignal sync.Cond
 }
 
 func NewMempool() *Mempool {
@@ -34,8 +37,46 @@ func NewMempool() *Mempool {
 	}
 }
 
+func (m *Mempool) AddPendingTXs(txs ...*TX) {
+	m.containsTxSignal.L.Lock()
+	defer m.containsTxSignal.L.Unlock()
+	
+	for _, tx := range txs {
+		m.unverifiedTXs[tx.ID] = tx
+	}
+	m.containsTxSignal.Broadcast()
+}
+
 func (m *Mempool) AddUnverifiedTX(tx *TX) {
 	m.unverifiedTXs[tx.ID] = tx
+	m.containsTxSignal.Broadcast()
+}
+
+func (m *Mempool) WaitForPendingTxs(ctx context.Context) {
+	m.containsTxSignal.L.Lock()
+	defer m.containsTxSignal.L.Unlock()
+
+	for len(m.unverifiedTXs) == 0 {
+		m.containsTxSignal.Wait()
+	}
+}
+
+func (m *Mempool) PackBlock(ctx context.Context, maxTxs int) []*TX {
+	m.WaitForPendingTxs(ctx)
+	
+	txs := make([]*TX, 0, maxTxs)
+	count := 0
+	for txID, tx := range m.unverifiedTXs {
+		txs = append(txs, tx)
+		delete(m.unverifiedTXs, txID)
+		count++
+		if count >= maxTxs {
+			break
+		}
+	}
+
+
+	return txs
 }
 
 // VerifyBlock verifies the block and its transactions. Errors if any tx is invalid or if there are duplicate txs in the block.

@@ -24,6 +24,9 @@ type FuzzConfig struct {
 	NumFinalizedBlocks int
 
 	RandomSeed int64
+
+	// Frequency at which to update time in the network. Default is 100 MS.
+	TimeUpdateFrequency time.Duration
 }
 
 func DefaultFuzzConfig() *FuzzConfig {
@@ -37,5 +40,6 @@ func DefaultFuzzConfig() *FuzzConfig {
 		MaxTxsPerBlock:         20,
 		NumFinalizedBlocks:     1000,
 		RandomSeed:             time.Now().UnixNano(),
+		TimeUpdateFrequency:    100 * time.Millisecond,
 	}
 }

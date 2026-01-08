@@ -1,7 +1,6 @@
 package long_running
 
 import (
-	"crypto/rand"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -27,7 +26,7 @@ type LongRunningInMemoryNetwork struct {
 func NewDefaultLongRunningNetwork(t *testing.T, numNodes int) *LongRunningInMemoryNetwork {
 	nodes := make([]simplex.NodeID, numNodes)
 	for i := range numNodes {
-		nodes[i] = generateNodeID(t)
+		nodes[i] = testutil.GenerateNodeID(t)
 	}
 
 	instances := make([]*LongRunningNode, 0, numNodes)
@@ -188,14 +187,3 @@ func (n *LongRunningInMemoryNetwork) StopAndAssert(tailingMessages bool) {
 
 	n.stopped.Store(true)
 }
-
-func generateNodeID(t *testing.T) simplex.NodeID {
-	b := make([]byte, 32)
-
-	// fill with cryptographically secure random data
-	_, err := rand.Read(b)
-	require.NoError(t, err)
-
-	return simplex.NodeID(b)
-}
-

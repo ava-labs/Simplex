@@ -2,7 +2,6 @@ package random_network
 
 import (
 	"context"
-	"math/rand/v2"
 	"time"
 
 	"github.com/ava-labs/simplex"
@@ -35,25 +34,11 @@ func NewNetworkBlockBuilder(config *FuzzConfig, l simplex.Logger) *RandomNetwork
 }
 
 func (bb *RandomNetworkBlockBuilder) BuildBlock(ctx context.Context, md simplex.ProtocolMetadata, bl simplex.Blacklist) (simplex.VerifiedBlock, bool) {
-	// Implementation of block building logic goes here
-	numTxs := rand.IntN(bb.maxTxsPerBlock-bb.minTxsPerBlock+1) + bb.minTxsPerBlock // randomize between min and max inclusive
-	txs := make([]*TX, 0, numTxs)
-
-	for range numTxs {
-		tx := CreateNewTX()
-		if rand.IntN(100) < bb.txVVerificationFailure {
-			// bb.l.Info("Building a block that will fail verification due to tx", zap.Stringer("txID", tx), zap.Uint64("Sequence", md.Seq))
-			tx.SetShouldFailVerification()
-		}
-
-		txs = append(txs, tx)
-	}
-
+	txs := bb.mempool.PackBlock(ctx, bb.maxTxsPerBlock)
 	block := NewBlock(md, bl, bb.mempool, txs)
-
 	return block, true
 }
 
 func (bb *RandomNetworkBlockBuilder) WaitForPendingBlock(ctx context.Context) {
-	// No-op for this implementation
+	bb.mempool.WaitForPendingTxs(ctx)
 }
