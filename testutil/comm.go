@@ -38,12 +38,12 @@ func (n NoopComm) Broadcast(msg *simplex.Message) {
 
 type TestComm struct {
 	from          simplex.NodeID
-	net           *InMemNetwork
+	net           *BasicInMemoryNetwork
 	messageFilter MessageFilter
 	lock          sync.RWMutex
 }
 
-func NewTestComm(from simplex.NodeID, net *InMemNetwork, messageFilter MessageFilter) *TestComm {
+func NewTestComm(from simplex.NodeID, net *BasicInMemoryNetwork, messageFilter MessageFilter) *TestComm {
 	return &TestComm{
 		from:          from,
 		net:           net,
@@ -65,9 +65,9 @@ func (c *TestComm) Send(msg *simplex.Message, destination simplex.NodeID) {
 		return
 	}
 
-	c.maybeTranslateOutoingToIncomingMessageTypes(msg)
+	c.maybeTranslateOutgoingToIncomingMessageTypes(msg)
 
-	for _, instance := range c.net.Instances {
+	for _, instance := range c.net.instances {
 		if bytes.Equal(instance.E.ID, destination) {
 			instance.enqueue(msg, c.from, destination)
 			return
@@ -82,7 +82,7 @@ func (c *TestComm) SetFilter(filter MessageFilter) {
 	c.messageFilter = filter
 }
 
-func (c *TestComm) maybeTranslateOutoingToIncomingMessageTypes(msg *simplex.Message) {
+func (c *TestComm) maybeTranslateOutgoingToIncomingMessageTypes(msg *simplex.Message) {
 	if msg.VerifiedReplicationResponse != nil {
 		data := make([]simplex.QuorumRound, 0, len(msg.VerifiedReplicationResponse.Data))
 
@@ -161,9 +161,9 @@ func (c *TestComm) Broadcast(msg *simplex.Message) {
 		return
 	}
 
-	c.maybeTranslateOutoingToIncomingMessageTypes(msg)
+	c.maybeTranslateOutgoingToIncomingMessageTypes(msg)
 
-	for _, instance := range c.net.Instances {
+	for _, instance := range c.net.instances {
 		if !c.isMessagePermitted(msg, instance.E.ID) {
 			continue
 		}

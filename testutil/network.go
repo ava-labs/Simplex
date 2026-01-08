@@ -83,9 +83,9 @@ func (b *BasicInMemoryNetwork) Disconnect(node simplex.NodeID) {
 	b.disconnected[string(node)] = struct{}{}
 }
 
-func (b *BasicInMemoryNetwork) AdvanceTime(duration time.Duration) {
+func (b *BasicInMemoryNetwork) AdvanceTime(increment time.Duration) {
 	for _, instance := range b.instances {
-		instance.AdvanceTime(duration)
+		instance.AdvanceTime(increment)
 	}
 }
 
@@ -105,7 +105,7 @@ func (b *BasicInMemoryNetwork) StopInstances() {
 	}
 }
 
-func (b *BasicInMemoryNetwork) addNode(node *BasicNode) {
+func (b *BasicInMemoryNetwork) AddNode(node *BasicNode) {
 	allowed := false
 	for _, id := range b.nodes {
 		if bytes.Equal(id, node.E.ID) {
@@ -157,16 +157,8 @@ func (n *ControlledInMemoryNetwork) TriggerLeaderBlockBuilder(round uint64) {
 }
 
 func (n *ControlledInMemoryNetwork) addNode(node *ControlledNode) {
-	allowed := false
-	for _, id := range n.nodes {
-		if bytes.Equal(id, node.E.ID) {
-			allowed = true
-			break
-		}
-	}
-	require.True(node.t, allowed, "node must be declared before adding")
+	n.BasicInMemoryNetwork.AddNode(node.BasicNode)
 	n.Instances = append(n.Instances, node)
-	n.BasicInMemoryNetwork.addNode(node.BasicNode)
 }
 
 func (n *ControlledInMemoryNetwork) AdvanceWithoutLeader(round uint64, laggingNodeId simplex.NodeID) {

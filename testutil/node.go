@@ -134,6 +134,18 @@ func (b *BasicNode) RecordMessageTypeSent(msg *simplex.Message) {
 	}
 }
 
+func (b *BasicNode) PrintMessageTypesSent() {
+	b.t.Logf("Node %s sent message types: %+v", b.E.ID.String(), b.messageTypesSent)
+}
+
+func (b *BasicNode) ResetMessageTypesSent() {
+	b.messageTypesSent = make(map[string]uint64)
+}
+
+func (b *BasicNode) GetMessageTypesSent() map[string]uint64 {
+	return b.messageTypesSent
+}
+
 type ControlledNode struct {
 	*BasicNode
 	bb *testControlledBlockBuilder
@@ -163,7 +175,7 @@ func NewBasicNode(t *testing.T, epoch *simplex.Epoch, logger *TestLogger) *Basic
 
 // newSimplexNode creates a new testNode and adds it to [net].
 func NewControlledSimplexNode(t *testing.T, nodeID simplex.NodeID, net *ControlledInMemoryNetwork, config *TestNodeConfig) *ControlledNode {
-	comm := NewTestComm(nodeID, net, AllowAllMessages)
+	comm := NewTestComm(nodeID, net.BasicInMemoryNetwork, AllowAllMessages)
 	bb := NewTestControlledBlockBuilder(t)
 	if config != nil && config.BlockBuilder != nil {
 		bb = config.BlockBuilder
@@ -172,7 +184,7 @@ func NewControlledSimplexNode(t *testing.T, nodeID simplex.NodeID, net *Controll
 	epochConfig, wal, storage := DefaultTestNodeEpochConfig(t, nodeID, comm, bb)
 
 	if config != nil {
-		updateEpochConfig(&epochConfig, config)
+		UpdateEpochConfig(&epochConfig, config)
 		if config.WAL != nil {
 			wal = config.WAL
 		}
@@ -194,7 +206,7 @@ func NewControlledSimplexNode(t *testing.T, nodeID simplex.NodeID, net *Controll
 	return ti
 }
 
-func updateEpochConfig(epochConfig *simplex.EpochConfig, testConfig *TestNodeConfig) {
+func UpdateEpochConfig(epochConfig *simplex.EpochConfig, testConfig *TestNodeConfig) {
 	// set the initial storage
 	for _, data := range testConfig.InitialStorage {
 		epochConfig.Storage.Index(context.Background(), data.VerifiedBlock, data.Finalization)

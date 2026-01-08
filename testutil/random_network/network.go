@@ -10,7 +10,7 @@ import (
 )
 
 type Network struct {
-	*testutil.InMemNetwork
+	*testutil.BasicInMemoryNetwork
 	l simplex.Logger
 
 	nodes      []*Node
@@ -36,7 +36,7 @@ func NewNetwork(config *FuzzConfig, t *testing.T, l simplex.Logger) *Network {
 	}
 }
 
-func NewRandomNetowrkNode(t *testing.T, nodeID simplex.NodeID, net *testutil.InMemNetwork) *Node {
+func NewRandomNetowrkNode(t *testing.T, nodeID simplex.NodeID, net *testutil.BasicInMemoryNetwork) *Node {
 	// node := testutil.NewSimplexNode(t, nodeID, net, &TestNodeConfig{
 	// 		BlockBuilder:       NewNetworkBlockBuilder(t),
 	// 		ReplicationEnabled: true,

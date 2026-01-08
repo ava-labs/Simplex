@@ -151,7 +151,7 @@ func TestRebroadcastingWithReplication(t *testing.T) {
 	net := NewControlledNetwork(t, nodes)
 
 	newNodeConfig := func(from simplex.NodeID) *TestNodeConfig {
-		comm := NewTestComm(from, net, AllowAllMessages)
+		comm := NewTestComm(from, net.BasicInMemoryNetwork, AllowAllMessages)
 		return &TestNodeConfig{
 			Comm:               comm,
 			ReplicationEnabled: true,
@@ -275,7 +275,7 @@ func TestReplicationEmptyNotarizations(t *testing.T) {
 func testReplicationEmptyNotarizations(t *testing.T, nodes []simplex.NodeID, endRound uint64) {
 	net := NewControlledNetwork(t, nodes)
 	newNodeConfig := func(from simplex.NodeID) *TestNodeConfig {
-		comm := NewTestComm(from, net, AllowAllMessages)
+		comm := NewTestComm(from, net.BasicInMemoryNetwork, AllowAllMessages)
 		return &TestNodeConfig{
 			Comm:               comm,
 			ReplicationEnabled: true,
@@ -704,7 +704,7 @@ func TestReplicationNodeDiverges(t *testing.T) {
 	net := NewControlledNetwork(t, nodes)
 
 	nodeConfig := func(from simplex.NodeID) *TestNodeConfig {
-		comm := NewTestComm(from, net, sendVotesToOneNode(nodes[3]))
+		comm := NewTestComm(from, net.BasicInMemoryNetwork, sendVotesToOneNode(nodes[3]))
 		return &TestNodeConfig{
 			Comm:               comm,
 			ReplicationEnabled: true,
@@ -794,7 +794,7 @@ func TestReplicationNodeDiverges(t *testing.T) {
 	assertEqualLedgers(t, net)
 }
 
-func assertEqualLedgers(t *testing.T, net *InMemNetwork) {
+func assertEqualLedgers(t *testing.T, net *ControlledInMemoryNetwork) {
 	expectedLedger := map[uint64][]byte{}
 
 	for seq := range net.Instances[0].Storage.NumBlocks() {
@@ -853,7 +853,7 @@ func testReplicationNotarizationWithoutFinalizations(t *testing.T, numBlocks uin
 	}
 
 	nodeConfig := func(from simplex.NodeID) *TestNodeConfig {
-		comm := NewTestComm(from, net, onlyAllowBlockProposalsAndNotarizations)
+		comm := NewTestComm(from, net.BasicInMemoryNetwork, onlyAllowBlockProposalsAndNotarizations)
 		return &TestNodeConfig{
 			Comm:               comm,
 			ReplicationEnabled: true,
@@ -1111,7 +1111,7 @@ func TestReplicationVotesForNotarizations(t *testing.T) {
 	}
 
 	nodeConfig := func(from simplex.NodeID) *TestNodeConfig {
-		comm := NewTestComm(from, net, almostFinalizeBlocks)
+		comm := NewTestComm(from, net.BasicInMemoryNetwork, almostFinalizeBlocks)
 		return &TestNodeConfig{
 			InitialStorage:     storageData,
 			Comm:               comm,
@@ -1245,7 +1245,7 @@ func TestReplicationEmptyNotarizationsTail(t *testing.T) {
 func testReplicationEmptyNotarizationsTail(t *testing.T, nodes []simplex.NodeID, endRound uint64) {
 	net := NewControlledNetwork(t, nodes)
 	newNodeConfig := func(from simplex.NodeID) *TestNodeConfig {
-		comm := NewTestComm(from, net, AllowAllMessages)
+		comm := NewTestComm(from, net.BasicInMemoryNetwork, AllowAllMessages)
 		return &TestNodeConfig{
 			Comm:               comm,
 			ReplicationEnabled: true,
@@ -1335,7 +1335,7 @@ func TestReplicationChain(t *testing.T) {
 	net := NewControlledNetwork(t, nodes)
 
 	newNodeConfig := func(from simplex.NodeID) *TestNodeConfig {
-		comm := NewTestComm(from, net, allowFinalizeVotes)
+		comm := NewTestComm(from, net.BasicInMemoryNetwork, allowFinalizeVotes)
 		return &TestNodeConfig{
 			Comm:               comm,
 			ReplicationEnabled: true,

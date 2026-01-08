@@ -25,7 +25,7 @@ func TestSimplexRebroadcastFinalizationVotes(t *testing.T) {
 
 	config := func(from simplex.NodeID) *testutil.TestNodeConfig {
 		return &testutil.TestNodeConfig{
-			Comm: testutil.NewTestComm(from, net, func(msg *simplex.Message, from simplex.NodeID, to simplex.NodeID) bool {
+			Comm: testutil.NewTestComm(from, net.BasicInMemoryNetwork, func(msg *simplex.Message, from simplex.NodeID, to simplex.NodeID) bool {
 				if msg.Finalization != nil && !allowFinalizeVotes.Load() {
 					return false
 				}
@@ -314,7 +314,7 @@ func TestSplitVotes(t *testing.T) {
 
 	config := func(from simplex.NodeID) *testutil.TestNodeConfig {
 		return &testutil.TestNodeConfig{
-			Comm: testutil.NewTestComm(from, net, onlySendBlockProposalsAndVotes(nodes[2:])),
+			Comm: testutil.NewTestComm(from, net.BasicInMemoryNetwork, onlySendBlockProposalsAndVotes(nodes[2:])),
 		}
 	}
 

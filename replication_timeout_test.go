@@ -33,7 +33,7 @@ func TestReplicationRequestTimeout(t *testing.T) {
 	storageData := createBlocks(t, nodes, numInitialSeqs)
 
 	newNodeConfig := func(from simplex.NodeID) *testutil.TestNodeConfig {
-		comm := testutil.NewTestComm(from, net, rejectReplicationRequests)
+		comm := testutil.NewTestComm(from, net.BasicInMemoryNetwork, rejectReplicationRequests)
 		return &testutil.TestNodeConfig{
 			InitialStorage:     storageData,
 			Comm:               comm,
@@ -157,7 +157,7 @@ func TestReplicationRequestTimeoutMultiple(t *testing.T) {
 	storageData := createBlocks(t, nodes, startSeq)
 
 	newNodeConfig := func(from simplex.NodeID) *testutil.TestNodeConfig {
-		comm := testutil.NewTestComm(from, net, rejectReplicationRequests)
+		comm := testutil.NewTestComm(from, net.BasicInMemoryNetwork, rejectReplicationRequests)
 		return &testutil.TestNodeConfig{
 			InitialStorage:     storageData,
 			Comm:               comm,
@@ -242,7 +242,7 @@ func TestReplicationRequestIncompleteResponses(t *testing.T) {
 	storageData := createBlocks(t, nodes, startSeq)
 
 	newNodeConfig := func(from simplex.NodeID) *testutil.TestNodeConfig {
-		comm := testutil.NewTestComm(from, net, rejectReplicationRequests)
+		comm := testutil.NewTestComm(from, net.BasicInMemoryNetwork, rejectReplicationRequests)
 		return &testutil.TestNodeConfig{
 			InitialStorage:     storageData,
 			Comm:               comm,
@@ -261,7 +261,7 @@ func TestReplicationRequestIncompleteResponses(t *testing.T) {
 	testutil.NewControlledSimplexNode(t, nodes[2], net, newNodeConfig(nodes[2]))
 
 	recordedMessages := make(chan *simplex.Message, 1000)
-	comm := testutil.NewTestComm(nodes[3], net, testutil.AllowAllMessages)
+	comm := testutil.NewTestComm(nodes[3], net.BasicInMemoryNetwork, testutil.AllowAllMessages)
 
 	laggingNode := testutil.NewControlledSimplexNode(t, nodes[3], net, &testutil.TestNodeConfig{
 		ReplicationEnabled: true,
@@ -330,10 +330,10 @@ type collectNotarizationComm struct {
 	replicationResponses chan struct{}
 }
 
-func newCollectNotarizationComm(nodeID simplex.NodeID, net *testutil.InMemNetwork, notarizations map[uint64]*simplex.Notarization, lock *sync.Mutex) *collectNotarizationComm {
+func newCollectNotarizationComm(nodeID simplex.NodeID, net *testutil.ControlledInMemoryNetwork, notarizations map[uint64]*simplex.Notarization, lock *sync.Mutex) *collectNotarizationComm {
 	return &collectNotarizationComm{
 		notarizations:            notarizations,
-		TestNetworkCommunication: testutil.NewTestComm(nodeID, net, testutil.AllowAllMessages),
+		TestNetworkCommunication: testutil.NewTestComm(nodeID, net.BasicInMemoryNetwork, testutil.AllowAllMessages),
 		replicationResponses:     make(chan struct{}, 3),
 		lock:                     lock,
 	}
@@ -505,7 +505,7 @@ func TestReplicationMalformedQuorumRound(t *testing.T) {
 	storageData := createBlocks(t, nodes, startSeq)
 
 	newNodeConfig := func(from simplex.NodeID) *testutil.TestNodeConfig {
-		comm := testutil.NewTestComm(from, net, rejectReplicationRequests)
+		comm := testutil.NewTestComm(from, net.BasicInMemoryNetwork, rejectReplicationRequests)
 		return &testutil.TestNodeConfig{
 			InitialStorage:     storageData,
 			Comm:               comm,
@@ -524,7 +524,7 @@ func TestReplicationMalformedQuorumRound(t *testing.T) {
 	testutil.NewControlledSimplexNode(t, nodes[2], net, newNodeConfig(nodes[2]))
 
 	recordedMessages := make(chan *simplex.Message, 1000)
-	comm := testutil.NewTestComm(nodes[3], net, testutil.AllowAllMessages)
+	comm := testutil.NewTestComm(nodes[3], net.BasicInMemoryNetwork, testutil.AllowAllMessages)
 
 	laggingNode := testutil.NewControlledSimplexNode(t, nodes[3], net, &testutil.TestNodeConfig{
 		ReplicationEnabled: true,

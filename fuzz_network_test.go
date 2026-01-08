@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func FuzzNetworkSimple(t *testing.T) {
+func NetworkSimpleFuzz(t *testing.T) {
 	require := require.New(t)
 
 	l := testutil.MakeLogger(t)
