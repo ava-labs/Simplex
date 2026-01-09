@@ -34,6 +34,7 @@ func NewMempool() *Mempool {
 		unverifiedTXs:             make(map[txID]*TX),
 		verifiedButNotAcceptedTXs: make(map[simplex.Digest]*Block),
 		acceptedTXs:               make(map[txID]struct{}),
+		containsTxSignal:          sync.Cond{L: &sync.Mutex{}},
 	}
 }
 

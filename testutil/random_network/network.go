@@ -43,6 +43,7 @@ func NewNetwork(config *FuzzConfig, t *testing.T, l simplex.Logger) *Network {
 	}
 
 	return &Network{
+		BasicInMemoryNetwork: basicNetwork,
 		nodes:      nodes,
 		randomness: r,
 		l:          l,
