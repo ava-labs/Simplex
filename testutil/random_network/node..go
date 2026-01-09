@@ -24,7 +24,10 @@ func NewNode(t *testing.T, net *testutil.BasicInMemoryNetwork, config *FuzzConfi
 	epochConfig, _, storage := testutil.DefaultTestNodeEpochConfig(t, nodeID, comm, bb)
 	epochConfig.Logger = l
 	epochConfig.ReplicationEnabled = true
-
+	epochConfig.BlockDeserializer = &BlockDeserializer{
+		mempool: bb.mempool,
+	}
+	
 	e, err := simplex.NewEpoch(epochConfig)
 	require.NoError(t, err)
 
