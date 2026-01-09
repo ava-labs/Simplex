@@ -139,6 +139,7 @@ func (e *Epoch) HandleMessage(msg *Message, from NodeID) error {
 	}
 
 	if e.haltedError != nil {
+		panic("epoch is halted: " + e.haltedError.Error())
 		return e.haltedError
 	}
 
@@ -766,7 +767,7 @@ func (e *Epoch) handleEmptyVoteMessage(message *EmptyVote, from NodeID) error {
 
 	emptyVotes.votes[string(from)] = message
 
-	return e.maybeAssembleEmptyNotarization()
+	return e.maybeAssembleEmptyNotarization(e.round)
 }
 
 func (e *Epoch) sendLatestFinalization(to NodeID) {
@@ -1223,8 +1224,8 @@ func (e *Epoch) indexFinalization(block VerifiedBlock, finalization Finalization
 	return nil
 }
 
-func (e *Epoch) maybeAssembleEmptyNotarization() error {
-	emptyVotes, exists := e.emptyVotes[e.round]
+func (e *Epoch) maybeAssembleEmptyNotarization(round uint64) error {
+	emptyVotes, exists := e.emptyVotes[round]
 
 	// This should never happen, but done for sanity
 	if !exists {
@@ -2359,7 +2360,7 @@ func (e *Epoch) triggerEmptyBlockNotarization(round uint64) {
 
 	e.addEmptyVoteRebroadcastTimeout()
 
-	if err := e.maybeAssembleEmptyNotarization(); err != nil {
+	if err := e.maybeAssembleEmptyNotarization(round); err != nil {
 		e.Logger.Error("Failed assembling empty notarization", zap.Error(err))
 		e.haltedError = err
 	}

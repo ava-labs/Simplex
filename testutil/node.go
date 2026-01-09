@@ -13,6 +13,7 @@ import (
 
 	"github.com/ava-labs/simplex"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 )
 
 // BasicNode is a simple representation of an instance running an epoch. It does not know about any particular custom types, its sole responsibility is to
@@ -55,7 +56,11 @@ func (b *BasicNode) SilenceExceptKeywords(keywords ...string) {
 
 func (b *BasicNode) HandleMessage(msg *simplex.Message, from simplex.NodeID) error {
 	err := b.E.HandleMessage(msg, from)
-	require.NoError(b.t, err)
+	if err != nil {
+		b.l.Error("error handling message", zap.Stringer("from", from), zap.Stringer("to", b.E.ID), zap.Error(err), zap.Error(err),  zap.Any("message", msg))
+		panic(fmt.Sprintf("error handling message from %s to %s: %+v. Err message: %v", from.String(), b.E.ID.String(), msg, err))
+	}
+	require.NoError(b.t, err, "error handling message from %s to %s: %+v", from.String(), b.E.ID.String(), msg)
 	return err
 }
 
