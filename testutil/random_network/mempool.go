@@ -3,6 +3,7 @@ package random_network
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -12,10 +13,11 @@ import (
 var (
 	maxBackoff = 1 * time.Second
 
-	errAlreadyAccepted    = errors.New("tx already accepted")
-	errTxNotFound         = errors.New("tx not found")
-	errAlreadyInChain     = errors.New("tx already in chain")
-	errDuplicateTxInBlock = errors.New("duplicate tx in block")
+	errAlreadyAccepted         = errors.New("tx already accepted")
+	errTxNotFound              = errors.New("tx not found")
+	errAlreadyInChain          = errors.New("tx already in chain")
+	errDuplicateTxInBlock      = errors.New("duplicate tx in block")
+	errDoubleBlockVerification = errors.New("block has already been verified")
 )
 
 type Mempool struct {
@@ -88,12 +90,7 @@ func (m *Mempool) PackBlock(ctx context.Context, maxTxs int) []*TX {
 }
 
 func (m *Mempool) VerifyMyBuiltBlock(ctx context.Context, b *Block) {
-	m.lock.Lock()
-	defer m.lock.Unlock()
-
-	// don't delete txs here - they will be deleted when the block is accepted
-	// this allows the leader to verify its own block during replication if needed
-	m.verifiedButNotAcceptedTXs[b.digest] = b
+	// future function to verify blocks that shouldn't be
 }
 
 // VerifyBlock verifies the block and its transactions. Errors if any tx is invalid or if there are duplicate txs in the block.
@@ -101,9 +98,9 @@ func (m *Mempool) VerifyBlock(ctx context.Context, b *Block) error {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 
-	// if the block is already verified, return success
+	// ensure the block is not already verified
 	if _, exists := m.verifiedButNotAcceptedTXs[b.digest]; exists {
-		return nil
+		return fmt.Errorf("%w: %s", errDoubleBlockVerification, b.digest)
 	}
 
 	// assert there are no duplicate txs in the block

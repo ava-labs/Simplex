@@ -128,7 +128,7 @@ func TestMempoolVerifiesTx(t *testing.T) {
 		},
 		{
 			name:      "Double Block Verification",
-			expectErr: nil,
+			expectErr: errDoubleBlockVerification,
 			setup: func() (*Mempool, *Block, error) {
 				mempool := NewMempool(logger)
 				tx := CreateNewTX()
@@ -140,6 +140,7 @@ func TestMempoolVerifiesTx(t *testing.T) {
 					return nil, nil, err
 				}
 
+				mempool.AddPendingTXs(tx)
 				return mempool, block, nil
 			},
 		},
