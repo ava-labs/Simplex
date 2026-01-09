@@ -43,26 +43,37 @@ func NewNode(t *testing.T, net *testutil.BasicInMemoryNetwork, config *FuzzConfi
 func (n *Node) HandleMessage(msg *simplex.Message, from simplex.NodeID) error {
 	switch {
 		case msg.BlockMessage != nil:
-			msg.BlockMessage.Block.(*Block).mempool = n.bb.mempool
+			origBlock := msg.BlockMessage.Block.(*Block)
+			// create a copy of the block with our mempool
+			blockCopy := *origBlock
+			blockCopy.mempool = n.bb.mempool
+			msg.BlockMessage.Block = &blockCopy
 		case msg.ReplicationResponse != nil:
 			// convert quorum rounds to our type
-			for _, qr := range msg.ReplicationResponse.Data {
+			for i, qr := range msg.ReplicationResponse.Data {
 				if qr.Block != nil {
-					qr.Block.(*Block).mempool = n.bb.mempool
+					origBlock := qr.Block.(*Block)
+					blockCopy := *origBlock
+					blockCopy.mempool = n.bb.mempool
+					msg.ReplicationResponse.Data[i].Block = &blockCopy
 				}
 			}
 
 			if msg.ReplicationResponse.LatestRound != nil {
-				rr := msg.ReplicationResponse.LatestRound
-				if rr.Block != nil {
-					rr.Block.(*Block).mempool = n.bb.mempool
+				if msg.ReplicationResponse.LatestRound.Block != nil {
+					origBlock := msg.ReplicationResponse.LatestRound.Block.(*Block)
+					blockCopy := *origBlock
+					blockCopy.mempool = n.bb.mempool
+					msg.ReplicationResponse.LatestRound.Block = &blockCopy
 				}
 			}
 
 			if msg.ReplicationResponse.LatestSeq != nil {
-				rr := msg.ReplicationResponse.LatestSeq
-				if rr.Block != nil {
-					rr.Block.(*Block).mempool = n.bb.mempool
+				if msg.ReplicationResponse.LatestSeq.Block != nil {
+					origBlock := msg.ReplicationResponse.LatestSeq.Block.(*Block)
+					blockCopy := *origBlock
+					blockCopy.mempool = n.bb.mempool
+					msg.ReplicationResponse.LatestSeq.Block = &blockCopy
 				}
 			}
 		case msg.VerifiedReplicationResponse != nil:

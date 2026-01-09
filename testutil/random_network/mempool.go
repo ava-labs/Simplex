@@ -3,22 +3,19 @@ package random_network
 import (
 	"context"
 	"errors"
-	"fmt"
 	"sync"
 	"time"
 
 	"github.com/ava-labs/simplex"
-	"go.uber.org/zap"
 )
 
 var (
 	maxBackoff = 1 * time.Second
 
-	errAlreadyAccepted         = errors.New("tx already accepted")
-	errTxNotFound              = errors.New("tx not found")
-	errAlreadyInChain          = errors.New("tx already in chain")
-	errDuplicateTxInBlock      = errors.New("duplicate tx in block")
-	errDoubleBlockVerification = errors.New("block has already been verified")
+	errAlreadyAccepted    = errors.New("tx already accepted")
+	errTxNotFound         = errors.New("tx not found")
+	errAlreadyInChain     = errors.New("tx already in chain")
+	errDuplicateTxInBlock = errors.New("duplicate tx in block")
 )
 
 type Mempool struct {
@@ -71,8 +68,6 @@ func (m *Mempool) waitForPendingTxs(ctx context.Context) {
 	for len(m.unverifiedTXs) == 0 {
 		m.containsTxSignal.Wait()
 	}
-
-	fmt.Println("Mempool has pending txs", len(m.unverifiedTXs))
 }
 
 func (m *Mempool) PackBlock(ctx context.Context, maxTxs int) []*TX {
@@ -82,26 +77,22 @@ func (m *Mempool) PackBlock(ctx context.Context, maxTxs int) []*TX {
 	m.waitForPendingTxs(ctx)
 
 	txs := make([]*TX, 0, maxTxs)
-	count := 0
 	for _, tx := range m.unverifiedTXs {
 		txs = append(txs, tx)
-		count++
-		if count >= maxTxs {
+		if len(txs) >= maxTxs {
 			break
 		}
-
-		delete(m.unverifiedTXs, tx.ID)
 	}
 
 	return txs
 }
 
 func (m *Mempool) VerifyMyBuiltBlock(ctx context.Context, b *Block) {
-	fmt.Println("Mempool verifying my built block with txs", len(b.txs), b.digest)
-	m.logger.Info("Mempool verifying my built block", zap.Stringer("blockDigest", b.digest))
 	m.lock.Lock()
 	defer m.lock.Unlock()
 
+	// don't delete txs here - they will be deleted when the block is accepted
+	// this allows the leader to verify its own block during replication if needed
 	m.verifiedButNotAcceptedTXs[b.digest] = b
 }
 
@@ -110,9 +101,9 @@ func (m *Mempool) VerifyBlock(ctx context.Context, b *Block) error {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 
-	// ensure the block is not already verified
+	// if the block is already verified, return success
 	if _, exists := m.verifiedButNotAcceptedTXs[b.digest]; exists {
-		return fmt.Errorf("%w: %s", errDoubleBlockVerification, b.digest)
+		return nil
 	}
 
 	// assert there are no duplicate txs in the block
@@ -131,12 +122,8 @@ func (m *Mempool) VerifyBlock(ctx context.Context, b *Block) error {
 		}
 	}
 
-	// update state
-	for _, tx := range b.txs {
-		delete(m.unverifiedTXs, tx.ID)
-	}
-	fmt.Println("Mempool verified block with txs", len(b.txs), b.digest)
-	m.logger.Info("Mempool verified block", zap.Stringer("blockDigest", b.digest), zap.Int("numTxs", len(b.txs)))
+	// update state - don't delete from unverifiedTXs yet, as multiple nodes may build blocks with the same txs
+	// txs will be deleted when the block is accepted
 	m.verifiedButNotAcceptedTXs[b.digest] = b
 
 	return nil
@@ -147,15 +134,12 @@ func (m *Mempool) verifyTx(ctx context.Context, tx *TX, block *Block) error {
 	initBackoff := 10 * time.Millisecond
 
 	for curBackoff := initBackoff; ; curBackoff = backoff(ctx, curBackoff) {
-		fmt.Println("Mempool verifying tx", tx.ID, "with backoff", curBackoff)
-		m.logger.Info("Mempool verifying tx", zap.Stringer("txID", tx), zap.Duration("backoff", curBackoff))
 		// check if context is done
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 
 		if _, exists := m.unverifiedTXs[tx.ID]; !exists {
-			fmt.Println("Mempool tx not found, waiting...", tx.ID)
 			// wait to receive the tx
 			continue
 		}
@@ -193,9 +177,9 @@ func (m *Mempool) AcceptBlock(b *Block) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 
-	
 	for _, tx := range b.txs {
 		m.acceptedTXs[tx.ID] = struct{}{}
+		delete(m.unverifiedTXs, tx.ID)
 	}
 	delete(m.verifiedButNotAcceptedTXs, b.digest)
 }
