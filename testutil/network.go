@@ -20,7 +20,7 @@ type BasicInMemoryNetwork struct {
 	nodes        []simplex.NodeID
 	lock         sync.RWMutex
 	disconnected map[string]struct{}
-	instances   []*BasicNode
+	instances    []*BasicNode
 }
 
 func NewBasicInMemoryNetwork(t *testing.T, nodes []simplex.NodeID) *BasicInMemoryNetwork {
@@ -29,7 +29,7 @@ func NewBasicInMemoryNetwork(t *testing.T, nodes []simplex.NodeID) *BasicInMemor
 		t:            t,
 		nodes:        nodes,
 		disconnected: make(map[string]struct{}),
-		instances: make([]*BasicNode, 0),
+		instances:    make([]*BasicNode, 0),
 	}
 }
 
@@ -119,7 +119,7 @@ func (b *BasicInMemoryNetwork) AddNode(node *BasicNode) {
 
 type ControlledInMemoryNetwork struct {
 	*BasicInMemoryNetwork
-	Instances    []*ControlledNode
+	Instances []*ControlledNode
 }
 
 // NewControlledNetwork creates an in-memory network. Node IDs must be provided before
@@ -128,11 +128,10 @@ func NewControlledNetwork(t *testing.T, nodes []simplex.NodeID) *ControlledInMem
 	simplex.SortNodes(nodes)
 	net := &ControlledInMemoryNetwork{
 		BasicInMemoryNetwork: NewBasicInMemoryNetwork(t, nodes),
-		Instances: make([]*ControlledNode, 0),
+		Instances:            make([]*ControlledNode, 0),
 	}
 	return net
 }
-
 
 func (n *ControlledInMemoryNetwork) TriggerLeaderBlockBuilder(round uint64) {
 	leader := simplex.LeaderForRound(n.nodes, round)

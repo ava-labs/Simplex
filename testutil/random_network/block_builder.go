@@ -28,7 +28,7 @@ func NewNetworkBlockBuilder(config *FuzzConfig, l simplex.Logger) *RandomNetwork
 		txVVerificationFailure: config.TxVVerificationFailure,
 		minTxsPerBlock:         config.MinTxsPerBlock,
 		maxTxsPerBlock:         config.MaxTxsPerBlock,
-		mempool:                NewMempool(),
+		mempool:                NewMempool(l),
 		l:                      l,
 	}
 }
@@ -36,6 +36,8 @@ func NewNetworkBlockBuilder(config *FuzzConfig, l simplex.Logger) *RandomNetwork
 func (bb *RandomNetworkBlockBuilder) BuildBlock(ctx context.Context, md simplex.ProtocolMetadata, bl simplex.Blacklist) (simplex.VerifiedBlock, bool) {
 	txs := bb.mempool.PackBlock(ctx, bb.maxTxsPerBlock)
 	block := NewBlock(md, bl, bb.mempool, txs)
+	bb.mempool.VerifyMyBuiltBlock(ctx, block)
+
 	return block, true
 }
 

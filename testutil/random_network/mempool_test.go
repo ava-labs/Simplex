@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/ava-labs/simplex"
+	"github.com/ava-labs/simplex/testutil"
 	"github.com/stretchr/testify/require"
 )
 
@@ -13,6 +14,7 @@ func TestMempoolAddsTx(t *testing.T) {
 }
 
 func TestMempoolVerifiesTx(t *testing.T) {
+	logger := testutil.MakeLogger(t, 1)
 	ctx := context.Background()
 	require := require.New(t)
 	round0MD := NewProtocolMetadata(0, 0, simplex.Digest{})
@@ -28,9 +30,9 @@ func TestMempoolVerifiesTx(t *testing.T) {
 			name:      "ValidTx",
 			expectErr: nil,
 			setup: func() (*Mempool, *Block, error) {
-				mempool := NewMempool()
+				mempool := NewMempool(logger)
 				tx := CreateNewTX()
-				mempool.AddUnverifiedTX(tx)
+				mempool.AddPendingTXs(tx)
 
 				block := NewBlock(round0MD, emptyBlacklist, mempool, []*TX{tx})
 
@@ -41,9 +43,9 @@ func TestMempoolVerifiesTx(t *testing.T) {
 			name:      "Duplicate Tx In Block",
 			expectErr: errDuplicateTxInBlock,
 			setup: func() (*Mempool, *Block, error) {
-				mempool := NewMempool()
+				mempool := NewMempool(logger)
 				tx := CreateNewTX()
-				mempool.AddUnverifiedTX(tx)
+				mempool.AddPendingTXs(tx)
 
 				block := NewBlock(round0MD, emptyBlacklist, mempool, []*TX{tx, tx})
 				return mempool, block, nil
@@ -53,7 +55,7 @@ func TestMempoolVerifiesTx(t *testing.T) {
 			name:      "Tx Not Found",
 			expectErr: errTxNotFound,
 			setup: func() (*Mempool, *Block, error) {
-				mempool := NewMempool()
+				mempool := NewMempool(logger)
 				tx := CreateNewTX()
 				block := NewBlock(round0MD, emptyBlacklist, mempool, []*TX{tx})
 
@@ -64,14 +66,14 @@ func TestMempoolVerifiesTx(t *testing.T) {
 			name:      "Already Accepted",
 			expectErr: errAlreadyAccepted,
 			setup: func() (*Mempool, *Block, error) {
-				mempool := NewMempool()
+				mempool := NewMempool(logger)
 				tx := CreateNewTX()
-				mempool.AddUnverifiedTX(tx)
+				mempool.AddPendingTXs(tx)
 
 				block := NewBlock(round0MD, emptyBlacklist, mempool, []*TX{tx})
 				mempool.AcceptBlock(block)
 
-				mempool.AddUnverifiedTX(tx)
+				mempool.AddPendingTXs(tx)
 				return mempool, block, nil
 			},
 		},
@@ -79,16 +81,16 @@ func TestMempoolVerifiesTx(t *testing.T) {
 			name:      "Already In Chain",
 			expectErr: errAlreadyInChain,
 			setup: func() (*Mempool, *Block, error) {
-				mempool := NewMempool()
+				mempool := NewMempool(logger)
 				tx := CreateNewTX()
-				mempool.AddUnverifiedTX(tx)
+				mempool.AddPendingTXs(tx)
 
 				parentBlock := NewBlock(round0MD, emptyBlacklist, mempool, []*TX{tx})
 				if err := mempool.VerifyBlock(ctx, parentBlock); err != nil {
 					return nil, nil, err
 				}
 
-				mempool.AddUnverifiedTX(tx)
+				mempool.AddPendingTXs(tx)
 				md := NewProtocolMetadata(1, 1, parentBlock.digest)
 				block := NewBlock(md, emptyBlacklist, mempool, []*TX{tx})
 				return mempool, block, nil
@@ -98,10 +100,10 @@ func TestMempoolVerifiesTx(t *testing.T) {
 			name:      "Tx Verification Fails",
 			expectErr: errTxVerification,
 			setup: func() (*Mempool, *Block, error) {
-				mempool := NewMempool()
+				mempool := NewMempool(logger)
 				tx := CreateNewTX()
 				tx.SetShouldFailVerification()
-				mempool.AddUnverifiedTX(tx)
+				mempool.AddPendingTXs(tx)
 
 				block := NewBlock(round0MD, emptyBlacklist, mempool, []*TX{tx})
 
@@ -112,14 +114,14 @@ func TestMempoolVerifiesTx(t *testing.T) {
 			name:      "Correctly verifies transaction not in chain",
 			expectErr: nil,
 			setup: func() (*Mempool, *Block, error) {
-				mempool := NewMempool()
+				mempool := NewMempool(logger)
 				tx1 := CreateNewTX()
-				mempool.AddUnverifiedTX(tx1)
+				mempool.AddPendingTXs(tx1)
 
 				blockWithSameTxButNotParent := NewBlock(round0MD, emptyBlacklist, mempool, []*TX{tx1})
 				err := mempool.VerifyBlock(ctx, blockWithSameTxButNotParent)
 
-				mempool.AddUnverifiedTX(tx1)
+				mempool.AddPendingTXs(tx1)
 				block := NewBlock(NewProtocolMetadata(1, 1, simplex.Digest{}), emptyBlacklist, mempool, []*TX{tx1})
 				return mempool, block, err
 			},
@@ -128,9 +130,9 @@ func TestMempoolVerifiesTx(t *testing.T) {
 			name:      "Double Block Verification",
 			expectErr: errDoubleBlockVerification,
 			setup: func() (*Mempool, *Block, error) {
-				mempool := NewMempool()
+				mempool := NewMempool(logger)
 				tx := CreateNewTX()
-				mempool.AddUnverifiedTX(tx)
+				mempool.AddPendingTXs(tx)
 
 				block := NewBlock(round0MD, emptyBlacklist, mempool, []*TX{tx})
 				err := mempool.VerifyBlock(ctx, block)
@@ -138,7 +140,7 @@ func TestMempoolVerifiesTx(t *testing.T) {
 					return nil, nil, err
 				}
 
-				mempool.AddUnverifiedTX(tx)
+				mempool.AddPendingTXs(tx)
 				return mempool, block, nil
 			},
 		},

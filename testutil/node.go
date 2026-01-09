@@ -32,6 +32,8 @@ type BasicNode struct {
 	l                *TestLogger
 	t                *testing.T
 	messageTypesSent map[string]uint64
+
+	CustomHandler func(msg *simplex.Message, from simplex.NodeID) error
 }
 
 func (b *BasicNode) Start() {
@@ -57,7 +59,7 @@ func (b *BasicNode) SilenceExceptKeywords(keywords ...string) {
 func (b *BasicNode) HandleMessage(msg *simplex.Message, from simplex.NodeID) error {
 	err := b.E.HandleMessage(msg, from)
 	if err != nil {
-		b.l.Error("error handling message", zap.Stringer("from", from), zap.Stringer("to", b.E.ID), zap.Error(err), zap.Error(err),  zap.Any("message", msg))
+		b.l.Error("error handling message", zap.Stringer("from", from), zap.Stringer("to", b.E.ID), zap.Error(err), zap.Error(err), zap.Any("message", msg))
 		panic(fmt.Sprintf("error handling message from %s to %s: %+v. Err message: %v", from.String(), b.E.ID.String(), msg, err))
 	}
 	require.NoError(b.t, err, "error handling message from %s to %s: %+v", from.String(), b.E.ID.String(), msg)
@@ -70,7 +72,12 @@ func (b *BasicNode) handleMessages() {
 		if b.shouldStop.Load() {
 			return
 		}
-		err := b.HandleMessage(msg.msg, msg.from)
+		var err error
+		if b.CustomHandler != nil {
+			err = b.CustomHandler(msg.msg, msg.from)
+		} else {
+			b.HandleMessage(msg.msg, msg.from)
+		}
 		require.NoError(b.t, err)
 		if err != nil {
 			return
@@ -153,8 +160,8 @@ func (b *BasicNode) GetMessageTypesSent() map[string]uint64 {
 
 type ControlledNode struct {
 	*BasicNode
-	bb *testControlledBlockBuilder
-	WAL *TestWAL
+	bb      *testControlledBlockBuilder
+	WAL     *TestWAL
 	Storage *InMemStorage
 }
 
@@ -202,9 +209,9 @@ func NewControlledSimplexNode(t *testing.T, nodeID simplex.NodeID, net *Controll
 	require.NoError(t, err)
 	ti := &ControlledNode{
 		BasicNode: NewBasicNode(t, e, epochConfig.Logger.(*TestLogger)),
-		WAL:              wal,
-		bb:               bb,
-		Storage:          storage,
+		WAL:       wal,
+		bb:        bb,
+		Storage:   storage,
 	}
 
 	net.addNode(ti)

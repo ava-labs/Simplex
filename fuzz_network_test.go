@@ -16,5 +16,9 @@ func TestNetworkSimpleFuzz(t *testing.T) {
 
 	network.IssueTxs()
 
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(3 * time.Second)
+
+	network.StopInstances()
+	time.Sleep(1 * time.Second)
+	network.PrintStatus()
 }

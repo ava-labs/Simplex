@@ -8,6 +8,7 @@ import (
 	"github.com/ava-labs/simplex"
 	"github.com/ava-labs/simplex/testutil"
 )
+
 var _ simplex.BlockBuilder = (*LongRunningBlockBuilder)(nil)
 
 type LongRunningBlockBuilder struct {

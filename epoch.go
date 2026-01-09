@@ -177,7 +177,8 @@ func (e *Epoch) HandleMessage(msg *Message, from NodeID) error {
 	case msg.BlockDigestRequest != nil:
 		return e.handleBlockDigestRequest(msg.BlockDigestRequest, from)
 	default:
-		e.Logger.Debug("Invalid message type", zap.Stringer("from", from))
+		e.Logger.Debug("Invalid message type", zap.Stringer("from", from), zap.Any("message", msg))
+		panic("invalid message type")
 		return nil
 	}
 }
@@ -2698,8 +2699,8 @@ func (e *Epoch) maybeLoadFutureMessages() error {
 					delete(messagesFromNode, round)
 				}
 			} else {
-				e.Logger.Debug("No future messages received for this round",
-					zap.Stringer("from", NodeID(from)), zap.Uint64("round", round))
+				// e.Logger.Debug("No future messages received for this round",
+				// 	zap.Stringer("from", NodeID(from)), zap.Uint64("round", round))
 			}
 		}
 

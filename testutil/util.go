@@ -249,4 +249,3 @@ func GenerateNodeID(t *testing.T) simplex.NodeID {
 
 	return simplex.NodeID(b)
 }
-

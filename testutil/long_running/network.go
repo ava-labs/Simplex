@@ -15,12 +15,12 @@ import (
 const longRunningMaxRoundWindow = 100
 
 type LongRunningInMemoryNetwork struct {
-	t *testing.T
+	t    *testing.T
 	lock sync.Mutex
 	*testutil.BasicInMemoryNetwork
 
 	instances []*LongRunningNode
-	stopped atomic.Bool
+	stopped   atomic.Bool
 }
 
 func NewDefaultLongRunningNetwork(t *testing.T, numNodes int) *LongRunningInMemoryNetwork {

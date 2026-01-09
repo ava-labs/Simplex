@@ -10,10 +10,10 @@ import (
 
 type LongRunningNode struct {
 	*testutil.BasicNode
-	bb *LongRunningBlockBuilder
-	wal    *testutil.TestWAL
+	bb      *LongRunningBlockBuilder
+	wal     *testutil.TestWAL
 	Storage *testutil.InMemStorage
-	logger *testutil.TestLogger
+	logger  *testutil.TestLogger
 }
 
 func NewLongRunningNode(t *testing.T, nodeID simplex.NodeID, basicNetwork *testutil.BasicInMemoryNetwork) *LongRunningNode {
@@ -28,18 +28,17 @@ func NewLongRunningNode(t *testing.T, nodeID simplex.NodeID, basicNetwork *testu
 	logger := epochConfig.Logger.(*testutil.TestLogger)
 	logger.SetPanicOnError(true)
 	logger.SetPanicOnWarn(true)
-	
+
 	ti := &LongRunningNode{
 		BasicNode: testutil.NewBasicNode(t, e, logger),
-		bb:               bb,
-		wal:              wal,
-		Storage:          storage,
-		logger:          logger,
+		bb:        bb,
+		wal:       wal,
+		Storage:   storage,
+		logger:    logger,
 	}
 
 	return ti
 }
-
 
 func NewLongRunningNodeWithExtras(t *testing.T, nodeID simplex.NodeID, basicNetwork *testutil.BasicInMemoryNetwork, bb *LongRunningBlockBuilder, wal *testutil.TestWAL, storage *testutil.InMemStorage, logger *testutil.TestLogger) *LongRunningNode {
 	comm := testutil.NewTestComm(nodeID, basicNetwork, testutil.AllowAllMessages)
@@ -54,13 +53,13 @@ func NewLongRunningNodeWithExtras(t *testing.T, nodeID simplex.NodeID, basicNetw
 
 	e, err := simplex.NewEpoch(epochConfig)
 	require.NoError(t, err)
-	
+
 	ti := &LongRunningNode{
 		BasicNode: testutil.NewBasicNode(t, e, logger),
-		bb:               bb,
-		wal:              wal,
-		Storage:          storage,
-		logger:          logger,
+		bb:        bb,
+		wal:       wal,
+		Storage:   storage,
+		logger:    logger,
 	}
 
 	return ti
