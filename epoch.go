@@ -2328,6 +2328,12 @@ func (e *Epoch) metadata() ProtocolMetadata {
 }
 
 func (e *Epoch) triggerEmptyBlockNotarization(round uint64) {
+	if e.round > round {
+		e.Logger.Debug("Not triggering empty block notarization because we advanced to a higher round",
+			zap.Uint64("round", round), zap.Uint64("currentRound", e.round))
+		return
+	}
+
 	emptyVote := ToBeSignedEmptyVote{EmptyVoteMetadata: EmptyVoteMetadata{
 		Round: round,
 		Epoch: e.Epoch,
