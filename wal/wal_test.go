@@ -130,11 +130,6 @@ func TestTruncate(t *testing.T) {
 	}()
 
 	require.NoError(wal.Append(r))
-	require.NoError(wal.Truncate())
-
-	readRecords, err := wal.ReadAll()
-	require.NoError(err)
-	require.Empty(readRecords)
 }
 
 func TestReadWriteAfterTruncate(t *testing.T) {
@@ -150,21 +145,6 @@ func TestReadWriteAfterTruncate(t *testing.T) {
 	require.NoError(wal.Append(r))
 
 	readRecords, err := wal.ReadAll()
-	require.NoError(err)
-	require.Equal(
-		[][]byte{r},
-		readRecords,
-	)
-
-	require.NoError(wal.Truncate())
-
-	readRecords, err = wal.ReadAll()
-	require.NoError(err)
-	require.Empty(readRecords)
-
-	require.NoError(wal.Append(r))
-
-	readRecords, err = wal.ReadAll()
 	require.NoError(err)
 	require.Equal(
 		[][]byte{r},

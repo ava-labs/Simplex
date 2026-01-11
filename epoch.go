@@ -1053,8 +1053,8 @@ func (e *Epoch) persistFinalization(finalization Finalization) error {
 			return err
 		}
 	} else {
-		recordBytes := NewQuorumRecord(finalization.QC.Bytes(), finalization.Finalization.Bytes(), record.FinalizationRecordType)
-		if err := e.WAL.Append(recordBytes); err != nil {
+		finalizationRecord := NewQuorumRecord(finalization.QC.Bytes(), finalization.Finalization.Bytes(), record.FinalizationRecordType)
+		if err := e.WAL.Append(finalizationRecord); err != nil {
 			e.Logger.Error("Failed to append finalization record to WAL", zap.Error(err))
 			return err
 		}
@@ -1063,7 +1063,7 @@ func (e *Epoch) persistFinalization(finalization Finalization) error {
 			zap.Uint64("round", finalization.Finalization.Round),
 			zap.Uint64("seq", finalization.Finalization.Seq),
 			zap.Uint64("height", nextSeqToCommit),
-			zap.Int("size", len(recordBytes)),
+			zap.Int("size", len(finalizationRecord)),
 			zap.Stringer("digest", finalization.Finalization.BlockHeader.Digest))
 
 		// we receive a finalization for a future round
@@ -1362,15 +1362,15 @@ func (e *Epoch) maybeCollectNotarization() error {
 }
 
 func (e *Epoch) writeNotarizationToWal(notarization Notarization) error {
-	record := NewQuorumRecord(notarization.QC.Bytes(), notarization.Vote.Bytes(), record.NotarizationRecordType)
+	notarizationRecord := NewQuorumRecord(notarization.QC.Bytes(), notarization.Vote.Bytes(), record.NotarizationRecordType)
 
-	if err := e.WAL.Append(record); err != nil {
+	if err := e.WAL.Append(notarizationRecord); err != nil {
 		e.Logger.Error("Failed to append notarization record to WAL", zap.Error(err))
 		return err
 	}
 
 	e.Logger.Debug("Persisted notarization to WAL",
-		zap.Int("size", len(record)),
+		zap.Int("size", len(notarizationRecord)),
 		zap.Uint64("round", notarization.Vote.Round),
 		zap.Stringer("digest", notarization.Vote.BlockHeader.Digest))
 
@@ -1847,8 +1847,8 @@ func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote)
 			return md.Digest
 		}
 
-		record := BlockRecord(md, blockBytes)
-		if err := e.WAL.Append(record); err != nil {
+		blockRecord := BlockRecord(md, blockBytes)
+		if err := e.WAL.Append(blockRecord); err != nil {
 			e.haltedError = err
 			e.Logger.Error("Failed to append block record to WAL", zap.Error(err))
 			return md.Digest
@@ -2261,8 +2261,8 @@ func (e *Epoch) proposeBlock(block VerifiedBlock) error {
 		return errors.New("failed to store block proposed by me")
 	}
 
-	record := BlockRecord(block.BlockHeader(), rawBlock)
-	if err := e.WAL.Append(record); err != nil {
+	blockRecord := BlockRecord(block.BlockHeader(), rawBlock)
+	if err := e.WAL.Append(blockRecord); err != nil {
 		e.Logger.Error("Failed appending block to WAL", zap.Error(err))
 		return err
 	}

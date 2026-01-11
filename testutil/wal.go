@@ -43,6 +43,10 @@ func (tw *TestWAL) Clone() *TestWAL {
 	return wal
 }
 
+func (tw *TestWAL) Delete() error {
+	return nil
+}
+
 func (tw *TestWAL) Append(b []byte) error {
 	tw.lock.Lock()
 	defer tw.lock.Unlock()

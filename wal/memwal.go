@@ -16,6 +16,20 @@ type InMemWAL struct {
 	t  *testing.T
 }
 
+func (wal *InMemWAL) Init(Reader) error {
+	return nil
+}
+
+func (wal *InMemWAL) Truncate(uint64) error {
+	wal.bb.Reset()
+	return nil
+}
+
+func (wal *InMemWAL) Delete() error {
+	wal.bb.Reset()
+	return nil
+}
+
 func NewMemWAL(t *testing.T) *InMemWAL {
 	return &InMemWAL{
 		t: t,

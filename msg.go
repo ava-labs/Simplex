@@ -35,19 +35,19 @@ type ToBeSignedEmptyVote struct {
 }
 
 func (v *ToBeSignedEmptyVote) Bytes() []byte {
-	bytes := make([]byte, 8+8) // Round + Epoch
-	binary.BigEndian.PutUint64(bytes[0:8], v.EmptyVoteMetadata.Round)
-	binary.BigEndian.PutUint64(bytes[8:16], v.EmptyVoteMetadata.Epoch)
+	bytes := make([]byte, 1+8+8) // Version + Epoch + Round
+	binary.BigEndian.PutUint64(bytes[1:9], v.EmptyVoteMetadata.Epoch)
+	binary.BigEndian.PutUint64(bytes[9:17], v.EmptyVoteMetadata.Round)
 	return bytes
 }
 
 func (v *ToBeSignedEmptyVote) FromBytes(buff []byte) error {
-	if len(buff) != 16 {
-		return fmt.Errorf("invalid buffer length")
+	if len(buff) != 17 {
+		return fmt.Errorf("invalid buffer length, expected 17, got %d", len(buff))
 	}
 
-	round := binary.BigEndian.Uint64(buff[0:8])
-	epoch := binary.BigEndian.Uint64(buff[8:16])
+	epoch := binary.BigEndian.Uint64(buff[1:9])
+	round := binary.BigEndian.Uint64(buff[9:17])
 
 	v.EmptyVoteMetadata = EmptyVoteMetadata{
 		Round: round,
