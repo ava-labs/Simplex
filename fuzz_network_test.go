@@ -1,9 +1,7 @@
 package simplex_test
 
 import (
-	"fmt"
 	"testing"
-	"time"
 
 	"github.com/ava-labs/simplex/testutil"
 	"github.com/ava-labs/simplex/testutil/random_network"
@@ -17,11 +15,7 @@ func TestNetworkSimpleFuzz(t *testing.T) {
 	network.StartInstances()
 	network.IssueTxs()
 
-	time.Sleep(1 * time.Second)
-
-	fmt.Println("Stopping network...")
+	network.WaitForTxAcceptance()
 	network.StopInstances()
-	fmt.Println("Network stopped.")
-	time.Sleep(1 * time.Second)
 	network.PrintStatus()
 }

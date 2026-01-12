@@ -12,7 +12,7 @@ import (
 type Node struct {
 	*testutil.BasicNode
 
-	storage *testutil.InMemStorage
+	storage *Storage
 	mempool *Mempool
 
 	logger *testutil.TestLogger
@@ -21,9 +21,11 @@ type Node struct {
 func NewNode(t *testing.T, net *testutil.BasicInMemoryNetwork, config *FuzzConfig, nodeID simplex.NodeID) *Node {
 	l := testutil.MakeLogger(t, int(nodeID[0]))
 	mempool := NewMempool(l, config)
+	storage := NewStorage(mempool)
 	comm := testutil.NewTestComm(nodeID, net, testutil.AllowAllMessages)
-	epochConfig, _, storage := testutil.DefaultTestNodeEpochConfig(t, nodeID, comm, mempool)
+	epochConfig, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodeID, comm, mempool)
 	epochConfig.Logger = l
+	epochConfig.Storage = storage
 	epochConfig.ReplicationEnabled = true
 	epochConfig.BlockDeserializer = &BlockDeserializer{
 		mempool: mempool,

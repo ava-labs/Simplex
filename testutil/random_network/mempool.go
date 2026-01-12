@@ -33,20 +33,19 @@ type Mempool struct {
 	// txID -> struct{}
 	acceptedTXs map[txID]struct{}
 
-	lock             *sync.Mutex
-	containsTxSignal sync.Cond
+	lock     *sync.Mutex
+	txsReady chan struct{}
 
 	logger simplex.Logger
 }
 
 func NewMempool(l simplex.Logger, config *FuzzConfig) *Mempool {
-	lock := &sync.Mutex{}
 	return &Mempool{
 		unacceptedTxs:             make(map[txID]*TX),
 		verifiedButNotAcceptedTXs: make(map[simplex.Digest]*Block),
 		acceptedTXs:               make(map[txID]struct{}),
-		lock:                      lock,
-		containsTxSignal:          sync.Cond{L: lock},
+		lock:                      &sync.Mutex{},
+		txsReady:                  make(chan struct{}, 1),
 		logger:                    l,
 		config:                    config,
 	}
@@ -60,7 +59,11 @@ func (m *Mempool) AddPendingTXs(txs ...*TX) {
 		m.unacceptedTxs[tx.ID] = tx
 	}
 
-	m.containsTxSignal.Broadcast()
+	// Non-blocking send to signal txs are ready
+	select {
+	case m.txsReady <- struct{}{}:
+	default:
+	}
 }
 
 func (m *Mempool) WaitForPendingTxs(ctx context.Context) {
@@ -71,33 +74,19 @@ func (m *Mempool) WaitForPendingTxs(ctx context.Context) {
 }
 
 func (m *Mempool) waitForPendingTxs(ctx context.Context) {
-	// Check if context is already cancelled
-	if ctx.Err() != nil {
-		return
-	}
-
-	// Start a goroutine to broadcast when context is cancelled
-	done := make(chan struct{})
-	defer close(done)
-
-	go func() {
-		select {
-		case <-ctx.Done():
-			m.containsTxSignal.Broadcast()
-		case <-done:
-		}
-	}()
-
 	for len(m.unacceptedTxs) == 0 {
-		// Check context before waiting
-		if ctx.Err() != nil {
+		// Unlock while waiting to avoid holding the lock
+		m.lock.Unlock()
+
+		select {
+		case <-m.txsReady:
+			// Txs might be available, reacquire lock and check
+		case <-ctx.Done():
+			m.lock.Lock()
 			return
 		}
-		m.containsTxSignal.Wait()
-		// Check context after waking up
-		if ctx.Err() != nil {
-			return
-		}
+
+		m.lock.Lock()
 	}
 }
 
@@ -206,18 +195,6 @@ func (m *Mempool) AcceptBlock(b *Block) {
 		delete(m.unacceptedTxs, tx.ID)
 	}
 	delete(m.verifiedButNotAcceptedTXs, b.digest)
-}
-
-// backoff waits for `backoff` duration before returning the next backoff duration.
-// It doubles the backoff duration each time it is called, up to a maximum of `maxBackoff`.
-func backoff(ctx context.Context, backoff time.Duration) time.Duration {
-	select {
-	case <-ctx.Done():
-		return 0
-	case <-time.After(backoff):
-	}
-
-	return min(maxBackoff, 2*backoff) // exponential backoff
 }
 
 func (m *Mempool) BuildBlock(ctx context.Context, md simplex.ProtocolMetadata, bl simplex.Blacklist) (simplex.VerifiedBlock, bool) {

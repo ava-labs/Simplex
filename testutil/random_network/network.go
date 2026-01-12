@@ -20,6 +20,7 @@ type Network struct {
 	randomness *rand.Rand
 	config     *FuzzConfig
 	stopped    atomic.Bool
+	issuedTxs []*TX
 }
 
 func NewNetwork(config *FuzzConfig, t *testing.T, l simplex.Logger) *Network {
@@ -49,6 +50,7 @@ func NewNetwork(config *FuzzConfig, t *testing.T, l simplex.Logger) *Network {
 		randomness:           r,
 		l:                    l,
 		config:               config,
+		issuedTxs: make([]*TX, 0),
 	}
 }
 
@@ -80,11 +82,16 @@ func (n *Network) IssueTxs() {
 		}
 
 		txs = append(txs, tx)
+		n.issuedTxs = append(n.issuedTxs, tx)
 	}
 
 	for _, node := range n.nodes {
 		node.mempool.AddPendingTXs(txs...)
 	}
+}
+
+func (n *Network) WaitForTxAcceptance() { 
+	
 }
 
 func (n *Network) SetInfoLog() {
