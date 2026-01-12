@@ -209,3 +209,21 @@ func (m *Mempool) BuildBlock(ctx context.Context, md simplex.ProtocolMetadata, b
 func (m *Mempool) WaitForPendingBlock(ctx context.Context) {
 	m.WaitForPendingTxs(ctx)
 }
+
+// IsTxAccepted returns true if the transaction has been accepted
+func (m *Mempool) IsTxAccepted(txID txID) bool {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+
+	_, accepted := m.acceptedTXs[txID]
+	return accepted
+}
+
+// IsTxPending returns true if the transaction is still pending (unaccepted)
+func (m *Mempool) IsTxPending(txID txID) bool {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+
+	_, pending := m.unacceptedTxs[txID]
+	return pending
+}

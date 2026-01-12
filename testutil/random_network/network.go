@@ -90,8 +90,64 @@ func (n *Network) IssueTxs() {
 	}
 }
 
-func (n *Network) WaitForTxAcceptance() { 
-	
+func (n *Network) WaitForTxAcceptance() {
+	const pollInterval = 100 * time.Millisecond
+	const timeout = 30 * time.Second
+
+	deadline := time.Now().Add(timeout)
+
+	for time.Now().Before(deadline) {
+		allAccepted := true
+
+		// Check each issued transaction
+		for _, tx := range n.issuedTxs {
+			if tx.shouldFailVerification {
+				// Ensure tx was NOT accepted by any node
+				for _, node := range n.nodes {
+					if node.mempool.IsTxAccepted(tx.ID) {
+						n.l.Error("Transaction that should fail verification was accepted",
+							zap.Stringer("txID", tx),
+							zap.Stringer("nodeID", node.E.ID))
+						allAccepted = false
+						break
+					}
+				}
+			} else {
+				// Ensure tx was accepted by all nodes
+				for _, node := range n.nodes {
+					if !node.mempool.IsTxAccepted(tx.ID) {
+						allAccepted = false
+						break
+					}
+				}
+			}
+
+			if !allAccepted {
+				break
+			}
+		}
+
+		if allAccepted {
+			n.l.Info("All transactions accepted as expected")
+			return
+		}
+
+		time.Sleep(pollInterval)
+	}
+
+	// Timeout - log detailed status
+	n.l.Warn("WaitForTxAcceptance timeout - printing detailed status")
+	for _, tx := range n.issuedTxs {
+		acceptanceStatus := make([]bool, len(n.nodes))
+		for i, node := range n.nodes {
+			acceptanceStatus[i] = node.mempool.IsTxAccepted(tx.ID)
+		}
+
+		n.l.Warn("Transaction acceptance status",
+			zap.Stringer("txID", tx),
+			zap.Bool("shouldFail", tx.shouldFailVerification),
+			zap.Bools("acceptedByNodes", acceptanceStatus))
+	}
 }
 
 func (n *Network) SetInfoLog() {
