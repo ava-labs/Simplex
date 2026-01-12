@@ -107,11 +107,16 @@ func (b *BasicNode) enqueue(msg *simplex.Message, from, to simplex.NodeID) {
 }
 
 func (b *BasicNode) Stop() {
+	fmt.Println("grabbing lock")
 	b.lock.Lock()
 	defer b.lock.Unlock()
+	fmt.Println("locksecure node", b.E.ID)
 	b.E.Stop()
+	fmt.Println("epoch stopped node", b.E.ID)
 	b.shouldStop.Store(true)
+	fmt.Println("should stop set node", b.E.ID)
 	close(b.ingress)
+	fmt.Println("ingress closed node", b.E.ID)
 	b.running.Wait()
 }
 

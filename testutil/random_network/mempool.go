@@ -71,8 +71,33 @@ func (m *Mempool) WaitForPendingTxs(ctx context.Context) {
 }
 
 func (m *Mempool) waitForPendingTxs(ctx context.Context) {
+	// Check if context is already cancelled
+	if ctx.Err() != nil {
+		return
+	}
+
+	// Start a goroutine to broadcast when context is cancelled
+	done := make(chan struct{})
+	defer close(done)
+
+	go func() {
+		select {
+		case <-ctx.Done():
+			m.containsTxSignal.Broadcast()
+		case <-done:
+		}
+	}()
+
 	for len(m.unacceptedTxs) == 0 {
+		// Check context before waiting
+		if ctx.Err() != nil {
+			return
+		}
 		m.containsTxSignal.Wait()
+		// Check context after waking up
+		if ctx.Err() != nil {
+			return
+		}
 	}
 }
 
@@ -85,6 +110,7 @@ func (m *Mempool) PackBlock(ctx context.Context, maxTxs int) []*TX {
 	txs := make([]*TX, 0, maxTxs)
 	for _, tx := range m.unacceptedTxs {
 		txs = append(txs, tx)
+		delete(m.unacceptedTxs, tx.ID)
 		if len(txs) >= maxTxs {
 			break
 		}
@@ -94,14 +120,18 @@ func (m *Mempool) PackBlock(ctx context.Context, maxTxs int) []*TX {
 }
 
 func (m *Mempool) VerifyMyBuiltBlock(ctx context.Context, b *Block) {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+
 	// future function to verify blocks that shouldn't be
+	m.verifiedButNotAcceptedTXs[b.digest] = b
 }
 
 // VerifyBlock verifies the block and its transactions. Errors if any tx is invalid or if there are duplicate txs in the block.
 func (m *Mempool) VerifyBlock(ctx context.Context, b *Block) error {
 	m.lock.Lock()
 	defer m.lock.Unlock()
-	m.logger.Info("verifying block")
+	m.logger.Info("verifying block", zap.Stringer("digest", b.digest), zap.Stringer("parent", b.metadata.Prev))
 	// ensure the block is not already verified
 	if _, exists := m.verifiedButNotAcceptedTXs[b.digest]; exists {
 		m.logger.Warn("Block has already been verified", zap.Error(errDoubleBlockVerification))
@@ -124,8 +154,14 @@ func (m *Mempool) VerifyBlock(ctx context.Context, b *Block) error {
 		}
 	}
 
+	for _, tx := range b.txs {
+		m.logger.Info("Block verified contains tx", zap.Stringer("txID", tx))
+		delete(m.unacceptedTxs, tx.ID)
+	}
+
 	// update state - don't delete from unverifiedTXs yet, as multiple nodes may build blocks with the same txs
 	// txs will be deleted when the block is accepted
+	m.logger.Info("AND ADDED Block verified", zap.Stringer("digest", b.digest), zap.Stringer("parent", b.metadata.Prev))
 	m.verifiedButNotAcceptedTXs[b.digest] = b
 
 	return nil
@@ -133,33 +169,18 @@ func (m *Mempool) VerifyBlock(ctx context.Context, b *Block) error {
 
 // verifyTx verifies a single transaction against the mempool state and the block's chain.
 func (m *Mempool) verifyTx(ctx context.Context, tx *TX, block *Block) error {
-	initBackoff := 10 * time.Millisecond
-
-	for curBackoff := initBackoff; ; curBackoff = backoff(ctx, curBackoff) {
-		// check if context is done
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-
-		if _, exists := m.unacceptedTxs[tx.ID]; !exists {
-			// wait to receive the tx
-			continue
-		}
-
-		if _, exists := m.acceptedTXs[tx.ID]; exists {
-			return errAlreadyAccepted
-		}
-
-		if m.isTxInChain(tx.ID, block.metadata.Prev) {
-			return errAlreadyInChain
-		}
-
-		if err := tx.Verify(ctx); err != nil {
-			return err
-		}
-
-		return nil
+	if _, exists := m.acceptedTXs[tx.ID]; exists {
+		return errAlreadyAccepted
 	}
+
+	if m.isTxInChain(tx.ID, block.metadata.Prev) {
+		return errAlreadyInChain
+	}
+
+	if err := tx.Verify(ctx); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (m *Mempool) isTxInChain(txID txID, parentDigest simplex.Digest) bool {
@@ -168,6 +189,7 @@ func (m *Mempool) isTxInChain(txID txID, parentDigest simplex.Digest) bool {
 		return false
 	}
 
+	m.logger.Info("checking if block", zap.Stringer("digest", block.digest), zap.Stringer("parent", parentDigest))
 	if block.containsTX(txID) {
 		return true
 	}
@@ -198,10 +220,10 @@ func backoff(ctx context.Context, backoff time.Duration) time.Duration {
 	return min(maxBackoff, 2*backoff) // exponential backoff
 }
 
-
 func (m *Mempool) BuildBlock(ctx context.Context, md simplex.ProtocolMetadata, bl simplex.Blacklist) (simplex.VerifiedBlock, bool) {
 	txs := m.PackBlock(ctx, m.config.MaxTxsPerBlock)
 	block := NewBlock(md, bl, m, txs)
+	m.logger.Info("Building block with txs", zap.Int("num txs", len(txs)), zap.Any("prev", md.Prev), zap.Stringer("digest", block.digest), zap.Any("md", md))
 	m.VerifyMyBuiltBlock(ctx, block)
 
 	return block, true

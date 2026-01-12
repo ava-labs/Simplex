@@ -1711,11 +1711,12 @@ func (e *Epoch) blockDependencies(bh BlockHeader) (*Digest, []uint64) {
 // if the block has already been verified, it will index the finalization,
 // otherwise it will verify the block first.
 func (e *Epoch) processFinalizedBlock(block Block, finalization *Finalization) error {
-	e.Logger.Debug("Processing finalized block during replication", zap.Uint64("round", finalization.Finalization.Round), zap.Uint64("sequence", finalization.Finalization.Seq))
+	e.Logger.Info("Processing finalized block during replication", zap.Uint64("round", finalization.Finalization.Round), zap.Uint64("sequence", finalization.Finalization.Seq))
 
 	round, exists := e.rounds[finalization.Finalization.Round]
 	// dont create a block verification task if the block is already in the rounds map
 	if exists {
+		panic("here")
 		roundDigest := round.block.BlockHeader().Digest
 		seqDigest := finalization.Finalization.BlockHeader.Digest
 		if !bytes.Equal(roundDigest[:], seqDigest[:]) {
@@ -1901,16 +1902,16 @@ func (e *Epoch) createFinalizedBlockVerificationTask(block Block, finalization *
 	return func() Digest {
 		md := block.BlockHeader()
 
-		e.Logger.Debug("Block verification started", zap.Uint64("round", md.Round))
+		e.Logger.Info("Block verification started", zap.Uint64("round", md.Round))
 		start := time.Now()
 		defer func() {
 			elapsed := time.Since(start)
-			e.Logger.Debug("Block verification ended", zap.Uint64("round", md.Round), zap.Duration("elapsed", elapsed))
+			e.Logger.Info("Block verification ended", zap.Uint64("round", md.Round), zap.Duration("elapsed", elapsed))
 		}()
 
 		verifiedBlock, err := block.Verify(context.Background())
 		if err != nil {
-			e.Logger.Debug("Failed verifying block", zap.Error(err))
+			e.Logger.Info("Failed verifying block", zap.Error(err))
 			// if we fail to verify the block, we re-add to request timeout
 			err = e.replicationState.ResendFinalizationRequest(md.Seq, finalization.QC.Signers())
 			if err != nil {
@@ -2759,7 +2760,7 @@ func (e *Epoch) storeProposal(block VerifiedBlock) bool {
 
 // HandleRequest processes a request and returns a response. It also sends a response to the sender.
 func (e *Epoch) handleReplicationRequest(req *ReplicationRequest, from NodeID) error {
-	e.Logger.Debug("Received replication request", zap.Stringer("from", from), zap.Int("num seqs", len(req.Seqs)), zap.Int("num rounds", len(req.Rounds)), zap.Uint64("latest round", req.LatestRound))
+	e.Logger.Info("Received replication request", zap.Stringer("from", from), zap.Int("num seqs", len(req.Seqs)), zap.Int("num rounds", len(req.Rounds)), zap.Uint64("latest round", req.LatestRound))
 	if !e.ReplicationEnabled {
 		return nil
 	}
@@ -2965,7 +2966,7 @@ func (e *Epoch) handleReplicationResponse(resp *ReplicationResponse, from NodeID
 		return nil
 	}
 
-	e.Logger.Debug("Received replication response", zap.Stringer("from", from), zap.Int("num seqs", len(resp.Data)), zap.Stringer("latest round", resp.LatestRound), zap.Stringer("latest seq", resp.LatestSeq))
+	e.Logger.Info("Received replication response", zap.Stringer("from", from), zap.Int("num seqs", len(resp.Data)), zap.Stringer("latest round", resp.LatestRound), zap.Stringer("latest seq", resp.LatestSeq))
 	nextSeqToCommit := e.nextSeqToCommit()
 
 	for _, data := range resp.Data {

@@ -98,7 +98,7 @@ func (b *Block) ComputeAndSetDigest() {
 	b.digest = sha256.Sum256(bb.Bytes())
 }
 
-type BlockDeserializer struct{
+type BlockDeserializer struct {
 	mempool *Mempool
 }
 
@@ -131,7 +131,7 @@ func (bd *BlockDeserializer) DeserializeBlock(ctx context.Context, buff []byte) 
 		metadata:  *md,
 		txs:       txs,
 		blacklist: blacklist,
-		mempool: bd.mempool,
+		mempool:   bd.mempool,
 	}
 
 	b.ComputeAndSetDigest()

@@ -121,7 +121,6 @@ func MakeLogger(t *testing.T, node ...int) *TestLogger {
 
 	core := zapcore.NewCore(encoder, zapcore.AddSync(os.Stdout), atomicLevel)
 
-
 	logger := zap.New(core, zap.AddCaller())
 	logger = logger.With(zap.String("test", t.Name()))
 	if len(node) > 0 {
@@ -136,7 +135,7 @@ func MakeLogger(t *testing.T, node ...int) *TestLogger {
 	}
 
 	l := &TestLogger{Logger: logger, traceVerboseLogger: traceVerboseLogger,
-		atomicLevel:        atomicLevel,
+		atomicLevel: atomicLevel,
 	}
 
 	return l

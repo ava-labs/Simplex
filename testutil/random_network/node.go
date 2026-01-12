@@ -1,6 +1,7 @@
 package random_network
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/ava-labs/simplex"
@@ -12,7 +13,7 @@ type Node struct {
 	*testutil.BasicNode
 
 	storage *testutil.InMemStorage
-	mempool      *Mempool
+	mempool *Mempool
 
 	logger *testutil.TestLogger
 }
@@ -27,7 +28,7 @@ func NewNode(t *testing.T, net *testutil.BasicInMemoryNetwork, config *FuzzConfi
 	epochConfig.BlockDeserializer = &BlockDeserializer{
 		mempool: mempool,
 	}
-	
+
 	e, err := simplex.NewEpoch(epochConfig)
 	require.NoError(t, err)
 
@@ -40,7 +41,7 @@ func NewNode(t *testing.T, net *testutil.BasicInMemoryNetwork, config *FuzzConfi
 
 	n.BasicNode.CustomHandler = n.HandleMessage
 	net.AddNode(n.BasicNode)
-	
+
 	return n
 }
 
@@ -49,59 +50,73 @@ func (n *Node) HandleMessage(msg *simplex.Message, from simplex.NodeID) error {
 	msgCopy := *msg
 
 	switch {
-		case msgCopy.BlockMessage != nil:
-			block := msgCopy.BlockMessage.Block.(*Block)
-			// only create a copy if the mempool is different
-			if block.mempool != n.mempool {
-				blockCopy := *block
+	case msgCopy.BlockMessage != nil:
+		block := msgCopy.BlockMessage.Block.(*Block)
+		block.mempool.lock.Lock()
+
+		// only create a copy if the mempool is different
+		if block.mempool != n.mempool {
+			blockCopy := *block
+			blockCopy.mempool = n.mempool
+			blockMsgCopy := *msgCopy.BlockMessage
+			blockMsgCopy.Block = &blockCopy
+			msgCopy.BlockMessage = &blockMsgCopy
+		}
+
+		block.mempool.lock.Unlock()
+		fmt.Println("handling block in node", n.BasicNode.E.ID)
+
+	case msgCopy.ReplicationResponse != nil:
+		// Create a copy of ReplicationResponse to avoid mutating shared state
+		rrCopy := *msgCopy.ReplicationResponse
+		// Also copy the Data slice to avoid mutating shared slice
+		rrCopy.Data = make([]simplex.QuorumRound, len(msgCopy.ReplicationResponse.Data))
+		copy(rrCopy.Data, msgCopy.ReplicationResponse.Data)
+		msgCopy.ReplicationResponse = &rrCopy
+
+		// convert quorum rounds to our type
+		for i, qr := range msgCopy.ReplicationResponse.Data {
+			if qr.Block != nil {
+				origBlock := qr.Block.(*Block)
+				origBlock.mempool.lock.Lock()
+				blockCopy := *origBlock
 				blockCopy.mempool = n.mempool
-				blockMsgCopy := *msgCopy.BlockMessage
-				blockMsgCopy.Block = &blockCopy
-				msgCopy.BlockMessage = &blockMsgCopy
+				msgCopy.ReplicationResponse.Data[i].Block = &blockCopy
+				origBlock.mempool.lock.Unlock()
 			}
-		case msgCopy.ReplicationResponse != nil:
-			// Create a copy of ReplicationResponse to avoid mutating shared state
-			rrCopy := *msgCopy.ReplicationResponse
-			// Also copy the Data slice to avoid mutating shared slice
-			rrCopy.Data = make([]simplex.QuorumRound, len(msgCopy.ReplicationResponse.Data))
-			copy(rrCopy.Data, msgCopy.ReplicationResponse.Data)
-			msgCopy.ReplicationResponse = &rrCopy
+		}
 
-			// convert quorum rounds to our type
-			for i, qr := range msgCopy.ReplicationResponse.Data {
-				if qr.Block != nil {
-					origBlock := qr.Block.(*Block)
-					blockCopy := *origBlock
-					blockCopy.mempool = n.mempool
-					msgCopy.ReplicationResponse.Data[i].Block = &blockCopy
-				}
+		if msgCopy.ReplicationResponse.LatestRound != nil {
+			latestRoundCopy := *msgCopy.ReplicationResponse.LatestRound
+			msgCopy.ReplicationResponse.LatestRound = &latestRoundCopy
+			if latestRoundCopy.Block != nil {
+				origBlock := latestRoundCopy.Block.(*Block)
+				origBlock.mempool.lock.Lock()
+				blockCopy := *origBlock
+				blockCopy.mempool = n.mempool
+				msgCopy.ReplicationResponse.LatestRound.Block = &blockCopy
+				origBlock.mempool.lock.Unlock()
 			}
+		}
 
-			if msgCopy.ReplicationResponse.LatestRound != nil {
-				latestRoundCopy := *msgCopy.ReplicationResponse.LatestRound
-				msgCopy.ReplicationResponse.LatestRound = &latestRoundCopy
-				if latestRoundCopy.Block != nil {
-					origBlock := latestRoundCopy.Block.(*Block)
-					blockCopy := *origBlock
-					blockCopy.mempool = n.mempool
-					msgCopy.ReplicationResponse.LatestRound.Block = &blockCopy
-				}
+		if msgCopy.ReplicationResponse.LatestSeq != nil {
+			latestSeqCopy := *msgCopy.ReplicationResponse.LatestSeq
+			msgCopy.ReplicationResponse.LatestSeq = &latestSeqCopy
+			if latestSeqCopy.Block != nil {
+				origBlock := latestSeqCopy.Block.(*Block)
+				origBlock.mempool.lock.Lock()
+				blockCopy := *origBlock
+				blockCopy.mempool = n.mempool
+				msgCopy.ReplicationResponse.LatestSeq.Block = &blockCopy
+				origBlock.mempool.lock.Unlock()
 			}
+		}
+		fmt.Println("handling rep in node", n.BasicNode.E.ID)
 
-			if msgCopy.ReplicationResponse.LatestSeq != nil {
-				latestSeqCopy := *msgCopy.ReplicationResponse.LatestSeq
-				msgCopy.ReplicationResponse.LatestSeq = &latestSeqCopy
-				if latestSeqCopy.Block != nil {
-					origBlock := latestSeqCopy.Block.(*Block)
-					blockCopy := *origBlock
-					blockCopy.mempool = n.mempool
-					msgCopy.ReplicationResponse.LatestSeq.Block = &blockCopy
-				}
-			}
-		case msgCopy.VerifiedReplicationResponse != nil:
-			panic("not implemented vrr")
-		default:
-			// no-op
+	case msgCopy.VerifiedReplicationResponse != nil:
+		panic("not implemented vrr")
+	default:
+		// no-op
 	}
 	return n.BasicNode.HandleMessage(&msgCopy, from)
 }
