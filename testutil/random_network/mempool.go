@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ava-labs/simplex"
+	"go.uber.org/zap"
 )
 
 var (
@@ -21,8 +22,10 @@ var (
 )
 
 type Mempool struct {
+	config *FuzzConfig
+
 	// txID -> TX
-	unverifiedTXs map[txID]*TX
+	unacceptedTxs map[txID]*TX
 
 	// block digest -> Blocks
 	verifiedButNotAcceptedTXs map[simplex.Digest]*Block
@@ -36,15 +39,16 @@ type Mempool struct {
 	logger simplex.Logger
 }
 
-func NewMempool(l simplex.Logger) *Mempool {
+func NewMempool(l simplex.Logger, config *FuzzConfig) *Mempool {
 	lock := &sync.Mutex{}
 	return &Mempool{
-		unverifiedTXs:             make(map[txID]*TX),
+		unacceptedTxs:             make(map[txID]*TX),
 		verifiedButNotAcceptedTXs: make(map[simplex.Digest]*Block),
 		acceptedTXs:               make(map[txID]struct{}),
 		lock:                      lock,
 		containsTxSignal:          sync.Cond{L: lock},
 		logger:                    l,
+		config:                    config,
 	}
 }
 
@@ -53,7 +57,7 @@ func (m *Mempool) AddPendingTXs(txs ...*TX) {
 	defer m.lock.Unlock()
 
 	for _, tx := range txs {
-		m.unverifiedTXs[tx.ID] = tx
+		m.unacceptedTxs[tx.ID] = tx
 	}
 
 	m.containsTxSignal.Broadcast()
@@ -67,7 +71,7 @@ func (m *Mempool) WaitForPendingTxs(ctx context.Context) {
 }
 
 func (m *Mempool) waitForPendingTxs(ctx context.Context) {
-	for len(m.unverifiedTXs) == 0 {
+	for len(m.unacceptedTxs) == 0 {
 		m.containsTxSignal.Wait()
 	}
 }
@@ -79,7 +83,7 @@ func (m *Mempool) PackBlock(ctx context.Context, maxTxs int) []*TX {
 	m.waitForPendingTxs(ctx)
 
 	txs := make([]*TX, 0, maxTxs)
-	for _, tx := range m.unverifiedTXs {
+	for _, tx := range m.unacceptedTxs {
 		txs = append(txs, tx)
 		if len(txs) >= maxTxs {
 			break
@@ -97,9 +101,10 @@ func (m *Mempool) VerifyMyBuiltBlock(ctx context.Context, b *Block) {
 func (m *Mempool) VerifyBlock(ctx context.Context, b *Block) error {
 	m.lock.Lock()
 	defer m.lock.Unlock()
-
+	m.logger.Info("verifying block")
 	// ensure the block is not already verified
 	if _, exists := m.verifiedButNotAcceptedTXs[b.digest]; exists {
+		m.logger.Warn("Block has already been verified", zap.Error(errDoubleBlockVerification))
 		return fmt.Errorf("%w: %s", errDoubleBlockVerification, b.digest)
 	}
 
@@ -136,7 +141,7 @@ func (m *Mempool) verifyTx(ctx context.Context, tx *TX, block *Block) error {
 			return ctx.Err()
 		}
 
-		if _, exists := m.unverifiedTXs[tx.ID]; !exists {
+		if _, exists := m.unacceptedTxs[tx.ID]; !exists {
 			// wait to receive the tx
 			continue
 		}
@@ -176,7 +181,7 @@ func (m *Mempool) AcceptBlock(b *Block) {
 
 	for _, tx := range b.txs {
 		m.acceptedTXs[tx.ID] = struct{}{}
-		delete(m.unverifiedTXs, tx.ID)
+		delete(m.unacceptedTxs, tx.ID)
 	}
 	delete(m.verifiedButNotAcceptedTXs, b.digest)
 }
@@ -191,4 +196,17 @@ func backoff(ctx context.Context, backoff time.Duration) time.Duration {
 	}
 
 	return min(maxBackoff, 2*backoff) // exponential backoff
+}
+
+
+func (m *Mempool) BuildBlock(ctx context.Context, md simplex.ProtocolMetadata, bl simplex.Blacklist) (simplex.VerifiedBlock, bool) {
+	txs := m.PackBlock(ctx, m.config.MaxTxsPerBlock)
+	block := NewBlock(md, bl, m, txs)
+	m.VerifyMyBuiltBlock(ctx, block)
+
+	return block, true
+}
+
+func (m *Mempool) WaitForPendingBlock(ctx context.Context) {
+	m.WaitForPendingTxs(ctx)
 }

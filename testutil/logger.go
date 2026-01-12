@@ -19,6 +19,7 @@ type TestLogger struct {
 	traceVerboseLogger *zap.Logger
 	panicOnError       bool
 	panicOnWarn        bool
+	atomicLevel        zap.AtomicLevel
 }
 
 // keywordFilterCore is a zapcore.Core wrapper that only logs entries whose
@@ -120,6 +121,7 @@ func MakeLogger(t *testing.T, node ...int) *TestLogger {
 
 	core := zapcore.NewCore(encoder, zapcore.AddSync(os.Stdout), atomicLevel)
 
+
 	logger := zap.New(core, zap.AddCaller())
 	logger = logger.With(zap.String("test", t.Name()))
 	if len(node) > 0 {
@@ -133,7 +135,9 @@ func MakeLogger(t *testing.T, node ...int) *TestLogger {
 		traceVerboseLogger = traceVerboseLogger.With(zap.Int("myNodeID", node[0]))
 	}
 
-	l := &TestLogger{Logger: logger, traceVerboseLogger: traceVerboseLogger}
+	l := &TestLogger{Logger: logger, traceVerboseLogger: traceVerboseLogger,
+		atomicLevel:        atomicLevel,
+	}
 
 	return l
 }
@@ -157,4 +161,8 @@ func (dse *DebugSwallowingEncoder) EncodeEntry(entry zapcore.Entry, fields []zap
 		return dse.pool.Get(), nil
 	}
 	return dse.consoleEncoder.EncodeEntry(entry, fields)
+}
+
+func (t *TestLogger) SetLevel(level zapcore.Level) {
+	t.atomicLevel.SetLevel(level)
 }

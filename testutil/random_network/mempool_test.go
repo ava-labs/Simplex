@@ -18,6 +18,7 @@ func TestMempoolVerifiesTx(t *testing.T) {
 	ctx := context.Background()
 	require := require.New(t)
 	round0MD := NewProtocolMetadata(0, 0, simplex.Digest{})
+	config := DefaultFuzzConfig()
 	// round1MD := NewProtocolMetadata(1, 1, round0MD.Prev)
 	// round2MD := NewProtocolMetadata(2, 2, round1MD.Prev)
 
@@ -30,7 +31,7 @@ func TestMempoolVerifiesTx(t *testing.T) {
 			name:      "ValidTx",
 			expectErr: nil,
 			setup: func() (*Mempool, *Block, error) {
-				mempool := NewMempool(logger)
+				mempool := NewMempool(logger, config)
 				tx := CreateNewTX()
 				mempool.AddPendingTXs(tx)
 
@@ -43,7 +44,7 @@ func TestMempoolVerifiesTx(t *testing.T) {
 			name:      "Duplicate Tx In Block",
 			expectErr: errDuplicateTxInBlock,
 			setup: func() (*Mempool, *Block, error) {
-				mempool := NewMempool(logger)
+				mempool := NewMempool(logger, config)
 				tx := CreateNewTX()
 				mempool.AddPendingTXs(tx)
 
@@ -55,7 +56,7 @@ func TestMempoolVerifiesTx(t *testing.T) {
 			name:      "Tx Not Found",
 			expectErr: errTxNotFound,
 			setup: func() (*Mempool, *Block, error) {
-				mempool := NewMempool(logger)
+				mempool := NewMempool(logger, config)
 				tx := CreateNewTX()
 				block := NewBlock(round0MD, emptyBlacklist, mempool, []*TX{tx})
 
@@ -66,7 +67,7 @@ func TestMempoolVerifiesTx(t *testing.T) {
 			name:      "Already Accepted",
 			expectErr: errAlreadyAccepted,
 			setup: func() (*Mempool, *Block, error) {
-				mempool := NewMempool(logger)
+				mempool := NewMempool(logger, config)
 				tx := CreateNewTX()
 				mempool.AddPendingTXs(tx)
 
@@ -81,7 +82,7 @@ func TestMempoolVerifiesTx(t *testing.T) {
 			name:      "Already In Chain",
 			expectErr: errAlreadyInChain,
 			setup: func() (*Mempool, *Block, error) {
-				mempool := NewMempool(logger)
+				mempool := NewMempool(logger, config)
 				tx := CreateNewTX()
 				mempool.AddPendingTXs(tx)
 
@@ -100,7 +101,7 @@ func TestMempoolVerifiesTx(t *testing.T) {
 			name:      "Tx Verification Fails",
 			expectErr: errTxVerification,
 			setup: func() (*Mempool, *Block, error) {
-				mempool := NewMempool(logger)
+				mempool := NewMempool(logger, config)
 				tx := CreateNewTX()
 				tx.SetShouldFailVerification()
 				mempool.AddPendingTXs(tx)
@@ -114,7 +115,7 @@ func TestMempoolVerifiesTx(t *testing.T) {
 			name:      "Correctly verifies transaction not in chain",
 			expectErr: nil,
 			setup: func() (*Mempool, *Block, error) {
-				mempool := NewMempool(logger)
+				mempool := NewMempool(logger, config)
 				tx1 := CreateNewTX()
 				mempool.AddPendingTXs(tx1)
 
@@ -130,7 +131,7 @@ func TestMempoolVerifiesTx(t *testing.T) {
 			name:      "Double Block Verification",
 			expectErr: errDoubleBlockVerification,
 			setup: func() (*Mempool, *Block, error) {
-				mempool := NewMempool(logger)
+				mempool := NewMempool(logger, config)
 				tx := CreateNewTX()
 				mempool.AddPendingTXs(tx)
 

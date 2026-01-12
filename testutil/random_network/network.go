@@ -9,6 +9,7 @@ import (
 	"github.com/ava-labs/simplex"
 	"github.com/ava-labs/simplex/testutil"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 type Network struct {
@@ -40,7 +41,6 @@ func NewNetwork(config *FuzzConfig, t *testing.T, l simplex.Logger) *Network {
 	for i := range numNodes {
 		node := NewNode(t, basicNetwork, config, nodeIds[i])
 		nodes[i] = node
-		basicNetwork.AddNode(node.BasicNode)
 	}
 
 	return &Network{
@@ -83,7 +83,13 @@ func (n *Network) IssueTxs() {
 	}
 
 	for _, node := range n.nodes {
-		node.bb.mempool.AddPendingTXs(txs...)
+		node.mempool.AddPendingTXs(txs...)
+	}
+}
+
+func (n *Network) SetInfoLog() {
+	for _, node := range n.nodes {
+		node.logger.SetLevel(zapcore.InfoLevel)
 	}
 }
 
@@ -93,9 +99,9 @@ func (n *Network) PrintStatus() {
 
 	// prints the number of txs in each node's mempool
 	for _, node := range n.nodes {
-		numPendingTxs := len(node.bb.mempool.unverifiedTXs)
-		numVerifiedButNotAcceptedTxs := len(node.bb.mempool.verifiedButNotAcceptedTXs)
-		numAcceptedTxs := len(node.bb.mempool.acceptedTXs)
+		numPendingTxs := len(node.mempool.unacceptedTxs)
+		numVerifiedButNotAcceptedTxs := len(node.mempool.verifiedButNotAcceptedTXs)
+		numAcceptedTxs := len(node.mempool.acceptedTXs)
 		n.l.Info("Node Status", zap.Stringer("nodeID", node.E.ID), zap.Int("Short", int(node.E.ID[0])), zap.Int("pending txs", numPendingTxs), zap.Int("verified but not accepted txs", numVerifiedButNotAcceptedTxs), zap.Int("accepted txs", numAcceptedTxs), zap.Uint64("Height", node.storage.NumBlocks()))
 	}
 }
