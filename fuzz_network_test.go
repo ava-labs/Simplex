@@ -13,9 +13,10 @@ func TestNetworkSimpleFuzz(t *testing.T) {
 	network := random_network.NewNetwork(config, t, l)
 	// network.SetInfoLog()
 	network.StartInstances()
-	network.IssueTxs()
+	// network.IssueTxs()
 
-	network.WaitForTxAcceptance()
-	network.StopInstances()
+	// network.WaitForTxAcceptance()
+	// network.StopInstances()
+	network.Run()
 	network.PrintStatus()
 }

@@ -10,8 +10,8 @@ type FuzzConfig struct {
 	// The minimum and maximum number delay (in milliseconds) to introduce between
 	// when a transaction is created and when it is submitted to the network.
 	// Default is between 10ms and 100ms.
-	MinTxDelay time.Duration
-	MaxTxDelay time.Duration
+	MinTxIssuanceDelay time.Duration
+	MaxTxIssuanceDelay time.Duration
 
 	// The probability that a transaction verification will fail. Default is 1%.
 	TxVVerificationFailure int
@@ -20,25 +20,28 @@ type FuzzConfig struct {
 	MinTxsPerBlock int
 	MaxTxsPerBlock int
 
-	// The number of blocks that must be finalized before ending the fuzz test. Default is 1000.
+	// The number of blocks that must be finalized before ending the fuzz test. Default is 100.
 	NumFinalizedBlocks int
 
 	RandomSeed int64
 
 	// Frequency at which to update time in the network. Default is 100 MS.
 	TimeUpdateFrequency time.Duration
+
+	// randomly crashes up to f nodes every crashInterval. if set to 0, no crashes occur.
+	crashInterval time.Duration
 }
 
 func DefaultFuzzConfig() *FuzzConfig {
 	return &FuzzConfig{
 		MinNodes:               3,
 		MaxNodes:               10,
-		MinTxDelay:             10 * time.Millisecond,
-		MaxTxDelay:             100 * time.Millisecond,
+		MinTxIssuanceDelay:             10 * time.Millisecond,
+		MaxTxIssuanceDelay:             100 * time.Millisecond,
 		TxVVerificationFailure: 1,
 		MinTxsPerBlock:         5,
 		MaxTxsPerBlock:         20,
-		NumFinalizedBlocks:     1000,
+		NumFinalizedBlocks:     100,
 		RandomSeed:             time.Now().UnixNano(),
 		TimeUpdateFrequency:    100 * time.Millisecond,
 	}

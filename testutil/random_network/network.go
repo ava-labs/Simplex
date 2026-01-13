@@ -2,6 +2,7 @@ package random_network
 
 import (
 	"math/rand"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -15,7 +16,9 @@ import (
 type Network struct {
 	*testutil.BasicInMemoryNetwork
 	l simplex.Logger
+	t *testing.T
 
+	lock 	 sync.Mutex
 	nodes      []*Node
 	randomness *rand.Rand
 	config     *FuzzConfig
@@ -27,8 +30,7 @@ func NewNetwork(config *FuzzConfig, t *testing.T, l simplex.Logger) *Network {
 	l.Info("Initiating logger with random seed", zap.Int64("seed", config.RandomSeed))
 	r := rand.New(rand.NewSource(config.RandomSeed))
 
-	// numNodes := r.Intn(config.MaxNodes-config.MinNodes+1) + config.MinNodes
-	numNodes := 3
+	numNodes := r.Intn(config.MaxNodes-config.MinNodes+1) + config.MinNodes
 	nodeIds := make([]simplex.NodeID, numNodes)
 	for i := range numNodes {
 		nodeIds[i] = testutil.GenerateNodeID(t)
@@ -49,8 +51,10 @@ func NewNetwork(config *FuzzConfig, t *testing.T, l simplex.Logger) *Network {
 		nodes:                nodes,
 		randomness:           r,
 		l:                    l,
+		t:                    t,
+		lock:                 sync.Mutex{},
 		config:               config,
-		issuedTxs: make([]*TX, 0),
+		issuedTxs:            make([]*TX, 0),
 	}
 }
 
@@ -71,8 +75,7 @@ func (n *Network) UpdateTime(frequency time.Duration, increment time.Duration) {
 
 func (n *Network) IssueTxs() {
 	// Implementation of block building logic goes here
-	// numTxs := rand.Intn(n.config.MaxTxsPerBlock-n.config.MinTxsPerBlock+1) + n.config.MinTxsPerBlock // randomize between min and max inclusive
-	numTxs := 3
+	numTxs := rand.Intn(n.config.MaxTxsPerBlock-n.config.MinTxsPerBlock+1) + n.config.MinTxsPerBlock // randomize between min and max inclusive
 	txs := make([]*TX, 0, numTxs)
 
 	for range numTxs {
@@ -92,6 +95,61 @@ func (n *Network) IssueTxs() {
 
 	for _, node := range n.nodes {
 		node.mempool.NotifyTxsReady()
+	}
+}
+
+func (n *Network) Run() {
+	const pollInterval = 100 * time.Millisecond
+
+	// Start issuing transactions in the background
+	stopIssuance := make(chan struct{})
+	defer close(stopIssuance)
+
+	go func() {
+		for {
+			select {
+			case <-stopIssuance:
+				return
+			default:
+				// Issue a batch of transactions
+				n.IssueTxs()
+
+				// Random delay before next issuance
+				delay := n.config.MinTxIssuanceDelay
+				if n.config.MaxTxIssuanceDelay > n.config.MinTxIssuanceDelay {
+					randomDelta := n.randomness.Int63n(int64(n.config.MaxTxIssuanceDelay - n.config.MinTxIssuanceDelay))
+					delay += time.Duration(randomDelta)
+				}
+
+				select {
+				case <-time.After(delay):
+				case <-stopIssuance:
+					return
+				}
+			}
+		}
+	}()
+
+	// Poll until target height is reached
+	targetHeight := uint64(n.config.NumFinalizedBlocks)
+	for {
+		// Check if any node has reached the target height
+		maxHeight := uint64(0)
+		for _, node := range n.nodes {
+			height := node.storage.NumBlocks()
+			if height > maxHeight {
+				maxHeight = height
+			}
+		}
+
+		if maxHeight >= targetHeight {
+			n.l.Info("Target height reached",
+				zap.Uint64("height", maxHeight),
+				zap.Uint64("target", targetHeight))
+			return
+		}
+
+		time.Sleep(pollInterval)
 	}
 }
 
@@ -179,5 +237,31 @@ func (n *Network) PrintStatus() {
 		numVerifiedButNotAcceptedTxs := node.mempool.NumVerifiedBlocks()
 		numAcceptedTxs := len(node.mempool.acceptedTXs)
 		n.l.Info("Node Status", zap.Stringer("nodeID", node.E.ID), zap.Int("Short", int(node.E.ID[0])), zap.Int("pending txs", numPendingTxs), zap.Int("verified but not accepted txs", numVerifiedButNotAcceptedTxs), zap.Int("accepted txs", numAcceptedTxs), zap.Uint64("Height", node.storage.NumBlocks()))
+	}
+}
+
+
+func (n *Network) CrashNodes(nodeIndexes ...uint64) {
+	for _, idx := range nodeIndexes {
+		instance := n.nodes[idx]
+		instance.Stop()
+	}
+}
+
+func (n *Network) StartNodes(nodeIndexes ...uint64) {
+	for _, idx := range nodeIndexes {
+		n.lock.Lock()
+		instance := n.nodes[idx]
+
+		nodeID := instance.E.ID
+		mempool := instance.mempool
+		clonedWal := instance.wal.Clone()
+		clonedStorage := instance.storage.Clone()
+
+		newNode := NewNodeWithExtras(n.t, n.BasicInMemoryNetwork, nodeID, mempool, clonedWal, clonedStorage, instance.logger)
+
+		n.nodes[idx] = newNode
+		n.lock.Unlock()
+		newNode.Start()
 	}
 }

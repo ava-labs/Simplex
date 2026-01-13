@@ -12,6 +12,7 @@ type Node struct {
 	*testutil.BasicNode
 
 	storage *Storage
+	wal    *testutil.TestWAL
 	mempool *Mempool
 
 	logger *testutil.TestLogger
@@ -22,7 +23,7 @@ func NewNode(t *testing.T, net *testutil.BasicInMemoryNetwork, config *FuzzConfi
 	mempool := NewMempool(l, config)
 	storage := NewStorage(mempool)
 	comm := testutil.NewTestComm(nodeID, net, testutil.AllowAllMessages)
-	epochConfig, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodeID, comm, mempool)
+	epochConfig, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodeID, comm, mempool)
 	epochConfig.Logger = l
 	epochConfig.Storage = storage
 	epochConfig.ReplicationEnabled = true
@@ -38,6 +39,35 @@ func NewNode(t *testing.T, net *testutil.BasicInMemoryNetwork, config *FuzzConfi
 		storage:   storage,
 		mempool:   mempool,
 		logger:    l,
+		wal:       wal,
+	}
+
+	n.BasicNode.CustomHandler = n.HandleMessage
+	net.AddNode(n.BasicNode)
+
+	return n
+}
+
+func NewNodeWithExtras(t *testing.T, net *testutil.BasicInMemoryNetwork, nodeID simplex.NodeID, mempool *Mempool, wal *testutil.TestWAL, storage *Storage, logger *testutil.TestLogger) *Node {
+	comm := testutil.NewTestComm(nodeID, net, testutil.AllowAllMessages)
+	epochConfig, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodeID, comm, mempool)
+	epochConfig.Logger = logger
+	epochConfig.Storage = storage
+	epochConfig.WAL = wal
+	epochConfig.ReplicationEnabled = true
+	epochConfig.BlockDeserializer = &BlockDeserializer{
+		mempool: mempool,
+	}
+
+	e, err := simplex.NewEpoch(epochConfig)
+	require.NoError(t, err)
+
+	n := &Node{
+		BasicNode: testutil.NewBasicNode(t, e, logger),
+		storage:   storage,
+		mempool:   mempool,
+		logger:    logger,
+		wal:       wal,
 	}
 
 	n.BasicNode.CustomHandler = n.HandleMessage

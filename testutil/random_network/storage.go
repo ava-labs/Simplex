@@ -23,3 +23,10 @@ func (s *Storage) Index(ctx context.Context, block simplex.VerifiedBlock, certif
 	s.mempool.AcceptBlock(block.(*Block))
 	return s.InMemStorage.Index(ctx, block, certificate)
 }
+
+func (s *Storage) Clone() *Storage {
+	return &Storage{
+		InMemStorage: s.InMemStorage.Clone(),
+		mempool:      s.mempool, // Share the same mempool
+	}
+}
