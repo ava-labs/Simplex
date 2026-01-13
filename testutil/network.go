@@ -5,7 +5,6 @@ package testutil
 
 import (
 	"bytes"
-	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -102,9 +101,7 @@ func (b *BasicInMemoryNetwork) StartInstances() {
 
 func (b *BasicInMemoryNetwork) StopInstances() {
 	for _, instance := range b.instances {
-		fmt.Println("stopping node", instance.E.ID)
 		instance.Stop()
-		fmt.Println("stopped node", instance.E.ID)
 	}
 }
 

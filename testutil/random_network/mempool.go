@@ -58,43 +58,46 @@ func (m *Mempool) AddPendingTXs(txs ...*TX) {
 	for _, tx := range txs {
 		m.unacceptedTxs[tx.ID] = tx
 	}
+}
 
-	// Non-blocking send to signal txs are ready
+func (m *Mempool) NotifyTxsReady() {
 	select {
 	case m.txsReady <- struct{}{}:
 	default:
 	}
 }
 
+
 func (m *Mempool) WaitForPendingTxs(ctx context.Context) {
-	m.lock.Lock()
-	defer m.lock.Unlock()
-
-	m.waitForPendingTxs(ctx)
-}
-
-func (m *Mempool) waitForPendingTxs(ctx context.Context) {
-	for len(m.unacceptedTxs) == 0 {
-		// Unlock while waiting to avoid holding the lock
+	for {
+		// Briefly check if txs are available
+		m.lock.Lock()
+		hasTxs := len(m.unacceptedTxs) > 0
+		for _, tx := range m.unacceptedTxs {
+			m.logger.Info("Pending tx in mempool", zap.Stringer("txID", tx))
+		}
 		m.lock.Unlock()
 
-		select {
-		case <-m.txsReady:
-			// Txs might be available, reacquire lock and check
-		case <-ctx.Done():
-			m.lock.Lock()
+		if hasTxs {
 			return
 		}
 
-		m.lock.Lock()
+		// No txs available, wait for notification or cancellation
+		select {
+		case <-m.txsReady:
+			// Might have txs now, loop back to check
+		case <-ctx.Done():
+			fmt.Println("Context done while waiting for pending txs") // --- IGNORE ---
+			return
+		}
 	}
 }
 
 func (m *Mempool) PackBlock(ctx context.Context, maxTxs int) []*TX {
+	m.WaitForPendingTxs(ctx)
+	
 	m.lock.Lock()
 	defer m.lock.Unlock()
-
-	m.waitForPendingTxs(ctx)
 
 	txs := make([]*TX, 0, maxTxs)
 	for _, tx := range m.unacceptedTxs {
@@ -187,6 +190,7 @@ func (m *Mempool) isTxInChain(txID txID, parentDigest simplex.Digest) bool {
 }
 
 func (m *Mempool) AcceptBlock(b *Block) {
+	m.logger.Info("accepting block digest", zap.Stringer("digest", b.digest))
 	m.lock.Lock()
 	defer m.lock.Unlock()
 
@@ -197,8 +201,23 @@ func (m *Mempool) AcceptBlock(b *Block) {
 	delete(m.verifiedButNotAcceptedTXs, b.digest)
 }
 
+func (m *Mempool) NumVerifiedBlocks() int {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+
+	// print out all digests of verified but not accepted blocks
+	for digest := range m.verifiedButNotAcceptedTXs {
+		m.logger.Info("Verified but not accepted block", zap.Stringer("digest", digest))
+	}
+
+	return len(m.verifiedButNotAcceptedTXs)
+}
+
 func (m *Mempool) BuildBlock(ctx context.Context, md simplex.ProtocolMetadata, bl simplex.Blacklist) (simplex.VerifiedBlock, bool) {
 	txs := m.PackBlock(ctx, m.config.MaxTxsPerBlock)
+	if ctx.Err() != nil {
+		return nil, false
+	}
 	block := NewBlock(md, bl, m, txs)
 	m.logger.Info("Building block with txs", zap.Int("num txs", len(txs)), zap.Any("prev", md.Prev), zap.Stringer("digest", block.digest), zap.Any("md", md))
 	m.VerifyMyBuiltBlock(ctx, block)

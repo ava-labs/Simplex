@@ -1,62 +1,292 @@
 === RUN   TestNetworkSimpleFuzz
-[01-12|15:40:44.781] INFO random_network/network.go:26 Initiating logger with random seed {"test": "TestNetworkSimpleFuzz", "seed": 1768250444781820000}
-[01-12|15:40:44.782] INFO random_network/network.go:38 Initiating logger with nodes {"test": "TestNetworkSimpleFuzz", "num nodes": 3}
-[01-12|15:40:44.782] DEBUG Simplex/sched.go:28 Created Scheduler {"test": "TestNetworkSimpleFuzz", "myNodeID": 7, "maxTasks": 500}
-[01-12|15:40:44.782] DEBUG Simplex/block_scheduler.go:60 Created BlockVerificationScheduler {"test": "TestNetworkSimpleFuzz", "myNodeID": 7, "maxDeps": 500}
-[01-12|15:40:44.782] INFO Simplex/epoch.go:219 Starting Simplex Epoch {"test": "TestNetworkSimpleFuzz", "myNodeID": 7, "ID": "07192ce511006455", "nodes": "[07192ce511006455 5f73066a80b4b9ed ee5ead2897370d65]"}
-[01-12|15:40:44.783] DEBUG Simplex/sched.go:28 Created Scheduler {"test": "TestNetworkSimpleFuzz", "myNodeID": 95, "maxTasks": 500}
-[01-12|15:40:44.783] DEBUG Simplex/block_scheduler.go:60 Created BlockVerificationScheduler {"test": "TestNetworkSimpleFuzz", "myNodeID": 95, "maxDeps": 500}
-[01-12|15:40:44.783] INFO Simplex/epoch.go:219 Starting Simplex Epoch {"test": "TestNetworkSimpleFuzz", "myNodeID": 95, "ID": "5f73066a80b4b9ed", "nodes": "[07192ce511006455 5f73066a80b4b9ed ee5ead2897370d65]"}
-[01-12|15:40:44.783] DEBUG Simplex/sched.go:28 Created Scheduler {"test": "TestNetworkSimpleFuzz", "myNodeID": 238, "maxTasks": 500}
-[01-12|15:40:44.783] DEBUG Simplex/block_scheduler.go:60 Created BlockVerificationScheduler {"test": "TestNetworkSimpleFuzz", "myNodeID": 238, "maxDeps": 500}
-[01-12|15:40:44.783] INFO Simplex/epoch.go:219 Starting Simplex Epoch {"test": "TestNetworkSimpleFuzz", "myNodeID": 238, "ID": "ee5ead2897370d65", "nodes": "[07192ce511006455 5f73066a80b4b9ed ee5ead2897370d65]"}
-[01-12|15:40:44.783] INFO Simplex/epoch.go:2469 It is time to build a block {"test": "TestNetworkSimpleFuzz", "myNodeID": 238, "round": 0}
-[01-12|15:40:44.784] INFO Simplex/epoch.go:2469 It is time to build a block {"test": "TestNetworkSimpleFuzz", "myNodeID": 95, "round": 0}
-[01-12|15:40:44.784] INFO random_network/mempool.go:196 Building block with txs {"test": "TestNetworkSimpleFuzz", "myNodeID": 7, "num txs": 15, "prev": "00000000000000000000...", "digest": "69619c49b2e76aca1d4e...", "md": {"Version":0,"Epoch":0,"Round":0,"Seq":0,"Prev":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]}}
-handling block in node ee5ead2897370d65
-handling block in node 5f73066a80b4b9ed
-[01-12|15:40:44.784] INFO random_network/mempool.go:109 verifying block {"test": "TestNetworkSimpleFuzz", "myNodeID": 238, "digest": "69619c49b2e76aca1d4e...", "parent": "00000000000000000000..."}
-[01-12|15:40:44.784] INFO random_network/mempool.go:134 AND ADDED Block verified {"test": "TestNetworkSimpleFuzz", "myNodeID": 238, "digest": "69619c49b2e76aca1d4e...", "parent": "00000000000000000000..."}
-[01-12|15:40:44.784] INFO Simplex/notarization.go:47 Collected Quorum of votes {"test": "TestNetworkSimpleFuzz", "myNodeID": 238, "round": 0, "votes": 2}
-[01-12|15:40:44.784] INFO Simplex/epoch.go:2606 Moving to a new round {"test": "TestNetworkSimpleFuzz", "myNodeID": 238, "prev round": 0, "next round": 1, "prev leader": "07192ce511006455", "next leader": "5f73066a80b4b9ed"}
-[01-12|15:40:44.784] INFO Simplex/notarization.go:47 Collected Quorum of votes {"test": "TestNetworkSimpleFuzz", "myNodeID": 7, "round": 0, "votes": 2}
-[01-12|15:40:44.784] INFO Simplex/epoch.go:2469 It is time to build a block {"test": "TestNetworkSimpleFuzz", "myNodeID": 238, "round": 1}
-[01-12|15:40:44.784] INFO random_network/mempool.go:109 verifying block {"test": "TestNetworkSimpleFuzz", "myNodeID": 95, "digest": "69619c49b2e76aca1d4e...", "parent": "00000000000000000000..."}
-[01-12|15:40:44.784] INFO Simplex/epoch.go:2606 Moving to a new round {"test": "TestNetworkSimpleFuzz", "myNodeID": 7, "prev round": 0, "next round": 1, "prev leader": "07192ce511006455", "next leader": "5f73066a80b4b9ed"}
-[01-12|15:40:44.784] INFO Simplex/epoch.go:1526 Received a notarization for this round, but we don't have a block for it yet {"test": "TestNetworkSimpleFuzz", "myNodeID": 95, "round": 0, "epoch round": 0}
-[01-12|15:40:44.784] INFO Simplex/epoch.go:1526 Received a notarization for this round, but we don't have a block for it yet {"test": "TestNetworkSimpleFuzz", "myNodeID": 95, "round": 0, "epoch round": 0}
-[01-12|15:40:44.784] INFO random_network/mempool.go:134 AND ADDED Block verified {"test": "TestNetworkSimpleFuzz", "myNodeID": 95, "digest": "69619c49b2e76aca1d4e...", "parent": "00000000000000000000..."}
-[01-12|15:40:44.784] INFO Simplex/epoch.go:1212 Committed block {"test": "TestNetworkSimpleFuzz", "myNodeID": 7, "round": 0, "sequence": 0, "digest": "69619c49b2e76aca1d4e..."}
-[01-12|15:40:44.784] INFO Simplex/epoch.go:1212 Committed block {"test": "TestNetworkSimpleFuzz", "myNodeID": 238, "round": 0, "sequence": 0, "digest": "69619c49b2e76aca1d4e..."}
-[01-12|15:40:44.784] INFO Simplex/epoch.go:2606 Moving to a new round {"test": "TestNetworkSimpleFuzz", "myNodeID": 95, "prev round": 0, "next round": 1, "prev leader": "07192ce511006455", "next leader": "5f73066a80b4b9ed"}
-[01-12|15:40:44.784] INFO Simplex/epoch.go:1212 Committed block {"test": "TestNetworkSimpleFuzz", "myNodeID": 95, "round": 0, "sequence": 0, "digest": "69619c49b2e76aca1d4e..."}
-[01-12|15:40:44.785] INFO random_network/mempool.go:196 Building block with txs {"test": "TestNetworkSimpleFuzz", "myNodeID": 95, "num txs": 15, "prev": "69619c49b2e76aca1d4e...", "digest": "21fe378785c81109a385...", "md": {"Version":0,"Epoch":0,"Round":1,"Seq":1,"Prev":[105,97,156,73,178,231,106,202,29,78,39,65,167,47,128,6,231,21,190,225,249,223,112,157,174,199,28,64,20,207,163,233]}}
-handling block in node 07192ce511006455
-[01-12|15:40:44.785] INFO random_network/mempool.go:109 verifying block {"test": "TestNetworkSimpleFuzz", "myNodeID": 7, "digest": "21fe378785c81109a385...", "parent": "69619c49b2e76aca1d4e..."}
-[01-12|15:40:44.785] INFO random_network/mempool.go:162 checking if block {"test": "TestNetworkSimpleFuzz", "myNodeID": 7, "digest": "69619c49b2e76aca1d4e...", "parent": "69619c49b2e76aca1d4e..."}
-[01-12|15:40:44.785] INFO Simplex/epoch.go:1830 Triggering empty block agreement {"test": "TestNetworkSimpleFuzz", "myNodeID": 7, "reason": "Failed verifying block", "round": 1, "leader": "5f73066a80b4b9ed", "error": "tx already in chain"}
-handling rep in node 5f73066a80b4b9ed
-[01-12|15:40:44.785] INFO Simplex/epoch.go:2969 Received replication response {"test": "TestNetworkSimpleFuzz", "myNodeID": 95, "from": "ee5ead2897370d65", "num seqs": 1, "latest round": "QuorumRound{nil}", "latest seq": "QuorumRound{nil}"}
-handling block in node ee5ead2897370d65
-handling rep in node 5f73066a80b4b9ed
-[01-12|15:40:44.785] INFO Simplex/epoch.go:2969 Received replication response {"test": "TestNetworkSimpleFuzz", "myNodeID": 95, "from": "07192ce511006455", "num seqs": 1, "latest round": "QuorumRound{nil}", "latest seq": "QuorumRound{nil}"}
-[01-12|15:40:44.785] INFO random_network/mempool.go:109 verifying block {"test": "TestNetworkSimpleFuzz", "myNodeID": 238, "digest": "21fe378785c81109a385...", "parent": "69619c49b2e76aca1d4e..."}
-[01-12|15:40:44.785] INFO random_network/mempool.go:162 checking if block {"test": "TestNetworkSimpleFuzz", "myNodeID": 238, "digest": "69619c49b2e76aca1d4e...", "parent": "69619c49b2e76aca1d4e..."}
-[01-12|15:40:44.785] INFO Simplex/epoch.go:1830 Triggering empty block agreement {"test": "TestNetworkSimpleFuzz", "myNodeID": 238, "reason": "Failed verifying block", "round": 1, "leader": "5f73066a80b4b9ed", "error": "tx already in chain"}
-[01-12|15:40:44.785] INFO Simplex/epoch.go:2606 Moving to a new round {"test": "TestNetworkSimpleFuzz", "myNodeID": 95, "prev round": 1, "next round": 2, "prev leader": "5f73066a80b4b9ed", "next leader": "ee5ead2897370d65"}
-[01-12|15:40:44.785] INFO Simplex/epoch.go:2606 Moving to a new round {"test": "TestNetworkSimpleFuzz", "myNodeID": 7, "prev round": 1, "next round": 2, "prev leader": "5f73066a80b4b9ed", "next leader": "ee5ead2897370d65"}
-[01-12|15:40:44.785] INFO Simplex/epoch.go:2606 Moving to a new round {"test": "TestNetworkSimpleFuzz", "myNodeID": 238, "prev round": 1, "next round": 2, "prev leader": "5f73066a80b4b9ed", "next leader": "ee5ead2897370d65"}
-[01-12|15:40:44.785] INFO random_network/mempool.go:196 Building block with txs {"test": "TestNetworkSimpleFuzz", "myNodeID": 238, "num txs": 15, "prev": "69619c49b2e76aca1d4e...", "digest": "a5c50f95f81c4d189e83...", "md": {"Version":0,"Epoch":0,"Round":2,"Seq":1,"Prev":[105,97,156,73,178,231,106,202,29,78,39,65,167,47,128,6,231,21,190,225,249,223,112,157,174,199,28,64,20,207,163,233]}}
-handling block in node 07192ce511006455
-[01-12|15:40:44.785] INFO random_network/mempool.go:109 verifying block {"test": "TestNetworkSimpleFuzz", "myNodeID": 7, "digest": "a5c50f95f81c4d189e83...", "parent": "69619c49b2e76aca1d4e..."}
-[01-12|15:40:44.785] INFO random_network/mempool.go:162 checking if block {"test": "TestNetworkSimpleFuzz", "myNodeID": 7, "digest": "69619c49b2e76aca1d4e...", "parent": "69619c49b2e76aca1d4e..."}
-handling block in node 5f73066a80b4b9ed
-[01-12|15:40:44.785] INFO Simplex/epoch.go:1830 Triggering empty block agreement {"test": "TestNetworkSimpleFuzz", "myNodeID": 7, "reason": "Failed verifying block", "round": 2, "leader": "ee5ead2897370d65", "error": "tx already in chain"}
-[01-12|15:40:44.785] INFO random_network/mempool.go:109 verifying block {"test": "TestNetworkSimpleFuzz", "myNodeID": 95, "digest": "a5c50f95f81c4d189e83...", "parent": "69619c49b2e76aca1d4e..."}
-[01-12|15:40:44.785] INFO random_network/mempool.go:162 checking if block {"test": "TestNetworkSimpleFuzz", "myNodeID": 95, "digest": "69619c49b2e76aca1d4e...", "parent": "69619c49b2e76aca1d4e..."}
-[01-12|15:40:44.785] INFO Simplex/epoch.go:1830 Triggering empty block agreement {"test": "TestNetworkSimpleFuzz", "myNodeID": 95, "reason": "Failed verifying block", "round": 2, "leader": "ee5ead2897370d65", "error": "tx already in chain"}
-[01-12|15:40:44.785] INFO Simplex/epoch.go:2606 Moving to a new round {"test": "TestNetworkSimpleFuzz", "myNodeID": 7, "prev round": 2, "next round": 3, "prev leader": "ee5ead2897370d65", "next leader": "07192ce511006455"}
-[01-12|15:40:44.785] INFO Simplex/epoch.go:2606 Moving to a new round {"test": "TestNetworkSimpleFuzz", "myNodeID": 95, "prev round": 2, "next round": 3, "prev leader": "ee5ead2897370d65", "next leader": "07192ce511006455"}
-[01-12|15:40:44.785] INFO Simplex/epoch.go:2606 Moving to a new round {"test": "TestNetworkSimpleFuzz", "myNodeID": 238, "prev round": 2, "next round": 3, "prev leader": "ee5ead2897370d65", "next leader": "07192ce511006455"}
-signal: interrupt
-FAIL	github.com/ava-labs/simplex	11.039s
+[01-13|16:10:44.020] INFO random_network/network.go:27 Initiating logger with random seed {"test": "TestNetworkSimpleFuzz", "seed": 1768338644020569000}
+[01-13|16:10:44.021] INFO random_network/network.go:39 Initiating logger with nodes {"test": "TestNetworkSimpleFuzz", "num nodes": 3}
+[01-13|16:10:44.021] DEBUG Simplex/sched.go:28 Created Scheduler {"test": "TestNetworkSimpleFuzz", "myNodeID": 36, "maxTasks": 500}
+[01-13|16:10:44.021] DEBUG Simplex/block_scheduler.go:60 Created BlockVerificationScheduler {"test": "TestNetworkSimpleFuzz", "myNodeID": 36, "maxDeps": 500}
+[01-13|16:10:44.021] INFO Simplex/epoch.go:219 Starting Simplex Epoch {"test": "TestNetworkSimpleFuzz", "myNodeID": 36, "ID": "24714efd31062dac", "nodes": "[24714efd31062dac 9510e14f9c1a679c e03186251a10d227]"}
+[01-13|16:10:44.021] DEBUG Simplex/sched.go:28 Created Scheduler {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "maxTasks": 500}
+[01-13|16:10:44.021] DEBUG Simplex/block_scheduler.go:60 Created BlockVerificationScheduler {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "maxDeps": 500}
+[01-13|16:10:44.021] INFO Simplex/epoch.go:219 Starting Simplex Epoch {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "ID": "9510e14f9c1a679c", "nodes": "[24714efd31062dac 9510e14f9c1a679c e03186251a10d227]"}
+[01-13|16:10:44.022] DEBUG Simplex/sched.go:28 Created Scheduler {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "maxTasks": 500}
+[01-13|16:10:44.022] DEBUG Simplex/block_scheduler.go:60 Created BlockVerificationScheduler {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "maxDeps": 500}
+[01-13|16:10:44.022] INFO Simplex/epoch.go:219 Starting Simplex Epoch {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "ID": "e03186251a10d227", "nodes": "[24714efd31062dac 9510e14f9c1a679c e03186251a10d227]"}
+[01-13|16:10:44.022] DEBUG Simplex/epoch.go:2397 Monitoring progress {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "round": 0, "currentRound": 0}
+[01-13|16:10:44.022] DEBUG Simplex/epoch.go:2397 Monitoring progress {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "round": 0, "currentRound": 0}
+[01-13|16:10:44.022] DEBUG Simplex/monitor.go:86 Executing f {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "taskID": 0}
+[01-13|16:10:44.022] DEBUG Simplex/epoch.go:2168 Computing blacklist updates {"test": "TestNetworkSimpleFuzz", "myNodeID": 36, "timedOutRounds": "map[]", "redeemedRounds": "map[]"}
+[01-13|16:10:44.022] DEBUG Simplex/epoch.go:2175 Blacklist updated {"test": "TestNetworkSimpleFuzz", "myNodeID": 36, "round": 0, "Update": "", "prev": "Blacklist(nodeCount=3, SuspectedNodes=[], updates=[])", "next": "Blacklist(nodeCount=3, SuspectedNodes=[], updates=[])"}
+[01-13|16:10:44.022] DEBUG Simplex/epoch.go:2192 Scheduling block building {"test": "TestNetworkSimpleFuzz", "myNodeID": 36, "round": 0}
+[01-13|16:10:44.022] DEBUG Simplex/block_scheduler.go:140 Scheduling block verification task with no dependencies {"test": "TestNetworkSimpleFuzz", "myNodeID": 36, "blockSeq": 0}
+[01-13|16:10:44.022] DEBUG Simplex/sched.go:69 Scheduling new ready task {"test": "TestNetworkSimpleFuzz", "myNodeID": 36, "ready tasks": 1}
+[01-13|16:10:44.022] INFO random_network/network.go:131 Ensuring no verified & unaccepted transactions remain... {"test": "TestNetworkSimpleFuzz", "myNodeID": 36}
+[01-13|16:10:44.022] DEBUG Simplex/monitor.go:86 Executing f {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "taskID": 0}
+[01-13|16:10:44.022] DEBUG Simplex/sched.go:55 Running task {"test": "TestNetworkSimpleFuzz", "myNodeID": 36, "remaining ready tasks": 0}
+[01-13|16:10:44.022] INFO Simplex/epoch.go:2469 It is time to build a block {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "round": 0}
+[01-13|16:10:44.022] INFO Simplex/epoch.go:2469 It is time to build a block {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "round": 0}
+[01-13|16:10:44.022] DEBUG Simplex/monitor.go:59 Ticked {"test": "TestNetworkSimpleFuzz", "myNodeID": 36, "taskID": 0, "time": "[01-13|16:10:44.521]"}
+[01-13|16:10:44.022] INFO random_network/network.go:131 Ensuring no verified & unaccepted transactions remain... {"test": "TestNetworkSimpleFuzz", "myNodeID": 149}
+[01-13|16:10:44.022] DEBUG Simplex/monitor.go:158 Scheduling task {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "timeout": "5s", "deadline": "[01-13|16:10:44.521]"}
+[01-13|16:10:44.023] INFO random_network/network.go:131 Ensuring no verified & unaccepted transactions remain... {"test": "TestNetworkSimpleFuzz", "myNodeID": 224}
+[01-13|16:10:44.023] DEBUG Simplex/monitor.go:158 Scheduling task {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "timeout": "5s", "deadline": "[01-13|16:10:44.522]"}
+[01-13|16:10:44.023] DEBUG Simplex/monitor.go:88 Task executed {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "taskID": 0}
+[01-13|16:10:44.023] DEBUG Simplex/monitor.go:65 Ticked {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "taskID": 1, "time": "[01-13|16:10:44.522]"}
+[01-13|16:10:44.023] DEBUG Simplex/monitor.go:88 Task executed {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "taskID": 0}
+[01-13|16:10:44.023] DEBUG Simplex/monitor.go:65 Ticked {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "taskID": 1, "time": "[01-13|16:10:44.521]"}
+[01-13|16:10:44.023] INFO random_network/mempool.go:216 Building block with txs {"test": "TestNetworkSimpleFuzz", "myNodeID": 36, "num txs": 18, "prev": "00000000000000000000...", "digest": "5d44fff1f7c964fa42c0...", "md": {"Version":0,"Epoch":0,"Round":0,"Seq":0,"Prev":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]}}
+[01-13|16:10:44.023] DEBUG Simplex/epoch.go:2753 Stored proposal in memory {"test": "TestNetworkSimpleFuzz", "myNodeID": 36, "round": 0, "seq": 0, "digest": "5d44fff1f7c964fa42c0..."}
+[01-13|16:10:44.023] DEBUG Simplex/epoch.go:2272 Wrote block to WAL {"test": "TestNetworkSimpleFuzz", "myNodeID": 36, "round": 0, "size": 773, "digest": "5d44fff1f7c964fa42c0..."}
+[01-13|16:10:44.023] DEBUG Simplex/epoch.go:2285 Proposal broadcast {"test": "TestNetworkSimpleFuzz", "myNodeID": 36, "round": 0, "size": 773, "digest": "5d44fff1f7c964fa42c0..."}
+[01-13|16:10:44.023] DEBUG Simplex/epoch.go:861 Received vote message {"test": "TestNetworkSimpleFuzz", "myNodeID": 36, "from": "24714efd31062dac", "round": 0, "digest": "5d44fff1f7c964fa42c0..."}
+[01-13|16:10:44.023] DEBUG Simplex/epoch.go:1351 Not enough votes to form a notarization for our block {"test": "TestNetworkSimpleFuzz", "myNodeID": 36, "round": 0, "voteForOurBlock": 1, "total votes": 1}
+[01-13|16:10:44.023] DEBUG Simplex/epoch.go:2397 Monitoring progress {"test": "TestNetworkSimpleFuzz", "myNodeID": 36, "round": 0, "currentRound": 0}
+[01-13|16:10:44.023] DEBUG Simplex/sched.go:57 Task finished execution {"test": "TestNetworkSimpleFuzz", "myNodeID": 36, "taskID": "5d44fff1f7c964fa42c0..."}
+[01-13|16:10:44.023] DEBUG Simplex/monitor.go:86 Executing f {"test": "TestNetworkSimpleFuzz", "myNodeID": 36, "taskID": 1}
+handling block in node 9510e14f9c1a679c
+handling block in node e03186251a10d227
+[01-13|16:10:44.023] DEBUG Simplex/epoch.go:1558 Received block message {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "from": "24714efd31062dac", "round": 0, "digest": "5d44fff1f7c964fa42c0..."}
+[01-13|16:10:44.023] DEBUG Simplex/epoch.go:1558 Received block message {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "from": "24714efd31062dac", "round": 0, "digest": "5d44fff1f7c964fa42c0..."}
+[01-13|16:10:44.023] DEBUG Simplex/block_scheduler.go:140 Scheduling block verification task with no dependencies {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "blockSeq": 0}
+[01-13|16:10:44.023] DEBUG Simplex/sched.go:69 Scheduling new ready task {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "ready tasks": 1}
+[01-13|16:10:44.023] DEBUG Simplex/block_scheduler.go:140 Scheduling block verification task with no dependencies {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "blockSeq": 0}
+[01-13|16:10:44.023] DEBUG Simplex/sched.go:69 Scheduling new ready task {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "ready tasks": 1}
+[01-13|16:10:44.023] DEBUG Simplex/epoch.go:1635 Scheduling block verification {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "round": 0, "seq": 0, "digest": "5d44fff1f7c964fa42c0...", "prev dependency": "<nil>", "missing empty notarization rounds": []}
+[01-13|16:10:44.023] DEBUG Simplex/sched.go:55 Running task {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "remaining ready tasks": 0}
+[01-13|16:10:44.023] DEBUG Simplex/epoch.go:1635 Scheduling block verification {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "round": 0, "seq": 0, "digest": "5d44fff1f7c964fa42c0...", "prev dependency": "<nil>", "missing empty notarization rounds": []}
+[01-13|16:10:44.023] DEBUG Simplex/sched.go:55 Running task {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "remaining ready tasks": 0}
+[01-13|16:10:44.023] DEBUG Simplex/epoch.go:1816 Block verification started {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "round": 0}
+[01-13|16:10:44.023] DEBUG Simplex/epoch.go:1816 Block verification started {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "round": 0}
+[01-13|16:10:44.023] INFO random_network/mempool.go:123 verifying block {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "digest": "5d44fff1f7c964fa42c0...", "parent": "00000000000000000000..."}
+[01-13|16:10:44.023] INFO random_network/mempool.go:123 verifying block {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "digest": "5d44fff1f7c964fa42c0...", "parent": "00000000000000000000..."}
+[01-13|16:10:44.023] INFO random_network/mempool.go:147 Block verified contains tx {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "txID": "196d9fb7947a43e7d71838a1b3eb63197dbc997280f8e7474296a5b1a0c2062f"}
+[01-13|16:10:44.023] INFO random_network/mempool.go:147 Block verified contains tx {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "txID": "46e239be94423c592583adb7d3e2d55b666998cc62d7a7f379e4be551cf393ff"}
+[01-13|16:10:44.023] INFO random_network/mempool.go:147 Block verified contains tx {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "txID": "196d9fb7947a43e7d71838a1b3eb63197dbc997280f8e7474296a5b1a0c2062f"}
+[01-13|16:10:44.023] INFO random_network/mempool.go:147 Block verified contains tx {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "txID": "46e239be94423c592583adb7d3e2d55b666998cc62d7a7f379e4be551cf393ff"}
+[01-13|16:10:44.023] INFO random_network/mempool.go:147 Block verified contains tx {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "txID": "a0839c5ce6a71b0dee4d999fe89de593b49041ea2fc014285da3f411886ad281"}
+[01-13|16:10:44.023] INFO random_network/mempool.go:147 Block verified contains tx {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "txID": "496aafd049fb69f7265c7add0d1dd7b744aea9b2d3eaca582b7646bd0a1477fb"}
+[01-13|16:10:44.023] INFO random_network/mempool.go:147 Block verified contains tx {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "txID": "bb1cae2b12f7ffd58da0dfe31cbe3f1404db254a8f80e4d169158baac2a81b13"}
+[01-13|16:10:44.023] INFO random_network/mempool.go:147 Block verified contains tx {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "txID": "9b33f7138c81f3d147cdfd8b2718c8d5b1b269c8b0299ce53c63ac063a19083b"}
+[01-13|16:10:44.023] INFO random_network/mempool.go:147 Block verified contains tx {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "txID": "a7820ec949dac317b39009b4a3e9496c3c06f6b307c220fdbad7f4cfe489c361"}
+[01-13|16:10:44.023] INFO random_network/mempool.go:147 Block verified contains tx {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "txID": "a0a666995b359de45921a3e0448b494e8a813fd95bdbef9ee2a05be048d64884"}
+[01-13|16:10:44.023] INFO random_network/mempool.go:147 Block verified contains tx {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "txID": "0c85efb324a990978470dc2e9aae199ae170b41e7fe2afc759136942984743a8"}
+[01-13|16:10:44.023] INFO random_network/mempool.go:147 Block verified contains tx {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "txID": "46c94fe044e39bf505bbe513da978c5ee9f53e4ede0b1f8d476cc1be5a8c75fc"}
+[01-13|16:10:44.023] INFO random_network/mempool.go:147 Block verified contains tx {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "txID": "1d5b24a871c00d602656a8d0e1c334bca08a3f12a0264176fb85d011b6867104"}
+[01-13|16:10:44.023] INFO random_network/mempool.go:147 Block verified contains tx {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "txID": "825184efbc52ab05653a079ce98980db50cca401ecaef2c835f3c26254425af4"}
+[01-13|16:10:44.023] INFO random_network/mempool.go:147 Block verified contains tx {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "txID": "69cc9f198f97f89c8f29e653eccc72391560801022de206299d2c5a1816ffa5c"}
+[01-13|16:10:44.023] INFO random_network/mempool.go:147 Block verified contains tx {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "txID": "e6c90cfb7dd53fc4aaef49491324bf541895d09657be779b382397ffc81593bf"}
+[01-13|16:10:44.023] INFO random_network/mempool.go:147 Block verified contains tx {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "txID": "b78ce2eddd9d505f41e1abca43329c22b906b1e8d0c92c0f720770c9d99c8773"}
+[01-13|16:10:44.023] INFO random_network/mempool.go:147 Block verified contains tx {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "txID": "c0e846274934d63a29a5a1df11bf929c7c5f1771f7389941f2c818babdfb6bbf"}
+[01-13|16:10:44.023] INFO random_network/mempool.go:147 Block verified contains tx {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "txID": "90752bcb6eefe4364b9044657e8d9c7d205138b54da5cf63e3db97e35d175b6e"}
+[01-13|16:10:44.023] INFO random_network/mempool.go:147 Block verified contains tx {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "txID": "c5ca6f0b91ccf7de9ee728a6b05a542b728b5f170b5a48304644c0ad760e2001"}
+[01-13|16:10:44.023] INFO random_network/mempool.go:153 AND ADDED Block verified {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "digest": "5d44fff1f7c964fa42c0...", "parent": "00000000000000000000..."}
+[01-13|16:10:44.023] INFO random_network/mempool.go:147 Block verified contains tx {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "txID": "a0839c5ce6a71b0dee4d999fe89de593b49041ea2fc014285da3f411886ad281"}
+[01-13|16:10:44.023] INFO random_network/mempool.go:147 Block verified contains tx {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "txID": "496aafd049fb69f7265c7add0d1dd7b744aea9b2d3eaca582b7646bd0a1477fb"}
+[01-13|16:10:44.023] INFO random_network/mempool.go:147 Block verified contains tx {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "txID": "bb1cae2b12f7ffd58da0dfe31cbe3f1404db254a8f80e4d169158baac2a81b13"}
+[01-13|16:10:44.023] INFO random_network/mempool.go:147 Block verified contains tx {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "txID": "9b33f7138c81f3d147cdfd8b2718c8d5b1b269c8b0299ce53c63ac063a19083b"}
+[01-13|16:10:44.023] INFO random_network/mempool.go:147 Block verified contains tx {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "txID": "a7820ec949dac317b39009b4a3e9496c3c06f6b307c220fdbad7f4cfe489c361"}
+[01-13|16:10:44.023] INFO random_network/mempool.go:147 Block verified contains tx {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "txID": "a0a666995b359de45921a3e0448b494e8a813fd95bdbef9ee2a05be048d64884"}
+[01-13|16:10:44.023] INFO random_network/mempool.go:147 Block verified contains tx {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "txID": "0c85efb324a990978470dc2e9aae199ae170b41e7fe2afc759136942984743a8"}
+[01-13|16:10:44.023] DEBUG Simplex/epoch.go:2753 Stored proposal in memory {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "round": 0, "seq": 0, "digest": "5d44fff1f7c964fa42c0..."}
+[01-13|16:10:44.023] INFO random_network/mempool.go:147 Block verified contains tx {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "txID": "46c94fe044e39bf505bbe513da978c5ee9f53e4ede0b1f8d476cc1be5a8c75fc"}
+[01-13|16:10:44.023] INFO random_network/mempool.go:147 Block verified contains tx {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "txID": "1d5b24a871c00d602656a8d0e1c334bca08a3f12a0264176fb85d011b6867104"}
+[01-13|16:10:44.023] INFO random_network/mempool.go:147 Block verified contains tx {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "txID": "825184efbc52ab05653a079ce98980db50cca401ecaef2c835f3c26254425af4"}
+[01-13|16:10:44.023] INFO random_network/mempool.go:147 Block verified contains tx {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "txID": "69cc9f198f97f89c8f29e653eccc72391560801022de206299d2c5a1816ffa5c"}
+[01-13|16:10:44.023] INFO random_network/mempool.go:147 Block verified contains tx {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "txID": "e6c90cfb7dd53fc4aaef49491324bf541895d09657be779b382397ffc81593bf"}
+[01-13|16:10:44.023] INFO random_network/mempool.go:147 Block verified contains tx {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "txID": "b78ce2eddd9d505f41e1abca43329c22b906b1e8d0c92c0f720770c9d99c8773"}
+[01-13|16:10:44.023] DEBUG Simplex/epoch.go:1860 Persisted block to WAL {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "round": 0, "digest": "5d44fff1f7c964fa42c0..."}
+[01-13|16:10:44.023] INFO random_network/mempool.go:147 Block verified contains tx {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "txID": "c0e846274934d63a29a5a1df11bf929c7c5f1771f7389941f2c818babdfb6bbf"}
+[01-13|16:10:44.023] INFO random_network/mempool.go:147 Block verified contains tx {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "txID": "90752bcb6eefe4364b9044657e8d9c7d205138b54da5cf63e3db97e35d175b6e"}
+[01-13|16:10:44.023] DEBUG Simplex/epoch.go:2550 Broadcasting vote {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "round": 0, "digest": "5d44fff1f7c964fa42c0..."}
+[01-13|16:10:44.023] INFO random_network/mempool.go:147 Block verified contains tx {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "txID": "c5ca6f0b91ccf7de9ee728a6b05a542b728b5f170b5a48304644c0ad760e2001"}
+[01-13|16:10:44.023] INFO random_network/mempool.go:153 AND ADDED Block verified {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "digest": "5d44fff1f7c964fa42c0...", "parent": "00000000000000000000..."}
+[01-13|16:10:44.023] DEBUG Simplex/epoch.go:861 Received vote message {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "from": "9510e14f9c1a679c", "round": 0, "digest": "5d44fff1f7c964fa42c0..."}
+[01-13|16:10:44.023] INFO Simplex/notarization.go:47 Collected Quorum of votes {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "round": 0, "votes": 2}
+[01-13|16:10:44.023] DEBUG Simplex/notarization.go:56 Collected vote from node {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "NodeID": "24714efd31062dac", "Digest": "5d44fff1f7c964fa42c0...", "round": 0, "seq": 0}
+[01-13|16:10:44.023] DEBUG Simplex/notarization.go:56 Collected vote from node {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "NodeID": "9510e14f9c1a679c", "Digest": "5d44fff1f7c964fa42c0...", "round": 0, "seq": 0}
+[01-13|16:10:44.023] DEBUG Simplex/epoch.go:2753 Stored proposal in memory {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "round": 0, "seq": 0, "digest": "5d44fff1f7c964fa42c0..."}
+[01-13|16:10:44.023] DEBUG Simplex/epoch.go:1374 Persisted notarization to WAL {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "size": 182, "round": 0, "digest": "5d44fff1f7c964fa42c0..."}
+[01-13|16:10:44.023] DEBUG Simplex/epoch.go:1400 Potentially redeeming node {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "signer": "24714efd31062dac", "round": 0}
+[01-13|16:10:44.023] DEBUG Simplex/epoch.go:861 Received vote message {"test": "TestNetworkSimpleFuzz", "myNodeID": 36, "from": "9510e14f9c1a679c", "round": 0, "digest": "5d44fff1f7c964fa42c0..."}
+[01-13|16:10:44.023] DEBUG Simplex/epoch.go:1860 Persisted block to WAL {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "round": 0, "digest": "5d44fff1f7c964fa42c0..."}
+[01-13|16:10:44.023] INFO Simplex/notarization.go:47 Collected Quorum of votes {"test": "TestNetworkSimpleFuzz", "myNodeID": 36, "round": 0, "votes": 2}
+[01-13|16:10:44.023] DEBUG Simplex/epoch.go:1400 Potentially redeeming node {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "signer": "9510e14f9c1a679c", "round": 0}
+[01-13|16:10:44.023] DEBUG Simplex/epoch.go:2550 Broadcasting vote {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "round": 0, "digest": "5d44fff1f7c964fa42c0..."}
+[01-13|16:10:44.023] DEBUG Simplex/notarization.go:56 Collected vote from node {"test": "TestNetworkSimpleFuzz", "myNodeID": 36, "NodeID": "24714efd31062dac", "Digest": "5d44fff1f7c964fa42c0...", "round": 0, "seq": 0}
+[01-13|16:10:44.023] DEBUG Simplex/notarization.go:56 Collected vote from node {"test": "TestNetworkSimpleFuzz", "myNodeID": 36, "NodeID": "9510e14f9c1a679c", "Digest": "5d44fff1f7c964fa42c0...", "round": 0, "seq": 0}
+[01-13|16:10:44.023] INFO Simplex/epoch.go:2606 Moving to a new round {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "prev round": 0, "next round": 1, "prev leader": "24714efd31062dac", "next leader": "9510e14f9c1a679c"}
+[01-13|16:10:44.023] DEBUG Simplex/epoch.go:1423 Broadcast notarization {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "round": 0, "seq": 0, "digest": "5d44fff1f7c964fa42c0..."}
+[01-13|16:10:44.023] DEBUG Simplex/epoch.go:861 Received vote message {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "from": "e03186251a10d227", "round": 0, "digest": "5d44fff1f7c964fa42c0..."}
+[01-13|16:10:44.023] DEBUG Simplex/epoch.go:2631 Broadcasting finalize vote {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "round": 0, "seq": 0, "digest": "5d44fff1f7c964fa42c0..."}
+[01-13|16:10:44.023] INFO Simplex/notarization.go:47 Collected Quorum of votes {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "round": 0, "votes": 2}
+[01-13|16:10:44.023] DEBUG Simplex/notarization.go:56 Collected vote from node {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "NodeID": "e03186251a10d227", "Digest": "5d44fff1f7c964fa42c0...", "round": 0, "seq": 0}
+[01-13|16:10:44.023] DEBUG Simplex/epoch.go:1374 Persisted notarization to WAL {"test": "TestNetworkSimpleFuzz", "myNodeID": 36, "size": 182, "round": 0, "digest": "5d44fff1f7c964fa42c0..."}
+[01-13|16:10:44.023] DEBUG Simplex/epoch.go:1400 Potentially redeeming node {"test": "TestNetworkSimpleFuzz", "myNodeID": 36, "signer": "24714efd31062dac", "round": 0}
+[01-13|16:10:44.023] DEBUG Simplex/notarization.go:56 Collected vote from node {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "NodeID": "24714efd31062dac", "Digest": "5d44fff1f7c964fa42c0...", "round": 0, "seq": 0}
+[01-13|16:10:44.023] DEBUG Simplex/epoch.go:1400 Potentially redeeming node {"test": "TestNetworkSimpleFuzz", "myNodeID": 36, "signer": "9510e14f9c1a679c", "round": 0}
+[01-13|16:10:44.023] DEBUG Simplex/epoch.go:1374 Persisted notarization to WAL {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "size": 182, "round": 0, "digest": "5d44fff1f7c964fa42c0..."}
+[01-13|16:10:44.023] INFO Simplex/epoch.go:2606 Moving to a new round {"test": "TestNetworkSimpleFuzz", "myNodeID": 36, "prev round": 0, "next round": 1, "prev leader": "24714efd31062dac", "next leader": "9510e14f9c1a679c"}
+[01-13|16:10:44.023] DEBUG Simplex/monitor.go:88 Task executed {"test": "TestNetworkSimpleFuzz", "myNodeID": 36, "taskID": 1}
+[01-13|16:10:44.023] DEBUG Simplex/epoch.go:1423 Broadcast notarization {"test": "TestNetworkSimpleFuzz", "myNodeID": 36, "round": 0, "seq": 0, "digest": "5d44fff1f7c964fa42c0..."}
+[01-13|16:10:44.023] DEBUG Simplex/epoch.go:1400 Potentially redeeming node {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "signer": "24714efd31062dac", "round": 0}
+[01-13|16:10:44.023] DEBUG Simplex/epoch.go:2631 Broadcasting finalize vote {"test": "TestNetworkSimpleFuzz", "myNodeID": 36, "round": 0, "seq": 0, "digest": "5d44fff1f7c964fa42c0..."}
+[01-13|16:10:44.023] DEBUG Simplex/epoch.go:2397 Monitoring progress {"test": "TestNetworkSimpleFuzz", "myNodeID": 36, "round": 1, "currentRound": 1}
+[01-13|16:10:44.023] DEBUG Simplex/epoch.go:1400 Potentially redeeming node {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "signer": "e03186251a10d227", "round": 0}
+[01-13|16:10:44.023] DEBUG Simplex/epoch.go:638 Received finalize vote {"test": "TestNetworkSimpleFuzz", "myNodeID": 36, "from": "24714efd31062dac", "round": 0}
+[01-13|16:10:44.023] INFO Simplex/epoch.go:2606 Moving to a new round {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "prev round": 0, "next round": 1, "prev leader": "24714efd31062dac", "next leader": "9510e14f9c1a679c"}
+[01-13|16:10:44.023] DEBUG Simplex/monitor.go:86 Executing f {"test": "TestNetworkSimpleFuzz", "myNodeID": 36, "taskID": 2}
+[01-13|16:10:44.023] DEBUG Simplex/epoch.go:1423 Broadcast notarization {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "round": 0, "seq": 0, "digest": "5d44fff1f7c964fa42c0..."}
+[01-13|16:10:44.023] DEBUG Simplex/epoch.go:2168 Computing blacklist updates {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "timedOutRounds": "map[]", "redeemedRounds": "map[0:0 1:0]"}
+[01-13|16:10:44.023] DEBUG Simplex/epoch.go:2631 Broadcasting finalize vote {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "round": 0, "seq": 0, "digest": "5d44fff1f7c964fa42c0..."}
+[01-13|16:10:44.023] DEBUG Simplex/epoch.go:2397 Monitoring progress {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "round": 1, "currentRound": 1}
+[01-13|16:10:44.023] DEBUG Simplex/epoch.go:638 Received finalize vote {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "from": "e03186251a10d227", "round": 0}
+[01-13|16:10:44.023] DEBUG Simplex/monitor.go:86 Executing f {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "taskID": 2}
+[01-13|16:10:44.023] DEBUG Simplex/epoch.go:2175 Blacklist updated {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "round": 1, "Update": "", "prev": "Blacklist(nodeCount=3, SuspectedNodes=[], updates=[])", "next": "Blacklist(nodeCount=3, SuspectedNodes=[], updates=[])"}
+[01-13|16:10:44.024] DEBUG Simplex/epoch.go:2192 Scheduling block building {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "round": 1}
+[01-13|16:10:44.024] DEBUG Simplex/block_scheduler.go:140 Scheduling block verification task with no dependencies {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "blockSeq": 1}
+[01-13|16:10:44.024] DEBUG Simplex/sched.go:69 Scheduling new ready task {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "ready tasks": 1}
+[01-13|16:10:44.024] DEBUG Simplex/epoch.go:638 Received finalize vote {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "from": "9510e14f9c1a679c", "round": 0}
+[01-13|16:10:44.023] DEBUG Simplex/epoch.go:1016 Could not find enough finalizations for the same metadata {"test": "TestNetworkSimpleFuzz", "myNodeID": 36}
+[01-13|16:10:44.024] DEBUG Simplex/epoch.go:1016 Could not find enough finalizations for the same metadata {"test": "TestNetworkSimpleFuzz", "myNodeID": 149}
+[01-13|16:10:44.024] DEBUG Simplex/epoch.go:861 Received vote message {"test": "TestNetworkSimpleFuzz", "myNodeID": 36, "from": "e03186251a10d227", "round": 0, "digest": "5d44fff1f7c964fa42c0..."}
+[01-13|16:10:44.024] DEBUG Simplex/epoch.go:983 Received a vote for a past round {"test": "TestNetworkSimpleFuzz", "myNodeID": 36, "round": 0, "my round": 1}
+[01-13|16:10:44.024] DEBUG Simplex/epoch.go:861 Received vote message {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "from": "e03186251a10d227", "round": 0, "digest": "5d44fff1f7c964fa42c0..."}
+[01-13|16:10:44.024] DEBUG Simplex/epoch.go:1493 Received notarization message {"test": "TestNetworkSimpleFuzz", "myNodeID": 36, "from": "9510e14f9c1a679c", "round": 0}
+[01-13|16:10:44.024] DEBUG Simplex/epoch.go:983 Received a vote for a past round {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "round": 0, "my round": 1}
+[01-13|16:10:44.024] DEBUG Simplex/epoch.go:1493 Received notarization message {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "from": "24714efd31062dac", "round": 0}
+[01-13|16:10:44.024] DEBUG Simplex/epoch.go:1820 Block verification ended {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "round": 0, "elapsed": "409.125µs"}
+[01-13|16:10:44.024] DEBUG Simplex/epoch.go:1519 Received a notarization for an already notarized or finalized round {"test": "TestNetworkSimpleFuzz", "myNodeID": 149}
+[01-13|16:10:44.024] DEBUG Simplex/sched.go:57 Task finished execution {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "taskID": "5d44fff1f7c964fa42c0..."}
+[01-13|16:10:44.023] DEBUG Simplex/epoch.go:1016 Could not find enough finalizations for the same metadata {"test": "TestNetworkSimpleFuzz", "myNodeID": 224}
+[01-13|16:10:44.024] DEBUG Simplex/epoch.go:1519 Received a notarization for an already notarized or finalized round {"test": "TestNetworkSimpleFuzz", "myNodeID": 36}
+[01-13|16:10:44.024] DEBUG Simplex/epoch.go:861 Received vote message {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "from": "9510e14f9c1a679c", "round": 0, "digest": "5d44fff1f7c964fa42c0..."}
+[01-13|16:10:44.024] DEBUG Simplex/epoch.go:638 Received finalize vote {"test": "TestNetworkSimpleFuzz", "myNodeID": 36, "from": "9510e14f9c1a679c", "round": 0}
+[01-13|16:10:44.024] DEBUG Simplex/epoch.go:983 Received a vote for a past round {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "round": 0, "my round": 1}
+[01-13|16:10:44.024] DEBUG Simplex/epoch.go:638 Received finalize vote {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "from": "24714efd31062dac", "round": 0}
+[01-13|16:10:44.024] DEBUG Simplex/notarization.go:95 Collected a finalize vote from node {"test": "TestNetworkSimpleFuzz", "myNodeID": 36, "NodeID": "24714efd31062dac", "round": 0}
+[01-13|16:10:44.024] DEBUG Simplex/epoch.go:1493 Received notarization message {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "from": "9510e14f9c1a679c", "round": 0}
+[01-13|16:10:44.024] DEBUG Simplex/epoch.go:1820 Block verification ended {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "round": 0, "elapsed": "436.042µs"}
+[01-13|16:10:44.024] DEBUG Simplex/epoch.go:1519 Received a notarization for an already notarized or finalized round {"test": "TestNetworkSimpleFuzz", "myNodeID": 224}
+[01-13|16:10:44.024] DEBUG Simplex/epoch.go:638 Received finalize vote {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "from": "9510e14f9c1a679c", "round": 0}
+[01-13|16:10:44.024] DEBUG Simplex/sched.go:57 Task finished execution {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "taskID": "5d44fff1f7c964fa42c0..."}
+[01-13|16:10:44.024] DEBUG Simplex/notarization.go:95 Collected a finalize vote from node {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "NodeID": "9510e14f9c1a679c", "round": 0}
+[01-13|16:10:44.024] DEBUG Simplex/notarization.go:95 Collected a finalize vote from node {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "NodeID": "e03186251a10d227", "round": 0}
+[01-13|16:10:44.024] DEBUG Simplex/notarization.go:95 Collected a finalize vote from node {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "NodeID": "9510e14f9c1a679c", "round": 0}
+[01-13|16:10:44.024] DEBUG Simplex/epoch.go:1041 Received enough finalize votes to finalize a block {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "round": 0}
+[01-13|16:10:44.024] DEBUG Simplex/notarization.go:95 Collected a finalize vote from node {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "NodeID": "24714efd31062dac", "round": 0}
+[01-13|16:10:44.024] DEBUG Simplex/epoch.go:1168 Indexing finalizations {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "startRound": 0, "maxRound": 0, "nextSeqToCommit": 0}
+[01-13|16:10:44.024] INFO random_network/mempool.go:190 accepting block digest {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "digest": "5d44fff1f7c964fa42c0..."}
+[01-13|16:10:44.024] INFO Simplex/epoch.go:1212 Committed block {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "round": 0, "sequence": 0, "digest": "5d44fff1f7c964fa42c0..."}
+[01-13|16:10:44.024] DEBUG Simplex/epoch.go:1034 Progressing rounds due to commit {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "round": 1, "current round": 1}
+[01-13|16:10:44.024] DEBUG Simplex/notarization.go:95 Collected a finalize vote from node {"test": "TestNetworkSimpleFuzz", "myNodeID": 36, "NodeID": "9510e14f9c1a679c", "round": 0}
+[01-13|16:10:44.024] DEBUG Simplex/sched.go:55 Running task {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "remaining ready tasks": 0}
+[01-13|16:10:44.024] DEBUG Simplex/epoch.go:1041 Received enough finalize votes to finalize a block {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "round": 0}
+[01-13|16:10:44.024] DEBUG Simplex/epoch.go:1041 Received enough finalize votes to finalize a block {"test": "TestNetworkSimpleFuzz", "myNodeID": 36, "round": 0}
+[01-13|16:10:44.024] DEBUG Simplex/epoch.go:1168 Indexing finalizations {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "startRound": 0, "maxRound": 0, "nextSeqToCommit": 0}
+[01-13|16:10:44.024] DEBUG Simplex/epoch.go:1168 Indexing finalizations {"test": "TestNetworkSimpleFuzz", "myNodeID": 36, "startRound": 0, "maxRound": 0, "nextSeqToCommit": 0}
+[01-13|16:10:44.024] INFO random_network/mempool.go:190 accepting block digest {"test": "TestNetworkSimpleFuzz", "myNodeID": 36, "digest": "5d44fff1f7c964fa42c0..."}
+[01-13|16:10:44.024] DEBUG Simplex/epoch.go:1092 Broadcast finalization {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "round": 0, "digest": "5d44fff1f7c964fa42c0..."}
+[01-13|16:10:44.024] INFO random_network/mempool.go:190 accepting block digest {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "digest": "5d44fff1f7c964fa42c0..."}
+[01-13|16:10:44.024] INFO Simplex/epoch.go:1212 Committed block {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "round": 0, "sequence": 0, "digest": "5d44fff1f7c964fa42c0..."}
+[01-13|16:10:44.024] DEBUG Simplex/epoch.go:1493 Received notarization message {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "from": "24714efd31062dac", "round": 0}
+[01-13|16:10:44.024] DEBUG Simplex/epoch.go:1519 Received a notarization for an already notarized or finalized round {"test": "TestNetworkSimpleFuzz", "myNodeID": 224}
+[01-13|16:10:44.024] INFO Simplex/epoch.go:1212 Committed block {"test": "TestNetworkSimpleFuzz", "myNodeID": 36, "round": 0, "sequence": 0, "digest": "5d44fff1f7c964fa42c0..."}
+[01-13|16:10:44.024] DEBUG Simplex/epoch.go:638 Received finalize vote {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "from": "24714efd31062dac", "round": 0}
+[01-13|16:10:44.024] DEBUG Simplex/epoch.go:678 Received finalize vote for an already finalized round {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "round": 0}
+[01-13|16:10:44.024] DEBUG Simplex/epoch.go:1034 Progressing rounds due to commit {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "round": 1, "current round": 1}
+[01-13|16:10:44.024] DEBUG Simplex/epoch.go:1092 Broadcast finalization {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "round": 0, "digest": "5d44fff1f7c964fa42c0..."}
+[01-13|16:10:44.024] DEBUG Simplex/epoch.go:1034 Progressing rounds due to commit {"test": "TestNetworkSimpleFuzz", "myNodeID": 36, "round": 1, "current round": 1}
+[01-13|16:10:44.024] DEBUG Simplex/epoch.go:1092 Broadcast finalization {"test": "TestNetworkSimpleFuzz", "myNodeID": 36, "round": 0, "digest": "5d44fff1f7c964fa42c0..."}
+[01-13|16:10:44.024] DEBUG Simplex/epoch.go:1493 Received notarization message {"test": "TestNetworkSimpleFuzz", "myNodeID": 36, "from": "e03186251a10d227", "round": 0}
+[01-13|16:10:44.024] DEBUG Simplex/epoch.go:580 Received finalization message {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "from": "9510e14f9c1a679c", "round": 0, "seq": 0}
+[01-13|16:10:44.024] DEBUG Simplex/epoch.go:580 Received finalization message {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "from": "24714efd31062dac", "round": 0, "seq": 0}
+[01-13|16:10:44.024] DEBUG Simplex/epoch.go:1519 Received a notarization for an already notarized or finalized round {"test": "TestNetworkSimpleFuzz", "myNodeID": 36}
+[01-13|16:10:44.024] DEBUG Simplex/epoch.go:1493 Received notarization message {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "from": "e03186251a10d227", "round": 0}
+[01-13|16:10:44.024] DEBUG Simplex/epoch.go:1519 Received a notarization for an already notarized or finalized round {"test": "TestNetworkSimpleFuzz", "myNodeID": 149}
+[01-13|16:10:44.024] DEBUG Simplex/epoch.go:638 Received finalize vote {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "from": "e03186251a10d227", "round": 0}
+[01-13|16:10:44.024] DEBUG Simplex/epoch.go:678 Received finalize vote for an already finalized round {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "round": 0}
+[01-13|16:10:44.024] DEBUG Simplex/epoch.go:638 Received finalize vote {"test": "TestNetworkSimpleFuzz", "myNodeID": 36, "from": "e03186251a10d227", "round": 0}
+[01-13|16:10:44.024] DEBUG Simplex/epoch.go:580 Received finalization message {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "from": "9510e14f9c1a679c", "round": 0, "seq": 0}
+[01-13|16:10:44.024] DEBUG Simplex/epoch.go:678 Received finalize vote for an already finalized round {"test": "TestNetworkSimpleFuzz", "myNodeID": 36, "round": 0}
+[01-13|16:10:44.024] DEBUG Simplex/epoch.go:580 Received finalization message {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "from": "e03186251a10d227", "round": 0, "seq": 0}
+[01-13|16:10:44.024] DEBUG Simplex/epoch.go:580 Received finalization message {"test": "TestNetworkSimpleFuzz", "myNodeID": 36, "from": "e03186251a10d227", "round": 0, "seq": 0}
+[01-13|16:10:44.024] DEBUG Simplex/epoch.go:580 Received finalization message {"test": "TestNetworkSimpleFuzz", "myNodeID": 36, "from": "e03186251a10d227", "round": 0, "seq": 0}
+[01-13|16:10:44.024] DEBUG Simplex/epoch.go:580 Received finalization message {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "from": "24714efd31062dac", "round": 0, "seq": 0}
+[01-13|16:10:44.024] DEBUG Simplex/epoch.go:580 Received finalization message {"test": "TestNetworkSimpleFuzz", "myNodeID": 36, "from": "9510e14f9c1a679c", "round": 0, "seq": 0}
+[01-13|16:10:44.024] DEBUG Simplex/epoch.go:580 Received finalization message {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "from": "24714efd31062dac", "round": 0, "seq": 0}
+[01-13|16:10:44.124] INFO random_network/network.go:131 Ensuring no verified & unaccepted transactions remain... {"test": "TestNetworkSimpleFuzz", "myNodeID": 36}
+[01-13|16:10:44.124] INFO random_network/network.go:131 Ensuring no verified & unaccepted transactions remain... {"test": "TestNetworkSimpleFuzz", "myNodeID": 149}
+[01-13|16:10:44.124] INFO random_network/network.go:131 Ensuring no verified & unaccepted transactions remain... {"test": "TestNetworkSimpleFuzz", "myNodeID": 224}
+[01-13|16:10:44.124] INFO random_network/network.go:138 All transactions accepted as expected {"test": "TestNetworkSimpleFuzz"}
+stopping node 24714efd31062dac
+grabbing lock
+locksecure node 24714efd31062dac
+[01-13|16:10:44.124] DEBUG Simplex/monitor.go:65 Ticked {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "taskID": 2, "time": "[01-13|16:10:45.021]"}
+[01-13|16:10:44.124] INFO Simplex/epoch.go:2469 It is time to build a block {"test": "TestNetworkSimpleFuzz", "myNodeID": 36, "round": 1}
+[01-13|16:10:44.124] DEBUG Simplex/monitor.go:158 Scheduling task {"test": "TestNetworkSimpleFuzz", "myNodeID": 36, "timeout": "5s", "deadline": "[01-13|16:10:45.021]"}
+[01-13|16:10:44.124] DEBUG Simplex/monitor.go:88 Task executed {"test": "TestNetworkSimpleFuzz", "myNodeID": 36, "taskID": 2}
+epoch stopped node 24714efd31062dac
+should stop set node 24714efd31062dac
+ingress closed node 24714efd31062dac
+stopped node 24714efd31062dac
+stopping node 9510e14f9c1a679c
+grabbing lock
+locksecure node 9510e14f9c1a679c
+[01-13|16:10:44.124] INFO random_network/mempool.go:216 Building block with txs {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "num txs": 0, "prev": "5d44fff1f7c964fa42c0...", "digest": "9ff8a31cf0e46edb17be...", "md": {"Version":0,"Epoch":0,"Round":1,"Seq":1,"Prev":[93,68,255,241,247,201,100,250,66,192,140,12,68,192,87,104,222,153,181,18,188,210,128,202,174,99,91,86,175,171,36,104]}}
+[01-13|16:10:44.124] DEBUG Simplex/epoch.go:2753 Stored proposal in memory {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "round": 1, "seq": 1, "digest": "9ff8a31cf0e46edb17be..."}
+[01-13|16:10:44.124] DEBUG Simplex/epoch.go:2272 Wrote block to WAL {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "round": 1, "size": 67, "digest": "9ff8a31cf0e46edb17be..."}
+[01-13|16:10:44.124] DEBUG Simplex/epoch.go:2285 Proposal broadcast {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "round": 1, "size": 67, "digest": "9ff8a31cf0e46edb17be..."}
+[01-13|16:10:44.124] DEBUG Simplex/epoch.go:861 Received vote message {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "from": "9510e14f9c1a679c", "round": 1, "digest": "9ff8a31cf0e46edb17be..."}
+handling block in node e03186251a10d227
+[01-13|16:10:44.124] DEBUG Simplex/epoch.go:1351 Not enough votes to form a notarization for our block {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "round": 1, "voteForOurBlock": 1, "total votes": 1}
+[01-13|16:10:44.124] DEBUG Simplex/epoch.go:2397 Monitoring progress {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "round": 1, "currentRound": 1}
+[01-13|16:10:44.124] DEBUG Simplex/epoch.go:1558 Received block message {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "from": "9510e14f9c1a679c", "round": 1, "digest": "9ff8a31cf0e46edb17be..."}
+[01-13|16:10:44.124] DEBUG Simplex/sched.go:57 Task finished execution {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "taskID": "9ff8a31cf0e46edb17be..."}
+[01-13|16:10:44.124] DEBUG Simplex/block_scheduler.go:140 Scheduling block verification task with no dependencies {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "blockSeq": 1}
+epoch stopped node 9510e14f9c1a679c
+should stop set node 9510e14f9c1a679c
+ingress closed node 9510e14f9c1a679c
+stopped node 9510e14f9c1a679c
+stopping node e03186251a10d227
+grabbing lock
+locksecure node e03186251a10d227
+[01-13|16:10:44.124] DEBUG Simplex/sched.go:69 Scheduling new ready task {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "ready tasks": 1}
+[01-13|16:10:44.124] DEBUG Simplex/epoch.go:1635 Scheduling block verification {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "round": 1, "seq": 1, "digest": "9ff8a31cf0e46edb17be...", "prev dependency": "<nil>", "missing empty notarization rounds": []}
+[01-13|16:10:44.124] DEBUG Simplex/sched.go:55 Running task {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "remaining ready tasks": 0}
+[01-13|16:10:44.124] INFO Simplex/epoch.go:2469 It is time to build a block {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "round": 1}
+[01-13|16:10:44.124] DEBUG Simplex/epoch.go:1816 Block verification started {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "round": 1}
+[01-13|16:10:44.124] DEBUG Simplex/monitor.go:158 Scheduling task {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "timeout": "5s", "deadline": "[01-13|16:10:45.022]"}
+[01-13|16:10:44.124] DEBUG Simplex/monitor.go:88 Task executed {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "taskID": 2}
+[01-13|16:10:44.124] INFO random_network/mempool.go:123 verifying block {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "digest": "9ff8a31cf0e46edb17be...", "parent": "5d44fff1f7c964fa42c0..."}
+[01-13|16:10:44.124] INFO random_network/mempool.go:153 AND ADDED Block verified {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "digest": "9ff8a31cf0e46edb17be...", "parent": "5d44fff1f7c964fa42c0..."}
+[01-13|16:10:44.124] DEBUG Simplex/epoch.go:2753 Stored proposal in memory {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "round": 1, "seq": 1, "digest": "9ff8a31cf0e46edb17be..."}
+[01-13|16:10:44.124] DEBUG Simplex/epoch.go:1860 Persisted block to WAL {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "round": 1, "digest": "9ff8a31cf0e46edb17be..."}
+[01-13|16:10:44.124] DEBUG Simplex/epoch.go:2550 Broadcasting vote {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "round": 1, "digest": "9ff8a31cf0e46edb17be..."}
+[01-13|16:10:44.124] DEBUG Simplex/epoch.go:861 Received vote message {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "from": "e03186251a10d227", "round": 1, "digest": "9ff8a31cf0e46edb17be..."}
+[01-13|16:10:44.124] INFO Simplex/notarization.go:47 Collected Quorum of votes {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "round": 1, "votes": 2}
+[01-13|16:10:44.124] DEBUG Simplex/notarization.go:56 Collected vote from node {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "NodeID": "9510e14f9c1a679c", "Digest": "9ff8a31cf0e46edb17be...", "round": 1, "seq": 1}
+[01-13|16:10:44.124] DEBUG Simplex/notarization.go:56 Collected vote from node {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "NodeID": "e03186251a10d227", "Digest": "9ff8a31cf0e46edb17be...", "round": 1, "seq": 1}
+[01-13|16:10:44.124] DEBUG Simplex/epoch.go:1374 Persisted notarization to WAL {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "size": 182, "round": 1, "digest": "9ff8a31cf0e46edb17be..."}
+[01-13|16:10:44.124] DEBUG Simplex/epoch.go:1400 Potentially redeeming node {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "signer": "9510e14f9c1a679c", "round": 1}
+[01-13|16:10:44.124] DEBUG Simplex/epoch.go:1400 Potentially redeeming node {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "signer": "e03186251a10d227", "round": 1}
+[01-13|16:10:44.124] INFO Simplex/epoch.go:2606 Moving to a new round {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "prev round": 1, "next round": 2, "prev leader": "9510e14f9c1a679c", "next leader": "e03186251a10d227"}
+[01-13|16:10:44.124] DEBUG Simplex/epoch.go:1423 Broadcast notarization {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "round": 1, "seq": 1, "digest": "9ff8a31cf0e46edb17be..."}
+[01-13|16:10:44.124] DEBUG Simplex/epoch.go:2631 Broadcasting finalize vote {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "round": 1, "seq": 1, "digest": "9ff8a31cf0e46edb17be..."}
+[01-13|16:10:44.124] DEBUG Simplex/epoch.go:2168 Computing blacklist updates {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "timedOutRounds": "map[]", "redeemedRounds": "map[0:0 1:1 2:1]"}
+[01-13|16:10:44.124] DEBUG Simplex/epoch.go:2175 Blacklist updated {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "round": 2, "Update": "", "prev": "Blacklist(nodeCount=3, SuspectedNodes=[], updates=[])", "next": "Blacklist(nodeCount=3, SuspectedNodes=[], updates=[])"}
+[01-13|16:10:44.124] DEBUG Simplex/epoch.go:2192 Scheduling block building {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "round": 2}
+[01-13|16:10:44.124] DEBUG Simplex/epoch.go:638 Received finalize vote {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "from": "e03186251a10d227", "round": 1}
+[01-13|16:10:44.124] DEBUG Simplex/epoch.go:1016 Could not find enough finalizations for the same metadata {"test": "TestNetworkSimpleFuzz", "myNodeID": 224}
+[01-13|16:10:44.124] DEBUG Simplex/epoch.go:1820 Block verification ended {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "round": 1, "elapsed": "116.125µs"}
+[01-13|16:10:44.124] DEBUG Simplex/sched.go:57 Task finished execution {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "taskID": "9ff8a31cf0e46edb17be..."}
+epoch stopped node e03186251a10d227
+should stop set node e03186251a10d227
+ingress closed node e03186251a10d227
+stopped node e03186251a10d227
+[01-13|16:10:44.124] INFO random_network/network.go:169 Network Status {"test": "TestNetworkSimpleFuzz", "num nodes": 3, "Seed": 1768338644020569000}
+[01-13|16:10:44.124] INFO random_network/network.go:176 Node Status {"test": "TestNetworkSimpleFuzz", "nodeID": "24714efd31062dac", "Short": 36, "pending txs": 0, "verified but not accepted txs": 0, "accepted txs": 18, "Height": 1}
+[01-13|16:10:44.124] INFO random_network/mempool.go:207 Verified but not accepted block {"test": "TestNetworkSimpleFuzz", "myNodeID": 149, "digest": "9ff8a31cf0e46edb17be..."}
+[01-13|16:10:44.124] INFO random_network/network.go:176 Node Status {"test": "TestNetworkSimpleFuzz", "nodeID": "9510e14f9c1a679c", "Short": 149, "pending txs": 0, "verified but not accepted txs": 1, "accepted txs": 18, "Height": 1}
+[01-13|16:10:44.124] INFO random_network/mempool.go:207 Verified but not accepted block {"test": "TestNetworkSimpleFuzz", "myNodeID": 224, "digest": "9ff8a31cf0e46edb17be..."}
+[01-13|16:10:44.124] INFO random_network/network.go:176 Node Status {"test": "TestNetworkSimpleFuzz", "nodeID": "e03186251a10d227", "Short": 224, "pending txs": 0, "verified but not accepted txs": 1, "accepted txs": 18, "Height": 1}
+--- PASS: TestNetworkSimpleFuzz (0.10s)
+PASS
+ok  	github.com/ava-labs/simplex	0.392s

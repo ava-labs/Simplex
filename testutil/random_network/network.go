@@ -71,7 +71,8 @@ func (n *Network) UpdateTime(frequency time.Duration, increment time.Duration) {
 
 func (n *Network) IssueTxs() {
 	// Implementation of block building logic goes here
-	numTxs := rand.Intn(n.config.MaxTxsPerBlock-n.config.MinTxsPerBlock+1) + n.config.MinTxsPerBlock // randomize between min and max inclusive
+	// numTxs := rand.Intn(n.config.MaxTxsPerBlock-n.config.MinTxsPerBlock+1) + n.config.MinTxsPerBlock // randomize between min and max inclusive
+	numTxs := 3
 	txs := make([]*TX, 0, numTxs)
 
 	for range numTxs {
@@ -87,6 +88,10 @@ func (n *Network) IssueTxs() {
 
 	for _, node := range n.nodes {
 		node.mempool.AddPendingTXs(txs...)
+	}
+
+	for _, node := range n.nodes {
+		node.mempool.NotifyTxsReady()
 	}
 }
 
@@ -127,11 +132,19 @@ func (n *Network) WaitForTxAcceptance() {
 			}
 		}
 
+		for _, node := range n.nodes {
+			node.logger.Info("Ensuring no verified & unaccepted transactions remain...", zap.Int("num verified but not accepted", node.mempool.NumVerifiedBlocks()))
+			if node.mempool.NumVerifiedBlocks() > 0 {
+				allAccepted = false
+			}
+		}
+
 		if allAccepted {
 			n.l.Info("All transactions accepted as expected")
 			return
 		}
 
+	
 		time.Sleep(pollInterval)
 	}
 
@@ -163,7 +176,7 @@ func (n *Network) PrintStatus() {
 	// prints the number of txs in each node's mempool
 	for _, node := range n.nodes {
 		numPendingTxs := len(node.mempool.unacceptedTxs)
-		numVerifiedButNotAcceptedTxs := len(node.mempool.verifiedButNotAcceptedTXs)
+		numVerifiedButNotAcceptedTxs := node.mempool.NumVerifiedBlocks()
 		numAcceptedTxs := len(node.mempool.acceptedTXs)
 		n.l.Info("Node Status", zap.Stringer("nodeID", node.E.ID), zap.Int("Short", int(node.E.ID[0])), zap.Int("pending txs", numPendingTxs), zap.Int("verified but not accepted txs", numVerifiedButNotAcceptedTxs), zap.Int("accepted txs", numAcceptedTxs), zap.Uint64("Height", node.storage.NumBlocks()))
 	}

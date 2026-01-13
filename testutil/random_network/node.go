@@ -1,7 +1,6 @@
 package random_network
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/ava-labs/simplex"
@@ -54,19 +53,13 @@ func (n *Node) HandleMessage(msg *simplex.Message, from simplex.NodeID) error {
 	switch {
 	case msgCopy.BlockMessage != nil:
 		block := msgCopy.BlockMessage.Block.(*Block)
-		block.mempool.lock.Lock()
 
 		// only create a copy if the mempool is different
-		if block.mempool != n.mempool {
-			blockCopy := *block
-			blockCopy.mempool = n.mempool
-			blockMsgCopy := *msgCopy.BlockMessage
-			blockMsgCopy.Block = &blockCopy
-			msgCopy.BlockMessage = &blockMsgCopy
-		}
-
-		block.mempool.lock.Unlock()
-		fmt.Println("handling block in node", n.BasicNode.E.ID)
+		blockCopy := *block
+		blockCopy.mempool = n.mempool
+		blockMsgCopy := *msgCopy.BlockMessage
+		blockMsgCopy.Block = &blockCopy
+		msgCopy.BlockMessage = &blockMsgCopy
 
 	case msgCopy.ReplicationResponse != nil:
 		// Create a copy of ReplicationResponse to avoid mutating shared state
@@ -80,11 +73,9 @@ func (n *Node) HandleMessage(msg *simplex.Message, from simplex.NodeID) error {
 		for i, qr := range msgCopy.ReplicationResponse.Data {
 			if qr.Block != nil {
 				origBlock := qr.Block.(*Block)
-				origBlock.mempool.lock.Lock()
 				blockCopy := *origBlock
 				blockCopy.mempool = n.mempool
 				msgCopy.ReplicationResponse.Data[i].Block = &blockCopy
-				origBlock.mempool.lock.Unlock()
 			}
 		}
 
@@ -93,11 +84,9 @@ func (n *Node) HandleMessage(msg *simplex.Message, from simplex.NodeID) error {
 			msgCopy.ReplicationResponse.LatestRound = &latestRoundCopy
 			if latestRoundCopy.Block != nil {
 				origBlock := latestRoundCopy.Block.(*Block)
-				origBlock.mempool.lock.Lock()
 				blockCopy := *origBlock
 				blockCopy.mempool = n.mempool
 				msgCopy.ReplicationResponse.LatestRound.Block = &blockCopy
-				origBlock.mempool.lock.Unlock()
 			}
 		}
 
@@ -106,14 +95,11 @@ func (n *Node) HandleMessage(msg *simplex.Message, from simplex.NodeID) error {
 			msgCopy.ReplicationResponse.LatestSeq = &latestSeqCopy
 			if latestSeqCopy.Block != nil {
 				origBlock := latestSeqCopy.Block.(*Block)
-				origBlock.mempool.lock.Lock()
 				blockCopy := *origBlock
 				blockCopy.mempool = n.mempool
 				msgCopy.ReplicationResponse.LatestSeq.Block = &blockCopy
-				origBlock.mempool.lock.Unlock()
 			}
 		}
-		fmt.Println("handling rep in node", n.BasicNode.E.ID)
 
 	case msgCopy.VerifiedReplicationResponse != nil:
 		panic("not implemented vrr")
