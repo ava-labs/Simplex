@@ -593,7 +593,7 @@ func (e *Epoch) handleFinalizationMessage(message *Finalization, from NodeID) er
 
 	round, exists := e.rounds[message.Finalization.Round]
 	if !exists {
-		e.handleFinalizationForPendingOrFutureRound(message, message.Finalization.Round, nextSeqToCommit)
+		e.handleFinalizationForPendingOrFutureRound(message, message.Finalization.Round, nextSeqToCommit, from)
 		return nil
 	}
 
@@ -607,7 +607,8 @@ func (e *Epoch) handleFinalizationMessage(message *Finalization, from NodeID) er
 	return e.persistFinalization(*message)
 }
 
-func (e *Epoch) handleFinalizationForPendingOrFutureRound(message *Finalization, round uint64, nextSeqToCommit uint64) {
+
+func (e *Epoch) handleFinalizationForPendingOrFutureRound(message *Finalization, round uint64, nextSeqToCommit uint64, from NodeID) {
 	if round == e.round {
 		// delay collecting future finalization if we are verifying the proposal for that round
 		// and the finalization is for rounds we have
@@ -626,6 +627,15 @@ func (e *Epoch) handleFinalizationForPendingOrFutureRound(message *Finalization,
 		e.Logger.Debug("We are the leader of this round, but a higher round has been finalized. Aborting block building.")
 		e.blockBuilderCancelFunc()
 	}
+
+	blockDigestRequest := &Message{
+			BlockDigestRequest: &BlockDigestRequest{
+				Digest: message.Finalization.Digest,
+				Seq:    message.Finalization.Seq,
+			},
+		}
+
+	e.Comm.Send(blockDigestRequest, from)
 
 	e.replicationState.ReceivedFutureFinalization(message, nextSeqToCommit)
 }
