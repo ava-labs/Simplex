@@ -631,7 +631,10 @@ func (e *Epoch) restoreFromWal() error {
 	}
 
 	e.Logger.Info("Recovered from WAL", zap.Int("numRecords", len(records)))
-	e.setMetadataFromRecords(records)
+	if err := e.setMetadataFromRecords(records); err != nil {
+		return err
+	}
+	
 	return e.resumeFromWal(highestRoundRecord)
 }
 
@@ -674,7 +677,7 @@ func (e *Epoch) handleFinalizationMessage(message *Finalization, from NodeID) er
 
 	round, exists := e.rounds[message.Finalization.Round]
 	if !exists {
-		e.handleFinalizationForPendingOrFutureRound(message, message.Finalization.Round, nextSeqToCommit, from)
+		e.handleFinalizationForPendingOrFutureRound(message, message.Finalization.Round, nextSeqToCommit)
 		return nil
 	}
 
@@ -688,7 +691,7 @@ func (e *Epoch) handleFinalizationMessage(message *Finalization, from NodeID) er
 	return e.persistFinalization(*message)
 }
 
-func (e *Epoch) handleFinalizationForPendingOrFutureRound(message *Finalization, round uint64, nextSeqToCommit uint64, from NodeID) {
+func (e *Epoch) handleFinalizationForPendingOrFutureRound(message *Finalization, round uint64, nextSeqToCommit uint64) {
 	if round == e.round {
 		// delay collecting future finalization if we are verifying the proposal for that round
 		// and the finalization is for rounds we have
@@ -1790,7 +1793,7 @@ func (e *Epoch) blockDependencies(bh BlockHeader) (*Digest, []uint64) {
 // if the block has already been verified, it will index the finalization,
 // otherwise it will verify the block first.
 func (e *Epoch) processFinalizedBlock(block Block, finalization *Finalization) error {
-	e.Logger.Info("Processing finalized block during replication", zap.Uint64("round", finalization.Finalization.Round), zap.Uint64("sequence", finalization.Finalization.Seq))
+	e.Logger.Debug("Processing finalized block during replication", zap.Uint64("round", finalization.Finalization.Round), zap.Uint64("sequence", finalization.Finalization.Seq))
 
 	round, exists := e.rounds[finalization.Finalization.Round]
 	// dont create a block verification task if the block is already in the rounds map
@@ -2409,6 +2412,12 @@ func (e *Epoch) metadata() ProtocolMetadata {
 }
 
 func (e *Epoch) triggerEmptyBlockNotarization(round uint64) {
+	if e.round > round {
+		e.Logger.Debug("Not triggering empty block notarization because we advanced to a higher round",
+			zap.Uint64("round", round), zap.Uint64("currentRound", e.round))
+		return
+	}
+
 	emptyVote := ToBeSignedEmptyVote{EmptyVoteMetadata: EmptyVoteMetadata{
 		Round: round,
 		Epoch: e.Epoch,
