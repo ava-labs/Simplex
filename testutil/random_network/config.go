@@ -28,8 +28,8 @@ type FuzzConfig struct {
 	// Frequency at which to update time in the network. Default is 100 MS.
 	TimeUpdateFrequency time.Duration
 
-	// randomly crashes up to f nodes every crashInterval. if set to 0, no crashes occur.
-	crashInterval time.Duration
+	// randomly crashes up to f nodes every crashInterval. if set to 0, no crashes occur. Default is 800ms.
+	CrashInterval time.Duration
 }
 
 func DefaultFuzzConfig() *FuzzConfig {
@@ -44,5 +44,6 @@ func DefaultFuzzConfig() *FuzzConfig {
 		NumFinalizedBlocks:     100,
 		RandomSeed:             time.Now().UnixNano(),
 		TimeUpdateFrequency:    100 * time.Millisecond,
+		CrashInterval:          800 * time.Millisecond,
 	}
 }

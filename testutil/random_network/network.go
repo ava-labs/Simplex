@@ -81,7 +81,7 @@ func (n *Network) IssueTxs() {
 	for range numTxs {
 		tx := CreateNewTX()
 		if rand.Intn(100) < n.config.TxVVerificationFailure {
-			n.l.Info("Building a block that will fail verification due to tx", zap.Stringer("txID", tx))
+			// n.l.Info("Building a block that will fail verification due to tx", zap.Stringer("txID", tx))
 			// tx.SetShouldFailVerification()
 		}
 
@@ -99,58 +99,164 @@ func (n *Network) IssueTxs() {
 }
 
 func (n *Network) Run() {
-	const pollInterval = 100 * time.Millisecond
+	stop := make(chan struct{})
+	defer close(stop)
 
-	// Start issuing transactions in the background
-	stopIssuance := make(chan struct{})
-	defer close(stopIssuance)
+	n.startTransactionIssuance(stop)
+	n.startCrashRestartCycle(stop)
+	n.waitForTargetHeight()
+}
 
+func (n *Network) startTransactionIssuance(stop chan struct{}) {
 	go func() {
 		for {
 			select {
-			case <-stopIssuance:
+			case <-stop:
 				return
 			default:
-				// Issue a batch of transactions
 				n.IssueTxs()
 
-				// Random delay before next issuance
-				delay := n.config.MinTxIssuanceDelay
-				if n.config.MaxTxIssuanceDelay > n.config.MinTxIssuanceDelay {
-					randomDelta := n.randomness.Int63n(int64(n.config.MaxTxIssuanceDelay - n.config.MinTxIssuanceDelay))
-					delay += time.Duration(randomDelta)
-				}
-
+				delay := n.calculateTxIssuanceDelay()
 				select {
 				case <-time.After(delay):
-				case <-stopIssuance:
+				case <-stop:
 					return
 				}
 			}
 		}
 	}()
+}
 
-	// Poll until target height is reached
-	targetHeight := uint64(n.config.NumFinalizedBlocks)
-	for {
-		// Check if any node has reached the target height
-		maxHeight := uint64(0)
-		for _, node := range n.nodes {
-			height := node.storage.NumBlocks()
-			if height > maxHeight {
-				maxHeight = height
+func (n *Network) calculateTxIssuanceDelay() time.Duration {
+	delay := n.config.MinTxIssuanceDelay
+	if n.config.MaxTxIssuanceDelay > n.config.MinTxIssuanceDelay {
+		randomDelta := n.randomness.Int63n(int64(n.config.MaxTxIssuanceDelay - n.config.MinTxIssuanceDelay))
+		delay += time.Duration(randomDelta)
+	}
+	return delay
+}
+
+func (n *Network) startCrashRestartCycle(stop chan struct{}) {
+	if n.config.CrashInterval == 0 {
+		return
+	}
+
+	f := (len(n.nodes) - 1) / 3
+	if f == 0 {
+		n.l.Info("Not enough nodes for crash testing", zap.Int("numNodes", len(n.nodes)))
+		return
+	}
+
+	go func() {
+		var crashedNodes []uint64
+		crashPhase := true
+
+		ticker := time.NewTicker(n.config.CrashInterval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				if crashPhase {
+					crashedNodes = n.crashRandomNodes(f, crashedNodes)
+				} else {
+					n.restartCrashedNodes(crashedNodes)
+					crashedNodes = nil
+				}
+				crashPhase = !crashPhase
 			}
 		}
+	}()
+}
 
+func (n *Network) crashRandomNodes(f int, crashedNodes []uint64) []uint64 {
+	// Calculate how many more nodes we can crash (max f total)
+	maxAdditionalCrashes := f - len(crashedNodes)
+	if maxAdditionalCrashes <= 0 {
+		n.l.Info("Already at maximum crashed nodes", zap.Int("crashedNodes", len(crashedNodes)), zap.Int("f", f))
+		return crashedNodes
+	}
+
+	availableNodes := n.getAvailableNodes(crashedNodes)
+	if len(availableNodes) == 0 {
+		return crashedNodes
+	}
+
+	// Randomly select 1 to maxAdditionalCrashes nodes to crash
+	numToCrash := n.randomness.Intn(maxAdditionalCrashes) + 1
+	numToCrash = min(numToCrash, len(availableNodes))
+
+	n.randomness.Shuffle(len(availableNodes), func(i, j int) {
+		availableNodes[i], availableNodes[j] = availableNodes[j], availableNodes[i]
+	})
+
+	nodesToCrash := availableNodes[:numToCrash]
+	n.l.Info("Crashing nodes",
+		zap.Int("numToCrash", numToCrash),
+		zap.Int("totalCrashed", len(crashedNodes)+numToCrash),
+		zap.Int("f", f),
+		zap.Uint64s("nodeIndexes", nodesToCrash))
+	n.CrashNodes(nodesToCrash...)
+
+	return append(crashedNodes, nodesToCrash...)
+}
+
+func (n *Network) getAvailableNodes(crashedNodes []uint64) []uint64 {
+	availableNodes := make([]uint64, 0, len(n.nodes))
+	for i := range n.nodes {
+		nodeIdx := uint64(i)
+		isCrashed := false
+		for _, crashed := range crashedNodes {
+			if nodeIdx == crashed {
+				isCrashed = true
+				break
+			}
+		}
+		if !isCrashed {
+			availableNodes = append(availableNodes, nodeIdx)
+		}
+	}
+	return availableNodes
+}
+
+func (n *Network) restartCrashedNodes(crashedNodes []uint64) {
+	if len(crashedNodes) == 0 {
+		return
+	}
+
+	n.l.Info("Restarting nodes",
+		zap.Int("numNodes", len(crashedNodes)),
+		zap.Uint64s("nodeIndexes", crashedNodes))
+	n.StartNodes(crashedNodes...)
+}
+
+func (n *Network) waitForTargetHeight() {
+	const pollInterval = 100 * time.Millisecond
+	targetHeight := uint64(n.config.NumFinalizedBlocks)
+
+	for {
+		maxHeight := n.getMaxHeight()
 		if maxHeight >= targetHeight {
 			n.l.Info("Target height reached",
 				zap.Uint64("height", maxHeight),
 				zap.Uint64("target", targetHeight))
 			return
 		}
-
 		time.Sleep(pollInterval)
 	}
+}
+
+func (n *Network) getMaxHeight() uint64 {
+	maxHeight := uint64(0)
+	for _, node := range n.nodes {
+		height := node.storage.NumBlocks()
+		if height > maxHeight {
+			maxHeight = height
+		}
+	}
+	return maxHeight
 }
 
 func (n *Network) WaitForTxAcceptance() {
@@ -257,7 +363,8 @@ func (n *Network) StartNodes(nodeIndexes ...uint64) {
 		mempool := instance.mempool
 		clonedWal := instance.wal.Clone()
 		clonedStorage := instance.storage.Clone()
-
+		mempool.Clear()
+		
 		newNode := NewNodeWithExtras(n.t, n.BasicInMemoryNetwork, nodeID, mempool, clonedWal, clonedStorage, instance.logger)
 
 		n.nodes[idx] = newNode

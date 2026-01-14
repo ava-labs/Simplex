@@ -51,6 +51,7 @@ func NewNode(t *testing.T, net *testutil.BasicInMemoryNetwork, config *FuzzConfi
 func NewNodeWithExtras(t *testing.T, net *testutil.BasicInMemoryNetwork, nodeID simplex.NodeID, mempool *Mempool, wal *testutil.TestWAL, storage *Storage, logger *testutil.TestLogger) *Node {
 	comm := testutil.NewTestComm(nodeID, net, testutil.AllowAllMessages)
 	epochConfig, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodeID, comm, mempool)
+	epochConfig.MaxRoundWindow = 100
 	epochConfig.Logger = logger
 	epochConfig.Storage = storage
 	epochConfig.WAL = wal

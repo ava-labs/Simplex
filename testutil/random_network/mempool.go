@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/ava-labs/simplex"
-	"go.uber.org/zap"
 )
 
 var (
@@ -73,9 +72,6 @@ func (m *Mempool) WaitForPendingTxs(ctx context.Context) {
 		// Briefly check if txs are available
 		m.lock.Lock()
 		hasTxs := len(m.unacceptedTxs) > 0
-		for _, tx := range m.unacceptedTxs {
-			m.logger.Info("Pending tx in mempool", zap.Stringer("txID", tx))
-		}
 		m.lock.Unlock()
 
 		if hasTxs {
@@ -87,7 +83,6 @@ func (m *Mempool) WaitForPendingTxs(ctx context.Context) {
 		case <-m.txsReady:
 			// Might have txs now, loop back to check
 		case <-ctx.Done():
-			fmt.Println("Context done while waiting for pending txs") // --- IGNORE ---
 			return
 		}
 	}
@@ -123,10 +118,8 @@ func (m *Mempool) VerifyMyBuiltBlock(ctx context.Context, b *Block) {
 func (m *Mempool) VerifyBlock(ctx context.Context, b *Block) error {
 	m.lock.Lock()
 	defer m.lock.Unlock()
-	m.logger.Info("verifying block", zap.Stringer("digest", b.digest), zap.Stringer("parent", b.metadata.Prev))
 	// ensure the block is not already verified
 	if _, exists := m.verifiedButNotAcceptedTXs[b.digest]; exists {
-		m.logger.Warn("Block has already been verified", zap.Error(errDoubleBlockVerification))
 		return fmt.Errorf("%w: %s", errDoubleBlockVerification, b.digest)
 	}
 
@@ -147,13 +140,11 @@ func (m *Mempool) VerifyBlock(ctx context.Context, b *Block) error {
 	}
 
 	for _, tx := range b.txs {
-		m.logger.Info("Block verified contains tx", zap.Stringer("txID", tx))
 		delete(m.unacceptedTxs, tx.ID)
 	}
 
 	// update state - don't delete from unverifiedTXs yet, as multiple nodes may build blocks with the same txs
 	// txs will be deleted when the block is accepted
-	m.logger.Info("AND ADDED Block verified", zap.Stringer("digest", b.digest), zap.Stringer("parent", b.metadata.Prev))
 	m.verifiedButNotAcceptedTXs[b.digest] = b
 
 	return nil
@@ -181,7 +172,6 @@ func (m *Mempool) isTxInChain(txID txID, parentDigest simplex.Digest) bool {
 		return false
 	}
 
-	m.logger.Info("checking if block", zap.Stringer("digest", block.digest), zap.Stringer("parent", parentDigest))
 	if block.containsTX(txID) {
 		return true
 	}
@@ -190,7 +180,6 @@ func (m *Mempool) isTxInChain(txID txID, parentDigest simplex.Digest) bool {
 }
 
 func (m *Mempool) AcceptBlock(b *Block) {
-	m.logger.Info("accepting block digest", zap.Stringer("digest", b.digest))
 	m.lock.Lock()
 	defer m.lock.Unlock()
 
@@ -205,11 +194,6 @@ func (m *Mempool) NumVerifiedBlocks() int {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 
-	// print out all digests of verified but not accepted blocks
-	for digest := range m.verifiedButNotAcceptedTXs {
-		m.logger.Info("Verified but not accepted block", zap.Stringer("digest", digest))
-	}
-
 	return len(m.verifiedButNotAcceptedTXs)
 }
 
@@ -219,7 +203,6 @@ func (m *Mempool) BuildBlock(ctx context.Context, md simplex.ProtocolMetadata, b
 		return nil, false
 	}
 	block := NewBlock(md, bl, m, txs)
-	m.logger.Info("Building block with txs", zap.Int("num txs", len(txs)), zap.Any("prev", md.Prev), zap.Stringer("digest", block.digest), zap.Any("md", md))
 	m.VerifyMyBuiltBlock(ctx, block)
 
 	return block, true
@@ -245,4 +228,13 @@ func (m *Mempool) IsTxPending(txID txID) bool {
 
 	_, pending := m.unacceptedTxs[txID]
 	return pending
+}
+
+func (m *Mempool) Clear() {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+
+	m.unacceptedTxs = make(map[txID]*TX)
+	m.verifiedButNotAcceptedTXs = make(map[simplex.Digest]*Block)
+	m.acceptedTXs = make(map[txID]struct{})
 }

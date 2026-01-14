@@ -11,7 +11,7 @@ func TestNetworkSimpleFuzz(t *testing.T) {
 	l := testutil.MakeLogger(t)
 	config := random_network.DefaultFuzzConfig()
 	network := random_network.NewNetwork(config, t, l)
-	// network.SetInfoLog()
+	network.SetInfoLog()
 	network.StartInstances()
 	// network.IssueTxs()
 
