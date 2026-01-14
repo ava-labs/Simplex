@@ -358,7 +358,7 @@ func emptyVotesToSignatures(votes []*EmptyVote) []Signature {
 type walRound struct {
 	round             uint64
 	emptyNotarization *EmptyNotarization
-	emptyVOte         *ToBeSignedEmptyVote
+	emptyVote         *ToBeSignedEmptyVote
 	notarization      *Notarization
 	finalization      *Finalization
 	finalizeVote      *FinalizeVote
@@ -367,7 +367,7 @@ type walRound struct {
 
 func (t *walRound) String() string {
 	hasEmptyNotarization := t.emptyNotarization != nil
-	hasEmptyVote := t.emptyVOte != nil
+	hasEmptyVote := t.emptyVote != nil
 	hasNotarization := t.notarization != nil
 	hasFinalization := t.finalization != nil
 	hasBlock := t.block != nil
