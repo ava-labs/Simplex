@@ -354,8 +354,11 @@ func (n *Network) PrintStatus() {
 
 func (n *Network) CrashNodes(nodeIndexes ...uint64) {
 	for _, idx := range nodeIndexes {
+		n.lock.Lock()
 		instance := n.nodes[idx]
 		instance.Stop()
+
+		n.lock.Unlock()
 	}
 }
 
@@ -369,7 +372,10 @@ func (n *Network) StartNodes(nodeIndexes ...uint64) {
 		clonedWal := instance.wal.Clone()
 		clonedStorage := instance.storage.Clone()
 		mempool.Clear()
-		
+
+		// Remove the old stopped instance from the network's instances list
+		n.BasicInMemoryNetwork.RemoveNode(instance.BasicNode)
+
 		newNode := NewNodeWithExtras(n.t, n.BasicInMemoryNetwork, nodeID, mempool, clonedWal, clonedStorage, instance.logger)
 
 		n.nodes[idx] = newNode

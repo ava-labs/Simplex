@@ -117,6 +117,19 @@ func (b *BasicInMemoryNetwork) AddNode(node *BasicNode) {
 	b.instances = append(b.instances, node)
 }
 
+func (b *BasicInMemoryNetwork) RemoveNode(node *BasicNode) {
+	b.lock.Lock()
+	defer b.lock.Unlock()
+
+	for i, instance := range b.instances {
+		if instance == node {
+			// Remove the instance from the slice
+			b.instances = append(b.instances[:i], b.instances[i+1:]...)
+			return
+		}
+	}
+}
+
 type ControlledInMemoryNetwork struct {
 	*BasicInMemoryNetwork
 	Instances []*ControlledNode

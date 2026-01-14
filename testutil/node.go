@@ -89,6 +89,7 @@ func (b *BasicNode) enqueue(msg *simplex.Message, from, to simplex.NodeID) {
 	b.lock.Lock()
 	defer b.lock.Unlock()
 	if b.shouldStop.Load() {
+		b.l.Info("Node is stopped, not enqueuing message", zap.Stringer("from", from), zap.Stringer("to", to))
 		return
 	}
 
