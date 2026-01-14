@@ -634,7 +634,7 @@ func (e *Epoch) restoreFromWal() error {
 	if err := e.setMetadataFromRecords(records); err != nil {
 		return err
 	}
-	
+
 	return e.resumeFromWal(highestRoundRecord)
 }
 
