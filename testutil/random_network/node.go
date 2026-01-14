@@ -19,12 +19,13 @@ type Node struct {
 }
 
 func NewNode(t *testing.T, net *testutil.BasicInMemoryNetwork, config *FuzzConfig, nodeID simplex.NodeID) *Node {
-	l := testutil.MakeLogger(t, int(nodeID[0]))
+	l := CreateNodeLogger(t, config, nodeID)
 	mempool := NewMempool(l, config)
 	storage := NewStorage(mempool)
 	comm := testutil.NewTestComm(nodeID, net, testutil.AllowAllMessages)
 	epochConfig, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodeID, comm, mempool)
 	epochConfig.Logger = l
+	epochConfig.MaxRoundWindow = 100
 	epochConfig.Storage = storage
 	epochConfig.ReplicationEnabled = true
 	epochConfig.BlockDeserializer = &BlockDeserializer{

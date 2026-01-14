@@ -212,6 +212,8 @@ func (r *requestor) sendRequestToNode(start uint64, end uint64, node NodeID) {
 		zap.Stringer("from", node),
 		zap.Uint64("start", start),
 		zap.Uint64("end", end),
+		zap.Int("len seqssss", len(request.Seqs)),
+		zap.Int("len rounds", len(request.Rounds)),
 		zap.Uint64("latestSeq", request.LatestFinalizedSeq),
 		zap.Uint64("latestRound", request.LatestRound),
 	)

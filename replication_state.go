@@ -85,7 +85,7 @@ func NewReplicationState(logger Logger, comm Communication, myNodeID NodeID, max
 	}
 
 	r.digestTimeouts = NewTimeoutHandler(logger, "digest", start, DefaultReplicationRequestTimeout, r.requestDigests)
-	r.emptyRoundTimeouts = NewTimeoutHandler(logger, "empty", start, DefaultReplicationRequestTimeout, r.requestEmptyRounds)
+	r.emptyRoundTimeouts = NewTimeoutHandler(logger, "empty round replication", start, DefaultReplicationRequestTimeout, r.requestEmptyRounds)
 
 	return r
 }

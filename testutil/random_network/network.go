@@ -27,6 +27,11 @@ type Network struct {
 }
 
 func NewNetwork(config *FuzzConfig, t *testing.T, l simplex.Logger) *Network {
+	// Use file-based logger if LogDirectory is configured
+	if config.LogDirectory != "" {
+		l = CreateNetworkLogger(t, config)
+	}
+
 	l.Info("Initiating logger with random seed", zap.Int64("seed", config.RandomSeed))
 	r := rand.New(rand.NewSource(config.RandomSeed))
 

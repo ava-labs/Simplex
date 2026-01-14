@@ -96,6 +96,13 @@ func (tl *TestLogger) Error(msg string, fields ...zap.Field) {
 }
 
 func MakeLogger(t *testing.T, node ...int) *TestLogger {
+	return MakeLoggerWithFile(t, nil, node...)
+}
+
+// MakeLoggerWithFile creates a TestLogger that optionally writes to a file in addition to stdout.
+// If fileWriter is nil, logs only to stdout (same as MakeLogger).
+// If fileWriter is provided, logs to both stdout and the file.
+func MakeLoggerWithFile(t *testing.T, fileWriter zapcore.WriteSyncer, node ...int) *TestLogger {
 	defaultEncoderConfig := zapcore.EncoderConfig{
 		TimeKey:        "timestamp",
 		LevelKey:       "level",
@@ -112,14 +119,30 @@ func MakeLogger(t *testing.T, node ...int) *TestLogger {
 	}
 	config.EncodeTime = zapcore.TimeEncoderOfLayout("[01-02|15:04:05.000]")
 	config.ConsoleSeparator = " "
-	encoder := zapcore.NewConsoleEncoder(config)
+
+	// Create stdout encoder
+	stdoutEncoder := zapcore.NewConsoleEncoder(config)
 	if strings.ToLower(os.Getenv("LOG_LEVEL")) == "info" {
-		encoder = &DebugSwallowingEncoder{consoleEncoder: encoder, ObjectEncoder: encoder, pool: buffer.NewPool()}
+		stdoutEncoder = &DebugSwallowingEncoder{consoleEncoder: stdoutEncoder, ObjectEncoder: stdoutEncoder, pool: buffer.NewPool()}
 	}
 
 	atomicLevel := zap.NewAtomicLevelAt(zapcore.DebugLevel)
 
-	core := zapcore.NewCore(encoder, zapcore.AddSync(os.Stdout), atomicLevel)
+	// Create stdout core
+	stdoutCore := zapcore.NewCore(stdoutEncoder, zapcore.AddSync(os.Stdout), atomicLevel)
+
+	// If file writer is provided, create a tee core with both stdout and file
+	var core zapcore.Core
+	if fileWriter != nil {
+		fileEncoder := zapcore.NewConsoleEncoder(config)
+		if strings.ToLower(os.Getenv("LOG_LEVEL")) == "info" {
+			fileEncoder = &DebugSwallowingEncoder{consoleEncoder: fileEncoder, ObjectEncoder: fileEncoder, pool: buffer.NewPool()}
+		}
+		fileCore := zapcore.NewCore(fileEncoder, fileWriter, atomicLevel)
+		core = zapcore.NewTee(stdoutCore, fileCore)
+	} else {
+		core = stdoutCore
+	}
 
 	logger := zap.New(core, zap.AddCaller())
 	logger = logger.With(zap.String("test", t.Name()))

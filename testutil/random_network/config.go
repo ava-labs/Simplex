@@ -30,6 +30,12 @@ type FuzzConfig struct {
 
 	// randomly crashes up to f nodes every crashInterval. if set to 0, no crashes occur. Default is 800ms.
 	CrashInterval time.Duration
+
+	// Optional directory for writing logs to files. If empty, logs only to console.
+	// When set, creates main.log for network logs and {nodeID-short}.log for each node.
+	// NodeID is represented as a 16-character hex string (first 8 bytes).
+	// Default is "tmp".
+	LogDirectory string
 }
 
 func DefaultFuzzConfig() *FuzzConfig {
@@ -42,8 +48,10 @@ func DefaultFuzzConfig() *FuzzConfig {
 		MinTxsPerBlock:         5,
 		MaxTxsPerBlock:         20,
 		NumFinalizedBlocks:     100,
-		RandomSeed:             time.Now().UnixNano(),
+		// RandomSeed:             time.Now().UnixNano(),
+		RandomSeed:             1768389277860202000,
 		TimeUpdateFrequency:    100 * time.Millisecond,
 		CrashInterval:          800 * time.Millisecond,
+		LogDirectory:           "tmp", // Disabled by default (console only)
 	}
 }
