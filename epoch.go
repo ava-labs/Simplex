@@ -835,15 +835,6 @@ func (e *Epoch) handleFinalizationForPendingOrFutureRound(message *Finalization,
 		e.blockBuilderCancelFunc()
 	}
 
-	blockDigestRequest := &Message{
-			BlockDigestRequest: &BlockDigestRequest{
-				Digest: message.Finalization.Digest,
-				Seq:    message.Finalization.Seq,
-			},
-		}
-
-	e.Comm.Send(blockDigestRequest, from)
-
 	e.replicationState.ReceivedFutureFinalization(message, nextSeqToCommit)
 }
 
