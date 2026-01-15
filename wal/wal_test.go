@@ -13,8 +13,7 @@ import (
 
 func new(t *testing.T) *WriteAheadLog {
 	fileName := filepath.Join(t.TempDir(), "simplex.wal")
-	wal, err := New(fileName)
-	require.NoError(t, err)
+	wal := New(fileName)
 	return wal
 }
 
@@ -26,10 +25,18 @@ func TestWalSingleRw(t *testing.T) {
 	// writes and reads from wal
 	wal := new(t)
 	defer func() {
+		// Close twice to make sure we can do it
+		require.NoError(wal.Close())
 		require.NoError(wal.Close())
 	}()
 
+	// Close before appending just to make sure we can do it
+	require.NoError(wal.Close())
+
 	require.NoError(wal.Append(r))
+
+	// Close before reading just to make sure we can do it
+	require.NoError(wal.Close())
 
 	readRecords, err := wal.ReadAll()
 	require.NoError(err)
@@ -89,8 +96,7 @@ func TestCorruptedFile(t *testing.T) {
 	require := require.New(t)
 
 	fileName := filepath.Join(t.TempDir(), "simplex.wal")
-	wal, err := New(fileName)
-	require.NoError(err)
+	wal := New(fileName)
 	defer func() {
 		require.NoError(wal.Close())
 	}()
@@ -128,7 +134,7 @@ func TestDelete(t *testing.T) {
 	require.NoError(err)
 
 	fileName := filepath.Join(dir, "simplex.wal")
-	wal, err := New(fileName)
+	wal := New(fileName)
 	require.NoError(err)
 
 	require.NoError(wal.Append(r))

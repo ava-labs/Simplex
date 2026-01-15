@@ -28,9 +28,9 @@ func TestLastRecord(t *testing.T) {
 	dir, err := os.MkdirTemp(os.TempDir(), t.Name())
 	require.NoError(t, err)
 
-	path := filepath.Join(dir, "last-record")
+	lastRecordFilePath := filepath.Join(dir, "last-record")
 
-	testWAL, err := wal.NewLastRecordStoringWAL(path,
+	testWAL, err := wal.NewLastRecordStoringWAL(lastRecordFilePath,
 		&mockTruncateableWAL{
 			t:       t,
 			TestWAL: testutil.NewTestWAL(t),
@@ -60,7 +60,9 @@ func TestLastRecord(t *testing.T) {
 
 	require.NoError(t, testWAL.Truncate(0))
 
-	testWAL, err = wal.NewLastRecordStoringWAL(path,
+	// Re-create the WAL, it should contain entry3 when probed for its last record.
+
+	testWAL, err = wal.NewLastRecordStoringWAL(lastRecordFilePath,
 		&mockTruncateableWAL{
 			t:       t,
 			TestWAL: testutil.NewTestWAL(t),
@@ -72,6 +74,16 @@ func TestLastRecord(t *testing.T) {
 	entries, err = testWAL.ReadAll()
 	require.NoError(t, err)
 	require.Empty(t, entries)
-
 	require.Equal(t, entry3, testWAL.LastRecord())
+
+	// Next, write a notarization record and make sure that:
+	// - Its last record is no longer entry3.
+	// - The last record file path is removed.
+
+	entry4 := []byte{0, byte(record.NotarizationRecordType), 16, 17, 18, 19, 20}
+	require.NoError(t, testWAL.Append(entry4))
+	require.Equal(t, entry4, testWAL.LastRecord())
+
+	_, err = os.Stat(lastRecordFilePath)
+	require.True(t, os.IsNotExist(err))
 }

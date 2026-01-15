@@ -15,25 +15,36 @@ const (
 )
 
 type WriteAheadLog struct {
-	file *os.File
+	file     *os.File
+	fileName string
 }
 
 // New opens a write ahead log file, creating one if necessary.
 // Call Close() on the WriteAheadLog to ensure the file is closed after use.
-func New(fileName string) (*WriteAheadLog, error) {
-	file, err := os.OpenFile(fileName, WalFlags, WalPermissions)
-	if err != nil {
-		return nil, err
-	}
-
+func New(fileName string) *WriteAheadLog {
 	return &WriteAheadLog{
-		file: file,
-	}, nil
+		fileName: fileName,
+	}
+}
+
+func (w *WriteAheadLog) maybeOpenFile() error {
+	if w.file != nil {
+		return nil
+	}
+	file, err := os.OpenFile(w.fileName, WalFlags, WalPermissions)
+	if err != nil {
+		return err
+	}
+	w.file = file
+	return nil
 }
 
 // Appends a record to the write ahead log
 // Must flush the OS cache on every append to ensure consistency
 func (w *WriteAheadLog) Append(b []byte) error {
+	if err := w.maybeOpenFile(); err != nil {
+		return err
+	}
 	// writeRecord will append
 	if err := writeRecord(w.file, b); err != nil {
 		return err
@@ -44,6 +55,10 @@ func (w *WriteAheadLog) Append(b []byte) error {
 }
 
 func (w *WriteAheadLog) Delete() error {
+	if w.file == nil {
+		return os.Remove(w.file.Name())
+	}
+
 	if err := w.file.Close(); err != nil {
 		return err
 	}
@@ -52,6 +67,9 @@ func (w *WriteAheadLog) Delete() error {
 }
 
 func (w *WriteAheadLog) ReadAll() ([][]byte, error) {
+	if err := w.maybeOpenFile(); err != nil {
+		return nil, err
+	}
 	_, err := w.file.Seek(0, io.SeekStart)
 	if err != nil {
 		return nil, fmt.Errorf("error seeking to start %w", err)
@@ -94,5 +112,11 @@ func (w *WriteAheadLog) truncateAt(offset int64) error {
 }
 
 func (w *WriteAheadLog) Close() error {
+	if w.file == nil {
+		return nil
+	}
+	defer func() {
+		w.file = nil
+	}()
 	return w.file.Close()
 }

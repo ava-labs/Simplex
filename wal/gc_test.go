@@ -6,7 +6,6 @@ package wal_test
 import (
 	"crypto/rand"
 	"encoding/binary"
-	"fmt"
 	"testing"
 
 	"github.com/ava-labs/simplex/testutil"
@@ -17,16 +16,12 @@ import (
 type mockWALReader struct{}
 
 func (m *mockWALReader) RetentionTerm(entry []byte) (uint64, error) {
-	if len(entry) != 16 {
-		return 0, fmt.Errorf("invalid entry size, expected 16, got %d", len(entry))
-	}
-
 	return binary.BigEndian.Uint64(entry[:8]), nil
 }
 
 func TestGarbageCollectedWAL(t *testing.T) {
 
-	var testWALs []wal.DeleteableWAL
+	var testWALs []wal.DeletableWAL
 	records := make([][]byte, 10)
 
 	for i := uint64(0); i < 10; i++ {
@@ -41,16 +36,12 @@ func TestGarbageCollectedWAL(t *testing.T) {
 		records[i] = buff
 	}
 
-	gcw := wal.GarbageCollectedWAL{
-		CreateWAL: func() (wal.DeleteableWAL, error) {
-			return testutil.NewTestWAL(t), nil
-		},
-		WALs: testWALs,
-	}
+	var newWALCreatedCount int
 
-	require.ErrorContains(t, gcw.Append(nil), "WAL reader not initialized")
-
-	require.NoError(t, gcw.Init(&mockWALReader{}))
+	gcw, err := wal.NewGarbageCollectedWAL(testWALs, func() (wal.DeletableWAL, error) {
+		newWALCreatedCount++
+		return testutil.NewTestWAL(t), nil
+	}, &mockWALReader{}, 100)
 
 	walRecords, err := gcw.ReadAll()
 	require.NoError(t, err)
@@ -71,8 +62,26 @@ func TestGarbageCollectedWAL(t *testing.T) {
 	_, err = rand.Read(buff[8:])
 	require.NoError(t, err)
 
+	require.Zero(t, newWALCreatedCount)
 	require.NoError(t, gcw.Append(buff))
+	require.Equal(t, 1, newWALCreatedCount)
 	walRecords, err = gcw.ReadAll()
 	require.NoError(t, err)
 	require.Equal(t, [][]byte{buff}, walRecords)
+
+	buff1 := buff
+	buff = make([]byte, 1024)
+	binary.BigEndian.PutUint64(buff[:8], 100)
+	_, err = rand.Read(buff[8:])
+	require.NoError(t, err)
+
+	buffs := make([][]byte, 2)
+	buffs[0] = buff1
+	buffs[1] = buff
+
+	require.Equal(t, 1, newWALCreatedCount)
+	require.NoError(t, gcw.Append(buff))
+	walRecords, err = gcw.ReadAll()
+	require.Equal(t, 2, newWALCreatedCount)
+	require.Equal(t, buffs, walRecords)
 }

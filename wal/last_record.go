@@ -12,10 +12,16 @@ import (
 type LastRecordStoringWAL struct {
 	recordIndexFilePath string
 	TruncateableWAL
-	recordType uint16
-	lastRecord []byte
+	recordType         uint16
+	lastRecord         []byte
+	lastRecordFilePath string
+	// recentlyTruncated indicates whether the WAL has been recently truncated.
+	recentlyTruncated bool
 }
 
+// NewLastRecordStoringWAL creates a new WAL that stores the last record of the given recordType.
+// If the WAL is recentlyTruncated, the last record file is persisted to disk before the truncation takes place,
+// and is thus saved even if the truncation removes all records of the given recordType.
 func NewLastRecordStoringWAL(lastRecordFilePath string, innerWAL TruncateableWAL, recordType uint16) (*LastRecordStoringWAL, error) {
 	// We first check if we can open our last record file path
 	payload, err := validateLastRecordFile(lastRecordFilePath)
@@ -34,6 +40,7 @@ func NewLastRecordStoringWAL(lastRecordFilePath string, innerWAL TruncateableWAL
 	}
 
 	var lastRecord []byte
+	var recentlyTruncated bool
 
 	for i, entry := range entries {
 		if len(entry) < 2 {
@@ -48,14 +55,17 @@ func NewLastRecordStoringWAL(lastRecordFilePath string, innerWAL TruncateableWAL
 	}
 
 	if len(payload) > 0 {
+		recentlyTruncated = true
 		lastRecord = payload
 	}
 
 	ri := &LastRecordStoringWAL{
+		lastRecordFilePath:  lastRecordFilePath,
 		lastRecord:          lastRecord,
 		recordIndexFilePath: lastRecordFilePath,
 		recordType:          recordType,
 		TruncateableWAL:     innerWAL,
+		recentlyTruncated:   recentlyTruncated,
 	}
 
 	return ri, nil
@@ -121,9 +131,25 @@ func (ri *LastRecordStoringWAL) Append(record []byte) error {
 		return fmt.Errorf("record too short to determine type")
 	}
 
-	if binary.BigEndian.Uint16(record[0:2]) == ri.recordType {
-		ri.lastRecord = record
+	err := ri.TruncateableWAL.Append(record)
+	if err != nil {
+		return err
 	}
 
-	return ri.TruncateableWAL.Append(record)
+	if binary.BigEndian.Uint16(record[0:2]) == ri.recordType {
+		ri.lastRecord = record
+
+		// If we have opened the WAL with the recentlyTruncated field activated,
+		// it means that the last thing the WAL did was truncation.
+		// After writing this record, the last record loaded is no longer
+		// the latest one, so we need to remove the last record file.
+		if ri.recentlyTruncated {
+			if err := os.Remove(ri.lastRecordFilePath); err != nil {
+				return fmt.Errorf("could not remove last record file %s: %w", ri.lastRecordFilePath, err)
+			}
+			ri.recentlyTruncated = false
+		}
+	}
+
+	return err
 }
