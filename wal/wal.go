@@ -43,6 +43,14 @@ func (w *WriteAheadLog) Append(b []byte) error {
 	return w.file.Sync()
 }
 
+func (w *WriteAheadLog) Delete() error {
+	if err := w.file.Close(); err != nil {
+		return err
+	}
+
+	return os.Remove(w.file.Name())
+}
+
 func (w *WriteAheadLog) ReadAll() ([][]byte, error) {
 	_, err := w.file.Seek(0, io.SeekStart)
 	if err != nil {
@@ -73,11 +81,6 @@ func (w *WriteAheadLog) ReadAll() ([][]byte, error) {
 	}
 
 	return payloads, nil
-}
-
-// Truncate truncates the write ahead log
-func (w *WriteAheadLog) Truncate() error {
-	return w.truncateAt(0)
 }
 
 func (w *WriteAheadLog) truncateAt(offset int64) error {

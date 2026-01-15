@@ -119,17 +119,24 @@ func TestCorruptedFile(t *testing.T) {
 	require.Equal(records[:n-1], readRecords)
 }
 
-func TestTruncate(t *testing.T) {
+func TestDelete(t *testing.T) {
 	require := require.New(t)
 
 	r := []byte{3, 4, 5}
 
-	wal := new(t)
-	defer func() {
-		require.NoError(wal.Close())
-	}()
+	dir, err := os.MkdirTemp("", t.Name())
+	require.NoError(err)
+
+	fileName := filepath.Join(dir, "simplex.wal")
+	wal, err := New(fileName)
+	require.NoError(err)
 
 	require.NoError(wal.Append(r))
+
+	require.NoError(wal.Delete())
+
+	_, err = os.Stat(fileName)
+	require.ErrorIs(err, os.ErrNotExist)
 }
 
 func TestReadWriteAfterTruncate(t *testing.T) {
