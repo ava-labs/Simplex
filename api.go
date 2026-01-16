@@ -79,6 +79,7 @@ type SignatureVerifier interface {
 type WriteAheadLog interface {
 	Append([]byte) error
 	ReadAll() ([][]byte, error)
+	Close() error
 }
 
 type Block interface {

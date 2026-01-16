@@ -5,7 +5,6 @@ package simplex
 
 import (
 	"context"
-	"encoding/asn1"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -16,6 +15,41 @@ import (
 type QuorumRecord struct {
 	QC   []byte
 	Vote []byte
+}
+
+func (qr *QuorumRecord) FromBytes(buff []byte) error {
+	if len(buff) < 4 {
+		return errors.New("buffer too small to contain vote length")
+	}
+
+	voteLen := binary.BigEndian.Uint32(buff[0:4])
+	if len(buff) < int(4+voteLen) {
+		return errors.New("buffer too small to contain vote")
+	}
+
+	if int(voteLen) > len(buff)-4 {
+		return errors.New("vote length exceeds buffer size")
+	}
+
+	qr.Vote = make([]byte, voteLen)
+	copy(qr.Vote, buff[4:4+voteLen])
+
+	qr.QC = make([]byte, len(buff)-int(4+voteLen))
+	copy(qr.QC, buff[4+voteLen:])
+
+	return nil
+}
+
+func (qr *QuorumRecord) Bytes() []byte {
+	voteLenBuff := make([]byte, 4)
+	binary.BigEndian.PutUint32(voteLenBuff, uint32(len(qr.Vote)))
+
+	buff := make([]byte, 4+len(qr.QC)+len(qr.Vote))
+	copy(buff[0:4], voteLenBuff)
+	copy(buff[4:4+len(qr.Vote)], qr.Vote)
+	copy(buff[4+len(qr.Vote):], qr.QC)
+
+	return buff
 }
 
 func FinalizationFromRecord(record []byte, qd QCDeserializer) (Finalization, error) {
@@ -38,8 +72,7 @@ func FinalizationFromRecord(record []byte, qd QCDeserializer) (Finalization, err
 func parseFinalizationRecord(payload []byte) ([]byte, ToBeSignedFinalization, error) {
 	payload = payload[2:]
 	var nr QuorumRecord
-	_, err := asn1.Unmarshal(payload, &nr)
-	if err != nil {
+	if err := nr.FromBytes(payload); err != nil {
 		return nil, ToBeSignedFinalization{}, err
 	}
 
@@ -56,10 +89,7 @@ func NewQuorumRecord(qc []byte, rawVote []byte, recordType uint16) []byte {
 	qr.QC = qc
 	qr.Vote = rawVote
 
-	payload, err := asn1.Marshal(qr)
-	if err != nil {
-		panic(err)
-	}
+	payload := qr.Bytes()
 
 	buff := make([]byte, len(payload)+2)
 	binary.BigEndian.PutUint16(buff, recordType)
@@ -77,11 +107,9 @@ func ParseNotarizationRecord(r []byte) ([]byte, ToBeSignedVote, error) {
 
 	record := r[2:]
 	var nr QuorumRecord
-	_, err := asn1.Unmarshal(record, &nr)
-	if err != nil {
+	if err := nr.FromBytes(record); err != nil {
 		return nil, ToBeSignedVote{}, err
 	}
-
 	var vote ToBeSignedVote
 	if err := vote.FromBytes(nr.Vote); err != nil {
 		return nil, ToBeSignedVote{}, err
@@ -110,18 +138,10 @@ func NotarizationFromRecord(record []byte, qd QCDeserializer) (Notarization, err
 func BlockRecord(bh BlockHeader, blockData []byte) []byte {
 	mdBytes := bh.Bytes()
 
-	mdSizeBuff := make([]byte, 4)
-	binary.BigEndian.PutUint32(mdSizeBuff, uint32(len(mdBytes)))
-
-	blockDataSizeBuff := make([]byte, 4)
-	binary.BigEndian.PutUint32(blockDataSizeBuff, uint32(len(blockData)))
-
-	buff := make([]byte, len(mdBytes)+len(blockData)+len(mdSizeBuff)+len(blockDataSizeBuff)+2)
+	buff := make([]byte, len(mdBytes)+len(blockData)+2)
 	binary.BigEndian.PutUint16(buff, record.BlockRecordType)
-	copy(buff[2:], mdSizeBuff)
-	copy(buff[6:], blockDataSizeBuff)
-	copy(buff[10:], mdBytes)
-	copy(buff[10+len(mdBytes):], blockData)
+	copy(buff[2:], mdBytes)
+	copy(buff[2+BlockHeaderLen:], blockData)
 
 	return buff
 }
@@ -142,31 +162,22 @@ func ParseBlockRecord(buff []byte) (BlockHeader, []byte, error) {
 	}
 
 	buff = buff[2:]
-	if len(buff) < 8 {
-		return BlockHeader{}, nil, errors.New("buffer too small, expected 8 bytes")
+	if len(buff) < BlockHeaderLen {
+		return BlockHeader{}, nil, fmt.Errorf("buffer too small, expected %d bytes", BlockHeaderLen+2)
 	}
-
-	mdSizeBuff := binary.BigEndian.Uint32(buff)
-	blockDataSizeBuff := binary.BigEndian.Uint32(buff[4:])
-
-	buff = buff[8:]
-
-	expectedBuffSize := int(mdSizeBuff + blockDataSizeBuff)
-
-	if len(buff) < expectedBuffSize {
-		return BlockHeader{}, nil, fmt.Errorf("buffer too small, expected %d bytes", expectedBuffSize)
-	}
-
-	mdBuff := buff[:mdSizeBuff]
 
 	var bh BlockHeader
-	if err := bh.FromBytes(mdBuff); err != nil {
+	if err := bh.FromBytes(buff[:BlockHeaderLen]); err != nil {
 		return BlockHeader{}, nil, fmt.Errorf("failed to deserialize block metadata: %w", err)
 	}
 
-	payload := buff[mdSizeBuff:]
+	buff = buff[BlockHeaderLen:]
 
-	return bh, payload, nil
+	if len(buff) == 0 {
+		return BlockHeader{}, nil, fmt.Errorf("buffer too small, expected block data but gone none")
+	}
+
+	return bh, buff, nil
 }
 
 func ParseEmptyNotarizationRecord(buff []byte) ([]byte, ToBeSignedEmptyVote, error) {
@@ -177,8 +188,7 @@ func ParseEmptyNotarizationRecord(buff []byte) ([]byte, ToBeSignedEmptyVote, err
 
 	record := buff[2:]
 	var nr QuorumRecord
-	_, err := asn1.Unmarshal(record, &nr)
-	if err != nil {
+	if err := nr.FromBytes(record); err != nil {
 		return nil, ToBeSignedEmptyVote{}, err
 	}
 
@@ -216,4 +226,73 @@ func ParseEmptyVoteRecord(rawEmptyVote []byte) (ToBeSignedEmptyVote, error) {
 	}
 
 	return emptyVote, nil
+}
+
+func BlockRecordRetentionTerm(record []byte) (uint64, error) {
+	if len(record) < 19 {
+		return 0, fmt.Errorf("record too short to extract round, expected at least 19 bytes, got %d", len(record))
+	}
+
+	var pos int
+	// First 2 bytes are for record type
+	pos += 2
+	// The next 9 bytes are for version and epoch.
+	pos += 9
+	// The next 8 bytes are for round.
+	round := binary.BigEndian.Uint64(record[pos : pos+8])
+	return round, nil
+}
+
+func QuorumRecordRetentionTerm(record []byte) (uint64, error) {
+	if len(record) < 23 {
+		return 0, fmt.Errorf("record too short to extract round, expected at least 23 bytes, got %d", len(record))
+	}
+
+	var pos int
+	// First 2 bytes are for record type
+	pos += 2
+	// Next 4 bytes are for the size of the vote
+	pos += 4
+	// The next 9 bytes are for version and epoch.
+	pos += 9
+	// The next 8 bytes are for round.
+	round := binary.BigEndian.Uint64(record[pos : pos+8])
+	return round, nil
+}
+
+func EmptyVoteRecordRetentionTerm(record []byte) (uint64, error) {
+	if len(record) < 19 {
+		return 0, fmt.Errorf("record too short to extract round, expected at least 23 bytes, got %d", len(record))
+	}
+
+	var pos int
+	// First 2 bytes are for record type
+	pos += 2
+	// The next 9 bytes are for version and epoch.
+	pos += 9
+	// The next 8 bytes are for round.
+	round := binary.BigEndian.Uint64(record[pos : pos+8])
+	return round, nil
+}
+
+type WALRetentionReader struct{}
+
+func (wrr *WALRetentionReader) RetentionTerm(entry []byte) (uint64, error) {
+	if len(entry) < 2 {
+		return 0, fmt.Errorf("entry too short to extract record type, expected at least 2 bytes, got %d", len(entry))
+	}
+
+	recordType := binary.BigEndian.Uint16(entry[:2])
+	switch recordType {
+	case record.BlockRecordType:
+		return BlockRecordRetentionTerm(entry)
+	case record.NotarizationRecordType:
+		return QuorumRecordRetentionTerm(entry)
+	case record.EmptyNotarizationRecordType:
+		return QuorumRecordRetentionTerm(entry)
+	case record.EmptyVoteRecordType:
+		return EmptyVoteRecordRetentionTerm(entry)
+	default:
+		return 0, fmt.Errorf("unknown record type %d for retention term extraction", recordType)
+	}
 }
