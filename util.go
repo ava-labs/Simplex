@@ -354,3 +354,21 @@ func emptyVotesToSignatures(votes []*EmptyVote) []Signature {
 	}
 	return sigs
 }
+
+type walRound struct {
+	round             uint64
+	emptyNotarization *EmptyNotarization
+	emptyVote         *ToBeSignedEmptyVote
+	notarization      *Notarization
+	finalization      *Finalization
+	block             Block
+}
+
+func (t *walRound) String() string {
+	hasEmptyNotarization := t.emptyNotarization != nil
+	hasEmptyVote := t.emptyVote != nil
+	hasNotarization := t.notarization != nil
+	hasFinalization := t.finalization != nil
+	hasBlock := t.block != nil
+	return fmt.Sprintf("walRound{round: %d, hasEmptyNotarization: %t, hasEmptyVote: %t, hasNotarization: %t, hasFinalization: %t, hasBlock: %t}", t.round, hasEmptyNotarization, hasEmptyVote, hasNotarization, hasFinalization, hasBlock)
+}
