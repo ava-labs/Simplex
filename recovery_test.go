@@ -677,3 +677,51 @@ func TestWalRecoveryTriggersEmptyVoteTimeout(t *testing.T) {
 		}
 	}
 }
+
+func TestWalRecoveryMonitorsProgress(t *testing.T) {
+	bb := testutil.NewTestBlockBuilder()
+	ctx := context.Background()
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	initialBlock := createBlocks(t, nodes, 1)[0]
+	recordingComm := &recordingComm{Communication: testutil.NewNoopComm(nodes), BroadcastMessages: make(chan *Message, 100), SentMessages: make(chan *Message, 100)}
+	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], recordingComm, bb)
+	storage.Index(ctx, initialBlock.VerifiedBlock, initialBlock.Finalization)
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+
+	protocolMetadata := e.Metadata()
+	block, ok := bb.BuildBlock(ctx, protocolMetadata, emptyBlacklist)
+	require.True(t, ok)
+	bBytes, err := block.Bytes()
+	require.NoError(t, err)
+	blockRecord := BlockRecord(block.BlockHeader(), bBytes)
+
+	// write block blockRecord to wal
+	require.NoError(t, wal.Append(blockRecord))
+
+	require.NoError(t, e.Start())
+	require.Equal(t, uint64(1), e.Metadata().Round)
+	require.Equal(t, uint64(1), e.Metadata().Seq)
+
+	count := 0
+	ticker := time.NewTicker(100 * time.Millisecond)
+	time := time.Now()
+	bb.BlockShouldBeBuilt <- struct{}{}
+	for {
+		select {
+		case <-ticker.C:
+			time = time.Add(DefaultEmptyVoteRebroadcastTimeout)
+			e.AdvanceTime(time)
+		case msg := <-recordingComm.BroadcastMessages:
+			if msg.EmptyVoteMessage != nil {
+				require.Equal(t, uint64(1), msg.EmptyVoteMessage.Vote.Round)
+				count++
+			}
+
+			if count > 3 {
+				return
+			}
+		}
+	}
+}

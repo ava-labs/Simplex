@@ -538,9 +538,13 @@ func (e *Epoch) resumeFromWal(highestRoundRecord *walRound) error {
 			}
 			// broadcast only if we are the leader
 			e.Comm.Broadcast(proposal)
-			return e.handleVoteMessage(&vote, e.ID)
+			err = e.handleVoteMessage(&vote, e.ID)
+			if err != nil {
+				return err
+			}
 		}
-		// no need to do anything, just return and handle vote messages for this block
+
+		e.monitorProgress(e.round)
 		return nil
 	}
 
