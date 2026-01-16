@@ -13,8 +13,7 @@ import (
 
 func new(t *testing.T) *WriteAheadLog {
 	fileName := filepath.Join(t.TempDir(), "simplex.wal")
-	wal, err := New(fileName)
-	require.NoError(t, err)
+	wal := New(fileName)
 	return wal
 }
 
@@ -26,10 +25,18 @@ func TestWalSingleRw(t *testing.T) {
 	// writes and reads from wal
 	wal := new(t)
 	defer func() {
+		// Close twice to make sure we can do it
+		require.NoError(wal.Close())
 		require.NoError(wal.Close())
 	}()
 
+	// Close before appending just to make sure we can do it
+	require.NoError(wal.Close())
+
 	require.NoError(wal.Append(r))
+
+	// Close before reading just to make sure we can do it
+	require.NoError(wal.Close())
 
 	readRecords, err := wal.ReadAll()
 	require.NoError(err)
@@ -89,8 +96,7 @@ func TestCorruptedFile(t *testing.T) {
 	require := require.New(t)
 
 	fileName := filepath.Join(t.TempDir(), "simplex.wal")
-	wal, err := New(fileName)
-	require.NoError(err)
+	wal := New(fileName)
 	defer func() {
 		require.NoError(wal.Close())
 	}()
@@ -119,22 +125,24 @@ func TestCorruptedFile(t *testing.T) {
 	require.Equal(records[:n-1], readRecords)
 }
 
-func TestTruncate(t *testing.T) {
+func TestDelete(t *testing.T) {
 	require := require.New(t)
 
 	r := []byte{3, 4, 5}
 
-	wal := new(t)
-	defer func() {
-		require.NoError(wal.Close())
-	}()
+	dir, err := os.MkdirTemp("", t.Name())
+	require.NoError(err)
+
+	fileName := filepath.Join(dir, "simplex.wal")
+	wal := New(fileName)
+	require.NoError(err)
 
 	require.NoError(wal.Append(r))
-	require.NoError(wal.Truncate())
 
-	readRecords, err := wal.ReadAll()
-	require.NoError(err)
-	require.Empty(readRecords)
+	require.NoError(wal.Delete())
+
+	_, err = os.Stat(fileName)
+	require.ErrorIs(err, os.ErrNotExist)
 }
 
 func TestReadWriteAfterTruncate(t *testing.T) {
@@ -150,21 +158,6 @@ func TestReadWriteAfterTruncate(t *testing.T) {
 	require.NoError(wal.Append(r))
 
 	readRecords, err := wal.ReadAll()
-	require.NoError(err)
-	require.Equal(
-		[][]byte{r},
-		readRecords,
-	)
-
-	require.NoError(wal.Truncate())
-
-	readRecords, err = wal.ReadAll()
-	require.NoError(err)
-	require.Empty(readRecords)
-
-	require.NoError(wal.Append(r))
-
-	readRecords, err = wal.ReadAll()
 	require.NoError(err)
 	require.Equal(
 		[][]byte{r},
