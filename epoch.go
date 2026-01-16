@@ -3058,7 +3058,7 @@ func (e *Epoch) handleReplicationResponse(resp *ReplicationResponse, from NodeID
 		return nil
 	}
 
-	e.Logger.Info("Received replication response", zap.Stringer("from", from), zap.Int("num seqs", len(resp.Data)), zap.Stringer("latest round", resp.LatestRound), zap.Stringer("latest seq", resp.LatestSeq))
+	e.Logger.Debug("Received replication response", zap.Stringer("from", from), zap.Int("num seqs", len(resp.Data)), zap.Stringer("latest round", resp.LatestRound), zap.Stringer("latest seq", resp.LatestSeq))
 	nextSeqToCommit := e.nextSeqToCommit()
 
 	for _, data := range resp.Data {

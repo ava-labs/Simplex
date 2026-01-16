@@ -361,7 +361,6 @@ type walRound struct {
 	emptyVote         *ToBeSignedEmptyVote
 	notarization      *Notarization
 	finalization      *Finalization
-	finalizeVote      *FinalizeVote
 	block             Block
 }
 
