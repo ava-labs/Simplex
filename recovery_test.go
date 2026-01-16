@@ -614,6 +614,10 @@ func TestRecoveryReVerifiesBlocks(t *testing.T) {
 	require.Len(t, deserializer.DelayedVerification, 0)
 }
 
+// TestWalRecoveryTriggersEmptyVoteTimeout tests that when recovering from a wal
+// we properly broadcast an EmptyVote and create a timeout to rebroadcast it.
+// Without this timeout, other nodes may be stuck waiting for an empty notarization that
+// can only be completed if they receive our empty vote.
 func TestWalRecoveryTriggersEmptyVoteTimeout(t *testing.T) {
 	bb := testutil.NewTestBlockBuilder()
 	ctx := context.Background()
@@ -643,8 +647,9 @@ func TestWalRecoveryTriggersEmptyVoteTimeout(t *testing.T) {
 
 	require.NoError(t, wal.Append(notarizationRecord))
 
-	// now lets say nodeID 3 crashed and did not send a block.
-	// nodes every other node sent empty votes
+	// In this test say Node ID 3 crashed(it is the block proposer).
+	// If our node cannot properly resume from the wal and trigger empty vote timeouts, the other
+	// two node will be stuck waiting for an empty notarization.
 	emptyVote := createEmptyVote(EmptyVoteMetadata{
 		Round: protocolMetadata.Round + 1,
 		Epoch: protocolMetadata.Epoch,
@@ -660,7 +665,7 @@ func TestWalRecoveryTriggersEmptyVoteTimeout(t *testing.T) {
 	count := 0
 	ticker := time.NewTicker(100 * time.Millisecond)
 	time := time.Now()
-	for {
+	for count < 3 {
 		select {
 		case <-ticker.C:
 			time = time.Add(DefaultEmptyVoteRebroadcastTimeout)
@@ -670,14 +675,13 @@ func TestWalRecoveryTriggersEmptyVoteTimeout(t *testing.T) {
 				require.Equal(t, msg.EmptyVoteMessage.Vote, emptyVote)
 				count++
 			}
-
-			if count > 3 {
-				return
-			}
 		}
 	}
 }
 
+// TestWalRecoveryMonitorsProgress tests that when recovering from a wal
+// we properly create a timeout to rebroadcast empty votes. This timeout will be
+// created via a call to monitorProgress() since our most relevant record in the wal is a block record.
 func TestWalRecoveryMonitorsProgress(t *testing.T) {
 	bb := testutil.NewTestBlockBuilder()
 	ctx := context.Background()
@@ -708,7 +712,7 @@ func TestWalRecoveryMonitorsProgress(t *testing.T) {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	time := time.Now()
 	bb.BlockShouldBeBuilt <- struct{}{}
-	for {
+	for count < 3 {
 		select {
 		case <-ticker.C:
 			time = time.Add(DefaultEmptyVoteRebroadcastTimeout)
@@ -717,10 +721,6 @@ func TestWalRecoveryMonitorsProgress(t *testing.T) {
 			if msg.EmptyVoteMessage != nil {
 				require.Equal(t, uint64(1), msg.EmptyVoteMessage.Vote.Round)
 				count++
-			}
-
-			if count > 3 {
-				return
 			}
 		}
 	}

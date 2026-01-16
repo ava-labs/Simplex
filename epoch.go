@@ -481,9 +481,8 @@ func (e *Epoch) resumeFromWal(highestRoundRecord *walRound) error {
 		e.Comm.Broadcast(&lastMessage)
 
 		if e.sequenceAlreadyIndexed(notarization.Vote.Seq) {
-			e.startRound()
 			e.Logger.Debug("Notarization already indexed, skipping restoration", zap.Uint64("Sequence", notarization.Vote.Seq))
-			return nil
+			return e.startRound()
 		}
 
 		return e.doNotarized(notarization.Vote.Round)
@@ -515,8 +514,7 @@ func (e *Epoch) resumeFromWal(highestRoundRecord *walRound) error {
 		block := highestRoundRecord.block
 		if e.sequenceAlreadyIndexed(block.BlockHeader().Seq) {
 			e.Logger.Debug("Block already indexed, skipping restoration", zap.Uint64("Sequence", block.BlockHeader().Seq))
-			e.startRound()
-			return nil
+			return e.startRound()
 		}
 
 		round, exists := e.rounds[block.BlockHeader().Round]
