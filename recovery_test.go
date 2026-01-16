@@ -725,3 +725,220 @@ func TestWalRecoveryMonitorsProgress(t *testing.T) {
 		}
 	}
 }
+
+func TestWalRecoverySetsRoundCorrectly(t *testing.T) {
+	bb := testutil.NewTestBlockBuilder()
+	ctx := context.Background()
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	quorum := Quorum(len(nodes))
+
+	tests := []struct {
+		name          string
+		setupRecords  func(t *testing.T, bb *testutil.TestBlockBuilder, conf EpochConfig) [][]byte
+		expectedRound uint64
+		expectedEpoch uint64
+	}{
+		{
+			name: "single notarization round 0",
+			setupRecords: func(t *testing.T, bb *testutil.TestBlockBuilder, conf EpochConfig) [][]byte {
+				block, ok := bb.BuildBlock(ctx, ProtocolMetadata{Round: 0, Epoch: 0}, emptyBlacklist)
+				require.True(t, ok)
+				bBytes, err := block.Bytes()
+				require.NoError(t, err)
+				blockRecord := BlockRecord(block.BlockHeader(), bBytes)
+
+				notarizationRecord, err := testutil.NewNotarizationRecord(conf.Logger, conf.SignatureAggregator, block, nodes[0:quorum])
+				require.NoError(t, err)
+
+				return [][]byte{blockRecord, notarizationRecord}
+			},
+			expectedRound: 1,
+			expectedEpoch: 0,
+		},
+		{
+			name: "finalization round 1, empty notarization round 0 (out of order)",
+			setupRecords: func(t *testing.T, bb *testutil.TestBlockBuilder, conf EpochConfig) [][]byte {
+				// Create block for round 1
+				block1, ok := bb.BuildBlock(ctx, ProtocolMetadata{Round: 1, Epoch: 0, Seq: 1}, emptyBlacklist)
+				require.True(t, ok)
+				bBytes1, err := block1.Bytes()
+				require.NoError(t, err)
+				blockRecord1 := BlockRecord(block1.BlockHeader(), bBytes1)
+
+				_, finalizationRecord1 := testutil.NewFinalizationRecord(t, conf.Logger, conf.SignatureAggregator, block1, nodes[0:quorum])
+
+				// Create empty notarization for round 0
+				emptyNotarization0 := testutil.NewEmptyNotarization(nodes[0:quorum], 0)
+				emptyNotarizationRecord0 := NewEmptyNotarizationRecord(emptyNotarization0)
+
+				// Return out of order: finalization for round 1, then empty notarization for round 0
+				return [][]byte{blockRecord1, finalizationRecord1, emptyNotarizationRecord0}
+			},
+			expectedRound: 2, // finalization round 1 + 1
+			expectedEpoch: 0,
+		},
+		{
+			name: "notarization rounds 0,1,2, empty notarization round 3 (out of order)",
+			setupRecords: func(t *testing.T, bb *testutil.TestBlockBuilder, conf EpochConfig) [][]byte {
+				// Create blocks and notarizations for rounds 0, 1, 2
+				block0, ok := bb.BuildBlock(ctx, ProtocolMetadata{Round: 0, Epoch: 0, Seq: 0}, emptyBlacklist)
+				require.True(t, ok)
+				bBytes0, err := block0.Bytes()
+				require.NoError(t, err)
+				blockRecord0 := BlockRecord(block0.BlockHeader(), bBytes0)
+				notarizationRecord0, err := testutil.NewNotarizationRecord(conf.Logger, conf.SignatureAggregator, block0, nodes[0:quorum])
+				require.NoError(t, err)
+
+				block1, ok := bb.BuildBlock(ctx, ProtocolMetadata{Round: 1, Epoch: 0, Seq: 1}, emptyBlacklist)
+				require.True(t, ok)
+				bBytes1, err := block1.Bytes()
+				require.NoError(t, err)
+				blockRecord1 := BlockRecord(block1.BlockHeader(), bBytes1)
+				notarizationRecord1, err := testutil.NewNotarizationRecord(conf.Logger, conf.SignatureAggregator, block1, nodes[0:quorum])
+				require.NoError(t, err)
+
+				block2, ok := bb.BuildBlock(ctx, ProtocolMetadata{Round: 2, Epoch: 0, Seq: 2}, emptyBlacklist)
+				require.True(t, ok)
+				bBytes2, err := block2.Bytes()
+				require.NoError(t, err)
+				blockRecord2 := BlockRecord(block2.BlockHeader(), bBytes2)
+				notarizationRecord2, err := testutil.NewNotarizationRecord(conf.Logger, conf.SignatureAggregator, block2, nodes[0:quorum])
+				require.NoError(t, err)
+
+				// Create empty notarization for round 3
+				emptyNotarization3 := testutil.NewEmptyNotarization(nodes[0:quorum], 3)
+				emptyNotarizationRecord3 := NewEmptyNotarizationRecord(emptyNotarization3)
+
+				// Return out of order: notarization 0, notarization 1, empty notarization 3, notarization 2
+				return [][]byte{
+					blockRecord0, notarizationRecord0,
+					blockRecord1, notarizationRecord1,
+					emptyNotarizationRecord3,
+					blockRecord2, notarizationRecord2,
+				}
+			},
+			expectedRound: 4, // empty notarization round 3 + 1
+			expectedEpoch: 0,
+		},
+		{
+			name: "mixed types in reverse order",
+			setupRecords: func(t *testing.T, bb *testutil.TestBlockBuilder, conf EpochConfig) [][]byte {
+				// Create finalization for round 3
+				block3, ok := bb.BuildBlock(ctx, ProtocolMetadata{Round: 3, Epoch: 1, Seq: 3}, emptyBlacklist)
+				require.True(t, ok)
+				bBytes3, err := block3.Bytes()
+				require.NoError(t, err)
+				blockRecord3 := BlockRecord(block3.BlockHeader(), bBytes3)
+				_, finalizationRecord3 := testutil.NewFinalizationRecord(t, conf.Logger, conf.SignatureAggregator, block3, nodes[0:quorum])
+
+				// Create empty notarization for round 2
+				emptyNotarization2 := testutil.NewEmptyNotarization(nodes[0:quorum], 2)
+				emptyNotarization2.Vote.Epoch = 1
+				emptyNotarizationRecord2 := NewEmptyNotarizationRecord(emptyNotarization2)
+
+				// Create notarization for round 1
+				block1, ok := bb.BuildBlock(ctx, ProtocolMetadata{Round: 1, Epoch: 1, Seq: 1}, emptyBlacklist)
+				require.True(t, ok)
+				bBytes1, err := block1.Bytes()
+				require.NoError(t, err)
+				blockRecord1 := BlockRecord(block1.BlockHeader(), bBytes1)
+				notarizationRecord1, err := testutil.NewNotarizationRecord(conf.Logger, conf.SignatureAggregator, block1, nodes[0:quorum])
+				require.NoError(t, err)
+
+				// Return in reverse order
+				return [][]byte{
+					blockRecord3, finalizationRecord3,
+					emptyNotarizationRecord2,
+					blockRecord1, notarizationRecord1,
+				}
+			},
+			expectedRound: 4, // finalization round 3 + 1
+			expectedEpoch: 1,
+		},
+		{
+			name: "large gap with highest in middle",
+			setupRecords: func(t *testing.T, bb *testutil.TestBlockBuilder, conf EpochConfig) [][]byte {
+				// Create notarization for round 0
+				block0, ok := bb.BuildBlock(ctx, ProtocolMetadata{Round: 0, Epoch: 0, Seq: 0}, emptyBlacklist)
+				require.True(t, ok)
+				bBytes0, err := block0.Bytes()
+				require.NoError(t, err)
+				blockRecord0 := BlockRecord(block0.BlockHeader(), bBytes0)
+				notarizationRecord0, err := testutil.NewNotarizationRecord(conf.Logger, conf.SignatureAggregator, block0, nodes[0:quorum])
+				require.NoError(t, err)
+
+				// Create finalization for round 10 (highest)
+				block10, ok := bb.BuildBlock(ctx, ProtocolMetadata{Round: 10, Epoch: 0, Seq: 10}, emptyBlacklist)
+				require.True(t, ok)
+				bBytes10, err := block10.Bytes()
+				require.NoError(t, err)
+				blockRecord10 := BlockRecord(block10.BlockHeader(), bBytes10)
+				_, finalizationRecord10 := testutil.NewFinalizationRecord(t, conf.Logger, conf.SignatureAggregator, block10, nodes[0:quorum])
+
+				// Create empty notarization for round 5
+				emptyNotarization5 := testutil.NewEmptyNotarization(nodes[0:quorum], 5)
+				emptyNotarizationRecord5 := NewEmptyNotarizationRecord(emptyNotarization5)
+
+				// Return with highest in middle
+				return [][]byte{
+					blockRecord0, notarizationRecord0,
+					blockRecord10, finalizationRecord10,
+					emptyNotarizationRecord5,
+				}
+			},
+			expectedRound: 11, // finalization round 10 + 1
+			expectedEpoch: 0,
+		},
+		{
+			name: "all same round with different types",
+			setupRecords: func(t *testing.T, bb *testutil.TestBlockBuilder, conf EpochConfig) [][]byte {
+				// Create block and all record types for round 2
+				block2, ok := bb.BuildBlock(ctx, ProtocolMetadata{Round: 2, Epoch: 0, Seq: 2}, emptyBlacklist)
+				require.True(t, ok)
+				bBytes2, err := block2.Bytes()
+				require.NoError(t, err)
+				blockRecord2 := BlockRecord(block2.BlockHeader(), bBytes2)
+
+				notarizationRecord2, err := testutil.NewNotarizationRecord(conf.Logger, conf.SignatureAggregator, block2, nodes[0:quorum])
+				require.NoError(t, err)
+
+				_, finalizationRecord2 := testutil.NewFinalizationRecord(t, conf.Logger, conf.SignatureAggregator, block2, nodes[0:quorum])
+
+				// All records for same round
+				return [][]byte{
+					blockRecord2,
+					notarizationRecord2,
+					finalizationRecord2,
+				}
+			},
+			expectedRound: 3, // round 2 + 1
+			expectedEpoch: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
+
+			e, err := NewEpoch(conf)
+			require.NoError(t, err)
+
+			// Setup records for this test case
+			records := tt.setupRecords(t, bb, conf)
+			for _, record := range records {
+				require.NoError(t, wal.Append(record))
+			}
+
+			// Verify initial state
+			require.Equal(t, uint64(0), e.Metadata().Round)
+
+			// Start epoch (triggers recovery)
+			err = e.Start()
+			require.NoError(t, err)
+
+			// Verify round and epoch were set correctly from highest record
+			require.Equal(t, tt.expectedRound, e.Metadata().Round)
+			require.Equal(t, tt.expectedEpoch, e.Metadata().Epoch)
+		})
+	}
+}

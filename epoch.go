@@ -563,31 +563,50 @@ func (e *Epoch) setMetadataFromStorage() error {
 }
 
 func (e *Epoch) setMetadataFromRecords(records [][]byte) error {
-	// iterate through records to find the last notarization or empty block record
-	for i := len(records) - 1; i >= 0; i-- {
+	// iterate through all records to find the highest round
+	highestRound := e.round
+	var highestEpoch uint64
+	found := false
+
+	for i := range records {
 		recordType := binary.BigEndian.Uint16(records[i])
-		if recordType == record.NotarizationRecordType {
+		switch recordType {
+		case record.NotarizationRecordType:
 			notarization, err := NotarizationFromRecord(records[i], e.QCDeserializer)
 			if err != nil {
 				return err
 			}
-			if notarization.Vote.Round >= e.round {
-				e.round = notarization.Vote.Round + 1
-				e.Epoch = notarization.Vote.BlockHeader.Epoch
+			if notarization.Vote.Round >= highestRound {
+				highestRound = notarization.Vote.Round
+				highestEpoch = notarization.Vote.BlockHeader.Epoch
+				found = true
 			}
-			return nil
-		}
-		if recordType == record.EmptyNotarizationRecordType {
+		case record.EmptyNotarizationRecordType:
 			emptyNotarization, err := EmptyNotarizationFromRecord(records[i], e.QCDeserializer)
 			if err != nil {
 				return err
 			}
-			if emptyNotarization.Vote.Round >= e.round {
-				e.round = emptyNotarization.Vote.Round + 1
-				e.Epoch = emptyNotarization.Vote.Epoch
+			if emptyNotarization.Vote.Round >= highestRound {
+				highestRound = emptyNotarization.Vote.Round
+				highestEpoch = emptyNotarization.Vote.Epoch
+				found = true
 			}
-			return nil
+		case record.FinalizationRecordType:
+			finalization, err := FinalizationFromRecord(records[i], e.QCDeserializer)
+			if err != nil {
+				return err
+			}
+			if finalization.Finalization.Round >= highestRound {
+				highestRound = finalization.Finalization.Round
+				highestEpoch = finalization.Finalization.Epoch
+				found = true
+			}
 		}
+	}
+
+	if found {
+		e.round = highestRound + 1
+		e.Epoch = highestEpoch
 	}
 
 	return nil
