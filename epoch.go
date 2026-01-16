@@ -268,7 +268,7 @@ func (e *Epoch) sequenceAlreadyIndexed(seq uint64) bool {
 	return seq < e.nextSeqToCommit()
 }
 
-func (e *Epoch) handleBlockRecord(r []byte, highestWalRound *walRound) error {
+func (e *Epoch) restoreBlockRecord(r []byte, highestWalRound *walRound) error {
 	block, err := BlockFromRecord(e.finishCtx, e.BlockDeserializer, r)
 	if err != nil {
 		return err
@@ -284,10 +284,10 @@ func (e *Epoch) handleBlockRecord(r []byte, highestWalRound *walRound) error {
 		highestWalRound.block = block
 	}
 
-	return e.restoreBlockRecord(block)
+	return e.loadBlockRecord(block)
 }
 
-func (e *Epoch) restoreBlockRecord(block Block) error {
+func (e *Epoch) loadBlockRecord(block Block) error {
 	if e.sequenceAlreadyIndexed(block.BlockHeader().Seq) {
 		e.Logger.Debug("Block already indexed, skipping restoration", zap.Uint64("Sequence", block.BlockHeader().Seq))
 		return nil
@@ -305,7 +305,7 @@ func (e *Epoch) restoreBlockRecord(block Block) error {
 	return nil
 }
 
-func (e *Epoch) handleNotarizationRecord(r []byte, highestWalRound *walRound) error {
+func (e *Epoch) restoreNotarizationRecord(r []byte, highestWalRound *walRound) error {
 	notarization, err := NotarizationFromRecord(r, e.QCDeserializer)
 	if err != nil {
 		return err
@@ -321,10 +321,10 @@ func (e *Epoch) handleNotarizationRecord(r []byte, highestWalRound *walRound) er
 		highestWalRound.notarization = &notarization
 	}
 
-	return e.restoreNotarizationRecord(r)
+	return e.loadNotarizationRecord(r)
 }
 
-func (e *Epoch) restoreNotarizationRecord(r []byte) error {
+func (e *Epoch) loadNotarizationRecord(r []byte) error {
 	notarization, err := NotarizationFromRecord(r, e.QCDeserializer)
 	if err != nil {
 		return err
@@ -344,7 +344,7 @@ func (e *Epoch) restoreNotarizationRecord(r []byte) error {
 	return nil
 }
 
-func (e *Epoch) handleEmptyNotarizationRecord(r []byte, highestWalRound *walRound) error {
+func (e *Epoch) restoreEmptyNotarizationRecord(r []byte, highestWalRound *walRound) error {
 	emptyNotarization, err := EmptyNotarizationFromRecord(r, e.QCDeserializer)
 	if err != nil {
 		return err
@@ -360,10 +360,10 @@ func (e *Epoch) handleEmptyNotarizationRecord(r []byte, highestWalRound *walRoun
 		highestWalRound.emptyNotarization = &emptyNotarization
 	}
 
-	return e.restoreEmptyNotarizationRecord(r)
+	return e.loadEmptyNotarizationRecord(r)
 }
 
-func (e *Epoch) restoreEmptyNotarizationRecord(r []byte) error {
+func (e *Epoch) loadEmptyNotarizationRecord(r []byte) error {
 	emptyNotarization, err := EmptyNotarizationFromRecord(r, e.QCDeserializer)
 	if err != nil {
 		return err
@@ -374,7 +374,7 @@ func (e *Epoch) restoreEmptyNotarizationRecord(r []byte) error {
 	return nil
 }
 
-func (e *Epoch) handleEmptyVoteRecord(r []byte, highestWalRound *walRound) error {
+func (e *Epoch) restoreEmptyVoteRecord(r []byte, highestWalRound *walRound) error {
 	vote, err := ParseEmptyVoteRecord(r)
 	if err != nil {
 		return err
@@ -390,10 +390,10 @@ func (e *Epoch) handleEmptyVoteRecord(r []byte, highestWalRound *walRound) error
 		highestWalRound.emptyVote = &vote
 	}
 
-	return e.restoreEmptyVoteRecord(r)
+	return e.loadEmptyVoteRecord(r)
 }
 
-func (e *Epoch) restoreEmptyVoteRecord(r []byte) error {
+func (e *Epoch) loadEmptyVoteRecord(r []byte) error {
 	vote, err := ParseEmptyVoteRecord(r)
 	if err != nil {
 		return err
@@ -420,7 +420,7 @@ func (e *Epoch) restoreEmptyVoteRecord(r []byte) error {
 	return nil
 }
 
-func (e *Epoch) handleFinalizationRecord(r []byte, highestWalRound *walRound) error {
+func (e *Epoch) restoreFinalizationRecord(r []byte, highestWalRound *walRound) error {
 	finalization, err := FinalizationFromRecord(r, e.QCDeserializer)
 	if err != nil {
 		return err
@@ -436,10 +436,10 @@ func (e *Epoch) handleFinalizationRecord(r []byte, highestWalRound *walRound) er
 		highestWalRound.finalization = &finalization
 	}
 
-	return e.restoreFinalizationRecord(r)
+	return e.loadFinalizationRecord(r)
 }
 
-func (e *Epoch) restoreFinalizationRecord(r []byte) error {
+func (e *Epoch) loadFinalizationRecord(r []byte) error {
 	finalization, err := FinalizationFromRecord(r, e.QCDeserializer)
 	if err != nil {
 		return err
@@ -609,15 +609,15 @@ func (e *Epoch) restoreFromWal() error {
 		recordType := binary.BigEndian.Uint16(r)
 		switch recordType {
 		case record.BlockRecordType:
-			err = e.handleBlockRecord(r, highestRoundRecord)
+			err = e.restoreBlockRecord(r, highestRoundRecord)
 		case record.NotarizationRecordType:
-			err = e.handleNotarizationRecord(r, highestRoundRecord)
+			err = e.restoreNotarizationRecord(r, highestRoundRecord)
 		case record.FinalizationRecordType:
-			err = e.handleFinalizationRecord(r, highestRoundRecord)
+			err = e.restoreFinalizationRecord(r, highestRoundRecord)
 		case record.EmptyNotarizationRecordType:
-			err = e.handleEmptyNotarizationRecord(r, highestRoundRecord)
+			err = e.restoreEmptyNotarizationRecord(r, highestRoundRecord)
 		case record.EmptyVoteRecordType:
-			err = e.handleEmptyVoteRecord(r, highestRoundRecord)
+			err = e.restoreEmptyVoteRecord(r, highestRoundRecord)
 		default:
 			e.Logger.Error("undefined record type", zap.Uint16("type", recordType))
 			return fmt.Errorf("undefined record type: %d", recordType)

@@ -613,3 +613,67 @@ func TestRecoveryReVerifiesBlocks(t *testing.T) {
 	require.NoError(t, e.Start())
 	require.Len(t, deserializer.DelayedVerification, 0)
 }
+
+func TestWalRecoveryTriggersEmptyVoteTimeout(t *testing.T) {
+	bb := testutil.NewTestBlockBuilder()
+	ctx := context.Background()
+	quorum := Quorum(4)
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	initialBlock := createBlocks(t, nodes, 1)[0]
+	recordingComm := &recordingComm{Communication: testutil.NewNoopComm(nodes), BroadcastMessages: make(chan *Message, 100), SentMessages: make(chan *Message, 100)}
+	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], recordingComm, bb)
+	storage.Index(ctx, initialBlock.VerifiedBlock, initialBlock.Finalization)
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+
+	protocolMetadata := e.Metadata()
+	block, ok := bb.BuildBlock(ctx, protocolMetadata, emptyBlacklist)
+	require.True(t, ok)
+	bBytes, err := block.Bytes()
+	require.NoError(t, err)
+	blockRecord := BlockRecord(block.BlockHeader(), bBytes)
+
+	// write block blockRecord to wal
+	require.NoError(t, wal.Append(blockRecord))
+
+	// lets add some notarizations
+	notarizationRecord, err := testutil.NewNotarizationRecord(conf.Logger, conf.SignatureAggregator, block, nodes[0:quorum])
+	require.NoError(t, err)
+
+	require.NoError(t, wal.Append(notarizationRecord))
+
+	// now lets say nodeID 3 crashed and did not send a block.
+	// nodes every other node sent empty votes
+	emptyVote := createEmptyVote(EmptyVoteMetadata{
+		Round: protocolMetadata.Round + 1,
+		Epoch: protocolMetadata.Epoch,
+	}, e.ID).Vote
+
+	emptyVoteRecord := NewEmptyVoteRecord(emptyVote)
+
+	require.NoError(t, wal.Append(emptyVoteRecord))
+
+	require.NoError(t, e.Start())
+	require.Equal(t, uint64(2), e.Metadata().Seq)
+
+	count := 0
+	ticker := time.NewTicker(100 * time.Millisecond)
+	time := time.Now()
+	for {
+		select {
+		case <-ticker.C:
+			time = time.Add(DefaultEmptyVoteRebroadcastTimeout)
+			e.AdvanceTime(time)
+		case msg := <-recordingComm.BroadcastMessages:
+			if msg.EmptyVoteMessage != nil {
+				require.Equal(t, msg.EmptyVoteMessage.Vote, emptyVote)
+				count++
+			}
+
+			if count > 3 {
+				return
+			}
+		}
+	}
+}
