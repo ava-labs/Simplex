@@ -16,6 +16,10 @@ type InMemWAL struct {
 	t  *testing.T
 }
 
+func (wal *InMemWAL) Close() error {
+	return nil
+}
+
 func NewMemWAL(t *testing.T) *InMemWAL {
 	return &InMemWAL{
 		t: t,
