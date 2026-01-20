@@ -175,7 +175,7 @@ func (block *oneTimeVerifiedBlock) Verify(ctx context.Context) (VerifiedBlock, e
 	}()
 
 	if result, exists := block.otv.digests[digest]; exists {
-		block.otv.logger.Debug("Attempted to verify an already verified block", zap.Uint64("round", header.Round))
+		block.otv.logger.Debug("Attempted to verify an already verified block", zap.Uint64("round", header.Round), zap.Error(result.err))
 		return result.vb, result.err
 	}
 

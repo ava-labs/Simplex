@@ -97,13 +97,6 @@ func (t *testControlledBlockBuilder) TriggerNewBlock() {
 	}
 }
 
-func (t *testControlledBlockBuilder) TriggerBlockShouldBeBuilt() {
-	select {
-	case t.BlockShouldBeBuilt <- struct{}{}:
-	default:
-	}
-}
-
 func (t *testControlledBlockBuilder) BuildBlock(ctx context.Context, metadata simplex.ProtocolMetadata, blacklist simplex.Blacklist) (simplex.VerifiedBlock, bool) {
 	select {
 	case <-t.control:
@@ -111,8 +104,4 @@ func (t *testControlledBlockBuilder) BuildBlock(ctx context.Context, metadata si
 		return nil, false
 	}
 	return t.TestBlockBuilder.BuildBlock(ctx, metadata, blacklist)
-}
-
-func (t *testControlledBlockBuilder) ShouldBlockBeBuilt() bool {
-	return len(t.BlockShouldBeBuilt) > 0
 }

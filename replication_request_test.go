@@ -298,9 +298,9 @@ func TestReplicationRequestUnknownSeqsAndRounds(t *testing.T) {
 
 func TestNilReplicationResponse(t *testing.T) {
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
-	net := testutil.NewInMemNetwork(t, nodes)
+	net := testutil.NewControlledNetwork(t, nodes)
 
-	normalNode0 := testutil.NewSimplexNode(t, nodes[0], net, nil)
+	normalNode0 := testutil.NewControlledSimplexNode(t, nodes[0], net, nil)
 	normalNode0.Start()
 
 	err := normalNode0.HandleMessage(&simplex.Message{
@@ -316,9 +316,9 @@ func TestNilReplicationResponse(t *testing.T) {
 // finalization.
 func TestMalformedReplicationResponse(t *testing.T) {
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
-	net := testutil.NewInMemNetwork(t, nodes)
+	net := testutil.NewControlledNetwork(t, nodes)
 
-	normalNode0 := testutil.NewSimplexNode(t, nodes[0], net, nil)
+	normalNode0 := testutil.NewControlledSimplexNode(t, nodes[0], net, nil)
 	normalNode0.Start()
 
 	err := normalNode0.HandleMessage(&simplex.Message{
