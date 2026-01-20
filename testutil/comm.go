@@ -62,12 +62,12 @@ func (c *TestComm) Send(msg *simplex.Message, destination simplex.NodeID) {
 
 	// cannot send if either [from] or [destination] is not connected
 	if c.net.IsDisconnected(destination) || c.net.IsDisconnected(c.from) {
-		
-			for _, instance := range c.net.instances {
-				if bytes.Equal(instance.E.ID, destination) {
-					instance.l.Info("Node is disconnect not sending message")
-				}
+
+		for _, instance := range c.net.instances {
+			if bytes.Equal(instance.E.ID, destination) {
+				instance.l.Info("Node is disconnect not sending message")
 			}
+		}
 
 		return
 	}
