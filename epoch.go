@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/rand/v2"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -76,11 +77,13 @@ type EpochConfig struct {
 	Epoch                      uint64
 	StartTime                  time.Time
 	ReplicationEnabled         bool
+	RandomSeed                 *int64 // Optional seed for deterministic randomness. If nil, uses time.Now().UnixNano()
 }
 
 type Epoch struct {
 	EpochConfig
 	// Runtime
+	rand                           *rand.Rand // Random number generator
 	oneTimeVerifier                *oneTimeVerifier
 	blockVerificationScheduler     *BlockDependencyManager
 	lock                           sync.Mutex
@@ -183,6 +186,17 @@ func (e *Epoch) HandleMessage(msg *Message, from NodeID) error {
 
 func (e *Epoch) init() error {
 	e.maybeAssignDefaultConfig()
+
+	// Initialize random number generator
+	var seed int64
+	if e.RandomSeed != nil {
+		seed = *e.RandomSeed
+	} else {
+		seed = time.Now().UnixNano()
+	}
+	source := rand.NewPCG(uint64(seed), uint64(seed))
+	e.rand = rand.New(source)
+
 	e.initOldestNotFinalizedNotarization()
 	e.oneTimeVerifier = newOneTimeVerifier(e.Logger)
 	scheduler := NewScheduler(e.Logger, DefaultProcessingBlocks)
@@ -200,7 +214,7 @@ func (e *Epoch) init() error {
 	e.emptyVotes = make(map[uint64]*EmptyVoteSet)
 	e.eligibleNodeIDs = make(map[string]struct{}, len(e.nodes))
 	e.futureMessages = make(messagesFromNode, len(e.nodes))
-	e.replicationState = NewReplicationState(e.Logger, e.Comm, e.ID, e.MaxRoundWindow, e.ReplicationEnabled, e.StartTime, &e.lock)
+	e.replicationState = NewReplicationState(e.Logger, e.Comm, e.ID, e.MaxRoundWindow, e.ReplicationEnabled, e.StartTime, &e.lock, e.rand)
 	e.timeoutHandler = NewTimeoutHandler(e.Logger, "emptyVoteRebroadcast", e.StartTime, e.MaxRebroadcastWait, e.emptyVoteTimeoutTaskRunner)
 
 	for _, node := range e.nodes {
