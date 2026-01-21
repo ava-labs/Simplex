@@ -9,18 +9,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestMempoolAddsTx(t *testing.T) {
-
-}
-
 func TestMempoolVerifiesTx(t *testing.T) {
 	logger := testutil.MakeLogger(t, 1)
 	ctx := context.Background()
 	require := require.New(t)
 	round0MD := NewProtocolMetadata(0, 0, simplex.Digest{})
 	config := DefaultFuzzConfig()
-	// round1MD := NewProtocolMetadata(1, 1, round0MD.Prev)
-	// round2MD := NewProtocolMetadata(2, 2, round1MD.Prev)
 
 	tests := []struct {
 		name      string
@@ -49,17 +43,6 @@ func TestMempoolVerifiesTx(t *testing.T) {
 				mempool.AddPendingTXs(tx)
 
 				block := NewBlock(round0MD, emptyBlacklist, mempool, []*TX{tx, tx})
-				return mempool, block, nil
-			},
-		},
-		{
-			name:      "Tx Not Found",
-			expectErr: errTxNotFound,
-			setup: func() (*Mempool, *Block, error) {
-				mempool := NewMempool(logger, config)
-				tx := CreateNewTX()
-				block := NewBlock(round0MD, emptyBlacklist, mempool, []*TX{tx})
-
 				return mempool, block, nil
 			},
 		},

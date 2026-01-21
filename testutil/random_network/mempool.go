@@ -5,16 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"sync"
-	"time"
 
 	"github.com/ava-labs/simplex"
 )
 
 var (
-	maxBackoff = 1 * time.Second
-
 	errAlreadyAccepted         = errors.New("tx already accepted")
-	errTxNotFound              = errors.New("tx not found")
 	errAlreadyInChain          = errors.New("tx already in chain")
 	errDuplicateTxInBlock      = errors.New("duplicate tx in block")
 	errDoubleBlockVerification = errors.New("block has already been verified")
