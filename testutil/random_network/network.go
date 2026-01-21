@@ -2,6 +2,7 @@ package random_network
 
 import (
 	"math/rand"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -73,8 +74,10 @@ func (n *Network) UpdateTime(frequency time.Duration, increment time.Duration, s
 	defer ticker.Stop()
 
 	for {
+		n.lock.Lock()
 		n.BasicInMemoryNetwork.AdvanceTime(increment)
-
+		n.lock.Unlock()
+		
 		select {
 		case <-stop:
 			return
@@ -85,8 +88,11 @@ func (n *Network) UpdateTime(frequency time.Duration, increment time.Duration, s
 }
 
 func (n *Network) IssueTxs() {
+	n.lock.Lock()
+	defer n.lock.Unlock()
+
 	// Implementation of block building logic goes here
-	numTxs := rand.Intn(n.config.MaxTxsPerBlock-n.config.MinTxsPerBlock+1) + n.config.MinTxsPerBlock // randomize between min and max inclusive
+	numTxs := n.randomness.Intn(n.config.MaxTxsPerBlock-n.config.MinTxsPerBlock+1) + n.config.MinTxsPerBlock // randomize between min and max inclusive
 	txs := make([]*TX, 0, numTxs)
 
 	for range numTxs {
@@ -146,6 +152,9 @@ func (n *Network) startTransactionIssuance(stop chan struct{}) {
 }
 
 func (n *Network) calculateTxIssuanceDelay() time.Duration {
+	n.lock.Lock()
+	defer n.lock.Unlock()
+
 	delay := n.config.MinTxIssuanceDelay
 	if n.config.MaxTxIssuanceDelay > n.config.MinTxIssuanceDelay {
 		randomDelta := n.randomness.Int63n(int64(n.config.MaxTxIssuanceDelay - n.config.MinTxIssuanceDelay))
@@ -162,9 +171,13 @@ func (n *Network) startCrashRestartCycle(stop chan struct{}) {
 		return
 	}
 
-	f := (len(n.nodes) - 1) / 3
+	n.lock.Lock()
+	numNodes := len(n.nodes)
+	n.lock.Unlock()
+
+	f := (numNodes - 1) / 3
 	if f == 0 {
-		n.l.Info("Not enough nodes for crash testing", zap.Int("numNodes", len(n.nodes)))
+		n.l.Info("Not enough nodes for crash testing", zap.Int("numNodes", numNodes))
 		return
 	}
 
@@ -191,6 +204,9 @@ func (n *Network) startCrashRestartCycle(stop chan struct{}) {
 }
 
 func (n *Network) crashRandomNodes(f int, crashedNodes []uint64) []uint64 {
+	n.lock.Lock()
+	defer n.lock.Unlock()
+
 	// Calculate how many more nodes we can crash (max f total)
 	maxAdditionalCrashes := f - len(crashedNodes)
 	if maxAdditionalCrashes <= 0 {
@@ -198,7 +214,7 @@ func (n *Network) crashRandomNodes(f int, crashedNodes []uint64) []uint64 {
 		return crashedNodes
 	}
 
-	availableNodes := n.getAvailableNodes(crashedNodes)
+	availableNodes := n.getAvailableNodesLocked(crashedNodes)
 	if len(availableNodes) == 0 {
 		return crashedNodes
 	}
@@ -217,23 +233,16 @@ func (n *Network) crashRandomNodes(f int, crashedNodes []uint64) []uint64 {
 		zap.Int("totalCrashed", len(crashedNodes)+numToCrash),
 		zap.Int("f", f),
 		zap.Uint64s("nodeIndexes", nodesToCrash))
-	n.CrashNodes(nodesToCrash...)
+	n.crashNodes(nodesToCrash...)
 
 	return append(crashedNodes, nodesToCrash...)
 }
 
-func (n *Network) getAvailableNodes(crashedNodes []uint64) []uint64 {
+func (n *Network) getAvailableNodesLocked(crashedNodes []uint64) []uint64 {
 	availableNodes := make([]uint64, 0, len(n.nodes))
 	for i := range n.nodes {
 		nodeIdx := uint64(i)
-		isCrashed := false
-		for _, crashed := range crashedNodes {
-			if nodeIdx == crashed {
-				isCrashed = true
-				break
-			}
-		}
-		if !isCrashed {
+		if !slices.Contains(crashedNodes, nodeIdx) {
 			availableNodes = append(availableNodes, nodeIdx)
 		}
 	}
@@ -268,6 +277,9 @@ func (n *Network) waitForTargetHeight() {
 }
 
 func (n *Network) getMinHeight() uint64 {
+	n.lock.Lock()
+	defer n.lock.Unlock()
+
 	minHeight := n.nodes[0].storage.NumBlocks()
 	for _, node := range n.nodes[1:] {
 		height := node.storage.NumBlocks()
@@ -279,12 +291,18 @@ func (n *Network) getMinHeight() uint64 {
 }
 
 func (n *Network) SetInfoLog() {
+	n.lock.Lock()
+	defer n.lock.Unlock()
+
 	for _, node := range n.nodes {
 		node.logger.SetLevel(zapcore.InfoLevel)
 	}
 }
 
 func (n *Network) PrintStatus() {
+	n.lock.Lock()
+	defer n.lock.Unlock()
+
 	// prints the number of nodes
 	n.l.Info("Network Status", zap.Int("num nodes", len(n.nodes)), zap.Int64("Seed", n.config.RandomSeed))
 
@@ -298,18 +316,23 @@ func (n *Network) PrintStatus() {
 }
 
 func (n *Network) CrashNodes(nodeIndexes ...uint64) {
+	n.lock.Lock()
+	defer n.lock.Unlock()
+	n.crashNodes(nodeIndexes...)
+}
+
+func (n *Network) crashNodes(nodeIndexes ...uint64) {
 	for _, idx := range nodeIndexes {
-		n.lock.Lock()
 		instance := n.nodes[idx]
 		instance.Stop()
-
-		n.lock.Unlock()
 	}
 }
 
 func (n *Network) StartNodes(nodeIndexes ...uint64) {
+	n.lock.Lock()
+	newNodes := make([]*Node, 0, len(nodeIndexes))
+
 	for _, idx := range nodeIndexes {
-		n.lock.Lock()
 		instance := n.nodes[idx]
 
 		nodeID := instance.E.ID
@@ -327,8 +350,12 @@ func (n *Network) StartNodes(nodeIndexes ...uint64) {
 
 		n.nodes[idx] = newNode
 		n.BasicInMemoryNetwork.ReplaceNode(newNode.BasicNode)
+		newNodes = append(newNodes, newNode)
+	}
+	n.lock.Unlock()
 
-		n.lock.Unlock()
+	// Start nodes outside the lock to avoid blocking
+	for _, newNode := range newNodes {
 		newNode.Start()
 	}
 }
