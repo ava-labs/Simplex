@@ -185,7 +185,6 @@ func (t *ControlledNode) TickUntilRoundAdvanced(round uint64, tick time.Duration
 	}
 }
 
-
 // testControlledBlockBuilder is a BlockBuilder that only builds a block when
 // a control signal is received.
 type testControlledBlockBuilder struct {
