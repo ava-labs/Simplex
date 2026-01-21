@@ -103,6 +103,19 @@ func (b *BasicInMemoryNetwork) StopInstances() {
 	}
 }
 
+func (b *BasicInMemoryNetwork) ReplaceNode(node *BasicNode) {
+	b.lock.Lock()
+	defer b.lock.Unlock()
+
+	for i, instance := range b.instances {
+		if bytes.Equal(instance.E.ID, node.E.ID) {
+			// Replace the instance in the slice
+			b.instances[i] = node
+			return
+		}
+	}
+}
+
 func (b *BasicInMemoryNetwork) AddNode(node *BasicNode) {
 	allowed := false
 	for _, id := range b.nodes {

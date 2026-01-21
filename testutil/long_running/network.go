@@ -32,7 +32,7 @@ func NewDefaultLongRunningNetwork(t *testing.T, numNodes int) *LongRunningInMemo
 	instances := make([]*LongRunningNode, 0, numNodes)
 	net := testutil.NewBasicInMemoryNetwork(t, nodes)
 	for _, nodeID := range nodes {
-		node := NewLongRunningNode(t, nodeID, net)
+		node := NewLongRunningNode(t, nodeID, net, longRunningNodeConfig{})
 		instances = append(instances, node)
 		net.AddNode(node.BasicNode)
 	}
@@ -80,9 +80,17 @@ func (n *LongRunningInMemoryNetwork) StartNodes(nodeIndexes ...uint64) {
 		clonedWal := instance.wal.Clone()
 		clonedStorage := instance.Storage.Clone()
 
-		newNode := NewLongRunningNodeWithExtras(n.t, nodeID, n.BasicInMemoryNetwork, bb, clonedWal, clonedStorage, instance.logger)
+		config := longRunningNodeConfig{
+			bb:      bb,
+			wal:     clonedWal,
+			storage: clonedStorage,
+			logger:  instance.logger,
+		}
+		newNode := NewLongRunningNode(n.t, nodeID, n.BasicInMemoryNetwork, config)
 
 		n.instances[idx] = newNode
+		n.BasicInMemoryNetwork.ReplaceNode(newNode.BasicNode)
+
 		n.lock.Unlock()
 		newNode.Start()
 	}
