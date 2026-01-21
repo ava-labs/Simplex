@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/rand/v2"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -76,6 +77,7 @@ type EpochConfig struct {
 	Epoch                      uint64
 	StartTime                  time.Time
 	ReplicationEnabled         bool
+	RandomSource               *rand.Rand
 }
 
 type Epoch struct {
@@ -182,7 +184,9 @@ func (e *Epoch) HandleMessage(msg *Message, from NodeID) error {
 }
 
 func (e *Epoch) init() error {
-	e.maybeAssignDefaultConfig()
+	if err := e.maybeAssignDefaultConfig(); err != nil {
+		return err
+	}
 	e.initOldestNotFinalizedNotarization()
 	e.oneTimeVerifier = newOneTimeVerifier(e.Logger)
 	scheduler := NewScheduler(e.Logger, DefaultProcessingBlocks)
@@ -200,7 +204,7 @@ func (e *Epoch) init() error {
 	e.emptyVotes = make(map[uint64]*EmptyVoteSet)
 	e.eligibleNodeIDs = make(map[string]struct{}, len(e.nodes))
 	e.futureMessages = make(messagesFromNode, len(e.nodes))
-	e.replicationState = NewReplicationState(e.Logger, e.Comm, e.ID, e.MaxRoundWindow, e.ReplicationEnabled, e.StartTime, &e.lock)
+	e.replicationState = NewReplicationState(e.Logger, e.Comm, e.ID, e.MaxRoundWindow, e.ReplicationEnabled, e.StartTime, &e.lock, e.RandomSource)
 	e.timeoutHandler = NewTimeoutHandler(e.Logger, "emptyVoteRebroadcast", e.StartTime, e.MaxRebroadcastWait, e.emptyVoteTimeoutTaskRunner)
 
 	for _, node := range e.nodes {
@@ -241,7 +245,7 @@ func (e *Epoch) getRound() uint64 {
 	return e.round
 }
 
-func (e *Epoch) maybeAssignDefaultConfig() {
+func (e *Epoch) maybeAssignDefaultConfig() error {
 	if e.FinalizeRebroadcastTimeout == 0 {
 		e.FinalizeRebroadcastTimeout = DefaultFinalizeVoteRebroadcastTimeout
 	}
@@ -251,6 +255,14 @@ func (e *Epoch) maybeAssignDefaultConfig() {
 	if e.MaxRebroadcastWait == 0 {
 		e.MaxRebroadcastWait = DefaultEmptyVoteRebroadcastTimeout
 	}
+	if e.RandomSource == nil {
+		source, err := newRandomSource()
+		if err != nil {
+			return err
+		}
+		e.RandomSource = source
+	}
+	return nil
 }
 
 func (e *Epoch) Start() error {

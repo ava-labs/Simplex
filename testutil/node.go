@@ -120,6 +120,10 @@ func updateEpochConfig(epochConfig *simplex.EpochConfig, testConfig *TestNodeCon
 	if testConfig.StartTime != 0 {
 		epochConfig.StartTime = time.UnixMilli(testConfig.StartTime)
 	}
+
+	if testConfig.RandomSeed != nil {
+		epochConfig.RandomSource = simplex.NewRandomSourceFromSeed(*testConfig.RandomSeed)
+	}
 }
 
 func (t *TestNode) Start() {
@@ -149,6 +153,7 @@ type TestNodeConfig struct {
 	WAL            *TestWAL
 	Storage        *InMemStorage
 	StartTime      int64
+	RandomSeed     *int64 // Optional seed for deterministic tests
 }
 
 func (t *TestNode) AdvanceTime(duration time.Duration) {
