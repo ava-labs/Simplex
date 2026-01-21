@@ -3,7 +3,6 @@ package random_network
 import (
 	"math/rand"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -22,8 +21,10 @@ type Network struct {
 	nodes      []*Node
 	randomness *rand.Rand
 	config     *FuzzConfig
-	stopped    atomic.Bool
-	issuedTxs  []*TX
+
+	// tx stats
+	allIssuedTxs int
+	failedTxs    int
 }
 
 func NewNetwork(config *FuzzConfig, t *testing.T, l simplex.Logger) *Network {
@@ -60,20 +61,26 @@ func NewNetwork(config *FuzzConfig, t *testing.T, l simplex.Logger) *Network {
 		t:                    t,
 		lock:                 sync.Mutex{},
 		config:               config,
-		issuedTxs:            make([]*TX, 0),
 	}
 }
 
 func (n *Network) StartInstances() {
-	n.BasicInMemoryNetwork.StartInstances()
-
-	go n.UpdateTime(n.config.TimeUpdateFrequency, n.config.TimeUpdateAmount)
+	panic("Call Run() Instead")
 }
 
-func (n *Network) UpdateTime(frequency time.Duration, increment time.Duration) {
-	for !n.stopped.Load() {
+func (n *Network) UpdateTime(frequency time.Duration, increment time.Duration, stop chan struct{}) {
+	ticker := time.NewTicker(frequency)
+	defer ticker.Stop()
+
+	for {
 		n.BasicInMemoryNetwork.AdvanceTime(increment)
-		time.Sleep(frequency)
+
+		select {
+		case <-stop:
+			return
+		case <-ticker.C:
+			continue
+		}
 	}
 }
 
@@ -87,10 +94,11 @@ func (n *Network) IssueTxs() {
 		if n.randomness.Float64() < n.config.TxVerificationFailure {
 			n.l.Info("Building a block that will fail verification due to tx", zap.Stringer("txID", tx))
 			tx.SetShouldFailVerification()
+			n.failedTxs++
 		}
 
 		txs = append(txs, tx)
-		n.issuedTxs = append(n.issuedTxs, tx)
+		n.allIssuedTxs++
 	}
 
 	// first add to all mempools
@@ -106,31 +114,35 @@ func (n *Network) IssueTxs() {
 
 func (n *Network) Run() {
 	stop := make(chan struct{})
-	defer close(stop)
 
-	n.startTransactionIssuance(stop)
-	n.startCrashRestartCycle(stop)
+	n.BasicInMemoryNetwork.StartInstances()
+	go n.UpdateTime(n.config.TimeUpdateFrequency, n.config.TimeUpdateAmount, stop)
+	go n.startTransactionIssuance(stop)
+	go n.startCrashRestartCycle(stop)
+
 	n.waitForTargetHeight()
+
+	close(stop)
+	n.BasicInMemoryNetwork.StopInstances()
+
 }
 
 func (n *Network) startTransactionIssuance(stop chan struct{}) {
-	go func() {
-		for {
+	for {
+		select {
+		case <-stop:
+			return
+		default:
+			n.IssueTxs()
+
+			delay := n.calculateTxIssuanceDelay()
 			select {
+			case <-time.After(delay):
 			case <-stop:
 				return
-			default:
-				n.IssueTxs()
-
-				delay := n.calculateTxIssuanceDelay()
-				select {
-				case <-time.After(delay):
-				case <-stop:
-					return
-				}
 			}
 		}
-	}()
+	}
 }
 
 func (n *Network) calculateTxIssuanceDelay() time.Duration {
@@ -156,28 +168,26 @@ func (n *Network) startCrashRestartCycle(stop chan struct{}) {
 		return
 	}
 
-	go func() {
-		var crashedNodes []uint64
-		crashPhase := true
+	var crashedNodes []uint64
+	crashPhase := true
 
-		ticker := time.NewTicker(n.config.CrashInterval)
-		defer ticker.Stop()
+	ticker := time.NewTicker(n.config.CrashInterval)
+	defer ticker.Stop()
 
-		for {
-			select {
-			case <-stop:
-				return
-			case <-ticker.C:
-				if crashPhase {
-					crashedNodes = n.crashRandomNodes(f, crashedNodes)
-				} else {
-					n.restartCrashedNodes(crashedNodes)
-					crashedNodes = nil
-				}
-				crashPhase = !crashPhase
+	for {
+		select {
+		case <-stop:
+			return
+		case <-ticker.C:
+			if crashPhase {
+				crashedNodes = n.crashRandomNodes(f, crashedNodes)
+			} else {
+				n.restartCrashedNodes(crashedNodes)
+				crashedNodes = nil
 			}
+			crashPhase = !crashPhase
 		}
-	}()
+	}
 }
 
 func (n *Network) crashRandomNodes(f int, crashedNodes []uint64) []uint64 {
@@ -246,10 +256,10 @@ func (n *Network) waitForTargetHeight() {
 	targetHeight := uint64(n.config.NumFinalizedBlocks)
 
 	for {
-		maxHeight := n.getMaxHeight()
-		if maxHeight >= targetHeight {
+		minHeight := n.getMinHeight()
+		if minHeight >= targetHeight {
 			n.l.Info("Target height reached",
-				zap.Uint64("height", maxHeight),
+				zap.Uint64("height", minHeight),
 				zap.Uint64("target", targetHeight))
 			return
 		}
@@ -257,82 +267,15 @@ func (n *Network) waitForTargetHeight() {
 	}
 }
 
-func (n *Network) getMaxHeight() uint64 {
-	maxHeight := uint64(0)
-	for _, node := range n.nodes {
+func (n *Network) getMinHeight() uint64 {
+	minHeight := n.nodes[0].storage.NumBlocks()
+	for _, node := range n.nodes[1:] {
 		height := node.storage.NumBlocks()
-		if height > maxHeight {
-			maxHeight = height
+		if height < minHeight {
+			minHeight = height
 		}
 	}
-	return maxHeight
-}
-
-func (n *Network) WaitForTxAcceptance() {
-	const pollInterval = 100 * time.Millisecond
-	const timeout = 30 * time.Second
-
-	deadline := time.Now().Add(timeout)
-
-	for time.Now().Before(deadline) {
-		allAccepted := true
-
-		// Check each issued transaction
-		for _, tx := range n.issuedTxs {
-			if tx.shouldFailVerification {
-				// Ensure tx was NOT accepted by any node
-				for _, node := range n.nodes {
-					if node.mempool.IsTxAccepted(tx.ID) {
-						n.l.Error("Transaction that should fail verification was accepted",
-							zap.Stringer("txID", tx),
-							zap.Stringer("nodeID", node.E.ID))
-						allAccepted = false
-						break
-					}
-				}
-			} else {
-				// Ensure tx was accepted by all nodes
-				for _, node := range n.nodes {
-					if !node.mempool.IsTxAccepted(tx.ID) {
-						allAccepted = false
-						break
-					}
-				}
-			}
-
-			if !allAccepted {
-				break
-			}
-		}
-
-		for _, node := range n.nodes {
-			node.logger.Info("Ensuring no verified & unaccepted transactions remain...", zap.Int("num verified but not accepted", node.mempool.NumVerifiedBlocks()))
-			if node.mempool.NumVerifiedBlocks() > 0 {
-				allAccepted = false
-			}
-		}
-
-		if allAccepted {
-			n.l.Info("All transactions accepted as expected")
-			return
-		}
-
-		time.Sleep(pollInterval)
-	}
-
-	// Timeout - log detailed status
-	n.l.Warn("WaitForTxAcceptance timeout - printing detailed status")
-	for _, tx := range n.issuedTxs {
-		acceptanceStatus := make([]bool, len(n.nodes))
-		for i, node := range n.nodes {
-			acceptanceStatus[i] = node.mempool.IsTxAccepted(tx.ID)
-		}
-
-		n.l.Warn("Transaction acceptance status",
-			zap.Stringer("txID", tx),
-			zap.Bool("shouldFail", tx.shouldFailVerification),
-			zap.Bools("acceptedByNodes", acceptanceStatus))
-	}
+	return minHeight
 }
 
 func (n *Network) SetInfoLog() {
@@ -347,11 +290,11 @@ func (n *Network) PrintStatus() {
 
 	// prints the number of txs in each node's mempool
 	for _, node := range n.nodes {
-		numPendingTxs := len(node.mempool.unacceptedTxs)
-		numVerifiedButNotAcceptedTxs := node.mempool.NumVerifiedBlocks()
-		numAcceptedTxs := len(node.mempool.acceptedTXs)
-		n.l.Info("Node Status", zap.Stringer("nodeID", node.E.ID), zap.Int("Short", int(node.E.ID[0])), zap.Int("pending txs", numPendingTxs), zap.Int("verified but not accepted txs", numVerifiedButNotAcceptedTxs), zap.Int("accepted txs", numAcceptedTxs), zap.Uint64("Height", node.storage.NumBlocks()))
+		n.l.Info("Node Status", zap.Stringer("nodeID", node.E.ID), zap.Int("Short", int(node.E.ID[0])), zap.Uint64("Round", node.E.Metadata().Round), zap.Uint64("Height", node.storage.NumBlocks()))
 	}
+
+	// prints total issued txs and failed txs
+	n.l.Info("Transaction Stats", zap.Int("total issued txs", n.allIssuedTxs), zap.Int("total failed txs", n.failedTxs))
 }
 
 func (n *Network) CrashNodes(nodeIndexes ...uint64) {

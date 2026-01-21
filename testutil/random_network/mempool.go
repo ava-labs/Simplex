@@ -233,8 +233,6 @@ func (m *Mempool) Clear() {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 
-	// dont clear unaccpeted
-	// m.unacceptedTxs = make(map[txID]*TX)
 	m.verifiedButNotAcceptedTXs = make(map[simplex.Digest]*Block)
 	m.acceptedTXs = make(map[txID]struct{})
 }
