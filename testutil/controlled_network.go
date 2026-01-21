@@ -3,6 +3,7 @@
 package testutil
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -86,4 +87,135 @@ func (n *ControlledInMemoryNetwork) AdvanceWithoutLeader(round uint64, laggingNo
 		recordType := n.WAL.AssertNotarization(round)
 		require.Equal(n.t, record.EmptyNotarizationRecordType, recordType)
 	}
+}
+
+type ControlledNode struct {
+	*BasicNode
+	bb      *testControlledBlockBuilder
+	WAL     *TestWAL
+	Storage *InMemStorage
+}
+
+// newSimplexNode creates a new testNode and adds it to [net].
+func NewControlledSimplexNode(t *testing.T, nodeID simplex.NodeID, net *ControlledInMemoryNetwork, config *TestNodeConfig) *ControlledNode {
+	comm := NewTestComm(nodeID, net.BasicInMemoryNetwork, AllowAllMessages)
+	bb := NewTestControlledBlockBuilder(t)
+	if config != nil && config.BlockBuilder != nil {
+		bb = config.BlockBuilder
+	}
+
+	epochConfig, wal, storage := DefaultTestNodeEpochConfig(t, nodeID, comm, bb)
+
+	if config != nil {
+		UpdateEpochConfig(&epochConfig, config)
+		if config.WAL != nil {
+			wal = config.WAL
+		}
+		if config.Storage != nil {
+			storage = config.Storage
+		}
+	}
+
+	e, err := simplex.NewEpoch(epochConfig)
+	require.NoError(t, err)
+	ti := &ControlledNode{
+		BasicNode: NewBasicNode(t, e, epochConfig.Logger.(*TestLogger)),
+		WAL:       wal,
+		bb:        bb,
+		Storage:   storage,
+	}
+
+	net.addNode(ti)
+	return ti
+}
+
+// TimeoutOnRound advances time until the node times out of the given round.
+func (t *ControlledNode) TimeoutOnRound(round uint64) {
+	for {
+		currentRound := t.E.Metadata().Round
+		if currentRound > round {
+			return
+		}
+
+		if !t.ShouldBlockBeBuilt() {
+			t.BlockShouldBeBuilt()
+		}
+
+		t.AdvanceTime(t.E.MaxProposalWait)
+
+		// check the wal for an empty vote for that round
+		if hasVote := t.WAL.ContainsEmptyVote(round); hasVote {
+			return
+		}
+
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+func (t *ControlledNode) ShouldBlockBeBuilt() bool {
+	return len(t.bb.BlockShouldBeBuilt) > 0
+}
+
+func (t *ControlledNode) TriggerNewBlock() {
+	t.bb.TriggerNewBlock()
+}
+func (t *ControlledNode) BlockShouldBeBuilt() {
+	select {
+	case t.bb.BlockShouldBeBuilt <- struct{}{}:
+	default:
+	}
+}
+
+func (t *ControlledNode) TickUntilRoundAdvanced(round uint64, tick time.Duration) {
+	timeout := time.NewTimer(time.Minute)
+	defer timeout.Stop()
+
+	for {
+		if t.E.Metadata().Round >= round {
+			return
+		}
+
+		select {
+		case <-time.After(time.Millisecond * 10):
+			t.AdvanceTime(tick)
+			continue
+		case <-timeout.C:
+			require.Fail(t.t, "timed out waiting to enter round", "current round %d, waiting for round %d", t.E.Metadata().Round, round)
+		}
+	}
+}
+
+
+// testControlledBlockBuilder is a BlockBuilder that only builds a block when
+// a control signal is received.
+type testControlledBlockBuilder struct {
+	t       *testing.T
+	control chan struct{}
+	TestBlockBuilder
+}
+
+// NewTestControlledBlockBuilder returns a BlockBuilder that only builds a block
+// when triggerNewBlock is called.
+func NewTestControlledBlockBuilder(t *testing.T) *testControlledBlockBuilder {
+	return &testControlledBlockBuilder{
+		t:                t,
+		control:          make(chan struct{}, 1),
+		TestBlockBuilder: *NewTestBlockBuilder(),
+	}
+}
+
+func (t *testControlledBlockBuilder) TriggerNewBlock() {
+	select {
+	case t.control <- struct{}{}:
+	default:
+	}
+}
+
+func (t *testControlledBlockBuilder) BuildBlock(ctx context.Context, metadata simplex.ProtocolMetadata, blacklist simplex.Blacklist) (simplex.VerifiedBlock, bool) {
+	select {
+	case <-t.control:
+	case <-ctx.Done():
+		return nil, false
+	}
+	return t.TestBlockBuilder.BuildBlock(ctx, metadata, blacklist)
 }
