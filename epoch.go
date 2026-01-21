@@ -187,16 +187,7 @@ func (e *Epoch) HandleMessage(msg *Message, from NodeID) error {
 func (e *Epoch) init() error {
 	e.maybeAssignDefaultConfig()
 
-	// Initialize random number generator
-	var seed int64
-	if e.RandomSeed != nil {
-		seed = *e.RandomSeed
-	} else {
-		seed = time.Now().UnixNano()
-	}
-	source := rand.NewPCG(uint64(seed), uint64(seed))
-	e.rand = rand.New(source)
-
+	e.rand = newRand(e.RandomSeed)
 	e.initOldestNotFinalizedNotarization()
 	e.oneTimeVerifier = newOneTimeVerifier(e.Logger)
 	scheduler := NewScheduler(e.Logger, DefaultProcessingBlocks)

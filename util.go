@@ -5,7 +5,9 @@ package simplex
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
+	"math/rand/v2"
 	"slices"
 	"strings"
 	"sync"
@@ -371,4 +373,19 @@ func (t *walRound) String() string {
 	hasFinalization := t.finalization != nil
 	hasBlock := t.block != nil
 	return fmt.Sprintf("walRound{round: %d, hasEmptyNotarization: %t, hasEmptyVote: %t, hasNotarization: %t, hasFinalization: %t, hasBlock: %t}", t.round, hasEmptyNotarization, hasEmptyVote, hasNotarization, hasFinalization, hasBlock)
+}
+
+func newRand(configSeed *int64) *rand.Rand {
+	var seed int64
+	if configSeed != nil {
+		seed = *configSeed
+	} else {
+		seed = time.Now().UnixNano()
+	}
+
+	var seedBytes [32]byte
+	binary.LittleEndian.PutUint64(seedBytes[:8], uint64(seed))
+
+	chacha := rand.NewChaCha8(seedBytes)
+	return rand.New(chacha)
 }
