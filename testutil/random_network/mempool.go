@@ -66,7 +66,6 @@ func (m *Mempool) NotifyTxsReady() {
 	}
 }
 
-
 func (m *Mempool) WaitForPendingTxs(ctx context.Context) {
 	for {
 		// Briefly check if txs are available
@@ -90,7 +89,7 @@ func (m *Mempool) WaitForPendingTxs(ctx context.Context) {
 
 func (m *Mempool) PackBlock(ctx context.Context, maxTxs int) []*TX {
 	m.WaitForPendingTxs(ctx)
-	
+
 	m.lock.Lock()
 	defer m.lock.Unlock()
 

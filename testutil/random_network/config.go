@@ -13,8 +13,8 @@ type FuzzConfig struct {
 	MinTxIssuanceDelay time.Duration
 	MaxTxIssuanceDelay time.Duration
 
-	// The probability that a transaction verification will fail. Default is 1%.
-	TxVVerificationFailure int
+	// The probability that a transaction verification will fail. Default is .01%.
+	TxVerificationFailure float64
 
 	// The minimum and maximum number of transactions per block. Default is between 5 and 20.
 	MinTxsPerBlock int
@@ -27,6 +27,8 @@ type FuzzConfig struct {
 
 	// Frequency at which to update time in the network. Default is 100 MS.
 	TimeUpdateFrequency time.Duration
+	// Amount of time to increment on each time update. Default is 500 MS.
+	TimeUpdateAmount time.Duration
 
 	// randomly crashes up to f nodes every crashInterval. if set to 0, no crashes occur. Default is 800ms.
 	CrashInterval time.Duration
@@ -40,18 +42,17 @@ type FuzzConfig struct {
 
 func DefaultFuzzConfig() *FuzzConfig {
 	return &FuzzConfig{
-		MinNodes:               3,
-		MaxNodes:               10,
-		MinTxIssuanceDelay:             10 * time.Millisecond,
-		MaxTxIssuanceDelay:             100 * time.Millisecond,
-		TxVVerificationFailure: 1,
-		MinTxsPerBlock:         5,
-		MaxTxsPerBlock:         20,
-		NumFinalizedBlocks:     100,
-		// RandomSeed:             time.Now().UnixNano(),
-		RandomSeed:             1768389277860202000,
-		TimeUpdateFrequency:    100 * time.Millisecond,
-		CrashInterval:          800 * time.Millisecond,
-		LogDirectory:           "tmp", // Disabled by default (console only)
+		MinNodes:              3,
+		MaxNodes:              10,
+		MinTxIssuanceDelay:    10 * time.Millisecond,
+		MaxTxIssuanceDelay:    100 * time.Millisecond,
+		TxVerificationFailure: .0001,
+		MinTxsPerBlock:        5,
+		MaxTxsPerBlock:        20,
+		NumFinalizedBlocks:    100,
+		TimeUpdateFrequency:   100 * time.Millisecond,
+		TimeUpdateAmount:      500 * time.Millisecond,
+		CrashInterval:         800 * time.Millisecond,
+		LogDirectory:          "tmp",
 	}
 }

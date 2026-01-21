@@ -15,7 +15,7 @@ type Storage struct {
 func NewStorage(mempool *Mempool) *Storage {
 	return &Storage{
 		InMemStorage: testutil.NewInMemStorage(),
-		mempool: mempool,
+		mempool:      mempool,
 	}
 }
 

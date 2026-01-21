@@ -1,6 +1,8 @@
 package random_network
 
 import (
+	"encoding/binary"
+	"math/rand"
 	"testing"
 
 	"github.com/ava-labs/simplex"
@@ -8,26 +10,52 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type randomNodeConfig struct {
+	mempool *Mempool
+	storage *Storage
+	wal     *testutil.TestWAL
+	logger  *testutil.TestLogger
+}
+
 type Node struct {
 	*testutil.BasicNode
 
 	storage *Storage
-	wal    *testutil.TestWAL
+	wal     *testutil.TestWAL
 	mempool *Mempool
 
 	logger *testutil.TestLogger
 }
 
-func NewNode(t *testing.T, net *testutil.BasicInMemoryNetwork, config *FuzzConfig, nodeID simplex.NodeID) *Node {
+func NewNode(t *testing.T, nodeID simplex.NodeID, net *testutil.BasicInMemoryNetwork, config *FuzzConfig, nodeConfig randomNodeConfig) *Node {
 	l := CreateNodeLogger(t, config, nodeID)
 	mempool := NewMempool(l, config)
-	storage := NewStorage(mempool)
+	if nodeConfig.mempool != nil {
+		mempool = nodeConfig.mempool
+	}
 	comm := testutil.NewTestComm(nodeID, net, testutil.AllowAllMessages)
 	epochConfig, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodeID, comm, mempool)
 	epochConfig.Logger = l
 	epochConfig.MaxRoundWindow = 100
-	epochConfig.Storage = storage
 	epochConfig.ReplicationEnabled = true
+
+	// storage
+	storage := NewStorage(mempool)
+	if nodeConfig.storage != nil {
+		storage = nodeConfig.storage
+	}
+
+	// wal
+	if nodeConfig.wal != nil {
+		wal = nodeConfig.wal
+	}
+
+	// logger
+	if nodeConfig.logger != nil {
+		l = nodeConfig.logger
+	}
+
+	epochConfig.Storage = storage
 	epochConfig.BlockDeserializer = &BlockDeserializer{
 		mempool: mempool,
 	}
@@ -44,36 +72,6 @@ func NewNode(t *testing.T, net *testutil.BasicInMemoryNetwork, config *FuzzConfi
 	}
 
 	n.BasicNode.CustomHandler = n.HandleMessage
-	net.AddNode(n.BasicNode)
-
-	return n
-}
-
-func NewNodeWithExtras(t *testing.T, net *testutil.BasicInMemoryNetwork, nodeID simplex.NodeID, mempool *Mempool, wal *testutil.TestWAL, storage *Storage, logger *testutil.TestLogger) *Node {
-	comm := testutil.NewTestComm(nodeID, net, testutil.AllowAllMessages)
-	epochConfig, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodeID, comm, mempool)
-	epochConfig.MaxRoundWindow = 100
-	epochConfig.Logger = logger
-	epochConfig.Storage = storage
-	epochConfig.WAL = wal
-	epochConfig.ReplicationEnabled = true
-	epochConfig.BlockDeserializer = &BlockDeserializer{
-		mempool: mempool,
-	}
-
-	e, err := simplex.NewEpoch(epochConfig)
-	require.NoError(t, err)
-
-	n := &Node{
-		BasicNode: testutil.NewBasicNode(t, e, logger),
-		storage:   storage,
-		mempool:   mempool,
-		logger:    logger,
-		wal:       wal,
-	}
-
-	n.BasicNode.CustomHandler = n.HandleMessage
-	net.AddNode(n.BasicNode)
 
 	return n
 }
@@ -139,4 +137,14 @@ func (n *Node) HandleMessage(msg *simplex.Message, from simplex.NodeID) error {
 		// no-op
 	}
 	return n.BasicNode.HandleMessage(&msgCopy, from)
+}
+
+func GenerateNodeIDFromRand(r *rand.Rand) simplex.NodeID {
+	b := make([]byte, 32)
+
+	for i := 0; i < len(b); i += 8 {
+		binary.LittleEndian.PutUint64(b[i:], r.Uint64())
+	}
+
+	return simplex.NodeID(b)
 }

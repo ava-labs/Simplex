@@ -18,12 +18,12 @@ type Network struct {
 	l simplex.Logger
 	t *testing.T
 
-	lock 	 sync.Mutex
+	lock       sync.Mutex
 	nodes      []*Node
 	randomness *rand.Rand
 	config     *FuzzConfig
 	stopped    atomic.Bool
-	issuedTxs []*TX
+	issuedTxs  []*TX
 }
 
 func NewNetwork(config *FuzzConfig, t *testing.T, l simplex.Logger) *Network {
@@ -38,7 +38,7 @@ func NewNetwork(config *FuzzConfig, t *testing.T, l simplex.Logger) *Network {
 	numNodes := r.Intn(config.MaxNodes-config.MinNodes+1) + config.MinNodes
 	nodeIds := make([]simplex.NodeID, numNodes)
 	for i := range numNodes {
-		nodeIds[i] = testutil.GenerateNodeID(t)
+		nodeIds[i] = GenerateNodeIDFromRand(r)
 	}
 
 	nodes := make([]*Node, numNodes)
@@ -47,7 +47,8 @@ func NewNetwork(config *FuzzConfig, t *testing.T, l simplex.Logger) *Network {
 	basicNetwork := testutil.NewBasicInMemoryNetwork(t, nodeIds)
 
 	for i := range numNodes {
-		node := NewNode(t, basicNetwork, config, nodeIds[i])
+		node := NewNode(t, nodeIds[i], basicNetwork, config, randomNodeConfig{})
+		basicNetwork.AddNode(node.BasicNode)
 		nodes[i] = node
 	}
 
@@ -66,9 +67,7 @@ func NewNetwork(config *FuzzConfig, t *testing.T, l simplex.Logger) *Network {
 func (n *Network) StartInstances() {
 	n.BasicInMemoryNetwork.StartInstances()
 
-	// start time updater
-	amount := simplex.DefaultEmptyVoteRebroadcastTimeout / 10
-	go n.UpdateTime(n.config.TimeUpdateFrequency, amount)
+	go n.UpdateTime(n.config.TimeUpdateFrequency, n.config.TimeUpdateAmount)
 }
 
 func (n *Network) UpdateTime(frequency time.Duration, increment time.Duration) {
@@ -85,19 +84,21 @@ func (n *Network) IssueTxs() {
 
 	for range numTxs {
 		tx := CreateNewTX()
-		if rand.Intn(100) < n.config.TxVVerificationFailure {
-			// n.l.Info("Building a block that will fail verification due to tx", zap.Stringer("txID", tx))
-			// tx.SetShouldFailVerification()
+		if n.randomness.Float64() < n.config.TxVerificationFailure {
+			n.l.Info("Building a block that will fail verification due to tx", zap.Stringer("txID", tx))
+			tx.SetShouldFailVerification()
 		}
 
 		txs = append(txs, tx)
 		n.issuedTxs = append(n.issuedTxs, tx)
 	}
 
+	// first add to all mempools
 	for _, node := range n.nodes {
 		node.mempool.AddPendingTXs(txs...)
 	}
 
+	// then notify all mempools that new txs are ready
 	for _, node := range n.nodes {
 		node.mempool.NotifyTxsReady()
 	}
@@ -141,6 +142,9 @@ func (n *Network) calculateTxIssuanceDelay() time.Duration {
 	return delay
 }
 
+// startCrashRestartCycle periodically crashes and restarts nodes in the network
+// it crashes up to f nodes at a time, where f is the maximum number of faulty nodes tolerated by the network
+// it alternates between crashing and restarting nodes at each interval
 func (n *Network) startCrashRestartCycle(stop chan struct{}) {
 	if n.config.CrashInterval == 0 {
 		return
@@ -313,7 +317,6 @@ func (n *Network) WaitForTxAcceptance() {
 			return
 		}
 
-	
 		time.Sleep(pollInterval)
 	}
 
@@ -351,7 +354,6 @@ func (n *Network) PrintStatus() {
 	}
 }
 
-
 func (n *Network) CrashNodes(nodeIndexes ...uint64) {
 	for _, idx := range nodeIndexes {
 		n.lock.Lock()
@@ -373,12 +375,16 @@ func (n *Network) StartNodes(nodeIndexes ...uint64) {
 		clonedStorage := instance.storage.Clone()
 		mempool.Clear()
 
-		// Remove the old stopped instance from the network's instances list
-		n.BasicInMemoryNetwork.RemoveNode(instance.BasicNode)
-
-		newNode := NewNodeWithExtras(n.t, n.BasicInMemoryNetwork, nodeID, mempool, clonedWal, clonedStorage, instance.logger)
+		newNode := NewNode(n.t, nodeID, n.BasicInMemoryNetwork, n.config, randomNodeConfig{
+			mempool: mempool,
+			wal:     clonedWal,
+			storage: clonedStorage,
+			logger:  instance.logger,
+		})
 
 		n.nodes[idx] = newNode
+		n.BasicInMemoryNetwork.ReplaceNode(newNode.BasicNode)
+
 		n.lock.Unlock()
 		newNode.Start()
 	}
