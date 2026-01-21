@@ -36,6 +36,26 @@ type BasicNode struct {
 	CustomHandler func(msg *simplex.Message, from simplex.NodeID) error
 }
 
+func NewBasicNode(t *testing.T, epoch *simplex.Epoch, logger *TestLogger) *BasicNode {
+	currentTime := epoch.EpochConfig.StartTime.UnixMilli()
+	bn := BasicNode{
+		shouldStop: atomic.Bool{},
+		lock:       sync.RWMutex{},
+		running:    sync.WaitGroup{},
+		E:          epoch,
+		ingress: make(chan struct {
+			msg  *simplex.Message
+			from simplex.NodeID
+		}, 100000),
+		l:                logger,
+		t:                t,
+		messageTypesSent: make(map[string]uint64),
+	}
+
+	bn.currentTime.Store(currentTime)
+	return &bn
+}
+
 func (b *BasicNode) Start() {
 	b.running.Add(1)
 	go b.handleMessages()
@@ -159,66 +179,6 @@ func (b *BasicNode) GetMessageTypesSent() map[string]uint64 {
 	return b.messageTypesSent
 }
 
-type ControlledNode struct {
-	*BasicNode
-	bb      *testControlledBlockBuilder
-	WAL     *TestWAL
-	Storage *InMemStorage
-}
-
-func NewBasicNode(t *testing.T, epoch *simplex.Epoch, logger *TestLogger) *BasicNode {
-	currentTime := epoch.EpochConfig.StartTime.UnixMilli()
-	bn := BasicNode{
-		shouldStop: atomic.Bool{},
-		lock:       sync.RWMutex{},
-		running:    sync.WaitGroup{},
-		E:          epoch,
-		ingress: make(chan struct {
-			msg  *simplex.Message
-			from simplex.NodeID
-		}, 100000),
-		l:                logger,
-		t:                t,
-		messageTypesSent: make(map[string]uint64),
-	}
-
-	bn.currentTime.Store(currentTime)
-	return &bn
-}
-
-// newSimplexNode creates a new testNode and adds it to [net].
-func NewControlledSimplexNode(t *testing.T, nodeID simplex.NodeID, net *ControlledInMemoryNetwork, config *TestNodeConfig) *ControlledNode {
-	comm := NewTestComm(nodeID, net.BasicInMemoryNetwork, AllowAllMessages)
-	bb := NewTestControlledBlockBuilder(t)
-	if config != nil && config.BlockBuilder != nil {
-		bb = config.BlockBuilder
-	}
-
-	epochConfig, wal, storage := DefaultTestNodeEpochConfig(t, nodeID, comm, bb)
-
-	if config != nil {
-		UpdateEpochConfig(&epochConfig, config)
-		if config.WAL != nil {
-			wal = config.WAL
-		}
-		if config.Storage != nil {
-			storage = config.Storage
-		}
-	}
-
-	e, err := simplex.NewEpoch(epochConfig)
-	require.NoError(t, err)
-	ti := &ControlledNode{
-		BasicNode: NewBasicNode(t, e, epochConfig.Logger.(*TestLogger)),
-		WAL:       wal,
-		bb:        bb,
-		Storage:   storage,
-	}
-
-	net.addNode(ti)
-	return ti
-}
-
 func UpdateEpochConfig(epochConfig *simplex.EpochConfig, testConfig *TestNodeConfig) {
 	// set the initial storage
 	for _, data := range testConfig.InitialStorage {
@@ -262,6 +222,7 @@ func UpdateEpochConfig(epochConfig *simplex.EpochConfig, testConfig *TestNodeCon
 	}
 }
 
+// NodeConfig
 type TestNodeConfig struct {
 	// optional
 	InitialStorage     []simplex.VerifiedFinalizedBlock
@@ -276,57 +237,4 @@ type TestNodeConfig struct {
 	WAL            *TestWAL
 	Storage        *InMemStorage
 	StartTime      int64
-}
-
-// TimeoutOnRound advances time until the node times out of the given round.
-func (t *ControlledNode) TimeoutOnRound(round uint64) {
-	for {
-		currentRound := t.E.Metadata().Round
-		if currentRound > round {
-			return
-		}
-
-		if !t.ShouldBlockBeBuilt() {
-			t.BlockShouldBeBuilt()
-		}
-
-		t.AdvanceTime(t.E.MaxProposalWait)
-
-		// check the wal for an empty vote for that round
-		if hasVote := t.WAL.ContainsEmptyVote(round); hasVote {
-			return
-		}
-
-		time.Sleep(50 * time.Millisecond)
-	}
-}
-
-func (t *ControlledNode) ShouldBlockBeBuilt() bool {
-	return len(t.bb.BlockShouldBeBuilt) > 0
-}
-
-func (t *ControlledNode) TriggerNewBlock() {
-	t.bb.TriggerNewBlock()
-}
-func (t *ControlledNode) BlockShouldBeBuilt() {
-	t.bb.BlockShouldBeBuilt <- struct{}{}
-}
-
-func (t *ControlledNode) TickUntilRoundAdvanced(round uint64, tick time.Duration) {
-	timeout := time.NewTimer(time.Minute)
-	defer timeout.Stop()
-
-	for {
-		if t.E.Metadata().Round >= round {
-			return
-		}
-
-		select {
-		case <-time.After(time.Millisecond * 10):
-			t.AdvanceTime(tick)
-			continue
-		case <-timeout.C:
-			require.Fail(t.t, "timed out waiting to enter round", "current round %d, waiting for round %d", t.E.Metadata().Round, round)
-		}
-	}
 }
