@@ -1,0 +1,16 @@
+package simplex_test
+
+import (
+	"testing"
+
+	"github.com/ava-labs/simplex/testutil"
+	"github.com/ava-labs/simplex/testutil/random_network"
+)
+
+func TestNetworkSimpleFuzz(t *testing.T) {
+	l := testutil.MakeLogger(t)
+	config := random_network.DefaultFuzzConfig()
+	network := random_network.NewNetwork(config, t, l)
+	network.Run()
+	network.PrintStatus()
+}
