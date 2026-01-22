@@ -68,7 +68,7 @@ func (b *BasicInMemoryNetwork) SetAllNodesMessageFilter(filter MessageFilter) {
 func (b *BasicInMemoryNetwork) IsDisconnected(node simplex.NodeID) bool {
 	b.lock.RLock()
 	defer b.lock.RUnlock()
-	
+
 	_, ok := b.disconnected[string(node)]
 	return ok
 }
