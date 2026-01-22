@@ -68,7 +68,7 @@ func (b *BasicInMemoryNetwork) SetAllNodesMessageFilter(filter MessageFilter) {
 func (b *BasicInMemoryNetwork) IsDisconnected(node simplex.NodeID) bool {
 	b.lock.RLock()
 	defer b.lock.RUnlock()
-
+	
 	_, ok := b.disconnected[string(node)]
 	return ok
 }
@@ -88,9 +88,6 @@ func (b *BasicInMemoryNetwork) Disconnect(node simplex.NodeID) {
 }
 
 func (b *BasicInMemoryNetwork) AdvanceTime(increment time.Duration) {
-	b.lock.Lock()
-	defer b.lock.Unlock()
-
 	for _, instance := range b.instances {
 		instance.AdvanceTime(increment)
 	}
