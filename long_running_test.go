@@ -7,11 +7,11 @@ import (
 	"math"
 	"testing"
 
-	"github.com/ava-labs/simplex/testutil"
+	"github.com/ava-labs/simplex/testutil/long_running"
 )
 
 func TestLongRunningSimple(t *testing.T) {
-	net := testutil.NewDefaultLongRunningNetwork(t, 5)
+	net := long_running.NewDefaultLongRunningNetwork(t, 5)
 
 	net.StartInstances()
 	net.WaitForNodesToEnterRound(40)
@@ -19,7 +19,7 @@ func TestLongRunningSimple(t *testing.T) {
 }
 
 func TestLongRunningReplication(t *testing.T) {
-	net := testutil.NewDefaultLongRunningNetwork(t, 10)
+	net := long_running.NewDefaultLongRunningNetwork(t, 10)
 	net.StartInstances()
 
 	net.WaitForNodesToEnterRound(40)
@@ -35,12 +35,12 @@ func TestLongRunningReplication(t *testing.T) {
 }
 
 func TestLongRunningCrash(t *testing.T) {
-	net := testutil.NewDefaultLongRunningNetwork(t, 10)
+	net := long_running.NewDefaultLongRunningNetwork(t, 10)
 
 	net.StartInstances()
 	net.WaitForNodesToEnterRound(30)
 	net.CrashNodes(3)
-	crashedNodeLatestBlock := net.Instances[3].Storage.NumBlocks()
+	crashedNodeLatestBlock := net.GetInstance(3).Storage.NumBlocks()
 
 	net.WaitForNodesToEnterRound(80, 1, 2, 4, 5, 6, 7, 8, 9)
 	net.StartNodes(3)

@@ -34,11 +34,11 @@ func TestPoS(t *testing.T) {
 	}
 	testConf := &testutil.TestNodeConfig{SigAggregator: posSigAggregator, ReplicationEnabled: true}
 
-	net := testutil.NewInMemNetwork(t, nodes)
-	testutil.NewSimplexNode(t, nodes[0], net, testConf)
-	testutil.NewSimplexNode(t, nodes[1], net, testConf)
-	testutil.NewSimplexNode(t, nodes[2], net, testConf)
-	testutil.NewSimplexNode(t, nodes[3], net, testConf)
+	net := testutil.NewControlledNetwork(t, nodes)
+	testutil.NewControlledSimplexNode(t, nodes[0], net, testConf)
+	testutil.NewControlledSimplexNode(t, nodes[1], net, testConf)
+	testutil.NewControlledSimplexNode(t, nodes[2], net, testConf)
+	testutil.NewControlledSimplexNode(t, nodes[3], net, testConf)
 
 	net.StartInstances()
 	defer net.StopInstances()
@@ -114,7 +114,7 @@ func TestPoS(t *testing.T) {
 			if bytes.Equal(n.E.ID, nodes[0]) || bytes.Equal(n.E.ID, nodes[3]) {
 				continue
 			}
-			n.BB.TriggerBlockShouldBeBuilt()
+			n.BlockShouldBeBuilt()
 			n.AdvanceTime(n.E.EpochConfig.MaxProposalWait / 4)
 		}
 
@@ -145,7 +145,7 @@ func TestPoS(t *testing.T) {
 			if bytes.Equal(n.E.ID, nodes[2]) {
 				continue
 			}
-			n.BB.TriggerBlockShouldBeBuilt()
+			n.BlockShouldBeBuilt()
 			n.AdvanceTime(n.E.EpochConfig.MaxProposalWait / 4)
 			if n.WAL.ContainsEmptyVote(15) {
 				timedOut[i] = struct{}{}

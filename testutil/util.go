@@ -4,6 +4,7 @@
 package testutil
 
 import (
+	"crypto/rand"
 	"encoding/asn1"
 	"fmt"
 	"testing"
@@ -237,4 +238,14 @@ func WaitForBlockProposerTimeout(t *testing.T, e *simplex.Epoch, startTime *time
 			require.Fail(t, "timed out waiting for event")
 		}
 	}
+}
+
+func GenerateNodeID(t *testing.T) simplex.NodeID {
+	b := make([]byte, 32)
+
+	// fill with cryptographically secure random data
+	_, err := rand.Read(b)
+	require.NoError(t, err)
+
+	return simplex.NodeID(b)
 }
