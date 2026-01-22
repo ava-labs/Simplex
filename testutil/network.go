@@ -37,6 +37,9 @@ type TestNetworkCommunication interface {
 }
 
 func (b *BasicInMemoryNetwork) SetNodeMessageFilter(node simplex.NodeID, filter MessageFilter) {
+	b.lock.RLock()
+	defer b.lock.RUnlock()
+
 	for _, instance := range b.instances {
 		if !instance.E.ID.Equals(node) {
 			continue
@@ -50,6 +53,9 @@ func (b *BasicInMemoryNetwork) SetNodeMessageFilter(node simplex.NodeID, filter 
 }
 
 func (b *BasicInMemoryNetwork) SetAllNodesMessageFilter(filter MessageFilter) {
+	b.lock.RLock()
+	defer b.lock.RUnlock()
+
 	for _, instance := range b.instances {
 		comm, ok := instance.E.Comm.(TestNetworkCommunication)
 		if !ok {
@@ -82,6 +88,9 @@ func (b *BasicInMemoryNetwork) Disconnect(node simplex.NodeID) {
 }
 
 func (b *BasicInMemoryNetwork) AdvanceTime(increment time.Duration) {
+	b.lock.Lock()
+	defer b.lock.Unlock()
+
 	for _, instance := range b.instances {
 		instance.AdvanceTime(increment)
 	}
@@ -90,6 +99,9 @@ func (b *BasicInMemoryNetwork) AdvanceTime(increment time.Duration) {
 // StartInstances starts all instances in the network.
 // The first one is typically the leader, so we make sure to start it last.
 func (b *BasicInMemoryNetwork) StartInstances() {
+	b.lock.RLock()
+	defer b.lock.RUnlock()
+
 	require.Equal(b.t, len(b.nodes), len(b.instances))
 
 	for i := len(b.nodes) - 1; i >= 0; i-- {
@@ -98,9 +110,19 @@ func (b *BasicInMemoryNetwork) StartInstances() {
 }
 
 func (b *BasicInMemoryNetwork) StopInstances() {
+	b.lock.RLock()
+	defer b.lock.RUnlock()
+
 	for _, instance := range b.instances {
 		instance.Stop()
 	}
+}
+
+func (b *BasicInMemoryNetwork) GetInstances() []*BasicNode {
+	b.lock.RLock()
+	defer b.lock.RUnlock()
+
+	return b.instances
 }
 
 func (b *BasicInMemoryNetwork) ReplaceNode(node *BasicNode) {
@@ -117,6 +139,9 @@ func (b *BasicInMemoryNetwork) ReplaceNode(node *BasicNode) {
 }
 
 func (b *BasicInMemoryNetwork) AddNode(node *BasicNode) {
+	b.lock.Lock()
+	defer b.lock.Unlock()
+
 	allowed := false
 	for _, id := range b.nodes {
 		if bytes.Equal(id, node.E.ID) {
