@@ -80,6 +80,21 @@ func NewNode(t *testing.T, nodeID simplex.NodeID, net *testutil.BasicInMemoryNet
 }
 
 func (n *Node) HandleMessage(msg *simplex.Message, from simplex.NodeID) error {
+	msgCopy := n.copyMessage(msg)
+	return n.BasicNode.HandleMessage(&msgCopy, from)
+}
+
+func GenerateNodeIDFromRand(r *rand.Rand) simplex.NodeID {
+	b := make([]byte, 32)
+
+	for i := 0; i < len(b); i += 8 {
+		binary.LittleEndian.PutUint64(b[i:], r.Uint64())
+	}
+
+	return simplex.NodeID(b)
+}
+
+func (n *Node) copyMessage(msg *simplex.Message) simplex.Message {
 	// Create a copy of the message to avoid mutating shared state in the in-memory network
 	msgCopy := *msg
 
@@ -133,21 +148,8 @@ func (n *Node) HandleMessage(msg *simplex.Message, from simplex.NodeID) error {
 				msgCopy.ReplicationResponse.LatestSeq.Block = &blockCopy
 			}
 		}
-
-	case msgCopy.VerifiedReplicationResponse != nil:
-		panic("not implemented vrr")
 	default:
 		// no-op
 	}
-	return n.BasicNode.HandleMessage(&msgCopy, from)
-}
-
-func GenerateNodeIDFromRand(r *rand.Rand) simplex.NodeID {
-	b := make([]byte, 32)
-
-	for i := 0; i < len(b); i += 8 {
-		binary.LittleEndian.PutUint64(b[i:], r.Uint64())
-	}
-
-	return simplex.NodeID(b)
+	return msgCopy
 }
