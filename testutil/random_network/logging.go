@@ -1,3 +1,6 @@
+// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// See the file LICENSE for licensing terms.
+
 package random_network
 
 import (
@@ -71,29 +74,10 @@ func setupFileOutput(logDir, filename string) (zapcore.WriteSyncer, error) {
 	return zapcore.AddSync(file), nil
 }
 
-// clearLogDirectory removes all files in the log directory
+// clearLogDirectory removes the contents of the log directory
 func clearLogDirectory(logDir string) error {
-	// Check if directory exists
-	if _, err := os.Stat(logDir); os.IsNotExist(err) {
-		// Directory doesn't exist, nothing to clear
-		return nil
+	if err := os.RemoveAll(logDir); err != nil {
+		return fmt.Errorf("failed to remove log directory %s: %w", logDir, err)
 	}
-
-	// Read all files in the directory
-	entries, err := os.ReadDir(logDir)
-	if err != nil {
-		return fmt.Errorf("failed to read log directory %s: %w", logDir, err)
-	}
-
-	// Remove each file (but not subdirectories)
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			filePath := filepath.Join(logDir, entry.Name())
-			if err := os.Remove(filePath); err != nil {
-				return fmt.Errorf("failed to remove log file %s: %w", filePath, err)
-			}
-		}
-	}
-
 	return nil
 }

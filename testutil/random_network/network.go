@@ -1,3 +1,6 @@
+// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// See the file LICENSE for licensing terms.
+
 package random_network
 
 import (
@@ -77,7 +80,7 @@ func (n *Network) UpdateTime(frequency time.Duration, increment time.Duration, s
 		n.lock.Lock()
 		n.BasicInMemoryNetwork.AdvanceTime(increment)
 		n.lock.Unlock()
-		
+
 		select {
 		case <-stop:
 			return
