@@ -87,8 +87,6 @@ func (m *Mempool) WaitForPendingTxs(ctx context.Context) {
 }
 
 func (m *Mempool) PackBlock(ctx context.Context, maxTxs int) []*TX {
-	m.WaitForPendingTxs(ctx)
-
 	m.lock.Lock()
 	defer m.lock.Unlock()
 
@@ -196,6 +194,9 @@ func (m *Mempool) NumVerifiedBlocks() int {
 }
 
 func (m *Mempool) BuildBlock(ctx context.Context, md simplex.ProtocolMetadata, bl simplex.Blacklist) (simplex.VerifiedBlock, bool) {
+	m.WaitForPendingTxs(ctx)
+
+	// Pack the block once we have pending txs
 	txs := m.PackBlock(ctx, m.config.MaxTxsPerBlock)
 	if ctx.Err() != nil {
 		return nil, false
