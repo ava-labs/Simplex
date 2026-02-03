@@ -5,7 +5,6 @@ package testutil
 
 import (
 	"context"
-	"testing"
 	"time"
 
 	"github.com/ava-labs/simplex"
@@ -70,49 +69,4 @@ func (t *TestBlockBuilder) WaitForPendingBlock(ctx context.Context) {
 	case <-t.BlockShouldBeBuilt:
 	case <-ctx.Done():
 	}
-}
-
-// testControlledBlockBuilder is a BlockBuilder that only builds a block when
-// a control signal is received.
-type testControlledBlockBuilder struct {
-	t       *testing.T
-	control chan struct{}
-	TestBlockBuilder
-}
-
-// NewTestControlledBlockBuilder returns a BlockBuilder that only builds a block
-// when triggerNewBlock is called.
-func NewTestControlledBlockBuilder(t *testing.T) *testControlledBlockBuilder {
-	return &testControlledBlockBuilder{
-		t:                t,
-		control:          make(chan struct{}, 1),
-		TestBlockBuilder: *NewTestBlockBuilder(),
-	}
-}
-
-func (t *testControlledBlockBuilder) TriggerNewBlock() {
-	select {
-	case t.control <- struct{}{}:
-	default:
-	}
-}
-
-func (t *testControlledBlockBuilder) TriggerBlockShouldBeBuilt() {
-	select {
-	case t.BlockShouldBeBuilt <- struct{}{}:
-	default:
-	}
-}
-
-func (t *testControlledBlockBuilder) BuildBlock(ctx context.Context, metadata simplex.ProtocolMetadata, blacklist simplex.Blacklist) (simplex.VerifiedBlock, bool) {
-	select {
-	case <-t.control:
-	case <-ctx.Done():
-		return nil, false
-	}
-	return t.TestBlockBuilder.BuildBlock(ctx, metadata, blacklist)
-}
-
-func (t *testControlledBlockBuilder) ShouldBlockBeBuilt() bool {
-	return len(t.BlockShouldBeBuilt) > 0
 }
