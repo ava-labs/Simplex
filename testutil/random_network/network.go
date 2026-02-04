@@ -5,7 +5,6 @@ package random_network
 
 import (
 	"math/rand"
-	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -23,6 +22,7 @@ type Network struct {
 
 	lock       sync.Mutex
 	nodes      []*Node
+	numNodes   uint64
 	randomness *rand.Rand
 	config     *FuzzConfig
 
@@ -65,6 +65,7 @@ func NewNetwork(config *FuzzConfig, t *testing.T, l simplex.Logger) *Network {
 		t:                    t,
 		lock:                 sync.Mutex{},
 		config:               config,
+		numNodes:             uint64(numNodes),
 	}
 }
 
@@ -90,7 +91,7 @@ func (n *Network) UpdateTime(frequency time.Duration, increment time.Duration, s
 	}
 }
 
-func (n *Network) IssueTxs() {
+func (n *Network) IssueTxs() []*TX {
 	n.lock.Lock()
 	defer n.lock.Unlock()
 
@@ -119,163 +120,100 @@ func (n *Network) IssueTxs() {
 	for _, node := range n.nodes {
 		node.mempool.NotifyTxsReady()
 	}
+
+	return txs
 }
 
 func (n *Network) Run() {
-	stop := make(chan struct{})
-
 	n.BasicInMemoryNetwork.StartInstances()
-	go n.UpdateTime(n.config.TimeUpdateFrequency, n.config.TimeUpdateAmount, stop)
-	go n.startTransactionIssuance(stop)
-	go n.startCrashRestartCycle(stop)
 
-	n.waitForTargetHeight()
-
-	close(stop)
-	n.BasicInMemoryNetwork.StopInstances()
-
-}
-
-func (n *Network) startTransactionIssuance(stop chan struct{}) {
-	for {
-		select {
-		case <-stop:
-			return
-		default:
-			n.IssueTxs()
-
-			delay := n.calculateTxIssuanceDelay()
-			select {
-			case <-time.After(delay):
-			case <-stop:
-				return
-			}
-		}
-	}
-}
-
-func (n *Network) calculateTxIssuanceDelay() time.Duration {
-	n.lock.Lock()
-	defer n.lock.Unlock()
-
-	delay := n.config.MinTxIssuanceDelay
-	if n.config.MaxTxIssuanceDelay > n.config.MinTxIssuanceDelay {
-		randomDelta := n.randomness.Int63n(int64(n.config.MaxTxIssuanceDelay - n.config.MinTxIssuanceDelay))
-		delay += time.Duration(randomDelta)
-	}
-	return delay
-}
-
-// startCrashRestartCycle periodically crashes and restarts nodes in the network
-// it crashes up to f nodes at a time, where f is the maximum number of faulty nodes tolerated by the network
-// it alternates between crashing and restarting nodes at each interval
-func (n *Network) startCrashRestartCycle(stop chan struct{}) {
-	if n.config.CrashInterval == 0 {
-		return
-	}
-
-	n.lock.Lock()
-	numNodes := len(n.nodes)
-	n.lock.Unlock()
-
-	f := (numNodes - 1) / 3
-	if f == 0 {
-		n.l.Info("Not enough nodes for crash testing", zap.Int("numNodes", numNodes))
-		return
-	}
-
-	var crashedNodes []uint64
-	crashPhase := true
-
-	ticker := time.NewTicker(n.config.CrashInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-stop:
-			return
-		case <-ticker.C:
-			if crashPhase {
-				crashedNodes = n.crashRandomNodes(f, crashedNodes)
-			} else {
-				n.restartCrashedNodes(crashedNodes)
-				crashedNodes = nil
-			}
-			crashPhase = !crashPhase
-		}
-	}
-}
-
-func (n *Network) crashRandomNodes(f int, crashedNodes []uint64) []uint64 {
-	n.lock.Lock()
-	defer n.lock.Unlock()
-
-	// Calculate how many more nodes we can crash (max f total)
-	maxAdditionalCrashes := f - len(crashedNodes)
-	if maxAdditionalCrashes <= 0 {
-		n.l.Info("Already at maximum crashed nodes", zap.Int("crashedNodes", len(crashedNodes)), zap.Int("f", f))
-		return crashedNodes
-	}
-
-	availableNodes := n.getAvailableNodesLocked(crashedNodes)
-	if len(availableNodes) == 0 {
-		return crashedNodes
-	}
-
-	// Randomly select 1 to maxAdditionalCrashes nodes to crash
-	numToCrash := n.randomness.Intn(maxAdditionalCrashes) + 1
-	numToCrash = min(numToCrash, len(availableNodes))
-
-	n.randomness.Shuffle(len(availableNodes), func(i, j int) {
-		availableNodes[i], availableNodes[j] = availableNodes[j], availableNodes[i]
-	})
-
-	nodesToCrash := availableNodes[:numToCrash]
-	n.l.Info("Crashing nodes",
-		zap.Int("numToCrash", numToCrash),
-		zap.Int("totalCrashed", len(crashedNodes)+numToCrash),
-		zap.Int("f", f),
-		zap.Uint64s("nodeIndexes", nodesToCrash))
-	n.crashNodes(nodesToCrash...)
-
-	return append(crashedNodes, nodesToCrash...)
-}
-
-func (n *Network) getAvailableNodesLocked(crashedNodes []uint64) []uint64 {
-	availableNodes := make([]uint64, 0, len(n.nodes))
-	for i := range n.nodes {
-		nodeIdx := uint64(i)
-		if !slices.Contains(crashedNodes, nodeIdx) {
-			availableNodes = append(availableNodes, nodeIdx)
-		}
-	}
-	return availableNodes
-}
-
-func (n *Network) restartCrashedNodes(crashedNodes []uint64) {
-	if len(crashedNodes) == 0 {
-		return
-	}
-
-	n.l.Info("Restarting nodes",
-		zap.Int("numNodes", len(crashedNodes)),
-		zap.Uint64s("nodeIndexes", crashedNodes))
-	n.StartNodes(crashedNodes...)
-}
-
-func (n *Network) waitForTargetHeight() {
-	const pollInterval = 100 * time.Millisecond
 	targetHeight := uint64(n.config.NumFinalizedBlocks)
 
+	for n.getMinHeight() < targetHeight {
+		n.crashAndRecoverNodes()
+		txs := n.IssueTxs()
+		n.waitForTxAcceptance(txs)
+
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	n.BasicInMemoryNetwork.StopInstances()
+}
+
+func (n *Network) waitForTxAcceptance(txs []*TX) {
 	for {
-		minHeight := n.getMinHeight()
-		if minHeight >= targetHeight {
-			n.l.Info("Target height reached",
-				zap.Uint64("height", minHeight),
-				zap.Uint64("target", targetHeight))
+		allAccepted := true
+		for _, node := range n.nodes {
+			if node.isCrashed.Load() {
+				continue
+			}
+
+			if allAccepted := node.areTxsAccepted(txs); !allAccepted {
+				allAccepted = false
+				break
+			}
+		}
+
+		if allAccepted {
 			return
 		}
-		time.Sleep(pollInterval)
+
+		// advance time of all the nodes
+		for _, node := range n.nodes {
+			node.AdvanceTime(n.config.AdvanceTimeTickAmount)
+		}
+		time.Sleep(1 * time.Second)
+	}
+}
+
+func (n *Network) numCrashedNodes() uint64 {
+	numCrashed := 0
+	for _, node := range n.nodes {
+		if node.isCrashed.Load() {
+			numCrashed++
+		}
+	}
+	return uint64(numCrashed)
+}
+
+func (n *Network) crashAndRecoverNodes() {
+	if n.config.NodeCrashPercentage == 0 {
+		return
+	}
+
+	f := (int(n.numNodes) - 1) / 3
+
+	if f == 0 {
+		n.l.Info("Not enough nodes for crash testing", zap.Uint64("numNodes", n.numNodes))
+		return
+	}
+
+	maxLeftToCrash := f - int(n.numCrashedNodes())
+	// go through each node, randomly decide to crash based on NodeCrashPercentage
+	for i, node := range n.nodes {
+		isCrashed := node.isCrashed.Load()
+		if isCrashed {
+			// randomly decide to recover based on NodeRecoverPercentage
+			if n.randomness.Float64() < n.config.NodeRecoverPercentage {
+				n.l.Info("Recovering crashed node", zap.Stringer("NodeID", node.E.ID))
+				n.startNode(i)
+
+				maxLeftToCrash++
+			}
+			continue
+		}
+
+		// check if we can still crash more nodes
+		if maxLeftToCrash <= 0 {
+			continue
+		}
+
+		// randomly decide to crash the node
+		if n.randomness.Float64() < n.config.NodeCrashPercentage {
+			n.l.Info("Crashing node", zap.Stringer("NodeID", node.E.ID))
+			maxLeftToCrash--
+			n.crashNode(i)
+		}
 	}
 }
 
@@ -286,6 +224,7 @@ func (n *Network) getMinHeight() uint64 {
 	minHeight := n.nodes[0].storage.NumBlocks()
 	for _, node := range n.nodes[1:] {
 		height := node.storage.NumBlocks()
+
 		if height < minHeight {
 			minHeight = height
 		}
@@ -318,47 +257,31 @@ func (n *Network) PrintStatus() {
 	n.l.Info("Transaction Stats", zap.Int("total issued txs", n.allIssuedTxs), zap.Int("total failed txs", n.failedTxs))
 }
 
-func (n *Network) CrashNodes(nodeIndexes ...uint64) {
-	n.lock.Lock()
-	defer n.lock.Unlock()
-	n.crashNodes(nodeIndexes...)
+func (n *Network) crashNode(idx int) {
+	instance := n.nodes[idx]
+	instance.isCrashed.Store(true)
+	instance.Stop()
 }
 
-func (n *Network) crashNodes(nodeIndexes ...uint64) {
-	for _, idx := range nodeIndexes {
-		instance := n.nodes[idx]
-		instance.Stop()
-	}
-}
-
-func (n *Network) StartNodes(nodeIndexes ...uint64) {
+func (n *Network) startNode(idx int) {
 	n.lock.Lock()
-	newNodes := make([]*Node, 0, len(nodeIndexes))
 
-	for _, idx := range nodeIndexes {
-		instance := n.nodes[idx]
+	instance := n.nodes[idx]
+	nodeID := instance.E.ID
+	mempool := instance.mempool
+	clonedWal := instance.wal.Clone()
+	clonedStorage := instance.storage.Clone()
+	mempool.Clear()
 
-		nodeID := instance.E.ID
-		mempool := instance.mempool
-		clonedWal := instance.wal.Clone()
-		clonedStorage := instance.storage.Clone()
-		mempool.Clear()
-
-		newNode := NewNode(n.t, nodeID, n.BasicInMemoryNetwork, n.config, randomNodeConfig{
-			mempool: mempool,
-			wal:     clonedWal,
-			storage: clonedStorage,
-			logger:  instance.logger,
-		})
-
-		n.nodes[idx] = newNode
-		n.BasicInMemoryNetwork.ReplaceNode(newNode.BasicNode)
-		newNodes = append(newNodes, newNode)
-	}
+	newNode := NewNode(n.t, nodeID, n.BasicInMemoryNetwork, n.config, randomNodeConfig{
+		mempool: mempool,
+		wal:     clonedWal,
+		storage: clonedStorage,
+		logger:  instance.logger,
+	})
+	n.nodes[idx] = newNode
+	n.BasicInMemoryNetwork.ReplaceNode(newNode.BasicNode)
 	n.lock.Unlock()
 
-	// Start nodes outside the lock to avoid blocking
-	for _, newNode := range newNodes {
-		newNode.Start()
-	}
+	newNode.Start()
 }

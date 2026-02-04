@@ -6,6 +6,7 @@ package random_network
 import (
 	"encoding/binary"
 	"math/rand"
+	"sync/atomic"
 	"testing"
 
 	"github.com/ava-labs/simplex"
@@ -27,7 +28,8 @@ type Node struct {
 	wal     *testutil.TestWAL
 	mempool *Mempool
 
-	logger *testutil.TestLogger
+	logger    *testutil.TestLogger
+	isCrashed atomic.Bool
 }
 
 func NewNode(t *testing.T, nodeID simplex.NodeID, net *testutil.BasicInMemoryNetwork, config *FuzzConfig, nodeConfig randomNodeConfig) *Node {
@@ -72,8 +74,10 @@ func NewNode(t *testing.T, nodeID simplex.NodeID, net *testutil.BasicInMemoryNet
 		mempool:   mempool,
 		logger:    l,
 		wal:       wal,
+		isCrashed: atomic.Bool{},
 	}
 
+	n.isCrashed.Store(false)
 	n.BasicNode.CustomHandler = n.HandleMessage
 
 	return n
@@ -152,4 +156,16 @@ func (n *Node) copyMessage(msg *simplex.Message) simplex.Message {
 		// no-op
 	}
 	return msgCopy
+}
+
+func (n *Node) areTxsAccepted(txs []*TX) bool {
+	n.mempool.lock.Lock()
+	defer n.mempool.lock.Unlock()
+
+	for _, tx := range txs {
+		if _, exists := n.mempool.acceptedTXs[tx.ID]; !exists {
+			return false
+		}
+	}
+	return true
 }
