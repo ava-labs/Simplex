@@ -58,6 +58,7 @@ func NewRound(block VerifiedBlock) *Round {
 }
 
 type EpochConfig struct {
+	ExecutingCounter ExecutingCounter
 	MaxProposalWait            time.Duration
 	MaxRoundWindow             uint64
 	MaxRebroadcastWait         time.Duration
@@ -81,6 +82,7 @@ type EpochConfig struct {
 type Epoch struct {
 	EpochConfig
 	// Runtime
+	ec ExecutingCounter
 	oneTimeVerifier                *oneTimeVerifier
 	blockVerificationScheduler     *BlockDependencyManager
 	lock                           sync.Mutex
@@ -116,8 +118,11 @@ func NewEpoch(conf EpochConfig) (*Epoch, error) {
 // AdvanceTime hints the engine that the given amount of time has passed.
 func (e *Epoch) AdvanceTime(t time.Time) {
 	e.monitor.AdvanceTime(t)
+	e.ec.Wait()
 	e.replicationState.AdvanceTime(t)
+	e.ec.Wait()
 	e.timeoutHandler.Tick(t)
+	e.ec.Wait()
 	e.oldestNotFinalizedNotarization.CheckForNotFinalizedNotarizedBlocks(t)
 }
 
@@ -182,12 +187,16 @@ func (e *Epoch) HandleMessage(msg *Message, from NodeID) error {
 }
 
 func (e *Epoch) init() error {
+	e.ec = NoOpExecutingCounter{}
+	if e.EpochConfig.ExecutingCounter != nil {
+		e.ec = e.EpochConfig.ExecutingCounter
+	}
 	e.maybeAssignDefaultConfig()
 	e.initOldestNotFinalizedNotarization()
 	e.oneTimeVerifier = newOneTimeVerifier(e.Logger)
-	scheduler := NewScheduler(e.Logger, DefaultProcessingBlocks)
+	scheduler := NewScheduler(e.Logger, DefaultProcessingBlocks, e.ec)
 	e.blockVerificationScheduler = NewBlockVerificationScheduler(e.Logger, DefaultProcessingBlocks, scheduler)
-	e.monitor = NewMonitor(e.StartTime, e.Logger)
+	e.monitor = NewMonitor(e.StartTime, e.Logger, e.ec)
 	e.cancelWaitForBlockNotarization = func() {}
 	e.finishCtx, e.finishFn = context.WithCancel(context.Background())
 	e.blockBuilderCtx = context.Background()
@@ -200,8 +209,8 @@ func (e *Epoch) init() error {
 	e.emptyVotes = make(map[uint64]*EmptyVoteSet)
 	e.eligibleNodeIDs = make(map[string]struct{}, len(e.nodes))
 	e.futureMessages = make(messagesFromNode, len(e.nodes))
-	e.replicationState = NewReplicationState(e.Logger, e.Comm, e.ID, e.MaxRoundWindow, e.ReplicationEnabled, e.StartTime, &e.lock)
-	e.timeoutHandler = NewTimeoutHandler(e.Logger, "emptyVoteRebroadcast", e.StartTime, e.MaxRebroadcastWait, e.emptyVoteTimeoutTaskRunner)
+	e.replicationState = NewReplicationState(e.ec, e.Logger, e.Comm, e.ID, e.MaxRoundWindow, e.ReplicationEnabled, e.StartTime, &e.lock)
+	e.timeoutHandler = NewTimeoutHandler(e.Logger, "emptyVoteRebroadcast", e.StartTime, e.MaxRebroadcastWait, e.emptyVoteTimeoutTaskRunner, e.ec)
 
 	for _, node := range e.nodes {
 		e.futureMessages[string(node)] = make(map[uint64]*messagesForRound)

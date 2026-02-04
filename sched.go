@@ -12,15 +12,16 @@ import (
 
 type BasicScheduler struct {
 	logger Logger
-
+	ec ExecutingCounter
 	closed  atomic.Bool
 	running sync.WaitGroup
 	tasks   chan Task
 	lock    sync.RWMutex
 }
 
-func NewScheduler(logger Logger, maxTasks uint64) *BasicScheduler {
+func NewScheduler(logger Logger, maxTasks uint64, ec ExecutingCounter) *BasicScheduler {
 	s := &BasicScheduler{
+		ec: ec,
 		logger: logger,
 		tasks:  make(chan Task, maxTasks),
 	}
@@ -50,10 +51,12 @@ func (as *BasicScheduler) run() {
 	defer as.running.Done()
 	for task := range as.tasks {
 		if as.closed.Load() {
+			as.ec.Decrement()
 			return
 		}
 		as.logger.Debug("Running task", zap.Int("remaining ready tasks", len(as.tasks)))
 		id := task()
+		as.ec.Decrement()
 		as.logger.Debug("Task finished execution", zap.Stringer("taskID", id))
 	}
 }
@@ -66,10 +69,13 @@ func (as *BasicScheduler) Schedule(task Task) {
 		return
 	}
 
+	as.ec.Increment()
+
 	as.logger.Debug("Scheduling new ready task", zap.Int("ready tasks", len(as.tasks)+1))
 	select {
 	case as.tasks <- task:
 	default:
+		as.ec.Decrement()
 		as.logger.Warn("Scheduler task queue is full; task was not scheduled")
 	}
 }

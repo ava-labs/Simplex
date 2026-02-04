@@ -59,7 +59,7 @@ type ReplicationState struct {
 	epochLock *sync.Mutex
 }
 
-func NewReplicationState(logger Logger, comm Communication, myNodeID NodeID, maxRoundWindow uint64, enabled bool, start time.Time, lock *sync.Mutex) *ReplicationState {
+func NewReplicationState(ec ExecutingCounter, logger Logger, comm Communication, myNodeID NodeID, maxRoundWindow uint64, enabled bool, start time.Time, lock *sync.Mutex) *ReplicationState {
 	if !enabled {
 		return &ReplicationState{
 			enabled: enabled,
@@ -74,18 +74,18 @@ func NewReplicationState(logger Logger, comm Communication, myNodeID NodeID, max
 
 		// seq replication
 		seqs:                  make(map[uint64]*finalizedQuorumRound),
-		finalizationRequestor: newRequestor(logger, start, lock, maxRoundWindow, comm, true),
+		finalizationRequestor: newRequestor(ec, logger, start, lock, maxRoundWindow, comm, true),
 
 		// round replication
 		rounds:         make(map[uint64]*QuorumRound),
-		roundRequestor: newRequestor(logger, start, lock, maxRoundWindow, comm, false),
+		roundRequestor: newRequestor(ec, logger, start, lock, maxRoundWindow, comm, false),
 
 		sender:    comm,
 		epochLock: lock,
 	}
 
-	r.digestTimeouts = NewTimeoutHandler(logger, "digest", start, DefaultReplicationRequestTimeout, r.requestDigests)
-	r.emptyRoundTimeouts = NewTimeoutHandler(logger, "empty", start, DefaultReplicationRequestTimeout, r.requestEmptyRounds)
+	r.digestTimeouts = NewTimeoutHandler(logger, "digest", start, DefaultReplicationRequestTimeout, r.requestDigests, ec)
+	r.emptyRoundTimeouts = NewTimeoutHandler(logger, "empty", start, DefaultReplicationRequestTimeout, r.requestEmptyRounds, ec)
 
 	return r
 }

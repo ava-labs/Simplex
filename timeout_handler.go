@@ -14,6 +14,7 @@ import (
 type timeoutRunner[T comparable] func(ids []T)
 
 type TimeoutHandler[T comparable] struct {
+	ec ExecutingCounter
 	// helpful for logging
 	name string
 	// how often to run through the tasks
@@ -33,8 +34,9 @@ type TimeoutHandler[T comparable] struct {
 
 // NewTimeoutHandler returns a TimeoutHandler and starts a new goroutine that
 // listens for ticks and executes TimeoutTasks.
-func NewTimeoutHandler[T comparable](log Logger, name string, startTime time.Time, runInterval time.Duration, taskRunner timeoutRunner[T]) *TimeoutHandler[T] {
+func NewTimeoutHandler[T comparable](log Logger, name string, startTime time.Time, runInterval time.Duration, taskRunner timeoutRunner[T], ec ExecutingCounter) *TimeoutHandler[T] {
 	t := &TimeoutHandler[T]{
+		ec:          ec,
 		name:        name,
 		now:         startTime,
 		tasks:       make(map[T]struct{}),
@@ -60,6 +62,7 @@ func (t *TimeoutHandler[T]) run(startTime time.Time) {
 		select {
 		case now := <-t.ticks:
 			if now.Sub(lastTickTime) < t.runInterval {
+				t.ec.Decrement()
 				continue
 			}
 			lastTickTime = now
@@ -70,6 +73,7 @@ func (t *TimeoutHandler[T]) run(startTime time.Time) {
 			t.lock.Unlock()
 
 			t.maybeRunTasks()
+			t.ec.Decrement()
 		case <-t.close:
 			return
 		}
@@ -103,12 +107,14 @@ func (t *TimeoutHandler[T]) shouldRun() bool {
 }
 
 func (t *TimeoutHandler[T]) Tick(now time.Time) {
+	t.ec.Increment()
 	select {
 	case t.ticks <- now:
 		t.lock.Lock()
 		t.now = now
 		t.lock.Unlock()
 	default:
+		t.ec.Decrement()
 		t.log.Debug("Dropping tick in timeouthandler", zap.String("name", t.name))
 	}
 }

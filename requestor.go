@@ -95,7 +95,7 @@ type requestor struct {
 	replicateSeqs bool
 }
 
-func newRequestor(logger Logger, start time.Time, lock *sync.Mutex, maxRoundWindow uint64, sender sender, replicateSeqs bool) *requestor {
+func newRequestor(ec ExecutingCounter, logger Logger, start time.Time, lock *sync.Mutex, maxRoundWindow uint64, sender sender, replicateSeqs bool) *requestor {
 	r := &requestor{
 		logger:         logger,
 		epochLock:      lock,
@@ -107,7 +107,7 @@ func newRequestor(logger Logger, start time.Time, lock *sync.Mutex, maxRoundWind
 	if !replicateSeqs {
 		name = "round-timeout-handler"
 	}
-	r.timeoutHandler = NewTimeoutHandler(logger, name, start, DefaultReplicationRequestTimeout, r.resendReplicationRequests)
+	r.timeoutHandler = NewTimeoutHandler(logger, name, start, DefaultReplicationRequestTimeout, r.resendReplicationRequests, ec)
 	return r
 }
 

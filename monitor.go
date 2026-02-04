@@ -12,6 +12,7 @@ import (
 )
 
 type Monitor struct {
+	ec ExecutingCounter
 	logger     Logger
 	close      chan struct{}
 	time       atomic.Value
@@ -27,8 +28,9 @@ type futureTask struct {
 	f        func()
 }
 
-func NewMonitor(startTime time.Time, logger Logger) *Monitor {
+func NewMonitor(startTime time.Time, logger Logger, ec ExecutingCounter) *Monitor {
 	m := &Monitor{
+		ec:         ec,
 		cancelTask: func() {},
 		logger:     logger,
 		close:      make(chan struct{}),
@@ -46,14 +48,17 @@ func NewMonitor(startTime time.Time, logger Logger) *Monitor {
 
 func (m *Monitor) AdvanceTime(t time.Time) {
 	m.time.Store(t)
+	m.ec.Increment()
 	select {
 	case m.ticks <- t:
 	default:
+		m.ec.Decrement()
 	}
 }
 
 func (m *Monitor) tick(now time.Time, taskID uint64) {
 	defer m.logger.Verbo("Ticked", zap.Uint64("taskID", taskID), zap.Time("time", now))
+	defer m.ec.Decrement()
 	ft := m.futureTask.Load()
 	if ft == nil {
 		return
@@ -84,7 +89,9 @@ func (m *Monitor) run() {
 			m.tick(tick, taskID)
 		case f := <-m.tasks:
 			m.logger.Verbo("Executing f", zap.Uint64("taskID", taskID))
+			m.ec.Increment()
 			f()
+			m.ec.Decrement()
 			m.logger.Verbo("Task executed", zap.Uint64("taskID", taskID))
 		}
 		taskID++
