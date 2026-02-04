@@ -28,10 +28,10 @@ type FuzzConfig struct {
 	// Chance that a crashed node will be restarted. Default is 50%.
 	NodeRecoverPercentage float64
 
-	// Amount to advance the time by. Default is 100ms.
+	// Amount to advance the time by. Default is 1000ms.
 	AdvanceTimeTickAmount time.Duration
-	// Optional directory for writing logs to files. If empty, logs only to console.
-	// When set, creates main.log for network logs and {nodeID-short}.log for each node.
+
+	// Creates main.log for network logs and {nodeID-short}.log for each node.
 	// NodeID is represented as a 16-character hex string (first 8 bytes).
 	// Default is "tmp".
 	LogDirectory string
@@ -48,7 +48,7 @@ func DefaultFuzzConfig() *FuzzConfig {
 		RandomSeed:            time.Now().UnixMilli(),
 		NodeCrashPercentage:   0.1,
 		NodeRecoverPercentage: 0.5,
-		AdvanceTimeTickAmount: 100 * time.Millisecond,
+		AdvanceTimeTickAmount: 1000 * time.Millisecond,
 		LogDirectory:          "tmp",
 	}
 }

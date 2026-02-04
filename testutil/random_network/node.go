@@ -33,7 +33,13 @@ type Node struct {
 }
 
 func NewNode(t *testing.T, nodeID simplex.NodeID, net *testutil.BasicInMemoryNetwork, config *FuzzConfig, nodeConfig randomNodeConfig) *Node {
-	l := CreateNodeLogger(t, config, nodeID)
+	var l *testutil.TestLogger
+	if nodeConfig.logger != nil {
+		l = nodeConfig.logger
+	} else {
+		l = CreateNodeLogger(t, config, nodeID)
+	}
+
 	mempool := NewMempool(l, config)
 	if nodeConfig.mempool != nil {
 		mempool = nodeConfig.mempool
@@ -49,18 +55,14 @@ func NewNode(t *testing.T, nodeID simplex.NodeID, net *testutil.BasicInMemoryNet
 	if nodeConfig.storage != nil {
 		storage = nodeConfig.storage
 	}
+	epochConfig.Storage = storage
 
 	// wal
 	if nodeConfig.wal != nil {
 		wal = nodeConfig.wal
 	}
+	epochConfig.WAL = wal
 
-	// logger
-	if nodeConfig.logger != nil {
-		l = nodeConfig.logger
-	}
-
-	epochConfig.Storage = storage
 	epochConfig.BlockDeserializer = &BlockDeserializer{
 		mempool: mempool,
 	}

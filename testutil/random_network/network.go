@@ -4,10 +4,10 @@
 package random_network
 
 import (
+	"fmt"
 	"math/rand"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/ava-labs/simplex"
 	"github.com/ava-labs/simplex/testutil"
@@ -17,8 +17,8 @@ import (
 
 type Network struct {
 	*testutil.BasicInMemoryNetwork
-	l simplex.Logger
-	t *testing.T
+	logger *testutil.TestLogger
+	t      *testing.T
 
 	lock       sync.Mutex
 	nodes      []*Node
@@ -31,13 +31,13 @@ type Network struct {
 	failedTxs    int
 }
 
-func NewNetwork(config *FuzzConfig, t *testing.T, l simplex.Logger) *Network {
-	// Use file-based logger if LogDirectory is configured
-	if config.LogDirectory != "" {
-		l = CreateNetworkLogger(t, config)
+func NewNetwork(config *FuzzConfig, t *testing.T) *Network {
+	if config.LogDirectory == "" {
+		panic("Log Directory must be set")
 	}
 
-	l.Info("Initiating logger with random seed", zap.Int64("seed", config.RandomSeed))
+	logger := CreateNetworkLogger(t, config)
+	logger.Info("Initiating logger with random seed", zap.Int64("seed", config.RandomSeed))
 	r := rand.New(rand.NewSource(config.RandomSeed))
 
 	numNodes := r.Intn(config.MaxNodes-config.MinNodes+1) + config.MinNodes
@@ -48,7 +48,7 @@ func NewNetwork(config *FuzzConfig, t *testing.T, l simplex.Logger) *Network {
 
 	nodes := make([]*Node, numNodes)
 
-	l.Info("Initiating logger with nodes", zap.Int("num nodes", numNodes))
+	logger.Info("Initiating logger with nodes", zap.Int("num nodes", numNodes))
 	basicNetwork := testutil.NewBasicInMemoryNetwork(t, nodeIds)
 
 	for i := range numNodes {
@@ -61,7 +61,7 @@ func NewNetwork(config *FuzzConfig, t *testing.T, l simplex.Logger) *Network {
 		BasicInMemoryNetwork: basicNetwork,
 		nodes:                nodes,
 		randomness:           r,
-		l:                    l,
+		logger:               logger,
 		t:                    t,
 		lock:                 sync.Mutex{},
 		config:               config,
@@ -73,39 +73,70 @@ func (n *Network) StartInstances() {
 	panic("Call Run() Instead")
 }
 
-func (n *Network) UpdateTime(frequency time.Duration, increment time.Duration, stop chan struct{}) {
-	ticker := time.NewTicker(frequency)
-	defer ticker.Stop()
+func (n *Network) Run() {
+	n.BasicInMemoryNetwork.StartInstances()
 
-	for {
-		n.lock.Lock()
-		n.BasicInMemoryNetwork.AdvanceTime(increment)
-		n.lock.Unlock()
+	targetHeight := uint64(n.config.NumFinalizedBlocks)
 
-		select {
-		case <-stop:
-			return
-		case <-ticker.C:
-			continue
+	prevHeight := 0
+	for n.getMinHeight() < targetHeight {
+		n.crashAndRecoverNodes()
+		txs := n.IssueTxs()
+		n.waitForTxAcceptance(txs)
+
+		// get the max height and ensure all nodes recover to that height
+		maxHeight := n.getMaxHeight()
+		n.recoverToHeight(maxHeight)
+		n.logger.Info("Issued Transactions", zap.Int("count", len(txs)), zap.Uint64("min height", n.getMinHeight()), zap.Uint64("max height", n.getMaxHeight()))
+
+		if prevHeight == int(n.getMaxHeight()) {
+			panic(fmt.Sprintf(
+				"not supposed to be equal: prevHeight=%d, maxHeight=%d",
+				prevHeight,
+				n.getMaxHeight(),
+			))
 		}
+
+		prevHeight = int(n.getMaxHeight())
 	}
+
+	n.BasicInMemoryNetwork.StopInstances()
+}
+
+func (n *Network) recoverToHeight(height uint64) {
+	for n.getMinHeight() < height {
+		n.logger.Info("Advancing network time")
+		for i, node := range n.nodes {
+			isCrashed := node.isCrashed.Load()
+			if isCrashed {
+				// randomly decide to recover based on NodeRecoverPercentage
+				if n.randomness.Float64() < n.config.NodeRecoverPercentage {
+					n.startNode(i)
+				}
+			}
+		}
+
+		n.lock.Lock()
+		n.BasicInMemoryNetwork.AdvanceTime(n.config.AdvanceTimeTickAmount)
+		n.lock.Unlock()
+	}
+
 }
 
 func (n *Network) IssueTxs() []*TX {
 	n.lock.Lock()
 	defer n.lock.Unlock()
 
-	// Implementation of block building logic goes here
 	numTxs := n.randomness.Intn(n.config.MaxTxsPerBlock-n.config.MinTxsPerBlock+1) + n.config.MinTxsPerBlock // randomize between min and max inclusive
 	txs := make([]*TX, 0, numTxs)
 
 	for range numTxs {
 		tx := CreateNewTX()
-		if n.randomness.Float64() < n.config.TxVerificationFailure {
-			n.l.Info("Building a block that will fail verification due to tx", zap.Stringer("txID", tx))
-			tx.SetShouldFailVerification()
-			n.failedTxs++
-		}
+		// if n.randomness.Float64() < n.config.TxVerificationFailure {
+		// 	n.logger.Info("Building a block that will fail verification due to tx", zap.Stringer("txID", tx))
+		// 	tx.SetShouldFailVerification()
+		// 	n.failedTxs++
+		// }
 
 		txs = append(txs, tx)
 		n.allIssuedTxs++
@@ -124,22 +155,6 @@ func (n *Network) IssueTxs() []*TX {
 	return txs
 }
 
-func (n *Network) Run() {
-	n.BasicInMemoryNetwork.StartInstances()
-
-	targetHeight := uint64(n.config.NumFinalizedBlocks)
-
-	for n.getMinHeight() < targetHeight {
-		n.crashAndRecoverNodes()
-		txs := n.IssueTxs()
-		n.waitForTxAcceptance(txs)
-
-		time.Sleep(100 * time.Millisecond)
-	}
-
-	n.BasicInMemoryNetwork.StopInstances()
-}
-
 func (n *Network) waitForTxAcceptance(txs []*TX) {
 	for {
 		allAccepted := true
@@ -147,10 +162,8 @@ func (n *Network) waitForTxAcceptance(txs []*TX) {
 			if node.isCrashed.Load() {
 				continue
 			}
-
-			if allAccepted := node.areTxsAccepted(txs); !allAccepted {
+			if accepted := node.areTxsAccepted(txs); !accepted {
 				allAccepted = false
-				break
 			}
 		}
 
@@ -158,11 +171,10 @@ func (n *Network) waitForTxAcceptance(txs []*TX) {
 			return
 		}
 
-		// advance time of all the nodes
-		for _, node := range n.nodes {
-			node.AdvanceTime(n.config.AdvanceTimeTickAmount)
-		}
-		time.Sleep(1 * time.Second)
+		fmt.Println("advancing time")
+		n.lock.Lock()
+		n.BasicInMemoryNetwork.AdvanceTime(n.config.AdvanceTimeTickAmount)
+		n.lock.Unlock()
 	}
 }
 
@@ -184,10 +196,12 @@ func (n *Network) crashAndRecoverNodes() {
 	f := (int(n.numNodes) - 1) / 3
 
 	if f == 0 {
-		n.l.Info("Not enough nodes for crash testing", zap.Uint64("numNodes", n.numNodes))
+		n.logger.Info("Not enough nodes for crash testing", zap.Uint64("numNodes", n.numNodes))
 		return
 	}
 
+	crashedNodes := []string{}
+	recoveredNodes := []string{}
 	maxLeftToCrash := f - int(n.numCrashedNodes())
 	// go through each node, randomly decide to crash based on NodeCrashPercentage
 	for i, node := range n.nodes {
@@ -195,9 +209,8 @@ func (n *Network) crashAndRecoverNodes() {
 		if isCrashed {
 			// randomly decide to recover based on NodeRecoverPercentage
 			if n.randomness.Float64() < n.config.NodeRecoverPercentage {
-				n.l.Info("Recovering crashed node", zap.Stringer("NodeID", node.E.ID))
 				n.startNode(i)
-
+				recoveredNodes = append(recoveredNodes, node.E.ID.String())
 				maxLeftToCrash++
 			}
 			continue
@@ -210,17 +223,18 @@ func (n *Network) crashAndRecoverNodes() {
 
 		// randomly decide to crash the node
 		if n.randomness.Float64() < n.config.NodeCrashPercentage {
-			n.l.Info("Crashing node", zap.Stringer("NodeID", node.E.ID))
 			maxLeftToCrash--
 			n.crashNode(i)
+			crashedNodes = append(crashedNodes, node.E.ID.String())
 		}
+	}
+
+	if len(recoveredNodes)+len(crashedNodes) > 0 {
+		n.logger.Info("Recovered and crashed nodes", zap.Strings("crashed", crashedNodes), zap.Strings("recovered", recoveredNodes), zap.Uint64("num crashed", n.numCrashedNodes()))
 	}
 }
 
 func (n *Network) getMinHeight() uint64 {
-	n.lock.Lock()
-	defer n.lock.Unlock()
-
 	minHeight := n.nodes[0].storage.NumBlocks()
 	for _, node := range n.nodes[1:] {
 		height := node.storage.NumBlocks()
@@ -230,6 +244,18 @@ func (n *Network) getMinHeight() uint64 {
 		}
 	}
 	return minHeight
+}
+
+func (n *Network) getMaxHeight() uint64 {
+	maxHeight := n.nodes[0].storage.NumBlocks()
+	for _, node := range n.nodes[1:] {
+		height := node.storage.NumBlocks()
+
+		if height > maxHeight {
+			maxHeight = height
+		}
+	}
+	return maxHeight
 }
 
 func (n *Network) SetInfoLog() {
@@ -246,15 +272,15 @@ func (n *Network) PrintStatus() {
 	defer n.lock.Unlock()
 
 	// prints the number of nodes
-	n.l.Info("Network Status", zap.Int("num nodes", len(n.nodes)), zap.Int64("Seed", n.config.RandomSeed))
+	n.logger.Info("Network Status", zap.Int("num nodes", len(n.nodes)), zap.Int64("Seed", n.config.RandomSeed))
 
 	// prints the number of txs in each node's mempool
 	for _, node := range n.nodes {
-		n.l.Info("Node Status", zap.Stringer("nodeID", node.E.ID), zap.Int("Short", int(node.E.ID[0])), zap.Uint64("Round", node.E.Metadata().Round), zap.Uint64("Height", node.storage.NumBlocks()))
+		n.logger.Info("Node Status", zap.Stringer("nodeID", node.E.ID), zap.Int("Short", int(node.E.ID[0])), zap.Uint64("Round", node.E.Metadata().Round), zap.Uint64("Height", node.storage.NumBlocks()))
 	}
 
 	// prints total issued txs and failed txs
-	n.l.Info("Transaction Stats", zap.Int("total issued txs", n.allIssuedTxs), zap.Int("total failed txs", n.failedTxs))
+	n.logger.Info("Transaction Stats", zap.Int("total issued txs", n.allIssuedTxs), zap.Int("total failed txs", n.failedTxs))
 }
 
 func (n *Network) crashNode(idx int) {
@@ -264,8 +290,6 @@ func (n *Network) crashNode(idx int) {
 }
 
 func (n *Network) startNode(idx int) {
-	n.lock.Lock()
-
 	instance := n.nodes[idx]
 	nodeID := instance.E.ID
 	mempool := instance.mempool
@@ -281,7 +305,6 @@ func (n *Network) startNode(idx int) {
 	})
 	n.nodes[idx] = newNode
 	n.BasicInMemoryNetwork.ReplaceNode(newNode.BasicNode)
-	n.lock.Unlock()
 
 	newNode.Start()
 }

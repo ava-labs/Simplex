@@ -14,13 +14,8 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-// CreateNetworkLogger creates a logger for the network that writes to both console and main.log (if LogDirectory is set)
+// CreateNetworkLogger creates a logger for the network that writes to both console and main.log
 func CreateNetworkLogger(t *testing.T, config *FuzzConfig) *testutil.TestLogger {
-	// If no log directory is configured, use standard console-only logger
-	if config.LogDirectory == "" {
-		return testutil.MakeLogger(t)
-	}
-
 	// Clear the log directory before creating new logs
 	if err := clearLogDirectory(config.LogDirectory); err != nil {
 		t.Fatalf("Failed to clear log directory: %v", err)
@@ -32,17 +27,11 @@ func CreateNetworkLogger(t *testing.T, config *FuzzConfig) *testutil.TestLogger 
 		t.Fatalf("Failed to setup file output for main.log: %v", err)
 	}
 
-	return testutil.MakeLoggerWithFile(t, fileWriter)
+	return testutil.MakeLoggerWithFile(t, fileWriter, true)
 }
 
-// CreateNodeLogger creates a logger for a node that writes to both console and {nodeID}.log (if LogDirectory is set)
+// CreateNodeLogger creates a logger for a node that writes to both console and {nodeID}.log
 func CreateNodeLogger(t *testing.T, config *FuzzConfig, nodeID simplex.NodeID) *testutil.TestLogger {
-	// If no log directory is configured, use standard console-only logger
-	if config.LogDirectory == "" {
-		return testutil.MakeLogger(t, int(nodeID[0]))
-	}
-
-	// Use NodeID.String() for filename (shorter 16-char hex representation)
 	filename := fmt.Sprintf("%s.log", nodeID.String())
 
 	// Create file writer for node-specific log
@@ -51,7 +40,7 @@ func CreateNodeLogger(t *testing.T, config *FuzzConfig, nodeID simplex.NodeID) *
 		t.Fatalf("Failed to setup file output for %s: %v", filename, err)
 	}
 
-	return testutil.MakeLoggerWithFile(t, fileWriter, int(nodeID[0]))
+	return testutil.MakeLoggerWithFile(t, fileWriter, false, int(nodeID[0]))
 }
 
 // setupFileOutput creates a file for logging and returns a WriteSyncer
