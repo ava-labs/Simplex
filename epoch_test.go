@@ -1727,6 +1727,10 @@ func TestQuorum(t *testing.T) {
 			n: 12, f: 3,
 			q: 8,
 		},
+		{
+			n: 7, f: 2,
+			q: 5,
+		},
 	} {
 		t.Run(fmt.Sprintf("%d", testCase.n), func(t *testing.T) {
 			require.Equal(t, testCase.q, Quorum(testCase.n))
