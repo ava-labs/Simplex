@@ -40,58 +40,58 @@ func (k keywordFilterCore) Check(ent zapcore.Entry, ce *zapcore.CheckedEntry) *z
 	return ce
 }
 
-func (t *TestLogger) Intercept(hook func(entry zapcore.Entry) error) {
-	logger := t.Logger.WithOptions(zap.Hooks(hook))
-	t.Logger = logger
+func (tl *TestLogger) Intercept(hook func(entry zapcore.Entry) error) {
+	logger := tl.Logger.WithOptions(zap.Hooks(hook))
+	tl.Logger = logger
 }
 
-func (t *TestLogger) Silence() {
+func (tl *TestLogger) Silence() {
 	atomicLevel := zap.NewAtomicLevelAt(zapcore.FatalLevel)
-	core := t.Logger.Core()
-	t.Logger = zap.New(core, zap.AddCaller(), zap.IncreaseLevel(atomicLevel))
-	t.traceVerboseLogger = zap.New(core, zap.AddCaller(), zap.IncreaseLevel(atomicLevel))
+	core := tl.Logger.Core()
+	tl.Logger = zap.New(core, zap.AddCaller(), zap.IncreaseLevel(atomicLevel))
+	tl.traceVerboseLogger = zap.New(core, zap.AddCaller(), zap.IncreaseLevel(atomicLevel))
 }
 
 // SilenceExceptKeywords silences all logs EXCEPT those whose message contains
 // at least one of the provided keywords.
-func (t *TestLogger) SilenceExceptKeywords(keywords ...string) {
-	core := t.Logger.Core()
+func (tl *TestLogger) SilenceExceptKeywords(keywords ...string) {
+	core := tl.Logger.Core()
 	filteredCore := keywordFilterCore{
 		Core:     core,
 		keywords: keywords,
 	}
-	t.Logger = zap.New(filteredCore, zap.AddCaller())
-	t.traceVerboseLogger = zap.New(filteredCore, zap.AddCaller())
+	tl.Logger = zap.New(filteredCore, zap.AddCaller())
+	tl.traceVerboseLogger = zap.New(filteredCore, zap.AddCaller())
 }
 
-func (t *TestLogger) SetPanicOnError(panicOnError bool) {
-	t.panicOnError = panicOnError
+func (tl *TestLogger) SetPanicOnError(panicOnError bool) {
+	tl.panicOnError = panicOnError
 }
 
-func (t *TestLogger) SetPanicOnWarn(panicOnWarn bool) {
-	t.panicOnWarn = panicOnWarn
+func (tl *TestLogger) SetPanicOnWarn(panicOnWarn bool) {
+	tl.panicOnWarn = panicOnWarn
 }
 
-func (t *TestLogger) Trace(msg string, fields ...zap.Field) {
-	t.traceVerboseLogger.Log(zapcore.DebugLevel, msg, fields...)
+func (tl *TestLogger) Trace(msg string, fields ...zap.Field) {
+	tl.traceVerboseLogger.Log(zapcore.DebugLevel, msg, fields...)
 }
 
-func (t *TestLogger) Verbo(msg string, fields ...zap.Field) {
-	t.traceVerboseLogger.Log(zapcore.DebugLevel, msg, fields...)
+func (tl *TestLogger) Verbo(msg string, fields ...zap.Field) {
+	tl.traceVerboseLogger.Log(zapcore.DebugLevel, msg, fields...)
 }
 
-func (t *TestLogger) Warn(msg string, fields ...zap.Field) {
-	t.Logger.Warn(msg, fields...)
-	if t.panicOnWarn {
-		panicMsg := fmt.Sprintf("WARN during test %s: %s", t.t.Name(), msg)
+func (tl *TestLogger) Warn(msg string, fields ...zap.Field) {
+	tl.Logger.Warn(msg, fields...)
+	if tl.panicOnWarn {
+		panicMsg := fmt.Sprintf("WARN during test %s: %s", tl.t.Name(), msg)
 		panic(panicMsg)
 	}
 }
 
-func (t *TestLogger) Error(msg string, fields ...zap.Field) {
-	t.Logger.Error(msg, fields...)
-	if t.panicOnError {
-		panicMsg := fmt.Sprintf("ERROR during test %s: %s", t.t.Name(), msg)
+func (tl *TestLogger) Error(msg string, fields ...zap.Field) {
+	tl.Logger.Error(msg, fields...)
+	if tl.panicOnError {
+		panicMsg := fmt.Sprintf("ERROR during test %s: %s", tl.t.Name(), msg)
 		panic(panicMsg)
 	}
 }
@@ -186,6 +186,6 @@ func (dse *DebugSwallowingEncoder) EncodeEntry(entry zapcore.Entry, fields []zap
 	return dse.consoleEncoder.EncodeEntry(entry, fields)
 }
 
-func (t *TestLogger) SetLevel(level zapcore.Level) {
-	t.atomicLevel.SetLevel(level)
+func (tl *TestLogger) SetLevel(level zapcore.Level) {
+	tl.atomicLevel.SetLevel(level)
 }
