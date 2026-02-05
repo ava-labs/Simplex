@@ -84,6 +84,7 @@ type Epoch struct {
 	EpochConfig
 	// Runtime
 	oneTimeVerifier                *oneTimeVerifier
+	buildBlockScheduler            *BasicScheduler
 	blockVerificationScheduler     *BlockDependencyManager
 	lock                           sync.Mutex
 	lastBlock                      *VerifiedFinalizedBlock // latest block & finalization committed
@@ -191,6 +192,7 @@ func (e *Epoch) init() error {
 	e.oneTimeVerifier = newOneTimeVerifier(e.Logger)
 	scheduler := NewScheduler(e.Logger, DefaultProcessingBlocks)
 	e.blockVerificationScheduler = NewBlockVerificationScheduler(e.Logger, DefaultProcessingBlocks, scheduler)
+	e.buildBlockScheduler = NewScheduler(e.Logger, 1)
 	e.monitor = NewMonitor(e.StartTime, e.Logger)
 	e.cancelWaitForBlockNotarization = func() {}
 	e.finishCtx, e.finishFn = context.WithCancel(context.Background())
@@ -687,6 +689,7 @@ func (e *Epoch) Stop() {
 	e.finishFn()
 	e.monitor.Close()
 	e.blockVerificationScheduler.Close()
+	e.buildBlockScheduler.Close()
 	e.timeoutHandler.Close()
 	e.replicationState.Close()
 }
@@ -2304,7 +2307,7 @@ func (e *Epoch) buildBlock() {
 	}
 
 	e.Logger.Debug("Scheduling block building", zap.Uint64("round", metadata.Round))
-	e.blockVerificationScheduler.ScheduleTaskWithDependencies(task, metadata.Seq, nil, []uint64{})
+	e.buildBlockScheduler.Schedule(task)
 }
 
 func (e *Epoch) retrieveBlacklistOfParentBlock(metadata ProtocolMetadata) (Blacklist, bool) {
