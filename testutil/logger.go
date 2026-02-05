@@ -16,6 +16,7 @@ import (
 
 type TestLogger struct {
 	*zap.Logger
+	t                  *testing.T
 	traceVerboseLogger *zap.Logger
 	panicOnError       bool
 	panicOnWarn        bool
@@ -71,26 +72,26 @@ func (t *TestLogger) SetPanicOnWarn(panicOnWarn bool) {
 	t.panicOnWarn = panicOnWarn
 }
 
-func (tl *TestLogger) Trace(msg string, fields ...zap.Field) {
-	tl.traceVerboseLogger.Log(zapcore.DebugLevel, msg, fields...)
+func (t *TestLogger) Trace(msg string, fields ...zap.Field) {
+	t.traceVerboseLogger.Log(zapcore.DebugLevel, msg, fields...)
 }
 
-func (tl *TestLogger) Verbo(msg string, fields ...zap.Field) {
-	tl.traceVerboseLogger.Log(zapcore.DebugLevel, msg, fields...)
+func (t *TestLogger) Verbo(msg string, fields ...zap.Field) {
+	t.traceVerboseLogger.Log(zapcore.DebugLevel, msg, fields...)
 }
 
-func (tl *TestLogger) Warn(msg string, fields ...zap.Field) {
-	tl.Logger.Warn(msg, fields...)
-	if tl.panicOnWarn {
-		panicMsg := fmt.Sprintf("WARN: %s", msg)
+func (t *TestLogger) Warn(msg string, fields ...zap.Field) {
+	t.Logger.Warn(msg, fields...)
+	if t.panicOnWarn {
+		panicMsg := fmt.Sprintf("WARN during test %s: %s", t.t.Name(), msg)
 		panic(panicMsg)
 	}
 }
 
-func (tl *TestLogger) Error(msg string, fields ...zap.Field) {
-	tl.Logger.Error(msg, fields...)
-	if tl.panicOnError {
-		panicMsg := fmt.Sprintf("ERROR: %s", msg)
+func (t *TestLogger) Error(msg string, fields ...zap.Field) {
+	t.Logger.Error(msg, fields...)
+	if t.panicOnError {
+		panicMsg := fmt.Sprintf("ERROR during test %s: %s", t.t.Name(), msg)
 		panic(panicMsg)
 	}
 }
@@ -157,7 +158,7 @@ func MakeLoggerWithFile(t *testing.T, fileWriter zapcore.WriteSyncer, node ...in
 		traceVerboseLogger = traceVerboseLogger.With(zap.Int("myNodeID", node[0]))
 	}
 
-	l := &TestLogger{Logger: logger, traceVerboseLogger: traceVerboseLogger,
+	l := &TestLogger{t: t, Logger: logger, traceVerboseLogger: traceVerboseLogger,
 		atomicLevel: atomicLevel,
 	}
 
