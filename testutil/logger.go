@@ -46,10 +46,7 @@ func (tl *TestLogger) Intercept(hook func(entry zapcore.Entry) error) {
 }
 
 func (tl *TestLogger) Silence() {
-	atomicLevel := zap.NewAtomicLevelAt(zapcore.FatalLevel)
-	core := tl.Logger.Core()
-	tl.Logger = zap.New(core, zap.AddCaller(), zap.IncreaseLevel(atomicLevel))
-	tl.traceVerboseLogger = zap.New(core, zap.AddCaller(), zap.IncreaseLevel(atomicLevel))
+	tl.atomicLevel.SetLevel(zapcore.FatalLevel)
 }
 
 // SilenceExceptKeywords silences all logs EXCEPT those whose message contains
