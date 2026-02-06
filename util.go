@@ -5,7 +5,10 @@ package simplex
 
 import (
 	"context"
+	cryptoRand "crypto/rand"
+	"encoding/binary"
 	"fmt"
+	"math/rand/v2"
 	"slices"
 	"strings"
 	"sync"
@@ -175,7 +178,7 @@ func (block *oneTimeVerifiedBlock) Verify(ctx context.Context) (VerifiedBlock, e
 	}()
 
 	if result, exists := block.otv.digests[digest]; exists {
-		block.otv.logger.Debug("Attempted to verify an already verified block", zap.Uint64("round", header.Round))
+		block.otv.logger.Debug("Attempted to verify an already verified block", zap.Uint64("round", header.Round), zap.Error(result.err))
 		return result.vb, result.err
 	}
 
@@ -353,4 +356,40 @@ func emptyVotesToSignatures(votes []*EmptyVote) []Signature {
 		sigs = append(sigs, vote.Signature)
 	}
 	return sigs
+}
+
+type walRound struct {
+	round             uint64
+	emptyNotarization *EmptyNotarization
+	emptyVote         *ToBeSignedEmptyVote
+	notarization      *Notarization
+	finalization      *Finalization
+	block             Block
+}
+
+func (t *walRound) String() string {
+	hasEmptyNotarization := t.emptyNotarization != nil
+	hasEmptyVote := t.emptyVote != nil
+	hasNotarization := t.notarization != nil
+	hasFinalization := t.finalization != nil
+	hasBlock := t.block != nil
+	return fmt.Sprintf("walRound{round: %d, hasEmptyNotarization: %t, hasEmptyVote: %t, hasNotarization: %t, hasFinalization: %t, hasBlock: %t}", t.round, hasEmptyNotarization, hasEmptyVote, hasNotarization, hasFinalization, hasBlock)
+}
+
+func newRandomSource() (*rand.Rand, error) {
+	var seedBytes [32]byte
+
+	if _, err := cryptoRand.Read(seedBytes[:]); err != nil {
+		return nil, fmt.Errorf("failed to read random bytes: %w", err)
+	}
+
+	chacha := rand.NewChaCha8(seedBytes)
+	return rand.New(chacha), nil
+}
+
+func NewRandomSourceFromSeed(seed int64) *rand.Rand {
+	var seedBytes [32]byte
+	binary.LittleEndian.PutUint64(seedBytes[:8], uint64(seed))
+	chacha := rand.NewChaCha8(seedBytes)
+	return rand.New(chacha)
 }

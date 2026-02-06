@@ -4,8 +4,7 @@
 package simplex
 
 import (
-	"crypto/rand"
-	"math/big"
+	"math/rand/v2"
 	"sync"
 	"time"
 
@@ -33,6 +32,7 @@ type ReplicationState struct {
 	enabled  bool
 	logger   Logger
 	myNodeID NodeID
+	rand     *rand.Rand // Random number generator
 
 	// seqs maps sequences to a block and its associated finalization
 	seqs map[uint64]*finalizedQuorumRound
@@ -41,7 +41,7 @@ type ReplicationState struct {
 	rounds map[uint64]*QuorumRound
 
 	// digestTimeouts handles timeouts for fetching missing block digests.
-	// When a notarization depends on a block we haven’t received yet,
+	// When a notarization depends on a block we haven't received yet,
 	// it means a prior notarization for that block exists but is missing.
 	// Since we may not know which round that dependency belongs to,
 	// digestTimeouts ensures we re-request the missing digest until it arrives.
@@ -59,11 +59,12 @@ type ReplicationState struct {
 	epochLock *sync.Mutex
 }
 
-func NewReplicationState(logger Logger, comm Communication, myNodeID NodeID, maxRoundWindow uint64, enabled bool, start time.Time, lock *sync.Mutex) *ReplicationState {
+func NewReplicationState(logger Logger, comm Communication, myNodeID NodeID, maxRoundWindow uint64, enabled bool, start time.Time, lock *sync.Mutex, rng *rand.Rand) *ReplicationState {
 	if !enabled {
 		return &ReplicationState{
 			enabled: enabled,
 			logger:  logger,
+			rand:    rng,
 		}
 	}
 
@@ -71,6 +72,7 @@ func NewReplicationState(logger Logger, comm Communication, myNodeID NodeID, max
 		enabled:  enabled,
 		myNodeID: myNodeID,
 		logger:   logger,
+		rand:     rng,
 
 		// seq replication
 		seqs:                  make(map[uint64]*finalizedQuorumRound),
@@ -85,7 +87,7 @@ func NewReplicationState(logger Logger, comm Communication, myNodeID NodeID, max
 	}
 
 	r.digestTimeouts = NewTimeoutHandler(logger, "digest", start, DefaultReplicationRequestTimeout, r.requestDigests)
-	r.emptyRoundTimeouts = NewTimeoutHandler(logger, "empty", start, DefaultReplicationRequestTimeout, r.requestEmptyRounds)
+	r.emptyRoundTimeouts = NewTimeoutHandler(logger, "empty round replication", start, DefaultReplicationRequestTimeout, r.requestEmptyRounds)
 
 	return r
 }
@@ -117,9 +119,9 @@ func (r *ReplicationState) deleteOldRounds(finalizedRound uint64) {
 }
 
 // storeSequence stores a block and finalization into the replication state
-func (r *ReplicationState) storeSequence(block Block, finalization *Finalization) {
+func (r *ReplicationState) storeSequence(block Block, finalization *Finalization) bool {
 	if _, exists := r.seqs[finalization.Finalization.Seq]; exists {
-		return
+		return false
 	}
 
 	r.seqs[finalization.Finalization.Seq] = &finalizedQuorumRound{
@@ -129,6 +131,7 @@ func (r *ReplicationState) storeSequence(block Block, finalization *Finalization
 
 	r.finalizationRequestor.removeTask(finalization.Finalization.Seq)
 	r.digestTimeouts.RemoveTask(seqAndDigestFromBlock(block))
+	return true
 }
 
 // storeRound adds or updates a quorum round in the replication state.
@@ -161,12 +164,14 @@ func (r *ReplicationState) StoreQuorumRound(round *QuorumRound) {
 		return
 	}
 
-	r.logger.Debug("Replication State Storing Quorum Round", zap.Stringer("QR", round))
-
 	if round.Finalization != nil {
-		r.storeSequence(round.Block, round.Finalization)
+		stored := r.storeSequence(round.Block, round.Finalization)
+		if !stored {
+			return
+		}
 		r.finalizationRequestor.receivedSignedQuorum(newSignedQuorum(round, r.myNodeID))
 		r.deleteOldRounds(round.Finalization.Finalization.Round)
+		r.logger.Debug("Replication State Storing Quorum Round", zap.Stringer("QR", round))
 		return
 	}
 
@@ -177,6 +182,7 @@ func (r *ReplicationState) StoreQuorumRound(round *QuorumRound) {
 		return
 	}
 
+	r.logger.Debug("Replication State Storing Quorum Round", zap.Stringer("QR", round))
 	r.storeRound(round)
 	r.roundRequestor.receivedSignedQuorum(newSignedQuorum(round, r.myNodeID))
 	if round.EmptyNotarization != nil {
@@ -223,15 +229,12 @@ func (r *ReplicationState) ResendFinalizationRequest(seq uint64, signers []NodeI
 
 	signers = NodeIDs(signers).Remove(r.myNodeID)
 	numSigners := int64(len(signers))
-	index, err := rand.Int(rand.Reader, big.NewInt(numSigners))
-	if err != nil {
-		return err
-	}
+	index := r.rand.Int64N(numSigners)
 
 	// because we are resending because the block failed to verify, we should remove the stored quorum round
 	// so that we can try to get a new block & finalization
-	delete(r.seqs, seq)
-	r.finalizationRequestor.sendRequestToNode(seq, seq, signers[index.Int64()])
+	r.DeleteSeq(seq)
+	r.finalizationRequestor.sendRequestToNode(seq, seq, signers[index])
 	return nil
 }
 
@@ -352,12 +355,7 @@ func (r *ReplicationState) requestDigests(missingBlocks []seqAndDigest) {
 		return
 	}
 
-	randInt, err := rand.Int(rand.Reader, big.NewInt(int64(len(signedQuorum.signers))))
-	if err != nil {
-		r.logger.Warn("Replication State failed to generate random starting index", zap.Error(err))
-		return
-	}
-	startingIndex := int(randInt.Int64())
+	startingIndex := int(r.rand.Int64N(int64(len(signedQuorum.signers))))
 
 	for i, mb := range missingBlocks {
 		// grab the node to send it to

@@ -17,7 +17,7 @@ import (
 
 func TestSimplexRebroadcastFinalizationVotes(t *testing.T) {
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
-	net := testutil.NewInMemNetwork(t, nodes)
+	net := testutil.NewControlledNetwork(t, nodes)
 
 	var allowFinalizeVotes atomic.Bool
 
@@ -25,7 +25,7 @@ func TestSimplexRebroadcastFinalizationVotes(t *testing.T) {
 
 	config := func(from simplex.NodeID) *testutil.TestNodeConfig {
 		return &testutil.TestNodeConfig{
-			Comm: testutil.NewTestComm(from, net, func(msg *simplex.Message, from simplex.NodeID, to simplex.NodeID) bool {
+			Comm: testutil.NewTestComm(from, net.BasicInMemoryNetwork, func(msg *simplex.Message, from simplex.NodeID, to simplex.NodeID) bool {
 				if msg.Finalization != nil && !allowFinalizeVotes.Load() {
 					return false
 				}
@@ -37,10 +37,10 @@ func TestSimplexRebroadcastFinalizationVotes(t *testing.T) {
 		}
 	}
 
-	testutil.NewSimplexNode(t, nodes[0], net, config(nodes[0]))
-	testutil.NewSimplexNode(t, nodes[1], net, config(nodes[1]))
-	testutil.NewSimplexNode(t, nodes[2], net, config(nodes[2]))
-	testutil.NewSimplexNode(t, nodes[3], net, config(nodes[3]))
+	testutil.NewControlledSimplexNode(t, nodes[0], net, config(nodes[0]))
+	testutil.NewControlledSimplexNode(t, nodes[1], net, config(nodes[1]))
+	testutil.NewControlledSimplexNode(t, nodes[2], net, config(nodes[2]))
+	testutil.NewControlledSimplexNode(t, nodes[3], net, config(nodes[3]))
 
 	net.StartInstances()
 	defer net.StopInstances()
@@ -61,7 +61,7 @@ func TestSimplexRebroadcastFinalizationVotes(t *testing.T) {
 	wg.Add(len(net.Instances))
 
 	for _, n := range net.Instances {
-		go func(n *testutil.TestNode) {
+		go func(n *testutil.ControlledNode) {
 			defer wg.Done()
 			n.Storage.EnsureNoBlockCommit(t, 0)
 		}(n)
@@ -122,11 +122,11 @@ func TestSimplexRebroadcastFinalizationVotes(t *testing.T) {
 
 func TestSimplexMultiNodeSimple(t *testing.T) {
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
-	net := testutil.NewInMemNetwork(t, nodes)
-	testutil.NewSimplexNode(t, nodes[0], net, nil)
-	testutil.NewSimplexNode(t, nodes[1], net, nil)
-	testutil.NewSimplexNode(t, nodes[2], net, nil)
-	testutil.NewSimplexNode(t, nodes[3], net, nil)
+	net := testutil.NewControlledNetwork(t, nodes)
+	testutil.NewControlledSimplexNode(t, nodes[0], net, nil)
+	testutil.NewControlledSimplexNode(t, nodes[1], net, nil)
+	testutil.NewControlledSimplexNode(t, nodes[2], net, nil)
+	testutil.NewControlledSimplexNode(t, nodes[3], net, nil)
 
 	net.StartInstances()
 	defer net.StopInstances()
@@ -148,14 +148,14 @@ func dontVoteFilter(msg *simplex.Message, _, _ simplex.NodeID) bool {
 
 func TestSimplexMultiNodeBlacklist(t *testing.T) {
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
-	net := testutil.NewInMemNetwork(t, nodes)
+	net := testutil.NewControlledNetwork(t, nodes)
 	testEpochConfig := &testutil.TestNodeConfig{
 		ReplicationEnabled: true,
 	}
-	testutil.NewSimplexNode(t, nodes[0], net, testEpochConfig)
-	testutil.NewSimplexNode(t, nodes[1], net, testEpochConfig)
-	testutil.NewSimplexNode(t, nodes[2], net, testEpochConfig)
-	testutil.NewSimplexNode(t, nodes[3], net, testEpochConfig)
+	testutil.NewControlledSimplexNode(t, nodes[0], net, testEpochConfig)
+	testutil.NewControlledSimplexNode(t, nodes[1], net, testEpochConfig)
+	testutil.NewControlledSimplexNode(t, nodes[2], net, testEpochConfig)
+	testutil.NewControlledSimplexNode(t, nodes[3], net, testEpochConfig)
 
 	net.StartInstances()
 	defer net.StopInstances()
@@ -172,7 +172,7 @@ func TestSimplexMultiNodeBlacklist(t *testing.T) {
 	net.Disconnect(nodes[3])
 
 	for i := range net.Instances[:3] {
-		net.Instances[i].BB.TriggerBlockShouldBeBuilt()
+		net.Instances[i].BlockShouldBeBuilt()
 	}
 
 	for _, n := range net.Instances[:3] {
@@ -199,7 +199,7 @@ func TestSimplexMultiNodeBlacklist(t *testing.T) {
 	net.Connect(nodes[3])
 
 	// Build another block, ensure the blacklist contains the fourth node as blacklisted.
-	net.Instances[1].BB.TriggerNewBlock()
+	net.Instances[1].TriggerNewBlock()
 	for _, n := range net.Instances[:3] {
 		block := n.Storage.WaitForBlockCommit(uint64(4))
 		blacklist := block.Blacklist()
@@ -211,7 +211,7 @@ func TestSimplexMultiNodeBlacklist(t *testing.T) {
 	}
 
 	// Wait for the node to replicate the missing blocks.
-	net.Instances[3].BB.TriggerNewBlock()
+	net.Instances[3].TriggerNewBlock()
 	block := net.Instances[3].Storage.WaitForBlockCommit(4)
 	require.Equal(t, simplex.Blacklist{
 		NodeCount:      4,
@@ -220,13 +220,13 @@ func TestSimplexMultiNodeBlacklist(t *testing.T) {
 	}, block.Blacklist())
 
 	// Make another block.
-	net.Instances[2].BB.TriggerNewBlock()
+	net.Instances[2].TriggerNewBlock()
 	for _, n := range net.Instances {
 		n.Storage.WaitForBlockCommit(uint64(5))
 	}
 
 	// The fourth node is still blacklisted, so it should not be able to propose a block.
-	net.Instances[3].BB.TriggerNewBlock() // This shouldn't be here, this is just to side-step a bug.
+	net.Instances[3].TriggerNewBlock() // This shouldn't be here, this is just to side-step a bug.
 	for _, n := range net.Instances {
 		testutil.WaitForBlockProposerTimeout(t, n.E, &n.E.StartTime, 7)
 	}
@@ -236,18 +236,18 @@ func TestSimplexMultiNodeBlacklist(t *testing.T) {
 	net.SetNodeMessageFilter(nodes[3], testutil.AllowAllMessages)
 
 	// Make two blocks.
-	allButThirdNode := []*testutil.TestNode{net.Instances[0], net.Instances[1], net.Instances[3]}
+	allButThirdNode := []*testutil.ControlledNode{net.Instances[0], net.Instances[1], net.Instances[3]}
 	for i := 0; i < 2; i++ {
-		net.Instances[i].BB.TriggerNewBlock()
+		net.Instances[i].TriggerNewBlock()
 		for _, n := range allButThirdNode {
-			n.BB.TriggerBlockShouldBeBuilt()
+			n.BlockShouldBeBuilt()
 			n.Storage.WaitForBlockCommit(uint64(6 + i))
 		}
 	}
 
 	// Skip the third node because it is disconnected.
 	for i := range allButThirdNode {
-		net.Instances[i].BB.TriggerBlockShouldBeBuilt()
+		net.Instances[i].BlockShouldBeBuilt()
 	}
 
 	for _, n := range allButThirdNode {
@@ -263,9 +263,9 @@ func TestSimplexMultiNodeBlacklist(t *testing.T) {
 
 	// Create two blocks
 	for i := 0; i < 2; i++ {
-		net.Instances[i].BB.TriggerNewBlock()
+		net.Instances[i].TriggerNewBlock()
 		for _, n := range allButThirdNode {
-			n.BB.TriggerBlockShouldBeBuilt()
+			n.BlockShouldBeBuilt()
 			block := n.Storage.WaitForBlockCommit(uint64(8 + i))
 			lastBlacklist = block.Blacklist()
 		}
@@ -276,7 +276,7 @@ func TestSimplexMultiNodeBlacklist(t *testing.T) {
 
 	// The third node will now time out.
 	for i := range allButThirdNode {
-		net.Instances[i].BB.TriggerBlockShouldBeBuilt()
+		net.Instances[i].BlockShouldBeBuilt()
 	}
 
 	for _, n := range allButThirdNode {
@@ -284,9 +284,9 @@ func TestSimplexMultiNodeBlacklist(t *testing.T) {
 	}
 
 	// The fourth node should now be able to propose a block.
-	net.Instances[3].BB.TriggerNewBlock()
+	net.Instances[3].TriggerNewBlock()
 	for _, n := range allButThirdNode {
-		n.BB.TriggerBlockShouldBeBuilt()
+		n.BlockShouldBeBuilt()
 		block := n.Storage.WaitForBlockCommit(uint64(10))
 		lastBlacklist = block.Blacklist()
 	}
@@ -310,18 +310,18 @@ func onlySendBlockProposalsAndVotes(splitNodes []simplex.NodeID) testutil.Messag
 // progressed due to notarizations, are able to collect the notarizations and continue
 func TestSplitVotes(t *testing.T) {
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
-	net := testutil.NewInMemNetwork(t, nodes)
+	net := testutil.NewControlledNetwork(t, nodes)
 
 	config := func(from simplex.NodeID) *testutil.TestNodeConfig {
 		return &testutil.TestNodeConfig{
-			Comm: testutil.NewTestComm(from, net, onlySendBlockProposalsAndVotes(nodes[2:])),
+			Comm: testutil.NewTestComm(from, net.BasicInMemoryNetwork, onlySendBlockProposalsAndVotes(nodes[2:])),
 		}
 	}
 
-	testutil.NewSimplexNode(t, nodes[0], net, config(nodes[0]))
-	testutil.NewSimplexNode(t, nodes[1], net, config(nodes[1]))
-	splitNode2 := testutil.NewSimplexNode(t, nodes[2], net, config(nodes[2]))
-	splitNode3 := testutil.NewSimplexNode(t, nodes[3], net, config(nodes[3]))
+	testutil.NewControlledSimplexNode(t, nodes[0], net, config(nodes[0]))
+	testutil.NewControlledSimplexNode(t, nodes[1], net, config(nodes[1]))
+	splitNode2 := testutil.NewControlledSimplexNode(t, nodes[2], net, config(nodes[2]))
+	splitNode3 := testutil.NewControlledSimplexNode(t, nodes[3], net, config(nodes[3]))
 
 	net.StartInstances()
 	defer net.StopInstances()
@@ -329,7 +329,7 @@ func TestSplitVotes(t *testing.T) {
 	net.TriggerLeaderBlockBuilder(0)
 	for _, n := range net.Instances {
 		n.WAL.AssertBlockProposal(0)
-		n.BB.TriggerBlockShouldBeBuilt()
+		n.BlockShouldBeBuilt()
 
 		if n.E.ID.Equals(splitNode2.E.ID) || n.E.ID.Equals(splitNode3.E.ID) {
 			require.Equal(t, uint64(0), n.E.Metadata().Round)
