@@ -2572,12 +2572,13 @@ func (e *Epoch) monitorProgress(round uint64) {
 
 		// Check if we have advanced to a higher round in the meantime while this task was dispatched.
 		e.lock.Lock()
-		shouldAbort := round < e.round
+		epochRound := e.round
+		shouldAbort := round < epochRound
 		e.lock.Unlock()
 
 		if shouldAbort {
 			e.Logger.Debug("Aborting monitoring progress for round because we advanced to a higher round",
-				zap.Uint64("monitored round", round), zap.Uint64("new round", e.round))
+				zap.Uint64("monitored round", round), zap.Uint64("new round", epochRound))
 			return
 		}
 
