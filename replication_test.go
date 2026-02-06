@@ -584,7 +584,7 @@ func sendVotesToOneNode(filteredInNode simplex.NodeID) MessageFilter {
 
 func TestReplicationStuckInProposingBlock(t *testing.T) {
 	var aboutToBuildBlock sync.WaitGroup
-	aboutToBuildBlock.Add(1)
+	aboutToBuildBlock.Add(2)
 
 	tbb := testutil.NewTestBlockBuilder()
 	bb := NewTestControlledBlockBuilder(t)
@@ -1507,4 +1507,235 @@ func TestReplicationChain(t *testing.T) {
 		}
 		net.AdvanceTime(simplex.DefaultReplicationRequestTimeout)
 	}
+}
+
+// TestReplicationStartsRoundFromFinalization tests that a replicating node will start monitoring a round after it
+// replicates finalizations. It does so by ensuring the node produces an empty vote and completes an
+// empty notarization after replicating.
+func TestReplicationStartsRoundFromFinalization(t *testing.T) {
+	bb := testutil.NewTestBlockBuilder()
+	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
+
+	sentMessages := make(chan *simplex.Message, 100)
+	broadcastMessages := make(chan *simplex.Message, 100)
+	conf, wal, storage := DefaultTestNodeEpochConfig(t, nodes[0], &recordingComm{
+		Communication:     NoopComm(nodes),
+		SentMessages:      sentMessages,
+		BroadcastMessages: broadcastMessages,
+	}, bb)
+	conf.ReplicationEnabled = true
+	e, err := simplex.NewEpoch(conf)
+	require.NoError(t, err)
+	require.NoError(t, e.Start())
+
+	// Create blocks that the node needs to replicate
+	blocks := createBlocks(t, nodes, 3)
+
+	// Send a finalization for a block we don't have to trigger replication
+	lastFinalization := blocks[len(blocks)-1].Finalization
+
+	e.HandleMessage(&simplex.Message{
+		Finalization: &lastFinalization,
+	}, nodes[1])
+
+	// Wait for the replication request to be sent
+	for {
+		msg := <-sentMessages
+		if msg.ReplicationRequest != nil {
+			break
+		}
+	}
+
+	// Prepare replication response with all the blocks
+	quorumRounds := make([]simplex.QuorumRound, 0, len(blocks))
+	for _, vfb := range blocks {
+		tb := vfb.VerifiedBlock.(*TestBlock)
+		quorumRounds = append(quorumRounds, simplex.QuorumRound{
+			Block:        tb,
+			Finalization: &vfb.Finalization,
+		})
+	}
+
+	// Send replication response
+	replicationResponse := &simplex.ReplicationResponse{
+		LatestRound: &quorumRounds[len(quorumRounds)-1],
+		Data:        quorumRounds,
+	}
+
+	e.HandleMessage(&simplex.Message{
+		ReplicationResponse: replicationResponse,
+	}, nodes[1])
+
+	// Wait for all blocks to be committed
+	for i := range blocks {
+		storage.WaitForBlockCommit(uint64(i))
+	}
+
+	// Verify all blocks were replicated
+	require.Equal(t, uint64(len(blocks)), storage.NumBlocks())
+	require.Equal(t, uint64(len(blocks)), e.Metadata().Round)
+
+	emptyBlockMd := simplex.EmptyVoteMetadata{
+		Round: uint64(len(blocks)),
+	}
+
+	// the other two nodes send empty votes
+	e.HandleMessage(&simplex.Message{
+		EmptyVoteMessage: createEmptyVote(emptyBlockMd, nodes[1]),
+	}, nodes[1])
+
+	e.HandleMessage(&simplex.Message{
+		EmptyVoteMessage: createEmptyVote(emptyBlockMd, nodes[2]),
+	}, nodes[2])
+
+	// Verify the node sent an empty vote after timeout
+	var foundEmptyVote bool
+	timeout := time.After(5 * time.Second)
+	iteration := 1
+messages:
+	for {
+		select {
+		case msg := <-broadcastMessages:
+			if msg.EmptyVoteMessage != nil {
+				foundEmptyVote = true
+				break messages
+			}
+		case <-timeout:
+			break messages
+		case <-time.After(10 * time.Millisecond):
+			newTime := e.StartTime.Add(
+				time.Duration(iteration) * simplex.DefaultEmptyVoteRebroadcastTimeout,
+			)
+			iteration++
+			if len(bb.BlockShouldBeBuilt) == 0 {
+				bb.BlockShouldBeBuilt <- struct{}{}
+			}
+			e.AdvanceTime(newTime)
+		}
+	}
+
+	require.True(t, foundEmptyVote, "Node should send an empty vote after timeout following replication")
+	notarization := wal.AssertNotarization(uint64(len(blocks)))
+	require.Equal(t, record.EmptyNotarizationRecordType, notarization)
+}
+
+// TestReplicationStartsRoundFromFinalizationWithBlock is a similar test to TestReplicationStartsRoundFromFinalization
+// except it checks the replication path when a block already exists in our rounds map for the finalized block.
+func TestReplicationStartsRoundFromFinalizationWithBlock(t *testing.T) {
+	bb := testutil.NewTestBlockBuilder()
+	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
+
+	sentMessages := make(chan *simplex.Message, 100)
+	broadcastMessages := make(chan *simplex.Message, 100)
+	conf, wal, storage := DefaultTestNodeEpochConfig(t, nodes[0], &recordingComm{
+		Communication:     NoopComm(nodes),
+		SentMessages:      sentMessages,
+		BroadcastMessages: broadcastMessages,
+	}, bb)
+	conf.ReplicationEnabled = true
+	e, err := simplex.NewEpoch(conf)
+	require.NoError(t, err)
+	require.NoError(t, e.Start())
+
+	// Create blocks that the node needs to replicate
+	blocks := createBlocks(t, nodes, 3)
+
+	// Send a finalization for a block we don't have to trigger replication
+	lastBlock := blocks[len(blocks)-1].VerifiedBlock
+
+	// send the block for the round before
+	vote, err := NewTestVote(lastBlock, simplex.LeaderForRound(nodes, lastBlock.BlockHeader().Round))
+	require.NoError(t, err)
+	err = e.HandleMessage(&simplex.Message{
+		BlockMessage: &simplex.BlockMessage{
+			Vote:  *vote,
+			Block: lastBlock.(simplex.Block),
+		},
+	}, simplex.LeaderForRound(nodes, lastBlock.BlockHeader().Round))
+	require.NoError(t, err)
+
+	// Prepare replication response with all the blocks
+	quorumRounds := make([]simplex.QuorumRound, 0, len(blocks))
+	for _, vfb := range blocks {
+		tb := vfb.VerifiedBlock.(*TestBlock)
+		quorumRounds = append(quorumRounds, simplex.QuorumRound{
+			Block:        tb,
+			Finalization: &vfb.Finalization,
+		})
+	}
+
+	// Send replication response without last qr
+	replicationResponse := &simplex.ReplicationResponse{
+		Data: quorumRounds[0 : len(quorumRounds)-1],
+	}
+
+	e.HandleMessage(&simplex.Message{
+		ReplicationResponse: replicationResponse,
+	}, nodes[1])
+
+	// Wait for all blocks to be committed
+	for i := range blocks[:len(blocks)-1] {
+		storage.WaitForBlockCommit(uint64(i))
+	}
+
+	// wait for future message to be processed
+	wal.AssertBlockProposal(lastBlock.BlockHeader().Round)
+
+	// Send replication response
+	replicationResponse = &simplex.ReplicationResponse{
+		Data: []simplex.QuorumRound{quorumRounds[len(quorumRounds)-1]},
+	}
+
+	e.HandleMessage(&simplex.Message{
+		ReplicationResponse: replicationResponse,
+	}, nodes[1])
+
+	storage.WaitForBlockCommit(lastBlock.BlockHeader().Seq)
+
+	// Verify all blocks were replicated
+	require.Equal(t, uint64(len(blocks)), storage.NumBlocks())
+	require.Equal(t, uint64(len(blocks)), e.Metadata().Round)
+
+	emptyBlockMd := simplex.EmptyVoteMetadata{
+		Round: uint64(len(blocks)),
+	}
+
+	// the other two nodes send empty votes
+	e.HandleMessage(&simplex.Message{
+		EmptyVoteMessage: createEmptyVote(emptyBlockMd, nodes[1]),
+	}, nodes[1])
+
+	e.HandleMessage(&simplex.Message{
+		EmptyVoteMessage: createEmptyVote(emptyBlockMd, nodes[2]),
+	}, nodes[2])
+
+	// Verify the node sent an empty vote after timeout
+	var foundEmptyVote bool
+	timeout := time.After(5 * time.Second)
+	iteration := 1
+messages:
+	for {
+		select {
+		case msg := <-broadcastMessages:
+			if msg.EmptyVoteMessage != nil {
+				foundEmptyVote = true
+				break messages
+			}
+		case <-timeout:
+			break messages
+		case <-time.After(10 * time.Millisecond):
+			newTime := e.StartTime.Add(
+				time.Duration(iteration) * simplex.DefaultEmptyVoteRebroadcastTimeout,
+			)
+			iteration++
+			if len(bb.BlockShouldBeBuilt) == 0 {
+				bb.BlockShouldBeBuilt <- struct{}{}
+			}
+			e.AdvanceTime(newTime)
+		}
+	}
+
+	require.True(t, foundEmptyVote, "Node should send an empty vote after timeout following replication")
+	notarization := wal.AssertNotarization(uint64(len(blocks)))
+	require.Equal(t, record.EmptyNotarizationRecordType, notarization)
 }
