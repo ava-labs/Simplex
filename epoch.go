@@ -1844,12 +1844,26 @@ func (e *Epoch) processFinalizedBlock(block Block, finalization *Finalization) e
 			return e.processFinalizedBlock(block, finalization)
 		}
 		round.finalization = finalization
+		prevEpochRound := e.round
 		if err := e.indexFinalizations(round.num); err != nil {
 			e.Logger.Error("Failed to index finalization", zap.Error(err))
+			e.haltedError = err
 			return err
 		}
 
-		return e.processReplicationState()
+		if err := e.processReplicationState(); err != nil {
+			e.haltedError = err
+			return err
+		}
+
+		// Start the round if the epoch has advanced a round & is beyond our replication state
+		if e.round > prevEpochRound && e.round > e.replicationState.GetHighestRound() {
+			if err := e.startRound(); err != nil {
+				e.haltedError = err
+				return err
+			}
+		}
+		return nil
 	}
 
 	blockDependency, missingRounds := e.blockDependencies(block.BlockHeader())
@@ -2019,7 +2033,7 @@ func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote)
 func (e *Epoch) createFinalizedBlockVerificationTask(block Block, finalization *Finalization) func() Digest {
 	return func() Digest {
 		md := block.BlockHeader()
-
+		round := e.round
 		e.Logger.Debug("Block verification started", zap.Uint64("round", md.Round))
 		start := time.Now()
 		defer func() {
@@ -2071,6 +2085,15 @@ func (e *Epoch) createFinalizedBlockVerificationTask(block Block, finalization *
 			e.haltedError = err
 			e.Logger.Error("Failed to process replication state", zap.Error(err))
 			return md.Digest
+		}
+
+		// Start the round if the epoch has advanced a round & is beyond our replication state
+		if e.round > round && e.round > e.replicationState.GetHighestRound() {
+			if err := e.startRound(); err != nil {
+				e.haltedError = err
+				e.Logger.Error("Failed to process replication state", zap.Error(err))
+				return md.Digest
+			}
 		}
 
 		return md.Digest

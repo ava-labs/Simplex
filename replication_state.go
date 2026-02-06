@@ -318,6 +318,25 @@ func (r *ReplicationState) GetLowestRound() *QuorumRound {
 	return lowestRound
 }
 
+// GetHighestRound returns the highest round known to the replicator.
+func (r *ReplicationState) GetHighestRound() uint64 {
+	var highestRound uint64
+
+	for round, qr := range r.rounds {
+		if highestRound < round {
+			highestRound = qr.GetRound()
+		}
+	}
+
+	for _, qr := range r.seqs {
+		if qr.block.BlockHeader().Round > highestRound {
+			highestRound = qr.block.BlockHeader().Round
+		}
+	}
+
+	return highestRound
+}
+
 func (r *ReplicationState) GetBlockWithSeq(seq uint64) Block {
 	block, _, _ := r.GetFinalizedBlockForSequence(seq)
 	if block != nil {
