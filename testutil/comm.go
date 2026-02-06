@@ -62,21 +62,22 @@ func (c *TestComm) Send(msg *simplex.Message, destination simplex.NodeID) {
 
 	// cannot send if either [from] or [destination] is not connected
 	if c.net.IsDisconnected(destination) || c.net.IsDisconnected(c.from) {
-
-		for _, instance := range c.net.GetInstances() {
+		c.net.lock.RLock()
+		for _, instance := range c.net.instances {
 			if bytes.Equal(instance.E.ID, destination) {
 				instance.l.Info("Node is disconnect not sending message")
 			}
 		}
+		c.net.lock.RUnlock()
 
 		return
 	}
 
 	c.maybeTranslateOutgoingToIncomingMessageTypes(msg)
 
-	for _, instance := range c.net.GetInstances() {
+	c.net.lock.RLock()
+	for _, instance := range c.net.instances {
 		if bytes.Equal(instance.E.ID, c.from) {
-			instance.l.Info("Enqueing message")
 			continue
 		}
 		if bytes.Equal(instance.E.ID, destination) {
@@ -84,6 +85,7 @@ func (c *TestComm) Send(msg *simplex.Message, destination simplex.NodeID) {
 			return
 		}
 	}
+	c.net.lock.RUnlock()
 }
 
 func (c *TestComm) SetFilter(filter MessageFilter) {
@@ -174,17 +176,19 @@ func (c *TestComm) Broadcast(msg *simplex.Message) {
 
 	c.maybeTranslateOutgoingToIncomingMessageTypes(msg)
 
-	for _, instance := range c.net.GetInstances() {
+	c.net.lock.RLock()
+	for _, instance := range c.net.instances {
 		if !c.isMessagePermitted(msg, instance.E.ID) {
 			continue
 		}
 		// Skip sending the message to yourself or disconnected nodes
-		if bytes.Equal(c.from, instance.E.ID) || c.net.IsDisconnected(instance.E.ID) {
+		if bytes.Equal(c.from, instance.E.ID) || c.net.isDisconnected(instance.E.ID) {
 			continue
 		}
 
 		instance.enqueue(msg, c.from, instance.E.ID)
 	}
+	c.net.lock.RUnlock()
 }
 
 // AllowAllMessages allows every message to be sent

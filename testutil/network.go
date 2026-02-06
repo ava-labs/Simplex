@@ -69,6 +69,10 @@ func (b *BasicInMemoryNetwork) IsDisconnected(node simplex.NodeID) bool {
 	b.lock.RLock()
 	defer b.lock.RUnlock()
 
+	return b.isDisconnected(node)
+}
+
+func (b *BasicInMemoryNetwork) isDisconnected(node simplex.NodeID) bool {
 	_, ok := b.disconnected[string(node)]
 	return ok
 }
@@ -113,13 +117,6 @@ func (b *BasicInMemoryNetwork) StopInstances() {
 	for _, instance := range b.instances {
 		instance.Stop()
 	}
-}
-
-func (b *BasicInMemoryNetwork) GetInstances() []*BasicNode {
-	b.lock.RLock()
-	defer b.lock.RUnlock()
-
-	return b.instances
 }
 
 func (b *BasicInMemoryNetwork) ReplaceNode(node *BasicNode) {
