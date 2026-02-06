@@ -1861,6 +1861,7 @@ func (e *Epoch) processFinalizedBlock(block Block, finalization *Finalization) e
 			zap.Stringer("expected digest", blockDependency),
 			zap.Uint64s("missing rounds", missingRounds),
 		)
+		return errors.New("Received a finalization for nextSeqToCommit that breaks our chain")
 	}
 
 	// Create a task that will verify the block in the future, after its predecessors have also been verified.
@@ -2049,6 +2050,15 @@ func (e *Epoch) createFinalizedBlockVerificationTask(block Block, finalization *
 				zap.Uint64("seq", md.Seq), zap.Uint64("height", e.nextSeqToCommit()))
 			return md.Digest
 		}
+
+		// Store the verified block in rounds map so subsequent blocks can find it as a dependency
+		roundEntry := NewRound(verifiedBlock)
+		roundEntry.finalization = finalization
+		e.rounds[md.Round] = roundEntry
+		e.Logger.Debug("Stored finalized replicated block in rounds map",
+			zap.Uint64("round", md.Round),
+			zap.Uint64("seq", md.Seq),
+			zap.Stringer("digest", md.Digest))
 
 		if err := e.indexFinalization(verifiedBlock, *finalization); err != nil {
 			e.haltedError = err
