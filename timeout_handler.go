@@ -77,9 +77,9 @@ func (t *TimeoutHandler[T]) run(startTime time.Time) {
 }
 
 func (t *TimeoutHandler[T]) maybeRunTasks() {
+	t.lock.Lock()
 	ids := make([]T, 0, len(t.tasks))
 
-	t.lock.Lock()
 	for id := range t.tasks {
 		ids = append(ids, id)
 	}
