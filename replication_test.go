@@ -289,6 +289,10 @@ func testReplicationEmptyNotarizations(t *testing.T, nodes []simplex.NodeID, end
 	NewControlledSimplexNode(t, nodes[4], net, newNodeConfig(nodes[4]))
 	laggingNode := NewControlledSimplexNode(t, nodes[5], net, newNodeConfig(nodes[5]))
 
+	for _, n := range net.Instances {
+		n.Silence()
+	}
+
 	net.StartInstances()
 
 	net.Disconnect(laggingNode.E.ID)
@@ -1258,6 +1262,10 @@ func testReplicationEmptyNotarizationsTail(t *testing.T, nodes []simplex.NodeID,
 	NewControlledSimplexNode(t, nodes[3], net, newNodeConfig(nodes[3]))
 	NewControlledSimplexNode(t, nodes[4], net, newNodeConfig(nodes[4]))
 	laggingNode := NewControlledSimplexNode(t, nodes[5], net, newNodeConfig(nodes[5]))
+
+	for _, n := range net.Instances {
+		n.Silence()
+	}
 
 	net.StartInstances()
 
