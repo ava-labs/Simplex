@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ava-labs/simplex"
 	. "github.com/ava-labs/simplex"
 	"github.com/ava-labs/simplex/record"
 	"github.com/ava-labs/simplex/testutil"
@@ -941,4 +942,52 @@ func TestWalRecoverySetsRoundCorrectly(t *testing.T) {
 			require.Equal(t, tt.expectedEpoch, e.Metadata().Epoch)
 		})
 	}
+}
+
+func TestRecoveryAndBroadcast(t *testing.T) {
+	nodes := []simplex.NodeID{{1}, {2}, {3}, []byte("recovering")}
+
+	net := testutil.NewControlledNetwork(t, nodes)
+
+	startSeq := uint64(6)
+	// initiate a network with 4 nodes. one node is behind by startSeq blocks
+	storageData := createBlocks(t, nodes, startSeq)
+	testEpochConfig := &testutil.TestNodeConfig{
+		InitialStorage:     storageData,
+		ReplicationEnabled: true,
+	}
+	normalNode1 := testutil.NewControlledSimplexNode(t, nodes[0], net, testEpochConfig)
+	normalNode1.Silence()
+	normalNode2 := testutil.NewControlledSimplexNode(t, nodes[1], net, testEpochConfig)
+	normalNode2.Silence()
+	normalNode3 := testutil.NewControlledSimplexNode(t, nodes[2], net, testEpochConfig)
+	// normalNode3.Silence()
+	laggingNode := testutil.NewControlledSimplexNode(t, nodes[3], net, &testutil.TestNodeConfig{
+		ReplicationEnabled: true,
+		InitialStorage:     storageData[:2],
+	})
+
+	require.Equal(t, startSeq, normalNode1.Storage.NumBlocks())
+	require.Equal(t, startSeq, normalNode2.Storage.NumBlocks())
+	require.Equal(t, startSeq, normalNode3.Storage.NumBlocks())
+	require.Equal(t, uint64(2), laggingNode.Storage.NumBlocks())
+
+	blockBytes, err := storageData[0].VerifiedBlock.Bytes()
+	require.NoError(t, err)
+	blockRecord := BlockRecord(storageData[0].VerifiedBlock.BlockHeader(), blockBytes)
+	_, finalizationRecord := testutil.NewFinalizationRecord(t, laggingNode.E.EpochConfig.Logger, laggingNode.E.EpochConfig.SignatureAggregator, storageData[0].VerifiedBlock, nodes)
+
+	laggingNode.WAL.Append(blockRecord)
+	laggingNode.WAL.Append(finalizationRecord)
+
+	normalNode1.Start()
+	normalNode2.Start()
+	normalNode3.Start()
+
+	// start lagging node last since other nodes will not be ready to accept broadcast messages until they have started
+	laggingNode.Start()
+	defer net.StopInstances()
+
+	laggingNode.Storage.WaitForBlockCommit(startSeq - 1)
+
 }

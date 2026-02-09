@@ -473,9 +473,34 @@ func (e *Epoch) loadFinalizationRecord(r []byte) error {
 	return nil
 }
 
+func (e *Epoch) broadcastLatestRoundAndSeq() {
+	latestQR := e.getLatestVerifiedQuorumRound()
+	var latestRound uint64
+	if latestQR != nil {
+		latestRound = latestQR.GetRound()
+	}
+
+	var latestFinalizedSeq uint64
+	if e.lastBlock != nil {
+		latestFinalizedSeq = e.lastBlock.Finalization.Finalization.Seq
+	}
+
+	replicationRequest := &Message{
+		ReplicationRequest: &ReplicationRequest{
+			LatestRound:        latestRound,
+			LatestFinalizedSeq: latestFinalizedSeq,
+		},
+	}
+	fmt.Println("Broadcasting latest round and seq on startup", "latestRound", latestRound, "latestFinalizedSeq", latestFinalizedSeq)
+	e.Comm.Broadcast(replicationRequest)
+}
+
 // resumeFromWal resumes the epoch from the records of the write ahead log.
 func (e *Epoch) resumeFromWal(highestRoundRecord *walRound) error {
 	e.Logger.Info("Most relevant record recovered from WAL", zap.Uint64("round", highestRoundRecord.round), zap.Stringer("relevant", highestRoundRecord))
+
+	// broadcast our latest round
+	e.broadcastLatestRoundAndSeq()
 
 	// Handle the most relevant record based on priority: finalization > notarization > emptyNotarization > emptyVote > block
 	if highestRoundRecord.finalization != nil {
