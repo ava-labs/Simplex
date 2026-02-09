@@ -119,9 +119,9 @@ func (r *ReplicationState) deleteOldRounds(finalizedRound uint64) {
 }
 
 // storeSequence stores a block and finalization into the replication state
-func (r *ReplicationState) storeSequence(block Block, finalization *Finalization) {
+func (r *ReplicationState) storeSequence(block Block, finalization *Finalization) bool {
 	if _, exists := r.seqs[finalization.Finalization.Seq]; exists {
-		return
+		return false
 	}
 
 	r.seqs[finalization.Finalization.Seq] = &finalizedQuorumRound{
@@ -131,6 +131,7 @@ func (r *ReplicationState) storeSequence(block Block, finalization *Finalization
 
 	r.finalizationRequestor.removeTask(finalization.Finalization.Seq)
 	r.digestTimeouts.RemoveTask(seqAndDigestFromBlock(block))
+	return true
 }
 
 // storeRound adds or updates a quorum round in the replication state.
@@ -163,12 +164,14 @@ func (r *ReplicationState) StoreQuorumRound(round *QuorumRound) {
 		return
 	}
 
-	r.logger.Debug("Replication State Storing Quorum Round", zap.Stringer("QR", round))
-
 	if round.Finalization != nil {
-		r.storeSequence(round.Block, round.Finalization)
+		stored := r.storeSequence(round.Block, round.Finalization)
+		if !stored {
+			return
+		}
 		r.finalizationRequestor.receivedSignedQuorum(newSignedQuorum(round, r.myNodeID))
 		r.deleteOldRounds(round.Finalization.Finalization.Round)
+		r.logger.Debug("Replication State Storing Quorum Round", zap.Stringer("QR", round))
 		return
 	}
 
@@ -179,6 +182,7 @@ func (r *ReplicationState) StoreQuorumRound(round *QuorumRound) {
 		return
 	}
 
+	r.logger.Debug("Replication State Storing Quorum Round", zap.Stringer("QR", round))
 	r.storeRound(round)
 	r.roundRequestor.receivedSignedQuorum(newSignedQuorum(round, r.myNodeID))
 	if round.EmptyNotarization != nil {
@@ -229,7 +233,7 @@ func (r *ReplicationState) ResendFinalizationRequest(seq uint64, signers []NodeI
 
 	// because we are resending because the block failed to verify, we should remove the stored quorum round
 	// so that we can try to get a new block & finalization
-	delete(r.seqs, seq)
+	r.DeleteSeq(seq)
 	r.finalizationRequestor.sendRequestToNode(seq, seq, signers[index])
 	return nil
 }
@@ -312,6 +316,25 @@ func (r *ReplicationState) GetLowestRound() *QuorumRound {
 	}
 
 	return lowestRound
+}
+
+// GetHighestRound returns the highest round known to the replicator.
+func (r *ReplicationState) GetHighestRound() uint64 {
+	var highestRound uint64
+
+	for round, qr := range r.rounds {
+		if highestRound < round {
+			highestRound = qr.GetRound()
+		}
+	}
+
+	for _, qr := range r.seqs {
+		if qr.block.BlockHeader().Round > highestRound {
+			highestRound = qr.block.BlockHeader().Round
+		}
+	}
+
+	return highestRound
 }
 
 func (r *ReplicationState) GetBlockWithSeq(seq uint64) Block {

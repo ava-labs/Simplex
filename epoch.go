@@ -84,6 +84,7 @@ type Epoch struct {
 	EpochConfig
 	// Runtime
 	oneTimeVerifier                *oneTimeVerifier
+	buildBlockScheduler            *BasicScheduler
 	blockVerificationScheduler     *BlockDependencyManager
 	lock                           sync.Mutex
 	lastBlock                      *VerifiedFinalizedBlock // latest block & finalization committed
@@ -191,6 +192,7 @@ func (e *Epoch) init() error {
 	e.oneTimeVerifier = newOneTimeVerifier(e.Logger)
 	scheduler := NewScheduler(e.Logger, DefaultProcessingBlocks)
 	e.blockVerificationScheduler = NewBlockVerificationScheduler(e.Logger, DefaultProcessingBlocks, scheduler)
+	e.buildBlockScheduler = NewScheduler(e.Logger, 1)
 	e.monitor = NewMonitor(e.StartTime, e.Logger)
 	e.cancelWaitForBlockNotarization = func() {}
 	e.finishCtx, e.finishFn = context.WithCancel(context.Background())
@@ -687,6 +689,7 @@ func (e *Epoch) Stop() {
 	e.finishFn()
 	e.monitor.Close()
 	e.blockVerificationScheduler.Close()
+	e.buildBlockScheduler.Close()
 	e.timeoutHandler.Close()
 	e.replicationState.Close()
 }
@@ -1841,12 +1844,26 @@ func (e *Epoch) processFinalizedBlock(block Block, finalization *Finalization) e
 			return e.processFinalizedBlock(block, finalization)
 		}
 		round.finalization = finalization
+		prevEpochRound := e.round
 		if err := e.indexFinalizations(round.num); err != nil {
 			e.Logger.Error("Failed to index finalization", zap.Error(err))
+			e.haltedError = err
 			return err
 		}
 
-		return e.processReplicationState()
+		if err := e.processReplicationState(); err != nil {
+			e.haltedError = err
+			return err
+		}
+
+		// Start the round if the epoch has advanced a round & is beyond our replication state
+		if e.round > prevEpochRound && e.round > e.replicationState.GetHighestRound() {
+			if err := e.startRound(); err != nil {
+				e.haltedError = err
+				return err
+			}
+		}
+		return nil
 	}
 
 	blockDependency, missingRounds := e.blockDependencies(block.BlockHeader())
@@ -1858,6 +1875,7 @@ func (e *Epoch) processFinalizedBlock(block Block, finalization *Finalization) e
 			zap.Stringer("expected digest", blockDependency),
 			zap.Uint64s("missing rounds", missingRounds),
 		)
+		return errors.New("Received a finalization for nextSeqToCommit that breaks our chain")
 	}
 
 	// Create a task that will verify the block in the future, after its predecessors have also been verified.
@@ -2015,7 +2033,7 @@ func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote)
 func (e *Epoch) createFinalizedBlockVerificationTask(block Block, finalization *Finalization) func() Digest {
 	return func() Digest {
 		md := block.BlockHeader()
-
+		round := e.round
 		e.Logger.Debug("Block verification started", zap.Uint64("round", md.Round))
 		start := time.Now()
 		defer func() {
@@ -2047,6 +2065,15 @@ func (e *Epoch) createFinalizedBlockVerificationTask(block Block, finalization *
 			return md.Digest
 		}
 
+		// Store the verified block in rounds map so subsequent blocks can find it as a dependency
+		roundEntry := NewRound(verifiedBlock)
+		roundEntry.finalization = finalization
+		e.rounds[md.Round] = roundEntry
+		e.Logger.Debug("Stored finalized replicated block in rounds map",
+			zap.Uint64("round", md.Round),
+			zap.Uint64("seq", md.Seq),
+			zap.Stringer("digest", md.Digest))
+
 		if err := e.indexFinalization(verifiedBlock, *finalization); err != nil {
 			e.haltedError = err
 			e.Logger.Error("Failed to index finalization", zap.Error(err))
@@ -2058,6 +2085,15 @@ func (e *Epoch) createFinalizedBlockVerificationTask(block Block, finalization *
 			e.haltedError = err
 			e.Logger.Error("Failed to process replication state", zap.Error(err))
 			return md.Digest
+		}
+
+		// Start the round if the epoch has advanced a round & is beyond our replication state
+		if e.round > round && e.round > e.replicationState.GetHighestRound() {
+			if err := e.startRound(); err != nil {
+				e.haltedError = err
+				e.Logger.Error("Failed to process replication state", zap.Error(err))
+				return md.Digest
+			}
 		}
 
 		return md.Digest
@@ -2304,7 +2340,7 @@ func (e *Epoch) buildBlock() {
 	}
 
 	e.Logger.Debug("Scheduling block building", zap.Uint64("round", metadata.Round))
-	e.blockVerificationScheduler.ScheduleTaskWithDependencies(task, metadata.Seq, nil, []uint64{})
+	e.buildBlockScheduler.Schedule(task)
 }
 
 func (e *Epoch) retrieveBlacklistOfParentBlock(metadata ProtocolMetadata) (Blacklist, bool) {
@@ -2569,12 +2605,13 @@ func (e *Epoch) monitorProgress(round uint64) {
 
 		// Check if we have advanced to a higher round in the meantime while this task was dispatched.
 		e.lock.Lock()
-		shouldAbort := round < e.round
+		epochRound := e.round
+		shouldAbort := round < epochRound
 		e.lock.Unlock()
 
 		if shouldAbort {
 			e.Logger.Debug("Aborting monitoring progress for round because we advanced to a higher round",
-				zap.Uint64("monitored round", round), zap.Uint64("new round", e.round))
+				zap.Uint64("monitored round", round), zap.Uint64("new round", epochRound))
 			return
 		}
 
