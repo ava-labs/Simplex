@@ -119,7 +119,9 @@ func (b *BasicInMemoryNetwork) GetInstances() []*BasicNode {
 	b.lock.RLock()
 	defer b.lock.RUnlock()
 
-	return b.instances
+	nodes := make([]*BasicNode, len(b.instances))
+	copy(nodes, b.instances)
+	return nodes
 }
 
 func (b *BasicInMemoryNetwork) ReplaceNode(node *BasicNode) {
