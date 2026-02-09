@@ -473,7 +473,10 @@ func (e *Epoch) loadFinalizationRecord(r []byte) error {
 	return nil
 }
 
-func (e *Epoch) broadcastLatestRoundAndSeq() {
+// broadcastLatestReplicationRequest broadcasts a message to the network with our latest round and finalized sequence
+// in case we are behind and need to catch up. Potentially, there are no more messages being sent in the network,
+// so this method triggers other nodes to send us the messages we missed while we were down.
+func (e *Epoch) broadcastReplicationSync() {
 	latestQR := e.getLatestVerifiedQuorumRound()
 	var latestRound uint64
 	if latestQR != nil {
@@ -491,7 +494,6 @@ func (e *Epoch) broadcastLatestRoundAndSeq() {
 			LatestFinalizedSeq: latestFinalizedSeq,
 		},
 	}
-	fmt.Println("Broadcasting latest round and seq on startup", "latestRound", latestRound, "latestFinalizedSeq", latestFinalizedSeq)
 	e.Comm.Broadcast(replicationRequest)
 }
 
@@ -499,8 +501,7 @@ func (e *Epoch) broadcastLatestRoundAndSeq() {
 func (e *Epoch) resumeFromWal(highestRoundRecord *walRound) error {
 	e.Logger.Info("Most relevant record recovered from WAL", zap.Uint64("round", highestRoundRecord.round), zap.Stringer("relevant", highestRoundRecord))
 
-	// broadcast our latest round
-	e.broadcastLatestRoundAndSeq()
+	e.broadcastReplicationSync()
 
 	// Handle the most relevant record based on priority: finalization > notarization > emptyNotarization > emptyVote > block
 	if highestRoundRecord.finalization != nil {

@@ -957,11 +957,8 @@ func TestRecoveryAndBroadcast(t *testing.T) {
 		ReplicationEnabled: true,
 	}
 	normalNode1 := testutil.NewControlledSimplexNode(t, nodes[0], net, testEpochConfig)
-	normalNode1.Silence()
 	normalNode2 := testutil.NewControlledSimplexNode(t, nodes[1], net, testEpochConfig)
-	normalNode2.Silence()
 	normalNode3 := testutil.NewControlledSimplexNode(t, nodes[2], net, testEpochConfig)
-	// normalNode3.Silence()
 	laggingNode := testutil.NewControlledSimplexNode(t, nodes[3], net, &testutil.TestNodeConfig{
 		ReplicationEnabled: true,
 		InitialStorage:     storageData[:2],
