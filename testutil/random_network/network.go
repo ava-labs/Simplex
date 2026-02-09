@@ -88,7 +88,7 @@ func (n *Network) Run() {
 		n.recoverToHeight(n.getMaxHeight())
 		maxHeight := n.getMaxHeight()
 		minHeight := n.getMinHeight()
-		
+
 		n.logger.Info("Issued Transactions", zap.Int("count", len(txs)), zap.Uint64("min height", minHeight), zap.Uint64("max height", maxHeight))
 		if prevHeight == int(maxHeight) {
 			panic(fmt.Sprintf(
@@ -141,7 +141,6 @@ func (n *Network) recoverToHeight(height uint64) {
 			}
 		}
 
-
 		n.lock.Lock()
 		n.BasicInMemoryNetwork.AdvanceTime(n.config.AdvanceTimeTickAmount)
 		n.lock.Unlock()
@@ -153,7 +152,7 @@ func (n *Network) IssueTxs() []*TX {
 	n.lock.Lock()
 	defer n.lock.Unlock()
 
-	numTxs := n.randomness.Intn(n.config.MaxTxsPerBlock-n.config.MinTxsPerBlock+1) + n.config.MinTxsPerBlock // randomize between min and max inclusive
+	numTxs := n.randomness.Intn(n.config.MaxTxsPerIssue-n.config.MinTxsPerIssue+1) + n.config.MinTxsPerIssue // randomize between min and max inclusive
 	txs := make([]*TX, 0, numTxs)
 
 	for range numTxs {

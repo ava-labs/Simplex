@@ -13,9 +13,12 @@ type FuzzConfig struct {
 	// The probability that a transaction verification will fail. Default is .1%.
 	TxVerificationFailure float64
 
-	// The minimum and maximum number of transactions per block. Default is between 5 and 20.
-	MinTxsPerBlock int
-	MaxTxsPerBlock int
+	// The minimum and maximum number of transactions to be issued at a block. Default is between 5 and 20.
+	MinTxsPerIssue int
+	MaxTxsPerIssue int
+
+	// Number of transactions per block. Default is 15.
+	TxsPerBlock int
 
 	// The number of blocks that must be finalized before ending the fuzz test. Default is 100.
 	NumFinalizedBlocks int
@@ -42,8 +45,9 @@ func DefaultFuzzConfig() *FuzzConfig {
 		MinNodes:              3,
 		MaxNodes:              10,
 		TxVerificationFailure: .001,
-		MinTxsPerBlock:        5,
-		MaxTxsPerBlock:        20,
+		MinTxsPerIssue:        5,
+		MaxTxsPerIssue:        20,
+		TxsPerBlock:           15,
 		NumFinalizedBlocks:    100,
 		RandomSeed:            time.Now().UnixMilli(),
 		NodeCrashPercentage:   0.1,

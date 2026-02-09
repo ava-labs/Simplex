@@ -197,7 +197,7 @@ func (m *Mempool) BuildBlock(ctx context.Context, md simplex.ProtocolMetadata, b
 	m.WaitForPendingTxs(ctx)
 
 	// Pack the block once we have pending txs
-	txs := m.PackBlock(ctx, m.config.MaxTxsPerBlock)
+	txs := m.PackBlock(ctx, m.config.TxsPerBlock)
 	if ctx.Err() != nil {
 		return nil, false
 	}
