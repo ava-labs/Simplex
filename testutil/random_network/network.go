@@ -79,33 +79,58 @@ func (n *Network) Run() {
 	targetHeight := uint64(n.config.NumFinalizedBlocks)
 
 	prevHeight := 0
-	for n.getMinHeight() < targetHeight {
+	for {
 		n.crashAndRecoverNodes()
 		txs := n.IssueTxs()
 		n.waitForTxAcceptance(txs)
 
 		// get the max height and ensure all nodes recover to that height
+		n.recoverToHeight(n.getMaxHeight())
 		maxHeight := n.getMaxHeight()
-		n.recoverToHeight(maxHeight)
-		n.logger.Info("Issued Transactions", zap.Int("count", len(txs)), zap.Uint64("min height", n.getMinHeight()), zap.Uint64("max height", n.getMaxHeight()))
-
-		if prevHeight == int(n.getMaxHeight()) {
+		minHeight := n.getMinHeight()
+		
+		n.logger.Info("Issued Transactions", zap.Int("count", len(txs)), zap.Uint64("min height", minHeight), zap.Uint64("max height", maxHeight))
+		if prevHeight == int(maxHeight) {
 			panic(fmt.Sprintf(
 				"not supposed to be equal: prevHeight=%d, maxHeight=%d",
 				prevHeight,
-				n.getMaxHeight(),
+				maxHeight,
 			))
 		}
 
-		prevHeight = int(n.getMaxHeight())
+		prevHeight = int(maxHeight)
+		if minHeight >= targetHeight {
+			n.logger.Info("Reached target height", zap.Uint64("targetHeight", targetHeight), zap.Uint64("minHeight", minHeight))
+			break
+		}
 	}
 
 	n.BasicInMemoryNetwork.StopInstances()
 }
 
+func (n *Network) getMinHeightNodeID() simplex.NodeID {
+	minHeight := n.nodes[0].storage.NumBlocks()
+	minHeightNodeID := n.nodes[0].E.ID
+
+	for _, node := range n.nodes[1:] {
+		height := node.storage.NumBlocks()
+
+		if height < minHeight {
+			minHeight = height
+			minHeightNodeID = node.E.ID
+		}
+	}
+
+	return minHeightNodeID
+}
 func (n *Network) recoverToHeight(height uint64) {
 	for n.getMinHeight() < height {
-		n.logger.Info("Advancing network time")
+		n.logger.Info("Advancing network time", zap.Int("num crashed nodes", int(n.numCrashedNodes())),
+			zap.Uint64("min height", n.getMinHeight()),
+			zap.Uint64("max height", n.getMaxHeight()),
+			zap.Stringer("Smallest node ID", n.getMinHeightNodeID()),
+			zap.Uint64("target height", height),
+		)
 		for i, node := range n.nodes {
 			isCrashed := node.isCrashed.Load()
 			if isCrashed {
@@ -115,6 +140,7 @@ func (n *Network) recoverToHeight(height uint64) {
 				}
 			}
 		}
+
 
 		n.lock.Lock()
 		n.BasicInMemoryNetwork.AdvanceTime(n.config.AdvanceTimeTickAmount)
@@ -171,7 +197,6 @@ func (n *Network) waitForTxAcceptance(txs []*TX) {
 			return
 		}
 
-		fmt.Println("advancing time")
 		n.lock.Lock()
 		n.BasicInMemoryNetwork.AdvanceTime(n.config.AdvanceTimeTickAmount)
 		n.lock.Unlock()
