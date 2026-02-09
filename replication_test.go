@@ -1328,6 +1328,78 @@ func allowFinalizeVotes(msg *simplex.Message, from, to simplex.NodeID) bool {
 	return true
 }
 
+// TestReplicationStoresFinalization checks finalizations are stored in the rounds
+// map when processing.
+func TestReplicationStoresFinalization(t *testing.T) {
+	bb := testutil.NewTestBlockBuilder()
+	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
+	sentMessages := make(chan *simplex.Message, 100)
+
+	conf, _, storage := DefaultTestNodeEpochConfig(t, nodes[3], &recordingComm{
+		Communication: NoopComm(nodes),
+		SentMessages:  sentMessages,
+	}, bb)
+	conf.ReplicationEnabled = true
+
+	e, err := simplex.NewEpoch(conf)
+	require.NoError(t, err)
+	require.NoError(t, e.Start())
+
+	// createBlocks 2 blocks with finalizations
+	blocks := createBlocks(t, nodes, 2)
+	vote, err := NewTestVote(blocks[0].VerifiedBlock.(simplex.Block), nodes[0])
+	require.NoError(t, err)
+	// send block 1
+	e.HandleMessage(&simplex.Message{
+		BlockMessage: &simplex.BlockMessage{
+			Block: blocks[0].VerifiedBlock.(simplex.Block),
+			Vote:  *vote,
+		},
+	}, nodes[0])
+
+	// Send a finalization for block 2 to trigger replication
+	finalization := blocks[1].Finalization
+	e.HandleMessage(&simplex.Message{
+		Finalization: &finalization,
+	}, nodes[1])
+
+	// Wait for the replication request to be sent
+	for {
+		msg := <-sentMessages
+		if msg.ReplicationRequest != nil {
+			break
+		}
+	}
+
+	// pass in replication response to epoch with both blocks and their finalizations
+	quorumRounds := []simplex.QuorumRound{
+		{
+			Block:        blocks[0].VerifiedBlock.(simplex.Block),
+			Finalization: &blocks[0].Finalization,
+		},
+		{
+			Block:        blocks[1].VerifiedBlock.(simplex.Block),
+			Finalization: &blocks[1].Finalization,
+		},
+	}
+
+	replicationResponse := &simplex.ReplicationResponse{
+		Data: quorumRounds,
+	}
+
+	e.HandleMessage(&simplex.Message{
+		ReplicationResponse: replicationResponse,
+	}, nodes[1])
+
+	// Verify both blocks are committed
+	for i := range 2 {
+		committed := storage.WaitForBlockCommit(uint64(i))
+		require.Equal(t, blocks[i].VerifiedBlock, committed)
+	}
+
+	require.Equal(t, uint64(2), storage.NumBlocks())
+}
+
 // TestReplicationChain tests that a node can both empty notarizations and notarizations for the same round.
 func TestReplicationChain(t *testing.T) {
 	// Digest message requests are needed for this test
