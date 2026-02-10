@@ -478,7 +478,10 @@ func (e *Epoch) loadFinalizationRecord(r []byte) error {
 // in case we are behind and need to catch up. Potentially, there are no more messages being sent in the network,
 // so this method triggers other nodes to send us the messages we missed while we were down.
 func (e *Epoch) broadcastReplicationSync() {
+	e.lock.Lock()
 	latestQR := e.getLatestVerifiedQuorumRound()
+	defer e.lock.Unlock()
+
 	var latestRound uint64
 	if latestQR != nil {
 		latestRound = latestQR.GetRound()
