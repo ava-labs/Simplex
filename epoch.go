@@ -273,6 +273,7 @@ func (e *Epoch) Start() error {
 	}
 	// Only init receiving messages once you have initialized the data structures required for it.
 	defer func() {
+		e.broadcastReplicationSync()
 		e.canReceiveMessages.Store(true)
 	}()
 	return e.restoreFromWal()
@@ -500,8 +501,6 @@ func (e *Epoch) broadcastReplicationSync() {
 // resumeFromWal resumes the epoch from the records of the write ahead log.
 func (e *Epoch) resumeFromWal(highestRoundRecord *walRound) error {
 	e.Logger.Info("Most relevant record recovered from WAL", zap.Uint64("round", highestRoundRecord.round), zap.Stringer("relevant", highestRoundRecord))
-
-	e.broadcastReplicationSync()
 
 	// Handle the most relevant record based on priority: finalization > notarization > emptyNotarization > emptyVote > block
 	if highestRoundRecord.finalization != nil {

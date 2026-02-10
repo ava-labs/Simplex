@@ -969,14 +969,6 @@ func TestRecoveryAndBroadcast(t *testing.T) {
 	require.Equal(t, startSeq, normalNode3.Storage.NumBlocks())
 	require.Equal(t, uint64(2), laggingNode.Storage.NumBlocks())
 
-	blockBytes, err := storageData[0].VerifiedBlock.Bytes()
-	require.NoError(t, err)
-	blockRecord := BlockRecord(storageData[0].VerifiedBlock.BlockHeader(), blockBytes)
-	_, finalizationRecord := testutil.NewFinalizationRecord(t, laggingNode.E.EpochConfig.Logger, laggingNode.E.EpochConfig.SignatureAggregator, storageData[0].VerifiedBlock, nodes)
-
-	laggingNode.WAL.Append(blockRecord)
-	laggingNode.WAL.Append(finalizationRecord)
-
 	normalNode1.Start()
 	normalNode2.Start()
 	normalNode3.Start()
