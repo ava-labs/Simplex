@@ -38,8 +38,8 @@ func (as *BasicScheduler) Size() int {
 }
 
 func (as *BasicScheduler) Close() {
-	as.lock.Lock()
-	defer as.lock.Unlock()
+	as.lock.RLock()
+	defer as.lock.RUnlock()
 
 	as.closed.Store(true)
 	close(as.tasks)
