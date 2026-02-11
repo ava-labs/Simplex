@@ -141,6 +141,7 @@ func (n *Network) recoverToHeight(height uint64) {
 			if isCrashed {
 				// randomly decide to recover based on NodeRecoverPercentage
 				if n.randomness.Float64() < n.config.NodeRecoverPercentage {
+					n.logger.Info("Recovering node", zap.Stringer("nodeID", node.E.ID))
 					n.startNode(i)
 				}
 			}
@@ -261,6 +262,7 @@ func (n *Network) crashAndRecoverNodes() {
 		if n.randomness.Float64() < n.config.NodeCrashPercentage {
 			maxLeftToCrash--
 			n.crashNode(i)
+			n.logger.Info("Crashedg node", zap.Stringer("nodeID", node.E.ID))
 			crashedNodes = append(crashedNodes, node.E.ID.String())
 		}
 	}
@@ -320,6 +322,7 @@ func (n *Network) PrintStatus() {
 }
 
 func (n *Network) crashNode(idx int) {
+	n.logger.Info("Crashing node", zap.Stringer("nodeID", n.nodes[idx].E.ID))
 	n.nodes[idx].isCrashed.Store(true)
 	n.nodes[idx].Stop()
 }

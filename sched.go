@@ -4,6 +4,7 @@
 package simplex
 
 import (
+	"fmt"
 	"sync"
 	"sync/atomic"
 
@@ -38,11 +39,13 @@ func (as *BasicScheduler) Size() int {
 }
 
 func (as *BasicScheduler) Close() {
-	as.lock.Lock()
-	defer as.lock.Unlock()
+	as.lock.RLock()
+	defer as.lock.RUnlock()
 
 	as.closed.Store(true)
+	fmt.Println("here 7")
 	close(as.tasks)
+	fmt.Println("here 8")
 	defer as.running.Wait()
 }
 
@@ -59,8 +62,10 @@ func (as *BasicScheduler) run() {
 }
 
 func (as *BasicScheduler) Schedule(task Task) {
+	as.logger.Debug("here 11")
 	as.lock.RLock()
 	defer as.lock.RUnlock()
+	as.logger.Debug("here 12")
 
 	if as.closed.Load() {
 		return
