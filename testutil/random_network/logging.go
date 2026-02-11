@@ -16,6 +16,10 @@ import (
 
 // CreateNetworkLogger creates a logger for the network that writes to both console and main.log
 func CreateNetworkLogger(t *testing.T, config *FuzzConfig) *testutil.TestLogger {
+	if config.LogDirectory == "" {
+		return testutil.MakeLogger(t, 0)
+	}
+
 	// Clear the log directory before creating new logs
 	if err := clearLogDirectory(config.LogDirectory); err != nil {
 		t.Fatalf("Failed to clear log directory: %v", err)
@@ -32,6 +36,10 @@ func CreateNetworkLogger(t *testing.T, config *FuzzConfig) *testutil.TestLogger 
 
 // CreateNodeLogger creates a logger for a node that writes to both console and {nodeID}.log
 func CreateNodeLogger(t *testing.T, config *FuzzConfig, nodeID simplex.NodeID) *testutil.TestLogger {
+	if config.LogDirectory == "" {
+		return testutil.MakeLogger(t, int(nodeID[0]))
+	}
+
 	filename := fmt.Sprintf("%s.log", nodeID.String())
 
 	// Create file writer for node-specific log
