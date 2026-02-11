@@ -274,6 +274,7 @@ func (e *Epoch) Start() error {
 	// Only init receiving messages once you have initialized the data structures required for it.
 	defer func() {
 		e.canReceiveMessages.Store(true)
+		e.broadcastReplicationSync()
 	}()
 	return e.restoreFromWal()
 }
@@ -471,6 +472,33 @@ func (e *Epoch) loadFinalizationRecord(r []byte) error {
 	e.Logger.Info("Finalization Recovered From WAL", zap.Uint64("Round", finalization.Finalization.Round))
 	round.finalization = &finalization
 	return nil
+}
+
+// broadcastLatestReplicationRequest broadcasts a message to the network with our latest round and finalized sequence
+// in case we are behind and need to catch up. Potentially, there are no more messages being sent in the network,
+// so this method triggers other nodes to send us the messages we missed while we were down.
+func (e *Epoch) broadcastReplicationSync() {
+	e.lock.Lock()
+	latestQR := e.getLatestVerifiedQuorumRound()
+	defer e.lock.Unlock()
+
+	var latestRound uint64
+	if latestQR != nil {
+		latestRound = latestQR.GetRound()
+	}
+
+	var latestFinalizedSeq uint64
+	if e.lastBlock != nil {
+		latestFinalizedSeq = e.lastBlock.Finalization.Finalization.Seq
+	}
+
+	replicationRequest := &Message{
+		ReplicationRequest: &ReplicationRequest{
+			LatestRound:        latestRound,
+			LatestFinalizedSeq: latestFinalizedSeq,
+		},
+	}
+	e.Comm.Broadcast(replicationRequest)
 }
 
 // resumeFromWal resumes the epoch from the records of the write ahead log.
