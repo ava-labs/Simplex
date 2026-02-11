@@ -273,8 +273,8 @@ func (e *Epoch) Start() error {
 	}
 	// Only init receiving messages once you have initialized the data structures required for it.
 	defer func() {
-		e.broadcastReplicationSync()
 		e.canReceiveMessages.Store(true)
+		e.broadcastReplicationSync()
 	}()
 	return e.restoreFromWal()
 }
