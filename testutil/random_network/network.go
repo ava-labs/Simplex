@@ -75,6 +75,7 @@ func (n *Network) StartInstances() {
 
 func (n *Network) Run() {
 	n.BasicInMemoryNetwork.StartInstances()
+	defer n.BasicInMemoryNetwork.StopInstances()
 
 	targetHeight := uint64(n.config.NumFinalizedBlocks)
 
@@ -82,14 +83,17 @@ func (n *Network) Run() {
 	for {
 		n.crashAndRecoverNodes()
 		txs := n.IssueTxs()
-		n.waitForTxAcceptance(txs)
-
-		// get the max height and ensure all nodes recover to that height
-		n.recoverToHeight(n.getMaxHeight())
 		maxHeight := n.getMaxHeight()
 		minHeight := n.getMinHeight()
-
 		n.logger.Info("Issued Transactions", zap.Int("count", len(txs)), zap.Uint64("min height", minHeight), zap.Uint64("max height", maxHeight))
+		n.waitForTxAcceptance(txs)
+
+		maxHeight = n.getMaxHeight()
+		minHeight = n.getMinHeight()
+		n.logger.Info("All issued transactions accepted", zap.Int("count", len(txs)), zap.Uint64("min height", minHeight), zap.Uint64("max height", maxHeight))
+		// get the max height and ensure all nodes recover to that height
+		n.recoverToHeight(n.getMaxHeight())
+
 		if prevHeight == int(maxHeight) {
 			panic(fmt.Sprintf(
 				"not supposed to be equal: prevHeight=%d, maxHeight=%d",
@@ -105,7 +109,8 @@ func (n *Network) Run() {
 		}
 	}
 
-	n.BasicInMemoryNetwork.StopInstances()
+	// if we have gotten this far, the test has succeeded so we can clear the log directory to save space
+	clearLogDirectory(n.config.LogDirectory)
 }
 
 func (n *Network) getMinHeightNodeID() simplex.NodeID {
@@ -185,10 +190,16 @@ func (n *Network) waitForTxAcceptance(txs []*TX) {
 		allAccepted := true
 		for _, node := range n.nodes {
 			if node.isCrashed.Load() {
+				fmt.Println("Node", node.E.ID, "is crashed, skipping acceptance check")
 				continue
 			}
 			if accepted := node.areTxsAccepted(txs); !accepted {
+				node.mempool.lock.Lock()
+				fmt.Println("Not all txs accepted yet by node", node.E.ID, "unaccepted txs in mempool", len(node.mempool.unacceptedTxs))
+				node.mempool.lock.Unlock()
 				allAccepted = false
+			} else {
+				fmt.Println("All txs accepted by node", node.E.ID)
 			}
 		}
 
@@ -197,6 +208,7 @@ func (n *Network) waitForTxAcceptance(txs []*TX) {
 		}
 
 		n.lock.Lock()
+		fmt.Println("Not all txs accepted yet, advancing time...")
 		n.BasicInMemoryNetwork.AdvanceTime(n.config.AdvanceTimeTickAmount)
 		n.lock.Unlock()
 	}
@@ -308,9 +320,8 @@ func (n *Network) PrintStatus() {
 }
 
 func (n *Network) crashNode(idx int) {
-	instance := n.nodes[idx]
-	instance.isCrashed.Store(true)
-	instance.Stop()
+	n.nodes[idx].isCrashed.Store(true)
+	n.nodes[idx].Stop()
 }
 
 func (n *Network) startNode(idx int) {

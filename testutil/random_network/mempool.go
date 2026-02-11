@@ -10,7 +10,10 @@ import (
 	"sync"
 
 	"github.com/ava-labs/simplex"
+	"go.uber.org/zap"
 )
+
+var emptyDigest = simplex.Digest{}
 
 var (
 	errAlreadyAccepted         = errors.New("tx already accepted")
@@ -28,8 +31,11 @@ type Mempool struct {
 	// block digest -> Blocks
 	verifiedButNotAcceptedTXs map[simplex.Digest]*Block
 
-	// txID -> struct{}
+	// fast lookup of accepted txs, could iterate over accepted blocks
 	acceptedTXs map[txID]struct{}
+
+	// all the blocks that have been accepted
+	acceptedBlocks map[simplex.Digest]*Block
 
 	lock     *sync.Mutex
 	txsReady chan struct{}
@@ -42,6 +48,7 @@ func NewMempool(l simplex.Logger, config *FuzzConfig) *Mempool {
 		unacceptedTxs:             make(map[txID]*TX),
 		verifiedButNotAcceptedTXs: make(map[simplex.Digest]*Block),
 		acceptedTXs:               make(map[txID]struct{}),
+		acceptedBlocks:            make(map[simplex.Digest]*Block),
 		lock:                      &sync.Mutex{},
 		txsReady:                  make(chan struct{}, 1),
 		logger:                    l,
@@ -69,12 +76,15 @@ func (m *Mempool) WaitForPendingTxs(ctx context.Context) {
 	for {
 		// Briefly check if txs are available
 		m.lock.Lock()
+		m.logger.Debug("Checking for pending txs in mempool", zap.Int("unacceptedTxs", len(m.unacceptedTxs)))
 		hasTxs := len(m.unacceptedTxs) > 0
 		m.lock.Unlock()
 
 		if hasTxs {
 			return
 		}
+
+		m.logger.Debug("No pending txs in mempool, waiting for txs to be added")
 
 		// No txs available, wait for notification or cancellation
 		select {
@@ -102,14 +112,6 @@ func (m *Mempool) PackBlock(ctx context.Context, maxTxs int) []*TX {
 	return txs
 }
 
-func (m *Mempool) VerifyMyBuiltBlock(ctx context.Context, b *Block) {
-	m.lock.Lock()
-	defer m.lock.Unlock()
-
-	// future function to verify blocks that shouldn't be
-	m.verifiedButNotAcceptedTXs[b.digest] = b
-}
-
 // VerifyBlock verifies the block and its transactions. Errors if any tx is invalid or if there are duplicate txs in the block.
 func (m *Mempool) VerifyBlock(ctx context.Context, b *Block) error {
 	m.lock.Lock()
@@ -117,6 +119,10 @@ func (m *Mempool) VerifyBlock(ctx context.Context, b *Block) error {
 	// ensure the block is not already verified
 	if _, exists := m.verifiedButNotAcceptedTXs[b.digest]; exists {
 		return fmt.Errorf("%w: %s", errDoubleBlockVerification, b.digest)
+	}
+
+	if parentInChain := m.isParentAcceptedOrVerified(b); !parentInChain {
+		return fmt.Errorf("parent block %s not accepted or verified for block %s", b.metadata.Prev, b.digest)
 	}
 
 	// assert there are no duplicate txs in the block
@@ -146,10 +152,28 @@ func (m *Mempool) VerifyBlock(ctx context.Context, b *Block) error {
 	return nil
 }
 
+func (m *Mempool) isParentAcceptedOrVerified(block *Block) bool {
+	if block.metadata.Prev == emptyDigest {
+		return true
+	}
+
+	_, exists := m.acceptedBlocks[block.metadata.Prev]
+	if exists {
+		return true
+	}
+
+	_, exists = m.verifiedButNotAcceptedTXs[block.metadata.Prev]
+	if exists {
+		return true
+	}
+
+	return false
+}
+
 // verifyTx verifies a single transaction against the mempool state and the block's chain.
 func (m *Mempool) verifyTx(ctx context.Context, tx *TX, block *Block) error {
 	if _, exists := m.acceptedTXs[tx.ID]; exists {
-		return errAlreadyAccepted
+		return fmt.Errorf("%w: %s", errAlreadyAccepted, tx.ID)
 	}
 
 	if m.isTxInChain(tx.ID, block.metadata.Prev) {
@@ -179,18 +203,54 @@ func (m *Mempool) AcceptBlock(b *Block) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 
+	m.acceptedBlocks[b.digest] = b
+
 	for _, tx := range b.txs {
 		m.acceptedTXs[tx.ID] = struct{}{}
 		delete(m.unacceptedTxs, tx.ID)
 	}
+
+	// delete any verified but not accepted blocks that are siblings or uncles and move not conflicting txs back to unaccepted
 	delete(m.verifiedButNotAcceptedTXs, b.digest)
+
+	siblings := []*Block{}
+	for _, verifiedBlock := range m.verifiedButNotAcceptedTXs {
+		if verifiedBlock.metadata.Prev == b.metadata.Prev {
+			siblings = append(siblings, verifiedBlock)
+			delete(m.verifiedButNotAcceptedTXs, verifiedBlock.digest)
+		}
+	}
+
+	for _, sibling := range siblings {
+		m.purgeChildren(sibling)
+	}
 }
 
-func (m *Mempool) NumVerifiedBlocks() int {
-	m.lock.Lock()
-	defer m.lock.Unlock()
+// go through any blocks that build off of this one and move their txs
+func (m *Mempool) purgeChildren(block *Block) {
+	for digest, verifiedBlock := range m.verifiedButNotAcceptedTXs {
+		if verifiedBlock.metadata.Prev == block.digest {
+			delete(m.verifiedButNotAcceptedTXs, digest)
+			m.moveTxsToUnaccepted(verifiedBlock)
+			m.purgeChildren(verifiedBlock)
+		}
+	}
 
-	return len(m.verifiedButNotAcceptedTXs)
+}
+
+func (m *Mempool) moveTxsToUnaccepted(block *Block) {
+	txMoved := false
+	for _, tx := range block.txs {
+		if _, exists := m.acceptedTXs[tx.ID]; !exists {
+			m.unacceptedTxs[tx.ID] = tx
+			txMoved = true
+		}
+	}
+
+	if txMoved {
+		m.logger.Debug("Moved txs from block back to unaccepted", zap.String("block digest", block.digest.String()), zap.Int("num txs moved", len(block.txs)))
+		m.txsReady <- struct{}{}
+	}
 }
 
 func (m *Mempool) BuildBlock(ctx context.Context, md simplex.ProtocolMetadata, bl simplex.Blacklist) (simplex.VerifiedBlock, bool) {
@@ -202,7 +262,13 @@ func (m *Mempool) BuildBlock(ctx context.Context, md simplex.ProtocolMetadata, b
 		return nil, false
 	}
 	block := NewBlock(md, bl, m, txs)
-	m.VerifyMyBuiltBlock(ctx, block)
+	m.logger.Debug("Built block with txs", zap.String("block digest", block.digest.String()), zap.Int("num txs", len(block.txs)), zap.Uint64("round", md.Round), zap.Uint64("seq", md.Seq))
+	// in the future we can create a malicious block but we need to ensure the number of crashed nodes in under the threshold f(since we cant tolerate more than f malicious nodes)
+	err := m.VerifyBlock(ctx, block)
+	if err != nil {
+		m.logger.Error("Failed to verify built block", zap.String("block digest", block.digest.String()), zap.Error(err))
+		return nil, false
+	}
 
 	return block, true
 }
@@ -232,6 +298,15 @@ func (m *Mempool) IsTxPending(txID txID) bool {
 func (m *Mempool) Clear() {
 	m.lock.Lock()
 	defer m.lock.Unlock()
+
+	// move all the transactions from verified to unaccepted, since we are clearing the mempool but the transactions are still valid and can be re-included in future blocks
+	for _, block := range m.verifiedButNotAcceptedTXs {
+		for _, tx := range block.txs {
+			if _, accepted := m.acceptedTXs[tx.ID]; !accepted {
+				m.unacceptedTxs[tx.ID] = tx
+			}
+		}
+	}
 
 	m.verifiedButNotAcceptedTXs = make(map[simplex.Digest]*Block)
 }
