@@ -16,7 +16,6 @@ type BasicScheduler struct {
 	closed  atomic.Bool
 	running sync.WaitGroup
 	tasks   chan Task
-	lock    sync.RWMutex
 }
 
 func NewScheduler(logger Logger, maxTasks uint64) *BasicScheduler {
@@ -38,9 +37,6 @@ func (as *BasicScheduler) Size() int {
 }
 
 func (as *BasicScheduler) Close() {
-	as.lock.RLock()
-	defer as.lock.RUnlock()
-
 	as.closed.Store(true)
 	close(as.tasks)
 	defer as.running.Wait()
@@ -59,9 +55,6 @@ func (as *BasicScheduler) run() {
 }
 
 func (as *BasicScheduler) Schedule(task Task) {
-	as.lock.RLock()
-	defer as.lock.RUnlock()
-
 	if as.closed.Load() {
 		return
 	}
