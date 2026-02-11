@@ -2061,7 +2061,6 @@ func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote)
 func (e *Epoch) createFinalizedBlockVerificationTask(block Block, finalization *Finalization) func() Digest {
 	return func() Digest {
 		md := block.BlockHeader()
-		round := e.round
 		e.Logger.Debug("Block verification started", zap.Uint64("round", md.Round))
 		start := time.Now()
 		defer func() {
@@ -2083,6 +2082,8 @@ func (e *Epoch) createFinalizedBlockVerificationTask(block Block, finalization *
 
 		e.lock.Lock()
 		defer e.lock.Unlock()
+
+		round := e.round
 
 		// we started verifying the block when it was the next sequence to commit, however its
 		// possible we received a finalization for this block in the meantime. This check ensures we commit
