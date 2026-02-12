@@ -45,6 +45,9 @@ func (as *BasicScheduler) Close() {
 	as.closed = true
 	close(as.tasks)
 	as.mu.Unlock()
+
+	// we cannot hold the lock while waiting for the scheduler to finish,
+	// otherwise [scheduler.schedule] will be blocked trying to acquire the lock
 	as.running.Wait()
 }
 
@@ -65,8 +68,9 @@ func (as *BasicScheduler) run() {
 
 func (as *BasicScheduler) Schedule(task Task) {
 	as.mu.Lock()
+	defer as.mu.Unlock()
+
 	if as.closed {
-		as.mu.Unlock()
 		return
 	}
 
@@ -76,7 +80,6 @@ func (as *BasicScheduler) Schedule(task Task) {
 	default:
 		as.logger.Warn("Scheduler task queue is full; task was not scheduled")
 	}
-	as.mu.Unlock()
 }
 
 type Task func() Digest
