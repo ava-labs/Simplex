@@ -1,0 +1,343 @@
+[02-12|10:16:55.497] INFO random_network/network.go:40 Initiating logger with random seed {"test": "TestNetworkSimpleFuzz", "seed": 1770220909588}
+[02-12|10:16:55.497] INFO random_network/network.go:51 Initiating logger with nodes {"test": "TestNetworkSimpleFuzz", "num nodes": 7}
+[02-12|10:16:55.516] INFO random_network/network.go:325 Crashing node {"test": "TestNetworkSimpleFuzz", "nodeID": "09c85c4d63ee811b"}
+[02-12|10:16:55.516] INFO random_network/network.go:265 Crashedg node {"test": "TestNetworkSimpleFuzz", "nodeID": "09c85c4d63ee811b"}
+[02-12|10:16:55.516] INFO random_network/network.go:271 Recovered and crashed nodes {"test": "TestNetworkSimpleFuzz", "crashed": ["09c85c4d63ee811b"], "recovered": [], "num crashed": 1}
+[02-12|10:16:55.516] INFO random_network/network.go:88 Issued Transactions {"test": "TestNetworkSimpleFuzz", "count": 9, "min height": 0, "max height": 0}
+[02-12|10:16:55.522] INFO random_network/network.go:93 All issued transactions accepted {"test": "TestNetworkSimpleFuzz", "count": 9, "min height": 0, "max height": 1}
+[02-12|10:16:55.522] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 1, "min height": 0, "max height": 1, "Smallest node ID": "09c85c4d63ee811b", "target height": 1}
+[02-12|10:16:55.522] INFO random_network/network.go:144 Recovering node {"test": "TestNetworkSimpleFuzz", "nodeID": "09c85c4d63ee811b"}
+[02-12|10:16:55.523] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 0, "max height": 1, "Smallest node ID": "09c85c4d63ee811b", "target height": 1}
+[02-12|10:16:55.523] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 0, "max height": 1, "Smallest node ID": "09c85c4d63ee811b", "target height": 1}
+[02-12|10:16:55.524] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 0, "max height": 1, "Smallest node ID": "09c85c4d63ee811b", "target height": 1}
+[02-12|10:16:55.524] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 0, "max height": 1, "Smallest node ID": "09c85c4d63ee811b", "target height": 1}
+[02-12|10:16:55.526] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 0, "max height": 1, "Smallest node ID": "09c85c4d63ee811b", "target height": 1}
+[02-12|10:16:55.526] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 0, "max height": 1, "Smallest node ID": "09c85c4d63ee811b", "target height": 1}
+[02-12|10:16:55.527] INFO random_network/network.go:88 Issued Transactions {"test": "TestNetworkSimpleFuzz", "count": 13, "min height": 1, "max height": 1}
+[02-12|10:16:55.539] INFO random_network/network.go:93 All issued transactions accepted {"test": "TestNetworkSimpleFuzz", "count": 13, "min height": 2, "max height": 3}
+[02-12|10:16:55.539] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 2, "max height": 3, "Smallest node ID": "09c85c4d63ee811b", "target height": 3}
+[02-12|10:16:55.539] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 2, "max height": 3, "Smallest node ID": "09c85c4d63ee811b", "target height": 3}
+[02-12|10:16:55.540] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 2, "max height": 3, "Smallest node ID": "09c85c4d63ee811b", "target height": 3}
+[02-12|10:16:55.540] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 2, "max height": 3, "Smallest node ID": "09c85c4d63ee811b", "target height": 3}
+[02-12|10:16:55.541] INFO random_network/network.go:88 Issued Transactions {"test": "TestNetworkSimpleFuzz", "count": 15, "min height": 3, "max height": 3}
+[02-12|10:16:55.549] INFO random_network/network.go:93 All issued transactions accepted {"test": "TestNetworkSimpleFuzz", "count": 15, "min height": 4, "max height": 4}
+[02-12|10:16:55.549] INFO random_network/network.go:88 Issued Transactions {"test": "TestNetworkSimpleFuzz", "count": 13, "min height": 4, "max height": 4}
+[02-12|10:16:55.558] INFO random_network/network.go:93 All issued transactions accepted {"test": "TestNetworkSimpleFuzz", "count": 13, "min height": 6, "max height": 6}
+[02-12|10:16:55.558] INFO random_network/network.go:88 Issued Transactions {"test": "TestNetworkSimpleFuzz", "count": 11, "min height": 6, "max height": 6}
+[02-12|10:16:55.570] INFO random_network/network.go:93 All issued transactions accepted {"test": "TestNetworkSimpleFuzz", "count": 11, "min height": 8, "max height": 8}
+[02-12|10:16:55.570] INFO random_network/network.go:325 Crashing node {"test": "TestNetworkSimpleFuzz", "nodeID": "09c85c4d63ee811b"}
+[02-12|10:16:55.571] INFO random_network/network.go:265 Crashedg node {"test": "TestNetworkSimpleFuzz", "nodeID": "09c85c4d63ee811b"}
+[02-12|10:16:55.571] INFO random_network/network.go:271 Recovered and crashed nodes {"test": "TestNetworkSimpleFuzz", "crashed": ["09c85c4d63ee811b"], "recovered": [], "num crashed": 1}
+[02-12|10:16:55.571] INFO random_network/network.go:88 Issued Transactions {"test": "TestNetworkSimpleFuzz", "count": 14, "min height": 8, "max height": 8}
+[02-12|10:16:55.580] INFO random_network/network.go:93 All issued transactions accepted {"test": "TestNetworkSimpleFuzz", "count": 14, "min height": 8, "max height": 10}
+[02-12|10:16:55.580] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 1, "min height": 8, "max height": 10, "Smallest node ID": "09c85c4d63ee811b", "target height": 10}
+[02-12|10:16:55.580] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 1, "min height": 8, "max height": 10, "Smallest node ID": "09c85c4d63ee811b", "target height": 10}
+[02-12|10:16:55.580] INFO random_network/network.go:144 Recovering node {"test": "TestNetworkSimpleFuzz", "nodeID": "09c85c4d63ee811b"}
+[02-12|10:16:55.587] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 9, "max height": 11, "Smallest node ID": "09c85c4d63ee811b", "target height": 10}
+[02-12|10:16:55.587] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 9, "max height": 11, "Smallest node ID": "09c85c4d63ee811b", "target height": 10}
+[02-12|10:16:55.589] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 10, "max height": 11, "Smallest node ID": "09c85c4d63ee811b", "target height": 10}
+[02-12|10:16:55.589] INFO random_network/network.go:325 Crashing node {"test": "TestNetworkSimpleFuzz", "nodeID": "041257f0604adf8a"}
+[02-12|10:16:55.589] INFO random_network/network.go:265 Crashedg node {"test": "TestNetworkSimpleFuzz", "nodeID": "041257f0604adf8a"}
+[02-12|10:16:55.589] INFO random_network/network.go:325 Crashing node {"test": "TestNetworkSimpleFuzz", "nodeID": "d3528b5fb936f1ce"}
+[02-12|10:16:55.589] INFO random_network/network.go:265 Crashedg node {"test": "TestNetworkSimpleFuzz", "nodeID": "d3528b5fb936f1ce"}
+[02-12|10:16:55.589] INFO random_network/network.go:271 Recovered and crashed nodes {"test": "TestNetworkSimpleFuzz", "crashed": ["041257f0604adf8a", "d3528b5fb936f1ce"], "recovered": [], "num crashed": 2}
+[02-12|10:16:55.590] INFO random_network/network.go:88 Issued Transactions {"test": "TestNetworkSimpleFuzz", "count": 9, "min height": 10, "max height": 11}
+[02-12|10:16:55.596] INFO random_network/network.go:93 All issued transactions accepted {"test": "TestNetworkSimpleFuzz", "count": 9, "min height": 11, "max height": 12}
+[02-12|10:16:55.596] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 2, "min height": 11, "max height": 12, "Smallest node ID": "041257f0604adf8a", "target height": 12}
+[02-12|10:16:55.596] INFO random_network/network.go:144 Recovering node {"test": "TestNetworkSimpleFuzz", "nodeID": "d3528b5fb936f1ce"}
+[02-12|10:16:55.603] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 1, "min height": 11, "max height": 12, "Smallest node ID": "041257f0604adf8a", "target height": 12}
+[02-12|10:16:55.604] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 1, "min height": 11, "max height": 12, "Smallest node ID": "041257f0604adf8a", "target height": 12}
+[02-12|10:16:55.604] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 1, "min height": 11, "max height": 12, "Smallest node ID": "041257f0604adf8a", "target height": 12}
+[02-12|10:16:55.605] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 1, "min height": 11, "max height": 12, "Smallest node ID": "041257f0604adf8a", "target height": 12}
+[02-12|10:16:55.605] INFO random_network/network.go:144 Recovering node {"test": "TestNetworkSimpleFuzz", "nodeID": "041257f0604adf8a"}
+[02-12|10:16:55.610] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 11, "max height": 12, "Smallest node ID": "041257f0604adf8a", "target height": 12}
+[02-12|10:16:55.610] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 11, "max height": 12, "Smallest node ID": "041257f0604adf8a", "target height": 12}
+[02-12|10:16:55.614] INFO random_network/network.go:325 Crashing node {"test": "TestNetworkSimpleFuzz", "nodeID": "fd2caea058c4d726"}
+[02-12|10:16:55.614] INFO random_network/network.go:265 Crashedg node {"test": "TestNetworkSimpleFuzz", "nodeID": "fd2caea058c4d726"}
+[02-12|10:16:55.614] INFO random_network/network.go:271 Recovered and crashed nodes {"test": "TestNetworkSimpleFuzz", "crashed": ["fd2caea058c4d726"], "recovered": [], "num crashed": 1}
+[02-12|10:16:55.614] INFO random_network/network.go:88 Issued Transactions {"test": "TestNetworkSimpleFuzz", "count": 11, "min height": 12, "max height": 12}
+[02-12|10:16:55.622] INFO random_network/network.go:93 All issued transactions accepted {"test": "TestNetworkSimpleFuzz", "count": 11, "min height": 12, "max height": 13}
+[02-12|10:16:55.622] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 1, "min height": 12, "max height": 13, "Smallest node ID": "fd2caea058c4d726", "target height": 13}
+[02-12|10:16:55.622] INFO random_network/network.go:144 Recovering node {"test": "TestNetworkSimpleFuzz", "nodeID": "fd2caea058c4d726"}
+[02-12|10:16:55.629] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 12, "max height": 14, "Smallest node ID": "fd2caea058c4d726", "target height": 13}
+[02-12|10:16:55.630] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 12, "max height": 14, "Smallest node ID": "fd2caea058c4d726", "target height": 13}
+[02-12|10:16:55.630] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 12, "max height": 14, "Smallest node ID": "fd2caea058c4d726", "target height": 13}
+[02-12|10:16:55.631] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 12, "max height": 14, "Smallest node ID": "fd2caea058c4d726", "target height": 13}
+[02-12|10:16:55.631] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 12, "max height": 14, "Smallest node ID": "fd2caea058c4d726", "target height": 13}
+[02-12|10:16:55.631] INFO random_network/network.go:88 Issued Transactions {"test": "TestNetworkSimpleFuzz", "count": 15, "min height": 13, "max height": 14}
+[02-12|10:16:55.639] INFO random_network/network.go:93 All issued transactions accepted {"test": "TestNetworkSimpleFuzz", "count": 15, "min height": 15, "max height": 15}
+[02-12|10:16:55.639] INFO random_network/network.go:88 Issued Transactions {"test": "TestNetworkSimpleFuzz", "count": 17, "min height": 15, "max height": 15}
+[02-12|10:16:55.658] INFO random_network/network.go:93 All issued transactions accepted {"test": "TestNetworkSimpleFuzz", "count": 17, "min height": 18, "max height": 18}
+[02-12|10:16:55.658] INFO random_network/network.go:325 Crashing node {"test": "TestNetworkSimpleFuzz", "nodeID": "09c85c4d63ee811b"}
+[02-12|10:16:55.659] INFO random_network/network.go:265 Crashedg node {"test": "TestNetworkSimpleFuzz", "nodeID": "09c85c4d63ee811b"}
+[02-12|10:16:55.659] INFO random_network/network.go:271 Recovered and crashed nodes {"test": "TestNetworkSimpleFuzz", "crashed": ["09c85c4d63ee811b"], "recovered": [], "num crashed": 1}
+[02-12|10:16:55.659] INFO random_network/network.go:88 Issued Transactions {"test": "TestNetworkSimpleFuzz", "count": 12, "min height": 18, "max height": 18}
+[02-12|10:16:55.674] INFO random_network/network.go:93 All issued transactions accepted {"test": "TestNetworkSimpleFuzz", "count": 12, "min height": 18, "max height": 20}
+[02-12|10:16:55.674] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 1, "min height": 18, "max height": 20, "Smallest node ID": "09c85c4d63ee811b", "target height": 20}
+[02-12|10:16:55.677] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 1, "min height": 18, "max height": 21, "Smallest node ID": "09c85c4d63ee811b", "target height": 20}
+[02-12|10:16:55.679] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 1, "min height": 18, "max height": 21, "Smallest node ID": "09c85c4d63ee811b", "target height": 20}
+[02-12|10:16:55.679] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 1, "min height": 18, "max height": 21, "Smallest node ID": "09c85c4d63ee811b", "target height": 20}
+[02-12|10:16:55.679] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 1, "min height": 18, "max height": 21, "Smallest node ID": "09c85c4d63ee811b", "target height": 20}
+[02-12|10:16:55.679] INFO random_network/network.go:144 Recovering node {"test": "TestNetworkSimpleFuzz", "nodeID": "09c85c4d63ee811b"}
+[02-12|10:16:55.686] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 18, "max height": 21, "Smallest node ID": "09c85c4d63ee811b", "target height": 20}
+[02-12|10:16:55.686] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 18, "max height": 21, "Smallest node ID": "09c85c4d63ee811b", "target height": 20}
+[02-12|10:16:55.688] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 19, "max height": 21, "Smallest node ID": "09c85c4d63ee811b", "target height": 20}
+[02-12|10:16:55.688] INFO random_network/network.go:325 Crashing node {"test": "TestNetworkSimpleFuzz", "nodeID": "09c85c4d63ee811b"}
+[02-12|10:16:55.688] INFO random_network/network.go:265 Crashedg node {"test": "TestNetworkSimpleFuzz", "nodeID": "09c85c4d63ee811b"}
+[02-12|10:16:55.688] INFO random_network/network.go:271 Recovered and crashed nodes {"test": "TestNetworkSimpleFuzz", "crashed": ["09c85c4d63ee811b"], "recovered": [], "num crashed": 1}
+[02-12|10:16:55.689] INFO random_network/network.go:88 Issued Transactions {"test": "TestNetworkSimpleFuzz", "count": 18, "min height": 20, "max height": 21}
+[02-12|10:16:55.706] INFO random_network/network.go:93 All issued transactions accepted {"test": "TestNetworkSimpleFuzz", "count": 18, "min height": 20, "max height": 24}
+[02-12|10:16:55.706] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 1, "min height": 20, "max height": 24, "Smallest node ID": "09c85c4d63ee811b", "target height": 24}
+[02-12|10:16:55.706] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 1, "min height": 20, "max height": 24, "Smallest node ID": "09c85c4d63ee811b", "target height": 24}
+[02-12|10:16:55.706] INFO random_network/network.go:144 Recovering node {"test": "TestNetworkSimpleFuzz", "nodeID": "09c85c4d63ee811b"}
+[02-12|10:16:55.713] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 20, "max height": 24, "Smallest node ID": "09c85c4d63ee811b", "target height": 24}
+[02-12|10:16:55.713] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 20, "max height": 24, "Smallest node ID": "09c85c4d63ee811b", "target height": 24}
+[02-12|10:16:55.715] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 21, "max height": 24, "Smallest node ID": "09c85c4d63ee811b", "target height": 24}
+[02-12|10:16:55.715] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 22, "max height": 24, "Smallest node ID": "09c85c4d63ee811b", "target height": 24}
+[02-12|10:16:55.715] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 22, "max height": 24, "Smallest node ID": "09c85c4d63ee811b", "target height": 24}
+[02-12|10:16:55.715] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 23, "max height": 24, "Smallest node ID": "09c85c4d63ee811b", "target height": 24}
+[02-12|10:16:55.716] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 23, "max height": 24, "Smallest node ID": "09c85c4d63ee811b", "target height": 24}
+[02-12|10:16:55.716] INFO random_network/network.go:88 Issued Transactions {"test": "TestNetworkSimpleFuzz", "count": 18, "min height": 24, "max height": 24}
+[02-12|10:16:55.733] INFO random_network/network.go:93 All issued transactions accepted {"test": "TestNetworkSimpleFuzz", "count": 18, "min height": 26, "max height": 27}
+[02-12|10:16:55.733] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 26, "max height": 27, "Smallest node ID": "09c85c4d63ee811b", "target height": 27}
+[02-12|10:16:55.735] INFO random_network/network.go:325 Crashing node {"test": "TestNetworkSimpleFuzz", "nodeID": "fd2caea058c4d726"}
+[02-12|10:16:55.735] INFO random_network/network.go:265 Crashedg node {"test": "TestNetworkSimpleFuzz", "nodeID": "fd2caea058c4d726"}
+[02-12|10:16:55.735] INFO random_network/network.go:271 Recovered and crashed nodes {"test": "TestNetworkSimpleFuzz", "crashed": ["fd2caea058c4d726"], "recovered": [], "num crashed": 1}
+[02-12|10:16:55.735] INFO random_network/network.go:88 Issued Transactions {"test": "TestNetworkSimpleFuzz", "count": 18, "min height": 27, "max height": 27}
+[02-12|10:16:55.745] INFO random_network/network.go:93 All issued transactions accepted {"test": "TestNetworkSimpleFuzz", "count": 18, "min height": 27, "max height": 29}
+[02-12|10:16:55.745] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 1, "min height": 27, "max height": 29, "Smallest node ID": "fd2caea058c4d726", "target height": 29}
+[02-12|10:16:55.745] INFO random_network/network.go:144 Recovering node {"test": "TestNetworkSimpleFuzz", "nodeID": "fd2caea058c4d726"}
+[02-12|10:16:55.754] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 27, "max height": 29, "Smallest node ID": "fd2caea058c4d726", "target height": 29}
+[02-12|10:16:55.754] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 28, "max height": 29, "Smallest node ID": "fd2caea058c4d726", "target height": 29}
+[02-12|10:16:55.755] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 28, "max height": 29, "Smallest node ID": "fd2caea058c4d726", "target height": 29}
+[02-12|10:16:55.755] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 28, "max height": 29, "Smallest node ID": "fd2caea058c4d726", "target height": 29}
+[02-12|10:16:55.757] INFO random_network/network.go:325 Crashing node {"test": "TestNetworkSimpleFuzz", "nodeID": "ca94e405b0a2cae2"}
+[02-12|10:16:55.757] INFO random_network/network.go:265 Crashedg node {"test": "TestNetworkSimpleFuzz", "nodeID": "ca94e405b0a2cae2"}
+[02-12|10:16:55.757] INFO random_network/network.go:271 Recovered and crashed nodes {"test": "TestNetworkSimpleFuzz", "crashed": ["ca94e405b0a2cae2"], "recovered": [], "num crashed": 1}
+[02-12|10:16:55.758] INFO random_network/network.go:88 Issued Transactions {"test": "TestNetworkSimpleFuzz", "count": 13, "min height": 29, "max height": 29}
+[02-12|10:16:55.763] INFO random_network/network.go:93 All issued transactions accepted {"test": "TestNetworkSimpleFuzz", "count": 13, "min height": 29, "max height": 30}
+[02-12|10:16:55.763] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 1, "min height": 29, "max height": 30, "Smallest node ID": "ca94e405b0a2cae2", "target height": 30}
+[02-12|10:16:55.763] INFO random_network/network.go:144 Recovering node {"test": "TestNetworkSimpleFuzz", "nodeID": "ca94e405b0a2cae2"}
+[02-12|10:16:55.774] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 29, "max height": 31, "Smallest node ID": "ca94e405b0a2cae2", "target height": 30}
+[02-12|10:16:55.775] INFO random_network/network.go:325 Crashing node {"test": "TestNetworkSimpleFuzz", "nodeID": "ec5e4a824a34e4fd"}
+[02-12|10:16:55.775] INFO random_network/network.go:265 Crashedg node {"test": "TestNetworkSimpleFuzz", "nodeID": "ec5e4a824a34e4fd"}
+[02-12|10:16:55.775] INFO random_network/network.go:271 Recovered and crashed nodes {"test": "TestNetworkSimpleFuzz", "crashed": ["ec5e4a824a34e4fd"], "recovered": [], "num crashed": 1}
+[02-12|10:16:55.775] INFO random_network/network.go:88 Issued Transactions {"test": "TestNetworkSimpleFuzz", "count": 11, "min height": 30, "max height": 31}
+[02-12|10:16:55.781] INFO random_network/network.go:93 All issued transactions accepted {"test": "TestNetworkSimpleFuzz", "count": 11, "min height": 31, "max height": 32}
+[02-12|10:16:55.781] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 1, "min height": 31, "max height": 32, "Smallest node ID": "ec5e4a824a34e4fd", "target height": 32}
+[02-12|10:16:55.782] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 1, "min height": 31, "max height": 32, "Smallest node ID": "ec5e4a824a34e4fd", "target height": 32}
+[02-12|10:16:55.784] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 1, "min height": 31, "max height": 33, "Smallest node ID": "ec5e4a824a34e4fd", "target height": 32}
+[02-12|10:16:55.784] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 1, "min height": 31, "max height": 33, "Smallest node ID": "ec5e4a824a34e4fd", "target height": 32}
+[02-12|10:16:55.784] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 1, "min height": 31, "max height": 33, "Smallest node ID": "ec5e4a824a34e4fd", "target height": 32}
+[02-12|10:16:55.784] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 1, "min height": 31, "max height": 33, "Smallest node ID": "ec5e4a824a34e4fd", "target height": 32}
+[02-12|10:16:55.785] INFO random_network/network.go:144 Recovering node {"test": "TestNetworkSimpleFuzz", "nodeID": "ec5e4a824a34e4fd"}
+[02-12|10:16:55.796] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 31, "max height": 33, "Smallest node ID": "ec5e4a824a34e4fd", "target height": 32}
+[02-12|10:16:55.796] INFO random_network/network.go:88 Issued Transactions {"test": "TestNetworkSimpleFuzz", "count": 7, "min height": 32, "max height": 33}
+[02-12|10:16:55.803] INFO random_network/network.go:93 All issued transactions accepted {"test": "TestNetworkSimpleFuzz", "count": 7, "min height": 34, "max height": 34}
+[02-12|10:16:55.803] INFO random_network/network.go:325 Crashing node {"test": "TestNetworkSimpleFuzz", "nodeID": "041257f0604adf8a"}
+[02-12|10:16:55.803] INFO random_network/network.go:265 Crashedg node {"test": "TestNetworkSimpleFuzz", "nodeID": "041257f0604adf8a"}
+[02-12|10:16:55.803] INFO random_network/network.go:325 Crashing node {"test": "TestNetworkSimpleFuzz", "nodeID": "fd2caea058c4d726"}
+[02-12|10:16:55.803] INFO random_network/network.go:265 Crashedg node {"test": "TestNetworkSimpleFuzz", "nodeID": "fd2caea058c4d726"}
+[02-12|10:16:55.804] INFO random_network/network.go:271 Recovered and crashed nodes {"test": "TestNetworkSimpleFuzz", "crashed": ["041257f0604adf8a", "fd2caea058c4d726"], "recovered": [], "num crashed": 2}
+[02-12|10:16:55.804] INFO random_network/network.go:88 Issued Transactions {"test": "TestNetworkSimpleFuzz", "count": 20, "min height": 34, "max height": 34}
+[02-12|10:16:55.822] INFO random_network/network.go:93 All issued transactions accepted {"test": "TestNetworkSimpleFuzz", "count": 20, "min height": 34, "max height": 37}
+[02-12|10:16:55.822] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 2, "min height": 34, "max height": 37, "Smallest node ID": "041257f0604adf8a", "target height": 37}
+[02-12|10:16:55.822] INFO random_network/network.go:144 Recovering node {"test": "TestNetworkSimpleFuzz", "nodeID": "041257f0604adf8a"}
+[02-12|10:16:55.833] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 1, "min height": 34, "max height": 38, "Smallest node ID": "041257f0604adf8a", "target height": 37}
+[02-12|10:16:55.833] INFO random_network/network.go:144 Recovering node {"test": "TestNetworkSimpleFuzz", "nodeID": "fd2caea058c4d726"}
+[02-12|10:16:55.844] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 34, "max height": 38, "Smallest node ID": "fd2caea058c4d726", "target height": 37}
+[02-12|10:16:55.844] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 34, "max height": 38, "Smallest node ID": "fd2caea058c4d726", "target height": 37}
+[02-12|10:16:55.844] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 34, "max height": 38, "Smallest node ID": "fd2caea058c4d726", "target height": 37}
+[02-12|10:16:55.844] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 34, "max height": 38, "Smallest node ID": "fd2caea058c4d726", "target height": 37}
+[02-12|10:16:55.845] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 35, "max height": 38, "Smallest node ID": "fd2caea058c4d726", "target height": 37}
+[02-12|10:16:55.845] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 36, "max height": 38, "Smallest node ID": "fd2caea058c4d726", "target height": 37}
+[02-12|10:16:55.846] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 36, "max height": 38, "Smallest node ID": "fd2caea058c4d726", "target height": 37}
+[02-12|10:16:55.846] INFO random_network/network.go:88 Issued Transactions {"test": "TestNetworkSimpleFuzz", "count": 11, "min height": 37, "max height": 38}
+[02-12|10:16:55.854] INFO random_network/network.go:93 All issued transactions accepted {"test": "TestNetworkSimpleFuzz", "count": 11, "min height": 39, "max height": 39}
+[02-12|10:16:55.854] INFO random_network/network.go:88 Issued Transactions {"test": "TestNetworkSimpleFuzz", "count": 11, "min height": 39, "max height": 39}
+[02-12|10:16:55.871] INFO random_network/network.go:93 All issued transactions accepted {"test": "TestNetworkSimpleFuzz", "count": 11, "min height": 41, "max height": 42}
+[02-12|10:16:55.871] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 41, "max height": 42, "Smallest node ID": "fd2caea058c4d726", "target height": 42}
+[02-12|10:16:55.871] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 41, "max height": 42, "Smallest node ID": "fd2caea058c4d726", "target height": 42}
+[02-12|10:16:55.873] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 41, "max height": 42, "Smallest node ID": "fd2caea058c4d726", "target height": 42}
+[02-12|10:16:55.873] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 41, "max height": 42, "Smallest node ID": "fd2caea058c4d726", "target height": 42}
+[02-12|10:16:55.874] INFO random_network/network.go:325 Crashing node {"test": "TestNetworkSimpleFuzz", "nodeID": "041257f0604adf8a"}
+[02-12|10:16:55.874] INFO random_network/network.go:265 Crashedg node {"test": "TestNetworkSimpleFuzz", "nodeID": "041257f0604adf8a"}
+[02-12|10:16:55.874] INFO random_network/network.go:325 Crashing node {"test": "TestNetworkSimpleFuzz", "nodeID": "09c85c4d63ee811b"}
+[02-12|10:16:55.874] INFO random_network/network.go:265 Crashedg node {"test": "TestNetworkSimpleFuzz", "nodeID": "09c85c4d63ee811b"}
+[02-12|10:16:55.874] INFO random_network/network.go:271 Recovered and crashed nodes {"test": "TestNetworkSimpleFuzz", "crashed": ["041257f0604adf8a", "09c85c4d63ee811b"], "recovered": [], "num crashed": 2}
+[02-12|10:16:55.875] INFO random_network/network.go:88 Issued Transactions {"test": "TestNetworkSimpleFuzz", "count": 6, "min height": 42, "max height": 42}
+[02-12|10:16:55.879] INFO random_network/network.go:93 All issued transactions accepted {"test": "TestNetworkSimpleFuzz", "count": 6, "min height": 42, "max height": 43}
+[02-12|10:16:55.879] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 2, "min height": 42, "max height": 43, "Smallest node ID": "041257f0604adf8a", "target height": 43}
+[02-12|10:16:55.879] INFO random_network/network.go:144 Recovering node {"test": "TestNetworkSimpleFuzz", "nodeID": "041257f0604adf8a"}
+[02-12|10:16:55.891] INFO random_network/network.go:144 Recovering node {"test": "TestNetworkSimpleFuzz", "nodeID": "09c85c4d63ee811b"}
+[02-12|10:16:55.902] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 42, "max height": 44, "Smallest node ID": "09c85c4d63ee811b", "target height": 43}
+[02-12|10:16:55.902] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 42, "max height": 44, "Smallest node ID": "09c85c4d63ee811b", "target height": 43}
+[02-12|10:16:55.903] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 42, "max height": 44, "Smallest node ID": "09c85c4d63ee811b", "target height": 43}
+[02-12|10:16:55.903] INFO random_network/network.go:325 Crashing node {"test": "TestNetworkSimpleFuzz", "nodeID": "09c85c4d63ee811b"}
+[02-12|10:16:55.904] INFO random_network/network.go:265 Crashedg node {"test": "TestNetworkSimpleFuzz", "nodeID": "09c85c4d63ee811b"}
+[02-12|10:16:55.904] INFO random_network/network.go:325 Crashing node {"test": "TestNetworkSimpleFuzz", "nodeID": "a6c8b9737a21ec61"}
+[02-12|10:16:55.904] INFO random_network/network.go:265 Crashedg node {"test": "TestNetworkSimpleFuzz", "nodeID": "a6c8b9737a21ec61"}
+[02-12|10:16:55.904] INFO random_network/network.go:271 Recovered and crashed nodes {"test": "TestNetworkSimpleFuzz", "crashed": ["09c85c4d63ee811b", "a6c8b9737a21ec61"], "recovered": [], "num crashed": 2}
+[02-12|10:16:55.904] INFO random_network/network.go:88 Issued Transactions {"test": "TestNetworkSimpleFuzz", "count": 5, "min height": 43, "max height": 44}
+[02-12|10:16:55.910] INFO random_network/network.go:93 All issued transactions accepted {"test": "TestNetworkSimpleFuzz", "count": 5, "min height": 43, "max height": 45}
+[02-12|10:16:55.910] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 2, "min height": 43, "max height": 45, "Smallest node ID": "09c85c4d63ee811b", "target height": 45}
+[02-12|10:16:55.910] INFO random_network/network.go:144 Recovering node {"test": "TestNetworkSimpleFuzz", "nodeID": "09c85c4d63ee811b"}
+[02-12|10:16:55.921] INFO random_network/network.go:144 Recovering node {"test": "TestNetworkSimpleFuzz", "nodeID": "a6c8b9737a21ec61"}
+[02-12|10:16:55.934] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 44, "max height": 45, "Smallest node ID": "a6c8b9737a21ec61", "target height": 45}
+[02-12|10:16:55.934] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 44, "max height": 45, "Smallest node ID": "a6c8b9737a21ec61", "target height": 45}
+[02-12|10:16:55.938] INFO random_network/network.go:88 Issued Transactions {"test": "TestNetworkSimpleFuzz", "count": 5, "min height": 45, "max height": 45}
+[02-12|10:16:55.943] INFO random_network/network.go:93 All issued transactions accepted {"test": "TestNetworkSimpleFuzz", "count": 5, "min height": 46, "max height": 46}
+[02-12|10:16:55.943] INFO random_network/network.go:88 Issued Transactions {"test": "TestNetworkSimpleFuzz", "count": 5, "min height": 46, "max height": 46}
+[02-12|10:16:55.952] INFO random_network/network.go:93 All issued transactions accepted {"test": "TestNetworkSimpleFuzz", "count": 5, "min height": 48, "max height": 48}
+[02-12|10:16:55.952] INFO random_network/network.go:325 Crashing node {"test": "TestNetworkSimpleFuzz", "nodeID": "ca94e405b0a2cae2"}
+[02-12|10:16:55.952] INFO random_network/network.go:265 Crashedg node {"test": "TestNetworkSimpleFuzz", "nodeID": "ca94e405b0a2cae2"}
+[02-12|10:16:55.952] INFO random_network/network.go:325 Crashing node {"test": "TestNetworkSimpleFuzz", "nodeID": "d3528b5fb936f1ce"}
+[02-12|10:16:55.954] INFO random_network/network.go:265 Crashedg node {"test": "TestNetworkSimpleFuzz", "nodeID": "d3528b5fb936f1ce"}
+[02-12|10:16:55.954] INFO random_network/network.go:271 Recovered and crashed nodes {"test": "TestNetworkSimpleFuzz", "crashed": ["ca94e405b0a2cae2", "d3528b5fb936f1ce"], "recovered": [], "num crashed": 2}
+[02-12|10:16:55.954] INFO random_network/network.go:88 Issued Transactions {"test": "TestNetworkSimpleFuzz", "count": 5, "min height": 48, "max height": 48}
+[02-12|10:16:55.964] INFO random_network/network.go:93 All issued transactions accepted {"test": "TestNetworkSimpleFuzz", "count": 5, "min height": 48, "max height": 50}
+[02-12|10:16:55.964] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 2, "min height": 48, "max height": 50, "Smallest node ID": "ca94e405b0a2cae2", "target height": 50}
+[02-12|10:16:55.964] INFO random_network/network.go:144 Recovering node {"test": "TestNetworkSimpleFuzz", "nodeID": "ca94e405b0a2cae2"}
+[02-12|10:16:55.980] INFO random_network/network.go:144 Recovering node {"test": "TestNetworkSimpleFuzz", "nodeID": "d3528b5fb936f1ce"}
+[02-12|10:16:55.995] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 48, "max height": 51, "Smallest node ID": "d3528b5fb936f1ce", "target height": 50}
+[02-12|10:16:55.995] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 48, "max height": 51, "Smallest node ID": "d3528b5fb936f1ce", "target height": 50}
+[02-12|10:16:55.997] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 49, "max height": 51, "Smallest node ID": "d3528b5fb936f1ce", "target height": 50}
+[02-12|10:16:55.997] INFO random_network/network.go:88 Issued Transactions {"test": "TestNetworkSimpleFuzz", "count": 9, "min height": 50, "max height": 51}
+[02-12|10:16:56.003] INFO random_network/network.go:93 All issued transactions accepted {"test": "TestNetworkSimpleFuzz", "count": 9, "min height": 52, "max height": 52}
+[02-12|10:16:56.003] INFO random_network/network.go:88 Issued Transactions {"test": "TestNetworkSimpleFuzz", "count": 10, "min height": 52, "max height": 52}
+[02-12|10:16:56.012] INFO random_network/network.go:93 All issued transactions accepted {"test": "TestNetworkSimpleFuzz", "count": 10, "min height": 54, "max height": 54}
+[02-12|10:16:56.012] INFO random_network/network.go:88 Issued Transactions {"test": "TestNetworkSimpleFuzz", "count": 5, "min height": 54, "max height": 54}
+[02-12|10:16:56.023] INFO random_network/network.go:93 All issued transactions accepted {"test": "TestNetworkSimpleFuzz", "count": 5, "min height": 56, "max height": 56}
+[02-12|10:16:56.023] INFO random_network/network.go:325 Crashing node {"test": "TestNetworkSimpleFuzz", "nodeID": "09c85c4d63ee811b"}
+[02-12|10:16:56.023] INFO random_network/network.go:265 Crashedg node {"test": "TestNetworkSimpleFuzz", "nodeID": "09c85c4d63ee811b"}
+[02-12|10:16:56.024] INFO random_network/network.go:325 Crashing node {"test": "TestNetworkSimpleFuzz", "nodeID": "a6c8b9737a21ec61"}
+[02-12|10:16:56.024] INFO random_network/network.go:265 Crashedg node {"test": "TestNetworkSimpleFuzz", "nodeID": "a6c8b9737a21ec61"}
+[02-12|10:16:56.024] INFO random_network/network.go:271 Recovered and crashed nodes {"test": "TestNetworkSimpleFuzz", "crashed": ["09c85c4d63ee811b", "a6c8b9737a21ec61"], "recovered": [], "num crashed": 2}
+[02-12|10:16:56.024] INFO random_network/network.go:88 Issued Transactions {"test": "TestNetworkSimpleFuzz", "count": 13, "min height": 56, "max height": 56}
+[02-12|10:16:56.031] INFO random_network/network.go:93 All issued transactions accepted {"test": "TestNetworkSimpleFuzz", "count": 13, "min height": 56, "max height": 58}
+[02-12|10:16:56.031] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 2, "min height": 56, "max height": 58, "Smallest node ID": "09c85c4d63ee811b", "target height": 58}
+[02-12|10:16:56.031] INFO random_network/network.go:144 Recovering node {"test": "TestNetworkSimpleFuzz", "nodeID": "a6c8b9737a21ec61"}
+[02-12|10:16:56.048] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 1, "min height": 56, "max height": 58, "Smallest node ID": "09c85c4d63ee811b", "target height": 58}
+[02-12|10:16:56.049] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 1, "min height": 56, "max height": 58, "Smallest node ID": "09c85c4d63ee811b", "target height": 58}
+[02-12|10:16:56.049] INFO random_network/network.go:144 Recovering node {"test": "TestNetworkSimpleFuzz", "nodeID": "09c85c4d63ee811b"}
+[02-12|10:16:56.062] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 56, "max height": 58, "Smallest node ID": "09c85c4d63ee811b", "target height": 58}
+[02-12|10:16:56.062] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 56, "max height": 58, "Smallest node ID": "09c85c4d63ee811b", "target height": 58}
+[02-12|10:16:56.062] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 56, "max height": 58, "Smallest node ID": "09c85c4d63ee811b", "target height": 58}
+[02-12|10:16:56.063] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 56, "max height": 58, "Smallest node ID": "09c85c4d63ee811b", "target height": 58}
+[02-12|10:16:56.063] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 56, "max height": 58, "Smallest node ID": "09c85c4d63ee811b", "target height": 58}
+[02-12|10:16:56.064] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 56, "max height": 58, "Smallest node ID": "09c85c4d63ee811b", "target height": 58}
+[02-12|10:16:56.065] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 57, "max height": 58, "Smallest node ID": "09c85c4d63ee811b", "target height": 58}
+[02-12|10:16:56.065] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 57, "max height": 58, "Smallest node ID": "09c85c4d63ee811b", "target height": 58}
+[02-12|10:16:56.065] INFO random_network/network.go:88 Issued Transactions {"test": "TestNetworkSimpleFuzz", "count": 8, "min height": 58, "max height": 58}
+[02-12|10:16:56.074] INFO random_network/network.go:93 All issued transactions accepted {"test": "TestNetworkSimpleFuzz", "count": 8, "min height": 59, "max height": 59}
+[02-12|10:16:56.074] INFO random_network/network.go:325 Crashing node {"test": "TestNetworkSimpleFuzz", "nodeID": "d3528b5fb936f1ce"}
+[02-12|10:16:56.075] INFO random_network/network.go:265 Crashedg node {"test": "TestNetworkSimpleFuzz", "nodeID": "d3528b5fb936f1ce"}
+[02-12|10:16:56.075] INFO random_network/network.go:271 Recovered and crashed nodes {"test": "TestNetworkSimpleFuzz", "crashed": ["d3528b5fb936f1ce"], "recovered": [], "num crashed": 1}
+[02-12|10:16:56.075] INFO random_network/network.go:88 Issued Transactions {"test": "TestNetworkSimpleFuzz", "count": 13, "min height": 59, "max height": 59}
+[02-12|10:16:56.090] INFO random_network/network.go:93 All issued transactions accepted {"test": "TestNetworkSimpleFuzz", "count": 13, "min height": 59, "max height": 62}
+[02-12|10:16:56.090] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 1, "min height": 59, "max height": 62, "Smallest node ID": "d3528b5fb936f1ce", "target height": 62}
+[02-12|10:16:56.090] INFO random_network/network.go:144 Recovering node {"test": "TestNetworkSimpleFuzz", "nodeID": "d3528b5fb936f1ce"}
+[02-12|10:16:56.108] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 59, "max height": 62, "Smallest node ID": "d3528b5fb936f1ce", "target height": 62}
+[02-12|10:16:56.108] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 59, "max height": 62, "Smallest node ID": "d3528b5fb936f1ce", "target height": 62}
+[02-12|10:16:56.109] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 61, "max height": 62, "Smallest node ID": "d3528b5fb936f1ce", "target height": 62}
+[02-12|10:16:56.109] INFO random_network/network.go:88 Issued Transactions {"test": "TestNetworkSimpleFuzz", "count": 14, "min height": 62, "max height": 62}
+[02-12|10:16:56.115] INFO random_network/network.go:93 All issued transactions accepted {"test": "TestNetworkSimpleFuzz", "count": 14, "min height": 63, "max height": 63}
+[02-12|10:16:56.115] INFO random_network/network.go:88 Issued Transactions {"test": "TestNetworkSimpleFuzz", "count": 17, "min height": 63, "max height": 63}
+[02-12|10:16:56.128] INFO random_network/network.go:93 All issued transactions accepted {"test": "TestNetworkSimpleFuzz", "count": 17, "min height": 66, "max height": 66}
+[02-12|10:16:56.128] INFO random_network/network.go:325 Crashing node {"test": "TestNetworkSimpleFuzz", "nodeID": "ec5e4a824a34e4fd"}
+[02-12|10:16:56.128] INFO random_network/network.go:265 Crashedg node {"test": "TestNetworkSimpleFuzz", "nodeID": "ec5e4a824a34e4fd"}
+[02-12|10:16:56.128] INFO random_network/network.go:271 Recovered and crashed nodes {"test": "TestNetworkSimpleFuzz", "crashed": ["ec5e4a824a34e4fd"], "recovered": [], "num crashed": 1}
+[02-12|10:16:56.129] INFO random_network/network.go:88 Issued Transactions {"test": "TestNetworkSimpleFuzz", "count": 18, "min height": 66, "max height": 66}
+[02-12|10:16:56.146] INFO random_network/network.go:93 All issued transactions accepted {"test": "TestNetworkSimpleFuzz", "count": 18, "min height": 66, "max height": 69}
+[02-12|10:16:56.146] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 1, "min height": 66, "max height": 69, "Smallest node ID": "ec5e4a824a34e4fd", "target height": 69}
+[02-12|10:16:56.147] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 1, "min height": 66, "max height": 69, "Smallest node ID": "ec5e4a824a34e4fd", "target height": 69}
+[02-12|10:16:56.147] INFO random_network/network.go:144 Recovering node {"test": "TestNetworkSimpleFuzz", "nodeID": "ec5e4a824a34e4fd"}
+[02-12|10:16:56.166] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 66, "max height": 69, "Smallest node ID": "ec5e4a824a34e4fd", "target height": 69}
+[02-12|10:16:56.166] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 66, "max height": 69, "Smallest node ID": "ec5e4a824a34e4fd", "target height": 69}
+[02-12|10:16:56.167] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 66, "max height": 69, "Smallest node ID": "ec5e4a824a34e4fd", "target height": 69}
+[02-12|10:16:56.167] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 66, "max height": 69, "Smallest node ID": "ec5e4a824a34e4fd", "target height": 69}
+[02-12|10:16:56.168] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 66, "max height": 69, "Smallest node ID": "ec5e4a824a34e4fd", "target height": 69}
+[02-12|10:16:56.168] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 67, "max height": 69, "Smallest node ID": "ec5e4a824a34e4fd", "target height": 69}
+[02-12|10:16:56.169] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 67, "max height": 69, "Smallest node ID": "ec5e4a824a34e4fd", "target height": 69}
+[02-12|10:16:56.169] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 68, "max height": 69, "Smallest node ID": "ec5e4a824a34e4fd", "target height": 69}
+[02-12|10:16:56.170] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 68, "max height": 69, "Smallest node ID": "ec5e4a824a34e4fd", "target height": 69}
+[02-12|10:16:56.170] INFO random_network/network.go:325 Crashing node {"test": "TestNetworkSimpleFuzz", "nodeID": "09c85c4d63ee811b"}
+[02-12|10:16:56.170] INFO random_network/network.go:265 Crashedg node {"test": "TestNetworkSimpleFuzz", "nodeID": "09c85c4d63ee811b"}
+[02-12|10:16:56.170] INFO random_network/network.go:271 Recovered and crashed nodes {"test": "TestNetworkSimpleFuzz", "crashed": ["09c85c4d63ee811b"], "recovered": [], "num crashed": 1}
+[02-12|10:16:56.170] INFO random_network/network.go:88 Issued Transactions {"test": "TestNetworkSimpleFuzz", "count": 16, "min height": 69, "max height": 69}
+[02-12|10:16:56.180] INFO random_network/network.go:93 All issued transactions accepted {"test": "TestNetworkSimpleFuzz", "count": 16, "min height": 69, "max height": 71}
+[02-12|10:16:56.180] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 1, "min height": 69, "max height": 71, "Smallest node ID": "09c85c4d63ee811b", "target height": 71}
+[02-12|10:16:56.180] INFO random_network/network.go:144 Recovering node {"test": "TestNetworkSimpleFuzz", "nodeID": "09c85c4d63ee811b"}
+[02-12|10:16:56.198] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 69, "max height": 72, "Smallest node ID": "09c85c4d63ee811b", "target height": 71}
+[02-12|10:16:56.199] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 69, "max height": 72, "Smallest node ID": "09c85c4d63ee811b", "target height": 71}
+[02-12|10:16:56.200] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 69, "max height": 72, "Smallest node ID": "09c85c4d63ee811b", "target height": 71}
+[02-12|10:16:56.200] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 70, "max height": 72, "Smallest node ID": "09c85c4d63ee811b", "target height": 71}
+[02-12|10:16:56.201] INFO random_network/network.go:88 Issued Transactions {"test": "TestNetworkSimpleFuzz", "count": 20, "min height": 71, "max height": 72}
+[02-12|10:16:56.217] INFO random_network/network.go:93 All issued transactions accepted {"test": "TestNetworkSimpleFuzz", "count": 20, "min height": 74, "max height": 74}
+[02-12|10:16:56.217] INFO random_network/network.go:88 Issued Transactions {"test": "TestNetworkSimpleFuzz", "count": 14, "min height": 74, "max height": 74}
+[02-12|10:16:56.228] INFO random_network/network.go:93 All issued transactions accepted {"test": "TestNetworkSimpleFuzz", "count": 14, "min height": 76, "max height": 77}
+[02-12|10:16:56.228] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 76, "max height": 77, "Smallest node ID": "09c85c4d63ee811b", "target height": 77}
+[02-12|10:16:56.228] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 76, "max height": 77, "Smallest node ID": "09c85c4d63ee811b", "target height": 77}
+[02-12|10:16:56.228] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 76, "max height": 77, "Smallest node ID": "09c85c4d63ee811b", "target height": 77}
+[02-12|10:16:56.228] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 76, "max height": 77, "Smallest node ID": "09c85c4d63ee811b", "target height": 77}
+[02-12|10:16:56.229] INFO random_network/network.go:88 Issued Transactions {"test": "TestNetworkSimpleFuzz", "count": 7, "min height": 77, "max height": 77}
+[02-12|10:16:56.238] INFO random_network/network.go:93 All issued transactions accepted {"test": "TestNetworkSimpleFuzz", "count": 7, "min height": 78, "max height": 79}
+[02-12|10:16:56.238] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 78, "max height": 79, "Smallest node ID": "ca94e405b0a2cae2", "target height": 79}
+[02-12|10:16:56.238] INFO random_network/network.go:325 Crashing node {"test": "TestNetworkSimpleFuzz", "nodeID": "ec5e4a824a34e4fd"}
+[02-12|10:16:56.238] INFO random_network/network.go:265 Crashedg node {"test": "TestNetworkSimpleFuzz", "nodeID": "ec5e4a824a34e4fd"}
+[02-12|10:16:56.238] INFO random_network/network.go:271 Recovered and crashed nodes {"test": "TestNetworkSimpleFuzz", "crashed": ["ec5e4a824a34e4fd"], "recovered": [], "num crashed": 1}
+[02-12|10:16:56.239] INFO random_network/network.go:88 Issued Transactions {"test": "TestNetworkSimpleFuzz", "count": 17, "min height": 79, "max height": 79}
+[02-12|10:16:56.247] INFO random_network/network.go:93 All issued transactions accepted {"test": "TestNetworkSimpleFuzz", "count": 17, "min height": 79, "max height": 81}
+[02-12|10:16:56.248] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 1, "min height": 79, "max height": 81, "Smallest node ID": "ec5e4a824a34e4fd", "target height": 81}
+[02-12|10:16:56.250] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 1, "min height": 79, "max height": 81, "Smallest node ID": "ec5e4a824a34e4fd", "target height": 81}
+[02-12|10:16:56.250] INFO random_network/network.go:144 Recovering node {"test": "TestNetworkSimpleFuzz", "nodeID": "ec5e4a824a34e4fd"}
+[02-12|10:16:56.273] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 79, "max height": 82, "Smallest node ID": "ec5e4a824a34e4fd", "target height": 81}
+[02-12|10:16:56.273] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 79, "max height": 82, "Smallest node ID": "ec5e4a824a34e4fd", "target height": 81}
+[02-12|10:16:56.274] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 80, "max height": 82, "Smallest node ID": "ec5e4a824a34e4fd", "target height": 81}
+[02-12|10:16:56.274] INFO random_network/network.go:325 Crashing node {"test": "TestNetworkSimpleFuzz", "nodeID": "a6c8b9737a21ec61"}
+[02-12|10:16:56.274] INFO random_network/network.go:265 Crashedg node {"test": "TestNetworkSimpleFuzz", "nodeID": "a6c8b9737a21ec61"}
+[02-12|10:16:56.274] INFO random_network/network.go:271 Recovered and crashed nodes {"test": "TestNetworkSimpleFuzz", "crashed": ["a6c8b9737a21ec61"], "recovered": [], "num crashed": 1}
+[02-12|10:16:56.274] INFO random_network/network.go:88 Issued Transactions {"test": "TestNetworkSimpleFuzz", "count": 5, "min height": 81, "max height": 82}
+[02-12|10:16:56.282] INFO random_network/network.go:93 All issued transactions accepted {"test": "TestNetworkSimpleFuzz", "count": 5, "min height": 82, "max height": 83}
+[02-12|10:16:56.282] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 1, "min height": 82, "max height": 83, "Smallest node ID": "a6c8b9737a21ec61", "target height": 83}
+[02-12|10:16:56.282] INFO random_network/network.go:144 Recovering node {"test": "TestNetworkSimpleFuzz", "nodeID": "a6c8b9737a21ec61"}
+[02-12|10:16:56.305] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 82, "max height": 84, "Smallest node ID": "a6c8b9737a21ec61", "target height": 83}
+[02-12|10:16:56.305] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 82, "max height": 84, "Smallest node ID": "a6c8b9737a21ec61", "target height": 83}
+[02-12|10:16:56.308] INFO random_network/network.go:325 Crashing node {"test": "TestNetworkSimpleFuzz", "nodeID": "041257f0604adf8a"}
+[02-12|10:16:56.308] INFO random_network/network.go:265 Crashedg node {"test": "TestNetworkSimpleFuzz", "nodeID": "041257f0604adf8a"}
+[02-12|10:16:56.308] INFO random_network/network.go:325 Crashing node {"test": "TestNetworkSimpleFuzz", "nodeID": "09c85c4d63ee811b"}
+[02-12|10:16:56.308] INFO random_network/network.go:265 Crashedg node {"test": "TestNetworkSimpleFuzz", "nodeID": "09c85c4d63ee811b"}
+[02-12|10:16:56.308] INFO random_network/network.go:271 Recovered and crashed nodes {"test": "TestNetworkSimpleFuzz", "crashed": ["041257f0604adf8a", "09c85c4d63ee811b"], "recovered": [], "num crashed": 2}
+[02-12|10:16:56.309] INFO random_network/network.go:88 Issued Transactions {"test": "TestNetworkSimpleFuzz", "count": 15, "min height": 84, "max height": 84}
+[02-12|10:16:56.313] INFO random_network/network.go:93 All issued transactions accepted {"test": "TestNetworkSimpleFuzz", "count": 15, "min height": 84, "max height": 85}
+[02-12|10:16:56.313] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 2, "min height": 84, "max height": 85, "Smallest node ID": "041257f0604adf8a", "target height": 85}
+[02-12|10:16:56.313] INFO random_network/network.go:144 Recovering node {"test": "TestNetworkSimpleFuzz", "nodeID": "041257f0604adf8a"}
+[02-12|10:16:56.336] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 1, "min height": 84, "max height": 86, "Smallest node ID": "041257f0604adf8a", "target height": 85}
+[02-12|10:16:56.336] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 1, "min height": 84, "max height": 86, "Smallest node ID": "041257f0604adf8a", "target height": 85}
+[02-12|10:16:56.337] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 1, "min height": 84, "max height": 86, "Smallest node ID": "041257f0604adf8a", "target height": 85}
+[02-12|10:16:56.337] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 1, "min height": 84, "max height": 86, "Smallest node ID": "09c85c4d63ee811b", "target height": 85}
+[02-12|10:16:56.337] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 1, "min height": 84, "max height": 86, "Smallest node ID": "09c85c4d63ee811b", "target height": 85}
+[02-12|10:16:56.338] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 1, "min height": 84, "max height": 86, "Smallest node ID": "09c85c4d63ee811b", "target height": 85}
+[02-12|10:16:56.338] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 1, "min height": 84, "max height": 86, "Smallest node ID": "09c85c4d63ee811b", "target height": 85}
+[02-12|10:16:56.338] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 1, "min height": 84, "max height": 86, "Smallest node ID": "09c85c4d63ee811b", "target height": 85}
+[02-12|10:16:56.339] INFO random_network/network.go:144 Recovering node {"test": "TestNetworkSimpleFuzz", "nodeID": "09c85c4d63ee811b"}
+[02-12|10:16:56.358] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 84, "max height": 86, "Smallest node ID": "09c85c4d63ee811b", "target height": 85}
+[02-12|10:16:56.358] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 84, "max height": 86, "Smallest node ID": "09c85c4d63ee811b", "target height": 85}
+[02-12|10:16:56.359] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 85, "max height": 86, "Smallest node ID": "09c85c4d63ee811b", "target height": 85}
+[02-12|10:16:56.359] INFO random_network/network.go:325 Crashing node {"test": "TestNetworkSimpleFuzz", "nodeID": "09c85c4d63ee811b"}
+[02-12|10:16:56.360] INFO random_network/network.go:265 Crashedg node {"test": "TestNetworkSimpleFuzz", "nodeID": "09c85c4d63ee811b"}
+[02-12|10:16:56.360] INFO random_network/network.go:271 Recovered and crashed nodes {"test": "TestNetworkSimpleFuzz", "crashed": ["09c85c4d63ee811b"], "recovered": [], "num crashed": 1}
+[02-12|10:16:56.360] INFO random_network/network.go:88 Issued Transactions {"test": "TestNetworkSimpleFuzz", "count": 10, "min height": 85, "max height": 86}
+[02-12|10:16:56.365] INFO random_network/network.go:93 All issued transactions accepted {"test": "TestNetworkSimpleFuzz", "count": 10, "min height": 85, "max height": 87}
+[02-12|10:16:56.365] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 1, "min height": 85, "max height": 87, "Smallest node ID": "09c85c4d63ee811b", "target height": 87}
+[02-12|10:16:56.365] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 1, "min height": 85, "max height": 87, "Smallest node ID": "09c85c4d63ee811b", "target height": 87}
+[02-12|10:16:56.365] INFO random_network/network.go:144 Recovering node {"test": "TestNetworkSimpleFuzz", "nodeID": "09c85c4d63ee811b"}
+[02-12|10:16:56.385] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 85, "max height": 87, "Smallest node ID": "09c85c4d63ee811b", "target height": 87}
+[02-12|10:16:56.385] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 85, "max height": 87, "Smallest node ID": "09c85c4d63ee811b", "target height": 87}
+[02-12|10:16:56.386] INFO random_network/network.go:133 Advancing network time {"test": "TestNetworkSimpleFuzz", "num crashed nodes": 0, "min height": 85, "max height": 87, "Smallest node ID": "09c85c4d63ee811b", "target height": 87}
+[02-12|10:16:56.389] INFO random_network/network.go:325 Crashing node {"test": "TestNetworkSimpleFuzz", "nodeID": "ca94e405b0a2cae2"}
+[02-12|10:16:56.389] INFO random_network/network.go:265 Crashedg node {"test": "TestNetworkSimpleFuzz", "nodeID": "ca94e405b0a2cae2"}
+[02-12|10:16:56.389] INFO random_network/network.go:325 Crashing node {"test": "TestNetworkSimpleFuzz", "nodeID": "ec5e4a824a34e4fd"}
+[02-12|10:16:56.390] INFO random_network/network.go:265 Crashedg node {"test": "TestNetworkSimpleFuzz", "nodeID": "ec5e4a824a34e4fd"}
+[02-12|10:16:56.390] INFO random_network/network.go:271 Recovered and crashed nodes {"test": "TestNetworkSimpleFuzz", "crashed": ["ca94e405b0a2cae2", "ec5e4a824a34e4fd"], "recovered": [], "num crashed": 2}
+[02-12|10:16:56.390] INFO random_network/network.go:88 Issued Transactions {"test": "TestNetworkSimpleFuzz", "count": 15, "min height": 87, "max height": 87}
