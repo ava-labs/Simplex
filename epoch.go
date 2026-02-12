@@ -2575,6 +2575,11 @@ func (e *Epoch) addEmptyVoteRebroadcastTimeout() {
 }
 
 func (e *Epoch) monitorProgress(round uint64) {
+	if round < e.round {
+		e.Logger.Debug("Aborting monitoring progress because we advanced to a higher round", zap.Uint64("round", round), zap.Uint64("currentRound", e.round))
+		return
+	}
+
 	e.Logger.Debug("Monitoring progress", zap.Uint64("round", round), zap.Uint64("currentRound", e.round))
 	ctx, cancelContext := context.WithCancel(e.finishCtx)
 
