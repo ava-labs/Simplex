@@ -130,12 +130,9 @@ func (b *BasicNode) enqueue(msg *simplex.Message, from, to simplex.NodeID) {
 func (b *BasicNode) Stop() {
 	b.lock.Lock()
 	defer b.lock.Unlock()
-	fmt.Println("here 1")
 	b.E.Stop()
-	fmt.Println("here 2")
 	b.shouldStop.Store(true)
 	close(b.ingress)
-	fmt.Println("here 3")
 	b.running.Wait()
 }
 

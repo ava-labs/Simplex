@@ -723,11 +723,8 @@ func (e *Epoch) Stop() {
 	e.Logger.Info("Shutting down node")
 	e.finishFn()
 	e.monitor.Close()
-	fmt.Println("here 4")
 	e.blockVerificationScheduler.Close()
-	fmt.Println("here 5")
 	e.buildBlockScheduler.Close()
-	fmt.Println("here 6")
 	e.timeoutHandler.Close()
 	e.replicationState.Close()
 }
