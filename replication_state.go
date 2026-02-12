@@ -222,9 +222,9 @@ func (r *ReplicationState) ReceivedFutureRound(round, seq, currentRound uint64, 
 }
 
 // ResendFinalizationRequest notifies the replication state that `seq` should be re-requested.
-func (r *ReplicationState) ResendFinalizationRequest(seq uint64, signers []NodeID) error {
+func (r *ReplicationState) ResendFinalizationRequest(seq uint64, signers []NodeID) {
 	if !r.enabled {
-		return nil
+		return
 	}
 
 	signers = NodeIDs(signers).Remove(r.myNodeID)
@@ -235,7 +235,6 @@ func (r *ReplicationState) ResendFinalizationRequest(seq uint64, signers []NodeI
 	// so that we can try to get a new block & finalization
 	r.DeleteSeq(seq)
 	r.finalizationRequestor.sendRequestToNode(seq, seq, signers[index])
-	return nil
 }
 
 // CreateDependencyTasks creates tasks to refetch the given parent digest and empty rounds. If there are no

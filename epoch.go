@@ -274,6 +274,7 @@ func (e *Epoch) Start() error {
 	// Only init receiving messages once you have initialized the data structures required for it.
 	defer func() {
 		e.canReceiveMessages.Store(true)
+		e.broadcastReplicationSync()
 	}()
 	return e.restoreFromWal()
 }
@@ -471,6 +472,33 @@ func (e *Epoch) loadFinalizationRecord(r []byte) error {
 	e.Logger.Info("Finalization Recovered From WAL", zap.Uint64("Round", finalization.Finalization.Round))
 	round.finalization = &finalization
 	return nil
+}
+
+// broadcastLatestReplicationRequest broadcasts a message to the network with our latest round and finalized sequence
+// in case we are behind and need to catch up. Potentially, there are no more messages being sent in the network,
+// so this method triggers other nodes to send us the messages we missed while we were down.
+func (e *Epoch) broadcastReplicationSync() {
+	e.lock.Lock()
+	latestQR := e.getLatestVerifiedQuorumRound()
+	defer e.lock.Unlock()
+
+	var latestRound uint64
+	if latestQR != nil {
+		latestRound = latestQR.GetRound()
+	}
+
+	var latestFinalizedSeq uint64
+	if e.lastBlock != nil {
+		latestFinalizedSeq = e.lastBlock.Finalization.Finalization.Seq
+	}
+
+	replicationRequest := &Message{
+		ReplicationRequest: &ReplicationRequest{
+			LatestRound:        latestRound,
+			LatestFinalizedSeq: latestFinalizedSeq,
+		},
+	}
+	e.Comm.Broadcast(replicationRequest)
 }
 
 // resumeFromWal resumes the epoch from the records of the write ahead log.
@@ -2033,7 +2061,6 @@ func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote)
 func (e *Epoch) createFinalizedBlockVerificationTask(block Block, finalization *Finalization) func() Digest {
 	return func() Digest {
 		md := block.BlockHeader()
-		round := e.round
 		e.Logger.Debug("Block verification started", zap.Uint64("round", md.Round))
 		start := time.Now()
 		defer func() {
@@ -2045,16 +2072,14 @@ func (e *Epoch) createFinalizedBlockVerificationTask(block Block, finalization *
 		if err != nil {
 			e.Logger.Debug("Failed verifying block", zap.Error(err))
 			// if we fail to verify the block, we re-add to request timeout
-			err = e.replicationState.ResendFinalizationRequest(md.Seq, finalization.QC.Signers())
-			if err != nil {
-				e.haltedError = err
-				e.Logger.Debug("Failed to resend finalization", zap.Error(err))
-			}
+			e.replicationState.ResendFinalizationRequest(md.Seq, finalization.QC.Signers())
 			return md.Digest
 		}
 
 		e.lock.Lock()
 		defer e.lock.Unlock()
+
+		round := e.round
 
 		// we started verifying the block when it was the next sequence to commit, however its
 		// possible we received a finalization for this block in the meantime. This check ensures we commit
