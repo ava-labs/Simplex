@@ -278,7 +278,7 @@ func (e *Epoch) Start() error {
 	}
 
 	// Only init receiving messages once you have initialized the data structures required for it.
-	e.Logger.Info("Epoch is ready to receive messages")
+	e.Logger.Debug("Epoch is ready to receive messages")
 	e.canReceiveMessages.Store(true)
 	e.broadcastReplicationSync()
 
