@@ -271,12 +271,18 @@ func (e *Epoch) Start() error {
 	if e.canReceiveMessages.Load() {
 		return ErrAlreadyStarted
 	}
+
+	err := e.restoreFromWal()
+	if err != nil {
+		return err
+	}
+
 	// Only init receiving messages once you have initialized the data structures required for it.
-	defer func() {
-		e.canReceiveMessages.Store(true)
-		e.broadcastReplicationSync()
-	}()
-	return e.restoreFromWal()
+	e.Logger.Debug("Epoch is ready to receive messages")
+	e.canReceiveMessages.Store(true)
+	e.broadcastReplicationSync()
+
+	return nil
 }
 
 func (e *Epoch) sequenceAlreadyIndexed(seq uint64) bool {
