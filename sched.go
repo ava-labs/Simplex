@@ -4,9 +4,7 @@
 package simplex
 
 import (
-	"fmt"
 	"sync"
-	"sync/atomic"
 
 	"go.uber.org/zap"
 )
@@ -14,10 +12,10 @@ import (
 type BasicScheduler struct {
 	logger Logger
 
-	closed  atomic.Bool
+	mu      sync.Mutex
+	closed  bool
 	running sync.WaitGroup
 	tasks   chan Task
-	lock    sync.RWMutex
 }
 
 func NewScheduler(logger Logger, maxTasks uint64) *BasicScheduler {
@@ -39,20 +37,24 @@ func (as *BasicScheduler) Size() int {
 }
 
 func (as *BasicScheduler) Close() {
-	as.lock.RLock()
-	defer as.lock.RUnlock()
-
-	as.closed.Store(true)
-	fmt.Println("here 7")
+	as.mu.Lock()
+	if as.closed {
+		as.mu.Unlock()
+		return
+	}
+	as.closed = true
 	close(as.tasks)
-	fmt.Println("here 8")
-	defer as.running.Wait()
+	as.mu.Unlock()
+	as.running.Wait()
 }
 
 func (as *BasicScheduler) run() {
 	defer as.running.Done()
 	for task := range as.tasks {
-		if as.closed.Load() {
+		as.mu.Lock()
+		closed := as.closed
+		as.mu.Unlock()
+		if closed {
 			return
 		}
 		as.logger.Debug("Running task", zap.Int("remaining ready tasks", len(as.tasks)))
@@ -62,12 +64,9 @@ func (as *BasicScheduler) run() {
 }
 
 func (as *BasicScheduler) Schedule(task Task) {
-	as.logger.Debug("here 11")
-	as.lock.RLock()
-	defer as.lock.RUnlock()
-	as.logger.Debug("here 12")
-
-	if as.closed.Load() {
+	as.mu.Lock()
+	if as.closed {
+		as.mu.Unlock()
 		return
 	}
 
@@ -77,6 +76,7 @@ func (as *BasicScheduler) Schedule(task Task) {
 	default:
 		as.logger.Warn("Scheduler task queue is full; task was not scheduled")
 	}
+	as.mu.Unlock()
 }
 
 type Task func() Digest

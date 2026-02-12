@@ -8,10 +8,10 @@ import (
 
 func TestNetworkSimpleFuzz(t *testing.T) {
 	for range 100 {
-	config := random_network.DefaultFuzzConfig()
-	config.RandomSeed = 1770220909588
-	network := random_network.NewNetwork(config, t)
-	network.Run()
-	network.PrintStatus()
-}
+		config := random_network.DefaultFuzzConfig()
+		config.RandomSeed = 1770220909588
+		network := random_network.NewNetwork(config, t)
+		network.Run()
+		network.PrintStatus()
+	}
 }

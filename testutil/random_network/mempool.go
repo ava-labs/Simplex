@@ -45,14 +45,14 @@ type Mempool struct {
 
 func NewMempool(l simplex.Logger, config *FuzzConfig) *Mempool {
 	return &Mempool{
-		unacceptedTxs:             make(map[txID]*TX),
+		unacceptedTxs:                make(map[txID]*TX),
 		verifiedButNotAcceptedBlocks: make(map[simplex.Digest]*Block),
-		acceptedTXs:               make(map[txID]struct{}),
-		acceptedBlocks:            make(map[simplex.Digest]*Block),
-		lock:                      &sync.Mutex{},
-		txsReady:                  make(chan struct{}, 1),
-		logger:                    l,
-		config:                    config,
+		acceptedTXs:                  make(map[txID]struct{}),
+		acceptedBlocks:               make(map[simplex.Digest]*Block),
+		lock:                         &sync.Mutex{},
+		txsReady:                     make(chan struct{}, 1),
+		logger:                       l,
+		config:                       config,
 	}
 }
 
@@ -223,6 +223,11 @@ func (m *Mempool) AcceptBlock(b *Block) {
 	for _, sibling := range siblings {
 		m.purgeChildren(sibling)
 	}
+
+	if len(m.unacceptedTxs) > 0 {
+		m.logger.Debug("After accepting block, moved txs back to unaccepted due to sibling/uncle blocks being purged", zap.Int("num unaccepted txs", len(m.unacceptedTxs)))
+		m.NotifyTxsReady()
+	}
 }
 
 // go through any blocks that build off of this one and move their txs
@@ -238,17 +243,10 @@ func (m *Mempool) purgeChildren(block *Block) {
 }
 
 func (m *Mempool) moveTxsToUnaccepted(block *Block) {
-	txMoved := false
 	for _, tx := range block.txs {
 		if _, exists := m.acceptedTXs[tx.ID]; !exists {
 			m.unacceptedTxs[tx.ID] = tx
-			txMoved = true
 		}
-	}
-
-	if txMoved {
-		m.logger.Debug("Moved txs from block back to unaccepted", zap.String("block digest", block.digest.String()), zap.Int("num txs moved", len(block.txs)))
-		m.txsReady <- struct{}{}
 	}
 }
 

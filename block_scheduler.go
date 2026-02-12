@@ -122,7 +122,6 @@ func (bs *BlockDependencyManager) ScheduleTaskWithDependencies(task Task, blockS
 	defer bs.lock.Unlock()
 	bs.logger.Debug("her 10")
 
-
 	if bs.closed.Load() {
 		bs.logger.Warn("Attempted to schedule block verification task after scheduler was closed")
 		return nil
