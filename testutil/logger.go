@@ -5,6 +5,7 @@ package testutil
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"testing"
@@ -94,13 +95,16 @@ func (tl *TestLogger) Error(msg string, fields ...zap.Field) {
 }
 
 func MakeLogger(t *testing.T, node ...int) *TestLogger {
-	return MakeLoggerWithFile(t, nil, node...)
+	// Preserve existing behavior: logs to stdout by default.
+	return MakeLoggerWithFile(t, nil, true, node...)
 }
 
-// MakeLoggerWithFile creates a TestLogger that optionally writes to a file in addition to stdout.
-// If fileWriter is nil, logs only to stdout (same as MakeLogger).
-// If fileWriter is provided, logs to both stdout and the file.
-func MakeLoggerWithFile(t *testing.T, fileWriter zapcore.WriteSyncer, node ...int) *TestLogger {
+// MakeLoggerWithFile creates a TestLogger that can write to a file and optionally to stdout.
+// - If writeStdout is true, logs may be written to stdout.
+// - If fileWriter is non-nil, logs may be written to that fileWriter.
+// - If both are enabled, logs go to both.
+// - If neither is enabled, logs are discarded.
+func MakeLoggerWithFile(t *testing.T, fileWriter zapcore.WriteSyncer, writeStdout bool, node ...int) *TestLogger {
 	defaultEncoderConfig := zapcore.EncoderConfig{
 		TimeKey:        "timestamp",
 		LevelKey:       "level",
@@ -118,28 +122,48 @@ func MakeLoggerWithFile(t *testing.T, fileWriter zapcore.WriteSyncer, node ...in
 	config.EncodeTime = zapcore.TimeEncoderOfLayout("[01-02|15:04:05.000]")
 	config.ConsoleSeparator = " "
 
-	// Create stdout encoder
-	stdoutEncoder := zapcore.NewConsoleEncoder(config)
-	if strings.ToLower(os.Getenv("LOG_LEVEL")) == "info" {
-		stdoutEncoder = &DebugSwallowingEncoder{consoleEncoder: stdoutEncoder, ObjectEncoder: stdoutEncoder, pool: buffer.NewPool()}
-	}
-
 	atomicLevel := zap.NewAtomicLevelAt(zapcore.DebugLevel)
 
-	// Create stdout core
-	stdoutCore := zapcore.NewCore(stdoutEncoder, zapcore.AddSync(os.Stdout), atomicLevel)
+	var cores []zapcore.Core
 
-	// If file writer is provided, create a tee core with both stdout and file
-	var core zapcore.Core
+	// Stdout core only if explicitly enabled
+	if writeStdout {
+		stdoutEncoder := zapcore.NewConsoleEncoder(config)
+		if strings.ToLower(os.Getenv("LOG_LEVEL")) == "info" {
+			stdoutEncoder = &DebugSwallowingEncoder{
+				consoleEncoder: stdoutEncoder,
+				ObjectEncoder:  stdoutEncoder,
+				pool:           buffer.NewPool(),
+			}
+		}
+		stdoutCore := zapcore.NewCore(stdoutEncoder, zapcore.AddSync(os.Stdout), atomicLevel)
+		cores = append(cores, stdoutCore)
+	}
+
+	// File core only if provided
 	if fileWriter != nil {
 		fileEncoder := zapcore.NewConsoleEncoder(config)
 		if strings.ToLower(os.Getenv("LOG_LEVEL")) == "info" {
-			fileEncoder = &DebugSwallowingEncoder{consoleEncoder: fileEncoder, ObjectEncoder: fileEncoder, pool: buffer.NewPool()}
+			fileEncoder = &DebugSwallowingEncoder{
+				consoleEncoder: fileEncoder,
+				ObjectEncoder:  fileEncoder,
+				pool:           buffer.NewPool(),
+			}
 		}
 		fileCore := zapcore.NewCore(fileEncoder, fileWriter, atomicLevel)
-		core = zapcore.NewTee(stdoutCore, fileCore)
-	} else {
-		core = stdoutCore
+		cores = append(cores, fileCore)
+	}
+
+	// If neither stdout nor file enabled, discard logs.
+	var core zapcore.Core
+	switch len(cores) {
+	case 0:
+		discardEncoder := zapcore.NewConsoleEncoder(config)
+		core = zapcore.NewCore(discardEncoder, zapcore.AddSync(io.Discard), atomicLevel)
+	case 1:
+		core = cores[0]
+	default:
+		core = zapcore.NewTee(cores...)
 	}
 
 	logger := zap.New(core, zap.AddCaller())
@@ -150,16 +174,13 @@ func MakeLoggerWithFile(t *testing.T, fileWriter zapcore.WriteSyncer, node ...in
 
 	traceVerboseLogger := zap.New(core, zap.AddCaller(), zap.AddCallerSkip(1))
 	traceVerboseLogger = traceVerboseLogger.With(zap.String("test", t.Name()))
-
 	if len(node) > 0 {
 		traceVerboseLogger = traceVerboseLogger.With(zap.Int("myNodeID", node[0]))
 	}
 
-	l := &TestLogger{t: t, Logger: logger, traceVerboseLogger: traceVerboseLogger,
+	return &TestLogger{t: t, Logger: logger, traceVerboseLogger: traceVerboseLogger,
 		atomicLevel: atomicLevel,
 	}
-
-	return l
 }
 
 type DebugSwallowingEncoder struct {

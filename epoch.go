@@ -271,12 +271,18 @@ func (e *Epoch) Start() error {
 	if e.canReceiveMessages.Load() {
 		return ErrAlreadyStarted
 	}
+
+	err := e.restoreFromWal()
+	if err != nil {
+		return err
+	}
+
 	// Only init receiving messages once you have initialized the data structures required for it.
-	defer func() {
-		e.canReceiveMessages.Store(true)
-		e.broadcastReplicationSync()
-	}()
-	return e.restoreFromWal()
+	e.Logger.Info("Epoch is ready to receive messages")
+	e.canReceiveMessages.Store(true)
+	e.broadcastReplicationSync()
+
+	return nil
 }
 
 func (e *Epoch) sequenceAlreadyIndexed(seq uint64) bool {
@@ -312,7 +318,8 @@ func (e *Epoch) loadBlockRecord(block Block) error {
 	e.Logger.Debug("Verifying block from WAL", zap.Uint64("Round", block.BlockHeader().Round), zap.Uint64("Seq", block.BlockHeader().Seq))
 	verifiedBlock, err := block.Verify(e.finishCtx)
 	if err != nil {
-		return fmt.Errorf("failed to verify block: %w", err)
+		e.Logger.Error("Failed to verify block from WAL", zap.Uint64("Round", block.BlockHeader().Round), zap.Uint64("Seq", block.BlockHeader().Seq), zap.Error(err))
+		return fmt.Errorf("failed to verify block: %w. round %d", err, block.BlockHeader().Round)
 	}
 
 	e.rounds[block.BlockHeader().Round] = NewRound(verifiedBlock)
@@ -2646,10 +2653,12 @@ func (e *Epoch) monitorProgress(round uint64) {
 		}
 
 		// This invocation blocks until the block builder tells us it's time to build a new block.
+		e.Logger.Debug("Waiting for pending block ", zap.Uint64("epoch round", epochRound), zap.Uint64("monitored round", round))
 		e.BlockBuilder.WaitForPendingBlock(ctx)
 		// While we waited, a block might have been notarized.
 		// If so, then don't start monitoring for it being notarized.
 		if cancelled.Load() {
+			e.Logger.Debug("Not starting monitoring for block notarization because we were cancelled while waiting for block to be built", zap.Uint64("epoch round", epochRound), zap.Uint64("monitored round", round))
 			return
 		}
 

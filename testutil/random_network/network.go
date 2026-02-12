@@ -1,0 +1,348 @@
+// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// See the file LICENSE for licensing terms.
+
+package random_network
+
+import (
+	"fmt"
+	"math/rand"
+	"sync"
+	"testing"
+
+	"github.com/ava-labs/simplex"
+	"github.com/ava-labs/simplex/testutil"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+)
+
+type Network struct {
+	*testutil.BasicInMemoryNetwork
+	logger *testutil.TestLogger
+	t      *testing.T
+
+	lock       sync.Mutex
+	nodes      []*Node
+	numNodes   uint64
+	randomness *rand.Rand
+	config     *FuzzConfig
+
+	// tx stats
+	allIssuedTxs int
+	failedTxs    int
+}
+
+func NewNetwork(config *FuzzConfig, t *testing.T) *Network {
+	if config.LogDirectory == "" {
+		panic("Log Directory must be set")
+	}
+
+	logger := CreateNetworkLogger(t, config)
+	logger.Info("Initiating logger with random seed", zap.Int64("seed", config.RandomSeed))
+	r := rand.New(rand.NewSource(config.RandomSeed))
+
+	numNodes := r.Intn(config.MaxNodes-config.MinNodes+1) + config.MinNodes
+	nodeIds := make([]simplex.NodeID, numNodes)
+	for i := range numNodes {
+		nodeIds[i] = GenerateNodeIDFromRand(r)
+	}
+
+	nodes := make([]*Node, numNodes)
+
+	logger.Info("Initiating logger with nodes", zap.Int("num nodes", numNodes))
+	basicNetwork := testutil.NewBasicInMemoryNetwork(t, nodeIds)
+
+	for i := range numNodes {
+		node := NewNode(t, nodeIds[i], basicNetwork, config, randomNodeConfig{})
+		basicNetwork.AddNode(node.BasicNode)
+		nodes[i] = node
+	}
+
+	return &Network{
+		BasicInMemoryNetwork: basicNetwork,
+		nodes:                nodes,
+		randomness:           r,
+		logger:               logger,
+		t:                    t,
+		lock:                 sync.Mutex{},
+		config:               config,
+		numNodes:             uint64(numNodes),
+	}
+}
+
+func (n *Network) StartInstances() {
+	panic("Call Run() Instead")
+}
+
+func (n *Network) Run() {
+	n.BasicInMemoryNetwork.StartInstances()
+	defer n.BasicInMemoryNetwork.StopInstances()
+
+	targetHeight := uint64(n.config.NumFinalizedBlocks)
+
+	prevHeight := 0
+	for {
+		n.crashAndRecoverNodes()
+		txs := n.IssueTxs()
+		maxHeight := n.getMaxHeight()
+		minHeight := n.getMinHeight()
+		n.logger.Info("Issued Transactions", zap.Int("count", len(txs)), zap.Uint64("min height", minHeight), zap.Uint64("max height", maxHeight))
+		n.waitForTxAcceptance(txs)
+
+		maxHeight = n.getMaxHeight()
+		minHeight = n.getMinHeight()
+		n.logger.Info("All issued transactions accepted", zap.Int("count", len(txs)), zap.Uint64("min height", minHeight), zap.Uint64("max height", maxHeight))
+		// get the max height and ensure all nodes recover to that height
+		n.recoverToHeight(n.getMaxHeight())
+
+		if prevHeight == int(maxHeight) {
+			panic(fmt.Sprintf(
+				"not supposed to be equal: prevHeight=%d, maxHeight=%d",
+				prevHeight,
+				maxHeight,
+			))
+		}
+
+		prevHeight = int(maxHeight)
+		if minHeight >= targetHeight {
+			n.logger.Info("Reached target height", zap.Uint64("targetHeight", targetHeight), zap.Uint64("minHeight", minHeight))
+			break
+		}
+	}
+
+	// if we have gotten this far, the test has succeeded so we can clear the log directory to save space
+	clearLogDirectory(n.config.LogDirectory)
+}
+
+func (n *Network) getMinHeightNodeID() simplex.NodeID {
+	minHeight := n.nodes[0].storage.NumBlocks()
+	minHeightNodeID := n.nodes[0].E.ID
+
+	for _, node := range n.nodes[1:] {
+		height := node.storage.NumBlocks()
+
+		if height < minHeight {
+			minHeight = height
+			minHeightNodeID = node.E.ID
+		}
+	}
+
+	return minHeightNodeID
+}
+func (n *Network) recoverToHeight(height uint64) {
+	for n.getMinHeight() < height {
+		n.logger.Info("Advancing network time", zap.Int("num crashed nodes", int(n.numCrashedNodes())),
+			zap.Uint64("min height", n.getMinHeight()),
+			zap.Uint64("max height", n.getMaxHeight()),
+			zap.Stringer("Smallest node ID", n.getMinHeightNodeID()),
+			zap.Uint64("target height", height),
+		)
+		for i, node := range n.nodes {
+			isCrashed := node.isCrashed.Load()
+			if isCrashed {
+				// randomly decide to recover based on NodeRecoverPercentage
+				if n.randomness.Float64() < n.config.NodeRecoverPercentage {
+					n.logger.Info("Recovering node", zap.Stringer("nodeID", node.E.ID))
+					n.startNode(i)
+				}
+			}
+		}
+
+		n.lock.Lock()
+		n.BasicInMemoryNetwork.AdvanceTime(n.config.AdvanceTimeTickAmount)
+		n.lock.Unlock()
+	}
+
+}
+
+func (n *Network) IssueTxs() []*TX {
+	n.lock.Lock()
+	defer n.lock.Unlock()
+
+	numTxs := n.randomness.Intn(n.config.MaxTxsPerIssue-n.config.MinTxsPerIssue+1) + n.config.MinTxsPerIssue // randomize between min and max inclusive
+	txs := make([]*TX, 0, numTxs)
+
+	for range numTxs {
+		tx := CreateNewTX()
+		// if n.randomness.Float64() < n.config.TxVerificationFailure {
+		// 	n.logger.Info("Building a block that will fail verification due to tx", zap.Stringer("txID", tx))
+		// 	tx.SetShouldFailVerification()
+		// 	n.failedTxs++
+		// }
+
+		txs = append(txs, tx)
+		n.allIssuedTxs++
+	}
+
+	// first add to all mempools
+	for _, node := range n.nodes {
+		node.mempool.AddPendingTXs(txs...)
+	}
+
+	// then notify all mempools that new txs are ready
+	for _, node := range n.nodes {
+		node.mempool.NotifyTxsReady()
+	}
+
+	return txs
+}
+
+func (n *Network) waitForTxAcceptance(txs []*TX) {
+	for {
+		allAccepted := true
+		for _, node := range n.nodes {
+			if node.isCrashed.Load() {
+				fmt.Println("Node", node.E.ID, "is crashed, skipping acceptance check")
+				continue
+			}
+			if accepted := node.areTxsAccepted(txs); !accepted {
+				node.mempool.lock.Lock()
+				fmt.Println("Not all txs accepted yet by node", node.E.ID, "unaccepted txs in mempool", len(node.mempool.unacceptedTxs))
+				node.mempool.lock.Unlock()
+				allAccepted = false
+			} else {
+				fmt.Println("All txs accepted by node", node.E.ID)
+			}
+		}
+
+		if allAccepted {
+			return
+		}
+
+		n.lock.Lock()
+		fmt.Println("Not all txs accepted yet, advancing time...")
+		n.BasicInMemoryNetwork.AdvanceTime(n.config.AdvanceTimeTickAmount)
+		n.lock.Unlock()
+	}
+}
+
+func (n *Network) numCrashedNodes() uint64 {
+	numCrashed := 0
+	for _, node := range n.nodes {
+		if node.isCrashed.Load() {
+			numCrashed++
+		}
+	}
+	return uint64(numCrashed)
+}
+
+func (n *Network) crashAndRecoverNodes() {
+	if n.config.NodeCrashPercentage == 0 {
+		return
+	}
+
+	f := (int(n.numNodes) - 1) / 3
+
+	if f == 0 {
+		n.logger.Info("Not enough nodes for crash testing", zap.Uint64("numNodes", n.numNodes))
+		return
+	}
+
+	crashedNodes := []string{}
+	recoveredNodes := []string{}
+	maxLeftToCrash := f - int(n.numCrashedNodes())
+	// go through each node, randomly decide to crash based on NodeCrashPercentage
+	for i, node := range n.nodes {
+		isCrashed := node.isCrashed.Load()
+		if isCrashed {
+			// randomly decide to recover based on NodeRecoverPercentage
+			if n.randomness.Float64() < n.config.NodeRecoverPercentage {
+				n.startNode(i)
+				recoveredNodes = append(recoveredNodes, node.E.ID.String())
+				maxLeftToCrash++
+			}
+			continue
+		}
+
+		// check if we can still crash more nodes
+		if maxLeftToCrash <= 0 {
+			continue
+		}
+
+		// randomly decide to crash the node
+		if n.randomness.Float64() < n.config.NodeCrashPercentage {
+			maxLeftToCrash--
+			n.crashNode(i)
+			n.logger.Info("Crashedg node", zap.Stringer("nodeID", node.E.ID))
+			crashedNodes = append(crashedNodes, node.E.ID.String())
+		}
+	}
+
+	if len(recoveredNodes)+len(crashedNodes) > 0 {
+		n.logger.Info("Recovered and crashed nodes", zap.Strings("crashed", crashedNodes), zap.Strings("recovered", recoveredNodes), zap.Uint64("num crashed", n.numCrashedNodes()))
+	}
+}
+
+func (n *Network) getMinHeight() uint64 {
+	minHeight := n.nodes[0].storage.NumBlocks()
+	for _, node := range n.nodes[1:] {
+		height := node.storage.NumBlocks()
+
+		if height < minHeight {
+			minHeight = height
+		}
+	}
+	return minHeight
+}
+
+func (n *Network) getMaxHeight() uint64 {
+	maxHeight := n.nodes[0].storage.NumBlocks()
+	for _, node := range n.nodes[1:] {
+		height := node.storage.NumBlocks()
+
+		if height > maxHeight {
+			maxHeight = height
+		}
+	}
+	return maxHeight
+}
+
+func (n *Network) SetInfoLog() {
+	n.lock.Lock()
+	defer n.lock.Unlock()
+
+	for _, node := range n.nodes {
+		node.logger.SetLevel(zapcore.InfoLevel)
+	}
+}
+
+func (n *Network) PrintStatus() {
+	n.lock.Lock()
+	defer n.lock.Unlock()
+
+	// prints the number of nodes
+	n.logger.Info("Network Status", zap.Int("num nodes", len(n.nodes)), zap.Int64("Seed", n.config.RandomSeed))
+
+	// prints the number of txs in each node's mempool
+	for _, node := range n.nodes {
+		n.logger.Info("Node Status", zap.Stringer("nodeID", node.E.ID), zap.Int("Short", int(node.E.ID[0])), zap.Uint64("Round", node.E.Metadata().Round), zap.Uint64("Height", node.storage.NumBlocks()))
+	}
+
+	// prints total issued txs and failed txs
+	n.logger.Info("Transaction Stats", zap.Int("total issued txs", n.allIssuedTxs), zap.Int("total failed txs", n.failedTxs))
+}
+
+func (n *Network) crashNode(idx int) {
+	n.logger.Info("Crashing node", zap.Stringer("nodeID", n.nodes[idx].E.ID))
+	n.nodes[idx].isCrashed.Store(true)
+	n.nodes[idx].Stop()
+}
+
+func (n *Network) startNode(idx int) {
+	instance := n.nodes[idx]
+	nodeID := instance.E.ID
+	mempool := instance.mempool
+	clonedWal := instance.wal.Clone()
+	clonedStorage := instance.storage.Clone()
+	mempool.Clear()
+
+	newNode := NewNode(n.t, nodeID, n.BasicInMemoryNetwork, n.config, randomNodeConfig{
+		mempool: mempool,
+		wal:     clonedWal,
+		storage: clonedStorage,
+		logger:  instance.logger,
+	})
+	n.nodes[idx] = newNode
+	n.BasicInMemoryNetwork.ReplaceNode(newNode.BasicNode)
+
+	newNode.Start()
+}
