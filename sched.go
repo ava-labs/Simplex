@@ -5,7 +5,6 @@ package simplex
 
 import (
 	"sync"
-	"sync/atomic"
 
 	"go.uber.org/zap"
 )
@@ -13,7 +12,8 @@ import (
 type BasicScheduler struct {
 	logger Logger
 
-	closed  atomic.Bool
+	mu      sync.Mutex
+	closed  bool
 	running sync.WaitGroup
 	tasks   chan Task
 }
@@ -37,15 +37,27 @@ func (as *BasicScheduler) Size() int {
 }
 
 func (as *BasicScheduler) Close() {
-	as.closed.Store(true)
+	as.mu.Lock()
+	if as.closed {
+		as.mu.Unlock()
+		return
+	}
+	as.closed = true
 	close(as.tasks)
-	defer as.running.Wait()
+	as.mu.Unlock()
+
+	// we cannot hold the lock while waiting for the scheduler to finish,
+	// otherwise [scheduler.schedule] will be blocked trying to acquire the lock
+	as.running.Wait()
 }
 
 func (as *BasicScheduler) run() {
 	defer as.running.Done()
 	for task := range as.tasks {
-		if as.closed.Load() {
+		as.mu.Lock()
+		closed := as.closed
+		as.mu.Unlock()
+		if closed {
 			return
 		}
 		as.logger.Debug("Running task", zap.Int("remaining ready tasks", len(as.tasks)))
@@ -55,7 +67,10 @@ func (as *BasicScheduler) run() {
 }
 
 func (as *BasicScheduler) Schedule(task Task) {
-	if as.closed.Load() {
+	as.mu.Lock()
+	defer as.mu.Unlock()
+
+	if as.closed {
 		return
 	}
 
