@@ -17,7 +17,7 @@ import (
 var ErrTooManyPendingVerifications = errors.New("too many blocks being verified to ingest another one")
 
 type Scheduler interface {
-	Schedule(task Task)
+	Schedule(task Task) TaskEnd
 	Size() int
 	Close()
 }

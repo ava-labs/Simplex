@@ -85,6 +85,7 @@ type Epoch struct {
 	// Runtime
 	oneTimeVerifier                *oneTimeVerifier
 	buildBlockScheduler            *BasicScheduler
+	prevBlockSched                 TaskEnd
 	blockVerificationScheduler     *BlockDependencyManager
 	lock                           sync.Mutex
 	lastBlock                      *VerifiedFinalizedBlock // latest block & finalization committed
@@ -2340,7 +2341,14 @@ func (e *Epoch) buildBlock() {
 	}
 
 	e.Logger.Debug("Scheduling block building", zap.Uint64("round", metadata.Round))
-	e.buildBlockScheduler.Schedule(task)
+	if e.prevBlockSched != nil {
+		select {
+			case <- e.prevBlockSched:
+			case <- e.finishCtx.Done():
+				return
+		}
+	}
+	e.prevBlockSched = e.buildBlockScheduler.Schedule(task)
 }
 
 func (e *Epoch) retrieveBlacklistOfParentBlock(metadata ProtocolMetadata) (Blacklist, bool) {
