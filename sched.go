@@ -82,4 +82,27 @@ func (as *BasicScheduler) Schedule(task Task) {
 	}
 }
 
+// ScheduleOrReplace schedules a task, replacing any queued task if full.
+// The cancel function is called before draining the old task.
+func (as *BasicScheduler) ScheduleOrReplace(task Task, cancel func()) {
+	as.mu.Lock()
+	defer as.mu.Unlock()
+
+	if as.closed {
+		return
+	}
+
+	// Check if full while holding the lock
+	if len(as.tasks) == cap(as.tasks) {
+		as.logger.Debug("Scheduler full, draining oldest task")
+		cancel() // Cancel the operation
+		select {
+		case <-as.tasks:
+		default:
+		}
+	}
+
+	as.tasks <- task
+}
+
 type Task func() Digest

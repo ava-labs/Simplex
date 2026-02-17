@@ -2372,7 +2372,7 @@ func (e *Epoch) buildBlock() {
 	}
 
 	e.Logger.Debug("Scheduling block building", zap.Uint64("round", metadata.Round))
-	e.buildBlockScheduler.Schedule(task)
+	e.buildBlockScheduler.ScheduleOrReplace(task, e.blockBuilderCancelFunc)
 }
 
 func (e *Epoch) retrieveBlacklistOfParentBlock(metadata ProtocolMetadata) (Blacklist, bool) {
