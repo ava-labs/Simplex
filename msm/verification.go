@@ -128,14 +128,17 @@ func (nv *nextEpochApprovalsVerifier) verifyNormal(prev SimplexEpochInfo, next S
 		return err
 	}
 
-	if err := areNextEpochApprovalsSignersSupersetOfPrevBlock(prev, next); err != nil {
+	if err := areNextEpochApprovalsSignersSupersetOfApprovalsOfPrevBlock(prev, next); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func areNextEpochApprovalsSignersSupersetOfPrevBlock(prev SimplexEpochInfo, next SimplexEpochInfo) error {
+func areNextEpochApprovalsSignersSupersetOfApprovalsOfPrevBlock(prev SimplexEpochInfo, next SimplexEpochInfo) error {
+	if prev.NextEpochApprovals == nil {
+		return nil
+	}
 	// Make sure that previous signers are still there.
 	prevSigners := bitmaskFromBytes(prev.NextEpochApprovals.NodeIDs)
 	nextSigners := bitmaskFromBytes(next.NextEpochApprovals.NodeIDs)
@@ -302,10 +305,6 @@ func (e *epochNumberVerifier) Verify(in verificationInput) error {
 		return fmt.Errorf("expected epoch number of the first inner block created to be 1 but got %d", next.EpochNumber)
 	}
 
-	if prev.EpochNumber != next.EpochNumber {
-		return fmt.Errorf("expected epoch number to be %d but got %d", prev.EpochNumber, next.EpochNumber)
-	}
-
 	switch in.nextBlockType {
 	case blockTypeNewEpoch:
 		if prev.SealingBlockSeq != next.EpochNumber {
@@ -323,9 +322,6 @@ type sealingBlockSeqVerifier struct{}
 
 func (s *sealingBlockSeqVerifier) Verify(in verificationInput) error {
 	prev, next := in.prevMD.SimplexEpochInfo, in.proposedBlockMD.SimplexEpochInfo
-	if prev.SealingBlockSeq != next.SealingBlockSeq {
-		return fmt.Errorf("expected sealing inner block sequence number to be %d but got %d", prev.SealingBlockSeq, next.SealingBlockSeq)
-	}
 
 	switch in.nextBlockType {
 	case blockTypeNewEpoch, blockTypeNormal:

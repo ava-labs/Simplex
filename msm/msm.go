@@ -325,9 +325,12 @@ func (sm *StateMachine) identifyBlockType(block *StateMachineBlock, prevBlockMD 
 
 	// This block could be in the edges of an epoch, either at the end or at the beginning.
 
-	// If the new block comes after a sealing block, then this block is a Telock.
+	// If the new block comes after a sealing block, it could be a Telock or the first block of the next epoch.
 	// [ Sealing Block ] <-- [ New Block ]
 	if prevSimplexEpochInfo.BlockValidationDescriptor != nil {
+		if simplexEpochInfo.EpochNumber == prevSimplexEpochInfo.SealingBlockSeq {
+			return blockTypeNewEpoch
+		}
 		return blockTypeTelock
 	}
 
@@ -461,6 +464,11 @@ func (sm *StateMachine) buildBlockCollectingApprovals(ctx context.Context, paren
 	}
 
 	if !newApprovals.canSeal {
+		if newSimplexEpochInfo.NextEpochApprovals == nil {
+			newSimplexEpochInfo.NextEpochApprovals = &NextEpochApprovals{}
+		}
+		newSimplexEpochInfo.NextEpochApprovals.NodeIDs = newApprovals.nodeIDs
+		newSimplexEpochInfo.NextEpochApprovals.Signature = newApprovals.signature
 		pChainHeight := parentBlock.Metadata.PChainHeight
 		return sm.buildBlockImpatiently(ctx, parentBlock, simplexMetadata, simplexBlacklist, newSimplexEpochInfo, pChainHeight, prevBlockSeq)
 	}
@@ -489,6 +497,9 @@ func (sm *StateMachine) buildBlockImpatiently(ctx context.Context, parentBlock S
 
 func (sm *StateMachine) createSealingBlock(ctx context.Context, parentBlock StateMachineBlock, simplexMetadata []byte, simplexBlacklist []byte, simplexEpochInfo SimplexEpochInfo, newApprovals *approvals, pChainHeight uint64, prevBlockSeq uint64) (*StateMachineBlock, error) {
 	// Update the approvals and signature in the simplex epoch info for the next block
+	if simplexEpochInfo.NextEpochApprovals == nil {
+		simplexEpochInfo.NextEpochApprovals = &NextEpochApprovals{}
+	}
 	simplexEpochInfo.NextEpochApprovals.NodeIDs = newApprovals.nodeIDs
 	simplexEpochInfo.NextEpochApprovals.Signature = newApprovals.signature
 
@@ -501,6 +512,9 @@ func (sm *StateMachine) createSealingBlock(ctx context.Context, parentBlock Stat
 	validators, err := sm.GetValidatorSet(simplexEpochInfo.NextPChainReferenceHeight)
 	if err != nil {
 		return nil, err
+	}
+	if simplexEpochInfo.BlockValidationDescriptor == nil {
+		simplexEpochInfo.BlockValidationDescriptor = &BlockValidationDescriptor{}
 	}
 	simplexEpochInfo.BlockValidationDescriptor.AggregatedMembership.Members = validators
 

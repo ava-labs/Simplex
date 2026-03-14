@@ -53,11 +53,11 @@ type signatureAggregator struct {
 }
 
 type aggregatrdSignature struct {
-	signatures [][]byte
+	Signatures [][]byte
 }
 
 func (sv *signatureAggregator) AggregateSignatures(signatures ...[]byte) ([]byte, error) {
-	bytes, err := asn1.Marshal(aggregatrdSignature{signatures: signatures})
+	bytes, err := asn1.Marshal(aggregatrdSignature{Signatures: signatures})
 	if err != nil {
 		return nil, err
 	}
@@ -563,6 +563,232 @@ func TestMSMNormalOp(t *testing.T) {
 			}, block1)
 		})
 	}
+}
+
+func TestMSMFullEpochLifecycle(t *testing.T) {
+	// Validator sets: epoch 1 uses validatorSet1, epoch 2 uses validatorSet2.
+	node1 := [20]byte{1}
+	node2 := [20]byte{2}
+	node3 := [20]byte{3}
+
+	validatorSet1 := metadata.NodeBLSMappings{
+		{NodeID: node1, BLSKey: []byte{1}, Weight: 1},
+		{NodeID: node2, BLSKey: []byte{2}, Weight: 1},
+		{NodeID: node3, BLSKey: []byte{3}, Weight: 1},
+	}
+	validatorSet2 := metadata.NodeBLSMappings{
+		{NodeID: node1, BLSKey: []byte{1}, Weight: 1},
+		{NodeID: node2, BLSKey: []byte{4}, Weight: 1},
+		{NodeID: node3, BLSKey: []byte{5}, Weight: 1},
+	}
+
+	pChainHeight1 := uint64(100)
+	pChainHeight2 := uint64(200)
+
+	currentPChainHeight := pChainHeight1
+	bs := make(blockStore)
+
+	var approvalsResult metadata.ValidatorSetApprovals
+
+	sm := metadata.StateMachine{
+		LatestPersistedHeight:    1,
+		Logger:                   testutil.MakeLogger(t),
+		GetBlock:                 bs.getBlock,
+		MaxBlockBuildingWaitTime: time.Second,
+		ApprovalsRetriever:       &approvalsRetriever{},
+		SignatureVerifier:        &signatureVerifier{},
+		SignatureAggregator:      &signatureAggregator{},
+		BlockBuilder:             &blockBuilder{},
+		KeyAggregator:            &keyAggregator{},
+		ComputeICMEpoch: func(_ any, input metadata.ICMEpochInput) metadata.ICMEpoch {
+			return input.ParentEpoch
+		},
+		GetPChainHeight: func() uint64 {
+			return currentPChainHeight
+		},
+		GetUpgrades: func() any {
+			return nil
+		},
+		GetValidatorSet: func(height uint64) (metadata.NodeBLSMappings, error) {
+			if height == pChainHeight2 {
+				return validatorSet2, nil
+			}
+			return validatorSet1, nil
+		},
+	}
+
+	// Override ApprovalsRetriever to use our dynamic approvals.
+	sm.ApprovalsRetriever = &dynamicApprovalsRetriever{approvals: &approvalsResult}
+
+	startTime := time.Now()
+	seq := uint64(0)
+	round := uint64(0)
+
+	// Helper to build next protocol metadata.
+	nextMD := func(parent *metadata.StateMachineBlock) simplex.ProtocolMetadata {
+		seq++
+		round++
+		return simplex.ProtocolMetadata{
+			Seq:   seq,
+			Round: round,
+			Epoch: 1,
+			Prev:  parent.Digest(),
+		}
+	}
+
+	nextBlock := func(height uint64) *innerBlock {
+		return &innerBlock{
+			ts:     startTime.Add(time.Duration(seq+1) * time.Second),
+			height: height,
+			bytes:  []byte{byte(seq + 1)},
+		}
+	}
+
+	// ----- Step 0: Genesis block -----
+	genesis := metadata.StateMachineBlock{
+		InnerBlock: &innerBlock{
+			ts:    startTime,
+			bytes: []byte{0},
+		},
+	}
+	bs[0] = &outerBlock{block: genesis}
+
+	// ----- Step 1: Build zero epoch block (first simplex block) -----
+	sm.BlockBuilder = &blockBuilder{block: nextBlock(1)}
+	md := nextMD(&genesis)
+	block1, err := sm.BuildBlock(context.Background(), genesis, md, nil)
+	require.NoError(t, err)
+	require.NotNil(t, block1)
+	require.Equal(t, uint64(1), block1.Metadata.SimplexEpochInfo.EpochNumber)
+	require.NotNil(t, block1.Metadata.SimplexEpochInfo.BlockValidationDescriptor)
+	require.Equal(t, pChainHeight1, block1.Metadata.SimplexEpochInfo.PChainReferenceHeight)
+	bs[seq] = &outerBlock{block: *block1}
+
+	// Verify it
+	smVerify := sm // Use the same SM for verification since it shares GetBlock.
+	require.NoError(t, smVerify.VerifyBlock(context.Background(), block1))
+
+	// ----- Step 2: Build a normal block (no validator set change) -----
+	sm.BlockBuilder = &blockBuilder{block: nextBlock(2)}
+	md = nextMD(block1)
+	block2, err := sm.BuildBlock(context.Background(), *block1, md, nil)
+	require.NoError(t, err)
+	require.NotNil(t, block2)
+	require.Equal(t, uint64(1), block2.Metadata.SimplexEpochInfo.EpochNumber)
+	require.Equal(t, uint64(0), block2.Metadata.SimplexEpochInfo.NextPChainReferenceHeight)
+	require.Nil(t, block2.Metadata.SimplexEpochInfo.BlockValidationDescriptor)
+	bs[seq] = &outerBlock{block: *block2}
+
+	require.NoError(t, smVerify.VerifyBlock(context.Background(), block2))
+
+	// ----- Step 3: Build a normal block that detects a validator set change -----
+	// Advance P-chain height so that GetValidatorSet returns a different set.
+	currentPChainHeight = pChainHeight2
+
+	sm.BlockBuilder = &blockBuilder{block: nextBlock(3)}
+	md = nextMD(block2)
+	block3, err := sm.BuildBlock(context.Background(), *block2, md, nil)
+	require.NoError(t, err)
+	require.NotNil(t, block3)
+	require.Equal(t, uint64(1), block3.Metadata.SimplexEpochInfo.EpochNumber)
+	require.Equal(t, pChainHeight2, block3.Metadata.SimplexEpochInfo.NextPChainReferenceHeight)
+	require.Nil(t, block3.Metadata.SimplexEpochInfo.BlockValidationDescriptor)
+	bs[seq] = &outerBlock{block: *block3}
+
+	require.NoError(t, smVerify.VerifyBlock(context.Background(), block3))
+
+	// ----- Step 4: First collecting block (1/3 approvals, not enough to seal) -----
+	approvalsResult = metadata.ValidatorSetApprovals{
+		{
+			NodeID:       node1,
+			PChainHeight: pChainHeight2,
+			Signature:    []byte("sig1"),
+		},
+	}
+
+	sm.BlockBuilder = &blockBuilder{block: nextBlock(4)}
+	md = nextMD(block3)
+	block4, err := sm.BuildBlock(context.Background(), *block3, md, nil)
+	require.NoError(t, err)
+	require.NotNil(t, block4)
+	require.Equal(t, uint64(1), block4.Metadata.SimplexEpochInfo.EpochNumber)
+	require.Equal(t, uint64(0), block4.Metadata.SimplexEpochInfo.SealingBlockSeq)
+	require.Nil(t, block4.Metadata.SimplexEpochInfo.BlockValidationDescriptor)
+	require.NotNil(t, block4.Metadata.SimplexEpochInfo.NextEpochApprovals)
+	bs[seq] = &outerBlock{block: *block4}
+
+	require.NoError(t, smVerify.VerifyBlock(context.Background(), block4))
+
+	// ----- Step 5: Second collecting block (2/3 approvals, still not enough since threshold is strictly > 2/3) -----
+	approvalsResult = metadata.ValidatorSetApprovals{
+		{
+			NodeID:       node2,
+			PChainHeight: pChainHeight2,
+			Signature:    []byte("sig2"),
+		},
+	}
+
+	sm.BlockBuilder = &blockBuilder{block: nextBlock(5)}
+	md = nextMD(block4)
+	block5, err := sm.BuildBlock(context.Background(), *block4, md, nil)
+	require.NoError(t, err)
+	require.NotNil(t, block5)
+	require.Equal(t, uint64(1), block5.Metadata.SimplexEpochInfo.EpochNumber)
+	require.Equal(t, uint64(0), block5.Metadata.SimplexEpochInfo.SealingBlockSeq)
+	require.Nil(t, block5.Metadata.SimplexEpochInfo.BlockValidationDescriptor)
+	require.NotNil(t, block5.Metadata.SimplexEpochInfo.NextEpochApprovals)
+	bs[seq] = &outerBlock{block: *block5}
+
+	require.NoError(t, smVerify.VerifyBlock(context.Background(), block5))
+
+	// ----- Step 6: Sealing block (3/3 approvals, enough to seal) -----
+	approvalsResult = metadata.ValidatorSetApprovals{
+		{
+			NodeID:       node3,
+			PChainHeight: pChainHeight2,
+			Signature:    []byte("sig3"),
+		},
+	}
+
+	sm.BlockBuilder = &blockBuilder{block: nextBlock(6)}
+	md = nextMD(block5)
+	block6, err := sm.BuildBlock(context.Background(), *block5, md, nil)
+	require.NoError(t, err)
+	require.NotNil(t, block6)
+	require.Equal(t, uint64(1), block6.Metadata.SimplexEpochInfo.EpochNumber)
+	require.NotEqual(t, uint64(0), block6.Metadata.SimplexEpochInfo.SealingBlockSeq)
+	require.NotNil(t, block6.Metadata.SimplexEpochInfo.BlockValidationDescriptor)
+	bs[seq] = &outerBlock{block: *block6}
+
+	require.NoError(t, smVerify.VerifyBlock(context.Background(), block6))
+
+	// ----- Step 7: Build a new epoch block (sealing block is finalized) -----
+	sealingSeq := block6.Metadata.SimplexEpochInfo.SealingBlockSeq
+	bs[sealingSeq] = &outerBlock{
+		block:        bs[sealingSeq].block,
+		finalization: &simplex.Finalization{},
+	}
+
+	sm.BlockBuilder = &blockBuilder{block: nextBlock(7)}
+	md = nextMD(block6)
+	block7, err := sm.BuildBlock(context.Background(), *block6, md, nil)
+	require.NoError(t, err)
+	require.NotNil(t, block7)
+	require.Equal(t, sealingSeq, block7.Metadata.SimplexEpochInfo.EpochNumber)
+	require.Equal(t, pChainHeight2, block7.Metadata.SimplexEpochInfo.PChainReferenceHeight)
+	require.Equal(t, uint64(0), block7.Metadata.SimplexEpochInfo.NextPChainReferenceHeight)
+	require.Nil(t, block7.Metadata.SimplexEpochInfo.BlockValidationDescriptor)
+	bs[seq] = &outerBlock{block: *block7}
+
+	require.NoError(t, smVerify.VerifyBlock(context.Background(), block7))
+}
+
+type dynamicApprovalsRetriever struct {
+	approvals *metadata.ValidatorSetApprovals
+}
+
+func (d *dynamicApprovalsRetriever) RetrieveApprovals() metadata.ValidatorSetApprovals {
+	return *d.approvals
 }
 
 func makeChain(t *testing.T, simplexStartHeight uint64, endHeight uint64) []metadata.StateMachineBlock {

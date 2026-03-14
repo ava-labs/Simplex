@@ -188,7 +188,6 @@ func (nbms NodeBLSMappings) SumWeights(selector func(int, NodeBLSMapping) bool) 
 		}
 		if selector(i, nbm) {
 			total, err = safeAdd(total, nbm.Weight)
-			total += nbm.Weight
 		}
 	})
 	return total, err
