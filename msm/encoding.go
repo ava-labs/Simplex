@@ -10,13 +10,23 @@ import (
 
 // go:generate go tool canoto encoding.go
 
+
+// OuterBlock is the top-level encoding of a Simplex block.
+// It contains the inner block (the block built by the VM),
+// as well as metadata created by the StateMachine.
 type OuterBlock struct {
+	// InnerBlock is the block created by the VM, encoded as bytes and opaque to the StateMachine.
 	InnerBlock []byte               `canoto:"bytes,1"`
+	// Metadata is created by the StateMachine.
 	Metadata   StateMachineMetadata `canoto:"value,2"`
 
 	canotoData canotoData_OuterBlock
 }
 
+// StateMachineMetadata defines the metadata that the StateMachine uses to transition between epochs,
+// and maintain ICM epoch information.
+// TODO: change SimplexProtocolMetadata and SimplexBlacklist to be non-opaque types.
+// TODO: This requires to encode the protocol metadata and blacklist using canoto.
 type StateMachineMetadata struct {
 	ICMEpochInfo            ICMEpochInfo     `canoto:"value,1"`
 	SimplexEpochInfo        SimplexEpochInfo `canoto:"value,2"`
@@ -29,6 +39,8 @@ type StateMachineMetadata struct {
 	canotoData canotoData_OuterBlock
 }
 
+// ICMEpochInfo is metadata used for the ICM protocol.
+// The StateMachine maintains this metadata in a similar fashion to proposerVM.
 type ICMEpochInfo struct {
 	EpochStartTime    uint64 `canoto:"uint,1"`
 	EpochNumber       uint64 `canoto:"uint,2"`
@@ -44,25 +56,57 @@ func (ei *ICMEpochInfo) Equal(other *ICMEpochInfo) bool {
 	return ei.EpochStartTime == other.EpochStartTime && ei.EpochNumber == other.EpochNumber && ei.PChainEpochHeight == other.PChainEpochHeight
 }
 
+// AuxiliaryInfo defines application-specific information for applications that might care about epoch change,
+// such as threshold distributed public key generation.
 type AuxiliaryInfo struct {
+	// Info is opaque bytes that can be used by applications to encode any information that describes
+	// the current state for the application.
 	Info           []byte `canoto:"bytes,1"`
+	// PrevAuxInfoSeq is a sequence number that applications can use to find previous AuxiliaryInfo in the chain.
 	PrevAuxInfoSeq uint64 `canoto:"uint,2"`
+	// ApplicationID is an identifier that identifies the application.
+	// Can be used for backward-compatibility and upgrade purposes.
 	ApplicationID  uint32 `canoto:"uint,3"`
 
 	canotoData canotoData_AuxiliaryInfo
 }
 
+// SimplexEpochInfo is metadata used by the StateMachine.
 type SimplexEpochInfo struct {
+	// PChainReferenceHeight is the P-Chain height that the StateMachine uses as a reference for the current epoch.
+	// The validator set is determined based on the validators on the P-Chain at the PChainReferenceHeight.
 	PChainReferenceHeight     uint64                     `canoto:"uint,1"`
+	// EpochNumber is the current epoch number.
+	// The first epoch is numbered 1, and each successive epoch is numbered according to the block sequence
+	// of the sealing block of the previous epoch.
 	EpochNumber               uint64                     `canoto:"uint,2"`
+	// PrevSealingBlockHash is the hash of the sealing block of the previous epoch.
+	// It is empty for the first epoch, and the second epoch has the PrevSealingBlockHash set to be
+	// the hash of the first ever block built by the StateMachine.
 	PrevSealingBlockHash      [32]byte                   `canoto:"fixed bytes,3"`
+	// NextPChainReferenceHeight is the P-Chain height that the StateMachine uses as a reference for the next epoch.
+	// When the NextPChainReferenceHeight is > 0, it means the StateMachine is on its way to transition to a new epoch
+	// in which the validator set will be based on the given P-chain height.
 	NextPChainReferenceHeight uint64                     `canoto:"uint,4"`
+	// PrevVMBlockSeq is the block sequence of the previous block that has a VM block (inner block).
+	// This is used to know on which VM block to build the next block.
 	PrevVMBlockSeq            uint64                     `canoto:"uint,5"`
+	// BlockValidationDescriptor is the metadata that describes the validator set of the next epoch.
+	// It is only set in the sealing block, and nil in all other blocks.
 	BlockValidationDescriptor *BlockValidationDescriptor `canoto:"pointer,6"`
+	// NextEpochApprovals is the metadata that contains the approvals from validators for the next epoch.
+	// It is set only in the sealing block and the blocks preceding it starting from a block that has a NextPChainReferenceHeight set.
 	NextEpochApprovals        *NextEpochApprovals        `canoto:"pointer,7"`
+	// SealingBlockSeq is the block sequence of the sealing block of the current epoch.
+	// It defines the validator set of the next epoch.
 	SealingBlockSeq           uint64                     `canoto:"uint,8"`
 
 	canotoData canotoData_SimplexEpochInfo
+}
+
+func (sei *SimplexEpochInfo) IsZero() bool {
+	var zero SimplexEpochInfo
+	return sei.Equal(&zero)
 }
 
 func (sei *SimplexEpochInfo) Equal(other *SimplexEpochInfo) bool {
@@ -188,7 +232,6 @@ func (nbms NodeBLSMappings) SumWeights(selector func(int, NodeBLSMapping) bool) 
 		}
 		if selector(i, nbm) {
 			total, err = safeAdd(total, nbm.Weight)
-			total += nbm.Weight
 		}
 	})
 	return total, err

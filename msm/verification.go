@@ -128,14 +128,17 @@ func (nv *nextEpochApprovalsVerifier) verifyNormal(prev SimplexEpochInfo, next S
 		return err
 	}
 
-	if err := areNextEpochApprovalsSignersSupersetOfPrevBlock(prev, next); err != nil {
+	if err := areNextEpochApprovalsSignersSupersetOfApprovalsOfPrevBlock(prev, next); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func areNextEpochApprovalsSignersSupersetOfPrevBlock(prev SimplexEpochInfo, next SimplexEpochInfo) error {
+func areNextEpochApprovalsSignersSupersetOfApprovalsOfPrevBlock(prev SimplexEpochInfo, next SimplexEpochInfo) error {
+	if prev.NextEpochApprovals == nil {
+		return nil
+	}
 	// Make sure that previous signers are still there.
 	prevSigners := bitmaskFromBytes(prev.NextEpochApprovals.NodeIDs)
 	nextSigners := bitmaskFromBytes(next.NextEpochApprovals.NodeIDs)
@@ -302,10 +305,6 @@ func (e *epochNumberVerifier) Verify(in verificationInput) error {
 		return fmt.Errorf("expected epoch number of the first inner block created to be 1 but got %d", next.EpochNumber)
 	}
 
-	if prev.EpochNumber != next.EpochNumber {
-		return fmt.Errorf("expected epoch number to be %d but got %d", prev.EpochNumber, next.EpochNumber)
-	}
-
 	switch in.nextBlockType {
 	case blockTypeNewEpoch:
 		if prev.SealingBlockSeq != next.EpochNumber {
@@ -323,9 +322,6 @@ type sealingBlockSeqVerifier struct{}
 
 func (s *sealingBlockSeqVerifier) Verify(in verificationInput) error {
 	prev, next := in.prevMD.SimplexEpochInfo, in.proposedBlockMD.SimplexEpochInfo
-	if prev.SealingBlockSeq != next.SealingBlockSeq {
-		return fmt.Errorf("expected sealing inner block sequence number to be %d but got %d", prev.SealingBlockSeq, next.SealingBlockSeq)
-	}
 
 	switch in.nextBlockType {
 	case blockTypeNewEpoch, blockTypeNormal:
@@ -392,7 +388,7 @@ func (p *pChainReferenceHeightVerifier) Verify(in verificationInput) error {
 }
 
 type icmEpochInfoVerifier struct {
-	getUpdates      func() upgradeConfig
+	getUpdates      func() UpgradeConfig
 	computeICMEpoch ICMEpochTransition
 }
 
@@ -407,38 +403,48 @@ func (i *icmEpochInfoVerifier) Verify(in verificationInput) error {
 	return nil
 }
 
-type timestampVerifier struct{}
+type timestampVerifier struct{
+	getTime       func() time.Time
+	timeSkewLimit time.Duration
+}
 
 func (t *timestampVerifier) Verify(in verificationInput) error {
 	expectedTimestamp := in.proposedBlockTimestamp.Unix()
 	if expectedTimestamp != int64(in.proposedBlockMD.Timestamp) {
 		return fmt.Errorf("expected timestamp to be %d but got %d", expectedTimestamp, int64(in.proposedBlockMD.Timestamp))
 	}
+	currentTime := t.getTime()
+	if currentTime.Add(t.timeSkewLimit).Before(in.proposedBlockTimestamp) {
+		return fmt.Errorf("proposed block timestamp is too far in the future, current time is %s but got %s", currentTime.String(), in.proposedBlockTimestamp.String())
+	}
+	if in.prevMD.Timestamp > in.proposedBlockMD.Timestamp {
+		return fmt.Errorf("proposed block timestamp is older than parent block's timestamp, parent timestamp is %d but got %d", in.prevMD.Timestamp, in.proposedBlockMD.Timestamp)
+	}
 	return nil
 }
 
 type prevSealingBlockHashVerifier struct {
 	getBlock              BlockRetriever
-	latestPersistedHeight uint64
+	latestPersistedHeight *uint64
 }
 
 func (p *prevSealingBlockHashVerifier) Verify(in verificationInput) error {
 	prev, _ := in.prevMD.SimplexEpochInfo, in.proposedBlockMD.SimplexEpochInfo
 
 	if prev.EpochNumber == 1 && in.nextBlockType == blockTypeSealing {
-		firstEverSimplexBlockSeq, err := findFirstSimplexBlock(p.getBlock, p.latestPersistedHeight)
+		firstEverSimplexBlockSeq, err := findFirstSimplexBlock(p.getBlock, *p.latestPersistedHeight)
 		if err != nil {
 			return fmt.Errorf("failed to find first Simplex inner block: %w", err)
 		}
 
-		block, _, err := p.getBlock(firstEverSimplexBlockSeq)
+		block, _, err := p.getBlock(RetrievingOpts{Height: firstEverSimplexBlockSeq})
 		if err != nil {
 			return fmt.Errorf("failed retrieving first ever simplex inner block %d: %w", firstEverSimplexBlockSeq, err)
 		}
 
 		hash := block.Digest()
 		if !bytes.Equal(in.proposedBlockMD.SimplexEpochInfo.PrevSealingBlockHash[:], hash[:]) {
-			return fmt.Errorf("expected prev sealing inner block hash of the first ever simplex inner block to be %s but got %s", hash, in.proposedBlockMD.SimplexEpochInfo.PrevSealingBlockHash)
+			return fmt.Errorf("expected prev sealing inner block hash of the first ever simplex inner block to be %x but got %x", hash, in.proposedBlockMD.SimplexEpochInfo.PrevSealingBlockHash)
 		}
 
 		return nil
@@ -446,17 +452,17 @@ func (p *prevSealingBlockHashVerifier) Verify(in verificationInput) error {
 
 	switch in.nextBlockType {
 	case blockTypeSealing:
-		prevSealingBlock, _, err := p.getBlock(in.prevMD.SimplexEpochInfo.EpochNumber)
+		prevSealingBlock, _, err := p.getBlock(RetrievingOpts{Height: in.prevMD.SimplexEpochInfo.EpochNumber})
 		if err != nil {
 			return fmt.Errorf("failed retrieving inner block: %w", err)
 		}
 		hash := prevSealingBlock.Digest()
 		if !bytes.Equal(in.proposedBlockMD.SimplexEpochInfo.PrevSealingBlockHash[:], hash[:]) {
-			return fmt.Errorf("expected prev sealing inner block hash to be %s but got %s", hash, in.proposedBlockMD.SimplexEpochInfo.PrevSealingBlockHash)
+			return fmt.Errorf("expected prev sealing inner block hash to be %x but got %x", hash, in.proposedBlockMD.SimplexEpochInfo.PrevSealingBlockHash)
 		}
 	default:
 		if in.proposedBlockMD.SimplexEpochInfo.PrevSealingBlockHash != [32]byte{} {
-			return fmt.Errorf("expected prev sealing inner block hash of a non sealing inner block to be empty but got %s", prev.PrevSealingBlockHash)
+			return fmt.Errorf("expected prev sealing inner block hash of a non sealing inner block to be empty but got %x", prev.PrevSealingBlockHash)
 		}
 	}
 
@@ -478,9 +484,14 @@ func (v *vmBlockSeqVerifier) Verify(in verificationInput) error {
 		return nil
 	}
 
+	md, err := simplex.ProtocolMetadataFromBytes(in.proposedBlockMD.SimplexProtocolMetadata)
+	if err != nil {
+		return fmt.Errorf("failed parsing protocol metadata: %w", err)
+	}
+
 	// Else, if the previous block has an inner block, we point to it.
 	// Otherwise, we point to the parent block's previous VM block seq.
-	prevBlock, _, err := v.getBlock(in.prevBlockSeq)
+	prevBlock, _, err := v.getBlock(RetrievingOpts{Height: in.prevBlockSeq, Digest: md.Prev})
 	if err != nil {
 		return fmt.Errorf("failed retrieving inner block: %w", err)
 	}

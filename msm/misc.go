@@ -50,7 +50,7 @@ type VMBlock interface {
 	Verify(context.Context) error
 }
 
-type upgradeConfig = any
+type UpgradeConfig = any
 
 type bitmask big.Int
 

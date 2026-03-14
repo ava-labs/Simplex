@@ -15,24 +15,39 @@ import (
 	"github.com/ava-labs/simplex"
 )
 
+// ICMEpochInput defines the input for computing the ICM Epoch information for the next block.
 type ICMEpochInput struct {
+	// ParentPChainHeight is the P-chain height recorded in the parent block.
 	ParentPChainHeight uint64
-	ParentTimestamp    time.Time
-	ChildTimestamp     time.Time
-	ParentEpoch        ICMEpoch
+	// ParentTimestamp is the timestamp of the parent block.
+	ParentTimestamp time.Time
+	// ChildTimestamp is the timestamp of the block being built.
+	ChildTimestamp time.Time
+	// ParentEpoch is the ICM epoch information from the parent block.
+	ParentEpoch ICMEpoch
 }
 
+// ICMEpoch defines the ICM epoch information that is maintained by the StateMachine and used for the ICM protocol.
+// The Statemachine maintains this information identically to how the proposerVM maintains this information,
+// and it does so by building the ICMEpochInput and then passing it into the StateMachine's ComputeICMEpoch function.
 type ICMEpoch struct {
-	EpochStartTime    uint64
-	EpochNumber       uint64
+	// EpochStartTime is the Unix timestamp when this ICM epoch started.
+	EpochStartTime uint64
+	// EpochNumber is the sequential identifier of this ICM epoch.
+	EpochNumber uint64
+	// PChainEpochHeight is the P-chain height associated with this ICM epoch.
 	PChainEpochHeight uint64
 }
 
+// A StateMachineBlock is a representation of a parsed OuterBlock, containing the inner block and the metadata.
 type StateMachineBlock struct {
+	// InnerBlock is the VM-level block, or nil if this is a block without an inner block (e.g., a Telock block).
 	InnerBlock VMBlock
-	Metadata   StateMachineMetadata
+	// Metadata contains the state machine metadata associated with this block.
+	Metadata StateMachineMetadata
 }
 
+// Digest returns the SHA-256 hash of the combined inner block digest and metadata digest.
 func (smb *StateMachineBlock) Digest() [32]byte {
 	var blockDigest [32]byte
 	if smb.InnerBlock != nil {
@@ -47,55 +62,91 @@ func (smb *StateMachineBlock) Digest() [32]byte {
 	return sha256.Sum256(combined)
 }
 
+// ApprovalsRetriever retrieves the approvals from validators of the next epoch for the epoch change.
 type ApprovalsRetriever interface {
 	RetrieveApprovals() ValidatorSetApprovals
 }
 
+// SignatureVerifier verifies a cryptographic signature against a message and public key.
+// Used to verify Approvals from validators for epoch transitions.
 type SignatureVerifier interface {
 	VerifySignature(signature []byte, message []byte, publicKey []byte) error
 }
 
+// SignatureAggregator combines multiple cryptographic signatures into a single aggregated signature.
+// Used to aggregate validator signatures for epoch transitions.
 type SignatureAggregator interface {
 	AggregateSignatures(signatures ...[]byte) ([]byte, error)
 }
 
+// KeyAggregator combines multiple public keys into a single aggregated public key.
 type KeyAggregator interface {
 	AggregateKeys(keys ...[]byte) ([]byte, error)
 }
 
+// Block represents a finalized block with height, hash, metadata, and inner block presence.
 type Block interface {
 	Height() uint64
 
 	Hash() [32]byte
 
 	Metadata() StateMachineMetadata
-
-	HasInnerBlock() bool
 }
 
-type ICMEpochTransition func(upgradeConfig, ICMEpochInput) ICMEpoch
+// ICMEpochTransition computes the next ICM epoch given the current upgrade configuration and epoch input.
+type ICMEpochTransition func(UpgradeConfig, ICMEpochInput) ICMEpoch
 
+// ValidatorSetRetriever retrieves the validator set at a given P-chain height.
 type ValidatorSetRetriever func(pChainHeight uint64) (NodeBLSMappings, error)
 
-type BlockRetriever func(height uint64) (StateMachineBlock, *simplex.Finalization, error)
+// RetrievingOpts specifies the options for retrieving a block by height and/or digest.
+type RetrievingOpts struct {
+	// Height is the sequence number of the block to retrieve.
+	Height uint64
+	// Digest is the expected hash of the block, used for validation.
+	Digest [32]byte
+}
 
+// BlockRetriever retrieves a block and its finalization status given the retrieval options.
+type BlockRetriever func(RetrievingOpts) (StateMachineBlock, *simplex.Finalization, error)
+
+// BlockBuilder builds a new VM block with the given observed P-chain height.
 type BlockBuilder interface {
 	BuildBlock(ctx context.Context, pChainHeight uint64) (VMBlock, error)
 }
 
+// StateMachine manages block building and verification across epoch transitions.
 type StateMachine struct {
+	// LatestPersistedHeight is the height of the most recently persisted block.
 	LatestPersistedHeight    uint64
+	// MaxBlockBuildingWaitTime is the maximum duration to wait for the VM to build a block
+	// before producing a block without an inner block.
 	MaxBlockBuildingWaitTime time.Duration
+	// TimeSkewLimit is the maximum allowed time difference between a block's timestamp and the current time.
+	TimeSkewLimit            time.Duration
+	// GetTime returns the current time.
+	GetTime func() time.Time
+	// ComputeICMEpoch computes the ICM epoch for the next block.
 	ComputeICMEpoch          ICMEpochTransition
+	// GetPChainHeight returns the latest known P-chain height.
 	GetPChainHeight          func() uint64
-	GetUpgrades              func() upgradeConfig
+	// GetUpgrades returns the current upgrade configuration.
+	GetUpgrades              func() UpgradeConfig
+	// BlockBuilder builds new VM blocks.
 	BlockBuilder             BlockBuilder
+	// Logger is used for logging state machine operations.
 	Logger                   Logger
+	// GetValidatorSet retrieves the validator set at a given P-chain height.
 	GetValidatorSet          ValidatorSetRetriever
+	// GetBlock retrieves a previously built or finalized block.
 	GetBlock                 BlockRetriever
+	// ApprovalsRetriever retrieves validator approvals for epoch transitions.
 	ApprovalsRetriever       ApprovalsRetriever
+	// SignatureAggregator aggregates signatures from validators.
 	SignatureAggregator      SignatureAggregator
+	// KeyAggregator aggregates public keys from validators.
 	KeyAggregator            KeyAggregator
+	// SignatureVerifier verifies signatures from validators.
 	SignatureVerifier        SignatureVerifier
 
 	initialized bool
@@ -120,6 +171,7 @@ const (
 	blockTypeNewEpoch
 )
 
+// BuildBlock constructs the next block on top of the given parent block, and passes in the provided simplex metadata and blacklist.
 func (sm *StateMachine) BuildBlock(ctx context.Context, parentBlock StateMachineBlock, simplexMetadata simplex.ProtocolMetadata, simplexBlacklist *simplex.Blacklist) (*StateMachineBlock, error) {
 	sm.maybeInit()
 
@@ -142,7 +194,7 @@ func (sm *StateMachine) BuildBlock(ctx context.Context, parentBlock StateMachine
 
 	switch currentState {
 	case stateFirstSimplexBlock:
-		return sm.buildBlockZeroEpoch(ctx, parentBlock, simplexMetadataBytes, simplexBlacklistBytes, prevBlockSeq)
+		return sm.buildBlockZeroEpoch(ctx, parentBlock, simplexMetadataBytes, simplexBlacklistBytes)
 	case stateBuildBlockNormalOp:
 		return sm.buildBlockNormalOp(ctx, parentBlock, simplexMetadataBytes, simplexBlacklistBytes, prevBlockSeq)
 	case stateBuildCollectingApprovals:
@@ -154,6 +206,8 @@ func (sm *StateMachine) BuildBlock(ctx context.Context, parentBlock StateMachine
 	}
 }
 
+// VerifyBlock validates a proposed block by checking its metadata, epoch info,
+// and inner block against the previous block and the current state.
 func (sm *StateMachine) VerifyBlock(ctx context.Context, block *StateMachineBlock) error {
 	sm.maybeInit()
 
@@ -172,7 +226,7 @@ func (sm *StateMachine) VerifyBlock(ctx context.Context, block *StateMachineBloc
 		return fmt.Errorf("attempted to build a genesis inner block")
 	}
 
-	prevBlock, _, err := sm.GetBlock(seq - 1)
+	prevBlock, _, err := sm.GetBlock(RetrievingOpts{Digest: pmd.Prev, Height: seq - 1})
 	if err != nil {
 		return fmt.Errorf("failed to retrieve previous (%d) inner block: %w", seq - 1, err)
 	}
@@ -187,7 +241,7 @@ func (sm *StateMachine) VerifyBlock(ctx context.Context, block *StateMachineBloc
 	case stateFirstSimplexBlock:
 		err = sm.verifyBlockZero(ctx, block, prevBlock)
 	default:
-		err = sm.verifyNonZeroBlock(block, prevBlock.Metadata, prevMD, currentState, seq-1)
+		err = sm.verifyNonZeroBlock(ctx, block, prevBlock.Metadata, prevMD, currentState, seq-1)
 	}
 	return err
 }
@@ -209,12 +263,15 @@ func (sm *StateMachine) init() {
 		&pChainHeightVerifier{
 			getPChainHeight: sm.GetPChainHeight,
 		},
-		&timestampVerifier{},
+		&timestampVerifier{
+			timeSkewLimit: sm.TimeSkewLimit,
+			getTime:       sm.GetTime,
+		},
 		&pChainReferenceHeightVerifier{},
 		&epochNumberVerifier{},
 		&prevSealingBlockHashVerifier{
 			getBlock:               sm.GetBlock,
-			latestPersistedHeight:  sm.LatestPersistedHeight,
+			latestPersistedHeight:  &sm.LatestPersistedHeight,
 		},
 		&nextPChainReferenceHeightVerifier{
 			getPChainHeight: sm.GetPChainHeight,
@@ -235,7 +292,7 @@ func (sm *StateMachine) init() {
 	}
 }
 
-func (sm *StateMachine) verifyNonZeroBlock(block *StateMachineBlock, prevBlockMD StateMachineMetadata, prevMD StateMachineMetadata, state state, prevSeq uint64) error {
+func (sm *StateMachine) verifyNonZeroBlock(ctx context.Context, block *StateMachineBlock, prevBlockMD StateMachineMetadata, prevMD StateMachineMetadata, state state, prevSeq uint64) error {
 	blockType := sm.identifyBlockType(block, prevBlockMD)
 	timestamp := time.Unix(int64(prevMD.Timestamp), 0)
 
@@ -256,7 +313,12 @@ func (sm *StateMachine) verifyNonZeroBlock(block *StateMachineBlock, prevBlockMD
 			return err
 		}
 	}
-	return nil
+
+	if block.InnerBlock == nil {
+		return nil
+	}
+
+	return block.InnerBlock.Verify(ctx)
 }
 
 func (sm *StateMachine) identifyCurrentState(simplexEpochInfo SimplexEpochInfo) (state, error) {
@@ -279,6 +341,13 @@ func (sm *StateMachine) identifyCurrentState(simplexEpochInfo SimplexEpochInfo) 
 	return stateBuildBlockEpochSealed, nil
 }
 
+func computePrevVMBlockSeq(parentBlock StateMachineBlock, prevBlockSeq uint64) uint64 {
+	if parentBlock.InnerBlock == nil {
+		return parentBlock.Metadata.SimplexEpochInfo.PrevVMBlockSeq
+	}
+	return prevBlockSeq
+}
+
 func (sm *StateMachine) buildBlockNormalOp(ctx context.Context, parentBlock StateMachineBlock, simplexMetadata, simplexBlacklist []byte, prevBlockSeq uint64) (*StateMachineBlock, error) {
 	pChainHeight := sm.GetPChainHeight()
 
@@ -295,6 +364,7 @@ func (sm *StateMachine) buildBlockNormalOp(ctx context.Context, parentBlock Stat
 	newSimplexEpochInfo := SimplexEpochInfo{
 		PChainReferenceHeight: parentBlock.Metadata.SimplexEpochInfo.PChainReferenceHeight,
 		EpochNumber:           parentBlock.Metadata.SimplexEpochInfo.EpochNumber,
+		PrevVMBlockSeq:        computePrevVMBlockSeq(parentBlock, prevBlockSeq),
 	}
 
 	// If the validator set has changed, it's time to move to a new epoch.
@@ -302,7 +372,7 @@ func (sm *StateMachine) buildBlockNormalOp(ctx context.Context, parentBlock Stat
 	// and building a block without waiting indefinitely.
 	if !currentValidatorSet.Compare(newValidatorSet) {
 		newSimplexEpochInfo.NextPChainReferenceHeight = pChainHeight
-		return sm.buildBlockImpatiently(ctx, parentBlock, simplexMetadata, simplexBlacklist, newSimplexEpochInfo, pChainHeight, prevBlockSeq)
+		return sm.buildBlockImpatiently(ctx, parentBlock, simplexMetadata, simplexBlacklist, newSimplexEpochInfo, pChainHeight)
 	}
 
 	childBlock, err := sm.BlockBuilder.BuildBlock(ctx, parentBlock.Metadata.ICMEpochInfo.PChainEpochHeight)
@@ -310,7 +380,7 @@ func (sm *StateMachine) buildBlockNormalOp(ctx context.Context, parentBlock Stat
 		return nil, err
 	}
 
-	return sm.wrapBlock(parentBlock, childBlock, newSimplexEpochInfo, pChainHeight, simplexMetadata, simplexBlacklist, prevBlockSeq), nil
+	return sm.wrapBlock(parentBlock, childBlock, newSimplexEpochInfo, pChainHeight, simplexMetadata, simplexBlacklist), nil
 }
 
 func (sm *StateMachine) identifyBlockType(block *StateMachineBlock, prevBlockMD StateMachineMetadata) blockType {
@@ -325,9 +395,12 @@ func (sm *StateMachine) identifyBlockType(block *StateMachineBlock, prevBlockMD 
 
 	// This block could be in the edges of an epoch, either at the end or at the beginning.
 
-	// If the new block comes after a sealing block, then this block is a Telock.
+	// If the new block comes after a sealing block, it could be a Telock or the first block of the next epoch.
 	// [ Sealing Block ] <-- [ New Block ]
 	if prevSimplexEpochInfo.BlockValidationDescriptor != nil {
+		if simplexEpochInfo.EpochNumber == prevSimplexEpochInfo.SealingBlockSeq {
+			return blockTypeNewEpoch
+		}
 		return blockTypeTelock
 	}
 
@@ -348,7 +421,7 @@ func (sm *StateMachine) identifyBlockType(block *StateMachineBlock, prevBlockMD 
 	return blockTypeNormal
 }
 
-func (sm *StateMachine) buildBlockZeroEpoch(ctx context.Context, parentBlock StateMachineBlock, simplexMetadata, simplexBlacklist []byte, prevBlockSeq uint64) (*StateMachineBlock, error) {
+func (sm *StateMachine) buildBlockZeroEpoch(ctx context.Context, parentBlock StateMachineBlock, simplexMetadata, simplexBlacklist []byte) (*StateMachineBlock, error) {
 	pChainHeight := sm.GetPChainHeight()
 
 	newValidatorSet, err := sm.GetValidatorSet(pChainHeight)
@@ -362,7 +435,7 @@ func (sm *StateMachine) buildBlockZeroEpoch(ctx context.Context, parentBlock Sta
 	}
 	simplexEpochInfo := constructSimplexEpochInfoForZeroEpoch(pChainHeight, newValidatorSet, prevVMBlockSeq)
 
-	return sm.buildBlockImpatiently(ctx, parentBlock, simplexMetadata, simplexBlacklist, simplexEpochInfo, pChainHeight, prevBlockSeq)
+	return sm.buildBlockImpatiently(ctx, parentBlock, simplexMetadata, simplexBlacklist, simplexEpochInfo, pChainHeight)
 }
 
 func (sm *StateMachine) verifyBlockZero(ctx context.Context, block *StateMachineBlock, prevBlock StateMachineBlock) error {
@@ -445,6 +518,7 @@ func (sm *StateMachine) buildBlockCollectingApprovals(ctx context.Context, paren
 		PChainReferenceHeight:     parentBlock.Metadata.SimplexEpochInfo.PChainReferenceHeight,
 		EpochNumber:               parentBlock.Metadata.SimplexEpochInfo.EpochNumber,
 		NextPChainReferenceHeight: parentBlock.Metadata.SimplexEpochInfo.NextPChainReferenceHeight,
+		PrevVMBlockSeq:            computePrevVMBlockSeq(parentBlock, prevBlockSeq),
 	}
 
 	validators, err := sm.GetValidatorSet(parentBlock.Metadata.SimplexEpochInfo.NextPChainReferenceHeight)
@@ -461,15 +535,20 @@ func (sm *StateMachine) buildBlockCollectingApprovals(ctx context.Context, paren
 	}
 
 	if !newApprovals.canSeal {
+		if newSimplexEpochInfo.NextEpochApprovals == nil {
+			newSimplexEpochInfo.NextEpochApprovals = &NextEpochApprovals{}
+		}
+		newSimplexEpochInfo.NextEpochApprovals.NodeIDs = newApprovals.nodeIDs
+		newSimplexEpochInfo.NextEpochApprovals.Signature = newApprovals.signature
 		pChainHeight := parentBlock.Metadata.PChainHeight
-		return sm.buildBlockImpatiently(ctx, parentBlock, simplexMetadata, simplexBlacklist, newSimplexEpochInfo, pChainHeight, prevBlockSeq)
+		return sm.buildBlockImpatiently(ctx, parentBlock, simplexMetadata, simplexBlacklist, newSimplexEpochInfo, pChainHeight)
 	}
 
 	// Else, we create the sealing block.
-	return sm.createSealingBlock(ctx, parentBlock, simplexMetadata, simplexBlacklist, newSimplexEpochInfo, newApprovals, nextPChainHeight, prevBlockSeq)
+	return sm.createSealingBlock(ctx, parentBlock, simplexMetadata, simplexBlacklist, newSimplexEpochInfo, newApprovals, nextPChainHeight)
 }
 
-func (sm *StateMachine) buildBlockImpatiently(ctx context.Context, parentBlock StateMachineBlock, simplexMetadata []byte, simplexBlacklist []byte, simplexEpochInfo SimplexEpochInfo, pChainHeight uint64, prevBlockSeq uint64) (*StateMachineBlock, error) {
+func (sm *StateMachine) buildBlockImpatiently(ctx context.Context, parentBlock StateMachineBlock, simplexMetadata []byte, simplexBlacklist []byte, simplexEpochInfo SimplexEpochInfo, pChainHeight uint64) (*StateMachineBlock, error) {
 	impatientContext, cancel := context.WithTimeout(ctx, sm.MaxBlockBuildingWaitTime)
 	defer cancel()
 
@@ -484,11 +563,14 @@ func (sm *StateMachine) buildBlockImpatiently(ctx context.Context, parentBlock S
 	// Else, either err == nil, and we've built the block,
 	// or err != nil but ctx.Err() != nil and we have waited MaxBlockBuildingWaitTime,
 	// so we need to build a block regardless of whether the inner VM wants to build a block.
-	return sm.wrapBlock(parentBlock, childBlock, simplexEpochInfo, pChainHeight, simplexMetadata, simplexBlacklist, prevBlockSeq), nil
+	return sm.wrapBlock(parentBlock, childBlock, simplexEpochInfo, pChainHeight, simplexMetadata, simplexBlacklist), nil
 }
 
-func (sm *StateMachine) createSealingBlock(ctx context.Context, parentBlock StateMachineBlock, simplexMetadata []byte, simplexBlacklist []byte, simplexEpochInfo SimplexEpochInfo, newApprovals *approvals, pChainHeight uint64, prevBlockSeq uint64) (*StateMachineBlock, error) {
+func (sm *StateMachine) createSealingBlock(ctx context.Context, parentBlock StateMachineBlock, simplexMetadata []byte, simplexBlacklist []byte, simplexEpochInfo SimplexEpochInfo, newApprovals *approvals, pChainHeight uint64) (*StateMachineBlock, error) {
 	// Update the approvals and signature in the simplex epoch info for the next block
+	if simplexEpochInfo.NextEpochApprovals == nil {
+		simplexEpochInfo.NextEpochApprovals = &NextEpochApprovals{}
+	}
 	simplexEpochInfo.NextEpochApprovals.NodeIDs = newApprovals.nodeIDs
 	simplexEpochInfo.NextEpochApprovals.Signature = newApprovals.signature
 
@@ -502,18 +584,31 @@ func (sm *StateMachine) createSealingBlock(ctx context.Context, parentBlock Stat
 	if err != nil {
 		return nil, err
 	}
+	if simplexEpochInfo.BlockValidationDescriptor == nil {
+		simplexEpochInfo.BlockValidationDescriptor = &BlockValidationDescriptor{}
+	}
 	simplexEpochInfo.BlockValidationDescriptor.AggregatedMembership.Members = validators
 
 	// If this is not the first epoch, and this is the sealing block, we set the hash of the previous sealing block.
-	if newApprovals.canSeal && simplexEpochInfo.EpochNumber > 0 {
-		prevSealingBlock, _, err := sm.GetBlock(simplexEpochInfo.EpochNumber)
+	if newApprovals.canSeal && simplexEpochInfo.EpochNumber > 1 {
+		prevSealingBlock, _, err := sm.GetBlock(RetrievingOpts{Height: simplexEpochInfo.EpochNumber, Digest: parentBlock.Digest()})
 		if err != nil {
 			return nil, fmt.Errorf("failed to retrieve previous sealing InnerBlock at epoch %d: %w", simplexEpochInfo.EpochNumber-1, err)
 		}
 		simplexEpochInfo.PrevSealingBlockHash = prevSealingBlock.Digest()
+	} else { // Else, this is the first epoch, so we use the hash of the first ever Simplex block.
+		firstSimplexBlock, err := findFirstSimplexBlock(sm.GetBlock, sm.LatestPersistedHeight)
+		if err != nil {
+			return nil, fmt.Errorf("failed to find first simplex block: %w", err)
+		}
+		firstSimplexBlockRetrieved, _, err := sm.GetBlock(RetrievingOpts{Height: firstSimplexBlock})
+		if err != nil {
+			return nil, fmt.Errorf("failed to retrieve first simplex block at height %d: %w", firstSimplexBlock, err)
+		}
+		simplexEpochInfo.PrevSealingBlockHash = firstSimplexBlockRetrieved.Digest()
 	}
 
-	return sm.buildBlockImpatiently(ctx, parentBlock, simplexMetadata, simplexBlacklist, simplexEpochInfo, pChainHeight, prevBlockSeq)
+	return sm.buildBlockImpatiently(ctx, parentBlock, simplexMetadata, simplexBlacklist, simplexEpochInfo, pChainHeight)
 }
 
 func computeNewApprovals(
@@ -619,6 +714,7 @@ func (sm *StateMachine) buildBlockEpochSealed(ctx context.Context, parentBlock S
 		EpochNumber:               parentBlock.Metadata.SimplexEpochInfo.EpochNumber,
 		NextPChainReferenceHeight: parentBlock.Metadata.SimplexEpochInfo.NextPChainReferenceHeight,
 		SealingBlockSeq:           parentBlock.Metadata.SimplexEpochInfo.SealingBlockSeq,
+		PrevVMBlockSeq:            computePrevVMBlockSeq(parentBlock, prevBlockSeq),
 	}
 
 	// First, we find the sequence of the sealing block.
@@ -629,7 +725,7 @@ func (sm *StateMachine) buildBlockEpochSealed(ctx context.Context, parentBlock S
 		return nil, fmt.Errorf("cannot build epoch sealed inner block: sealing inner block sequence is 0 or undefined")
 	}
 
-	_, finalization, err := sm.GetBlock(seq)
+	_, finalization, err := sm.GetBlock(RetrievingOpts{Height: seq, Digest: parentBlock.Digest()})
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve sealing inner block at sequence %d: %w", seq, err)
 	}
@@ -638,7 +734,7 @@ func (sm *StateMachine) buildBlockEpochSealed(ctx context.Context, parentBlock S
 
 	if !isSealingBlockFinalized {
 		pChainHeight := parentBlock.Metadata.PChainHeight
-		return sm.wrapBlock(parentBlock, nil, newSimplexEpochInfo, pChainHeight, simplexMetadata, simplexBlacklist, prevBlockSeq), nil
+		return sm.wrapBlock(parentBlock, nil, newSimplexEpochInfo, pChainHeight, simplexMetadata, simplexBlacklist), nil
 	}
 
 	// Else, we build a block for the new epoch.
@@ -646,7 +742,8 @@ func (sm *StateMachine) buildBlockEpochSealed(ctx context.Context, parentBlock S
 		// P-chain reference height is previous block's NextPChainReferenceHeight.
 		PChainReferenceHeight: parentBlock.Metadata.SimplexEpochInfo.NextPChainReferenceHeight,
 		// The epoch number is the sequence of the sealing block.
-		EpochNumber: parentBlock.Metadata.SimplexEpochInfo.SealingBlockSeq,
+		EpochNumber:    parentBlock.Metadata.SimplexEpochInfo.SealingBlockSeq,
+		PrevVMBlockSeq: computePrevVMBlockSeq(parentBlock, prevBlockSeq),
 	}
 
 	childBlock, err := sm.BlockBuilder.BuildBlock(ctx, parentBlock.Metadata.ICMEpochInfo.PChainEpochHeight)
@@ -654,10 +751,10 @@ func (sm *StateMachine) buildBlockEpochSealed(ctx context.Context, parentBlock S
 		return nil, err
 	}
 
-	return sm.wrapBlock(parentBlock, childBlock, newSimplexEpochInfo, parentBlock.Metadata.PChainHeight, simplexMetadata, simplexBlacklist, prevBlockSeq), nil
+	return sm.wrapBlock(parentBlock, childBlock, newSimplexEpochInfo, parentBlock.Metadata.PChainHeight, simplexMetadata, simplexBlacklist), nil
 }
 
-func computeICMEpochInfo(getUpgrades func() upgradeConfig, icmEpochTransition ICMEpochTransition, parentMetadata StateMachineMetadata, parentTimestamp, childTimestamp time.Time) ICMEpoch {
+func computeICMEpochInfo(getUpgrades func() UpgradeConfig, icmEpochTransition ICMEpochTransition, parentMetadata StateMachineMetadata, parentTimestamp, childTimestamp time.Time) ICMEpoch {
 	upgrades := getUpgrades()
 
 	icmEpoch := icmEpochTransition(upgrades, ICMEpochInput{
@@ -673,7 +770,7 @@ func computeICMEpochInfo(getUpgrades func() upgradeConfig, icmEpochTransition IC
 	return icmEpoch
 }
 
-func (sm *StateMachine) wrapBlock(parentBlock StateMachineBlock, childBlock VMBlock, newSimplexEpochInfo SimplexEpochInfo, pChainHeight uint64, simplexMetadata, simplexBlacklist []byte, prevBlockSeq uint64) *StateMachineBlock {
+func (sm *StateMachine) wrapBlock(parentBlock StateMachineBlock, childBlock VMBlock, newSimplexEpochInfo SimplexEpochInfo, pChainHeight uint64, simplexMetadata, simplexBlacklist []byte) *StateMachineBlock {
 	parentMetadata := parentBlock.Metadata
 	timestamp := parentMetadata.Timestamp
 
@@ -690,12 +787,6 @@ func (sm *StateMachine) wrapBlock(parentBlock StateMachineBlock, childBlock VMBl
 
 	icmEpochInfo := nextICMEpochInfo(parentMetadata, hasChildBlock, getUpgrades, icmEpochTransition, newTimestamp)
 
-	if parentBlock.InnerBlock == nil {
-		newSimplexEpochInfo.PrevVMBlockSeq = parentMetadata.SimplexEpochInfo.PrevVMBlockSeq
-	} else {
-		newSimplexEpochInfo.PrevVMBlockSeq = prevBlockSeq
-	}
-
 	return &StateMachineBlock{
 		InnerBlock: childBlock,
 		Metadata: StateMachineMetadata{
@@ -709,7 +800,7 @@ func (sm *StateMachine) wrapBlock(parentBlock StateMachineBlock, childBlock VMBl
 	}
 }
 
-func nextICMEpochInfo(parentMetadata StateMachineMetadata, hasChildBlock bool, getUpgrades func() upgradeConfig, icmEpochTransition ICMEpochTransition, newTimestamp time.Time) ICMEpochInfo {
+func nextICMEpochInfo(parentMetadata StateMachineMetadata, hasChildBlock bool, getUpgrades func() UpgradeConfig, icmEpochTransition ICMEpochTransition, newTimestamp time.Time) ICMEpochInfo {
 	icmEpochInfo := parentMetadata.ICMEpochInfo
 
 	if hasChildBlock {
@@ -726,11 +817,12 @@ func nextICMEpochInfo(parentMetadata StateMachineMetadata, hasChildBlock bool, g
 
 func findFirstSimplexBlock(getBlock BlockRetriever, endHeight uint64) (uint64, error) {
 	firstSimplexBlock := sort.Search(int(endHeight+1), func(i int) bool {
-		block, _, err := getBlock(uint64(i))
+		block, _, err := getBlock(RetrievingOpts{Height:uint64(i)})
 		if err != nil {
 			return false
 		}
-		return block.Metadata.SimplexEpochInfo.EpochNumber > 0
+		// The first Simplex block is such that its epoch info isn't the zero value.
+		return ! block.Metadata.SimplexEpochInfo.IsZero()
 	})
 
 	if uint64(firstSimplexBlock) > endHeight {
