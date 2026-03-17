@@ -83,7 +83,7 @@ type EpochConfig struct {
 type Epoch struct {
 	EpochConfig
 	// Runtime
-	oneTimeVerifier                *oneTimeVerifier
+	oneTimeVerifier                *OneTimeVerifier
 	buildBlockScheduler            *BasicScheduler
 	blockVerificationScheduler     *BlockDependencyManager
 	lock                           sync.Mutex
