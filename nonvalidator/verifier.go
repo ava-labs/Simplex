@@ -15,13 +15,13 @@ type Verifier struct {
 
 	lock                sync.Mutex
 	logger              simplex.Logger
-	latestVerifiedBlock simplex.Block     // last block we have verified
-	storage             simplex.Retriever // access to blocks
+	latestVerifiedBlock simplex.Block              // last block we have verified
+	storage             simplex.FullBlockRetriever // access to blocks
 	scheduler           *simplex.BasicScheduler
 	oneTimeVerifier     *simplex.OneTimeVerifier
 }
 
-func NewVerifier(ctx context.Context, logger simplex.Logger, lastVerifiedBlock simplex.Block, storage simplex.Retriever) *Verifier {
+func NewVerifier(ctx context.Context, logger simplex.Logger, lastVerifiedBlock simplex.Block, storage simplex.FullBlockRetriever) *Verifier {
 	return &Verifier{
 		ctx:                 ctx,
 		logger:              logger,

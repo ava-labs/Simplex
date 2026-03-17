@@ -57,14 +57,12 @@ type Storage interface {
 }
 
 type FullStorage interface {
+	FullBlockRetriever
 	NumBlocks() uint64
-	// Retrieve returns the block and finalization at [seq].
-	// If [seq] the block cannot be found, returns ErrBlockNotFound.
-	Retrieve(seq uint64) (FullBlock, Finalization, error)
 	Index(ctx context.Context, block FullBlock, certificate Finalization) error
 }
 
-type Retriever interface {
+type FullBlockRetriever interface {
 	// Retrieve returns the block and finalization at [seq].
 	// If [seq] the block cannot be found, returns ErrBlockNotFound.
 	Retrieve(seq uint64) (FullBlock, Finalization, error)
