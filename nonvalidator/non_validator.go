@@ -59,6 +59,10 @@ func (n *NonValidator) Start() {
 	n.broadcastLatestEpoch()
 }
 
+func (n *NonValidator) Stop() {
+	n.cancelCtx()
+}
+
 // TODO: Broadcast the last known epoch to bootstrap the node. Collect responses marking the latest sealing block.
 // Keep rebroadcasting requests for that sealing block until we have enough responses.
 func (n *NonValidator) broadcastLatestEpoch() {}
@@ -90,6 +94,12 @@ func skipMessage(msg *simplex.Message) bool {
 }
 
 func (n *NonValidator) HandleMessage(msg *simplex.Message, from simplex.NodeID) error {
+	select {
+	case <-n.ctx.Done():
+		return nil
+	default:
+	}
+
 	switch {
 	case skipMessage(msg):
 		return nil
