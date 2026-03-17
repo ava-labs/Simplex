@@ -129,20 +129,20 @@ func SetRound(block VerifiedBlock, notarization *Notarization, finalization *Fin
 	return round
 }
 
-type oneTimeVerifier struct {
+type OneTimeVerifier struct {
 	lock    sync.Mutex
 	digests map[Digest]verifiedResult
 	logger  Logger
 }
 
-func newOneTimeVerifier(logger Logger) *oneTimeVerifier {
-	return &oneTimeVerifier{
+func NewOneTimeVerifier(logger Logger) *OneTimeVerifier {
+	return &OneTimeVerifier{
 		digests: make(map[Digest]verifiedResult),
 		logger:  logger,
 	}
 }
 
-func (otv *oneTimeVerifier) Wrap(block Block) Block {
+func (otv *OneTimeVerifier) Wrap(block Block) Block {
 	return &oneTimeVerifiedBlock{
 		otv:   otv,
 		Block: block,
@@ -156,7 +156,7 @@ type verifiedResult struct {
 }
 
 type oneTimeVerifiedBlock struct {
-	otv *oneTimeVerifier
+	otv *OneTimeVerifier
 	Block
 }
 

@@ -1,6 +1,7 @@
 package nonvalidator
 
 import (
+	"errors"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -9,6 +10,12 @@ import (
 	"github.com/ava-labs/simplex/testutil"
 	"github.com/stretchr/testify/require"
 )
+
+type errQC struct{}
+
+func (errQC) Signers() []simplex.NodeID { return nil }
+func (errQC) Verify([]byte) error       { return errors.New("verification failed") }
+func (errQC) Bytes() []byte             { return nil }
 
 func TestSkipMessage(t *testing.T) {
 	tests := []struct {
@@ -162,6 +169,109 @@ func TestHandleFinalizationMessage(t *testing.T) {
 	}
 }
 
+func TestHandleBlockDigestMismatch(t *testing.T) {
+	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
+	v := newTestNonValidator(t, nodes, nil)
+
+	metadata := simplex.ProtocolMetadata{Seq: 0, Epoch: 0, Round: 0}
+	blockA := testutil.NewTestBlock(metadata, simplex.Blacklist{})
+	blockB := testutil.NewTestBlock(metadata, simplex.Blacklist{})
+	blockB.Data = []byte("different")
+	blockB.ComputeDigest()
+
+	// send finalization for blockB
+	finalization, _ := testutil.NewFinalizationRecord(t, v.Logger, &testutil.TestSignatureAggregator{}, blockB, nodes)
+	err := v.HandleMessage(&simplex.Message{Finalization: &finalization}, nodes[0])
+	require.NoError(t, err)
+
+	// send block message for blockA — digest differs from stored finalization
+	err = v.HandleMessage(blockMessage(t, blockA, nodes[0]), nodes[0])
+	require.NoError(t, err)
+
+	require.Equal(t, uint64(0), v.Storage.NumBlocks())
+}
+
+func TestHandleFinalizationDigestMismatch(t *testing.T) {
+	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
+	v := newTestNonValidator(t, nodes, nil)
+
+	metadata := simplex.ProtocolMetadata{Seq: 0, Epoch: 0, Round: 0}
+	blockA := testutil.NewTestBlock(metadata, simplex.Blacklist{})
+	blockB := testutil.NewTestBlock(metadata, simplex.Blacklist{})
+	blockB.Data = []byte("different")
+	blockB.ComputeDigest()
+
+	// send block message for blockA from leader
+	err := v.HandleMessage(blockMessage(t, blockA, nodes[0]), nodes[0])
+	require.NoError(t, err)
+
+	// send finalization for blockB — digest differs from stored block
+	finalization, _ := testutil.NewFinalizationRecord(t, v.Logger, &testutil.TestSignatureAggregator{}, blockB, nodes)
+	err = v.HandleMessage(&simplex.Message{Finalization: &finalization}, nodes[0])
+	require.NoError(t, err)
+
+	require.Equal(t, uint64(0), v.Storage.NumBlocks())
+}
+
+func TestHandleFinalizationFailsVerification(t *testing.T) {
+	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
+	v := newTestNonValidator(t, nodes, nil)
+
+	var verified atomic.Bool
+	block := testutil.NewTestBlock(simplex.ProtocolMetadata{
+		Round: 0,
+		Seq:   0,
+		Epoch: 0,
+	}, simplex.Blacklist{})
+	block.OnVerify = func() {
+		verified.Store(true)
+	}
+
+	// send block from leader
+	err := v.HandleMessage(blockMessage(t, block, nodes[0]), nodes[0])
+	require.NoError(t, err)
+
+	// send a finalization that fails verification
+	finalization := &simplex.Finalization{
+		QC: errQC{},
+	}
+	err = v.HandleMessage(&simplex.Message{Finalization: finalization}, nodes[0])
+	require.NoError(t, err)
+
+	require.Never(t, verified.Load, 2*time.Second, 20*time.Millisecond)
+	require.Equal(t, uint64(0), v.Storage.NumBlocks())
+}
+
+func TestBlockVerifyCalledOnce(t *testing.T) {
+	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
+	v := newTestNonValidator(t, nodes, nil)
+
+	verificationDelay := make(chan struct{})
+	var verifyCount atomic.Int32
+
+	block := testutil.NewTestBlock(simplex.ProtocolMetadata{Seq: 0, Round: 0, Epoch: 0}, simplex.Blacklist{})
+	block.VerificationDelay = verificationDelay
+	block.OnVerify = func() {
+		verifyCount.Add(1)
+		// Schedule a second verification while task 1 is still inside Verify.
+		// The OneTimeVerifier should return the cached result without calling Verify again.
+		_ = v.verifier.triggerVerify(block)
+	}
+
+	finalization, _ := testutil.NewFinalizationRecord(t, v.Logger, &testutil.TestSignatureAggregator{}, block, nodes)
+	err := v.HandleMessage(&simplex.Message{Finalization: &finalization}, nodes[0])
+	require.NoError(t, err)
+
+	err = v.HandleMessage(blockMessage(t, block, nodes[0]), nodes[0])
+	require.NoError(t, err)
+
+	// Unblock the in-progress verification.
+	close(verificationDelay)
+
+	require.Eventually(t, func() bool { return verifyCount.Load() == 1 }, 2*time.Second, 20*time.Millisecond)
+	require.Never(t, func() bool { return verifyCount.Load() > 1 }, 200*time.Millisecond, 20*time.Millisecond)
+}
+
 func TestHandleBlockMessage(t *testing.T) {
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
 
@@ -172,6 +282,7 @@ func TestHandleBlockMessage(t *testing.T) {
 		// lastVerified may be nil when lastVerifiedBlock is not set for the test case.
 		finalizationBlock func(lastVerified, blockToSend *testutil.TestBlock) *testutil.TestBlock
 		blockSender       simplex.NodeID
+		blockSeq          uint64
 		expectVerified    bool
 		expectedNumBlocks uint64
 	}{
@@ -202,10 +313,13 @@ func TestHandleBlockMessage(t *testing.T) {
 			expectedNumBlocks: 1,
 		},
 		{
+			// seq 1 arrives with a finalization but seq 0 has not been verified yet,
+			// so the block is indexed but verification is deferred.
 			name:              "Finalization Received But Not Next To Verify",
 			finalizationBlock: func(_, blockToSend *testutil.TestBlock) *testutil.TestBlock { return blockToSend },
 			blockSender:       nodes[0],
-			expectVerified:    true,
+			blockSeq:          1,
+			expectVerified:    false,
 			expectedNumBlocks: 1,
 		},
 	}
@@ -221,7 +335,7 @@ func TestHandleBlockMessage(t *testing.T) {
 			var verified atomic.Bool
 			blockToSend := testutil.NewTestBlock(simplex.ProtocolMetadata{
 				Round: 0,
-				Seq:   0,
+				Seq:   tt.blockSeq,
 				Epoch: 0,
 			}, simplex.Blacklist{})
 			blockToSend.OnVerify = func() {

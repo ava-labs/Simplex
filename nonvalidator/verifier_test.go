@@ -16,37 +16,38 @@ func blockWithSeq(seq uint64) *testutil.TestBlock {
 }
 
 func TestAlreadyVerifiedSeq(t *testing.T) {
+	ctx := context.Background()
 	logger := testutil.MakeLogger(t, 0)
 
 	tests := []struct {
 		name     string
-		verifier *Verifiier
+		verifier *Verifier
 		seq      uint64
 		expected bool
 	}{
 		{
 			name: "No Verified Blocks",
-			verifier: func() *Verifiier {
+			verifier: func() *Verifier {
 				storage := testutil.NewNonValidatorInMemoryStorage()
-				return NewVerifier(logger, nil, storage)
+				return NewVerifier(ctx, logger, nil, storage)
 			}(),
 			seq:      5,
 			expected: false,
 		},
 		{
 			name: "Already verified",
-			verifier: func() *Verifiier {
+			verifier: func() *Verifier {
 				storage := testutil.NewNonValidatorInMemoryStorage()
-				return NewVerifier(logger, blockWithSeq(5), storage)
+				return NewVerifier(ctx, logger, blockWithSeq(5), storage)
 			}(),
 			seq:      3,
 			expected: true,
 		},
 		{
 			name: "Not verified",
-			verifier: func() *Verifiier {
+			verifier: func() *Verifier {
 				storage := testutil.NewNonValidatorInMemoryStorage()
-				return NewVerifier(logger, blockWithSeq(5), storage)
+				return NewVerifier(ctx, logger, blockWithSeq(5), storage)
 			}(),
 			seq:      6,
 			expected: false,
@@ -62,39 +63,40 @@ func TestAlreadyVerifiedSeq(t *testing.T) {
 }
 
 func TestTriggerVerify(t *testing.T) {
+	ctx := context.Background()
 	logger := testutil.MakeLogger(t, 0)
 
 	tests := []struct {
 		name                      string
-		verifier                  *Verifiier
+		verifier                  *Verifier
 		block                     simplex.Block
 		expectedErr               error
 		expectedLatestVerifiedSeq uint64
 	}{
 		{
 			name: "nothing to verify",
-			verifier: func() *Verifiier {
+			verifier: func() *Verifier {
 				s := testutil.NewNonValidatorInMemoryStorage()
-				return NewVerifier(logger, blockWithSeq(5), s)
+				return NewVerifier(ctx, logger, blockWithSeq(5), s)
 			}(),
 			block:                     blockWithSeq(9),
 			expectedLatestVerifiedSeq: 5,
 		},
 		{
 			name: "block is next to verify",
-			verifier: func() *Verifiier {
+			verifier: func() *Verifier {
 				s := testutil.NewNonValidatorInMemoryStorage()
-				return NewVerifier(logger, blockWithSeq(5), s)
+				return NewVerifier(ctx, logger, blockWithSeq(5), s)
 			}(),
 			block:                     blockWithSeq(6),
 			expectedLatestVerifiedSeq: 6,
 		},
 		{
 			name: "other block can be verified",
-			verifier: func() *Verifiier {
+			verifier: func() *Verifier {
 				s := testutil.NewNonValidatorInMemoryStorage()
 				require.NoError(t, s.Index(context.Background(), blockWithSeq(6), simplex.Finalization{}))
-				return NewVerifier(logger, blockWithSeq(5), s)
+				return NewVerifier(ctx, logger, blockWithSeq(5), s)
 			}(),
 			block:                     blockWithSeq(9),
 			expectedLatestVerifiedSeq: 6,
@@ -107,7 +109,7 @@ func TestTriggerVerify(t *testing.T) {
 			require.ErrorIs(t, err, tt.expectedErr)
 
 			require.Eventually(t, func() bool {
-				lv := tt.verifier.latestVerifiedBlock
+				lv := tt.verifier.latestVerified()
 				if lv == nil {
 					return false
 				}
@@ -118,6 +120,7 @@ func TestTriggerVerify(t *testing.T) {
 }
 
 func TestTriggerVerifyWhileVerifying(t *testing.T) {
+	ctx := context.Background()
 	logger := testutil.MakeLogger(t, 0)
 
 	storage := testutil.NewNonValidatorInMemoryStorage()
@@ -127,16 +130,17 @@ func TestTriggerVerifyWhileVerifying(t *testing.T) {
 		storage.Index(context.Background(), block7, simplex.Finalization{})
 	}
 
-	v := NewVerifier(logger, blockWithSeq(5), storage)
+	v := NewVerifier(ctx, logger, blockWithSeq(5), storage)
 	require.NoError(t, v.triggerVerify(block6))
 
 	require.Eventually(t, func() bool {
-		lv := v.latestVerifiedBlock
+		lv := v.latestVerified()
 		return lv != nil && lv.BlockHeader().Seq == 7
 	}, 5*time.Second, 10*time.Millisecond)
 }
 
 func TestTriggerVerifyDBError(t *testing.T) {
+	ctx := context.Background()
 	logger := testutil.MakeLogger(t, 0)
 
 	dbErr := errors.New("db error")
@@ -145,7 +149,7 @@ func TestTriggerVerifyDBError(t *testing.T) {
 		return nil, simplex.Finalization{}, dbErr
 	}
 
-	v := NewVerifier(logger, blockWithSeq(5), storage)
+	v := NewVerifier(ctx, logger, blockWithSeq(5), storage)
 	require.ErrorIs(t, v.triggerVerify(blockWithSeq(9)), dbErr)
-	require.Equal(t, uint64(5), v.latestVerifiedBlock.BlockHeader().Seq)
+	require.Equal(t, uint64(5), v.latestVerified().BlockHeader().Seq)
 }
