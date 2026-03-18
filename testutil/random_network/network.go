@@ -37,7 +37,7 @@ func NewNetwork(config *FuzzConfig, t *testing.T) *Network {
 	numNodes := r.Intn(config.MaxNodes-config.MinNodes+1) + config.MinNodes
 	nodeIds := make([]simplex.NodeID, numNodes)
 	for i := range numNodes {
-		nodeIds[i] = GenerateNodeIDFromRand(r)
+		nodeIds[i] = []byte{byte(i)}
 	}
 
 	nodes := make([]*Node, numNodes)
