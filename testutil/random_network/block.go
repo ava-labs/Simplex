@@ -4,7 +4,6 @@
 package random_network
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/asn1"
@@ -67,7 +66,7 @@ func (b *Block) Bytes() ([]byte, error) {
 
 	var asn1TXs []asn1TX
 	for _, tx := range b.txs {
-		asn1TXs = append(asn1TXs, asn1TX{ID: tx.ID[:]})
+		asn1TXs = append(asn1TXs, asn1TX{ID: tx.ID[:], ShouldFailVerification: tx.shouldFailVerification})
 	}
 
 	blacklistBytes := b.blacklist.Bytes()
@@ -91,14 +90,12 @@ func (b *Block) containsTX(txID txID) bool {
 }
 
 func (b *Block) ComputeAndSetDigest() {
-	var bb bytes.Buffer
 	tbBytes, err := b.Bytes()
 	if err != nil {
 		panic(fmt.Sprintf("failed to serialize test block: %v", err))
 	}
 
-	bb.Write(tbBytes)
-	b.digest = sha256.Sum256(bb.Bytes())
+	b.digest = sha256.Sum256(tbBytes)
 }
 
 type BlockDeserializer struct {

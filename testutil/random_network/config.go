@@ -26,11 +26,11 @@ type FuzzConfig struct {
 
 	RandomSeed int64
 
-	// Chance that a node will be randomly crashed. Default is .1 (10%).
-	NodeCrashPercentage float64
+	// Probability that a node will be randomly crashed. Default is .1 (10%).
+	NodeCrashProbability float64
 
-	// Chance that a crashed node will be restarted. Default is .5 (50%).
-	NodeRecoverPercentage float64
+	// Probability that a crashed node will be restarted. Default is .5 (50%).
+	NodeRecoverProbability float64
 
 	// Amount to advance the time by. Default is simplex.DefaultMaxProposalWaitTime / 5.
 	AdvanceTimeTickAmount time.Duration
@@ -44,16 +44,16 @@ type FuzzConfig struct {
 
 func DefaultFuzzConfig() *FuzzConfig {
 	return &FuzzConfig{
-		MinNodes:              3,
-		MaxNodes:              10,
-		MinTxsPerIssue:        5,
-		MaxTxsPerIssue:        20,
-		TxsPerBlock:           15,
-		NumFinalizedBlocks:    100,
-		RandomSeed:            time.Now().UnixMilli(),
-		NodeCrashPercentage:   0.1,
-		NodeRecoverPercentage: 0.5,
-		AdvanceTimeTickAmount: simplex.DefaultMaxProposalWaitTime / 5,
-		LogDirectory:          "tmp",
+		MinNodes:               3,
+		MaxNodes:               10,
+		MinTxsPerIssue:         5,
+		MaxTxsPerIssue:         20,
+		TxsPerBlock:            15,
+		NumFinalizedBlocks:     100,
+		RandomSeed:             time.Now().UnixMilli(),
+		NodeCrashProbability:   0.1,
+		NodeRecoverProbability: 0.5,
+		AdvanceTimeTickAmount:  simplex.DefaultMaxProposalWaitTime / 5,
+		LogDirectory:           "tmp",
 	}
 }

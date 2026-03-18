@@ -4,9 +4,11 @@
 package random_network
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 
 	"github.com/ava-labs/simplex"
@@ -251,6 +253,12 @@ func (m *Mempool) BuildBlock(ctx context.Context, md simplex.ProtocolMetadata, b
 	if ctx.Err() != nil {
 		return nil, false
 	}
+
+	// sort transactions
+	slices.SortFunc(txs, func(a *TX, b *TX) int {
+		return bytes.Compare(a.ID[:], b.ID[:])
+	})
+
 	block := NewBlock(md, bl, m, txs)
 	m.logger.Debug("Built block with txs", zap.String("block digest", block.digest.String()), zap.Int("num txs", len(block.txs)), zap.Uint64("round", md.Round), zap.Uint64("seq", md.Seq))
 	// in the future we can create a malicious block but we need to ensure the number of crashed nodes in under the threshold f(since we cant tolerate more than f malicious nodes)

@@ -12,6 +12,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+var emptyBlacklist = simplex.Blacklist{
+	NodeCount:      4,
+	SuspectedNodes: simplex.SuspectedNodes{},
+	Updates:        []simplex.BlacklistUpdate{},
+}
+
 func TestMempoolVerifiesTx(t *testing.T) {
 	logger := testutil.MakeLogger(t, 1)
 	ctx := context.Background()

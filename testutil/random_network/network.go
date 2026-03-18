@@ -57,7 +57,6 @@ func NewNetwork(config *FuzzConfig, t *testing.T) *Network {
 		randomness:           r,
 		logger:               logger,
 		t:                    t,
-		lock:                 sync.Mutex{},
 		config:               config,
 		numNodes:             uint64(numNodes),
 	}
@@ -126,7 +125,7 @@ func (n *Network) recoverToHeight(height uint64) {
 			isCrashed := node.isCrashed.Load()
 			if isCrashed {
 				// randomly decide to recover based on NodeRecoverPercentage
-				if n.randomness.Float64() < n.config.NodeRecoverPercentage {
+				if n.randomness.Float64() < n.config.NodeRecoverProbability {
 					n.logger.Debug("Recovering node", zap.Stringer("nodeID", node.E.ID))
 					n.startNode(i)
 				}
@@ -203,7 +202,7 @@ func (n *Network) numCrashedNodes() uint64 {
 }
 
 func (n *Network) crashAndRecoverNodes() {
-	if n.config.NodeCrashPercentage == 0 {
+	if n.config.NodeCrashProbability == 0 {
 		return
 	}
 
@@ -222,7 +221,7 @@ func (n *Network) crashAndRecoverNodes() {
 		isCrashed := node.isCrashed.Load()
 		if isCrashed {
 			// randomly decide to recover based on NodeRecoverPercentage
-			if n.randomness.Float64() < n.config.NodeRecoverPercentage {
+			if n.randomness.Float64() < n.config.NodeRecoverProbability {
 				n.startNode(i)
 				recoveredNodes = append(recoveredNodes, node.E.ID)
 				maxLeftToCrash++
@@ -236,7 +235,7 @@ func (n *Network) crashAndRecoverNodes() {
 		}
 
 		// randomly decide to crash the node
-		if n.randomness.Float64() < n.config.NodeCrashPercentage {
+		if n.randomness.Float64() < n.config.NodeCrashProbability {
 			maxLeftToCrash--
 			n.crashNode(i)
 			crashedNodes = append(crashedNodes, node.E.ID)

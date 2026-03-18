@@ -27,9 +27,3 @@ func GenerateNodeIDFromRand(r *rand.Rand) simplex.NodeID {
 
 	return simplex.NodeID(b)
 }
-
-var emptyBlacklist = simplex.Blacklist{
-	NodeCount:      4,
-	SuspectedNodes: simplex.SuspectedNodes{},
-	Updates:        []simplex.BlacklistUpdate{},
-}
