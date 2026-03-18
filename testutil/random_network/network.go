@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/ava-labs/simplex"
 	"github.com/ava-labs/simplex/testutil"
@@ -188,6 +189,8 @@ func (n *Network) waitForTxAcceptance(txs []*TX) {
 		n.logger.Debug("Advancing network time to wait for tx acceptance", zap.Uint64("num crashed nodes", n.numCrashedNodes()))
 		n.BasicInMemoryNetwork.AdvanceTime(n.config.AdvanceTimeTickAmount)
 		n.lock.Unlock()
+
+		time.Sleep(20 * time.Millisecond)
 	}
 }
 

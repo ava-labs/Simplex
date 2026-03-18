@@ -93,21 +93,23 @@ func (n *Node) HandleMessage(msg *simplex.Message, from simplex.NodeID) error {
 	return n.BasicNode.HandleMessage(&msgCopy, from)
 }
 
+// copyBlock creates a copy of a simplex.Block with the node's mempool.
+func (n *Node) copyBlock(b simplex.Block) simplex.Block {
+	blockCopy := *b.(*Block)
+	blockCopy.mempool = n.mempool
+	return &blockCopy
+}
+
 // copyMessage creates a copy of the message and its relevant fields to avoid mutating shared state in the in-memory network
 // this is important because blocks are not serialized/deserialized in our current comm implementation, so sending blocks
 // also sends relevant state associated with the node that is sending the message which can cause unintended side effects.
 func (n *Node) copyMessage(msg *simplex.Message) simplex.Message {
-	// Create a copy of the message to avoid mutating shared state in the in-memory network
 	msgCopy := *msg
 
 	switch {
 	case msgCopy.BlockMessage != nil:
-		block := msgCopy.BlockMessage.Block.(*Block)
-
-		blockCopy := *block
-		blockCopy.mempool = n.mempool
 		blockMsgCopy := *msgCopy.BlockMessage
-		blockMsgCopy.Block = &blockCopy
+		blockMsgCopy.Block = n.copyBlock(msgCopy.BlockMessage.Block)
 		msgCopy.BlockMessage = &blockMsgCopy
 
 	case msgCopy.ReplicationResponse != nil:
@@ -121,10 +123,7 @@ func (n *Node) copyMessage(msg *simplex.Message) simplex.Message {
 		// convert quorum rounds to our type
 		for i, qr := range msgCopy.ReplicationResponse.Data {
 			if qr.Block != nil {
-				origBlock := qr.Block.(*Block)
-				blockCopy := *origBlock
-				blockCopy.mempool = n.mempool
-				msgCopy.ReplicationResponse.Data[i].Block = &blockCopy
+				msgCopy.ReplicationResponse.Data[i].Block = n.copyBlock(qr.Block)
 			}
 		}
 
@@ -132,10 +131,7 @@ func (n *Node) copyMessage(msg *simplex.Message) simplex.Message {
 			latestRoundCopy := *msgCopy.ReplicationResponse.LatestRound
 			msgCopy.ReplicationResponse.LatestRound = &latestRoundCopy
 			if latestRoundCopy.Block != nil {
-				origBlock := latestRoundCopy.Block.(*Block)
-				blockCopy := *origBlock
-				blockCopy.mempool = n.mempool
-				msgCopy.ReplicationResponse.LatestRound.Block = &blockCopy
+				msgCopy.ReplicationResponse.LatestRound.Block = n.copyBlock(latestRoundCopy.Block)
 			}
 		}
 
@@ -143,10 +139,7 @@ func (n *Node) copyMessage(msg *simplex.Message) simplex.Message {
 			latestSeqCopy := *msgCopy.ReplicationResponse.LatestSeq
 			msgCopy.ReplicationResponse.LatestSeq = &latestSeqCopy
 			if latestSeqCopy.Block != nil {
-				origBlock := latestSeqCopy.Block.(*Block)
-				blockCopy := *origBlock
-				blockCopy.mempool = n.mempool
-				msgCopy.ReplicationResponse.LatestSeq.Block = &blockCopy
+				msgCopy.ReplicationResponse.LatestSeq.Block = n.copyBlock(latestSeqCopy.Block)
 			}
 		}
 	default:

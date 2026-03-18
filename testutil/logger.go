@@ -15,6 +15,11 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+const (
+	LOG_LEVEL      = "log_level"
+	INFO_LOG_LEVEL = "info"
+)
+
 type TestLogger struct {
 	*zap.Logger
 	t                  *testing.T
@@ -143,7 +148,7 @@ func MakeLoggerWithFile(t *testing.T, fileWriter zapcore.WriteSyncer, writeStdou
 	// File core only if provided
 	if fileWriter != nil {
 		fileEncoder := zapcore.NewConsoleEncoder(config)
-		if strings.ToLower(os.Getenv("LOG_LEVEL")) == "info" {
+		if strings.ToLower(os.Getenv(LOG_LEVEL)) == INFO_LOG_LEVEL {
 			fileEncoder = &DebugSwallowingEncoder{
 				consoleEncoder: fileEncoder,
 				ObjectEncoder:  fileEncoder,
