@@ -26,7 +26,7 @@ func CreateNetworkLogger(t *testing.T, config *FuzzConfig) *testutil.TestLogger 
 	}
 
 	// Create file writer for main.log
-	fileWriter, err := setupFileOutput(config.LogDirectory, "main.log")
+	fileWriter, err := setupFileOutput(t, config.LogDirectory, "main.log")
 	if err != nil {
 		t.Fatalf("Failed to setup file output for main.log: %v", err)
 	}
@@ -43,7 +43,7 @@ func CreateNodeLogger(t *testing.T, config *FuzzConfig, nodeID simplex.NodeID) *
 	filename := fmt.Sprintf("%s.log", nodeID.String())
 
 	// Create file writer for node-specific log
-	fileWriter, err := setupFileOutput(config.LogDirectory, filename)
+	fileWriter, err := setupFileOutput(t, config.LogDirectory, filename)
 	if err != nil {
 		t.Fatalf("Failed to setup file output for %s: %v", filename, err)
 	}
@@ -51,8 +51,9 @@ func CreateNodeLogger(t *testing.T, config *FuzzConfig, nodeID simplex.NodeID) *
 	return testutil.MakeLoggerWithFile(t, fileWriter, false, int(nodeID[0]))
 }
 
-// setupFileOutput creates a file for logging and returns a WriteSyncer
-func setupFileOutput(logDir, filename string) (zapcore.WriteSyncer, error) {
+// setupFileOutput creates a file for logging and returns a WriteSyncer.
+// The file is closed automatically when the test ends.
+func setupFileOutput(t *testing.T, logDir, filename string) (zapcore.WriteSyncer, error) {
 	// Create log directory if it doesn't exist
 	if err := os.MkdirAll(logDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create log directory %s: %w", logDir, err)
@@ -66,6 +67,8 @@ func setupFileOutput(logDir, filename string) (zapcore.WriteSyncer, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open log file %s: %w", logPath, err)
 	}
+
+	t.Cleanup(func() { file.Close() })
 
 	// Wrap with AddSync to make it safe for concurrent writes
 	return zapcore.AddSync(file), nil
