@@ -115,6 +115,11 @@ func (b *BasicNode) enqueue(msg *simplex.Message, from, to simplex.NodeID) {
 
 	b.RecordMessageTypeSent(msg)
 
+	if b.shouldStop.Load() {
+		b.l.Debug("Node is stopped, not enqueuing message", zap.Stringer("from", from), zap.Stringer("to", to))
+		return
+	}
+
 	select {
 	case b.ingress <- struct {
 		msg  *simplex.Message
