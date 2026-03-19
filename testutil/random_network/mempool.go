@@ -207,16 +207,12 @@ func (m *Mempool) AcceptBlock(b *Block) {
 	// delete any verified but not accepted blocks that are siblings or uncles and move not conflicting txs back to unaccepted
 	delete(m.verifiedButNotAcceptedBlocks, b.digest)
 
-	siblings := []*Block{}
 	for _, verifiedBlock := range m.verifiedButNotAcceptedBlocks {
+		// any block that shares a parent(excluding our block) should be purged
 		if verifiedBlock.metadata.Prev == b.metadata.Prev {
-			siblings = append(siblings, verifiedBlock)
 			delete(m.verifiedButNotAcceptedBlocks, verifiedBlock.digest)
+			m.purgeChildren(verifiedBlock)
 		}
-	}
-
-	for _, sibling := range siblings {
-		m.purgeChildren(sibling)
 	}
 
 	if len(m.unacceptedTxs) > 0 {
@@ -227,14 +223,15 @@ func (m *Mempool) AcceptBlock(b *Block) {
 
 // go through any blocks that build off of this one and move their txs
 func (m *Mempool) purgeChildren(block *Block) {
+	// move this blocks transactions
+	m.moveTxsToUnaccepted(block)
+
 	for digest, verifiedBlock := range m.verifiedButNotAcceptedBlocks {
 		if verifiedBlock.metadata.Prev == block.digest {
 			delete(m.verifiedButNotAcceptedBlocks, digest)
-			m.moveTxsToUnaccepted(verifiedBlock)
 			m.purgeChildren(verifiedBlock)
 		}
 	}
-
 }
 
 func (m *Mempool) moveTxsToUnaccepted(block *Block) {
