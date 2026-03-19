@@ -211,7 +211,7 @@ func (m *Mempool) AcceptBlock(b *Block) {
 		// any block that shares a parent(excluding our block) should be purged
 		if verifiedBlock.metadata.Prev == b.metadata.Prev {
 			delete(m.verifiedButNotAcceptedBlocks, verifiedBlock.digest)
-			m.purgeChildren(verifiedBlock)
+			m.purgeBlockAndChildren(verifiedBlock)
 		}
 	}
 
@@ -221,15 +221,15 @@ func (m *Mempool) AcceptBlock(b *Block) {
 	}
 }
 
-// go through any blocks that build off of this one and move their txs
-func (m *Mempool) purgeChildren(block *Block) {
-	// move this blocks transactions
+// purgeBlockAndChildren goes through any blocks that build off of this one and move their txs
+// back to unaccepted. It also moves this blocks transactions to unaccepted. 
+func (m *Mempool) purgeBlockAndChildren(block *Block) {
 	m.moveTxsToUnaccepted(block)
 
 	for digest, verifiedBlock := range m.verifiedButNotAcceptedBlocks {
 		if verifiedBlock.metadata.Prev == block.digest {
 			delete(m.verifiedButNotAcceptedBlocks, digest)
-			m.purgeChildren(verifiedBlock)
+			m.purgeBlockAndChildren(verifiedBlock)
 		}
 	}
 }
