@@ -222,7 +222,7 @@ func (m *Mempool) AcceptBlock(b *Block) {
 }
 
 // purgeBlockAndChildren goes through any blocks that build off of this one and move their txs
-// back to unaccepted. It also moves this blocks transactions to unaccepted. 
+// back to unaccepted. It also moves this blocks transactions to unaccepted.
 func (m *Mempool) purgeBlockAndChildren(block *Block) {
 	m.moveTxsToUnaccepted(block)
 
