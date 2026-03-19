@@ -20,6 +20,8 @@ var emptyBlacklist = simplex.Blacklist{
 
 func TestMempoolVerifiesTx(t *testing.T) {
 	logger := testutil.MakeLogger(t, 1)
+	logger.Silence() // so we dont log errors/warns
+
 	ctx := context.Background()
 	require := require.New(t)
 	round0MD := NewProtocolMetadata(0, 0, simplex.Digest{})
