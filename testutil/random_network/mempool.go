@@ -106,15 +106,18 @@ func (m *Mempool) VerifyBlock(ctx context.Context, b *Block) error {
 
 	// Ensure the block has not already been verified or accepted
 	if _, exists := m.verifiedButNotAcceptedBlocks[b.digest]; exists {
+		m.logger.Error("Block has already been verified", zap.Error(errDoubleBlockVerification), zap.Stringer("Digest", b.digest))
 		return fmt.Errorf("%w: %s", errDoubleBlockVerification, b.digest)
 	}
 
 	if _, exists := m.acceptedBlocks[b.digest]; exists {
+		m.logger.Error("Block has already been accepted", zap.Error(errDoubleBlockVerification), zap.Stringer("Digest", b.digest))
 		return fmt.Errorf("%w: %s", errDoubleBlockVerification, b.digest)
 	}
 
 	// Ensure the parent block is accepted or verified
 	if parentInChain := m.isParentAcceptedOrVerified(b); !parentInChain {
+		m.logger.Error("Parent has not been accepted or verified", zap.Error(errParentNotFound), zap.Stringer("Digest", b.digest))
 		return fmt.Errorf("%w: parent digest %s, block digest %s", errParentNotFound, b.metadata.Prev, b.digest)
 	}
 
