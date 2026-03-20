@@ -30,3 +30,6 @@ go.work.sum
 
 .DS_Store
 .idea/
+
+# tmp folder
+/tmp
