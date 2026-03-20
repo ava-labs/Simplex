@@ -83,6 +83,76 @@ func TestFakeNode(t *testing.T) {
 	require.Equal(t, node.Height(), uint64(30))
 }
 
+func TestFakeNodeEmptyMempool(t *testing.T) {
+	validatorSetRetriever := validatorSetRetriever{
+		resultMap: map[uint64]metadata.NodeBLSMappings{
+			100: {{BLSKey: []byte{1}, Weight: 1, NodeID: [20]byte{1}}, {BLSKey: []byte{2}, Weight: 1, NodeID: [20]byte{2}}},
+			200: {{BLSKey: []byte{1}, Weight: 1, NodeID: [20]byte{1}}, {BLSKey: []byte{2}, Weight: 2, NodeID: [20]byte{2}},
+				{BLSKey: []byte{3}, Weight: 1, NodeID: [20]byte{3}}},
+			300: {{BLSKey: []byte{1}, Weight: 1, NodeID: [20]byte{1}}, {BLSKey: []byte{2}, Weight: 2, NodeID: [20]byte{2}},
+				{BLSKey: []byte{3}, Weight: 3, NodeID: [20]byte{3}}, {BLSKey: []byte{4}, Weight: 1, NodeID: [20]byte{4}}},
+		},
+	}
+
+	var pChainHeight uint64 = 100
+	node := newFakeNode(t)
+	node.mempoolEmpty = true
+	node.sm.MaxBlockBuildingWaitTime = 100 * time.Millisecond
+	node.sm.GetValidatorSet = validatorSetRetriever.getValidatorSet
+	node.sm.GetPChainHeight = func() uint64 {
+		return pChainHeight
+	}
+
+	// Create some blocks and finalize them, until we reach height 10
+	for node.Height() < 10 {
+		node.act()
+	}
+
+	// Next, we increase the P-Chain height, which should cause the node to update its validator set and move to the new epoch.
+	pChainHeight = 200
+
+	for node.Height() < 20 {
+		node.act()
+		if flipCoin() {
+			node.sm.ApprovalsRetriever = &approvalsRetriever{
+				result: []metadata.ValidatorSetApproval{{NodeID: [20]byte{1}, PChainHeight: 200, Signature: []byte{1}, AuxInfoSeqDigest: [32]byte{}}},
+			}
+		} else {
+			node.sm.ApprovalsRetriever = &approvalsRetriever{
+				result: []metadata.ValidatorSetApproval{{NodeID: [20]byte{2}, PChainHeight: 200, Signature: []byte{2}, AuxInfoSeqDigest: [32]byte{}}},
+			}
+		}
+	}
+
+	t.Log("Epoch:", node.Epoch())
+
+	epoch := node.Epoch()
+	require.Greater(t, epoch, uint64(1))
+	require.Equal(t, node.Height(), uint64(20))
+
+
+	// Finally, we increase the P-Chain height again, which should cause the node to update its validator set and move to the new epoch.
+
+	pChainHeight = 300
+
+	for node.Height() < 30 {
+		node.act()
+		if flipCoin() {
+			node.sm.ApprovalsRetriever = &approvalsRetriever{
+				result: []metadata.ValidatorSetApproval{{NodeID: [20]byte{2}, PChainHeight: 300, Signature: []byte{2}, AuxInfoSeqDigest: [32]byte{}}},
+			}
+		} else {
+			node.sm.ApprovalsRetriever = &approvalsRetriever{
+				result: []metadata.ValidatorSetApproval{{NodeID: [20]byte{3}, PChainHeight: 300, Signature: []byte{3}, AuxInfoSeqDigest: [32]byte{}}},
+			}
+		}
+	}
+
+	t.Log("Epoch:", node.Epoch())
+	require.Greater(t, node.Epoch(), epoch)
+	require.Equal(t, node.Height(), uint64(30))
+}
+
 type innerBlock struct {
 	metadata.InnerBlock
 	Prev [32]byte
@@ -91,9 +161,15 @@ type innerBlock struct {
 type fakeNode struct {
 	t               *testing.T
 	sm              metadata.StateMachine
+	mempoolEmpty    bool
 	notarizedBlocks []metadata.StateMachineBlock
 	finalizedBlocks []metadata.StateMachineBlock
 	innerChain      []innerBlock
+}
+
+func (fn *fakeNode) WaitForPendingBlock(ctx context.Context) {
+	//TODO implement me
+	panic("implement me")
 }
 
 func newFakeNode(t *testing.T) *fakeNode {

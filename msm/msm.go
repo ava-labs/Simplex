@@ -84,15 +84,6 @@ type KeyAggregator interface {
 	AggregateKeys(keys ...[]byte) ([]byte, error)
 }
 
-// Block represents a finalized block with height, hash, metadata, and inner block presence.
-type Block interface {
-	Height() uint64
-
-	Hash() [32]byte
-
-	Metadata() StateMachineMetadata
-}
-
 // ICMEpochTransition computes the next ICM epoch given the current upgrade configuration and epoch input.
 type ICMEpochTransition func(UpgradeConfig, ICMEpochInput) ICMEpoch
 
@@ -113,6 +104,10 @@ type BlockRetriever func(RetrievingOpts) (StateMachineBlock, *simplex.Finalizati
 // BlockBuilder builds a new VM block with the given observed P-chain height.
 type BlockBuilder interface {
 	BuildBlock(ctx context.Context, pChainHeight uint64) (VMBlock, error)
+
+	// WaitForPendingBlock returns when either the given context is cancelled,
+	// or when the VM signals that a block should be built.
+	WaitForPendingBlock(ctx context.Context)
 }
 
 // StateMachine manages block building and verification across epoch transitions.
@@ -148,6 +143,8 @@ type StateMachine struct {
 	KeyAggregator            KeyAggregator
 	// SignatureVerifier verifies signatures from validators.
 	SignatureVerifier        SignatureVerifier
+	// PChainProgressListener listens for changes in the P-chain height to trigger block building or epoch transitions.
+	PChainProgressListener PChainProgressListener
 
 	initialized bool
 	verifiers   []verifier
@@ -349,35 +346,66 @@ func computePrevVMBlockSeq(parentBlock StateMachineBlock, prevBlockSeq uint64) u
 }
 
 func (sm *StateMachine) buildBlockNormalOp(ctx context.Context, parentBlock StateMachineBlock, simplexMetadata, simplexBlacklist []byte, prevBlockSeq uint64) (*StateMachineBlock, error) {
-	pChainHeight := sm.GetPChainHeight()
-
-	currentValidatorSet, err := sm.GetValidatorSet(parentBlock.Metadata.SimplexEpochInfo.PChainReferenceHeight)
-	if err != nil {
-		return nil, err
-	}
-
-	newValidatorSet, err := sm.GetValidatorSet(pChainHeight)
-	if err != nil {
-		return nil, err
-	}
-
 	newSimplexEpochInfo := SimplexEpochInfo{
 		PChainReferenceHeight: parentBlock.Metadata.SimplexEpochInfo.PChainReferenceHeight,
 		EpochNumber:           parentBlock.Metadata.SimplexEpochInfo.EpochNumber,
 		PrevVMBlockSeq:        computePrevVMBlockSeq(parentBlock, prevBlockSeq),
 	}
 
-	// If the validator set has changed, it's time to move to a new epoch.
-	// We do this by setting NextPChainReferenceHeight to the new P-chain height
-	// and building a block without waiting indefinitely.
-	if !currentValidatorSet.Compare(newValidatorSet) {
-		newSimplexEpochInfo.NextPChainReferenceHeight = pChainHeight
-		return sm.buildBlockImpatiently(ctx, parentBlock, simplexMetadata, simplexBlacklist, newSimplexEpochInfo, pChainHeight)
+	blockBuildingDecider := blockBuildingDecider{
+		maxBlockBuildingWaitTime: sm.MaxBlockBuildingWaitTime,
+		pChainlistener: sm.PChainProgressListener,
+		getPChainHeight: sm.GetPChainHeight,
+		waitForPendingBlock: sm.BlockBuilder.WaitForPendingBlock,
+		shouldTransitionEpoch: func() (bool, error) {
+			pChainHeight := sm.GetPChainHeight()
+
+			currentValidatorSet, err := sm.GetValidatorSet(parentBlock.Metadata.SimplexEpochInfo.PChainReferenceHeight)
+			if err != nil {
+				return false, err
+			}
+
+			newValidatorSet, err := sm.GetValidatorSet(pChainHeight)
+			if err != nil {
+				return false, err
+			}
+
+			if !currentValidatorSet.Compare(newValidatorSet) {
+				return true, nil
+			}
+			return false, nil
+		},
 	}
 
+	decisionToBuildBlock, pChainHeight, err := blockBuildingDecider.shouldBuildBlock(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	var childBlock VMBlock
+
+
+	switch decisionToBuildBlock {
+	case blockBuildingDecisionBuildBlock, blockBuildingDecisionBuildBlockAndTransitionEpoch:
+		return sm.buildBlockAndMaybeTransitionEpoch(ctx, parentBlock, simplexMetadata, simplexBlacklist, childBlock, decisionToBuildBlock, newSimplexEpochInfo, pChainHeight)
+	case blockBuildingDecisionTransitionEpoch:
+		newSimplexEpochInfo.NextPChainReferenceHeight = pChainHeight
+		return sm.wrapBlock(parentBlock, nil, newSimplexEpochInfo, pChainHeight, simplexMetadata, simplexBlacklist), nil
+	case blockBuildingDecisionContextCanceled:
+		return nil, ctx.Err()
+	default:
+		return nil, fmt.Errorf("unknown block building decision %d", decisionToBuildBlock)
+	}
+}
+
+func (sm *StateMachine) buildBlockAndMaybeTransitionEpoch(ctx context.Context, parentBlock StateMachineBlock, simplexMetadata []byte, simplexBlacklist []byte, childBlock VMBlock, decisionToBuildBlock blockBuildingDecision, newSimplexEpochInfo SimplexEpochInfo, pChainHeight uint64) (*StateMachineBlock, error) {
 	childBlock, err := sm.BlockBuilder.BuildBlock(ctx, parentBlock.Metadata.ICMEpochInfo.PChainEpochHeight)
 	if err != nil {
 		return nil, err
+	}
+
+	if decisionToBuildBlock == blockBuildingDecisionBuildBlockAndTransitionEpoch {
+		newSimplexEpochInfo.NextPChainReferenceHeight = pChainHeight
 	}
 
 	return sm.wrapBlock(parentBlock, childBlock, newSimplexEpochInfo, pChainHeight, simplexMetadata, simplexBlacklist), nil

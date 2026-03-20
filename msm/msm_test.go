@@ -76,6 +76,11 @@ type blockBuilder struct {
 	err   error
 }
 
+func (bb *blockBuilder) WaitForPendingBlock(ctx context.Context) {
+	//TODO implement me
+	panic("implement me")
+}
+
 func (bb *blockBuilder) BuildBlock(_ context.Context, _ uint64) (metadata.VMBlock, error) {
 	return bb.block, bb.err
 }
