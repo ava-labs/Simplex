@@ -135,7 +135,7 @@ type OneTimeVerifier struct {
 	logger  Logger
 }
 
-func newOneTimeVerifier(logger Logger) *OneTimeVerifier {
+func NewOneTimeVerifier(logger Logger) *OneTimeVerifier {
 	return &OneTimeVerifier{
 		digests: make(map[Digest]verifiedResult),
 		logger:  logger,
