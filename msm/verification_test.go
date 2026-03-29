@@ -246,6 +246,7 @@ func TestEpochNumberVerifier(t *testing.T) {
 	for _, tc := range []struct {
 		name          string
 		nextBlockType BlockType
+		prevBlockSeq  uint64
 		prev          SimplexEpochInfo
 		next          SimplexEpochInfo
 		err           string
@@ -260,13 +261,15 @@ func TestEpochNumberVerifier(t *testing.T) {
 		{
 			name:          "new epoch block matching sealing seq",
 			nextBlockType: BlockTypeNewEpoch,
-			prev:          SimplexEpochInfo{EpochNumber: 1, SealingBlockSeq: 10},
+			prevBlockSeq:  10,
+			prev:          SimplexEpochInfo{EpochNumber: 1},
 			next:          SimplexEpochInfo{EpochNumber: 10},
 		},
 		{
 			name:          "new epoch block not matching sealing seq",
 			nextBlockType: BlockTypeNewEpoch,
-			prev:          SimplexEpochInfo{EpochNumber: 1, SealingBlockSeq: 10},
+			prevBlockSeq:  10,
+			prev:          SimplexEpochInfo{EpochNumber: 1},
 			next:          SimplexEpochInfo{EpochNumber: 5},
 			err:           "expected epoch number to be 10 but got 5",
 		},
@@ -300,6 +303,7 @@ func TestEpochNumberVerifier(t *testing.T) {
 			v := &epochNumberVerifier{}
 			err := v.Verify(verificationInput{
 				nextBlockType:   tc.nextBlockType,
+				prevBlockSeq:    tc.prevBlockSeq,
 				prevMD:          StateMachineMetadata{SimplexEpochInfo: tc.prev},
 				proposedBlockMD: StateMachineMetadata{SimplexEpochInfo: tc.next},
 			})
@@ -472,6 +476,21 @@ func TestNextPChainReferenceHeightVerifier(t *testing.T) {
 			prev:          SimplexEpochInfo{NextPChainReferenceHeight: 200},
 			next:          SimplexEpochInfo{NextPChainReferenceHeight: 300},
 			err:           "expected P-chain reference height to be 200 but got 300",
+		},
+		{
+			name:          "normal block next p-chain reference height less than current",
+			nextBlockType: BlockTypeNormal,
+			prev:          SimplexEpochInfo{PChainReferenceHeight: 200},
+			next:          SimplexEpochInfo{NextPChainReferenceHeight: 100},
+			err:           "expected P-chain reference height to be non-decreasing, but the previous P-chain reference height is 200 and the proposed P-chain reference height is 100",
+		},
+		{
+			name:          "normal block same validator set with non-zero next height",
+			nextBlockType: BlockTypeNormal,
+			prev:          SimplexEpochInfo{PChainReferenceHeight: 100},
+			next:          SimplexEpochInfo{NextPChainReferenceHeight: 200},
+			getValidator:  func(h uint64) (NodeBLSMappings, error) { return validators1, nil },
+			err:           "validator set at proposed next P-chain reference height 200 is the same as validator set at previous block's P-chain reference height 100,so expected next P-chain reference height to remain the same but got 200",
 		},
 		{
 			name:          "normal block no validator change and next height is zero",
@@ -891,7 +910,7 @@ func TestSealingBlockSeqVerifier(t *testing.T) {
 			name:          "normal block with non-zero sealing seq",
 			nextBlockType: BlockTypeNormal,
 			next:          SimplexEpochInfo{SealingBlockSeq: 5},
-			err:           "expected sealing inner block sequence number to be 0 but got 5",
+			err:           "expected sealing block sequence number to be 0 but got 5",
 		},
 		{
 			name:          "new epoch block with zero sealing seq",
@@ -902,7 +921,7 @@ func TestSealingBlockSeqVerifier(t *testing.T) {
 			name:          "new epoch block with non-zero sealing seq",
 			nextBlockType: BlockTypeNewEpoch,
 			next:          SimplexEpochInfo{SealingBlockSeq: 3},
-			err:           "expected sealing inner block sequence number to be 0 but got 3",
+			err:           "expected sealing block sequence number to be 0 but got 3",
 		},
 		{
 			name:          "telock block matching prev sealing seq",
@@ -915,20 +934,20 @@ func TestSealingBlockSeqVerifier(t *testing.T) {
 			nextBlockType: BlockTypeTelock,
 			prev:          SimplexEpochInfo{SealingBlockSeq: 10},
 			next:          SimplexEpochInfo{SealingBlockSeq: 11},
-			err:           "expected sealing inner block sequence number to be 10 but got 11",
+			err:           "expected sealing block sequence number to be 10 but got 11",
 		},
 		{
-			name:          "sealing block with correct seq (prev seq + 1)",
+			name:          "sealing block with zero seq",
 			nextBlockType: BlockTypeSealing,
 			prevMD:        StateMachineMetadata{SimplexProtocolMetadata: prevProtocolMD},
-			next:          SimplexEpochInfo{SealingBlockSeq: 6},
+			next:          SimplexEpochInfo{SealingBlockSeq: 0},
 		},
 		{
-			name:          "sealing block with wrong seq",
+			name:          "sealing block with non-zero seq",
 			nextBlockType: BlockTypeSealing,
 			prevMD:        StateMachineMetadata{SimplexProtocolMetadata: prevProtocolMD},
 			next:          SimplexEpochInfo{SealingBlockSeq: 10},
-			err:           "expected sealing inner block sequence number to be 6 but got 10",
+			err:           "expected sealing inner block sequence number to be 0 but got 10",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

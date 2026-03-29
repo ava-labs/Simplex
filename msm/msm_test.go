@@ -403,7 +403,7 @@ func TestMSMNormalOp(t *testing.T) {
 			mutateBlock: func(block *metadata.StateMachineBlock) {
 				block.Metadata.SimplexEpochInfo.SealingBlockSeq = 5
 			},
-			err: "expected sealing inner block sequence number to be 0 but got 5",
+			err: "expected sealing block sequence number to be 0 but got 5",
 		},
 		{
 			name: "wrong PChainReferenceHeight",
@@ -821,7 +821,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 						EpochNumber:               1,
 						PrevVMBlockSeq:            baseSeq + 5,
 						NextPChainReferenceHeight: pChainHeight2,
-						SealingBlockSeq:           baseSeq + 6,
+						SealingBlockSeq:           0,
 						PrevSealingBlockHash:      block1.Digest(),
 						BlockValidationDescriptor: &metadata.BlockValidationDescriptor{
 							AggregatedMembership: metadata.AggregatedMembership{
@@ -839,7 +839,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 
 			require.NoError(t, smVerify.VerifyBlock(context.Background(), block6))
 
-			sealingSeq := block6.Metadata.SimplexEpochInfo.SealingBlockSeq
+			sealingSeq := baseSeq + 6 // The sealing block's sequence (md.Seq from step 6)
 
 			backupStoreTC := tc.blockStore.clone()
 			backupStoreTCVerify := tcVerify.blockStore.clone()

@@ -276,7 +276,7 @@ func (fn *fakeNode) canFinalize() bool {
 func (fn *fakeNode) tryFinalizeNextBlock() {
 	nextIndex := len(fn.finalizedBlocks)
 
-	if fn.isTelock(nextIndex) {
+	if fn.isNextBlockTelock() {
 		return
 	}
 
@@ -296,14 +296,11 @@ func (fn *fakeNode) tryFinalizeNextBlock() {
 	}
 }
 
-func (fn *fakeNode) isTelock(index int) bool {
-	if index == 0 {
+func (fn *fakeNode) isNextBlockTelock() bool {
+	if len(fn.finalizedBlocks) == 0 {
 		return false
 	}
-	return metadata.IdentifyBlockType(
-		fn.notarizedBlocks[index].Metadata,
-		fn.notarizedBlocks[index-1].Metadata,
-	) == metadata.BlockTypeTelock
+	return fn.notarizedBlocks[len(fn.finalizedBlocks)].Metadata.SimplexEpochInfo.SealingBlockSeq > 0
 }
 
 func (fn *fakeNode) buildAndNotarizeBlock() {
