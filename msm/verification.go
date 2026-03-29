@@ -221,7 +221,7 @@ func (nv *nextEpochApprovalsVerifier) verifySignature(prev SimplexEpochInfo, nex
 		return fmt.Errorf("failed to aggregate public keys: %w", err)
 	}
 
-	pChainHeightBuff := pChainReferenceHeightAsBytes(prev)
+	pChainHeightBuff := pChainNextReferenceHeightAsBytes(prev)
 
 	var bb bytes.Buffer
 	bb.Write(pChainHeightBuff)
@@ -235,8 +235,8 @@ func (nv *nextEpochApprovalsVerifier) verifySignature(prev SimplexEpochInfo, nex
 	return nil
 }
 
-func pChainReferenceHeightAsBytes(prev SimplexEpochInfo) []byte {
-	pChainHeight := prev.PChainReferenceHeight
+func pChainNextReferenceHeightAsBytes(prev SimplexEpochInfo) []byte {
+	pChainHeight := prev.NextPChainReferenceHeight
 	pChainHeightBuff := make([]byte, 8)
 	binary.BigEndian.PutUint64(pChainHeightBuff, pChainHeight)
 	return pChainHeightBuff
@@ -267,6 +267,10 @@ func (n *nextPChainReferenceHeightVerifier) Verify(in verificationInput) error {
 }
 
 func (n *nextPChainReferenceHeightVerifier) verifyNextPChainHeightNormal(prevMD StateMachineMetadata, prev SimplexEpochInfo, next SimplexEpochInfo) error {
+	if next.NextPChainReferenceHeight > 0 && prev.PChainReferenceHeight > next.NextPChainReferenceHeight {
+		return fmt.Errorf("expected P-chain reference height to be non-decreasing, " +
+			"but the previous P-chain reference height is %d and the proposed P-chain reference height is %d", prev.PChainReferenceHeight, next.NextPChainReferenceHeight)
+	}
 	if prev.NextPChainReferenceHeight > 0 {
 		if next.NextPChainReferenceHeight != prev.NextPChainReferenceHeight {
 			return fmt.Errorf("expected P-chain reference height to be %d but got %d", prev.NextPChainReferenceHeight, next.NextPChainReferenceHeight)
@@ -283,8 +287,12 @@ func (n *nextPChainReferenceHeightVerifier) verifyNextPChainHeightNormal(prevMD 
 		return err
 	}
 
-	if currentValidatorSet.Compare(newValidatorSet) {
-		return nil
+	// If the validator set doesn't change, we shouldn't have increased the next P-chain reference height.
+	if currentValidatorSet.Compare(newValidatorSet) && next.NextPChainReferenceHeight > 0 {
+		return fmt.Errorf("validator set at proposed next P-chain reference height %d is the same as " +
+			"validator set at previous block's P-chain reference height %d," +
+			"so expected next P-chain reference height to remain the same but got %d",
+			next.NextPChainReferenceHeight, prev.PChainReferenceHeight, next.NextPChainReferenceHeight)
 	}
 
 	pChainHeight := n.getPChainHeight()
@@ -307,8 +315,8 @@ func (e *epochNumberVerifier) Verify(in verificationInput) error {
 
 	switch in.nextBlockType {
 	case BlockTypeNewEpoch:
-		if prev.SealingBlockSeq != next.EpochNumber {
-			return fmt.Errorf("expected epoch number to be %d but got %d", prev.SealingBlockSeq, next.EpochNumber)
+		if in.prevBlockSeq != next.EpochNumber {
+			return fmt.Errorf("expected epoch number to be %d but got %d", in.prevBlockSeq, next.EpochNumber)
 		}
 	default:
 		if prev.EpochNumber != next.EpochNumber {
@@ -326,19 +334,26 @@ func (s *sealingBlockSeqVerifier) Verify(in verificationInput) error {
 	switch in.nextBlockType {
 	case BlockTypeNewEpoch, BlockTypeNormal:
 		if next.SealingBlockSeq != 0 {
-			return fmt.Errorf("expected sealing inner block sequence number to be 0 but got %d", next.SealingBlockSeq)
+			return fmt.Errorf("expected sealing block sequence number to be 0 but got %d", next.SealingBlockSeq)
 		}
 	case BlockTypeTelock:
-		if next.SealingBlockSeq != prev.SealingBlockSeq {
-			return fmt.Errorf("expected sealing inner block sequence number to be %d but got %d", prev.SealingBlockSeq, next.SealingBlockSeq)
+		// This is not the first Telock, make sure the sealing block sequence number doesn't change.
+		if prev.SealingBlockSeq > 0 && next.SealingBlockSeq != prev.SealingBlockSeq {
+			return fmt.Errorf("expected sealing block sequence number to be %d but got %d", prev.SealingBlockSeq, next.SealingBlockSeq)
+		}
+		// Previous block is the sealing block, and this is the first Telock.
+		if prev.BlockValidationDescriptor != nil && next.SealingBlockSeq != 0 {
+			md, err := simplex.ProtocolMetadataFromBytes(in.prevMD.SimplexProtocolMetadata)
+			if err != nil {
+				return fmt.Errorf("failed parsing protocol metadata: %w", err)
+			}
+			if next.SealingBlockSeq != md.Seq {
+				return fmt.Errorf("expected sealing block sequence number to be %d but got %d", md.Seq, next.SealingBlockSeq)
+			}
 		}
 	case BlockTypeSealing:
-		md, err := simplex.ProtocolMetadataFromBytes(in.prevMD.SimplexProtocolMetadata)
-		if err != nil {
-			return fmt.Errorf("failed parsing protocol metadata: %w", err)
-		}
-		if next.SealingBlockSeq != md.Seq+1 {
-			return fmt.Errorf("expected sealing inner block sequence number to be %d but got %d", md.Seq+1, next.SealingBlockSeq)
+		if next.SealingBlockSeq > 0 {
+			return fmt.Errorf("expected sealing inner block sequence number to be 0 but got %d", next.SealingBlockSeq)
 		}
 	default:
 		return fmt.Errorf("unknown inner block type: %d", in.nextBlockType)

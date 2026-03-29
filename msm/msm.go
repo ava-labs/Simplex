@@ -298,7 +298,7 @@ func (sm *StateMachine) init() {
 }
 
 func (sm *StateMachine) verifyNonZeroBlock(ctx context.Context, block *StateMachineBlock, prevBlockMD StateMachineMetadata, prevMD StateMachineMetadata, state state, prevSeq uint64) error {
-	blockType := IdentifyBlockType(block.Metadata, prevBlockMD)
+	blockType := IdentifyBlockType(block.Metadata, prevBlockMD, prevSeq)
 	timestamp := time.Unix(int64(prevMD.Timestamp), 0)
 
 	if block.InnerBlock != nil {
@@ -336,14 +336,11 @@ func (sm *StateMachine) identifyCurrentState(simplexEpochInfo SimplexEpochInfo) 
 		return stateBuildBlockNormalOp, nil
 	}
 
-	// Else, NextPChainReferenceHeight > 0, so we're either in stateBuildCollectingApprovals or stateBuildBlockEpochSealed
-	if simplexEpochInfo.SealingBlockSeq == 0 {
-		// If we don't have a sealing block sequence yet, we're still collecting approvals for the validator set change.
-		return stateBuildCollectingApprovals, nil
+	if simplexEpochInfo.SealingBlockSeq > 0 || simplexEpochInfo.BlockValidationDescriptor != nil {
+		return stateBuildBlockEpochSealed, nil
 	}
 
-	// Otherwise, we do have a sealing block sequence, so the epoch has been sealed.
-	return stateBuildBlockEpochSealed, nil
+	return stateBuildCollectingApprovals, nil
 }
 
 func computePrevVMBlockSeq(parentBlock StateMachineBlock, prevBlockSeq uint64) uint64 {
@@ -418,9 +415,8 @@ func (sm *StateMachine) buildBlockAndMaybeTransitionEpoch(ctx context.Context, p
 	return sm.wrapBlock(parentBlock, childBlock, newSimplexEpochInfo, pChainHeight, simplexMetadata, simplexBlacklist), nil
 }
 
-func IdentifyBlockType(nextBlockMD StateMachineMetadata, prevBlockMD StateMachineMetadata) BlockType {
+func IdentifyBlockType(nextBlockMD StateMachineMetadata, prevBlockMD StateMachineMetadata, prevSeq uint64) BlockType {
 	simplexEpochInfo := nextBlockMD.SimplexEpochInfo
-
 	prevSimplexEpochInfo := prevBlockMD.SimplexEpochInfo
 
 	// Only sealing blocks carry block validation descriptors
@@ -433,13 +429,14 @@ func IdentifyBlockType(nextBlockMD StateMachineMetadata, prevBlockMD StateMachin
 	// If the new block comes after a sealing block, it could be a Telock or the first block of the next epoch.
 	// [ Sealing Block ] <-- [ New Block ]
 	if prevSimplexEpochInfo.BlockValidationDescriptor != nil {
-		if simplexEpochInfo.EpochNumber == prevSimplexEpochInfo.SealingBlockSeq {
-			return BlockTypeNewEpoch
-		}
-		// The zero-epoch block has BlockValidationDescriptor but SealingBlockSeq == 0,
+		// The zero-epoch block has BlockValidationDescriptor but epoch number 1 and next P-chain reference height of 0.,
 		// so the block following it is a normal block, not a Telock.
-		if prevSimplexEpochInfo.SealingBlockSeq == 0 {
+		if prevSimplexEpochInfo.EpochNumber == 1 && prevSimplexEpochInfo.NextPChainReferenceHeight == 0 {
 			return BlockTypeNormal
+		}
+
+		if simplexEpochInfo.EpochNumber == prevSeq {
+			return BlockTypeNewEpoch
 		}
 		return BlockTypeTelock
 	}
@@ -647,12 +644,6 @@ func (sm *StateMachine) createSealingBlock(ctx context.Context, parentBlock Stat
 	simplexEpochInfo.NextEpochApprovals.NodeIDs = newApprovals.nodeIDs
 	simplexEpochInfo.NextEpochApprovals.Signature = newApprovals.signature
 
-	// If this is the sealing block, set the sealing block sequence.
-	md, err := simplex.ProtocolMetadataFromBytes(parentBlock.Metadata.SimplexProtocolMetadata)
-	if err != nil {
-		return nil, err
-	}
-	simplexEpochInfo.SealingBlockSeq = md.Seq + 1
 	validators, err := sm.GetValidatorSet(simplexEpochInfo.NextPChainReferenceHeight)
 	if err != nil {
 		return nil, err
@@ -795,25 +786,28 @@ func (sm *StateMachine) buildBlockEpochSealed(ctx context.Context, parentBlock S
 	// We check if the sealing block has already been finalized.
 	// If not, we build a Telock block.
 
+	sealingBlockSeq := parentBlock.Metadata.SimplexEpochInfo.SealingBlockSeq
+
+	// If the sealing block sequence is still 0, it means previous block was the sealing block.
+	if sealingBlockSeq == 0 {
+		sealingBlockSeq = prevBlockSeq
+	}
+
+	if sealingBlockSeq == 0 {
+		return nil, fmt.Errorf("cannot build epoch sealed block: sealing block sequence is 0 or undefined")
+	}
+
 	newSimplexEpochInfo := SimplexEpochInfo{
 		PChainReferenceHeight:     parentBlock.Metadata.SimplexEpochInfo.PChainReferenceHeight,
 		EpochNumber:               parentBlock.Metadata.SimplexEpochInfo.EpochNumber,
 		NextPChainReferenceHeight: parentBlock.Metadata.SimplexEpochInfo.NextPChainReferenceHeight,
-		SealingBlockSeq:           parentBlock.Metadata.SimplexEpochInfo.SealingBlockSeq,
+		SealingBlockSeq:          sealingBlockSeq,
 		PrevVMBlockSeq:            computePrevVMBlockSeq(parentBlock, prevBlockSeq),
 	}
 
-	// First, we find the sequence of the sealing block.
-	seq := parentBlock.Metadata.SimplexEpochInfo.SealingBlockSeq
-
-	// Do a sanity check just in case, make sure it's defined
-	if seq == 0 {
-		return nil, fmt.Errorf("cannot build epoch sealed inner block: sealing inner block sequence is 0 or undefined")
-	}
-
-	_, finalization, err := sm.GetBlock(RetrievingOpts{Height: seq})
+	_, finalization, err := sm.GetBlock(RetrievingOpts{Height: sealingBlockSeq})
 	if err != nil {
-		return nil, fmt.Errorf("failed to retrieve sealing inner block at sequence %d: %w", seq, err)
+		return nil, fmt.Errorf("failed to retrieve sealing block at sequence %d: %w", sealingBlockSeq, err)
 	}
 
 	isSealingBlockFinalized := finalization != nil
@@ -828,7 +822,7 @@ func (sm *StateMachine) buildBlockEpochSealed(ctx context.Context, parentBlock S
 		// P-chain reference height is previous block's NextPChainReferenceHeight.
 		PChainReferenceHeight: parentBlock.Metadata.SimplexEpochInfo.NextPChainReferenceHeight,
 		// The epoch number is the sequence of the sealing block.
-		EpochNumber:    parentBlock.Metadata.SimplexEpochInfo.SealingBlockSeq,
+		EpochNumber:    sealingBlockSeq,
 		PrevVMBlockSeq: computePrevVMBlockSeq(parentBlock, prevBlockSeq),
 	}
 

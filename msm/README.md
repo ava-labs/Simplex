@@ -86,7 +86,7 @@ message SimplexEpochInfo {
 - The validator set of the epoch numbered `epoch_number` is derived from `p_chain_reference_height`.
 
 - The `prev_sealing_block_hash` is the hash of the sealing block of the previous epoch, and it is used to efficiently validate the sealing block of the previous epoch.
-  If there is no previous epoch (i.e., the current epoch is the first ever epoch), then it is nil.
+  If there is no previous epoch (i.e., the current epoch is the first ever epoch), then is equal to the hash of the first Simplex block.
 
 - The `next_p_chain_reference_height` is the P-chain height of the next epoch, otherwise it is set to `0`.
 
@@ -137,7 +137,7 @@ it sets `next_p_chain_reference_height` to the sampled P-chain height.
 When the block $B_{k+1}$ built by the `i`'th node is verified by nodes other than the block proposer, they ensure that:
 
 - The `p_chain_reference_height` hasn't changed from the previous block $B_k$.
-- `next_p_chain_reference_height > p_chain_reference_height` or `next_p_chain_reference_height == 0`.
+- `next_p_chain_reference_height ≥ p_chain_reference_height` or `next_p_chain_reference_height == 0`.
 - If `next_p_chain_reference_height > 0`, the node has observed the P-chain height exists in the P-chain.
 - If `next_p_chain_reference_height > 0`, the validator set derived from the P-chain height corresponding to is different from the validator set derived by the P-chain height corresponding to `p_chain_reference_height`.
 
@@ -401,14 +401,7 @@ message StateMachineMetadata {
 The digest of the simplex block is computed as follows:
 
 Let $h_i$ be the hash of the inner block and $h_m$ be the hash of the metadata.
-The digest of the Simplex block is the hash of the following encoding:
-
-```proto
-message HashPreImage {
-   bytes h_i = 1; // The inner block hash
-   bytes h_m = 2; // The metadata hash
-}
-```
+The digest of the Simplex block is the hash of the following encoding: `h_i || h_m` where `||` denotes concatenation.
 
 
 This way of hashing the block allows any holder of a finalization certificate for the block to authenticate the block while hiding the content of the inner block.
@@ -428,6 +421,7 @@ The Simplex epoch information is a canoto encoded message with the following sch
 message NodeBLSMapping {
     bytes node_id = 1; // The nodeID
     bytes bls_key = 2; // The BLS key of the node
+        uint64 weight = 3; // The weight of the node in the validator set, used for quorum calculations.
   }
 
 message BlockValidationDescriptor {
