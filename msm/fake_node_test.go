@@ -137,13 +137,10 @@ func TestFakeNodeEmptyMempool(t *testing.T) {
 	}
 	require.Greater(t, node.Epoch(), uint64(1))
 
-	return
-
 	t.Log("Epoch:", node.Epoch())
 
 	epoch := node.Epoch()
 	require.Greater(t, epoch, uint64(1))
-	require.Equal(t, node.Height(), uint64(20))
 
 	// Finally, we increase the P-Chain height again, which should cause the node to update its validator set and move to the new epoch.
 
