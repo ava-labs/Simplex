@@ -73,8 +73,9 @@ func (sv *signatureAggregator) AggregateSignatures(signatures ...[]byte) ([]byte
 
 type noOpPChainListener struct{}
 
-func (n *noOpPChainListener) WaitForProgress(ctx context.Context, _ uint64) {
+func (n *noOpPChainListener) WaitForProgress(ctx context.Context, _ uint64) error {
 	<-ctx.Done()
+	return ctx.Err()
 }
 
 type blockBuilder struct {

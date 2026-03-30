@@ -16,8 +16,9 @@ type fakePChainListener struct {
 	onListen func(ctx context.Context, pChainHeight uint64)
 }
 
-func (f *fakePChainListener) WaitForProgress(ctx context.Context, pChainHeight uint64) {
+func (f *fakePChainListener) WaitForProgress(ctx context.Context, pChainHeight uint64) error {
 	f.onListen(ctx, pChainHeight)
+	return nil // We don't do anything with the error but log it, so it's fine to always return nil here.
 }
 
 func TestShouldBuildBlock_VMSignalsBlock(t *testing.T) {
@@ -30,7 +31,7 @@ func TestShouldBuildBlock_VMSignalsBlock(t *testing.T) {
 			},
 		},
 		waitForPendingBlock:   func(ctx context.Context) {},
-		shouldTransitionEpoch: func() (bool, error) { return false, nil },
+		shouldTransitionEpoch: func(uint64) (bool, error) { return false, nil },
 		getPChainHeight:       func() uint64 { return 100 },
 	}
 
@@ -55,7 +56,7 @@ func TestShouldBuildBlock_ContextCanceled(t *testing.T) {
 			cancel()
 			<-ctx.Done()
 		},
-		shouldTransitionEpoch: func() (bool, error) { return false, nil },
+		shouldTransitionEpoch: func(uint64) (bool, error) { return false, nil },
 		getPChainHeight:       func() uint64 { return 100 },
 	}
 
@@ -87,7 +88,7 @@ func TestShouldBuildBlock_PChainHeightChangeTriggersEpochTransition(t *testing.T
 		waitForPendingBlock: func(ctx context.Context) {
 			<-ctx.Done()
 		},
-		shouldTransitionEpoch: func() (bool, error) {
+		shouldTransitionEpoch: func(uint64) (bool, error) {
 			return calls.Add(1) > 1, nil
 		},
 		getPChainHeight: func() uint64 { return pChainHeight.Load() },
@@ -127,7 +128,7 @@ func TestShouldBuildBlock_PChainHeightChangeButNoEpochTransition(t *testing.T) {
 				return
 			}
 		},
-		shouldTransitionEpoch: func() (bool, error) { return false, nil },
+		shouldTransitionEpoch: func(uint64) (bool, error) { return false, nil },
 		getPChainHeight:       func() uint64 { return pChainHeight.Load() },
 	}
 
@@ -147,7 +148,7 @@ func TestShouldBuildBlock_EpochTransitionWithVMBlock(t *testing.T) {
 			},
 		},
 		waitForPendingBlock:   func(ctx context.Context) {},
-		shouldTransitionEpoch: func() (bool, error) { return true, nil },
+		shouldTransitionEpoch: func(uint64) (bool, error) { return true, nil },
 		getPChainHeight:       func() uint64 { return 100 },
 	}
 
@@ -169,7 +170,7 @@ func TestShouldBuildBlock_EpochTransitionWithoutVMBlock(t *testing.T) {
 		waitForPendingBlock: func(ctx context.Context) {
 			<-ctx.Done()
 		},
-		shouldTransitionEpoch: func() (bool, error) { return true, nil },
+		shouldTransitionEpoch: func(uint64) (bool, error) { return true, nil },
 		getPChainHeight:       func() uint64 { return 100 },
 	}
 
@@ -194,7 +195,7 @@ func TestShouldBuildBlock_EpochTransitionContextCanceled(t *testing.T) {
 			cancel()
 			<-ctx.Done()
 		},
-		shouldTransitionEpoch: func() (bool, error) { return true, nil },
+		shouldTransitionEpoch: func(uint64) (bool, error) { return true, nil },
 		getPChainHeight:       func() uint64 { return 100 },
 	}
 
