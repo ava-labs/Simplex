@@ -358,13 +358,12 @@ func (sm *StateMachine) buildBlockNormalOp(ctx context.Context, parentBlock Stat
 	}
 
 	blockBuildingDecider := blockBuildingDecider{
+		logger: sm.Logger,
 		maxBlockBuildingWaitTime: sm.MaxBlockBuildingWaitTime,
 		pChainlistener:           sm.PChainProgressListener,
 		getPChainHeight:          sm.GetPChainHeight,
 		waitForPendingBlock:      sm.BlockBuilder.WaitForPendingBlock,
-		shouldTransitionEpoch: func() (bool, error) {
-			pChainHeight := sm.GetPChainHeight()
-
+		shouldTransitionEpoch: func(pChainHeight uint64) (bool, error) {
 			currentValidatorSet, err := sm.GetValidatorSet(parentBlock.Metadata.SimplexEpochInfo.PChainReferenceHeight)
 			if err != nil {
 				return false, err

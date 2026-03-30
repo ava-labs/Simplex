@@ -181,14 +181,14 @@ type fakeNode struct {
 	innerChain      []innerBlock
 }
 
-func (fn *fakeNode) WaitForProgress(ctx context.Context, pChainHeight uint64) {
+func (fn *fakeNode) WaitForProgress(ctx context.Context, pChainHeight uint64) error {
 	for {
 		select {
 		case <-ctx.Done():
-			return
+			return ctx.Err()
 		case <-time.After(10 * time.Millisecond):
 			if fn.sm.GetPChainHeight() != pChainHeight {
-				return
+				return nil
 			}
 		}
 	}

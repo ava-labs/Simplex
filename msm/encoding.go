@@ -334,10 +334,3 @@ func (vsa ValidatorSetApprovals) UniqueByNodeID() ValidatorSetApprovals {
 	})
 	return result
 }
-
-type StateMachineBlockPreImage struct {
-	InnerBlockHash []byte               `canoto:"bytes,1"`
-	Metadata       StateMachineMetadata `canoto:"value,2"`
-
-	canotoData canotoData_StateMachineBlockPreImage
-}
