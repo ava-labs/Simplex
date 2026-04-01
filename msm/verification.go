@@ -47,7 +47,7 @@ func (vd *validationDescriptorVerifier) verifySealingBlock(_ SimplexEpochInfo, n
 		return err
 	}
 
-	if !validators.Compare(next.BlockValidationDescriptor.AggregatedMembership.Members) {
+	if !validators.Equal(next.BlockValidationDescriptor.AggregatedMembership.Members) {
 		return fmt.Errorf("expected validator set specified at P-chain height %d does not match validator set encoded in new inner block", next.NextPChainReferenceHeight)
 	}
 
@@ -288,7 +288,7 @@ func (n *nextPChainReferenceHeightVerifier) verifyNextPChainHeightNormal(prevMD 
 	}
 
 	// If the validator set doesn't change, we shouldn't have increased the next P-chain reference height.
-	if currentValidatorSet.Compare(newValidatorSet) && next.NextPChainReferenceHeight > 0 {
+	if currentValidatorSet.Equal(newValidatorSet) && next.NextPChainReferenceHeight > 0 {
 		return fmt.Errorf("validator set at proposed next P-chain reference height %d is the same as " +
 			"validator set at previous block's P-chain reference height %d," +
 			"so expected next P-chain reference height to remain the same but got %d",
@@ -424,7 +424,7 @@ type timestampVerifier struct {
 }
 
 func (t *timestampVerifier) Verify(in verificationInput) error {
-	expectedTimestamp := in.proposedBlockTimestamp.Unix()
+	expectedTimestamp := in.proposedBlockTimestamp.UnixMilli()
 	if expectedTimestamp != int64(in.proposedBlockMD.Timestamp) {
 		return fmt.Errorf("expected timestamp to be %d but got %d", expectedTimestamp, int64(in.proposedBlockMD.Timestamp))
 	}
@@ -447,7 +447,7 @@ func (p *prevSealingBlockHashVerifier) Verify(in verificationInput) error {
 	prev, _ := in.prevMD.SimplexEpochInfo, in.proposedBlockMD.SimplexEpochInfo
 
 	if prev.EpochNumber == 1 && in.nextBlockType == BlockTypeSealing {
-		firstEverSimplexBlockSeq, err := findFirstSimplexBlock(p.getBlock, *p.latestPersistedHeight)
+		firstEverSimplexBlockSeq, err := findFirstSimplexBlock(p.getBlock, *p.latestPersistedHeight+1)
 		if err != nil {
 			return fmt.Errorf("failed to find first Simplex inner block: %w", err)
 		}

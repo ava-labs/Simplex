@@ -27,12 +27,23 @@ type OuterBlock struct {
 // TODO: change SimplexProtocolMetadata and SimplexBlacklist to be non-opaque types.
 // TODO: This requires to encode the protocol metadata and blacklist using canoto.
 type StateMachineMetadata struct {
+	// ICMEpochInfo is the metadata that the StateMachine uses for ICM epoching.
 	ICMEpochInfo            ICMEpochInfo     `canoto:"value,1"`
+	// SimplexEpochInfo is the metadata that the StateMachine uses for its own epoching.
 	SimplexEpochInfo        SimplexEpochInfo `canoto:"value,2"`
+	// SimplexProtocolMetadata is the metadata that Simplex uses for its protocol, such as sequence and round number.
 	SimplexProtocolMetadata []byte           `canoto:"bytes,3"`
+	// SimplexBlacklist is the metadata that Simplex uses to keep track of blacklisted nodes.
+	// Blacklisted nodes do not become leaders.
 	SimplexBlacklist        []byte           `canoto:"bytes,4"`
+	// AuxiliaryInfo is application-specific information that the StateMachine doesn't need to understand,
+	// but can be used by applications that care about epoch changes, such as threshold distributed public key generation.
 	AuxiliaryInfo           *AuxiliaryInfo   `canoto:"pointer,5"`
+	// PChainHeight is the P-Chain height that the StateMachine sampled at the time of building the block.
+	// It's used for ICM epoching, not for Simplex epoching.
+	// For Simplex epoching, the P-Chain height that matters is the PChainReferenceHeight in the SimplexEpochInfo.
 	PChainHeight            uint64           `canoto:"uint,6"`
+	// Timestamp is the time when the block is being built, in milliseconds since Unix epoch.
 	Timestamp               uint64           `canoto:"uint,7"`
 
 	canotoData canotoData_StateMachineMetadata
@@ -272,7 +283,7 @@ func (nbms NodeBLSMappings) SumWeights(selector func(int, NodeBLSMapping) bool) 
 	return total, err
 }
 
-func (nbms NodeBLSMappings) Compare(other NodeBLSMappings) bool {
+func (nbms NodeBLSMappings) Equal(other NodeBLSMappings) bool {
 	if len(nbms) != len(other) {
 		return false
 	}

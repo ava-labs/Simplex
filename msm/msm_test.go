@@ -316,7 +316,7 @@ func TestMSMFirstSimplexBlockAfterPreSimplexBlocks(t *testing.T) {
 			Bytes:       []byte{7, 8, 9},
 		},
 		Metadata: metadata.StateMachineMetadata{
-			Timestamp:               uint64(testConfig1.blockBuilder.block.Timestamp().Unix()),
+			Timestamp:               uint64(testConfig1.blockBuilder.block.Timestamp().UnixMilli()),
 			PChainHeight:            100,
 			SimplexProtocolMetadata: md.Bytes(),
 			SimplexEpochInfo: metadata.SimplexEpochInfo{
@@ -515,7 +515,7 @@ func TestMSMNormalOp(t *testing.T) {
 				},
 				Metadata: metadata.StateMachineMetadata{
 					SimplexBlacklist:        blacklist.Bytes(),
-					Timestamp:               uint64(blockTime.Unix()),
+					Timestamp:               uint64(blockTime.UnixMilli()),
 					PChainHeight:            testCase.expectedPChainHeight,
 					SimplexProtocolMetadata: md.Bytes(),
 					SimplexEpochInfo: metadata.SimplexEpochInfo{
@@ -637,7 +637,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 			require.Equal(t, &metadata.StateMachineBlock{
 				InnerBlock: nextBlock(1),
 				Metadata: metadata.StateMachineMetadata{
-					Timestamp:               uint64(startTime.Add(1 * time.Millisecond).Unix()),
+					Timestamp:               uint64(startTime.Add(1 * time.Millisecond).UnixMilli()),
 					PChainHeight:            pChainHeight1,
 					SimplexProtocolMetadata: md.Bytes(),
 					SimplexEpochInfo: metadata.SimplexEpochInfo{
@@ -668,7 +668,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 			require.Equal(t, &metadata.StateMachineBlock{
 				InnerBlock: nextBlock(2),
 				Metadata: metadata.StateMachineMetadata{
-					Timestamp:               uint64(startTime.Add(2 * time.Millisecond).Unix()),
+					Timestamp:               uint64(startTime.Add(2 * time.Millisecond).UnixMilli()),
 					PChainHeight:            pChainHeight1,
 					SimplexProtocolMetadata: md.Bytes(),
 					SimplexEpochInfo: metadata.SimplexEpochInfo{
@@ -693,7 +693,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 			require.Equal(t, &metadata.StateMachineBlock{
 				InnerBlock: nextBlock(3),
 				Metadata: metadata.StateMachineMetadata{
-					Timestamp:               uint64(startTime.Add(3 * time.Millisecond).Unix()),
+					Timestamp:               uint64(startTime.Add(3 * time.Millisecond).UnixMilli()),
 					PChainHeight:            pChainHeight2,
 					SimplexProtocolMetadata: md.Bytes(),
 					SimplexEpochInfo: metadata.SimplexEpochInfo{
@@ -734,7 +734,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 			require.Equal(t, &metadata.StateMachineBlock{
 				InnerBlock: nextBlock(4),
 				Metadata: metadata.StateMachineMetadata{
-					Timestamp:               uint64(startTime.Add(4 * time.Millisecond).Unix()),
+					Timestamp:               uint64(startTime.Add(4 * time.Millisecond).UnixMilli()),
 					PChainHeight:            pChainHeight2,
 					SimplexProtocolMetadata: md.Bytes(),
 					SimplexEpochInfo: metadata.SimplexEpochInfo{
@@ -774,7 +774,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 			require.Equal(t, &metadata.StateMachineBlock{
 				InnerBlock: nextBlock(5),
 				Metadata: metadata.StateMachineMetadata{
-					Timestamp:               uint64(startTime.Add(5 * time.Millisecond).Unix()),
+					Timestamp:               uint64(startTime.Add(5 * time.Millisecond).UnixMilli()),
 					PChainHeight:            pChainHeight2,
 					SimplexProtocolMetadata: md.Bytes(),
 					SimplexEpochInfo: metadata.SimplexEpochInfo{
@@ -814,7 +814,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 			require.Equal(t, &metadata.StateMachineBlock{
 				InnerBlock: nextBlock(6),
 				Metadata: metadata.StateMachineMetadata{
-					Timestamp:               uint64(startTime.Add(6 * time.Millisecond).Unix()),
+					Timestamp:               uint64(startTime.Add(6 * time.Millisecond).UnixMilli()),
 					PChainHeight:            pChainHeight2,
 					SimplexProtocolMetadata: md.Bytes(),
 					SimplexEpochInfo: metadata.SimplexEpochInfo{
@@ -884,7 +884,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 						require.Equal(t, &metadata.StateMachineBlock{
 							InnerBlock: nil,
 							Metadata: metadata.StateMachineMetadata{
-								Timestamp:               uint64(startTime.Add(6 * time.Millisecond).Unix()),
+								Timestamp:               uint64(startTime.Add(6 * time.Millisecond).UnixMilli()),
 								PChainHeight:            pChainHeight2,
 								SimplexProtocolMetadata: md.Bytes(),
 								SimplexEpochInfo: metadata.SimplexEpochInfo{
@@ -908,7 +908,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 					require.Equal(t, &metadata.StateMachineBlock{
 						InnerBlock: nextBlock(7),
 						Metadata: metadata.StateMachineMetadata{
-							Timestamp:               uint64(startTime.Add(7 * time.Millisecond).Unix()),
+							Timestamp:               uint64(startTime.Add(7 * time.Millisecond).UnixMilli()),
 							PChainHeight:            pChainHeight2,
 							SimplexProtocolMetadata: md.Bytes(),
 							SimplexEpochInfo: metadata.SimplexEpochInfo{

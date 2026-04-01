@@ -183,6 +183,7 @@ func TestShouldBuildBlock_EpochTransitionWithoutVMBlock(t *testing.T) {
 func TestShouldBuildBlock_EpochTransitionContextCanceled(t *testing.T) {
 	// Epoch transition needed, but parent context is cancelled during the wait.
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	bbd := &blockBuildingDecider{
 		maxBlockBuildingWaitTime: time.Second,
