@@ -138,26 +138,26 @@ func TestTimestampVerifier(t *testing.T) {
 		{
 			name:      "matching timestamp",
 			blockTime: now,
-			timestamp: uint64(now.Unix()),
+			timestamp: uint64(now.UnixMilli()),
 		},
 		{
 			name:      "mismatching timestamp",
 			blockTime: now,
-			timestamp: uint64(now.Unix()) + 100,
-			err:       fmt.Sprintf("expected timestamp to be %d but got %d", now.Unix(), int64(uint64(now.Unix())+100)),
+			timestamp: uint64(now.UnixMilli()) + 100,
+			err:       fmt.Sprintf("expected timestamp to be %d but got %d", now.UnixMilli(), int64(uint64(now.UnixMilli())+100)),
 		},
 		{
 			name:      "timestamp too far in the future",
 			blockTime: now.Add(10 * time.Second),
-			timestamp: uint64(now.Add(10 * time.Second).Unix()),
+			timestamp: uint64(now.Add(10 * time.Second).UnixMilli()),
 			err:       fmt.Sprintf("proposed block timestamp is too far in the future, current time is %s but got %s", now.String(), now.Add(10*time.Second).String()),
 		},
 		{
 			name:            "timestamp older than parent",
 			blockTime:       now,
-			timestamp:       uint64(now.Unix()),
-			parentTimestamp: uint64(now.Unix()) + 10,
-			err:             fmt.Sprintf("proposed block timestamp is older than parent block's timestamp, parent timestamp is %d but got %d", uint64(now.Unix())+10, uint64(now.Unix())),
+			timestamp:       uint64(now.UnixMilli()),
+			parentTimestamp: uint64(now.UnixMilli()) + 10,
+			err:             fmt.Sprintf("proposed block timestamp is older than parent block's timestamp, parent timestamp is %d but got %d", uint64(now.UnixMilli())+10, uint64(now.UnixMilli())),
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

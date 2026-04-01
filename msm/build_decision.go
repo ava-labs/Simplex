@@ -23,6 +23,23 @@ const (
 	blockBuildingDecisionContextCanceled
 )
 
+func (bbd blockBuildingDecision) String() string {
+	switch bbd {
+	case blockBuildingDecisionUndefined:
+		return "undefined"
+	case blockBuildingDecisionBuildBlock:
+		return "build block"
+	case blockBuildingDecisionTransitionEpoch:
+		return "transition epoch"
+	case blockBuildingDecisionBuildBlockAndTransitionEpoch:
+		return "build block and transition epoch"
+	case blockBuildingDecisionContextCanceled:
+		return "context canceled"
+	default:
+		return "unknown"
+	}
+}
+
 // PChainProgressListener listens for changes in the P-chain height.
 type PChainProgressListener interface {
 	// WaitForProgress should block until either the context is cancelled, or the P-chain height has increased from the provided pChainHeight.
