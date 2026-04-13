@@ -180,6 +180,21 @@ const (
 	BlockTypeNewEpoch
 )
 
+func (state BlockType) String() string {
+	switch state {
+	case BlockTypeNormal:
+		return "Normal"
+	case BlockTypeTelock:
+		return "Telock"
+	case BlockTypeSealing:
+		return "Sealing"
+	case BlockTypeNewEpoch:
+		return "NewEpoch"
+	default:
+		return fmt.Sprintf("UnknownBlockType(%d)", state)
+	}
+}
+
 // BuildBlock constructs the next block on top of the given parent block, and passes in the provided simplex metadata and blacklist.
 func (sm *StateMachine) BuildBlock(ctx context.Context, parentBlock StateMachineBlock, simplexMetadata simplex.ProtocolMetadata, simplexBlacklist *simplex.Blacklist) (*StateMachineBlock, error) {
 	sm.maybeInit()
@@ -323,6 +338,17 @@ func (sm *StateMachine) init() {
 
 func (sm *StateMachine) verifyNonZeroBlock(ctx context.Context, block *StateMachineBlock, prevBlockMD StateMachineMetadata, prevMD StateMachineMetadata, state state, prevSeq uint64) error {
 	blockType := IdentifyBlockType(block.Metadata, prevBlockMD, prevSeq)
+	sm.Logger.Debug("Identified block type",
+		zap.Stringer("blockType", blockType),
+		zap.Bool("nextHasBVD", block.Metadata.SimplexEpochInfo.BlockValidationDescriptor != nil),
+		zap.Uint64("nextEpochNumber", block.Metadata.SimplexEpochInfo.EpochNumber),
+		zap.Bool("prevHasBVD", prevBlockMD.SimplexEpochInfo.BlockValidationDescriptor != nil),
+		zap.Uint64("prevEpochNumber", prevBlockMD.SimplexEpochInfo.EpochNumber),
+		zap.Uint64("prevNextPChainRefHeight", prevBlockMD.SimplexEpochInfo.NextPChainReferenceHeight),
+		zap.Uint64("prevSealingBlockSeq", prevBlockMD.SimplexEpochInfo.SealingBlockSeq),
+		zap.Uint64("prevSeq", prevSeq),
+	)
+
 	timestamp := time.UnixMilli(int64(prevMD.Timestamp))
 
 	if block.InnerBlock != nil {
@@ -363,6 +389,7 @@ func (sm *StateMachine) identifyCurrentState(prevBlockSimplexEpochInfo SimplexEp
 
 	// If the previous block has a sealing block sequence, it's a Telock.
 	// If it has a block validation descriptor, it's a sealing block.
+	// Eithe way, the epoch has been sealed.
 	if prevBlockSimplexEpochInfo.SealingBlockSeq > 0 || prevBlockSimplexEpochInfo.BlockValidationDescriptor != nil {
 		return stateBuildBlockEpochSealed, nil
 	}
@@ -486,13 +513,19 @@ func IdentifyBlockType(nextBlockMD StateMachineMetadata, prevBlockMD StateMachin
 		}
 
 		if simplexEpochInfo.EpochNumber == prevSeq {
+			// If the epoch number of the new block is the same as the previous block's sequence number,
+			// it means we have just transitioned to a new epoch as the previous block was a sealing block.
 			return BlockTypeNewEpoch
 		}
+
+		// Otherwise, we haven't transitioned to a new epoch yet, so this block has to be a Telock,
+		// as after a sealing block we either have a Telock or the first block of the new epoch,
+		// and we have already ruled out the first block of the new epoch in the previous condition.
 		return BlockTypeTelock
 	}
 
 	// Else, if the previous block has a sealing block sequence and is in the same epoch as this block,
-	// then this block has to be a Telock.
+	// then this block has to be a Telock, as the sealing block sequence indicates that the sealing block has been created.
 	// [ Sealing Block ] <-- [ Prev block ] <-- [ New Block ]
 	if simplexEpochInfo.EpochNumber == prevSimplexEpochInfo.EpochNumber && prevSimplexEpochInfo.SealingBlockSeq != 0 {
 		return BlockTypeTelock
@@ -503,7 +536,7 @@ func IdentifyBlockType(nextBlockMD StateMachineMetadata, prevBlockMD StateMachin
 		return BlockTypeNewEpoch
 	}
 
-	// Otherwise, we do not fall into any of these cases, so it's probably a block in the middle of the epoch,
+	// Otherwise, we do not fall into any of these cases, so it's a block in the middle of the epoch,
 	// not in the edges.
 	return BlockTypeNormal
 }
@@ -683,10 +716,9 @@ func (sm *StateMachine) buildBlockCollectingApprovals(ctx context.Context, paren
 	newSimplexEpochInfo.NextEpochApprovals.Signature = newApprovals.signature
 	pChainHeight := parentBlock.Metadata.PChainHeight
 
-	// We either don't have enough approvals to seal the current epoch,
+	// We might not have enough approvals to seal the current epoch,
 	// in which case we just carry over the approvals we have so far to the next block,
 	// so that eventually we'll have enough approvals to seal the epoch.
-
 	if !newApprovals.canSeal {
 		return sm.buildBlockImpatiently(ctx, parentBlock, simplexMetadata, simplexBlacklist, newSimplexEpochInfo, pChainHeight)
 	}
@@ -754,11 +786,18 @@ func (sm *StateMachine) createSealingBlock(ctx context.Context, parentBlock Stat
 func computeNewApprovals(
 	nextEpochApprovals *NextEpochApprovals,
 	auxInfo *AuxiliaryInfo,
-	newApprovals ValidatorSetApprovals,
+	approvalsFromPeers ValidatorSetApprovals,
 	pChainHeight uint64,
 	aggregator SignatureAggregator,
 	validators NodeBLSMappings,
 ) (*approvals, error) {
+	if nextEpochApprovals == nil {
+		nextEpochApprovals = &NextEpochApprovals{}
+	}
+
+	oldApprovingNodes := bitmaskFromBytes(nextEpochApprovals.NodeIDs)
+
+	// We map each validator to its relative index in the validator set.
 	nodeID2ValidatorIndex := make(map[nodeID]int)
 	validators.ForEach(func(i int, nbm NodeBLSMapping) {
 		nodeID2ValidatorIndex[nbm.NodeID] = i
@@ -769,37 +808,43 @@ func computeNewApprovals(
 		candidateAuxInfoDigest = sha256.Sum256(auxInfo.Info)
 	}
 
-	newApprovals = newApprovals.Filter(func(i int, approval ValidatorSetApproval) bool {
-		// Pick only approvals that agree with our candidate auxiliary info digest and P-Chain height
-		return approval.PChainHeight == pChainHeight && approval.AuxInfoSeqDigest == candidateAuxInfoDigest
-	})
+	// We have the approvals obtained from peers, but we need to sanitize them by filtering out approvals that are not valid,
+	// such as approvals that do not agree with our candidate auxiliary info digest and P-Chain height,
+	// and approvals that are from nodes that are not in the validator set or have already approved in prior blocks.
+	approvalsFromPeers = sanitizeApprovals(approvalsFromPeers, pChainHeight, candidateAuxInfoDigest, nodeID2ValidatorIndex, oldApprovingNodes)
 
-	// If there are multiple approvals from the same node, we only keep one of them.
-	newApprovals = newApprovals.UniqueByNodeID()
-
-	if nextEpochApprovals == nil {
-		nextEpochApprovals = &NextEpochApprovals{}
+	// Next we aggregate both previous and new approvals to compute the new aggregated signatures and the new bitmask of approving nodes.
+	aggregatedSignature, newApprovingNodes, err := computeNewApproverSignaturesAndSigners(nextEpochApprovals, approvalsFromPeers, oldApprovingNodes, nodeID2ValidatorIndex, aggregator)
+	if err != nil {
+		return nil, err
 	}
-	existingApprovingNodes := bitmaskFromBytes(nextEpochApprovals.NodeIDs)
 
-	newApprovals = newApprovals.Filter(func(i int, approval ValidatorSetApproval) bool {
+	// we check if we have enough approvals to seal the epoch by computing the relative approval ratio,
+	// which is the ratio of the total weight of approving nodes divided by the total weight of all validators.
+	canSeal, err := computeRelativeApprovalRatio(err, validators, newApprovingNodes)
+	if err != nil {
+		return nil, err
+	}
+
+	return &approvals{
+		canSeal:   canSeal,
+		signature: aggregatedSignature,
+		nodeIDs:   newApprovingNodes.Bytes(),
+	}, nil
+}
+
+// computeNewApproverSignaturesAndSigners computes the signatures of the nodes that approve the next epoch including the previous aggregated signature,
+// and bitmask of nodes that correspond to those signatures, and aggregates all signatures together.
+func computeNewApproverSignaturesAndSigners(nextEpochApprovals *NextEpochApprovals, approvalsFromPeers ValidatorSetApprovals, oldApprovingNodes bitmask, nodeID2ValidatorIndex map[nodeID]int, aggregator SignatureAggregator) ([]byte, bitmask, error) {
+	// Prepare the new signatures from the new approvals that haven't approved yet and that agree with our candidate auxiliary info digest and P-Chain height.
+	newSignatures := make([][]byte, 0, len(approvalsFromPeers)+1)
+
+	// We will overwrite the old approving nodes with the new approving nodes, by turning on the bits for the new approvers.
+	newApprovingNodes := oldApprovingNodes
+
+	approvalsFromPeers.ForEach(func(i int, approval ValidatorSetApproval) {
 		approvingNodeIndexOfNewApprover, exists := nodeID2ValidatorIndex[approval.NodeID]
 		if !exists {
-			// If the approving node is not in the validator set, we ignore this approval.
-			return false
-		}
-		// Only pick approvals from nodes that haven't already approved
-		return !existingApprovingNodes.Contains(approvingNodeIndexOfNewApprover)
-	})
-
-	newApprovingNodes := existingApprovingNodes
-
-	// Prepare the new signatures from the new approvals that haven't approved yet and that agree with our candidate auxiliary info digest and P-Chain height.
-	newSignatures := make([][]byte, 0, len(newApprovals)+1)
-
-	newApprovals.ForEach(func(i int, approval ValidatorSetApproval) {
-		approvingNodeIndexOfNewApprover, exits := nodeID2ValidatorIndex[approval.NodeID]
-		if !exits {
 			// This should not happen, because we have already filtered approvals that are not in the validator set, but we check just in case.
 			return
 		}
@@ -814,19 +859,24 @@ func computeNewApprovals(
 		newSignatures = append(newSignatures, existingSignature)
 	}
 
+	// Finally, we aggregate all signatures together, to compute the new aggregated signature.
 	aggregatedSignature, err := aggregator.AggregateSignatures(newSignatures...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to aggregate signatures: %w", err)
+		return nil, bitmask{}, fmt.Errorf("failed to aggregate signatures: %w", err)
 	}
 
+	return aggregatedSignature, newApprovingNodes, nil
+}
+
+func computeRelativeApprovalRatio(err error, validators NodeBLSMappings, newApprovingNodes bitmask) (bool, error) {
 	approvingWeight, err := computeApprovingWeight(validators, &newApprovingNodes)
 	if err != nil {
-		return nil, err
+		return false, err
 	}
 
 	totalWeight, err := computeTotalWeight(validators)
 	if err != nil {
-		return nil, err
+		return false, err
 	}
 
 	threshold := big.NewRat(2, 3)
@@ -834,12 +884,34 @@ func computeNewApprovals(
 	approvingRatio := big.NewRat(approvingWeight, totalWeight)
 
 	canSeal := approvingRatio.Cmp(threshold) > 0
+	return canSeal, nil
+}
 
-	return &approvals{
-		canSeal:   canSeal,
-		signature: aggregatedSignature,
-		nodeIDs:   newApprovingNodes.Bytes(),
-	}, nil
+// sanitizeApprovals filters out approvals that are not valid by checking if they agree with our candidate auxiliary info digest and P-Chain height,
+// and if they are from the validator set and haven't already been approved.
+func sanitizeApprovals(approvals ValidatorSetApprovals, pChainHeight uint64, candidateAuxInfoDigest [32]byte, nodeID2ValidatorIndex map[nodeID]int, oldApprovingNodes bitmask) ValidatorSetApprovals {
+	filter1 := approvalsThatAgreeWithAuxInfoAndPChainHeight(pChainHeight, candidateAuxInfoDigest)
+	filter2 := approvalsThatAreInValidatorSetAndHaveNotAlreadyApproved(oldApprovingNodes, nodeID2ValidatorIndex)
+	return approvals.Filter(filter1).Filter(filter2).UniqueByNodeID()
+}
+
+func approvalsThatAgreeWithAuxInfoAndPChainHeight(pChainHeight uint64, candidateAuxInfoDigest [32]byte) func(i int, approval ValidatorSetApproval) bool {
+	return func(i int, approval ValidatorSetApproval) bool {
+		// Pick only approvals that agree with our candidate auxiliary info digest and P-Chain height
+		return approval.PChainHeight == pChainHeight && approval.AuxInfoSeqDigest == candidateAuxInfoDigest
+	}
+}
+
+func approvalsThatAreInValidatorSetAndHaveNotAlreadyApproved(oldApprovingNodes bitmask, nodeID2ValidatorIndex map[nodeID]int) func(i int, approval ValidatorSetApproval) bool {
+	return func(i int, approval ValidatorSetApproval) bool {
+		approvingNodeIndexOfNewApprover, exists := nodeID2ValidatorIndex[approval.NodeID]
+		if !exists {
+			// If the approving node is not in the validator set, we ignore this approval.
+			return false
+		}
+		// Only pick approvals from nodes that haven't already approved
+		return !oldApprovingNodes.Contains(approvingNodeIndexOfNewApprover)
+	}
 }
 
 func computeTotalWeight(validators NodeBLSMappings) (int64, error) {
@@ -858,6 +930,7 @@ func computeTotalWeight(validators NodeBLSMappings) (int64, error) {
 	return int64(totalWeight), nil
 }
 
+// buildBlockEpochSealed builds a block where the epoch is being sealed due to a sealing block already created in this epoch.
 func (sm *StateMachine) buildBlockEpochSealed(ctx context.Context, parentBlock StateMachineBlock, simplexMetadata, simplexBlacklist []byte, prevBlockSeq uint64) (*StateMachineBlock, error) {
 	// We check if the sealing block has already been finalized.
 	// If not, we build a Telock block.

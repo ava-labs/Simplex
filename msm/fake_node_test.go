@@ -316,14 +316,14 @@ func (fn *fakeNode) buildBlock() (metadata.VMBlock, *metadata.StateMachineBlock)
 
 	lastMD, prevBlockDigest := fn.prepareMetadataAndPrevBlockDigest()
 
-	_, finalizatin, err := fn.sm.GetBlock(metadata.RetrievingOpts{
+	_, finalization, err := fn.sm.GetBlock(metadata.RetrievingOpts{
 		Digest: prevBlockDigest,
 		Height: lastMD.Seq,
 	})
 	require.NoError(fn.t, err)
 
 	finalizedString := "not finalized"
-	if finalizatin != nil {
+	if finalization != nil {
 		finalizedString = "finalized"
 	}
 

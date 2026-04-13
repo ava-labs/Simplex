@@ -469,7 +469,7 @@ func TestMSMNormalOp(t *testing.T) {
 				require.Equal(t, metadata.ICMEpochInput{
 					ParentPChainHeight: 100,
 					ChildTimestamp:     blockTime,
-					ParentTimestamp:    time.Unix(int64(lastBlock.Metadata.Timestamp), 0),
+					ParentTimestamp:    time.UnixMilli(int64(lastBlock.Metadata.Timestamp)),
 					ParentEpoch:        metadata.ICMEpoch{},
 				}, input)
 				return input.ParentEpoch
