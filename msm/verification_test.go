@@ -18,22 +18,22 @@ func TestICMEpochInfoVerifier(t *testing.T) {
 	now := time.Now()
 
 	for _, tc := range []struct {
-		name      string
-		prevMD    StateMachineMetadata
-		nextMD    StateMachineMetadata
-		blockTime time.Time
-		err       string
+		name          string
+		prevMD        StateMachineMetadata
+		nextMD        StateMachineMetadata
+		hasInnerBlock bool
+		err           string
 	}{
 		{
-			name:   "matching ICM epoch info without inner block",
+			name:   "matching ICM epoch info without block",
 			prevMD: StateMachineMetadata{},
 			nextMD: StateMachineMetadata{},
 		},
 		{
-			name:      "matching ICM epoch info with inner block",
-			prevMD:    StateMachineMetadata{},
-			nextMD:    StateMachineMetadata{},
-			blockTime: now,
+			name:          "matching ICM epoch info with block",
+			prevMD:        StateMachineMetadata{},
+			nextMD:        StateMachineMetadata{Timestamp: uint64(now.UnixMilli())},
+			hasInnerBlock: true,
 		},
 		{
 			name:   "mismatching ICM epoch info",
@@ -52,9 +52,10 @@ func TestICMEpochInfoVerifier(t *testing.T) {
 				},
 			}
 			err := v.Verify(verificationInput{
-				prevMD:                 tc.prevMD,
-				proposedBlockMD:        tc.nextMD,
-				proposedBlockTimestamp: tc.blockTime,
+				prevMD:              tc.prevMD,
+				proposedBlockMD:     tc.nextMD,
+				hasInnerBlock:       tc.hasInnerBlock,
+				innerBlockTimestamp: now,
 			})
 			if tc.err != "" {
 				require.EqualError(t, err, tc.err)
@@ -90,14 +91,14 @@ func TestPChainHeightVerifier(t *testing.T) {
 			pChainHeight: 100,
 			prevHeight:   50,
 			nextHeight:   150,
-			err:          "invalid P-chain reference height (150) is too big, expected to be ≤ 100",
+			err:          "invalid P-chain height (150) is too big, expected to be ≤ 100",
 		},
 		{
 			name:         "height smaller than parent",
 			pChainHeight: 200,
 			prevHeight:   150,
 			nextHeight:   100,
-			err:          "invalid P-chain height (100) is smaller than parent inner block's P-chain height (150)",
+			err:          "invalid P-chain height (100) is smaller than parent block's P-chain height (150)",
 		},
 		{
 			name:         "height equal to parent",
@@ -128,36 +129,56 @@ func TestTimestampVerifier(t *testing.T) {
 
 	timeSkewLimit := 5 * time.Second
 
+	futureTime := now.Add(10 * time.Second)
+
 	for _, tc := range []struct {
-		name            string
-		blockTime       time.Time
-		timestamp       uint64
-		parentTimestamp uint64
-		err             string
+		name               string
+		hasInnerBlock      bool
+		innerBlockTimestamp time.Time
+		timestamp          uint64
+		parentTimestamp    uint64
+		err                string
 	}{
 		{
-			name:      "matching timestamp",
-			blockTime: now,
-			timestamp: uint64(now.UnixMilli()),
+			name:               "valid timestamp with inner block",
+			hasInnerBlock:      true,
+			innerBlockTimestamp: now,
+			timestamp:          uint64(now.UnixMilli()),
 		},
 		{
-			name:      "mismatching timestamp",
-			blockTime: now,
-			timestamp: uint64(now.UnixMilli()) + 100,
-			err:       fmt.Sprintf("expected timestamp to be %d but got %d", now.UnixMilli(), int64(uint64(now.UnixMilli())+100)),
+			name:               "metadata timestamp does not match inner block",
+			hasInnerBlock:      true,
+			innerBlockTimestamp: now,
+			timestamp:          uint64(now.UnixMilli()) + 100,
+			err:                fmt.Sprintf("block timestamp %d does not match inner block timestamp %d", uint64(now.UnixMilli())+100, now.UnixMilli()),
 		},
 		{
-			name:      "timestamp too far in the future",
-			blockTime: now.Add(10 * time.Second),
-			timestamp: uint64(now.Add(10 * time.Second).UnixMilli()),
-			err:       fmt.Sprintf("proposed block timestamp is too far in the future, current time is %s but got %s", now.String(), now.Add(10*time.Second).String()),
+			name:               "timestamp too far in the future",
+			hasInnerBlock:      true,
+			innerBlockTimestamp: futureTime,
+			timestamp:          uint64(futureTime.UnixMilli()),
+			err:                fmt.Sprintf("proposed block timestamp is too far in the future, current time is %v but got %v", now, time.UnixMilli(futureTime.UnixMilli())),
 		},
 		{
-			name:            "timestamp older than parent",
-			blockTime:       now,
+			name:               "timestamp older than parent",
+			hasInnerBlock:      true,
+			innerBlockTimestamp: now,
+			timestamp:          uint64(now.UnixMilli()),
+			parentTimestamp:    uint64(now.UnixMilli()) + 10,
+			err:                fmt.Sprintf("proposed block timestamp is older than parent block's timestamp, parent timestamp is %d but got %d", uint64(now.UnixMilli())+10, uint64(now.UnixMilli())),
+		},
+		{
+			name:            "no inner block inherits parent timestamp",
+			hasInnerBlock:   false,
 			timestamp:       uint64(now.UnixMilli()),
-			parentTimestamp: uint64(now.UnixMilli()) + 10,
-			err:             fmt.Sprintf("proposed block timestamp is older than parent block's timestamp, parent timestamp is %d but got %d", uint64(now.UnixMilli())+10, uint64(now.UnixMilli())),
+			parentTimestamp: uint64(now.UnixMilli()),
+		},
+		{
+			name:            "no inner block with different timestamp than parent",
+			hasInnerBlock:   false,
+			timestamp:       uint64(now.UnixMilli()) + 100,
+			parentTimestamp: uint64(now.UnixMilli()),
+			err:             fmt.Sprintf("block without inner block should inherit parent timestamp %d but got %d", uint64(now.UnixMilli()), uint64(now.UnixMilli())+100),
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -166,9 +187,10 @@ func TestTimestampVerifier(t *testing.T) {
 				timeSkewLimit: timeSkewLimit,
 			}
 			err := v.Verify(verificationInput{
-				proposedBlockTimestamp: tc.blockTime,
-				proposedBlockMD:        StateMachineMetadata{Timestamp: tc.timestamp},
-				prevMD:                 StateMachineMetadata{Timestamp: tc.parentTimestamp},
+				hasInnerBlock:       tc.hasInnerBlock,
+				innerBlockTimestamp: tc.innerBlockTimestamp,
+				proposedBlockMD:     StateMachineMetadata{Timestamp: tc.timestamp},
+				prevMD:              StateMachineMetadata{Timestamp: tc.parentTimestamp},
 			})
 			if tc.err != "" {
 				require.EqualError(t, err, tc.err)
@@ -198,7 +220,7 @@ func TestPChainReferenceHeightVerifier(t *testing.T) {
 			nextBlockType: BlockTypeNewEpoch,
 			prev:          SimplexEpochInfo{NextPChainReferenceHeight: 200, SealingBlockSeq: 5},
 			next:          SimplexEpochInfo{PChainReferenceHeight: 100},
-			err:           "expected P-chain reference height of the first inner block of epoch 5 to be 200 but got 100",
+			err:           "expected P-chain reference height of the first block of epoch 5 to be 200 but got 100",
 		},
 		{
 			name:          "normal block matching prev PChainReferenceHeight",
@@ -256,7 +278,7 @@ func TestEpochNumberVerifier(t *testing.T) {
 			nextBlockType: BlockTypeNormal,
 			prev:          SimplexEpochInfo{EpochNumber: 0},
 			next:          SimplexEpochInfo{EpochNumber: 5},
-			err:           "expected epoch number of the first inner block created to be 1 but got 5",
+			err:           "expected epoch number of the first block created to be 1 but got 5",
 		},
 		{
 			name:          "new epoch block matching sealing seq",
@@ -358,7 +380,7 @@ func TestPrevSealingBlockHashVerifier(t *testing.T) {
 			next: SimplexEpochInfo{
 				PrevSealingBlockHash: [32]byte{9, 9, 9},
 			},
-			err: fmt.Sprintf("expected prev sealing inner block hash of the first ever simplex inner block to be %x but got %x", firstSimplexBlockHash, [32]byte{9, 9, 9}),
+			err: fmt.Sprintf("expected prev sealing block hash of the first ever simplex block to be %x but got %x", firstSimplexBlockHash, [32]byte{9, 9, 9}),
 		},
 		{
 			name:          "epoch >1 sealing block with correct hash",
@@ -589,7 +611,7 @@ func TestVMBlockSeqVerifier(t *testing.T) {
 			err:          "expected PrevVMBlockSeq to be 42 but got 10",
 		},
 		{
-			name:         "prev block has inner block",
+			name:         "prev block has block",
 			prev:         SimplexEpochInfo{EpochNumber: 1, PrevVMBlockSeq: 3},
 			prevMD:       StateMachineMetadata{SimplexProtocolMetadata: prevMDBytes, SimplexEpochInfo: SimplexEpochInfo{EpochNumber: 1, PrevVMBlockSeq: 3}},
 			next:         SimplexEpochInfo{PrevVMBlockSeq: 4},
@@ -597,7 +619,7 @@ func TestVMBlockSeqVerifier(t *testing.T) {
 			block:        blockWithInner,
 		},
 		{
-			name:         "prev block has inner block wrong seq",
+			name:         "prev block has block wrong seq",
 			prev:         SimplexEpochInfo{EpochNumber: 1, PrevVMBlockSeq: 3},
 			prevMD:       StateMachineMetadata{SimplexProtocolMetadata: prevMDBytes, SimplexEpochInfo: SimplexEpochInfo{EpochNumber: 1, PrevVMBlockSeq: 3}},
 			next:         SimplexEpochInfo{PrevVMBlockSeq: 99},
@@ -606,7 +628,7 @@ func TestVMBlockSeqVerifier(t *testing.T) {
 			err:          "expected PrevVMBlockSeq to be 4 but got 99",
 		},
 		{
-			name:         "prev block has no inner block uses parent PrevVMBlockSeq",
+			name:         "prev block has no block uses parent PrevVMBlockSeq",
 			prev:         SimplexEpochInfo{EpochNumber: 1, PrevVMBlockSeq: 3},
 			prevMD:       StateMachineMetadata{SimplexProtocolMetadata: prevMDBytes, SimplexEpochInfo: SimplexEpochInfo{EpochNumber: 1, PrevVMBlockSeq: 3}},
 			next:         SimplexEpochInfo{PrevVMBlockSeq: 3},
@@ -614,7 +636,7 @@ func TestVMBlockSeqVerifier(t *testing.T) {
 			block:        blockWithoutInner,
 		},
 		{
-			name:         "prev block has no inner block wrong seq",
+			name:         "prev block has no block wrong seq",
 			prev:         SimplexEpochInfo{EpochNumber: 1, PrevVMBlockSeq: 3},
 			prevMD:       StateMachineMetadata{SimplexProtocolMetadata: prevMDBytes, SimplexEpochInfo: SimplexEpochInfo{EpochNumber: 1, PrevVMBlockSeq: 3}},
 			next:         SimplexEpochInfo{PrevVMBlockSeq: 99},
@@ -688,7 +710,7 @@ func TestValidationDescriptorVerifier(t *testing.T) {
 				},
 			},
 			getValidator: func(h uint64) (NodeBLSMappings, error) { return validators, nil },
-			err:          "expected validator set specified at P-chain height 100 does not match validator set encoded in new inner block",
+			err:          "expected validator set specified at P-chain height 100 does not match validator set encoded in new block",
 		},
 		{
 			name:          "sealing block with validator retrieval error",
@@ -711,7 +733,7 @@ func TestValidationDescriptorVerifier(t *testing.T) {
 			next: SimplexEpochInfo{
 				BlockValidationDescriptor: &BlockValidationDescriptor{},
 			},
-			err: "inner block validation descriptor should be nil but got &{{[] {0}} {0}}",
+			err: "block validation descriptor should be nil but got &{{[] {0}} {0}}",
 		},
 		{
 			name:          "telock block with nil descriptor",
@@ -763,7 +785,7 @@ func TestNextEpochApprovalsVerifier(t *testing.T) {
 			name:          "sealing block with nil approvals",
 			nextBlockType: BlockTypeSealing,
 			next:          SimplexEpochInfo{},
-			err:           "next epoch approvals should not be nil for a sealing inner block",
+			err:           "next epoch approvals should not be nil for a sealing block",
 		},
 		{
 			name:          "sealing block with validator retrieval error",
@@ -785,7 +807,7 @@ func TestNextEpochApprovalsVerifier(t *testing.T) {
 			getValidator:  func(h uint64) (NodeBLSMappings, error) { return validators, nil },
 			sigVerifier:   &testSigVerifier{},
 			keyAggregator: &testKeyAggregator{},
-			err:           "not enough approvals to seal inner block",
+			err:           "not enough approvals to seal block",
 		},
 		{
 			name:          "sealing block enough approvals",
@@ -841,7 +863,7 @@ func TestNextEpochApprovalsVerifier(t *testing.T) {
 			getValidator:  func(h uint64) (NodeBLSMappings, error) { return validators, nil },
 			sigVerifier:   &testSigVerifier{},
 			keyAggregator: &testKeyAggregator{},
-			err:           "some signers from parent inner block are missing from next epoch approvals of proposed inner block",
+			err:           "some signers from parent block are missing from next epoch approvals of proposed block",
 		},
 		{
 			name:          "telock block with nil approvals",
@@ -947,7 +969,7 @@ func TestSealingBlockSeqVerifier(t *testing.T) {
 			nextBlockType: BlockTypeSealing,
 			prevMD:        StateMachineMetadata{SimplexProtocolMetadata: prevProtocolMD},
 			next:          SimplexEpochInfo{SealingBlockSeq: 10},
-			err:           "expected sealing inner block sequence number to be 0 but got 10",
+			err:           "expected sealing block sequence number to be 0 but got 10",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

@@ -225,7 +225,7 @@ func (sm *StateMachine) BuildBlock(ctx context.Context, parentBlock StateMachine
 
 	// In order to know where in the epoch change process we are,
 	// we identify the current state by looking at the parent block's epoch info.
-	currentState, err := sm.identifyCurrentState(parentBlock.Metadata.SimplexEpochInfo)
+	currentState, err := identifyCurrentState(parentBlock.Metadata.SimplexEpochInfo)
 	if err != nil {
 		return nil, err
 	}
@@ -273,7 +273,7 @@ func (sm *StateMachine) VerifyBlock(ctx context.Context, block *StateMachineBloc
 	}
 
 	prevMD := prevBlock.Metadata
-	currentState, err := sm.identifyCurrentState(prevMD.SimplexEpochInfo)
+	currentState, err := identifyCurrentState(prevMD.SimplexEpochInfo)
 	if err != nil {
 		return fmt.Errorf("failed to identify previous state: %w", err)
 	}
@@ -282,7 +282,7 @@ func (sm *StateMachine) VerifyBlock(ctx context.Context, block *StateMachineBloc
 	case stateFirstSimplexBlock:
 		err = sm.verifyBlockZero(ctx, block, prevBlock)
 	default:
-		err = sm.verifyNonZeroBlock(ctx, block, prevBlock.Metadata, prevMD, currentState, seq-1)
+		err = sm.verifyNonZeroBlock(ctx, block, prevBlock.Metadata, currentState, seq-1)
 	}
 	return err
 }
@@ -333,7 +333,7 @@ func (sm *StateMachine) init() {
 	}
 }
 
-func (sm *StateMachine) verifyNonZeroBlock(ctx context.Context, block *StateMachineBlock, prevBlockMD StateMachineMetadata, prevMD StateMachineMetadata, state state, prevSeq uint64) error {
+func (sm *StateMachine) verifyNonZeroBlock(ctx context.Context, block *StateMachineBlock, prevBlockMD StateMachineMetadata, state state, prevSeq uint64) error {
 	blockType := IdentifyBlockType(block.Metadata, prevBlockMD, prevSeq)
 	sm.Logger.Debug("Identified block type",
 		zap.Stringer("blockType", blockType),
@@ -346,22 +346,22 @@ func (sm *StateMachine) verifyNonZeroBlock(ctx context.Context, block *StateMach
 		zap.Uint64("prevSeq", prevSeq),
 	)
 
-	timestamp := time.UnixMilli(int64(prevMD.Timestamp))
-
+	var innerBlockTimestamp time.Time
 	if block.InnerBlock != nil {
-		timestamp = block.InnerBlock.Timestamp()
+		innerBlockTimestamp = block.InnerBlock.Timestamp()
 	}
 
 	for _, verifier := range sm.verifiers {
 		if err := verifier.Verify(verificationInput{
-			proposedBlockMD:        block.Metadata,
-			nextBlockType:          blockType,
-			prevMD:                 prevMD,
-			state:                  state,
-			prevBlockSeq:           prevSeq,
-			hasInnerBlock:          block.InnerBlock != nil,
-			proposedBlockTimestamp: timestamp,
+			proposedBlockMD:     block.Metadata,
+			nextBlockType:       blockType,
+			prevMD:              prevBlockMD,
+			state:               state,
+			prevBlockSeq:        prevSeq,
+			hasInnerBlock:       block.InnerBlock != nil,
+			innerBlockTimestamp: innerBlockTimestamp,
 		}); err != nil {
+			sm.Logger.Debug("Invalid block", zap.Error(err))
 			return err
 		}
 	}
@@ -373,7 +373,7 @@ func (sm *StateMachine) verifyNonZeroBlock(ctx context.Context, block *StateMach
 	return block.InnerBlock.Verify(ctx)
 }
 
-func (sm *StateMachine) identifyCurrentState(prevBlockSimplexEpochInfo SimplexEpochInfo) (state, error) {
+func identifyCurrentState(prevBlockSimplexEpochInfo SimplexEpochInfo) (state, error) {
 	// If this is the first ever epoch, then this is also the first ever block to be built by Simplex.
 	if prevBlockSimplexEpochInfo.EpochNumber == 0 {
 		return stateFirstSimplexBlock, nil
@@ -898,7 +898,7 @@ func computeNewApprovals(
 
 	// we check if we have enough approvals to seal the epoch by computing the relative approval ratio,
 	// which is the ratio of the total weight of approving nodes divided by the total weight of all validators.
-	canSeal, err := computeRelativeApprovalRatio(err, validators, newApprovingNodes)
+	canSeal, err := canSealBlock(validators, newApprovingNodes)
 	if err != nil {
 		return nil, err
 	}
@@ -945,7 +945,7 @@ func computeNewApproverSignaturesAndSigners(nextEpochApprovals *NextEpochApprova
 	return aggregatedSignature, newApprovingNodes, nil
 }
 
-func computeRelativeApprovalRatio(err error, validators NodeBLSMappings, newApprovingNodes bitmask) (bool, error) {
+func canSealBlock(validators NodeBLSMappings, newApprovingNodes bitmask) (bool, error) {
 	approvingWeight, err := computeApprovingWeight(validators, &newApprovingNodes)
 	if err != nil {
 		return false, err

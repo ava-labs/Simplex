@@ -376,14 +376,14 @@ func TestMSMNormalOp(t *testing.T) {
 			mutateBlock: func(block *metadata.StateMachineBlock) {
 				block.Metadata.PChainHeight = 110
 			},
-			err: "invalid P-chain reference height (110) is too big",
+			err: "invalid P-chain height (110) is too big",
 		},
 		{
 			name: "P-chain height smaller than parent",
 			mutateBlock: func(block *metadata.StateMachineBlock) {
 				block.Metadata.PChainHeight = 0
 			},
-			err: "invalid P-chain height (0) is smaller than parent inner block's P-chain height (100)",
+			err: "invalid P-chain height (0) is smaller than parent block's P-chain height (100)",
 		},
 		{
 			name: "wrong epoch number",
@@ -397,7 +397,7 @@ func TestMSMNormalOp(t *testing.T) {
 			mutateBlock: func(block *metadata.StateMachineBlock) {
 				block.Metadata.SimplexEpochInfo.BlockValidationDescriptor = &metadata.BlockValidationDescriptor{}
 			},
-			err: "failed to find first Simplex inner block",
+			err: "failed to find first Simplex block",
 		},
 		{
 			name: "non-zero sealing block seq",
