@@ -56,6 +56,18 @@ type Storage interface {
 	Index(ctx context.Context, block VerifiedBlock, certificate Finalization) error
 }
 
+type FullStorage interface {
+	FullBlockRetriever
+	NumBlocks() uint64
+	Index(ctx context.Context, block FullBlock, certificate Finalization) error
+}
+
+type FullBlockRetriever interface {
+	// Retrieve returns the block and finalization at [seq].
+	// If [seq] the block cannot be found, returns ErrBlockNotFound.
+	Retrieve(seq uint64) (FullBlock, Finalization, error)
+}
+
 type Communication interface {
 	// Nodes returns all nodes that participate in the epoch.
 	Nodes() []NodeID
@@ -100,6 +112,12 @@ type VerifiedBlock interface {
 
 	// Bytes returns a byte encoding of the block
 	Bytes() ([]byte, error)
+}
+
+// Contains all functions on the block
+type FullBlock interface {
+	VerifiedBlock
+	Block
 }
 
 // BlockDeserializer deserializes blocks according to formatting
