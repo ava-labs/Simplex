@@ -120,4 +120,25 @@ func TestBitmask(t *testing.T) {
 		bm := bitmaskFromBytes([]byte{0x01, 0xFF})
 		require.Equal(t, 9, bm.Len())
 	})
+
+	t.Run("Clone produces independent copy", func(t *testing.T) {
+		bm := bitmaskFromBytes([]byte{7}) // bits 0,1,2
+		cloned := bm.Clone()
+
+		// Clone matches original
+		require.Equal(t, bm.Len(), cloned.Len())
+		for i := 0; i < 3; i++ {
+			require.Equal(t, bm.Contains(i), cloned.Contains(i))
+		}
+
+		// Mutating clone does not affect original
+		cloned.Add(5)
+		require.True(t, cloned.Contains(5))
+		require.False(t, bm.Contains(5))
+
+		// Mutating original does not affect clone
+		bm.Add(7)
+		require.True(t, bm.Contains(7))
+		require.False(t, cloned.Contains(7))
+	})
 }
