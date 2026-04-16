@@ -218,29 +218,15 @@ func (nbms NodeBLSMappings) Clone() NodeBLSMappings {
 }
 
 func (nbms NodeBLSMappings) TotalWeight() (uint64, error) {
-	return nbms.SumWeights(func(int, NodeBLSMapping) bool {
-		return true
-	})
-}
-
-func (nbms NodeBLSMappings) ForEach(selector func(int, NodeBLSMapping)) {
-	for i, nbm := range nbms {
-		selector(i, nbm)
-	}
-}
-
-func (nbms NodeBLSMappings) SumWeights(selector func(int, NodeBLSMapping) bool) (uint64, error) {
 	var total uint64
-	var err error
-	nbms.ForEach(func(i int, nbm NodeBLSMapping) {
+	for _, nbm := range nbms {
+		sum, err := safeAdd(total, nbm.Weight)
 		if err != nil {
-			return
+			return 0, err
 		}
-		if selector(i, nbm) {
-			total, err = safeAdd(total, nbm.Weight)
-		}
-	})
-	return total, err
+		total = sum
+	}
+	return total, nil
 }
 
 func (nbms NodeBLSMappings) Equal(other NodeBLSMappings) bool {
@@ -273,30 +259,25 @@ type ValidatorSetApproval struct {
 
 type ValidatorSetApprovals []ValidatorSetApproval
 
-func (vsa ValidatorSetApprovals) ForEach(f func(int, ValidatorSetApproval)) {
-	for i, v := range vsa {
-		f(i, v)
-	}
-}
-
-func (vsa ValidatorSetApprovals) Filter(f func(int, ValidatorSetApproval) bool) ValidatorSetApprovals {
+func (vsa ValidatorSetApprovals) Filter(keep func(ValidatorSetApproval) bool) ValidatorSetApprovals {
 	result := make(ValidatorSetApprovals, 0, len(vsa))
-	vsa.ForEach(func(i int, v ValidatorSetApproval) {
-		if f(i, v) {
+	for _, v := range vsa {
+		if keep(v) {
 			result = append(result, v)
 		}
-	})
+	}
 	return result
 }
 
 func (vsa ValidatorSetApprovals) UniqueByNodeID() ValidatorSetApprovals {
 	seen := make(map[nodeID]struct{})
 	result := make(ValidatorSetApprovals, 0, len(vsa))
-	vsa.ForEach(func(i int, v ValidatorSetApproval) {
-		if _, exists := seen[v.NodeID]; !exists {
-			seen[v.NodeID] = struct{}{}
-			result = append(result, v)
+	for _, v := range vsa {
+		if _, exists := seen[v.NodeID]; exists {
+			continue
 		}
-	})
+		seen[v.NodeID] = struct{}{}
+		result = append(result, v)
+	}
 	return result
 }

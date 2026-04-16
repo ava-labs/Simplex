@@ -830,10 +830,10 @@ func computeNewApprovals(
 	oldApprovingNodes := bitmaskFromBytes(nextEpochApprovals.NodeIDs)
 
 	// We map each validator to its relative index in the validator set.
-	nodeID2ValidatorIndex := make(map[nodeID]int)
-	validators.ForEach(func(i int, nbm NodeBLSMapping) {
+	nodeID2ValidatorIndex := make(map[nodeID]int, len(validators))
+	for i, nbm := range validators {
 		nodeID2ValidatorIndex[nbm.NodeID] = i
-	})
+	}
 
 	// We have the approvals obtained from peers, but we need to sanitize them by filtering out approvals that are not valid,
 	// such as approvals that do not agree with our candidate auxiliary info digest and P-Chain height,
@@ -869,16 +869,16 @@ func computeNewApproverSignaturesAndSigners(nextEpochApprovals *NextEpochApprova
 	// We will overwrite the old approving nodes with the new approving nodes, by turning on the bits for the new approvers.
 	newApprovingNodes := oldApprovingNodes.Clone()
 
-	approvalsFromPeers.ForEach(func(i int, approval ValidatorSetApproval) {
+	for _, approval := range approvalsFromPeers {
 		approvingNodeIndexOfNewApprover, exists := nodeID2ValidatorIndex[approval.NodeID]
 		if !exists {
 			// This should not happen, because we have already filtered approvals that are not in the validator set, but we check just in case.
-			return
+			continue
 		}
 		// Turn on the bit for the new approver
 		newApprovingNodes.Add(approvingNodeIndexOfNewApprover)
 		newSignatures = append(newSignatures, approval.Signature)
-	})
+	}
 
 	// Add the existing signature into the list of signatures to aggregate
 	existingSignature := nextEpochApprovals.Signature
@@ -922,15 +922,15 @@ func sanitizeApprovals(approvals ValidatorSetApprovals, pChainHeight uint64, nod
 	return approvals.Filter(filter1).Filter(filter2).UniqueByNodeID()
 }
 
-func approvalsThatAgreeWithAuxInfoAndPChainHeight(pChainHeight uint64) func(i int, approval ValidatorSetApproval) bool {
-	return func(i int, approval ValidatorSetApproval) bool {
+func approvalsThatAgreeWithAuxInfoAndPChainHeight(pChainHeight uint64) func(approval ValidatorSetApproval) bool {
+	return func(approval ValidatorSetApproval) bool {
 		// Pick only approvals that agree with our candidate auxiliary info digest and P-Chain height
 		return approval.PChainHeight == pChainHeight
 	}
 }
 
-func approvalsThatAreInValidatorSetAndHaveNotAlreadyApproved(oldApprovingNodes *bitmask, nodeID2ValidatorIndex map[nodeID]int) func(i int, approval ValidatorSetApproval) bool {
-	return func(i int, approval ValidatorSetApproval) bool {
+func approvalsThatAreInValidatorSetAndHaveNotAlreadyApproved(oldApprovingNodes *bitmask, nodeID2ValidatorIndex map[nodeID]int) func(approval ValidatorSetApproval) bool {
+	return func(approval ValidatorSetApproval) bool {
 		approvingNodeIndexOfNewApprover, exists := nodeID2ValidatorIndex[approval.NodeID]
 		if !exists {
 			// If the approving node is not in the validator set, we ignore this approval.
@@ -943,19 +943,15 @@ func approvalsThatAreInValidatorSetAndHaveNotAlreadyApproved(oldApprovingNodes *
 
 func computeApprovingWeight(validators NodeBLSMappings, approvingNodes *bitmask) (int64, error) {
 	var approvingWeight uint64
-	var err error
-	validators.ForEach(func(i int, nbm NodeBLSMapping) {
-		if err != nil {
-			return
-		}
+	for i, nbm := range validators {
 		if !approvingNodes.Contains(i) {
-			return
+			continue
 		}
-		approvingWeight, err = safeAdd(approvingWeight, nbm.Weight)
-	})
-
-	if err != nil {
-		return 0, fmt.Errorf("failed to compute approving weights: %w", err)
+		sum, err := safeAdd(approvingWeight, nbm.Weight)
+		if err != nil {
+			return 0, fmt.Errorf("failed to compute approving weights: %w", err)
+		}
+		approvingWeight = sum
 	}
 
 	if approvingWeight > math.MaxInt64 {

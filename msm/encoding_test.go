@@ -400,42 +400,6 @@ func TestNodeBLSMappingsTotalWeight(t *testing.T) {
 	}
 }
 
-func TestNodeBLSMappingsSumWeights(t *testing.T) {
-	mappings := NodeBLSMappings{
-		{NodeID: nodeID{1}, Weight: 10},
-		{NodeID: nodeID{2}, Weight: 20},
-		{NodeID: nodeID{3}, Weight: 30},
-	}
-
-	// Select only even indices
-	total, err := mappings.SumWeights(func(i int, _ NodeBLSMapping) bool {
-		return i%2 == 0
-	})
-	require.NoError(t, err)
-	require.Equal(t, uint64(40), total) // index 0 (10) + index 2 (30)
-
-	// Select none
-	total, err = mappings.SumWeights(func(int, NodeBLSMapping) bool {
-		return false
-	})
-	require.NoError(t, err)
-	require.Equal(t, uint64(0), total)
-}
-
-func TestNodeBLSMappingsForEach(t *testing.T) {
-	mappings := NodeBLSMappings{
-		{Weight: 1},
-		{Weight: 2},
-		{Weight: 3},
-	}
-
-	var visited []uint64
-	mappings.ForEach(func(_ int, nbm NodeBLSMapping) {
-		visited = append(visited, nbm.Weight)
-	})
-	require.Equal(t, []uint64{1, 2, 3}, visited)
-}
-
 func TestNodeBLSMappingsCompare(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -479,19 +443,6 @@ func TestNodeBLSMappingsCompare(t *testing.T) {
 	}
 }
 
-func TestValidatorSetApprovalsForEach(t *testing.T) {
-	approvals := ValidatorSetApprovals{
-		{NodeID: nodeID{1}, PChainHeight: 10},
-		{NodeID: nodeID{2}, PChainHeight: 20},
-	}
-
-	var heights []uint64
-	approvals.ForEach(func(_ int, v ValidatorSetApproval) {
-		heights = append(heights, v.PChainHeight)
-	})
-	require.Equal(t, []uint64{10, 20}, heights)
-}
-
 func TestValidatorSetApprovalsFilter(t *testing.T) {
 	approvals := ValidatorSetApprovals{
 		{NodeID: nodeID{1}, PChainHeight: 10},
@@ -499,7 +450,7 @@ func TestValidatorSetApprovalsFilter(t *testing.T) {
 		{NodeID: nodeID{3}, PChainHeight: 30},
 	}
 
-	filtered := approvals.Filter(func(_ int, v ValidatorSetApproval) bool {
+	filtered := approvals.Filter(func(v ValidatorSetApproval) bool {
 		return v.PChainHeight > 15
 	})
 	require.Len(t, filtered, 2)
@@ -507,7 +458,7 @@ func TestValidatorSetApprovalsFilter(t *testing.T) {
 	require.Equal(t, uint64(30), filtered[1].PChainHeight)
 
 	// Filter all
-	filtered = approvals.Filter(func(int, ValidatorSetApproval) bool {
+	filtered = approvals.Filter(func(ValidatorSetApproval) bool {
 		return false
 	})
 	require.Empty(t, filtered)

@@ -179,12 +179,12 @@ func (nv *nextEpochApprovalsVerifier) createMessageToBeVerified(prev SimplexEpoc
 func (nv *nextEpochApprovalsVerifier) aggregatePubKeysForBitmask(nodeIDsBitmask []byte, validators NodeBLSMappings) ([]byte, error) {
 	approvingNodes := bitmaskFromBytes(nodeIDsBitmask)
 	publicKeys := make([][]byte, 0, len(validators))
-	validators.ForEach(func(i int, nbm NodeBLSMapping) {
+	for i, nbm := range validators {
 		if !approvingNodes.Contains(i) {
-			return
+			continue
 		}
 		publicKeys = append(publicKeys, nbm.BLSKey)
-	})
+	}
 
 	aggPK, err := nv.keyAggregator.AggregateKeys(publicKeys...)
 	if err != nil {
