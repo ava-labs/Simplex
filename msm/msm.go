@@ -384,12 +384,11 @@ func (sm *StateMachine) buildBlockNormalOp(ctx context.Context, parentBlock Stat
 
 	sm.Logger.Debug("Block building decision", zap.Stringer("decision", decisionToBuildBlock))
 
-	var childBlock VMBlock
-
 	switch decisionToBuildBlock {
 	case blockBuildingDecisionBuildBlock, blockBuildingDecisionBuildBlockAndTransitionEpoch:
 		// If we reached here, we need to build a new block, and maybe also transition to a new epoch.
-		return sm.buildBlockAndMaybeTransitionEpoch(ctx, parentBlock, simplexMetadata, simplexBlacklist, childBlock, decisionToBuildBlock, newSimplexEpochInfo, pChainHeight)
+		transitionEpoch := decisionToBuildBlock == blockBuildingDecisionBuildBlockAndTransitionEpoch
+		return sm.buildBlockAndMaybeTransitionEpoch(ctx, parentBlock, simplexMetadata, simplexBlacklist, newSimplexEpochInfo, pChainHeight, transitionEpoch)
 	case blockBuildingDecisionTransitionEpoch:
 		// If we reached here, we don't need to build an inner block, yet we need to transition to a new epoch.
 		// Initiate the epoch transition by setting the next P-chain reference height for the new epoch info,
@@ -403,14 +402,21 @@ func (sm *StateMachine) buildBlockNormalOp(ctx context.Context, parentBlock Stat
 	}
 }
 
-func (sm *StateMachine) buildBlockAndMaybeTransitionEpoch(ctx context.Context, parentBlock StateMachineBlock, simplexMetadata []byte, simplexBlacklist []byte, childBlock VMBlock, decisionToBuildBlock blockBuildingDecision, newSimplexEpochInfo SimplexEpochInfo, pChainHeight uint64) (*StateMachineBlock, error) {
+func (sm *StateMachine) buildBlockAndMaybeTransitionEpoch(
+	ctx context.Context,
+	parentBlock StateMachineBlock,
+	simplexMetadata, simplexBlacklist []byte,
+	newSimplexEpochInfo SimplexEpochInfo,
+	pChainHeight uint64,
+	transitionEpoch bool,
+) (*StateMachineBlock, error) {
 	// TODO: This P-chain height should be taken from the ICM epoch
 	childBlock, err := sm.BlockBuilder.BuildBlock(ctx, pChainHeight)
 	if err != nil {
 		return nil, err
 	}
 
-	if decisionToBuildBlock == blockBuildingDecisionBuildBlockAndTransitionEpoch {
+	if transitionEpoch {
 		// We need to also transition to a new epoch, in addition to building an inner block,
 		// so set the next P-chain reference height for the new epoch info.
 		newSimplexEpochInfo.NextPChainReferenceHeight = pChainHeight
