@@ -376,7 +376,7 @@ func (sm *StateMachine) buildBlockNormalOp(ctx context.Context, parentBlock Stat
 		PrevVMBlockSeq:        computePrevVMBlockSeq(parentBlock, prevBlockSeq),
 	}
 
-	blockBuildingDecider := sm.createBlockBuildingDecider(parentBlock)
+	blockBuildingDecider := newBlockBuildingDecider(sm, parentBlock)
 	decisionToBuildBlock, pChainHeight, err := blockBuildingDecider.shouldBuildBlock(ctx)
 	if err != nil {
 		return nil, err
@@ -401,38 +401,6 @@ func (sm *StateMachine) buildBlockNormalOp(ctx context.Context, parentBlock Stat
 	default:
 		return nil, fmt.Errorf("unknown block building decision %d", decisionToBuildBlock)
 	}
-}
-
-func (sm *StateMachine) createBlockBuildingDecider(parentBlock StateMachineBlock) blockBuildingDecider {
-	blockBuildingDecider := blockBuildingDecider{
-		logger:                   sm.Logger,
-		maxBlockBuildingWaitTime: sm.MaxBlockBuildingWaitTime,
-		pChainlistener:           sm.PChainProgressListener,
-		getPChainHeight:          sm.GetPChainHeight,
-		waitForPendingBlock:      sm.BlockBuilder.WaitForPendingBlock,
-		shouldTransitionEpoch: func(pChainHeight uint64) (bool, error) {
-			// The given pChainHeight was sampled by the caller of shouldTransitionEpoch().
-			// We compare between the current validator set, defined by the P-chain reference height in the parent block,
-			// and the new validator set defined by the given pChainHeight.
-			// If they are different, then we should transition to a new epoch.
-
-			currentValidatorSet, err := sm.GetValidatorSet(parentBlock.Metadata.SimplexEpochInfo.PChainReferenceHeight)
-			if err != nil {
-				return false, err
-			}
-
-			newValidatorSet, err := sm.GetValidatorSet(pChainHeight)
-			if err != nil {
-				return false, err
-			}
-
-			if !currentValidatorSet.Equal(newValidatorSet) {
-				return true, nil
-			}
-			return false, nil
-		},
-	}
-	return blockBuildingDecider
 }
 
 func (sm *StateMachine) buildBlockAndMaybeTransitionEpoch(ctx context.Context, parentBlock StateMachineBlock, simplexMetadata []byte, simplexBlacklist []byte, childBlock VMBlock, decisionToBuildBlock blockBuildingDecision, newSimplexEpochInfo SimplexEpochInfo, pChainHeight uint64) (*StateMachineBlock, error) {

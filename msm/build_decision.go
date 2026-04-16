@@ -55,6 +55,39 @@ type blockBuildingDecider struct {
 	getPChainHeight          func() uint64
 }
 
+// newBlockBuildingDecider wires a blockBuildingDecider around a StateMachine
+// and the parent block it is extending. A fresh decider is created per call
+// because shouldTransitionEpoch closes over the parent block.
+func newBlockBuildingDecider(sm *StateMachine, parentBlock StateMachineBlock) blockBuildingDecider {
+	return blockBuildingDecider{
+		logger:                   sm.Logger,
+		maxBlockBuildingWaitTime: sm.MaxBlockBuildingWaitTime,
+		pChainlistener:           sm.PChainProgressListener,
+		getPChainHeight:          sm.GetPChainHeight,
+		waitForPendingBlock:      sm.BlockBuilder.WaitForPendingBlock,
+		shouldTransitionEpoch: func(pChainHeight uint64) (bool, error) {
+			// The given pChainHeight was sampled by the caller of shouldTransitionEpoch().
+			// We compare between the current validator set, defined by the P-chain reference height in the parent block,
+			// and the new validator set defined by the given pChainHeight.
+			// If they are different, then we should transition to a new epoch.
+			currentValidatorSet, err := sm.GetValidatorSet(parentBlock.Metadata.SimplexEpochInfo.PChainReferenceHeight)
+			if err != nil {
+				return false, err
+			}
+
+			newValidatorSet, err := sm.GetValidatorSet(pChainHeight)
+			if err != nil {
+				return false, err
+			}
+
+			if !currentValidatorSet.Equal(newValidatorSet) {
+				return true, nil
+			}
+			return false, nil
+		},
+	}
+}
+
 // shouldBuildBlock determines whether we should build a block at the current time,
 // based on the current P-chain height and whether we should transition to a new epoch.
 // It returns a blockBuildingDecision, the current P-chain height sampled at the time of deciding,
