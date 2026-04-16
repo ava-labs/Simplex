@@ -28,7 +28,7 @@ func TestStateMachineEpochTransition(t *testing.T) {
 
 	var pChainHeight atomic.Uint64
 	pChainHeight.Store(100)
-	node := newFakeNode(t)
+	node := newMultiEpochNode(t)
 	node.sm.GetValidatorSet = validatorSetRetriever.getValidatorSet
 	node.sm.GetPChainHeight = func() uint64 {
 		return pChainHeight.Load()
@@ -93,7 +93,7 @@ func TestStateMachineEpochTransitionEmptyMempool(t *testing.T) {
 	}
 
 	var pChainHeight uint64 = 100
-	node := newFakeNode(t)
+	node := newMultiEpochNode(t)
 	node.sm.MaxBlockBuildingWaitTime = 100 * time.Millisecond
 	node.sm.GetValidatorSet = validatorSetRetriever.getValidatorSet
 	node.sm.GetPChainHeight = func() uint64 {
@@ -168,7 +168,7 @@ type innerBlock struct {
 	Prev [32]byte
 }
 
-type fakeNode struct {
+type multiEpochNode struct {
 	t               *testing.T
 	sm              StateMachine
 	mempoolEmpty    bool
@@ -176,7 +176,7 @@ type fakeNode struct {
 	finalizedBlocks []StateMachineBlock
 }
 
-func (fn *fakeNode) WaitForProgress(ctx context.Context, pChainHeight uint64) error {
+func (fn *multiEpochNode) WaitForProgress(ctx context.Context, pChainHeight uint64) error {
 	for {
 		select {
 		case <-ctx.Done():
@@ -189,17 +189,17 @@ func (fn *fakeNode) WaitForProgress(ctx context.Context, pChainHeight uint64) er
 	}
 }
 
-func (fn *fakeNode) WaitForPendingBlock(ctx context.Context) {
+func (fn *multiEpochNode) WaitForPendingBlock(ctx context.Context) {
 	if fn.mempoolEmpty {
 		<-ctx.Done()
 		return
 	}
 }
 
-func newFakeNode(t *testing.T) *fakeNode {
+func newMultiEpochNode(t *testing.T) *multiEpochNode {
 	sm, _ := newStateMachine(t)
 
-	fn := &fakeNode{
+	fn := &multiEpochNode{
 		t:  t,
 		sm: sm,
 	}
@@ -243,16 +243,16 @@ func newFakeNode(t *testing.T) *fakeNode {
 	return fn
 }
 
-func (fn *fakeNode) Height() uint64 {
+func (fn *multiEpochNode) Height() uint64 {
 	return uint64(len(fn.finalizedBlocks))
 }
 
-func (fn *fakeNode) Epoch() uint64 {
+func (fn *multiEpochNode) Epoch() uint64 {
 	return fn.notarizedBlocks[len(fn.notarizedBlocks)-1].Metadata.SimplexEpochInfo.EpochNumber
 }
 
 // act randomly either finalizes a notarized block, builds and notarizes a new block, or does nothing.
-func (fn *fakeNode) act() {
+func (fn *multiEpochNode) act() {
 	if fn.canFinalize() && flipCoin() {
 		fn.tryFinalizeNextBlock()
 		return
@@ -265,11 +265,11 @@ func (fn *fakeNode) act() {
 	fn.buildAndNotarizeBlock()
 }
 
-func (fn *fakeNode) canFinalize() bool {
+func (fn *multiEpochNode) canFinalize() bool {
 	return len(fn.notarizedBlocks) > len(fn.finalizedBlocks)
 }
 
-func (fn *fakeNode) tryFinalizeNextBlock() {
+func (fn *multiEpochNode) tryFinalizeNextBlock() {
 	nextIndex := len(fn.finalizedBlocks)
 
 	if fn.isNextBlockTelock() {
@@ -292,21 +292,21 @@ func (fn *fakeNode) tryFinalizeNextBlock() {
 	}
 }
 
-func (fn *fakeNode) isNextBlockTelock() bool {
+func (fn *multiEpochNode) isNextBlockTelock() bool {
 	if len(fn.finalizedBlocks) == 0 {
 		return false
 	}
 	return fn.notarizedBlocks[len(fn.finalizedBlocks)].Metadata.SimplexEpochInfo.SealingBlockSeq > 0
 }
 
-func (fn *fakeNode) buildAndNotarizeBlock() {
+func (fn *multiEpochNode) buildAndNotarizeBlock() {
 	block := fn.buildBlock()
 	require.NoError(fn.t, fn.sm.VerifyBlock(context.Background(), block))
 
 	fn.notarizedBlocks = append(fn.notarizedBlocks, *block)
 }
 
-func (fn *fakeNode) buildBlock() *StateMachineBlock {
+func (fn *multiEpochNode) buildBlock() *StateMachineBlock {
 	parentBlock := fn.getParentBlock()
 
 	lastMD, prevBlockDigest := fn.prepareMetadataAndPrevBlockDigest()
@@ -334,7 +334,7 @@ func (fn *fakeNode) buildBlock() *StateMachineBlock {
 	return block
 }
 
-func (fn *fakeNode) prepareMetadataAndPrevBlockDigest() (*simplex.ProtocolMetadata, [32]byte) {
+func (fn *multiEpochNode) prepareMetadataAndPrevBlockDigest() (*simplex.ProtocolMetadata, [32]byte) {
 	var lastMD *simplex.ProtocolMetadata
 	var err error
 	lastBlockDigest := genesisBlock.Digest()
@@ -351,7 +351,7 @@ func (fn *fakeNode) prepareMetadataAndPrevBlockDigest() (*simplex.ProtocolMetada
 	return lastMD, lastBlockDigest
 }
 
-func (fn *fakeNode) BuildBlock(context.Context, uint64) (VMBlock, error) {
+func (fn *multiEpochNode) BuildBlock(context.Context, uint64) (VMBlock, error) {
 	// Count the number of inner blocks in the chain
 	var count int
 	for _, block := range fn.notarizedBlocks {
@@ -371,7 +371,7 @@ func (fn *fakeNode) BuildBlock(context.Context, uint64) (VMBlock, error) {
 	return vmBlock, nil
 }
 
-func (fn *fakeNode) getParentBlock() StateMachineBlock {
+func (fn *multiEpochNode) getParentBlock() StateMachineBlock {
 	var parentBlock StateMachineBlock
 	if len(fn.notarizedBlocks) > 0 {
 		parentBlock = fn.notarizedBlocks[len(fn.notarizedBlocks)-1]
@@ -386,7 +386,7 @@ func (fn *fakeNode) getParentBlock() StateMachineBlock {
 	return parentBlock
 }
 
-func (fn *fakeNode) getLastVMBlockDigest() [32]byte {
+func (fn *multiEpochNode) getLastVMBlockDigest() [32]byte {
 	var lastVMBlockDigest = genesisBlock.Digest()
 
 	notarizedBlocks := fn.notarizedBlocks
