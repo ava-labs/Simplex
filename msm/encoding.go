@@ -248,23 +248,18 @@ func (nbms NodeBLSMappings) Equal(other NodeBLSMappings) bool {
 		return false
 	}
 
+	sortByNodeID := func(a, b NodeBLSMapping) int {
+		return slices.Compare(a.NodeID[:], b.NodeID[:])
+	}
+
 	nbmsClone := nbms.Clone()
 	otherClone := other.Clone()
+	slices.SortFunc(nbmsClone, sortByNodeID)
+	slices.SortFunc(otherClone, sortByNodeID)
 
-	slices.SortFunc(nbmsClone, func(a, b NodeBLSMapping) int {
-		return slices.Compare(a.NodeID[:], b.NodeID[:])
+	return slices.EqualFunc(nbmsClone, otherClone, func(a, b NodeBLSMapping) bool {
+		return a.Equals(&b)
 	})
-
-	slices.SortFunc(otherClone, func(a, b NodeBLSMapping) int {
-		return slices.Compare(a.NodeID[:], b.NodeID[:])
-	})
-
-	for i := range nbmsClone {
-		if !nbmsClone[i].Equals(&otherClone[i]) {
-			return false
-		}
-	}
-	return true
 }
 
 type ValidatorSetApproval struct {
