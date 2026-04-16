@@ -174,7 +174,6 @@ type fakeNode struct {
 	mempoolEmpty    bool
 	notarizedBlocks []StateMachineBlock
 	finalizedBlocks []StateMachineBlock
-	innerChain      []innerBlock
 }
 
 func (fn *fakeNode) WaitForProgress(ctx context.Context, pChainHeight uint64) error {
@@ -300,14 +299,10 @@ func (fn *fakeNode) isNextBlockTelock() bool {
 }
 
 func (fn *fakeNode) buildAndNotarizeBlock() {
-	vmBlock, block := fn.buildBlock()
+	_, block := fn.buildBlock()
 	require.NoError(fn.t, fn.sm.VerifyBlock(context.Background(), block))
 
 	fn.notarizedBlocks = append(fn.notarizedBlocks, *block)
-
-	if vmBlock != nil {
-		fn.innerChain = append(fn.innerChain, *vmBlock.(*innerBlock))
-	}
 }
 
 func (fn *fakeNode) buildBlock() (VMBlock, *StateMachineBlock) {
