@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestFakeNode(t *testing.T) {
+func TestStateMachineEpochTransition(t *testing.T) {
 	validatorSetRetriever := validatorSetRetriever{
 		resultMap: map[uint64]NodeBLSMappings{
 			100: {{BLSKey: []byte{1}, Weight: 1, NodeID: [20]byte{1}}, {BLSKey: []byte{2}, Weight: 1, NodeID: [20]byte{2}}},
@@ -81,7 +81,7 @@ func TestFakeNode(t *testing.T) {
 	require.Greater(t, node.Epoch(), epoch)
 }
 
-func TestFakeNodeEmptyMempool(t *testing.T) {
+func TestStateMachineEpochTransitionEmptyMempool(t *testing.T) {
 	validatorSetRetriever := validatorSetRetriever{
 		resultMap: map[uint64]NodeBLSMappings{
 			100: {{BLSKey: []byte{1}, Weight: 1, NodeID: [20]byte{1}}, {BLSKey: []byte{2}, Weight: 1, NodeID: [20]byte{2}}},
