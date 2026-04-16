@@ -112,7 +112,7 @@ func TestStateMachineEpochTransitionEmptyMempool(t *testing.T) {
 	node.mempoolEmpty = true
 
 	// We build blocks until the sealing block is finalized.
-	for node.finalizedBlocks[len(node.finalizedBlocks)-1].Metadata.SimplexEpochInfo.BlockValidationDescriptor == nil {
+	for node.lastFinalizedBlock().Metadata.SimplexEpochInfo.BlockValidationDescriptor == nil {
 		node.act()
 		if flipCoin() {
 			node.sm.ApprovalsRetriever = &approvalsRetriever{
@@ -168,12 +168,18 @@ type innerBlock struct {
 	Prev [32]byte
 }
 
+type blockState struct {
+	block     StateMachineBlock
+	finalized bool
+}
+
 type multiEpochNode struct {
-	t               *testing.T
-	sm              StateMachine
-	mempoolEmpty    bool
-	notarizedBlocks []StateMachineBlock
-	finalizedBlocks []StateMachineBlock
+	t            *testing.T
+	sm           StateMachine
+	mempoolEmpty bool
+	// blocks holds notarized blocks in order. Finalized blocks always form a
+	// prefix: all finalized entries precede all non-finalized entries.
+	blocks []blockState
 }
 
 func (fn *multiEpochNode) WaitForProgress(ctx context.Context, pChainHeight uint64) error {
@@ -211,28 +217,21 @@ func newMultiEpochNode(t *testing.T) *multiEpochNode {
 		if opts.Height == 0 {
 			return genesisBlock, nil, nil
 		}
-		for _, block := range fn.finalizedBlocks {
-			if block.Digest() == opts.Digest {
-				return block, &simplex.Finalization{}, nil
+		for _, bs := range fn.blocks {
+			match := bs.block.Digest() == opts.Digest
+			if !match {
+				md, err := simplex.ProtocolMetadataFromBytes(bs.block.Metadata.SimplexProtocolMetadata)
+				if err != nil {
+					return StateMachineBlock{}, nil, err
+				}
+				match = md.Seq == opts.Height
 			}
-			md, err := simplex.ProtocolMetadataFromBytes(block.Metadata.SimplexProtocolMetadata)
-			if err != nil {
-				return StateMachineBlock{}, nil, err
-			}
-			if md.Seq == opts.Height {
-				return block, &simplex.Finalization{}, nil
-			}
-		}
-		for _, block := range fn.notarizedBlocks {
-			if block.Digest() == opts.Digest {
-				return block, nil, nil
-			}
-			md, err := simplex.ProtocolMetadataFromBytes(block.Metadata.SimplexProtocolMetadata)
-			if err != nil {
-				return StateMachineBlock{}, nil, err
-			}
-			if md.Seq == opts.Height {
-				return block, nil, nil
+			if match {
+				var fin *simplex.Finalization
+				if bs.finalized {
+					fin = &simplex.Finalization{}
+				}
+				return bs.block, fin, nil
 			}
 		}
 
@@ -243,12 +242,29 @@ func newMultiEpochNode(t *testing.T) *multiEpochNode {
 	return fn
 }
 
+// lastFinalizedBlock returns the most recently finalized block.
+// Panics if nothing has been finalized.
+func (fn *multiEpochNode) lastFinalizedBlock() StateMachineBlock {
+	for i := len(fn.blocks) - 1; i >= 0; i-- {
+		if fn.blocks[i].finalized {
+			return fn.blocks[i].block
+		}
+	}
+	panic("no finalized block")
+}
+
 func (fn *multiEpochNode) Height() uint64 {
-	return uint64(len(fn.finalizedBlocks))
+	var count uint64
+	for _, bs := range fn.blocks {
+		if bs.finalized {
+			count++
+		}
+	}
+	return count
 }
 
 func (fn *multiEpochNode) Epoch() uint64 {
-	return fn.notarizedBlocks[len(fn.notarizedBlocks)-1].Metadata.SimplexEpochInfo.EpochNumber
+	return fn.blocks[len(fn.blocks)-1].block.Metadata.SimplexEpochInfo.EpochNumber
 }
 
 // act randomly either finalizes a notarized block, builds and notarizes a new block, or does nothing.
@@ -266,18 +282,27 @@ func (fn *multiEpochNode) act() {
 }
 
 func (fn *multiEpochNode) canFinalize() bool {
-	return len(fn.notarizedBlocks) > len(fn.finalizedBlocks)
+	return fn.nextUnfinalizedIndex() < len(fn.blocks)
+}
+
+func (fn *multiEpochNode) nextUnfinalizedIndex() int {
+	for i, bs := range fn.blocks {
+		if !bs.finalized {
+			return i
+		}
+	}
+	return len(fn.blocks)
 }
 
 func (fn *multiEpochNode) tryFinalizeNextBlock() {
-	nextIndex := len(fn.finalizedBlocks)
+	nextIndex := fn.nextUnfinalizedIndex()
 
-	if fn.isNextBlockTelock() {
+	if fn.isNextBlockTelock(nextIndex) {
 		return
 	}
 
-	block := fn.notarizedBlocks[nextIndex]
-	fn.finalizedBlocks = append(fn.finalizedBlocks, block)
+	fn.blocks[nextIndex].finalized = true
+	block := fn.blocks[nextIndex].block
 
 	md, err := simplex.ProtocolMetadataFromBytes(block.Metadata.SimplexProtocolMetadata)
 	require.NoError(fn.t, err)
@@ -287,23 +312,23 @@ func (fn *multiEpochNode) tryFinalizeNextBlock() {
 
 	// If we just finalized a sealing block, trim trailing Telock blocks.
 	if block.Metadata.SimplexEpochInfo.BlockValidationDescriptor != nil {
-		fn.notarizedBlocks = fn.notarizedBlocks[:len(fn.finalizedBlocks)]
-		fn.t.Logf("Trimmed notarized blocks, new length: %d", len(fn.notarizedBlocks))
+		fn.blocks = fn.blocks[:nextIndex+1]
+		fn.t.Logf("Trimmed notarized blocks, new length: %d", len(fn.blocks))
 	}
 }
 
-func (fn *multiEpochNode) isNextBlockTelock() bool {
-	if len(fn.finalizedBlocks) == 0 {
+func (fn *multiEpochNode) isNextBlockTelock(nextIndex int) bool {
+	if nextIndex == 0 {
 		return false
 	}
-	return fn.notarizedBlocks[len(fn.finalizedBlocks)].Metadata.SimplexEpochInfo.SealingBlockSeq > 0
+	return fn.blocks[nextIndex].block.Metadata.SimplexEpochInfo.SealingBlockSeq > 0
 }
 
 func (fn *multiEpochNode) buildAndNotarizeBlock() {
 	block := fn.buildBlock()
 	require.NoError(fn.t, fn.sm.VerifyBlock(context.Background(), block))
 
-	fn.notarizedBlocks = append(fn.notarizedBlocks, *block)
+	fn.blocks = append(fn.blocks, blockState{block: *block})
 }
 
 func (fn *multiEpochNode) buildBlock() *StateMachineBlock {
@@ -338,8 +363,8 @@ func (fn *multiEpochNode) prepareMetadataAndPrevBlockDigest() (*simplex.Protocol
 	var lastMD *simplex.ProtocolMetadata
 	var err error
 	lastBlockDigest := genesisBlock.Digest()
-	if len(fn.notarizedBlocks) > 0 {
-		lastBlock := fn.notarizedBlocks[len(fn.notarizedBlocks)-1]
+	if len(fn.blocks) > 0 {
+		lastBlock := fn.blocks[len(fn.blocks)-1].block
 		lastBlockDigest = lastBlock.Digest()
 		lastMD, err = simplex.ProtocolMetadataFromBytes(lastBlock.Metadata.SimplexProtocolMetadata)
 		require.NoError(fn.t, err)
@@ -354,8 +379,8 @@ func (fn *multiEpochNode) prepareMetadataAndPrevBlockDigest() (*simplex.Protocol
 func (fn *multiEpochNode) BuildBlock(context.Context, uint64) (VMBlock, error) {
 	// Count the number of inner blocks in the chain
 	var count int
-	for _, block := range fn.notarizedBlocks {
-		if block.InnerBlock != nil {
+	for _, bs := range fn.blocks {
+		if bs.block.InnerBlock != nil {
 			count++
 		}
 	}
@@ -372,34 +397,24 @@ func (fn *multiEpochNode) BuildBlock(context.Context, uint64) (VMBlock, error) {
 }
 
 func (fn *multiEpochNode) getParentBlock() StateMachineBlock {
-	var parentBlock StateMachineBlock
-	if len(fn.notarizedBlocks) > 0 {
-		parentBlock = fn.notarizedBlocks[len(fn.notarizedBlocks)-1]
-	} else {
-		gb := genesisBlock.InnerBlock.(*InnerBlock)
-		parentBlock = StateMachineBlock{
-			InnerBlock: &innerBlock{
-				InnerBlock: *gb,
-			},
-		}
+	if len(fn.blocks) > 0 {
+		return fn.blocks[len(fn.blocks)-1].block
 	}
-	return parentBlock
+	gb := genesisBlock.InnerBlock.(*InnerBlock)
+	return StateMachineBlock{
+		InnerBlock: &innerBlock{
+			InnerBlock: *gb,
+		},
+	}
 }
 
 func (fn *multiEpochNode) getLastVMBlockDigest() [32]byte {
-	var lastVMBlockDigest = genesisBlock.Digest()
-
-	notarizedBlocks := fn.notarizedBlocks
-	for len(notarizedBlocks) > 0 {
-		lastNotarizedBlock := notarizedBlocks[len(notarizedBlocks)-1]
-		if lastNotarizedBlock.InnerBlock == nil {
-			notarizedBlocks = notarizedBlocks[:len(notarizedBlocks)-1]
-			continue
+	for i := len(fn.blocks) - 1; i >= 0; i-- {
+		if fn.blocks[i].block.InnerBlock != nil {
+			return fn.blocks[i].block.Digest()
 		}
-		lastVMBlockDigest = lastNotarizedBlock.Digest()
-		break
 	}
-	return lastVMBlockDigest
+	return genesisBlock.Digest()
 }
 
 func randomBuff(n int) []byte {
