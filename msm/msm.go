@@ -133,7 +133,7 @@ type StateMachine struct {
 type state uint8
 
 const (
-	stateFirstSimplexBlock state = iota
+	stateFirstSimplexBlock state = iota + 1
 	stateBuildBlockNormalOp
 	stateBuildCollectingApprovals
 	stateBuildBlockEpochSealed
@@ -142,7 +142,7 @@ const (
 type BlockType uint8
 
 const (
-	BlockTypeNormal BlockType = iota
+	BlockTypeNormal BlockType = iota + 1
 	BlockTypeTelock
 	BlockTypeSealing
 	BlockTypeNewEpoch
