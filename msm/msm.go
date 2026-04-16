@@ -196,10 +196,7 @@ func (sm *StateMachine) BuildBlock(ctx context.Context, parentBlock StateMachine
 
 	// In order to know where in the epoch change process we are,
 	// we identify the current state by looking at the parent block's epoch info.
-	currentState, err := identifyCurrentState(parentBlock.Metadata.SimplexEpochInfo)
-	if err != nil {
-		return nil, err
-	}
+	currentState := parentBlock.Metadata.SimplexEpochInfo.CurrentState()
 
 	simplexMetadataBytes := simplexMetadata.Bytes()
 	prevBlockSeq := simplexMetadata.Seq - 1
@@ -244,10 +241,7 @@ func (sm *StateMachine) VerifyBlock(ctx context.Context, block *StateMachineBloc
 	}
 
 	prevMD := prevBlock.Metadata
-	currentState, err := identifyCurrentState(prevMD.SimplexEpochInfo)
-	if err != nil {
-		return fmt.Errorf("failed to identify previous state: %w", err)
-	}
+	currentState := prevMD.SimplexEpochInfo.CurrentState()
 
 	switch currentState {
 	case stateFirstSimplexBlock:
@@ -340,27 +334,29 @@ func (sm *StateMachine) verifyNonZeroBlock(ctx context.Context, block *StateMach
 	return block.InnerBlock.Verify(ctx)
 }
 
-func identifyCurrentState(prevBlockSimplexEpochInfo SimplexEpochInfo) (state, error) {
+// CurrentState identifies, given the SimplexEpochInfo of the parent block, which
+// state the state machine is in for the purpose of building the next block.
+func (sei *SimplexEpochInfo) CurrentState() state {
 	// If this is the first ever epoch, then this is also the first ever block to be built by Simplex.
-	if prevBlockSimplexEpochInfo.EpochNumber == 0 {
-		return stateFirstSimplexBlock, nil
+	if sei.EpochNumber == 0 {
+		return stateFirstSimplexBlock
 	}
 
 	// If we don't have a next P-chain preference height, it means we are not transitioning to a new epoch just yet.
-	if prevBlockSimplexEpochInfo.NextPChainReferenceHeight == 0 {
-		return stateBuildBlockNormalOp, nil
+	if sei.NextPChainReferenceHeight == 0 {
+		return stateBuildBlockNormalOp
 	}
 
 	// If the previous block has a sealing block sequence, it's a Telock.
 	// If it has a block validation descriptor, it's a sealing block.
-	// Eithe way, the epoch has been sealed.
-	if prevBlockSimplexEpochInfo.SealingBlockSeq > 0 || prevBlockSimplexEpochInfo.BlockValidationDescriptor != nil {
-		return stateBuildBlockEpochSealed, nil
+	// Either way, the epoch has been sealed.
+	if sei.SealingBlockSeq > 0 || sei.BlockValidationDescriptor != nil {
+		return stateBuildBlockEpochSealed
 	}
 
 	// In any other case, NextPChainReferenceHeight > 0 but the previous block is not a Telock or sealing block,
 	// it means we are in the process of collecting approvals for the next epoch.
-	return stateBuildCollectingApprovals, nil
+	return stateBuildCollectingApprovals
 }
 
 // buildBlockNormalOp builds a block while not trying to transition to a new epoch.

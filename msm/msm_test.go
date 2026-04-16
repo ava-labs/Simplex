@@ -1079,9 +1079,7 @@ func TestIdentifyCurrentState(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			result, err := identifyCurrentState(tc.input)
-			require.NoError(t, err)
-			require.Equal(t, tc.expected, result)
+			require.Equal(t, tc.expected, tc.input.CurrentState())
 		})
 	}
 }
