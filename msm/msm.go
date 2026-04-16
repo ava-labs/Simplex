@@ -1015,11 +1015,11 @@ func findFirstSimplexBlock(getBlock BlockRetriever, endHeight uint64) (uint64, e
 }
 
 func computePrevVMBlockSeq(parentBlock StateMachineBlock, prevBlockSeq uint64) uint64 {
-	// Either our parent block has no inner block, in which case we just inherit its previous VM block sequence,
+	// Either our parent block has no inner block, in which case we just inherit its previous VM block sequence.
 	if parentBlock.InnerBlock == nil {
 		return parentBlock.Metadata.SimplexEpochInfo.PrevVMBlockSeq
 	}
-	// or it has an inner block, in which case it is the previous block sequence.
+	// Otherwise, it has an inner block, in which case it is the previous block sequence.
 	return prevBlockSeq
 }
 
