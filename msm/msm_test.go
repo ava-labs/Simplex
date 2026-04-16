@@ -261,7 +261,7 @@ func TestMSMFirstBlockAfterGenesis(t *testing.T) {
 			}
 
 			if testCase.configure != nil {
-				testCase.configure(&sm2, testConfig2)
+				testCase.configure(sm2, testConfig2)
 			}
 
 			block, err := sm1.BuildBlock(context.Background(), genesisBlock, testCase.md, nil)
@@ -483,8 +483,8 @@ func TestMSMNormalOp(t *testing.T) {
 			}
 
 			if testCase.setup != nil {
-				testCase.setup(&sm1, testConfig1)
-				testCase.setup(&sm2, testConfig2)
+				testCase.setup(sm1, testConfig1)
+				testCase.setup(sm2, testConfig2)
 			}
 
 			block1, err := sm1.BuildBlock(context.Background(), lastBlock, *md, &blacklist)
@@ -1013,7 +1013,7 @@ type testConfig struct {
 	validatorSetRetriever validatorSetRetriever
 }
 
-func newStateMachine(t *testing.T) (StateMachine, *testConfig) {
+func newStateMachine(t *testing.T) (*StateMachine, *testConfig) {
 	bs := make(blockStore)
 
 	var testConfig testConfig
@@ -1022,7 +1022,7 @@ func newStateMachine(t *testing.T) (StateMachine, *testConfig) {
 		{BLSKey: []byte{1}, Weight: 1}, {BLSKey: []byte{2}, Weight: 1},
 	}
 
-	sm := StateMachine{
+	sm := NewStateMachine(Config{
 		GetTime:                  time.Now,
 		TimeSkewLimit:            time.Second * 5,
 		Logger:                   testutil.MakeLogger(t),
@@ -1041,7 +1041,7 @@ func newStateMachine(t *testing.T) (StateMachine, *testConfig) {
 		},
 		GetValidatorSet:        testConfig.validatorSetRetriever.getValidatorSet,
 		PChainProgressListener: &noOpPChainListener{},
-	}
+	})
 	return sm, &testConfig
 }
 
