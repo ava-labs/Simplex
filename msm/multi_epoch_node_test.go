@@ -353,7 +353,7 @@ func (fn *multiEpochNode) buildBlock() *StateMachineBlock {
 		Seq:   lastMD.Seq + 1,
 		Round: lastMD.Round + 1,
 		Prev:  prevBlockDigest,
-	}, nil)
+	}, simplex.Blacklist{})
 	require.NoError(fn.t, err)
 
 	return block

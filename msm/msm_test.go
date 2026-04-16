@@ -134,6 +134,10 @@ var (
 			Bytes: []byte{1, 2, 3},
 		},
 	}
+	emptyBlacklistBytes = func() []byte {
+		var b simplex.Blacklist
+		return b.Bytes()
+	}()
 )
 
 func TestMSMFirstBlockAfterGenesis(t *testing.T) {
@@ -264,7 +268,7 @@ func TestMSMFirstBlockAfterGenesis(t *testing.T) {
 				testCase.configure(sm2, testConfig2)
 			}
 
-			block, err := sm1.BuildBlock(context.Background(), genesisBlock, testCase.md, nil)
+			block, err := sm1.BuildBlock(context.Background(), genesisBlock, testCase.md, simplex.Blacklist{})
 			require.NoError(t, err)
 			require.NotNil(t, block)
 
@@ -313,7 +317,7 @@ func TestMSMFirstSimplexBlockAfterPreSimplexBlocks(t *testing.T) {
 		Bytes:       []byte{7, 8, 9},
 	}
 
-	block, err := sm1.BuildBlock(context.Background(), preSimplexParent, md, nil)
+	block, err := sm1.BuildBlock(context.Background(), preSimplexParent, md, simplex.Blacklist{})
 	require.NoError(t, err)
 	require.NotNil(t, block)
 
@@ -329,6 +333,7 @@ func TestMSMFirstSimplexBlockAfterPreSimplexBlocks(t *testing.T) {
 			Timestamp:               uint64(testConfig1.blockBuilder.block.Timestamp().UnixMilli()),
 			PChainHeight:            100,
 			SimplexProtocolMetadata: md.Bytes(),
+			SimplexBlacklist:        emptyBlacklistBytes,
 			SimplexEpochInfo: SimplexEpochInfo{
 				PChainReferenceHeight: 100,
 				EpochNumber:           1,
@@ -487,7 +492,7 @@ func TestMSMNormalOp(t *testing.T) {
 				testCase.setup(sm2, testConfig2)
 			}
 
-			block1, err := sm1.BuildBlock(context.Background(), lastBlock, *md, &blacklist)
+			block1, err := sm1.BuildBlock(context.Background(), lastBlock, *md, blacklist)
 			require.NoError(t, err)
 			require.NotNil(t, block1)
 
@@ -627,7 +632,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 				Prev:  testCase.firstBlockBeforeSimplex.Digest(),
 			}
 
-			block1, err := sm.BuildBlock(context.Background(), testCase.firstBlockBeforeSimplex, md, nil)
+			block1, err := sm.BuildBlock(context.Background(), testCase.firstBlockBeforeSimplex, md, simplex.Blacklist{})
 			require.NoError(t, err)
 			require.Equal(t, &StateMachineBlock{
 				InnerBlock: nextBlock(1),
@@ -635,6 +640,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 					Timestamp:               uint64(startTime.Add(1 * time.Millisecond).UnixMilli()),
 					PChainHeight:            pChainHeight1,
 					SimplexProtocolMetadata: md.Bytes(),
+					SimplexBlacklist:        emptyBlacklistBytes,
 					SimplexEpochInfo: SimplexEpochInfo{
 						PChainReferenceHeight: pChainHeight1,
 						EpochNumber:           1,
@@ -658,7 +664,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 			// ----- Step 2: Build a normal block (no validator set change) -----
 			tc.blockBuilder.block = nextBlock(2)
 			md = simplex.ProtocolMetadata{Seq: baseSeq + 2, Round: 1, Epoch: 1, Prev: block1.Digest()}
-			block2, err := sm.BuildBlock(context.Background(), *block1, md, nil)
+			block2, err := sm.BuildBlock(context.Background(), *block1, md, simplex.Blacklist{})
 			require.NoError(t, err)
 			require.Equal(t, &StateMachineBlock{
 				InnerBlock: nextBlock(2),
@@ -666,6 +672,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 					Timestamp:               uint64(startTime.Add(2 * time.Millisecond).UnixMilli()),
 					PChainHeight:            pChainHeight1,
 					SimplexProtocolMetadata: md.Bytes(),
+					SimplexBlacklist:        emptyBlacklistBytes,
 					SimplexEpochInfo: SimplexEpochInfo{
 						PChainReferenceHeight: pChainHeight1,
 						EpochNumber:           1,
@@ -683,7 +690,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 
 			tc.blockBuilder.block = nextBlock(3)
 			md = simplex.ProtocolMetadata{Seq: baseSeq + 3, Round: 2, Epoch: 1, Prev: block2.Digest()}
-			block3, err := sm.BuildBlock(context.Background(), *block2, md, nil)
+			block3, err := sm.BuildBlock(context.Background(), *block2, md, simplex.Blacklist{})
 			require.NoError(t, err)
 			require.Equal(t, &StateMachineBlock{
 				InnerBlock: nextBlock(3),
@@ -691,6 +698,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 					Timestamp:               uint64(startTime.Add(3 * time.Millisecond).UnixMilli()),
 					PChainHeight:            pChainHeight2,
 					SimplexProtocolMetadata: md.Bytes(),
+					SimplexBlacklist:        emptyBlacklistBytes,
 					SimplexEpochInfo: SimplexEpochInfo{
 						PChainReferenceHeight:     pChainHeight1,
 						EpochNumber:               1,
@@ -724,7 +732,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 
 			tc.blockBuilder.block = nextBlock(4)
 			md = simplex.ProtocolMetadata{Seq: baseSeq + 4, Round: 3, Epoch: 1, Prev: block3.Digest()}
-			block4, err := sm.BuildBlock(context.Background(), *block3, md, nil)
+			block4, err := sm.BuildBlock(context.Background(), *block3, md, simplex.Blacklist{})
 			require.NoError(t, err)
 			require.Equal(t, &StateMachineBlock{
 				InnerBlock: nextBlock(4),
@@ -732,6 +740,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 					Timestamp:               uint64(startTime.Add(4 * time.Millisecond).UnixMilli()),
 					PChainHeight:            pChainHeight2,
 					SimplexProtocolMetadata: md.Bytes(),
+					SimplexBlacklist:        emptyBlacklistBytes,
 					SimplexEpochInfo: SimplexEpochInfo{
 						PChainReferenceHeight:     pChainHeight1,
 						EpochNumber:               1,
@@ -764,7 +773,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 
 			tc.blockBuilder.block = nextBlock(5)
 			md = simplex.ProtocolMetadata{Seq: baseSeq + 5, Round: 4, Epoch: 1, Prev: block4.Digest()}
-			block5, err := sm.BuildBlock(context.Background(), *block4, md, nil)
+			block5, err := sm.BuildBlock(context.Background(), *block4, md, simplex.Blacklist{})
 			require.NoError(t, err)
 			require.Equal(t, &StateMachineBlock{
 				InnerBlock: nextBlock(5),
@@ -772,6 +781,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 					Timestamp:               uint64(startTime.Add(5 * time.Millisecond).UnixMilli()),
 					PChainHeight:            pChainHeight2,
 					SimplexProtocolMetadata: md.Bytes(),
+					SimplexBlacklist:        emptyBlacklistBytes,
 					SimplexEpochInfo: SimplexEpochInfo{
 						PChainReferenceHeight:     pChainHeight1,
 						EpochNumber:               1,
@@ -804,7 +814,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 
 			tc.blockBuilder.block = nextBlock(6)
 			md = simplex.ProtocolMetadata{Seq: baseSeq + 6, Round: 5, Epoch: 1, Prev: block5.Digest()}
-			block6, err := sm.BuildBlock(context.Background(), *block5, md, nil)
+			block6, err := sm.BuildBlock(context.Background(), *block5, md, simplex.Blacklist{})
 			require.NoError(t, err)
 			require.Equal(t, &StateMachineBlock{
 				InnerBlock: nextBlock(6),
@@ -812,6 +822,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 					Timestamp:               uint64(startTime.Add(6 * time.Millisecond).UnixMilli()),
 					PChainHeight:            pChainHeight2,
 					SimplexProtocolMetadata: md.Bytes(),
+					SimplexBlacklist:        emptyBlacklistBytes,
 					SimplexEpochInfo: SimplexEpochInfo{
 						PChainReferenceHeight:     pChainHeight1,
 						EpochNumber:               1,
@@ -873,7 +884,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 					// However, despite the fact that the block builder is willing to build a new block,
 					// a Telock shouldn't contain an inner block.
 					if tc.blockStore[sealingSeq].finalization == nil {
-						telock, err := sm.BuildBlock(context.Background(), *block6, md, nil)
+						telock, err := sm.BuildBlock(context.Background(), *block6, md, simplex.Blacklist{})
 						require.NoError(t, err)
 
 						require.Equal(t, &StateMachineBlock{
@@ -882,6 +893,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 								Timestamp:               uint64(startTime.Add(6 * time.Millisecond).UnixMilli()),
 								PChainHeight:            pChainHeight2,
 								SimplexProtocolMetadata: md.Bytes(),
+								SimplexBlacklist:        emptyBlacklistBytes,
 								SimplexEpochInfo: SimplexEpochInfo{
 									PChainReferenceHeight:     pChainHeight1,
 									EpochNumber:               1,
@@ -898,7 +910,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 
 					// ----- Step 7: Build a new epoch block (sealing block is finalized) -----
 
-					block7, err := sm.BuildBlock(context.Background(), *block6, md, nil)
+					block7, err := sm.BuildBlock(context.Background(), *block6, md, simplex.Blacklist{})
 					require.NoError(t, err)
 					require.Equal(t, &StateMachineBlock{
 						InnerBlock: nextBlock(7),
@@ -906,6 +918,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 							Timestamp:               uint64(startTime.Add(7 * time.Millisecond).UnixMilli()),
 							PChainHeight:            pChainHeight2,
 							SimplexProtocolMetadata: md.Bytes(),
+							SimplexBlacklist:        emptyBlacklistBytes,
 							SimplexEpochInfo: SimplexEpochInfo{
 								PChainReferenceHeight: pChainHeight2,
 								EpochNumber:           sealingSeq,
