@@ -299,13 +299,13 @@ func (fn *fakeNode) isNextBlockTelock() bool {
 }
 
 func (fn *fakeNode) buildAndNotarizeBlock() {
-	_, block := fn.buildBlock()
+	block := fn.buildBlock()
 	require.NoError(fn.t, fn.sm.VerifyBlock(context.Background(), block))
 
 	fn.notarizedBlocks = append(fn.notarizedBlocks, *block)
 }
 
-func (fn *fakeNode) buildBlock() (VMBlock, *StateMachineBlock) {
+func (fn *fakeNode) buildBlock() *StateMachineBlock {
 	parentBlock := fn.getParentBlock()
 
 	lastMD, prevBlockDigest := fn.prepareMetadataAndPrevBlockDigest()
@@ -330,7 +330,7 @@ func (fn *fakeNode) buildBlock() (VMBlock, *StateMachineBlock) {
 	}, nil)
 	require.NoError(fn.t, err)
 
-	return block.InnerBlock, block
+	return block
 }
 
 func (fn *fakeNode) prepareMetadataAndPrevBlockDigest() (*simplex.ProtocolMetadata, [32]byte) {
