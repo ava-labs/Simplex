@@ -251,6 +251,7 @@ func (fn *fakeNode) Epoch() uint64 {
 	return fn.notarizedBlocks[len(fn.notarizedBlocks)-1].Metadata.SimplexEpochInfo.EpochNumber
 }
 
+// act randomly either finalizes a notarized block, builds and notarizes a new block, or does nothing.
 func (fn *fakeNode) act() {
 	if fn.canFinalize() && flipCoin() {
 		fn.tryFinalizeNextBlock()
