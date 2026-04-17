@@ -941,10 +941,10 @@ func TestSealingBlockSeqVerifier(t *testing.T) {
 
 type testBlockStore map[uint64]StateMachineBlock
 
-func (bs testBlockStore) getBlock(opts RetrievingOpts) (StateMachineBlock, *simplex.Finalization, error) {
-	blk, ok := bs[opts.Height]
+func (bs testBlockStore) getBlock(seq uint64, _ [32]byte) (StateMachineBlock, *simplex.Finalization, error) {
+	blk, ok := bs[seq]
 	if !ok {
-		return StateMachineBlock{}, nil, fmt.Errorf("%w: block %d", simplex.ErrBlockNotFound, opts.Height)
+		return StateMachineBlock{}, nil, fmt.Errorf("%w: block %d", simplex.ErrBlockNotFound, seq)
 	}
 	return blk, nil, nil
 }

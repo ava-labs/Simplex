@@ -39,10 +39,10 @@ func (bs blockStore) clone() blockStore {
 	return newStore
 }
 
-func (bs blockStore) getBlock(opts RetrievingOpts) (StateMachineBlock, *simplex.Finalization, error) {
-	blk, exits := bs[opts.Height]
-	if !exits {
-		return StateMachineBlock{}, nil, fmt.Errorf("%w: block %d not found", simplex.ErrBlockNotFound, opts.Height)
+func (bs blockStore) getBlock(seq uint64, _ [32]byte) (StateMachineBlock, *simplex.Finalization, error) {
+	blk, exists := bs[seq]
+	if !exists {
+		return StateMachineBlock{}, nil, fmt.Errorf("%w: block %d not found", simplex.ErrBlockNotFound, seq)
 	}
 	return blk.block, blk.finalization, nil
 }

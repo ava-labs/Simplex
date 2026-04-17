@@ -18,6 +18,7 @@ type verificationInput struct {
 	hasInnerBlock       bool
 	innerBlockTimestamp time.Time // only set when hasInnerBlock is true
 	prevBlockSeq        uint64
+	prevBlockHash       [32]byte
 	nextBlockType       BlockType
 	state               state
 }
@@ -423,7 +424,7 @@ func (p *prevSealingBlockHashVerifier) Verify(in verificationInput) error {
 			return fmt.Errorf("failed to find first Simplex block: %w", err)
 		}
 
-		block, _, err := p.getBlock(RetrievingOpts{Height: firstEverSimplexBlockSeq})
+		block, _, err := p.getBlock(firstEverSimplexBlockSeq, [32]byte{})
 		if err != nil {
 			return fmt.Errorf("failed retrieving first ever simplex block %d: %w", firstEverSimplexBlockSeq, err)
 		}
@@ -441,7 +442,7 @@ func (p *prevSealingBlockHashVerifier) Verify(in verificationInput) error {
 
 	switch in.nextBlockType {
 	case BlockTypeSealing:
-		prevSealingBlock, _, err := p.getBlock(RetrievingOpts{Height: in.prevMD.SimplexEpochInfo.EpochNumber})
+		prevSealingBlock, _, err := p.getBlock(in.prevMD.SimplexEpochInfo.EpochNumber, [32]byte{})
 		if err != nil {
 			return fmt.Errorf("failed retrieving block: %w", err)
 		}
@@ -473,14 +474,9 @@ func (v *vmBlockSeqVerifier) Verify(in verificationInput) error {
 		return nil
 	}
 
-	md, err := simplex.ProtocolMetadataFromBytes(in.proposedBlockMD.SimplexProtocolMetadata)
-	if err != nil {
-		return fmt.Errorf("failed parsing protocol metadata: %w", err)
-	}
-
 	// Else, if the previous block has an inner block, we point to it.
 	// Otherwise, we point to the parent block's previous VM block seq.
-	prevBlock, _, err := v.getBlock(RetrievingOpts{Height: in.prevBlockSeq, Digest: md.Prev})
+	prevBlock, _, err := v.getBlock(in.prevBlockSeq, in.prevBlockHash)
 	if err != nil {
 		return fmt.Errorf("failed retrieving block: %w", err)
 	}

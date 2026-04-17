@@ -1012,8 +1012,8 @@ func TestComputePrevVMBlockSeq(t *testing.T) {
 
 func TestFindFirstSimplexBlock(t *testing.T) {
 	t.Run("found at height 3", func(t *testing.T) {
-		getBlock := func(opts RetrievingOpts) (StateMachineBlock, *simplex.Finalization, error) {
-			if opts.Height < 3 {
+		getBlock := func(seq uint64, _ [32]byte) (StateMachineBlock, *simplex.Finalization, error) {
+			if seq < 3 {
 				return StateMachineBlock{}, nil, nil
 			}
 			return StateMachineBlock{
@@ -1026,7 +1026,7 @@ func TestFindFirstSimplexBlock(t *testing.T) {
 	})
 
 	t.Run("no simplex blocks found", func(t *testing.T) {
-		getBlock := func(opts RetrievingOpts) (StateMachineBlock, *simplex.Finalization, error) {
+		getBlock := func(_ uint64, _ [32]byte) (StateMachineBlock, *simplex.Finalization, error) {
 			return StateMachineBlock{}, nil, nil
 		}
 		_, err := findFirstSimplexBlock(getBlock, 5)
@@ -1034,8 +1034,8 @@ func TestFindFirstSimplexBlock(t *testing.T) {
 	})
 
 	t.Run("block not found errors are skipped", func(t *testing.T) {
-		getBlock := func(opts RetrievingOpts) (StateMachineBlock, *simplex.Finalization, error) {
-			if opts.Height < 2 {
+		getBlock := func(seq uint64, _ [32]byte) (StateMachineBlock, *simplex.Finalization, error) {
+			if seq < 2 {
 				return StateMachineBlock{}, nil, simplex.ErrBlockNotFound
 			}
 			return StateMachineBlock{
@@ -1048,7 +1048,7 @@ func TestFindFirstSimplexBlock(t *testing.T) {
 	})
 
 	t.Run("retrieval error propagated", func(t *testing.T) {
-		getBlock := func(opts RetrievingOpts) (StateMachineBlock, *simplex.Finalization, error) {
+		getBlock := func(_ uint64, _ [32]byte) (StateMachineBlock, *simplex.Finalization, error) {
 			return StateMachineBlock{}, nil, fmt.Errorf("disk error")
 		}
 		_, err := findFirstSimplexBlock(getBlock, 5)

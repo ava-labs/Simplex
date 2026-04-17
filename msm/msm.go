@@ -65,18 +65,13 @@ type KeyAggregator interface {
 // ValidatorSetRetriever retrieves the validator set at a given P-chain height.
 type ValidatorSetRetriever func(pChainHeight uint64) (NodeBLSMappings, error)
 
-// RetrievingOpts specifies the options for retrieving a block by height and/or digest.
-type RetrievingOpts struct {
-	// Height is the sequence number of the block to retrieve.
-	Height uint64
-	// Digest is the expected hash of the block, used for validation.
-	Digest [32]byte
-}
-
-// BlockRetriever retrieves a block and its finalization status given the retrieval options.
+// BlockRetriever retrieves the block at the given sequence number along with
+// its finalization status. The digest is the expected hash of the block and
+// can be used for validation; callers that don't care about digest validation
+// may pass the zero value.
 // If the block cannot be found it returns ErrBlockNotFound.
 // If an error occurs during retrieval, it returns a non-nil error.
-type BlockRetriever func(RetrievingOpts) (StateMachineBlock, *simplex.Finalization, error)
+type BlockRetriever func(seq uint64, digest [32]byte) (StateMachineBlock, *simplex.Finalization, error)
 
 // BlockBuilder builds a new VM block with the given observed P-chain height.
 type BlockBuilder interface {
@@ -142,8 +137,8 @@ func NewStateMachine(config Config) *StateMachine {
 
 	getPChainHeight := func() uint64 { return out.GetPChainHeight() }
 	getTime := func() time.Time { return out.GetTime() }
-	getBlock := func(opts RetrievingOpts) (StateMachineBlock, *simplex.Finalization, error) {
-		return out.GetBlock(opts)
+	getBlock := func(seq uint64, digest [32]byte) (StateMachineBlock, *simplex.Finalization, error) {
+		return out.GetBlock(seq, digest)
 	}
 	getValidatorSet := func(height uint64) (NodeBLSMappings, error) {
 		return out.GetValidatorSet(height)
@@ -254,7 +249,7 @@ func (sm *StateMachine) VerifyBlock(ctx context.Context, block *StateMachineBloc
 		return fmt.Errorf("attempted to build a genesis inner block")
 	}
 
-	prevBlock, _, err := sm.GetBlock(RetrievingOpts{Digest: pmd.Prev, Height: seq - 1})
+	prevBlock, _, err := sm.GetBlock(seq-1, pmd.Prev)
 	if err != nil {
 		return fmt.Errorf("failed to retrieve previous (%d) inner block: %w", seq-1, err)
 	}
@@ -266,12 +261,12 @@ func (sm *StateMachine) VerifyBlock(ctx context.Context, block *StateMachineBloc
 	case stateFirstSimplexBlock:
 		err = sm.verifyBlockZero(ctx, block, prevBlock)
 	default:
-		err = sm.verifyNonZeroBlock(ctx, block, prevBlock.Metadata, currentState, seq-1)
+		err = sm.verifyNonZeroBlock(ctx, block, prevBlock.Metadata, currentState, pmd.Prev, seq-1)
 	}
 	return err
 }
 
-func (sm *StateMachine) verifyNonZeroBlock(ctx context.Context, block *StateMachineBlock, prevBlockMD StateMachineMetadata, state state, prevSeq uint64) error {
+func (sm *StateMachine) verifyNonZeroBlock(ctx context.Context, block *StateMachineBlock, prevBlockMD StateMachineMetadata, state state, prevHash [32]byte, prevSeq uint64) error {
 	blockType := IdentifyBlockType(block.Metadata, prevBlockMD, prevSeq)
 	sm.Logger.Debug("Identified block type",
 		zap.Stringer("blockType", blockType),
@@ -296,6 +291,7 @@ func (sm *StateMachine) verifyNonZeroBlock(ctx context.Context, block *StateMach
 			prevMD:              prevBlockMD,
 			state:               state,
 			prevBlockSeq:        prevSeq,
+			prevBlockHash:       prevHash,
 			hasInnerBlock:       block.InnerBlock != nil,
 			innerBlockTimestamp: innerBlockTimestamp,
 		}); err != nil {
@@ -589,7 +585,7 @@ func (sm *StateMachine) createSealingBlock(ctx context.Context, parentBlock Stat
 
 	// If this is not the first epoch, and this is the sealing block, we set the hash of the previous sealing block.
 	if simplexEpochInfo.EpochNumber > 1 {
-		prevSealingBlock, finalization, err := sm.GetBlock(RetrievingOpts{Height: simplexEpochInfo.EpochNumber})
+		prevSealingBlock, finalization, err := sm.GetBlock(simplexEpochInfo.EpochNumber, [32]byte{})
 		if err != nil {
 			sm.Logger.Error("Error retrieving previous sealing block", zap.Uint64("seq", simplexEpochInfo.EpochNumber), zap.Error(err))
 			return nil, fmt.Errorf("failed to retrieve previous sealing InnerBlock at epoch %d: %w", simplexEpochInfo.EpochNumber-1, err)
@@ -605,7 +601,7 @@ func (sm *StateMachine) createSealingBlock(ctx context.Context, parentBlock Stat
 		if err != nil {
 			return nil, fmt.Errorf("failed to find first simplex block: %w", err)
 		}
-		firstSimplexBlockRetrieved, _, err := sm.GetBlock(RetrievingOpts{Height: firstSimplexBlock})
+		firstSimplexBlockRetrieved, _, err := sm.GetBlock(firstSimplexBlock, [32]byte{})
 		if err != nil {
 			return nil, fmt.Errorf("failed to retrieve first simplex block at height %d: %w", firstSimplexBlock, err)
 		}
@@ -665,7 +661,7 @@ func (sm *StateMachine) buildBlockEpochSealed(ctx context.Context, parentBlock S
 		PrevVMBlockSeq:            computePrevVMBlockSeq(parentBlock, prevBlockSeq),
 	}
 
-	_, finalization, err := sm.GetBlock(RetrievingOpts{Height: sealingBlockSeq})
+	_, finalization, err := sm.GetBlock(sealingBlockSeq, [32]byte{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve sealing block at sequence %d: %w", sealingBlockSeq, err)
 	}
@@ -888,7 +884,7 @@ func findFirstSimplexBlock(getBlock BlockRetriever, endHeight uint64) (uint64, e
 		if haltError != nil {
 			return true
 		}
-		block, _, err := getBlock(RetrievingOpts{Height: uint64(i)})
+		block, _, err := getBlock(uint64(i), [32]byte{})
 		if errors.Is(err, simplex.ErrBlockNotFound) {
 			return false
 		}

@@ -213,18 +213,18 @@ func newMultiEpochNode(t *testing.T) *multiEpochNode {
 	fn.sm.BlockBuilder = fn
 	fn.sm.PChainProgressListener = fn
 
-	fn.sm.GetBlock = func(opts RetrievingOpts) (StateMachineBlock, *simplex.Finalization, error) {
-		if opts.Height == 0 {
+	fn.sm.GetBlock = func(seq uint64, digest [32]byte) (StateMachineBlock, *simplex.Finalization, error) {
+		if seq == 0 {
 			return genesisBlock, nil, nil
 		}
 		for _, bs := range fn.blocks {
-			match := bs.block.Digest() == opts.Digest
+			match := bs.block.Digest() == digest
 			if !match {
 				md, err := simplex.ProtocolMetadataFromBytes(bs.block.Metadata.SimplexProtocolMetadata)
 				if err != nil {
 					return StateMachineBlock{}, nil, err
 				}
-				match = md.Seq == opts.Height
+				match = md.Seq == seq
 			}
 			if match {
 				var fin *simplex.Finalization
@@ -235,7 +235,7 @@ func newMultiEpochNode(t *testing.T) *multiEpochNode {
 			}
 		}
 
-		require.Failf(t, "not found block", "height: %d", opts.Height)
+		require.Failf(t, "not found block", "height: %d", seq)
 		return StateMachineBlock{}, nil, fmt.Errorf("block not found")
 	}
 
@@ -336,10 +336,7 @@ func (fn *multiEpochNode) buildBlock() *StateMachineBlock {
 
 	lastMD, prevBlockDigest := fn.prepareMetadataAndPrevBlockDigest()
 
-	_, finalization, err := fn.sm.GetBlock(RetrievingOpts{
-		Digest: prevBlockDigest,
-		Height: lastMD.Seq,
-	})
+	_, finalization, err := fn.sm.GetBlock(lastMD.Seq, prevBlockDigest)
 	require.NoError(fn.t, err)
 
 	finalizedString := "not finalized"
