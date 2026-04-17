@@ -161,6 +161,22 @@ func TestMSMFirstBlockAfterGenesis(t *testing.T) {
 	}
 }
 
+func TestMSMBuildBlockRejectsZeroSeq(t *testing.T) {
+	sm, tc := newStateMachine(t)
+	tc.blockStore[0] = &outerBlock{block: genesisBlock}
+
+	md := simplex.ProtocolMetadata{
+		Round: 0,
+		Seq:   0,
+		Epoch: 1,
+		Prev:  genesisBlock.Digest(),
+	}
+
+	block, err := sm.BuildBlock(context.Background(), genesisBlock, md, simplex.Blacklist{})
+	require.Nil(t, block)
+	require.ErrorContains(t, err, "invalid ProtocolMetadata sequence number: should be > 0, got 0")
+}
+
 func TestMSMFirstSimplexBlockAfterPreSimplexBlocks(t *testing.T) {
 	preSimplexParent := StateMachineBlock{
 		InnerBlock: &InnerBlock{
