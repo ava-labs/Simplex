@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"fmt"
 	"testing"
 	"time"
@@ -642,6 +643,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 							Signature: sig,
 						},
 					},
+					AuxiliaryInfo: &AuxiliaryInfo{},
 				},
 			}, block4)
 			addBlock(md.Seq, *block4, nil)
@@ -649,11 +651,15 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 			require.NoError(t, smVerify.VerifyBlock(context.Background(), block4))
 
 			// ----- Step 5: Second collecting block (2/3 approvals, still not enough since threshold is strictly > 2/3) -----
+			// Once block4 carries AuxiliaryInfo (with empty Info bytes), peers must agree on
+			// the digest of those bytes — sha256(nil) — instead of the all-zero digest.
+			emptyAuxDigest := sha256.Sum256(nil)
 			approvalsResult = ValidatorSetApprovals{
 				{
-					NodeID:       node2,
-					PChainHeight: pChainHeight2,
-					Signature:    []byte("sig2"),
+					NodeID:           node2,
+					PChainHeight:     pChainHeight2,
+					Signature:        []byte("sig2"),
+					AuxInfoSeqDigest: emptyAuxDigest,
 				},
 			}
 
@@ -683,6 +689,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 							Signature: sig,
 						},
 					},
+					AuxiliaryInfo: &AuxiliaryInfo{PrevAuxInfoSeq: baseSeq + 4},
 				},
 			}, block5)
 			addBlock(md.Seq, *block5, nil)
@@ -692,9 +699,10 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 			// ----- Step 6: Sealing block (3/3 approvals, enough to seal) -----
 			approvalsResult = ValidatorSetApprovals{
 				{
-					NodeID:       node3,
-					PChainHeight: pChainHeight2,
-					Signature:    []byte("sig3"),
+					NodeID:           node3,
+					PChainHeight:     pChainHeight2,
+					Signature:        []byte("sig3"),
+					AuxInfoSeqDigest: emptyAuxDigest,
 				},
 			}
 
@@ -1122,6 +1130,8 @@ func TestSanitizeApprovals(t *testing.T) {
 	node2 := nodeID{2}
 	node3 := nodeID{3}
 
+	aufInfo := [32]byte{}
+
 	nodeID2Index := map[nodeID]int{
 		node0: 0,
 		node1: 1,
@@ -1134,7 +1144,7 @@ func TestSanitizeApprovals(t *testing.T) {
 			{NodeID: node1, PChainHeight: 200},
 		}
 		oldApproving := bitmaskFromBytes(nil)
-		result := sanitizeApprovals(approvals, 100, nodeID2Index, oldApproving)
+		result := sanitizeApprovals(approvals, 100, aufInfo, nodeID2Index, oldApproving)
 		require.Len(t, result, 1)
 		require.Equal(t, node0, result[0].NodeID)
 	})
@@ -1145,7 +1155,7 @@ func TestSanitizeApprovals(t *testing.T) {
 			{NodeID: node1, PChainHeight: 100},
 		}
 		oldApproving := bitmaskFromBytes([]byte{1})
-		result := sanitizeApprovals(approvals, 100, nodeID2Index, oldApproving)
+		result := sanitizeApprovals(approvals, 100, aufInfo, nodeID2Index, oldApproving)
 		require.Len(t, result, 1)
 		require.Equal(t, node1, result[0].NodeID)
 	})
@@ -1156,7 +1166,7 @@ func TestSanitizeApprovals(t *testing.T) {
 			{NodeID: node2, PChainHeight: 100},
 		}
 		oldApproving := bitmaskFromBytes(nil)
-		result := sanitizeApprovals(approvals, 100, nodeID2Index, oldApproving)
+		result := sanitizeApprovals(approvals, 100, aufInfo, nodeID2Index, oldApproving)
 		require.Len(t, result, 1)
 		require.Equal(t, node2, result[0].NodeID)
 	})
@@ -1167,7 +1177,7 @@ func TestSanitizeApprovals(t *testing.T) {
 			{NodeID: node0, PChainHeight: 100},
 		}
 		oldApproving := bitmaskFromBytes(nil)
-		result := sanitizeApprovals(approvals, 100, nodeID2Index, oldApproving)
+		result := sanitizeApprovals(approvals, 100, aufInfo, nodeID2Index, oldApproving)
 		require.Len(t, result, 1)
 	})
 }

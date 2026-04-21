@@ -17,6 +17,30 @@ import (
 	"go.uber.org/zap"
 )
 
+// ICMEpochInput defines the input for computing the ICM Epoch information for the next block.
+type ICMEpochInput struct {
+	// ParentPChainHeight is the P-chain height recorded in the parent block.
+	ParentPChainHeight uint64
+	// ParentTimestamp is the timestamp of the parent block.
+	ParentTimestamp time.Time
+	// ChildTimestamp is the timestamp of the block being built.
+	ChildTimestamp time.Time
+	// ParentEpoch is the ICM epoch information from the parent block.
+	ParentEpoch ICMEpoch
+}
+
+// ICMEpoch defines the ICM epoch information that is maintained by the StateMachine and used for the ICM protocol.
+// The Statemachine maintains this information identically to how the proposerVM maintains this information,
+// and it does so by building the ICMEpochInput and then passing it into the StateMachine's ComputeICMEpoch function.
+type ICMEpoch struct {
+	// EpochStartTime is the Unix timestamp when this ICM epoch started.
+	EpochStartTime uint64
+	// EpochNumber is the sequential identifier of this ICM epoch.
+	EpochNumber uint64
+	// PChainEpochHeight is the P-chain height associated with this ICM epoch.
+	PChainEpochHeight uint64
+}
+
 // A StateMachineBlock is a representation of a parsed OuterBlock, containing the inner block and the metadata.
 type StateMachineBlock struct {
 	// InnerBlock is the VM-level block, or nil if this is a block without an inner block (e.g., a Telock block).
@@ -38,6 +62,17 @@ func (smb *StateMachineBlock) Digest() [32]byte {
 	copy(combined[:32], blockDigest[:])
 	copy(combined[32:], mdDigest[:])
 	return sha256.Sum256(combined)
+}
+
+// AuxiliaryInfoGenerator generates the AuxiliaryInfo for the next block in case the MSM is collecting approvals.
+// The AuxiliaryInfo is opaque information that is included in the block metadata
+// and is contributed by the block builder.
+type AuxiliaryInfoGenerator interface {
+	// GenerateAuxiliaryInfo generates the AuxiliaryInfo for the next block and returns it along with the AppID.
+	// The AppID is used to identify the type of the AuxiliaryInfo and it exists for the purpose of backwards compatibility.
+	// The input is the previous AuxiliaryInfo, if applicable, which can be used to determine if the current node has already contributed
+	// its own AuxiliaryInfo for the current epoch transition.
+	GenerateAuxiliaryInfo([]byte) ([]byte, AppID)
 }
 
 // ApprovalsRetriever retrieves the approvals from validators of the next epoch for the epoch change.
@@ -62,6 +97,9 @@ type KeyAggregator interface {
 	AggregateKeys(keys ...[]byte) ([]byte, error)
 }
 
+// ICMEpochTransition computes the next ICM epoch given the current upgrade configuration and epoch input.
+type ICMEpochTransition func(UpgradeConfig, ICMEpochInput) ICMEpoch
+
 // ValidatorSetRetriever retrieves the validator set at a given P-chain height.
 type ValidatorSetRetriever func(pChainHeight uint64) (NodeBLSMappings, error)
 
@@ -83,6 +121,8 @@ type BlockBuilder interface {
 }
 
 type Config struct {
+	// AuxiliaryInfoGenerator generates the AuxiliaryInfo for the next block when we are collecting approvals for an epoch transition.
+	AuxiliaryInfoGenerator AuxiliaryInfoGenerator
 	// LatestPersistedHeight is the height of the most recently persisted block.
 	LatestPersistedHeight uint64
 	// MaxBlockBuildingWaitTime is the maximum duration to wait for the VM to build a block
@@ -92,6 +132,8 @@ type Config struct {
 	TimeSkewLimit time.Duration
 	// GetTime returns the current time.
 	GetTime func() time.Time
+	// ComputeICMEpoch computes the ICM epoch for the next block.
+	ComputeICMEpoch ICMEpochTransition
 	// GetPChainHeight returns the latest known P-chain height.
 	GetPChainHeight func() uint64
 	// GetUpgrades returns the current upgrade configuration.
@@ -145,6 +187,11 @@ func NewStateMachine(config Config) *StateMachine {
 	}
 
 	out.verifiers = []verifier{
+		&AuxInfoVerifier{},
+		&icmEpochInfoVerifier{
+			computeICMEpoch: config.ComputeICMEpoch,
+			getUpdates:      config.GetUpgrades,
+		},
 		&pChainHeightVerifier{
 			getPChainHeight: getPChainHeight,
 		},
@@ -360,7 +407,7 @@ func (sm *StateMachine) buildBlockNormalOp(ctx context.Context, parentBlock Stat
 		// Initiate the epoch transition by setting the next P-chain reference height for the new epoch info,
 		// and build a block without an inner block.
 		newSimplexEpochInfo.NextPChainReferenceHeight = pChainHeight
-		return sm.wrapBlock(parentBlock, nil, newSimplexEpochInfo, pChainHeight, simplexMetadata, blacklist), nil
+		return sm.wrapBlock(parentBlock, nil, newSimplexEpochInfo, pChainHeight, simplexMetadata, blacklist, nil), nil
 	case blockBuildingDecisionContextCanceled:
 		return nil, ctx.Err()
 	default:
@@ -377,8 +424,7 @@ func (sm *StateMachine) buildBlockAndMaybeTransitionEpoch(
 	pChainHeight uint64,
 	transitionEpoch bool,
 ) (*StateMachineBlock, error) {
-	// TODO: This P-chain height should be taken from the ICM epoch
-	childBlock, err := sm.BlockBuilder.BuildBlock(ctx, pChainHeight)
+	childBlock, err := sm.BlockBuilder.BuildBlock(ctx, parentBlock.Metadata.ICMEpochInfo.PChainEpochHeight)
 	if err != nil {
 		return nil, err
 	}
@@ -389,7 +435,7 @@ func (sm *StateMachine) buildBlockAndMaybeTransitionEpoch(
 		newSimplexEpochInfo.NextPChainReferenceHeight = pChainHeight
 	}
 
-	return sm.wrapBlock(parentBlock, childBlock, newSimplexEpochInfo, pChainHeight, simplexMetadata, blacklist), nil
+	return sm.wrapBlock(parentBlock, childBlock, newSimplexEpochInfo, pChainHeight, simplexMetadata, blacklist, nil), nil
 }
 
 // buildBlockZero builds the first ever block for Simplex,
@@ -466,9 +512,15 @@ func (sm *StateMachine) verifyBlockZero(ctx context.Context, block *StateMachine
 		return fmt.Errorf("invalid SimplexEpochInfo: expected %v, got %v", expectedSimplexEpochInfo, simplexEpochInfo)
 	}
 
-	_, err = sm.verifyZeroBlockTimestamp(block, prevBlock)
+	proposedTime, err := sm.verifyZeroBlockTimestamp(block, prevBlock)
 	if err != nil {
 		return err
+	}
+
+	// Verify ICM epoch info
+	expectedICMInfo := nextICMEpochInfo(prevBlock.Metadata, block.InnerBlock != nil, sm.GetUpgrades, sm.ComputeICMEpoch, proposedTime)
+	if !expectedICMInfo.Equal(&block.Metadata.ICMEpochInfo) {
+		return fmt.Errorf("expected ICM epoch info to be %v but got %v", expectedICMInfo, block.Metadata.ICMEpochInfo)
 	}
 
 	if block.InnerBlock == nil {
@@ -521,10 +573,11 @@ func (sm *StateMachine) buildBlockCollectingApprovals(ctx context.Context, paren
 	// We retrieve approvals that validators have sent us for the next epoch.
 	// These approvals are signed by validators of the next epoch.
 	approvalsFromPeers := sm.ApprovalsRetriever.RetrieveApprovals()
+	auxInfo := parentBlock.Metadata.AuxiliaryInfo
 	nextPChainHeight := newSimplexEpochInfo.NextPChainReferenceHeight
 	prevNextEpochApprovals := parentBlock.Metadata.SimplexEpochInfo.NextEpochApprovals
 
-	newApprovals, err := computeNewApprovals(prevNextEpochApprovals, approvalsFromPeers, nextPChainHeight, sm.SignatureAggregator, validators)
+	newApprovals, err := computeNewApprovals(prevNextEpochApprovals, auxInfo, approvalsFromPeers, nextPChainHeight, sm.SignatureAggregator, validators)
 	if err != nil {
 		return nil, err
 	}
@@ -559,8 +612,7 @@ func (sm *StateMachine) buildBlockImpatiently(ctx context.Context, parentBlock S
 
 	start := time.Now()
 
-	// TODO: This P-chain height should be taken from the ICM epoch
-	childBlock, err := sm.BlockBuilder.BuildBlock(impatientContext, pChainHeight)
+	childBlock, err := sm.BlockBuilder.BuildBlock(impatientContext, parentBlock.Metadata.ICMEpochInfo.PChainEpochHeight)
 	if err != nil && impatientContext.Err() == nil {
 		// If we got an error building the block, and we didn't time out, log the error but continue building the block without the inner block,
 		// so that we can continue making progress and not get stuck on a single block.
@@ -570,7 +622,45 @@ func (sm *StateMachine) buildBlockImpatiently(ctx context.Context, parentBlock S
 		sm.Logger.Debug("Timed out waiting for block to be built, building block without inner block instead",
 			zap.Duration("elapsed", time.Since(start)), zap.Duration("maxBlockBuildingWaitTime", sm.MaxBlockBuildingWaitTime))
 	}
-	return sm.wrapBlock(parentBlock, childBlock, simplexEpochInfo, pChainHeight, simplexMetadata, blacklist), nil
+
+	newAuxInfo, err := sm.generateAuxInfoForNextBlock(parentBlock, simplexMetadata, simplexEpochInfo)
+	if err != nil {
+		return nil, err
+	}
+
+	return sm.wrapBlock(parentBlock, childBlock, simplexEpochInfo, pChainHeight, simplexMetadata, blacklist, newAuxInfo), nil
+}
+
+func (sm *StateMachine) generateAuxInfoForNextBlock(parentBlock StateMachineBlock, simplexMetadata simplex.ProtocolMetadata, simplexEpochInfo SimplexEpochInfo) (*AuxiliaryInfo, error) {
+	// The zero block shouldn't have auxiliary info.
+	if parentBlock.Metadata.SimplexEpochInfo.EpochNumber == 0 {
+		return nil, nil
+	}
+
+	// The sealing block also shouldn't have auxiliary info, as we have decided that we can seal the epoch
+	// based on the auxiliary info of the previous block.
+	if simplexEpochInfo.BlockValidationDescriptor != nil {
+		return nil, nil
+	}
+
+	parentSeq := simplexMetadata.Seq - 1
+	prevAuxInfoSeq, prevAuxInfo := retrievePreviousAuxiliaryInfo(parentBlock, parentSeq)
+
+	auxInfo, appID := sm.AuxiliaryInfoGenerator.GenerateAuxiliaryInfo(prevAuxInfo)
+
+	newAuxInfo := &AuxiliaryInfo{
+		PrevAuxInfoSeq: prevAuxInfoSeq,
+		ApplicationID:  appID,
+		Info:           auxInfo,
+	}
+	return newAuxInfo, nil
+}
+
+func retrievePreviousAuxiliaryInfo(parentBlock StateMachineBlock, parentSeq uint64) (uint64, []byte) {
+	if parentBlock.Metadata.AuxiliaryInfo == nil {
+		return 0, nil
+	}
+	return parentSeq, parentBlock.Metadata.AuxiliaryInfo.Info
 }
 
 func (sm *StateMachine) createSealingBlock(ctx context.Context, parentBlock StateMachineBlock, simplexMetadata simplex.ProtocolMetadata, blacklist []byte, simplexEpochInfo SimplexEpochInfo, pChainHeight uint64) (*StateMachineBlock, error) {
@@ -612,11 +702,13 @@ func (sm *StateMachine) createSealingBlock(ctx context.Context, parentBlock Stat
 }
 
 // wrapBlock creates a new StateMachineBlock by wrapping the VM block (if applicable) and adding the appropriate metadata.
-func (sm *StateMachine) wrapBlock(parentBlock StateMachineBlock, childBlock VMBlock, newSimplexEpochInfo SimplexEpochInfo, pChainHeight uint64, simplexMetadata simplex.ProtocolMetadata, blacklist []byte) *StateMachineBlock {
+func (sm *StateMachine) wrapBlock(parentBlock StateMachineBlock, childBlock VMBlock, newSimplexEpochInfo SimplexEpochInfo, pChainHeight uint64, simplexMetadata simplex.ProtocolMetadata, blacklist []byte, auxInfo *AuxiliaryInfo) *StateMachineBlock {
 	parentMetadata := parentBlock.Metadata
 	timestamp := parentMetadata.Timestamp
 
 	hasChildBlock := childBlock != nil
+	getUpgrades := sm.GetUpgrades
+	icmEpochTransition := sm.ComputeICMEpoch
 
 	var newTimestamp time.Time
 	if hasChildBlock {
@@ -624,14 +716,18 @@ func (sm *StateMachine) wrapBlock(parentBlock StateMachineBlock, childBlock VMBl
 		timestamp = uint64(newTimestamp.UnixMilli())
 	}
 
+	icmEpochInfo := nextICMEpochInfo(parentMetadata, hasChildBlock, getUpgrades, icmEpochTransition, newTimestamp)
+
 	return &StateMachineBlock{
 		InnerBlock: childBlock,
 		Metadata: StateMachineMetadata{
+			AuxiliaryInfo: auxInfo,
 			Timestamp:               timestamp,
 			SimplexProtocolMetadata: simplexMetadata.Bytes(),
 			SimplexBlacklist:        blacklist,
 			SimplexEpochInfo:        newSimplexEpochInfo,
 			PChainHeight:            pChainHeight,
+			ICMEpochInfo:            icmEpochInfo,
 		},
 	}
 }
@@ -670,7 +766,7 @@ func (sm *StateMachine) buildBlockEpochSealed(ctx context.Context, parentBlock S
 
 	if !isSealingBlockFinalized {
 		pChainHeight := parentBlock.Metadata.PChainHeight
-		return sm.wrapBlock(parentBlock, nil, newSimplexEpochInfo, pChainHeight, simplexMetadata, blacklist), nil
+		return sm.wrapBlock(parentBlock, nil, newSimplexEpochInfo, pChainHeight, simplexMetadata, blacklist, nil), nil
 	}
 
 	// Else, we build a block for the new epoch.
@@ -682,13 +778,12 @@ func (sm *StateMachine) buildBlockEpochSealed(ctx context.Context, parentBlock S
 		PrevVMBlockSeq: computePrevVMBlockSeq(parentBlock, prevBlockSeq),
 	}
 
-	// TODO: This P-chain height should be taken from the ICM epoch
-	childBlock, err := sm.BlockBuilder.BuildBlock(ctx, sm.GetPChainHeight())
+	childBlock, err := sm.BlockBuilder.BuildBlock(ctx, parentBlock.Metadata.ICMEpochInfo.PChainEpochHeight)
 	if err != nil {
 		return nil, err
 	}
 
-	return sm.wrapBlock(parentBlock, childBlock, newSimplexEpochInfo, parentBlock.Metadata.PChainHeight, simplexMetadata, blacklist), nil
+	return sm.wrapBlock(parentBlock, childBlock, newSimplexEpochInfo, parentBlock.Metadata.PChainHeight, simplexMetadata, blacklist, nil), nil
 }
 
 // constructSimplexZeroBlock constructs the SimplexEpochInfo for the zero block, which is the first ever block built by Simplex.
@@ -714,6 +809,7 @@ func constructSimplexZeroBlock(pChainHeight uint64, newValidatorSet NodeBLSMappi
 
 func computeNewApprovals(
 	nextEpochApprovals *NextEpochApprovals,
+	auxInfo *AuxiliaryInfo,
 	approvalsFromPeers ValidatorSetApprovals,
 	pChainHeight uint64,
 	aggregator SignatureAggregator,
@@ -731,10 +827,15 @@ func computeNewApprovals(
 		nodeID2ValidatorIndex[nbm.NodeID] = i
 	}
 
+	var candidateAuxInfoDigest [32]byte
+	if auxInfo != nil {
+		candidateAuxInfoDigest = sha256.Sum256(auxInfo.Info)
+	}
+
 	// We have the approvals obtained from peers, but we need to sanitize them by filtering out approvals that are not valid,
 	// such as approvals that do not agree with our candidate auxiliary info digest and P-Chain height,
 	// and approvals that are from nodes that are not in the validator set or have already approved in prior blocks.
-	approvalsFromPeers = sanitizeApprovals(approvalsFromPeers, pChainHeight, nodeID2ValidatorIndex, oldApprovingNodes)
+	approvalsFromPeers = sanitizeApprovals(approvalsFromPeers, pChainHeight, candidateAuxInfoDigest, nodeID2ValidatorIndex, oldApprovingNodes)
 
 	// Next we aggregate both previous and new approvals to compute the new aggregated signatures and the new bitmask of approving nodes.
 	aggregatedSignature, newApprovingNodes, err := computeNewApproverSignaturesAndSigners(nextEpochApprovals, approvalsFromPeers, oldApprovingNodes, nodeID2ValidatorIndex, aggregator)
@@ -812,16 +913,16 @@ func canSealBlock(validators NodeBLSMappings, newApprovingNodes bitmask) (bool, 
 
 // sanitizeApprovals filters out approvals that are not valid by checking if they agree with our candidate auxiliary info digest and P-Chain height,
 // and if they are from the validator set and haven't already been approved.
-func sanitizeApprovals(approvals ValidatorSetApprovals, pChainHeight uint64, nodeID2ValidatorIndex map[nodeID]int, oldApprovingNodes bitmask) ValidatorSetApprovals {
-	filter1 := approvalsThatAgreeWithAuxInfoAndPChainHeight(pChainHeight)
+func sanitizeApprovals(approvals ValidatorSetApprovals, pChainHeight uint64, candidateAuxInfoDigest [32]byte, nodeID2ValidatorIndex map[nodeID]int, oldApprovingNodes bitmask) ValidatorSetApprovals {
+	filter1 := approvalsThatAgreeWithAuxInfoAndPChainHeight(pChainHeight, candidateAuxInfoDigest)
 	filter2 := approvalsThatAreInValidatorSetAndHaveNotAlreadyApproved(oldApprovingNodes.Clone(), nodeID2ValidatorIndex)
 	return approvals.Filter(filter1).Filter(filter2).UniqueByNodeID()
 }
 
-func approvalsThatAgreeWithAuxInfoAndPChainHeight(pChainHeight uint64) func(approval ValidatorSetApproval) bool {
+func approvalsThatAgreeWithAuxInfoAndPChainHeight(pChainHeight uint64, candidateAuxInfoDigest [32]byte) func(approval ValidatorSetApproval) bool {
 	return func(approval ValidatorSetApproval) bool {
 		// Pick only approvals that agree with our candidate auxiliary info digest and P-Chain height
-		return approval.PChainHeight == pChainHeight
+		return approval.PChainHeight == pChainHeight && approval.AuxInfoSeqDigest == candidateAuxInfoDigest
 	}
 }
 
@@ -872,6 +973,40 @@ func computeTotalWeight(validators NodeBLSMappings) (int64, error) {
 	}
 	return int64(totalWeight), nil
 }
+
+func computeICMEpochInfo(getUpgrades func() UpgradeConfig, icmEpochTransition ICMEpochTransition, parentMetadata StateMachineMetadata, parentTimestamp, childTimestamp time.Time) ICMEpoch {
+	upgrades := getUpgrades()
+
+	icmEpoch := icmEpochTransition(upgrades, ICMEpochInput{
+		ParentPChainHeight: parentMetadata.PChainHeight,
+		ParentTimestamp:    parentTimestamp,
+		ChildTimestamp:     childTimestamp,
+		ParentEpoch: ICMEpoch{
+			EpochStartTime:    parentMetadata.ICMEpochInfo.EpochStartTime,
+			EpochNumber:       parentMetadata.ICMEpochInfo.EpochNumber,
+			PChainEpochHeight: parentMetadata.ICMEpochInfo.PChainEpochHeight,
+		},
+	})
+	return icmEpoch
+}
+
+
+
+func nextICMEpochInfo(parentMetadata StateMachineMetadata, hasChildBlock bool, getUpgrades func() UpgradeConfig, icmEpochTransition ICMEpochTransition, newTimestamp time.Time) ICMEpochInfo {
+	icmEpochInfo := parentMetadata.ICMEpochInfo
+
+	if hasChildBlock {
+		parentTimestamp := time.UnixMilli(int64(parentMetadata.Timestamp))
+		icmEpoch := computeICMEpochInfo(getUpgrades, icmEpochTransition, parentMetadata, parentTimestamp, newTimestamp)
+		icmEpochInfo = ICMEpochInfo{
+			EpochStartTime:    icmEpoch.EpochStartTime,
+			EpochNumber:       icmEpoch.EpochNumber,
+			PChainEpochHeight: icmEpoch.PChainEpochHeight,
+		}
+	}
+	return icmEpochInfo
+}
+
 func findFirstSimplexBlock(getBlock BlockRetriever, endHeight uint64) (uint64, error) {
 	var haltError error
 

@@ -6,6 +6,7 @@ package metadata
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"fmt"
 	"sync/atomic"
 	"testing"
@@ -14,6 +15,11 @@ import (
 	"github.com/ava-labs/simplex"
 	"github.com/stretchr/testify/require"
 )
+
+// emptyAuxInfoDigest is the digest peers must agree with once a parent block
+// carries AuxiliaryInfo whose Info bytes are empty/nil — which is what the
+// test's auxiliaryInfoGenerator produces.
+var emptyAuxInfoDigest = sha256.Sum256(nil)
 
 func TestStateMachineEpochTransition(t *testing.T) {
 	validatorSetRetriever := validatorSetRetriever{
@@ -47,11 +53,11 @@ func TestStateMachineEpochTransition(t *testing.T) {
 		node.act()
 		if flipCoin() {
 			node.sm.ApprovalsRetriever = &approvalsRetriever{
-				result: []ValidatorSetApproval{{NodeID: [20]byte{1}, PChainHeight: 200, Signature: []byte{1}, AuxInfoSeqDigest: [32]byte{}}},
+				result: []ValidatorSetApproval{{NodeID: [20]byte{1}, PChainHeight: 200, Signature: []byte{1}, AuxInfoSeqDigest: emptyAuxInfoDigest}},
 			}
 		} else {
 			node.sm.ApprovalsRetriever = &approvalsRetriever{
-				result: []ValidatorSetApproval{{NodeID: [20]byte{2}, PChainHeight: 200, Signature: []byte{2}, AuxInfoSeqDigest: [32]byte{}}},
+				result: []ValidatorSetApproval{{NodeID: [20]byte{2}, PChainHeight: 200, Signature: []byte{2}, AuxInfoSeqDigest: emptyAuxInfoDigest}},
 			}
 		}
 	}
@@ -68,11 +74,11 @@ func TestStateMachineEpochTransition(t *testing.T) {
 		node.act()
 		if flipCoin() {
 			node.sm.ApprovalsRetriever = &approvalsRetriever{
-				result: []ValidatorSetApproval{{NodeID: [20]byte{2}, PChainHeight: 300, Signature: []byte{2}, AuxInfoSeqDigest: [32]byte{}}},
+				result: []ValidatorSetApproval{{NodeID: [20]byte{2}, PChainHeight: 300, Signature: []byte{2}, AuxInfoSeqDigest: emptyAuxInfoDigest}},
 			}
 		} else {
 			node.sm.ApprovalsRetriever = &approvalsRetriever{
-				result: []ValidatorSetApproval{{NodeID: [20]byte{3}, PChainHeight: 300, Signature: []byte{3}, AuxInfoSeqDigest: [32]byte{}}},
+				result: []ValidatorSetApproval{{NodeID: [20]byte{3}, PChainHeight: 300, Signature: []byte{3}, AuxInfoSeqDigest: emptyAuxInfoDigest}},
 			}
 		}
 	}
@@ -116,11 +122,11 @@ func TestStateMachineEpochTransitionEmptyMempool(t *testing.T) {
 		node.act()
 		if flipCoin() {
 			node.sm.ApprovalsRetriever = &approvalsRetriever{
-				result: []ValidatorSetApproval{{NodeID: [20]byte{1}, PChainHeight: 200, Signature: []byte{1}, AuxInfoSeqDigest: [32]byte{}}},
+				result: []ValidatorSetApproval{{NodeID: [20]byte{1}, PChainHeight: 200, Signature: []byte{1}, AuxInfoSeqDigest: emptyAuxInfoDigest}},
 			}
 		} else {
 			node.sm.ApprovalsRetriever = &approvalsRetriever{
-				result: []ValidatorSetApproval{{NodeID: [20]byte{2}, PChainHeight: 200, Signature: []byte{2}, AuxInfoSeqDigest: [32]byte{}}},
+				result: []ValidatorSetApproval{{NodeID: [20]byte{2}, PChainHeight: 200, Signature: []byte{2}, AuxInfoSeqDigest: emptyAuxInfoDigest}},
 			}
 		}
 	}
@@ -149,11 +155,11 @@ func TestStateMachineEpochTransitionEmptyMempool(t *testing.T) {
 		node.act()
 		if flipCoin() {
 			node.sm.ApprovalsRetriever = &approvalsRetriever{
-				result: []ValidatorSetApproval{{NodeID: [20]byte{2}, PChainHeight: 300, Signature: []byte{2}, AuxInfoSeqDigest: [32]byte{}}},
+				result: []ValidatorSetApproval{{NodeID: [20]byte{2}, PChainHeight: 300, Signature: []byte{2}, AuxInfoSeqDigest: emptyAuxInfoDigest}},
 			}
 		} else {
 			node.sm.ApprovalsRetriever = &approvalsRetriever{
-				result: []ValidatorSetApproval{{NodeID: [20]byte{3}, PChainHeight: 300, Signature: []byte{3}, AuxInfoSeqDigest: [32]byte{}}},
+				result: []ValidatorSetApproval{{NodeID: [20]byte{3}, PChainHeight: 300, Signature: []byte{3}, AuxInfoSeqDigest: emptyAuxInfoDigest}},
 			}
 		}
 	}

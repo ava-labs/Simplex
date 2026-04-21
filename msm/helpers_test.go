@@ -122,6 +122,15 @@ func (ka *keyAggregator) AggregateKeys(keys ...[]byte) ([]byte, error) {
 	return aggregated, nil
 }
 
+type auxiliaryInfoGenerator struct {
+	info  []byte
+	appID AppID
+}
+
+func (g *auxiliaryInfoGenerator) GenerateAuxiliaryInfo(_ []byte) ([]byte, AppID) {
+	return g.info, g.appID
+}
+
 var (
 	genesisBlock = StateMachineBlock{
 		// Genesis block metadata has all zero values
@@ -137,13 +146,14 @@ var (
 )
 
 type testConfig struct {
-	blockStore            blockStore
-	approvalsRetriever    approvalsRetriever
-	signatureVerifier     signatureVerifier
-	signatureAggregator   signatureAggregator
-	blockBuilder          blockBuilder
-	keyAggregator         keyAggregator
-	validatorSetRetriever validatorSetRetriever
+	blockStore             blockStore
+	approvalsRetriever     approvalsRetriever
+	signatureVerifier      signatureVerifier
+	signatureAggregator    signatureAggregator
+	blockBuilder           blockBuilder
+	keyAggregator          keyAggregator
+	validatorSetRetriever  validatorSetRetriever
+	auxiliaryInfoGenerator auxiliaryInfoGenerator
 }
 
 func newStateMachine(t *testing.T) (*StateMachine, *testConfig) {
@@ -156,6 +166,13 @@ func newStateMachine(t *testing.T) (*StateMachine, *testConfig) {
 	}
 
 	sm := NewStateMachine(Config{
+		ComputeICMEpoch: func(config UpgradeConfig, input ICMEpochInput) ICMEpoch {
+			return ICMEpoch{
+				EpochNumber: 0,
+				EpochStartTime: 0,
+				PChainEpochHeight: 0,
+			}
+		},
 		GetTime:                  time.Now,
 		TimeSkewLimit:            time.Second * 5,
 		Logger:                   testutil.MakeLogger(t),
@@ -174,6 +191,7 @@ func newStateMachine(t *testing.T) (*StateMachine, *testConfig) {
 		},
 		GetValidatorSet:        testConfig.validatorSetRetriever.getValidatorSet,
 		PChainProgressListener: &noOpPChainListener{},
+		AuxiliaryInfoGenerator: &testConfig.auxiliaryInfoGenerator,
 	})
 	return sm, &testConfig
 }
