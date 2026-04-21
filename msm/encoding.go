@@ -40,8 +40,68 @@ type StateMachineMetadata struct {
 	PChainHeight uint64 `canoto:"uint,4"`
 	// Timestamp is the time when the block is being built, in milliseconds since Unix epoch.
 	Timestamp uint64 `canoto:"uint,5"`
+	// AuxiliaryInfo is application-specific information that the StateMachine doesn't need to understand,
+	// but can be used by applications that care about epoch changes, such as threshold distributed public key generation.
+	AuxiliaryInfo           *AuxiliaryInfo   `canoto:"pointer,6"`
+	// ICMEpochInfo is the metadata that the StateMachine uses for ICM epoching.
+	ICMEpochInfo            ICMEpochInfo     `canoto:"value,7"`
+
 
 	canotoData canotoData_StateMachineMetadata
+}
+
+// ICMEpochInfo is metadata used for the ICM protocol.
+// The StateMachine maintains this metadata in a similar fashion to proposerVM.
+type ICMEpochInfo struct {
+	EpochStartTime    uint64 `canoto:"uint,1"`
+	EpochNumber       uint64 `canoto:"uint,2"`
+	PChainEpochHeight uint64 `canoto:"uint,3"`
+
+	canotoData canotoData_ICMEpochInfo
+}
+
+func (ei *ICMEpochInfo) Equal(other *ICMEpochInfo) bool {
+	if ei == nil {
+		return other == nil
+	}
+	if other == nil {
+		return ei == nil
+	}
+	return ei.EpochStartTime == other.EpochStartTime && ei.EpochNumber == other.EpochNumber && ei.PChainEpochHeight == other.PChainEpochHeight
+}
+
+// AppID is an identifier for applications that care about epoch changes.
+type AppID uint32
+
+// AuxiliaryInfo defines application-specific information for applications that might care about epoch change,
+// such as threshold distributed public key generation.
+type AuxiliaryInfo struct {
+	// Info is opaque bytes that can be used by applications to encode any information that describes
+	// the current state for the application.
+	Info []byte `canoto:"bytes,1"`
+	// PrevAuxInfoSeq is a sequence number that applications can use to find previous AuxiliaryInfo in the chain.
+	// It is zero if this is the first AuxiliaryInfo for this epoch.
+	PrevAuxInfoSeq uint64 `canoto:"uint,2"`
+	// ApplicationID is an identifier that identifies the application.
+	// Can be used for backward-compatibility and upgrade purposes.
+	ApplicationID AppID `canoto:"uint,3"`
+
+	canotoData canotoData_AuxiliaryInfo
+}
+
+func (ai *AuxiliaryInfo) IsZero() bool {
+	var zero AuxiliaryInfo
+	return ai.Equal(&zero)
+}
+
+func (ai *AuxiliaryInfo) Equal(a *AuxiliaryInfo) bool {
+	if ai == nil {
+		return a == nil
+	}
+	if a == nil {
+		return ai == nil
+	}
+	return bytes.Equal(ai.Info, a.Info) && ai.PrevAuxInfoSeq == a.PrevAuxInfoSeq && ai.ApplicationID == a.ApplicationID
 }
 
 // SimplexEpochInfo is metadata used by the StateMachine.

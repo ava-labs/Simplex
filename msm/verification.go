@@ -75,15 +75,15 @@ func (nv *nextEpochApprovalsVerifier) Verify(in verificationInput) error {
 
 	switch in.nextBlockType {
 	case BlockTypeSealing:
-		return nv.verifySealingBlock(prev, next)
+		return nv.verifySealingBlock(prev, next, in.proposedBlockMD.AuxiliaryInfo)
 	case BlockTypeNormal:
-		return nv.verifyNormal(prev, next)
+		return nv.verifyNormal(prev, next, in.proposedBlockMD.AuxiliaryInfo)
 	default:
 		return nv.verifyEmptyNextEpochApprovals(prev, next)
 	}
 }
 
-func (nv *nextEpochApprovalsVerifier) verifySealingBlock(prev SimplexEpochInfo, next SimplexEpochInfo) error {
+func (nv *nextEpochApprovalsVerifier) verifySealingBlock(prev SimplexEpochInfo, next SimplexEpochInfo, auxInfo *AuxiliaryInfo) error {
 	if next.NextEpochApprovals == nil {
 		return fmt.Errorf("next epoch approvals should not be nil for a sealing block")
 	}
@@ -93,7 +93,7 @@ func (nv *nextEpochApprovalsVerifier) verifySealingBlock(prev SimplexEpochInfo, 
 		return err
 	}
 
-	err = nv.verifySignature(prev, next, validators)
+	err = nv.verifySignature(prev, next, auxInfo, validators)
 	if err != nil {
 		return err
 	}
@@ -111,7 +111,7 @@ func (nv *nextEpochApprovalsVerifier) verifySealingBlock(prev SimplexEpochInfo, 
 	return nil
 }
 
-func (nv *nextEpochApprovalsVerifier) verifyNormal(prev SimplexEpochInfo, next SimplexEpochInfo) error {
+func (nv *nextEpochApprovalsVerifier) verifyNormal(prev SimplexEpochInfo, next SimplexEpochInfo, auxInfo *AuxiliaryInfo) error {
 	if prev.NextPChainReferenceHeight == 0 {
 		return nil
 	}
@@ -128,7 +128,7 @@ func (nv *nextEpochApprovalsVerifier) verifyNormal(prev SimplexEpochInfo, next S
 		return err
 	}
 
-	err = nv.verifySignature(prev, next, validators)
+	err = nv.verifySignature(prev, next, auxInfo, validators)
 	if err != nil {
 		return err
 	}
@@ -149,7 +149,7 @@ func (nv *nextEpochApprovalsVerifier) verifyEmptyNextEpochApprovals(_ SimplexEpo
 	return nil
 }
 
-func (nv *nextEpochApprovalsVerifier) verifySignature(prev SimplexEpochInfo, next SimplexEpochInfo, validators NodeBLSMappings) error {
+func (nv *nextEpochApprovalsVerifier) verifySignature(prev SimplexEpochInfo, next SimplexEpochInfo, auxinfo *AuxiliaryInfo, validators NodeBLSMappings) error {
 	// First figure out which validators are approving the next epoch by looking at the bitmask of approving nodes,
 	// and then aggregate their public keys together to verify the signature.
 
@@ -159,22 +159,12 @@ func (nv *nextEpochApprovalsVerifier) verifySignature(prev SimplexEpochInfo, nex
 		return err
 	}
 
-	message := nv.createMessageToBeVerified(prev)
+	message := pChainNextReferenceHeightAsBytes(prev)
 
 	if err := nv.sigVerifier.VerifySignature(next.NextEpochApprovals.Signature, message, aggPK); err != nil {
 		return fmt.Errorf("failed to verify signature: %w", err)
 	}
 	return nil
-}
-
-func (nv *nextEpochApprovalsVerifier) createMessageToBeVerified(prev SimplexEpochInfo) []byte {
-	pChainHeightBuff := pChainNextReferenceHeightAsBytes(prev)
-
-	var bb bytes.Buffer
-	bb.Write(pChainHeightBuff)
-
-	message := bb.Bytes()
-	return message
 }
 
 func (nv *nextEpochApprovalsVerifier) aggregatePubKeysForBitmask(nodeIDsBitmask []byte, validators NodeBLSMappings) ([]byte, error) {
@@ -378,6 +368,28 @@ func (p *pChainReferenceHeightVerifier) Verify(in verificationInput) error {
 	return nil
 }
 
+type icmEpochInfoVerifier struct {
+	getUpdates      func() UpgradeConfig
+	computeICMEpoch ICMEpochTransition
+}
+
+func (i *icmEpochInfoVerifier) Verify(in verificationInput) error {
+	prevMD, nextMD := in.prevMD, in.proposedBlockMD
+
+	timestamp := time.UnixMilli(int64(in.prevMD.Timestamp))
+	if in.hasInnerBlock {
+		timestamp = in.innerBlockTimestamp
+	}
+
+	expectedICMInfo := nextICMEpochInfo(prevMD, in.hasInnerBlock, i.getUpdates, i.computeICMEpoch, timestamp)
+
+	if !expectedICMInfo.Equal(&nextMD.ICMEpochInfo) {
+		return fmt.Errorf("expected ICM epoch info to be %v but got %v", expectedICMInfo, nextMD.ICMEpochInfo)
+	}
+
+	return nil
+}
+
 type timestampVerifier struct {
 	getTime       func() time.Time
 	timeSkewLimit time.Duration
@@ -491,6 +503,38 @@ func (v *vmBlockSeqVerifier) Verify(in verificationInput) error {
 		return fmt.Errorf("expected PrevVMBlockSeq to be %d but got %d", expectedPrevVMBlockSeq, next.PrevVMBlockSeq)
 	}
 
+	return nil
+}
+
+type AuxInfoVerifier struct {
+	auxiliaryInfoVerifier AuxiliaryInfoVerifier
+	getBlock 			  BlockRetriever
+}
+
+func (a *AuxInfoVerifier) Verify(in verificationInput) error {
+	// We want to have an auxiliary info only if:
+	// 1) We haven't sealed the block in this block (block type is normal)
+	// 2) We are collecting approvals for the next epoch
+	// 3) The previous block has set a next P-chain reference height,
+	// which means this isn't the first block that did so.
+	// This is needed to ensure nodes won't contribute auxiliary info in the block that transition
+	// from stateBuildBlockNormalOp to stateBuildCollectingApprovals, to make the code simpler.
+	if in.nextBlockType == BlockTypeNormal && in.state == stateBuildCollectingApprovals && in.prevMD.SimplexEpochInfo.NextPChainReferenceHeight > 0 {
+		if in.proposedBlockMD.AuxiliaryInfo == nil {
+			return fmt.Errorf("auxiliary info should not be nil when collecting approvals")
+		}
+		// Next, verify the auxiliary info is correct.
+
+		// We first need to collect all auxiliary info in this epoch so far.
+		var prevAuxInfos []*AuxiliaryInfo
+		prevAuxInf := in.prevMD.AuxiliaryInfo
+		for prevAuxInf != nil {
+			prevAuxInfos = append(prevAuxInfos, prevAuxInf)
+
+		}
+	} else if in.proposedBlockMD.AuxiliaryInfo != nil {
+		return fmt.Errorf("auxiliary info should be nil when not collecting approvals")
+	}
 	return nil
 }
 
