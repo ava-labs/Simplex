@@ -742,12 +742,6 @@ func TestReplicationNodeDiverges(t *testing.T) {
 			if msg.Notarization != nil && msg.Notarization.Vote.Round == 0 {
 				return false
 			}
-			if msg.FinalizeVote != nil && msg.FinalizeVote.Finalization.Round == 0 {
-				return false
-			}
-			if msg.Finalization != nil && msg.Finalization.Finalization.Round == 0 {
-				return false
-			}
 			return true
 		},
 	)
