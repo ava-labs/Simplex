@@ -733,8 +733,7 @@ func TestReplicationNodeDiverges(t *testing.T) {
 	// we disconnect lagging node first so that it doesn't send the notarized block to any other nodes
 	net.Disconnect(laggingNode.E.ID)
 	net.SetAllNodesMessageFilter(
-		// Block all round-0 messages: lagging node's in-flight notarization
-		// broadcast can race past Disconnect, so blocking only votes is unsafe.
+		// block in-flight votes & notarization from round 0 to ensure all nodes will timeout
 		func(msg *simplex.Message, _, _ simplex.NodeID) bool {
 			if msg.VoteMessage != nil && msg.VoteMessage.Vote.Round == 0 {
 				return false
