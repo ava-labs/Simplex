@@ -611,6 +611,7 @@ func TestReplicationResendsFinalizedBlocksThatFailedVerification(t *testing.T) {
 
 	e, err := simplex.NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 	require.NoError(t, e.Start())
 
 	md := e.Metadata()

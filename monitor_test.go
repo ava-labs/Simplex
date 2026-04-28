@@ -29,6 +29,7 @@ func TestMonitorPrematureCancelTask(t *testing.T) {
 	ticked := make(chan struct{})
 
 	mon := NewMonitor(start, makeLogger(t))
+	defer mon.Close()
 	mon.logger.(*testLogger).intercept(func(entry zapcore.Entry) error {
 		if entry.Message == "Ticked" {
 			ticked <- struct{}{}
@@ -83,6 +84,7 @@ func TestMonitorPrematureCancelTask(t *testing.T) {
 func TestMonitorAsyncWaitFor(t *testing.T) {
 	start := time.Now()
 	mon := NewMonitor(start, makeLogger(t))
+	defer mon.Close()
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -93,6 +95,7 @@ func TestMonitorAsyncWaitFor(t *testing.T) {
 func TestMonitorAsyncWaitUntilWithWaitFor(t *testing.T) {
 	start := time.Now()
 	mon := NewMonitor(start, makeLogger(t))
+	defer mon.Close()
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -106,6 +109,7 @@ func TestMonitorAsyncWaitUntilWithWaitFor(t *testing.T) {
 func TestMonitorAsyncWaitForWithNestedWaitUntil(t *testing.T) {
 	start := time.Now()
 	mon := NewMonitor(start, makeLogger(t))
+	defer mon.Close()
 
 	var wg sync.WaitGroup
 	wg.Add(1)

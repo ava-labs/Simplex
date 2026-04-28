@@ -36,6 +36,7 @@ func TestEpochLeaderFailoverWithEmptyNotarization(t *testing.T) {
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 
 	require.NoError(t, e.Start())
 
@@ -91,6 +92,7 @@ func TestEpochRebroadcastsEmptyVoteAfterBlockProposalReceived(t *testing.T) {
 	epochTime := conf.StartTime
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 
 	require.NoError(t, e.Start())
 	require.Equal(t, uint64(0), e.Metadata().Round)
@@ -136,6 +138,7 @@ func TestEpochLeaderFailoverReceivesEmptyVotesEarly(t *testing.T) {
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 
 	require.NoError(t, e.Start())
 
@@ -211,6 +214,7 @@ func TestReceiveEmptyNotarizationWithNoQC(t *testing.T) {
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 	require.NoError(t, e.Start())
 
 	emptyNotarization := testutil.NewEmptyNotarization(nodes[:3], 0)
@@ -227,6 +231,7 @@ func TestEpochLeaderFailover(t *testing.T) {
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 
 	require.NoError(t, e.Start())
 
@@ -292,6 +297,7 @@ func TestEpochLeaderFailoverDoNotPersistEmptyRoundTwice(t *testing.T) {
 	numRounds := uint64(2)
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 
 	require.NoError(t, e.Start())
 
@@ -353,6 +359,7 @@ func TestEpochLeaderRecursivelyFetchNotarizedBlocks(t *testing.T) {
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 
 	nodeID := nodes[0]
 
@@ -402,6 +409,7 @@ func TestEpochLeaderFailoverInLeaderRound(t *testing.T) {
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 
 	require.NoError(t, e.Start())
 
@@ -460,6 +468,7 @@ func TestEpochNoFinalizationAfterEmptyVote(t *testing.T) {
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 
 	require.NoError(t, e.Start())
 
@@ -525,6 +534,7 @@ func TestEpochLeaderFailoverAfterProposal(t *testing.T) {
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 
 	require.NoError(t, e.Start())
 
@@ -614,6 +624,7 @@ func TestEpochLeaderFailoverTwice(t *testing.T) {
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 
 	require.NoError(t, e.Start())
 
@@ -701,12 +712,15 @@ func TestEpochLeaderFailoverGarbageCollectedEmptyVotes(t *testing.T) {
 
 	var waitForTimeout sync.WaitGroup
 	waitForTimeout.Add(1)
+	var waitForTimeoutOnce sync.Once
 
 	var triggerEmptyBlockAgreement sync.WaitGroup
 	triggerEmptyBlockAgreement.Add(1)
+	var triggerEmptyBlockAgreementOnce sync.Once
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 
 	l := conf.Logger.(*testutil.TestLogger)
 	l.Intercept(func(entry zapcore.Entry) error {
@@ -716,11 +730,11 @@ func TestEpochLeaderFailoverGarbageCollectedEmptyVotes(t *testing.T) {
 				EmptyNotarization: emptyNotarization,
 			}, nodes[1])
 
-			waitForTimeout.Done()
+			waitForTimeoutOnce.Do(waitForTimeout.Done)
 		}
 
 		if strings.Contains(entry.Message, "empty block agreement") {
-			triggerEmptyBlockAgreement.Done()
+			triggerEmptyBlockAgreementOnce.Do(triggerEmptyBlockAgreement.Done)
 		}
 
 		return nil
@@ -767,6 +781,7 @@ func TestEpochLeaderFailoverBecauseOfBadBlock(t *testing.T) {
 	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[3], comm, bb)
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 
 	require.NoError(t, e.Start())
 
@@ -844,6 +859,7 @@ func TestEpochLeaderFailoverNotNeeded(t *testing.T) {
 	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 
 	require.NoError(t, e.Start())
 
@@ -908,6 +924,7 @@ func TestEpochBlacklist(t *testing.T) {
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 
 	require.NoError(t, e.Start())
 
@@ -1132,6 +1149,7 @@ func TestEpochRebroadcastsEmptyVote(t *testing.T) {
 	epochTime := conf.StartTime
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 
 	require.NoError(t, e.Start())
 	require.Equal(t, uint64(0), e.Metadata().Round)
@@ -1215,6 +1233,7 @@ func runCrashAndRestartExecution(t *testing.T, e *Epoch, bb *testutil.TestBlockB
 
 		e, err := NewEpoch(conf)
 		require.NoError(t, err)
+		t.Cleanup(e.Stop)
 
 		require.NoError(t, e.Start())
 		f(t, e, bbAfterCrash, cloneStorage, cloneWAL)

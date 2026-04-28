@@ -422,4 +422,6 @@ func (r *ReplicationState) Close() {
 
 	r.digestTimeouts.Close()
 	r.emptyRoundTimeouts.Close()
+	r.roundRequestor.close()
+	r.finalizationRequestor.close()
 }
