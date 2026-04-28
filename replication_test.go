@@ -14,6 +14,7 @@ import (
 
 	"github.com/ava-labs/simplex"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
 	"github.com/ava-labs/simplex/record"
@@ -717,6 +718,10 @@ func TestReplicationNodeDiverges(t *testing.T) {
 	// we need at least 6 nodes since the lagging node & leader will not timeout
 	NewControlledSimplexNode(t, nodes[4], net, nodeConfig(nodes[4]))
 	NewControlledSimplexNode(t, nodes[5], net, nodeConfig(nodes[5]))
+
+	for _, n := range net.Instances {
+		n.E.Logger.(*TestLogger).SetLevel(zap.DebugLevel)
+	}
 
 	net.StartInstances()
 	net.TriggerLeaderBlockBuilder(0)
