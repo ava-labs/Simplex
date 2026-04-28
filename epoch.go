@@ -2238,6 +2238,10 @@ func (e *Epoch) verifyProposalMetadataAndBlacklist(block Block) bool {
 		expectedPrevDigest = bh.Prev
 
 		prevBlacklist = prevBlock.Blacklist()
+
+		if prevBlacklist.IsEmpty() {
+			prevBlacklist = NewBlacklist(uint16(len(e.nodes)))
+		}
 	}
 
 	if err := prevBlacklist.VerifyProposedBlacklist(block.Blacklist(), e.round); err != nil {
