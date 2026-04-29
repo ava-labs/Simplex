@@ -28,6 +28,7 @@ func TestRecoverFromWALProposed(t *testing.T) {
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 
 	protocolMetadata := e.Metadata()
 	firstBlock, ok := bb.BuildBlock(ctx, protocolMetadata, emptyBlacklist)
@@ -105,6 +106,7 @@ func TestRecoverFromNotarization(t *testing.T) {
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 
 	protocolMetadata := e.Metadata()
 	block, ok := bb.BuildBlock(ctx, protocolMetadata, emptyBlacklist)
@@ -162,6 +164,7 @@ func TestRecoverFromWalWithStorage(t *testing.T) {
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 	require.Equal(t, uint64(1), e.Metadata().Round)
 
 	protocolMetadata := e.Metadata()
@@ -220,6 +223,7 @@ func TestWalCreatedProperly(t *testing.T) {
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 
 	// ensure no records are written to the WAL
 	records, err := e.WAL.ReadAll()
@@ -279,6 +283,7 @@ func TestWalWritesBlockRecord(t *testing.T) {
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 
 	// ensure no records are written to the WAL
 	records, err := e.WAL.ReadAll()
@@ -327,6 +332,7 @@ func TestWalWritesFinalization(t *testing.T) {
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 
 	require.NoError(t, e.Start())
 	firstBlock := bb.GetBuiltBlock()
@@ -415,6 +421,7 @@ func TestRecoverFromMultipleNotarizations(t *testing.T) {
 	// Create first block and write to WAL
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 
 	protocolMetadata := e.Metadata()
 	firstBlock, ok := bb.BuildBlock(ctx, protocolMetadata, emptyBlacklist)
@@ -527,6 +534,7 @@ func TestRecoveryBlocksIndexed(t *testing.T) {
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 	require.Equal(t, uint64(3), e.Storage.NumBlocks())
 	require.NoError(t, e.Start())
 
@@ -546,6 +554,7 @@ func TestEpochCorrectlyInitializesMetadataFromStorage(t *testing.T) {
 	conf.Storage.Index(ctx, block, Finalization{})
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 	require.Equal(t, uint64(1), e.Storage.NumBlocks())
 	require.NoError(t, e.Start())
 
@@ -569,6 +578,7 @@ func TestRecoveryAsLeader(t *testing.T) {
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 	require.Equal(t, uint64(4), e.Storage.NumBlocks())
 	require.NoError(t, e.Start())
 
@@ -601,6 +611,7 @@ func TestRecoveryReVerifiesBlocks(t *testing.T) {
 	// Create first block and write to WAL
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 
 	protocolMetadata := e.Metadata()
 	firstBlock, ok := bb.BuildBlock(ctx, protocolMetadata, emptyBlacklist)
@@ -631,6 +642,7 @@ func TestWalRecoveryTriggersEmptyVoteTimeout(t *testing.T) {
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 
 	protocolMetadata := e.Metadata()
 	block, ok := bb.BuildBlock(ctx, protocolMetadata, emptyBlacklist)
@@ -694,6 +706,7 @@ func TestWalRecoveryMonitorsProgress(t *testing.T) {
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 
 	protocolMetadata := e.Metadata()
 	block, ok := bb.BuildBlock(ctx, protocolMetadata, emptyBlacklist)
@@ -923,6 +936,7 @@ func TestWalRecoverySetsRoundCorrectly(t *testing.T) {
 
 			e, err := NewEpoch(conf)
 			require.NoError(t, err)
+			t.Cleanup(e.Stop)
 
 			// Setup records for this test case
 			records := tt.setupRecords(t, bb, conf)

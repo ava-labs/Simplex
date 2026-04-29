@@ -28,6 +28,7 @@ func TestReplicationRequestIndexedBlocks(t *testing.T) {
 	}
 	e, err := simplex.NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 	require.NoError(t, e.Start())
 	sequences := []uint64{0, 1, 2, 3}
 	req := &simplex.Message{
@@ -76,6 +77,7 @@ func TestReplicationRequestNotarizations(t *testing.T) {
 
 	e, err := simplex.NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 	require.NoError(t, e.Start())
 
 	numBlocks := uint64(5)
@@ -155,6 +157,7 @@ func TestReplicationRequestMixed(t *testing.T) {
 
 	e, err := simplex.NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 	require.NoError(t, e.Start())
 
 	numBlocks := uint64(8)
@@ -225,6 +228,7 @@ func TestReplicationRequestTailingEmptyNotarizations(t *testing.T) {
 
 	e, err := simplex.NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 	require.NoError(t, e.Start())
 
 	numBlocks := uint64(8)
@@ -280,6 +284,7 @@ func TestReplicationRequestUnknownSeqsAndRounds(t *testing.T) {
 
 	e, err := simplex.NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 	require.NoError(t, e.Start())
 
 	req := &simplex.Message{
@@ -302,6 +307,7 @@ func TestNilReplicationResponse(t *testing.T) {
 
 	normalNode0 := testutil.NewControlledSimplexNode(t, nodes[0], net, nil)
 	normalNode0.Start()
+	defer net.StopInstances()
 
 	err := normalNode0.HandleMessage(&simplex.Message{
 		ReplicationResponse: &simplex.ReplicationResponse{
@@ -320,6 +326,7 @@ func TestMalformedReplicationResponse(t *testing.T) {
 
 	normalNode0 := testutil.NewControlledSimplexNode(t, nodes[0], net, nil)
 	normalNode0.Start()
+	defer net.StopInstances()
 
 	err := normalNode0.HandleMessage(&simplex.Message{
 		ReplicationResponse: &simplex.ReplicationResponse{
