@@ -189,7 +189,7 @@ func (e *Epoch) init() error {
 		return err
 	}
 	e.initOldestNotFinalizedNotarization()
-	e.oneTimeVerifier = newOneTimeVerifier(e.Logger)
+	e.oneTimeVerifier = NewOneTimeVerifier(e.Logger)
 	scheduler := NewScheduler(e.Logger, DefaultProcessingBlocks)
 	e.blockVerificationScheduler = NewBlockVerificationScheduler(e.Logger, DefaultProcessingBlocks, scheduler)
 	e.buildBlockScheduler = NewScheduler(e.Logger, 1)

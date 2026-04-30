@@ -153,3 +153,42 @@ func (mem *InMemStorage) Compare(other *InMemStorage) error {
 
 	return nil
 }
+
+var _ simplex.FullStorage = (*NonValidatorInMemoryStorage)(nil)
+
+type NonValidatorInMemoryStorage struct {
+	RetrieveF func(uint64) (simplex.FullBlock, simplex.Finalization, error)
+	*InMemStorage
+}
+
+func NewNonValidatorInMemoryStorage() *NonValidatorInMemoryStorage {
+	s := &InMemStorage{
+		data: make(map[uint64]struct {
+			simplex.VerifiedBlock
+			simplex.Finalization
+		}),
+	}
+
+	s.signal = *sync.NewCond(&s.lock)
+
+	return &NonValidatorInMemoryStorage{
+		InMemStorage: s,
+	}
+}
+
+func (mem *NonValidatorInMemoryStorage) Retrieve(seq uint64) (simplex.FullBlock, simplex.Finalization, error) {
+	if mem.RetrieveF != nil {
+		return mem.RetrieveF(seq)
+	}
+
+	block, finalization, err := mem.InMemStorage.Retrieve(seq)
+	var fullBlock simplex.FullBlock
+	if block != nil {
+		fullBlock = block.(simplex.FullBlock)
+	}
+	return fullBlock, finalization, err
+}
+
+func (mem *NonValidatorInMemoryStorage) Index(ctx context.Context, block simplex.FullBlock, certificate simplex.Finalization) error {
+	return mem.InMemStorage.Index(ctx, block, certificate)
+}
