@@ -262,3 +262,7 @@ func (r *requestor) removeOldTasks(targetSeqOrRound uint64) {
 func (r *requestor) removeTask(seqOrRound uint64) {
 	r.timeoutHandler.RemoveTask(seqOrRound)
 }
+
+func (r *requestor) close() {
+	r.timeoutHandler.Close()
+}

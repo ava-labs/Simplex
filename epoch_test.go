@@ -53,6 +53,7 @@ func TestFinalizeSameSequence(t *testing.T) {
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 
 	require.NoError(t, e.Start())
 	require.Equal(t, uint64(1), e.Metadata().Seq)
@@ -183,6 +184,7 @@ func testFinalizeSameSequenceGap(t *testing.T, nodes []NodeID, numEmptyNotarizat
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 
 	require.NoError(t, e.Start())
 	require.Equal(t, uint64(1), e.Metadata().Seq)
@@ -301,6 +303,7 @@ func TestBlockNotVerifiedIfParentNotNotarized(t *testing.T) {
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 
 	require.NoError(t, e.Start())
 
@@ -369,6 +372,7 @@ func TestEpochHandleNotarizationFutureRound(t *testing.T) {
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 
 	require.NoError(t, e.Start())
 
@@ -414,6 +418,7 @@ func TestEpochIndexFinalization(t *testing.T) {
 	conf, _, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 
 	require.NoError(t, e.Start())
 	firstBlock, _ := advanceRoundFromNotarization(t, e, bb)
@@ -464,6 +469,7 @@ func TestEpochConsecutiveProposalsDoNotGetVerified(t *testing.T) {
 
 			e, err := NewEpoch(conf)
 			require.NoError(t, err)
+			t.Cleanup(e.Stop)
 
 			require.NoError(t, e.Start())
 
@@ -523,6 +529,7 @@ func TestEpochIncreasesRoundAfterFinalization(t *testing.T) {
 	conf, _, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[2], testutil.NewNoopComm(nodes), bb)
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 
 	require.NoError(t, e.Start())
 
@@ -555,6 +562,7 @@ func TestEpochNotarizeTwiceThenFinalize(t *testing.T) {
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 
 	require.NoError(t, e.Start())
 
@@ -664,6 +672,7 @@ func TestEpochFinalizeThenNotarize(t *testing.T) {
 	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 
 	require.NoError(t, e.Start())
 
@@ -712,6 +721,7 @@ func TestEpochSimpleFlow(t *testing.T) {
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 
 	require.NoError(t, e.Start())
 
@@ -729,6 +739,7 @@ func TestEpochStartedTwice(t *testing.T) {
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 
 	require.NoError(t, e.Start())
 	require.ErrorIs(t, e.Start(), ErrAlreadyStarted)
@@ -791,6 +802,7 @@ func testEpochInterleavingMessages(t *testing.T, seed int64) {
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 
 	var protocolMetadata ProtocolMetadata
 
@@ -897,6 +909,7 @@ func TestEpochBlockSentTwice(t *testing.T) {
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 
 	require.NoError(t, e.Start())
 
@@ -989,6 +1002,7 @@ func TestEpochQCSignedByNonExistentNodes(t *testing.T) {
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 
 	require.NoError(t, e.Start())
 
@@ -1105,6 +1119,7 @@ func TestEpochBlockSentFromNonLeader(t *testing.T) {
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 
 	require.NoError(t, e.Start())
 
@@ -1147,6 +1162,7 @@ func TestEpochBlockTooHighRound(t *testing.T) {
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 
 	require.NoError(t, e.Start())
 
@@ -1216,6 +1232,7 @@ func TestEpochSendsBlockDigestRequest(t *testing.T) {
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 
 	require.NoError(t, e.Start())
 
@@ -1285,6 +1302,7 @@ func TestMetadataProposedRound(t *testing.T) {
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 
 	require.NoError(t, e.Start())
 
@@ -1304,6 +1322,7 @@ func TestEpochVotesForEquivocatedVotes(t *testing.T) {
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 
 	require.NoError(t, e.Start())
 
@@ -1381,6 +1400,7 @@ func TestEpochRequestsEmptyRoundDependency(t *testing.T) {
 	storage.Index(ctx, blocks[0].VerifiedBlock, blocks[0].Finalization)
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 
 	require.NoError(t, e.Start())
 
@@ -1458,6 +1478,7 @@ func TestDoubleIncrementOnPersistNotarization(t *testing.T) {
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 
 	require.NoError(t, e.Start())
 
@@ -1522,6 +1543,7 @@ func TestRejectsOldNotarizationAndVotes(t *testing.T) {
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 
 	require.NoError(t, e.Start())
 	require.Equal(t, uint64(1), e.Metadata().Seq)

@@ -229,6 +229,7 @@ func TestBlockVerificationScheduler(t *testing.T) {
 	t.Run("RemoveOldTasks removes tasks with blockSeq <= finalized seq", func(t *testing.T) {
 		scheduler := simplex.NewScheduler(testutil.MakeLogger(t), defaultMaxDeps)
 		bvs := simplex.NewBlockVerificationScheduler(testutil.MakeLogger(t), defaultMaxDeps, scheduler)
+		defer bvs.Close()
 
 		// Both tasks depend on round 10 being cleared, so neither should run yet.
 		const depRound uint64 = 10

@@ -101,6 +101,7 @@ func TestReplicationAdversarialNode(t *testing.T) {
 	require.Equal(t, uint64(0), laggingNode.Storage.NumBlocks())
 
 	net.StartInstances()
+	defer net.StopInstances()
 	doubleBlock := NewTestBlock(doubleBlockProposalNode.E.Metadata(), emptyBlacklist)
 	doubleBlockVote, err := NewTestVote(doubleBlock, doubleBlockProposalNode.E.ID)
 	require.NoError(t, err)
@@ -169,6 +170,7 @@ func TestRebroadcastingWithReplication(t *testing.T) {
 	}
 
 	net.StartInstances()
+	defer net.StopInstances()
 
 	net.Disconnect(laggingNode.E.ID)
 	numNotarizations := uint64(9)
@@ -288,6 +290,7 @@ func testReplicationEmptyNotarizations(t *testing.T, nodes []simplex.NodeID, end
 	laggingNode := NewControlledSimplexNode(t, nodes[5], net, newNodeConfig(nodes[5]))
 
 	net.StartInstances()
+	defer net.StopInstances()
 
 	net.Disconnect(laggingNode.E.ID)
 
@@ -392,6 +395,7 @@ func TestReplicationStartsBeforeCurrentRound(t *testing.T) {
 	require.Equal(t, uint64(0), laggingNode.Storage.NumBlocks())
 
 	net.StartInstances()
+	defer net.StopInstances()
 
 	laggingNodeMd := laggingNode.E.Metadata()
 	require.Equal(t, uint64(2), laggingNodeMd.Round)
@@ -414,6 +418,7 @@ func TestReplicationFutureFinalization(t *testing.T) {
 
 	e, err := simplex.NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 
 	require.NoError(t, e.Start())
 
@@ -493,6 +498,7 @@ func testReplicationAfterNodeDisconnects(t *testing.T, nodes []simplex.NodeID, s
 	require.Equal(t, uint64(0), laggingNode.Storage.NumBlocks())
 
 	net.StartInstances()
+	defer net.StopInstances()
 
 	for i := uint64(0); i < startDisconnect; i++ {
 		net.TriggerLeaderBlockBuilder(i)
@@ -610,6 +616,7 @@ func TestReplicationStuckInProposingBlock(t *testing.T) {
 	e, err := simplex.NewEpoch(conf)
 	e.ReplicationEnabled = true
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 	require.NoError(t, e.Start())
 
 	bb.TriggerNewBlock()
@@ -696,6 +703,8 @@ func TestReplicationStuckInProposingBlock(t *testing.T) {
 // have a stale notarization for a round(i.e. a node notarized a block but the rest of the network
 // propagated an empty notarization).
 func TestReplicationNodeDiverges(t *testing.T) {
+	t.Setenv("LOG_LEVEL", "debug")
+
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}, {5}, {6}}
 	numBlocks := uint64(5)
 
@@ -719,6 +728,7 @@ func TestReplicationNodeDiverges(t *testing.T) {
 	NewControlledSimplexNode(t, nodes[5], net, nodeConfig(nodes[5]))
 
 	net.StartInstances()
+	defer net.StopInstances()
 	net.TriggerLeaderBlockBuilder(0)
 
 	// because of the message filter, the lagging one will be the only one to notarize the block
@@ -869,6 +879,7 @@ func testReplicationNotarizationWithoutFinalizations(t *testing.T, numBlocks uin
 	}
 
 	net.StartInstances()
+	defer net.StopInstances()
 
 	// normal nodes continue to make progress
 	for i := uint64(0); i < uint64(numBlocks); i++ {
@@ -952,6 +963,7 @@ func TestReplicationVerifyNotarization(t *testing.T) {
 
 	e, err := simplex.NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 	require.NoError(t, e.Start())
 
 	md := e.Metadata()
@@ -1038,6 +1050,7 @@ func TestReplicationVerifyEmptyNotarization(t *testing.T) {
 
 	e, err := simplex.NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 	require.NoError(t, e.Start())
 
 	md := e.Metadata()
@@ -1136,6 +1149,7 @@ func TestReplicationVotesForNotarizations(t *testing.T) {
 	net.Disconnect(laggingNode.E.ID)
 
 	net.StartInstances()
+	defer net.StopInstances()
 
 	missedSeqs := uint64(0)
 	// normal nodes continue to make progress
@@ -1257,6 +1271,7 @@ func testReplicationEmptyNotarizationsTail(t *testing.T, nodes []simplex.NodeID,
 	laggingNode := NewControlledSimplexNode(t, nodes[5], net, newNodeConfig(nodes[5]))
 
 	net.StartInstances()
+	defer net.StopInstances()
 
 	net.Disconnect(laggingNode.E.ID)
 	net.SetAllNodesMessageFilter(onlyAllowEmptyRoundMessages)
@@ -1340,6 +1355,7 @@ func TestReplicationStoresFinalization(t *testing.T) {
 
 	e, err := simplex.NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 	require.NoError(t, e.Start())
 
 	// createBlocks 2 blocks with finalizations
@@ -1423,6 +1439,7 @@ func TestReplicationChain(t *testing.T) {
 	// but then later receives notarizations and must send finalize votes for them
 	laggingNode := NewControlledSimplexNode(t, nodes[3], net, newNodeConfig(nodes[3]))
 	net.StartInstances()
+	defer net.StopInstances()
 	net.Disconnect(laggingNode.E.ID)
 
 	emptyNotarizations := make(map[uint64]*simplex.EmptyNotarization)
@@ -1523,6 +1540,7 @@ func TestReplicationStartsRoundFromFinalization(t *testing.T) {
 	conf.ReplicationEnabled = true
 	e, err := simplex.NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 	require.NoError(t, e.Start())
 
 	// Create blocks that the node needs to replicate
@@ -1632,6 +1650,7 @@ func TestReplicationStartsRoundFromFinalizationWithBlock(t *testing.T) {
 	conf.ReplicationEnabled = true
 	e, err := simplex.NewEpoch(conf)
 	require.NoError(t, err)
+	t.Cleanup(e.Stop)
 	require.NoError(t, e.Start())
 
 	// Create blocks that the node needs to replicate

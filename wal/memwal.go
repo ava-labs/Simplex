@@ -13,14 +13,14 @@ import (
 
 type InMemWAL struct {
 	bb bytes.Buffer
-	t  *testing.T
+	t  testing.TB
 }
 
 func (wal *InMemWAL) Close() error {
 	return nil
 }
 
-func NewMemWAL(t *testing.T) *InMemWAL {
+func NewMemWAL(t testing.TB) *InMemWAL {
 	return &InMemWAL{
 		t: t,
 	}
