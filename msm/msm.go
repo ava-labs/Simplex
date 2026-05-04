@@ -188,16 +188,16 @@ func computeNewApproverSignaturesAndSigners(nextEpochApprovals *NextEpochApprova
 	// We will overwrite the old approving nodes with the new approving nodes, by turning on the bits for the new approvers.
 	newApprovingNodes := oldApprovingNodes.Clone()
 
-	approvalsFromPeers.ForEach(func(i int, approval ValidatorSetApproval) {
+	for _, approval := range approvalsFromPeers {
 		approvingNodeIndexOfNewApprover, exists := nodeID2ValidatorIndex[approval.NodeID]
 		if !exists {
 			// This should not happen, because we have already filtered approvals that are not in the validator set, but we check just in case.
-			return
+			continue
 		}
 		// Turn on the bit for the new approver
 		newApprovingNodes.Add(approvingNodeIndexOfNewApprover)
 		newSignatures = append(newSignatures, approval.Signature)
-	})
+	}
 
 	// Add the existing signature into the list of signatures to aggregate
 	existingSignature := nextEpochApprovals.Signature
@@ -243,19 +243,15 @@ func approvalsThatAreInValidatorSetAndHaveNotAlreadyApproved(oldApprovingNodes *
 
 func computeApprovingWeight(validators NodeBLSMappings, approvingNodes *bitmask) (int64, error) {
 	var approvingWeight uint64
-	var err error
-	validators.ForEach(func(i int, nbm NodeBLSMapping) {
-		if err != nil {
-			return
-		}
+	for i, nbm := range validators {
 		if !approvingNodes.Contains(i) {
-			return
+			continue
 		}
+		var err error
 		approvingWeight, err = safeAdd(approvingWeight, nbm.Weight)
-	})
-
-	if err != nil {
-		return 0, fmt.Errorf("failed to compute approving weights: %w", err)
+		if err != nil {
+			return 0, fmt.Errorf("failed to compute approving weights: %w", err)
+		}
 	}
 
 	if approvingWeight > math.MaxInt64 {
@@ -266,9 +262,13 @@ func computeApprovingWeight(validators NodeBLSMappings, approvingNodes *bitmask)
 }
 
 func computeTotalWeight(validators NodeBLSMappings) (int64, error) {
-	totalWeight, err := validators.TotalWeight()
-	if err != nil {
-		return 0, fmt.Errorf("failed to sum weights of all nodes: %w", err)
+	var totalWeight uint64
+	for _, nbm := range validators {
+		var err error
+		totalWeight, err = safeAdd(totalWeight, nbm.Weight)
+		if err != nil {
+			return 0, fmt.Errorf("failed to sum weights of all nodes: %w", err)
+		}
 	}
 
 	if totalWeight == 0 {
