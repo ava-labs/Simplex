@@ -30,9 +30,9 @@ func TestShouldBuildBlock_VMSignalsBlock(t *testing.T) {
 				<-ctx.Done()
 			},
 		},
-		waitForPendingBlock:   func(ctx context.Context) {},
-		shouldTransitionEpoch: func(uint64) (bool, error) { return false, nil },
-		getPChainHeight:       func() uint64 { return 100 },
+		waitForPendingBlock:    func(ctx context.Context) {},
+		hasValidatorSetChanged: func(uint64) (bool, error) { return false, nil },
+		getPChainHeight:        func() uint64 { return 100 },
 	}
 
 	result, pChainHeight, err := bbd.shouldBuildBlock(t.Context())
@@ -56,8 +56,8 @@ func TestShouldBuildBlock_ContextCanceled(t *testing.T) {
 			cancel()
 			<-ctx.Done()
 		},
-		shouldTransitionEpoch: func(uint64) (bool, error) { return false, nil },
-		getPChainHeight:       func() uint64 { return 100 },
+		hasValidatorSetChanged: func(uint64) (bool, error) { return false, nil },
+		getPChainHeight:        func() uint64 { return 100 },
 	}
 
 	result, _, err := bbd.shouldBuildBlock(ctx)
@@ -67,7 +67,7 @@ func TestShouldBuildBlock_ContextCanceled(t *testing.T) {
 
 func TestShouldBuildBlock_PChainHeightChangeTriggersEpochTransition(t *testing.T) {
 	// First iteration: no epoch transition, P-chain listener fires (height changes).
-	// Second iteration: shouldTransitionEpoch returns true, VM doesn't signal a block before timeout.
+	// Second iteration: hasValidatorSetChanged returns true, VM doesn't signal a block before timeout.
 	var pChainHeight atomic.Uint64
 	pChainHeight.Store(100)
 
@@ -86,7 +86,7 @@ func TestShouldBuildBlock_PChainHeightChangeTriggersEpochTransition(t *testing.T
 		waitForPendingBlock: func(ctx context.Context) {
 			<-ctx.Done()
 		},
-		shouldTransitionEpoch: func(height uint64) (bool, error) {
+		hasValidatorSetChanged: func(height uint64) (bool, error) {
 			return height == 200, nil
 		},
 		getPChainHeight: func() uint64 { return pChainHeight.Load() },
@@ -99,7 +99,7 @@ func TestShouldBuildBlock_PChainHeightChangeTriggersEpochTransition(t *testing.T
 }
 
 func TestShouldBuildBlock_PChainHeightChangeButNoEpochTransition(t *testing.T) {
-	// P-chain height changes on first iteration but shouldTransitionEpoch stays false.
+	// P-chain height changes on first iteration but hasValidatorSetChanged stays false.
 	// On second iteration, VM signals a block.
 	var pChainHeight atomic.Uint64
 	pChainHeight.Store(100)
@@ -124,8 +124,8 @@ func TestShouldBuildBlock_PChainHeightChangeButNoEpochTransition(t *testing.T) {
 				<-ctx.Done()
 			}
 		},
-		shouldTransitionEpoch: func(uint64) (bool, error) { return false, nil },
-		getPChainHeight:       func() uint64 { return pChainHeight.Load() },
+		hasValidatorSetChanged: func(uint64) (bool, error) { return false, nil },
+		getPChainHeight:        func() uint64 { return pChainHeight.Load() },
 	}
 
 	result, resultPChainHeight, err := bbd.shouldBuildBlock(t.Context())
@@ -143,9 +143,9 @@ func TestShouldBuildBlock_EpochTransitionWithVMBlock(t *testing.T) {
 				<-ctx.Done()
 			},
 		},
-		waitForPendingBlock:   func(ctx context.Context) {},
-		shouldTransitionEpoch: func(uint64) (bool, error) { return true, nil },
-		getPChainHeight:       func() uint64 { return 100 },
+		waitForPendingBlock:    func(ctx context.Context) {},
+		hasValidatorSetChanged: func(uint64) (bool, error) { return true, nil },
+		getPChainHeight:        func() uint64 { return 100 },
 	}
 
 	result, pChainHeight, err := bbd.shouldBuildBlock(t.Context())
@@ -166,8 +166,8 @@ func TestShouldBuildBlock_EpochTransitionWithoutVMBlock(t *testing.T) {
 		waitForPendingBlock: func(ctx context.Context) {
 			<-ctx.Done()
 		},
-		shouldTransitionEpoch: func(uint64) (bool, error) { return true, nil },
-		getPChainHeight:       func() uint64 { return 100 },
+		hasValidatorSetChanged: func(uint64) (bool, error) { return true, nil },
+		getPChainHeight:        func() uint64 { return 100 },
 	}
 
 	result, pChainHeight, err := bbd.shouldBuildBlock(t.Context())
@@ -192,8 +192,8 @@ func TestShouldBuildBlock_EpochTransitionContextCanceled(t *testing.T) {
 			cancel()
 			<-ctx.Done()
 		},
-		shouldTransitionEpoch: func(uint64) (bool, error) { return true, nil },
-		getPChainHeight:       func() uint64 { return 100 },
+		hasValidatorSetChanged: func(uint64) (bool, error) { return true, nil },
+		getPChainHeight:        func() uint64 { return 100 },
 	}
 
 	result, _, err := bbd.shouldBuildBlock(ctx)

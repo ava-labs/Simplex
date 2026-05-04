@@ -51,9 +51,11 @@ type blockBuildingDecider struct {
 	logger                   simplex.Logger
 	maxBlockBuildingWaitTime time.Duration
 	pChainListener           PChainProgressListener
-	waitForPendingBlock      func(ctx context.Context)
-	shouldTransitionEpoch    func(pChainHeight uint64) (bool, error)
-	getPChainHeight          func() uint64
+	waitForPendingBlock    func(ctx context.Context)
+	// hasValidatorSetChanged should return whether the validator set has changed since the
+	// P-chain height referenced by the last block in the chain and until the provided P-chain height.
+	hasValidatorSetChanged func(pChainHeight uint64) (bool, error)
+	getPChainHeight        func() uint64
 }
 
 // shouldBuildBlock determines whether we should build a block at the current time,
@@ -67,7 +69,7 @@ func (bbd *blockBuildingDecider) shouldBuildBlock(
 	for {
 		pChainHeight := bbd.getPChainHeight()
 
-		shouldTransitionEpoch, err := bbd.shouldTransitionEpoch(pChainHeight)
+		shouldTransitionEpoch, err := bbd.hasValidatorSetChanged(pChainHeight)
 		if err != nil {
 			return decisionUndefined, 0, err
 		}
