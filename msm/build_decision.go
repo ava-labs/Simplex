@@ -51,7 +51,7 @@ type blockBuildingDecider struct {
 	logger                   simplex.Logger
 	maxBlockBuildingWaitTime time.Duration
 	pChainListener           PChainProgressListener
-	waitForPendingBlock    func(ctx context.Context)
+	waitForPendingBlock      func(ctx context.Context)
 	// hasValidatorSetChanged should return whether the validator set has changed since the
 	// P-chain height referenced by the last block in the chain and until the provided P-chain height.
 	hasValidatorSetChanged func(pChainHeight uint64) (bool, error)
