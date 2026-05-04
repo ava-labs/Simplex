@@ -86,7 +86,7 @@ message SimplexEpochInfo {
 - The validator set of the epoch numbered `epoch_number` is derived from `p_chain_reference_height`.
 
 - The `prev_sealing_block_hash` is the hash of the sealing block of the previous epoch, and it is used to efficiently validate the sealing block of the previous epoch.
-  If there is no previous epoch (i.e., the current epoch is the first ever epoch), then it is nil.
+  If there is no previous epoch (i.e., the current epoch is the first ever epoch), then is equal to the hash of the first Simplex block.
 
 - The `next_p_chain_reference_height` is the P-chain height of the next epoch, otherwise it is set to `0`.
 
@@ -378,35 +378,30 @@ ____________________    |
 
 
 ```proto
-message SimplexBlock {
+message OuterBlock {
    bytes inner_block = 1; // The inner block built by the VM, opaque to Simplex.
-   OuterBlock outer_block = 2; // The outer block that wraps the inner block without the inner block.
-   bytes protocol_metadata = 3 // The Simplex protocol metadata, set by the Simplex consensus protocol.
+   StateMachineMetadata metadata = 2; // The the metadata of the block.
 }
 ```
 
-where `OuterBlock` is a protobuf message that contains the ICM epoch information, the Simplex epoch information, and auxiliary information:
+where `StateMachineMetadata` is a protobuf message that contains the ICM epoch information, the Simplex epoch information, and auxiliary information:
 
 ```proto
-message OuterBlock {
+message StateMachineMetadata {
   ICMEpochInfo icm_epoch_info = 1; // The ICM epoch information.
   SimplexEpochInfo simplex_epoch_info = 2; // The Simplex epoch information.
-  AuxiliaryInfo auxiliary_info = 3; // The auxiliary information.
+  bytes protocol_metadata = 3; // The Simplex protocol metadata, set by the Simplex consensus protocol.
+  bytes blacklist = 4; // The blacklist of the Simplex protocol.
+  AuxiliaryInfo auxiliary_info = 5; // The auxiliary information.
+  uint64 p_chain_height = 6; // The P-chain height sampled when building the block.
+  uint64 timestamp = 7; // The timestamp of the block, set by the block builder.
 }
 ```
 
 The digest of the simplex block is computed as follows:
 
-Let $h_i$ be the hash of the inner block.
-The digest of the Simplex block is the hash of the following encoding:
-
-```proto
-message HashPreImage {
-   bytes h_i = 1; // The inner block hash
-   OuterBlock outer_block = 2;
-   bytes protocol_metadata = 3;
-}
-```
+Let $h_i$ be the hash of the inner block and $h_m$ be the hash of the metadata.
+The digest of the Simplex block is the hash of the following encoding: `h_i || h_m` where `||` denotes concatenation.
 
 
 This way of hashing the block allows any holder of a finalization certificate for the block to authenticate the block while hiding the content of the inner block.
@@ -426,6 +421,7 @@ The Simplex epoch information is a canoto encoded message with the following sch
 message NodeBLSMapping {
     bytes node_id = 1; // The nodeID
     bytes bls_key = 2; // The BLS key of the node
+        uint64 weight = 3; // The weight of the node in the validator set, used for quorum calculations.
   }
 
 message BlockValidationDescriptor {
@@ -453,5 +449,6 @@ message SimplexEpochInfo {
    uint64 prev_vm_block_seq = 5; // The sequence of the previous VM block
    BlockValidationDescriptor block_validation_descriptor = 6; // Describes how to validate the blocks of the next epoch
    NextEpochApprovals next_epoch_approvals = 7; // The epoch change approvals of the next epoch by at least n-f nodes.
+   uint64 sealing_block_seq = 8; // The sequence number of the sealing block of the current epoch.
 }
 ```
