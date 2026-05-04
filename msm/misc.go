@@ -9,8 +9,6 @@ import (
 	"math"
 	"math/big"
 	"time"
-
-	"go.uber.org/zap"
 )
 
 // This file contains implementations of utility methods and structures that exists in Avalanchego,
@@ -93,30 +91,4 @@ func bitmaskFromBytes(bytes []byte) bitmask {
 	var bm bitmask
 	(*big.Int)(&bm).SetBytes(bytes)
 	return bm
-}
-
-// Logger defines the interface that is used to keep a record of all events that
-// happen to the program
-type Logger interface {
-	// Log that a fatal error has occurred. The program should likely exit soon
-	// after this is called
-	Fatal(msg string, fields ...zap.Field)
-	// Log that an error has occurred. The program should be able to recover
-	// from this error
-	Error(msg string, fields ...zap.Field)
-	// Log that an event has occurred that may indicate a future error or
-	// vulnerability
-	Warn(msg string, fields ...zap.Field)
-	// Log an event that may be useful for a user to see to measure the progress
-	// of the protocol
-	Info(msg string, fields ...zap.Field)
-	// Log an event that may be useful for understanding the order of the
-	// execution of the protocol
-	Trace(msg string, fields ...zap.Field)
-	// Log an event that may be useful for a programmer to see when debugging the
-	// execution of the protocol
-	Debug(msg string, fields ...zap.Field)
-	// Log extremely detailed events that can be useful for inspecting every
-	// aspect of the program
-	Verbo(msg string, fields ...zap.Field)
 }
