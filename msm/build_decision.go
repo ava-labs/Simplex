@@ -17,24 +17,24 @@ import (
 type blockBuildingDecision int8
 
 const (
-	blockBuildingDecisionUndefined                    blockBuildingDecision = iota
-	blockBuildingDecisionBuildBlock                                         // We should build a block, and we don't need to transition to a new epoch.
-	blockBuildingDecisionTransitionEpoch                                    // We should transition to a new epoch immediately, but we don't need to build a block.
-	blockBuildingDecisionBuildBlockAndTransitionEpoch                       // We should build a block and transition to a new epoch along the way.
-	blockBuildingDecisionContextCanceled
+	decisionUndefined               blockBuildingDecision = iota
+	decisionBuild                                         // We should build a block, and we don't need to transition to a new epoch.
+	decisionTransitionEpoch                               // We should transition to a new epoch immediately, but we don't need to build a block.
+	decisionBuildAndTransitionEpoch                       // We should build a block and transition to a new epoch along the way.
+	decisionContextCanceled
 )
 
 func (bbd blockBuildingDecision) String() string {
 	switch bbd {
-	case blockBuildingDecisionUndefined:
+	case decisionUndefined:
 		return "undefined"
-	case blockBuildingDecisionBuildBlock:
+	case decisionBuild:
 		return "build block"
-	case blockBuildingDecisionTransitionEpoch:
+	case decisionTransitionEpoch:
 		return "transition epoch"
-	case blockBuildingDecisionBuildBlockAndTransitionEpoch:
+	case decisionBuildAndTransitionEpoch:
 		return "build block and transition epoch"
-	case blockBuildingDecisionContextCanceled:
+	case decisionContextCanceled:
 		return "context canceled"
 	default:
 		return "unknown"
@@ -50,7 +50,7 @@ type PChainProgressListener interface {
 type blockBuildingDecider struct {
 	logger                   simplex.Logger
 	maxBlockBuildingWaitTime time.Duration
-	pChainlistener           PChainProgressListener
+	pChainListener           PChainProgressListener
 	waitForPendingBlock      func(ctx context.Context)
 	shouldTransitionEpoch    func(pChainHeight uint64) (bool, error)
 	getPChainHeight          func() uint64
@@ -58,7 +58,7 @@ type blockBuildingDecider struct {
 
 // shouldBuildBlock determines whether we should build a block at the current time,
 // based on the current P-chain height and whether we should transition to a new epoch.
-// It returns a blockBuildingDecision, the current P-chain height sampled at the time of deciding,
+// It returns a blockBuildingDecision, the P-chain height sampled at the time of deciding,
 // and an error if the decision cannot be made.
 // The P-chain height is returned because sampling the P-chain height afterwards might be inconsistent with the decision that was made.
 func (bbd *blockBuildingDecider) shouldBuildBlock(
@@ -69,12 +69,12 @@ func (bbd *blockBuildingDecider) shouldBuildBlock(
 
 		shouldTransitionEpoch, err := bbd.shouldTransitionEpoch(pChainHeight)
 		if err != nil {
-			return blockBuildingDecisionUndefined, 0, err
+			return decisionUndefined, 0, err
 		}
 
 		if shouldTransitionEpoch {
 			// If we should transition to a new epoch, maybe we can also build a block along the way.
-			return bbd.maybeBuildBlockWithEpochTransition(ctx), pChainHeight, nil
+			return bbd.buildBlockWithEpochTransition(ctx), pChainHeight, nil
 		}
 
 		// Else, we don't need to transition to a new epoch, but maybe we should build a block.
@@ -82,8 +82,8 @@ func (bbd *blockBuildingDecider) shouldBuildBlock(
 		bbd.waitForPChainChangeOrPendingBlock(ctx, pChainHeight)
 
 		// If the context was cancelled in the meantime, abandon evaluation.
-		if bbd.wasContextCanceled(ctx) {
-			return blockBuildingDecisionContextCanceled, 0, nil
+		if ctx.Err() != nil {
+			return decisionContextCanceled, 0, nil
 		}
 
 		// If we've reached here, either the P-chain height has changed, or a block is ready to be built.
@@ -97,12 +97,12 @@ func (bbd *blockBuildingDecider) shouldBuildBlock(
 		// Else, we have reached here because a block is ready to be built, and the P-chain height has not changed,
 		// which means we should build a block.
 
-		return blockBuildingDecisionBuildBlock, pChainHeight, nil
+		return decisionBuild, pChainHeight, nil
 	}
 }
 
 // waitForPChainChangeOrPendingBlock waits until either the given P-chain height changes from the provided pChainHeight,
-// or a block is ready to be built.
+// or a block is ready to be built, or if `ctx` gets cancelled.
 func (bbd *blockBuildingDecider) waitForPChainChangeOrPendingBlock(ctx context.Context, pChainHeight uint64) {
 	pChainAwareContext, cancel := context.WithCancel(ctx)
 
@@ -114,7 +114,7 @@ func (bbd *blockBuildingDecider) waitForPChainChangeOrPendingBlock(ctx context.C
 
 	go func() {
 		defer wg.Done()
-		err := bbd.pChainlistener.WaitForProgress(pChainAwareContext, pChainHeight)
+		err := bbd.pChainListener.WaitForProgress(pChainAwareContext, pChainHeight)
 		if err != nil && pChainAwareContext.Err() == nil {
 			bbd.logger.Warn("error while waiting for P-chain progress", zap.Error(err))
 		}
@@ -124,11 +124,11 @@ func (bbd *blockBuildingDecider) waitForPChainChangeOrPendingBlock(ctx context.C
 	bbd.waitForPendingBlock(pChainAwareContext)
 }
 
-// maybeBuildBlockWithEpochTransition decides if we should build a block while transitioning to a new epoch.
+// buildBlockWithEpochTransition decides if we should build a block while transitioning to a new epoch.
 // It waits up to a limited amount of time (bbd.maxBlockBuildingWaitTime) for a block to be ready to be built,
 // and if no block is ready by then, it returns the decision to transition epoch without building a block.
 // Otherwise, it returns the decision to build a block and transition epoch along the way.
-func (bbd *blockBuildingDecider) maybeBuildBlockWithEpochTransition(ctx context.Context) blockBuildingDecision {
+func (bbd *blockBuildingDecider) buildBlockWithEpochTransition(ctx context.Context) blockBuildingDecision {
 	impatientContext, cancel := context.WithTimeout(ctx, bbd.maxBlockBuildingWaitTime)
 	defer cancel()
 
@@ -136,24 +136,16 @@ func (bbd *blockBuildingDecider) maybeBuildBlockWithEpochTransition(ctx context.
 	// waitForPendingBlock will return in case a block is ready to be built, or when the context times out.
 	bbd.waitForPendingBlock(impatientContext)
 
+	if ctx.Err() != nil {
+		return decisionContextCanceled
+	}
+
 	if impatientContext.Err() != nil {
-		// Check if we have returned because the parent context was cancelled
-		if bbd.wasContextCanceled(ctx) {
-			return blockBuildingDecisionContextCanceled
-		}
-		// We have returned from waitForPendingBlock because the context has timed out, which means we don't need to build a block.
-		return blockBuildingDecisionTransitionEpoch
+		// We have returned from waitForPendingBlock because impatientContext has timed out,
+		// which means we don't need to build a block.
+		return decisionTransitionEpoch
 	}
 
 	// Block is ready to be built
-	return blockBuildingDecisionBuildBlockAndTransitionEpoch
-}
-
-func (bbd *blockBuildingDecider) wasContextCanceled(ctx context.Context) bool {
-	select {
-	case <-ctx.Done():
-		return true
-	default:
-		return false
-	}
+	return decisionBuildAndTransitionEpoch
 }

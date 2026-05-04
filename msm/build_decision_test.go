@@ -25,7 +25,7 @@ func TestShouldBuildBlock_VMSignalsBlock(t *testing.T) {
 	// No epoch transition needed, VM signals a block is ready.
 	bbd := &blockBuildingDecider{
 		maxBlockBuildingWaitTime: time.Second,
-		pChainlistener: &fakePChainListener{
+		pChainListener: &fakePChainListener{
 			onListen: func(ctx context.Context, _ uint64) {
 				<-ctx.Done()
 			},
@@ -37,7 +37,7 @@ func TestShouldBuildBlock_VMSignalsBlock(t *testing.T) {
 
 	result, pChainHeight, err := bbd.shouldBuildBlock(t.Context())
 	require.NoError(t, err)
-	require.Equal(t, blockBuildingDecisionBuildBlock, result)
+	require.Equal(t, decisionBuild, result)
 	require.Equal(t, uint64(100), pChainHeight)
 }
 
@@ -47,7 +47,7 @@ func TestShouldBuildBlock_ContextCanceled(t *testing.T) {
 
 	bbd := &blockBuildingDecider{
 		maxBlockBuildingWaitTime: time.Second,
-		pChainlistener: &fakePChainListener{
+		pChainListener: &fakePChainListener{
 			onListen: func(ctx context.Context, _ uint64) {
 				<-ctx.Done()
 			},
@@ -62,7 +62,7 @@ func TestShouldBuildBlock_ContextCanceled(t *testing.T) {
 
 	result, _, err := bbd.shouldBuildBlock(ctx)
 	require.NoError(t, err)
-	require.Equal(t, blockBuildingDecisionContextCanceled, result)
+	require.Equal(t, decisionContextCanceled, result)
 }
 
 func TestShouldBuildBlock_PChainHeightChangeTriggersEpochTransition(t *testing.T) {
@@ -73,7 +73,7 @@ func TestShouldBuildBlock_PChainHeightChangeTriggersEpochTransition(t *testing.T
 
 	bbd := &blockBuildingDecider{
 		maxBlockBuildingWaitTime: 10 * time.Millisecond,
-		pChainlistener: &fakePChainListener{
+		pChainListener: &fakePChainListener{
 			onListen: func(ctx context.Context, height uint64) {
 				// On the first call, simulate a P-chain height change.
 				if height == 100 {
@@ -94,7 +94,7 @@ func TestShouldBuildBlock_PChainHeightChangeTriggersEpochTransition(t *testing.T
 
 	result, resultPChainHeight, err := bbd.shouldBuildBlock(t.Context())
 	require.NoError(t, err)
-	require.Equal(t, blockBuildingDecisionTransitionEpoch, result)
+	require.Equal(t, decisionTransitionEpoch, result)
 	require.Equal(t, uint64(200), resultPChainHeight)
 }
 
@@ -108,7 +108,7 @@ func TestShouldBuildBlock_PChainHeightChangeButNoEpochTransition(t *testing.T) {
 
 	bbd := &blockBuildingDecider{
 		maxBlockBuildingWaitTime: time.Second,
-		pChainlistener: &fakePChainListener{
+		pChainListener: &fakePChainListener{
 			onListen: func(ctx context.Context, height uint64) {
 				if height == 100 {
 					pChainHeight.Store(200)
@@ -122,7 +122,6 @@ func TestShouldBuildBlock_PChainHeightChangeButNoEpochTransition(t *testing.T) {
 			// Second iteration: return immediately (VM has a block).
 			if iteration.Add(1) == 1 {
 				<-ctx.Done()
-				return
 			}
 		},
 		shouldTransitionEpoch: func(uint64) (bool, error) { return false, nil },
@@ -131,7 +130,7 @@ func TestShouldBuildBlock_PChainHeightChangeButNoEpochTransition(t *testing.T) {
 
 	result, resultPChainHeight, err := bbd.shouldBuildBlock(t.Context())
 	require.NoError(t, err)
-	require.Equal(t, blockBuildingDecisionBuildBlock, result)
+	require.Equal(t, decisionBuild, result)
 	require.Equal(t, uint64(200), resultPChainHeight)
 }
 
@@ -139,7 +138,7 @@ func TestShouldBuildBlock_EpochTransitionWithVMBlock(t *testing.T) {
 	// Epoch transition needed, but VM signals a block before the timeout.
 	bbd := &blockBuildingDecider{
 		maxBlockBuildingWaitTime: time.Second,
-		pChainlistener: &fakePChainListener{
+		pChainListener: &fakePChainListener{
 			onListen: func(ctx context.Context, _ uint64) {
 				<-ctx.Done()
 			},
@@ -151,7 +150,7 @@ func TestShouldBuildBlock_EpochTransitionWithVMBlock(t *testing.T) {
 
 	result, pChainHeight, err := bbd.shouldBuildBlock(t.Context())
 	require.NoError(t, err)
-	require.Equal(t, blockBuildingDecisionBuildBlockAndTransitionEpoch, result)
+	require.Equal(t, decisionBuildAndTransitionEpoch, result)
 	require.Equal(t, uint64(100), pChainHeight)
 }
 
@@ -159,7 +158,7 @@ func TestShouldBuildBlock_EpochTransitionWithoutVMBlock(t *testing.T) {
 	// Epoch transition needed, VM doesn't signal a block before timeout.
 	bbd := &blockBuildingDecider{
 		maxBlockBuildingWaitTime: 10 * time.Millisecond,
-		pChainlistener: &fakePChainListener{
+		pChainListener: &fakePChainListener{
 			onListen: func(ctx context.Context, _ uint64) {
 				<-ctx.Done()
 			},
@@ -173,7 +172,7 @@ func TestShouldBuildBlock_EpochTransitionWithoutVMBlock(t *testing.T) {
 
 	result, pChainHeight, err := bbd.shouldBuildBlock(t.Context())
 	require.NoError(t, err)
-	require.Equal(t, blockBuildingDecisionTransitionEpoch, result)
+	require.Equal(t, decisionTransitionEpoch, result)
 	require.Equal(t, uint64(100), pChainHeight)
 }
 
@@ -184,7 +183,7 @@ func TestShouldBuildBlock_EpochTransitionContextCanceled(t *testing.T) {
 
 	bbd := &blockBuildingDecider{
 		maxBlockBuildingWaitTime: time.Second,
-		pChainlistener: &fakePChainListener{
+		pChainListener: &fakePChainListener{
 			onListen: func(ctx context.Context, _ uint64) {
 				<-ctx.Done()
 			},
@@ -199,5 +198,5 @@ func TestShouldBuildBlock_EpochTransitionContextCanceled(t *testing.T) {
 
 	result, _, err := bbd.shouldBuildBlock(ctx)
 	require.NoError(t, err)
-	require.Equal(t, blockBuildingDecisionContextCanceled, result)
+	require.Equal(t, decisionContextCanceled, result)
 }

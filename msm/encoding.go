@@ -8,7 +8,7 @@ import (
 	"slices"
 )
 
-// go:generate go run github.com/StephenButtolph/canoto/canoto encoding.go
+//go:generate go run github.com/StephenButtolph/canoto/canoto encoding.go
 
 // OuterBlock is the top-level encoding of a Simplex block.
 // It contains the inner block (the block built by the VM),
