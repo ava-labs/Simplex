@@ -4,7 +4,6 @@
 package metadata
 
 import (
-	"math"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -359,83 +358,6 @@ func TestNextEpochApprovalsEquals(t *testing.T) {
 	}
 }
 
-func TestNodeBLSMappingsTotalWeight(t *testing.T) {
-	tests := []struct {
-		name        string
-		mappings    NodeBLSMappings
-		expected    uint64
-		expectError bool
-	}{
-		{
-			name:     "empty",
-			expected: 0,
-		},
-		{
-			name:     "single",
-			mappings: NodeBLSMappings{{Weight: 42}},
-			expected: 42,
-		},
-		{
-			name:     "multiple",
-			mappings: NodeBLSMappings{{Weight: 10}, {Weight: 20}, {Weight: 30}},
-			expected: 60,
-		},
-		{
-			name:        "overflow",
-			mappings:    NodeBLSMappings{{Weight: math.MaxUint64}, {Weight: 1}},
-			expectError: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			total, err := tt.mappings.TotalWeight()
-			if tt.expectError {
-				require.Error(t, err)
-			} else {
-				require.NoError(t, err)
-				require.Equal(t, tt.expected, total)
-			}
-		})
-	}
-}
-
-func TestNodeBLSMappingsSumWeights(t *testing.T) {
-	mappings := NodeBLSMappings{
-		{NodeID: nodeID{1}, Weight: 10},
-		{NodeID: nodeID{2}, Weight: 20},
-		{NodeID: nodeID{3}, Weight: 30},
-	}
-
-	// Select only even indices
-	total, err := mappings.SumWeights(func(i int, _ NodeBLSMapping) bool {
-		return i%2 == 0
-	})
-	require.NoError(t, err)
-	require.Equal(t, uint64(40), total) // index 0 (10) + index 2 (30)
-
-	// Select none
-	total, err = mappings.SumWeights(func(int, NodeBLSMapping) bool {
-		return false
-	})
-	require.NoError(t, err)
-	require.Equal(t, uint64(0), total)
-}
-
-func TestNodeBLSMappingsForEach(t *testing.T) {
-	mappings := NodeBLSMappings{
-		{Weight: 1},
-		{Weight: 2},
-		{Weight: 3},
-	}
-
-	var visited []uint64
-	mappings.ForEach(func(_ int, nbm NodeBLSMapping) {
-		visited = append(visited, nbm.Weight)
-	})
-	require.Equal(t, []uint64{1, 2, 3}, visited)
-}
-
 func TestNodeBLSMappingsCompare(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -477,19 +399,6 @@ func TestNodeBLSMappingsCompare(t *testing.T) {
 			require.Equal(t, tt.expected, tt.a.Equal(tt.b))
 		})
 	}
-}
-
-func TestValidatorSetApprovalsForEach(t *testing.T) {
-	approvals := ValidatorSetApprovals{
-		{NodeID: nodeID{1}, PChainHeight: 10},
-		{NodeID: nodeID{2}, PChainHeight: 20},
-	}
-
-	var heights []uint64
-	approvals.ForEach(func(_ int, v ValidatorSetApproval) {
-		heights = append(heights, v.PChainHeight)
-	})
-	require.Equal(t, []uint64{10, 20}, heights)
 }
 
 func TestValidatorSetApprovalsFilter(t *testing.T) {
