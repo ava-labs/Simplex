@@ -10,18 +10,6 @@ import (
 
 //go:generate go run github.com/StephenButtolph/canoto/canoto encoding.go
 
-// OuterBlock is the top-level encoding of a Simplex block.
-// It contains the inner block (the block built by the VM),
-// as well as metadata created by the StateMachine.
-type OuterBlock struct {
-	// InnerBlock is the block created by the VM, encoded as bytes and opaque to the StateMachine.
-	InnerBlock []byte `canoto:"bytes,1"`
-	// Metadata is created by the StateMachine.
-	Metadata StateMachineMetadata `canoto:"value,2"`
-
-	canotoData canotoData_OuterBlock
-}
-
 // StateMachineMetadata defines the metadata that the StateMachine uses to transition between epochs,
 // and maintain ICM epoch information.
 // TODO: change SimplexProtocolMetadata and SimplexBlacklist to be non-opaque types.
