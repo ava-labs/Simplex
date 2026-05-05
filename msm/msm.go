@@ -203,8 +203,8 @@ func computePrevVMBlockSeq(parentBlock StateMachineBlock, prevBlockSeq uint64) u
 }
 
 var (
-	errSignerSetShrinked          = fmt.Errorf("some signers from parent block are missing from next epoch approvals of proposed block")
-	errNextEpochApprovalsShrinked = fmt.Errorf("previous block has next epoch approvals but proposed block doesn't have next epoch approvals")
+	errSignerSetShrunk          = fmt.Errorf("some signers from parent block are missing from next epoch approvals of proposed block")
+	errNextEpochApprovalsShrunk = fmt.Errorf("previous block has next epoch approvals but proposed block doesn't have next epoch approvals")
 )
 
 func ensureNextEpochApprovalsSignersSupersetOfApprovalsOfPrevBlock(prev SimplexEpochInfo, next SimplexEpochInfo) error {
@@ -215,7 +215,7 @@ func ensureNextEpochApprovalsSignersSupersetOfApprovalsOfPrevBlock(prev SimplexE
 	// Else, prev.NextEpochApprovals is not nil.
 	// If next.NextEpochApprovals is nil, condition is not satisfied.
 	if next.NextEpochApprovals == nil {
-		return errNextEpochApprovalsShrinked
+		return errNextEpochApprovalsShrunk
 	}
 
 	// Make sure that previous signers are still there.
@@ -225,7 +225,7 @@ func ensureNextEpochApprovalsSignersSupersetOfApprovalsOfPrevBlock(prev SimplexE
 	prevSigners.Difference(&nextSigners)
 	// If we have some bits left, it means there was a bit in prevSigners that wasn't in nextSigners
 	if prevSigners.Len() > 0 {
-		return errSignerSetShrinked
+		return errSignerSetShrunk
 	}
 	return nil
 }
