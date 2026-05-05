@@ -36,26 +36,9 @@ func (smb *StateMachineBlock) Digest() [32]byte {
 	return sha256.Sum256(combined)
 }
 
-// ApprovalsRetriever retrieves the approvals from validators of the next epoch for the epoch change.
-type ApprovalsRetriever interface {
-	RetrieveApprovals() ValidatorSetApprovals
-}
-
-// SignatureVerifier verifies a cryptographic signature against a message and public key.
-// Used to verify Approvals from validators for epoch transitions.
-type SignatureVerifier interface {
-	VerifySignature(signature []byte, message []byte, publicKey []byte) error
-}
-
-// SignatureAggregator combines multiple cryptographic signatures into a single aggregated signature.
 // Used to aggregate validator signatures for epoch transitions.
 type SignatureAggregator interface {
 	AggregateSignatures(signatures ...[]byte) ([]byte, error)
-}
-
-// KeyAggregator combines multiple public keys into a single aggregated public key.
-type KeyAggregator interface {
-	AggregateKeys(keys ...[]byte) ([]byte, error)
 }
 
 // ValidatorSetRetriever retrieves the validator set at a given P-chain height.
