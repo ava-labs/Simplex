@@ -83,27 +83,27 @@ const (
 	stateBuildBlockEpochSealed
 )
 
-func identifyCurrentState(prevBlockSimplexEpochInfo SimplexEpochInfo) (state, error) {
+func identifyCurrentState(prevBlockSimplexEpochInfo SimplexEpochInfo) state {
 	// If this is the first ever epoch, then this is also the first ever block to be built by Simplex.
 	if prevBlockSimplexEpochInfo.EpochNumber == 0 {
-		return stateFirstSimplexBlock, nil
+		return stateFirstSimplexBlock
 	}
 
 	// If we don't have a next P-chain preference height, it means we are not transitioning to a new epoch just yet.
 	if prevBlockSimplexEpochInfo.NextPChainReferenceHeight == 0 {
-		return stateBuildBlockNormalOp, nil
+		return stateBuildBlockNormalOp
 	}
 
 	// If the previous block has a sealing block sequence, it's a Telock.
 	// If it has a block validation descriptor, it's a sealing block.
 	// Eithe way, the epoch has been sealed.
 	if prevBlockSimplexEpochInfo.SealingBlockSeq > 0 || prevBlockSimplexEpochInfo.BlockValidationDescriptor != nil {
-		return stateBuildBlockEpochSealed, nil
+		return stateBuildBlockEpochSealed
 	}
 
 	// In any other case, NextPChainReferenceHeight > 0 but the previous block is not a Telock or sealing block,
 	// it means we are in the process of collecting approvals for the next epoch.
-	return stateBuildCollectingApprovals, nil
+	return stateBuildCollectingApprovals
 }
 
 // computeNewApproverSignaturesAndSigners computes the signatures of the nodes that approve the next epoch including the previous aggregated signature,
