@@ -14,8 +14,8 @@ const (
 	BlockTypeNewEpoch
 )
 
-func (state BlockType) String() string {
-	switch state {
+func (bt BlockType) String() string {
+	switch bt {
 	case BlockTypeNormal:
 		return "Normal"
 	case BlockTypeTelock:
@@ -25,7 +25,7 @@ func (state BlockType) String() string {
 	case BlockTypeNewEpoch:
 		return "NewEpoch"
 	default:
-		return fmt.Sprintf("UnknownBlockType(%d)", state)
+		return fmt.Sprintf("UnknownBlockType(%d)", bt)
 	}
 }
 
