@@ -193,6 +193,7 @@ func computeTotalWeight(validators NodeBLSMappings) (int64, error) {
 	}
 	return int64(totalWeight), nil
 }
+
 func findFirstSimplexBlock(getBlock BlockRetriever, endHeight uint64) (uint64, error) {
 	var haltError error
 
