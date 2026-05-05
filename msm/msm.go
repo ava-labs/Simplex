@@ -237,12 +237,6 @@ func computePrevVMBlockSeq(parentBlock StateMachineBlock, prevBlockSeq uint64) u
 	return prevBlockSeq
 }
 
-type approvals struct {
-	canSeal   bool
-	nodeIDs   []byte
-	signature []byte
-}
-
 func ensureNextEpochApprovalsSignersSupersetOfApprovalsOfPrevBlock(prev SimplexEpochInfo, next SimplexEpochInfo) error {
 	if prev.NextEpochApprovals == nil {
 		// Condition satisifed vacuously.
