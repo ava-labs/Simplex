@@ -107,6 +107,12 @@ func computeNewApproverSignaturesAndSigners(nextEpochApprovals *NextEpochApprova
 			// This should not happen, because we have already filtered approvals that are not in the validator set, but we check just in case.
 			continue
 		}
+
+		// Check if the node has already approved in the past.
+		if newApprovingNodes.Contains(approvingNodeIndexOfNewApprover) {
+			continue
+		}
+
 		// Turn on the bit for the new approver
 		newApprovingNodes.Add(approvingNodeIndexOfNewApprover)
 		newSignatures = append(newSignatures, approval.Signature)

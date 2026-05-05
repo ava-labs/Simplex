@@ -314,6 +314,29 @@ func TestComputeNewApproverSignaturesAndSigners(t *testing.T) {
 		node2: 2,
 	}
 
+	t.Run("duplicate peer with already-approved node does not double-aggregate", func(t *testing.T) {
+		// node0 is already in the previous approvals (bit 0 set). A duplicate peer
+		// entry for node0 must not append node0's signature to the new aggregate
+		// (the prior aggregate already covers it via prevApprovals.Signature).
+		prevApprovals := &NextEpochApprovals{
+			NodeIDs:   []byte{1}, // bit 0
+			Signature: []byte("existing"),
+		}
+		oldApproving := bitmaskFromBytes([]byte{1})
+
+		peers := ValidatorSetApprovals{
+			{NodeID: node0, Signature: []byte("sig0")},
+			{NodeID: node0, Signature: []byte("sig0")},
+		}
+
+		aggSig, newApproving, err := computeNewApproverSignaturesAndSigners(prevApprovals, peers, oldApproving, nodeID2Index, concatAggregator{})
+		require.NoError(t, err)
+		require.True(t, newApproving.Contains(0))
+		require.Equal(t, 1, newApproving.Len())
+		// Only the existing aggregate should remain; node0's sig is already covered by it.
+		require.Equal(t, []byte("existing"), aggSig)
+	})
+
 	t.Run("nil approvals", func(t *testing.T) {
 		oldApproving := bitmaskFromBytes(nil)
 
