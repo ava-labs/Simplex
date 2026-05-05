@@ -328,7 +328,7 @@ func (fn *fakeNode) buildBlock() (VMBlock, *StateMachineBlock) {
 
 	fn.t.Logf("Building a block on top of %s parent with epoch %d", finalizedString, parentBlock.Metadata.SimplexEpochInfo.EpochNumber)
 
-	block, err := fn.sm.BuildBlock(context.Background(), parentBlock, simplex.ProtocolMetadata{
+	block, err := fn.sm.BuildBlock(context.Background(), simplex.ProtocolMetadata{
 		Seq:   lastMD.Seq + 1,
 		Round: lastMD.Round + 1,
 		Prev:  prevBlockDigest,

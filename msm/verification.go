@@ -67,6 +67,7 @@ type nextEpochApprovalsVerifier struct {
 	sigVerifier     SignatureVerifier
 	getValidatorSet ValidatorSetRetriever
 	keyAggregator   KeyAggregator
+	sigAggregator   SignatureAggregator
 }
 
 func (nv *nextEpochApprovalsVerifier) Verify(in verificationInput) error {
@@ -98,7 +99,7 @@ func (nv *nextEpochApprovalsVerifier) verifySealingBlock(prev SimplexEpochInfo, 
 	}
 
 	approvingNodes := bitmaskFromBytes(next.NextEpochApprovals.NodeIDs)
-	canSeal, err := canSealBlock(validators, approvingNodes)
+	canSeal, err := canSealBlock(validators, approvingNodes, nv.sigAggregator)
 	if err != nil {
 		return err
 	}
@@ -179,12 +180,12 @@ func (nv *nextEpochApprovalsVerifier) createMessageToBeVerified(prev SimplexEpoc
 func (nv *nextEpochApprovalsVerifier) aggregatePubKeysForBitmask(nodeIDsBitmask []byte, validators NodeBLSMappings) ([]byte, error) {
 	approvingNodes := bitmaskFromBytes(nodeIDsBitmask)
 	publicKeys := make([][]byte, 0, len(validators))
-	validators.ForEach(func(i int, nbm NodeBLSMapping) {
+	for i := range validators {
 		if !approvingNodes.Contains(i) {
-			return
+			continue
 		}
-		publicKeys = append(publicKeys, nbm.BLSKey)
-	})
+		publicKeys = append(publicKeys, validators[i].BLSKey)
+	}
 
 	aggPK, err := nv.keyAggregator.AggregateKeys(publicKeys...)
 	if err != nil {

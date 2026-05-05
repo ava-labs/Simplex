@@ -844,6 +844,7 @@ func TestNextEpochApprovalsVerifier(t *testing.T) {
 				sigVerifier:     tc.sigVerifier,
 				getValidatorSet: tc.getValidator,
 				keyAggregator:   tc.keyAggregator,
+				sigAggregator:   &signatureAggregator{},
 			}
 			err := v.Verify(verificationInput{
 				nextBlockType:   tc.nextBlockType,

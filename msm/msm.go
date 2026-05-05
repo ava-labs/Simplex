@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"math/big"
 	"sort"
 	"time"
 
@@ -43,6 +42,8 @@ func (smb *StateMachineBlock) Digest() [32]byte {
 // Used to aggregate validator signatures for epoch transitions.
 type SignatureAggregator interface {
 	AggregateSignatures(signatures ...[]byte) ([]byte, error)
+
+	IsQuorum(approverWeights []uint64, totalWeight uint64) bool
 }
 
 // ApprovalsRetriever retrieves the approvals from validators of the next epoch for the epoch change.
@@ -50,12 +51,10 @@ type ApprovalsRetriever interface {
 	RetrieveApprovals() ValidatorSetApprovals
 }
 
-
 // KeyAggregator combines multiple public keys into a single aggregated public key.
 type KeyAggregator interface {
 	AggregateKeys(keys ...[]byte) ([]byte, error)
 }
-
 
 // SignatureVerifier verifies a cryptographic signature against a message and public key.
 // Used to verify Approvals from validators for epoch transitions.
@@ -106,7 +105,7 @@ type StateMachine struct {
 	// BlockBuilder builds new VM blocks.
 	BlockBuilder BlockBuilder
 	// Logger is used for logging state machine operations.
-	Logger Logger
+	Logger simplex.Logger
 	// GetValidatorSet retrieves the validator set at a given P-chain height.
 	GetValidatorSet ValidatorSetRetriever
 	// GetBlock retrieves a previously built or finalized block.
@@ -140,14 +139,18 @@ const (
 	stateBuildBlockEpochSealed
 )
 
-
 // BuildBlock constructs the next block on top of the given parent block, and passes in the provided simplex metadata and blacklist.
-func (sm *StateMachine) BuildBlock(ctx context.Context, parentBlock StateMachineBlock, simplexMetadata simplex.ProtocolMetadata, simplexBlacklist *simplex.Blacklist) (*StateMachineBlock, error) {
+func (sm *StateMachine) BuildBlock(ctx context.Context, simplexMetadata simplex.ProtocolMetadata, simplexBlacklist *simplex.Blacklist) (*StateMachineBlock, error) {
 	sm.maybeInit()
 
 	// The zero sequence number is reserved for the genesis block, which should never be built.
 	if simplexMetadata.Seq == 0 {
 		return nil, fmt.Errorf("invalid ProtocolMetadata sequence number: should be > 0, got %d", simplexMetadata.Seq)
+	}
+
+	parentBlock, _, err := sm.GetBlock(RetrievingOpts{Height: simplexMetadata.Seq - 1, Digest: simplexMetadata.Prev})
+	if err != nil {
+		return nil, fmt.Errorf("failed retrieving parent block at height %d with digest %s: %w", simplexMetadata.Seq-1, simplexMetadata.Prev.String(), err)
 	}
 
 	start := time.Now()
@@ -174,10 +177,7 @@ func (sm *StateMachine) BuildBlock(ctx context.Context, parentBlock StateMachine
 
 	// In order to know where in the epoch change process we are,
 	// we identify the current state by looking at the parent block's epoch info.
-	currentState, err := identifyCurrentState(parentBlock.Metadata.SimplexEpochInfo)
-	if err != nil {
-		return nil, err
-	}
+	currentState := identifyCurrentState(parentBlock.Metadata.SimplexEpochInfo)
 
 	simplexMetadataBytes := simplexMetadata.Bytes()
 	prevBlockSeq := simplexMetadata.Seq - 1
@@ -222,10 +222,7 @@ func (sm *StateMachine) VerifyBlock(ctx context.Context, block *StateMachineBloc
 	}
 
 	prevMD := prevBlock.Metadata
-	currentState, err := identifyCurrentState(prevMD.SimplexEpochInfo)
-	if err != nil {
-		return fmt.Errorf("failed to identify previous state: %w", err)
-	}
+	currentState := identifyCurrentState(prevMD.SimplexEpochInfo)
 
 	switch currentState {
 	case stateFirstSimplexBlock:
@@ -273,6 +270,7 @@ func (sm *StateMachine) init() {
 			getValidatorSet: sm.GetValidatorSet,
 			keyAggregator:   sm.KeyAggregator,
 			sigVerifier:     sm.SignatureVerifier,
+			sigAggregator:   sm.SignatureAggregator,
 		},
 		&sealingBlockSeqVerifier{},
 	}
@@ -341,7 +339,6 @@ func identifyCurrentState(prevBlockSimplexEpochInfo SimplexEpochInfo) state {
 	return stateBuildCollectingApprovals
 }
 
-
 // buildBlockNormalOp builds a block while not trying to transition to a new epoch.
 func (sm *StateMachine) buildBlockNormalOp(ctx context.Context, parentBlock StateMachineBlock, simplexMetadata, simplexBlacklist []byte, prevBlockSeq uint64) (*StateMachineBlock, error) {
 	// Since in the previous block, we were not transitioning to a new epoch,
@@ -363,16 +360,16 @@ func (sm *StateMachine) buildBlockNormalOp(ctx context.Context, parentBlock Stat
 	var childBlock VMBlock
 
 	switch decisionToBuildBlock {
-	case blockBuildingDecisionBuildBlock, blockBuildingDecisionBuildBlockAndTransitionEpoch:
+	case decisionBuild, decisionBuildAndTransitionEpoch:
 		// If we reached here, we need to build a new block, and maybe also transition to a new epoch.
 		return sm.buildBlockAndMaybeTransitionEpoch(ctx, parentBlock, simplexMetadata, simplexBlacklist, childBlock, decisionToBuildBlock, newSimplexEpochInfo, pChainHeight)
-	case blockBuildingDecisionTransitionEpoch:
+	case decisionTransitionEpoch:
 		// If we reached here, we don't need to build an inner block, yet we need to transition to a new epoch.
 		// Initiate the epoch transition by setting the next P-chain reference height for the new epoch info,
 		// and build a block without an inner block.
 		newSimplexEpochInfo.NextPChainReferenceHeight = pChainHeight
 		return sm.wrapBlock(parentBlock, nil, newSimplexEpochInfo, pChainHeight, simplexMetadata, simplexBlacklist), nil
-	case blockBuildingDecisionContextCanceled:
+	case decisionContextCanceled:
 		return nil, ctx.Err()
 	default:
 		return nil, fmt.Errorf("unknown block building decision %d", decisionToBuildBlock)
@@ -383,10 +380,10 @@ func (sm *StateMachine) createBlockBuildingDecider(parentBlock StateMachineBlock
 	blockBuildingDecider := blockBuildingDecider{
 		logger:                   sm.Logger,
 		maxBlockBuildingWaitTime: sm.MaxBlockBuildingWaitTime,
-		pChainlistener:           sm.PChainProgressListener,
+		pChainListener:           sm.PChainProgressListener,
 		getPChainHeight:          sm.GetPChainHeight,
 		waitForPendingBlock:      sm.BlockBuilder.WaitForPendingBlock,
-		shouldTransitionEpoch: func(pChainHeight uint64) (bool, error) {
+		hasValidatorSetChanged: func(pChainHeight uint64) (bool, error) {
 			// The given pChainHeight was sampled by the caller of shouldTransitionEpoch().
 			// We compare between the current validator set, defined by the P-chain reference height in the parent block,
 			// and the new validator set defined by the given pChainHeight.
@@ -418,7 +415,7 @@ func (sm *StateMachine) buildBlockAndMaybeTransitionEpoch(ctx context.Context, p
 		return nil, err
 	}
 
-	if decisionToBuildBlock == blockBuildingDecisionBuildBlockAndTransitionEpoch {
+	if decisionToBuildBlock == decisionBuildAndTransitionEpoch {
 		// We need to also transition to a new epoch, in addition to building an inner block,
 		// so set the next P-chain reference height for the new epoch info.
 		newSimplexEpochInfo.NextPChainReferenceHeight = pChainHeight
@@ -559,7 +556,7 @@ func (sm *StateMachine) buildBlockCollectingApprovals(ctx context.Context, paren
 	nextPChainHeight := newSimplexEpochInfo.NextPChainReferenceHeight
 	prevNextEpochApprovals := parentBlock.Metadata.SimplexEpochInfo.NextEpochApprovals
 
-	newApprovals, err := computeNewApprovals(prevNextEpochApprovals, approvalsFromPeers, nextPChainHeight, sm.SignatureAggregator, validators)
+	newApprovals, err := computeNewApprovals(prevNextEpochApprovals, approvalsFromPeers, nextPChainHeight, sm.SignatureAggregator, validators, sm.SignatureAggregator)
 	if err != nil {
 		return nil, err
 	}
@@ -752,6 +749,7 @@ func computeNewApprovals(
 	pChainHeight uint64,
 	aggregator SignatureAggregator,
 	validators NodeBLSMappings,
+	sigAggr SignatureAggregator,
 ) (*approvals, error) {
 	if nextEpochApprovals == nil {
 		nextEpochApprovals = &NextEpochApprovals{}
@@ -761,9 +759,9 @@ func computeNewApprovals(
 
 	// We map each validator to its relative index in the validator set.
 	nodeID2ValidatorIndex := make(map[nodeID]int)
-	validators.ForEach(func(i int, nbm NodeBLSMapping) {
+	for i, nbm := range validators {
 		nodeID2ValidatorIndex[nbm.NodeID] = i
-	})
+	}
 
 	// We have the approvals obtained from peers, but we need to sanitize them by filtering out approvals that are not valid,
 	// such as approvals that do not agree with our candidate auxiliary info digest and P-Chain height,
@@ -778,7 +776,7 @@ func computeNewApprovals(
 
 	// we check if we have enough approvals to seal the epoch by computing the relative approval ratio,
 	// which is the ratio of the total weight of approving nodes divided by the total weight of all validators.
-	canSeal, err := canSealBlock(validators, newApprovingNodes)
+	canSeal, err := canSealBlock(validators, newApprovingNodes, sigAggr)
 	if err != nil {
 		return nil, err
 	}
@@ -834,23 +832,15 @@ func computeNewApproverSignaturesAndSigners(nextEpochApprovals *NextEpochApprova
 	return aggregatedSignature, newApprovingNodes, nil
 }
 
-func canSealBlock(validators NodeBLSMappings, newApprovingNodes bitmask) (bool, error) {
-	approvingWeight, err := computeApprovingWeight(validators, &newApprovingNodes)
+func canSealBlock(validators NodeBLSMappings, newApprovingNodes bitmask, sigAggr SignatureAggregator) (bool, error) {
+	approvingWeights := validators.ApprovingWeights(newApprovingNodes)
+
+	totalWeight, err := validators.TotalWeight()
 	if err != nil {
 		return false, err
 	}
 
-	totalWeight, err := computeTotalWeight(validators)
-	if err != nil {
-		return false, err
-	}
-
-	threshold := big.NewRat(2, 3)
-
-	approvingRatio := big.NewRat(approvingWeight, totalWeight)
-
-	canSeal := approvingRatio.Cmp(threshold) > 0
-	return canSeal, nil
+	return sigAggr.IsQuorum(approvingWeights, totalWeight), nil
 }
 
 // sanitizeApprovals filters out approvals that are not valid by checking if they agree with our candidate auxiliary info digest and P-Chain height,

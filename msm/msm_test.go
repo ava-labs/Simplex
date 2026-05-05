@@ -82,6 +82,14 @@ func (sv *signatureAggregator) AggregateSignatures(signatures ...[]byte) ([]byte
 	return bytes, nil
 }
 
+func (sv *signatureAggregator) IsQuorum(approverWeights []uint64, totalWeights uint64) bool {
+	var sum uint64
+	for _, w := range approverWeights {
+		sum += w
+	}
+	return sum*3 > totalWeights*2
+}
+
 type noOpPChainListener struct{}
 
 func (n *noOpPChainListener) WaitForProgress(ctx context.Context, _ uint64) error {
@@ -265,7 +273,7 @@ func TestMSMFirstBlockAfterGenesis(t *testing.T) {
 				testCase.configure(&sm2, testConfig2)
 			}
 
-			block, err := sm1.BuildBlock(context.Background(), genesisBlock, testCase.md, nil)
+			block, err := sm1.BuildBlock(context.Background(), testCase.md, nil)
 			require.NoError(t, err)
 			require.NotNil(t, block)
 
@@ -305,6 +313,10 @@ func TestMSMFirstSimplexBlockAfterPreSimplexBlocks(t *testing.T) {
 	sm1, testConfig1 := newStateMachine(t)
 	sm2, testConfig2 := newStateMachine(t)
 
+	testConfig1.blockStore[0] = &outerBlock{
+		block: preSimplexParent,
+	}
+
 	testConfig1.blockStore[42] = &outerBlock{block: preSimplexParent}
 	testConfig2.blockStore[42] = &outerBlock{block: preSimplexParent}
 
@@ -314,7 +326,7 @@ func TestMSMFirstSimplexBlockAfterPreSimplexBlocks(t *testing.T) {
 		Bytes:       []byte{7, 8, 9},
 	}
 
-	block, err := sm1.BuildBlock(context.Background(), preSimplexParent, md, nil)
+	block, err := sm1.BuildBlock(context.Background(), md, nil)
 	require.NoError(t, err)
 	require.NotNil(t, block)
 
@@ -488,7 +500,7 @@ func TestMSMNormalOp(t *testing.T) {
 				testCase.setup(&sm2, testConfig2)
 			}
 
-			block1, err := sm1.BuildBlock(context.Background(), lastBlock, *md, &blacklist)
+			block1, err := sm1.BuildBlock(context.Background(), *md, &blacklist)
 			require.NoError(t, err)
 			require.NotNil(t, block1)
 
@@ -603,6 +615,8 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 			sm, tc := newStateMachine(t)
 			sm.GetValidatorSet = getValidatorSet
 			sm.GetPChainHeight = getPChainHeight
+			tc.blockStore[0] = &outerBlock{block: genesis}
+			tc.blockStore[42] = &outerBlock{block: notGenesis}
 
 			smVerify, tcVerify := newStateMachine(t)
 			smVerify.GetValidatorSet = getValidatorSet
@@ -628,7 +642,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 				Prev:  testCase.firstBlockBeforeSimplex.Digest(),
 			}
 
-			block1, err := sm.BuildBlock(context.Background(), testCase.firstBlockBeforeSimplex, md, nil)
+			block1, err := sm.BuildBlock(context.Background(), md, nil)
 			require.NoError(t, err)
 			require.Equal(t, &StateMachineBlock{
 				InnerBlock: nextBlock(1),
@@ -659,7 +673,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 			// ----- Step 2: Build a normal block (no validator set change) -----
 			tc.blockBuilder.block = nextBlock(2)
 			md = simplex.ProtocolMetadata{Seq: baseSeq + 2, Round: 1, Epoch: 1, Prev: block1.Digest()}
-			block2, err := sm.BuildBlock(context.Background(), *block1, md, nil)
+			block2, err := sm.BuildBlock(context.Background(), md, nil)
 			require.NoError(t, err)
 			require.Equal(t, &StateMachineBlock{
 				InnerBlock: nextBlock(2),
@@ -684,7 +698,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 
 			tc.blockBuilder.block = nextBlock(3)
 			md = simplex.ProtocolMetadata{Seq: baseSeq + 3, Round: 2, Epoch: 1, Prev: block2.Digest()}
-			block3, err := sm.BuildBlock(context.Background(), *block2, md, nil)
+			block3, err := sm.BuildBlock(context.Background(), md, nil)
 			require.NoError(t, err)
 			require.Equal(t, &StateMachineBlock{
 				InnerBlock: nextBlock(3),
@@ -725,7 +739,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 
 			tc.blockBuilder.block = nextBlock(4)
 			md = simplex.ProtocolMetadata{Seq: baseSeq + 4, Round: 3, Epoch: 1, Prev: block3.Digest()}
-			block4, err := sm.BuildBlock(context.Background(), *block3, md, nil)
+			block4, err := sm.BuildBlock(context.Background(), md, nil)
 			require.NoError(t, err)
 			require.Equal(t, &StateMachineBlock{
 				InnerBlock: nextBlock(4),
@@ -765,7 +779,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 
 			tc.blockBuilder.block = nextBlock(5)
 			md = simplex.ProtocolMetadata{Seq: baseSeq + 5, Round: 4, Epoch: 1, Prev: block4.Digest()}
-			block5, err := sm.BuildBlock(context.Background(), *block4, md, nil)
+			block5, err := sm.BuildBlock(context.Background(), md, nil)
 			require.NoError(t, err)
 			require.Equal(t, &StateMachineBlock{
 				InnerBlock: nextBlock(5),
@@ -805,7 +819,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 
 			tc.blockBuilder.block = nextBlock(6)
 			md = simplex.ProtocolMetadata{Seq: baseSeq + 6, Round: 5, Epoch: 1, Prev: block5.Digest()}
-			block6, err := sm.BuildBlock(context.Background(), *block5, md, nil)
+			block6, err := sm.BuildBlock(context.Background(), md, nil)
 			require.NoError(t, err)
 			require.Equal(t, &StateMachineBlock{
 				InnerBlock: nextBlock(6),
@@ -874,7 +888,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 					// However, despite the fact that the block builder is willing to build a new block,
 					// a Telock shouldn't contain an inner block.
 					if tc.blockStore[sealingSeq].finalization == nil {
-						telock, err := sm.BuildBlock(context.Background(), *block6, md, nil)
+						telock, err := sm.BuildBlock(context.Background(), md, nil)
 						require.NoError(t, err)
 
 						require.Equal(t, &StateMachineBlock{
@@ -899,7 +913,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 
 					// ----- Step 7: Build a new epoch block (sealing block is finalized) -----
 
-					block7, err := sm.BuildBlock(context.Background(), *block6, md, nil)
+					block7, err := sm.BuildBlock(context.Background(), md, nil)
 					require.NoError(t, err)
 					require.Equal(t, &StateMachineBlock{
 						InnerBlock: nextBlock(7),
@@ -1016,6 +1030,7 @@ type testConfig struct {
 
 func newStateMachine(t *testing.T) (StateMachine, *testConfig) {
 	bs := make(blockStore)
+	bs[0] = &outerBlock{block: genesisBlock}
 
 	var testConfig testConfig
 	testConfig.blockStore = bs
@@ -1213,7 +1228,7 @@ func TestComputeTotalWeight(t *testing.T) {
 		}
 		total, err := validators.TotalWeight()
 		require.NoError(t, err)
-		require.Equal(t, int64(600), total)
+		require.Equal(t, uint64(600), total)
 	})
 
 	t.Run("zero total weight", func(t *testing.T) {
@@ -1237,30 +1252,26 @@ func TestComputeApprovingWeight(t *testing.T) {
 
 	t.Run("all approving", func(t *testing.T) {
 		bm := bitmaskFromBytes([]byte{7})
-		weight, err := validators.ApprovingWeight(bm)
-		require.NoError(t, err)
-		require.Equal(t, int64(600), weight)
+		weights := validators.ApprovingWeights(bm)
+		require.Equal(t, []uint64{100, 200, 300}, weights)
 	})
 
 	t.Run("partial approving", func(t *testing.T) {
 		bm := bitmaskFromBytes([]byte{5})
-		weight, err := validators.ApprovingWeight(bm)
-		require.NoError(t, err)
-		require.Equal(t, int64(400), weight)
+		weights := validators.ApprovingWeights(bm)
+		require.Equal(t, []uint64{100, 300}, weights)
 	})
 
 	t.Run("none approving", func(t *testing.T) {
 		bm := bitmaskFromBytes(nil)
-		weight, err := validators.ApprovingWeight(bm)
-		require.NoError(t, err)
-		require.Equal(t, int64(0), weight)
+		weights := validators.ApprovingWeights(bm)
+		require.Empty(t, weights)
 	})
 
 	t.Run("single validator approving", func(t *testing.T) {
 		bm := bitmaskFromBytes([]byte{2})
-		weight, err := validators.ApprovingWeight(bm)
-		require.NoError(t, err)
-		require.Equal(t, int64(200), weight)
+		weights := validators.ApprovingWeights(bm)
+		require.Equal(t, []uint64{200}, weights)
 	})
 }
 
@@ -1327,10 +1338,22 @@ func (concatAggregator) AggregateSignatures(sigs ...[]byte) ([]byte, error) {
 	return bytes.Join(sigs, nil), nil
 }
 
+func (concatAggregator) IsQuorum(approverWeights []uint64, totalWeights uint64) bool {
+	var sum uint64
+	for _, w := range approverWeights {
+		sum += w
+	}
+	return sum*3 >= totalWeights*2
+}
+
 type failingAggregator struct{}
 
 func (failingAggregator) AggregateSignatures(sigs ...[]byte) ([]byte, error) {
 	return nil, fmt.Errorf("aggregation failed")
+}
+
+func (failingAggregator) IsQuorum([]uint64, uint64) bool {
+	return false
 }
 
 func TestComputeNewApproverSignaturesAndSigners(t *testing.T) {
