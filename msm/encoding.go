@@ -5,6 +5,8 @@ package metadata
 
 import (
 	"bytes"
+	"fmt"
+	"math"
 	"slices"
 )
 
@@ -196,6 +198,26 @@ func (nea *NextEpochApprovals) Equals(other *NextEpochApprovals) bool {
 }
 
 type NodeBLSMappings []NodeBLSMapping
+
+func (nbms NodeBLSMappings) TotalWeight() (int64, error) {
+	var totalWeight uint64
+	for _, nbm := range nbms {
+		var err error
+		totalWeight, err = safeAdd(totalWeight, nbm.Weight)
+		if err != nil {
+			return 0, fmt.Errorf("failed to sum weights of all nodes: %w", err)
+		}
+	}
+
+	if totalWeight == 0 {
+		return 0, fmt.Errorf("total weight of validators is 0")
+	}
+
+	if totalWeight > math.MaxInt64 {
+		return 0, fmt.Errorf("total weight of validators is too big, overflows int64: %d", totalWeight)
+	}
+	return int64(totalWeight), nil
+}
 
 func (nbms NodeBLSMappings) Clone() NodeBLSMappings {
 	cloned := make(NodeBLSMappings, len(nbms))

@@ -180,26 +180,6 @@ func computeApprovingWeight(validators NodeBLSMappings, approvingNodes bitmask) 
 	return int64(approvingWeight), nil
 }
 
-func computeTotalWeight(validators NodeBLSMappings) (int64, error) {
-	var totalWeight uint64
-	for _, nbm := range validators {
-		var err error
-		totalWeight, err = safeAdd(totalWeight, nbm.Weight)
-		if err != nil {
-			return 0, fmt.Errorf("failed to sum weights of all nodes: %w", err)
-		}
-	}
-
-	if totalWeight == 0 {
-		return 0, fmt.Errorf("total weight of validators is 0")
-	}
-
-	if totalWeight > math.MaxInt64 {
-		return 0, fmt.Errorf("total weight of validators is too big, overflows int64: %d", totalWeight)
-	}
-	return int64(totalWeight), nil
-}
-
 func findFirstSimplexBlock(getBlock BlockRetriever, endHeight uint64) (uint64, error) {
 	var haltError error
 
