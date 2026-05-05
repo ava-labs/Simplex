@@ -143,7 +143,7 @@ func sanitizeApprovals(approvals ValidatorSetApprovals, pChainHeight uint64, nod
 
 func approvalsThatAgreeWithAuxInfoAndPChainHeight(pChainHeight uint64) func(i int, approval ValidatorSetApproval) bool {
 	return func(i int, approval ValidatorSetApproval) bool {
-		// Pick only approvals that agree with our candidate auxiliary info digest and P-Chain height
+		// Pick only approvals that agree with our P-Chain height
 		return approval.PChainHeight == pChainHeight
 	}
 }

@@ -190,19 +190,19 @@ func TestComputeTotalWeight(t *testing.T) {
 			{Weight: 200},
 			{Weight: 300},
 		}
-		total, err := computeTotalWeight(validators)
+		total, err := validators.TotalWeight()
 		require.NoError(t, err)
 		require.Equal(t, int64(600), total)
 	})
 
 	t.Run("zero total weight", func(t *testing.T) {
 		validators := NodeBLSMappings{{Weight: 0}}
-		_, err := computeTotalWeight(validators)
+		_, err := validators.TotalWeight()
 		require.ErrorContains(t, err, "total weight of validators is 0")
 	})
 
 	t.Run("empty validators", func(t *testing.T) {
-		_, err := computeTotalWeight(NodeBLSMappings{})
+		_, err := NodeBLSMappings{}.TotalWeight()
 		require.ErrorContains(t, err, "total weight of validators is 0")
 	})
 }
@@ -216,28 +216,28 @@ func TestComputeApprovingWeight(t *testing.T) {
 
 	t.Run("all approving", func(t *testing.T) {
 		bm := bitmaskFromBytes([]byte{7})
-		weight, err := computeApprovingWeight(validators, bm)
+		weight, err := validators.ApprovingWeight(bm)
 		require.NoError(t, err)
 		require.Equal(t, int64(600), weight)
 	})
 
 	t.Run("partial approving", func(t *testing.T) {
 		bm := bitmaskFromBytes([]byte{5})
-		weight, err := computeApprovingWeight(validators, bm)
+		weight, err := validators.ApprovingWeight(bm)
 		require.NoError(t, err)
 		require.Equal(t, int64(400), weight)
 	})
 
 	t.Run("none approving", func(t *testing.T) {
 		bm := bitmaskFromBytes(nil)
-		weight, err := computeApprovingWeight(validators, bm)
+		weight, err := validators.ApprovingWeight(bm)
 		require.NoError(t, err)
 		require.Equal(t, int64(0), weight)
 	})
 
 	t.Run("single validator approving", func(t *testing.T) {
 		bm := bitmaskFromBytes([]byte{2})
-		weight, err := computeApprovingWeight(validators, bm)
+		weight, err := validators.ApprovingWeight(bm)
 		require.NoError(t, err)
 		require.Equal(t, int64(200), weight)
 	})
