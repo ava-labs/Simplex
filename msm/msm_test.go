@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"math"
 	"testing"
 	"time"
 
@@ -129,6 +130,14 @@ func TestComputePrevVMBlockSeq(t *testing.T) {
 }
 
 func TestFindFirstSimplexBlock(t *testing.T) {
+	t.Run("endHeight too big", func(t *testing.T) {
+		getBlock := func(opts RetrievingOpts) (StateMachineBlock, *simplex.Finalization, error) {
+			return StateMachineBlock{}, nil, nil
+		}
+		_, err := findFirstSimplexBlock(getBlock, math.MaxUint64)
+		require.ErrorContains(t, err, fmt.Sprintf(" is too big, must be at most %d", math.MaxInt64-1))
+	})
+
 	t.Run("found at height 3", func(t *testing.T) {
 		getBlock := func(opts RetrievingOpts) (StateMachineBlock, *simplex.Finalization, error) {
 			if opts.Height < 3 {

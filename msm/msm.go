@@ -203,9 +203,8 @@ func computeTotalWeight(validators NodeBLSMappings) (int64, error) {
 func findFirstSimplexBlock(getBlock BlockRetriever, endHeight uint64) (uint64, error) {
 	var haltError error
 
-	// Make sure the bound passed to sort.Search is valid, to avoid illegal input caused by overflow.
-	if endHeight >= math.MaxInt {
-		endHeight = math.MaxInt - 1
+	if endHeight > math.MaxInt-1 {
+		return 0, fmt.Errorf("endHeight %d is too big, must be at most %d", endHeight, math.MaxInt-1)
 	}
 
 	firstSimplexBlock := sort.Search(int(endHeight+1), func(i int) bool {
@@ -244,7 +243,7 @@ func computePrevVMBlockSeq(parentBlock StateMachineBlock, prevBlockSeq uint64) u
 }
 
 var (
-	errSignerSetShrinked = fmt.Errorf("some signers from parent block are missing from next epoch approvals of proposed block")
+	errSignerSetShrinked          = fmt.Errorf("some signers from parent block are missing from next epoch approvals of proposed block")
 	errNextEpochApprovalsShrinked = fmt.Errorf("previous block has next epoch approvals but proposed block doesn't have next epoch approvals")
 )
 
