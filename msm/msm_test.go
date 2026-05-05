@@ -24,29 +24,6 @@ func (f *fakeVMBlock) Height() uint64                 { return f.height }
 func (f *fakeVMBlock) Timestamp() time.Time           { return time.Time{} }
 func (f *fakeVMBlock) Verify(_ context.Context) error { return nil }
 
-type outerBlock struct {
-	finalization *simplex.Finalization
-	block        StateMachineBlock
-}
-
-type blockStore map[uint64]*outerBlock
-
-func (bs blockStore) clone() blockStore {
-	newStore := make(blockStore)
-	for k, v := range bs {
-		newStore[k] = v
-	}
-	return newStore
-}
-
-func (bs blockStore) getBlock(opts RetrievingOpts) (StateMachineBlock, *simplex.Finalization, error) {
-	blk, exits := bs[opts.Height]
-	if !exits {
-		return StateMachineBlock{}, nil, fmt.Errorf("%w: block %d not found", simplex.ErrBlockNotFound, opts.Height)
-	}
-	return blk.block, blk.finalization, nil
-}
-
 func TestIdentifyCurrentState(t *testing.T) {
 	bvd := &BlockValidationDescriptor{}
 	for _, tc := range []struct {
