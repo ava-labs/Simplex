@@ -219,6 +219,26 @@ func (nbms NodeBLSMappings) TotalWeight() (int64, error) {
 	return int64(totalWeight), nil
 }
 
+func (nbms NodeBLSMappings) ApprovingWeight(approvingNodes bitmask) (int64, error) {
+	var approvingWeight uint64
+	for i, nbm := range nbms {
+		if !approvingNodes.Contains(i) {
+			continue
+		}
+		var err error
+		approvingWeight, err = safeAdd(approvingWeight, nbm.Weight)
+		if err != nil {
+			return 0, fmt.Errorf("failed to compute approving weights: %w", err)
+		}
+	}
+
+	if approvingWeight > math.MaxInt64 {
+		return 0, fmt.Errorf("approving weight of validators is too big, overflows int64: %d", approvingWeight)
+	}
+
+	return int64(approvingWeight), nil
+}
+
 func (nbms NodeBLSMappings) Clone() NodeBLSMappings {
 	cloned := make(NodeBLSMappings, len(nbms))
 	for i, nbm := range nbms {

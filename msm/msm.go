@@ -160,26 +160,6 @@ func approvalsThatAreInValidatorSetAndHaveNotAlreadyApproved(oldApprovingNodes b
 	}
 }
 
-func computeApprovingWeight(validators NodeBLSMappings, approvingNodes bitmask) (int64, error) {
-	var approvingWeight uint64
-	for i, nbm := range validators {
-		if !approvingNodes.Contains(i) {
-			continue
-		}
-		var err error
-		approvingWeight, err = safeAdd(approvingWeight, nbm.Weight)
-		if err != nil {
-			return 0, fmt.Errorf("failed to compute approving weights: %w", err)
-		}
-	}
-
-	if approvingWeight > math.MaxInt64 {
-		return 0, fmt.Errorf("approving weight of validators is too big, overflows int64: %d", approvingWeight)
-	}
-
-	return int64(approvingWeight), nil
-}
-
 func findFirstSimplexBlock(getBlock BlockRetriever, endHeight uint64) (uint64, error) {
 	var haltError error
 
