@@ -199,7 +199,7 @@ func (nea *NextEpochApprovals) Equals(other *NextEpochApprovals) bool {
 
 type NodeBLSMappings []NodeBLSMapping
 
-func (nbms NodeBLSMappings) TotalWeight() (int64, error) {
+func (nbms NodeBLSMappings) TotalWeight() (uint64, error) {
 	var totalWeight uint64
 	for _, nbm := range nbms {
 		var err error
@@ -216,27 +216,19 @@ func (nbms NodeBLSMappings) TotalWeight() (int64, error) {
 	if totalWeight > math.MaxInt64 {
 		return 0, fmt.Errorf("total weight of validators is too big, overflows int64: %d", totalWeight)
 	}
-	return int64(totalWeight), nil
+	return totalWeight, nil
 }
 
-func (nbms NodeBLSMappings) ApprovingWeight(approvingNodes bitmask) (int64, error) {
-	var approvingWeight uint64
+func (nbms NodeBLSMappings) ApprovingWeights(approvingNodes bitmask) []uint64 {
+	approvingWeights := make([]uint64, 0, len(nbms))
 	for i, nbm := range nbms {
 		if !approvingNodes.Contains(i) {
 			continue
 		}
-		var err error
-		approvingWeight, err = safeAdd(approvingWeight, nbm.Weight)
-		if err != nil {
-			return 0, fmt.Errorf("failed to compute approving weights: %w", err)
-		}
+		approvingWeights = append(approvingWeights, nbm.Weight)
 	}
 
-	if approvingWeight > math.MaxInt64 {
-		return 0, fmt.Errorf("approving weight of validators is too big, overflows int64: %d", approvingWeight)
-	}
-
-	return int64(approvingWeight), nil
+	return approvingWeights
 }
 
 func (nbms NodeBLSMappings) Clone() NodeBLSMappings {
