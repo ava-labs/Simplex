@@ -69,7 +69,7 @@ func TestAreNextEpochApprovalsSignersSupersetOfApprovalsOfPrevBlock(t *testing.T
 		name string
 		prev SimplexEpochInfo
 		next SimplexEpochInfo
-		err  string
+		err  error
 	}{
 		{
 			name: "prev has nil approvals",
@@ -90,19 +90,19 @@ func TestAreNextEpochApprovalsSignersSupersetOfApprovalsOfPrevBlock(t *testing.T
 			name: "next is missing a signer from prev",
 			prev: SimplexEpochInfo{NextEpochApprovals: &NextEpochApprovals{NodeIDs: []byte{3}}},
 			next: SimplexEpochInfo{NextEpochApprovals: &NextEpochApprovals{NodeIDs: []byte{1}}},
-			err:  "some signers from parent block are missing",
+			err:  errSignerSetShrinked,
 		},
 		{
 			name: "prev has approvals but next has nil approvals",
 			prev: SimplexEpochInfo{NextEpochApprovals: &NextEpochApprovals{NodeIDs: []byte{1}}},
 			next: SimplexEpochInfo{},
-			err:  "previous block has next epoch approvals but proposed block doesn't have next epoch approvals",
+			err:  errNextEpochApprovalsShrinked,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			err := ensureNextEpochApprovalsSignersSupersetOfApprovalsOfPrevBlock(tc.prev, tc.next)
-			if tc.err != "" {
-				require.ErrorContains(t, err, tc.err)
+			if tc.err != nil {
+				require.ErrorIs(t, err, tc.err)
 			} else {
 				require.NoError(t, err)
 			}
