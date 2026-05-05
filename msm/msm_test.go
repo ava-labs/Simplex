@@ -208,28 +208,28 @@ func TestComputeApprovingWeight(t *testing.T) {
 
 	t.Run("all approving", func(t *testing.T) {
 		bm := bitmaskFromBytes([]byte{7})
-		weight, err := computeApprovingWeight(validators, &bm)
+		weight, err := computeApprovingWeight(validators, bm)
 		require.NoError(t, err)
 		require.Equal(t, int64(600), weight)
 	})
 
 	t.Run("partial approving", func(t *testing.T) {
 		bm := bitmaskFromBytes([]byte{5})
-		weight, err := computeApprovingWeight(validators, &bm)
+		weight, err := computeApprovingWeight(validators, bm)
 		require.NoError(t, err)
 		require.Equal(t, int64(400), weight)
 	})
 
 	t.Run("none approving", func(t *testing.T) {
 		bm := bitmaskFromBytes(nil)
-		weight, err := computeApprovingWeight(validators, &bm)
+		weight, err := computeApprovingWeight(validators, bm)
 		require.NoError(t, err)
 		require.Equal(t, int64(0), weight)
 	})
 
 	t.Run("single validator approving", func(t *testing.T) {
 		bm := bitmaskFromBytes([]byte{2})
-		weight, err := computeApprovingWeight(validators, &bm)
+		weight, err := computeApprovingWeight(validators, bm)
 		require.NoError(t, err)
 		require.Equal(t, int64(200), weight)
 	})
@@ -314,6 +314,18 @@ func TestComputeNewApproverSignaturesAndSigners(t *testing.T) {
 		node1: 1,
 		node2: 2,
 	}
+
+	t.Run("nil approvals", func(t *testing.T) {
+		oldApproving := bitmaskFromBytes(nil)
+
+		peers := ValidatorSetApprovals{
+			{NodeID: node0, Signature: []byte("sig0")},
+			{NodeID: node1, Signature: []byte("sig1")},
+		}
+
+		_, _, err := computeNewApproverSignaturesAndSigners(nil, peers, oldApproving, nodeID2Index, concatAggregator{})
+		require.Error(t, err)
+	})
 
 	t.Run("new approvals with no previous", func(t *testing.T) {
 		prevApprovals := &NextEpochApprovals{}

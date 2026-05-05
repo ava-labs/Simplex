@@ -109,6 +109,9 @@ func identifyCurrentState(prevBlockSimplexEpochInfo SimplexEpochInfo) (state, er
 // computeNewApproverSignaturesAndSigners computes the signatures of the nodes that approve the next epoch including the previous aggregated signature,
 // and bitmask of nodes that correspond to those signatures, and aggregates all signatures together.
 func computeNewApproverSignaturesAndSigners(nextEpochApprovals *NextEpochApprovals, approvalsFromPeers ValidatorSetApprovals, oldApprovingNodes bitmask, nodeID2ValidatorIndex map[nodeID]int, aggregator SignatureAggregator) ([]byte, bitmask, error) {
+	if nextEpochApprovals == nil {
+		return nil, bitmask{}, fmt.Errorf("next epoch approvals is nil")
+	}
 	// Prepare the new signatures from the new approvals that haven't approved yet and that agree with our candidate auxiliary info digest and P-Chain height.
 	newSignatures := make([][]byte, 0, len(approvalsFromPeers)+1)
 
@@ -138,7 +141,7 @@ func computeNewApproverSignaturesAndSigners(nextEpochApprovals *NextEpochApprova
 		return nil, bitmask{}, fmt.Errorf("failed to aggregate signatures: %w", err)
 	}
 
-	return aggregatedSignature, *newApprovingNodes, nil
+	return aggregatedSignature, newApprovingNodes, nil
 }
 
 // sanitizeApprovals filters out approvals that are not valid by checking if they agree with our candidate auxiliary info digest and P-Chain height,
@@ -156,7 +159,7 @@ func approvalsThatAgreeWithAuxInfoAndPChainHeight(pChainHeight uint64) func(i in
 	}
 }
 
-func approvalsThatAreInValidatorSetAndHaveNotAlreadyApproved(oldApprovingNodes *bitmask, nodeID2ValidatorIndex map[nodeID]int) func(i int, approval ValidatorSetApproval) bool {
+func approvalsThatAreInValidatorSetAndHaveNotAlreadyApproved(oldApprovingNodes bitmask, nodeID2ValidatorIndex map[nodeID]int) func(i int, approval ValidatorSetApproval) bool {
 	return func(i int, approval ValidatorSetApproval) bool {
 		approvingNodeIndexOfNewApprover, exists := nodeID2ValidatorIndex[approval.NodeID]
 		if !exists {
@@ -168,7 +171,7 @@ func approvalsThatAreInValidatorSetAndHaveNotAlreadyApproved(oldApprovingNodes *
 	}
 }
 
-func computeApprovingWeight(validators NodeBLSMappings, approvingNodes *bitmask) (int64, error) {
+func computeApprovingWeight(validators NodeBLSMappings, approvingNodes bitmask) (int64, error) {
 	var approvingWeight uint64
 	for i, nbm := range validators {
 		if !approvingNodes.Contains(i) {

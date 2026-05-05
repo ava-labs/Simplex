@@ -56,10 +56,10 @@ func (bm *bitmask) Bytes() []byte {
 	return (*big.Int)(bm).Bytes()
 }
 
-func (bm *bitmask) Clone() *bitmask {
+func (bm *bitmask) Clone() bitmask {
 	var newBM bitmask
 	(*big.Int)(&newBM).Set((*big.Int)(bm))
-	return &newBM
+	return newBM
 }
 
 func (bm *bitmask) Contains(i int) bool {
