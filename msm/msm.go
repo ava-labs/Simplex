@@ -79,7 +79,7 @@ func identifyCurrentState(prevBlockSimplexEpochInfo SimplexEpochInfo) state {
 
 	// If the previous block has a sealing block sequence, it's a Telock.
 	// If it has a block validation descriptor, it's a sealing block.
-	// Eithe way, the epoch has been sealed.
+	// Either way, the epoch has been sealed.
 	if prevBlockSimplexEpochInfo.SealingBlockSeq > 0 || prevBlockSimplexEpochInfo.BlockValidationDescriptor != nil {
 		return stateBuildBlockEpochSealed
 	}
@@ -245,7 +245,7 @@ type approvals struct {
 
 func ensureNextEpochApprovalsSignersSupersetOfApprovalsOfPrevBlock(prev SimplexEpochInfo, next SimplexEpochInfo) error {
 	if prev.NextEpochApprovals == nil {
-		// Condition satisifed vacously.
+		// Condition satisifed vacuously.
 		return nil
 	}
 	// Else, prev.NextEpochApprovals is not nil.
