@@ -51,3 +51,14 @@ func (nodes NodeIDs) IndexOf(id NodeID) int {
 	}
 	return -1
 }
+
+func (nodes NodeIDs) EqualWeightedNodeWeights() NodeWeights {
+	weights := make(NodeWeights, len(nodes))
+	for i, node := range nodes {
+		weights[i] = NodeWeight{
+			Node:     node,
+			Weight: 1,
+		}
+	}
+	return weights
+}

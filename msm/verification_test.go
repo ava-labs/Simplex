@@ -841,10 +841,10 @@ func TestNextEpochApprovalsVerifier(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			v := &nextEpochApprovalsVerifier{
-				sigVerifier:     tc.sigVerifier,
-				getValidatorSet: tc.getValidator,
-				keyAggregator:   tc.keyAggregator,
-				sigAggregator:   &signatureAggregator{},
+				sigVerifier:          tc.sigVerifier,
+				getValidatorSet:      tc.getValidator,
+				keyAggregator:        tc.keyAggregator,
+				sigAggregatorCreator: newSignatureAggregatorCreator(),
 			}
 			err := v.Verify(verificationInput{
 				nextBlockType:   tc.nextBlockType,

@@ -39,13 +39,6 @@ func (smb *StateMachineBlock) Digest() [32]byte {
 	return sha256.Sum256(combined)
 }
 
-// Used to aggregate validator signatures for epoch transitions.
-type SignatureAggregator interface {
-	AggregateSignatures(signatures ...[]byte) ([]byte, error)
-
-	IsQuorum(approverWeights []uint64, totalWeight uint64) bool
-}
-
 // ApprovalsRetriever retrieves the approvals from validators of the next epoch for the epoch change.
 type ApprovalsRetriever interface {
 	RetrieveApprovals() ValidatorSetApprovals
@@ -104,8 +97,8 @@ type StateMachine struct {
 	GetBlock BlockRetriever
 	// ApprovalsRetriever retrieves validator approvals for epoch transitions.
 	ApprovalsRetriever ApprovalsRetriever
-	// SignatureAggregator aggregates signatures from validators.
-	SignatureAggregator SignatureAggregator
+	// SignatureAggregatorCreator creates a new SignatureAggregator for aggregating validator signatures for epoch transitions.
+	SignatureAggregatorCreator simplex.SignatureAggregatorCreator
 	// KeyAggregator aggregates public keys from validators.
 	KeyAggregator KeyAggregator
 	// SignatureVerifier verifies signatures from validators.
@@ -262,7 +255,7 @@ func (sm *StateMachine) init() {
 			getValidatorSet: sm.GetValidatorSet,
 			keyAggregator:   sm.KeyAggregator,
 			sigVerifier:     sm.SignatureVerifier,
-			sigAggregator:   sm.SignatureAggregator,
+			sigAggregatorCreator:   sm.SignatureAggregatorCreator,
 		},
 		&sealingBlockSeqVerifier{},
 	}
@@ -548,7 +541,9 @@ func (sm *StateMachine) buildBlockCollectingApprovals(ctx context.Context, paren
 	nextPChainHeight := newSimplexEpochInfo.NextPChainReferenceHeight
 	prevNextEpochApprovals := parentBlock.Metadata.SimplexEpochInfo.NextEpochApprovals
 
-	newApprovals, err := computeNewApprovals(prevNextEpochApprovals, approvalsFromPeers, nextPChainHeight, sm.SignatureAggregator, validators, sm.SignatureAggregator)
+	sigAggr := sm.SignatureAggregatorCreator(validators.NodeWeights())
+
+	newApprovals, err := computeNewApprovals(prevNextEpochApprovals, approvalsFromPeers, nextPChainHeight, sigAggr, validators)
 	if err != nil {
 		return nil, err
 	}
@@ -567,8 +562,11 @@ func (sm *StateMachine) buildBlockCollectingApprovals(ctx context.Context, paren
 	// in which case we just carry over the approvals we have so far to the next block,
 	// so that eventually we'll have enough approvals to seal the epoch.
 	if !newApprovals.canSeal {
+		sm.Logger.Debug("Not enough approvals to seal epoch, building block without sealing the epoch",)
 		return sm.buildBlockImpatiently(ctx, parentBlock, simplexMetadata, simplexBlacklist, newSimplexEpochInfo, pChainHeight)
 	}
+
+	sm.Logger.Debug("Have enough approvals to seal epoch, building sealing block")
 
 	// Else, we have enough approvals to seal the epoch, so we create the sealing block.
 	return sm.createSealingBlock(ctx, parentBlock, simplexMetadata, simplexBlacklist, newSimplexEpochInfo, newApprovals, pChainHeight)
@@ -739,9 +737,8 @@ func computeNewApprovals(
 	nextEpochApprovals *NextEpochApprovals,
 	approvalsFromPeers ValidatorSetApprovals,
 	pChainHeight uint64,
-	aggregator SignatureAggregator,
+	sigAggr simplex.SignatureAggregator,
 	validators NodeBLSMappings,
-	sigAggr SignatureAggregator,
 ) (*approvals, error) {
 	if nextEpochApprovals == nil {
 		nextEpochApprovals = &NextEpochApprovals{}
@@ -761,17 +758,14 @@ func computeNewApprovals(
 	approvalsFromPeers = sanitizeApprovals(approvalsFromPeers, pChainHeight, nodeID2ValidatorIndex, oldApprovingNodes)
 
 	// Next we aggregate both previous and new approvals to compute the new aggregated signatures and the new bitmask of approving nodes.
-	aggregatedSignature, newApprovingNodes, err := computeNewApproverSignaturesAndSigners(nextEpochApprovals, approvalsFromPeers, oldApprovingNodes, nodeID2ValidatorIndex, aggregator)
+	aggregatedSignature, newApprovingNodes, err := computeNewApproverSignaturesAndSigners(nextEpochApprovals, approvalsFromPeers, oldApprovingNodes, nodeID2ValidatorIndex, sigAggr)
 	if err != nil {
 		return nil, err
 	}
 
 	// we check if we have enough approvals to seal the epoch by computing the relative approval ratio,
 	// which is the ratio of the total weight of approving nodes divided by the total weight of all validators.
-	canSeal, err := canSealBlock(validators, newApprovingNodes, sigAggr)
-	if err != nil {
-		return nil, err
-	}
+	canSeal := sigAggr.IsQuorum(validators.SelectSubset(newApprovingNodes))
 
 	return &approvals{
 		canSeal:   canSeal,
@@ -782,7 +776,7 @@ func computeNewApprovals(
 
 // computeNewApproverSignaturesAndSigners computes the signatures of the nodes that approve the next epoch including the previous aggregated signature,
 // and bitmask of nodes that correspond to those signatures, and aggregates all signatures together.
-func computeNewApproverSignaturesAndSigners(nextEpochApprovals *NextEpochApprovals, approvalsFromPeers ValidatorSetApprovals, oldApprovingNodes bitmask, nodeID2ValidatorIndex map[nodeID]int, aggregator SignatureAggregator) ([]byte, bitmask, error) {
+func computeNewApproverSignaturesAndSigners(nextEpochApprovals *NextEpochApprovals, approvalsFromPeers ValidatorSetApprovals, oldApprovingNodes bitmask, nodeID2ValidatorIndex map[nodeID]int, sigAggr simplex.SignatureAggregator) ([]byte, bitmask, error) {
 	if nextEpochApprovals == nil {
 		return nil, bitmask{}, fmt.Errorf("next epoch approvals is nil")
 	}
@@ -811,28 +805,14 @@ func computeNewApproverSignaturesAndSigners(nextEpochApprovals *NextEpochApprova
 
 	// Add the existing signature into the list of signatures to aggregate
 	existingSignature := nextEpochApprovals.Signature
-	if existingSignature != nil {
-		newSignatures = append(newSignatures, existingSignature)
-	}
 
 	// Finally, we aggregate all signatures together, to compute the new aggregated signature.
-	aggregatedSignature, err := aggregator.AggregateSignatures(newSignatures...)
+	aggregatedSignature, err := sigAggr.AppendSignatures(existingSignature, newSignatures...)
 	if err != nil {
 		return nil, bitmask{}, fmt.Errorf("failed to aggregate signatures: %w", err)
 	}
 
 	return aggregatedSignature, newApprovingNodes, nil
-}
-
-func canSealBlock(validators NodeBLSMappings, newApprovingNodes bitmask, sigAggr SignatureAggregator) (bool, error) {
-	approvingWeights := validators.ApprovingWeights(newApprovingNodes)
-
-	totalWeight, err := validators.TotalWeight()
-	if err != nil {
-		return false, err
-	}
-
-	return sigAggr.IsQuorum(approvingWeights, totalWeight), nil
 }
 
 // sanitizeApprovals filters out approvals that are not valid by checking if they agree with our candidate auxiliary info digest and P-Chain height,

@@ -465,8 +465,8 @@ func TestComputeBlacklistUpdates(t *testing.T) {
 func TestAdvanceRound(t *testing.T) {
 	nodes := []uint16{0, 1, 2, 3}
 
-	// Nodes 0, 2 are suspected.
-	// Nodes 1 and 3 are not suspected.
+	// NodesIDs 0, 2 are suspected.
+	// NodesIDs 1 and 3 are not suspected.
 	// Node 2 can be redeemed.
 	suspectedNodesBefore := SuspectedNodes{
 		{NodeIndex: 0, SuspectingCount: 2, OrbitSuspected: 1, RedeemingCount: 1, OrbitToRedeem: 1},

@@ -67,7 +67,7 @@ type nextEpochApprovalsVerifier struct {
 	sigVerifier     SignatureVerifier
 	getValidatorSet ValidatorSetRetriever
 	keyAggregator   KeyAggregator
-	sigAggregator   SignatureAggregator
+	sigAggregatorCreator   simplex.SignatureAggregatorCreator
 }
 
 func (nv *nextEpochApprovalsVerifier) Verify(in verificationInput) error {
@@ -99,10 +99,8 @@ func (nv *nextEpochApprovalsVerifier) verifySealingBlock(prev SimplexEpochInfo, 
 	}
 
 	approvingNodes := bitmaskFromBytes(next.NextEpochApprovals.NodeIDs)
-	canSeal, err := canSealBlock(validators, approvingNodes, nv.sigAggregator)
-	if err != nil {
-		return err
-	}
+	sigAggr := nv.sigAggregatorCreator(validators.NodeWeights())
+	canSeal := sigAggr.IsQuorum(validators.SelectSubset(approvingNodes))
 
 	if !canSeal {
 		return fmt.Errorf("not enough approvals to seal block")

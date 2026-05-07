@@ -9,6 +9,7 @@ import (
 	"crypto/rand"
 	"encoding/asn1"
 	"fmt"
+	"maps"
 	"math"
 	"testing"
 	"time"
@@ -37,9 +38,7 @@ type blockStore map[uint64]*outerBlock
 
 func (bs blockStore) clone() blockStore {
 	newStore := make(blockStore)
-	for k, v := range bs {
-		newStore[k] = v
-	}
+	maps.Copy(newStore, bs)
 	return newStore
 }
 
@@ -68,26 +67,44 @@ func (sv *signatureVerifier) VerifySignature(signature []byte, message []byte, p
 }
 
 type signatureAggregator struct {
+	weightByNodeID map[string]uint64
+	totalWeight    uint64
 }
 
 type aggregatrdSignature struct {
 	Signatures [][]byte
 }
 
-func (sv *signatureAggregator) AggregateSignatures(signatures ...[]byte) ([]byte, error) {
-	bytes, err := asn1.Marshal(aggregatrdSignature{Signatures: signatures})
-	if err != nil {
-		return nil, err
-	}
-	return bytes, nil
+func (sv *signatureAggregator) Aggregate([]simplex.Signature) (simplex.QuorumCertificate, error) {
+	panic("unused in tests")
 }
 
-func (sv *signatureAggregator) IsQuorum(approverWeights []uint64, totalWeights uint64) bool {
-	var sum uint64
-	for _, w := range approverWeights {
-		sum += w
+func (sv *signatureAggregator) AppendSignatures(existing []byte, sigs ...[]byte) ([]byte, error) {
+	all := make([][]byte, 0, len(sigs)+1)
+	all = append(all, sigs...)
+	if len(existing) > 0 {
+		all = append(all, existing)
 	}
-	return sum*3 > totalWeights*2
+	return asn1.Marshal(aggregatrdSignature{Signatures: all})
+}
+
+func (sv *signatureAggregator) IsQuorum(signers []simplex.NodeID) bool {
+	var sum uint64
+	for _, signer := range signers {
+		sum += sv.weightByNodeID[string(signer)]
+	}
+	return sum*3 > sv.totalWeight*2
+}
+
+func newSignatureAggregatorCreator() simplex.SignatureAggregatorCreator {
+	return func(weights []simplex.NodeWeight) simplex.SignatureAggregator {
+		s := &signatureAggregator{weightByNodeID: make(map[string]uint64, len(weights))}
+		for _, nw := range weights {
+			s.weightByNodeID[string(nw.Node)] = nw.Weight
+			s.totalWeight += nw.Weight
+		}
+		return s
+	}
 }
 
 type noOpPChainListener struct{}
@@ -147,7 +164,7 @@ var (
 
 func TestMSMFirstBlockAfterGenesis(t *testing.T) {
 	validMD := simplex.ProtocolMetadata{
-		Round: 0,
+		Round: 1,
 		Seq:   1,
 		Epoch: 1,
 		Prev:  genesisBlock.Digest(),
@@ -734,7 +751,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 
 			// node1 is at index 0 in validatorSet2 → bitmask bit 0 → {1}
 			bitmask := []byte{1}
-			sig, err := aggr.AggregateSignatures([]byte("sig1"))
+			sig, err := aggr.AppendSignatures(nil, []byte("sig1"))
 			require.NoError(t, err)
 
 			tc.blockBuilder.block = nextBlock(4)
@@ -773,7 +790,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 			}
 
 			// node2 is at index 1 → bitmask bits 0,1 → {3}
-			sig, err = aggr.AggregateSignatures([]byte("sig2"), sig)
+			sig, err = aggr.AppendSignatures(sig, []byte("sig2"))
 			require.NoError(t, err)
 			bitmask = []byte{3}
 
@@ -813,7 +830,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 			}
 
 			// node3 is at index 2 → bitmask bits 0,1,2 → {7}
-			sig6, err := aggr.AggregateSignatures([]byte("sig3"), sig)
+			sig6, err := aggr.AppendSignatures(sig, []byte("sig3"))
 			require.NoError(t, err)
 			bitmask = []byte{7}
 
@@ -1046,7 +1063,7 @@ func newStateMachine(t *testing.T) (StateMachine, *testConfig) {
 		MaxBlockBuildingWaitTime: time.Second,
 		ApprovalsRetriever:       &testConfig.approvalsRetriever,
 		SignatureVerifier:        &testConfig.signatureVerifier,
-		SignatureAggregator:      &testConfig.signatureAggregator,
+		SignatureAggregatorCreator: newSignatureAggregatorCreator(),
 		BlockBuilder:             &testConfig.blockBuilder,
 		KeyAggregator:            &testConfig.keyAggregator,
 		GetPChainHeight: func() uint64 {
@@ -1219,62 +1236,6 @@ func TestFindFirstSimplexBlock(t *testing.T) {
 	})
 }
 
-func TestComputeTotalWeight(t *testing.T) {
-	t.Run("valid weights", func(t *testing.T) {
-		validators := NodeBLSMappings{
-			{Weight: 100},
-			{Weight: 200},
-			{Weight: 300},
-		}
-		total, err := validators.TotalWeight()
-		require.NoError(t, err)
-		require.Equal(t, uint64(600), total)
-	})
-
-	t.Run("zero total weight", func(t *testing.T) {
-		validators := NodeBLSMappings{{Weight: 0}}
-		_, err := validators.TotalWeight()
-		require.ErrorContains(t, err, "total weight of validators is 0")
-	})
-
-	t.Run("empty validators", func(t *testing.T) {
-		_, err := NodeBLSMappings{}.TotalWeight()
-		require.ErrorContains(t, err, "total weight of validators is 0")
-	})
-}
-
-func TestComputeApprovingWeight(t *testing.T) {
-	validators := NodeBLSMappings{
-		{Weight: 100},
-		{Weight: 200},
-		{Weight: 300},
-	}
-
-	t.Run("all approving", func(t *testing.T) {
-		bm := bitmaskFromBytes([]byte{7})
-		weights := validators.ApprovingWeights(bm)
-		require.Equal(t, []uint64{100, 200, 300}, weights)
-	})
-
-	t.Run("partial approving", func(t *testing.T) {
-		bm := bitmaskFromBytes([]byte{5})
-		weights := validators.ApprovingWeights(bm)
-		require.Equal(t, []uint64{100, 300}, weights)
-	})
-
-	t.Run("none approving", func(t *testing.T) {
-		bm := bitmaskFromBytes(nil)
-		weights := validators.ApprovingWeights(bm)
-		require.Empty(t, weights)
-	})
-
-	t.Run("single validator approving", func(t *testing.T) {
-		bm := bitmaskFromBytes([]byte{2})
-		weights := validators.ApprovingWeights(bm)
-		require.Equal(t, []uint64{200}, weights)
-	})
-}
-
 func TestSanitizeApprovals(t *testing.T) {
 	node0 := nodeID{0}
 	node1 := nodeID{1}
@@ -1334,25 +1295,30 @@ func TestSanitizeApprovals(t *testing.T) {
 // concatAggregator concatenates signatures for easy verification in tests.
 type concatAggregator struct{}
 
-func (concatAggregator) AggregateSignatures(sigs ...[]byte) ([]byte, error) {
-	return bytes.Join(sigs, nil), nil
+func (concatAggregator) Aggregate([]simplex.Signature) (simplex.QuorumCertificate, error) {
+	panic("unused in tests")
 }
 
-func (concatAggregator) IsQuorum(approverWeights []uint64, totalWeights uint64) bool {
-	var sum uint64
-	for _, w := range approverWeights {
-		sum += w
-	}
-	return sum*3 >= totalWeights*2
+func (concatAggregator) AppendSignatures(existing []byte, sigs ...[]byte) ([]byte, error) {
+	result := bytes.Join(sigs, nil)
+	return append(result, existing...), nil
+}
+
+func (concatAggregator) IsQuorum([]simplex.NodeID) bool {
+	return false
 }
 
 type failingAggregator struct{}
 
-func (failingAggregator) AggregateSignatures(sigs ...[]byte) ([]byte, error) {
+func (failingAggregator) Aggregate([]simplex.Signature) (simplex.QuorumCertificate, error) {
+	panic("unused in tests")
+}
+
+func (failingAggregator) AppendSignatures([]byte, ...[]byte) ([]byte, error) {
 	return nil, fmt.Errorf("aggregation failed")
 }
 
-func (failingAggregator) IsQuorum([]uint64, uint64) bool {
+func (failingAggregator) IsQuorum([]simplex.NodeID) bool {
 	return false
 }
 

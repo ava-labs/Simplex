@@ -58,7 +58,7 @@ type Storage interface {
 
 type Communication interface {
 	// Nodes returns all nodes that participate in the epoch.
-	Nodes() []NodeID
+	Nodes() NodeWeights
 
 	// Send sends a message to the given destination node
 	Send(msg *Message, destination NodeID)
@@ -130,8 +130,33 @@ type SignatureAggregator interface {
 	// Aggregate aggregates several signatures into a QuorumCertificate
 	Aggregate([]Signature) (QuorumCertificate, error)
 
+	// AppendSignatures appends signatures to an existing signature.
+	// If the existing signature is empty, it just aggregates the given signatures.
+	AppendSignatures([]byte, ...[]byte) ([]byte, error)
+
 	// IsQuorum returns true if the given signers constitute a quorum.
 	// In the case of PoA, this means at least a quorum of the nodes are given.
 	// In the case of PoS, this means at least two thirds of the st.
 	IsQuorum([]NodeID) bool
 }
+
+// NodeWeights is a list of NodeWeight elements.
+type NodeWeights []NodeWeight
+
+// NodesIDs returns the NodeIDs of the nodes in the NodeWeights.
+func (nws NodeWeights) NodesIDs() []NodeID {
+	nodes := make([]NodeID, len(nws))
+	for i, nw := range nws {
+		nodes[i] = nw.Node
+	}
+	return nodes
+}
+
+// NodeWeight is a struct that pairs a node with its weight in the signature aggregator.
+type NodeWeight struct {
+	Node NodeID
+	Weight uint64
+}
+
+// SignatureAggregatorCreator creates a SignatureAggregator from a list of nodes and their weights.
+type SignatureAggregatorCreator func([]NodeWeight) SignatureAggregator

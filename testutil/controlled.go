@@ -19,9 +19,9 @@ type ControlledInMemoryNetwork struct {
 }
 
 // NewControlledNetwork creates an in-memory network. Node IDs must be provided before
-// adding instances, as nodes require prior knowledge of all participants.
-func NewControlledNetwork(t *testing.T, nodes []simplex.NodeID) *ControlledInMemoryNetwork {
-	simplex.SortNodes(nodes)
+// adding instances, as nodeWeights require prior knowledge of all participants.
+func NewControlledNetwork(t *testing.T, nodes simplex.NodeIDs) *ControlledInMemoryNetwork {
+	simplex.SortNodesWeights(nodes.EqualWeightedNodeWeights())
 	net := &ControlledInMemoryNetwork{
 		BasicInMemoryNetwork: NewBasicInMemoryNetwork(t, nodes),
 		Instances:            make([]*ControlledNode, 0),
@@ -72,7 +72,7 @@ func (n *ControlledInMemoryNetwork) AdvanceWithoutLeader(round uint64, laggingNo
 	}
 
 	for _, n := range n.Instances {
-		leader := n.E.ID.Equals(simplex.LeaderForRound(n.E.Comm.Nodes(), n.E.Metadata().Round))
+		leader := n.E.ID.Equals(simplex.LeaderForRound(n.E.Comm.Nodes().NodesIDs(), n.E.Metadata().Round))
 		if leader || laggingNodeId.Equals(n.E.ID) {
 			continue
 		}

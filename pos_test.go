@@ -23,16 +23,18 @@ func TestPoS(t *testing.T) {
 
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
 
-	posSigAggregator := &testutil.TestSignatureAggregator{
-		IsQuorumFunc: func(signatures []simplex.NodeID) bool {
-			var totalWeight uint64
-			for _, signer := range signatures {
-				totalWeight += weights[int(signer[0])]
-			}
-			return totalWeight > 6
-		},
+	posSigAggregatorCreator := func(_ []simplex.NodeWeight) simplex.SignatureAggregator {
+		return &testutil.TestSignatureAggregator{
+			IsQuorumFunc: func(signatures []simplex.NodeID) bool {
+				var totalWeight uint64
+				for _, signer := range signatures {
+					totalWeight += weights[int(signer[0])]
+				}
+				return totalWeight > 6
+			},
+		}
 	}
-	testConf := &testutil.TestNodeConfig{SigAggregator: posSigAggregator, ReplicationEnabled: true}
+	testConf := &testutil.TestNodeConfig{SigAggregatorCreator: posSigAggregatorCreator, ReplicationEnabled: true}
 
 	net := testutil.NewControlledNetwork(t, nodes)
 	testutil.NewControlledSimplexNode(t, nodes[0], net, testConf)

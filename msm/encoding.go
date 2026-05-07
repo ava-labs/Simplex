@@ -5,9 +5,9 @@ package metadata
 
 import (
 	"bytes"
-	"fmt"
-	"math"
 	"slices"
+
+	"github.com/ava-labs/simplex"
 )
 
 //go:generate go run github.com/StephenButtolph/canoto/canoto encoding.go
@@ -199,36 +199,27 @@ func (nea *NextEpochApprovals) Equals(other *NextEpochApprovals) bool {
 
 type NodeBLSMappings []NodeBLSMapping
 
-func (nbms NodeBLSMappings) TotalWeight() (uint64, error) {
-	var totalWeight uint64
-	for _, nbm := range nbms {
-		var err error
-		totalWeight, err = safeAdd(totalWeight, nbm.Weight)
-		if err != nil {
-			return 0, fmt.Errorf("failed to sum weights of all nodes: %w", err)
+func (nbms NodeBLSMappings) NodeWeights() simplex.NodeWeights {
+	nodeWeights := make(simplex.NodeWeights, len(nbms))
+	for i, nbm := range nbms {
+		nodeWeights[i] = simplex.NodeWeight{
+			Node: nbm.NodeID[:],
+			Weight: nbm.Weight,
 		}
 	}
-
-	if totalWeight == 0 {
-		return 0, fmt.Errorf("total weight of validators is 0")
-	}
-
-	if totalWeight > math.MaxInt64 {
-		return 0, fmt.Errorf("total weight of validators is too big, overflows int64: %d", totalWeight)
-	}
-	return totalWeight, nil
+	return nodeWeights
 }
 
-func (nbms NodeBLSMappings) ApprovingWeights(approvingNodes bitmask) []uint64 {
-	approvingWeights := make([]uint64, 0, len(nbms))
+func (nbms NodeBLSMappings) SelectSubset(bitmask bitmask) []simplex.NodeID {
+	nodeIDs := make([]simplex.NodeID, 0, len(nbms))
 	for i, nbm := range nbms {
-		if !approvingNodes.Contains(i) {
+		if !bitmask.Contains(i) {
 			continue
 		}
-		approvingWeights = append(approvingWeights, nbm.Weight)
+		nodeIDs = append(nodeIDs, nbm.NodeID[:])
 	}
 
-	return approvingWeights
+	return nodeIDs
 }
 
 func (nbms NodeBLSMappings) Clone() NodeBLSMappings {

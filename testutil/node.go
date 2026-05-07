@@ -198,8 +198,8 @@ func UpdateEpochConfig(epochConfig *simplex.EpochConfig, testConfig *TestNodeCon
 		epochConfig.Comm = testConfig.Comm
 	}
 
-	if testConfig.SigAggregator != nil {
-		epochConfig.SignatureAggregator = testConfig.SigAggregator
+	if testConfig.SigAggregatorCreator != nil {
+		epochConfig.SignatureAggregatorCreator = testConfig.SigAggregatorCreator
 	}
 
 	if testConfig.BlockBuilder != nil {
@@ -236,7 +236,7 @@ type TestNodeConfig struct {
 	// optional
 	InitialStorage     []simplex.VerifiedFinalizedBlock
 	Comm               simplex.Communication
-	SigAggregator      simplex.SignatureAggregator
+	SigAggregatorCreator      simplex.SignatureAggregatorCreator
 	ReplicationEnabled bool
 	BlockBuilder       *testControlledBlockBuilder
 
