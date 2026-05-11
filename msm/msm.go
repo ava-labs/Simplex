@@ -683,8 +683,7 @@ func (sm *StateMachine) createSealingBlock(ctx context.Context, parentBlock Stat
 
 // wrapBlock creates a new StateMachineBlock by wrapping the VM block (if applicable) and adding the appropriate metadata.
 func (sm *StateMachine) wrapBlock(parentBlock StateMachineBlock, childBlock VMBlock, newSimplexEpochInfo SimplexEpochInfo, pChainHeight uint64, simplexMetadata, simplexBlacklist []byte) *StateMachineBlock {
-	parentMetadata := parentBlock.Metadata
-	timestamp := parentMetadata.Timestamp
+	timestamp := parentBlock.Metadata.Timestamp
 
 	hasChildBlock := childBlock != nil
 
@@ -931,7 +930,7 @@ var (
 
 func ensureNextEpochApprovalsSignersSupersetOfApprovalsOfPrevBlock(prev SimplexEpochInfo, next SimplexEpochInfo) error {
 	if prev.NextEpochApprovals == nil {
-		// Condition satisifed vacuously.
+		// Condition satisfied vacuously.
 		return nil
 	}
 	// Else, prev.NextEpochApprovals is not nil.
