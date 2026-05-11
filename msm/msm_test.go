@@ -224,28 +224,15 @@ func TestMSMFirstBlockAfterGenesis(t *testing.T) {
 			mutateBlock: func(block *StateMachineBlock) {
 				block.Metadata.PChainHeight = 110
 			},
-			err: "invalid P-chain height (110) is too big",
+			err: "invalid P-chain height (110), expected to be 100",
 		},
 		{
 			name: "P-chain height smaller than parent",
 			md:   validMD,
-			configure: func(_ *StateMachine, tc *testConfig) {
-				tc.blockStore[0] = &outerBlock{
-					block: StateMachineBlock{
-						InnerBlock: &InnerBlock{TS: time.Now(), Bytes: []byte{1, 2, 3}},
-						Metadata:   StateMachineMetadata{PChainHeight: 110},
-					},
-				}
+			configure: func(sm *StateMachine, tc *testConfig) {
+				sm.LastNonSimplexBlockPChainHeight = 99
 			},
-			err: "invalid P-chain height (100) is smaller than parent InnerBlock's P-chain height (110)",
-		},
-		{
-			name: "validator set retrieval fails",
-			md:   validMD,
-			configure: func(_ *StateMachine, tc *testConfig) {
-				tc.validatorSetRetriever.err = fmt.Errorf("validator set unavailable")
-			},
-			err: "failed to retrieve validator set",
+			err: "invalid P-chain height (100), expected to be 99",
 		},
 		{
 			name: "nil BlockValidationDescriptor",
@@ -258,8 +245,8 @@ func TestMSMFirstBlockAfterGenesis(t *testing.T) {
 		{
 			name: "membership mismatch",
 			md:   validMD,
-			configure: func(_ *StateMachine, tc *testConfig) {
-				tc.validatorSetRetriever.result = NodeBLSMappings{
+			configure: func(sm *StateMachine, tc *testConfig) {
+				sm.GenesisValidatorSet = NodeBLSMappings{
 					{BLSKey: []byte{1}, Weight: 1},
 				}
 			},
@@ -337,6 +324,9 @@ func TestMSMFirstSimplexBlockAfterPreSimplexBlocks(t *testing.T) {
 	testConfig1.blockStore[42] = &outerBlock{block: preSimplexParent}
 	testConfig2.blockStore[42] = &outerBlock{block: preSimplexParent}
 
+	sm1.LastNonSimplexInnerBlock = testConfig1.blockStore[42].block.InnerBlock
+	sm2.LastNonSimplexInnerBlock = testConfig1.blockStore[42].block.InnerBlock
+
 	testConfig1.blockBuilder.block = &InnerBlock{
 		TS:          time.Now(),
 		BlockHeight: 43,
@@ -350,11 +340,6 @@ func TestMSMFirstSimplexBlockAfterPreSimplexBlocks(t *testing.T) {
 	require.NoError(t, sm2.VerifyBlock(context.Background(), block))
 
 	require.Equal(t, &StateMachineBlock{
-		InnerBlock: &InnerBlock{
-			TS:          testConfig1.blockBuilder.block.Timestamp(),
-			BlockHeight: 43,
-			Bytes:       []byte{7, 8, 9},
-		},
 		Metadata: StateMachineMetadata{
 			Timestamp:               uint64(testConfig1.blockBuilder.block.Timestamp().UnixMilli()),
 			PChainHeight:            100,
@@ -437,7 +422,7 @@ func TestMSMNormalOp(t *testing.T) {
 			mutateBlock: func(block *StateMachineBlock) {
 				block.Metadata.SimplexEpochInfo.BlockValidationDescriptor = &BlockValidationDescriptor{}
 			},
-			err: "failed to find first Simplex block",
+			err: "expected validator set specified at P-chain height 0 does not match validator set encoded in new block",
 		},
 		{
 			name: "non-zero sealing block seq",
@@ -635,9 +620,17 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 			tc.blockStore[0] = &outerBlock{block: genesis}
 			tc.blockStore[42] = &outerBlock{block: notGenesis}
 
+			sm.LastNonSimplexInnerBlock = testCase.firstBlockBeforeSimplex.InnerBlock
+			sm.GenesisValidatorSet = validatorSet1
+			sm.LastNonSimplexBlockPChainHeight = pChainHeight1
+
 			smVerify, tcVerify := newStateMachine(t)
 			smVerify.GetValidatorSet = getValidatorSet
 			smVerify.GetPChainHeight = getPChainHeight
+
+			smVerify.LastNonSimplexInnerBlock = testCase.firstBlockBeforeSimplex.InnerBlock
+			smVerify.GenesisValidatorSet = validatorSet1
+			smVerify.LastNonSimplexBlockPChainHeight = pChainHeight1
 
 			// addBlock adds a block to both block stores so builder and verifier stay in sync.
 			addBlock := func(seq uint64, block StateMachineBlock, fin *simplex.Finalization) {
@@ -662,9 +655,8 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 			block1, err := sm.BuildBlock(context.Background(), md, nil)
 			require.NoError(t, err)
 			require.Equal(t, &StateMachineBlock{
-				InnerBlock: nextBlock(1),
 				Metadata: StateMachineMetadata{
-					Timestamp:               uint64(startTime.Add(1 * time.Millisecond).UnixMilli()),
+					Timestamp:               uint64(startTime.UnixMilli()),
 					PChainHeight:            pChainHeight1,
 					SimplexProtocolMetadata: md.Bytes(),
 					SimplexEpochInfo: SimplexEpochInfo{
@@ -701,7 +693,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 					SimplexEpochInfo: SimplexEpochInfo{
 						PChainReferenceHeight: pChainHeight1,
 						EpochNumber:           1,
-						PrevVMBlockSeq:        baseSeq + 1,
+						PrevVMBlockSeq:        baseSeq,
 					},
 				},
 			}, block2)
@@ -1056,6 +1048,22 @@ func newStateMachine(t *testing.T) (StateMachine, *testConfig) {
 	}
 
 	sm := StateMachine{
+		GenesisValidatorSet: NodeBLSMappings{{BLSKey: []byte{1}, Weight: 1}, {BLSKey: []byte{2}, Weight: 1}},
+		LastNonSimplexBlockPChainHeight: 100,
+		FirstEverSimplexBlock: func() *StateMachineBlock {
+			var res *StateMachineBlock
+			min := uint64(math.MaxUint64)
+			for seq, block := range testConfig.blockStore {
+				if block.block.Metadata.SimplexEpochInfo.EpochNumber == 0 {
+					continue
+				}
+				if seq < min {
+					min = seq
+					res = &block.block
+				}
+			}
+			return res
+		},
 		GetTime:                  time.Now,
 		TimeSkewLimit:            time.Second * 5,
 		Logger:                   testutil.MakeLogger(t),
@@ -1074,6 +1082,7 @@ func newStateMachine(t *testing.T) (StateMachine, *testConfig) {
 		},
 		GetValidatorSet:        testConfig.validatorSetRetriever.getValidatorSet,
 		PChainProgressListener: &noOpPChainListener{},
+		LastNonSimplexInnerBlock: genesisBlock.InnerBlock,
 	}
 	return sm, &testConfig
 }
@@ -1182,60 +1191,6 @@ func TestComputePrevVMBlockSeq(t *testing.T) {
 	})
 }
 
-func TestFindFirstSimplexBlock(t *testing.T) {
-	t.Run("endHeight too big", func(t *testing.T) {
-		getBlock := func(_ uint64, _ [32]byte) (StateMachineBlock, *simplex.Finalization, error) {
-			return StateMachineBlock{}, nil, nil
-		}
-		_, err := findFirstSimplexBlock(getBlock, math.MaxUint64)
-		require.ErrorContains(t, err, fmt.Sprintf(" is too big, must be at most %d", math.MaxInt64-1))
-	})
-
-	t.Run("found at height 3", func(t *testing.T) {
-		getBlock := func(seq uint64, _ [32]byte) (StateMachineBlock, *simplex.Finalization, error) {
-			if seq < 3 {
-				return StateMachineBlock{}, nil, nil
-			}
-			return StateMachineBlock{
-				Metadata: StateMachineMetadata{SimplexEpochInfo: SimplexEpochInfo{EpochNumber: 1}},
-			}, nil, nil
-		}
-		result, err := findFirstSimplexBlock(getBlock, 5)
-		require.NoError(t, err)
-		require.Equal(t, uint64(3), result)
-	})
-
-	t.Run("no simplex blocks found", func(t *testing.T) {
-		getBlock := func(_ uint64, _ [32]byte) (StateMachineBlock, *simplex.Finalization, error) {
-			return StateMachineBlock{}, nil, nil
-		}
-		_, err := findFirstSimplexBlock(getBlock, 5)
-		require.ErrorContains(t, err, "no simplex blocks found")
-	})
-
-	t.Run("block not found errors are skipped", func(t *testing.T) {
-		getBlock := func(seq uint64, _ [32]byte) (StateMachineBlock, *simplex.Finalization, error) {
-			if seq < 2 {
-				return StateMachineBlock{}, nil, simplex.ErrBlockNotFound
-			}
-			return StateMachineBlock{
-				Metadata: StateMachineMetadata{SimplexEpochInfo: SimplexEpochInfo{EpochNumber: 1}},
-			}, nil, nil
-		}
-		result, err := findFirstSimplexBlock(getBlock, 5)
-		require.NoError(t, err)
-		require.Equal(t, uint64(2), result)
-	})
-
-	t.Run("retrieval error propagated", func(t *testing.T) {
-		getBlock := func(_ uint64, _ [32]byte) (StateMachineBlock, *simplex.Finalization, error) {
-			return StateMachineBlock{}, nil, fmt.Errorf("disk error")
-		}
-		_, err := findFirstSimplexBlock(getBlock, 5)
-		require.ErrorContains(t, err, "disk error")
-	})
-}
-
 func TestSanitizeApprovals(t *testing.T) {
 	node0 := nodeID{0}
 	node1 := nodeID{1}
@@ -1248,13 +1203,15 @@ func TestSanitizeApprovals(t *testing.T) {
 		node2: 2,
 	}
 
+	logger := testutil.MakeLogger(t)
+
 	t.Run("filters by p-chain height", func(t *testing.T) {
 		approvals := ValidatorSetApprovals{
 			{NodeID: node0, PChainHeight: 100},
 			{NodeID: node1, PChainHeight: 200},
 		}
 		oldApproving := bitmaskFromBytes(nil)
-		result := sanitizeApprovals(approvals, 100, nodeID2Index, oldApproving)
+		result := sanitizeApprovals(approvals, 100, nodeID2Index, oldApproving, logger)
 		require.Len(t, result, 1)
 		require.Equal(t, node0, result[0].NodeID)
 	})
@@ -1265,7 +1222,7 @@ func TestSanitizeApprovals(t *testing.T) {
 			{NodeID: node1, PChainHeight: 100},
 		}
 		oldApproving := bitmaskFromBytes([]byte{1})
-		result := sanitizeApprovals(approvals, 100, nodeID2Index, oldApproving)
+		result := sanitizeApprovals(approvals, 100, nodeID2Index, oldApproving, logger)
 		require.Len(t, result, 1)
 		require.Equal(t, node1, result[0].NodeID)
 	})
@@ -1276,7 +1233,7 @@ func TestSanitizeApprovals(t *testing.T) {
 			{NodeID: node2, PChainHeight: 100},
 		}
 		oldApproving := bitmaskFromBytes(nil)
-		result := sanitizeApprovals(approvals, 100, nodeID2Index, oldApproving)
+		result := sanitizeApprovals(approvals, 100, nodeID2Index, oldApproving, logger)
 		require.Len(t, result, 1)
 		require.Equal(t, node2, result[0].NodeID)
 	})
@@ -1287,7 +1244,7 @@ func TestSanitizeApprovals(t *testing.T) {
 			{NodeID: node0, PChainHeight: 100},
 		}
 		oldApproving := bitmaskFromBytes(nil)
-		result := sanitizeApprovals(approvals, 100, nodeID2Index, oldApproving)
+		result := sanitizeApprovals(approvals, 100, nodeID2Index, oldApproving, logger)
 		require.Len(t, result, 1)
 	})
 }
@@ -1333,6 +1290,8 @@ func TestComputeNewApproverSignaturesAndSigners(t *testing.T) {
 		node2: 2,
 	}
 
+	logger := testutil.MakeLogger(t)
+
 	t.Run("duplicate peer with already-approved node does not double-aggregate", func(t *testing.T) {
 		// node0 is already in the previous approvals (bit 0 set). A duplicate peer
 		// entry for node0 must not append node0's signature to the new aggregate
@@ -1348,7 +1307,7 @@ func TestComputeNewApproverSignaturesAndSigners(t *testing.T) {
 			{NodeID: node0, Signature: []byte("sig0")},
 		}
 
-		aggSig, newApproving, err := computeNewApproverSignaturesAndSigners(prevApprovals, peers, oldApproving, nodeID2Index, concatAggregator{})
+		aggSig, newApproving, err := computeNewApproverSignaturesAndSigners(prevApprovals, peers, oldApproving, nodeID2Index, concatAggregator{}, logger)
 		require.NoError(t, err)
 		require.True(t, newApproving.Contains(0))
 		require.Equal(t, 1, newApproving.Len())
@@ -1364,7 +1323,7 @@ func TestComputeNewApproverSignaturesAndSigners(t *testing.T) {
 			{NodeID: node1, Signature: []byte("sig1")},
 		}
 
-		_, _, err := computeNewApproverSignaturesAndSigners(nil, peers, oldApproving, nodeID2Index, concatAggregator{})
+		_, _, err := computeNewApproverSignaturesAndSigners(nil, peers, oldApproving, nodeID2Index, concatAggregator{}, logger)
 		require.Error(t, err)
 	})
 
@@ -1377,7 +1336,7 @@ func TestComputeNewApproverSignaturesAndSigners(t *testing.T) {
 			{NodeID: node1, Signature: []byte("sig1")},
 		}
 
-		aggSig, newApproving, err := computeNewApproverSignaturesAndSigners(prevApprovals, peers, oldApproving, nodeID2Index, concatAggregator{})
+		aggSig, newApproving, err := computeNewApproverSignaturesAndSigners(prevApprovals, peers, oldApproving, nodeID2Index, concatAggregator{}, logger)
 		require.NoError(t, err)
 		require.True(t, newApproving.Contains(0))
 		require.True(t, newApproving.Contains(1))
@@ -1396,7 +1355,7 @@ func TestComputeNewApproverSignaturesAndSigners(t *testing.T) {
 			{NodeID: node2, Signature: []byte("sig2")},
 		}
 
-		aggSig, newApproving, err := computeNewApproverSignaturesAndSigners(prevApprovals, peers, oldApproving, nodeID2Index, concatAggregator{})
+		aggSig, newApproving, err := computeNewApproverSignaturesAndSigners(prevApprovals, peers, oldApproving, nodeID2Index, concatAggregator{}, logger)
 		require.NoError(t, err)
 		require.True(t, newApproving.Contains(0))  // preserved from old
 		require.True(t, newApproving.Contains(2))  // newly added
@@ -1411,7 +1370,7 @@ func TestComputeNewApproverSignaturesAndSigners(t *testing.T) {
 		}
 		oldApproving := bitmaskFromBytes([]byte{1})
 
-		aggSig, newApproving, err := computeNewApproverSignaturesAndSigners(prevApprovals, nil, oldApproving, nodeID2Index, concatAggregator{})
+		aggSig, newApproving, err := computeNewApproverSignaturesAndSigners(prevApprovals, nil, oldApproving, nodeID2Index, concatAggregator{}, logger)
 		require.NoError(t, err)
 		require.True(t, newApproving.Contains(0))
 		require.Equal(t, []byte("existing"), aggSig)
@@ -1427,7 +1386,7 @@ func TestComputeNewApproverSignaturesAndSigners(t *testing.T) {
 			{NodeID: node0, Signature: []byte("sig0")},
 		}
 
-		aggSig, newApproving, err := computeNewApproverSignaturesAndSigners(prevApprovals, peers, oldApproving, nodeID2Index, concatAggregator{})
+		aggSig, newApproving, err := computeNewApproverSignaturesAndSigners(prevApprovals, peers, oldApproving, nodeID2Index, concatAggregator{}, logger)
 		require.NoError(t, err)
 		require.True(t, newApproving.Contains(0))
 		require.Equal(t, 1, newApproving.Len())
@@ -1441,7 +1400,7 @@ func TestComputeNewApproverSignaturesAndSigners(t *testing.T) {
 			{NodeID: node0, Signature: []byte("sig0")},
 		}
 
-		_, _, err := computeNewApproverSignaturesAndSigners(prevApprovals, peers, oldApproving, nodeID2Index, failingAggregator{})
+		_, _, err := computeNewApproverSignaturesAndSigners(prevApprovals, peers, oldApproving, nodeID2Index, failingAggregator{}, logger)
 		require.ErrorContains(t, err, "aggregation failed")
 	})
 }

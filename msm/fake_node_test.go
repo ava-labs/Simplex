@@ -18,6 +18,7 @@ import (
 func TestFakeNode(t *testing.T) {
 	validatorSetRetriever := validatorSetRetriever{
 		resultMap: map[uint64]NodeBLSMappings{
+			0: {{BLSKey: []byte{1}, Weight: 1, NodeID: [20]byte{1}}, {BLSKey: []byte{2}, Weight: 1, NodeID: [20]byte{2}}},
 			100: {{BLSKey: []byte{1}, Weight: 1, NodeID: [20]byte{1}}, {BLSKey: []byte{2}, Weight: 1, NodeID: [20]byte{2}}},
 			200: {{BLSKey: []byte{1}, Weight: 1, NodeID: [20]byte{1}}, {BLSKey: []byte{2}, Weight: 2, NodeID: [20]byte{2}},
 				{BLSKey: []byte{3}, Weight: 1, NodeID: [20]byte{3}}},
@@ -84,6 +85,7 @@ func TestFakeNode(t *testing.T) {
 func TestFakeNodeEmptyMempool(t *testing.T) {
 	validatorSetRetriever := validatorSetRetriever{
 		resultMap: map[uint64]NodeBLSMappings{
+			0: {{BLSKey: []byte{1}, Weight: 1, NodeID: [20]byte{1}}, {BLSKey: []byte{2}, Weight: 1, NodeID: [20]byte{2}}},
 			100: {{BLSKey: []byte{1}, Weight: 1, NodeID: [20]byte{1}}, {BLSKey: []byte{2}, Weight: 1, NodeID: [20]byte{2}}},
 			200: {{BLSKey: []byte{1}, Weight: 1, NodeID: [20]byte{1}}, {BLSKey: []byte{2}, Weight: 2, NodeID: [20]byte{2}},
 				{BLSKey: []byte{3}, Weight: 1, NodeID: [20]byte{3}}},
@@ -238,6 +240,17 @@ func newFakeNode(t *testing.T) *fakeNode {
 
 		require.Failf(t, "not found block", "height: %d", seq)
 		return StateMachineBlock{}, nil, fmt.Errorf("block not found")
+	}
+
+	fn.sm.FirstEverSimplexBlock = func() *StateMachineBlock {
+		for _, block := range fn.blocks {
+			if block.block.Metadata.SimplexEpochInfo.EpochNumber == 0 {
+				continue
+			}
+			return &block.block
+		}
+		require.FailNow(t, "block not found")
+		return nil
 	}
 
 	return fn

@@ -265,10 +265,10 @@ type ValidatorSetApproval struct {
 
 type ValidatorSetApprovals []ValidatorSetApproval
 
-func (vsa ValidatorSetApprovals) Filter(f func(int, ValidatorSetApproval) bool) ValidatorSetApprovals {
+func (vsa ValidatorSetApprovals) Filter(f func(int, ValidatorSetApproval, simplex.Logger) bool, logger simplex.Logger) ValidatorSetApprovals {
 	result := make(ValidatorSetApprovals, 0, len(vsa))
 	for i, v := range vsa {
-		if f(i, v) {
+		if f(i, v, logger) {
 			result = append(result, v)
 		}
 	}

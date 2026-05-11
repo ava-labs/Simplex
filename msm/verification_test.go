@@ -379,6 +379,9 @@ func TestPrevSealingBlockHashVerifier(t *testing.T) {
 			v := &prevSealingBlockHashVerifier{
 				getBlock:              bs.getBlock,
 				latestPersistedHeight: &latestPersisted,
+				firstEverSimplexBlock: func() *StateMachineBlock {
+					return &firstSimplexBlock
+				},
 			}
 			err := v.Verify(verificationInput{
 				nextBlockType:   tc.nextBlockType,

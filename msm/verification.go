@@ -410,6 +410,7 @@ func (t *timestampVerifier) Verify(in verificationInput) error {
 type prevSealingBlockHashVerifier struct {
 	getBlock              BlockRetriever
 	latestPersistedHeight *uint64
+	firstEverSimplexBlock func() *StateMachineBlock
 }
 
 func (p *prevSealingBlockHashVerifier) Verify(in verificationInput) error {
@@ -417,17 +418,11 @@ func (p *prevSealingBlockHashVerifier) Verify(in verificationInput) error {
 
 	// Sealing block of the first epoch must point to the first ever Simplex block as the previous sealing block.
 	if prev.EpochNumber == 1 && in.nextBlockType == BlockTypeSealing {
-		firstEverSimplexBlockSeq, err := findFirstSimplexBlock(p.getBlock, *p.latestPersistedHeight+1)
-		if err != nil {
-			return fmt.Errorf("failed to find first Simplex block: %w", err)
+		firstSimplexBlock := p.firstEverSimplexBlock()
+		if firstSimplexBlock == nil {
+			return fmt.Errorf("first ever simplex block sequence number is not set but verifying a sealing block of the first epoch")
 		}
-
-		block, _, err := p.getBlock(firstEverSimplexBlockSeq, [32]byte{})
-		if err != nil {
-			return fmt.Errorf("failed retrieving first ever simplex block %d: %w", firstEverSimplexBlockSeq, err)
-		}
-
-		hash := block.Digest()
+		hash := firstSimplexBlock.Digest()
 		if !bytes.Equal(in.proposedBlockMD.SimplexEpochInfo.PrevSealingBlockHash[:], hash[:]) {
 			return fmt.Errorf("expected prev sealing block hash of the first ever simplex block to be %x but got %x", hash, in.proposedBlockMD.SimplexEpochInfo.PrevSealingBlockHash)
 		}
