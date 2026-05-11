@@ -274,7 +274,7 @@ func TestMSMFirstBlockAfterGenesis(t *testing.T) {
 			}
 
 			if testCase.configure != nil {
-				testCase.configure(&sm2, testConfig2)
+				testCase.configure(sm2, testConfig2)
 			}
 
 			block, err := sm1.BuildBlock(context.Background(), testCase.md, nil)
@@ -498,8 +498,8 @@ func TestMSMNormalOp(t *testing.T) {
 			}
 
 			if testCase.setup != nil {
-				testCase.setup(&sm1, testConfig1)
-				testCase.setup(&sm2, testConfig2)
+				testCase.setup(sm1, testConfig1)
+				testCase.setup(sm2, testConfig2)
 			}
 
 			block1, err := sm1.BuildBlock(context.Background(), *md, &blacklist)
@@ -1037,7 +1037,7 @@ type testConfig struct {
 	validatorSetRetriever validatorSetRetriever
 }
 
-func newStateMachine(t *testing.T) (StateMachine, *testConfig) {
+func newStateMachine(t *testing.T) (*StateMachine, *testConfig) {
 	bs := make(blockStore)
 	bs[0] = &outerBlock{block: genesisBlock}
 
@@ -1047,7 +1047,7 @@ func newStateMachine(t *testing.T) (StateMachine, *testConfig) {
 		{BLSKey: []byte{1}, Weight: 1}, {BLSKey: []byte{2}, Weight: 1},
 	}
 
-	sm := StateMachine{
+	smConfig := Config{
 		GenesisValidatorSet: NodeBLSMappings{{BLSKey: []byte{1}, Weight: 1}, {BLSKey: []byte{2}, Weight: 1}},
 		LastNonSimplexBlockPChainHeight: 100,
 		FirstEverSimplexBlock: func() *StateMachineBlock {
@@ -1084,6 +1084,8 @@ func newStateMachine(t *testing.T) (StateMachine, *testConfig) {
 		PChainProgressListener: &noOpPChainListener{},
 		LastNonSimplexInnerBlock: genesisBlock.InnerBlock,
 	}
+
+	sm := NewStateMachine(&smConfig)
 	return sm, &testConfig
 }
 

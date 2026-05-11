@@ -71,6 +71,15 @@ type BlockBuilder interface {
 
 // StateMachine manages block building and verification across epoch transitions.
 type StateMachine struct {
+	// verifiers is the list of verifiers used to verify proposed blocks.
+	// Each verifier is responsible for verifying a specific aspect of the block's metadata.
+	verifiers []verifier
+
+	*Config
+}
+
+// Config contains the dependencies and configuration parameters needed to initialize the StateMachine.
+type Config struct {
 	// LatestPersistedHeight is the height of the most recently persisted block.
 	LatestPersistedHeight uint64
 	// MaxBlockBuildingWaitTime is the maximum duration to wait for the VM to build a block
@@ -111,13 +120,6 @@ type StateMachine struct {
 	LastNonSimplexInnerBlock VMBlock
 	// GenesisValidatorSet is the validator set used for the genesis block.
 	GenesisValidatorSet NodeBLSMappings
-	// initialized tracks whether the state machine has been initialized.
-	// This is used to lazily initialize the verifiers.
-	initialized bool
-
-	// verifiers is the list of verifiers used to verify proposed blocks.
-	// Each verifier is responsible for verifying a specific aspect of the block's metadata.
-	verifiers []verifier
 }
 
 type state uint8
@@ -129,10 +131,14 @@ const (
 	stateBuildBlockEpochSealed
 )
 
+func NewStateMachine(config *Config) *StateMachine {
+	sm := StateMachine{Config: config}
+	sm.init()
+	return &sm
+}
+
 // BuildBlock constructs the next block on top of the given parent block, and passes in the provided simplex metadata and blacklist.
 func (sm *StateMachine) BuildBlock(ctx context.Context, simplexMetadata simplex.ProtocolMetadata, simplexBlacklist *simplex.Blacklist) (*StateMachineBlock, error) {
-	sm.maybeInit()
-
 	// The zero sequence number is reserved for the genesis block, which should never be built.
 	if simplexMetadata.Seq == 0 {
 		return nil, fmt.Errorf("invalid ProtocolMetadata sequence number: should be > 0, got %d", simplexMetadata.Seq)
@@ -189,8 +195,6 @@ func (sm *StateMachine) BuildBlock(ctx context.Context, simplexMetadata simplex.
 // VerifyBlock validates a proposed block by checking its metadata, epoch info,
 // and inner block against the previous block and the current state.
 func (sm *StateMachine) VerifyBlock(ctx context.Context, block *StateMachineBlock) error {
-	sm.maybeInit()
-
 	if block == nil {
 		return fmt.Errorf("InnerBlock is nil")
 	}
@@ -223,45 +227,57 @@ func (sm *StateMachine) VerifyBlock(ctx context.Context, block *StateMachineBloc
 	return err
 }
 
-func (sm *StateMachine) maybeInit() {
-	if sm.initialized {
-		return
-	}
-	sm.init()
-	sm.initialized = true
-}
-
 func (sm *StateMachine) init() {
 	sm.verifiers = []verifier{
 		&pChainHeightVerifier{
-			getPChainHeight: sm.GetPChainHeight,
+			getPChainHeight: func() uint64 {
+				return sm.Config.GetPChainHeight()
+			},
 		},
 		&timestampVerifier{
 			timeSkewLimit: sm.TimeSkewLimit,
-			getTime:       sm.GetTime,
+			getTime: func() time.Time {
+				return sm.Config.GetTime()
+			},
 		},
 		&pChainReferenceHeightVerifier{},
 		&epochNumberVerifier{},
 		&validationDescriptorVerifier{
-			getValidatorSet: sm.GetValidatorSet,
+			getValidatorSet: func(pChainHeight uint64) (NodeBLSMappings, error) {
+				return sm.Config.GetValidatorSet(pChainHeight)
+			},
 		},
 		&prevSealingBlockHashVerifier{
-			firstEverSimplexBlock: sm.FirstEverSimplexBlock,
-			getBlock:              sm.GetBlock,
+			firstEverSimplexBlock: func() *StateMachineBlock {
+				return sm.Config.FirstEverSimplexBlock()
+			},
+			getBlock: func(seq uint64, digest [32]byte) (StateMachineBlock, *simplex.Finalization, error) {
+				return sm.Config.GetBlock(seq, digest)
+			},
 			latestPersistedHeight: &sm.LatestPersistedHeight,
 		},
 		&nextPChainReferenceHeightVerifier{
-			getPChainHeight: sm.GetPChainHeight,
-			getValidatorSet: sm.GetValidatorSet,
+			getPChainHeight: func() uint64 {
+				return sm.Config.GetPChainHeight()
+			},
+			getValidatorSet: func(pChainHeight uint64) (NodeBLSMappings, error) {
+				return sm.Config.GetValidatorSet(pChainHeight)
+			},
 		},
 		&vmBlockSeqVerifier{
-			getBlock: sm.GetBlock,
+			getBlock: func(seq uint64, digest [32]byte) (StateMachineBlock, *simplex.Finalization, error) {
+				return sm.Config.GetBlock(seq, digest)
+			},
 		},
 		&nextEpochApprovalsVerifier{
-			getValidatorSet: sm.GetValidatorSet,
+			getValidatorSet: func(pChainHeight uint64) (NodeBLSMappings, error) {
+				return sm.Config.GetValidatorSet(pChainHeight)
+			},
 			keyAggregator:   sm.KeyAggregator,
 			sigVerifier:     sm.SignatureVerifier,
-			sigAggregatorCreator:   sm.SignatureAggregatorCreator,
+			sigAggregatorCreator: func(weights []simplex.NodeWeight) simplex.SignatureAggregator {
+				return sm.Config.SignatureAggregatorCreator(weights)
+			},
 		},
 		&sealingBlockSeqVerifier{},
 	}

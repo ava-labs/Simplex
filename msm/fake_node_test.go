@@ -178,7 +178,7 @@ type blockState struct {
 
 type fakeNode struct {
 	t            *testing.T
-	sm           StateMachine
+	sm           *StateMachine
 	mempoolEmpty bool
 	// blocks holds notarized blocks in order. Finalized blocks always form a
 	// prefix: all finalized entries precede all non-finalized entries.
