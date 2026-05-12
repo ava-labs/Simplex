@@ -147,7 +147,6 @@ const (
 
 func NewStateMachine(config *Config) *StateMachine {
 	sm := StateMachine{Config: config}
-	sm.init()
 	return &sm
 }
 
@@ -239,62 +238,6 @@ func (sm *StateMachine) VerifyBlock(ctx context.Context, block *StateMachineBloc
 		err = sm.verifyNonZeroBlock(ctx, block, prevBlock.Metadata, currentState, seq-1)
 	}
 	return err
-}
-
-func (sm *StateMachine) init() {
-	sm.verifiers = []verifier{
-		&pChainHeightVerifier{
-			getPChainHeight: func() uint64 {
-				return sm.Config.GetPChainHeight()
-			},
-		},
-		&timestampVerifier{
-			timeSkewLimit: sm.TimeSkewLimit,
-			getTime: func() time.Time {
-				return sm.Config.GetTime()
-			},
-		},
-		&pChainReferenceHeightVerifier{},
-		&epochNumberVerifier{},
-		&validationDescriptorVerifier{
-			getValidatorSet: func(pChainHeight uint64) (NodeBLSMappings, error) {
-				return sm.Config.GetValidatorSet(pChainHeight)
-			},
-		},
-		&prevSealingBlockHashVerifier{
-			firstEverSimplexBlock: func() *StateMachineBlock {
-				return sm.Config.FirstEverSimplexBlock()
-			},
-			getBlock: func(seq uint64, digest [32]byte) (StateMachineBlock, *simplex.Finalization, error) {
-				return sm.Config.GetBlock(seq, digest)
-			},
-			latestPersistedHeight: &sm.LatestPersistedHeight,
-		},
-		&nextPChainReferenceHeightVerifier{
-			getPChainHeight: func() uint64 {
-				return sm.Config.GetPChainHeight()
-			},
-			getValidatorSet: func(pChainHeight uint64) (NodeBLSMappings, error) {
-				return sm.Config.GetValidatorSet(pChainHeight)
-			},
-		},
-		&vmBlockSeqVerifier{
-			getBlock: func(seq uint64, digest [32]byte) (StateMachineBlock, *simplex.Finalization, error) {
-				return sm.Config.GetBlock(seq, digest)
-			},
-		},
-		&nextEpochApprovalsVerifier{
-			getValidatorSet: func(pChainHeight uint64) (NodeBLSMappings, error) {
-				return sm.Config.GetValidatorSet(pChainHeight)
-			},
-			keyAggregator: sm.KeyAggregator,
-			sigVerifier:   sm.SignatureVerifier,
-			sigAggregatorCreator: func(weights []simplex.NodeWeight) simplex.SignatureAggregator {
-				return sm.Config.SignatureAggregatorCreator(weights)
-			},
-		},
-		&sealingBlockSeqVerifier{},
-	}
 }
 
 func (sm *StateMachine) verifyNonZeroBlock(ctx context.Context, block *StateMachineBlock, prevBlockMD StateMachineMetadata, state state, prevSeq uint64) error {

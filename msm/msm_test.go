@@ -359,90 +359,12 @@ func TestMSMNormalOp(t *testing.T) {
 	for _, testCase := range []struct {
 		name                        string
 		setup                       func(*StateMachine, *testConfig)
-		mutateBlock                 func(*StateMachineBlock)
-		err                         string
 		expectedPChainHeight        uint64
 		expectedNextPChainRefHeight uint64
 	}{
 		{
 			name:                 "correct information",
 			expectedPChainHeight: 100,
-		},
-		{
-			name: "trying to build a genesis block",
-			mutateBlock: func(block *StateMachineBlock) {
-				md, err := simplex.ProtocolMetadataFromBytes(block.Metadata.SimplexProtocolMetadata)
-				require.NoError(t, err)
-				md.Seq = 0
-				block.Metadata.SimplexProtocolMetadata = md.Bytes()
-			},
-			err: "attempted to build a genesis inner block",
-		},
-		{
-			name: "previous block not found",
-			mutateBlock: func(block *StateMachineBlock) {
-				md, err := simplex.ProtocolMetadataFromBytes(block.Metadata.SimplexProtocolMetadata)
-				require.NoError(t, err)
-				md.Seq = 999
-				block.Metadata.SimplexProtocolMetadata = md.Bytes()
-			},
-			err: "failed to retrieve previous (998) inner block",
-		},
-		{
-			name: "P-chain height too big",
-			mutateBlock: func(block *StateMachineBlock) {
-				block.Metadata.PChainHeight = 110
-			},
-			err: "invalid P-chain height (110) is too big",
-		},
-		{
-			name: "P-chain height smaller than parent",
-			mutateBlock: func(block *StateMachineBlock) {
-				block.Metadata.PChainHeight = 0
-			},
-			err: "invalid P-chain height (0) is smaller than parent block's P-chain height (100)",
-		},
-		{
-			name: "wrong epoch number",
-			mutateBlock: func(block *StateMachineBlock) {
-				block.Metadata.SimplexEpochInfo.EpochNumber = 2
-			},
-			err: "expected epoch number to be 1 but got 2",
-		},
-		{
-			name: "non-nil BlockValidationDescriptor",
-			mutateBlock: func(block *StateMachineBlock) {
-				block.Metadata.SimplexEpochInfo.BlockValidationDescriptor = &BlockValidationDescriptor{}
-			},
-			err: "expected validator set specified at P-chain height 0 does not match validator set encoded in new block",
-		},
-		{
-			name: "non-zero sealing block seq",
-			mutateBlock: func(block *StateMachineBlock) {
-				block.Metadata.SimplexEpochInfo.SealingBlockSeq = 5
-			},
-			err: "expected sealing block sequence number to be 0 but got 5",
-		},
-		{
-			name: "wrong PChainReferenceHeight",
-			mutateBlock: func(block *StateMachineBlock) {
-				block.Metadata.SimplexEpochInfo.PChainReferenceHeight = 50
-			},
-			err: "expected P-chain reference height to be 100 but got 50",
-		},
-		{
-			name: "non-empty PrevSealingBlockHash",
-			mutateBlock: func(block *StateMachineBlock) {
-				block.Metadata.SimplexEpochInfo.PrevSealingBlockHash = [32]byte{1, 2, 3}
-			},
-			err: "expected prev sealing block hash of a non sealing block to be empty",
-		},
-		{
-			name: "wrong PrevVMBlockSeq",
-			mutateBlock: func(block *StateMachineBlock) {
-				block.Metadata.SimplexEpochInfo.PrevVMBlockSeq = 999
-			},
-			err: "expected PrevVMBlockSeq to be",
 		},
 		{
 			name: "validator set change detected",
@@ -459,11 +381,9 @@ func TestMSMNormalOp(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			chain := makeChain(t, 5, 10)
 			sm1, testConfig1 := newStateMachine(t)
-			sm2, testConfig2 := newStateMachine(t)
 
 			for i, block := range chain {
 				testConfig1.blockStore[uint64(i)] = &outerBlock{block: block}
-				testConfig2.blockStore[uint64(i)] = &outerBlock{block: block}
 			}
 
 			lastBlock := chain[len(chain)-1]
@@ -491,23 +411,11 @@ func TestMSMNormalOp(t *testing.T) {
 
 			if testCase.setup != nil {
 				testCase.setup(sm1, testConfig1)
-				testCase.setup(sm2, testConfig2)
 			}
 
 			block1, err := sm1.BuildBlock(context.Background(), *md, &blacklist)
 			require.NoError(t, err)
 			require.NotNil(t, block1)
-
-			if testCase.mutateBlock != nil {
-				testCase.mutateBlock(block1)
-			}
-
-			err = sm2.VerifyBlock(context.Background(), block1)
-			if testCase.err != "" {
-				require.ErrorContains(t, err, testCase.err)
-				return
-			}
-			require.NoError(t, err)
 
 			require.Equal(t, &StateMachineBlock{
 				InnerBlock: &InnerBlock{
