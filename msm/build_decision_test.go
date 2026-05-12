@@ -35,10 +35,9 @@ func TestShouldBuildBlock_VMSignalsBlock(t *testing.T) {
 		getPChainHeight:        func() uint64 { return 100 },
 	}
 
-	result, pChainHeight, err := bbd.shouldBuildBlock(t.Context())
+	decision, err := bbd.shouldBuildBlock(t.Context())
 	require.NoError(t, err)
-	require.Equal(t, decisionBuild, result)
-	require.Equal(t, uint64(100), pChainHeight)
+	require.Equal(t, blockBuildingDecision{buildInnerBlock: true, pChainHeight: 100}, decision)
 }
 
 func TestShouldBuildBlock_ContextCanceled(t *testing.T) {
@@ -60,9 +59,9 @@ func TestShouldBuildBlock_ContextCanceled(t *testing.T) {
 		getPChainHeight:        func() uint64 { return 100 },
 	}
 
-	result, _, err := bbd.shouldBuildBlock(ctx)
-	require.NoError(t, err)
-	require.Equal(t, decisionContextCanceled, result)
+	decision, err := bbd.shouldBuildBlock(ctx)
+	require.ErrorIs(t, err, context.Canceled)
+	require.Equal(t, blockBuildingDecision{}, decision)
 }
 
 func TestShouldBuildBlock_PChainHeightChangeTriggersEpochTransition(t *testing.T) {
@@ -92,10 +91,9 @@ func TestShouldBuildBlock_PChainHeightChangeTriggersEpochTransition(t *testing.T
 		getPChainHeight: func() uint64 { return pChainHeight.Load() },
 	}
 
-	result, resultPChainHeight, err := bbd.shouldBuildBlock(t.Context())
+	decision, err := bbd.shouldBuildBlock(t.Context())
 	require.NoError(t, err)
-	require.Equal(t, decisionTransitionEpoch, result)
-	require.Equal(t, uint64(200), resultPChainHeight)
+	require.Equal(t, blockBuildingDecision{transitionEpoch: true, pChainHeight: 200}, decision)
 }
 
 func TestShouldBuildBlock_PChainHeightChangeButNoEpochTransition(t *testing.T) {
@@ -128,10 +126,9 @@ func TestShouldBuildBlock_PChainHeightChangeButNoEpochTransition(t *testing.T) {
 		getPChainHeight:        func() uint64 { return pChainHeight.Load() },
 	}
 
-	result, resultPChainHeight, err := bbd.shouldBuildBlock(t.Context())
+	decision, err := bbd.shouldBuildBlock(t.Context())
 	require.NoError(t, err)
-	require.Equal(t, decisionBuild, result)
-	require.Equal(t, uint64(200), resultPChainHeight)
+	require.Equal(t, blockBuildingDecision{buildInnerBlock: true, pChainHeight: 200}, decision)
 }
 
 func TestShouldBuildBlock_EpochTransitionWithVMBlock(t *testing.T) {
@@ -148,10 +145,9 @@ func TestShouldBuildBlock_EpochTransitionWithVMBlock(t *testing.T) {
 		getPChainHeight:        func() uint64 { return 100 },
 	}
 
-	result, pChainHeight, err := bbd.shouldBuildBlock(t.Context())
+	decision, err := bbd.shouldBuildBlock(t.Context())
 	require.NoError(t, err)
-	require.Equal(t, decisionBuildAndTransitionEpoch, result)
-	require.Equal(t, uint64(100), pChainHeight)
+	require.Equal(t, blockBuildingDecision{buildInnerBlock: true, transitionEpoch: true, pChainHeight: 100}, decision)
 }
 
 func TestShouldBuildBlock_EpochTransitionWithoutVMBlock(t *testing.T) {
@@ -170,10 +166,9 @@ func TestShouldBuildBlock_EpochTransitionWithoutVMBlock(t *testing.T) {
 		getPChainHeight:        func() uint64 { return 100 },
 	}
 
-	result, pChainHeight, err := bbd.shouldBuildBlock(t.Context())
+	decision, err := bbd.shouldBuildBlock(t.Context())
 	require.NoError(t, err)
-	require.Equal(t, decisionTransitionEpoch, result)
-	require.Equal(t, uint64(100), pChainHeight)
+	require.Equal(t, blockBuildingDecision{transitionEpoch: true, pChainHeight: 100}, decision)
 }
 
 func TestShouldBuildBlock_EpochTransitionContextCanceled(t *testing.T) {
@@ -196,7 +191,7 @@ func TestShouldBuildBlock_EpochTransitionContextCanceled(t *testing.T) {
 		getPChainHeight:        func() uint64 { return 100 },
 	}
 
-	result, _, err := bbd.shouldBuildBlock(ctx)
-	require.NoError(t, err)
-	require.Equal(t, decisionContextCanceled, result)
+	decision, err := bbd.shouldBuildBlock(ctx)
+	require.ErrorIs(t, err, context.Canceled)
+	require.Equal(t, blockBuildingDecision{}, decision)
 }

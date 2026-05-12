@@ -22,10 +22,10 @@ import (
 //   - bool: true if the message can be transmitted, false otherwise
 type MessageFilter func(msg *simplex.Message, from simplex.NodeID, to simplex.NodeID) bool
 
-type NoopComm simplex.NodeWeights
+type NoopComm simplex.Nodes
 
-func (n NoopComm) Nodes() simplex.NodeWeights {
-	return simplex.NodeWeights(n)
+func (n NoopComm) Nodes() simplex.Nodes {
+	return simplex.Nodes(n)
 }
 
 func (n NoopComm) Send(*simplex.Message, simplex.NodeID) {
@@ -51,7 +51,7 @@ func NewTestComm(from simplex.NodeID, net *BasicInMemoryNetwork, messageFilter M
 	}
 }
 
-func (c *TestComm) Nodes() simplex.NodeWeights {
+func (c *TestComm) Nodes() simplex.Nodes {
 	return c.net.nodeWeights
 }
 
@@ -192,5 +192,5 @@ func AllowAllMessages(*simplex.Message, simplex.NodeID, simplex.NodeID) bool {
 }
 
 func NewNoopComm(nodes simplex.NodeIDs) NoopComm {
-	return NoopComm(nodes.EqualWeightedNodeWeights())
+	return NoopComm(nodes.EqualWeightedNodes())
 }

@@ -16,15 +16,15 @@ import (
 type BasicInMemoryNetwork struct {
 	t            *testing.T
 	nodes        []simplex.NodeID
-	nodeWeights  simplex.NodeWeights
+	nodeWeights  simplex.Nodes
 	lock         sync.RWMutex
 	disconnected map[string]struct{}
 	instances    []*BasicNode
 }
 
 func NewBasicInMemoryNetwork(t *testing.T, nodes simplex.NodeIDs) *BasicInMemoryNetwork {
-	nodeWeights := nodes.EqualWeightedNodeWeights()
-	simplex.SortNodesWeights(nodeWeights)
+	nodeWeights := nodes.EqualWeightedNodes()
+	simplex.SortNodes(nodeWeights)
 	return &BasicInMemoryNetwork{
 		t:            t,
 		nodeWeights:  nodeWeights,

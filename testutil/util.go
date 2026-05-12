@@ -32,7 +32,7 @@ func DefaultTestNodeEpochConfig(t *testing.T, nodeID simplex.NodeID, comm simple
 		Verifier:                   &testVerifier{},
 		Storage:                    storage,
 		BlockBuilder:               bb,
-		SignatureAggregatorCreator: func(weights []simplex.NodeWeight) simplex.SignatureAggregator {
+		SignatureAggregatorCreator: func(weights []simplex.Node) simplex.SignatureAggregator {
 			return &TestSignatureAggregator{N: len(weights)}
 		},
 		BlockDeserializer: &BlockDeserializer{},

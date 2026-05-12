@@ -95,7 +95,7 @@ type Epoch struct {
 	blockBuilderCtx                context.Context
 	blockBuilderCancelFunc         context.CancelFunc
 	nodes                          NodeIDs
-	nodeWeights                    NodeWeights
+	nodeWeights                    Nodes
 	eligibleNodeIDs                map[string]struct{}
 	rounds                         map[uint64]*Round
 	emptyVotes                     map[uint64]*EmptyVoteSet
@@ -201,8 +201,8 @@ func (e *Epoch) init() error {
 	e.blockBuilderCtx = context.Background()
 	e.blockBuilderCancelFunc = func() {}
 	e.nodeWeights = e.Comm.Nodes()
-	SortNodesWeights(e.nodeWeights)
-	e.nodes = e.nodeWeights.NodesIDs()
+	SortNodes(e.nodeWeights)
+	e.nodes = e.nodeWeights.NodeIDs()
 	e.timedOutRounds = make(map[uint16]uint64, len(e.nodes))
 	e.redeemedRounds = make(map[uint16]uint64, len(e.nodes))
 	e.rounds = make(map[uint64]*Round)
@@ -3424,9 +3424,9 @@ func (e *Epoch) nextSeqToCommit() uint64 {
 	return e.Storage.NumBlocks()
 }
 
-// SortNodesWeights sorts the nodes in place by their byte representations.
-func SortNodesWeights(nodes NodeWeights) {
-	slices.SortFunc(nodes, func(a, b NodeWeight) int {
+// SortNodes sorts the nodes in place by their byte representations.
+func SortNodes(nodes Nodes) {
+	slices.SortFunc(nodes, func(a, b Node) int {
 		return bytes.Compare(a.Node[:], b.Node[:])
 	})
 }

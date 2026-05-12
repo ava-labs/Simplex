@@ -23,7 +23,7 @@ func TestPoS(t *testing.T) {
 
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
 
-	posSigAggregatorCreator := func(_ []simplex.NodeWeight) simplex.SignatureAggregator {
+	posSigAggregatorCreator := func(_ []simplex.Node) simplex.SignatureAggregator {
 		return &testutil.TestSignatureAggregator{
 			IsQuorumFunc: func(signatures []simplex.NodeID) bool {
 				var totalWeight uint64

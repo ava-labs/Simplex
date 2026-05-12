@@ -223,10 +223,10 @@ func (nea *NextEpochApprovals) Equals(other *NextEpochApprovals) bool {
 
 type NodeBLSMappings []NodeBLSMapping
 
-func (nbms NodeBLSMappings) NodeWeights() simplex.NodeWeights {
-	nodeWeights := make(simplex.NodeWeights, len(nbms))
+func (nbms NodeBLSMappings) NodeWeights() simplex.Nodes {
+	nodeWeights := make(simplex.Nodes, len(nbms))
 	for i, nbm := range nbms {
-		nodeWeights[i] = simplex.NodeWeight{
+		nodeWeights[i] = simplex.Node{
 			Node:   nbm.NodeID[:],
 			Weight: nbm.Weight,
 		}

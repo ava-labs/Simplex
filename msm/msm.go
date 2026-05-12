@@ -145,9 +145,13 @@ const (
 	stateBuildBlockEpochSealed
 )
 
-func NewStateMachine(config *Config) *StateMachine {
+func NewStateMachine(config *Config) (*StateMachine, error) {
+	if config.LastNonSimplexInnerBlock == nil {
+		config.Logger.Error("Last non-Simplex inner block is nil, cannot build zero block with correct metadata")
+		return nil, fmt.Errorf("failed constructing zero block: last non-Simplex inner block is nil")
+	}
 	sm := StateMachine{Config: config}
-	return &sm
+	return &sm, nil
 }
 
 // BuildBlock constructs the next block on top of the given parent block, and passes in the provided simplex metadata and blacklist.
@@ -291,31 +295,32 @@ func (sm *StateMachine) buildBlockNormalOp(ctx context.Context, parentBlock Stat
 	}
 
 	blockBuildingDecider := sm.createBlockBuildingDecider(parentBlock)
-	decisionToBuildBlock, pChainHeight, err := blockBuildingDecider.shouldBuildBlock(ctx)
+	decisionToBuildBlock, err := blockBuildingDecider.shouldBuildBlock(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	sm.Logger.Debug("Block building decision", zap.Stringer("decision", decisionToBuildBlock))
+	sm.Logger.Debug("Block building decision",
+		zap.Bool("build inner block", decisionToBuildBlock.buildInnerBlock),
+		zap.Bool("transition epoch", decisionToBuildBlock.transitionEpoch),
+		zap.Uint64("P-chain height", decisionToBuildBlock.pChainHeight))
 
-	var childBlock VMBlock
-
-	switch decisionToBuildBlock {
-	case decisionBuild, decisionBuildAndTransitionEpoch:
-		// If we reached here, we need to build a new block, and maybe also transition to a new epoch.
-		return sm.buildBlockAndMaybeTransitionEpoch(ctx, parentBlock, simplexMetadata, simplexBlacklist, childBlock, decisionToBuildBlock, newSimplexEpochInfo, pChainHeight)
-	case decisionTransitionEpoch:
-		// If we reached here, we don't need to build an inner block, yet we need to transition to a new epoch.
-		// Initiate the epoch transition by setting the next P-chain reference height for the new epoch info,
-		// and build a block without an inner block.
-		newSimplexEpochInfo.NextPChainReferenceHeight = pChainHeight
-		sm.Logger.Debug("Transitioning epoch without building block", zap.Uint64("newPChainRefHeight", pChainHeight))
-		return sm.wrapBlock(parentBlock, nil, newSimplexEpochInfo, pChainHeight, simplexMetadata, simplexBlacklist), nil
-	case decisionContextCanceled:
-		return nil, ctx.Err()
-	default:
-		return nil, fmt.Errorf("unknown block building decision %d", decisionToBuildBlock)
+	if decisionToBuildBlock.transitionEpoch {
+		sm.Logger.Debug("Transitioning epoch after building block", zap.Uint64("newPChainRefHeight", decisionToBuildBlock.pChainHeight))
+		newSimplexEpochInfo.NextPChainReferenceHeight = decisionToBuildBlock.pChainHeight
 	}
+
+	var innerBlock VMBlock
+
+	if decisionToBuildBlock.buildInnerBlock {
+		// TODO: This P-chain height should be taken from the ICM epoch
+		innerBlock, err = sm.BlockBuilder.BuildBlock(ctx, decisionToBuildBlock.pChainHeight)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return sm.wrapBlock(parentBlock, innerBlock, newSimplexEpochInfo, decisionToBuildBlock.pChainHeight, simplexMetadata, simplexBlacklist), nil
 }
 
 func (sm *StateMachine) createBlockBuildingDecider(parentBlock StateMachineBlock) blockBuildingDecider {
@@ -355,38 +360,9 @@ func (sm *StateMachine) createBlockBuildingDecider(parentBlock StateMachineBlock
 	return blockBuildingDecider
 }
 
-func (sm *StateMachine) buildBlockAndMaybeTransitionEpoch(ctx context.Context,
-	parentBlock StateMachineBlock,
-	simplexMetadata []byte,
-	simplexBlacklist []byte,
-	childBlock VMBlock,
-	decisionToBuildBlock blockBuildingDecision,
-	newSimplexEpochInfo SimplexEpochInfo,
-	pChainHeight uint64) (*StateMachineBlock, error) {
-	// TODO: This P-chain height should be taken from the ICM epoch
-	childBlock, err := sm.BlockBuilder.BuildBlock(ctx, pChainHeight)
-	if err != nil {
-		return nil, err
-	}
-
-	if decisionToBuildBlock == decisionBuildAndTransitionEpoch {
-		// We need to also transition to a new epoch, in addition to building an inner block,
-		// so set the next P-chain reference height for the new epoch info.
-		newSimplexEpochInfo.NextPChainReferenceHeight = pChainHeight
-		sm.Logger.Debug("Transitioning epoch after building block", zap.Uint64("newPChainRefHeight", pChainHeight))
-	}
-
-	return sm.wrapBlock(parentBlock, childBlock, newSimplexEpochInfo, pChainHeight, simplexMetadata, simplexBlacklist), nil
-}
-
 // buildBlockZero builds the first ever block for Simplex,
 // which is a special block that introduces the first validator set and starts the first epoch.
 func (sm *StateMachine) buildBlockZero(parentBlock StateMachineBlock, simplexMetadata, simplexBlacklist []byte) (*StateMachineBlock, error) {
-	if sm.LastNonSimplexInnerBlock == nil {
-		sm.Logger.Error("Last non-Simplex inner block is nil, cannot build zero block with correct metadata")
-		return nil, fmt.Errorf("failed constructing zero block: last non-Simplex inner block is nil")
-	}
-
 	pChainHeight := sm.LastNonSimplexBlockPChainHeight
 
 	var validatorSet NodeBLSMappings
@@ -434,10 +410,6 @@ func (sm *StateMachine) buildBlockZero(parentBlock StateMachineBlock, simplexMet
 func (sm *StateMachine) verifyBlockZero(block *StateMachineBlock, prevBlock StateMachineBlock) error {
 	if block == nil {
 		return fmt.Errorf("block is nil")
-	}
-
-	if sm.LastNonSimplexInnerBlock == nil {
-		return fmt.Errorf("failed verifying zero block: last non-Simplex inner block is nil")
 	}
 
 	simplexEpochInfo := block.Metadata.SimplexEpochInfo

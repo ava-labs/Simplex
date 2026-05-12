@@ -255,7 +255,7 @@ func (sv *signatureAggregator) IsQuorum(signers []simplex.NodeID) bool {
 }
 
 func newSignatureAggregatorCreator() simplex.SignatureAggregatorCreator {
-	return func(weights []simplex.NodeWeight) simplex.SignatureAggregator {
+	return func(weights []simplex.Node) simplex.SignatureAggregator {
 		s := &signatureAggregator{weightByNodeID: make(map[string]uint64, len(weights))}
 		for _, nw := range weights {
 			s.weightByNodeID[string(nw.Node)] = nw.Weight
@@ -459,7 +459,9 @@ func newStateMachine(t *testing.T) (*StateMachine, *testConfig) {
 		LastNonSimplexInnerBlock: genesisBlock.InnerBlock,
 	}
 
-	sm := NewStateMachine(&smConfig)
+	sm, err := NewStateMachine(&smConfig)
+	require.NoError(t, err)
+
 	return sm, &testConfig
 }
 

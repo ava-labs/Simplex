@@ -87,7 +87,7 @@ func TestEpochRebroadcastsEmptyVoteAfterBlockProposalReceived(t *testing.T) {
 	bb := testutil.NewTestBlockBuilder()
 	nodes := NodeIDs{{1}, {2}, {3}, {4}}
 
-	comm := newRebroadcastComm(nodes.EqualWeightedNodeWeights())
+	comm := newRebroadcastComm(nodes.EqualWeightedNodes())
 	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[3], comm, bb)
 	epochTime := conf.StartTime
 	e, err := NewEpoch(conf)
@@ -354,7 +354,7 @@ func TestEpochLeaderRecursivelyFetchNotarizedBlocks(t *testing.T) {
 
 	recordedMessages := make(chan *Message, 100)
 
-	comm := &recordingComm{Communication: testutil.NoopComm(nodes.EqualWeightedNodeWeights()), SentMessages: recordedMessages}
+	comm := &recordingComm{Communication: testutil.NoopComm(nodes.EqualWeightedNodes()), SentMessages: recordedMessages}
 	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], comm, bb)
 
 	e, err := NewEpoch(conf)
@@ -1115,18 +1115,18 @@ func TestEpochBlacklist(t *testing.T) {
 }
 
 type rebroadcastComm struct {
-	nodes      NodeWeights
+	nodes      Nodes
 	emptyVotes chan *EmptyVote
 }
 
-func newRebroadcastComm(nodes NodeWeights) *rebroadcastComm {
+func newRebroadcastComm(nodes Nodes) *rebroadcastComm {
 	return &rebroadcastComm{
 		nodes:      nodes,
 		emptyVotes: make(chan *EmptyVote, 10),
 	}
 }
 
-func (r *rebroadcastComm) Nodes() NodeWeights {
+func (r *rebroadcastComm) Nodes() Nodes {
 	return r.nodes
 }
 
@@ -1144,7 +1144,7 @@ func TestEpochRebroadcastsEmptyVote(t *testing.T) {
 	bb := testutil.NewTestBlockBuilder()
 	nodes := NodeIDs{{1}, {2}, {3}, {4}}
 
-	comm := newRebroadcastComm(nodes.EqualWeightedNodeWeights())
+	comm := newRebroadcastComm(nodes.EqualWeightedNodes())
 	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[3], comm, bb)
 	epochTime := conf.StartTime
 	e, err := NewEpoch(conf)
@@ -1227,7 +1227,7 @@ func runCrashAndRestartExecution(t *testing.T, e *Epoch, bb *testutil.TestBlockB
 
 	// Case 2:
 	t.Run(fmt.Sprintf("%s-with-crash", t.Name()), func(t *testing.T) {
-		conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0].Node, testutil.NewNoopComm(nodes.NodesIDs()), bbAfterCrash)
+		conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0].Node, testutil.NewNoopComm(nodes.NodeIDs()), bbAfterCrash)
 		conf.Storage = cloneStorage
 		conf.WAL = cloneWAL
 

@@ -206,7 +206,7 @@ func (bl *Blacklist) ApplyUpdates(updates []BlacklistUpdate, round uint64) Black
 }
 
 // garbageCollectSuspectedNodes returns a new list of suspected nodes for the given round.
-// NodesIDs that are no longer suspected or have been redeemed, will not be included in the returned suspected nodes.
+// NodeIDs that are no longer suspected or have been redeemed, will not be included in the returned suspected nodes.
 // It will also garbage-collect any redeem votes from past orbits, unless hey have surpassed the threshold of f+1.
 // It does not modify the current blacklist.
 func (bl *Blacklist) garbageCollectSuspectedNodes(round uint64) SuspectedNodes {

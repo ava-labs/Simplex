@@ -203,7 +203,7 @@ func testFinalizeSameSequenceGap(t *testing.T, nodes []NodeID, numEmptyNotarizat
 	}
 
 	for range numEmptyNotarizations {
-		leader := LeaderForRound(e.Comm.Nodes().NodesIDs(), e.Metadata().Round)
+		leader := LeaderForRound(e.Comm.Nodes().NodeIDs(), e.Metadata().Round)
 		if e.ID.Equals(leader) {
 			fVote := advanceWithFinalizeCheck(t, e, recordingComm, bb)
 			finalizeVoteSeqs[fVote.Finalization.Seq] = fVote
@@ -237,7 +237,7 @@ func testFinalizeSameSequenceGap(t *testing.T, nodes []NodeID, numEmptyNotarizat
 		verified <- struct{}{}
 	}
 
-	leader := LeaderForRound(e.Comm.Nodes().NodesIDs(), 1+numEmptyNotarizations+numNotarizations)
+	leader := LeaderForRound(e.Comm.Nodes().NodeIDs(), 1+numEmptyNotarizations+numNotarizations)
 	if e.ID.Equals(leader) {
 		return
 	}
@@ -446,7 +446,7 @@ func TestEpochIndexFinalization(t *testing.T) {
 	// 1 & 2
 
 	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Nodes())
-	finalization, _ := testutil.NewFinalizationRecord(t, conf.Logger, sigAggr, firstBlock, e.Comm.Nodes().NodesIDs())
+	finalization, _ := testutil.NewFinalizationRecord(t, conf.Logger, sigAggr, firstBlock, e.Comm.Nodes().NodeIDs())
 	testutil.InjectTestFinalization(t, e, &finalization, nodes[1])
 
 	storage.WaitForBlockCommit(2)
@@ -751,10 +751,10 @@ func TestEpochStartedTwice(t *testing.T) {
 }
 
 func advanceRoundFromEmpty(t *testing.T, e *Epoch) {
-	leader := LeaderForRound(e.Comm.Nodes().NodesIDs(), e.Metadata().Round)
+	leader := LeaderForRound(e.Comm.Nodes().NodeIDs(), e.Metadata().Round)
 	require.False(t, e.ID.Equals(leader), "epoch cannot be the leader for the empty round")
 
-	emptyNote := testutil.NewEmptyNotarization(e.Comm.Nodes().NodesIDs(), e.Metadata().Round)
+	emptyNote := testutil.NewEmptyNotarization(e.Comm.Nodes().NodeIDs(), e.Metadata().Round)
 	err := e.HandleMessage(&Message{
 		EmptyNotarization: emptyNote,
 	}, leader)
@@ -1644,7 +1644,7 @@ func advanceRound(t *testing.T, e *simplex.Epoch, bb *testutil.TestBlockBuilder,
 	nodes := e.Comm.Nodes()
 	quorum := simplex.Quorum(len(nodes))
 	// leader is the proposer of the new block for the given round
-	leader := simplex.LeaderForRound(nodes.NodesIDs(), e.Metadata().Round)
+	leader := simplex.LeaderForRound(nodes.NodeIDs(), e.Metadata().Round)
 	md := e.Metadata()
 	if injectedMD != nil {
 		md = *injectedMD
@@ -1678,7 +1678,7 @@ func advanceRound(t *testing.T, e *simplex.Epoch, bb *testutil.TestBlockBuilder,
 	if notarize {
 		// start at one since our node has already voted
 		sigAggr := e.SignatureAggregatorCreator(nodes)
-		n, err := testutil.NewNotarization(e.Logger, sigAggr, block, nodes.NodesIDs()[0:quorum])
+		n, err := testutil.NewNotarization(e.Logger, sigAggr, block, nodes.NodeIDs()[0:quorum])
 		testutil.InjectTestNotarization(t, e, n, nodes[1].Node)
 
 		e.WAL.(*testutil.TestWAL).AssertNotarization(block.Metadata.Round)
