@@ -6,6 +6,7 @@ package metadata
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -14,6 +15,8 @@ import (
 	"github.com/ava-labs/simplex/testutil"
 	"github.com/stretchr/testify/require"
 )
+
+var errBlockDigestMismatch = errors.New("does not match proposed block digest")
 
 func TestMSMBuildAndVerifyBlocksAfterGenesis(t *testing.T) {
 	validMD := simplex.ProtocolMetadata{
@@ -26,7 +29,7 @@ func TestMSMBuildAndVerifyBlocksAfterGenesis(t *testing.T) {
 	for _, testCase := range []struct {
 		name        string
 		md          simplex.ProtocolMetadata
-		err         string
+		err         error
 		configure   func(*StateMachine, *testConfig)
 		mutateBlock func(*StateMachineBlock)
 	}{
@@ -43,7 +46,7 @@ func TestMSMBuildAndVerifyBlocksAfterGenesis(t *testing.T) {
 				md.Seq = 0
 				block.Metadata.SimplexProtocolMetadata = md.Bytes()
 			},
-			err: "attempted to build a genesis inner block",
+			err: errBuiltGenesisInnerBlock,
 		},
 		{
 			name: "previous block not found",
@@ -51,7 +54,7 @@ func TestMSMBuildAndVerifyBlocksAfterGenesis(t *testing.T) {
 			configure: func(_ *StateMachine, tc *testConfig) {
 				delete(tc.blockStore, 0)
 			},
-			err: "failed to retrieve previous (0) inner block",
+			err: simplex.ErrBlockNotFound,
 		},
 		{
 			name: "parent has no inner block",
@@ -61,7 +64,7 @@ func TestMSMBuildAndVerifyBlocksAfterGenesis(t *testing.T) {
 					block: StateMachineBlock{},
 				}
 			},
-			err: "parent inner block (",
+			err: errParentInnerBlockHasNoInnerBlock,
 		},
 		{
 			name: "wrong epoch number",
@@ -69,7 +72,7 @@ func TestMSMBuildAndVerifyBlocksAfterGenesis(t *testing.T) {
 			mutateBlock: func(block *StateMachineBlock) {
 				block.Metadata.SimplexEpochInfo.EpochNumber = 2
 			},
-			err: "invalid epoch number (2), should be 1",
+			err: errInvalidSimplexEpochInfo,
 		},
 		{
 			name: "P-chain height too big",
@@ -77,7 +80,7 @@ func TestMSMBuildAndVerifyBlocksAfterGenesis(t *testing.T) {
 			mutateBlock: func(block *StateMachineBlock) {
 				block.Metadata.PChainHeight = 110
 			},
-			err: "invalid P-chain height (110), expected to be 100",
+			err: errInvalidPChainHeight,
 		},
 		{
 			name: "P-chain height smaller than parent",
@@ -85,7 +88,7 @@ func TestMSMBuildAndVerifyBlocksAfterGenesis(t *testing.T) {
 			configure: func(sm *StateMachine, tc *testConfig) {
 				sm.LastNonSimplexBlockPChainHeight = 99
 			},
-			err: "invalid P-chain height (100), expected to be 99",
+			err: errInvalidPChainHeight,
 		},
 		{
 			name: "nil BlockValidationDescriptor",
@@ -93,7 +96,7 @@ func TestMSMBuildAndVerifyBlocksAfterGenesis(t *testing.T) {
 			mutateBlock: func(block *StateMachineBlock) {
 				block.Metadata.SimplexEpochInfo.BlockValidationDescriptor = nil
 			},
-			err: "invalid BlockValidationDescriptor: should not be nil",
+			err: errInvalidSimplexEpochInfo,
 		},
 		{
 			name: "membership mismatch",
@@ -103,7 +106,7 @@ func TestMSMBuildAndVerifyBlocksAfterGenesis(t *testing.T) {
 					{BLSKey: []byte{1}, Weight: 1},
 				}
 			},
-			err: "invalid BlockValidationDescriptor: should match validator set",
+			err: errInvalidSimplexEpochInfo,
 		},
 		{
 			name: "SimplexEpochInfo mismatch",
@@ -111,7 +114,7 @@ func TestMSMBuildAndVerifyBlocksAfterGenesis(t *testing.T) {
 			mutateBlock: func(block *StateMachineBlock) {
 				block.Metadata.SimplexEpochInfo.PrevVMBlockSeq = 999
 			},
-			err: "invalid SimplexEpochInfo",
+			err: errInvalidSimplexEpochInfo,
 		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -131,8 +134,8 @@ func TestMSMBuildAndVerifyBlocksAfterGenesis(t *testing.T) {
 			}
 
 			err = sm2.VerifyBlock(context.Background(), block)
-			if testCase.err != "" {
-				require.ErrorContains(t, err, testCase.err)
+			if testCase.err != nil {
+				require.ErrorIs(t, err, testCase.err)
 				return
 			}
 			require.NoError(t, err)
@@ -212,12 +215,90 @@ func TestMSMNormalOp(t *testing.T) {
 	for _, testCase := range []struct {
 		name                        string
 		setup                       func(*StateMachine, *testConfig)
+		mutateBlock                 func(*StateMachineBlock)
+		err                         error
 		expectedPChainHeight        uint64
 		expectedNextPChainRefHeight uint64
 	}{
 		{
 			name:                 "correct information",
 			expectedPChainHeight: 100,
+		},
+		{
+			name: "trying to build a genesis block",
+			mutateBlock: func(block *StateMachineBlock) {
+				md, err := simplex.ProtocolMetadataFromBytes(block.Metadata.SimplexProtocolMetadata)
+				require.NoError(t, err)
+				md.Seq = 0
+				block.Metadata.SimplexProtocolMetadata = md.Bytes()
+			},
+			err: errBuiltGenesisInnerBlock,
+		},
+		{
+			name: "previous block not found",
+			mutateBlock: func(block *StateMachineBlock) {
+				md, err := simplex.ProtocolMetadataFromBytes(block.Metadata.SimplexProtocolMetadata)
+				require.NoError(t, err)
+				md.Seq = 999
+				block.Metadata.SimplexProtocolMetadata = md.Bytes()
+			},
+			err: simplex.ErrBlockNotFound,
+		},
+		{
+			name: "P-chain height too big",
+			mutateBlock: func(block *StateMachineBlock) {
+				block.Metadata.PChainHeight = 110
+			},
+			err: errPChainHeightTooBig,
+		},
+		{
+			name: "P-chain height smaller than parent",
+			mutateBlock: func(block *StateMachineBlock) {
+				block.Metadata.PChainHeight = 0
+			},
+			err: errPChainHeightSmallerThanParent,
+		},
+		{
+			name: "wrong epoch number",
+			mutateBlock: func(block *StateMachineBlock) {
+				block.Metadata.SimplexEpochInfo.EpochNumber = 2
+			},
+			err: errBlockDigestMismatch,
+		},
+		{
+			name: "non-nil BlockValidationDescriptor",
+			mutateBlock: func(block *StateMachineBlock) {
+				block.Metadata.SimplexEpochInfo.BlockValidationDescriptor = &BlockValidationDescriptor{}
+			},
+			err: errBlockDigestMismatch,
+		},
+		{
+			name: "non-zero sealing block seq",
+			mutateBlock: func(block *StateMachineBlock) {
+				block.Metadata.SimplexEpochInfo.SealingBlockSeq = 5
+			},
+			err: errBlockDigestMismatch,
+		},
+		{
+			name: "wrong PChainReferenceHeight",
+			mutateBlock: func(block *StateMachineBlock) {
+				block.Metadata.SimplexEpochInfo.PChainReferenceHeight = 50
+			},
+			err: errBlockDigestMismatch,
+		},
+		{
+			name: "non-empty PrevSealingBlockHash",
+			mutateBlock: func(block *StateMachineBlock) {
+				block.Metadata.SimplexEpochInfo.PrevSealingBlockHash = [32]byte{1, 2, 3}
+			},
+			err: errBlockDigestMismatch,
+		},
+		{
+			name: "wrong PrevVMBlockSeq",
+			mutateBlock: func(block *StateMachineBlock) {
+				block.Metadata.SimplexEpochInfo.PrevVMBlockSeq = 999
+			},
+			err: errBlockDigestMismatch,
 		},
 		{
 			name: "validator set change detected",
@@ -234,9 +315,11 @@ func TestMSMNormalOp(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			chain := makeChain(t, 5, 10)
 			sm1, testConfig1 := newStateMachine(t)
+			sm2, testConfig2 := newStateMachine(t)
 
 			for i, block := range chain {
 				testConfig1.blockStore[uint64(i)] = &outerBlock{block: block}
+				testConfig2.blockStore[uint64(i)] = &outerBlock{block: block}
 			}
 
 			lastBlock := chain[len(chain)-1]
@@ -264,13 +347,29 @@ func TestMSMNormalOp(t *testing.T) {
 
 			if testCase.setup != nil {
 				testCase.setup(sm1, testConfig1)
+				testCase.setup(sm2, testConfig2)
 			}
 
 			block1, err := sm1.BuildBlock(context.Background(), *md, &blacklist)
 			require.NoError(t, err)
 			require.NotNil(t, block1)
 
-			require.Equal(t, &StateMachineBlock{
+			if testCase.mutateBlock != nil {
+				testCase.mutateBlock(block1)
+			}
+
+			err = sm2.VerifyBlock(context.Background(), block1)
+			if testCase.err != nil {
+				if testCase.err == errBlockDigestMismatch {
+					require.ErrorContains(t, err, testCase.err.Error())
+				} else {
+					require.ErrorIs(t, err, testCase.err)
+				}
+				return
+			}
+			require.NoError(t, err)
+
+			expected := &StateMachineBlock{
 				InnerBlock: &InnerBlock{
 					TS:          blockTime,
 					BlockHeight: lastBlock.InnerBlock.Height(),
@@ -288,7 +387,8 @@ func TestMSMNormalOp(t *testing.T) {
 						NextPChainReferenceHeight: testCase.expectedNextPChainRefHeight,
 					},
 				},
-			}, block1)
+			}
+			require.Equal(t, expected.Digest(), block1.Digest())
 		})
 	}
 }
@@ -775,7 +875,7 @@ func TestAreNextEpochApprovalsSignersSupersetOfApprovalsOfPrevBlock(t *testing.T
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			err := ensureNextEpochApprovalsSignersSupersetOfApprovalsOfPrevBlock(tc.prev, tc.next)
+			err := areNextEpochApprovalsSignersSupersetOfApprovalsOfPrevBlock(tc.prev, tc.next)
 			if tc.err != nil {
 				require.ErrorIs(t, err, tc.err)
 			} else {
@@ -983,6 +1083,6 @@ func TestComputeNewApproverSignaturesAndSigners(t *testing.T) {
 		}
 
 		_, _, err := computeNewApproverSignaturesAndSigners(prevApprovals, peers, oldApproving, nodeID2Index, failingAggregator{}, logger)
-		require.ErrorContains(t, err, "aggregation failed")
+		require.ErrorIs(t, err, errTestAggregationFailed)
 	})
 }

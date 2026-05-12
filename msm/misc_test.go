@@ -9,6 +9,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/asn1"
+	"errors"
 	"fmt"
 	"maps"
 	"math"
@@ -25,7 +26,7 @@ func TestSafeAdd(t *testing.T) {
 		name string
 		a, b uint64
 		sum  uint64
-		err  string
+		err  error
 	}{
 		{
 			name: "zero plus zero",
@@ -50,12 +51,12 @@ func TestSafeAdd(t *testing.T) {
 		{
 			name: "overflow by one",
 			a:    math.MaxUint64, b: 1,
-			err: "overflow",
+			err: errOverflow,
 		},
 		{
 			name: "overflow both large",
 			a:    math.MaxUint64 - 5, b: 10,
-			err: "overflow",
+			err: errOverflow,
 		},
 		{
 			name: "max uint64 boundary no overflow",
@@ -65,8 +66,8 @@ func TestSafeAdd(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			result, err := safeAdd(tc.a, tc.b)
-			if tc.err != "" {
-				require.ErrorContains(t, err, tc.err)
+			if tc.err != nil {
+				require.ErrorIs(t, err, tc.err)
 			} else {
 				require.NoError(t, err)
 				require.Equal(t, tc.sum, result)
@@ -487,10 +488,66 @@ func (failingAggregator) Aggregate([]simplex.Signature) (simplex.QuorumCertifica
 	panic("unused in tests")
 }
 
+var errTestAggregationFailed = errors.New("aggregation failed")
+
 func (failingAggregator) AppendSignatures([]byte, ...[]byte) ([]byte, error) {
-	return nil, fmt.Errorf("aggregation failed")
+	return nil, errTestAggregationFailed
 }
 
 func (failingAggregator) IsQuorum([]simplex.NodeID) bool {
 	return false
+}
+
+type testBlockStore map[uint64]StateMachineBlock
+
+func (bs testBlockStore) getBlock(seq uint64, _ [32]byte) (StateMachineBlock, *simplex.Finalization, error) {
+	blk, ok := bs[seq]
+	if !ok {
+		return StateMachineBlock{}, nil, fmt.Errorf("%w: block %d", simplex.ErrBlockNotFound, seq)
+	}
+	return blk, nil, nil
+}
+
+type testVMBlock struct {
+	bytes  []byte
+	height uint64
+}
+
+func (b *testVMBlock) Digest() [32]byte {
+	return sha256.Sum256(b.bytes)
+}
+
+func (b *testVMBlock) Height() uint64 {
+	return b.height
+}
+
+func (b *testVMBlock) Timestamp() time.Time {
+	return time.Now()
+}
+
+func (b *testVMBlock) Verify(_ context.Context) error {
+	return nil
+}
+
+type testSigVerifier struct {
+	err error
+}
+
+func (sv *testSigVerifier) VerifySignature(_, _, _ []byte) error {
+	return sv.err
+}
+
+type testKeyAggregator struct {
+	err error
+}
+
+func (ka *testKeyAggregator) AggregateKeys(keys ...[]byte) ([]byte, error) {
+	if ka.err != nil {
+		return nil, ka.err
+	}
+	var agg []byte
+	for _, k := range keys {
+		agg = append(agg, k...)
+	}
+	return agg, nil
 }
