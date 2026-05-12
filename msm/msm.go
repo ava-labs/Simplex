@@ -151,45 +151,45 @@ func NewStateMachine(config *Config) *StateMachine {
 }
 
 // BuildBlock constructs the next block on top of the given parent block, and passes in the provided simplex metadata and blacklist.
-func (sm *StateMachine) BuildBlock(ctx context.Context, simplexMetadata simplex.ProtocolMetadata, simplexBlacklist *simplex.Blacklist) (*StateMachineBlock, error) {
+func (sm *StateMachine) BuildBlock(ctx context.Context, metadata simplex.ProtocolMetadata, blacklist *simplex.Blacklist) (*StateMachineBlock, error) {
 	// The zero sequence number is reserved for the genesis block, which should never be built.
-	if simplexMetadata.Seq == 0 {
-		return nil, fmt.Errorf("invalid ProtocolMetadata sequence number: should be > 0, got %d", simplexMetadata.Seq)
+	if metadata.Seq == 0 {
+		return nil, fmt.Errorf("invalid ProtocolMetadata sequence number: should be > 0, got %d", metadata.Seq)
 	}
 
-	parentBlock, _, err := sm.GetBlock(simplexMetadata.Seq-1, simplexMetadata.Prev)
+	parentBlock, _, err := sm.GetBlock(metadata.Seq-1, metadata.Prev)
 	if err != nil {
-		return nil, fmt.Errorf("failed retrieving parent block at height %d with digest %s: %w", simplexMetadata.Seq-1, simplexMetadata.Prev.String(), err)
+		return nil, fmt.Errorf("failed retrieving parent block at height %d with digest %s: %w", metadata.Seq-1, metadata.Prev.String(), err)
 	}
 
 	start := time.Now()
 
 	sm.Logger.Debug("Building block",
-		zap.Uint64("seq", simplexMetadata.Seq),
-		zap.Uint64("epoch", simplexMetadata.Epoch),
-		zap.Stringer("prevHash", simplexMetadata.Prev))
+		zap.Uint64("seq", metadata.Seq),
+		zap.Uint64("epoch", metadata.Epoch),
+		zap.Stringer("prevHash", metadata.Prev))
 
 	defer func() {
 		elapsed := time.Since(start)
 		sm.Logger.Debug("Built block",
-			zap.Uint64("seq", simplexMetadata.Seq),
-			zap.Uint64("epoch", simplexMetadata.Epoch),
-			zap.Stringer("prevHash", simplexMetadata.Prev),
+			zap.Uint64("seq", metadata.Seq),
+			zap.Uint64("epoch", metadata.Epoch),
+			zap.Stringer("prevHash", metadata.Prev),
 			zap.Duration("elapsed", elapsed),
 		)
 	}()
 
 	var simplexBlacklistBytes []byte
-	if simplexBlacklist != nil {
-		simplexBlacklistBytes = simplexBlacklist.Bytes()
+	if blacklist != nil {
+		simplexBlacklistBytes = blacklist.Bytes()
 	}
 
 	// In order to know where in the epoch change process we are,
 	// we identify the current state by looking at the parent block's epoch info.
 	currentState := parentBlock.Metadata.SimplexEpochInfo.NextState()
 
-	simplexMetadataBytes := simplexMetadata.Bytes()
-	prevBlockSeq := simplexMetadata.Seq - 1
+	simplexMetadataBytes := metadata.Bytes()
+	prevBlockSeq := metadata.Seq - 1
 
 	switch currentState {
 	case stateFirstSimplexBlock:
