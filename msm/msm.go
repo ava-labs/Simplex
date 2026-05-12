@@ -69,6 +69,20 @@ type BlockBuilder interface {
 	WaitForPendingBlock(ctx context.Context)
 }
 
+type verificationInput struct {
+	prevMD              StateMachineMetadata
+	proposedBlockMD     StateMachineMetadata
+	hasInnerBlock       bool
+	innerBlockTimestamp time.Time // only set when hasInnerBlock is true
+	prevBlockSeq        uint64
+	nextBlockType       BlockType
+	state               state
+}
+
+type verifier interface {
+	Verify(in verificationInput) error
+}
+
 // StateMachine manages block building and verification across epoch transitions.
 type StateMachine struct {
 	// verifiers is the list of verifiers used to verify proposed blocks.

@@ -4,8 +4,6 @@
 package metadata
 
 import (
-	"context"
-	"crypto/sha256"
 	"fmt"
 	"testing"
 	"time"
@@ -939,82 +937,4 @@ func TestSealingBlockSeqVerifier(t *testing.T) {
 			}
 		})
 	}
-}
-
-// Test helpers
-
-type testBlockStore map[uint64]StateMachineBlock
-
-func (bs testBlockStore) getBlock(seq uint64, _ [32]byte) (StateMachineBlock, *simplex.Finalization, error) {
-	blk, ok := bs[seq]
-	if !ok {
-		return StateMachineBlock{}, nil, fmt.Errorf("%w: block %d", simplex.ErrBlockNotFound, seq)
-	}
-	return blk, nil, nil
-}
-
-type testVMBlock struct {
-	bytes  []byte
-	height uint64
-}
-
-func (b *testVMBlock) Digest() [32]byte {
-	return sha256.Sum256(b.bytes)
-}
-
-func (b *testVMBlock) Height() uint64 {
-	return b.height
-}
-
-func (b *testVMBlock) Timestamp() time.Time {
-	return time.Now()
-}
-
-func (b *testVMBlock) Verify(_ context.Context) error {
-	return nil
-}
-
-type testSigVerifier struct {
-	err error
-}
-
-func (sv *testSigVerifier) VerifySignature(_, _, _ []byte) error {
-	return sv.err
-}
-
-type testKeyAggregator struct {
-	err error
-}
-
-func (ka *testKeyAggregator) AggregateKeys(keys ...[]byte) ([]byte, error) {
-	if ka.err != nil {
-		return nil, ka.err
-	}
-	var agg []byte
-	for _, k := range keys {
-		agg = append(agg, k...)
-	}
-	return agg, nil
-}
-
-type InnerBlock struct {
-	TS          time.Time
-	BlockHeight uint64
-	Bytes       []byte
-}
-
-func (i *InnerBlock) Digest() [32]byte {
-	return sha256.Sum256(i.Bytes)
-}
-
-func (i *InnerBlock) Height() uint64 {
-	return i.BlockHeight
-}
-
-func (i *InnerBlock) Timestamp() time.Time {
-	return i.TS
-}
-
-func (i *InnerBlock) Verify(_ context.Context) error {
-	return nil
 }

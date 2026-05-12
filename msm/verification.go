@@ -12,19 +12,6 @@ import (
 	"github.com/ava-labs/simplex"
 )
 
-type verificationInput struct {
-	prevMD              StateMachineMetadata
-	proposedBlockMD     StateMachineMetadata
-	hasInnerBlock       bool
-	innerBlockTimestamp time.Time // only set when hasInnerBlock is true
-	prevBlockSeq        uint64
-	nextBlockType       BlockType
-	state               state
-}
-
-type verifier interface {
-	Verify(in verificationInput) error
-}
 type validationDescriptorVerifier struct {
 	getValidatorSet ValidatorSetRetriever
 }
