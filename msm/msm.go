@@ -290,36 +290,35 @@ func (sm *StateMachine) buildBlockNormalOp(ctx context.Context, parentBlock Stat
 		PrevVMBlockSeq:        computePrevVMBlockSeq(parentBlock, prevBlockSeq),
 	}
 
-	blockBuildingDecider := sm.createBlockBuildingDecider(parentBlock)
-	decisionToBuildBlock, pChainHeight, err := blockBuildingDecider.shouldBuildBlock(ctx)
+	decision, err := sm.createBlockBuildingDecider(parentBlock).shouldBuildBlock(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	sm.Logger.Debug("Block building decision", zap.Stringer("decision", decisionToBuildBlock))
+	sm.Logger.Debug("Block building decision",
+		zap.Bool("buildInnerBlock", decision.buildInnerBlock),
+		zap.Bool("transitionEpoch", decision.transitionEpoch),
+		zap.Uint64("pChainHeight", decision.pChainHeight),
+	)
 
-	var childBlock VMBlock
-
-	switch decisionToBuildBlock {
-	case decisionBuild, decisionBuildAndTransitionEpoch:
-		// If we reached here, we need to build a new block, and maybe also transition to a new epoch.
-		return sm.buildBlockAndMaybeTransitionEpoch(ctx, parentBlock, simplexMetadata, simplexBlacklist, childBlock, decisionToBuildBlock, newSimplexEpochInfo, pChainHeight)
-	case decisionTransitionEpoch:
-		// If we reached here, we don't need to build an inner block, yet we need to transition to a new epoch.
-		// Initiate the epoch transition by setting the next P-chain reference height for the new epoch info,
-		// and build a block without an inner block.
-		newSimplexEpochInfo.NextPChainReferenceHeight = pChainHeight
-		sm.Logger.Debug("Transitioning epoch without building block", zap.Uint64("newPChainRefHeight", pChainHeight))
-		return sm.wrapBlock(parentBlock, nil, newSimplexEpochInfo, pChainHeight, simplexMetadata, simplexBlacklist), nil
-	case decisionContextCanceled:
-		return nil, ctx.Err()
-	default:
-		return nil, fmt.Errorf("unknown block building decision %d", decisionToBuildBlock)
+	var innerBlock VMBlock
+	if decision.buildInnerBlock {
+		// TODO: This P-chain height should be taken from the ICM epoch
+		innerBlock, err = sm.BlockBuilder.BuildBlock(ctx, decision.pChainHeight)
+		if err != nil {
+			return nil, err
+		}
 	}
+
+	if decision.transitionEpoch {
+		newSimplexEpochInfo.NextPChainReferenceHeight = decision.pChainHeight
+	}
+
+	return sm.wrapBlock(parentBlock, innerBlock, newSimplexEpochInfo, decision.pChainHeight, simplexMetadata, simplexBlacklist), nil
 }
 
-func (sm *StateMachine) createBlockBuildingDecider(parentBlock StateMachineBlock) blockBuildingDecider {
-	blockBuildingDecider := blockBuildingDecider{
+func (sm *StateMachine) createBlockBuildingDecider(parentBlock StateMachineBlock) *blockBuildingDecider {
+	return &blockBuildingDecider{
 		logger:                   sm.Logger,
 		maxBlockBuildingWaitTime: sm.MaxBlockBuildingWaitTime,
 		pChainListener:           sm.PChainProgressListener,
@@ -352,31 +351,6 @@ func (sm *StateMachine) createBlockBuildingDecider(parentBlock StateMachineBlock
 			return false, nil
 		},
 	}
-	return blockBuildingDecider
-}
-
-func (sm *StateMachine) buildBlockAndMaybeTransitionEpoch(ctx context.Context,
-	parentBlock StateMachineBlock,
-	simplexMetadata []byte,
-	simplexBlacklist []byte,
-	childBlock VMBlock,
-	decisionToBuildBlock blockBuildingDecision,
-	newSimplexEpochInfo SimplexEpochInfo,
-	pChainHeight uint64) (*StateMachineBlock, error) {
-	// TODO: This P-chain height should be taken from the ICM epoch
-	childBlock, err := sm.BlockBuilder.BuildBlock(ctx, pChainHeight)
-	if err != nil {
-		return nil, err
-	}
-
-	if decisionToBuildBlock == decisionBuildAndTransitionEpoch {
-		// We need to also transition to a new epoch, in addition to building an inner block,
-		// so set the next P-chain reference height for the new epoch info.
-		newSimplexEpochInfo.NextPChainReferenceHeight = pChainHeight
-		sm.Logger.Debug("Transitioning epoch after building block", zap.Uint64("newPChainRefHeight", pChainHeight))
-	}
-
-	return sm.wrapBlock(parentBlock, childBlock, newSimplexEpochInfo, pChainHeight, simplexMetadata, simplexBlacklist), nil
 }
 
 // buildBlockZero builds the first ever block for Simplex,
