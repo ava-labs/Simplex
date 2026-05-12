@@ -109,6 +109,30 @@ func (sei *SimplexEpochInfo) Equal(other *SimplexEpochInfo) bool {
 	return true
 }
 
+func (sei *SimplexEpochInfo) NextState() state {
+	prevBlockSimplexEpochInfo := sei
+	// If this is the first ever epoch, then this is also the first ever block to be built by Simplex.
+	if prevBlockSimplexEpochInfo.EpochNumber == 0 {
+		return stateFirstSimplexBlock
+	}
+
+	// If we don't have a next P-chain preference height, it means we are not transitioning to a new epoch just yet.
+	if prevBlockSimplexEpochInfo.NextPChainReferenceHeight == 0 {
+		return stateBuildBlockNormalOp
+	}
+
+	// If the previous block has a sealing block sequence, it's a Telock.
+	// If it has a block validation descriptor, it's a sealing block.
+	// Either way, the epoch has been sealed.
+	if prevBlockSimplexEpochInfo.SealingBlockSeq > 0 || prevBlockSimplexEpochInfo.BlockValidationDescriptor != nil {
+		return stateBuildBlockEpochSealed
+	}
+
+	// In any other case, NextPChainReferenceHeight > 0 but the previous block is not a Telock or sealing block,
+	// it means we are in the process of collecting approvals for the next epoch.
+	return stateBuildCollectingApprovals
+}
+
 type NodeBLSMapping struct {
 	NodeID nodeID `canoto:"fixed bytes,1"`
 	BLSKey []byte `canoto:"bytes,2"`
@@ -203,7 +227,7 @@ func (nbms NodeBLSMappings) NodeWeights() simplex.NodeWeights {
 	nodeWeights := make(simplex.NodeWeights, len(nbms))
 	for i, nbm := range nbms {
 		nodeWeights[i] = simplex.NodeWeight{
-			Node: nbm.NodeID[:],
+			Node:   nbm.NodeID[:],
 			Weight: nbm.Weight,
 		}
 	}

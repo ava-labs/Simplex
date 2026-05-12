@@ -35,9 +35,9 @@ func DefaultTestNodeEpochConfig(t *testing.T, nodeID simplex.NodeID, comm simple
 		SignatureAggregatorCreator: func(weights []simplex.NodeWeight) simplex.SignatureAggregator {
 			return &TestSignatureAggregator{N: len(weights)}
 		},
-		BlockDeserializer:          &BlockDeserializer{},
-		QCDeserializer:             &testQCDeserializer{t: t},
-		StartTime:                  time.Now(),
+		BlockDeserializer: &BlockDeserializer{},
+		QCDeserializer:    &testQCDeserializer{t: t},
+		StartTime:         time.Now(),
 	}
 	return conf, wal, storage
 }
@@ -127,7 +127,6 @@ type TestSignatureAggregatorCreator struct {
 	N            int
 	IsQuorumFunc func(signatures []simplex.NodeID) bool
 }
-
 
 type TestSignatureAggregator struct {
 	Err          error

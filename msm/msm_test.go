@@ -162,7 +162,7 @@ var (
 	}
 )
 
-func TestMSMFirstBlockAfterGenesis(t *testing.T) {
+func TestMSMBuildAndVerifyBlocksAfterGenesis(t *testing.T) {
 	validMD := simplex.ProtocolMetadata{
 		Round: 1,
 		Seq:   1,
@@ -182,7 +182,7 @@ func TestMSMFirstBlockAfterGenesis(t *testing.T) {
 			md:   validMD,
 		},
 		{
-			name: "trying to build a genesis block",
+			name: "verifying a genesis block",
 			md:   validMD,
 			mutateBlock: func(block *StateMachineBlock) {
 				md, err := simplex.ProtocolMetadataFromBytes(block.Metadata.SimplexProtocolMetadata)
@@ -262,16 +262,8 @@ func TestMSMFirstBlockAfterGenesis(t *testing.T) {
 		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			sm1, testConfig1 := newStateMachine(t)
+			sm1, _ := newStateMachine(t)
 			sm2, testConfig2 := newStateMachine(t)
-
-			testConfig1.blockStore[0] = &outerBlock{
-				block: genesisBlock,
-			}
-
-			testConfig2.blockStore[0] = &outerBlock{
-				block: genesisBlock,
-			}
 
 			if testCase.configure != nil {
 				testCase.configure(sm2, testConfig2)
@@ -1048,7 +1040,7 @@ func newStateMachine(t *testing.T) (*StateMachine, *testConfig) {
 	}
 
 	smConfig := Config{
-		GenesisValidatorSet: NodeBLSMappings{{BLSKey: []byte{1}, Weight: 1}, {BLSKey: []byte{2}, Weight: 1}},
+		GenesisValidatorSet:             NodeBLSMappings{{BLSKey: []byte{1}, Weight: 1}, {BLSKey: []byte{2}, Weight: 1}},
 		LastNonSimplexBlockPChainHeight: 100,
 		FirstEverSimplexBlock: func() *StateMachineBlock {
 			var res *StateMachineBlock
@@ -1064,24 +1056,24 @@ func newStateMachine(t *testing.T) (*StateMachine, *testConfig) {
 			}
 			return res
 		},
-		GetTime:                  time.Now,
-		TimeSkewLimit:            time.Second * 5,
-		Logger:                   testutil.MakeLogger(t),
-		GetBlock:                 testConfig.blockStore.getBlock,
-		MaxBlockBuildingWaitTime: time.Second,
-		ApprovalsRetriever:       &testConfig.approvalsRetriever,
-		SignatureVerifier:        &testConfig.signatureVerifier,
+		GetTime:                    time.Now,
+		TimeSkewLimit:              time.Second * 5,
+		Logger:                     testutil.MakeLogger(t),
+		GetBlock:                   testConfig.blockStore.getBlock,
+		MaxBlockBuildingWaitTime:   time.Second,
+		ApprovalsRetriever:         &testConfig.approvalsRetriever,
+		SignatureVerifier:          &testConfig.signatureVerifier,
 		SignatureAggregatorCreator: newSignatureAggregatorCreator(),
-		BlockBuilder:             &testConfig.blockBuilder,
-		KeyAggregator:            &testConfig.keyAggregator,
+		BlockBuilder:               &testConfig.blockBuilder,
+		KeyAggregator:              &testConfig.keyAggregator,
 		GetPChainHeight: func() uint64 {
 			return 100
 		},
 		GetUpgrades: func() any {
 			return nil
 		},
-		GetValidatorSet:        testConfig.validatorSetRetriever.getValidatorSet,
-		PChainProgressListener: &noOpPChainListener{},
+		GetValidatorSet:          testConfig.validatorSetRetriever.getValidatorSet,
+		PChainProgressListener:   &noOpPChainListener{},
 		LastNonSimplexInnerBlock: genesisBlock.InnerBlock,
 	}
 
@@ -1123,7 +1115,7 @@ func TestIdentifyCurrentState(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			result := identifyCurrentState(tc.input)
+			result := tc.input.NextState()
 			require.Equal(t, tc.expected, result)
 		})
 	}

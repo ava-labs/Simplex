@@ -125,7 +125,7 @@ type Config struct {
 type state uint8
 
 const (
-	stateFirstSimplexBlock state = iota
+	stateFirstSimplexBlock state = iota + 1
 	stateBuildBlockNormalOp
 	stateBuildCollectingApprovals
 	stateBuildBlockEpochSealed
@@ -173,7 +173,7 @@ func (sm *StateMachine) BuildBlock(ctx context.Context, simplexMetadata simplex.
 
 	// In order to know where in the epoch change process we are,
 	// we identify the current state by looking at the parent block's epoch info.
-	currentState := identifyCurrentState(parentBlock.Metadata.SimplexEpochInfo)
+	currentState := parentBlock.Metadata.SimplexEpochInfo.NextState()
 
 	simplexMetadataBytes := simplexMetadata.Bytes()
 	prevBlockSeq := simplexMetadata.Seq - 1
@@ -216,7 +216,7 @@ func (sm *StateMachine) VerifyBlock(ctx context.Context, block *StateMachineBloc
 	}
 
 	prevMD := prevBlock.Metadata
-	currentState := identifyCurrentState(prevMD.SimplexEpochInfo)
+	currentState := prevMD.SimplexEpochInfo.NextState()
 
 	switch currentState {
 	case stateFirstSimplexBlock:
@@ -273,8 +273,8 @@ func (sm *StateMachine) init() {
 			getValidatorSet: func(pChainHeight uint64) (NodeBLSMappings, error) {
 				return sm.Config.GetValidatorSet(pChainHeight)
 			},
-			keyAggregator:   sm.KeyAggregator,
-			sigVerifier:     sm.SignatureVerifier,
+			keyAggregator: sm.KeyAggregator,
+			sigVerifier:   sm.SignatureVerifier,
 			sigAggregatorCreator: func(weights []simplex.NodeWeight) simplex.SignatureAggregator {
 				return sm.Config.SignatureAggregatorCreator(weights)
 			},
@@ -321,29 +321,6 @@ func (sm *StateMachine) verifyNonZeroBlock(ctx context.Context, block *StateMach
 	}
 
 	return block.InnerBlock.Verify(ctx)
-}
-
-func identifyCurrentState(prevBlockSimplexEpochInfo SimplexEpochInfo) state {
-	// If this is the first ever epoch, then this is also the first ever block to be built by Simplex.
-	if prevBlockSimplexEpochInfo.EpochNumber == 0 {
-		return stateFirstSimplexBlock
-	}
-
-	// If we don't have a next P-chain preference height, it means we are not transitioning to a new epoch just yet.
-	if prevBlockSimplexEpochInfo.NextPChainReferenceHeight == 0 {
-		return stateBuildBlockNormalOp
-	}
-
-	// If the previous block has a sealing block sequence, it's a Telock.
-	// If it has a block validation descriptor, it's a sealing block.
-	// Either way, the epoch has been sealed.
-	if prevBlockSimplexEpochInfo.SealingBlockSeq > 0 || prevBlockSimplexEpochInfo.BlockValidationDescriptor != nil {
-		return stateBuildBlockEpochSealed
-	}
-
-	// In any other case, NextPChainReferenceHeight > 0 but the previous block is not a Telock or sealing block,
-	// it means we are in the process of collecting approvals for the next epoch.
-	return stateBuildCollectingApprovals
 }
 
 // buildBlockNormalOp builds a block while not trying to transition to a new epoch.
@@ -488,7 +465,7 @@ func (sm *StateMachine) buildBlockZero(parentBlock StateMachineBlock, simplexMet
 
 	return &StateMachineBlock{
 		Metadata: StateMachineMetadata{
-			Timestamp: uint64(timestamp),
+			Timestamp:               uint64(timestamp),
 			SimplexProtocolMetadata: simplexMetadata,
 			SimplexBlacklist:        simplexBlacklist,
 			SimplexEpochInfo:        simplexEpochInfo,
@@ -615,7 +592,7 @@ func (sm *StateMachine) buildBlockCollectingApprovals(ctx context.Context, paren
 	// in which case we just carry over the approvals we have so far to the next block,
 	// so that eventually we'll have enough approvals to seal the epoch.
 	if !newApprovals.canSeal {
-		sm.Logger.Debug("Not enough approvals to seal epoch, building block without sealing the epoch",)
+		sm.Logger.Debug("Not enough approvals to seal epoch, building block without sealing the epoch")
 		return sm.buildBlockImpatiently(ctx, parentBlock, simplexMetadata, simplexBlacklist, newSimplexEpochInfo, pChainHeight)
 	}
 
@@ -807,7 +784,6 @@ func computeNewApprovals(
 	approvalsFromPeers = sanitizeApprovals(approvalsFromPeers, pChainHeight, nodeID2ValidatorIndex, oldApprovingNodes, logger)
 	logger.Debug("Santizied approvals after filtering out invalid approvals", zap.Int("numApprovalsBefore", oldApprovalFromPeersCount), zap.Int("numApprovalsAfter", len(approvalsFromPeers)))
 
-
 	// Next we aggregate both previous and new approvals to compute the new aggregated signatures and the new bitmask of approving nodes.
 	aggregatedSignature, newApprovingNodes, err := computeNewApproverSignaturesAndSigners(nextEpochApprovals, approvalsFromPeers, oldApprovingNodes, nodeID2ValidatorIndex, sigAggr, logger)
 	if err != nil {
@@ -834,7 +810,7 @@ func computeNewApproverSignaturesAndSigners(
 	nodeID2ValidatorIndex map[nodeID]int,
 	sigAggr simplex.SignatureAggregator,
 	logger simplex.Logger,
-	) ([]byte, bitmask, error) {
+) ([]byte, bitmask, error) {
 	if nextEpochApprovals == nil {
 		return nil, bitmask{}, fmt.Errorf("next epoch approvals is nil")
 	}

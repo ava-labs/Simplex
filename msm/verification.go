@@ -64,10 +64,10 @@ func (vd *validationDescriptorVerifier) verifyEmptyValidationDescriptor(_ Simple
 }
 
 type nextEpochApprovalsVerifier struct {
-	sigVerifier     SignatureVerifier
-	getValidatorSet ValidatorSetRetriever
-	keyAggregator   KeyAggregator
-	sigAggregatorCreator   simplex.SignatureAggregatorCreator
+	sigVerifier          SignatureVerifier
+	getValidatorSet      ValidatorSetRetriever
+	keyAggregator        KeyAggregator
+	sigAggregatorCreator simplex.SignatureAggregatorCreator
 }
 
 func (nv *nextEpochApprovalsVerifier) Verify(in verificationInput) error {

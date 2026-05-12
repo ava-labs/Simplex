@@ -14,10 +14,10 @@ import (
 )
 
 type BasicInMemoryNetwork struct {
-	t           *testing.T
-	nodes 	  []simplex.NodeID
-	nodeWeights simplex.NodeWeights
-	lock        sync.RWMutex
+	t            *testing.T
+	nodes        []simplex.NodeID
+	nodeWeights  simplex.NodeWeights
+	lock         sync.RWMutex
 	disconnected map[string]struct{}
 	instances    []*BasicNode
 }

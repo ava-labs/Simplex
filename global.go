@@ -56,7 +56,7 @@ func (nodes NodeIDs) EqualWeightedNodeWeights() NodeWeights {
 	weights := make(NodeWeights, len(nodes))
 	for i, node := range nodes {
 		weights[i] = NodeWeight{
-			Node:     node,
+			Node:   node,
 			Weight: 1,
 		}
 	}

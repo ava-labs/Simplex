@@ -18,7 +18,7 @@ import (
 func TestFakeNode(t *testing.T) {
 	validatorSetRetriever := validatorSetRetriever{
 		resultMap: map[uint64]NodeBLSMappings{
-			0: {{BLSKey: []byte{1}, Weight: 1, NodeID: [20]byte{1}}, {BLSKey: []byte{2}, Weight: 1, NodeID: [20]byte{2}}},
+			0:   {{BLSKey: []byte{1}, Weight: 1, NodeID: [20]byte{1}}, {BLSKey: []byte{2}, Weight: 1, NodeID: [20]byte{2}}},
 			100: {{BLSKey: []byte{1}, Weight: 1, NodeID: [20]byte{1}}, {BLSKey: []byte{2}, Weight: 1, NodeID: [20]byte{2}}},
 			200: {{BLSKey: []byte{1}, Weight: 1, NodeID: [20]byte{1}}, {BLSKey: []byte{2}, Weight: 2, NodeID: [20]byte{2}},
 				{BLSKey: []byte{3}, Weight: 1, NodeID: [20]byte{3}}},
@@ -85,7 +85,7 @@ func TestFakeNode(t *testing.T) {
 func TestFakeNodeEmptyMempool(t *testing.T) {
 	validatorSetRetriever := validatorSetRetriever{
 		resultMap: map[uint64]NodeBLSMappings{
-			0: {{BLSKey: []byte{1}, Weight: 1, NodeID: [20]byte{1}}, {BLSKey: []byte{2}, Weight: 1, NodeID: [20]byte{2}}},
+			0:   {{BLSKey: []byte{1}, Weight: 1, NodeID: [20]byte{1}}, {BLSKey: []byte{2}, Weight: 1, NodeID: [20]byte{2}}},
 			100: {{BLSKey: []byte{1}, Weight: 1, NodeID: [20]byte{1}}, {BLSKey: []byte{2}, Weight: 1, NodeID: [20]byte{2}}},
 			200: {{BLSKey: []byte{1}, Weight: 1, NodeID: [20]byte{1}}, {BLSKey: []byte{2}, Weight: 2, NodeID: [20]byte{2}},
 				{BLSKey: []byte{3}, Weight: 1, NodeID: [20]byte{3}}},

@@ -154,7 +154,7 @@ func (nws NodeWeights) NodesIDs() []NodeID {
 
 // NodeWeight is a struct that pairs a node with its weight in the signature aggregator.
 type NodeWeight struct {
-	Node NodeID
+	Node   NodeID
 	Weight uint64
 }
 
