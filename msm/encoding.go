@@ -5,9 +5,9 @@ package metadata
 
 import (
 	"bytes"
-	"fmt"
-	"math"
 	"slices"
+
+	"github.com/ava-labs/simplex"
 )
 
 //go:generate go run github.com/StephenButtolph/canoto/canoto encoding.go
@@ -62,6 +62,7 @@ type SimplexEpochInfo struct {
 	NextEpochApprovals *NextEpochApprovals `canoto:"pointer,7"`
 	// SealingBlockSeq is the block sequence of the sealing block of the current epoch.
 	// It defines the validator set of the next epoch.
+	// It is set once the first Telock is built and is copied over to subsequent Telocks.
 	SealingBlockSeq uint64 `canoto:"uint,8"`
 
 	canotoData canotoData_SimplexEpochInfo
@@ -107,6 +108,30 @@ func (sei *SimplexEpochInfo) Equal(other *SimplexEpochInfo) bool {
 		return false
 	}
 	return true
+}
+
+func (sei *SimplexEpochInfo) NextState() state {
+	prevBlockSimplexEpochInfo := sei
+	// If this is the first ever epoch, then this is also the first ever block to be built by Simplex.
+	if prevBlockSimplexEpochInfo.EpochNumber == 0 {
+		return stateFirstSimplexBlock
+	}
+
+	// If we don't have a next P-chain preference height, it means we are not transitioning to a new epoch just yet.
+	if prevBlockSimplexEpochInfo.NextPChainReferenceHeight == 0 {
+		return stateBuildBlockNormalOp
+	}
+
+	// If the previous block has a sealing block sequence, it's a Telock.
+	// If it has a block validation descriptor, it's a sealing block.
+	// Either way, the epoch has been sealed.
+	if prevBlockSimplexEpochInfo.SealingBlockSeq > 0 || prevBlockSimplexEpochInfo.BlockValidationDescriptor != nil {
+		return stateBuildBlockEpochSealed
+	}
+
+	// In any other case, NextPChainReferenceHeight > 0 but the previous block is not a Telock or sealing block,
+	// it means we are in the process of collecting approvals for the next epoch.
+	return stateBuildCollectingApprovals
 }
 
 type NodeBLSMapping struct {
@@ -199,44 +224,37 @@ func (nea *NextEpochApprovals) Equals(other *NextEpochApprovals) bool {
 
 type NodeBLSMappings []NodeBLSMapping
 
-func (nbms NodeBLSMappings) TotalWeight() (int64, error) {
-	var totalWeight uint64
-	for _, nbm := range nbms {
-		var err error
-		totalWeight, err = safeAdd(totalWeight, nbm.Weight)
-		if err != nil {
-			return 0, fmt.Errorf("failed to sum weights of all nodes: %w", err)
+func (nbms NodeBLSMappings) NodeWeights() simplex.Nodes {
+	nodeWeights := make(simplex.Nodes, len(nbms))
+	for i, nbm := range nbms {
+		nodeWeights[i] = simplex.Node{
+			Node:   nbm.NodeID[:],
+			Weight: nbm.Weight,
 		}
 	}
-
-	if totalWeight == 0 {
-		return 0, fmt.Errorf("total weight of validators is 0")
-	}
-
-	if totalWeight > math.MaxInt64 {
-		return 0, fmt.Errorf("total weight of validators is too big, overflows int64: %d", totalWeight)
-	}
-	return int64(totalWeight), nil
+	return nodeWeights
 }
 
-func (nbms NodeBLSMappings) ApprovingWeight(approvingNodes bitmask) (int64, error) {
-	var approvingWeight uint64
+// IndexByNodeID returns a mapping from NodeID to the validator's index in the set,
+// which is the position used by approval bitmasks.
+func (nbms NodeBLSMappings) IndexByNodeID() map[nodeID]int {
+	result := make(map[nodeID]int, len(nbms))
 	for i, nbm := range nbms {
-		if !approvingNodes.Contains(i) {
+		result[nbm.NodeID] = i
+	}
+	return result
+}
+
+func (nbms NodeBLSMappings) SelectSubset(bitmask bitmask) []simplex.NodeID {
+	nodeIDs := make([]simplex.NodeID, 0, len(nbms))
+	for i, nbm := range nbms {
+		if !bitmask.Contains(i) {
 			continue
 		}
-		var err error
-		approvingWeight, err = safeAdd(approvingWeight, nbm.Weight)
-		if err != nil {
-			return 0, fmt.Errorf("failed to compute approving weights: %w", err)
-		}
+		nodeIDs = append(nodeIDs, nbm.NodeID[:])
 	}
 
-	if approvingWeight > math.MaxInt64 {
-		return 0, fmt.Errorf("approving weight of validators is too big, overflows int64: %d", approvingWeight)
-	}
-
-	return int64(approvingWeight), nil
+	return nodeIDs
 }
 
 func (nbms NodeBLSMappings) Clone() NodeBLSMappings {
@@ -282,10 +300,10 @@ type ValidatorSetApproval struct {
 
 type ValidatorSetApprovals []ValidatorSetApproval
 
-func (vsa ValidatorSetApprovals) Filter(f func(int, ValidatorSetApproval) bool) ValidatorSetApprovals {
+func (vsa ValidatorSetApprovals) Filter(f func(ValidatorSetApproval, simplex.Logger) bool, logger simplex.Logger) ValidatorSetApprovals {
 	result := make(ValidatorSetApprovals, 0, len(vsa))
-	for i, v := range vsa {
-		if f(i, v) {
+	for _, v := range vsa {
+		if f(v, logger) {
 			result = append(result, v)
 		}
 	}

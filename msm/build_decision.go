@@ -14,31 +14,10 @@ import (
 
 // blockBuildingDecision represents the decision of whether we should build a block at the current time,
 // and if so, whether we should also transition to a new epoch along the way.
-type blockBuildingDecision int8
-
-const (
-	decisionUndefined               blockBuildingDecision = iota
-	decisionBuild                                         // We should build a block, and we don't need to transition to a new epoch.
-	decisionTransitionEpoch                               // We should transition to a new epoch immediately, but we don't need to build a block.
-	decisionBuildAndTransitionEpoch                       // We should build a block and transition to a new epoch along the way.
-	decisionContextCanceled
-)
-
-func (bbd blockBuildingDecision) String() string {
-	switch bbd {
-	case decisionUndefined:
-		return "undefined"
-	case decisionBuild:
-		return "build block"
-	case decisionTransitionEpoch:
-		return "transition epoch"
-	case decisionBuildAndTransitionEpoch:
-		return "build block and transition epoch"
-	case decisionContextCanceled:
-		return "context canceled"
-	default:
-		return "unknown"
-	}
+type blockBuildingDecision struct {
+	buildInnerBlock bool
+	transitionEpoch bool
+	pChainHeight    uint64
 }
 
 // PChainProgressListener listens for changes in the P-chain height.
@@ -65,18 +44,18 @@ type blockBuildingDecider struct {
 // The P-chain height is returned because sampling the P-chain height afterwards might be inconsistent with the decision that was made.
 func (bbd *blockBuildingDecider) shouldBuildBlock(
 	ctx context.Context,
-) (blockBuildingDecision, uint64, error) {
+) (blockBuildingDecision, error) {
 	for {
 		pChainHeight := bbd.getPChainHeight()
 
 		shouldTransitionEpoch, err := bbd.hasValidatorSetChanged(pChainHeight)
 		if err != nil {
-			return decisionUndefined, 0, err
+			return blockBuildingDecision{}, err
 		}
 
 		if shouldTransitionEpoch {
 			// If we should transition to a new epoch, maybe we can also build a block along the way.
-			return bbd.buildBlockWithEpochTransition(ctx), pChainHeight, nil
+			return bbd.buildBlockWithEpochTransition(ctx, pChainHeight)
 		}
 
 		// Else, we don't need to transition to a new epoch, but maybe we should build a block.
@@ -85,7 +64,7 @@ func (bbd *blockBuildingDecider) shouldBuildBlock(
 
 		// If the context was cancelled in the meantime, abandon evaluation.
 		if ctx.Err() != nil {
-			return decisionContextCanceled, 0, nil
+			return blockBuildingDecision{}, ctx.Err()
 		}
 
 		// If we've reached here, either the P-chain height has changed, or a block is ready to be built.
@@ -99,7 +78,7 @@ func (bbd *blockBuildingDecider) shouldBuildBlock(
 		// Else, we have reached here because a block is ready to be built, and the P-chain height has not changed,
 		// which means we should build a block.
 
-		return decisionBuild, pChainHeight, nil
+		return blockBuildingDecision{buildInnerBlock: true, pChainHeight: pChainHeight}, nil
 	}
 }
 
@@ -130,7 +109,7 @@ func (bbd *blockBuildingDecider) waitForPChainChangeOrPendingBlock(ctx context.C
 // It waits up to a limited amount of time (bbd.maxBlockBuildingWaitTime) for a block to be ready to be built,
 // and if no block is ready by then, it returns the decision to transition epoch without building a block.
 // Otherwise, it returns the decision to build a block and transition epoch along the way.
-func (bbd *blockBuildingDecider) buildBlockWithEpochTransition(ctx context.Context) blockBuildingDecision {
+func (bbd *blockBuildingDecider) buildBlockWithEpochTransition(ctx context.Context, pChainHeight uint64) (blockBuildingDecision, error) {
 	impatientContext, cancel := context.WithTimeout(ctx, bbd.maxBlockBuildingWaitTime)
 	defer cancel()
 
@@ -139,15 +118,15 @@ func (bbd *blockBuildingDecider) buildBlockWithEpochTransition(ctx context.Conte
 	bbd.waitForPendingBlock(impatientContext)
 
 	if ctx.Err() != nil {
-		return decisionContextCanceled
+		return blockBuildingDecision{}, ctx.Err()
 	}
 
 	if impatientContext.Err() != nil {
 		// We have returned from waitForPendingBlock because impatientContext has timed out,
 		// which means we don't need to build a block.
-		return decisionTransitionEpoch
+		return blockBuildingDecision{transitionEpoch: true, pChainHeight: pChainHeight}, nil
 	}
 
 	// Block is ready to be built
-	return decisionBuildAndTransitionEpoch
+	return blockBuildingDecision{buildInnerBlock: true, transitionEpoch: true, pChainHeight: pChainHeight}, nil
 }

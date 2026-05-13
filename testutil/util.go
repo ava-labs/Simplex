@@ -32,10 +32,12 @@ func DefaultTestNodeEpochConfig(t *testing.T, nodeID simplex.NodeID, comm simple
 		Verifier:                   &testVerifier{},
 		Storage:                    storage,
 		BlockBuilder:               bb,
-		SignatureAggregator:        &TestSignatureAggregator{N: len(comm.Nodes())},
-		BlockDeserializer:          &BlockDeserializer{},
-		QCDeserializer:             &testQCDeserializer{t: t},
-		StartTime:                  time.Now(),
+		SignatureAggregatorCreator: func(weights []simplex.Node) simplex.SignatureAggregator {
+			return &TestSignatureAggregator{N: len(weights)}
+		},
+		BlockDeserializer: &BlockDeserializer{},
+		QCDeserializer:    &testQCDeserializer{t: t},
+		StartTime:         time.Now(),
 	}
 	return conf, wal, storage
 }
@@ -120,10 +122,27 @@ func (t *testQCDeserializer) DeserializeQuorumCertificate(bytes []byte) (simplex
 	return TestQC(qc), err
 }
 
+type TestSignatureAggregatorCreator struct {
+	Err          error
+	N            int
+	IsQuorumFunc func(signatures []simplex.NodeID) bool
+}
+
 type TestSignatureAggregator struct {
 	Err          error
 	N            int
 	IsQuorumFunc func(signatures []simplex.NodeID) bool
+}
+
+func (t *TestSignatureAggregator) AppendSignatures(existing []byte, sigs ...[]byte) ([]byte, error) {
+	if t.Err != nil {
+		return nil, t.Err
+	}
+	result := append([]byte{}, existing...)
+	for _, s := range sigs {
+		result = append(result, s...)
+	}
+	return result, nil
 }
 
 func (t *TestSignatureAggregator) Aggregate(signatures []simplex.Signature) (simplex.QuorumCertificate, error) {

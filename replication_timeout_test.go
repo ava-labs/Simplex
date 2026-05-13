@@ -622,7 +622,8 @@ func TestReplicationResendsFinalizedBlocksThatFailedVerification(t *testing.T) {
 	block := bb.GetBuiltBlock()
 	block.VerificationError = errors.New("block verification failed")
 
-	finalization, _ := testutil.NewFinalizationRecord(t, l, e.SignatureAggregator, block, nodes[0:quorum])
+	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Nodes())
+	finalization, _ := testutil.NewFinalizationRecord(t, l, sigAggr, block, nodes[0:quorum])
 
 	// send the finalization to start the replication process
 	e.HandleMessage(&simplex.Message{
@@ -658,7 +659,7 @@ func TestReplicationResendsFinalizedBlocksThatFailedVerification(t *testing.T) {
 	block.Data = append(block.Data, 0)
 	block.ComputeDigest()
 
-	finalization, _ = testutil.NewFinalizationRecord(t, l, e.SignatureAggregator, block, nodes[0:quorum])
+	finalization, _ = testutil.NewFinalizationRecord(t, l, sigAggr, block, nodes[0:quorum])
 	replicationResponse = &simplex.ReplicationResponse{
 		Data: []simplex.QuorumRound{
 			{

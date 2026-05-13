@@ -16,15 +16,18 @@ import (
 type BasicInMemoryNetwork struct {
 	t            *testing.T
 	nodes        []simplex.NodeID
+	nodeWeights  simplex.Nodes
 	lock         sync.RWMutex
 	disconnected map[string]struct{}
 	instances    []*BasicNode
 }
 
-func NewBasicInMemoryNetwork(t *testing.T, nodes []simplex.NodeID) *BasicInMemoryNetwork {
-	simplex.SortNodes(nodes)
+func NewBasicInMemoryNetwork(t *testing.T, nodes simplex.NodeIDs) *BasicInMemoryNetwork {
+	nodeWeights := nodes.EqualWeightedNodes()
+	simplex.SortNodes(nodeWeights)
 	return &BasicInMemoryNetwork{
 		t:            t,
+		nodeWeights:  nodeWeights,
 		nodes:        nodes,
 		disconnected: make(map[string]struct{}),
 		instances:    make([]*BasicNode, 0),
@@ -99,9 +102,9 @@ func (b *BasicInMemoryNetwork) StartInstances() {
 	b.lock.RLock()
 	defer b.lock.RUnlock()
 
-	require.Equal(b.t, len(b.nodes), len(b.instances))
+	require.Equal(b.t, len(b.nodeWeights), len(b.instances))
 
-	for i := len(b.nodes) - 1; i >= 0; i-- {
+	for i := len(b.nodeWeights) - 1; i >= 0; i-- {
 		b.instances[i].Start()
 	}
 }
@@ -142,8 +145,8 @@ func (b *BasicInMemoryNetwork) AddNode(node *BasicNode) {
 	defer b.lock.Unlock()
 
 	allowed := false
-	for _, id := range b.nodes {
-		if bytes.Equal(id, node.E.ID) {
+	for _, nodeWeight := range b.nodeWeights {
+		if bytes.Equal(nodeWeight.Node, node.E.ID) {
 			allowed = true
 			break
 		}

@@ -6,6 +6,8 @@ package metadata
 import (
 	"testing"
 
+	"github.com/ava-labs/simplex"
+	"github.com/ava-labs/simplex/testutil"
 	"github.com/stretchr/testify/require"
 )
 
@@ -402,22 +404,23 @@ func TestNodeBLSMappingsCompare(t *testing.T) {
 }
 
 func TestValidatorSetApprovalsFilter(t *testing.T) {
+	logger := testutil.MakeLogger(t)
 	approvals := ValidatorSetApprovals{
 		{NodeID: nodeID{1}, PChainHeight: 10},
 		{NodeID: nodeID{2}, PChainHeight: 20},
 		{NodeID: nodeID{3}, PChainHeight: 30},
 	}
 
-	filtered := approvals.Filter(func(_ int, v ValidatorSetApproval) bool {
+	filtered := approvals.Filter(func(v ValidatorSetApproval, _ simplex.Logger) bool {
 		return v.PChainHeight > 15
-	})
+	}, logger)
 	require.Len(t, filtered, 2)
 	require.Equal(t, uint64(20), filtered[0].PChainHeight)
 	require.Equal(t, uint64(30), filtered[1].PChainHeight)
 
 	// Filter all
-	filtered = approvals.Filter(func(int, ValidatorSetApproval) bool {
+	filtered = approvals.Filter(func(ValidatorSetApproval, simplex.Logger) bool {
 		return false
-	})
+	}, logger)
 	require.Empty(t, filtered)
 }
