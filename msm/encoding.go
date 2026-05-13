@@ -234,6 +234,16 @@ func (nbms NodeBLSMappings) NodeWeights() simplex.Nodes {
 	return nodeWeights
 }
 
+// IndexByNodeID returns a mapping from NodeID to the validator's index in the set,
+// which is the position used by approval bitmasks.
+func (nbms NodeBLSMappings) IndexByNodeID() map[nodeID]int {
+	result := make(map[nodeID]int, len(nbms))
+	for i, nbm := range nbms {
+		result[nbm.NodeID] = i
+	}
+	return result
+}
+
 func (nbms NodeBLSMappings) SelectSubset(bitmask bitmask) []simplex.NodeID {
 	nodeIDs := make([]simplex.NodeID, 0, len(nbms))
 	for i, nbm := range nbms {
@@ -289,10 +299,10 @@ type ValidatorSetApproval struct {
 
 type ValidatorSetApprovals []ValidatorSetApproval
 
-func (vsa ValidatorSetApprovals) Filter(f func(int, ValidatorSetApproval, simplex.Logger) bool, logger simplex.Logger) ValidatorSetApprovals {
+func (vsa ValidatorSetApprovals) Filter(f func(ValidatorSetApproval, simplex.Logger) bool, logger simplex.Logger) ValidatorSetApprovals {
 	result := make(ValidatorSetApprovals, 0, len(vsa))
-	for i, v := range vsa {
-		if f(i, v, logger) {
+	for _, v := range vsa {
+		if f(v, logger) {
 			result = append(result, v)
 		}
 	}

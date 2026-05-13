@@ -38,7 +38,7 @@ func (smb *StateMachineBlock) Digest() [32]byte {
 
 // ApprovalsRetriever retrieves the approvals from validators of the next epoch for the epoch change.
 type ApprovalsRetriever interface {
-	RetrieveApprovals() ValidatorSetApprovals
+	Approvals() ValidatorSetApprovals
 }
 
 // KeyAggregator combines multiple public keys into a single aggregated public key.
@@ -161,9 +161,11 @@ func (sm *StateMachine) BuildBlock(ctx context.Context, metadata simplex.Protoco
 		return nil, fmt.Errorf("invalid ProtocolMetadata sequence number: should be > 0, got %d", metadata.Seq)
 	}
 
-	parentBlock, _, err := sm.GetBlock(metadata.Seq-1, metadata.Prev)
+	prevBlockSeq := metadata.Seq - 1
+
+	parentBlock, _, err := sm.GetBlock(prevBlockSeq, metadata.Prev)
 	if err != nil {
-		return nil, fmt.Errorf("failed retrieving parent block at height %d with digest %s: %w", metadata.Seq-1, metadata.Prev.String(), err)
+		return nil, fmt.Errorf("failed retrieving parent block at height %d with digest %s: %w", prevBlockSeq, metadata.Prev.String(), err)
 	}
 
 	start := time.Now()
@@ -193,7 +195,6 @@ func (sm *StateMachine) BuildBlock(ctx context.Context, metadata simplex.Protoco
 	currentState := parentBlock.Metadata.SimplexEpochInfo.NextState()
 
 	simplexMetadataBytes := metadata.Bytes()
-	prevBlockSeq := metadata.Seq - 1
 
 	switch currentState {
 	case stateFirstSimplexBlock:
@@ -494,7 +495,7 @@ func (sm *StateMachine) buildBlockCollectingApprovals(ctx context.Context, paren
 
 	// We retrieve approvals that validators have sent us for the next epoch.
 	// These approvals are signed by validators of the next epoch.
-	approvalsFromPeers := sm.ApprovalsRetriever.RetrieveApprovals()
+	approvalsFromPeers := sm.ApprovalsRetriever.Approvals()
 	sm.Logger.Debug("Retrieved approvals from peers", zap.Int("numApprovals", len(approvalsFromPeers)))
 
 	nextPChainHeight := newSimplexEpochInfo.NextPChainReferenceHeight
@@ -528,7 +529,7 @@ func (sm *StateMachine) buildBlockCollectingApprovals(ctx context.Context, paren
 	sm.Logger.Debug("Have enough approvals to seal epoch, building sealing block")
 
 	// Else, we have enough approvals to seal the epoch, so we create the sealing block.
-	return sm.createSealingBlock(ctx, parentBlock, simplexMetadata, simplexBlacklist, newSimplexEpochInfo, newApprovals, pChainHeight)
+	return sm.createSealingBlock(ctx, parentBlock, simplexMetadata, simplexBlacklist, newSimplexEpochInfo, pChainHeight)
 }
 
 // buildBlockImpatiently builds a block by waiting for the VM to build a block until MaxBlockBuildingWaitTime.
@@ -554,7 +555,7 @@ func (sm *StateMachine) buildBlockImpatiently(ctx context.Context, parentBlock S
 	return sm.wrapBlock(parentBlock, childBlock, simplexEpochInfo, pChainHeight, simplexMetadata, simplexBlacklist), nil
 }
 
-func (sm *StateMachine) createSealingBlock(ctx context.Context, parentBlock StateMachineBlock, simplexMetadata []byte, simplexBlacklist []byte, simplexEpochInfo SimplexEpochInfo, newApprovals *approvals, pChainHeight uint64) (*StateMachineBlock, error) {
+func (sm *StateMachine) createSealingBlock(ctx context.Context, parentBlock StateMachineBlock, simplexMetadata []byte, simplexBlacklist []byte, simplexEpochInfo SimplexEpochInfo, pChainHeight uint64) (*StateMachineBlock, error) {
 	validators, err := sm.GetValidatorSet(simplexEpochInfo.NextPChainReferenceHeight)
 	if err != nil {
 		return nil, err
@@ -687,34 +688,30 @@ func constructSimplexZeroBlockSimplexEpochInfo(pChainHeight uint64, newValidator
 }
 
 func computeNewApprovals(
-	nextEpochApprovals *NextEpochApprovals,
+	prevNextEpochApprovals *NextEpochApprovals,
 	approvalsFromPeers ValidatorSetApprovals,
 	pChainHeight uint64,
 	sigAggr simplex.SignatureAggregator,
 	validators NodeBLSMappings,
 	logger simplex.Logger,
 ) (*approvals, error) {
-	if nextEpochApprovals == nil {
-		nextEpochApprovals = &NextEpochApprovals{}
+	if prevNextEpochApprovals == nil {
+		prevNextEpochApprovals = &NextEpochApprovals{}
 	}
 
-	oldApprovingNodes := bitmaskFromBytes(nextEpochApprovals.NodeIDs)
+	oldApprovingNodes := bitmaskFromBytes(prevNextEpochApprovals.NodeIDs)
 
-	// We map each validator to its relative index in the validator set.
-	nodeID2ValidatorIndex := make(map[nodeID]int)
-	for i, nbm := range validators {
-		nodeID2ValidatorIndex[nbm.NodeID] = i
-	}
+	nodeID2ValidatorIndex := validators.IndexByNodeID()
 
 	oldApprovalFromPeersCount := len(approvalsFromPeers)
 	// We have the approvals obtained from peers, but we need to sanitize them by filtering out approvals that are not valid,
 	// such as approvals that do not agree with our candidate auxiliary info digest and P-Chain height,
 	// and approvals that are from nodes that are not in the validator set or have already approved in prior blocks.
 	approvalsFromPeers = sanitizeApprovals(approvalsFromPeers, pChainHeight, nodeID2ValidatorIndex, oldApprovingNodes, logger)
-	logger.Debug("Santizied approvals after filtering out invalid approvals", zap.Int("numApprovalsBefore", oldApprovalFromPeersCount), zap.Int("numApprovalsAfter", len(approvalsFromPeers)))
+	logger.Debug("Sanitized approvals after filtering out invalid approvals", zap.Int("numApprovalsBefore", oldApprovalFromPeersCount), zap.Int("numApprovalsAfter", len(approvalsFromPeers)))
 
 	// Next we aggregate both previous and new approvals to compute the new aggregated signatures and the new bitmask of approving nodes.
-	aggregatedSignature, newApprovingNodes, err := computeNewApproverSignaturesAndSigners(nextEpochApprovals, approvalsFromPeers, oldApprovingNodes, nodeID2ValidatorIndex, sigAggr, logger)
+	aggregatedSignature, newApprovingNodes, err := computeNewApproverSignaturesAndSigners(prevNextEpochApprovals, approvalsFromPeers, oldApprovingNodes, nodeID2ValidatorIndex, sigAggr, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -791,8 +788,8 @@ func sanitizeApprovals(approvals ValidatorSetApprovals, pChainHeight uint64, nod
 	return approvals.Filter(filter1, logger).Filter(filter2, logger).UniqueByNodeID()
 }
 
-func approvalsThatAgreeWithPChainHeight(pChainHeight uint64) func(i int, approval ValidatorSetApproval, logger simplex.Logger) bool {
-	return func(i int, approval ValidatorSetApproval, logger simplex.Logger) bool {
+func approvalsThatAgreeWithPChainHeight(pChainHeight uint64) func(approval ValidatorSetApproval, logger simplex.Logger) bool {
+	return func(approval ValidatorSetApproval, logger simplex.Logger) bool {
 		// Pick only approvals that agree with our P-Chain height
 		ok := approval.PChainHeight == pChainHeight
 		if !ok {
@@ -805,8 +802,8 @@ func approvalsThatAgreeWithPChainHeight(pChainHeight uint64) func(i int, approva
 	}
 }
 
-func approvalsThatAreInValidatorSetAndHaveNotAlreadyApproved(oldApprovingNodes bitmask, nodeID2ValidatorIndex map[nodeID]int) func(i int, approval ValidatorSetApproval, logger simplex.Logger) bool {
-	return func(i int, approval ValidatorSetApproval, logger simplex.Logger) bool {
+func approvalsThatAreInValidatorSetAndHaveNotAlreadyApproved(oldApprovingNodes bitmask, nodeID2ValidatorIndex map[nodeID]int) func(approval ValidatorSetApproval, logger simplex.Logger) bool {
+	return func(approval ValidatorSetApproval, logger simplex.Logger) bool {
 		approvingNodeIndexOfNewApprover, exists := nodeID2ValidatorIndex[approval.NodeID]
 		if !exists {
 			logger.Debug("Filtering out approval from node that is not in the validator set",

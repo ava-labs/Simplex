@@ -212,7 +212,7 @@ type approvalsRetriever struct {
 	result ValidatorSetApprovals
 }
 
-func (a approvalsRetriever) RetrieveApprovals() ValidatorSetApprovals {
+func (a approvalsRetriever) Approvals() ValidatorSetApprovals {
 	return a.result
 }
 
@@ -324,7 +324,7 @@ type dynamicApprovalsRetriever struct {
 	approvals *ValidatorSetApprovals
 }
 
-func (d *dynamicApprovalsRetriever) RetrieveApprovals() ValidatorSetApprovals {
+func (d *dynamicApprovalsRetriever) Approvals() ValidatorSetApprovals {
 	return *d.approvals
 }
 

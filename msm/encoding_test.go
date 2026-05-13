@@ -411,7 +411,7 @@ func TestValidatorSetApprovalsFilter(t *testing.T) {
 		{NodeID: nodeID{3}, PChainHeight: 30},
 	}
 
-	filtered := approvals.Filter(func(_ int, v ValidatorSetApproval, _ simplex.Logger) bool {
+	filtered := approvals.Filter(func(v ValidatorSetApproval, _ simplex.Logger) bool {
 		return v.PChainHeight > 15
 	}, logger)
 	require.Len(t, filtered, 2)
@@ -419,7 +419,7 @@ func TestValidatorSetApprovalsFilter(t *testing.T) {
 	require.Equal(t, uint64(30), filtered[1].PChainHeight)
 
 	// Filter all
-	filtered = approvals.Filter(func(int, ValidatorSetApproval, simplex.Logger) bool {
+	filtered = approvals.Filter(func(ValidatorSetApproval, simplex.Logger) bool {
 		return false
 	}, logger)
 	require.Empty(t, filtered)
