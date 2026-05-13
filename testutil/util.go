@@ -27,7 +27,7 @@ func DefaultTestNodeEpochConfig(t *testing.T, nodeID simplex.NodeID, comm simple
 		Comm:                       comm,
 		Logger:                     l,
 		ID:                         nodeID,
-		Signer:                     &testSigner{},
+		Signer:                     &TestSigner{},
 		WAL:                        wal,
 		Verifier:                   &testVerifier{},
 		Storage:                    storage,
@@ -51,7 +51,7 @@ func NewTestVote(block AnyBlock, id simplex.NodeID) (*simplex.Vote, error) {
 	vote := simplex.ToBeSignedVote{
 		BlockHeader: block.BlockHeader(),
 	}
-	sig, err := vote.Sign(&testSigner{})
+	sig, err := vote.Sign(&TestSigner{})
 	if err != nil {
 		return nil, err
 	}
@@ -76,7 +76,7 @@ func InjectTestVote(t *testing.T, e *simplex.Epoch, block simplex.VerifiedBlock,
 
 func NewTestFinalizeVote(t *testing.T, block simplex.VerifiedBlock, id simplex.NodeID) *simplex.FinalizeVote {
 	f := simplex.ToBeSignedFinalization{BlockHeader: block.BlockHeader()}
-	sig, err := f.Sign(&testSigner{})
+	sig, err := f.Sign(&TestSigner{})
 	require.NoError(t, err)
 	return &simplex.FinalizeVote{
 		Signature: simplex.Signature{
@@ -176,10 +176,10 @@ func (t TestQC) Bytes() []byte {
 	return bytes
 }
 
-type testSigner struct {
+type TestSigner struct {
 }
 
-func (t *testSigner) Sign([]byte) ([]byte, error) {
+func (t *TestSigner) Sign([]byte) ([]byte, error) {
 	return []byte{1, 2, 3}, nil
 }
 

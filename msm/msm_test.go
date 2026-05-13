@@ -1175,3 +1175,87 @@ func TestComputeNewApproverSignaturesAndSigners(t *testing.T) {
 		require.ErrorIs(t, err, errTestAggregationFailed)
 	})
 }
+
+// TestBuildBlockCollectingApprovalsDedupsOwnApprovalAcrossRounds drives BuildBlock
+// twice in the collecting-approvals state with no peer approvals at any point,
+// and verifies that the optimistic self-sign added on each round is deduplicated:
+// the approval bitmask carried in NextEpochApprovals does not grow between the
+// first and second built block.
+func TestBuildBlockCollectingApprovalsDedupsOwnApprovalAcrossRounds(t *testing.T) {
+	sm, tc := newStateMachine(t)
+
+	// Use concatAggregator so that AppendSignatures(existing) with zero new
+	// signatures returns `existing` verbatim. This makes signature equality
+	// a direct witness that no new signature was aggregated in.
+	sm.SignatureAggregatorCreator = func(_ []simplex.Node) simplex.SignatureAggregator {
+		return concatAggregator{}
+	}
+
+	// Place MyNodeID at index 0 of a 3-node validator set so quorum is not
+	// reachable from a single approval (canSeal stays false on both rounds).
+	var myID nodeID
+	copy(myID[:], sm.MyNodeID)
+	validators := NodeBLSMappings{
+		{NodeID: myID, BLSKey: []byte{1}, Weight: 1},
+		{NodeID: nodeID{0xBB}, BLSKey: []byte{2}, Weight: 1},
+		{NodeID: nodeID{0xCC}, BLSKey: []byte{3}, Weight: 1},
+	}
+	tc.validatorSetRetriever.result = validators
+
+	// No peer approvals on either round — only the internal optimistic
+	// self-sign is contributed.
+	tc.approvalsRetriever.result = nil
+
+	// Parent block: epoch transition has started (NextPChainReferenceHeight > 0)
+	// but no approvals have been collected yet. NextState() returns
+	// stateBuildCollectingApprovals.
+	parentSeq := uint64(10)
+	parent := StateMachineBlock{
+		InnerBlock: &InnerBlock{TS: time.Now(), BlockHeight: 1, Bytes: []byte{0xAA}},
+		Metadata: StateMachineMetadata{
+			PChainHeight: 200,
+			SimplexProtocolMetadata: (&simplex.ProtocolMetadata{
+				Seq: parentSeq, Round: 5, Epoch: 1,
+			}).Bytes(),
+			SimplexEpochInfo: SimplexEpochInfo{
+				PChainReferenceHeight:     100,
+				EpochNumber:               1,
+				NextPChainReferenceHeight: 200,
+				PrevVMBlockSeq:            parentSeq - 1,
+			},
+		},
+	}
+	tc.blockStore[parentSeq] = &outerBlock{block: parent}
+
+	// ----- Round 1: first collecting-approvals block -----
+	tc.blockBuilder.block = &InnerBlock{TS: time.Now(), BlockHeight: 2, Bytes: []byte{0x01}}
+	md1 := simplex.ProtocolMetadata{Seq: parentSeq + 1, Round: 6, Epoch: 1, Prev: parent.Digest()}
+	block1, err := sm.BuildBlock(context.Background(), md1, nil)
+	require.NoError(t, err)
+	require.NotNil(t, block1.Metadata.SimplexEpochInfo.NextEpochApprovals,
+		"first block in collecting-approvals state must carry NextEpochApprovals")
+
+	firstNodeIDs := block1.Metadata.SimplexEpochInfo.NextEpochApprovals.NodeIDs
+	firstSig := block1.Metadata.SimplexEpochInfo.NextEpochApprovals.Signature
+	require.Equal(t, []byte{1}, firstNodeIDs, "only MyNodeID (bit 0) should be set after the first round")
+	require.NotEmpty(t, firstSig)
+
+	// Make block1 the parent of the next call.
+	tc.blockStore[md1.Seq] = &outerBlock{block: *block1}
+
+	// ----- Round 2: another collecting-approvals block, still no peer approvals -----
+	tc.blockBuilder.block = &InnerBlock{TS: time.Now(), BlockHeight: 3, Bytes: []byte{0x02}}
+	md2 := simplex.ProtocolMetadata{Seq: md1.Seq + 1, Round: 7, Epoch: 1, Prev: block1.Digest()}
+	block2, err := sm.BuildBlock(context.Background(), md2, nil)
+	require.NoError(t, err)
+	require.NotNil(t, block2.Metadata.SimplexEpochInfo.NextEpochApprovals)
+
+	// The optimistic self-sign on round 2 must be deduplicated against the
+	// prior NextEpochApprovals — the approver set must not have grown.
+	require.Equal(t, firstNodeIDs, block2.Metadata.SimplexEpochInfo.NextEpochApprovals.NodeIDs,
+		"approver bitmask must be unchanged after a second self-sign with no peer approvals")
+	// And with concatAggregator, AppendSignatures(existing) returns existing
+	// when no new signatures were aggregated, so the bytes must match exactly.
+	require.Equal(t, firstSig, block2.Metadata.SimplexEpochInfo.NextEpochApprovals.Signature,
+		"aggregated signature must be unchanged when no new approvals were aggregated")
+}
