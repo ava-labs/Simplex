@@ -186,7 +186,7 @@ func TestMSMFirstSimplexBlockAfterPreSimplexBlocks(t *testing.T) {
 
 	require.Equal(t, &StateMachineBlock{
 		Metadata: StateMachineMetadata{
-			Timestamp:               uint64(testConfig1.blockBuilder.block.Timestamp().UnixMilli()),
+			Timestamp:               uint64(preSimplexParent.InnerBlock.Timestamp().UnixMilli()),
 			PChainHeight:            100,
 			SimplexProtocolMetadata: md.Bytes(),
 			SimplexEpochInfo: SimplexEpochInfo{
