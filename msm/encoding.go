@@ -62,6 +62,7 @@ type SimplexEpochInfo struct {
 	NextEpochApprovals *NextEpochApprovals `canoto:"pointer,7"`
 	// SealingBlockSeq is the block sequence of the sealing block of the current epoch.
 	// It defines the validator set of the next epoch.
+	// It is set once the first Telock is built and is copied over to subsequent Telocks.
 	SealingBlockSeq uint64 `canoto:"uint,8"`
 
 	canotoData canotoData_SimplexEpochInfo
