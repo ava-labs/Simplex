@@ -765,13 +765,13 @@ func TestAreNextEpochApprovalsSignersSupersetOfApprovalsOfPrevBlock(t *testing.T
 			name: "next is missing a signer from prev",
 			prev: SimplexEpochInfo{NextEpochApprovals: &NextEpochApprovals{NodeIDs: []byte{3}}},
 			next: SimplexEpochInfo{NextEpochApprovals: &NextEpochApprovals{NodeIDs: []byte{1}}},
-			err:  errSignerSetShrinked,
+			err:  errSignerSetShrunk,
 		},
 		{
 			name: "prev has approvals but next has nil approvals",
 			prev: SimplexEpochInfo{NextEpochApprovals: &NextEpochApprovals{NodeIDs: []byte{1}}},
 			next: SimplexEpochInfo{},
-			err:  errNextEpochApprovalsShrinked,
+			err:  errNextEpochApprovalsShrunk,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
