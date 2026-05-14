@@ -198,8 +198,8 @@ func UpdateEpochConfig(epochConfig *simplex.EpochConfig, testConfig *TestNodeCon
 		epochConfig.Comm = testConfig.Comm
 	}
 
-	if testConfig.SigAggregator != nil {
-		epochConfig.SignatureAggregator = testConfig.SigAggregator
+	if testConfig.SigAggregatorCreator != nil {
+		epochConfig.SignatureAggregatorCreator = testConfig.SigAggregatorCreator
 	}
 
 	if testConfig.BlockBuilder != nil {
@@ -234,11 +234,11 @@ func UpdateEpochConfig(epochConfig *simplex.EpochConfig, testConfig *TestNodeCon
 // NodeConfig
 type TestNodeConfig struct {
 	// optional
-	InitialStorage     []simplex.VerifiedFinalizedBlock
-	Comm               simplex.Communication
-	SigAggregator      simplex.SignatureAggregator
-	ReplicationEnabled bool
-	BlockBuilder       *testControlledBlockBuilder
+	InitialStorage       []simplex.VerifiedFinalizedBlock
+	Comm                 simplex.Communication
+	SigAggregatorCreator simplex.SignatureAggregatorCreator
+	ReplicationEnabled   bool
+	BlockBuilder         *testControlledBlockBuilder
 
 	// Long Running Tests
 	MaxRoundWindow uint64

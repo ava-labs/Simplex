@@ -132,7 +132,8 @@ func TestReplicationAdversarialNode(t *testing.T) {
 	require.Equal(t, uint64(0), laggingNode.E.Metadata().Round)
 	net.Connect(laggingNode.E.ID)
 
-	finalization, _ := NewFinalizationRecord(t, laggingNode.E.Logger, laggingNode.E.SignatureAggregator, blocks[1], nodes[:quorum])
+	sigAggr := laggingNode.E.SignatureAggregatorCreator(laggingNode.E.Comm.Nodes())
+	finalization, _ := NewFinalizationRecord(t, laggingNode.E.Logger, sigAggr, blocks[1], nodes[:quorum])
 	finalizationMsg := &simplex.Message{
 		Finalization: &finalization,
 	}
@@ -375,7 +376,8 @@ func TestReplicationStartsBeforeCurrentRound(t *testing.T) {
 	record := simplex.BlockRecord(firstBlock.BlockHeader(), fBytes)
 	laggingNode.WAL.Append(record)
 
-	firstNotarizationRecord, err := NewNotarizationRecord(laggingNode.E.Logger, laggingNode.E.SignatureAggregator, firstBlock, nodes[0:quorum])
+	sigAggr := laggingNode.E.SignatureAggregatorCreator(laggingNode.E.Comm.Nodes())
+	firstNotarizationRecord, err := NewNotarizationRecord(laggingNode.E.Logger, sigAggr, firstBlock, nodes[0:quorum])
 	require.NoError(t, err)
 	laggingNode.WAL.Append(firstNotarizationRecord)
 
@@ -385,7 +387,7 @@ func TestReplicationStartsBeforeCurrentRound(t *testing.T) {
 	record = simplex.BlockRecord(secondBlock.BlockHeader(), sBytes)
 	laggingNode.WAL.Append(record)
 
-	secondNotarizationRecord, err := NewNotarizationRecord(laggingNode.E.Logger, laggingNode.E.SignatureAggregator, secondBlock, nodes[0:quorum])
+	secondNotarizationRecord, err := NewNotarizationRecord(laggingNode.E.Logger, sigAggr, secondBlock, nodes[0:quorum])
 	require.NoError(t, err)
 	laggingNode.WAL.Append(secondNotarizationRecord)
 
@@ -414,7 +416,7 @@ func TestReplicationFutureFinalization(t *testing.T) {
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
 	quorum := simplex.Quorum(len(nodes))
 
-	conf, _, storage := DefaultTestNodeEpochConfig(t, nodes[1], NoopComm(nodes), bb)
+	conf, _, storage := DefaultTestNodeEpochConfig(t, nodes[1], NewNoopComm(nodes), bb)
 
 	e, err := simplex.NewEpoch(conf)
 	require.NoError(t, err)
@@ -441,7 +443,8 @@ func TestReplicationFutureFinalization(t *testing.T) {
 	}, nodes[0])
 	require.NoError(t, err)
 
-	finalization, _ := NewFinalizationRecord(t, e.Logger, e.SignatureAggregator, block, nodes[0:quorum])
+	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Nodes())
+	finalization, _ := NewFinalizationRecord(t, e.Logger, sigAggr, block, nodes[0:quorum])
 	// send finalization
 	err = e.HandleMessage(&simplex.Message{
 		Finalization: &finalization,
@@ -600,7 +603,7 @@ func TestReplicationStuckInProposingBlock(t *testing.T) {
 	sentMessages := make(chan *simplex.Message, 100)
 
 	conf, _, storage := DefaultTestNodeEpochConfig(t, nodes[0], &recordingComm{
-		Communication: NoopComm(nodes),
+		Communication: NewNoopComm(nodes),
 		SentMessages:  sentMessages,
 	}, bb)
 
@@ -627,7 +630,8 @@ func TestReplicationStuckInProposingBlock(t *testing.T) {
 
 	highBlock, _ := blocks[3].VerifiedBlock.(*TestBlock)
 
-	highFinalization, _ := NewFinalizationRecord(t, e.Logger, e.SignatureAggregator, highBlock, nodes[0:quorum])
+	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Nodes())
+	highFinalization, _ := NewFinalizationRecord(t, e.Logger, sigAggr, highBlock, nodes[0:quorum])
 
 	// Trigger the replication process to start by sending a finalization for a block we do not have
 	e.HandleMessage(&simplex.Message{
@@ -973,7 +977,8 @@ func TestReplicationVerifyNotarization(t *testing.T) {
 
 	block := bb.GetBuiltBlock()
 
-	finalization, _ := NewFinalizationRecord(t, e.Logger, e.SignatureAggregator, block, nodes[0:quorum])
+	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Nodes())
+	finalization, _ := NewFinalizationRecord(t, e.Logger, sigAggr, block, nodes[0:quorum])
 
 	// Trigger the replication process to start by sending a finalization for a block we do not have
 	e.HandleMessage(&simplex.Message{
@@ -988,7 +993,7 @@ func TestReplicationVerifyNotarization(t *testing.T) {
 		}
 	}
 
-	notarization, err := NewNotarization(e.Logger, e.SignatureAggregator, block, nodes[0:quorum])
+	notarization, err := NewNotarization(e.Logger, sigAggr, block, nodes[0:quorum])
 	require.NoError(t, err)
 
 	// Corrupt the QC
@@ -1060,7 +1065,8 @@ func TestReplicationVerifyEmptyNotarization(t *testing.T) {
 
 	block := bb.GetBuiltBlock()
 
-	finalization, _ := NewFinalizationRecord(t, e.Logger, e.SignatureAggregator, block, nodes[0:quorum])
+	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Nodes())
+	finalization, _ := NewFinalizationRecord(t, e.Logger, sigAggr, block, nodes[0:quorum])
 
 	// Trigger the replication process to start by sending a finalization for a block we do not have
 	e.HandleMessage(&simplex.Message{
@@ -1348,7 +1354,7 @@ func TestReplicationStoresFinalization(t *testing.T) {
 	sentMessages := make(chan *simplex.Message, 100)
 
 	conf, _, storage := DefaultTestNodeEpochConfig(t, nodes[3], &recordingComm{
-		Communication: NoopComm(nodes),
+		Communication: NewNoopComm(nodes),
 		SentMessages:  sentMessages,
 	}, bb)
 	conf.ReplicationEnabled = true
@@ -1533,7 +1539,7 @@ func TestReplicationStartsRoundFromFinalization(t *testing.T) {
 	sentMessages := make(chan *simplex.Message, 100)
 	broadcastMessages := make(chan *simplex.Message, 100)
 	conf, wal, storage := DefaultTestNodeEpochConfig(t, nodes[0], &recordingComm{
-		Communication:     NoopComm(nodes),
+		Communication:     NewNoopComm(nodes),
 		SentMessages:      sentMessages,
 		BroadcastMessages: broadcastMessages,
 	}, bb)
@@ -1643,7 +1649,7 @@ func TestReplicationStartsRoundFromFinalizationWithBlock(t *testing.T) {
 	sentMessages := make(chan *simplex.Message, 100)
 	broadcastMessages := make(chan *simplex.Message, 100)
 	conf, wal, storage := DefaultTestNodeEpochConfig(t, nodes[0], &recordingComm{
-		Communication:     NoopComm(nodes),
+		Communication:     NewNoopComm(nodes),
 		SentMessages:      sentMessages,
 		BroadcastMessages: broadcastMessages,
 	}, bb)

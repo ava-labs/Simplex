@@ -22,10 +22,10 @@ import (
 //   - bool: true if the message can be transmitted, false otherwise
 type MessageFilter func(msg *simplex.Message, from simplex.NodeID, to simplex.NodeID) bool
 
-type NoopComm []simplex.NodeID
+type NoopComm simplex.Nodes
 
-func (n NoopComm) Nodes() []simplex.NodeID {
-	return n
+func (n NoopComm) Nodes() simplex.Nodes {
+	return simplex.Nodes(n)
 }
 
 func (n NoopComm) Send(*simplex.Message, simplex.NodeID) {
@@ -51,8 +51,8 @@ func NewTestComm(from simplex.NodeID, net *BasicInMemoryNetwork, messageFilter M
 	}
 }
 
-func (c *TestComm) Nodes() []simplex.NodeID {
-	return c.net.nodes
+func (c *TestComm) Nodes() simplex.Nodes {
+	return c.net.nodeWeights
 }
 
 func (c *TestComm) Send(msg *simplex.Message, destination simplex.NodeID) {
@@ -177,7 +177,7 @@ func (c *TestComm) Broadcast(msg *simplex.Message) {
 		if !c.isMessagePermitted(msg, instance.E.ID) {
 			continue
 		}
-		// Skip sending the message to yourself or disconnected nodes
+		// Skip sending the message to yourself or disconnected nodeWeights
 		if bytes.Equal(c.from, instance.E.ID) || c.net.IsDisconnected(instance.E.ID) {
 			continue
 		}
@@ -191,6 +191,6 @@ func AllowAllMessages(*simplex.Message, simplex.NodeID, simplex.NodeID) bool {
 	return true
 }
 
-func NewNoopComm(nodes []simplex.NodeID) NoopComm {
-	return NoopComm(nodes)
+func NewNoopComm(nodes simplex.NodeIDs) NoopComm {
+	return NoopComm(nodes.EqualWeightedNodes())
 }
