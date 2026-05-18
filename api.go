@@ -104,6 +104,12 @@ type Block interface {
 	Verify(ctx context.Context) (VerifiedBlock, error)
 }
 
+// Created temporarily to avoid the massive circular
+type SealingBlockInfo struct {
+	Epoch        uint64
+	PChainHeight uint64
+}
+
 type VerifiedBlock interface {
 	// BlockHeader encodes a succinct and collision-free representation of a block.
 	BlockHeader() BlockHeader
@@ -112,6 +118,8 @@ type VerifiedBlock interface {
 
 	// Bytes returns a byte encoding of the block
 	Bytes() ([]byte, error)
+
+	SealingBlockInfo() *SealingBlockInfo
 }
 
 // Contains all functions on the block

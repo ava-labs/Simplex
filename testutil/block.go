@@ -58,6 +58,10 @@ func (tb *TestBlock) Verify(context.Context) (simplex.VerifiedBlock, error) {
 	return tb, nil
 }
 
+func (tb *TestBlock) SealingBlockInfo() *simplex.SealingBlockInfo {
+	return nil
+}
+
 func (tb *TestBlock) ComputeDigest() {
 	var bb bytes.Buffer
 	tbBytes, err := tb.Bytes()
