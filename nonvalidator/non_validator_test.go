@@ -22,9 +22,9 @@ func (errQC) Bytes() []byte             { return nil }
 
 func newTestNonValidator(t *testing.T, nodes []simplex.NodeID, lastVerifiedBlock simplex.Block) *NonValidator {
 	config := Config{
-		Storage:           testutil.NewNonValidatorInMemoryStorage(),
-		Logger:            testutil.MakeLogger(t, 1),
-		GenesisValidators: nodes,
+		Storage:        testutil.NewInMemStorage(),
+		Logger:         testutil.MakeLogger(t, 1),
+		MaxRoundWindow: simplex.DefaultMaxRoundWindow,
 	}
 
 	return NewNonValidator(config, lastVerifiedBlock)

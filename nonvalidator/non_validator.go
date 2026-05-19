@@ -51,12 +51,9 @@ type ValidatorSetRetriever func(pChainReference uint64) ([]simplex.Node, error)
 type Config struct {
 	Logger                     simplex.Logger
 	Storage                    simplex.Storage
-	ValidatorSetRetriever      ValidatorSetRetriever
 	SignatureAggregatorCreator simplex.SignatureAggregatorCreator
 	// how many rounds we allow to look past our current
 	MaxRoundWindow uint64
-	// amount of dependencies we are willing to load into the block verifier
-	MaxDependencies uint64
 }
 
 type NonValidator struct {
@@ -99,7 +96,7 @@ func NewNonValidator(config Config) (*NonValidator, error) {
 		ctx:                 ctx,
 		cancelCtx:           cancelFunc,
 		epochs:              epochs,
-		verifier:            simplex.NewBlockVerificationScheduler(config.Logger, config.MaxDependencies, scheduler),
+		verifier:            simplex.NewBlockVerificationScheduler(config.Logger, simplex.DefaultProcessingBlocks, scheduler),
 	}, nil
 }
 
