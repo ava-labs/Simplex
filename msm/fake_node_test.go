@@ -15,6 +15,57 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestFakeNodeEpochChangesDespiteEmptyMempool(t *testing.T) {
+	validatorSetRetriever := validatorSetRetriever{
+		resultMap: map[uint64]NodeBLSMappings{
+			0:   {{BLSKey: []byte{1}, Weight: 1, NodeID: [20]byte{1}}, {BLSKey: []byte{2}, Weight: 1, NodeID: [20]byte{2}}},
+			100: {{BLSKey: []byte{1}, Weight: 1, NodeID: [20]byte{1}}, {BLSKey: []byte{2}, Weight: 1, NodeID: [20]byte{2}}},
+			200: {{BLSKey: []byte{1}, Weight: 1, NodeID: [20]byte{1}}, {BLSKey: []byte{2}, Weight: 2, NodeID: [20]byte{2}},
+				{BLSKey: []byte{3}, Weight: 1, NodeID: [20]byte{3}}},
+			300: {{BLSKey: []byte{1}, Weight: 1, NodeID: [20]byte{1}}, {BLSKey: []byte{2}, Weight: 2, NodeID: [20]byte{2}},
+				{BLSKey: []byte{3}, Weight: 3, NodeID: [20]byte{3}}, {BLSKey: []byte{4}, Weight: 1, NodeID: [20]byte{4}}},
+		},
+	}
+
+	var pChainHeight atomic.Uint64
+	pChainHeight.Store(100)
+	node := newFakeNode(t)
+	node.sm.GetValidatorSet = validatorSetRetriever.getValidatorSet
+	node.sm.GetPChainHeight = func() uint64 {
+		return pChainHeight.Load()
+	}
+	node.mempoolEmpty = true
+	node.sm.MaxBlockBuildingWaitTime = 100 * time.Millisecond
+
+	// This will be the zero block
+	node.buildAndNotarizeBlock()
+	if node.canFinalize() {
+		node.tryFinalizeNextBlock()
+	}
+
+	pChainHeight.Store(200)
+
+	for node.Epoch() == 1 {
+		node.buildAndNotarizeBlock()
+		if node.canFinalize() {
+			node.tryFinalizeNextBlock()
+		}
+		if flipCoin() {
+			node.sm.ApprovalsRetriever = &approvalsRetriever{
+				result: []ValidatorSetApproval{{NodeID: [20]byte{1}, PChainHeight: 200, Signature: []byte{1}, AuxInfoSeqDigest: [32]byte{}}},
+			}
+		} else {
+			node.sm.ApprovalsRetriever = &approvalsRetriever{
+				result: []ValidatorSetApproval{{NodeID: [20]byte{2}, PChainHeight: 200, Signature: []byte{2}, AuxInfoSeqDigest: [32]byte{}}},
+			}
+		}
+
+		if node.isLastBlockSealing() {
+			pChainHeight.Store(300)
+		}
+	}
+}
+
 func TestFakeNode(t *testing.T) {
 	validatorSetRetriever := validatorSetRetriever{
 		resultMap: map[uint64]NodeBLSMappings{
@@ -337,6 +388,14 @@ func (fn *fakeNode) isNextBlockTelock(nextIndex int) bool {
 	return fn.blocks[nextIndex].block.Metadata.SimplexEpochInfo.SealingBlockSeq > 0
 }
 
+func (fn *fakeNode) isLastBlockSealing() bool {
+	if len(fn.blocks) == 0 {
+		return false
+	}
+	last := fn.blocks[len(fn.blocks)-1]
+	return last.block.Metadata.SimplexEpochInfo.BlockValidationDescriptor != nil
+}
+
 func (fn *fakeNode) buildAndNotarizeBlock() {
 	vmBlock, block := fn.buildBlock()
 	require.NoError(fn.t, fn.sm.VerifyBlock(context.Background(), block))
@@ -386,7 +445,12 @@ func (fn *fakeNode) prepareMetadataAndPrevBlockDigest() (*simplex.ProtocolMetada
 	return lastMD, lastBlockDigest
 }
 
-func (fn *fakeNode) BuildBlock(context.Context, uint64) (VMBlock, error) {
+func (fn *fakeNode) BuildBlock(ctx context.Context, _ uint64) (VMBlock, error) {
+	if fn.mempoolEmpty {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+
 	// Count the number of inner blocks in the chain
 	var count int
 	for _, bs := range fn.blocks {
