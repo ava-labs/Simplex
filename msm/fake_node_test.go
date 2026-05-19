@@ -7,7 +7,6 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -44,13 +43,7 @@ func TestFakeNodeEpochChangesDespiteEmptyMempool(t *testing.T) {
 		node.tryFinalizeNextBlock()
 	}
 
-	var wg sync.WaitGroup
-	wg.Add(2)
-
-	defer wg.Wait()
-
 	go func() {
-		defer wg.Done()
 		pChainHeight.Store(200)
 	}()
 
@@ -71,7 +64,6 @@ func TestFakeNodeEpochChangesDespiteEmptyMempool(t *testing.T) {
 
 		if node.isLastBlockSealing() {
 			go func() {
-				defer wg.Done()
 				pChainHeight.Store(300)
 			}()
 		}
