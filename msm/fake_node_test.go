@@ -43,9 +43,7 @@ func TestFakeNodeEpochChangesDespiteEmptyMempool(t *testing.T) {
 		node.tryFinalizeNextBlock()
 	}
 
-	go func() {
-		pChainHeight.Store(200)
-	}()
+	pChainHeight.Store(200)
 
 	for node.Epoch() == 1 {
 		node.buildAndNotarizeBlock()
@@ -63,9 +61,7 @@ func TestFakeNodeEpochChangesDespiteEmptyMempool(t *testing.T) {
 		}
 
 		if node.isLastBlockSealing() {
-			go func() {
-				pChainHeight.Store(300)
-			}()
+			pChainHeight.Store(300)
 		}
 	}
 }
