@@ -6,43 +6,12 @@ package nonvalidator
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
 	"github.com/ava-labs/simplex"
 	"go.uber.org/zap"
 )
-
-var (
-	errNoGenesis = errors.New("No Genesis Found")
-)
-
-type epochMetadata struct {
-	nodes               simplex.Nodes
-	nodeLookup          map[string]struct{}
-	epoch               uint64
-	signatureAggregator simplex.SignatureAggregator
-}
-
-func newEpochMetadata(sealingMetadata *simplex.SealingBlockInfo, sigCreator simplex.SignatureAggregatorCreator) *epochMetadata {
-	if sealingMetadata == nil {
-		return nil
-	}
-
-	nodes := sealingMetadata.ValidatorSet
-	lookup := make(map[string]struct{}, len(nodes))
-	for _, node := range nodes {
-		lookup[string(node.Node)] = struct{}{}
-	}
-
-	return &epochMetadata{
-		nodes:               nodes,
-		nodeLookup:          lookup,
-		epoch:               sealingMetadata.Epoch,
-		signatureAggregator: sigCreator(nodes),
-	}
-}
 
 // ValidatorSetRetriever returns the validator set for the given epoch.
 // We use epochs not pChainHeight, because NonValidators receive simplex.Blocks
@@ -98,29 +67,6 @@ func NewNonValidator(config Config) (*NonValidator, error) {
 		epochs:              epochs,
 		verifier:            simplex.NewBlockVerificationScheduler(config.Logger, simplex.DefaultProcessingBlocks, scheduler),
 	}, nil
-}
-
-func newEpochs(storage simplex.Storage, sigAggCreator simplex.SignatureAggregatorCreator) (map[uint64]*epochMetadata, error) {
-	lastBlockHeight := storage.NumBlocks()
-	if lastBlockHeight == 0 {
-		return nil, errNoGenesis
-	}
-
-	lastBlock, _, err := storage.Retrieve(lastBlockHeight - 1)
-	if err != nil {
-		return nil, err
-	}
-
-	sealingBlock := lastBlock
-	if sealingBlock.SealingBlockInfo() == nil {
-		sealingBlock, _, err = storage.Retrieve(lastBlock.BlockHeader().Epoch)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	lastAcceptedEpoch := newEpochMetadata(sealingBlock.SealingBlockInfo(), sigAggCreator)
-	return map[uint64]*epochMetadata{lastAcceptedEpoch.epoch: lastAcceptedEpoch}, nil
 }
 
 func (n *NonValidator) Start() {

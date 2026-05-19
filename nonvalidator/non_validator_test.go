@@ -20,14 +20,21 @@ func (errQC) Signers() []simplex.NodeID { return nil }
 func (errQC) Verify([]byte) error       { return errors.New("verification failed") }
 func (errQC) Bytes() []byte             { return nil }
 
-func newTestNonValidator(t *testing.T, nodes []simplex.NodeID, lastVerifiedBlock simplex.Block) *NonValidator {
+// PoA Non-Validator
+func newTestNonValidator(t *testing.T, nodes []simplex.NodeID) *NonValidator {
 	config := Config{
 		Storage:        testutil.NewInMemStorage(),
 		Logger:         testutil.MakeLogger(t, 1),
 		MaxRoundWindow: simplex.DefaultMaxRoundWindow,
+		SignatureAggregatorCreator: func(n []simplex.Node) simplex.SignatureAggregator {
+			return &testutil.TestSignatureAggregator{N: len(n)}
+		},
 	}
 
-	return NewNonValidator(config, lastVerifiedBlock)
+	nonValidator, err := NewNonValidator(config)
+	require.NoError(t, err)
+
+	return nonValidator
 }
 
 func blockMessage(t *testing.T, block simplex.Block, from simplex.NodeID) *simplex.Message {
@@ -45,8 +52,7 @@ func TestHandleFinalizationMessage(t *testing.T) {
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
 
 	tests := []struct {
-		name              string
-		lastVerifiedBlock *testutil.TestBlock
+		name string
 		// sendBlock controls whether a block message is sent before the finalization.
 		sendBlock         bool
 		blockSender       simplex.NodeID
