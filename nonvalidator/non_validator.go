@@ -23,10 +23,14 @@ type epochMetadata struct {
 	nodeLookup          map[string]struct{}
 	epoch               uint64
 	signatureAggregator simplex.SignatureAggregator
-	sealingMetadata     *simplex.SealingBlockInfo
 }
 
-func newEpochMetadata(epoch uint64, nodes []simplex.Node, sigCreator simplex.SignatureAggregatorCreator, sealingMetadata *simplex.SealingBlockInfo) *epochMetadata {
+func newEpochMetadata(sealingMetadata *simplex.SealingBlockInfo, sigCreator simplex.SignatureAggregatorCreator) *epochMetadata {
+	if sealingMetadata == nil {
+		return nil
+	}
+
+	nodes := sealingMetadata.ValidatorSet
 	lookup := make(map[string]struct{}, len(nodes))
 	for _, node := range nodes {
 		lookup[string(node.Node)] = struct{}{}
@@ -35,9 +39,8 @@ func newEpochMetadata(epoch uint64, nodes []simplex.Node, sigCreator simplex.Sig
 	return &epochMetadata{
 		nodes:               nodes,
 		nodeLookup:          lookup,
-		epoch:               epoch,
+		epoch:               sealingMetadata.Epoch,
 		signatureAggregator: sigCreator(nodes),
-		sealingMetadata:     sealingMetadata,
 	}
 }
 
@@ -75,7 +78,7 @@ type NonValidator struct {
 	// lastAcceptedEpoch *epochMetadata
 
 	// epochs contain a map of all epochs that have their validator set verified.
-	epochs map[uint64]epochMetadata
+	epochs map[uint64]*epochMetadata
 
 	verifier *simplex.BlockDependencyManager
 }
@@ -84,33 +87,10 @@ type NonValidator struct {
 func NewNonValidator(config Config) (*NonValidator, error) {
 	ctx, cancelFunc := context.WithCancel(context.Background())
 
-	// Retrieve the last block so we know where to start bootstrapping from
-	lastBlockHeight := config.Storage.NumBlocks()
-
-	if lastBlockHeight == 0 {
-		return nil, errNoGenesis
-	}
-
-	// TODO: test when the last block retrieved is a sealing block. Currently we would set the lastAcceptedEpoch to sealingblock.epoch, but technically we could set it to sealingblock.seq. Would save a step.
-	lastBlock, _, err := config.Storage.Retrieve(lastBlockHeight - 1)
+	epochs, err := newEpochs(config.Storage, config.SignatureAggregatorCreator)
 	if err != nil {
 		return nil, err
 	}
-	lastBlockEpoch := lastBlock.BlockHeader().Epoch
-	pChainReference, _, err := config.Storage.Retrieve(lastBlockEpoch)
-	if err != nil {
-		return nil, err
-	}
-
-	nodes, err := config.ValidatorSetRetriever(pChainReference.SealingBlockInfo().PChainHeight)
-	if err != nil {
-		return nil, err
-	}
-
-	lastAccepted := newEpochMetadata(lastBlockEpoch, nodes, config.SignatureAggregatorCreator, lastBlock.SealingBlockInfo())
-	epochs := make(map[uint64]epochMetadata)
-	epochs[lastBlockEpoch] = *lastAccepted
-
 	scheduler := simplex.NewScheduler(config.Logger, simplex.DefaultProcessingBlocks)
 
 	return &NonValidator{
@@ -121,6 +101,29 @@ func NewNonValidator(config Config) (*NonValidator, error) {
 		epochs:              epochs,
 		verifier:            simplex.NewBlockVerificationScheduler(config.Logger, config.MaxDependencies, scheduler),
 	}, nil
+}
+
+func newEpochs(storage simplex.Storage, sigAggCreator simplex.SignatureAggregatorCreator) (map[uint64]*epochMetadata, error) {
+	lastBlockHeight := storage.NumBlocks()
+	if lastBlockHeight == 0 {
+		return nil, errNoGenesis
+	}
+
+	lastBlock, _, err := storage.Retrieve(lastBlockHeight - 1)
+	if err != nil {
+		return nil, err
+	}
+
+	sealingBlock := lastBlock
+	if sealingBlock.SealingBlockInfo() == nil {
+		sealingBlock, _, err = storage.Retrieve(lastBlock.BlockHeader().Epoch)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	lastAcceptedEpoch := newEpochMetadata(sealingBlock.SealingBlockInfo(), sigAggCreator)
+	return map[uint64]*epochMetadata{lastAcceptedEpoch.epoch: lastAcceptedEpoch}, nil
 }
 
 func (n *NonValidator) Start() {
@@ -140,10 +143,8 @@ func (n *NonValidator) broadcastLatestEpoch() {
 // this function should be ran under a lock?
 func (n *NonValidator) HandleMessage(msg *simplex.Message, from simplex.NodeID) error {
 	// A closed context means we have shut down.
-	select {
-	case <-n.ctx.Done():
+	if n.ctx.Err != nil {
 		return nil
-	default:
 	}
 
 	if n.haltedError != nil {
@@ -224,17 +225,18 @@ func (n *NonValidator) handleBlock(block simplex.Block, from simplex.NodeID) err
 
 	finalizedBlockTask := n.createFinalizedBlockVerificationTask(block, incomplete.finalization)
 
-	if bh.Seq == 0 || n.isAccepted(bh.Seq-1) {
-		return n.verifier.ScheduleTaskWithDependencies(finalizedBlockTask, bh.Seq, nil, []uint64{})
+	var prev *simplex.Digest
+	if bh.Seq > 0 && !n.isAccepted(bh.Seq-1) {
+		prev = &bh.Prev
 	}
-
-	return n.verifier.ScheduleTaskWithDependencies(finalizedBlockTask, bh.Seq, &(bh.Prev), []uint64{})
+	return n.verifier.ScheduleTaskWithDependencies(finalizedBlockTask, bh.Seq, prev, []uint64{})
 }
 
 func (n *NonValidator) isAccepted(seq uint64) bool {
 	return n.Storage.NumBlocks() > seq
 }
 
+// a finalizedBlockVerificationTask should only get executed when `block` is next to be indexed.
 func (n *NonValidator) createFinalizedBlockVerificationTask(block simplex.Block, finalization *simplex.Finalization) func() simplex.Digest {
 	return func() simplex.Digest {
 		md := block.BlockHeader()
@@ -246,21 +248,10 @@ func (n *NonValidator) createFinalizedBlockVerificationTask(block simplex.Block,
 		}()
 
 		verifiedBlock, err := block.Verify(n.ctx)
-
-		// is this block a sealing block? set epochs
-		if sealingInfo := verifiedBlock.SealingBlockInfo(); sealingInfo != nil {
-			nodes, err := n.ValidatorSetRetriever(sealingInfo.PChainHeight)
-			if err != nil {
-				n.haltedError = err
-				return md.Digest
-			}
-
-			n.epochs[sealingInfo.Epoch] = *newEpochMetadata(sealingInfo.Epoch, nodes, n.SignatureAggregatorCreator, sealingInfo)
-		}
-
 		// We have failed verifying a finalized block
 		if err != nil {
 			n.Logger.Info("Failed verifying a block that has a finalization", zap.Uint64("Block Seq", md.Seq), zap.Stringer("Block Digest", md.Digest), zap.Error(err))
+			// TODO: notify replication
 			return md.Digest
 		}
 
@@ -270,13 +261,21 @@ func (n *NonValidator) createFinalizedBlockVerificationTask(block simplex.Block,
 			return md.Digest
 		}
 
-		n.removeIncompleteSeqs(md.Seq)
+		// is this block a sealing block? set epochs
+		if sealingInfo := verifiedBlock.SealingBlockInfo(); sealingInfo != nil {
+			n.epochs[sealingInfo.Epoch] = newEpochMetadata(sealingInfo, n.SignatureAggregatorCreator)
+
+			// we can delete the old epoch from the map
+			delete(n.epochs, verifiedBlock.BlockHeader().Epoch)
+		}
+
+		n.removeOldIncompleteSeqs(md.Seq)
 
 		return md.Digest
 	}
 }
 
-func (n *NonValidator) removeIncompleteSeqs(startSeq uint64) {
+func (n *NonValidator) removeOldIncompleteSeqs(startSeq uint64) {
 	for seq, _ := range n.incompleteSequences {
 		if seq <= startSeq {
 			delete(n.incompleteSequences, seq)
@@ -359,9 +358,9 @@ func (n *NonValidator) handleFinalization(finalization *simplex.Finalization, fr
 
 	finalizedBlockTask := n.createFinalizedBlockVerificationTask(incomplete.block, incomplete.finalization)
 
-	if bh.Seq == 0 || n.isAccepted(bh.Seq-1) {
-		return n.verifier.ScheduleTaskWithDependencies(finalizedBlockTask, bh.Seq, nil, []uint64{})
+	var prev *simplex.Digest
+	if bh.Seq > 0 && !n.isAccepted(bh.Seq-1) {
+		prev = &bh.Prev
 	}
-
-	return n.verifier.ScheduleTaskWithDependencies(finalizedBlockTask, bh.Seq, &(bh.Prev), []uint64{})
+	return n.verifier.ScheduleTaskWithDependencies(finalizedBlockTask, bh.Seq, prev, []uint64{})
 }

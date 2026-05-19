@@ -104,10 +104,12 @@ type Block interface {
 	Verify(ctx context.Context) (VerifiedBlock, error)
 }
 
-// Created temporarily to avoid the massive circular
+// Created temporarily to avoid the massive circular dependency.
 type SealingBlockInfo struct {
-	Epoch        uint64
-	PChainHeight uint64
+	// the new epoch number(aka the seq of the block this is in)
+	Epoch uint64
+	// ValidatorSet of the new epoch
+	ValidatorSet Nodes
 }
 
 type VerifiedBlock interface {
@@ -119,6 +121,7 @@ type VerifiedBlock interface {
 	// Bytes returns a byte encoding of the block
 	Bytes() ([]byte, error)
 
+	// non nil only for sealing blocks
 	SealingBlockInfo() *SealingBlockInfo
 }
 
@@ -182,6 +185,7 @@ func (nws Nodes) NodeIDs() []NodeID {
 type Node struct {
 	Node   NodeID
 	Weight uint64
+	BLSKey []byte
 }
 
 // SignatureAggregatorCreator creates a SignatureAggregator from a list of nodes and their weights.
