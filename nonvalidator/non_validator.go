@@ -13,10 +13,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// ValidatorSetRetriever returns the validator set for the given epoch.
-// We use epochs not pChainHeight, because NonValidators receive simplex.Blocks
-// which are interfaces that do not expose the pChainHeight.
-type ValidatorSetRetriever func(pChainReference uint64) ([]simplex.Node, error)
 type Config struct {
 	Logger                     simplex.Logger
 	Storage                    simplex.Storage
@@ -36,12 +32,6 @@ type NonValidator struct {
 	// both a block and finalization for. Once both have been received, they are verified & indexed.
 	// TODO: garbage collect old sequences
 	incompleteSequences map[uint64]*finalizedSeq
-
-	// lastAcceptedEpoch contains the metadata of the highest epoch that our NonValidating node has accepted.
-	// An epoch that is accepted means we have verified and indexed the sealing block which created this epoch.
-	// i.e. Seq 100 seals Epoch 50. Epoch 100 is the last accepted epoch.
-	// All blocks before this epoch have been accepted and indexed.
-	// lastAcceptedEpoch *epochMetadata
 
 	// epochs contain a map of all epochs that have their validator set verified.
 	epochs map[uint64]*epochMetadata
@@ -67,20 +57,6 @@ func NewNonValidator(config Config) (*NonValidator, error) {
 		epochs:              epochs,
 		verifier:            simplex.NewBlockVerificationScheduler(config.Logger, simplex.DefaultProcessingBlocks, scheduler),
 	}, nil
-}
-
-func (n *NonValidator) Start() {
-	n.broadcastLatestEpoch()
-}
-
-func (n *NonValidator) Stop() {
-	n.cancelCtx()
-}
-
-// TODO: Broadcast the last known epoch to bootstrap the node. Collect responses marking the latest sealing block.
-// Keep rebroadcasting requests for that sealing block until we have enough responses.
-func (n *NonValidator) broadcastLatestEpoch() {
-
 }
 
 // this function should be ran under a lock?
@@ -306,4 +282,18 @@ func (n *NonValidator) handleFinalization(finalization *simplex.Finalization, fr
 		prev = &bh.Prev
 	}
 	return n.verifier.ScheduleTaskWithDependencies(finalizedBlockTask, bh.Seq, prev, []uint64{})
+}
+
+func (n *NonValidator) Start() {
+	n.broadcastLatestEpoch()
+}
+
+func (n *NonValidator) Stop() {
+	n.cancelCtx()
+}
+
+// TODO: Broadcast the last known epoch to bootstrap the node. Collect responses marking the latest sealing block.
+// Keep rebroadcasting requests for that sealing block until we have enough responses.
+func (n *NonValidator) broadcastLatestEpoch() {
+
 }

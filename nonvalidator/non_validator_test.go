@@ -79,9 +79,6 @@ func TestHandleFinalizationMessage(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var lastVerified simplex.Block
-			if tt.lastVerifiedBlock != nil {
-				lastVerified = tt.lastVerifiedBlock
-			}
 			v := newTestNonValidator(t, nodes, lastVerified)
 
 			var verified atomic.Bool

@@ -37,6 +37,7 @@ func newEpochMetadata(sealingMetadata *simplex.SealingBlockInfo, sigCreator simp
 	}
 }
 
+// TODO: what if our last accepted block is either the firstSimplexBlock or we haven't accepted any blocks yet? aka we just have the genesis
 func newEpochs(storage simplex.Storage, sigAggCreator simplex.SignatureAggregatorCreator) (map[uint64]*epochMetadata, error) {
 	lastBlockHeight := storage.NumBlocks()
 	if lastBlockHeight == 0 {
@@ -46,6 +47,12 @@ func newEpochs(storage simplex.Storage, sigAggCreator simplex.SignatureAggregato
 	lastBlock, _, err := storage.Retrieve(lastBlockHeight - 1)
 	if err != nil {
 		return nil, err
+	}
+
+	// A zero Epoch means this is before the first ever Simplex block(ex. Genesis or Last Snowman Block)
+	if lastBlock.BlockHeader().Epoch == 0 {
+		// return a nil map
+		return make(map[uint64]*epochMetadata), nil
 	}
 
 	sealingBlock := lastBlock
