@@ -49,10 +49,11 @@ func newEpochs(storage simplex.Storage, sigAggCreator simplex.SignatureAggregato
 		return nil, err
 	}
 
+	epochs := make(map[uint64]*epochMetadata)
+
 	// A zero Epoch means this is before the first ever Simplex block(ex. Genesis or Last Snowman Block)
 	if lastBlock.BlockHeader().Epoch == 0 {
-		// return a nil map
-		return make(map[uint64]*epochMetadata), nil
+		return epochs, nil
 	}
 
 	sealingBlock := lastBlock
@@ -64,5 +65,6 @@ func newEpochs(storage simplex.Storage, sigAggCreator simplex.SignatureAggregato
 	}
 
 	lastAcceptedEpoch := newEpochMetadata(sealingBlock.SealingBlockInfo(), sigAggCreator)
-	return map[uint64]*epochMetadata{lastAcceptedEpoch.epoch: lastAcceptedEpoch}, nil
+	epochs[lastAcceptedEpoch.epoch] = lastAcceptedEpoch
+	return epochs, nil
 }

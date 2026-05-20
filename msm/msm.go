@@ -366,29 +366,20 @@ func (sm *StateMachine) createBlockBuildingDecider(parentBlock StateMachineBlock
 func (sm *StateMachine) buildBlockZero(parentBlock StateMachineBlock, simplexMetadata, simplexBlacklist []byte) (*StateMachineBlock, error) {
 	pChainHeight := sm.LastNonSimplexBlockPChainHeight
 
-	var validatorSet NodeBLSMappings
-	if sm.LastNonSimplexInnerBlock.Height() == 0 {
-		validatorSet = sm.GenesisValidatorSet
-	} else {
-		var err error
-		validatorSet, err = sm.GetValidatorSet(pChainHeight)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	var prevVMBlockSeq uint64
-	if parentBlock.InnerBlock != nil {
-		prevVMBlockSeq = parentBlock.InnerBlock.Height()
-	} else {
+	if parentBlock.InnerBlock == nil {
 		// We can only have blocks without inner blocks in Simplex blocks, but this is the first Simplex block.
 		// Therefore, the parent block must have an inner block.
 		sm.Logger.Error("Parent block has no inner block, cannot determine previous VM block sequence for zero block")
 		return nil, fmt.Errorf("failed constructing zero block: parent block has no inner block")
 	}
+	prevVMBlockHeight := parentBlock.InnerBlock.Height()
+
+	simplexEpochInfo, err := ConstructSimplexZeroBlockSimplexEpochInfo(pChainHeight, prevVMBlockHeight, sm.GenesisValidatorSet, sm.GetValidatorSet)
+	if err != nil {
+		return nil, err
+	}
 
 	timestamp := sm.LastNonSimplexInnerBlock.Timestamp().UnixMilli()
-	simplexEpochInfo := constructSimplexZeroBlockSimplexEpochInfo(pChainHeight, validatorSet, prevVMBlockSeq)
 
 	md, err := simplex.ProtocolMetadataFromBytes(simplexMetadata)
 	if err != nil {
@@ -424,35 +415,26 @@ func (sm *StateMachine) verifyBlockZero(block *StateMachineBlock, prevBlock Stat
 	}
 
 	pChainHeight := sm.LastNonSimplexBlockPChainHeight
-	prevVMBlockSeq := prevBlock.InnerBlock.Height()
 
 	if block.Metadata.PChainHeight != pChainHeight {
 		return fmt.Errorf("invalid P-chain height (%d), expected to be %d",
 			block.Metadata.PChainHeight, pChainHeight)
 	}
 
-	var expectedValidatorSet NodeBLSMappings
-	if prevBlock.InnerBlock.Height() == 0 {
-		expectedValidatorSet = sm.GenesisValidatorSet
-	} else {
-		var err error
-		expectedValidatorSet, err = sm.GetValidatorSet(pChainHeight)
-		if err != nil {
-			return fmt.Errorf("failed to retrieve validator set at height %d: %w", pChainHeight, err)
-		}
+	expectedSimplexEpochInfo, err := ConstructSimplexZeroBlockSimplexEpochInfo(pChainHeight, prevBlock.InnerBlock.Height(), sm.GenesisValidatorSet, sm.GetValidatorSet)
+	if err != nil {
+		return err
 	}
 
 	if simplexEpochInfo.BlockValidationDescriptor == nil {
 		return fmt.Errorf("invalid BlockValidationDescriptor: should not be nil")
 	}
 
+	expectedValidatorSet := expectedSimplexEpochInfo.BlockValidationDescriptor.AggregatedMembership.Members
 	membership := simplexEpochInfo.BlockValidationDescriptor.AggregatedMembership.Members
 	if !NodeBLSMappings(membership).Equal(expectedValidatorSet) {
 		return fmt.Errorf("invalid BlockValidationDescriptor: should match validator set at P-chain height %d", pChainHeight)
 	}
-
-	// If we have compared all fields so far, the rest of the fields we compare by constructing an explicit expected SimplexEpochInfo
-	expectedSimplexEpochInfo := constructSimplexZeroBlockSimplexEpochInfo(pChainHeight, expectedValidatorSet, prevVMBlockSeq)
 
 	if !expectedSimplexEpochInfo.Equal(&simplexEpochInfo) {
 		return fmt.Errorf("invalid SimplexEpochInfo: expected %v, got %v", expectedSimplexEpochInfo, simplexEpochInfo)
@@ -666,25 +648,37 @@ func (sm *StateMachine) buildBlockEpochSealed(ctx context.Context, parentBlock S
 	return sm.wrapBlock(parentBlock, childBlock, newSimplexEpochInfo, parentBlock.Metadata.PChainHeight, simplexMetadata, simplexBlacklist), nil
 }
 
-// constructSimplexZeroBlockSimplexEpochInfo constructs the SimplexEpochInfo for the zero block, which is the first ever block built by Simplex.
-func constructSimplexZeroBlockSimplexEpochInfo(pChainHeight uint64, newValidatorSet NodeBLSMappings, prevVMBlockSeq uint64) SimplexEpochInfo {
-	newSimplexEpochInfo := SimplexEpochInfo{
+// ConstructSimplexZeroBlockSimplexEpochInfo constructs the SimplexEpochInfo for the zero block, which is the first ever block built by Simplex.
+// If prevVMBlockHeight is 0 (i.e. the previous VM block is the VM genesis block), the genesis validator set is used.
+// Otherwise the validator set is retrieved at pChainHeight via getValidatorSet.
+func ConstructSimplexZeroBlockSimplexEpochInfo(pChainHeight uint64, prevVMBlockHeight uint64, genesisValidatorSet NodeBLSMappings, getValidatorSet ValidatorSetRetriever) (SimplexEpochInfo, error) {
+	var validatorSet NodeBLSMappings
+	if prevVMBlockHeight == 0 {
+		validatorSet = genesisValidatorSet
+	} else {
+		var err error
+		validatorSet, err = getValidatorSet(pChainHeight)
+		if err != nil {
+			return SimplexEpochInfo{}, fmt.Errorf("failed to retrieve validator set at P-chain height %d: %w", pChainHeight, err)
+		}
+	}
+
+	return SimplexEpochInfo{
 		PChainReferenceHeight: pChainHeight,
 		EpochNumber:           1,
 		// We treat the zero block as a special case, and we encode in it the block validation descriptor,
 		// despite it not actually being a sealing block. This is because the zero block is the first block that introduces the validator set.
 		BlockValidationDescriptor: &BlockValidationDescriptor{
 			AggregatedMembership: AggregatedMembership{
-				Members: newValidatorSet,
+				Members: validatorSet,
 			},
 		},
 		NextEpochApprovals:        nil, // We don't need to collect approvals to seal the first ever epoch.
-		PrevVMBlockSeq:            prevVMBlockSeq,
+		PrevVMBlockSeq:            prevVMBlockHeight,
 		SealingBlockSeq:           0,          // We don't have a sealing block in the zero block.
 		PrevSealingBlockHash:      [32]byte{}, // The zero block has no previous sealing block.
 		NextPChainReferenceHeight: 0,
-	}
-	return newSimplexEpochInfo
+	}, nil
 }
 
 func computeNewApprovals(
