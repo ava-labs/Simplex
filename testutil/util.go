@@ -122,12 +122,6 @@ func (t *testQCDeserializer) DeserializeQuorumCertificate(bytes []byte) (simplex
 	return TestQC(qc), err
 }
 
-type TestSignatureAggregatorCreator struct {
-	Err          error
-	N            int
-	IsQuorumFunc func(signatures []simplex.NodeID) bool
-}
-
 type TestSignatureAggregator struct {
 	Err          error
 	N            int
