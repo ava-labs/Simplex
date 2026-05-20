@@ -102,6 +102,9 @@ type Block interface {
 
 	// Verify verifies the block by speculatively executing it on top of its ancestor.
 	Verify(ctx context.Context) (VerifiedBlock, error)
+
+	// non nil only for sealing blocks. todo: the first ever simplex block might have validators encoded in it. test this.
+	SealingBlockInfo() *SealingBlockInfo
 }
 
 // Created temporarily to avoid the massive circular dependency.
@@ -121,7 +124,7 @@ type VerifiedBlock interface {
 	// Bytes returns a byte encoding of the block
 	Bytes() ([]byte, error)
 
-	// non nil only for sealing blocks
+	// non nil only for sealing blocks. todo: the first ever simplex block might have validators encoded in it. test this.
 	SealingBlockInfo() *SealingBlockInfo
 }
 

@@ -15,6 +15,7 @@ import (
 
 type Config struct {
 	Logger                     simplex.Logger
+	Comm                       simplex.Communication
 	Storage                    simplex.Storage
 	SignatureAggregatorCreator simplex.SignatureAggregatorCreator
 	// how many rounds we allow to look past our current
@@ -34,7 +35,7 @@ type NonValidator struct {
 	incompleteSequences map[uint64]*finalizedSeq
 
 	// epochs contain a map of all epochs that have their validator set verified.
-	epochs map[uint64]*epochMetadata
+	epochs epochs
 
 	verifier *simplex.BlockDependencyManager
 }
@@ -79,6 +80,8 @@ func (n *NonValidator) HandleMessage(msg *simplex.Message, from simplex.NodeID) 
 		return n.handleBlock(msg.BlockMessage.Block, from)
 	case msg.Finalization != nil && msg.Finalization != nil:
 		return n.handleFinalization(msg.Finalization, from)
+	case msg.ReplicationResponse != nil:
+		return n.handleReplicationResponse(msg.ReplicationResponse, from)
 	default:
 		n.Logger.Debug("Received unexpected message", zap.Any("Message", msg), zap.Stringer("from", from))
 		return nil
@@ -292,8 +295,69 @@ func (n *NonValidator) Stop() {
 	n.cancelCtx()
 }
 
+func (n *NonValidator) handleReplicationResponse(resp *simplex.ReplicationResponse, from simplex.NodeID) error {
+	n.Logger.Debug("Received replication response", zap.Stringer("from", from), zap.Int("num seqs", len(resp.Data)), zap.Stringer("latest seq", resp.LatestSeq))
+
+	return nil
+}
+
+func (n *NonValidator) processQuorumRound(qr *simplex.QuorumRound, from simplex.NodeID) error {
+	if qr == nil {
+		return nil
+	}
+
+	if err := qr.IsWellFormed(); err != nil {
+		return err
+	}
+
+	block := qr.Block
+	finalization := qr.Finalization
+	// we only care if finalizations are sent
+	if finalization == nil {
+		return nil
+	}
+
+	lastBlock, _, err := n.Storage.Retrieve(n.Storage.NumBlocks() - 1)
+	if err != nil {
+		if err == simplex.ErrBlockNotFound {
+			return nil
+		}
+		storageError := fmt.Errorf("calling retrieve on storage failed: %w", err)
+		n.haltedError = storageError
+		return storageError
+	}
+	if lastBlock.BlockHeader().Seq >= block.BlockHeader().Seq {
+		return fmt.Errorf("processing quorum round for a block we already indexed")
+	}
+
+	epoch, ok := n.epochs[block.BlockHeader().Epoch]
+	// We do not have this epoch because we have yet to validate the sealing block for that epoch.
+	if !ok {
+		// TODO: request
+	}
+
+	err = simplex.VerifyQC(qr.Finalization.QC, n.Logger, "Finalization", epoch.signatureAggregator.IsQuorum, epoch.nodeLookup, qr.Finalization, from)
+	if err != nil {
+		return fmt.Errorf("could not verify quorum round QC: %w", err)
+	}
+
+	// store in replication state
+}
+
 // TODO: Broadcast the last known epoch to bootstrap the node. Collect responses marking the latest sealing block.
 // Keep rebroadcasting requests for that sealing block until we have enough responses.
 func (n *NonValidator) broadcastLatestEpoch() {
+	highestEpoch := n.epochs.highestEpoch()
 
+	if highestEpoch == 0 {
+		highestEpoch = 1
+	}
+
+	request := &simplex.ReplicationRequest{
+		LatestFinalizedSeq: highestEpoch,
+	}
+
+	n.Comm.Broadcast(&simplex.Message{
+		ReplicationRequest: request,
+	})
 }

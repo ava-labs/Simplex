@@ -18,6 +18,8 @@ type epochMetadata struct {
 	signatureAggregator simplex.SignatureAggregator
 }
 
+type epochs map[uint64]*epochMetadata
+
 func newEpochMetadata(sealingMetadata *simplex.SealingBlockInfo, sigCreator simplex.SignatureAggregatorCreator) *epochMetadata {
 	if sealingMetadata == nil {
 		return nil
@@ -39,7 +41,7 @@ func newEpochMetadata(sealingMetadata *simplex.SealingBlockInfo, sigCreator simp
 
 // newEpochs creates a mapping of epoch numbers -> epoch metadata. The epoch metadata is used for verifying
 // blocks and finalizations, and should only contain epochMetadata that we have validated.
-func newEpochs(storage simplex.Storage, sigAggCreator simplex.SignatureAggregatorCreator) (map[uint64]*epochMetadata, error) {
+func newEpochs(storage simplex.Storage, sigAggCreator simplex.SignatureAggregatorCreator) (epochs, error) {
 	lastBlockHeight := storage.NumBlocks()
 	if lastBlockHeight == 0 {
 		return nil, errNoGenesis
@@ -68,4 +70,15 @@ func newEpochs(storage simplex.Storage, sigAggCreator simplex.SignatureAggregato
 	lastAcceptedEpoch := newEpochMetadata(sealingBlock.SealingBlockInfo(), sigAggCreator)
 	epochs[lastAcceptedEpoch.epoch] = lastAcceptedEpoch
 	return epochs, nil
+}
+
+func (e epochs) highestEpoch() uint64 {
+	highest := uint64(0)
+	for epoch, _ := range e {
+		if epoch > highest {
+			highest = epoch
+		}
+	}
+
+	return highest
 }
