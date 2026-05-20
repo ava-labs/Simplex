@@ -111,7 +111,7 @@ func (sei *SimplexEpochInfo) Equal(other *SimplexEpochInfo) bool {
 }
 
 // NextState returns the state used to build (or verify) the block that follows the one
-// described by sei.
+// described by the SimplexEpochInfo.
 func (sei *SimplexEpochInfo) NextState() state {
 	// No Simplex epoch has started yet: the next block is the first one built by Simplex.
 	if sei.EpochNumber == 0 {
@@ -125,8 +125,8 @@ func (sei *SimplexEpochInfo) NextState() state {
 
 	// If NextPChainReferenceHeight > 0, then an epoch transition is in progress.
 	// An epoch is sealed if
-	//   - SealingBlockSeq > 0: sei describes a Telock.
-	//   - BlockValidationDescriptor != nil: sei describes the sealing block itself.
+	//   - SealingBlockSeq > 0: SimplexEpochInfo describes a Telock.
+	//   - BlockValidationDescriptor != nil: SimplexEpochInfo describes the sealing block itself.
 	if sei.SealingBlockSeq > 0 || sei.BlockValidationDescriptor != nil {
 		return stateBuildBlockEpochSealed
 	}
