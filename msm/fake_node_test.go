@@ -45,7 +45,9 @@ func TestFakeNodeEpochChangesDespiteEmptyMempool(t *testing.T) {
 
 	pChainHeight.Store(200)
 
-	for node.Epoch() == 1 {
+	firstEpoch := node.Epoch()
+
+	for node.Epoch() == firstEpoch {
 		node.buildAndNotarizeBlock()
 		if node.canFinalize() {
 			node.tryFinalizeNextBlock()
@@ -229,6 +231,7 @@ type blockState struct {
 
 type fakeNode struct {
 	t            *testing.T
+	epoch        uint64
 	sm           *StateMachine
 	mempoolEmpty bool
 	// blocks holds notarized blocks in order. Finalized blocks always form a
@@ -260,8 +263,9 @@ func newFakeNode(t *testing.T) *fakeNode {
 	sm, _ := newStateMachine(t)
 
 	fn := &fakeNode{
-		t:  t,
-		sm: sm,
+		t:     t,
+		sm:    sm,
+		epoch: 1,
 	}
 
 	fn.sm.BlockBuilder = fn
@@ -291,17 +295,6 @@ func newFakeNode(t *testing.T) *fakeNode {
 
 		require.Failf(t, "not found block", "height: %d", seq)
 		return StateMachineBlock{}, nil, fmt.Errorf("block not found")
-	}
-
-	fn.sm.FirstEverSimplexBlock = func() *StateMachineBlock {
-		for _, block := range fn.blocks {
-			if block.block.Metadata.SimplexEpochInfo.EpochNumber == 0 {
-				continue
-			}
-			return &block.block
-		}
-		require.FailNow(t, "block not found")
-		return nil
 	}
 
 	return fn
@@ -378,6 +371,9 @@ func (fn *fakeNode) tryFinalizeNextBlock() {
 	if block.Metadata.SimplexEpochInfo.BlockValidationDescriptor != nil {
 		fn.blocks = fn.blocks[:nextIndex+1]
 		fn.t.Logf("Trimmed notarized blocks, new length: %d", len(fn.blocks))
+		prevEpoch := fn.epoch
+		fn.epoch = md.Seq
+		fn.t.Logf("Epoch change from %d to %d", prevEpoch, fn.epoch)
 	}
 }
 
@@ -421,6 +417,7 @@ func (fn *fakeNode) buildBlock() (VMBlock, *StateMachineBlock) {
 	block, err := fn.sm.BuildBlock(context.Background(), simplex.ProtocolMetadata{
 		Seq:   lastMD.Seq + 1,
 		Round: lastMD.Round + 1,
+		Epoch: fn.epoch,
 		Prev:  prevBlockDigest,
 	}, nil)
 	require.NoError(fn.t, err)
@@ -439,7 +436,8 @@ func (fn *fakeNode) prepareMetadataAndPrevBlockDigest() (*simplex.ProtocolMetada
 		require.NoError(fn.t, err)
 	} else {
 		lastMD = &simplex.ProtocolMetadata{
-			Prev: lastBlockDigest,
+			Prev:  lastBlockDigest,
+			Epoch: 1,
 		}
 	}
 	return lastMD, lastBlockDigest
