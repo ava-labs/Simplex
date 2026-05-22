@@ -110,7 +110,6 @@ func TestNewNotarization(t *testing.T) {
 }
 
 func TestNewFinalization(t *testing.T) {
-	l := MakeLogger(t, 1)
 	tests := []struct {
 		name                 string
 		finalizeVotes        []*simplex.FinalizeVote
@@ -169,7 +168,7 @@ func TestNewFinalization(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			finalization, err := simplex.NewFinalization(l, tt.signatureAggregator, tt.finalizeVotes)
+			finalization, err := simplex.NewFinalization(tt.signatureAggregator, tt.finalizeVotes)
 			require.ErrorIs(t, err, tt.expectError, "expected error, got nil")
 
 			if tt.expectError == nil {

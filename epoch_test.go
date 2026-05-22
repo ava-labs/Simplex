@@ -446,7 +446,7 @@ func TestEpochIndexFinalization(t *testing.T) {
 	// 1 & 2
 
 	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Nodes())
-	finalization, _ := testutil.NewFinalizationRecord(t, conf.Logger, sigAggr, firstBlock, e.Comm.Nodes().NodeIDs())
+	finalization, _ := testutil.NewFinalizationRecord(t, sigAggr, firstBlock, e.Comm.Nodes().NodeIDs())
 	testutil.InjectTestFinalization(t, e, &finalization, nodes[1])
 
 	storage.WaitForBlockCommit(2)
@@ -525,8 +525,6 @@ func TestEpochConsecutiveProposalsDoNotGetVerified(t *testing.T) {
 // TestEpochIncreasesRoundAfterFinalization ensures that the epochs round is incremented
 // if we receive a finalization for the current round(even if it is not the next seq to commit)
 func TestEpochIncreasesRoundAfterFinalization(t *testing.T) {
-	l := testutil.MakeLogger(t, 1)
-
 	bb := testutil.NewTestBlockBuilder()
 	nodes := []NodeID{{1}, {2}, {3}, {4}, {5}, {6}}
 
@@ -544,7 +542,7 @@ func TestEpochIncreasesRoundAfterFinalization(t *testing.T) {
 
 	// create the finalized block
 	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Nodes())
-	finalization, _ := testutil.NewFinalizationRecord(t, l, sigAggr, block, nodes)
+	finalization, _ := testutil.NewFinalizationRecord(t, sigAggr, block, nodes)
 	testutil.InjectTestFinalization(t, e, &finalization, nodes[1])
 
 	storage.WaitForBlockCommit(1)
@@ -1088,7 +1086,7 @@ func TestEpochQCSignedByNonExistentNodes(t *testing.T) {
 	})
 
 	t.Run("finalization with unknown signer isn't taken into account", func(t *testing.T) {
-		finalization, _ := testutil.NewFinalizationRecord(t, conf.Logger, sigAggr, block, []NodeID{{2}, {3}, {5}})
+		finalization, _ := testutil.NewFinalizationRecord(t, sigAggr, block, []NodeID{{2}, {3}, {5}})
 
 		err = e.HandleMessage(&Message{
 			Finalization: &finalization,
@@ -1099,7 +1097,7 @@ func TestEpochQCSignedByNonExistentNodes(t *testing.T) {
 	})
 
 	t.Run("finalization with double signer isn't taken into account", func(t *testing.T) {
-		finalization, _ := testutil.NewFinalizationRecord(t, conf.Logger, sigAggr, block, []NodeID{{2}, {3}, {3}})
+		finalization, _ := testutil.NewFinalizationRecord(t, sigAggr, block, []NodeID{{2}, {3}, {3}})
 
 		err = e.HandleMessage(&Message{
 			Finalization: &finalization,
