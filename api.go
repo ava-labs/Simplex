@@ -105,6 +105,9 @@ type Block interface {
 
 	// non nil only for sealing blocks. todo: the first ever simplex block might have validators encoded in it. test this.
 	SealingBlockInfo() *SealingBlockInfo
+
+	// // IsFirst returns SealingBlockInfo if the block is the first ever block built by Simplex.
+	// IsFirst() *SealingBlockInfo
 }
 
 // Created temporarily to avoid the massive circular dependency.

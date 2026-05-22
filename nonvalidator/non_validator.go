@@ -7,6 +7,8 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"math/rand/v2"
+	"sync"
 	"time"
 
 	"github.com/ava-labs/simplex"
@@ -14,17 +16,24 @@ import (
 )
 
 type Config struct {
+	Storage simplex.Storage
+	Comm    simplex.Communication
+
+	RandomSource               *rand.Rand
 	Logger                     simplex.Logger
-	Comm                       simplex.Communication
-	Storage                    simplex.Storage
 	SignatureAggregatorCreator simplex.SignatureAggregatorCreator
+
 	// how many rounds we allow to look past our current
 	MaxRoundWindow uint64
+
+	// our node ID
+	ID simplex.NodeID
 }
 
 type NonValidator struct {
 	Config
 
+	lock        *sync.Mutex
 	ctx         context.Context
 	cancelCtx   context.CancelFunc
 	haltedError error
@@ -42,14 +51,16 @@ type NonValidator struct {
 
 // NewNonValidator creates a NonValidator with the given `config`.
 func NewNonValidator(config Config) (*NonValidator, error) {
-	ctx, cancelFunc := context.WithCancel(context.Background())
-
 	epochs, err := newEpochs(config.Storage, config.SignatureAggregatorCreator)
 	if err != nil {
 		return nil, err
 	}
+
+	ctx, cancelFunc := context.WithCancel(context.Background())
 	scheduler := simplex.NewScheduler(config.Logger, simplex.DefaultProcessingBlocks)
 
+	lock := &sync.Mutex{}
+	// replicator := simplex.NewReplicationState(config.Logger, config.Comm, config.ID, config.MaxRoundWindow, true, time.Now(), lock, config.RandomSource)
 	return &NonValidator{
 		Config:              config,
 		incompleteSequences: make(map[uint64]*finalizedSeq),
@@ -57,13 +68,14 @@ func NewNonValidator(config Config) (*NonValidator, error) {
 		cancelCtx:           cancelFunc,
 		epochs:              epochs,
 		verifier:            simplex.NewBlockVerificationScheduler(config.Logger, simplex.DefaultProcessingBlocks, scheduler),
+		lock:                lock,
 	}, nil
 }
 
 // this function should be ran under a lock?
 func (n *NonValidator) HandleMessage(msg *simplex.Message, from simplex.NodeID) error {
 	// A closed context means we have shut down.
-	if n.ctx.Err != nil {
+	if n.ctx.Err() != nil {
 		return nil
 	}
 
@@ -78,7 +90,7 @@ func (n *NonValidator) HandleMessage(msg *simplex.Message, from simplex.NodeID) 
 	// TODO: create a test for sending a block message but a nil block
 	case msg.BlockMessage != nil && msg.BlockMessage.Block != nil:
 		return n.handleBlock(msg.BlockMessage.Block, from)
-	case msg.Finalization != nil && msg.Finalization != nil:
+	case msg.Finalization != nil:
 		return n.handleFinalization(msg.Finalization, from)
 	case msg.ReplicationResponse != nil:
 		return n.handleReplicationResponse(msg.ReplicationResponse, from)
@@ -298,6 +310,16 @@ func (n *NonValidator) Stop() {
 func (n *NonValidator) handleReplicationResponse(resp *simplex.ReplicationResponse, from simplex.NodeID) error {
 	n.Logger.Debug("Received replication response", zap.Stringer("from", from), zap.Int("num seqs", len(resp.Data)), zap.Stringer("latest seq", resp.LatestSeq))
 
+	// process all the sequences and latest sequence
+	for _, qr := range resp.Data {
+		if err := n.processQuorumRound(&qr, from); err != nil {
+			return err
+		}
+	}
+
+	if err := n.processQuorumRound(resp.LatestSeq, from); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -326,11 +348,13 @@ func (n *NonValidator) processQuorumRound(qr *simplex.QuorumRound, from simplex.
 		n.haltedError = storageError
 		return storageError
 	}
+
 	if lastBlock.BlockHeader().Seq >= block.BlockHeader().Seq {
 		return fmt.Errorf("processing quorum round for a block we already indexed")
 	}
 
 	epoch, ok := n.epochs[block.BlockHeader().Epoch]
+
 	// We do not have this epoch because we have yet to validate the sealing block for that epoch.
 	if !ok {
 		// TODO: request
@@ -342,6 +366,7 @@ func (n *NonValidator) processQuorumRound(qr *simplex.QuorumRound, from simplex.
 	}
 
 	// store in replication state
+	return nil
 }
 
 // TODO: Broadcast the last known epoch to bootstrap the node. Collect responses marking the latest sealing block.
