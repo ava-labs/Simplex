@@ -80,7 +80,7 @@ func NewNotarization(logger Logger, signatureAggregator SignatureAggregator, vot
 }
 
 // NewFinalization builds a Finalization from [finalizeVotes].
-func NewFinalization(logger Logger, signatureAggregator SignatureAggregator, finalizeVotes []*FinalizeVote) (Finalization, error) {
+func NewFinalization(signatureAggregator SignatureAggregator, finalizeVotes []*FinalizeVote) (Finalization, error) {
 	voteCount := len(finalizeVotes)
 	if voteCount == 0 {
 		return Finalization{}, ErrorNoVotes
@@ -92,7 +92,6 @@ func NewFinalization(logger Logger, signatureAggregator SignatureAggregator, fin
 		if vote.Finalization.Digest != expectedDigest {
 			return Finalization{}, ErrorInvalidFinalizationDigest
 		}
-		logger.Debug("Collected a finalize vote from node", zap.Stringer("NodeID", vote.Signature.Signer), zap.Uint64("round", vote.Finalization.Round))
 		signatures = append(signatures, vote.Signature)
 	}
 

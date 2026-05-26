@@ -402,7 +402,7 @@ func TestWalWritesFinalization(t *testing.T) {
 	recordType := binary.BigEndian.Uint16(records[4])
 	require.Equal(t, record.FinalizationRecordType, recordType)
 	_, err = FinalizationFromRecord(records[4], e.QCDeserializer)
-	_, expectedFinalizationRecord := testutil.NewFinalizationRecord(t, conf.Logger, sigAggregrator, secondBlock, nodes[0:quorum])
+	_, expectedFinalizationRecord := testutil.NewFinalizationRecord(t, sigAggregrator, secondBlock, nodes[0:quorum])
 	require.NoError(t, err)
 	require.Equal(t, expectedFinalizationRecord, records[4])
 
@@ -453,7 +453,7 @@ func TestRecoverFromMultipleNotarizations(t *testing.T) {
 	wal.Append(secondNotarizationRecord)
 
 	// Create finalization record for second block
-	finalization2, finalizationRecord := testutil.NewFinalizationRecord(t, conf.Logger, sigAggr, secondBlock, nodes[0:quorum])
+	finalization2, finalizationRecord := testutil.NewFinalizationRecord(t, sigAggr, secondBlock, nodes[0:quorum])
 	wal.Append(finalizationRecord)
 
 	err = e.Start()
@@ -463,7 +463,7 @@ func TestRecoverFromMultipleNotarizations(t *testing.T) {
 	require.Equal(t, uint64(0), e.Storage.NumBlocks())
 
 	// now if we send finalization for block 1, we should index both 1 & 2
-	finalization1, _ := testutil.NewFinalizationRecord(t, conf.Logger, sigAggr, firstBlock, nodes[0:quorum])
+	finalization1, _ := testutil.NewFinalizationRecord(t, sigAggr, firstBlock, nodes[0:quorum])
 	err = e.HandleMessage(&Message{
 		Finalization: &finalization1,
 	}, nodes[1])
@@ -507,7 +507,7 @@ func TestRecoveryBlocksIndexed(t *testing.T) {
 	require.NoError(t, err)
 	wal.Append(firstNotarizationRecord)
 
-	_, finalizationBytes := testutil.NewFinalizationRecord(t, conf.Logger, sigAggr, firstBlock, nodes[0:quorum])
+	_, finalizationBytes := testutil.NewFinalizationRecord(t, sigAggr, firstBlock, nodes[0:quorum])
 	wal.Append(finalizationBytes)
 
 	protocolMetadata.Round = 1
@@ -528,9 +528,9 @@ func TestRecoveryBlocksIndexed(t *testing.T) {
 	record = BlockRecord(thirdBlock.BlockHeader(), tBytes)
 	wal.Append(record)
 
-	finalization1, _ := testutil.NewFinalizationRecord(t, conf.Logger, sigAggr, firstBlock, nodes[0:quorum])
-	finalization2, _ := testutil.NewFinalizationRecord(t, conf.Logger, sigAggr, secondBlock, nodes[0:quorum])
-	fCer3, _ := testutil.NewFinalizationRecord(t, conf.Logger, sigAggr, thirdBlock, nodes[0:quorum])
+	finalization1, _ := testutil.NewFinalizationRecord(t, sigAggr, firstBlock, nodes[0:quorum])
+	finalization2, _ := testutil.NewFinalizationRecord(t, sigAggr, secondBlock, nodes[0:quorum])
+	fCer3, _ := testutil.NewFinalizationRecord(t, sigAggr, thirdBlock, nodes[0:quorum])
 
 	conf.Storage.Index(ctx, firstBlock, finalization1)
 	conf.Storage.Index(ctx, secondBlock, finalization2)
@@ -784,7 +784,7 @@ func TestWalRecoverySetsRoundCorrectly(t *testing.T) {
 				require.NoError(t, err)
 				blockRecord1 := BlockRecord(block1.BlockHeader(), bBytes1)
 
-				_, finalizationRecord1 := testutil.NewFinalizationRecord(t, conf.Logger, conf.SignatureAggregatorCreator(conf.Comm.Nodes()), block1, nodes[0:quorum])
+				_, finalizationRecord1 := testutil.NewFinalizationRecord(t, conf.SignatureAggregatorCreator(conf.Comm.Nodes()), block1, nodes[0:quorum])
 
 				// Create empty notarization for round 0
 				emptyNotarization0 := testutil.NewEmptyNotarization(nodes[0:quorum], 0)
@@ -848,7 +848,7 @@ func TestWalRecoverySetsRoundCorrectly(t *testing.T) {
 				bBytes3, err := block3.Bytes()
 				require.NoError(t, err)
 				blockRecord3 := BlockRecord(block3.BlockHeader(), bBytes3)
-				_, finalizationRecord3 := testutil.NewFinalizationRecord(t, conf.Logger, conf.SignatureAggregatorCreator(conf.Comm.Nodes()), block3, nodes[0:quorum])
+				_, finalizationRecord3 := testutil.NewFinalizationRecord(t, conf.SignatureAggregatorCreator(conf.Comm.Nodes()), block3, nodes[0:quorum])
 
 				// Create empty notarization for round 2
 				emptyNotarization2 := testutil.NewEmptyNotarization(nodes[0:quorum], 2)
@@ -892,7 +892,7 @@ func TestWalRecoverySetsRoundCorrectly(t *testing.T) {
 				bBytes10, err := block10.Bytes()
 				require.NoError(t, err)
 				blockRecord10 := BlockRecord(block10.BlockHeader(), bBytes10)
-				_, finalizationRecord10 := testutil.NewFinalizationRecord(t, conf.Logger, conf.SignatureAggregatorCreator(conf.Comm.Nodes()), block10, nodes[0:quorum])
+				_, finalizationRecord10 := testutil.NewFinalizationRecord(t, conf.SignatureAggregatorCreator(conf.Comm.Nodes()), block10, nodes[0:quorum])
 
 				// Create empty notarization for round 5
 				emptyNotarization5 := testutil.NewEmptyNotarization(nodes[0:quorum], 5)
@@ -921,7 +921,7 @@ func TestWalRecoverySetsRoundCorrectly(t *testing.T) {
 				notarizationRecord2, err := testutil.NewNotarizationRecord(conf.Logger, conf.SignatureAggregatorCreator(conf.Comm.Nodes()), block2, nodes[0:quorum])
 				require.NoError(t, err)
 
-				_, finalizationRecord2 := testutil.NewFinalizationRecord(t, conf.Logger, conf.SignatureAggregatorCreator(conf.Comm.Nodes()), block2, nodes[0:quorum])
+				_, finalizationRecord2 := testutil.NewFinalizationRecord(t, conf.SignatureAggregatorCreator(conf.Comm.Nodes()), block2, nodes[0:quorum])
 
 				// All records for same round
 				return [][]byte{
