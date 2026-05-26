@@ -92,7 +92,7 @@ func NewFinalization(logger Logger, signatureAggregator SignatureAggregator, fin
 		if vote.Finalization.Digest != expectedDigest {
 			return Finalization{}, ErrorInvalidFinalizationDigest
 		}
-		logger.Debug("Collected a finalize vote from node", zap.Stringer("NodeID", vote.Signature.Signer), zap.Uint64("round", vote.Finalization.Round))
+		// logger.Debug("Collected a finalize vote from node", zap.Stringer("NodeID", vote.Signature.Signer), zap.Uint64("round", vote.Finalization.Round))
 		signatures = append(signatures, vote.Signature)
 	}
 

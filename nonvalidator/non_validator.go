@@ -105,6 +105,7 @@ func (n *NonValidator) HandleMessage(msg *simplex.Message, from simplex.NodeID) 
 // Otherwise, we wait to process blocks until we receive a finalization.
 func (n *NonValidator) handleBlock(block simplex.Block, from simplex.NodeID) error {
 	bh := block.BlockHeader()
+	n.Logger.Debug("Received a block message", zap.Uint64("Sequence", bh.Seq), zap.Stringer("From", from))
 
 	if bh.Seq > n.MaxRoundWindow+n.Storage.NumBlocks() {
 		n.Logger.Debug("Received a block from a sequence too far ahead", zap.Uint64("Num Blocks", n.Storage.NumBlocks()), zap.Uint64("Block Sequence", bh.Seq), zap.Stringer("From", from))
@@ -221,6 +222,8 @@ func (n *NonValidator) removeOldIncompleteSeqs(startSeq uint64) {
 // to the replication handler.
 func (n *NonValidator) handleFinalization(finalization *simplex.Finalization, from simplex.NodeID) error {
 	bh := finalization.Finalization.BlockHeader
+
+	n.Logger.Debug("Received a finalization", zap.Uint64("Seq", bh.Seq), zap.Stringer("From", from))
 
 	if n.isAccepted(bh.Seq) {
 		n.Logger.Debug("Received a stale finalization", zap.Uint64("Seq", bh.Seq), zap.Stringer("From", from))

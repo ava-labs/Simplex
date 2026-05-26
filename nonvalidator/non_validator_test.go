@@ -13,6 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+var testNodes = []simplex.NodeID{{1}, {2}, {3}, {4}}
+
 type errQC struct{}
 
 func (errQC) Signers() []simplex.NodeID { return nil }
@@ -30,10 +32,52 @@ func newStorageWithGenesis(t *testing.T) *testutil.InMemStorage {
 	return storage
 }
 
+// newStorageWithFirstEpoch returns a storage indexed up to and including lastSeq:
+// seq 0 is genesis, seq 1 is the sealing block that opens epoch 1, and seqs 2..lastSeq
+// are additional epoch-1 blocks. lastSeq must be >= 1.
+func newStorageWithFirstEpoch(t *testing.T, lastSeq uint64) *testutil.InMemStorage {
+	require.GreaterOrEqual(t, lastSeq, uint64(1), "lastSeq must be >= 1 (0 is genesis, 1 is the first epoch's sealing block)")
+
+	storage := newStorageWithGenesis(t)
+
+	validatorSet := make(simplex.Nodes, len(testNodes))
+	for i, n := range testNodes {
+		validatorSet[i] = simplex.Node{Node: n}
+	}
+
+	sealingBlock := newSealingTestBlock(1, 1, 1, &simplex.SealingBlockInfo{
+		Epoch:        1,
+		ValidatorSet: validatorSet,
+	})
+	require.NoError(t, storage.Index(context.Background(), sealingBlock, simplex.Finalization{}))
+
+	for seq := uint64(2); seq <= lastSeq; seq++ {
+		block := newSealingTestBlock(seq, seq, 1, nil)
+		require.NoError(t, storage.Index(context.Background(), block, simplex.Finalization{}))
+	}
+
+	return storage
+}
+
+type TestConfig struct {
+	nodes   []simplex.NodeID
+	storage simplex.Storage
+}
+
 // PoA Non-Validator
-func newTestNonValidator(t *testing.T, nodes []simplex.NodeID) *NonValidator {
+func newTestNonValidator(t *testing.T, testConfig TestConfig) *NonValidator {
+	var storage simplex.Storage = newStorageWithGenesis(t)
+	if testConfig.storage != nil {
+		storage = testConfig.storage
+	}
+
+	nodes := testNodes
+	if len(testConfig.nodes) > 0 {
+		nodes = testConfig.nodes
+	}
+
 	config := Config{
-		Storage:        newStorageWithGenesis(t),
+		Storage:        storage,
 		Comm:           testutil.NewNoopComm(nodes),
 		Logger:         testutil.MakeLogger(t, 1),
 		MaxRoundWindow: simplex.DefaultMaxRoundWindow,
@@ -59,11 +103,12 @@ func blockMessage(t *testing.T, block simplex.Block, from simplex.NodeID) *simpl
 	}
 }
 
-func newBlock(seq, epoch uint64) *testutil.TestBlock {
+func newBlock(seq, epoch uint64, prev simplex.Digest) *testutil.TestBlock {
 	return testutil.NewTestBlock(simplex.ProtocolMetadata{
 		Round: seq,
 		Seq:   seq,
 		Epoch: epoch,
+		Prev:  prev,
 	}, simplex.Blacklist{})
 }
 
@@ -100,49 +145,49 @@ type messageInfo struct {
 }
 
 func TestHandleMessages(t *testing.T) {
-	// block 0, finalization 0
-	// block 1, finalization 1
-	// finalization 0, block 0
-	// finalization 2, finalization 1, finalization 0, block 2, block 1, block 0
-	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
+	// initialize storage with
+	// block 0 is genesis
+	// block 1 is first simplex block
+	// block 2 is next indexed block
 
-	nonValidator := newTestNonValidator(t, nodes)
-	block1 := newBlock(1, 1)
-	block2 := newBlock(2, 1)
-	block3 := newBlock(3, 1)
-	finalization1 := newFinalization(t, block1, nodes)
-	finalization2 := newFinalization(t, block2, nodes)
-	finalization3 := newFinalization(t, block3, nodes)
+	// Test these order of operations of messages received
+	// 1. block 3, finalization 3
+
+	// 2. block 3(sealing block), finalization 3(sealing block)
+	//    block 4(next epoch), finalization 4(next epoch)
+
+	// 3. block 4(next epoch), finalization 4(next epoch)
+	//    block 3 = finalization (ensure 4 don't get indexed)
+	storage := newStorageWithFirstEpoch(t, 2)
+	nonValidator := newTestNonValidator(t, TestConfig{
+		storage: storage,
+	})
+	block2, _, err := storage.Retrieve(2)
+	require.NoError(t, err)
+
+	block3 := newBlock(3, 1, block2.BlockHeader().Digest)
+	block4 := newBlock(4, 1, block3.Digest)
+	block5 := newBlock(5, 1, block4.Digest)
+	finalization3 := newFinalization(t, block3, testNodes)
+	finalization4 := newFinalization(t, block4, testNodes)
+	finalization5 := newFinalization(t, block5, testNodes)
 
 	msgs := []*messageInfo{
-		AnyToMessage(t, block1, nodes),
-		AnyToMessage(t, block2, nodes),
-		AnyToMessage(t, block3, nodes),
-		AnyToMessage(t, finalization3, nodes),
-		AnyToMessage(t, finalization2, nodes),
-		AnyToMessage(t, finalization1, nodes),
+		AnyToMessage(t, block3, testNodes),
+		AnyToMessage(t, block4, testNodes),
+		AnyToMessage(t, block5, testNodes),
+		AnyToMessage(t, finalization5, testNodes),
+		AnyToMessage(t, finalization4, testNodes),
+		AnyToMessage(t, finalization3, testNodes),
 	}
 
 	for _, msg := range msgs {
 		nonValidator.HandleMessage(msg.msg, msg.from)
 	}
 
-	// check the state. ensure all 3 were indexed(if they were indexed they must have been verified)
-	require.Equal(t, 4, nonValidator.Storage.NumBlocks())
-	block, finalization, err := nonValidator.Storage.Retrieve(1)
-	require.NoError(t, err)
-	require.Equal(t, block1, block)
-	require.Equal(t, finalization1, finalization)
-
-	block, finalization, err = nonValidator.Storage.Retrieve(1)
-	require.NoError(t, err)
-	require.Equal(t, block2, block)
-	require.Equal(t, finalization2, finalization)
-
-	block, finalization, err = nonValidator.Storage.Retrieve(1)
-	require.NoError(t, err)
-	require.Equal(t, block3, block)
-	require.Equal(t, finalization3, finalization)
+	// If the blocks were indexed they were verified in order
+	storage.WaitForBlockCommit(5)
+	require.Equal(t, uint64(6), nonValidator.Storage.NumBlocks())
 }
 
 // // TestValidatedNextEpoch tests that blocks and finalizations can be verified & indexed for the next epoch

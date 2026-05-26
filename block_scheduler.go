@@ -142,7 +142,7 @@ func (bs *BlockDependencyManager) ScheduleTaskWithDependencies(task Task, blockS
 		return nil
 	}
 
-	bs.logger.Debug("Adding block verification task with dependencies", zap.Any("prevBlock", prev), zap.Uint64s("emptyRounds", emptyRounds))
+	bs.logger.Debug("Adding block verification task with dependencies", zap.Any("prevBlock", prev), zap.Uint64s("emptyRounds", emptyRounds), zap.Uint64("blockSeq", blockSeq))
 	emptyRoundsSet := make(map[uint64]struct{})
 	for _, round := range emptyRounds {
 		emptyRoundsSet[round] = struct{}{}

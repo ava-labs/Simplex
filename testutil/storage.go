@@ -102,6 +102,11 @@ func (mem *InMemStorage) Index(ctx context.Context, block simplex.VerifiedBlock,
 	if ok {
 		panic(fmt.Sprintf("block with seq %d already indexed!", seq))
 	}
+
+	if nextSeq := uint64(len(mem.data)); seq != nextSeq {
+		panic(fmt.Sprintf("indexing out of order: got seq %d, expected next seq %d", seq, nextSeq))
+	}
+
 	mem.data[seq] = struct {
 		simplex.VerifiedBlock
 		simplex.Finalization
