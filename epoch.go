@@ -1179,7 +1179,7 @@ func (e *Epoch) maybeCollectFinalization(round *Round) error {
 
 func (e *Epoch) assembleFinalization(round *Round, finalizationVotes []*FinalizeVote) error {
 	for _, vote := range finalizationVotes {
-		e.Logger.Debug("Collected a finalize vote from node", zap.Stringer("NodeID", vote.Signature.Signer), zap.Uint64("round", vote.Finalization.Round))
+		e.Logger.Debug("Collected a finalize vote from node", zap.Stringer("NodeID", vote.Signature.Signer), zap.Uint64("round", vote.Finalization.Round), zap.Uint64("seq", vote.Finalization.Seq))
 	}
 
 	finalization, err := NewFinalization(e.signatureAggregator, finalizationVotes)
