@@ -175,11 +175,11 @@ func (n *NonValidator) isAccepted(seq uint64) bool {
 func (n *NonValidator) createFinalizedBlockVerificationTask(block simplex.Block, finalization *simplex.Finalization) func() simplex.Digest {
 	return func() simplex.Digest {
 		md := block.BlockHeader()
-		n.Logger.Debug("Block verification started", zap.Uint64("round", md.Round))
+		n.Logger.Debug("Block verification started", zap.Uint64("sequence", md.Seq))
 		start := time.Now()
 		defer func() {
 			elapsed := time.Since(start)
-			n.Logger.Debug("Block verification ended", zap.Uint64("round", md.Round), zap.Duration("elapsed", elapsed))
+			n.Logger.Debug("Block verification ended", zap.Uint64("sequence", md.Seq), zap.Duration("elapsed", elapsed))
 		}()
 
 		verifiedBlock, err := block.Verify(n.ctx)
@@ -198,6 +198,7 @@ func (n *NonValidator) createFinalizedBlockVerificationTask(block simplex.Block,
 
 		// is this block a sealing block? set epochs
 		if sealingInfo := verifiedBlock.SealingBlockInfo(); sealingInfo != nil {
+			n.Logger.Info("We have verified a sealing block. Moving to the next epoch", zap.Uint64("Epoch", sealingInfo.Epoch))
 			n.epochs[sealingInfo.Epoch] = newEpochMetadata(sealingInfo, n.SignatureAggregatorCreator)
 
 			// we can delete the old epoch from the map

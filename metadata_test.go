@@ -37,6 +37,26 @@ func TestMetadata(t *testing.T) {
 	require.Equal(t, bh, bh2)
 }
 
+func TestBlockHeaderBytesChangesWithRound(t *testing.T) {
+	var prev, digest Digest
+	_, err := rand.Read(prev[:])
+	require.NoError(t, err)
+	_, err = rand.Read(digest[:])
+	require.NoError(t, err)
+
+	bh := BlockHeader{
+		ProtocolMetadata: ProtocolMetadata{Version: 1, Epoch: 1, Round: 3, Seq: 3, Prev: prev},
+		Digest:           digest,
+	}
+	original := bh.Bytes()
+
+	bh.Round = 1
+	mutated := bh.Bytes()
+
+	require.NotEqual(t, original, mutated,
+		"mutating Round must change BlockHeader.Bytes() — a QC signed over original would not verify over mutated")
+}
+
 func FuzzMetadata(f *testing.F) {
 	f.Fuzz(func(t *testing.T, version uint8, round uint64, seq uint64, epoch uint64, prevPreimage []byte, digestPreimage []byte) {
 

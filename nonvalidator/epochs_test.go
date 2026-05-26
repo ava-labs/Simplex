@@ -23,12 +23,17 @@ func (b *sealingTestBlock) SealingBlockInfo() *simplex.SealingBlockInfo {
 	return b.sealingInfo
 }
 
-func newSealingTestBlock(seq, round, epoch uint64, sealingInfo *simplex.SealingBlockInfo) *sealingTestBlock {
+func (b *sealingTestBlock) Verify(_ context.Context) (simplex.VerifiedBlock, error) {
+	return b, nil
+}
+
+func newSealingTestBlock(seq, epoch uint64, prev simplex.Digest, sealingInfo *simplex.SealingBlockInfo) *sealingTestBlock {
 	return &sealingTestBlock{
 		TestBlock: testutil.NewTestBlock(simplex.ProtocolMetadata{
 			Seq:   seq,
-			Round: round,
+			Round: seq,
 			Epoch: epoch,
+			Prev:  prev,
 		}, simplex.Blacklist{}),
 		sealingInfo: sealingInfo,
 	}
@@ -106,7 +111,7 @@ func TestNewEpochs(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			storage := testutil.NewInMemStorage()
 			for _, b := range tt.blocks {
-				block := newSealingTestBlock(b.seq, b.round, b.epoch, b.sealingInfo)
+				block := newSealingTestBlock(b.seq, b.epoch, simplex.Digest{}, b.sealingInfo)
 				require.NoError(t, storage.Index(context.Background(), block, simplex.Finalization{}))
 			}
 
