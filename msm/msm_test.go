@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
+	"math"
 	"testing"
 	"time"
 
@@ -69,7 +70,7 @@ func TestMSMBuildAndVerifyBlocksAfterGenesis(t *testing.T) {
 			mutateBlock: func(block *StateMachineBlock) {
 				block.Metadata.SimplexEpochInfo.EpochNumber = 2
 			},
-			err: errInvalidSimplexEpochInfo,
+			err: errBlockDigestMismatch,
 		},
 		{
 			name: "P-chain height too big",
@@ -93,7 +94,7 @@ func TestMSMBuildAndVerifyBlocksAfterGenesis(t *testing.T) {
 			mutateBlock: func(block *StateMachineBlock) {
 				block.Metadata.SimplexEpochInfo.BlockValidationDescriptor = nil
 			},
-			err: errInvalidSimplexEpochInfo,
+			err: errBlockDigestMismatch,
 		},
 		{
 			name: "membership mismatch",
@@ -103,7 +104,7 @@ func TestMSMBuildAndVerifyBlocksAfterGenesis(t *testing.T) {
 					{BLSKey: []byte{1}, Weight: 1},
 				}
 			},
-			err: errInvalidSimplexEpochInfo,
+			err: errBlockDigestMismatch,
 		},
 		{
 			name: "SimplexEpochInfo mismatch",
@@ -111,7 +112,7 @@ func TestMSMBuildAndVerifyBlocksAfterGenesis(t *testing.T) {
 			mutateBlock: func(block *StateMachineBlock) {
 				block.Metadata.SimplexEpochInfo.PrevVMBlockSeq = 999
 			},
-			err: errInvalidSimplexEpochInfo,
+			err: errBlockDigestMismatch,
 		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -147,9 +148,15 @@ func TestMSMFirstSimplexBlockAfterPreSimplexBlocks(t *testing.T) {
 			BlockHeight: 42,
 			Bytes:       []byte{4, 5, 6},
 		},
-		// Zero-valued metadata means this is a pre-Simplex block or a genesis block.
-		// But since the height is 42, it can't be a genesis block, so it must be a pre-Simplex block.
-		Metadata: StateMachineMetadata{},
+		// Since the height is 42, this can't be a genesis block, so it must be a
+		// pre-Simplex block. It already participates in an ICM epoch, which the zero
+		// block built on top of it inherits.
+		Metadata: StateMachineMetadata{
+			ICMEpochInfo: ICMEpochInfo{
+				PChainEpochHeight: 100,
+				EpochNumber:       1,
+			},
+		},
 	}
 
 	md := simplex.ProtocolMetadata{
@@ -182,8 +189,6 @@ func TestMSMFirstSimplexBlockAfterPreSimplexBlocks(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, block)
 
-	require.NoError(t, sm2.VerifyBlock(context.Background(), block))
-
 	require.Equal(t, &StateMachineBlock{
 		Metadata: StateMachineMetadata{
 			Timestamp:               uint64(preSimplexParent.InnerBlock.Timestamp().UnixMilli()),
@@ -199,8 +204,14 @@ func TestMSMFirstSimplexBlockAfterPreSimplexBlocks(t *testing.T) {
 					},
 				},
 			},
+			ICMEpochInfo: ICMEpochInfo{
+				PChainEpochHeight: 100,
+				EpochNumber:       1,
+			},
 		},
 	}, block)
+
+	require.NoError(t, sm2.VerifyBlock(context.Background(), block))
 }
 
 func TestMSMBuildBlockRejectsZeroSeq(t *testing.T) {
@@ -225,10 +236,12 @@ func TestMSMNormalOp(t *testing.T) {
 		err                         error
 		expectedPChainHeight        uint64
 		expectedNextPChainRefHeight uint64
+		expectedICMEpochInfo        ICMEpochInfo
 	}{
 		{
 			name:                 "correct information",
 			expectedPChainHeight: 100,
+			expectedICMEpochInfo: ICMEpochInfo{PChainEpochHeight: 100, EpochNumber: 1},
 		},
 		{
 			name: "trying to build a genesis block",
@@ -316,6 +329,7 @@ func TestMSMNormalOp(t *testing.T) {
 			},
 			expectedPChainHeight:        newPChainHeight,
 			expectedNextPChainRefHeight: newPChainHeight,
+			expectedICMEpochInfo:        ICMEpochInfo{PChainEpochHeight: 100, EpochNumber: 1},
 		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -340,6 +354,10 @@ func TestMSMNormalOp(t *testing.T) {
 			blacklist.NodeCount = 4
 
 			blockTime := lastBlock.InnerBlock.Timestamp().Add(time.Second)
+
+			fixedTime := func() time.Time { return blockTime }
+			sm1.GetTime = fixedTime
+			sm2.GetTime = fixedTime
 
 			content := make([]byte, 10)
 			_, err = rand.Read(content)
@@ -388,6 +406,7 @@ func TestMSMNormalOp(t *testing.T) {
 						PrevVMBlockSeq:            lastBlock.InnerBlock.Height(),
 						NextPChainReferenceHeight: testCase.expectedNextPChainRefHeight,
 					},
+					ICMEpochInfo: testCase.expectedICMEpochInfo,
 				},
 			}
 			require.Equal(t, expected.Digest(), block1.Digest())
@@ -415,7 +434,12 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 	pChainHeight1 := uint64(100)
 	pChainHeight2 := uint64(200)
 
-	startTime := time.Now()
+	// Align to a whole second: the ICM epoch boundary is second-granular (ComputeICMEpoch
+	// truncates timestamps with .Unix() and uses a 1-second window), while the blocks below
+	// are placed at sub-second offsets from startTime. If startTime had a sub-second component
+	// close to 1s, the "+1s + few ms" offsets would spill into the next second and trigger an
+	// extra ICM epoch transition, making the test flaky.
+	startTime := time.Now().Truncate(time.Second)
 
 	nextBlock := func(height uint64) *InnerBlock {
 		return &InnerBlock{
@@ -445,16 +469,26 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 		name                    string
 		firstBlockBeforeSimplex StateMachineBlock
 		epochNum                uint64
+		// firstBlockICMEpochInfo is the ICM epoch of the pre-Simplex parent, which the zero block
+		// carries over. A genesis parent predates ICM, so its ICM epoch is empty and the first epoch
+		// (icmEpoch1) begins on the block built on top of the zero block.
+		firstBlockICMEpochInfo ICMEpochInfo
 	}{
 		{
 			name:                    "building on top of genesis",
 			firstBlockBeforeSimplex: genesis,
 			epochNum:                1,
+			firstBlockICMEpochInfo:  ICMEpochInfo{},
 		},
 		{
 			name:                    "upgrading to Simplex from pre-Simplex blocks",
 			firstBlockBeforeSimplex: notGenesis,
 			epochNum:                notGenesis.InnerBlock.Height() + 1,
+			firstBlockICMEpochInfo: ICMEpochInfo{
+				PChainEpochHeight: pChainHeight1,
+				EpochNumber:       1,
+				EpochStartTime:    uint64(startTime.Unix()),
+			},
 		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -471,10 +505,44 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 				return currentPChainHeight
 			}
 
+			// Since we explicitly compare the built block with an expected value,
+			// we need the timestamps to be deterministic. So instead of using time.Now(), we use a fixed
+			// startTime and add offsets to it for each block.
+			currentTime := startTime
+			fixedTime := func() time.Time { return currentTime }
+
+			// We exercise an ICM epoch transition by jumping block3's timestamp
+			// past the 1-second ICM-epoch window.
+			// ComputeICMEpoch transitions when the parent block's timestamp has
+			// crossed the current ICM epoch's start + 1s, so block4 (and every
+			// block after it) lands in ICM epoch 2.
+			//
+			// block3 is also the block where the validator set change is first
+			// observed, so its Metadata.PChainHeight = pChainHeight2. Since the
+			// transition takes input.ParentPChainHeight as the new epoch's
+			// PChainEpochHeight, icmEpoch2.PChainEpochHeight = pChainHeight2.
+			//   block2, block3: ICM epoch 1, started at startTime.
+			//   block4 onward:  ICM epoch 2, started at block3's timestamp,
+			//                   PChainEpochHeight = pChainHeight2.
+			icmEpoch1 := ICMEpochInfo{
+				PChainEpochHeight: pChainHeight1,
+				EpochNumber:       1,
+				EpochStartTime:    uint64(startTime.Unix()),
+			}
+			icmEpoch2 := ICMEpochInfo{
+				PChainEpochHeight: pChainHeight2,
+				EpochNumber:       2,
+				EpochStartTime:    uint64(startTime.Unix()) + 1,
+			}
+
+			// The zero block carries over the parent's ICM epoch.
+			testCase.firstBlockBeforeSimplex.Metadata.ICMEpochInfo = testCase.firstBlockICMEpochInfo
+
 			// Create fresh state machine instances for each iteration.
 			sm, tc := newStateMachine(t)
 			sm.GetValidatorSet = getValidatorSet
 			sm.GetPChainHeight = getPChainHeight
+			sm.GetTime = fixedTime
 			tc.blockStore[0] = &outerBlock{block: genesis}
 			tc.blockStore[42] = &outerBlock{block: notGenesis}
 
@@ -485,6 +553,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 			smVerify, tcVerify := newStateMachine(t)
 			smVerify.GetValidatorSet = getValidatorSet
 			smVerify.GetPChainHeight = getPChainHeight
+			smVerify.GetTime = fixedTime
 
 			smVerify.LastNonSimplexInnerBlock = testCase.firstBlockBeforeSimplex.InnerBlock
 			smVerify.GenesisValidatorSet = validatorSet1
@@ -527,6 +596,9 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 							},
 						},
 					},
+					// The zero block carries over the parent's ICM epoch (icmEpoch1 for a
+					// pre-Simplex parent, empty for a genesis parent).
+					ICMEpochInfo: testCase.firstBlockICMEpochInfo,
 				},
 			}, block1)
 			addBlock(md.Seq, *block1, &simplex.Finalization{})
@@ -538,6 +610,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 			smVerify.LatestPersistedHeight = baseSeq + 1
 
 			// ----- Step 2: Build a normal block (no validator set change) -----
+			currentTime = startTime.Add(2 * time.Millisecond)
 			tc.blockBuilder.block = nextBlock(2)
 			md = simplex.ProtocolMetadata{Seq: baseSeq + 2, Round: 1, Epoch: testCase.epochNum, Prev: block1.Digest()}
 			block2, err := sm.BuildBlock(context.Background(), md, nil)
@@ -545,7 +618,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 			require.Equal(t, &StateMachineBlock{
 				InnerBlock: nextBlock(2),
 				Metadata: StateMachineMetadata{
-					Timestamp:               uint64(startTime.Add(2 * time.Millisecond).UnixMilli()),
+					Timestamp:               uint64(currentTime.UnixMilli()),
 					PChainHeight:            pChainHeight1,
 					SimplexProtocolMetadata: md.Bytes(),
 					SimplexEpochInfo: SimplexEpochInfo{
@@ -553,6 +626,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 						EpochNumber:           testCase.epochNum,
 						PrevVMBlockSeq:        baseSeq,
 					},
+					ICMEpochInfo: icmEpoch1,
 				},
 			}, block2)
 			addBlock(md.Seq, *block2, nil)
@@ -563,6 +637,10 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 			// Advance P-chain height so that GetValidatorSet returns a different set.
 			currentPChainHeight = pChainHeight2
 
+			// Jump block3's timestamp past the 1-second ICM-epoch window so
+			// block4 (whose parent is block3) sees parentTimestamp >=
+			// epochStart + 1s and transitions ICM to epoch 2.
+			currentTime = startTime.Add(time.Second + 3*time.Millisecond)
 			tc.blockBuilder.block = nextBlock(3)
 			md = simplex.ProtocolMetadata{Seq: baseSeq + 3, Round: 2, Epoch: testCase.epochNum, Prev: block2.Digest()}
 			block3, err := sm.BuildBlock(context.Background(), md, nil)
@@ -570,7 +648,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 			require.Equal(t, &StateMachineBlock{
 				InnerBlock: nextBlock(3),
 				Metadata: StateMachineMetadata{
-					Timestamp:               uint64(startTime.Add(3 * time.Millisecond).UnixMilli()),
+					Timestamp:               uint64(currentTime.UnixMilli()),
 					PChainHeight:            pChainHeight2,
 					SimplexProtocolMetadata: md.Bytes(),
 					SimplexEpochInfo: SimplexEpochInfo{
@@ -579,6 +657,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 						PrevVMBlockSeq:            baseSeq + 2,
 						NextPChainReferenceHeight: pChainHeight2,
 					},
+					ICMEpochInfo: icmEpoch1,
 				},
 			}, block3)
 			addBlock(md.Seq, *block3, nil)
@@ -604,6 +683,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 			sig, err := aggr.AppendSignatures(nil, []byte("sig1"))
 			require.NoError(t, err)
 
+			currentTime = startTime.Add(time.Second + 4*time.Millisecond)
 			tc.blockBuilder.block = nextBlock(4)
 			md = simplex.ProtocolMetadata{Seq: baseSeq + 4, Round: 3, Epoch: testCase.epochNum, Prev: block3.Digest()}
 			block4, err := sm.BuildBlock(context.Background(), md, nil)
@@ -611,7 +691,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 			require.Equal(t, &StateMachineBlock{
 				InnerBlock: nextBlock(4),
 				Metadata: StateMachineMetadata{
-					Timestamp:               uint64(startTime.Add(4 * time.Millisecond).UnixMilli()),
+					Timestamp:               uint64(currentTime.UnixMilli()),
 					PChainHeight:            pChainHeight2,
 					SimplexProtocolMetadata: md.Bytes(),
 					SimplexEpochInfo: SimplexEpochInfo{
@@ -624,6 +704,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 							Signature: sig,
 						},
 					},
+					ICMEpochInfo: icmEpoch2,
 				},
 			}, block4)
 			addBlock(md.Seq, *block4, nil)
@@ -644,6 +725,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 			require.NoError(t, err)
 			bitmask = []byte{3}
 
+			currentTime = startTime.Add(time.Second + 5*time.Millisecond)
 			tc.blockBuilder.block = nextBlock(5)
 			md = simplex.ProtocolMetadata{Seq: baseSeq + 5, Round: 4, Epoch: testCase.epochNum, Prev: block4.Digest()}
 			block5, err := sm.BuildBlock(context.Background(), md, nil)
@@ -651,7 +733,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 			require.Equal(t, &StateMachineBlock{
 				InnerBlock: nextBlock(5),
 				Metadata: StateMachineMetadata{
-					Timestamp:               uint64(startTime.Add(5 * time.Millisecond).UnixMilli()),
+					Timestamp:               uint64(currentTime.UnixMilli()),
 					PChainHeight:            pChainHeight2,
 					SimplexProtocolMetadata: md.Bytes(),
 					SimplexEpochInfo: SimplexEpochInfo{
@@ -664,6 +746,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 							Signature: sig,
 						},
 					},
+					ICMEpochInfo: icmEpoch2,
 				},
 			}, block5)
 			addBlock(md.Seq, *block5, nil)
@@ -684,6 +767,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 			require.NoError(t, err)
 			bitmask = []byte{7}
 
+			currentTime = startTime.Add(time.Second + 6*time.Millisecond)
 			tc.blockBuilder.block = nextBlock(6)
 			md = simplex.ProtocolMetadata{Seq: baseSeq + 6, Round: 5, Epoch: testCase.epochNum, Prev: block5.Digest()}
 			block6, err := sm.BuildBlock(context.Background(), md, nil)
@@ -691,7 +775,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 			require.Equal(t, &StateMachineBlock{
 				InnerBlock: nextBlock(6),
 				Metadata: StateMachineMetadata{
-					Timestamp:               uint64(startTime.Add(6 * time.Millisecond).UnixMilli()),
+					Timestamp:               uint64(currentTime.UnixMilli()),
 					PChainHeight:            pChainHeight2,
 					SimplexProtocolMetadata: md.Bytes(),
 					SimplexEpochInfo: SimplexEpochInfo{
@@ -711,6 +795,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 							Signature: sig6,
 						},
 					},
+					ICMEpochInfo: icmEpoch2,
 				},
 			}, block6)
 			addBlock(md.Seq, *block6, nil)
@@ -755,13 +840,15 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 					// However, despite the fact that the block builder is willing to build a new block,
 					// a Telock shouldn't contain an inner block.
 					if tc.blockStore[sealingSeq].finalization == nil {
+						// Telock shares the sealing block's timestamp slot.
+						currentTime = startTime.Add(time.Second + 6*time.Millisecond)
 						telock, err := sm.BuildBlock(context.Background(), md, nil)
 						require.NoError(t, err)
 
 						require.Equal(t, &StateMachineBlock{
 							InnerBlock: nil,
 							Metadata: StateMachineMetadata{
-								Timestamp:               uint64(startTime.Add(6 * time.Millisecond).UnixMilli()),
+								Timestamp:               uint64(currentTime.UnixMilli()),
 								PChainHeight:            pChainHeight2,
 								SimplexProtocolMetadata: md.Bytes(),
 								SimplexEpochInfo: SimplexEpochInfo{
@@ -771,6 +858,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 									PrevVMBlockSeq:            baseSeq + 6,
 									SealingBlockSeq:           sealingSeq,
 								},
+								ICMEpochInfo: icmEpoch2,
 							},
 						}, telock)
 
@@ -785,12 +873,13 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 					// and the protocol metadata's Epoch field.
 					md.Epoch = sealingSeq
 
+					currentTime = startTime.Add(time.Second + 7*time.Millisecond)
 					block7, err := sm.BuildBlock(context.Background(), md, nil)
 					require.NoError(t, err)
 					require.Equal(t, &StateMachineBlock{
 						InnerBlock: nextBlock(7),
 						Metadata: StateMachineMetadata{
-							Timestamp:               uint64(startTime.Add(7 * time.Millisecond).UnixMilli()),
+							Timestamp:               uint64(currentTime.UnixMilli()),
 							PChainHeight:            pChainHeight2,
 							SimplexProtocolMetadata: md.Bytes(),
 							SimplexEpochInfo: SimplexEpochInfo{
@@ -798,6 +887,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 								EpochNumber:           sealingSeq,
 								PrevVMBlockSeq:        baseSeq + 6,
 							},
+							ICMEpochInfo: icmEpoch2,
 						},
 					}, block7)
 					addBlock(md.Seq, *block7, nil)
@@ -1053,6 +1143,66 @@ func TestVerifyPChainHeight(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := verifyPChainHeight(tt.proposed, tt.current, tt.prev)
+			if tt.err == nil {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorIs(t, err, tt.err)
+		})
+	}
+}
+
+func TestVerifyTimestamp(t *testing.T) {
+	now := time.Now()
+	nowMilli := uint64(now.UnixMilli())
+	skewMilli := uint64(maxSkew / time.Millisecond)
+
+	tests := []struct {
+		name     string
+		proposed uint64
+		prev     uint64
+		err      error
+	}{
+		{
+			name:     "proposed equals parent",
+			proposed: nowMilli,
+			prev:     nowMilli,
+		},
+		{
+			name:     "proposed after parent, well within skew",
+			proposed: nowMilli + 100,
+			prev:     nowMilli - 100,
+		},
+		{
+			name:     "proposed exactly at now + maxSkew",
+			proposed: nowMilli + skewMilli,
+			prev:     nowMilli,
+		},
+		{
+			name:     "proposed below parent",
+			proposed: nowMilli - 1,
+			prev:     nowMilli,
+			err:      errTimestampDecreasing,
+		},
+		{
+			name:     "proposed one millisecond past now + maxSkew",
+			proposed: nowMilli + skewMilli + 1,
+			prev:     nowMilli,
+			err:      errTimestampTooFarInFuture,
+		},
+		{
+			name:     "proposed exceeds math.MaxInt64",
+			proposed: uint64(math.MaxInt64) + 1,
+			prev:     nowMilli,
+			err:      errTimestampTooBig,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			block := &StateMachineBlock{Metadata: StateMachineMetadata{Timestamp: tt.proposed}}
+			prev := &StateMachineBlock{Metadata: StateMachineMetadata{Timestamp: tt.prev}}
+			err := verifyTimestamp(block, prev, now)
 			if tt.err == nil {
 				require.NoError(t, err)
 				return

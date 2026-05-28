@@ -48,10 +48,8 @@ type VMBlock interface {
 	//
 	// If nil is returned, it is guaranteed that either Accept or Reject will be
 	// called on this block, unless the VM is shut down.
-	Verify(context.Context) error
+	Verify(ctx context.Context, pChainHeight uint64) error
 }
-
-type UpgradeConfig = any
 
 type bitmask big.Int
 

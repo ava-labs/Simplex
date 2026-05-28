@@ -30,8 +30,34 @@ type StateMachineMetadata struct {
 	PChainHeight uint64 `canoto:"uint,4"`
 	// Timestamp is the time when the block is being built, in milliseconds since Unix epoch.
 	Timestamp uint64 `canoto:"uint,5"`
+	// ICMEpochInfo is the metadata that the StateMachine uses for ICM epoching.
+	ICMEpochInfo ICMEpochInfo `canoto:"value,6"`
 
 	canotoData canotoData_StateMachineMetadata
+}
+
+// ICMEpochInfo is the ICM epoch information that is maintained by the StateMachine and used for the ICM protocol.
+// The StateMachine maintains this information identically to how the proposerVM maintains it, and it does so by
+// building the ICMEpochInput and then passing it into the StateMachine's ComputeICMEpoch function.
+type ICMEpochInfo struct {
+	// EpochStartTime is the Unix timestamp when this ICM epoch started.
+	EpochStartTime uint64 `canoto:"uint,1"`
+	// EpochNumber is the sequential identifier of this ICM epoch.
+	EpochNumber uint64 `canoto:"uint,2"`
+	// PChainEpochHeight is the P-chain height associated with this ICM epoch.
+	PChainEpochHeight uint64 `canoto:"uint,3"`
+
+	canotoData canotoData_ICMEpochInfo
+}
+
+func (ei *ICMEpochInfo) Equal(other *ICMEpochInfo) bool {
+	if ei == nil {
+		return other == nil
+	}
+	if other == nil {
+		return ei == nil
+	}
+	return ei.EpochStartTime == other.EpochStartTime && ei.EpochNumber == other.EpochNumber && ei.PChainEpochHeight == other.PChainEpochHeight
 }
 
 // SimplexEpochInfo is metadata used by the StateMachine.
