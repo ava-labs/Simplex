@@ -24,8 +24,10 @@ func (errQC) Verify([]byte) error {
 }
 
 type TestConfig struct {
-	nodes   simplex.Nodes
-	storage simplex.Storage
+	nodes      simplex.Nodes
+	storage    simplex.Storage
+	comm       simplex.Communication
+	sigCreator simplex.SignatureAggregatorCreator
 }
 
 // PoA Non-Validator
@@ -44,14 +46,24 @@ func newTestNonValidator(t *testing.T, testConfig TestConfig) *NonValidator {
 		nodes = testConfig.nodes
 	}
 
+	var comm simplex.Communication = testutil.NewNoopComm(nodes.NodeIDs())
+	if testConfig.comm != nil {
+		comm = testConfig.comm
+	}
+
+	sigCreator := func(n []simplex.Node) simplex.SignatureAggregator {
+		return &testutil.TestSignatureAggregator{N: len(n)}
+	}
+	if testConfig.sigCreator != nil {
+		sigCreator = testConfig.sigCreator
+	}
+
 	config := Config{
-		Storage:        storage,
-		Comm:           testutil.NewNoopComm(nodes.NodeIDs()),
-		Logger:         testutil.MakeLogger(t, 1),
-		MaxRoundWindow: simplex.DefaultMaxRoundWindow,
-		SignatureAggregatorCreator: func(n []simplex.Node) simplex.SignatureAggregator {
-			return &testutil.TestSignatureAggregator{N: len(n)}
-		},
+		Storage:                    storage,
+		Comm:                       comm,
+		Logger:                     testutil.MakeLogger(t, 1),
+		MaxRoundWindow:             simplex.DefaultMaxRoundWindow,
+		SignatureAggregatorCreator: sigCreator,
 	}
 
 	nonValidator, err := NewNonValidator(config)
@@ -266,8 +278,30 @@ func TestHandleMessages_DuplicateBlock(t *testing.T) {
 // Epoch 1
 // We want to replicate all seqs 0-100
 // Maybe some messages randomly get dropped
-func TestReplication(t *testing.T) {
+func TestNonValidator_RequestHighestEpochOnStart(t *testing.T) {
+	responder := newTestResponder(t, testNodes, testNodes.NodeIDs()[0])
+	responder.initializeStorage(1, 3)
 
-	// nv := newTestNonValidator(t, TestConfig{storage: tc, nodes: testNodes})
+	nv := newTestNonValidator(t, TestConfig{nodes: testNodes, comm: responder})
+	nv.Start()
+	defer nv.Stop()
 
+	msg, ok := responder.popResponse()
+	require.True(t, ok)
+	require.NotNil(t, msg.msg.ReplicationResponse)
+	require.NotNil(t, msg.msg.ReplicationResponse.LatestSeq)
+}
+
+func TestNonValidator_ReplicatesEpochs(t *testing.T) {
+	responder := newTestResponder(t, testNodes, testNodes.NodeIDs()[0])
+	responder.initializeStorage(1, 10, 20, 30, 40, 43, 48)
+
+	nv := newTestNonValidator(t, TestConfig{nodes: testNodes, comm: responder, sigCreator: responder.storage.signatureAggregatorCreator})
+	nv.Start()
+	defer nv.Stop()
+
+	for msg, ok := responder.popResponse(); ok; {
+		msg.send(nv)
+		msg, ok = responder.popResponse()
+	}
 }

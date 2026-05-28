@@ -120,6 +120,10 @@ type SealingBlockInfo struct {
 	PrevSealingBlockHash Digest
 }
 
+func (s *SealingBlockInfo) String() string {
+	return fmt.Sprintf("Info: Epoch %d. Num Validators %d, PrevHash %s", s.Epoch, len(s.ValidatorSet), s.PrevSealingBlockHash)
+}
+
 type VerifiedBlock interface {
 	// BlockHeader encodes a succinct and collision-free representation of a block.
 	BlockHeader() BlockHeader

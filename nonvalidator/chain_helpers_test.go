@@ -39,10 +39,11 @@ func (m *messageInfo) send(nv *NonValidator) error {
 // value.
 type testChain struct {
 	*testutil.InMemStorage
-	t     *testing.T
-	seq   uint64
-	epoch uint64
-	prev  simplex.Digest
+	t             *testing.T
+	seq           uint64
+	epoch         uint64
+	prev          simplex.Digest
+	validatorSets map[uint64]simplex.Nodes
 }
 
 func (c *testChain) String() string {
@@ -58,9 +59,10 @@ func newSeededChain(t *testing.T, nodes simplex.Nodes, lastSeq uint64) *testChai
 	require.GreaterOrEqual(t, lastSeq, uint64(1), "lastSeq must be >= 1 (0 is genesis, 1 is the first epoch's sealing block)")
 
 	tc := &testChain{
-		InMemStorage: testutil.NewInMemStorage(),
-		t:            t,
-		prev:         genesis.Digest,
+		InMemStorage:  testutil.NewInMemStorage(),
+		t:             t,
+		prev:          genesis.Digest,
+		validatorSets: make(map[uint64]simplex.Nodes),
 	}
 	require.NoError(t, tc.Index(context.Background(), genesis, simplex.Finalization{}))
 
@@ -103,5 +105,28 @@ func (tc *testChain) appendSealing(validatorSet simplex.Nodes) *sealingTestBlock
 	})
 	tc.prev = block.Digest
 	tc.epoch = tc.seq
+	tc.validatorSets[tc.seq] = validatorSet
 	return block
+}
+
+func (tc *testChain) signatureAggregatorCreator(nodes []simplex.Node) simplex.SignatureAggregator {
+	isQuorumFunc := func(signatures []simplex.NodeID) bool {
+		count := 0
+		nodeSet := make(map[string]struct{})
+		for _, node := range nodes {
+			nodeSet[node.Node.String()] = struct{}{}
+		}
+
+		for _, sig := range signatures {
+			if _, ok := nodeSet[sig.String()]; ok {
+				count++
+			}
+		}
+
+		return count >= simplex.Quorum(len(nodes))
+	}
+	return &testutil.TestSignatureAggregator{
+		IsQuorumFunc: isQuorumFunc,
+		N:            len(nodes),
+	}
 }

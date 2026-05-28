@@ -62,16 +62,19 @@ func NewNonValidator(config Config) (*NonValidator, error) {
 	ctx, cancelFunc := context.WithCancel(context.Background())
 	scheduler := simplex.NewScheduler(config.Logger, simplex.DefaultProcessingBlocks)
 
+	nodes := config.Comm.Nodes()
 	lock := &sync.Mutex{}
+	f := simplex.F(len(nodes)) + 1
 	// replicator := simplex.NewReplicationState(config.Logger, config.Comm, config.ID, config.MaxRoundWindow, true, time.Now(), lock, config.RandomSource)
 	return &NonValidator{
-		Config:              config,
-		incompleteSequences: make(map[uint64]*finalizedSeq),
-		ctx:                 ctx,
-		cancelCtx:           cancelFunc,
-		epochs:              epochs,
-		verifier:            simplex.NewBlockVerificationScheduler(config.Logger, simplex.DefaultProcessingBlocks, scheduler),
-		lock:                lock,
+		Config:                config,
+		incompleteSequences:   make(map[uint64]*finalizedSeq),
+		ctx:                   ctx,
+		cancelCtx:             cancelFunc,
+		epochs:                epochs,
+		verifier:              simplex.NewBlockVerificationScheduler(config.Logger, simplex.DefaultProcessingBlocks, scheduler),
+		lock:                  lock,
+		highestEpochCollector: newEpochReplicator(config.Logger, config.Comm, uint64(f)),
 	}, nil
 }
 
@@ -353,19 +356,14 @@ func (n *NonValidator) processQuorumRound(qr *simplex.QuorumRound, from simplex.
 
 	epoch, ok := n.epochs[block.BlockHeader().Epoch]
 	if !ok {
+		// maybe this block is for an epoch we do not have, but it can be valid if we have confirmed the sealing block ahead of it
 		if n.epochs.canValidate(block.SealingBlockInfo()) {
 			n.maybeValidateNextEpoch(block)
-		} else if n.highestEpochCollector.collectedQuorumRound(qr, from) {
+		}
+		if n.highestEpochCollector.collectedQuorumRound(qr, from) {
 			n.maybeValidateNextEpoch(block)
-		} else {
-			// this block is from an epoch we cannot validate at this time
-			return nil
 		}
-
-		epoch, ok = n.epochs[block.BlockHeader().Epoch]
-		if !ok {
-			return fmt.Errorf("something went wrong")
-		}
+		return nil
 	}
 
 	err := simplex.VerifyQC(qr.Finalization.QC, n.Logger, "Finalization", epoch.signatureAggregator.IsQuorum, epoch.nodeLookup, qr.Finalization, from)
@@ -398,7 +396,6 @@ func (n *NonValidator) broadcastLatestEpoch() {
 	request := &simplex.ReplicationRequest{
 		LatestFinalizedSeq: highestEpoch,
 	}
-
 	n.Comm.Broadcast(&simplex.Message{
 		ReplicationRequest: request,
 	})
