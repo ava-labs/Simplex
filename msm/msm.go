@@ -285,7 +285,7 @@ func (sm *StateMachine) verifyNonZeroBlock(ctx context.Context, block *StateMach
 	return block.InnerBlock.Verify(ctx)
 }
 
-// buildBlockNormalOp builds a block while not trying to transition to a new epoch.
+// buildBlockNormalOp builds a block while potentially also transitioning to a new epoch, depending on the P-chain.
 func (sm *StateMachine) buildBlockNormalOp(ctx context.Context, parentBlock StateMachineBlock, simplexMetadata, simplexBlacklist []byte, prevBlockSeq uint64) (*StateMachineBlock, error) {
 	// Since in the previous block, we were not transitioning to a new epoch,
 	// the P-chain reference height and epoch of the new block should remain the same.
@@ -295,7 +295,12 @@ func (sm *StateMachine) buildBlockNormalOp(ctx context.Context, parentBlock Stat
 		PrevVMBlockSeq:        computePrevVMBlockSeq(parentBlock, prevBlockSeq),
 	}
 
-	blockBuildingDecider := sm.createBlockBuildingDecider(parentBlock)
+	return sm.buildBlockOrTransitionEpoch(ctx, parentBlock, simplexMetadata, simplexBlacklist, newSimplexEpochInfo)
+}
+
+// buildBlockOrTransitionEpoch builds a block and decides whether to transition to a new epoch based on the P-chain height and validator set changes.
+func (sm *StateMachine) buildBlockOrTransitionEpoch(ctx context.Context, parentBlock StateMachineBlock, simplexMetadata, simplexBlacklist []byte, newSimplexEpochInfo SimplexEpochInfo) (*StateMachineBlock, error) {
+	blockBuildingDecider := sm.createBlockBuildingDecider(newSimplexEpochInfo.PChainReferenceHeight)
 	decisionToBuildBlock, err := blockBuildingDecider.shouldBuildBlock(ctx)
 	if err != nil {
 		return nil, err
@@ -324,7 +329,7 @@ func (sm *StateMachine) buildBlockNormalOp(ctx context.Context, parentBlock Stat
 	return sm.wrapBlock(parentBlock, innerBlock, newSimplexEpochInfo, decisionToBuildBlock.pChainHeight, simplexMetadata, simplexBlacklist), nil
 }
 
-func (sm *StateMachine) createBlockBuildingDecider(parentBlock StateMachineBlock) blockBuildingDecider {
+func (sm *StateMachine) createBlockBuildingDecider(pChainReferenceHeight uint64) blockBuildingDecider {
 	blockBuildingDecider := blockBuildingDecider{
 		logger:                   sm.Logger,
 		maxBlockBuildingWaitTime: sm.MaxBlockBuildingWaitTime,
@@ -337,7 +342,7 @@ func (sm *StateMachine) createBlockBuildingDecider(parentBlock StateMachineBlock
 			// and the new validator set defined by the given pChainHeight.
 			// If they are different, then we should transition to a new epoch.
 
-			currentValidatorSet, err := sm.GetValidatorSet(parentBlock.Metadata.SimplexEpochInfo.PChainReferenceHeight)
+			currentValidatorSet, err := sm.GetValidatorSet(pChainReferenceHeight)
 			if err != nil {
 				return false, err
 			}
@@ -351,7 +356,7 @@ func (sm *StateMachine) createBlockBuildingDecider(parentBlock StateMachineBlock
 				sm.Logger.Debug("Validator set has changed, should transition epoch",
 					zap.String("currentValidatorSet", fmt.Sprintf("%v", currentValidatorSet.NodeWeights())),
 					zap.String("newValidatorSet", fmt.Sprintf("%v", newValidatorSet.NodeWeights())),
-					zap.Uint64("currentPChainRefHeight", parentBlock.Metadata.SimplexEpochInfo.PChainReferenceHeight),
+					zap.Uint64("currentPChainRefHeight", pChainReferenceHeight),
 					zap.Uint64("newPChainHeight", pChainHeight))
 				return true, nil
 			}
@@ -618,7 +623,7 @@ func (sm *StateMachine) buildBlockEpochSealed(ctx context.Context, parentBlock S
 		PrevVMBlockSeq:            computePrevVMBlockSeq(parentBlock, prevBlockSeq),
 	}
 
-	_, finalization, err := sm.GetBlock(sealingBlockSeq, [32]byte{})
+	sealingBlock, finalization, err := sm.GetBlock(sealingBlockSeq, [32]byte{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve sealing block at sequence %d: %w", sealingBlockSeq, err)
 	}
@@ -640,12 +645,7 @@ func (sm *StateMachine) buildBlockEpochSealed(ctx context.Context, parentBlock S
 	}
 
 	// TODO: This P-chain height should be taken from the ICM epoch
-	childBlock, err := sm.BlockBuilder.BuildBlock(ctx, sm.GetPChainHeight())
-	if err != nil {
-		return nil, err
-	}
-
-	return sm.wrapBlock(parentBlock, childBlock, newSimplexEpochInfo, parentBlock.Metadata.PChainHeight, simplexMetadata, simplexBlacklist), nil
+	return sm.buildBlockOrTransitionEpoch(ctx, sealingBlock, simplexMetadata, simplexBlacklist, newSimplexEpochInfo)
 }
 
 // ConstructSimplexZeroBlockSimplexEpochInfo constructs the SimplexEpochInfo for the zero block, which is the first ever block built by Simplex.

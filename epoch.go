@@ -94,8 +94,8 @@ type Epoch struct {
 	finishFn                       context.CancelFunc
 	blockBuilderCtx                context.Context
 	blockBuilderCancelFunc         context.CancelFunc
-	nodes                          NodeIDs
-	nodeWeights                    Nodes
+	nodeIDs                        NodeIDs
+	nodes                          Nodes
 	eligibleNodeIDs                map[string]struct{}
 	rounds                         map[uint64]*Round
 	emptyVotes                     map[uint64]*EmptyVoteSet
@@ -200,23 +200,23 @@ func (e *Epoch) init() error {
 	e.finishCtx, e.finishFn = context.WithCancel(context.Background())
 	e.blockBuilderCtx = context.Background()
 	e.blockBuilderCancelFunc = func() {}
-	e.nodeWeights = e.Comm.Nodes()
-	SortNodes(e.nodeWeights)
-	e.nodes = e.nodeWeights.NodeIDs()
-	e.timedOutRounds = make(map[uint16]uint64, len(e.nodes))
-	e.redeemedRounds = make(map[uint16]uint64, len(e.nodes))
+	e.nodes = e.Comm.Nodes()
+	SortNodes(e.nodes)
+	e.nodeIDs = e.nodes.NodeIDs()
+	e.timedOutRounds = make(map[uint16]uint64, len(e.nodeIDs))
+	e.redeemedRounds = make(map[uint16]uint64, len(e.nodeIDs))
 	e.rounds = make(map[uint64]*Round)
 	e.emptyVotes = make(map[uint64]*EmptyVoteSet)
-	e.eligibleNodeIDs = make(map[string]struct{}, len(e.nodes))
-	e.futureMessages = make(messagesFromNode, len(e.nodes))
+	e.eligibleNodeIDs = make(map[string]struct{}, len(e.nodeIDs))
+	e.futureMessages = make(messagesFromNode, len(e.nodeIDs))
 	e.replicationState = NewReplicationState(e.Logger, e.Comm, e.ID, e.MaxRoundWindow, e.ReplicationEnabled, e.StartTime, &e.lock, e.RandomSource)
 	e.timeoutHandler = NewTimeoutHandler(e.Logger, "emptyVoteRebroadcast", e.StartTime, e.MaxRebroadcastWait, e.emptyVoteTimeoutTaskRunner)
-	e.signatureAggregator = e.SignatureAggregatorCreator(e.nodeWeights)
+	e.signatureAggregator = e.SignatureAggregatorCreator(e.nodes)
 
-	for _, node := range e.nodes {
+	for _, node := range e.nodeIDs {
 		e.futureMessages[string(node)] = make(map[uint64]*messagesForRound)
 	}
-	for _, node := range e.nodes {
+	for _, node := range e.nodeIDs {
 		e.eligibleNodeIDs[string(node)] = struct{}{}
 	}
 	err := e.loadLastBlock()
@@ -224,7 +224,7 @@ func (e *Epoch) init() error {
 		return err
 	}
 
-	e.Logger.Info("Starting Simplex Epoch", zap.String("ID", e.ID.String()), zap.Stringer("nodes", e.nodes))
+	e.Logger.Info("Starting Simplex Epoch", zap.String("ID", e.ID.String()), zap.Stringer("nodes", e.nodeIDs))
 
 	return e.setMetadataFromStorage()
 }
@@ -576,7 +576,7 @@ func (e *Epoch) resumeFromWal(highestRoundRecord *walRound) error {
 			return fmt.Errorf("could not find round %d for block", block.BlockHeader().Round)
 		}
 
-		if e.ID.Equals(LeaderForRound(e.nodes, block.BlockHeader().Round)) {
+		if e.ID.Equals(LeaderForRound(e.nodeIDs, block.BlockHeader().Round)) {
 			vote, err := e.voteOnBlock(round.block)
 			if err != nil {
 				return err
@@ -781,7 +781,7 @@ func (e *Epoch) handleFinalizationForPendingOrFutureRound(message *Finalization,
 
 	// TODO: delay requesting future finalizations and blocks, since blocks could be in transit
 	e.Logger.Debug("Received finalization for a pending or future round, and we don't have the block", zap.Uint64("round", round), zap.Uint64("our round", e.round))
-	if LeaderForRound(e.nodes, e.round).Equals(e.ID) {
+	if LeaderForRound(e.nodeIDs, e.round).Equals(e.ID) {
 		e.Logger.Debug("We are the leader of this round, but a higher round has been finalized. Aborting block building.")
 		e.blockBuilderCancelFunc()
 	}
@@ -1178,7 +1178,11 @@ func (e *Epoch) maybeCollectFinalization(round *Round) error {
 }
 
 func (e *Epoch) assembleFinalization(round *Round, finalizationVotes []*FinalizeVote) error {
-	finalization, err := NewFinalization(e.Logger, e.signatureAggregator, finalizationVotes)
+	for _, vote := range finalizationVotes {
+		e.Logger.Debug("Collected a finalize vote from node", zap.Stringer("NodeID", vote.Signature.Signer), zap.Uint64("round", vote.Finalization.Round), zap.Uint64("seq", vote.Finalization.Seq))
+	}
+
+	finalization, err := NewFinalization(e.signatureAggregator, finalizationVotes)
 	if err != nil {
 		return err
 	}
@@ -1471,7 +1475,7 @@ func (e *Epoch) persistEmptyNotarization(emptyVotes *EmptyVoteSet, shouldBroadca
 }
 
 func (e *Epoch) maybeMarkLeaderAsTimedOutForFutureBlacklisting(emptyNotarization *EmptyNotarization) error {
-	e.Logger.Debug("Marking the leader as timed out", zap.Uint64("round", emptyNotarization.Vote.Round), zap.Stringer("leader", LeaderForRound(e.nodes, emptyNotarization.Vote.Round)))
+	e.Logger.Debug("Marking the leader as timed out", zap.Uint64("round", emptyNotarization.Vote.Round), zap.Stringer("leader", LeaderForRound(e.nodeIDs, emptyNotarization.Vote.Round)))
 	var blacklist Blacklist
 	if e.lastBlock != nil {
 		if e.lastBlock.VerifiedBlock == nil {
@@ -1481,7 +1485,7 @@ func (e *Epoch) maybeMarkLeaderAsTimedOutForFutureBlacklisting(emptyNotarization
 		blacklist = e.lastBlock.VerifiedBlock.Blacklist()
 	}
 	round := emptyNotarization.Vote.Round
-	leaderIndex := round % uint64(len(e.nodes))
+	leaderIndex := round % uint64(len(e.nodeIDs))
 	if !blacklist.IsNodeSuspected(uint16(leaderIndex)) {
 		e.timedOutRounds[uint16(leaderIndex)] = round
 	}
@@ -1553,7 +1557,7 @@ func (e *Epoch) persistNotarization(notarization Notarization) error {
 
 	round := notarization.Vote.Round
 	for _, signer := range notarization.QC.Signers() {
-		if signerIndex := e.nodes.IndexOf(signer); signerIndex != -1 {
+		if signerIndex := e.nodeIDs.IndexOf(signer); signerIndex != -1 {
 			e.Logger.Debug("Potentially redeeming node", zap.Stringer("signer", signer), zap.Uint64("round", round))
 			e.redeemedRounds[uint16(signerIndex)] = round
 		} else {
@@ -1734,7 +1738,7 @@ func (e *Epoch) handleBlockMessage(message *BlockMessage, from NodeID) error {
 	}
 
 	// Check that the node is a leader for the round corresponding to the block.
-	if !LeaderForRound(e.nodes, md.Round).Equals(from) {
+	if !LeaderForRound(e.nodeIDs, md.Round).Equals(from) {
 		// The block is associated with a round in which the sender is not the leader,
 		// it should not be sending us any block at all.
 		e.Logger.Debug("Got block from a block proposer that is not the leader of the round", zap.Stringer("NodeID", from), zap.Uint64("round", md.Round))
@@ -1997,7 +2001,7 @@ func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote)
 		defer e.lock.Unlock()
 
 		if err != nil {
-			leader := LeaderForRound(e.nodes, md.Round)
+			leader := LeaderForRound(e.nodeIDs, md.Round)
 			e.Logger.Info("Triggering empty block agreement",
 				zap.String("reason", "Failed verifying block"),
 				zap.Uint64("round", md.Round),
@@ -2227,7 +2231,7 @@ func (e *Epoch) verifyProposalMetadataAndBlacklist(block Block) bool {
 	// Else, either it's not the first block, or we haven't committed the first block, and it is the first block.
 	// If it's the latter we have nothing else to do.
 	// If it's the former, we need to find the parent of the block and ensure it is correct.
-	prevBlacklist := NewBlacklist(uint16(len(e.nodes)))
+	prevBlacklist := NewBlacklist(uint16(len(e.nodeIDs)))
 	if bh.Seq > 0 {
 		prevBlock, _, found := e.locateBlock(bh.Seq-1, bh.Prev[:])
 		if !found {
@@ -2244,7 +2248,7 @@ func (e *Epoch) verifyProposalMetadataAndBlacklist(block Block) bool {
 		prevBlacklist = prevBlock.Blacklist()
 
 		if prevBlacklist.IsEmpty() {
-			prevBlacklist = NewBlacklist(uint16(len(e.nodes)))
+			prevBlacklist = NewBlacklist(uint16(len(e.nodeIDs)))
 		}
 	}
 
@@ -2344,7 +2348,7 @@ func (e *Epoch) buildBlock() {
 	}
 
 	// If I'm blacklisted, I cannot propose a block.
-	if prevBlacklist.IsNodeSuspected(uint16(e.nodes.IndexOf(e.ID))) {
+	if prevBlacklist.IsNodeSuspected(uint16(e.nodeIDs.IndexOf(e.ID))) {
 		e.Logger.Debug("I'm blacklisted, cannot propose a block", zap.Uint64("round", metadata.Round), zap.Stringer("blacklist", &prevBlacklist))
 		e.triggerEmptyBlockNotarization(metadata.Round)
 		return
@@ -2358,7 +2362,7 @@ func (e *Epoch) buildBlock() {
 	e.Logger.Debug("Computing blacklist updates",
 		zap.String("timedOutRounds", fmt.Sprintf("%v", e.timedOutRounds)),
 		zap.String("redeemedRounds", fmt.Sprintf("%v", e.redeemedRounds)))
-	updates := prevBlacklist.ComputeBlacklistUpdates(metadata.Round, uint16(len(e.nodes)), e.timedOutRounds, e.redeemedRounds)
+	updates := prevBlacklist.ComputeBlacklistUpdates(metadata.Round, uint16(len(e.nodeIDs)), e.timedOutRounds, e.redeemedRounds)
 	// 3) Apply the updates to the blacklist.
 	nextBlacklist := prevBlacklist.ApplyUpdates(updates, metadata.Round)
 
@@ -2400,7 +2404,7 @@ func (e *Epoch) retrieveBlacklistOfParentBlock(metadata ProtocolMetadata) (Black
 	}
 
 	if blacklist.IsEmpty() {
-		blacklist = NewBlacklist(uint16(len(e.nodes)))
+		blacklist = NewBlacklist(uint16(len(e.nodeIDs)))
 	}
 
 	return blacklist, true
@@ -2600,7 +2604,7 @@ func (e *Epoch) monitorProgress(round uint64) {
 
 	noop := func() {}
 
-	leader := LeaderForRound(e.nodes, round)
+	leader := LeaderForRound(e.nodeIDs, round)
 
 	// If we have a task pending to be executed, remove it from execution because we're about to schedule
 	// a task for a higher round.
@@ -2620,7 +2624,7 @@ func (e *Epoch) monitorProgress(round uint64) {
 			return
 		}
 
-		leader := LeaderForRound(e.nodes, round)
+		leader := LeaderForRound(e.nodeIDs, round)
 		e.Logger.Debug("Triggering empty block agreement",
 			zap.String("reason", "Timed out on block agreement"),
 			zap.Uint64("round", round),
@@ -2640,7 +2644,7 @@ func (e *Epoch) monitorProgress(round uint64) {
 
 		// If the current leader is blacklisted, we should not wait for it to propose a block.
 		// Instead, we should immediately trigger the empty block agreement.
-		leaderIndex := e.nodes.IndexOf(leader)
+		leaderIndex := e.nodeIDs.IndexOf(leader)
 		if leaderIndex >= 0 && blacklist.IsNodeSuspected(uint16(leaderIndex)) {
 			e.Logger.Debug("Leader is blacklisted, will not wait for it to propose a block",
 				zap.Uint64("round", round), zap.Stringer("leader", leader))
@@ -2723,7 +2727,7 @@ func (e *Epoch) startRound() error {
 		return err
 	}
 
-	leaderForCurrentRound := LeaderForRound(e.nodes, e.round)
+	leaderForCurrentRound := LeaderForRound(e.nodeIDs, e.round)
 
 	if e.ID.Equals(leaderForCurrentRound) {
 		e.buildBlock()
@@ -2803,8 +2807,8 @@ func (e *Epoch) increaseRound() {
 
 	// remove the rebroadcast empty vote task
 	e.timeoutHandler.RemoveTask(EmptyVoteTimeoutID)
-	prevLeader := LeaderForRound(e.nodes, e.round)
-	nextLeader := LeaderForRound(e.nodes, e.round+1)
+	prevLeader := LeaderForRound(e.nodeIDs, e.round)
+	nextLeader := LeaderForRound(e.nodeIDs, e.round+1)
 
 	e.Logger.Info("Moving to a new round",
 		zap.Uint64("prev round", e.round),
