@@ -4,6 +4,7 @@
 package nonvalidator
 
 import (
+	"bytes"
 	"errors"
 
 	"github.com/ava-labs/simplex"
@@ -12,10 +13,11 @@ import (
 var errNoGenesis = errors.New("No Genesis Found")
 
 type epochMetadata struct {
-	nodes               simplex.Nodes
-	nodeLookup          map[string]struct{}
-	epoch               uint64
-	signatureAggregator simplex.SignatureAggregator
+	nodes                simplex.Nodes
+	nodeLookup           map[string]struct{}
+	epoch                uint64
+	signatureAggregator  simplex.SignatureAggregator
+	prevSealingBlockHash simplex.Digest
 }
 
 type epochs map[uint64]*epochMetadata
@@ -32,10 +34,11 @@ func newEpochMetadata(sealingMetadata *simplex.SealingBlockInfo, sigCreator simp
 	}
 
 	return &epochMetadata{
-		nodes:               nodes,
-		nodeLookup:          lookup,
-		epoch:               sealingMetadata.Epoch,
-		signatureAggregator: sigCreator(nodes),
+		nodes:                nodes,
+		nodeLookup:           lookup,
+		epoch:                sealingMetadata.Epoch,
+		signatureAggregator:  sigCreator(nodes),
+		prevSealingBlockHash: sealingMetadata.PrevSealingBlockHash,
 	}
 }
 
@@ -81,4 +84,17 @@ func (e epochs) highestEpoch() uint64 {
 	}
 
 	return highest
+}
+
+func (e epochs) canValidate(info *simplex.SealingBlockInfo) bool {
+	if info == nil {
+		return false
+	}
+
+	for _, md := range e {
+		if bytes.Equal(md.prevSealingBlockHash[:], info.PrevSealingBlockHash[:]) {
+			return true
+		}
+	}
+	return false
 }

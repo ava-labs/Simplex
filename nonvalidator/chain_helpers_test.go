@@ -2,6 +2,7 @@ package nonvalidator
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/ava-labs/simplex"
@@ -42,6 +43,10 @@ type testChain struct {
 	seq   uint64
 	epoch uint64
 	prev  simplex.Digest
+}
+
+func (c *testChain) String() string {
+	return fmt.Sprintf("TestChain: Current Epoch: %d, Current Seq: %d", c.epoch, c.seq)
 }
 
 // newSeededChain returns a testChain whose storage is indexed through seq=lastSeq:

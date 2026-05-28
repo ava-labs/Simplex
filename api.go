@@ -116,6 +116,8 @@ type SealingBlockInfo struct {
 	Epoch uint64
 	// ValidatorSet of the new epoch
 	ValidatorSet Nodes
+	// PrevSealingBlockHash is the hash of the previous sealing block
+	PrevSealingBlockHash Digest
 }
 
 type VerifiedBlock interface {

@@ -188,6 +188,43 @@ func TestHandleMessages(t *testing.T) {
 			},
 			expectedHeight: 3,
 		},
+		{
+			name: "multiple epochs",
+			setup: func(t *testing.T) (*testChain, []*messageInfo) {
+				tc := newSeededChain(t, testNodes, 2)
+
+				var epoch3Nodes = simplex.Nodes{
+					{Node: simplex.NodeID{1}, Weight: 1},
+					{Node: simplex.NodeID{2}, Weight: 1},
+					{Node: simplex.NodeID{3}, Weight: 1},
+					{Node: simplex.NodeID{4}, Weight: 1},
+					{Node: simplex.NodeID{5}, Weight: 1},
+				}
+
+				// Send the sealing block + finalization that transitions to epoch 3.
+				b3 := tc.appendSealing(epoch3Nodes)
+				// Blocks 4 and 5 live in epoch 3 and are finalized by the new validator set.
+				b4, b5 := tc.appendBlock(), tc.appendBlock()
+				// Block 6 is another sealing epoch
+				b6 := tc.appendSealing(testNodes)
+				// Block 7 is part of the new epoch
+				b7 := tc.appendBlock()
+
+				return tc, []*messageInfo{
+					blockMsg(t, b3, testNodes),
+					finalizationMsg(t, b3, testNodes),
+					finalizationMsg(t, b4, epoch3Nodes),
+					finalizationMsg(t, b5, epoch3Nodes),
+					blockMsg(t, b4, epoch3Nodes),
+					blockMsg(t, b5, epoch3Nodes),
+					blockMsg(t, b6, epoch3Nodes),
+					finalizationMsg(t, b6, epoch3Nodes),
+					blockMsg(t, b7, testNodes),
+					finalizationMsg(t, b7, testNodes),
+				}
+			},
+			expectedHeight: 8,
+		},
 	}
 
 	for _, tt := range tests {
@@ -206,44 +243,6 @@ func TestHandleMessages(t *testing.T) {
 	}
 }
 
-func TestHandleMessages_MultipleEpochs(t *testing.T) {
-	tc := newSeededChain(t, testNodes, 2)
-	nv := newTestNonValidator(t, TestConfig{storage: tc, nodes: testNodes})
-
-	// epoch3Nodes is the validator set used by scenarios that transition out of
-	// epoch 1 into epoch 3 via a sealing block.
-	var epoch3Nodes = simplex.Nodes{
-		{Node: simplex.NodeID{1}, Weight: 1},
-		{Node: simplex.NodeID{2}, Weight: 1},
-		{Node: simplex.NodeID{3}, Weight: 1},
-		{Node: simplex.NodeID{4}, Weight: 1},
-		{Node: simplex.NodeID{5}, Weight: 1},
-	}
-
-	// Send the sealing block + finalization that transitions to epoch 3.
-	b3 := tc.appendSealing(epoch3Nodes)
-	blockMsg(t, b3, testNodes).send(nv)
-	finalizationMsg(t, b3, testNodes).send(nv)
-
-	// Wait for the sealing block to commit so the new epoch is registered
-	// before blocks 4 and 5 are processed.
-	tc.WaitForBlockCommit(3)
-
-	// Blocks 4 and 5 live in epoch 3 and are finalized by the new validator set.
-	b4, b5 := tc.appendBlock(), tc.appendBlock()
-
-	for _, m := range []*messageInfo{
-		finalizationMsg(t, b4, epoch3Nodes),
-		finalizationMsg(t, b5, epoch3Nodes),
-		blockMsg(t, b4, epoch3Nodes),
-		blockMsg(t, b5, epoch3Nodes),
-	} {
-		m.send(nv)
-	}
-
-	tc.WaitForBlockCommit(5)
-}
-
 // TestHandleMessages_DuplicateBlock tests that when a duplicate block is received, the block is verify & indexed only once
 func TestHandleMessages_DuplicateBlock(t *testing.T) {
 	tc := newSeededChain(t, testNodes, 2)
@@ -259,4 +258,16 @@ func TestHandleMessages_DuplicateBlock(t *testing.T) {
 	// Storage will panic if we try indexing the same block twice
 	blockMsg(t, b3, testNodes).send(nv)
 	finalizationMsg(t, b3, testNodes).send(nv)
+}
+
+// Epoch 100
+// Epoch 50
+// Epoch 20
+// Epoch 1
+// We want to replicate all seqs 0-100
+// Maybe some messages randomly get dropped
+func TestReplication(t *testing.T) {
+
+	// nv := newTestNonValidator(t, TestConfig{storage: tc, nodes: testNodes})
+
 }

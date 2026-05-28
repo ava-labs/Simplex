@@ -43,6 +43,9 @@ type NonValidator struct {
 	// TODO: garbage collect old sequences
 	incompleteSequences map[uint64]*finalizedSeq
 
+	// highestEpochCollector
+	highestEpochCollector *epochReplicator
+
 	// epochs contain a map of all epochs that have their validator set verified.
 	epochs epochs
 
@@ -107,14 +110,14 @@ func (n *NonValidator) handleBlock(block simplex.Block, from simplex.NodeID) err
 	bh := block.BlockHeader()
 	n.Logger.Debug("Received a block message", zap.Uint64("Sequence", bh.Seq), zap.Stringer("From", from))
 
-	if bh.Seq > n.MaxRoundWindow+n.Storage.NumBlocks() {
-		n.Logger.Debug("Received a block from a sequence too far ahead", zap.Uint64("Num Blocks", n.Storage.NumBlocks()), zap.Uint64("Block Sequence", bh.Seq), zap.Stringer("From", from))
-		return nil
-	}
-
 	epoch, ok := n.epochs[bh.Epoch]
 	if !ok {
 		n.Logger.Debug("Received a block from an epoch we do not have", zap.Uint64("Epoch", bh.Epoch), zap.Stringer("From", from))
+		return nil
+	}
+
+	if bh.Seq > n.MaxRoundWindow+n.Storage.NumBlocks() {
+		n.Logger.Debug("Received a block from a sequence too far ahead", zap.Uint64("Num Blocks", n.Storage.NumBlocks()), zap.Uint64("Block Sequence", bh.Seq), zap.Stringer("From", from))
 		return nil
 	}
 
@@ -158,6 +161,7 @@ func (n *NonValidator) handleBlock(block simplex.Block, from simplex.NodeID) err
 	// add test that ensure this is here. otherwise i think an adversarial node can have us schedule many tasks
 	incomplete.block = block
 
+	n.maybeValidateNextEpoch(block)
 	finalizedBlockTask := n.createFinalizedBlockVerificationTask(block, incomplete.finalization)
 
 	var prev *simplex.Digest
@@ -196,18 +200,17 @@ func (n *NonValidator) createFinalizedBlockVerificationTask(block simplex.Block,
 			return md.Digest
 		}
 
-		// is this block a sealing block? set epochs
-		if sealingInfo := verifiedBlock.SealingBlockInfo(); sealingInfo != nil {
-			n.Logger.Info("We have verified a sealing block. Moving to the next epoch", zap.Uint64("Epoch", sealingInfo.Epoch))
-			n.epochs[sealingInfo.Epoch] = newEpochMetadata(sealingInfo, n.SignatureAggregatorCreator)
-
-			// we can delete the old epoch from the map
-			delete(n.epochs, verifiedBlock.BlockHeader().Epoch)
-		}
+		// TODO: check if we can remove from the epoch's map(can only remove epochs < block.Epoch)
 
 		n.removeOldIncompleteSeqs(md.Seq)
-
 		return md.Digest
+	}
+}
+
+func (n *NonValidator) maybeValidateNextEpoch(block simplex.Block) {
+	if sealingInfo := block.SealingBlockInfo(); sealingInfo != nil {
+		n.Logger.Info("We have valid sealing block, messages for that epoch can be processed.", zap.Uint64("Epoch", sealingInfo.Epoch))
+		n.epochs[sealingInfo.Epoch] = newEpochMetadata(sealingInfo, n.SignatureAggregatorCreator)
 	}
 }
 
@@ -294,6 +297,7 @@ func (n *NonValidator) handleFinalization(finalization *simplex.Finalization, fr
 		return nil
 	}
 
+	n.maybeValidateNextEpoch(incomplete.block)
 	finalizedBlockTask := n.createFinalizedBlockVerificationTask(incomplete.block, incomplete.finalization)
 
 	var prev *simplex.Digest
@@ -314,7 +318,6 @@ func (n *NonValidator) Stop() {
 func (n *NonValidator) handleReplicationResponse(resp *simplex.ReplicationResponse, from simplex.NodeID) error {
 	n.Logger.Debug("Received replication response", zap.Stringer("from", from), zap.Int("num seqs", len(resp.Data)), zap.Stringer("latest seq", resp.LatestSeq))
 
-	// process all the sequences and latest sequence
 	for _, qr := range resp.Data {
 		if err := n.processQuorumRound(&qr, from); err != nil {
 			return err
@@ -338,39 +341,48 @@ func (n *NonValidator) processQuorumRound(qr *simplex.QuorumRound, from simplex.
 
 	block := qr.Block
 	finalization := qr.Finalization
-	// we only care if finalizations are sent
+
+	// Non validators only process quorum rounds with finalizations
 	if finalization == nil {
 		return nil
 	}
 
-	lastBlock, _, err := n.Storage.Retrieve(n.Storage.NumBlocks() - 1)
-	if err != nil {
-		if err == simplex.ErrBlockNotFound {
-			return nil
-		}
-		storageError := fmt.Errorf("calling retrieve on storage failed: %w", err)
-		n.haltedError = storageError
-		return storageError
-	}
-
-	if lastBlock.BlockHeader().Seq >= block.BlockHeader().Seq {
+	if n.isAccepted(block.BlockHeader().Seq) {
 		return fmt.Errorf("processing quorum round for a block we already indexed")
 	}
 
 	epoch, ok := n.epochs[block.BlockHeader().Epoch]
-
-	// We do not have this epoch because we have yet to validate the sealing block for that epoch.
 	if !ok {
-		// TODO: request
+		if n.epochs.canValidate(block.SealingBlockInfo()) {
+			n.maybeValidateNextEpoch(block)
+		} else if n.highestEpochCollector.collectedQuorumRound(qr, from) {
+			n.maybeValidateNextEpoch(block)
+		} else {
+			// this block is from an epoch we cannot validate at this time
+			return nil
+		}
+
+		epoch, ok = n.epochs[block.BlockHeader().Epoch]
+		if !ok {
+			return fmt.Errorf("something went wrong")
+		}
 	}
 
-	err = simplex.VerifyQC(qr.Finalization.QC, n.Logger, "Finalization", epoch.signatureAggregator.IsQuorum, epoch.nodeLookup, qr.Finalization, from)
+	err := simplex.VerifyQC(qr.Finalization.QC, n.Logger, "Finalization", epoch.signatureAggregator.IsQuorum, epoch.nodeLookup, qr.Finalization, from)
 	if err != nil {
 		return fmt.Errorf("could not verify quorum round QC: %w", err)
 	}
 
-	// store in replication state
-	return nil
+	bh := block.BlockHeader()
+	finalizedBlockTask := n.createFinalizedBlockVerificationTask(block, finalization)
+
+	var prev *simplex.Digest
+	if bh.Seq > 0 && !n.isAccepted(bh.Seq-1) {
+		prev = &bh.Prev
+	}
+
+	// TODO: store in replication state
+	return n.verifier.ScheduleTaskWithDependencies(finalizedBlockTask, bh.Seq, prev, []uint64{})
 }
 
 // TODO: Broadcast the last known epoch to bootstrap the node. Collect responses marking the latest sealing block.
@@ -378,6 +390,7 @@ func (n *NonValidator) processQuorumRound(qr *simplex.QuorumRound, from simplex.
 func (n *NonValidator) broadcastLatestEpoch() {
 	highestEpoch := n.epochs.highestEpoch()
 
+	// Sending a LatestFinalizedSeq of 0 gets ignored by validators.
 	if highestEpoch == 0 {
 		highestEpoch = 1
 	}
