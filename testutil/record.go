@@ -54,13 +54,13 @@ func NewNotarizationRecord(logger simplex.Logger, signatureAggregator simplex.Si
 }
 
 // creates a new finalization
-func NewFinalizationRecord(t *testing.T, logger simplex.Logger, signatureAggregator simplex.SignatureAggregator, block simplex.VerifiedBlock, ids []simplex.NodeID) (simplex.Finalization, []byte) {
+func NewFinalizationRecord(t *testing.T, signatureAggregator simplex.SignatureAggregator, block simplex.VerifiedBlock, ids []simplex.NodeID) (simplex.Finalization, []byte) {
 	finalizations := make([]*simplex.FinalizeVote, len(ids))
 	for i, id := range ids {
 		finalizations[i] = NewTestFinalizeVote(t, block, id)
 	}
 
-	finalization, err := simplex.NewFinalization(logger, signatureAggregator, finalizations)
+	finalization, err := simplex.NewFinalization(signatureAggregator, finalizations)
 	require.NoError(t, err)
 
 	record := simplex.NewQuorumRecord(finalization.QC.Bytes(), finalization.Finalization.Bytes(), record.FinalizationRecordType)

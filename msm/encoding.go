@@ -110,27 +110,29 @@ func (sei *SimplexEpochInfo) Equal(other *SimplexEpochInfo) bool {
 	return true
 }
 
+// NextState returns the state used to build (or verify) the block that follows the one
+// described by the SimplexEpochInfo.
 func (sei *SimplexEpochInfo) NextState() state {
-	prevBlockSimplexEpochInfo := sei
-	// If this is the first ever epoch, then this is also the first ever block to be built by Simplex.
-	if prevBlockSimplexEpochInfo.EpochNumber == 0 {
+	// No Simplex epoch has started yet: the next block is the first one built by Simplex.
+	if sei.EpochNumber == 0 {
 		return stateFirstSimplexBlock
 	}
 
-	// If we don't have a next P-chain preference height, it means we are not transitioning to a new epoch just yet.
-	if prevBlockSimplexEpochInfo.NextPChainReferenceHeight == 0 {
+	// No epoch transition in progress, so the next block is a normal in-epoch block.
+	if sei.NextPChainReferenceHeight == 0 {
 		return stateBuildBlockNormalOp
 	}
 
-	// If the previous block has a sealing block sequence, it's a Telock.
-	// If it has a block validation descriptor, it's a sealing block.
-	// Either way, the epoch has been sealed.
-	if prevBlockSimplexEpochInfo.SealingBlockSeq > 0 || prevBlockSimplexEpochInfo.BlockValidationDescriptor != nil {
+	// If NextPChainReferenceHeight > 0, then an epoch transition is in progress.
+	// An epoch is sealed if
+	//   - SealingBlockSeq > 0: SimplexEpochInfo describes a Telock.
+	//   - BlockValidationDescriptor != nil: SimplexEpochInfo describes the sealing block itself.
+	if sei.SealingBlockSeq > 0 || sei.BlockValidationDescriptor != nil {
 		return stateBuildBlockEpochSealed
 	}
 
-	// In any other case, NextPChainReferenceHeight > 0 but the previous block is not a Telock or sealing block,
-	// it means we are in the process of collecting approvals for the next epoch.
+	// NextPChainReferenceHeight > 0 but the epoch is not yet sealed: we are still
+	// collecting validator approvals for the next epoch.
 	return stateBuildCollectingApprovals
 }
 

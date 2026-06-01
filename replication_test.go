@@ -133,7 +133,7 @@ func TestReplicationAdversarialNode(t *testing.T) {
 	net.Connect(laggingNode.E.ID)
 
 	sigAggr := laggingNode.E.SignatureAggregatorCreator(laggingNode.E.Comm.Nodes())
-	finalization, _ := NewFinalizationRecord(t, laggingNode.E.Logger, sigAggr, blocks[1], nodes[:quorum])
+	finalization, _ := NewFinalizationRecord(t, sigAggr, blocks[1], nodes[:quorum])
 	finalizationMsg := &simplex.Message{
 		Finalization: &finalization,
 	}
@@ -444,7 +444,7 @@ func TestReplicationFutureFinalization(t *testing.T) {
 	require.NoError(t, err)
 
 	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Nodes())
-	finalization, _ := NewFinalizationRecord(t, e.Logger, sigAggr, block, nodes[0:quorum])
+	finalization, _ := NewFinalizationRecord(t, sigAggr, block, nodes[0:quorum])
 	// send finalization
 	err = e.HandleMessage(&simplex.Message{
 		Finalization: &finalization,
@@ -631,7 +631,7 @@ func TestReplicationStuckInProposingBlock(t *testing.T) {
 	highBlock, _ := blocks[3].VerifiedBlock.(*TestBlock)
 
 	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Nodes())
-	highFinalization, _ := NewFinalizationRecord(t, e.Logger, sigAggr, highBlock, nodes[0:quorum])
+	highFinalization, _ := NewFinalizationRecord(t, sigAggr, highBlock, nodes[0:quorum])
 
 	// Trigger the replication process to start by sending a finalization for a block we do not have
 	e.HandleMessage(&simplex.Message{
@@ -906,7 +906,6 @@ func testReplicationNotarizationWithoutFinalizations(t *testing.T, numBlocks uin
 
 func createBlocks(t *testing.T, nodes []simplex.NodeID, seqCount uint64) []simplex.VerifiedFinalizedBlock {
 	bb := NewTestBlockBuilder()
-	logger := MakeLogger(t, int(0))
 	ctx := context.Background()
 	data := make([]simplex.VerifiedFinalizedBlock, 0, seqCount)
 	var prev simplex.Digest
@@ -920,7 +919,7 @@ func createBlocks(t *testing.T, nodes []simplex.NodeID, seqCount uint64) []simpl
 		block, ok := bb.BuildBlock(ctx, protocolMetadata, emptyBlacklist)
 		require.True(t, ok)
 		prev = block.BlockHeader().Digest
-		finalization, _ := NewFinalizationRecord(t, logger, &TestSignatureAggregator{N: len(nodes)}, block, nodes)
+		finalization, _ := NewFinalizationRecord(t, &TestSignatureAggregator{N: len(nodes)}, block, nodes)
 		data = append(data, simplex.VerifiedFinalizedBlock{
 			VerifiedBlock: block,
 			Finalization:  finalization,
@@ -978,7 +977,7 @@ func TestReplicationVerifyNotarization(t *testing.T) {
 	block := bb.GetBuiltBlock()
 
 	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Nodes())
-	finalization, _ := NewFinalizationRecord(t, e.Logger, sigAggr, block, nodes[0:quorum])
+	finalization, _ := NewFinalizationRecord(t, sigAggr, block, nodes[0:quorum])
 
 	// Trigger the replication process to start by sending a finalization for a block we do not have
 	e.HandleMessage(&simplex.Message{
@@ -1066,7 +1065,7 @@ func TestReplicationVerifyEmptyNotarization(t *testing.T) {
 	block := bb.GetBuiltBlock()
 
 	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Nodes())
-	finalization, _ := NewFinalizationRecord(t, e.Logger, sigAggr, block, nodes[0:quorum])
+	finalization, _ := NewFinalizationRecord(t, sigAggr, block, nodes[0:quorum])
 
 	// Trigger the replication process to start by sending a finalization for a block we do not have
 	e.HandleMessage(&simplex.Message{

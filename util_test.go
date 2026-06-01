@@ -95,7 +95,7 @@ func TestVerifyQC(t *testing.T) {
 			name: "valid finalization",
 			finalization: func() Finalization {
 				block := testutil.NewTestBlock(ProtocolMetadata{}, emptyBlacklist)
-				finalization, _ := testutil.NewFinalizationRecord(t, l, signatureAggregator, block, nodes[:quorumSize])
+				finalization, _ := testutil.NewFinalizationRecord(t, signatureAggregator, block, nodes[:quorumSize])
 				return finalization
 			}(),
 			quorumSize: quorumSize,
@@ -103,7 +103,7 @@ func TestVerifyQC(t *testing.T) {
 			name: "not enough signers",
 			finalization: func() Finalization {
 				block := testutil.NewTestBlock(ProtocolMetadata{}, emptyBlacklist)
-				finalization, _ := testutil.NewFinalizationRecord(t, l, signatureAggregator, block, nodes[:quorumSize-1])
+				finalization, _ := testutil.NewFinalizationRecord(t, signatureAggregator, block, nodes[:quorumSize-1])
 				return finalization
 			}(),
 			quorumSize:  quorumSize,
@@ -114,7 +114,7 @@ func TestVerifyQC(t *testing.T) {
 			finalization: func() Finalization {
 				block := testutil.NewTestBlock(ProtocolMetadata{}, emptyBlacklist)
 				doubleNodes := []NodeID{{1}, {2}, {3}, {4}, {4}}
-				finalization, _ := testutil.NewFinalizationRecord(t, l, signatureAggregator, block, doubleNodes)
+				finalization, _ := testutil.NewFinalizationRecord(t, signatureAggregator, block, doubleNodes)
 				return finalization
 			}(),
 			quorumSize:  quorumSize,
@@ -131,7 +131,7 @@ func TestVerifyQC(t *testing.T) {
 			finalization: func() Finalization {
 				block := testutil.NewTestBlock(ProtocolMetadata{}, emptyBlacklist)
 				signers := []NodeID{{1}, {2}, {3}, {4}, {6}}
-				finalization, _ := testutil.NewFinalizationRecord(t, l, signatureAggregator, block, signers)
+				finalization, _ := testutil.NewFinalizationRecord(t, signatureAggregator, block, signers)
 				return finalization
 			}(), quorumSize: quorumSize,
 			expectedErr: fmt.Errorf("finalization quorum certificate contains an unknown signer (0600000000000000)"),
@@ -140,7 +140,7 @@ func TestVerifyQC(t *testing.T) {
 			name: "invalid QC",
 			finalization: func() Finalization {
 				block := testutil.NewTestBlock(ProtocolMetadata{}, emptyBlacklist)
-				finalization, _ := testutil.NewFinalizationRecord(t, l, signatureAggregator, block, nodes[:quorumSize])
+				finalization, _ := testutil.NewFinalizationRecord(t, signatureAggregator, block, nodes[:quorumSize])
 				return finalization
 			}(),
 			quorumSize:  quorumSize,
@@ -182,7 +182,7 @@ func TestGetHighestQuorumRound(t *testing.T) {
 	}, emptyBlacklist)
 	notarization1, err := testutil.NewNotarization(l, signatureAggregator, block1, nodes)
 	require.NoError(t, err)
-	finalization1, _ := testutil.NewFinalizationRecord(t, l, signatureAggregator, block1, nodes)
+	finalization1, _ := testutil.NewFinalizationRecord(t, signatureAggregator, block1, nodes)
 
 	// seq 10
 	block10 := testutil.NewTestBlock(ProtocolMetadata{Seq: 10, Round: 10}, emptyBlacklist)
