@@ -29,7 +29,7 @@ var (
 	errZeroBlockHasInnerBlock         = errors.New("zero block must not have an inner block")
 	errZeroBlockInnerDigestMismatch   = errors.New("zero block inner block digest does not match last non-Simplex inner block digest")
 	errZeroBlockTimestampMismatch     = errors.New("zero block timestamp does not match last non-Simplex inner block timestamp")
-	errPrevSealingBlockNotFinalized   = errors.New("previous sealing InnerBlock is not finalized")
+	errPrevSealingBlockNotFinalized   = errors.New("previous sealing block is not finalized")
 	errBlockDigestMismatch            = errors.New("does not match proposed block digest")
 	errSealingBlockSeqUnset           = errors.New("cannot build epoch sealed block: sealing block sequence is 0 or undefined")
 	errEmptyNextEpochApprovals        = errors.New("next epoch approvals are empty")
@@ -322,9 +322,6 @@ func (sm *StateMachine) buildBlockOrTransitionEpoch(ctx context.Context, parentB
 	}
 	if finalization != nil {
 		isSealingBlockFinalized = true
-	} else {
-		sm.Logger.Debug("Previous sealing block not finalized yet, "+
-			"building normal block without epoch transition", zap.Uint64("sealingBlockSeq", sealingBlockSeq))
 	}
 
 	blockBuildingDecider := sm.createBlockBuildingDecider(newSimplexEpochInfo.PChainReferenceHeight)
@@ -604,10 +601,6 @@ func (sm *StateMachine) buildBlockZero(parentBlock StateMachineBlock, simplexMet
 }
 
 func (sm *StateMachine) verifyBlockZero(block *StateMachineBlock, prevBlock StateMachineBlock) error {
-	if block == nil {
-		return errNilBlock
-	}
-
 	simplexEpochInfo := block.Metadata.SimplexEpochInfo
 
 	if prevBlock.InnerBlock == nil {
@@ -900,7 +893,7 @@ func wrapBlock(parentBlock StateMachineBlock, childBlock VMBlock, newSimplexEpoc
 	}
 }
 
-func (sm *StateMachine) isSealingBlockFinalized(parentBlock StateMachineBlock, prevBlockSeq uint64) (bool, uint64, StateMachineBlock, error) {
+func (sm *StateMachine) areWeReadyToTransitionEpoch(parentBlock StateMachineBlock, prevBlockSeq uint64) (bool, uint64, StateMachineBlock, error) {
 	sealingBlockSeq := parentBlock.Metadata.SimplexEpochInfo.SealingBlockSeq
 
 	// If the sealing block sequence is still 0, it means previous block was the sealing block.
@@ -924,20 +917,19 @@ func (sm *StateMachine) isSealingBlockFinalized(parentBlock StateMachineBlock, p
 func (sm *StateMachine) buildBlockEpochSealed(ctx context.Context, parentBlock StateMachineBlock, simplexMetadata, simplexBlacklist []byte, prevBlockSeq uint64) (*StateMachineBlock, error) {
 	// We check if the sealing block has already been finalized.
 	// If not, we build a Telock block.
-	isSealingBlockFinalized, sealingBlockSeq, sealingBlock, err := sm.isSealingBlockFinalized(parentBlock, prevBlockSeq)
+	readyToTransitionEpoch, sealingBlockSeq, sealingBlock, err := sm.areWeReadyToTransitionEpoch(parentBlock, prevBlockSeq)
 	if err != nil {
 		return nil, err
 	}
 
-	newSimplexEpochInfo := computeSimplexEpochInfoForTelock(parentBlock, sealingBlockSeq, prevBlockSeq)
-
-	if !isSealingBlockFinalized {
+	if !readyToTransitionEpoch {
+		newSimplexEpochInfo := computeSimplexEpochInfoForTelock(parentBlock, sealingBlockSeq, prevBlockSeq)
 		pChainHeight := parentBlock.Metadata.PChainHeight
 		return wrapBlock(parentBlock, nil, newSimplexEpochInfo, pChainHeight, simplexMetadata, simplexBlacklist), nil
 	}
 
 	// Else, we build a block for the new epoch.
-	newSimplexEpochInfo = computeSimplexEpochInfoForNewEpoch(newSimplexEpochInfo, parentBlock, sealingBlockSeq, prevBlockSeq)
+	newSimplexEpochInfo := computeSimplexEpochInfoForNewEpoch(parentBlock, sealingBlockSeq, prevBlockSeq)
 
 	// TODO: This P-chain height should be taken from the ICM epoch
 
@@ -945,8 +937,8 @@ func (sm *StateMachine) buildBlockEpochSealed(ctx context.Context, parentBlock S
 
 }
 
-func computeSimplexEpochInfoForNewEpoch(newSimplexEpochInfo SimplexEpochInfo, parentBlock StateMachineBlock, sealingBlockSeq uint64, prevBlockSeq uint64) SimplexEpochInfo {
-	newSimplexEpochInfo = SimplexEpochInfo{
+func computeSimplexEpochInfoForNewEpoch(parentBlock StateMachineBlock, sealingBlockSeq uint64, prevBlockSeq uint64) SimplexEpochInfo {
+	newSimplexEpochInfo := SimplexEpochInfo{
 		// P-chain reference height is previous block's NextPChainReferenceHeight.
 		PChainReferenceHeight: parentBlock.Metadata.SimplexEpochInfo.NextPChainReferenceHeight,
 		// The epoch number is the sequence of the sealing block.
@@ -968,7 +960,7 @@ func computeSimplexEpochInfoForTelock(parentBlock StateMachineBlock, sealingBloc
 }
 
 func (sm *StateMachine) verifyBlockEpochSealed(ctx context.Context, parentBlock StateMachineBlock, nextBlock *StateMachineBlock, prevBlockSeq uint64) error {
-	isSealingBlockFinalized, sealingBlockSeq, _, err := sm.isSealingBlockFinalized(parentBlock, prevBlockSeq)
+	isSealingBlockFinalized, sealingBlockSeq, _, err := sm.areWeReadyToTransitionEpoch(parentBlock, prevBlockSeq)
 	if err != nil {
 		return err
 	}
@@ -980,7 +972,7 @@ func (sm *StateMachine) verifyBlockEpochSealed(ctx context.Context, parentBlock 
 	}
 
 	// Else, it's a new epoch.
-	newSimplexEpochInfo = computeSimplexEpochInfoForNewEpoch(newSimplexEpochInfo, parentBlock, sealingBlockSeq, prevBlockSeq)
+	newSimplexEpochInfo = computeSimplexEpochInfoForNewEpoch(parentBlock, sealingBlockSeq, prevBlockSeq)
 
 	// The first block of the new epoch may itself transition again, so trust and validate
 	// the proposed pchain height and (optional) next pchain reference height, mirroring

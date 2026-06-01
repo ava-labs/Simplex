@@ -203,6 +203,15 @@ func TestMSMFirstSimplexBlockAfterPreSimplexBlocks(t *testing.T) {
 	}, block)
 }
 
+func TestMSMBuildBlockRejectsZeroSeq(t *testing.T) {
+	// Seq 0 is reserved for the genesis block, which should never be built.
+	sm, _ := newStateMachine(t)
+
+	block, err := sm.BuildBlock(context.Background(), simplex.ProtocolMetadata{Seq: 0}, nil)
+	require.ErrorIs(t, err, errInvalidProtocolMetadataSeq)
+	require.Nil(t, block)
+}
+
 func TestMSMNormalOp(t *testing.T) {
 	newPChainHeight := uint64(200)
 	newValidatorSet := NodeBLSMappings{
@@ -882,6 +891,85 @@ func TestAreNextEpochApprovalsSignersSupersetOfApprovalsOfPrevBlock(t *testing.T
 			} else {
 				require.NoError(t, err)
 			}
+		})
+	}
+}
+
+func TestVerifyNextPChainRefHeightNormal(t *testing.T) {
+	const (
+		prevPChainRefHeight = uint64(50)
+		nextPChainRefHeight = uint64(80)
+		sealingBlockSeq     = uint64(5)
+	)
+
+	setA := NodeBLSMappings{{BLSKey: []byte{1}, Weight: 1}}
+	setB := NodeBLSMappings{{BLSKey: []byte{2}, Weight: 1}}
+
+	prevMD := StateMachineMetadata{
+		SimplexEpochInfo: SimplexEpochInfo{
+			PChainReferenceHeight: prevPChainRefHeight,
+			EpochNumber:           sealingBlockSeq,
+		},
+	}
+
+	withChangedValidatorSet := func(tc *testConfig) {
+		tc.validatorSetRetriever.resultMap = map[uint64]NodeBLSMappings{
+			prevPChainRefHeight: setA,
+			nextPChainRefHeight: setB,
+		}
+	}
+
+	tests := []struct {
+		name  string
+		next  SimplexEpochInfo
+		setup func(tc *testConfig)
+		err   error
+	}{
+		{
+			name: "next height zero returns nil",
+			next: SimplexEpochInfo{NextPChainReferenceHeight: 0},
+		},
+		{
+			name: "next height set, sealing block finalized",
+			next: SimplexEpochInfo{NextPChainReferenceHeight: nextPChainRefHeight},
+			setup: func(tc *testConfig) {
+				withChangedValidatorSet(tc)
+				tc.blockStore[sealingBlockSeq] = &outerBlock{finalization: &simplex.Finalization{}}
+			},
+		},
+		{
+			name: "next height set, sealing block not finalized",
+			next: SimplexEpochInfo{NextPChainReferenceHeight: nextPChainRefHeight},
+			setup: func(tc *testConfig) {
+				withChangedValidatorSet(tc)
+				tc.blockStore[sealingBlockSeq] = &outerBlock{finalization: nil}
+			},
+			err: errPrevSealingBlockNotFinalized,
+		},
+		{
+			name: "next height set, sealing block missing",
+			next: SimplexEpochInfo{NextPChainReferenceHeight: nextPChainRefHeight},
+			setup: func(tc *testConfig) {
+				withChangedValidatorSet(tc)
+				delete(tc.blockStore, sealingBlockSeq)
+			},
+			err: simplex.ErrBlockNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sm, tc := newStateMachine(t)
+			if tt.setup != nil {
+				tt.setup(tc)
+			}
+
+			err := sm.verifyNextPChainRefHeightNormal(prevMD, tt.next)
+			if tt.err == nil {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorIs(t, err, tt.err)
 		})
 	}
 }
