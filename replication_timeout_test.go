@@ -595,7 +595,6 @@ func TestReplicationMalformedQuorumRound(t *testing.T) {
 func TestReplicationResendsFinalizedBlocksThatFailedVerification(t *testing.T) {
 
 	// send a block, then simultaneously send a finalization for the block
-	l := testutil.MakeLogger(t, 1)
 	bb := testutil.NewTestBlockBuilder()
 
 	nodes := []simplex.NodeID{{1}, {2}, {3}, {4}}
@@ -623,7 +622,7 @@ func TestReplicationResendsFinalizedBlocksThatFailedVerification(t *testing.T) {
 	block.VerificationError = errors.New("block verification failed")
 
 	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Nodes())
-	finalization, _ := testutil.NewFinalizationRecord(t, l, sigAggr, block, nodes[0:quorum])
+	finalization, _ := testutil.NewFinalizationRecord(t, sigAggr, block, nodes[0:quorum])
 
 	// send the finalization to start the replication process
 	e.HandleMessage(&simplex.Message{
@@ -659,7 +658,7 @@ func TestReplicationResendsFinalizedBlocksThatFailedVerification(t *testing.T) {
 	block.Data = append(block.Data, 0)
 	block.ComputeDigest()
 
-	finalization, _ = testutil.NewFinalizationRecord(t, l, sigAggr, block, nodes[0:quorum])
+	finalization, _ = testutil.NewFinalizationRecord(t, sigAggr, block, nodes[0:quorum])
 	replicationResponse = &simplex.ReplicationResponse{
 		Data: []simplex.QuorumRound{
 			{
