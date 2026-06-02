@@ -296,7 +296,6 @@ type ValidatorSetApproval struct {
 	AuxInfoSeqDigest [32]byte `canoto:"fixed bytes,2"`
 	PChainHeight     uint64   `canoto:"uint,3"`
 	Signature        []byte   `canoto:"bytes,4"`
-	Timestamp        uint64   `canoto:"uint,5"`
 
 	canotoData canotoData_ValidatorSetApproval
 }

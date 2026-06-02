@@ -830,7 +830,6 @@ func (sm *StateMachine) computeNewApprovals(parentBlock StateMachineBlock) (*app
 	approvalsFromPeers = append(approvalsFromPeers, ValidatorSetApproval{
 		NodeID:       nodeID(sm.MyNodeID),
 		PChainHeight: parentBlock.Metadata.SimplexEpochInfo.NextPChainReferenceHeight,
-		Timestamp:    uint64(sm.GetTime().UnixMilli()),
 		Signature:    sig,
 	})
 

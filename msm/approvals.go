@@ -12,7 +12,12 @@ import (
 	"go.uber.org/zap"
 )
 
-type approvalsByPChainHeight map[uint64]*ValidatorSetApproval
+type approvalsByPChainHeight map[uint64]*approvalAndTimestamp
+
+type approvalAndTimestamp struct {
+	ValidatorSetApproval
+	Timestamp uint64
+}
 
 type ApprovalStore struct {
 	signatureVerifier SignatureVerifier
@@ -47,13 +52,13 @@ func (as *ApprovalStore) Approvals() ValidatorSetApprovals {
 	approvals := make(ValidatorSetApprovals, 0, as.storedCount)
 	for _, approvalsByHeight := range as.approvalsByNodes {
 		for _, approval := range approvalsByHeight {
-			approvals = append(approvals, *approval)
+			approvals = append(approvals, (*approval).ValidatorSetApproval)
 		}
 	}
 	return approvals
 }
 
-func (as *ApprovalStore) HandleApproval(approval *ValidatorSetApproval) error {
+func (as *ApprovalStore) HandleApproval(approval *ValidatorSetApproval, timestamp uint64) error {
 	// First thing we check is if the node that sent this approval is a validator.
 	pk, exists := as.getPKOfNode(approval.NodeID)
 	if !exists {
@@ -63,7 +68,7 @@ func (as *ApprovalStore) HandleApproval(approval *ValidatorSetApproval) error {
 	}
 
 	// Second thing we check is if we already have an approval for this height from this node.
-	if as.approvalExistsAndUpToDate(approval) {
+	if as.approvalExistsAndUpToDate(approval, timestamp) {
 		as.logger.Debug("Already have an approval from the node", zap.String("nodeID",
 			fmt.Sprintf("%x", approval.NodeID)), zap.Uint64("pChainHeight", approval.PChainHeight))
 		return nil
@@ -79,7 +84,10 @@ func (as *ApprovalStore) HandleApproval(approval *ValidatorSetApproval) error {
 
 	// Store the approval.
 	oldApproval := as.approvalsByNodes[approval.NodeID][approval.PChainHeight]
-	as.approvalsByNodes[approval.NodeID][approval.PChainHeight] = approval
+	as.approvalsByNodes[approval.NodeID][approval.PChainHeight] = &approvalAndTimestamp{
+		ValidatorSetApproval: *approval,
+		Timestamp:            timestamp,
+	}
 
 	if oldApproval == nil {
 		as.storedCount++
@@ -93,23 +101,24 @@ func (as *ApprovalStore) HandleApproval(approval *ValidatorSetApproval) error {
 }
 
 func (as *ApprovalStore) maybePruneOldApprovals(approval *ValidatorSetApproval) {
-	for len(as.approvalsByNodes[approval.NodeID]) > len(as.validators) {
-		// Find the oldest approval and delete it.
-		var oldestApproval *ValidatorSetApproval
-		for _, approval := range as.approvalsByNodes[approval.NodeID] {
-			if oldestApproval == nil || approval.Timestamp < oldestApproval.Timestamp {
-				oldestApproval = approval
-			}
+	if len(as.approvalsByNodes[approval.NodeID]) <= len(as.validators) {
+		return
+	}
+	// Find the oldest approval and delete it.
+	var oldestApproval *approvalAndTimestamp
+	for _, approval := range as.approvalsByNodes[approval.NodeID] {
+		if oldestApproval == nil || approval.Timestamp < oldestApproval.Timestamp {
+			oldestApproval = approval
 		}
+	}
 
-		if oldestApproval != nil {
-			as.logger.Debug("Deleting old approval from node",
-				zap.String("nodeID", fmt.Sprintf("%x", oldestApproval.NodeID)),
-				zap.String("oldestApprovalPChainHeight",
-					fmt.Sprintf("%d", oldestApproval.PChainHeight)), zap.Uint64("oldestApprovalTimestamp", oldestApproval.Timestamp))
-			delete(as.approvalsByNodes[approval.NodeID], oldestApproval.PChainHeight)
-			as.storedCount--
-		}
+	if oldestApproval != nil {
+		as.logger.Debug("Deleting old approval from node",
+			zap.String("nodeID", fmt.Sprintf("%x", oldestApproval.NodeID)),
+			zap.String("oldestApprovalPChainHeight",
+				fmt.Sprintf("%d", oldestApproval.PChainHeight)), zap.Uint64("oldestApprovalTimestamp", oldestApproval.Timestamp))
+		delete(as.approvalsByNodes[approval.NodeID], oldestApproval.PChainHeight)
+		as.storedCount--
 	}
 }
 
@@ -133,7 +142,7 @@ func (as *ApprovalStore) getPKOfNode(nodeID nodeID) ([]byte, bool) {
 	return pk, exists
 }
 
-func (as *ApprovalStore) approvalExistsAndUpToDate(approval *ValidatorSetApproval) bool {
+func (as *ApprovalStore) approvalExistsAndUpToDate(approval *ValidatorSetApproval, timestamp uint64) bool {
 	if as.approvalsByNodes[approval.NodeID] == nil {
 		return false
 	}
@@ -142,5 +151,5 @@ func (as *ApprovalStore) approvalExistsAndUpToDate(approval *ValidatorSetApprova
 		return false
 	}
 
-	return existingApproval.Timestamp >= approval.Timestamp
+	return existingApproval.Timestamp >= timestamp
 }
