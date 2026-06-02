@@ -6,11 +6,43 @@ package metadata
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/asn1"
+	"encoding/binary"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/ava-labs/simplex"
 	"go.uber.org/zap"
+)
+
+var (
+	errLastNonSimplexInnerBlockNil    = errors.New("failed constructing zero block: last non-Simplex inner block is nil")
+	errInvalidProtocolMetadataSeq     = errors.New("invalid ProtocolMetadata sequence number: should be > 0")
+	errInvalidProtocolMetadataEpoch   = errors.New("invalid ProtocolMetadata epoch number")
+	errUnknownState                   = errors.New("unknown state")
+	errBuiltGenesisInnerBlock         = errors.New("received a genesis block")
+	errZeroBlockParentNoInnerBlock    = errors.New("zero block's parent has no inner block")
+	errNilBlock                       = errors.New("block is nil")
+	errInvalidPChainHeight            = errors.New("invalid P-chain height")
+	errInvalidSimplexEpochInfo        = errors.New("invalid SimplexEpochInfo")
+	errZeroBlockHasInnerBlock         = errors.New("zero block must not have an inner block")
+	errZeroBlockInnerDigestMismatch   = errors.New("zero block inner block digest does not match last non-Simplex inner block digest")
+	errZeroBlockTimestampMismatch     = errors.New("zero block timestamp does not match last non-Simplex inner block timestamp")
+	errPrevSealingBlockNotFinalized   = errors.New("previous sealing block is not finalized")
+	errBlockDigestMismatch            = errors.New("does not match proposed block digest")
+	errSealingBlockSeqUnset           = errors.New("cannot build epoch sealed block: sealing block sequence is 0 or undefined")
+	errEmptyNextEpochApprovals        = errors.New("next epoch approvals are empty")
+	errPChainReferenceHeightMismatch  = errors.New("unexpected P-chain reference height")
+	errPChainReferenceHeightDecreased = errors.New("P-chain reference height is decreasing")
+	errValidatorSetUnchanged          = errors.New("validator set unchanged; next P-chain reference height should not have advanced")
+	errPChainHeightNotReached         = errors.New("haven't reached referenced P-chain height yet")
+	errPChainHeightTooBig             = errors.New("invalid P-chain height: greater than current")
+	errPChainHeightSmallerThanParent  = errors.New("invalid P-chain height: smaller than parent block's")
+	errSignerSetShrunk                = errors.New("some signers from parent block are missing from next epoch approvals of proposed block")
+	errNextEpochApprovalsShrunk       = errors.New("previous block has next epoch approvals but proposed block doesn't have next epoch approvals")
+
+	signatureContext = "MSM approval"
 )
 
 // A StateMachineBlock is a representation of a parsed OuterBlock, containing the inner block and the metadata.
@@ -69,26 +101,8 @@ type BlockBuilder interface {
 	WaitForPendingBlock(ctx context.Context)
 }
 
-type verificationInput struct {
-	prevMD              StateMachineMetadata
-	proposedBlockMD     StateMachineMetadata
-	hasInnerBlock       bool
-	innerBlockTimestamp time.Time // only set when hasInnerBlock is true
-	prevBlockSeq        uint64
-	nextBlockType       BlockType
-	state               state
-}
-
-type verifier interface {
-	Verify(in verificationInput) error
-}
-
 // StateMachine manages block building and verification across epoch transitions.
 type StateMachine struct {
-	// verifiers is the list of verifiers used to verify proposed blocks.
-	// Each verifier is responsible for verifying a specific aspect of the block's metadata.
-	verifiers []verifier
-
 	*Config
 }
 
@@ -125,8 +139,6 @@ type Config struct {
 	SignatureVerifier SignatureVerifier
 	// PChainProgressListener listens for changes in the P-chain height to trigger block building or epoch transitions.
 	PChainProgressListener PChainProgressListener
-	// FirstEverSimplexBlock is the first block ever built by Simplex, or nil if Simplex has yet to build a block.
-	FirstEverSimplexBlock func() *StateMachineBlock
 	// LastNonSimplexBlockPChainHeight is the P-chain height of the last block built by a non-Simplex proposer.
 	// It is used to determine the validator set of the first ever Simplex epoch.
 	LastNonSimplexBlockPChainHeight uint64
@@ -148,7 +160,7 @@ const (
 func NewStateMachine(config *Config) (*StateMachine, error) {
 	if config.LastNonSimplexInnerBlock == nil {
 		config.Logger.Error("Last non-Simplex inner block is nil, cannot build zero block with correct metadata")
-		return nil, fmt.Errorf("failed constructing zero block: last non-Simplex inner block is nil")
+		return nil, errLastNonSimplexInnerBlockNil
 	}
 	sm := StateMachine{Config: config}
 	return &sm, nil
@@ -158,7 +170,7 @@ func NewStateMachine(config *Config) (*StateMachine, error) {
 func (sm *StateMachine) BuildBlock(ctx context.Context, metadata simplex.ProtocolMetadata, blacklist *simplex.Blacklist) (*StateMachineBlock, error) {
 	// The zero sequence number is reserved for the genesis block, which should never be built.
 	if metadata.Seq == 0 {
-		return nil, fmt.Errorf("invalid ProtocolMetadata sequence number: should be > 0, got %d", metadata.Seq)
+		return nil, fmt.Errorf("%w: got %d", errInvalidProtocolMetadataSeq, metadata.Seq)
 	}
 
 	prevBlockSeq := metadata.Seq - 1
@@ -206,7 +218,7 @@ func (sm *StateMachine) BuildBlock(ctx context.Context, metadata simplex.Protoco
 	case stateBuildBlockEpochSealed:
 		return sm.buildBlockEpochSealed(ctx, parentBlock, simplexMetadataBytes, simplexBlacklistBytes, prevBlockSeq)
 	default:
-		return nil, fmt.Errorf("unknown state %d", currentState)
+		return nil, fmt.Errorf("%w: %d", errUnknownState, currentState)
 	}
 }
 
@@ -214,7 +226,7 @@ func (sm *StateMachine) BuildBlock(ctx context.Context, metadata simplex.Protoco
 // and inner block against the previous block and the current state.
 func (sm *StateMachine) VerifyBlock(ctx context.Context, block *StateMachineBlock) error {
 	if block == nil {
-		return fmt.Errorf("InnerBlock is nil")
+		return errNilBlock
 	}
 
 	pmd, err := simplex.ProtocolMetadataFromBytes(block.Metadata.SimplexProtocolMetadata)
@@ -225,7 +237,9 @@ func (sm *StateMachine) VerifyBlock(ctx context.Context, block *StateMachineBloc
 	seq := pmd.Seq
 
 	if seq == 0 {
-		return fmt.Errorf("attempted to build a genesis inner block")
+		// This shouldn't happen, but in case we're asked to verify a block with a sequence of 0,
+		// we should reject it, because the zero sequence number is reserved for the genesis block, which should never be proposed.
+		return errBuiltGenesisInnerBlock
 	}
 
 	prevBlock, _, err := sm.GetBlock(seq-1, pmd.Prev)
@@ -240,49 +254,49 @@ func (sm *StateMachine) VerifyBlock(ctx context.Context, block *StateMachineBloc
 	case stateFirstSimplexBlock:
 		err = sm.verifyBlockZero(block, prevBlock)
 	default:
-		err = sm.verifyNonZeroBlock(ctx, block, prevBlock.Metadata, currentState, seq-1)
+		err = sm.verifyNonZeroBlock(ctx, block, &prevBlock, seq-1)
 	}
 	return err
 }
 
-func (sm *StateMachine) verifyNonZeroBlock(ctx context.Context, block *StateMachineBlock, prevBlockMD StateMachineMetadata, state state, prevSeq uint64) error {
-	blockType := IdentifyBlockType(block.Metadata, prevBlockMD, prevSeq)
-	sm.Logger.Debug("Identified block type",
-		zap.Stringer("blockType", blockType),
-		zap.Bool("nextHasBVD", block.Metadata.SimplexEpochInfo.BlockValidationDescriptor != nil),
-		zap.Uint64("nextEpochNumber", block.Metadata.SimplexEpochInfo.EpochNumber),
-		zap.Bool("prevHasBVD", prevBlockMD.SimplexEpochInfo.BlockValidationDescriptor != nil),
-		zap.Uint64("prevEpochNumber", prevBlockMD.SimplexEpochInfo.EpochNumber),
-		zap.Uint64("prevNextPChainRefHeight", prevBlockMD.SimplexEpochInfo.NextPChainReferenceHeight),
-		zap.Uint64("prevSealingBlockSeq", prevBlockMD.SimplexEpochInfo.SealingBlockSeq),
-		zap.Uint64("prevSeq", prevSeq),
-	)
+func (sm *StateMachine) verifyNonZeroBlock(ctx context.Context, block, prevBlock *StateMachineBlock, prevSeq uint64) error {
+	prevBlockMD := prevBlock.Metadata
+	currentState := prevBlockMD.SimplexEpochInfo.NextState()
 
-	var innerBlockTimestamp time.Time
-	if block.InnerBlock != nil {
-		innerBlockTimestamp = block.InnerBlock.Timestamp()
+	currentPChainHeight := sm.GetPChainHeight()
+	prevPChainHeight := prevBlockMD.PChainHeight
+	proposedPChainHeight := block.Metadata.PChainHeight
+
+	if err := verifyPChainHeight(proposedPChainHeight, currentPChainHeight, prevPChainHeight); err != nil {
+		return fmt.Errorf("failed to verify P-chain height: %w", err)
 	}
 
-	for _, verifier := range sm.verifiers {
-		if err := verifier.Verify(verificationInput{
-			proposedBlockMD:     block.Metadata,
-			nextBlockType:       blockType,
-			prevMD:              prevBlockMD,
-			state:               state,
-			prevBlockSeq:        prevSeq,
-			hasInnerBlock:       block.InnerBlock != nil,
-			innerBlockTimestamp: innerBlockTimestamp,
-		}); err != nil {
-			sm.Logger.Debug("Invalid block", zap.Error(err))
-			return err
-		}
+	err := sm.verifyEpochNumber(block)
+	if err != nil {
+		return err
 	}
 
-	if block.InnerBlock == nil {
-		return nil
+	switch currentState {
+	case stateBuildBlockNormalOp:
+		return sm.verifyNormalBlock(ctx, *prevBlock, block, prevSeq)
+	case stateBuildCollectingApprovals:
+		return sm.verifyCollectingApprovalsBlock(ctx, *prevBlock, block, prevSeq)
+	case stateBuildBlockEpochSealed:
+		return sm.verifyBlockEpochSealed(ctx, *prevBlock, block, prevSeq)
+	default:
+		return fmt.Errorf("%w: %d", errUnknownState, currentState)
 	}
+}
 
-	return block.InnerBlock.Verify(ctx)
+func (sm *StateMachine) verifyEpochNumber(block *StateMachineBlock) error {
+	md, err := simplex.ProtocolMetadataFromBytes(block.Metadata.SimplexProtocolMetadata)
+	if err != nil {
+		return fmt.Errorf("failed to parse ProtocolMetadata: %w", err)
+	}
+	if md.Epoch != block.Metadata.SimplexEpochInfo.EpochNumber {
+		return fmt.Errorf("%w: got %d, expected %d", errInvalidProtocolMetadataEpoch, md.Epoch, block.Metadata.SimplexEpochInfo.EpochNumber)
+	}
+	return nil
 }
 
 // buildBlockNormalOp builds a block while potentially also transitioning to a new epoch, depending on the P-chain.
@@ -300,6 +314,16 @@ func (sm *StateMachine) buildBlockNormalOp(ctx context.Context, parentBlock Stat
 
 // buildBlockOrTransitionEpoch builds a block and decides whether to transition to a new epoch based on the P-chain height and validator set changes.
 func (sm *StateMachine) buildBlockOrTransitionEpoch(ctx context.Context, parentBlock StateMachineBlock, simplexMetadata, simplexBlacklist []byte, newSimplexEpochInfo SimplexEpochInfo) (*StateMachineBlock, error) {
+	var isSealingBlockFinalized bool
+	sealingBlockSeq := parentBlock.Metadata.SimplexEpochInfo.EpochNumber
+	_, finalization, err := sm.GetBlock(sealingBlockSeq, [32]byte{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve sealing block for previous epoch (%d): %w", sealingBlockSeq, err)
+	}
+	if finalization != nil {
+		isSealingBlockFinalized = true
+	}
+
 	blockBuildingDecider := sm.createBlockBuildingDecider(newSimplexEpochInfo.PChainReferenceHeight)
 	decisionToBuildBlock, err := blockBuildingDecider.shouldBuildBlock(ctx)
 	if err != nil {
@@ -311,7 +335,7 @@ func (sm *StateMachine) buildBlockOrTransitionEpoch(ctx context.Context, parentB
 		zap.Bool("transition epoch", decisionToBuildBlock.transitionEpoch),
 		zap.Uint64("P-chain height", decisionToBuildBlock.pChainHeight))
 
-	if decisionToBuildBlock.transitionEpoch {
+	if decisionToBuildBlock.transitionEpoch && isSealingBlockFinalized {
 		sm.Logger.Debug("Transitioning epoch after building block", zap.Uint64("newPChainRefHeight", decisionToBuildBlock.pChainHeight))
 		newSimplexEpochInfo.NextPChainReferenceHeight = decisionToBuildBlock.pChainHeight
 	}
@@ -326,7 +350,170 @@ func (sm *StateMachine) buildBlockOrTransitionEpoch(ctx context.Context, parentB
 		}
 	}
 
-	return sm.wrapBlock(parentBlock, innerBlock, newSimplexEpochInfo, decisionToBuildBlock.pChainHeight, simplexMetadata, simplexBlacklist), nil
+	return wrapBlock(parentBlock, innerBlock, newSimplexEpochInfo, decisionToBuildBlock.pChainHeight, simplexMetadata, simplexBlacklist), nil
+}
+
+func verifyAgainstExpected(
+	ctx context.Context,
+	parentBlock StateMachineBlock,
+	innerBlock VMBlock,
+	expectedSimplexEpochInfo SimplexEpochInfo,
+	expectedPChainHeight uint64,
+	nextBlock *StateMachineBlock,
+) error {
+	if innerBlock != nil {
+		if err := innerBlock.Verify(ctx); err != nil {
+			return err
+		}
+	}
+	expectedBlock := wrapBlock(
+		parentBlock, innerBlock, expectedSimplexEpochInfo, expectedPChainHeight,
+		nextBlock.Metadata.SimplexProtocolMetadata, nextBlock.Metadata.SimplexBlacklist,
+	)
+	if expectedBlock.Digest() != nextBlock.Digest() {
+		return fmt.Errorf("expected block digest %s does not match proposed block digest %s: %w",
+			expectedBlock.Digest(),
+			nextBlock.Digest(),
+			errBlockDigestMismatch)
+	}
+	return nil
+}
+
+func (sm *StateMachine) verifyNormalBlock(ctx context.Context, parentBlock StateMachineBlock, nextBlock *StateMachineBlock, prevBlockSeq uint64) error {
+	newSimplexEpochInfo := SimplexEpochInfo{
+		PChainReferenceHeight: parentBlock.Metadata.SimplexEpochInfo.PChainReferenceHeight,
+		EpochNumber:           parentBlock.Metadata.SimplexEpochInfo.EpochNumber,
+		PrevVMBlockSeq:        computePrevVMBlockSeq(parentBlock, prevBlockSeq),
+	}
+
+	proposedPChainHeight := nextBlock.Metadata.PChainHeight
+
+	if err := sm.verifyNextPChainRefHeightNormal(parentBlock.Metadata, nextBlock.Metadata.SimplexEpochInfo); err != nil {
+		return fmt.Errorf("failed to verify next P-chain reference height for normal block: %w", err)
+	}
+	newSimplexEpochInfo.NextPChainReferenceHeight = nextBlock.Metadata.SimplexEpochInfo.NextPChainReferenceHeight
+
+	return verifyAgainstExpected(ctx, parentBlock, nextBlock.InnerBlock, newSimplexEpochInfo, proposedPChainHeight, nextBlock)
+}
+
+func verifyPChainHeight(proposedPChainHeight uint64, currentPChainHeight uint64, prevPChainHeight uint64) error {
+	if proposedPChainHeight > currentPChainHeight {
+		return fmt.Errorf("%w: proposed %d, current %d",
+			errPChainHeightTooBig, proposedPChainHeight, currentPChainHeight)
+	}
+
+	if prevPChainHeight > proposedPChainHeight {
+		return fmt.Errorf("%w: proposed %d, parent %d",
+			errPChainHeightSmallerThanParent, proposedPChainHeight, prevPChainHeight)
+	}
+	return nil
+}
+
+func (sm *StateMachine) verifyNextPChainRefHeightNormal(prevMD StateMachineMetadata, next SimplexEpochInfo) error {
+	prev := prevMD.SimplexEpochInfo
+	// Next P-chain height can only increase, not decrease.
+	if next.NextPChainReferenceHeight > 0 && prev.PChainReferenceHeight > next.NextPChainReferenceHeight {
+		return fmt.Errorf("%w: previous P-chain reference height is %d and the proposed P-chain reference height is %d", errPChainReferenceHeightDecreased, prev.PChainReferenceHeight, next.NextPChainReferenceHeight)
+	}
+
+	// If the previous block already has a next P-chain reference height,
+	// we should keep the same next P-chain reference height until we reach it.
+	if prev.NextPChainReferenceHeight > 0 {
+		if next.NextPChainReferenceHeight != prev.NextPChainReferenceHeight {
+			return fmt.Errorf("%w: expected %d but got %d", errPChainReferenceHeightMismatch, prev.NextPChainReferenceHeight, next.NextPChainReferenceHeight)
+		}
+		return nil
+	}
+
+	// If we reached here, then prev.NextPChainReferenceHeight == 0.
+	// If the previous block's next P-chain reference height is 0, and the new block's next P-chain reference height is > 0,
+	// we need to ensure that we have finalized the sealing block of the previous epoch.
+	if next.NextPChainReferenceHeight > 0 {
+		sealingBlockSeq := prev.EpochNumber
+		_, finalization, err := sm.GetBlock(sealingBlockSeq, [32]byte{})
+		if err != nil {
+			return fmt.Errorf("failed to retrieve sealing block for previous epoch (%d): %w", sealingBlockSeq, err)
+		}
+		if finalization == nil {
+			return fmt.Errorf("%w: sealing block sequence %d", errPrevSealingBlockNotFinalized, sealingBlockSeq)
+		}
+	}
+
+	// Make sure we have reached the next P-chain reference height, otherwise we won't be able to validate it.
+	pChainHeight := sm.GetPChainHeight()
+
+	if pChainHeight < next.NextPChainReferenceHeight {
+		return fmt.Errorf("%w: target %d, current %d", errPChainHeightNotReached, next.NextPChainReferenceHeight, pChainHeight)
+	}
+
+	// It might be that this block is the first block that has set the next P-chain reference height for the epoch,
+	// so check if it has done so correctly by observing whether the validator set has indeed changed.
+
+	currentValidatorSet, err := sm.GetValidatorSet(prevMD.SimplexEpochInfo.PChainReferenceHeight)
+	if err != nil {
+		return err
+	}
+
+	newValidatorSet, err := sm.GetValidatorSet(next.NextPChainReferenceHeight)
+	if err != nil {
+		return err
+	}
+
+	// If the validator set doesn't change, we shouldn't have increased the next P-chain reference height.
+	if currentValidatorSet.Equal(newValidatorSet) && next.NextPChainReferenceHeight > 0 {
+		return fmt.Errorf("%w: validator set at proposed next P-chain reference height %d matches previous block's P-chain reference height %d",
+			errValidatorSetUnchanged, next.NextPChainReferenceHeight, prev.PChainReferenceHeight)
+	}
+
+	// Else, either the validator set has changed, or the next P-chain reference height is still 0.
+	// Both of these cases are fine.
+
+	return nil
+}
+
+// verifyNextPChainRefHeightForNewEpoch validates the proposed NextPChainReferenceHeight on the
+// first block of a new epoch.
+// This handles a corner case where the first block of an epoch initiates an epoch transition.
+// We cannot reuse verifyNextPChainRefHeightNormal here — the baseline
+// for the validator-set change check is the new epoch's PChainReferenceHeight, not the parent's,
+// as in verifyNextPChainRefHeightNormal.
+func (sm *StateMachine) verifyNextPChainRefHeightForNewEpoch(expectedEpochInfo SimplexEpochInfo, next SimplexEpochInfo) error {
+	// The first block of the epoch doesn't trigger an epoch change, we're all set.
+	if next.NextPChainReferenceHeight == 0 {
+		return nil
+	}
+
+	// Next P-chain reference height cannot be smaller than the P-chain reference height,
+	// as the P-chain reference height itself cannot decrease, and the next P-chain reference height
+	// becomes the P-chain reference height when we change epochs.
+	if next.NextPChainReferenceHeight < expectedEpochInfo.PChainReferenceHeight {
+		return fmt.Errorf("%w: new epoch P-chain reference height is %d and the proposed next P-chain reference height is %d",
+			errPChainReferenceHeightDecreased, expectedEpochInfo.PChainReferenceHeight, next.NextPChainReferenceHeight)
+	}
+
+	// If we haven't reached this P-chain height yet, we cannot accept the next P-chain reference height,
+	// because there is no way of querying the validator set for the next P-chain reference height.
+	pChainHeight := sm.GetPChainHeight()
+	if pChainHeight < next.NextPChainReferenceHeight {
+		return fmt.Errorf("%w: target %d, current %d", errPChainHeightNotReached, next.NextPChainReferenceHeight, pChainHeight)
+	}
+
+	currentValidatorSet, err := sm.GetValidatorSet(expectedEpochInfo.PChainReferenceHeight)
+	if err != nil {
+		return err
+	}
+
+	newValidatorSet, err := sm.GetValidatorSet(next.NextPChainReferenceHeight)
+	if err != nil {
+		return err
+	}
+
+	if currentValidatorSet.Equal(newValidatorSet) {
+		return fmt.Errorf("%w: validator set at proposed next P-chain reference height %d matches new epoch's P-chain reference height %d",
+			errValidatorSetUnchanged, next.NextPChainReferenceHeight, expectedEpochInfo.PChainReferenceHeight)
+	}
+
+	return nil
 }
 
 func (sm *StateMachine) createBlockBuildingDecider(pChainReferenceHeight uint64) blockBuildingDecider {
@@ -389,7 +576,7 @@ func (sm *StateMachine) buildBlockZero(parentBlock StateMachineBlock, simplexMet
 		// We can only have blocks without inner blocks in Simplex blocks, but this is the first Simplex block.
 		// Therefore, the parent block must have an inner block.
 		sm.Logger.Error("Parent block has no inner block, cannot determine previous VM block sequence for zero block")
-		return nil, fmt.Errorf("failed constructing zero block: parent block has no inner block")
+		return nil, errZeroBlockParentNoInnerBlock
 	}
 
 	timestamp := sm.LastNonSimplexInnerBlock.Timestamp().UnixMilli()
@@ -414,30 +601,22 @@ func (sm *StateMachine) buildBlockZero(parentBlock StateMachineBlock, simplexMet
 }
 
 func (sm *StateMachine) verifyBlockZero(block *StateMachineBlock, prevBlock StateMachineBlock) error {
-	if block == nil {
-		return fmt.Errorf("block is nil")
-	}
-
 	simplexEpochInfo := block.Metadata.SimplexEpochInfo
 
-	if simplexEpochInfo.EpochNumber != 1 {
-		return fmt.Errorf("invalid epoch number (%d), should be 1", simplexEpochInfo.EpochNumber)
-	}
-
 	if prevBlock.InnerBlock == nil {
-		return fmt.Errorf("parent inner block (%s) has no inner block", prevBlock.Digest())
+		return fmt.Errorf("%w: parent digest %s", errZeroBlockParentNoInnerBlock, prevBlock.Digest())
 	}
 
 	pChainHeight := sm.LastNonSimplexBlockPChainHeight
 	prevVMBlockSeq := prevBlock.InnerBlock.Height()
 
 	if block.Metadata.PChainHeight != pChainHeight {
-		return fmt.Errorf("invalid P-chain height (%d), expected to be %d",
-			block.Metadata.PChainHeight, pChainHeight)
+		return fmt.Errorf("%w: got %d, expected %d",
+			errInvalidPChainHeight, block.Metadata.PChainHeight, pChainHeight)
 	}
 
 	var expectedValidatorSet NodeBLSMappings
-	if prevBlock.InnerBlock.Height() == 0 {
+	if prevVMBlockSeq == 0 {
 		expectedValidatorSet = sm.GenesisValidatorSet
 	} else {
 		var err error
@@ -447,80 +626,38 @@ func (sm *StateMachine) verifyBlockZero(block *StateMachineBlock, prevBlock Stat
 		}
 	}
 
-	if simplexEpochInfo.BlockValidationDescriptor == nil {
-		return fmt.Errorf("invalid BlockValidationDescriptor: should not be nil")
-	}
-
-	membership := simplexEpochInfo.BlockValidationDescriptor.AggregatedMembership.Members
-	if !NodeBLSMappings(membership).Equal(expectedValidatorSet) {
-		return fmt.Errorf("invalid BlockValidationDescriptor: should match validator set at P-chain height %d", pChainHeight)
-	}
-
 	// If we have compared all fields so far, the rest of the fields we compare by constructing an explicit expected SimplexEpochInfo
 	expectedSimplexEpochInfo := constructSimplexZeroBlockSimplexEpochInfo(pChainHeight, expectedValidatorSet, prevVMBlockSeq)
 
 	if !expectedSimplexEpochInfo.Equal(&simplexEpochInfo) {
-		return fmt.Errorf("invalid SimplexEpochInfo: expected %v, got %v", expectedSimplexEpochInfo, simplexEpochInfo)
+		return fmt.Errorf("%w: expected %v, got %v", errInvalidSimplexEpochInfo, expectedSimplexEpochInfo, simplexEpochInfo)
 	}
 
 	// The InnerBlock must match the last non-Simplex inner block.
 	if block.InnerBlock != nil {
-		return fmt.Errorf("zero block must not have an inner block")
+		return errZeroBlockHasInnerBlock
 	}
 	if prevBlock.InnerBlock.Digest() != sm.LastNonSimplexInnerBlock.Digest() {
-		return fmt.Errorf("zero block inner block digest does not match last non-Simplex inner block digest")
+		return errZeroBlockInnerDigestMismatch
 	}
 
 	// The timestamp must equal the last non-Simplex inner block's timestamp.
 	expectedTimestamp := uint64(sm.LastNonSimplexInnerBlock.Timestamp().UnixMilli())
 	if block.Metadata.Timestamp != expectedTimestamp {
-		return fmt.Errorf("expected timestamp to be %d but got %d", expectedTimestamp, block.Metadata.Timestamp)
+		return fmt.Errorf("%w: expected %d but got %d", errZeroBlockTimestampMismatch, expectedTimestamp, block.Metadata.Timestamp)
 	}
 
 	return nil
 }
 
 func (sm *StateMachine) buildBlockCollectingApprovals(ctx context.Context, parentBlock StateMachineBlock, simplexMetadata, simplexBlacklist []byte, prevBlockSeq uint64) (*StateMachineBlock, error) {
-	// The P-chain reference height and epoch number should remain the same until we transition to the new epoch.
-	// The next P-chain reference height should have been set in the previous block,
-	// which is the reason why we are collecting approvals in the first place.
-	newSimplexEpochInfo := SimplexEpochInfo{
-		PChainReferenceHeight:     parentBlock.Metadata.SimplexEpochInfo.PChainReferenceHeight,
-		EpochNumber:               parentBlock.Metadata.SimplexEpochInfo.EpochNumber,
-		NextPChainReferenceHeight: parentBlock.Metadata.SimplexEpochInfo.NextPChainReferenceHeight,
-		PrevVMBlockSeq:            computePrevVMBlockSeq(parentBlock, prevBlockSeq),
-	}
-
-	// We prepare information that is needed to compute the approvals for the new epoch,
-	// such as the validator set for the next epoch, and the approvals from peers.
-	validators, err := sm.GetValidatorSet(parentBlock.Metadata.SimplexEpochInfo.NextPChainReferenceHeight)
+	newApprovals, err := sm.computeNewApprovals(parentBlock)
 	if err != nil {
 		return nil, err
 	}
 
-	// We retrieve approvals that validators have sent us for the next epoch.
-	// These approvals are signed by validators of the next epoch.
-	approvalsFromPeers := sm.ApprovalsRetriever.Approvals()
-	sm.Logger.Debug("Retrieved approvals from peers", zap.Int("numApprovals", len(approvalsFromPeers)))
+	newSimplexEpochInfo := computeSimplexEpochInfoForCollectingApprovalsBlock(parentBlock, prevBlockSeq, newApprovals)
 
-	nextPChainHeight := newSimplexEpochInfo.NextPChainReferenceHeight
-	prevNextEpochApprovals := parentBlock.Metadata.SimplexEpochInfo.NextEpochApprovals
-
-	sigAggr := sm.SignatureAggregatorCreator(validators.NodeWeights())
-
-	newApprovals, err := computeNewApprovals(prevNextEpochApprovals, approvalsFromPeers, nextPChainHeight, sigAggr, validators, sm.Logger)
-	if err != nil {
-		return nil, err
-	}
-
-	// This might be the first time we created approvals for the next epoch,
-	// so we need to initialize the NextEpochApprovals.
-	if newSimplexEpochInfo.NextEpochApprovals == nil {
-		newSimplexEpochInfo.NextEpochApprovals = &NextEpochApprovals{}
-	}
-	// The node IDs and signature are aggregated across all past and present approvals.
-	newSimplexEpochInfo.NextEpochApprovals.NodeIDs = newApprovals.nodeIDs
-	newSimplexEpochInfo.NextEpochApprovals.Signature = newApprovals.signature
 	pChainHeight := parentBlock.Metadata.PChainHeight
 
 	// We might not have enough approvals to seal the current epoch,
@@ -535,6 +672,146 @@ func (sm *StateMachine) buildBlockCollectingApprovals(ctx context.Context, paren
 
 	// Else, we have enough approvals to seal the epoch, so we create the sealing block.
 	return sm.createSealingBlock(ctx, parentBlock, simplexMetadata, simplexBlacklist, newSimplexEpochInfo, pChainHeight)
+}
+
+func (sm *StateMachine) verifyCollectingApprovalsBlock(ctx context.Context, parentBlock StateMachineBlock, nextBlock *StateMachineBlock, prevBlockSeq uint64) error {
+	nextMD := nextBlock.Metadata
+	newApprovals := nextMD.SimplexEpochInfo.NextEpochApprovals
+
+	// The block builder should at least include its own approval in the block it builds,
+	// so we should have some approvals in the proposed block.
+	if newApprovals == nil || len(newApprovals.NodeIDs) == 0 || len(newApprovals.Signature) == 0 {
+		return errEmptyNextEpochApprovals
+	}
+
+	prevEpochInfo := parentBlock.Metadata.SimplexEpochInfo
+	nextEpochInfo := nextBlock.Metadata.SimplexEpochInfo
+
+	validators, err := sm.GetValidatorSet(prevEpochInfo.NextPChainReferenceHeight)
+	if err != nil {
+		return err
+	}
+
+	err = sm.verifyNextEpochApprovalsSignature(prevEpochInfo, nextEpochInfo, validators)
+	if err != nil {
+		return err
+	}
+
+	// A node cannot remove other nodes' approvals, only add its own approval if it wasn't included in the previous block.
+	// So the set of signers in next.NextEpochApprovals should be a superset of the set of signers in prev.NextEpochApprovals.
+	if err := areNextEpochApprovalsSignersSupersetOfApprovalsOfPrevBlock(prevEpochInfo, nextEpochInfo); err != nil {
+		return err
+	}
+
+	newSimplexEpochInfo := computeSimplexEpochInfoForCollectingApprovalsBlock(parentBlock, prevBlockSeq, &approvals{
+		nodeIDs:   newApprovals.NodeIDs,
+		signature: newApprovals.Signature,
+	})
+
+	sigAggr := sm.SignatureAggregatorCreator(validators.NodeWeights())
+	approvals := bitmaskFromBytes(newApprovals.NodeIDs)
+	canSeal := sigAggr.IsQuorum(validators.SelectSubset(approvals))
+
+	// TODO: P-chain height should be taken from the ICM epoch. For now we pass the block proposer's P-chain height.
+
+	if canSeal {
+		newSimplexEpochInfo, err = sm.computeSimplexEpochInfoForSealingBlock(newSimplexEpochInfo)
+		if err != nil {
+			return fmt.Errorf("failed to compute simplex epoch info for sealing block: %w", err)
+		}
+	}
+
+	return verifyAgainstExpected(ctx, parentBlock, nextBlock.InnerBlock, newSimplexEpochInfo, nextMD.PChainHeight, nextBlock)
+}
+
+func (sm *StateMachine) verifyNextEpochApprovalsSignature(prev SimplexEpochInfo, next SimplexEpochInfo, validators NodeBLSMappings) error {
+	// First figure out which validators are approving the next epoch by looking at the bitmask of approving nodes,
+	// and then aggregate their public keys together to verify the signature.
+
+	nodeIDsBitmask := next.NextEpochApprovals.NodeIDs
+	aggPK, err := sm.aggregatePubKeysForBitmask(nodeIDsBitmask, validators)
+	if err != nil {
+		return err
+	}
+
+	pChainHeight := prev.NextPChainReferenceHeight
+	pChainHeightBuff := make([]byte, 8)
+	binary.BigEndian.PutUint64(pChainHeightBuff, pChainHeight)
+
+	signedMsg := simplex.SignedMessage{Payload: pChainHeightBuff, Context: signatureContext}
+	toBeSigned, err := asn1.Marshal(signedMsg)
+	if err != nil {
+		return err
+	}
+
+	if err := sm.SignatureVerifier.VerifySignature(next.NextEpochApprovals.Signature, toBeSigned, aggPK); err != nil {
+		return fmt.Errorf("failed to verify signature: %w", err)
+	}
+	return nil
+}
+
+func (sm *StateMachine) aggregatePubKeysForBitmask(nodeIDsBitmask []byte, validators NodeBLSMappings) ([]byte, error) {
+	approvingNodes := bitmaskFromBytes(nodeIDsBitmask)
+	publicKeys := make([][]byte, 0, len(validators))
+	for i := range validators {
+		if !approvingNodes.Contains(i) {
+			continue
+		}
+		publicKeys = append(publicKeys, validators[i].BLSKey)
+	}
+
+	aggPK, err := sm.KeyAggregator.AggregateKeys(publicKeys...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to aggregate public keys: %w", err)
+	}
+	return aggPK, nil
+}
+
+func computeSimplexEpochInfoForCollectingApprovalsBlock(parentBlock StateMachineBlock, prevBlockSeq uint64, newApprovals *approvals) SimplexEpochInfo {
+	// The P-chain reference height and epoch number should remain the same until we transition to the new epoch.
+	// The next P-chain reference height should have been set in the previous block,
+	// which is the reason why we are collecting approvals in the first place.
+	newSimplexEpochInfo := SimplexEpochInfo{
+		PChainReferenceHeight:     parentBlock.Metadata.SimplexEpochInfo.PChainReferenceHeight,
+		EpochNumber:               parentBlock.Metadata.SimplexEpochInfo.EpochNumber,
+		NextPChainReferenceHeight: parentBlock.Metadata.SimplexEpochInfo.NextPChainReferenceHeight,
+		PrevVMBlockSeq:            computePrevVMBlockSeq(parentBlock, prevBlockSeq),
+	}
+
+	// This might be the first time we created approvals for the next epoch,
+	// so we need to initialize the NextEpochApprovals.
+	if newSimplexEpochInfo.NextEpochApprovals == nil {
+		newSimplexEpochInfo.NextEpochApprovals = &NextEpochApprovals{}
+	}
+	// The node IDs and signature are aggregated across all past and present approvals.
+	newSimplexEpochInfo.NextEpochApprovals.NodeIDs = newApprovals.nodeIDs
+	newSimplexEpochInfo.NextEpochApprovals.Signature = newApprovals.signature
+	return newSimplexEpochInfo
+}
+
+func (sm *StateMachine) computeNewApprovals(parentBlock StateMachineBlock) (*approvals, error) {
+	// We prepare information that is needed to compute the approvals for the new epoch,
+	// such as the validator set for the next epoch, and the approvals from peers.
+	validators, err := sm.GetValidatorSet(parentBlock.Metadata.SimplexEpochInfo.NextPChainReferenceHeight)
+	if err != nil {
+		return nil, err
+	}
+
+	sigAggr := sm.SignatureAggregatorCreator(validators.NodeWeights())
+
+	// We retrieve approvals that validators have sent us for the next epoch.
+	// These approvals are signed by validators of the next epoch.
+	approvalsFromPeers := sm.ApprovalsRetriever.Approvals()
+	sm.Logger.Debug("Retrieved approvals from peers", zap.Int("numApprovals", len(approvalsFromPeers)))
+
+	nextPChainHeight := parentBlock.Metadata.SimplexEpochInfo.NextPChainReferenceHeight
+	prevNextEpochApprovals := parentBlock.Metadata.SimplexEpochInfo.NextEpochApprovals
+
+	newApprovals, err := computeNewApprovals(prevNextEpochApprovals, approvalsFromPeers, nextPChainHeight, sigAggr, validators, sm.Logger)
+	if err != nil {
+		return nil, err
+	}
+	return newApprovals, nil
 }
 
 // buildBlockImpatiently builds a block by waiting for the VM to build a block until MaxBlockBuildingWaitTime.
@@ -557,44 +834,43 @@ func (sm *StateMachine) buildBlockImpatiently(ctx context.Context, parentBlock S
 		sm.Logger.Debug("Timed out waiting for block to be built, building block without inner block instead",
 			zap.Duration("elapsed", time.Since(start)), zap.Duration("maxBlockBuildingWaitTime", sm.MaxBlockBuildingWaitTime))
 	}
-	return sm.wrapBlock(parentBlock, childBlock, simplexEpochInfo, pChainHeight, simplexMetadata, simplexBlacklist), nil
+	return wrapBlock(parentBlock, childBlock, simplexEpochInfo, pChainHeight, simplexMetadata, simplexBlacklist), nil
 }
 
 func (sm *StateMachine) createSealingBlock(ctx context.Context, parentBlock StateMachineBlock, simplexMetadata []byte, simplexBlacklist []byte, simplexEpochInfo SimplexEpochInfo, pChainHeight uint64) (*StateMachineBlock, error) {
+	simplexEpochInfo, err := sm.computeSimplexEpochInfoForSealingBlock(simplexEpochInfo)
+	if err != nil {
+		return nil, fmt.Errorf("failed to compute simplex epoch info for sealing block: %w", err)
+	}
+	return sm.buildBlockImpatiently(ctx, parentBlock, simplexMetadata, simplexBlacklist, simplexEpochInfo, pChainHeight)
+}
+
+func (sm *StateMachine) computeSimplexEpochInfoForSealingBlock(simplexEpochInfo SimplexEpochInfo) (SimplexEpochInfo, error) {
 	validators, err := sm.GetValidatorSet(simplexEpochInfo.NextPChainReferenceHeight)
 	if err != nil {
-		return nil, err
+		return SimplexEpochInfo{}, err
 	}
 	if simplexEpochInfo.BlockValidationDescriptor == nil {
 		simplexEpochInfo.BlockValidationDescriptor = &BlockValidationDescriptor{}
 	}
 	simplexEpochInfo.BlockValidationDescriptor.AggregatedMembership.Members = validators
 
-	// If this is not the first epoch, and this is the sealing block, we set the hash of the previous sealing block.
-	if simplexEpochInfo.EpochNumber > 1 {
-		prevSealingBlock, finalization, err := sm.GetBlock(simplexEpochInfo.EpochNumber, [32]byte{})
-		if err != nil {
-			sm.Logger.Error("Error retrieving previous sealing block", zap.Uint64("seq", simplexEpochInfo.EpochNumber), zap.Error(err))
-			return nil, fmt.Errorf("failed to retrieve previous sealing InnerBlock at epoch %d: %w", simplexEpochInfo.EpochNumber-1, err)
-		}
-		if finalization == nil {
-			sm.Logger.Error("Previous sealing block is not finalized", zap.Uint64("seq", simplexEpochInfo.EpochNumber))
-			return nil, fmt.Errorf("previous sealing InnerBlock at epoch %d is not finalized", simplexEpochInfo.EpochNumber-1)
-		}
-		simplexEpochInfo.PrevSealingBlockHash = prevSealingBlock.Digest()
-	} else { // Else, this is the first epoch, so we use the hash of the first ever Simplex block.
-		firstSimplexBlock := sm.FirstEverSimplexBlock()
-		if firstSimplexBlock == nil {
-			return nil, fmt.Errorf("first ever Simplex block is not set, but attempted to create a sealing block for the first epoch")
-		}
-		simplexEpochInfo.PrevSealingBlockHash = firstSimplexBlock.Digest()
+	prevSealingBlock, finalization, err := sm.GetBlock(simplexEpochInfo.EpochNumber, [32]byte{})
+	if err != nil {
+		sm.Logger.Error("Error retrieving previous sealing block", zap.Uint64("seq", simplexEpochInfo.EpochNumber), zap.Error(err))
+		return SimplexEpochInfo{}, fmt.Errorf("failed to retrieve previous sealing InnerBlock at epoch %d: %w", simplexEpochInfo.EpochNumber, err)
 	}
+	if finalization == nil {
+		sm.Logger.Error("Previous sealing block is not finalized", zap.Uint64("seq", simplexEpochInfo.EpochNumber))
+		return SimplexEpochInfo{}, fmt.Errorf("%w: epoch %d", errPrevSealingBlockNotFinalized, simplexEpochInfo.EpochNumber)
+	}
+	simplexEpochInfo.PrevSealingBlockHash = prevSealingBlock.Digest()
 
-	return sm.buildBlockImpatiently(ctx, parentBlock, simplexMetadata, simplexBlacklist, simplexEpochInfo, pChainHeight)
+	return simplexEpochInfo, nil
 }
 
 // wrapBlock creates a new StateMachineBlock by wrapping the VM block (if applicable) and adding the appropriate metadata.
-func (sm *StateMachine) wrapBlock(parentBlock StateMachineBlock, childBlock VMBlock, newSimplexEpochInfo SimplexEpochInfo, pChainHeight uint64, simplexMetadata, simplexBlacklist []byte) *StateMachineBlock {
+func wrapBlock(parentBlock StateMachineBlock, childBlock VMBlock, newSimplexEpochInfo SimplexEpochInfo, pChainHeight uint64, simplexMetadata, simplexBlacklist []byte) *StateMachineBlock {
 	timestamp := parentBlock.Metadata.Timestamp
 
 	hasChildBlock := childBlock != nil
@@ -617,11 +893,7 @@ func (sm *StateMachine) wrapBlock(parentBlock StateMachineBlock, childBlock VMBl
 	}
 }
 
-// buildBlockEpochSealed builds a block where the epoch is being sealed due to a sealing block already created in this epoch.
-func (sm *StateMachine) buildBlockEpochSealed(ctx context.Context, parentBlock StateMachineBlock, simplexMetadata, simplexBlacklist []byte, prevBlockSeq uint64) (*StateMachineBlock, error) {
-	// We check if the sealing block has already been finalized.
-	// If not, we build a Telock block.
-
+func (sm *StateMachine) areWeReadyToTransitionEpoch(parentBlock StateMachineBlock, prevBlockSeq uint64) (bool, uint64, StateMachineBlock, error) {
 	sealingBlockSeq := parentBlock.Metadata.SimplexEpochInfo.SealingBlockSeq
 
 	// If the sealing block sequence is still 0, it means previous block was the sealing block.
@@ -630,9 +902,53 @@ func (sm *StateMachine) buildBlockEpochSealed(ctx context.Context, parentBlock S
 	}
 
 	if sealingBlockSeq == 0 {
-		return nil, fmt.Errorf("cannot build epoch sealed block: sealing block sequence is 0 or undefined")
+		return false, 0, StateMachineBlock{}, errSealingBlockSeqUnset
 	}
 
+	sealingBlock, finalization, err := sm.GetBlock(sealingBlockSeq, [32]byte{})
+	if err != nil {
+		return false, 0, StateMachineBlock{}, fmt.Errorf("failed to retrieve sealing block at sequence %d: %w", sealingBlockSeq, err)
+	}
+
+	return finalization != nil, sealingBlockSeq, sealingBlock, nil
+}
+
+// buildBlockEpochSealed builds a block where the epoch is being sealed due to a sealing block already created in this epoch.
+func (sm *StateMachine) buildBlockEpochSealed(ctx context.Context, parentBlock StateMachineBlock, simplexMetadata, simplexBlacklist []byte, prevBlockSeq uint64) (*StateMachineBlock, error) {
+	// We check if the sealing block has already been finalized.
+	// If not, we build a Telock block.
+	readyToTransitionEpoch, sealingBlockSeq, sealingBlock, err := sm.areWeReadyToTransitionEpoch(parentBlock, prevBlockSeq)
+	if err != nil {
+		return nil, err
+	}
+
+	if !readyToTransitionEpoch {
+		newSimplexEpochInfo := computeSimplexEpochInfoForTelock(parentBlock, sealingBlockSeq, prevBlockSeq)
+		pChainHeight := parentBlock.Metadata.PChainHeight
+		return wrapBlock(parentBlock, nil, newSimplexEpochInfo, pChainHeight, simplexMetadata, simplexBlacklist), nil
+	}
+
+	// Else, we build a block for the new epoch.
+	newSimplexEpochInfo := computeSimplexEpochInfoForNewEpoch(parentBlock, sealingBlockSeq, prevBlockSeq)
+
+	// TODO: This P-chain height should be taken from the ICM epoch
+
+	return sm.buildBlockOrTransitionEpoch(ctx, sealingBlock, simplexMetadata, simplexBlacklist, newSimplexEpochInfo)
+
+}
+
+func computeSimplexEpochInfoForNewEpoch(parentBlock StateMachineBlock, sealingBlockSeq uint64, prevBlockSeq uint64) SimplexEpochInfo {
+	newSimplexEpochInfo := SimplexEpochInfo{
+		// P-chain reference height is previous block's NextPChainReferenceHeight.
+		PChainReferenceHeight: parentBlock.Metadata.SimplexEpochInfo.NextPChainReferenceHeight,
+		// The epoch number is the sequence of the sealing block.
+		EpochNumber:    sealingBlockSeq,
+		PrevVMBlockSeq: computePrevVMBlockSeq(parentBlock, prevBlockSeq),
+	}
+	return newSimplexEpochInfo
+}
+
+func computeSimplexEpochInfoForTelock(parentBlock StateMachineBlock, sealingBlockSeq uint64, prevBlockSeq uint64) SimplexEpochInfo {
 	newSimplexEpochInfo := SimplexEpochInfo{
 		PChainReferenceHeight:     parentBlock.Metadata.SimplexEpochInfo.PChainReferenceHeight,
 		EpochNumber:               parentBlock.Metadata.SimplexEpochInfo.EpochNumber,
@@ -640,37 +956,48 @@ func (sm *StateMachine) buildBlockEpochSealed(ctx context.Context, parentBlock S
 		SealingBlockSeq:           sealingBlockSeq,
 		PrevVMBlockSeq:            computePrevVMBlockSeq(parentBlock, prevBlockSeq),
 	}
+	return newSimplexEpochInfo
+}
 
-	sealingBlock, finalization, err := sm.GetBlock(sealingBlockSeq, [32]byte{})
+func (sm *StateMachine) verifyBlockEpochSealed(ctx context.Context, parentBlock StateMachineBlock, nextBlock *StateMachineBlock, prevBlockSeq uint64) error {
+	isSealingBlockFinalized, sealingBlockSeq, _, err := sm.areWeReadyToTransitionEpoch(parentBlock, prevBlockSeq)
 	if err != nil {
-		return nil, fmt.Errorf("failed to retrieve sealing block at sequence %d: %w", sealingBlockSeq, err)
+		return err
 	}
 
-	isSealingBlockFinalized := finalization != nil
+	newSimplexEpochInfo := computeSimplexEpochInfoForTelock(parentBlock, sealingBlockSeq, prevBlockSeq)
 
 	if !isSealingBlockFinalized {
-		pChainHeight := parentBlock.Metadata.PChainHeight
-		return sm.wrapBlock(parentBlock, nil, newSimplexEpochInfo, pChainHeight, simplexMetadata, simplexBlacklist), nil
+		return verifyAgainstExpected(ctx, parentBlock, nil, newSimplexEpochInfo, nextBlock.Metadata.PChainHeight, nextBlock)
 	}
 
-	// Else, we build a block for the new epoch.
-	newSimplexEpochInfo = SimplexEpochInfo{
-		// P-chain reference height is previous block's NextPChainReferenceHeight.
-		PChainReferenceHeight: parentBlock.Metadata.SimplexEpochInfo.NextPChainReferenceHeight,
-		// The epoch number is the sequence of the sealing block.
-		EpochNumber:    sealingBlockSeq,
-		PrevVMBlockSeq: computePrevVMBlockSeq(parentBlock, prevBlockSeq),
+	// Else, it's a new epoch.
+	newSimplexEpochInfo = computeSimplexEpochInfoForNewEpoch(parentBlock, sealingBlockSeq, prevBlockSeq)
+
+	// The first block of the new epoch may itself transition again, so trust and validate
+	// the proposed pchain height and (optional) next pchain reference height, mirroring
+	// what buildBlockOrTransitionEpoch does on the build side.
+	proposedPChainHeight := nextBlock.Metadata.PChainHeight
+	currentPChainHeight := sm.GetPChainHeight()
+	prevPChainHeight := parentBlock.Metadata.PChainHeight
+	if err := verifyPChainHeight(proposedPChainHeight, currentPChainHeight, prevPChainHeight); err != nil {
+		return fmt.Errorf("failed to verify P-chain height: %w", err)
 	}
+
+	if err := sm.verifyNextPChainRefHeightForNewEpoch(newSimplexEpochInfo, nextBlock.Metadata.SimplexEpochInfo); err != nil {
+		return fmt.Errorf("failed to verify next P-chain reference height for new epoch block: %w", err)
+	}
+	newSimplexEpochInfo.NextPChainReferenceHeight = nextBlock.Metadata.SimplexEpochInfo.NextPChainReferenceHeight
 
 	// TODO: This P-chain height should be taken from the ICM epoch
-	return sm.buildBlockOrTransitionEpoch(ctx, sealingBlock, simplexMetadata, simplexBlacklist, newSimplexEpochInfo)
+	return verifyAgainstExpected(ctx, parentBlock, nextBlock.InnerBlock, newSimplexEpochInfo, proposedPChainHeight, nextBlock)
 }
 
 // constructSimplexZeroBlockSimplexEpochInfo constructs the SimplexEpochInfo for the zero block, which is the first ever block built by Simplex.
 func constructSimplexZeroBlockSimplexEpochInfo(pChainHeight uint64, newValidatorSet NodeBLSMappings, prevVMBlockSeq uint64) SimplexEpochInfo {
 	newSimplexEpochInfo := SimplexEpochInfo{
 		PChainReferenceHeight: pChainHeight,
-		EpochNumber:           1,
+		EpochNumber:           prevVMBlockSeq + 1,
 		// We treat the zero block as a special case, and we encode in it the block validation descriptor,
 		// despite it not actually being a sealing block. This is because the zero block is the first block that introduces the validator set.
 		BlockValidationDescriptor: &BlockValidationDescriptor{
@@ -738,7 +1065,7 @@ func computeNewApproverSignaturesAndSigners(
 	logger simplex.Logger,
 ) ([]byte, bitmask, error) {
 	if nextEpochApprovals == nil {
-		return nil, bitmask{}, fmt.Errorf("next epoch approvals is nil")
+		return nil, bitmask{}, errEmptyNextEpochApprovals
 	}
 	// Prepare the new signatures from the new approvals that haven't approved yet and that agree with our candidate auxiliary info digest and P-Chain height.
 	newSignatures := make([][]byte, 0, len(approvalsFromPeers)+1)
@@ -816,6 +1143,8 @@ func approvalsThatAreInValidatorSetAndHaveNotAlreadyApproved(oldApprovingNodes b
 	}
 }
 
+// computePrevVMBlockSeq computes the block sequence of the previous VM block (inner block).
+// The block sequence of the previous VM block is the number of VM blocks that have been built since genesis.
 func computePrevVMBlockSeq(parentBlock StateMachineBlock, prevBlockSeq uint64) uint64 {
 	// Either our parent block has no inner block, in which case we just inherit its previous VM block sequence,
 	if parentBlock.InnerBlock == nil {
@@ -825,22 +1154,13 @@ func computePrevVMBlockSeq(parentBlock StateMachineBlock, prevBlockSeq uint64) u
 	return prevBlockSeq
 }
 
-var (
-	errSignerSetShrunk          = fmt.Errorf("some signers from parent block are missing from next epoch approvals of proposed block")
-	errNextEpochApprovalsShrunk = fmt.Errorf("previous block has next epoch approvals but proposed block doesn't have next epoch approvals")
-)
-
-func ensureNextEpochApprovalsSignersSupersetOfApprovalsOfPrevBlock(prev SimplexEpochInfo, next SimplexEpochInfo) error {
-	if prev.NextEpochApprovals == nil {
-		// Condition satisfied vacuously.
+func areNextEpochApprovalsSignersSupersetOfApprovalsOfPrevBlock(prev SimplexEpochInfo, next SimplexEpochInfo) error {
+	if prev.NextEpochApprovals == nil || len(prev.NextEpochApprovals.NodeIDs) == 0 {
 		return nil
 	}
-	// Else, prev.NextEpochApprovals is not nil.
-	// If next.NextEpochApprovals is nil, condition is not satisfied.
 	if next.NextEpochApprovals == nil {
-		return errNextEpochApprovalsShrunk
+		return fmt.Errorf("%w: previous block has next epoch approvals but proposed block doesn't have next epoch approvals", errNextEpochApprovalsShrunk)
 	}
-
 	// Make sure that previous signers are still there.
 	prevSigners := bitmaskFromBytes(prev.NextEpochApprovals.NodeIDs)
 	nextSigners := bitmaskFromBytes(next.NextEpochApprovals.NodeIDs)

@@ -26,7 +26,7 @@ func TestMSMBuildAndVerifyBlocksAfterGenesis(t *testing.T) {
 	for _, testCase := range []struct {
 		name        string
 		md          simplex.ProtocolMetadata
-		err         string
+		err         error
 		configure   func(*StateMachine, *testConfig)
 		mutateBlock func(*StateMachineBlock)
 	}{
@@ -43,7 +43,7 @@ func TestMSMBuildAndVerifyBlocksAfterGenesis(t *testing.T) {
 				md.Seq = 0
 				block.Metadata.SimplexProtocolMetadata = md.Bytes()
 			},
-			err: "attempted to build a genesis inner block",
+			err: errBuiltGenesisInnerBlock,
 		},
 		{
 			name: "previous block not found",
@@ -51,7 +51,7 @@ func TestMSMBuildAndVerifyBlocksAfterGenesis(t *testing.T) {
 			configure: func(_ *StateMachine, tc *testConfig) {
 				delete(tc.blockStore, 0)
 			},
-			err: "failed to retrieve previous (0) inner block",
+			err: simplex.ErrBlockNotFound,
 		},
 		{
 			name: "parent has no inner block",
@@ -61,7 +61,7 @@ func TestMSMBuildAndVerifyBlocksAfterGenesis(t *testing.T) {
 					block: StateMachineBlock{},
 				}
 			},
-			err: "parent inner block (",
+			err: errZeroBlockParentNoInnerBlock,
 		},
 		{
 			name: "wrong epoch number",
@@ -69,7 +69,7 @@ func TestMSMBuildAndVerifyBlocksAfterGenesis(t *testing.T) {
 			mutateBlock: func(block *StateMachineBlock) {
 				block.Metadata.SimplexEpochInfo.EpochNumber = 2
 			},
-			err: "invalid epoch number (2), should be 1",
+			err: errInvalidSimplexEpochInfo,
 		},
 		{
 			name: "P-chain height too big",
@@ -77,7 +77,7 @@ func TestMSMBuildAndVerifyBlocksAfterGenesis(t *testing.T) {
 			mutateBlock: func(block *StateMachineBlock) {
 				block.Metadata.PChainHeight = 110
 			},
-			err: "invalid P-chain height (110), expected to be 100",
+			err: errInvalidPChainHeight,
 		},
 		{
 			name: "P-chain height smaller than parent",
@@ -85,7 +85,7 @@ func TestMSMBuildAndVerifyBlocksAfterGenesis(t *testing.T) {
 			configure: func(sm *StateMachine, tc *testConfig) {
 				sm.LastNonSimplexBlockPChainHeight = 99
 			},
-			err: "invalid P-chain height (100), expected to be 99",
+			err: errInvalidPChainHeight,
 		},
 		{
 			name: "nil BlockValidationDescriptor",
@@ -93,7 +93,7 @@ func TestMSMBuildAndVerifyBlocksAfterGenesis(t *testing.T) {
 			mutateBlock: func(block *StateMachineBlock) {
 				block.Metadata.SimplexEpochInfo.BlockValidationDescriptor = nil
 			},
-			err: "invalid BlockValidationDescriptor: should not be nil",
+			err: errInvalidSimplexEpochInfo,
 		},
 		{
 			name: "membership mismatch",
@@ -103,7 +103,7 @@ func TestMSMBuildAndVerifyBlocksAfterGenesis(t *testing.T) {
 					{BLSKey: []byte{1}, Weight: 1},
 				}
 			},
-			err: "invalid BlockValidationDescriptor: should match validator set",
+			err: errInvalidSimplexEpochInfo,
 		},
 		{
 			name: "SimplexEpochInfo mismatch",
@@ -111,7 +111,7 @@ func TestMSMBuildAndVerifyBlocksAfterGenesis(t *testing.T) {
 			mutateBlock: func(block *StateMachineBlock) {
 				block.Metadata.SimplexEpochInfo.PrevVMBlockSeq = 999
 			},
-			err: "invalid SimplexEpochInfo",
+			err: errInvalidSimplexEpochInfo,
 		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -131,8 +131,8 @@ func TestMSMBuildAndVerifyBlocksAfterGenesis(t *testing.T) {
 			}
 
 			err = sm2.VerifyBlock(context.Background(), block)
-			if testCase.err != "" {
-				require.ErrorContains(t, err, testCase.err)
+			if testCase.err != nil {
+				require.ErrorIs(t, err, testCase.err)
 				return
 			}
 			require.NoError(t, err)
@@ -155,7 +155,7 @@ func TestMSMFirstSimplexBlockAfterPreSimplexBlocks(t *testing.T) {
 	md := simplex.ProtocolMetadata{
 		Round: 0,
 		Seq:   43,
-		Epoch: 1,
+		Epoch: 43,
 		Prev:  preSimplexParent.Digest(),
 	}
 
@@ -191,7 +191,7 @@ func TestMSMFirstSimplexBlockAfterPreSimplexBlocks(t *testing.T) {
 			SimplexProtocolMetadata: md.Bytes(),
 			SimplexEpochInfo: SimplexEpochInfo{
 				PChainReferenceHeight: 100,
-				EpochNumber:           1,
+				EpochNumber:           43,
 				PrevVMBlockSeq:        42,
 				BlockValidationDescriptor: &BlockValidationDescriptor{
 					AggregatedMembership: AggregatedMembership{
@@ -203,6 +203,15 @@ func TestMSMFirstSimplexBlockAfterPreSimplexBlocks(t *testing.T) {
 	}, block)
 }
 
+func TestMSMBuildBlockRejectsZeroSeq(t *testing.T) {
+	// Seq 0 is reserved for the genesis block, which should never be built.
+	sm, _ := newStateMachine(t)
+
+	block, err := sm.BuildBlock(context.Background(), simplex.ProtocolMetadata{Seq: 0}, nil)
+	require.ErrorIs(t, err, errInvalidProtocolMetadataSeq)
+	require.Nil(t, block)
+}
+
 func TestMSMNormalOp(t *testing.T) {
 	newPChainHeight := uint64(200)
 	newValidatorSet := NodeBLSMappings{
@@ -212,12 +221,90 @@ func TestMSMNormalOp(t *testing.T) {
 	for _, testCase := range []struct {
 		name                        string
 		setup                       func(*StateMachine, *testConfig)
+		mutateBlock                 func(*StateMachineBlock)
+		err                         error
 		expectedPChainHeight        uint64
 		expectedNextPChainRefHeight uint64
 	}{
 		{
 			name:                 "correct information",
 			expectedPChainHeight: 100,
+		},
+		{
+			name: "trying to build a genesis block",
+			mutateBlock: func(block *StateMachineBlock) {
+				md, err := simplex.ProtocolMetadataFromBytes(block.Metadata.SimplexProtocolMetadata)
+				require.NoError(t, err)
+				md.Seq = 0
+				block.Metadata.SimplexProtocolMetadata = md.Bytes()
+			},
+			err: errBuiltGenesisInnerBlock,
+		},
+		{
+			name: "previous block not found",
+			mutateBlock: func(block *StateMachineBlock) {
+				md, err := simplex.ProtocolMetadataFromBytes(block.Metadata.SimplexProtocolMetadata)
+				require.NoError(t, err)
+				md.Seq = 999
+				block.Metadata.SimplexProtocolMetadata = md.Bytes()
+			},
+			err: simplex.ErrBlockNotFound,
+		},
+		{
+			name: "P-chain height too big",
+			mutateBlock: func(block *StateMachineBlock) {
+				block.Metadata.PChainHeight = 110
+			},
+			err: errPChainHeightTooBig,
+		},
+		{
+			name: "P-chain height smaller than parent",
+			mutateBlock: func(block *StateMachineBlock) {
+				block.Metadata.PChainHeight = 0
+			},
+			err: errPChainHeightSmallerThanParent,
+		},
+		{
+			name: "wrong epoch number",
+			mutateBlock: func(block *StateMachineBlock) {
+				block.Metadata.SimplexEpochInfo.EpochNumber = 2
+			},
+			err: errInvalidProtocolMetadataEpoch,
+		},
+		{
+			name: "non-nil BlockValidationDescriptor",
+			mutateBlock: func(block *StateMachineBlock) {
+				block.Metadata.SimplexEpochInfo.BlockValidationDescriptor = &BlockValidationDescriptor{}
+			},
+			err: errBlockDigestMismatch,
+		},
+		{
+			name: "non-zero sealing block seq",
+			mutateBlock: func(block *StateMachineBlock) {
+				block.Metadata.SimplexEpochInfo.SealingBlockSeq = 5
+			},
+			err: errBlockDigestMismatch,
+		},
+		{
+			name: "wrong PChainReferenceHeight",
+			mutateBlock: func(block *StateMachineBlock) {
+				block.Metadata.SimplexEpochInfo.PChainReferenceHeight = 50
+			},
+			err: errBlockDigestMismatch,
+		},
+		{
+			name: "non-empty PrevSealingBlockHash",
+			mutateBlock: func(block *StateMachineBlock) {
+				block.Metadata.SimplexEpochInfo.PrevSealingBlockHash = [32]byte{1, 2, 3}
+			},
+			err: errBlockDigestMismatch,
+		},
+		{
+			name: "wrong PrevVMBlockSeq",
+			mutateBlock: func(block *StateMachineBlock) {
+				block.Metadata.SimplexEpochInfo.PrevVMBlockSeq = 999
+			},
+			err: errBlockDigestMismatch,
 		},
 		{
 			name: "validator set change detected",
@@ -234,9 +321,11 @@ func TestMSMNormalOp(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			chain := makeChain(t, 5, 10)
 			sm1, testConfig1 := newStateMachine(t)
+			sm2, testConfig2 := newStateMachine(t)
 
 			for i, block := range chain {
-				testConfig1.blockStore[uint64(i)] = &outerBlock{block: block}
+				testConfig1.blockStore[uint64(i)] = &outerBlock{block: block, finalization: &simplex.Finalization{}}
+				testConfig2.blockStore[uint64(i)] = &outerBlock{block: block, finalization: &simplex.Finalization{}}
 			}
 
 			lastBlock := chain[len(chain)-1]
@@ -264,13 +353,25 @@ func TestMSMNormalOp(t *testing.T) {
 
 			if testCase.setup != nil {
 				testCase.setup(sm1, testConfig1)
+				testCase.setup(sm2, testConfig2)
 			}
 
 			block1, err := sm1.BuildBlock(context.Background(), *md, &blacklist)
 			require.NoError(t, err)
 			require.NotNil(t, block1)
 
-			require.Equal(t, &StateMachineBlock{
+			if testCase.mutateBlock != nil {
+				testCase.mutateBlock(block1)
+			}
+
+			err = sm2.VerifyBlock(context.Background(), block1)
+			if testCase.err != nil {
+				require.ErrorIs(t, err, testCase.err)
+				return
+			}
+			require.NoError(t, err)
+
+			expected := &StateMachineBlock{
 				InnerBlock: &InnerBlock{
 					TS:          blockTime,
 					BlockHeight: lastBlock.InnerBlock.Height(),
@@ -288,7 +389,8 @@ func TestMSMNormalOp(t *testing.T) {
 						NextPChainReferenceHeight: testCase.expectedNextPChainRefHeight,
 					},
 				},
-			}, block1)
+			}
+			require.Equal(t, expected.Digest(), block1.Digest())
 		})
 	}
 }
@@ -342,14 +444,17 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 	for _, testCase := range []struct {
 		name                    string
 		firstBlockBeforeSimplex StateMachineBlock
+		epochNum                uint64
 	}{
 		{
 			name:                    "building on top of genesis",
 			firstBlockBeforeSimplex: genesis,
+			epochNum:                1,
 		},
 		{
 			name:                    "upgrading to Simplex from pre-Simplex blocks",
 			firstBlockBeforeSimplex: notGenesis,
+			epochNum:                notGenesis.InnerBlock.Height() + 1,
 		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -401,7 +506,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 			md := simplex.ProtocolMetadata{
 				Seq:   baseSeq + 1,
 				Round: 0,
-				Epoch: 1,
+				Epoch: testCase.epochNum,
 				Prev:  testCase.firstBlockBeforeSimplex.Digest(),
 			}
 
@@ -414,7 +519,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 					SimplexProtocolMetadata: md.Bytes(),
 					SimplexEpochInfo: SimplexEpochInfo{
 						PChainReferenceHeight: pChainHeight1,
-						EpochNumber:           1,
+						EpochNumber:           testCase.epochNum,
 						PrevVMBlockSeq:        baseSeq,
 						BlockValidationDescriptor: &BlockValidationDescriptor{
 							AggregatedMembership: AggregatedMembership{
@@ -424,7 +529,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 					},
 				},
 			}, block1)
-			addBlock(md.Seq, *block1, nil)
+			addBlock(md.Seq, *block1, &simplex.Finalization{})
 
 			require.NoError(t, smVerify.VerifyBlock(context.Background(), block1))
 
@@ -434,7 +539,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 
 			// ----- Step 2: Build a normal block (no validator set change) -----
 			tc.blockBuilder.block = nextBlock(2)
-			md = simplex.ProtocolMetadata{Seq: baseSeq + 2, Round: 1, Epoch: 1, Prev: block1.Digest()}
+			md = simplex.ProtocolMetadata{Seq: baseSeq + 2, Round: 1, Epoch: testCase.epochNum, Prev: block1.Digest()}
 			block2, err := sm.BuildBlock(context.Background(), md, nil)
 			require.NoError(t, err)
 			require.Equal(t, &StateMachineBlock{
@@ -445,7 +550,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 					SimplexProtocolMetadata: md.Bytes(),
 					SimplexEpochInfo: SimplexEpochInfo{
 						PChainReferenceHeight: pChainHeight1,
-						EpochNumber:           1,
+						EpochNumber:           testCase.epochNum,
 						PrevVMBlockSeq:        baseSeq,
 					},
 				},
@@ -459,7 +564,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 			currentPChainHeight = pChainHeight2
 
 			tc.blockBuilder.block = nextBlock(3)
-			md = simplex.ProtocolMetadata{Seq: baseSeq + 3, Round: 2, Epoch: 1, Prev: block2.Digest()}
+			md = simplex.ProtocolMetadata{Seq: baseSeq + 3, Round: 2, Epoch: testCase.epochNum, Prev: block2.Digest()}
 			block3, err := sm.BuildBlock(context.Background(), md, nil)
 			require.NoError(t, err)
 			require.Equal(t, &StateMachineBlock{
@@ -470,7 +575,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 					SimplexProtocolMetadata: md.Bytes(),
 					SimplexEpochInfo: SimplexEpochInfo{
 						PChainReferenceHeight:     pChainHeight1,
-						EpochNumber:               1,
+						EpochNumber:               testCase.epochNum,
 						PrevVMBlockSeq:            baseSeq + 2,
 						NextPChainReferenceHeight: pChainHeight2,
 					},
@@ -500,7 +605,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 			require.NoError(t, err)
 
 			tc.blockBuilder.block = nextBlock(4)
-			md = simplex.ProtocolMetadata{Seq: baseSeq + 4, Round: 3, Epoch: 1, Prev: block3.Digest()}
+			md = simplex.ProtocolMetadata{Seq: baseSeq + 4, Round: 3, Epoch: testCase.epochNum, Prev: block3.Digest()}
 			block4, err := sm.BuildBlock(context.Background(), md, nil)
 			require.NoError(t, err)
 			require.Equal(t, &StateMachineBlock{
@@ -511,7 +616,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 					SimplexProtocolMetadata: md.Bytes(),
 					SimplexEpochInfo: SimplexEpochInfo{
 						PChainReferenceHeight:     pChainHeight1,
-						EpochNumber:               1,
+						EpochNumber:               testCase.epochNum,
 						PrevVMBlockSeq:            baseSeq + 3,
 						NextPChainReferenceHeight: pChainHeight2,
 						NextEpochApprovals: &NextEpochApprovals{
@@ -540,7 +645,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 			bitmask = []byte{3}
 
 			tc.blockBuilder.block = nextBlock(5)
-			md = simplex.ProtocolMetadata{Seq: baseSeq + 5, Round: 4, Epoch: 1, Prev: block4.Digest()}
+			md = simplex.ProtocolMetadata{Seq: baseSeq + 5, Round: 4, Epoch: testCase.epochNum, Prev: block4.Digest()}
 			block5, err := sm.BuildBlock(context.Background(), md, nil)
 			require.NoError(t, err)
 			require.Equal(t, &StateMachineBlock{
@@ -551,7 +656,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 					SimplexProtocolMetadata: md.Bytes(),
 					SimplexEpochInfo: SimplexEpochInfo{
 						PChainReferenceHeight:     pChainHeight1,
-						EpochNumber:               1,
+						EpochNumber:               testCase.epochNum,
 						PrevVMBlockSeq:            baseSeq + 4,
 						NextPChainReferenceHeight: pChainHeight2,
 						NextEpochApprovals: &NextEpochApprovals{
@@ -580,7 +685,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 			bitmask = []byte{7}
 
 			tc.blockBuilder.block = nextBlock(6)
-			md = simplex.ProtocolMetadata{Seq: baseSeq + 6, Round: 5, Epoch: 1, Prev: block5.Digest()}
+			md = simplex.ProtocolMetadata{Seq: baseSeq + 6, Round: 5, Epoch: testCase.epochNum, Prev: block5.Digest()}
 			block6, err := sm.BuildBlock(context.Background(), md, nil)
 			require.NoError(t, err)
 			require.Equal(t, &StateMachineBlock{
@@ -591,7 +696,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 					SimplexProtocolMetadata: md.Bytes(),
 					SimplexEpochInfo: SimplexEpochInfo{
 						PChainReferenceHeight:     pChainHeight1,
-						EpochNumber:               1,
+						EpochNumber:               testCase.epochNum,
 						PrevVMBlockSeq:            baseSeq + 5,
 						NextPChainReferenceHeight: pChainHeight2,
 						SealingBlockSeq:           0,
@@ -644,7 +749,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 					subTestCase.setup()
 
 					tc.blockBuilder.block = nextBlock(7)
-					md = simplex.ProtocolMetadata{Seq: baseSeq + 7, Round: 6, Epoch: 1, Prev: block6.Digest()}
+					md = simplex.ProtocolMetadata{Seq: baseSeq + 7, Round: 6, Epoch: testCase.epochNum, Prev: block6.Digest()}
 
 					// If the sealing block isn't finalized yet, we expect to build a Telock.
 					// However, despite the fact that the block builder is willing to build a new block,
@@ -661,7 +766,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 								SimplexProtocolMetadata: md.Bytes(),
 								SimplexEpochInfo: SimplexEpochInfo{
 									PChainReferenceHeight:     pChainHeight1,
-									EpochNumber:               1,
+									EpochNumber:               testCase.epochNum,
 									NextPChainReferenceHeight: pChainHeight2,
 									PrevVMBlockSeq:            baseSeq + 6,
 									SealingBlockSeq:           sealingSeq,
@@ -674,6 +779,11 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 					}
 
 					// ----- Step 7: Build a new epoch block (sealing block is finalized) -----
+
+					// The first block of the new epoch carries the new EpochNumber
+					// (= sealing block's sequence) in both SimplexEpochInfo.EpochNumber
+					// and the protocol metadata's Epoch field.
+					md.Epoch = sealingSeq
 
 					block7, err := sm.BuildBlock(context.Background(), md, nil)
 					require.NoError(t, err)
@@ -775,12 +885,179 @@ func TestAreNextEpochApprovalsSignersSupersetOfApprovalsOfPrevBlock(t *testing.T
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			err := ensureNextEpochApprovalsSignersSupersetOfApprovalsOfPrevBlock(tc.prev, tc.next)
+			err := areNextEpochApprovalsSignersSupersetOfApprovalsOfPrevBlock(tc.prev, tc.next)
 			if tc.err != nil {
 				require.ErrorIs(t, err, tc.err)
 			} else {
 				require.NoError(t, err)
 			}
+		})
+	}
+}
+
+func TestVerifyNextPChainRefHeightNormal(t *testing.T) {
+	const (
+		prevPChainRefHeight = uint64(50)
+		nextPChainRefHeight = uint64(80)
+		sealingBlockSeq     = uint64(5)
+	)
+
+	setA := NodeBLSMappings{{BLSKey: []byte{1}, Weight: 1}}
+	setB := NodeBLSMappings{{BLSKey: []byte{2}, Weight: 1}}
+
+	prevMD := StateMachineMetadata{
+		SimplexEpochInfo: SimplexEpochInfo{
+			PChainReferenceHeight: prevPChainRefHeight,
+			EpochNumber:           sealingBlockSeq,
+		},
+	}
+
+	withChangedValidatorSet := func(tc *testConfig) {
+		tc.validatorSetRetriever.resultMap = map[uint64]NodeBLSMappings{
+			prevPChainRefHeight: setA,
+			nextPChainRefHeight: setB,
+		}
+	}
+
+	tests := []struct {
+		name  string
+		next  SimplexEpochInfo
+		setup func(tc *testConfig)
+		err   error
+	}{
+		{
+			name: "next height zero returns nil",
+			next: SimplexEpochInfo{NextPChainReferenceHeight: 0},
+		},
+		{
+			name: "next height set, sealing block finalized",
+			next: SimplexEpochInfo{NextPChainReferenceHeight: nextPChainRefHeight},
+			setup: func(tc *testConfig) {
+				withChangedValidatorSet(tc)
+				tc.blockStore[sealingBlockSeq] = &outerBlock{finalization: &simplex.Finalization{}}
+			},
+		},
+		{
+			name: "next height set, sealing block not finalized",
+			next: SimplexEpochInfo{NextPChainReferenceHeight: nextPChainRefHeight},
+			setup: func(tc *testConfig) {
+				withChangedValidatorSet(tc)
+				tc.blockStore[sealingBlockSeq] = &outerBlock{finalization: nil}
+			},
+			err: errPrevSealingBlockNotFinalized,
+		},
+		{
+			name: "next height set, sealing block missing",
+			next: SimplexEpochInfo{NextPChainReferenceHeight: nextPChainRefHeight},
+			setup: func(tc *testConfig) {
+				withChangedValidatorSet(tc)
+				delete(tc.blockStore, sealingBlockSeq)
+			},
+			err: simplex.ErrBlockNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sm, tc := newStateMachine(t)
+			if tt.setup != nil {
+				tt.setup(tc)
+			}
+
+			err := sm.verifyNextPChainRefHeightNormal(prevMD, tt.next)
+			if tt.err == nil {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorIs(t, err, tt.err)
+		})
+	}
+}
+
+func TestVerifyPChainHeight(t *testing.T) {
+	tests := []struct {
+		name     string
+		proposed uint64
+		current  uint64
+		prev     uint64
+		err      error
+	}{
+		{
+			name:     "proposed equals current and parent",
+			proposed: 10,
+			current:  10,
+			prev:     10,
+		},
+		{
+			name:     "proposed equals current, above parent",
+			proposed: 10,
+			current:  10,
+			prev:     5,
+		},
+		{
+			name:     "proposed equals parent, below current",
+			proposed: 5,
+			current:  10,
+			prev:     5,
+		},
+		{
+			name:     "proposed strictly between parent and current",
+			proposed: 7,
+			current:  10,
+			prev:     5,
+		},
+		{
+			name:     "all zero",
+			proposed: 0,
+			current:  0,
+			prev:     0,
+		},
+		{
+			name:     "proposed greater than current",
+			proposed: 11,
+			current:  10,
+			prev:     5,
+			err:      errPChainHeightTooBig,
+		},
+		{
+			name:     "proposed greater than current by one, current is zero",
+			proposed: 1,
+			current:  0,
+			prev:     0,
+			err:      errPChainHeightTooBig,
+		},
+		{
+			name:     "parent greater than proposed",
+			proposed: 5,
+			current:  10,
+			prev:     6,
+			err:      errPChainHeightSmallerThanParent,
+		},
+		{
+			name:     "proposed is zero, parent is non-zero",
+			proposed: 0,
+			current:  10,
+			prev:     1,
+			err:      errPChainHeightSmallerThanParent,
+		},
+		{
+			// When both checks would trigger, "too big" takes precedence.
+			name:     "both checks would fire, too-big wins",
+			proposed: 20,
+			current:  10,
+			prev:     15,
+			err:      errPChainHeightTooBig,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := verifyPChainHeight(tt.proposed, tt.current, tt.prev)
+			if tt.err == nil {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorIs(t, err, tt.err)
 		})
 	}
 }
@@ -983,6 +1260,6 @@ func TestComputeNewApproverSignaturesAndSigners(t *testing.T) {
 		}
 
 		_, _, err := computeNewApproverSignaturesAndSigners(prevApprovals, peers, oldApproving, nodeID2Index, failingAggregator{}, logger)
-		require.ErrorContains(t, err, "aggregation failed")
+		require.ErrorIs(t, err, errTestAggregationFailed)
 	})
 }
