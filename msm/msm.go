@@ -101,6 +101,16 @@ type BlockBuilder interface {
 	WaitForPendingBlock(ctx context.Context)
 }
 
+type verificationInput struct {
+	prevMD              StateMachineMetadata
+	proposedBlockMD     StateMachineMetadata
+	hasInnerBlock       bool
+	innerBlockTimestamp time.Time // only set when hasInnerBlock is true
+	prevBlockSeq        uint64
+	nextBlockType       BlockType
+	state               state
+}
+
 // StateMachine manages block building and verification across epoch transitions.
 type StateMachine struct {
 	*Config
@@ -146,6 +156,10 @@ type Config struct {
 	LastNonSimplexInnerBlock VMBlock
 	// GenesisValidatorSet is the validator set used for the genesis block.
 	GenesisValidatorSet NodeBLSMappings
+	// MyNodeID
+	MyNodeID simplex.NodeID
+	// Signer
+	Signer simplex.Signer
 }
 
 type state uint8
@@ -803,6 +817,21 @@ func (sm *StateMachine) computeNewApprovals(parentBlock StateMachineBlock) (*app
 	// These approvals are signed by validators of the next epoch.
 	approvalsFromPeers := sm.ApprovalsRetriever.Approvals()
 	sm.Logger.Debug("Retrieved approvals from peers", zap.Int("numApprovals", len(approvalsFromPeers)))
+
+	// Optimistically sign the epoch transition even if we have already did so in a previous round.
+	// We'll just deduplicate this approval later on.
+	pChainHeightBuff := make([]byte, 8)
+	binary.BigEndian.PutUint64(pChainHeightBuff, parentBlock.Metadata.SimplexEpochInfo.NextPChainReferenceHeight)
+	sig, err := sm.Signer.Sign(pChainHeightBuff)
+	if err != nil {
+		return nil, fmt.Errorf("failed to sign approval: %w", err)
+	}
+
+	approvalsFromPeers = append(approvalsFromPeers, ValidatorSetApproval{
+		NodeID:       nodeID(sm.MyNodeID),
+		PChainHeight: parentBlock.Metadata.SimplexEpochInfo.NextPChainReferenceHeight,
+		Signature:    sig,
+	})
 
 	nextPChainHeight := parentBlock.Metadata.SimplexEpochInfo.NextPChainReferenceHeight
 	prevNextEpochApprovals := parentBlock.Metadata.SimplexEpochInfo.NextEpochApprovals
