@@ -75,6 +75,12 @@ type requestor struct {
 	// highestSequenceRequested prevents duplicates and limits outstanding requests.
 	highestRequested uint64
 
+	// highestCommitted is the highest seq/round for which everything up to and
+	// including it has been committed (set via removeOldTasks). We never
+	// re-request at or below it, so a stale timeout cannot re-request a
+	// sequence/round we have already indexed. nil means nothing committed yet.
+	highestCommitted *uint64
+
 	// the requestor stops requesting once all sequences/rounds up to an including `highestObserved` have been received.
 	highestObserved *signedQuorum
 
@@ -186,11 +192,19 @@ func (r *requestor) sendSegments(segments []Segment) {
 // In case the nodes[index] does not respond, we create a timeout that will
 // re-send the request.
 func (r *requestor) sendRequestToNode(start uint64, end uint64, node NodeID) {
-	seqsOrRound := make([]uint64, (end+1)-start)
+	seqsOrRound := make([]uint64, 0, (end+1)-start)
 	for i := start; i <= end; i++ {
-		seqsOrRound[i-start] = i
+		// Skip sequences we have already committed;
+		if r.replicateSeqs && r.highestCommitted != nil && i <= *r.highestCommitted {
+			continue
+		}
+		seqsOrRound = append(seqsOrRound, i)
 		// ensure we set a timeout for this sequence
 		r.timeoutHandler.AddTask(i)
+	}
+
+	if len(seqsOrRound) == 0 {
+		return
 	}
 
 	if r.highestRequested < end {
@@ -254,6 +268,12 @@ func (r *requestor) getSeqOrRound(signedQuorum *signedQuorum) uint64 {
 
 // removes all tasks less or equal to the targetSeqOrRound
 func (r *requestor) removeOldTasks(targetSeqOrRound uint64) {
+	// set highest committed if we are replicating sequences
+	if r.replicateSeqs && (r.highestCommitted == nil || targetSeqOrRound > *r.highestCommitted) {
+		committed := targetSeqOrRound
+		r.highestCommitted = &committed
+	}
+
 	r.timeoutHandler.RemoveOldTasks(func(seqOrRound uint64, _ struct{}) bool {
 		return seqOrRound <= targetSeqOrRound
 	})
