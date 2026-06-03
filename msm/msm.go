@@ -16,6 +16,43 @@ import (
 	"go.uber.org/zap"
 )
 
+// state encodes the different stages of the epoch transition process, which determines how we build and verify blocks.
+//
+// SimplexEpochInfo.NextState() inspects the parent block's metadata to perform the following state transitions:
+//
+//	 (initial state: No Simplex blocks yet)
+//	                  │
+//	                  ▼
+//	┌───────────────────────────────────┐
+//	│       stateFirstSimplexBlock      │  builds the zero block (no inner block);
+//	│                                   │  creates epoch 1 with the initial validator set
+//	└─────────────────┬─────────────────┘
+//	                  │
+//	                  ▼
+//	┌───────────────────────────────────┐ ◀── validator set unchanged ──┐
+//	│      stateBuildBlockNormalOp      │                               │
+//	│  builds inner blocks within the   │ ──────────────────────────────┘
+//	│  current epoch                    │ ◀────────────────────────────────────────────┐
+//	└─────────────────┬─────────────────┘                                               │
+//	                  │ validator set changed                                           │
+//	                  │ (sets NextPChainReferenceHeight > 0)                            │
+//	                  ▼                                                                 │
+//	┌───────────────────────────────────┐ ◀── not enough approvals ─────┐               │
+//	│   stateBuildCollectingApprovals   │                               │               │
+//	│  aggregates approvals from        │ ──────────────────────────────┘               │
+//	│  the next epoch's validator set   │                                               │
+//	└─────────────────┬─────────────────┘                                               │
+//	                  │ quorum reached: emit sealing block                              │
+//	                  │ (BlockValidationDescriptor set)                                 │
+//	                  ▼                                                                 │
+//	┌───────────────────────────────────┐ ◀── sealing block ────────────┐               │
+//	│    stateBuildBlockEpochSealed     │     not finalized yet         │               │
+//	│  emits Telock (no inner block)    │ ──────────────────────────────┘               │
+//	│  until the sealing block is       │                                               │
+//	│  finalized; then opens the new    │ ─── new epoch (EpochNumber advanced) ─────────┘
+//	│  epoch                            │
+//	└───────────────────────────────────┘
+
 var (
 	errLastNonSimplexInnerBlockNil    = errors.New("failed constructing zero block: last non-Simplex inner block is nil")
 	errInvalidProtocolMetadataSeq     = errors.New("invalid ProtocolMetadata sequence number: should be > 0")
@@ -314,6 +351,17 @@ func (sm *StateMachine) verifyEpochNumber(block *StateMachineBlock) error {
 }
 
 // buildBlockNormalOp builds a block while potentially also transitioning to a new epoch, depending on the P-chain.
+//
+// Relevant SimplexEpochInfo fields (PCH = PChainReferenceHeight,
+// EN = EpochNumber, NPCH = NextPChainReferenceHeight):
+//
+//	parent (NormalOp)            validator set unchanged    validator set changed at p'
+//	┌─────────────────┐          ┌─────────────────┐        ┌─────────────────┐
+//	│ PCH  = p        │   ───►   │ PCH  = p (copy) │        │ PCH  = p (copy) │
+//	│ EN   = e        │    OR    │ EN   = e (copy) │   OR   │ EN   = e (copy) │
+//	│ NPCH = 0        │          │ NPCH = 0        │        │ NPCH = p' (> 0) │
+//	└─────────────────┘          └─────────────────┘        └─────────────────┘
+//	                             → stays NormalOp           → CollectingApprovals
 func (sm *StateMachine) buildBlockNormalOp(ctx context.Context, parentBlock StateMachineBlock, simplexMetadata, simplexBlacklist []byte, prevBlockSeq uint64) (*StateMachineBlock, error) {
 	// Since in the previous block, we were not transitioning to a new epoch,
 	// the P-chain reference height and epoch of the new block should remain the same.
@@ -569,6 +617,29 @@ func (sm *StateMachine) createBlockBuildingDecider(pChainReferenceHeight uint64)
 
 // buildBlockZero builds the first ever block for Simplex,
 // which is a special block that introduces the first validator set and starts the first epoch.
+//
+// How EpochNumber (EN), PrevSealingBlockHash (PSH), and SealingBlockSeq (SBS)
+// evolve along the block chain (Seq = block sequence number; h(n) = digest of
+// the block at sequence n):
+//
+//		────────────────── Epoch 1 ────────────────────────────────────│─── Epoch s ────
+//		                                                               │
+//		Seq:     z          ...     s            s+1     ...    s+x    │ s+1  (Telocks get pruned) ...
+//		       ┌──────┐            ┌────────┐  ┌──────┐       ┌──────┐ │ ┌────────────┐
+//		       │ Zero │    ...     │Sealing │  │Telock│  ...  │Telock│ │ │first block │  ...
+//		       │ block│            │ block  │  │      │       │      │ │ │ of epoch s │
+//		       └──────┘            └────────┘  └──────┘       └──────┘ │ └────────────┘
+//		       EN  = 1             EN  = 1     EN  = 1        EN  = 1  │ EN  = s
+//		       SBS = 0             SBS = 0     SBS = s        SBS = s  │ SBS = 0
+//		       PSH = 0             PSH = h(z)  PSH = 0        PSH = 0  │ PSH = 0
+//
+//		- EN  : copied within an epoch; on the first block of a new epoch, EN
+//		        equals the sequence number of the previous epoch's sealing block.
+//	         The first epoch number is set to the sequence number of that block.
+//		- PSH : only set on a sealing block. In the first epoch it points to the zero block;
+//		        otherwise it points to the previous epoch's sealing block.
+//		- SBS : 0 except on Telocks of a sealed-but-not-yet-finalized epoch, where
+//		        it equals the sequence number of that epoch's sealing block.
 func (sm *StateMachine) buildBlockZero(parentBlock StateMachineBlock, simplexMetadata, simplexBlacklist []byte) (*StateMachineBlock, error) {
 	pChainHeight := sm.LastNonSimplexBlockPChainHeight
 
@@ -664,6 +735,22 @@ func (sm *StateMachine) verifyBlockZero(block *StateMachineBlock, prevBlock Stat
 	return nil
 }
 
+// buildBlockCollectingApprovals builds either another collecting-approvals block (if not enough approvals yet)
+// or a sealing block (if quorum is reached).
+//
+// Relevant SimplexEpochInfo fields (EN = EpochNumber, NPCH = NextPChainReferenceHeight,
+// NEA = NextEpochApprovals, BVD = BlockValidationDescriptor, PSH = PrevSealingBlockHash):
+//
+//	parent (Collecting)              not enough approvals yet           quorum of approvals reached: sealing block
+//	┌──────────────────┐             ┌────────────────────┐             ┌────────────────────────────┐
+//	│ EN   = e         │             │ EN   = e           │             │ EN   = e                   │
+//	│ NPCH = p'        │   ────►     │ NPCH = p'          │             │ NPCH = p'                  │
+//	│ NEA  = A_old     │             │ NEA  = A_old ∪ new │     OR      │ NEA  = A_old ∪ new         │
+//	│ BVD  = nil       │             │ BVD  = nil         │             │ BVD  = validator set at p' │
+//	│                  │             │                    │             │ PSH  = h(prev epoch's      │
+//	│                  │             │                    │             │        sealing block)      │
+//	└──────────────────┘             └────────────────────┘             └────────────────────────────┘
+//	                                 → stays Collecting                 → BuildBlockEpochSealed
 func (sm *StateMachine) buildBlockCollectingApprovals(ctx context.Context, parentBlock StateMachineBlock, simplexMetadata, simplexBlacklist []byte, prevBlockSeq uint64) (*StateMachineBlock, error) {
 	newApprovals, err := sm.computeNewApprovals(parentBlock)
 	if err != nil {
@@ -943,6 +1030,21 @@ func (sm *StateMachine) areWeReadyToTransitionEpoch(parentBlock StateMachineBloc
 }
 
 // buildBlockEpochSealed builds a block where the epoch is being sealed due to a sealing block already created in this epoch.
+//
+// Relevant SimplexEpochInfo fields (PCH = PChainReferenceHeight, EN = EpochNumber,
+// NPCH = NextPChainReferenceHeight, SBS = SealingBlockSeq, BVD = BlockValidationDescriptor):
+//
+//	parent (sealing block)        sealing block NOT finalized      sealing block IS finalized
+//	                              → emit Telock (no inner block)   → first block of new epoch
+//	┌──────────────────┐          ┌──────────────────┐             ┌──────────────────────────┐
+//	│ Seq  = s         │          │ Seq  = s+1       │             │ Seq  = s+1               │
+//	│ PCH  = p         │          │ PCH  = p (copy)  │             │ PCH  = p' (was NPCH)     │
+//	│ EN   = e         │   ──►    │ EN   = e (copy)  │      OR     │ EN   = s                 │
+//	│ NPCH = p'        │    OR    │ NPCH = p' (copy) │             │ NPCH = 0  (reset)        │
+//	│ SBS  = 0         │          │ SBS  = s         │             │ SBS  = 0                 │
+//	│ BVD  = vset@p'   │          │ BVD  = nil       │             │ BVD  = nil               │
+//	└──────────────────┘          └──────────────────┘             └──────────────────────────┘
+//	                              → stays EpochSealed              → NormalOp (new epoch)
 func (sm *StateMachine) buildBlockEpochSealed(ctx context.Context, parentBlock StateMachineBlock, simplexMetadata, simplexBlacklist []byte, prevBlockSeq uint64) (*StateMachineBlock, error) {
 	// We check if the sealing block has already been finalized.
 	// If not, we build a Telock block.
