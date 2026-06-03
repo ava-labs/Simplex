@@ -194,8 +194,8 @@ func (r *requestor) sendSegments(segments []Segment) {
 func (r *requestor) sendRequestToNode(start uint64, end uint64, node NodeID) {
 	seqsOrRound := make([]uint64, 0, (end+1)-start)
 	for i := start; i <= end; i++ {
-		// Skip anything we have already committed.
-		if r.highestCommitted != nil && i <= *r.highestCommitted {
+		// Skip sequences we have already committed;
+		if r.replicateSeqs && r.highestCommitted != nil && i <= *r.highestCommitted {
 			continue
 		}
 		seqsOrRound = append(seqsOrRound, i)
@@ -268,8 +268,8 @@ func (r *requestor) getSeqOrRound(signedQuorum *signedQuorum) uint64 {
 
 // removes all tasks less or equal to the targetSeqOrRound
 func (r *requestor) removeOldTasks(targetSeqOrRound uint64) {
-	// everything up to and including targetSeqOrRound is committed
-	if r.highestCommitted == nil || targetSeqOrRound > *r.highestCommitted {
+	// set highest committed if we are replicating sequences
+	if r.replicateSeqs && (r.highestCommitted == nil || targetSeqOrRound > *r.highestCommitted) {
 		committed := targetSeqOrRound
 		r.highestCommitted = &committed
 	}
