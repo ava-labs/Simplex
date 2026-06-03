@@ -282,6 +282,8 @@ func newStateMachine(t *testing.T) (*StateMachine, *testConfig) {
 	bs := make(blockStore)
 	bs[0] = &outerBlock{block: genesisBlock}
 
+	var myNodeID nodeID
+
 	var testConfig testConfig
 	testConfig.blockStore = bs
 	testConfig.validatorSetRetriever.result = NodeBLSMappings{
@@ -310,6 +312,8 @@ func newStateMachine(t *testing.T) (*StateMachine, *testConfig) {
 		GetValidatorSet:          testConfig.validatorSetRetriever.getValidatorSet,
 		PChainProgressListener:   &noOpPChainListener{},
 		LastNonSimplexInnerBlock: genesisBlock.InnerBlock,
+		MyNodeID:                 myNodeID[:],
+		Signer:                   &testutil.TestSigner{},
 	}
 
 	sm, err := NewStateMachine(&smConfig)
