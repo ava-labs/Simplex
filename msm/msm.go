@@ -635,8 +635,9 @@ func (sm *StateMachine) createBlockBuildingDecider(pChainReferenceHeight uint64)
 //
 //	- EN  : copied within an epoch; on the first block of a new epoch, EN
 //	        equals the sequence number of the previous epoch's sealing block.
-//	- PSH : only set on a sealing block. In epoch 1 it points to the zero block;
-//	        in epoch e > 1 it points to the previous epoch's sealing block.
+//          The first epoch number is set to the sequence number of that block.
+//	- PSH : only set on a sealing block. In the first epoch it points to the zero block;
+//	        otherwise it points to the previous epoch's sealing block.
 //	- SBS : 0 except on Telocks of a sealed-but-not-yet-finalized epoch, where
 //	        it equals the sequence number of that epoch's sealing block.
 func (sm *StateMachine) buildBlockZero(parentBlock StateMachineBlock, simplexMetadata, simplexBlacklist []byte) (*StateMachineBlock, error) {
