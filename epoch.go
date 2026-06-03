@@ -1923,9 +1923,7 @@ func (e *Epoch) processFinalizedBlock(block Block, finalization *Finalization) e
 
 	// Create a task that will verify the block in the future, after its predecessors have also been verified.
 	task := e.createFinalizedBlockVerificationTask(e.oneTimeVerifier.Wrap(block), finalization)
-	e.blockVerificationScheduler.ScheduleTaskWithDependencies(task, block.BlockHeader().Seq, blockDependency, []uint64{})
-
-	return nil
+	return e.blockVerificationScheduler.ScheduleTaskWithDependencies(task, block.BlockHeader().Seq, blockDependency, []uint64{})
 }
 
 // processNotarizedBlock processes a block that has a notarization.
@@ -1979,9 +1977,7 @@ func (e *Epoch) processNotarizedBlock(block Block, notarization *Notarization) e
 
 	e.replicationState.CreateDependencyTasks(blockDependency, md.Seq-1, missingRounds)
 
-	e.blockVerificationScheduler.ScheduleTaskWithDependencies(task, md.Seq, blockDependency, missingRounds)
-
-	return nil
+	return e.blockVerificationScheduler.ScheduleTaskWithDependencies(task, md.Seq, blockDependency, missingRounds)
 }
 
 func (e *Epoch) createBlockVerificationTask(block Block, from NodeID, vote Vote) func() Digest {
