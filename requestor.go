@@ -61,7 +61,7 @@ func newSignedQuorumFromRound(round, seq uint64, signers []NodeID, myNodeID Node
 	}
 }
 
-type sender interface {
+type Sender interface {
 	// Send sends a message to the given destination node
 	Send(msg *Message, destination NodeID)
 }
@@ -92,7 +92,7 @@ type requestor struct {
 	// maxRoundWindow is the maximum number of requests we can request past highestRequested.
 	maxRoundWindow uint64
 
-	sender sender
+	sender Sender
 
 	// requestIterator is an iterator over NodeIDs in order to request quorum rounds
 	requestIterator int
@@ -101,7 +101,7 @@ type requestor struct {
 	replicateSeqs bool
 }
 
-func newRequestor(logger Logger, start time.Time, lock *sync.Mutex, maxRoundWindow uint64, sender sender, replicateSeqs bool) *requestor {
+func newRequestor(logger Logger, start time.Time, lock *sync.Mutex, maxRoundWindow uint64, sender Sender, replicateSeqs bool) *requestor {
 	r := &requestor{
 		logger:         logger,
 		epochLock:      lock,
