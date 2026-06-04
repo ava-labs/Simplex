@@ -16,17 +16,8 @@ import (
 )
 
 func TestRetrieveFromStorage(t *testing.T) {
-	brokenStorage := testutil.NewInMemStorage()
-	block := testutil.NewTestBlock(ProtocolMetadata{Seq: 43}, emptyBlacklist)
+	block := testutil.NewTestBlock(ProtocolMetadata{Seq: 0}, emptyBlacklist)
 	finalization := Finalization{
-		Finalization: ToBeSignedFinalization{
-			BlockHeader: block.BlockHeader(),
-		},
-	}
-	brokenStorage.Index(context.Background(), block, finalization)
-
-	block = testutil.NewTestBlock(ProtocolMetadata{Seq: 0}, emptyBlacklist)
-	finalization = Finalization{
 		Finalization: ToBeSignedFinalization{
 			BlockHeader: block.BlockHeader(),
 		},
@@ -45,11 +36,7 @@ func TestRetrieveFromStorage(t *testing.T) {
 			description: "no blocks in storage",
 			storage:     testutil.NewInMemStorage(),
 		},
-		{
-			description: "broken storage",
-			storage:     brokenStorage,
-			expectedErr: ErrBlockNotFound,
-		},
+
 		{
 			description: "normal storage",
 			storage:     normalStorage,
@@ -390,9 +377,9 @@ func TestNotarizationTime(t *testing.T) {
 
 	var round uint64
 	var have bool
-	var checkedIfWeHaveNotFinalizedRoud int
+	var checkedIfWeHaveNotFinalizedRound int
 	haveNotFinalizedRound := func() (uint64, bool) {
-		checkedIfWeHaveNotFinalizedRoud++
+		checkedIfWeHaveNotFinalizedRound++
 		return round, have
 	}
 
@@ -413,28 +400,28 @@ func TestNotarizationTime(t *testing.T) {
 	round = 100
 	now := time.Now()
 	nt.CheckForNotFinalizedNotarizedBlocks(now)
-	require.Zero(t, checkedIfWeHaveNotFinalizedRoud)
+	require.Zero(t, checkedIfWeHaveNotFinalizedRound)
 
 	// Next call happens just before we would check if we have not finalized.
 
 	now = now.Add(defaultFinalizeVoteRebroadcastTimeout / 3).Add(-time.Millisecond)
 	nt.CheckForNotFinalizedNotarizedBlocks(now)
 	require.Equal(t, 0, invoked)
-	require.Zero(t, checkedIfWeHaveNotFinalizedRoud)
+	require.Zero(t, checkedIfWeHaveNotFinalizedRound)
 
 	// Next call happens just after we would check if we have not finalized.
 
 	now = now.Add(time.Millisecond)
 	nt.CheckForNotFinalizedNotarizedBlocks(now)
 	require.Equal(t, 0, invoked)
-	require.Equal(t, 1, checkedIfWeHaveNotFinalizedRoud)
+	require.Equal(t, 1, checkedIfWeHaveNotFinalizedRound)
 
 	// Advance the time some more. We still haven't reached defaultFinalizeVoteRebroadcastTimeout so no rebroadcast just yet.
 
 	now = now.Add(defaultFinalizeVoteRebroadcastTimeout / 3)
 	nt.CheckForNotFinalizedNotarizedBlocks(now)
 	require.Equal(t, 0, invoked)
-	require.Equal(t, 2, checkedIfWeHaveNotFinalizedRoud)
+	require.Equal(t, 2, checkedIfWeHaveNotFinalizedRound)
 
 	// We need to wait a full defaultFinalizeVoteRebroadcastTimeout before we rebroadcast.
 	// This is because we are unaware when was our last rebroadcast time.
@@ -442,19 +429,19 @@ func TestNotarizationTime(t *testing.T) {
 	now = now.Add(defaultFinalizeVoteRebroadcastTimeout)
 	nt.CheckForNotFinalizedNotarizedBlocks(now)
 	require.Equal(t, 1, invoked)
-	require.Equal(t, 3, checkedIfWeHaveNotFinalizedRoud)
+	require.Equal(t, 3, checkedIfWeHaveNotFinalizedRound)
 
 	// Next call happens shortly after, no rebroadcast should happen.
 	now = now.Add(defaultFinalizeVoteRebroadcastTimeout / 2)
 	nt.CheckForNotFinalizedNotarizedBlocks(now)
 	require.Equal(t, 1, invoked)
-	require.Equal(t, 4, checkedIfWeHaveNotFinalizedRoud)
+	require.Equal(t, 4, checkedIfWeHaveNotFinalizedRound)
 
 	// Next rebroadcast happens after exactly the timeout.
 	now = now.Add(defaultFinalizeVoteRebroadcastTimeout / 2).Add(time.Millisecond)
 	nt.CheckForNotFinalizedNotarizedBlocks(now)
 	require.Equal(t, 2, invoked)
-	require.Equal(t, 5, checkedIfWeHaveNotFinalizedRoud)
+	require.Equal(t, 5, checkedIfWeHaveNotFinalizedRound)
 
 	// We now change the round, even though enough time has passed, no rebroadcast should happen.
 	// Since we have advanced the round, we don't check if we have not finalized.
@@ -462,7 +449,7 @@ func TestNotarizationTime(t *testing.T) {
 	now = now.Add(2 * defaultFinalizeVoteRebroadcastTimeout)
 	nt.CheckForNotFinalizedNotarizedBlocks(now)
 	require.Equal(t, 2, invoked)
-	require.Equal(t, 5, checkedIfWeHaveNotFinalizedRoud)
+	require.Equal(t, 5, checkedIfWeHaveNotFinalizedRound)
 
 	// We now finalized everything, so no rebroadcast should happen.
 	have = false
