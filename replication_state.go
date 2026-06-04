@@ -55,11 +55,11 @@ type ReplicationState struct {
 	roundRequestor        *requestor
 	finalizationRequestor *requestor
 
-	sender    sender
+	sender    Sender
 	epochLock *sync.Mutex
 }
 
-func NewReplicationState(logger Logger, comm Communication, myNodeID NodeID, maxRoundWindow uint64, enabled bool, start time.Time, lock *sync.Mutex, rng *rand.Rand) *ReplicationState {
+func NewReplicationState(logger Logger, comm Sender, myNodeID NodeID, maxRoundWindow uint64, enabled bool, start time.Time, lock *sync.Mutex, rng *rand.Rand) *ReplicationState {
 	if !enabled {
 		return &ReplicationState{
 			enabled: enabled,
