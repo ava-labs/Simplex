@@ -74,17 +74,19 @@ func (bs *BlockDependencyManager) ExecuteBlockDependents(prev Digest) {
 		}
 
 		if taskWithDeps.isReady() {
-			bs.logger.Debug("Scheduling block verification task as all dependencies are met", zap.Stringer("taskID", prev))
+			bs.logger.Debug("Scheduling block verification task as all dependencies are met", zap.Stringer("taskID", prev), zap.Uint64("Seq", taskWithDeps.blockSeq))
 			bs.scheduler.Schedule(taskWithDeps.Task)
 			continue
 		}
 
-		bs.logger.Debug("Block verification task has unsatisfied dependencies",
-			zap.Any("prevBlock", prev),
-			zap.Stringer("task", taskWithDeps),
-		)
-
 		remainingDeps = append(remainingDeps, taskWithDeps)
+	}
+
+	if len(remainingDeps) > 0 {
+		bs.logger.Debug("Block scheduler has unsatisfied dependencies",
+			zap.Stringer("prev", prev),
+			zap.Stringers("task", remainingDeps),
+		)
 	}
 
 	bs.dependencies = remainingDeps
@@ -106,11 +108,14 @@ func (bs *BlockDependencyManager) ExecuteEmptyRoundDependents(emptyRound uint64)
 			continue
 		}
 
-		bs.logger.Debug("Block verification task has unsatisfied dependencies",
-			zap.Any("emptyRound", emptyRound),
-			zap.Stringer("task", taskWithDeps),
-		)
 		remainingDeps = append(remainingDeps, taskWithDeps)
+	}
+
+	if len(remainingDeps) > 0 {
+		bs.logger.Debug("Block scheduler has unsatisfied dependencies",
+			zap.Uint64("empty round", emptyRound),
+			zap.Stringers("task", remainingDeps),
+		)
 	}
 
 	bs.dependencies = remainingDeps
