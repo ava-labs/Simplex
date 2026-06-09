@@ -4,7 +4,6 @@
 package metadata
 
 import (
-	"encoding/asn1"
 	"encoding/binary"
 	"fmt"
 
@@ -12,7 +11,18 @@ import (
 	"go.uber.org/zap"
 )
 
-type approvalsByPChainHeight map[uint64]*approvalAndTimestamp
+// uint64DigestPair is a struct that contains the P-Chain height and the digest
+// of the auxiliary info for which a validator set approval is given.
+type uint64DigestPair [40]byte
+
+func makeUint64DigestPair(pChainHeight uint64, auxInfoSeqDigest [32]byte) uint64DigestPair {
+	var pair uint64DigestPair
+	binary.BigEndian.PutUint64(pair[:8], pChainHeight)
+	copy(pair[8:], auxInfoSeqDigest[:])
+	return pair
+}
+
+type approvalsByPChainHeightAndAuxInfoDigest map[uint64DigestPair]*approvalAndTimestamp
 
 type approvalAndTimestamp struct {
 	ValidatorSetApproval
@@ -24,7 +34,7 @@ type ApprovalStore struct {
 	validators        NodeBLSMappings
 	logger            simplex.Logger
 	pkByNodeID        map[nodeID][]byte
-	approvalsByNodes  map[nodeID]approvalsByPChainHeight
+	approvalsByNodes  map[nodeID]approvalsByPChainHeightAndAuxInfoDigest
 	storedCount       int
 }
 
@@ -34,9 +44,9 @@ func NewApprovalStore(signatureVerifier SignatureVerifier, validators NodeBLSMap
 		pkByNodeID[vdr.NodeID] = vdr.BLSKey
 	}
 
-	approvalsByNodes := make(map[nodeID]approvalsByPChainHeight, len(validators))
+	approvalsByNodes := make(map[nodeID]approvalsByPChainHeightAndAuxInfoDigest, len(validators))
 	for _, vdr := range validators {
-		approvalsByNodes[vdr.NodeID] = make(approvalsByPChainHeight)
+		approvalsByNodes[vdr.NodeID] = make(approvalsByPChainHeightAndAuxInfoDigest)
 	}
 
 	return &ApprovalStore{
@@ -82,9 +92,11 @@ func (as *ApprovalStore) HandleApproval(approval *ValidatorSetApproval, timestam
 		return nil
 	}
 
+	key := makeUint64DigestPair(approval.PChainHeight, approval.AuxInfoSeqDigest)
+
 	// Store the approval.
-	oldApproval := as.approvalsByNodes[approval.NodeID][approval.PChainHeight]
-	as.approvalsByNodes[approval.NodeID][approval.PChainHeight] = &approvalAndTimestamp{
+	oldApproval := as.approvalsByNodes[approval.NodeID][key]
+	as.approvalsByNodes[approval.NodeID][key] = &approvalAndTimestamp{
 		ValidatorSetApproval: *approval,
 		Timestamp:            timestamp,
 	}
@@ -113,22 +125,19 @@ func (as *ApprovalStore) maybePruneOldApprovals(approval *ValidatorSetApproval) 
 	}
 
 	if oldestApproval != nil {
+		key := makeUint64DigestPair(oldestApproval.PChainHeight, oldestApproval.AuxInfoSeqDigest)
+
 		as.logger.Debug("Deleting old approval from node",
 			zap.String("nodeID", fmt.Sprintf("%x", oldestApproval.NodeID)),
 			zap.String("oldestApprovalPChainHeight",
 				fmt.Sprintf("%d", oldestApproval.PChainHeight)), zap.Uint64("oldestApprovalTimestamp", oldestApproval.Timestamp))
-		delete(as.approvalsByNodes[approval.NodeID], oldestApproval.PChainHeight)
+		delete(as.approvalsByNodes[approval.NodeID], key)
 		as.storedCount--
 	}
 }
 
 func (as *ApprovalStore) checkApprovalSignature(approval *ValidatorSetApproval, pk []byte) error {
-	pChainHeight := approval.PChainHeight
-	pChainHeightBuff := make([]byte, 8)
-	binary.BigEndian.PutUint64(pChainHeightBuff, pChainHeight)
-
-	signedMsg := simplex.SignedMessage{Payload: pChainHeightBuff, Context: signatureContext}
-	toBeSigned, err := asn1.Marshal(signedMsg)
+	toBeSigned, err := assembleApprovalToBeSigned(approval.PChainHeight, approval.AuxInfoSeqDigest)
 	if err != nil {
 		return err
 	}
@@ -146,7 +155,10 @@ func (as *ApprovalStore) approvalExistsAndUpToDate(approval *ValidatorSetApprova
 	if as.approvalsByNodes[approval.NodeID] == nil {
 		return false
 	}
-	existingApproval := as.approvalsByNodes[approval.NodeID][approval.PChainHeight]
+
+	key := makeUint64DigestPair(approval.PChainHeight, approval.AuxInfoSeqDigest)
+
+	existingApproval := as.approvalsByNodes[approval.NodeID][key]
 	if existingApproval == nil {
 		return false
 	}

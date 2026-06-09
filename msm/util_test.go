@@ -6,6 +6,8 @@ package metadata
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/asn1"
@@ -21,6 +23,21 @@ import (
 )
 
 // Test helpers
+
+var (
+	testSK *ecdsa.PrivateKey
+	testPK *ecdsa.PublicKey
+)
+
+func init() {
+	// We generate this key-pair to test that auxiliary info signs the right.
+	sk, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		panic(fmt.Sprintf("failed to generate test key: %v", err))
+	}
+	testSK = sk
+	testPK = &sk.PublicKey
+}
 
 type InnerBlock struct {
 	TS          time.Time
@@ -83,12 +100,55 @@ func (a approvalsRetriever) Approvals() ValidatorSetApprovals {
 	return a.result
 }
 
+type signer struct {
+}
+
+func (s *signer) Sign(digest []byte) ([]byte, error) {
+	return testSK.Sign(rand.Reader, digest, nil)
+}
+
+// signApproval produces a real ECDSA signature over the exact payload the production code signs
+// for an epoch-transition approval (assembleApprovalToBeSigned), using the shared test key. The
+// signatureVerifier above accepts it. Use this instead of placeholder signature bytes for any
+// approval fixture that is expected to pass signature verification.
+func signApproval(pChainHeight uint64, auxInfoDigest [32]byte) []byte {
+	toBeSigned, err := assembleApprovalToBeSigned(pChainHeight, auxInfoDigest)
+	if err != nil {
+		panic(fmt.Sprintf("failed to assemble approval payload: %v", err))
+	}
+	sig, err := testSK.Sign(rand.Reader, toBeSigned, nil)
+	if err != nil {
+		panic(fmt.Sprintf("failed to sign approval: %v", err))
+	}
+	return sig
+}
+
 type signatureVerifier struct {
 	err error
 }
 
-func (sv *signatureVerifier) VerifySignature(signature []byte, message []byte, publicKey []byte) error {
-	return sv.err
+func (sv *signatureVerifier) VerifySignature(signature []byte, message []byte, _ []byte) error {
+	if sv.err != nil {
+		return sv.err
+	}
+	if ecdsa.VerifyASN1(testPK, message, signature) {
+		return nil
+	}
+
+	// Maybe it's an aggregated signature?
+	var aggSig aggregatedSignature
+	_, err := asn1.Unmarshal(signature, &aggSig)
+	if err != nil {
+		return fmt.Errorf("invalid signature format: %w", err)
+	}
+
+	for _, sig := range aggSig.Signatures {
+		if !ecdsa.VerifyASN1(testPK, message, sig) {
+			return fmt.Errorf("invalid signature in aggregate")
+		}
+	}
+
+	return nil
 }
 
 type signatureAggregator struct {
@@ -96,7 +156,7 @@ type signatureAggregator struct {
 	totalWeight    uint64
 }
 
-type aggregatrdSignature struct {
+type aggregatedSignature struct {
 	Signatures [][]byte
 }
 
@@ -108,9 +168,16 @@ func (sv *signatureAggregator) AppendSignatures(existing []byte, sigs ...[]byte)
 	all := make([][]byte, 0, len(sigs)+1)
 	all = append(all, sigs...)
 	if len(existing) > 0 {
-		all = append(all, existing)
+		// existing is itself a marshaled aggregate from a previous round. Flatten it into the
+		// component signatures instead of nesting the blob, so the aggregate stays a single level
+		// of individual signatures that signatureVerifier can validate one by one.
+		var prev aggregatedSignature
+		if _, err := asn1.Unmarshal(existing, &prev); err != nil {
+			return nil, err
+		}
+		all = append(all, prev.Signatures...)
 	}
-	return asn1.Marshal(aggregatrdSignature{Signatures: all})
+	return asn1.Marshal(aggregatedSignature{Signatures: all})
 }
 
 func (sv *signatureAggregator) IsQuorum(signers []simplex.NodeID) bool {
@@ -314,7 +381,10 @@ func newStateMachineWithLogger(tb testing.TB, logger simplex.Logger) (*StateMach
 		PChainProgressListener:   &noOpPChainListener{},
 		LastNonSimplexInnerBlock: genesisBlock.InnerBlock,
 		MyNodeID:                 myNodeID[:],
-		Signer:                   &testutil.TestSigner{},
+		AuxiliaryInfoApp: &voteCountingAuxInfoApp{
+			threshold: 2,
+		},
+		Signer: &signer{},
 		ComputeICMEpoch: func(input ICMEpochInput) ICMEpochInfo {
 			// This is just the ACP-181 implementation from avalanchego
 			var zeroEpoch ICMEpochInfo
@@ -375,56 +445,70 @@ func (failingAggregator) IsQuorum([]simplex.NodeID) bool {
 	return false
 }
 
-type testBlockStore map[uint64]StateMachineBlock
-
-func (bs testBlockStore) getBlock(seq uint64, _ [32]byte) (StateMachineBlock, *simplex.Finalization, error) {
-	blk, ok := bs[seq]
-	if !ok {
-		return StateMachineBlock{}, nil, fmt.Errorf("%w: block %d", simplex.ErrBlockNotFound, seq)
-	}
-	return blk, nil, nil
+type noopTestAuxInfoApp struct {
 }
 
-type testVMBlock struct {
-	bytes  []byte
-	height uint64
-}
-
-func (b *testVMBlock) Digest() [32]byte {
-	return sha256.Sum256(b.bytes)
-}
-
-func (b *testVMBlock) Height() uint64 {
-	return b.height
-}
-
-func (b *testVMBlock) Timestamp() time.Time {
-	return time.Now()
-}
-
-func (b *testVMBlock) Verify(_ context.Context, _ uint64) error {
+func (t *noopTestAuxInfoApp) IsLegalAuxInfoAppend(AppID, NodeBLSMappings, [][]byte, []byte) error {
 	return nil
 }
 
-type testSigVerifier struct {
-	err error
+func (t *noopTestAuxInfoApp) IsFinalAuxInfoHistory(AppID, NodeBLSMappings, [][]byte) (bool, error) {
+	return true, nil
 }
 
-func (sv *testSigVerifier) VerifySignature(_, _, _ []byte) error {
-	return sv.err
+func (t *noopTestAuxInfoApp) GenerateAuxInfo(AppID, NodeBLSMappings, [][]byte) ([]byte, error) {
+	return nil, nil
 }
 
-type testKeyAggregator struct {
-	err error
+func (t *noopTestAuxInfoApp) DefaultAppID() AppID {
+	return 1
 }
 
-func (ka *testKeyAggregator) AggregateKeys(keys ...[]byte) ([]byte, error) {
-	if ka.err != nil {
-		return nil, ka.err
+type voteCountingAuxInfoApp struct {
+	threshold  int
+	randomTape func() []byte
+}
+
+func (t *voteCountingAuxInfoApp) IsLegalAuxInfoAppend(_ AppID, _ NodeBLSMappings, history [][]byte, addition []byte) error {
+	set := make(map[string]struct{})
+	for _, item := range history {
+		set[string(item)] = struct{}{}
 	}
-	var agg []byte
-	for _, k := range keys {
-		agg = append(agg, k...)
+	if _, exists := set[string(addition)]; exists {
+		return fmt.Errorf("duplicate addition: %s", string(addition))
 	}
-	return agg, nil
+	return nil
+}
+
+func (t *voteCountingAuxInfoApp) IsFinalAuxInfoHistory(appID AppID, nodes NodeBLSMappings, history [][]byte) (bool, error) {
+	if len(history) == 0 {
+		return t.threshold == 0, nil
+	}
+	addition := history[len(history)-1]
+	history = history[:len(history)-1]
+	if err := t.IsLegalAuxInfoAppend(appID, nodes, history, addition); err != nil {
+		return false, err
+	}
+
+	history = append(history, addition)
+	set := make(map[string]struct{})
+	for _, item := range history {
+		set[string(item)] = struct{}{}
+	}
+	final := len(set) >= t.threshold
+	return final, nil
+}
+
+func (t *voteCountingAuxInfoApp) GenerateAuxInfo(AppID, NodeBLSMappings, [][]byte) ([]byte, error) {
+	// Simulate a random node voting
+	if t.randomTape != nil {
+		return t.randomTape(), nil
+	}
+	var nodeID nodeID
+	rand.Read(nodeID[:])
+	return nodeID[:], nil
+}
+
+func (t *voteCountingAuxInfoApp) DefaultAppID() AppID {
+	return 1
 }
