@@ -237,6 +237,9 @@ func NewStateMachine(config *Config) (*StateMachine, error) {
 		config.Logger.Error("Last non-Simplex inner block is nil, cannot build zero block with correct metadata")
 		return nil, errLastNonSimplexInnerBlockNil
 	}
+	if config.TimeSkewLimit == 0 {
+		config.TimeSkewLimit = maxSkew
+	}
 	sm := StateMachine{Config: config}
 	return &sm, nil
 }
@@ -338,7 +341,7 @@ func (sm *StateMachine) verifyNonZeroBlock(ctx context.Context, block, prevBlock
 	prevBlockMD := prevBlock.Metadata
 	currentState := prevBlockMD.SimplexEpochInfo.NextState()
 
-	if err := verifyTimestamp(block, prevBlock, sm.GetTime()); err != nil {
+	if err := verifyTimestamp(block, prevBlock, sm.GetTime(), sm.TimeSkewLimit); err != nil {
 		return fmt.Errorf("failed to verify timestamp: %w", err)
 	}
 
@@ -367,7 +370,7 @@ func (sm *StateMachine) verifyNonZeroBlock(ctx context.Context, block, prevBlock
 	}
 }
 
-func verifyTimestamp(block *StateMachineBlock, prevBlock *StateMachineBlock, now time.Time) error {
+func verifyTimestamp(block *StateMachineBlock, prevBlock *StateMachineBlock, now time.Time, timeSkewLimit time.Duration) error {
 	if block.Metadata.Timestamp > math.MaxInt64 {
 		return fmt.Errorf("%w: timestamp %d exceeds maximum int64 value", errTimestampTooBig, block.Metadata.Timestamp)
 	}
@@ -378,7 +381,7 @@ func verifyTimestamp(block *StateMachineBlock, prevBlock *StateMachineBlock, now
 
 	proposedTime := time.UnixMilli(int64(block.Metadata.Timestamp))
 
-	if now.Add(maxSkew).Before(proposedTime) {
+	if now.Add(timeSkewLimit).Before(proposedTime) {
 		return fmt.Errorf("%w: proposed timestamp %v, max skew: %v", errTimestampTooFarInFuture, proposedTime, maxSkew)
 	}
 	return nil
@@ -788,7 +791,7 @@ func (sm *StateMachine) verifyBlockZero(block *StateMachineBlock, prevBlock Stat
 	}
 
 	now := sm.GetTime()
-	if err := verifyTimestamp(block, &prevBlock, now); err != nil {
+	if err := verifyTimestamp(block, &prevBlock, now, sm.TimeSkewLimit); err != nil {
 		return fmt.Errorf("failed to verify timestamp for zero block: %w", err)
 	}
 
@@ -862,13 +865,13 @@ func (sm *StateMachine) buildBlockCollectingApprovals(ctx context.Context, paren
 	// so that eventually we'll have enough approvals to seal the epoch.
 	if !newApprovals.canSeal {
 		sm.Logger.Debug("Not enough approvals to seal epoch, building block without sealing the epoch")
-		return sm.buildBlockImpatiently(ctx, simplexMetadata, simplexBlacklist, newSimplexEpochInfo, pChainHeight, icmEpochInfo)
+		return sm.buildBlockImpatiently(ctx, parentBlock, simplexMetadata, simplexBlacklist, newSimplexEpochInfo, pChainHeight, icmEpochInfo)
 	}
 
 	sm.Logger.Debug("Have enough approvals to seal epoch, building sealing block")
 
 	// Else, we have enough approvals to seal the epoch, so we create the sealing block.
-	return sm.createSealingBlock(ctx, simplexMetadata, simplexBlacklist, newSimplexEpochInfo, pChainHeight, icmEpochInfo)
+	return sm.createSealingBlock(ctx, parentBlock, simplexMetadata, simplexBlacklist, newSimplexEpochInfo, pChainHeight, icmEpochInfo)
 }
 
 func (sm *StateMachine) verifyCollectingApprovalsBlock(ctx context.Context, parentBlock StateMachineBlock, nextBlock *StateMachineBlock, prevBlockSeq uint64) error {
@@ -1031,7 +1034,7 @@ func (sm *StateMachine) computeNewApprovals(parentBlock StateMachineBlock) (*app
 // buildBlockImpatiently builds a block by waiting for the VM to build a block until MaxBlockBuildingWaitTime.
 // If the VM fails to build a block within that time, we build a block without an inner block,
 // so that we can continue making progress and not get stuck waiting for the VM.
-func (sm *StateMachine) buildBlockImpatiently(ctx context.Context, simplexMetadata []byte, simplexBlacklist []byte, simplexEpochInfo SimplexEpochInfo, pChainHeight uint64, icmEpochInfo ICMEpochInfo) (*StateMachineBlock, error) {
+func (sm *StateMachine) buildBlockImpatiently(ctx context.Context, parentBlock StateMachineBlock, simplexMetadata []byte, simplexBlacklist []byte, simplexEpochInfo SimplexEpochInfo, pChainHeight uint64, icmEpochInfo ICMEpochInfo) (*StateMachineBlock, error) {
 	impatientContext, cancel := context.WithTimeout(ctx, sm.MaxBlockBuildingWaitTime)
 	defer cancel()
 
@@ -1049,10 +1052,12 @@ func (sm *StateMachine) buildBlockImpatiently(ctx context.Context, simplexMetada
 	}
 
 	now := sm.GetTime()
+	icmEpochInfo = computeICMEpochInfo(parentBlock, sm.ComputeICMEpoch, now)
 	return wrapBlock(innerBlock, simplexEpochInfo, pChainHeight, simplexMetadata, simplexBlacklist, now, icmEpochInfo), nil
 }
 
 func (sm *StateMachine) createSealingBlock(ctx context.Context,
+	parentBlock StateMachineBlock,
 	simplexMetadata []byte,
 	simplexBlacklist []byte,
 	simplexEpochInfo SimplexEpochInfo,
@@ -1062,7 +1067,7 @@ func (sm *StateMachine) createSealingBlock(ctx context.Context,
 	if err != nil {
 		return nil, fmt.Errorf("failed to compute simplex epoch info for sealing block: %w", err)
 	}
-	return sm.buildBlockImpatiently(ctx, simplexMetadata, simplexBlacklist, simplexEpochInfo, pChainHeight, icmEpochInfo)
+	return sm.buildBlockImpatiently(ctx, parentBlock, simplexMetadata, simplexBlacklist, simplexEpochInfo, pChainHeight, icmEpochInfo)
 }
 
 func (sm *StateMachine) computeSimplexEpochInfoForSealingBlock(simplexEpochInfo SimplexEpochInfo) (SimplexEpochInfo, error) {

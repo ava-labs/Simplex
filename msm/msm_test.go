@@ -1202,7 +1202,7 @@ func TestVerifyTimestamp(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			block := &StateMachineBlock{Metadata: StateMachineMetadata{Timestamp: tt.proposed}}
 			prev := &StateMachineBlock{Metadata: StateMachineMetadata{Timestamp: tt.prev}}
-			err := verifyTimestamp(block, prev, now)
+			err := verifyTimestamp(block, prev, now, maxSkew)
 			if tt.err == nil {
 				require.NoError(t, err)
 				return
