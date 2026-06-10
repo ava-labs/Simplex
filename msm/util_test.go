@@ -40,7 +40,7 @@ func (i *InnerBlock) Timestamp() time.Time {
 	return i.TS
 }
 
-func (i *InnerBlock) Verify(_ context.Context) error {
+func (i *InnerBlock) Verify(_ context.Context, _ uint64) error {
 	return nil
 }
 
@@ -49,10 +49,10 @@ type fakeVMBlock struct {
 	height uint64
 }
 
-func (f *fakeVMBlock) Digest() [32]byte               { return [32]byte{} }
-func (f *fakeVMBlock) Height() uint64                 { return f.height }
-func (f *fakeVMBlock) Timestamp() time.Time           { return time.Time{} }
-func (f *fakeVMBlock) Verify(_ context.Context) error { return nil }
+func (f *fakeVMBlock) Digest() [32]byte                         { return [32]byte{} }
+func (f *fakeVMBlock) Height() uint64                           { return f.height }
+func (f *fakeVMBlock) Timestamp() time.Time                     { return time.Time{} }
+func (f *fakeVMBlock) Verify(_ context.Context, _ uint64) error { return nil }
 
 type outerBlock struct {
 	finalization *simplex.Finalization
@@ -279,6 +279,10 @@ type testConfig struct {
 }
 
 func newStateMachine(t *testing.T) (*StateMachine, *testConfig) {
+	return newStateMachineWithLogger(t, testutil.MakeLogger(t))
+}
+
+func newStateMachineWithLogger(tb testing.TB, logger simplex.Logger) (*StateMachine, *testConfig) {
 	bs := make(blockStore)
 	bs[0] = &outerBlock{block: genesisBlock}
 
@@ -295,7 +299,7 @@ func newStateMachine(t *testing.T) (*StateMachine, *testConfig) {
 		LastNonSimplexBlockPChainHeight: 100,
 		GetTime:                         time.Now,
 		TimeSkewLimit:                   time.Second * 5,
-		Logger:                          testutil.MakeLogger(t),
+		Logger:                          logger,
 		GetBlock:                        testConfig.blockStore.getBlock,
 		MaxBlockBuildingWaitTime:        time.Second,
 		ApprovalsRetriever:              &testConfig.approvalsRetriever,
@@ -306,18 +310,35 @@ func newStateMachine(t *testing.T) (*StateMachine, *testConfig) {
 		GetPChainHeight: func() uint64 {
 			return 100
 		},
-		GetUpgrades: func() any {
-			return nil
-		},
 		GetValidatorSet:          testConfig.validatorSetRetriever.getValidatorSet,
 		PChainProgressListener:   &noOpPChainListener{},
 		LastNonSimplexInnerBlock: genesisBlock.InnerBlock,
 		MyNodeID:                 myNodeID[:],
 		Signer:                   &testutil.TestSigner{},
+		ComputeICMEpoch: func(input ICMEpochInput) ICMEpochInfo {
+			// This is just the ACP-181 implementation from avalanchego
+			var zeroEpoch ICMEpochInfo
+			if input.ParentEpoch == zeroEpoch {
+				return ICMEpochInfo{
+					PChainEpochHeight: input.ParentPChainHeight,
+					EpochNumber:       1,
+					EpochStartTime:    uint64(input.ParentTimestamp.Unix()),
+				}
+			}
+			endTime := time.Unix(int64(input.ParentEpoch.EpochStartTime), 0).Add(time.Second)
+			if input.ParentTimestamp.Before(endTime) {
+				return input.ParentEpoch
+			}
+			return ICMEpochInfo{
+				PChainEpochHeight: input.ParentPChainHeight,
+				EpochNumber:       input.ParentEpoch.EpochNumber + 1,
+				EpochStartTime:    uint64(input.ParentTimestamp.Unix()),
+			}
+		},
 	}
 
 	sm, err := NewStateMachine(&smConfig)
-	require.NoError(t, err)
+	require.NoError(tb, err)
 
 	return sm, &testConfig
 }
@@ -381,7 +402,7 @@ func (b *testVMBlock) Timestamp() time.Time {
 	return time.Now()
 }
 
-func (b *testVMBlock) Verify(_ context.Context) error {
+func (b *testVMBlock) Verify(_ context.Context, _ uint64) error {
 	return nil
 }
 

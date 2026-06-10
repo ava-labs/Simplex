@@ -28,12 +28,14 @@ const (
 	canotoNumber_StateMachineMetadata__SimplexBlacklist        = 3
 	canotoNumber_StateMachineMetadata__PChainHeight            = 4
 	canotoNumber_StateMachineMetadata__Timestamp               = 5
+	canotoNumber_StateMachineMetadata__ICMEpochInfo            = 6
 
 	canotoTag_StateMachineMetadata__SimplexEpochInfo        = "\x0a" // canoto.Tag(canotoNumber_StateMachineMetadata__SimplexEpochInfo, canoto.Len)
 	canotoTag_StateMachineMetadata__SimplexProtocolMetadata = "\x12" // canoto.Tag(canotoNumber_StateMachineMetadata__SimplexProtocolMetadata, canoto.Len)
 	canotoTag_StateMachineMetadata__SimplexBlacklist        = "\x1a" // canoto.Tag(canotoNumber_StateMachineMetadata__SimplexBlacklist, canoto.Len)
 	canotoTag_StateMachineMetadata__PChainHeight            = "\x20" // canoto.Tag(canotoNumber_StateMachineMetadata__PChainHeight, canoto.Varint)
 	canotoTag_StateMachineMetadata__Timestamp               = "\x28" // canoto.Tag(canotoNumber_StateMachineMetadata__Timestamp, canoto.Varint)
+	canotoTag_StateMachineMetadata__ICMEpochInfo            = "\x32" // canoto.Tag(canotoNumber_StateMachineMetadata__ICMEpochInfo, canoto.Len)
 )
 
 type canotoData_StateMachineMetadata struct {
@@ -81,6 +83,16 @@ func (*StateMachineMetadata) CanotoSpec(types ...reflect.Type) *canoto.Spec {
 				OneOf:       "",
 				TypeUint:    canoto.SizeOf(zero.Timestamp),
 			},
+			canoto.FieldTypeFromField(
+				/*type inference:*/ (&zero.ICMEpochInfo),
+				/*FieldNumber:   */ canotoNumber_StateMachineMetadata__ICMEpochInfo,
+				/*Name:          */ "ICMEpochInfo",
+				/*FixedLength:   */ 0,
+				/*Repeated:      */ false,
+				/*OneOf:         */ "",
+				/*Pointer:       */ false,
+				/*types:         */ types,
+			),
 		},
 	}
 	s.CalculateCanotoCache()
@@ -187,6 +199,30 @@ func (c *StateMachineMetadata) UnmarshalCanotoFrom(r canoto.Reader) error {
 			if canoto.IsZero(c.Timestamp) {
 				return canoto.ErrZeroValue
 			}
+		case canotoNumber_StateMachineMetadata__ICMEpochInfo:
+			if wireType != canoto.Len {
+				return canoto.ErrUnexpectedWireType
+			}
+
+			// Read the bytes for the field.
+			originalUnsafe := r.Unsafe
+			r.Unsafe = true
+			var msgBytes []byte
+			if err := canoto.ReadBytes(&r, &msgBytes); err != nil {
+				return err
+			}
+			if len(msgBytes) == 0 {
+				return canoto.ErrZeroValue
+			}
+			r.Unsafe = originalUnsafe
+
+			// Unmarshal the field from the bytes.
+			remainingBytes := r.B
+			r.B = msgBytes
+			if err := (&c.ICMEpochInfo).UnmarshalCanotoFrom(r); err != nil {
+				return err
+			}
+			r.B = remainingBytes
 		default:
 			return canoto.ErrUnknownField
 		}
@@ -205,6 +241,9 @@ func (c *StateMachineMetadata) UnmarshalCanotoFrom(r canoto.Reader) error {
 // 3. All custom fields are ValidCanoto.
 func (c *StateMachineMetadata) ValidCanoto() bool {
 	if !(&c.SimplexEpochInfo).ValidCanoto() {
+		return false
+	}
+	if !(&c.ICMEpochInfo).ValidCanoto() {
 		return false
 	}
 	return true
@@ -231,6 +270,10 @@ func (c *StateMachineMetadata) CalculateCanotoCache() {
 	}
 	if !canoto.IsZero(c.Timestamp) {
 		size += uint64(len(canotoTag_StateMachineMetadata__Timestamp)) + canoto.SizeUint(c.Timestamp)
+	}
+	(&c.ICMEpochInfo).CalculateCanotoCache()
+	if fieldSize := (&c.ICMEpochInfo).CachedCanotoSize(); fieldSize != 0 {
+		size += uint64(len(canotoTag_StateMachineMetadata__ICMEpochInfo)) + canoto.SizeUint(fieldSize) + fieldSize
 	}
 	atomic.StoreUint64(&c.canotoData.size, size)
 }
@@ -290,6 +333,208 @@ func (c *StateMachineMetadata) MarshalCanotoInto(w canoto.Writer) canoto.Writer 
 	if !canoto.IsZero(c.Timestamp) {
 		canoto.Append(&w, canotoTag_StateMachineMetadata__Timestamp)
 		canoto.AppendUint(&w, c.Timestamp)
+	}
+	if fieldSize := (&c.ICMEpochInfo).CachedCanotoSize(); fieldSize != 0 {
+		canoto.Append(&w, canotoTag_StateMachineMetadata__ICMEpochInfo)
+		canoto.AppendUint(&w, fieldSize)
+		w = (&c.ICMEpochInfo).MarshalCanotoInto(w)
+	}
+	return w
+}
+
+const (
+	canotoNumber_ICMEpochInfo__EpochStartTime    = 1
+	canotoNumber_ICMEpochInfo__EpochNumber       = 2
+	canotoNumber_ICMEpochInfo__PChainEpochHeight = 3
+
+	canotoTag_ICMEpochInfo__EpochStartTime    = "\x08" // canoto.Tag(canotoNumber_ICMEpochInfo__EpochStartTime, canoto.Varint)
+	canotoTag_ICMEpochInfo__EpochNumber       = "\x10" // canoto.Tag(canotoNumber_ICMEpochInfo__EpochNumber, canoto.Varint)
+	canotoTag_ICMEpochInfo__PChainEpochHeight = "\x18" // canoto.Tag(canotoNumber_ICMEpochInfo__PChainEpochHeight, canoto.Varint)
+)
+
+type canotoData_ICMEpochInfo struct {
+	size uint64
+}
+
+// CanotoSpec returns the specification of this canoto message.
+func (*ICMEpochInfo) CanotoSpec(...reflect.Type) *canoto.Spec {
+	var zero ICMEpochInfo
+	s := &canoto.Spec{
+		Name: "ICMEpochInfo",
+		Fields: []canoto.FieldType{
+			{
+				FieldNumber: canotoNumber_ICMEpochInfo__EpochStartTime,
+				Name:        "EpochStartTime",
+				OneOf:       "",
+				TypeUint:    canoto.SizeOf(zero.EpochStartTime),
+			},
+			{
+				FieldNumber: canotoNumber_ICMEpochInfo__EpochNumber,
+				Name:        "EpochNumber",
+				OneOf:       "",
+				TypeUint:    canoto.SizeOf(zero.EpochNumber),
+			},
+			{
+				FieldNumber: canotoNumber_ICMEpochInfo__PChainEpochHeight,
+				Name:        "PChainEpochHeight",
+				OneOf:       "",
+				TypeUint:    canoto.SizeOf(zero.PChainEpochHeight),
+			},
+		},
+	}
+	s.CalculateCanotoCache()
+	return s
+}
+
+// UnmarshalCanoto unmarshals a Canoto-encoded byte slice into the struct.
+//
+// During parsing, the canoto cache is saved.
+func (c *ICMEpochInfo) UnmarshalCanoto(bytes []byte) error {
+	r := canoto.Reader{
+		B: bytes,
+	}
+	return c.UnmarshalCanotoFrom(r)
+}
+
+// UnmarshalCanotoFrom populates the struct from a [canoto.Reader]. Most users
+// should just use UnmarshalCanoto.
+//
+// During parsing, the canoto cache is saved.
+//
+// This function enables configuration of reader options.
+func (c *ICMEpochInfo) UnmarshalCanotoFrom(r canoto.Reader) error {
+	// Zero the struct before unmarshaling.
+	*c = ICMEpochInfo{}
+	atomic.StoreUint64(&c.canotoData.size, uint64(len(r.B)))
+
+	var minField uint32
+	for canoto.HasNext(&r) {
+		field, wireType, err := canoto.ReadTag(&r)
+		if err != nil {
+			return err
+		}
+		if field < minField {
+			return canoto.ErrInvalidFieldOrder
+		}
+
+		switch field {
+		case canotoNumber_ICMEpochInfo__EpochStartTime:
+			if wireType != canoto.Varint {
+				return canoto.ErrUnexpectedWireType
+			}
+
+			if err := canoto.ReadUint(&r, &c.EpochStartTime); err != nil {
+				return err
+			}
+			if canoto.IsZero(c.EpochStartTime) {
+				return canoto.ErrZeroValue
+			}
+		case canotoNumber_ICMEpochInfo__EpochNumber:
+			if wireType != canoto.Varint {
+				return canoto.ErrUnexpectedWireType
+			}
+
+			if err := canoto.ReadUint(&r, &c.EpochNumber); err != nil {
+				return err
+			}
+			if canoto.IsZero(c.EpochNumber) {
+				return canoto.ErrZeroValue
+			}
+		case canotoNumber_ICMEpochInfo__PChainEpochHeight:
+			if wireType != canoto.Varint {
+				return canoto.ErrUnexpectedWireType
+			}
+
+			if err := canoto.ReadUint(&r, &c.PChainEpochHeight); err != nil {
+				return err
+			}
+			if canoto.IsZero(c.PChainEpochHeight) {
+				return canoto.ErrZeroValue
+			}
+		default:
+			return canoto.ErrUnknownField
+		}
+
+		minField = field + 1
+	}
+	return nil
+}
+
+// ValidCanoto validates that the struct can be correctly marshaled into the
+// Canoto format.
+//
+// Specifically, ValidCanoto ensures:
+// 1. All OneOfs are specified at most once.
+// 2. All strings are valid utf-8.
+// 3. All custom fields are ValidCanoto.
+func (c *ICMEpochInfo) ValidCanoto() bool {
+	return true
+}
+
+// CalculateCanotoCache populates size and OneOf caches based on the current
+// values in the struct.
+//
+// It is not safe to copy this struct concurrently.
+func (c *ICMEpochInfo) CalculateCanotoCache() {
+	var size uint64
+	if !canoto.IsZero(c.EpochStartTime) {
+		size += uint64(len(canotoTag_ICMEpochInfo__EpochStartTime)) + canoto.SizeUint(c.EpochStartTime)
+	}
+	if !canoto.IsZero(c.EpochNumber) {
+		size += uint64(len(canotoTag_ICMEpochInfo__EpochNumber)) + canoto.SizeUint(c.EpochNumber)
+	}
+	if !canoto.IsZero(c.PChainEpochHeight) {
+		size += uint64(len(canotoTag_ICMEpochInfo__PChainEpochHeight)) + canoto.SizeUint(c.PChainEpochHeight)
+	}
+	atomic.StoreUint64(&c.canotoData.size, size)
+}
+
+// CachedCanotoSize returns the previously calculated size of the Canoto
+// representation from CalculateCanotoCache.
+//
+// If CalculateCanotoCache has not yet been called, it will return 0.
+//
+// If the struct has been modified since the last call to CalculateCanotoCache,
+// the returned size may be incorrect.
+func (c *ICMEpochInfo) CachedCanotoSize() uint64 {
+	return atomic.LoadUint64(&c.canotoData.size)
+}
+
+// MarshalCanoto returns the Canoto representation of this struct.
+//
+// It is assumed that this struct is ValidCanoto.
+//
+// It is not safe to copy this struct concurrently.
+func (c *ICMEpochInfo) MarshalCanoto() []byte {
+	c.CalculateCanotoCache()
+	w := canoto.Writer{
+		B: make([]byte, 0, c.CachedCanotoSize()),
+	}
+	w = c.MarshalCanotoInto(w)
+	return w.B
+}
+
+// MarshalCanotoInto writes the struct into a [canoto.Writer] and returns the
+// resulting [canoto.Writer]. Most users should just use MarshalCanoto.
+//
+// It is assumed that CalculateCanotoCache has been called since the last
+// modification to this struct.
+//
+// It is assumed that this struct is ValidCanoto.
+//
+// It is not safe to copy this struct concurrently.
+func (c *ICMEpochInfo) MarshalCanotoInto(w canoto.Writer) canoto.Writer {
+	if !canoto.IsZero(c.EpochStartTime) {
+		canoto.Append(&w, canotoTag_ICMEpochInfo__EpochStartTime)
+		canoto.AppendUint(&w, c.EpochStartTime)
+	}
+	if !canoto.IsZero(c.EpochNumber) {
+		canoto.Append(&w, canotoTag_ICMEpochInfo__EpochNumber)
+		canoto.AppendUint(&w, c.EpochNumber)
+	}
+	if !canoto.IsZero(c.PChainEpochHeight) {
+		canoto.Append(&w, canotoTag_ICMEpochInfo__PChainEpochHeight)
+		canoto.AppendUint(&w, c.PChainEpochHeight)
 	}
 	return w
 }
