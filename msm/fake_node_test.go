@@ -6,6 +6,7 @@ package metadata
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"fmt"
 	"sync/atomic"
 	"testing"
@@ -14,6 +15,8 @@ import (
 	"github.com/ava-labs/simplex"
 	"github.com/stretchr/testify/require"
 )
+
+var emptyAuxInfoDigest = sha256.Sum256(nil)
 
 func TestFakeNodeEpochChangesDespiteEmptyMempool(t *testing.T) {
 	validatorSetRetriever := validatorSetRetriever{
@@ -30,6 +33,7 @@ func TestFakeNodeEpochChangesDespiteEmptyMempool(t *testing.T) {
 	var pChainHeight atomic.Uint64
 	pChainHeight.Store(100)
 	node := newFakeNode(t)
+	node.sm.AuxiliaryInfoApp = &noopTestAuxInfoApp{}
 	node.sm.GetValidatorSet = validatorSetRetriever.getValidatorSet
 	node.sm.GetPChainHeight = func() uint64 {
 		return pChainHeight.Load()
@@ -54,11 +58,11 @@ func TestFakeNodeEpochChangesDespiteEmptyMempool(t *testing.T) {
 		}
 		if flipCoin() {
 			node.sm.ApprovalsRetriever = &approvalsRetriever{
-				result: []ValidatorSetApproval{{NodeID: [20]byte{1}, PChainHeight: 200, Signature: []byte{1}, AuxInfoSeqDigest: [32]byte{}}},
+				result: []ValidatorSetApproval{{NodeID: [20]byte{1}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoSeqDigest: emptyAuxInfoDigest}},
 			}
 		} else {
 			node.sm.ApprovalsRetriever = &approvalsRetriever{
-				result: []ValidatorSetApproval{{NodeID: [20]byte{2}, PChainHeight: 200, Signature: []byte{2}, AuxInfoSeqDigest: [32]byte{}}},
+				result: []ValidatorSetApproval{{NodeID: [20]byte{2}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoSeqDigest: emptyAuxInfoDigest}},
 			}
 		}
 
@@ -83,6 +87,7 @@ func TestFakeNode(t *testing.T) {
 	var pChainHeight atomic.Uint64
 	pChainHeight.Store(100)
 	node := newFakeNode(t)
+	node.sm.AuxiliaryInfoApp = &noopTestAuxInfoApp{}
 	node.sm.GetValidatorSet = validatorSetRetriever.getValidatorSet
 	node.sm.GetPChainHeight = func() uint64 {
 		return pChainHeight.Load()
@@ -101,11 +106,11 @@ func TestFakeNode(t *testing.T) {
 		node.act()
 		if flipCoin() {
 			node.sm.ApprovalsRetriever = &approvalsRetriever{
-				result: []ValidatorSetApproval{{NodeID: [20]byte{1}, PChainHeight: 200, Signature: []byte{1}, AuxInfoSeqDigest: [32]byte{}}},
+				result: []ValidatorSetApproval{{NodeID: [20]byte{1}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoSeqDigest: emptyAuxInfoDigest}},
 			}
 		} else {
 			node.sm.ApprovalsRetriever = &approvalsRetriever{
-				result: []ValidatorSetApproval{{NodeID: [20]byte{2}, PChainHeight: 200, Signature: []byte{2}, AuxInfoSeqDigest: [32]byte{}}},
+				result: []ValidatorSetApproval{{NodeID: [20]byte{2}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoSeqDigest: emptyAuxInfoDigest}},
 			}
 		}
 	}
@@ -122,11 +127,11 @@ func TestFakeNode(t *testing.T) {
 		node.act()
 		if flipCoin() {
 			node.sm.ApprovalsRetriever = &approvalsRetriever{
-				result: []ValidatorSetApproval{{NodeID: [20]byte{2}, PChainHeight: 300, Signature: []byte{2}, AuxInfoSeqDigest: [32]byte{}}},
+				result: []ValidatorSetApproval{{NodeID: [20]byte{2}, PChainHeight: 300, Signature: signApproval(300, emptyAuxInfoDigest), AuxInfoSeqDigest: emptyAuxInfoDigest}},
 			}
 		} else {
 			node.sm.ApprovalsRetriever = &approvalsRetriever{
-				result: []ValidatorSetApproval{{NodeID: [20]byte{3}, PChainHeight: 300, Signature: []byte{3}, AuxInfoSeqDigest: [32]byte{}}},
+				result: []ValidatorSetApproval{{NodeID: [20]byte{3}, PChainHeight: 300, Signature: signApproval(300, emptyAuxInfoDigest), AuxInfoSeqDigest: emptyAuxInfoDigest}},
 			}
 		}
 	}
@@ -149,6 +154,7 @@ func TestFakeNodeEmptyMempool(t *testing.T) {
 
 	var pChainHeight uint64 = 100
 	node := newFakeNode(t)
+	node.sm.AuxiliaryInfoApp = &noopTestAuxInfoApp{}
 	node.sm.MaxBlockBuildingWaitTime = 100 * time.Millisecond
 	node.sm.GetValidatorSet = validatorSetRetriever.getValidatorSet
 	node.sm.GetPChainHeight = func() uint64 {
@@ -171,11 +177,11 @@ func TestFakeNodeEmptyMempool(t *testing.T) {
 		node.act()
 		if flipCoin() {
 			node.sm.ApprovalsRetriever = &approvalsRetriever{
-				result: []ValidatorSetApproval{{NodeID: [20]byte{1}, PChainHeight: 200, Signature: []byte{1}, AuxInfoSeqDigest: [32]byte{}}},
+				result: []ValidatorSetApproval{{NodeID: [20]byte{1}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoSeqDigest: emptyAuxInfoDigest}},
 			}
 		} else {
 			node.sm.ApprovalsRetriever = &approvalsRetriever{
-				result: []ValidatorSetApproval{{NodeID: [20]byte{2}, PChainHeight: 200, Signature: []byte{2}, AuxInfoSeqDigest: [32]byte{}}},
+				result: []ValidatorSetApproval{{NodeID: [20]byte{2}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoSeqDigest: emptyAuxInfoDigest}},
 			}
 		}
 	}
@@ -204,11 +210,11 @@ func TestFakeNodeEmptyMempool(t *testing.T) {
 		node.act()
 		if flipCoin() {
 			node.sm.ApprovalsRetriever = &approvalsRetriever{
-				result: []ValidatorSetApproval{{NodeID: [20]byte{2}, PChainHeight: 300, Signature: []byte{2}, AuxInfoSeqDigest: [32]byte{}}},
+				result: []ValidatorSetApproval{{NodeID: [20]byte{2}, PChainHeight: 300, Signature: signApproval(300, emptyAuxInfoDigest), AuxInfoSeqDigest: emptyAuxInfoDigest}},
 			}
 		} else {
 			node.sm.ApprovalsRetriever = &approvalsRetriever{
-				result: []ValidatorSetApproval{{NodeID: [20]byte{3}, PChainHeight: 300, Signature: []byte{3}, AuxInfoSeqDigest: [32]byte{}}},
+				result: []ValidatorSetApproval{{NodeID: [20]byte{3}, PChainHeight: 300, Signature: signApproval(300, emptyAuxInfoDigest), AuxInfoSeqDigest: emptyAuxInfoDigest}},
 			}
 		}
 	}

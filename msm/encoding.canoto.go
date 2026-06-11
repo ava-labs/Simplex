@@ -29,6 +29,7 @@ const (
 	canotoNumber_StateMachineMetadata__PChainHeight            = 4
 	canotoNumber_StateMachineMetadata__Timestamp               = 5
 	canotoNumber_StateMachineMetadata__ICMEpochInfo            = 6
+	canotoNumber_StateMachineMetadata__AuxiliaryInfo           = 7
 
 	canotoTag_StateMachineMetadata__SimplexEpochInfo        = "\x0a" // canoto.Tag(canotoNumber_StateMachineMetadata__SimplexEpochInfo, canoto.Len)
 	canotoTag_StateMachineMetadata__SimplexProtocolMetadata = "\x12" // canoto.Tag(canotoNumber_StateMachineMetadata__SimplexProtocolMetadata, canoto.Len)
@@ -36,6 +37,7 @@ const (
 	canotoTag_StateMachineMetadata__PChainHeight            = "\x20" // canoto.Tag(canotoNumber_StateMachineMetadata__PChainHeight, canoto.Varint)
 	canotoTag_StateMachineMetadata__Timestamp               = "\x28" // canoto.Tag(canotoNumber_StateMachineMetadata__Timestamp, canoto.Varint)
 	canotoTag_StateMachineMetadata__ICMEpochInfo            = "\x32" // canoto.Tag(canotoNumber_StateMachineMetadata__ICMEpochInfo, canoto.Len)
+	canotoTag_StateMachineMetadata__AuxiliaryInfo           = "\x3a" // canoto.Tag(canotoNumber_StateMachineMetadata__AuxiliaryInfo, canoto.Len)
 )
 
 type canotoData_StateMachineMetadata struct {
@@ -91,6 +93,16 @@ func (*StateMachineMetadata) CanotoSpec(types ...reflect.Type) *canoto.Spec {
 				/*Repeated:      */ false,
 				/*OneOf:         */ "",
 				/*Pointer:       */ false,
+				/*types:         */ types,
+			),
+			canoto.FieldTypeFromField(
+				/*type inference:*/ (zero.AuxiliaryInfo),
+				/*FieldNumber:   */ canotoNumber_StateMachineMetadata__AuxiliaryInfo,
+				/*Name:          */ "AuxiliaryInfo",
+				/*FixedLength:   */ 0,
+				/*Repeated:      */ false,
+				/*OneOf:         */ "",
+				/*Pointer:       */ true,
 				/*types:         */ types,
 			),
 		},
@@ -223,6 +235,28 @@ func (c *StateMachineMetadata) UnmarshalCanotoFrom(r canoto.Reader) error {
 				return err
 			}
 			r.B = remainingBytes
+		case canotoNumber_StateMachineMetadata__AuxiliaryInfo:
+			if wireType != canoto.Len {
+				return canoto.ErrUnexpectedWireType
+			}
+
+			// Read the bytes for the field.
+			originalUnsafe := r.Unsafe
+			r.Unsafe = true
+			var msgBytes []byte
+			if err := canoto.ReadBytes(&r, &msgBytes); err != nil {
+				return err
+			}
+			r.Unsafe = originalUnsafe
+
+			// Unmarshal the field from the bytes.
+			remainingBytes := r.B
+			r.B = msgBytes
+			c.AuxiliaryInfo = canoto.MakePointer(c.AuxiliaryInfo)
+			if err := (c.AuxiliaryInfo).UnmarshalCanotoFrom(r); err != nil {
+				return err
+			}
+			r.B = remainingBytes
 		default:
 			return canoto.ErrUnknownField
 		}
@@ -244,6 +278,9 @@ func (c *StateMachineMetadata) ValidCanoto() bool {
 		return false
 	}
 	if !(&c.ICMEpochInfo).ValidCanoto() {
+		return false
+	}
+	if c.AuxiliaryInfo != nil && !(c.AuxiliaryInfo).ValidCanoto() {
 		return false
 	}
 	return true
@@ -274,6 +311,11 @@ func (c *StateMachineMetadata) CalculateCanotoCache() {
 	(&c.ICMEpochInfo).CalculateCanotoCache()
 	if fieldSize := (&c.ICMEpochInfo).CachedCanotoSize(); fieldSize != 0 {
 		size += uint64(len(canotoTag_StateMachineMetadata__ICMEpochInfo)) + canoto.SizeUint(fieldSize) + fieldSize
+	}
+	if c.AuxiliaryInfo != nil {
+		(c.AuxiliaryInfo).CalculateCanotoCache()
+		fieldSize := (c.AuxiliaryInfo).CachedCanotoSize()
+		size += uint64(len(canotoTag_StateMachineMetadata__AuxiliaryInfo)) + canoto.SizeUint(fieldSize) + fieldSize
 	}
 	atomic.StoreUint64(&c.canotoData.size, size)
 }
@@ -338,6 +380,12 @@ func (c *StateMachineMetadata) MarshalCanotoInto(w canoto.Writer) canoto.Writer 
 		canoto.Append(&w, canotoTag_StateMachineMetadata__ICMEpochInfo)
 		canoto.AppendUint(&w, fieldSize)
 		w = (&c.ICMEpochInfo).MarshalCanotoInto(w)
+	}
+	if c.AuxiliaryInfo != nil {
+		fieldSize := (c.AuxiliaryInfo).CachedCanotoSize()
+		canoto.Append(&w, canotoTag_StateMachineMetadata__AuxiliaryInfo)
+		canoto.AppendUint(&w, fieldSize)
+		w = (c.AuxiliaryInfo).MarshalCanotoInto(w)
 	}
 	return w
 }
@@ -535,6 +583,203 @@ func (c *ICMEpochInfo) MarshalCanotoInto(w canoto.Writer) canoto.Writer {
 	if !canoto.IsZero(c.PChainEpochHeight) {
 		canoto.Append(&w, canotoTag_ICMEpochInfo__PChainEpochHeight)
 		canoto.AppendUint(&w, c.PChainEpochHeight)
+	}
+	return w
+}
+
+const (
+	canotoNumber_AuxiliaryInfo__Info           = 1
+	canotoNumber_AuxiliaryInfo__PrevAuxInfoSeq = 2
+	canotoNumber_AuxiliaryInfo__ApplicationID  = 3
+
+	canotoTag_AuxiliaryInfo__Info           = "\x0a" // canoto.Tag(canotoNumber_AuxiliaryInfo__Info, canoto.Len)
+	canotoTag_AuxiliaryInfo__PrevAuxInfoSeq = "\x10" // canoto.Tag(canotoNumber_AuxiliaryInfo__PrevAuxInfoSeq, canoto.Varint)
+	canotoTag_AuxiliaryInfo__ApplicationID  = "\x18" // canoto.Tag(canotoNumber_AuxiliaryInfo__ApplicationID, canoto.Varint)
+)
+
+type canotoData_AuxiliaryInfo struct {
+	size uint64
+}
+
+// CanotoSpec returns the specification of this canoto message.
+func (*AuxiliaryInfo) CanotoSpec(...reflect.Type) *canoto.Spec {
+	var zero AuxiliaryInfo
+	s := &canoto.Spec{
+		Name: "AuxiliaryInfo",
+		Fields: []canoto.FieldType{
+			{
+				FieldNumber: canotoNumber_AuxiliaryInfo__Info,
+				Name:        "Info",
+				OneOf:       "",
+				TypeBytes:   true,
+			},
+			{
+				FieldNumber: canotoNumber_AuxiliaryInfo__PrevAuxInfoSeq,
+				Name:        "PrevAuxInfoSeq",
+				OneOf:       "",
+				TypeUint:    canoto.SizeOf(zero.PrevAuxInfoSeq),
+			},
+			{
+				FieldNumber: canotoNumber_AuxiliaryInfo__ApplicationID,
+				Name:        "ApplicationID",
+				OneOf:       "",
+				TypeUint:    canoto.SizeOf(zero.ApplicationID),
+			},
+		},
+	}
+	s.CalculateCanotoCache()
+	return s
+}
+
+// UnmarshalCanoto unmarshals a Canoto-encoded byte slice into the struct.
+//
+// During parsing, the canoto cache is saved.
+func (c *AuxiliaryInfo) UnmarshalCanoto(bytes []byte) error {
+	r := canoto.Reader{
+		B: bytes,
+	}
+	return c.UnmarshalCanotoFrom(r)
+}
+
+// UnmarshalCanotoFrom populates the struct from a [canoto.Reader]. Most users
+// should just use UnmarshalCanoto.
+//
+// During parsing, the canoto cache is saved.
+//
+// This function enables configuration of reader options.
+func (c *AuxiliaryInfo) UnmarshalCanotoFrom(r canoto.Reader) error {
+	// Zero the struct before unmarshaling.
+	*c = AuxiliaryInfo{}
+	atomic.StoreUint64(&c.canotoData.size, uint64(len(r.B)))
+
+	var minField uint32
+	for canoto.HasNext(&r) {
+		field, wireType, err := canoto.ReadTag(&r)
+		if err != nil {
+			return err
+		}
+		if field < minField {
+			return canoto.ErrInvalidFieldOrder
+		}
+
+		switch field {
+		case canotoNumber_AuxiliaryInfo__Info:
+			if wireType != canoto.Len {
+				return canoto.ErrUnexpectedWireType
+			}
+
+			if err := canoto.ReadBytes(&r, &c.Info); err != nil {
+				return err
+			}
+			if len(c.Info) == 0 {
+				return canoto.ErrZeroValue
+			}
+		case canotoNumber_AuxiliaryInfo__PrevAuxInfoSeq:
+			if wireType != canoto.Varint {
+				return canoto.ErrUnexpectedWireType
+			}
+
+			if err := canoto.ReadUint(&r, &c.PrevAuxInfoSeq); err != nil {
+				return err
+			}
+			if canoto.IsZero(c.PrevAuxInfoSeq) {
+				return canoto.ErrZeroValue
+			}
+		case canotoNumber_AuxiliaryInfo__ApplicationID:
+			if wireType != canoto.Varint {
+				return canoto.ErrUnexpectedWireType
+			}
+
+			if err := canoto.ReadUint(&r, &c.ApplicationID); err != nil {
+				return err
+			}
+			if canoto.IsZero(c.ApplicationID) {
+				return canoto.ErrZeroValue
+			}
+		default:
+			return canoto.ErrUnknownField
+		}
+
+		minField = field + 1
+	}
+	return nil
+}
+
+// ValidCanoto validates that the struct can be correctly marshaled into the
+// Canoto format.
+//
+// Specifically, ValidCanoto ensures:
+// 1. All OneOfs are specified at most once.
+// 2. All strings are valid utf-8.
+// 3. All custom fields are ValidCanoto.
+func (c *AuxiliaryInfo) ValidCanoto() bool {
+	return true
+}
+
+// CalculateCanotoCache populates size and OneOf caches based on the current
+// values in the struct.
+//
+// It is not safe to copy this struct concurrently.
+func (c *AuxiliaryInfo) CalculateCanotoCache() {
+	var size uint64
+	if len(c.Info) != 0 {
+		size += uint64(len(canotoTag_AuxiliaryInfo__Info)) + canoto.SizeBytes(c.Info)
+	}
+	if !canoto.IsZero(c.PrevAuxInfoSeq) {
+		size += uint64(len(canotoTag_AuxiliaryInfo__PrevAuxInfoSeq)) + canoto.SizeUint(c.PrevAuxInfoSeq)
+	}
+	if !canoto.IsZero(c.ApplicationID) {
+		size += uint64(len(canotoTag_AuxiliaryInfo__ApplicationID)) + canoto.SizeUint(c.ApplicationID)
+	}
+	atomic.StoreUint64(&c.canotoData.size, size)
+}
+
+// CachedCanotoSize returns the previously calculated size of the Canoto
+// representation from CalculateCanotoCache.
+//
+// If CalculateCanotoCache has not yet been called, it will return 0.
+//
+// If the struct has been modified since the last call to CalculateCanotoCache,
+// the returned size may be incorrect.
+func (c *AuxiliaryInfo) CachedCanotoSize() uint64 {
+	return atomic.LoadUint64(&c.canotoData.size)
+}
+
+// MarshalCanoto returns the Canoto representation of this struct.
+//
+// It is assumed that this struct is ValidCanoto.
+//
+// It is not safe to copy this struct concurrently.
+func (c *AuxiliaryInfo) MarshalCanoto() []byte {
+	c.CalculateCanotoCache()
+	w := canoto.Writer{
+		B: make([]byte, 0, c.CachedCanotoSize()),
+	}
+	w = c.MarshalCanotoInto(w)
+	return w.B
+}
+
+// MarshalCanotoInto writes the struct into a [canoto.Writer] and returns the
+// resulting [canoto.Writer]. Most users should just use MarshalCanoto.
+//
+// It is assumed that CalculateCanotoCache has been called since the last
+// modification to this struct.
+//
+// It is assumed that this struct is ValidCanoto.
+//
+// It is not safe to copy this struct concurrently.
+func (c *AuxiliaryInfo) MarshalCanotoInto(w canoto.Writer) canoto.Writer {
+	if len(c.Info) != 0 {
+		canoto.Append(&w, canotoTag_AuxiliaryInfo__Info)
+		canoto.AppendBytes(&w, c.Info)
+	}
+	if !canoto.IsZero(c.PrevAuxInfoSeq) {
+		canoto.Append(&w, canotoTag_AuxiliaryInfo__PrevAuxInfoSeq)
+		canoto.AppendUint(&w, c.PrevAuxInfoSeq)
+	}
+	if !canoto.IsZero(c.ApplicationID) {
+		canoto.Append(&w, canotoTag_AuxiliaryInfo__ApplicationID)
+		canoto.AppendUint(&w, c.ApplicationID)
 	}
 	return w
 }

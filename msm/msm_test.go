@@ -6,6 +6,8 @@ package metadata
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
+	"errors"
 	"fmt"
 	"math"
 	"testing"
@@ -543,6 +545,13 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 			sm.GetValidatorSet = getValidatorSet
 			sm.GetPChainHeight = getPChainHeight
 			sm.GetTime = fixedTime
+
+			// This test exercises the epoch/approval/seal lifecycle, not auxiliary info.
+			// Uses an app (noopTestAuxInfoApp) whose history is always final so approvals are collected from the
+			// first collecting round and no auxiliary info is generated. Auxiliary info
+			// behavior is covered by TestVerifyCollectingApprovalsNotReady and
+			// TestCollectAuxiliaryInfo.
+			sm.AuxiliaryInfoApp = &noopTestAuxInfoApp{}
 			tc.blockStore[0] = &outerBlock{block: genesis}
 			tc.blockStore[42] = &outerBlock{block: notGenesis}
 
@@ -551,6 +560,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 			sm.LastNonSimplexBlockPChainHeight = pChainHeight1
 
 			smVerify, tcVerify := newStateMachine(t)
+			smVerify.AuxiliaryInfoApp = &noopTestAuxInfoApp{}
 			smVerify.GetValidatorSet = getValidatorSet
 			smVerify.GetPChainHeight = getPChainHeight
 			smVerify.GetTime = fixedTime
@@ -670,17 +680,19 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 			var approvalsResult ValidatorSetApprovals
 			sm.ApprovalsRetriever = &dynamicApprovalsRetriever{approvals: &approvalsResult}
 
+			sig1 := signApproval(pChainHeight2, emptyAuxInfoDigest)
 			approvalsResult = ValidatorSetApprovals{
 				{
-					NodeID:       node1,
-					PChainHeight: pChainHeight2,
-					Signature:    []byte("sig1"),
+					NodeID:           node1,
+					PChainHeight:     pChainHeight2,
+					AuxInfoSeqDigest: emptyAuxInfoDigest,
+					Signature:        sig1,
 				},
 			}
 
 			// node1 is at index 0 in validatorSet2 → bitmask bit 0 → {1}
 			bitmask := []byte{1}
-			sig, err := aggr.AppendSignatures(nil, []byte("sig1"))
+			sig, err := aggr.AppendSignatures(nil, sig1)
 			require.NoError(t, err)
 
 			currentTime = startTime.Add(time.Second + 4*time.Millisecond)
@@ -712,16 +724,18 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 			require.NoError(t, smVerify.VerifyBlock(context.Background(), block4))
 
 			// ----- Step 5: Second collecting block (2/3 approvals, still not enough since threshold is strictly > 2/3) -----
+			sig2 := signApproval(pChainHeight2, emptyAuxInfoDigest)
 			approvalsResult = ValidatorSetApprovals{
 				{
-					NodeID:       node2,
-					PChainHeight: pChainHeight2,
-					Signature:    []byte("sig2"),
+					NodeID:           node2,
+					PChainHeight:     pChainHeight2,
+					AuxInfoSeqDigest: emptyAuxInfoDigest,
+					Signature:        sig2,
 				},
 			}
 
 			// node2 is at index 1 → bitmask bits 0,1 → {3}
-			sig, err = aggr.AppendSignatures(sig, []byte("sig2"))
+			sig, err = aggr.AppendSignatures(sig, sig2)
 			require.NoError(t, err)
 			bitmask = []byte{3}
 
@@ -754,16 +768,18 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 			require.NoError(t, smVerify.VerifyBlock(context.Background(), block5))
 
 			// ----- Step 6: Sealing block (3/3 approvals, enough to seal) -----
+			sig3 := signApproval(pChainHeight2, emptyAuxInfoDigest)
 			approvalsResult = ValidatorSetApprovals{
 				{
-					NodeID:       node3,
-					PChainHeight: pChainHeight2,
-					Signature:    []byte("sig3"),
+					NodeID:           node3,
+					PChainHeight:     pChainHeight2,
+					AuxInfoSeqDigest: emptyAuxInfoDigest,
+					Signature:        sig3,
 				},
 			}
 
 			// node3 is at index 2 → bitmask bits 0,1,2 → {7}
-			sig6, err := aggr.AppendSignatures(sig, []byte("sig3"))
+			sig6, err := aggr.AppendSignatures(sig, sig3)
 			require.NoError(t, err)
 			bitmask = []byte{7}
 
@@ -1250,7 +1266,18 @@ func TestSanitizeApprovals(t *testing.T) {
 			{NodeID: node1, PChainHeight: 200},
 		}
 		oldApproving := bitmaskFromBytes(nil)
-		result := sanitizeApprovals(approvals, 100, nodeID2Index, oldApproving, logger)
+		result := sanitizeApprovals(approvals, 100, [32]byte{}, nodeID2Index, oldApproving, logger)
+		require.Len(t, result, 1)
+		require.Equal(t, node0, result[0].NodeID)
+	})
+
+	t.Run("filters by aux info digest", func(t *testing.T) {
+		approvals := ValidatorSetApprovals{
+			{NodeID: node0, PChainHeight: 100, AuxInfoSeqDigest: [32]byte{0xAA}},
+			{NodeID: node1, PChainHeight: 100, AuxInfoSeqDigest: [32]byte{0xBB}},
+		}
+		oldApproving := bitmaskFromBytes(nil)
+		result := sanitizeApprovals(approvals, 100, [32]byte{0xAA}, nodeID2Index, oldApproving, logger)
 		require.Len(t, result, 1)
 		require.Equal(t, node0, result[0].NodeID)
 	})
@@ -1261,7 +1288,7 @@ func TestSanitizeApprovals(t *testing.T) {
 			{NodeID: node1, PChainHeight: 100},
 		}
 		oldApproving := bitmaskFromBytes([]byte{1})
-		result := sanitizeApprovals(approvals, 100, nodeID2Index, oldApproving, logger)
+		result := sanitizeApprovals(approvals, 100, [32]byte{}, nodeID2Index, oldApproving, logger)
 		require.Len(t, result, 1)
 		require.Equal(t, node1, result[0].NodeID)
 	})
@@ -1272,7 +1299,7 @@ func TestSanitizeApprovals(t *testing.T) {
 			{NodeID: node2, PChainHeight: 100},
 		}
 		oldApproving := bitmaskFromBytes(nil)
-		result := sanitizeApprovals(approvals, 100, nodeID2Index, oldApproving, logger)
+		result := sanitizeApprovals(approvals, 100, [32]byte{}, nodeID2Index, oldApproving, logger)
 		require.Len(t, result, 1)
 		require.Equal(t, node2, result[0].NodeID)
 	})
@@ -1283,7 +1310,7 @@ func TestSanitizeApprovals(t *testing.T) {
 			{NodeID: node0, PChainHeight: 100},
 		}
 		oldApproving := bitmaskFromBytes(nil)
-		result := sanitizeApprovals(approvals, 100, nodeID2Index, oldApproving, logger)
+		result := sanitizeApprovals(approvals, 100, [32]byte{}, nodeID2Index, oldApproving, logger)
 		require.Len(t, result, 1)
 	})
 }
@@ -1422,6 +1449,11 @@ func TestComputeNewApproverSignaturesAndSigners(t *testing.T) {
 func TestBuildBlockCollectingApprovalsDedupsOwnApprovalAcrossRounds(t *testing.T) {
 	sm, tc := newStateMachine(t)
 
+	// This test is about approval dedup, not auxiliary info. Use an app whose history
+	// is always final so approvals are collected from the first collecting round
+	// (the builder only collects approvals once the aux info history is ready).
+	sm.AuxiliaryInfoApp = &noopTestAuxInfoApp{}
+
 	// Use concatAggregator so that AppendSignatures(existing) with zero new
 	// signatures returns `existing` verbatim. This makes signature equality
 	// a direct witness that no new signature was aggregated in.
@@ -1496,4 +1528,316 @@ func TestBuildBlockCollectingApprovalsDedupsOwnApprovalAcrossRounds(t *testing.T
 	// when no new signatures were aggregated, so the bytes must match exactly.
 	require.Equal(t, firstSig, block2.Metadata.SimplexEpochInfo.NextEpochApprovals.Signature,
 		"aggregated signature must be unchanged when no new approvals were aggregated")
+}
+
+func TestVerifyCollectingApprovalsNotReady(t *testing.T) {
+	// Tests collecting-approvals state while the auxiliary info history is not yet final.
+	// In that state the builder does not collect approvals,
+	// so a block legitimately carries no NextEpochApprovals. The verifier must
+	// (1) accept such a block, (2) not panic when NextEpochApprovals is nil, and
+	// (3) reject a block that carries approvals before the aux info is ready.
+
+	const (
+		pChainRefHeight     = uint64(100)
+		nextPChainRefHeight = uint64(200)
+		parentSeq           = uint64(10)
+	)
+
+	newSM := func(t *testing.T) (*StateMachine, *testConfig, StateMachineBlock) {
+		sm, tc := newStateMachine(t)
+		// Default app (AuxiliaryInfoApp) for newStateMachine has threshold 2
+		// so IsFinalAuxInfoHistory returns false: the aux info is not ready.
+		sm.GetPChainHeight = func() uint64 { return nextPChainRefHeight }
+
+		// Parent block: epoch transition in progress (NextPChainReferenceHeight > 0),
+		// not yet sealed, so NextState() is stateBuildCollectingApprovals.
+		parent := StateMachineBlock{
+			InnerBlock: &InnerBlock{TS: time.Now(), BlockHeight: 1, Bytes: []byte{0xAA}},
+			Metadata: StateMachineMetadata{
+				PChainHeight: nextPChainRefHeight,
+				SimplexProtocolMetadata: (&simplex.ProtocolMetadata{
+					Seq: parentSeq, Round: 5, Epoch: 1,
+				}).Bytes(),
+				SimplexEpochInfo: SimplexEpochInfo{
+					PChainReferenceHeight:     pChainRefHeight,
+					EpochNumber:               1,
+					NextPChainReferenceHeight: nextPChainRefHeight,
+					PrevVMBlockSeq:            parentSeq - 1,
+				},
+			},
+		}
+		tc.blockStore[parentSeq] = &outerBlock{block: parent}
+		require.Equal(t, stateBuildCollectingApprovals, parent.Metadata.SimplexEpochInfo.NextState())
+		return sm, tc, parent
+	}
+
+	build := func(t *testing.T, sm *StateMachine, tc *testConfig, parent StateMachineBlock) *StateMachineBlock {
+		tc.blockBuilder.block = &InnerBlock{TS: time.Now(), BlockHeight: 2, Bytes: []byte{0x01}}
+		md := simplex.ProtocolMetadata{Seq: parentSeq + 1, Round: 6, Epoch: 1, Prev: parent.Digest()}
+		block, err := sm.BuildBlock(context.Background(), md, nil)
+		require.NoError(t, err)
+		return block
+	}
+
+	t.Run("built not-ready block verifies and carries no approvals", func(t *testing.T) {
+		sm, tc, parent := newSM(t)
+		block := build(t, sm, tc, parent)
+
+		// The builder generated auxiliary info but collected no approvals.
+		require.NotNil(t, block.Metadata.AuxiliaryInfo)
+		require.Empty(t, block.Metadata.SimplexEpochInfo.NextEpochApprovals.NodeIDs)
+		require.Empty(t, block.Metadata.SimplexEpochInfo.NextEpochApprovals.Signature)
+
+		require.NoError(t, sm.VerifyBlock(context.Background(), block))
+	})
+
+	t.Run("nil NextEpochApprovals does not panic", func(t *testing.T) {
+		sm, tc, parent := newSM(t)
+		block := build(t, sm, tc, parent)
+		block.Metadata.SimplexEpochInfo.NextEpochApprovals = nil
+
+		// The regression: verifying a not-ready block with nil approvals must not panic.
+		// (The digest no longer matches, so an error is expected — just not a panic.)
+		require.NotPanics(t, func() {
+			_ = sm.verifyCollectingApprovalsBlock(context.Background(), parent, block, parentSeq)
+		})
+	})
+
+	t.Run("approvals before aux info is ready are rejected", func(t *testing.T) {
+		sm, tc, parent := newSM(t)
+		block := build(t, sm, tc, parent)
+		block.Metadata.SimplexEpochInfo.NextEpochApprovals = &NextEpochApprovals{
+			NodeIDs:   []byte{1},
+			Signature: []byte("sig"),
+		}
+
+		err := sm.verifyCollectingApprovalsBlock(context.Background(), parent, block, parentSeq)
+		require.ErrorContains(t, err, "expected no approvals")
+	})
+}
+
+func TestCollectingApprovalsAuxInfoGating(t *testing.T) {
+	// Walks a chain through the collecting-approvals state while the auxiliary info history fills up.
+	// With a threshold of 2, the history only becomes final after two distinct votes,
+	// so the first two collecting blocks carry auxiliary info but no approvals,
+	// and approvals are collected only once the history is ready.
+	// Each built block must verify.
+
+	const (
+		pChainRefHeight     = uint64(100)
+		nextPChainRefHeight = uint64(200)
+		parentSeq           = uint64(10)
+	)
+
+	sm, tc := newStateMachine(t)
+	sm.GetPChainHeight = func() uint64 { return nextPChainRefHeight }
+
+	// Deterministic votes so the built auxiliary info is predictable.
+	vote1 := []byte("vote-1")
+	vote2 := []byte("vote-2")
+	votes := [][]byte{vote1, vote2}
+	sm.AuxiliaryInfoApp = &voteCountingAuxInfoApp{
+		threshold: 2,
+		randomTape: func() []byte {
+			next := votes[0]
+			votes = votes[1:]
+			return next
+		},
+	}
+
+	// A 3-node validator set including MyNodeID at index 0, so the optimistic self-approval
+	// is retained once approvals are collected, but a single approval is below quorum (the
+	// block stays in the collecting state rather than sealing).
+	validators := NodeBLSMappings{
+		{NodeID: nodeID(sm.MyNodeID), BLSKey: []byte{1}, Weight: 1},
+		{NodeID: nodeID{0xBB}, BLSKey: []byte{2}, Weight: 1},
+		{NodeID: nodeID{0xCC}, BLSKey: []byte{3}, Weight: 1},
+	}
+	tc.validatorSetRetriever.result = validators
+
+	parent := StateMachineBlock{
+		InnerBlock: &InnerBlock{TS: time.Now(), BlockHeight: 1, Bytes: []byte{0xAA}},
+		Metadata: StateMachineMetadata{
+			PChainHeight: nextPChainRefHeight,
+			SimplexProtocolMetadata: (&simplex.ProtocolMetadata{
+				Seq: parentSeq, Round: 5, Epoch: 1,
+			}).Bytes(),
+			SimplexEpochInfo: SimplexEpochInfo{
+				PChainReferenceHeight:     pChainRefHeight,
+				EpochNumber:               1,
+				NextPChainReferenceHeight: nextPChainRefHeight,
+				PrevVMBlockSeq:            parentSeq - 1,
+			},
+		},
+	}
+	tc.blockStore[parentSeq] = &outerBlock{block: parent}
+
+	// build constructs the next collecting block on top of prev, stores it so it can serve
+	// as a parent (and as a back-pointer target for the aux info history), and verifies it.
+	build := func(seq uint64, prev StateMachineBlock) *StateMachineBlock {
+		tc.blockBuilder.block = &InnerBlock{TS: time.Now(), BlockHeight: seq, Bytes: []byte{byte(seq)}}
+		md := simplex.ProtocolMetadata{Seq: seq, Round: seq, Epoch: 1, Prev: prev.Digest()}
+		block, err := sm.BuildBlock(context.Background(), md, nil)
+		require.NoError(t, err)
+		require.NoError(t, sm.VerifyBlock(context.Background(), block))
+		tc.blockStore[seq] = &outerBlock{block: *block}
+		return block
+	}
+
+	approvals := func(b *StateMachineBlock) *NextEpochApprovals {
+		return b.Metadata.SimplexEpochInfo.NextEpochApprovals
+	}
+	// requireAuxInfo compares the meaningful fields, ignoring the cached canoto size.
+	requireAuxInfo := func(want, got *AuxiliaryInfo) {
+		require.True(t, want.Equal(got), "expected aux info %+v, got %+v", want, got)
+	}
+
+	// block1: history empty, not final -> generates vote1, collects no approvals.
+	block1 := build(parentSeq+1, parent)
+	requireAuxInfo(&AuxiliaryInfo{Info: vote1, ApplicationID: 1}, block1.Metadata.AuxiliaryInfo)
+	require.Empty(t, approvals(block1).NodeIDs)
+
+	// block2: history [vote1], still not final -> generates vote2, collects no approvals.
+	block2 := build(parentSeq+2, *block1)
+	requireAuxInfo(&AuxiliaryInfo{Info: vote2, PrevAuxInfoSeq: parentSeq + 1, ApplicationID: 1}, block2.Metadata.AuxiliaryInfo)
+	require.Empty(t, approvals(block2).NodeIDs)
+
+	// block3: history [vote1, vote2] is now final -> no new vote, and approvals are
+	// collected (the optimistic self-approval sets MyNodeID's bit). block3 is the first
+	// empty-Info block; it points at block2, the last non-empty Info block.
+	block3 := build(parentSeq+3, *block2)
+	requireAuxInfo(&AuxiliaryInfo{PrevAuxInfoSeq: parentSeq + 2, ApplicationID: 1}, block3.Metadata.AuxiliaryInfo)
+	require.Equal(t, []byte{1}, approvals(block3).NodeIDs, "self-approval bit should be set once aux info is ready")
+
+	// The collected approval must be signed over the epoch-transition payload for the
+	//mnext epoch's P-chain reference height (200) and the digest
+	// of the final auxiliary info history, which is sha256 of the last vote (vote2).
+	wantSigned, err := assembleApprovalToBeSigned(nextPChainRefHeight, sha256.Sum256(vote2))
+	require.NoError(t, err)
+	require.NoError(t, (&signatureVerifier{}).VerifySignature(approvals(block3).Signature, wantSigned, nil),
+		"NextEpochApprovals signature must verify against P-chain height 200 and the digest of vote2")
+
+	// block4: built on the empty-Info block3 while still collecting approvals (1/3 is below
+	// quorum). Its PrevAuxInfoSeq must SKIP the empty block3 and point at block2 (parentSeq+2),
+	// the most recent non-empty Info block -- not at its immediate parent block3 (parentSeq+3).
+	// This is the case the rest of the chain never reaches and where "skip" differs from "successive".
+	block4 := build(parentSeq+4, *block3)
+	require.NotEqual(t, parentSeq+3, block4.Metadata.AuxiliaryInfo.PrevAuxInfoSeq,
+		"PrevAuxInfoSeq must not point at the empty-Info parent block3")
+	requireAuxInfo(&AuxiliaryInfo{PrevAuxInfoSeq: parentSeq + 2, ApplicationID: 1}, block4.Metadata.AuxiliaryInfo)
+
+	// block5: another empty-Info block on top of the empty block4. The back-pointer still skips
+	// the whole empty run and points at block2, confirming the skip persists across consecutive
+	// empty-Info blocks (collectAuxiliaryInfo finds the same most-recent non-empty block each time).
+	block5 := build(parentSeq+5, *block4)
+	requireAuxInfo(&AuxiliaryInfo{PrevAuxInfoSeq: parentSeq + 2, ApplicationID: 1}, block5.Metadata.AuxiliaryInfo)
+}
+
+func TestCollectAuxiliaryInfo(t *testing.T) {
+	const appID = AppID(7)
+
+	blockWithAuxInfo := func(info []byte, prevAuxInfoSeq uint64) StateMachineBlock {
+		return StateMachineBlock{
+			Metadata: StateMachineMetadata{
+				AuxiliaryInfo: &AuxiliaryInfo{
+					Info:           info,
+					PrevAuxInfoSeq: prevAuxInfoSeq,
+					ApplicationID:  appID,
+				},
+			},
+		}
+	}
+
+	errRetrieval := errors.New("retrieval failed")
+
+	// startSeq is the sequence of tt.block itself (the block collectAuxiliaryInfo starts from).
+	const startSeq = uint64(10)
+
+	tests := []struct {
+		name            string
+		block           StateMachineBlock
+		blocks          map[uint64]StateMachineBlock
+		getBlockErr     error
+		expectedHistory [][]byte
+		expectedSeqs    []uint64
+		expectedAppID   AppID
+		expectedErr     error
+	}{
+		{
+			name:  "block without auxiliary info",
+			block: StateMachineBlock{},
+		},
+		{
+			name:  "empty info, first of epoch",
+			block: blockWithAuxInfo(nil, 0),
+		},
+		{
+			name:            "non-empty info, first of epoch",
+			block:           blockWithAuxInfo([]byte{1}, 0),
+			expectedHistory: [][]byte{{1}},
+			expectedSeqs:    []uint64{startSeq},
+			expectedAppID:   appID,
+		},
+		{
+			name:  "empty info pointing back to non-empty info",
+			block: blockWithAuxInfo(nil, 3),
+			blocks: map[uint64]StateMachineBlock{
+				3: blockWithAuxInfo([]byte{1}, 0),
+			},
+			expectedHistory: [][]byte{{1}},
+			expectedSeqs:    []uint64{3},
+			expectedAppID:   appID,
+		},
+		{
+			name:  "history is ordered from oldest to newest",
+			block: blockWithAuxInfo([]byte{3}, 5),
+			blocks: map[uint64]StateMachineBlock{
+				5: blockWithAuxInfo([]byte{2}, 2),
+				2: blockWithAuxInfo([]byte{1}, 0),
+			},
+			expectedHistory: [][]byte{{1}, {2}, {3}},
+			expectedSeqs:    []uint64{2, 5, startSeq},
+			expectedAppID:   appID,
+		},
+		{
+			name:  "traversal stops at a block without auxiliary info",
+			block: blockWithAuxInfo([]byte{2}, 4),
+			blocks: map[uint64]StateMachineBlock{
+				4: {},
+			},
+			expectedHistory: [][]byte{{2}},
+			expectedSeqs:    []uint64{startSeq},
+			expectedAppID:   appID,
+		},
+		{
+			name:        "block retrieval failure",
+			block:       blockWithAuxInfo([]byte{2}, 4),
+			getBlockErr: errRetrieval,
+			expectedErr: errRetrieval,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			getBlock := func(seq uint64, _ [32]byte) (StateMachineBlock, *simplex.Finalization, error) {
+				if tt.getBlockErr != nil {
+					return StateMachineBlock{}, nil, tt.getBlockErr
+				}
+				block, ok := tt.blocks[seq]
+				require.True(t, ok, "unexpected retrieval of block at sequence %d", seq)
+				return block, nil, nil
+			}
+
+			history, seqs, gotAppID, err := collectAuxiliaryInfo(tt.block, startSeq, getBlock, 0)
+			if tt.expectedErr != nil {
+				require.ErrorIs(t, err, tt.expectedErr)
+				require.ErrorIs(t, err, errAuxInfoBlockRetrieval)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.expectedHistory, history)
+			require.Equal(t, tt.expectedSeqs, seqs)
+			require.Equal(t, tt.expectedAppID, gotAppID)
+		})
+	}
 }
