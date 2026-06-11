@@ -251,9 +251,9 @@ type QuorumRound struct {
 	EmptyNotarization *EmptyNotarization
 }
 
-// isWellFormed returns an error if the QuorumRound has either
-// (block, notarization) or (block, finalization) or
-// (empty notarization)
+// isWellFormed returns an error if the QuorumRound is not in one
+// one of these formats
+// (block, notarization), (block, finalization) or (empty notarization)
 func (q *QuorumRound) IsWellFormed() error {
 	if q.Block == nil && q.EmptyNotarization == nil {
 		return fmt.Errorf("malformed QuorumRound, empty block and notarization fields")
