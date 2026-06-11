@@ -91,11 +91,10 @@ type Block interface {
 	// Verify verifies the block by speculatively executing it on top of its ancestor.
 	Verify(ctx context.Context) (VerifiedBlock, error)
 
-	// non nil only for sealing blocks. todo: the first ever simplex block might have validators encoded in it. test this.
+	// non nil only for sealing blocks & first ever simplex block
 	SealingBlockInfo() *SealingBlockInfo
 }
 
-// Created temporarily to avoid the massive circular dependency.
 type SealingBlockInfo struct {
 	// the new epoch number(aka the seq of the block this is in)
 	Epoch uint64
@@ -118,7 +117,7 @@ type VerifiedBlock interface {
 	// Bytes returns a byte encoding of the block
 	Bytes() ([]byte, error)
 
-	// non nil only for sealing blocks. todo: the first ever simplex block might have validators encoded in it. test this.
+	// non nil only for sealing blocks & first ever simplex block
 	SealingBlockInfo() *SealingBlockInfo
 }
 
