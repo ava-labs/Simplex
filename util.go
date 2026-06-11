@@ -376,7 +376,7 @@ func (t *walRound) String() string {
 	return fmt.Sprintf("walRound{round: %d, hasEmptyNotarization: %t, hasEmptyVote: %t, hasNotarization: %t, hasFinalization: %t, hasBlock: %t}", t.round, hasEmptyNotarization, hasEmptyVote, hasNotarization, hasFinalization, hasBlock)
 }
 
-func newRandomSource() (*rand.Rand, error) {
+func NewRandomSource() (*rand.Rand, error) {
 	var seedBytes [32]byte
 
 	if _, err := cryptoRand.Read(seedBytes[:]); err != nil {

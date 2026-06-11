@@ -90,6 +90,23 @@ type Block interface {
 
 	// Verify verifies the block by speculatively executing it on top of its ancestor.
 	Verify(ctx context.Context) (VerifiedBlock, error)
+
+	// non nil only for sealing blocks. todo: the first ever simplex block might have validators encoded in it. test this.
+	SealingBlockInfo() *SealingBlockInfo
+}
+
+// Created temporarily to avoid the massive circular dependency.
+type SealingBlockInfo struct {
+	// the new epoch number(aka the seq of the block this is in)
+	Epoch uint64
+	// ValidatorSet of the new epoch
+	ValidatorSet Nodes
+	// PrevSealingBlockHash is the hash of the previous sealing block
+	PrevSealingBlockHash Digest
+}
+
+func (s *SealingBlockInfo) String() string {
+	return fmt.Sprintf("Info: Epoch %d. Num Validators %d, PrevHash %s", s.Epoch, len(s.ValidatorSet), s.PrevSealingBlockHash)
 }
 
 type VerifiedBlock interface {
@@ -100,6 +117,9 @@ type VerifiedBlock interface {
 
 	// Bytes returns a byte encoding of the block
 	Bytes() ([]byte, error)
+
+	// non nil only for sealing blocks. todo: the first ever simplex block might have validators encoded in it. test this.
+	SealingBlockInfo() *SealingBlockInfo
 }
 
 // BlockDeserializer deserializes blocks according to formatting
