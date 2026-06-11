@@ -121,6 +121,32 @@ func (bs *BlockDependencyManager) ExecuteEmptyRoundDependents(emptyRound uint64)
 	bs.dependencies = remainingDeps
 }
 
+func (bs *BlockDependencyManager) IsSequenceScheduled(seq uint64) bool {
+	bs.lock.Lock()
+	defer bs.lock.Unlock()
+
+	for _, dep := range bs.dependencies {
+		if dep.blockSeq == seq {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (bs *BlockDependencyManager) IsSequenceScheduled(seq uint64) bool {
+	bs.lock.Lock()
+	defer bs.lock.Unlock()
+
+	for _, dep := range bs.dependencies {
+		if dep.blockSeq == seq {
+			return true
+		}
+	}
+
+	return false
+}
+
 func (bs *BlockDependencyManager) ScheduleTaskWithDependencies(task Task, blockSeq uint64, prev *Digest, emptyRounds []uint64) error {
 	bs.lock.Lock()
 	defer bs.lock.Unlock()
@@ -147,7 +173,7 @@ func (bs *BlockDependencyManager) ScheduleTaskWithDependencies(task Task, blockS
 		return nil
 	}
 
-	bs.logger.Debug("Adding block verification task with dependencies", zap.Any("prevBlock", prev), zap.Uint64s("emptyRounds", emptyRounds))
+	bs.logger.Debug("Adding block verification task with dependencies", zap.Any("prevBlock", prev), zap.Uint64s("emptyRounds", emptyRounds), zap.Uint64("blockSeq", blockSeq))
 	emptyRoundsSet := make(map[uint64]struct{})
 	for _, round := range emptyRounds {
 		emptyRoundsSet[round] = struct{}{}

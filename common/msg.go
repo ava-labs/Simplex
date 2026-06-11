@@ -320,17 +320,13 @@ func (q *QuorumRound) VerifyQCConsistentWithBlock() error {
 
 // String returns a string representation of the QuorumRound.
 // It is meant as a debugging aid for logs.
-func (q *QuorumRound) String() string {
-	if q != nil {
-		err := q.IsWellFormed()
-		if err != nil {
-			return fmt.Sprintf("QuorumRound{Error: %s}", err)
-		} else {
-			return fmt.Sprintf("QuorumRound{Round: %d, Seq: %d, Finalized: %t}", q.GetRound(), q.GetSequence(), q.Finalization != nil)
-		}
+func (q QuorumRound) String() string {
+	err := q.IsWellFormed()
+	if err != nil {
+		return fmt.Sprintf("QuorumRound{Error: %s}", err)
+	} else {
+		return fmt.Sprintf("QuorumRound{Round: %d, Seq: %d, Finalized: %t}", q.GetRound(), q.GetSequence(), q.Finalization != nil)
 	}
-
-	return "QuorumRound{nil}"
 }
 
 type VerifiedQuorumRound struct {

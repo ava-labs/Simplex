@@ -55,6 +55,10 @@ func (b *Block) BlockHeader() common.BlockHeader {
 	}
 }
 
+func (b *Block) SealingBlockInfo() *common.SealingBlockInfo {
+	return nil
+}
+
 type encodedBlock struct {
 	ProtocolMetadata []byte
 	TXs              []asn1TX

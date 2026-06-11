@@ -46,9 +46,14 @@ func (mem *InMemStorage) NumBlocks() uint64 {
 }
 
 func (mem *InMemStorage) Clone() *InMemStorage {
-	clone := NewInMemStorage()
 	height := mem.NumBlocks()
-	for seq := uint64(0); seq < height; seq++ {
+	return mem.CloneUntil(height)
+}
+
+// CloneUntil will copy the storage up until a given sequence(not including).
+func (mem *InMemStorage) CloneUntil(stopSeq uint64) *InMemStorage {
+	clone := NewInMemStorage()
+	for seq := uint64(0); seq < stopSeq; seq++ {
 		block, finalization, err := mem.Retrieve(seq)
 		if err != nil {
 			panic(fmt.Sprintf("failed retrieving block %d: %v", seq, err))
