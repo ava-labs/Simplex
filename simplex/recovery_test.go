@@ -401,7 +401,7 @@ func TestWalWritesFinalization(t *testing.T) {
 	require.Len(t, records, 5)
 	recordType := binary.BigEndian.Uint16(records[4])
 	require.Equal(t, record.FinalizationRecordType, recordType)
-	_, err = FinalizationFromRecord(records[4], e.QCDeserializer)
+	_, err = FinalizationFromRecord(records[4], e.QCDeserializerCreator(nil))
 	_, expectedFinalizationRecord := testutil.NewFinalizationRecord(t, sigAggregrator, secondBlock, nodes[0:quorum])
 	require.NoError(t, err)
 	require.Equal(t, expectedFinalizationRecord, records[4])
@@ -465,7 +465,7 @@ func TestRecoverFromMultipleNotarizations(t *testing.T) {
 	// now if we send finalization for block 1, we should index both 1 & 2
 	finalization1, _ := testutil.NewFinalizationRecord(t, sigAggr, firstBlock, nodes[0:quorum])
 	err = e.HandleMessage(&Message{
-		Finalization: &finalization1,
+		Finalization: finalization1.Raw(),
 	}, nodes[1])
 	require.NoError(t, err)
 

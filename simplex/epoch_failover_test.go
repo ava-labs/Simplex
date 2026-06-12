@@ -65,7 +65,7 @@ func TestEpochLeaderFailoverWithEmptyNotarization(t *testing.T) {
 
 	emptyNotarization := testutil.NewEmptyNotarization(nodes[:3], 2)
 	e.HandleMessage(&Message{
-		EmptyNotarization: emptyNotarization,
+		EmptyNotarization: emptyNotarization.Raw(),
 	}, nodes[1])
 
 	notarizeAndFinalizeRoundWithMetadata(t, e, bb, &block1.Metadata)
@@ -181,7 +181,7 @@ func TestEpochLeaderFailoverReceivesEmptyVotesEarly(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, createEmptyVote(emptyBlockMd, nodes[0]).Vote, emptyVote)
 
-		emptyNotarization, err := EmptyNotarizationFromRecord(rawEmptyNotarization, e.QCDeserializer)
+		emptyNotarization, err := EmptyNotarizationFromRecord(rawEmptyNotarization, e.QCDeserializerCreator(nil))
 		require.NoError(t, err)
 		require.Equal(t, emptyVoteFrom1.Vote, emptyNotarization.Vote)
 		require.Equal(t, uint64(3), emptyNotarization.Vote.Round)
@@ -220,7 +220,7 @@ func TestReceiveEmptyNotarizationWithNoQC(t *testing.T) {
 	emptyNotarization := testutil.NewEmptyNotarization(nodes[:3], 0)
 
 	e.HandleMessage(&Message{
-		EmptyNotarization: &EmptyNotarization{Vote: emptyNotarization.Vote},
+		EmptyNotarization: &RawEmptyNotarization{Vote: emptyNotarization.Vote, QC: emptyNotarization.QC},
 	}, nodes[0])
 }
 
@@ -272,7 +272,7 @@ func TestEpochLeaderFailover(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, createEmptyVote(emptyBlockMd, nodes[0]).Vote, emptyVote)
 
-		emptyNotarization, err := EmptyNotarizationFromRecord(rawEmptyNotarization, e.QCDeserializer)
+		emptyNotarization, err := EmptyNotarizationFromRecord(rawEmptyNotarization, e.QCDeserializerCreator(nil))
 		require.NoError(t, err)
 		require.Equal(t, emptyVoteFrom1.Vote, emptyNotarization.Vote)
 		require.Equal(t, uint64(3), emptyNotarization.Vote.Round)
@@ -336,7 +336,7 @@ func TestEpochLeaderFailoverDoNotPersistEmptyRoundTwice(t *testing.T) {
 	en := testutil.NewEmptyNotarization(nodes, numRounds)
 
 	err = e.HandleMessage(&Message{
-		EmptyNotarization: en,
+		EmptyNotarization: en.Raw(),
 	}, nodes[2])
 	require.NoError(t, err)
 
@@ -380,7 +380,7 @@ func TestEpochLeaderRecursivelyFetchNotarizedBlocks(t *testing.T) {
 			testutil.WaitForBlockProposerTimeout(t, e, &startTime, round)
 
 			err = e.HandleMessage(&Message{
-				EmptyNotarization: emptyNotarization,
+				EmptyNotarization: emptyNotarization.Raw(),
 			}, nodes[2])
 			require.NoError(t, err)
 
@@ -391,7 +391,7 @@ func TestEpochLeaderRecursivelyFetchNotarizedBlocks(t *testing.T) {
 		// Otherwise, just receive the empty notarization
 		// and advance to the next round
 		err = e.HandleMessage(&Message{
-			EmptyNotarization: emptyNotarization,
+			EmptyNotarization: emptyNotarization.Raw(),
 		}, nodes[2])
 		require.NoError(t, err)
 		wal.AssertNotarization(round)
@@ -531,6 +531,7 @@ func TestEpochLeaderFailoverAfterProposal(t *testing.T) {
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 
 	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
+	qcDeserializer := conf.QCDeserializerCreator(nil)
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
@@ -608,7 +609,7 @@ func TestEpochLeaderFailoverAfterProposal(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, createEmptyVote(md, nodes[0]).Vote, emptyVote)
 
-		emptyNotarization, err := EmptyNotarizationFromRecord(rawEmptyNotarization, e.QCDeserializer)
+		emptyNotarization, err := EmptyNotarizationFromRecord(rawEmptyNotarization, qcDeserializer)
 		require.NoError(t, err)
 		require.Equal(t, emptyVoteFrom1.Vote, emptyNotarization.Vote)
 		require.Equal(t, uint64(3), emptyNotarization.Vote.Round)
@@ -696,7 +697,7 @@ func TestEpochLeaderFailoverTwice(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, createEmptyVote(md, nodes[0]).Vote, emptyVote)
 
-			emptyNotarization, err := EmptyNotarizationFromRecord(rawEmptyNotarization, e.QCDeserializer)
+			emptyNotarization, err := EmptyNotarizationFromRecord(rawEmptyNotarization, e.QCDeserializerCreator(nil))
 			require.NoError(t, err)
 			require.Equal(t, emptyVoteFrom1.Vote, emptyNotarization.Vote)
 			require.Equal(t, uint64(3), emptyNotarization.Vote.Round)
@@ -727,7 +728,7 @@ func TestEpochLeaderFailoverGarbageCollectedEmptyVotes(t *testing.T) {
 		if strings.Contains(entry.Message, "It is time to build a block") {
 			emptyNotarization := testutil.NewEmptyNotarization(nodes[1:], 3)
 			e.HandleMessage(&Message{
-				EmptyNotarization: emptyNotarization,
+				EmptyNotarization: emptyNotarization.Raw(),
 			}, nodes[1])
 
 			waitForTimeoutOnce.Do(waitForTimeout.Done)
@@ -942,7 +943,7 @@ func TestEpochBlacklist(t *testing.T) {
 
 	// Forcefully time out the last node.
 	err = e.HandleMessage(&Message{
-		EmptyNotarization: testutil.NewEmptyNotarization(nodes, timedOutRound),
+		EmptyNotarization: testutil.NewEmptyNotarization(nodes, timedOutRound).Raw(),
 	}, nodes[1])
 	require.NoError(t, err)
 
@@ -1171,7 +1172,7 @@ func TestEpochRebroadcastsEmptyVote(t *testing.T) {
 
 	emptyNotarization := testutil.NewEmptyNotarization(nodes, 0)
 	e.HandleMessage(&Message{
-		EmptyNotarization: emptyNotarization,
+		EmptyNotarization: emptyNotarization.Raw(),
 	}, nodes[2])
 
 	wal.AssertNotarization(0)

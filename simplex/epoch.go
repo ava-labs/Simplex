@@ -64,7 +64,7 @@ type EpochConfig struct {
 	MaxRoundWindow             uint64
 	MaxRebroadcastWait         time.Duration
 	FinalizeRebroadcastTimeout time.Duration
-	QCDeserializer             common.QCDeserializer
+	QCDeserializerCreator             common.QCDeserializerCreator
 	Logger                     common.Logger
 	ID                         common.NodeID
 	Signer                     common.Signer
@@ -84,6 +84,7 @@ type EpochConfig struct {
 type Epoch struct {
 	EpochConfig
 	// Runtime
+	qcDeserializer 			  common.QCDeserializer
 	signatureAggregator            common.SignatureAggregator
 	oneTimeVerifier                *OneTimeVerifier
 	buildBlockScheduler            *BasicScheduler
@@ -168,13 +169,13 @@ func (e *Epoch) HandleMessage(msg *common.Message, from common.NodeID) error {
 	case msg.EmptyVoteMessage != nil:
 		return e.handleEmptyVoteMessage(msg.EmptyVoteMessage, from)
 	case msg.Notarization != nil:
-		return e.handleNotarizationMessage(msg.Notarization, from)
+		return e.handleRawNotarizationMessage(msg.Notarization, from)
 	case msg.EmptyNotarization != nil:
-		return e.handleEmptyNotarizationMessage(msg.EmptyNotarization, from)
+		return e.handleRawEmptyNotarizationMessage(msg.EmptyNotarization, from)
 	case msg.FinalizeVote != nil:
 		return e.handleFinalizeVoteMessage(msg.FinalizeVote, from)
 	case msg.Finalization != nil:
-		return e.handleFinalizationMessage(msg.Finalization, from)
+		return e.handleRawFinalizationMessage(msg.Finalization, from)
 	case msg.ReplicationResponse != nil && e.ReplicationEnabled:
 		return e.handleReplicationResponse(msg.ReplicationResponse, from)
 	case msg.ReplicationRequest != nil && e.ReplicationEnabled:
@@ -213,6 +214,7 @@ func (e *Epoch) init() error {
 	e.replicationState = NewReplicationState(e.Logger, e.Comm, e.ID, e.MaxRoundWindow, e.ReplicationEnabled, e.StartTime, &e.lock, e.RandomSource)
 	e.timeoutHandler = NewTimeoutHandler(e.Logger, "emptyVoteRebroadcast", e.StartTime, e.MaxRebroadcastWait, e.emptyVoteTimeoutTaskRunner)
 	e.signatureAggregator = e.SignatureAggregatorCreator(e.nodes)
+	e.qcDeserializer = e.QCDeserializerCreator(e.nodes)
 
 	for _, node := range e.nodeIDs {
 		e.futureMessages[string(node)] = make(map[uint64]*messagesForRound)
@@ -333,7 +335,7 @@ func (e *Epoch) loadBlockRecord(block common.Block) error {
 }
 
 func (e *Epoch) restoreNotarizationRecord(r []byte, highestWalRound *walRound) error {
-	notarization, err := common.NotarizationFromRecord(r, e.QCDeserializer)
+	notarization, err := common.NotarizationFromRecord(r, e.qcDeserializer)
 	if err != nil {
 		return err
 	}
@@ -352,7 +354,7 @@ func (e *Epoch) restoreNotarizationRecord(r []byte, highestWalRound *walRound) e
 }
 
 func (e *Epoch) loadNotarizationRecord(r []byte) error {
-	notarization, err := common.NotarizationFromRecord(r, e.QCDeserializer)
+	notarization, err := common.NotarizationFromRecord(r, e.qcDeserializer)
 	if err != nil {
 		return err
 	}
@@ -372,7 +374,7 @@ func (e *Epoch) loadNotarizationRecord(r []byte) error {
 }
 
 func (e *Epoch) restoreEmptyNotarizationRecord(r []byte, highestWalRound *walRound) error {
-	emptyNotarization, err := common.EmptyNotarizationFromRecord(r, e.QCDeserializer)
+	emptyNotarization, err := common.EmptyNotarizationFromRecord(r, e.qcDeserializer)
 	if err != nil {
 		return err
 	}
@@ -391,7 +393,7 @@ func (e *Epoch) restoreEmptyNotarizationRecord(r []byte, highestWalRound *walRou
 }
 
 func (e *Epoch) loadEmptyNotarizationRecord(r []byte) error {
-	emptyNotarization, err := common.EmptyNotarizationFromRecord(r, e.QCDeserializer)
+	emptyNotarization, err := common.EmptyNotarizationFromRecord(r, e.qcDeserializer)
 	if err != nil {
 		return err
 	}
@@ -448,7 +450,7 @@ func (e *Epoch) loadEmptyVoteRecord(r []byte) error {
 }
 
 func (e *Epoch) restoreFinalizationRecord(r []byte, highestWalRound *walRound) error {
-	finalization, err := common.FinalizationFromRecord(r, e.QCDeserializer)
+	finalization, err := common.FinalizationFromRecord(r, e.qcDeserializer)
 	if err != nil {
 		return err
 	}
@@ -467,7 +469,7 @@ func (e *Epoch) restoreFinalizationRecord(r []byte, highestWalRound *walRound) e
 }
 
 func (e *Epoch) loadFinalizationRecord(r []byte) error {
-	finalization, err := common.FinalizationFromRecord(r, e.QCDeserializer)
+	finalization, err := common.FinalizationFromRecord(r, e.qcDeserializer)
 	if err != nil {
 		return err
 	}
@@ -519,7 +521,7 @@ func (e *Epoch) resumeFromWal(highestRoundRecord *walRound) error {
 
 	// Handle the most relevant record based on priority: finalization > notarization > emptyNotarization > emptyVote > block
 	if highestRoundRecord.finalization != nil {
-		finalizationMsg := &common.Message{Finalization: highestRoundRecord.finalization}
+		finalizationMsg := &common.Message{Finalization: highestRoundRecord.finalization.Raw()}
 		e.Comm.Broadcast(finalizationMsg)
 
 		e.Logger.Debug("Broadcast finalization",
@@ -531,7 +533,7 @@ func (e *Epoch) resumeFromWal(highestRoundRecord *walRound) error {
 
 	if highestRoundRecord.notarization != nil {
 		notarization := highestRoundRecord.notarization
-		lastMessage := common.Message{Notarization: notarization}
+		lastMessage := common.Message{Notarization: notarization.Raw()}
 		e.Comm.Broadcast(&lastMessage)
 
 		if e.sequenceAlreadyIndexed(notarization.Vote.Seq) {
@@ -543,7 +545,7 @@ func (e *Epoch) resumeFromWal(highestRoundRecord *walRound) error {
 	}
 
 	if highestRoundRecord.emptyNotarization != nil {
-		lastMessage := common.Message{EmptyNotarization: highestRoundRecord.emptyNotarization}
+		lastMessage := common.Message{EmptyNotarization: highestRoundRecord.emptyNotarization.Raw()}
 		e.Comm.Broadcast(&lastMessage)
 		return e.startRound()
 	}
@@ -624,7 +626,7 @@ func (e *Epoch) setMetadataFromRecords(records [][]byte) error {
 		recordType := binary.BigEndian.Uint16(records[i])
 		switch recordType {
 		case record.NotarizationRecordType:
-			notarization, err := common.NotarizationFromRecord(records[i], e.QCDeserializer)
+			notarization, err := common.NotarizationFromRecord(records[i], e.qcDeserializer)
 			if err != nil {
 				return err
 			}
@@ -634,7 +636,7 @@ func (e *Epoch) setMetadataFromRecords(records [][]byte) error {
 				found = true
 			}
 		case record.EmptyNotarizationRecordType:
-			emptyNotarization, err := common.EmptyNotarizationFromRecord(records[i], e.QCDeserializer)
+			emptyNotarization, err := common.EmptyNotarizationFromRecord(records[i], e.qcDeserializer)
 			if err != nil {
 				return err
 			}
@@ -644,7 +646,7 @@ func (e *Epoch) setMetadataFromRecords(records [][]byte) error {
 				found = true
 			}
 		case record.FinalizationRecordType:
-			finalization, err := common.FinalizationFromRecord(records[i], e.QCDeserializer)
+			finalization, err := common.FinalizationFromRecord(records[i], e.qcDeserializer)
 			if err != nil {
 				return err
 			}
@@ -732,6 +734,19 @@ func (e *Epoch) Stop() {
 	e.buildBlockScheduler.Close()
 	e.timeoutHandler.Close()
 	e.replicationState.Close()
+}
+
+func (e *Epoch) handleRawFinalizationMessage(message *common.RawFinalization, from common.NodeID) error {
+	qc, err := e.qcDeserializer.ParseQuorumCertificate(message.QC)
+	if err != nil {
+		e.Logger.Debug("Failed to parse QC in raw finalization message", zap.Error(err))
+		return nil
+	}
+	finalization := &common.Finalization{
+		QC:   qc,
+		Finalization: message.Finalization,
+	}
+	return e.handleFinalizationMessage(finalization, from)
 }
 
 func (e *Epoch) handleFinalizationMessage(message *common.Finalization, from common.NodeID) error {
@@ -840,7 +855,7 @@ func (e *Epoch) handleFinalizeVoteMessage(message *common.FinalizeVote, from com
 		}
 		// send the finalization to the sender in case they missed it
 		e.Comm.Send(&common.Message{
-			Finalization: round.finalization,
+			Finalization: round.finalization.Raw(),
 		}, from)
 		return nil
 	}
@@ -936,7 +951,7 @@ func (e *Epoch) sendLatestFinalization(to common.NodeID) {
 	}
 
 	msg := &common.Message{
-		Finalization: &e.lastBlock.Finalization,
+		Finalization: e.lastBlock.Finalization.Raw(),
 	}
 	e.Logger.Debug("Node appears behind, sending it the latest finalization", zap.Stringer("to", to), zap.Uint64("round", e.lastBlock.Finalization.Finalization.Round), zap.Uint64("sequence", e.lastBlock.Finalization.Finalization.Seq))
 	e.Comm.Send(msg, to)
@@ -952,7 +967,7 @@ func (e *Epoch) sendHighestRound(to common.NodeID) {
 
 	if latestQR.Notarization != nil {
 		msg := &common.Message{
-			Notarization: latestQR.Notarization,
+			Notarization: latestQR.Notarization.Raw(),
 		}
 		e.Logger.Debug("Node appears behind, sending it the highest round", zap.Stringer("to", to), zap.Uint64("round", latestQR.Notarization.Vote.Round))
 		e.Comm.Send(msg, to)
@@ -961,7 +976,7 @@ func (e *Epoch) sendHighestRound(to common.NodeID) {
 
 	if latestQR.EmptyNotarization != nil {
 		msg := &common.Message{
-			EmptyNotarization: latestQR.EmptyNotarization,
+			EmptyNotarization: latestQR.EmptyNotarization.Raw(),
 		}
 		e.Logger.Debug("Node appears behind, sending it the highest empty notarized round", zap.Stringer("to", to), zap.Uint64("round", latestQR.EmptyNotarization.Vote.Round))
 		e.Comm.Send(msg, to)
@@ -977,7 +992,7 @@ func (e *Epoch) maybeSendNotarizationOrFinalization(to common.NodeID, round uint
 		evs, ok := e.emptyVotes[round]
 		if ok && evs.emptyNotarization != nil {
 			msg := &common.Message{
-				EmptyNotarization: evs.emptyNotarization,
+				EmptyNotarization: evs.emptyNotarization.Raw(),
 			}
 			e.Logger.Debug("Node appears behind, sending it an empty notarization", zap.Stringer("to", to), zap.Uint64("round", round))
 			e.Comm.Send(msg, to)
@@ -988,7 +1003,7 @@ func (e *Epoch) maybeSendNotarizationOrFinalization(to common.NodeID, round uint
 
 	if r.finalization != nil {
 		msg := &common.Message{
-			Finalization: r.finalization,
+			Finalization: r.finalization.Raw(),
 		}
 		e.Comm.Send(msg, to)
 		return
@@ -997,7 +1012,7 @@ func (e *Epoch) maybeSendNotarizationOrFinalization(to common.NodeID, round uint
 	if r.notarization != nil {
 		e.Logger.Debug("Node appears behind, sending it a notarization", zap.Stringer("to", to), zap.Uint64("round", round))
 		msg := &common.Message{
-			Notarization: r.notarization,
+			Notarization: r.notarization.Raw(),
 		}
 		e.Comm.Send(msg, to)
 		return
@@ -1248,7 +1263,7 @@ func (e *Epoch) persistFinalization(finalization common.Finalization) error {
 		}
 	}
 
-	finalizationMsg := &common.Message{Finalization: &finalization}
+	finalizationMsg := &common.Message{Finalization: finalization.Raw()}
 	e.Comm.Broadcast(finalizationMsg)
 
 	e.Logger.Debug("Broadcast finalization",
@@ -1452,7 +1467,7 @@ func (e *Epoch) persistEmptyNotarization(emptyVotes *EmptyVoteSet, shouldBroadca
 
 	emptyVotes.persisted = true
 	if shouldBroadcast {
-		notarizationMessage := &common.Message{EmptyNotarization: emptyNotarization}
+		notarizationMessage := &common.Message{EmptyNotarization: emptyNotarization.Raw()}
 		e.Comm.Broadcast(notarizationMessage)
 		e.Logger.Debug("Broadcast empty notarization",
 			zap.Uint64("round", emptyNotarization.Vote.Round))
@@ -1579,7 +1594,7 @@ func (e *Epoch) persistAndBroadcastNotarization(notarization common.Notarization
 		return err
 	}
 
-	notarizationMessage := &common.Message{Notarization: &notarization}
+	notarizationMessage := &common.Message{Notarization: notarization.Raw()}
 	e.Comm.Broadcast(notarizationMessage)
 
 	e.Logger.Debug("Broadcast notarization",
@@ -1588,6 +1603,19 @@ func (e *Epoch) persistAndBroadcastNotarization(notarization common.Notarization
 		zap.Stringer("digest", notarization.Vote.BlockHeader.Digest))
 
 	return e.doNotarized(notarization.Vote.Round)
+}
+
+func (e *Epoch) handleRawEmptyNotarizationMessage(message *common.RawEmptyNotarization, from common.NodeID) error {
+	qc, err := e.qcDeserializer.ParseQuorumCertificate(message.QC)
+	if err != nil {
+		e.Logger.Debug("Failed to parse QC in raw empty notarization message", zap.Error(err))
+		return nil
+	}
+	emptyNotarization := &common.EmptyNotarization{
+		QC:   qc,
+		Vote: message.Vote,
+	}
+	return e.handleEmptyNotarizationMessage(emptyNotarization, from)
 }
 
 func (e *Epoch) handleEmptyNotarizationMessage(emptyNotarization *common.EmptyNotarization, from common.NodeID) error {
@@ -1647,6 +1675,19 @@ func (e *Epoch) isVoteForFinalizedRound(round uint64) bool {
 	}
 
 	return round < max
+}
+
+func (e *Epoch) handleRawNotarizationMessage(message *common.RawNotarization, from common.NodeID) error {
+	qc, err := e.qcDeserializer.ParseQuorumCertificate(message.QC)
+	if err != nil {
+		e.Logger.Debug("Failed to parse QC in raw notarization message", zap.Error(err))
+		return nil
+	}
+	notarization := &common.Notarization{
+		QC:   qc,
+		Vote: message.Vote,
+	}
+	return e.handleNotarizationMessage(notarization, from)
 }
 
 func (e *Epoch) handleNotarizationMessage(message *common.Notarization, from common.NodeID) error {
@@ -3188,17 +3229,33 @@ func (e *Epoch) handleReplicationResponse(resp *common.ReplicationResponse, from
 			continue
 		}
 
-		if err := e.processQuorumRound(&data, from); err != nil {
+		qr, err := data.ToQuorumRound(e.qcDeserializer)
+		if err != nil {
+			e.Logger.Debug("Failed deserializing quorum round", zap.Error(err))
+			continue
+		}
+
+		if err := e.processQuorumRound(qr, from); err != nil {
 			e.Logger.Debug("Failed processing quorum round", zap.Error(err))
 		}
 	}
 
-	if err := e.processQuorumRound(resp.LatestRound, from); err != nil {
-		e.Logger.Debug("Failed processing latest round", zap.Error(err))
+	latestRound, err := resp.LatestRound.ToQuorumRound(e.qcDeserializer)
+	if err != nil {
+		e.Logger.Debug("Failed deserializing latest round", zap.Error(err))
+	} else {
+		if err := e.processQuorumRound(latestRound, from); err != nil {
+			e.Logger.Debug("Failed processing latest round", zap.Error(err))
+		}
 	}
 
-	if err := e.processQuorumRound(resp.LatestSeq, from); err != nil {
-		e.Logger.Debug("Failed processing latest seq", zap.Error(err))
+	latestSeq, err := resp.LatestSeq.ToQuorumRound(e.qcDeserializer)
+	if err != nil {
+		e.Logger.Debug("Failed deserializing latest seq", zap.Error(err))
+	} else {
+		if err := e.processQuorumRound(latestSeq, from); err != nil {
+			e.Logger.Debug("Failed processing latest seq", zap.Error(err))
+		}
 	}
 
 	return e.processReplicationState()

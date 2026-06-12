@@ -173,7 +173,7 @@ func TestReplicationRequestMixed(t *testing.T) {
 		if emptyBlock {
 			emptyNotarization := testutil.NewEmptyNotarization(nodes, uint64(i))
 			e.HandleMessage(&common.Message{
-				EmptyNotarization: emptyNotarization,
+				EmptyNotarization: emptyNotarization.Raw(),
 			}, nodes[1])
 			wal.AssertNotarization(uint64(i))
 			rounds[i] = common.VerifiedQuorumRound{
@@ -238,7 +238,7 @@ func TestReplicationRequestTailingEmptyNotarizations(t *testing.T) {
 	for i := range numBlocks {
 		emptyNotarization := testutil.NewEmptyNotarization(nodes, uint64(i))
 		e.HandleMessage(&common.Message{
-			EmptyNotarization: emptyNotarization,
+			EmptyNotarization: emptyNotarization.Raw(),
 		}, nodes[1])
 		wal.AssertNotarization(uint64(i))
 		rounds[i] = common.VerifiedQuorumRound{
@@ -312,7 +312,7 @@ func TestNilReplicationResponse(t *testing.T) {
 
 	err := normalNode0.HandleMessage(&common.Message{
 		ReplicationResponse: &common.ReplicationResponse{
-			Data: []common.QuorumRound{{}},
+			Data: []common.RawQuorumRound{{}},
 		},
 	}, nodes[1])
 	require.NoError(t, err)
@@ -331,7 +331,7 @@ func TestMalformedReplicationResponse(t *testing.T) {
 
 	err := normalNode0.HandleMessage(&common.Message{
 		ReplicationResponse: &common.ReplicationResponse{
-			Data: []common.QuorumRound{{
+			Data: []common.RawQuorumRound{{
 				Block: &testutil.TestBlock{},
 			}},
 		},

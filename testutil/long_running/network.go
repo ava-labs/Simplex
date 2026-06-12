@@ -173,7 +173,8 @@ func (n *LongRunningInMemoryNetwork) StopAndAssert(tailingMessages bool) {
 
 	// check all the nodes have the same wal, storage, etc
 	for i, instance := range n.instances {
-		instance.wal.AssertHealthy(instance.E.BlockDeserializer, instance.E.QCDeserializer)
+		qcDeserializer := instance.E.QCDeserializerCreator(nil)
+		instance.wal.AssertHealthy(instance.E.BlockDeserializer, qcDeserializer)
 		if i != 0 {
 			require.NoError(n.t, instance.Storage.Compare(n.instances[0].Storage), "node %d storage does not match node 0 storage", i)
 		}

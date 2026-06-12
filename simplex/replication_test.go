@@ -136,7 +136,7 @@ func TestReplicationAdversarialNode(t *testing.T) {
 	sigAggr := laggingNode.E.SignatureAggregatorCreator(laggingNode.E.Comm.Nodes())
 	finalization, _ := NewFinalizationRecord(t, sigAggr, blocks[1], nodes[:quorum])
 	finalizationMsg := &common.Message{
-		Finalization: &finalization,
+		Finalization: finalization.Raw(),
 	}
 	laggingNode.E.HandleMessage(finalizationMsg, doubleBlockProposalNode.E.ID)
 
@@ -448,7 +448,7 @@ func TestReplicationFutureFinalization(t *testing.T) {
 	finalization, _ := NewFinalizationRecord(t, sigAggr, block, nodes[0:quorum])
 	// send finalization
 	err = e.HandleMessage(&common.Message{
-		Finalization: &finalization,
+		Finalization: finalization.Raw(),
 	}, nodes[0])
 	require.NoError(t, err)
 
@@ -636,7 +636,7 @@ func TestReplicationStuckInProposingBlock(t *testing.T) {
 
 	// Trigger the replication process to start by sending a finalization for a block we do not have
 	e.HandleMessage(&common.Message{
-		Finalization: &highFinalization,
+		Finalization: highFinalization.Raw(),
 	}, nodes[1])
 
 	// Wait for the replication request to be sent
@@ -656,13 +656,13 @@ func TestReplicationStuckInProposingBlock(t *testing.T) {
 	}
 
 	// Prepare the quorum round answer to be sent as a response to the replication request
-	quorumRounds := make([]common.QuorumRound, 0, 4)
+	quorumRounds := make([]common.RawQuorumRound, 0, 4)
 	for i := uint64(1); i <= 4; i++ {
 		tb := blocks[i].VerifiedBlock.(*TestBlock)
 		finalization := blocks[i].Finalization
-		quorumRounds = append(quorumRounds, common.QuorumRound{
+		quorumRounds = append(quorumRounds, common.RawQuorumRound{
 			Block:        tb,
-			Finalization: &finalization,
+			Finalization: finalization.Raw(),
 		})
 	}
 
@@ -681,7 +681,7 @@ func TestReplicationStuckInProposingBlock(t *testing.T) {
 
 	// Trigger the replication process to start by sending a finalization for a block we do not have
 	e.HandleMessage(&common.Message{
-		Finalization: &blocks[4].Finalization,
+		Finalization: blocks[4].Finalization.Raw(),
 	}, nodes[1])
 
 	// Wait for the replication request to be sent
@@ -982,7 +982,7 @@ func TestReplicationVerifyNotarization(t *testing.T) {
 
 	// Trigger the replication process to start by sending a finalization for a block we do not have
 	e.HandleMessage(&common.Message{
-		Finalization: &finalization,
+		Finalization: finalization.Raw(),
 	}, nodes[0])
 
 	// Wait for the replication request to be sent
@@ -1001,10 +1001,10 @@ func TestReplicationVerifyNotarization(t *testing.T) {
 
 	// Respond to the replication request with a block that has a notarization
 	replicationResponse := &common.ReplicationResponse{
-		Data: []common.QuorumRound{
+		Data: []common.RawQuorumRound{
 			{
 				Block:        block,
-				Notarization: &notarization,
+				Notarization: notarization.Raw(),
 			},
 		},
 	}
@@ -1070,7 +1070,7 @@ func TestReplicationVerifyEmptyNotarization(t *testing.T) {
 
 	// Trigger the replication process to start by sending a finalization for a block we do not have
 	e.HandleMessage(&common.Message{
-		Finalization: &finalization,
+		Finalization: finalization.Raw(),
 	}, nodes[0])
 
 	// Wait for the replication request to be sent
@@ -1088,9 +1088,9 @@ func TestReplicationVerifyEmptyNotarization(t *testing.T) {
 
 	// Respond to the replication request with a block that has a notarization
 	replicationResponse := &common.ReplicationResponse{
-		Data: []common.QuorumRound{
+		Data: []common.RawQuorumRound{
 			{
-				EmptyNotarization: emptyNotarization,
+				EmptyNotarization: emptyNotarization.Raw(),
 			},
 		},
 	}
@@ -1379,7 +1379,7 @@ func TestReplicationStoresFinalization(t *testing.T) {
 	// Send a finalization for block 2 to trigger replication
 	finalization := blocks[1].Finalization
 	e.HandleMessage(&common.Message{
-		Finalization: &finalization,
+		Finalization: finalization.Raw(),
 	}, nodes[1])
 
 	// Wait for the replication request to be sent
@@ -1391,14 +1391,14 @@ func TestReplicationStoresFinalization(t *testing.T) {
 	}
 
 	// pass in replication response to epoch with both blocks and their finalizations
-	quorumRounds := []common.QuorumRound{
+	quorumRounds := []common.RawQuorumRound{
 		{
 			Block:        blocks[0].VerifiedBlock.(common.Block),
-			Finalization: &blocks[0].Finalization,
+			Finalization: blocks[0].Finalization.Raw(),
 		},
 		{
 			Block:        blocks[1].VerifiedBlock.(common.Block),
-			Finalization: &blocks[1].Finalization,
+			Finalization: blocks[1].Finalization.Raw(),
 		},
 	}
 
@@ -1556,7 +1556,7 @@ func TestReplicationStartsRoundFromFinalization(t *testing.T) {
 	lastFinalization := blocks[len(blocks)-1].Finalization
 
 	e.HandleMessage(&common.Message{
-		Finalization: &lastFinalization,
+		Finalization: lastFinalization.Raw(),
 	}, nodes[1])
 
 	// Wait for the replication request to be sent
@@ -1568,12 +1568,12 @@ func TestReplicationStartsRoundFromFinalization(t *testing.T) {
 	}
 
 	// Prepare replication response with all the blocks
-	quorumRounds := make([]common.QuorumRound, 0, len(blocks))
+	quorumRounds := make([]common.RawQuorumRound, 0, len(blocks))
 	for _, vfb := range blocks {
 		tb := vfb.VerifiedBlock.(*TestBlock)
-		quorumRounds = append(quorumRounds, common.QuorumRound{
+		quorumRounds = append(quorumRounds, common.RawQuorumRound{
 			Block:        tb,
-			Finalization: &vfb.Finalization,
+			Finalization: vfb.Finalization.Raw(),
 		})
 	}
 
@@ -1677,12 +1677,12 @@ func TestReplicationStartsRoundFromFinalizationWithBlock(t *testing.T) {
 	require.NoError(t, err)
 
 	// Prepare replication response with all the blocks
-	quorumRounds := make([]common.QuorumRound, 0, len(blocks))
+	quorumRounds := make([]common.RawQuorumRound, 0, len(blocks))
 	for _, vfb := range blocks {
 		tb := vfb.VerifiedBlock.(*TestBlock)
-		quorumRounds = append(quorumRounds, common.QuorumRound{
+		quorumRounds = append(quorumRounds, common.RawQuorumRound{
 			Block:        tb,
-			Finalization: &vfb.Finalization,
+			Finalization: vfb.Finalization.Raw(),
 		})
 	}
 
@@ -1705,7 +1705,7 @@ func TestReplicationStartsRoundFromFinalizationWithBlock(t *testing.T) {
 
 	// Send replication response
 	replicationResponse = &common.ReplicationResponse{
-		Data: []common.QuorumRound{quorumRounds[len(quorumRounds)-1]},
+		Data: []common.RawQuorumRound{quorumRounds[len(quorumRounds)-1]},
 	}
 
 	e.HandleMessage(&common.Message{

@@ -113,7 +113,7 @@ func TestFinalizeSameSequence(t *testing.T) {
 	// now lets send empty notarization
 	emptyNotarization := testutil.NewEmptyNotarization(nodes, 1)
 	err = e.HandleMessage(&Message{
-		EmptyNotarization: emptyNotarization,
+		EmptyNotarization: emptyNotarization.Raw(),
 	}, nodes[3])
 	require.NoError(t, err)
 
@@ -263,7 +263,7 @@ func testFinalizeSameSequenceGap(t *testing.T, nodes []NodeID, numEmptyNotarizat
 	for i := startMissingNotarizationRound; i < md.Round; i++ {
 		emptyNotarization := testutil.NewEmptyNotarization(nodes, i)
 		err = e.HandleMessage(&Message{
-			EmptyNotarization: emptyNotarization,
+			EmptyNotarization: emptyNotarization.Raw(),
 		}, nodes[3])
 		require.NoError(t, err)
 	}
@@ -352,7 +352,7 @@ func TestBlockNotVerifiedIfParentNotNotarized(t *testing.T) {
 	require.NoError(t, err)
 
 	err = e.HandleMessage(&Message{
-		EmptyNotarization: emptyNotarization,
+		EmptyNotarization: emptyNotarization.Raw(),
 	}, nodes[1])
 	require.NoError(t, err)
 
@@ -385,7 +385,7 @@ func TestEpochHandleNotarizationFutureRound(t *testing.T) {
 
 	// Give the node the notarization message before receiving the first block
 	e.HandleMessage(&Message{
-		Notarization: &notarization,
+		Notarization: notarization.Raw(),
 	}, nodes[1])
 
 	// Run through round 0
@@ -579,7 +579,7 @@ func TestEpochNotarizeTwiceThenFinalize(t *testing.T) {
 	// Round 1
 	emptyNote := testutil.NewEmptyNotarization(nodes, 1)
 	err = e.HandleMessage(&Message{
-		EmptyNotarization: emptyNote,
+		EmptyNotarization: emptyNote.Raw(),
 	}, nodes[1])
 	require.NoError(t, err)
 	emptyRecord := wal.AssertNotarization(1)
@@ -754,7 +754,7 @@ func advanceRoundFromEmpty(t *testing.T, e *Epoch) {
 
 	emptyNote := testutil.NewEmptyNotarization(e.Comm.Nodes().NodeIDs(), e.Metadata().Round)
 	err := e.HandleMessage(&Message{
-		EmptyNotarization: emptyNote,
+		EmptyNotarization: emptyNote.Raw(),
 	}, leader)
 
 	require.NoError(t, err)
@@ -1020,7 +1020,7 @@ func TestEpochQCSignedByNonExistentNodes(t *testing.T) {
 		require.NoError(t, err)
 
 		err = e.HandleMessage(&Message{
-			Notarization: &notarization,
+			Notarization: notarization.Raw(),
 		}, nodes[1])
 		require.NoError(t, err)
 
@@ -1038,7 +1038,7 @@ func TestEpochQCSignedByNonExistentNodes(t *testing.T) {
 		notarization.QC = tqc
 
 		err = e.HandleMessage(&Message{
-			Notarization: &notarization,
+			Notarization: notarization.Raw(),
 		}, nodes[1])
 		require.NoError(t, err)
 
@@ -1052,7 +1052,7 @@ func TestEpochQCSignedByNonExistentNodes(t *testing.T) {
 		}
 
 		err = e.HandleMessage(&Message{
-			EmptyNotarization: &EmptyNotarization{
+			EmptyNotarization: &RawEmptyNotarization{
 				Vote: ToBeSignedEmptyVote{EmptyVoteMetadata: EmptyVoteMetadata{
 					Round: 0,
 					Epoch: 0,
@@ -1072,7 +1072,7 @@ func TestEpochQCSignedByNonExistentNodes(t *testing.T) {
 		}
 
 		err = e.HandleMessage(&Message{
-			EmptyNotarization: &EmptyNotarization{
+			EmptyNotarization: &RawEmptyNotarization{
 				Vote: ToBeSignedEmptyVote{EmptyVoteMetadata: EmptyVoteMetadata{
 					Round: 0,
 					Epoch: 0,
@@ -1089,7 +1089,7 @@ func TestEpochQCSignedByNonExistentNodes(t *testing.T) {
 		finalization, _ := testutil.NewFinalizationRecord(t, sigAggr, block, []NodeID{{2}, {3}, {5}})
 
 		err = e.HandleMessage(&Message{
-			Finalization: &finalization,
+			Finalization: finalization.Raw(),
 		}, nodes[1])
 		require.NoError(t, err)
 
@@ -1100,7 +1100,7 @@ func TestEpochQCSignedByNonExistentNodes(t *testing.T) {
 		finalization, _ := testutil.NewFinalizationRecord(t, sigAggr, block, []NodeID{{2}, {3}, {3}})
 
 		err = e.HandleMessage(&Message{
-			Finalization: &finalization,
+			Finalization: finalization.Raw(),
 		}, nodes[1])
 		require.NoError(t, err)
 
@@ -1243,7 +1243,7 @@ func TestEpochSendsBlockDigestRequest(t *testing.T) {
 
 	round0Empty := testutil.NewEmptyNotarization(nodes, 0)
 	err = e.HandleMessage(&Message{
-		EmptyNotarization: round0Empty,
+		EmptyNotarization: round0Empty.Raw(),
 	}, nodes[0])
 	require.NoError(t, err)
 
@@ -1260,7 +1260,7 @@ func TestEpochSendsBlockDigestRequest(t *testing.T) {
 	require.NoError(t, err)
 
 	err = e.HandleMessage(&Message{
-		Notarization: &notarization,
+		Notarization: notarization.Raw(),
 	}, nodes[1])
 	require.NoError(t, err)
 
@@ -1275,10 +1275,10 @@ func TestEpochSendsBlockDigestRequest(t *testing.T) {
 
 	// send the response with the block
 	replicationResponse := &ReplicationResponse{
-		Data: []QuorumRound{
+		Data: []RawQuorumRound{
 			{
 				Block:        block,
-				Notarization: &notarization,
+				Notarization: notarization.Raw(),
 			},
 		},
 	}
@@ -1375,7 +1375,7 @@ func TestEpochVotesForEquivocatedVotes(t *testing.T) {
 
 	// Wait for the notarization to be sent
 	timeout := time.After(time.Minute)
-	var notarization *Notarization
+	var notarization *RawNotarization
 	for notarization == nil {
 		select {
 		case msg := <-recordedMessages:
@@ -1445,9 +1445,9 @@ func TestEpochRequestsEmptyRoundDependency(t *testing.T) {
 
 	// send the response with the block
 	replicationResponse := &ReplicationResponse{
-		Data: []QuorumRound{
+		Data: []RawQuorumRound{
 			{
-				EmptyNotarization: missingEmptyNotarization,
+				EmptyNotarization: missingEmptyNotarization.Raw(),
 			},
 		},
 	}
@@ -1507,10 +1507,10 @@ func TestDoubleIncrementOnPersistNotarization(t *testing.T) {
 
 	err = e.HandleMessage(&Message{
 		ReplicationResponse: &ReplicationResponse{
-			Data: []QuorumRound{
+			Data: []RawQuorumRound{
 				{
 					Block:        block,
-					Notarization: &notarization,
+					Notarization: notarization.Raw(),
 				},
 			},
 		},
@@ -1547,7 +1547,7 @@ func TestRejectsOldNotarizationAndVotes(t *testing.T) {
 	initialBlock := createBlocks(t, nodes, 1)[0]
 	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[3], testutil.NewNoopComm(nodes), bb)
 	storage.Index(ctx, initialBlock.VerifiedBlock, initialBlock.Finalization)
-
+	qcDeserializer := conf.QCDeserializerCreator(nil)
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
 	t.Cleanup(e.Stop)
@@ -1598,7 +1598,7 @@ func TestRejectsOldNotarizationAndVotes(t *testing.T) {
 	require.NoError(t, err)
 
 	err = e.HandleMessage(&Message{
-		Notarization: &notarization,
+		Notarization: notarization.Raw(),
 	}, nodes[0])
 	require.NoError(t, err)
 
@@ -1613,7 +1613,7 @@ func TestRejectsOldNotarizationAndVotes(t *testing.T) {
 			if len(bb.BlockShouldBeBuilt) == 0 {
 				bb.BlockShouldBeBuilt <- struct{}{}
 			}
-			wal.AssertHealthy(e.BlockDeserializer, e.QCDeserializer)
+			wal.AssertHealthy(e.BlockDeserializer, qcDeserializer)
 			e.AdvanceTime(e.StartTime.Add(conf.MaxProposalWait * time.Duration(increment)))
 			time.Sleep(100 * time.Millisecond)
 			increment++

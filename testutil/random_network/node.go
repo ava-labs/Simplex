@@ -117,7 +117,7 @@ func (n *Node) copyMessage(msg *common.Message) common.Message {
 		rrCopy := *msgCopy.ReplicationResponse
 
 		// Also copy the Data slice to avoid mutating shared slice
-		rrCopy.Data = make([]common.QuorumRound, len(msgCopy.ReplicationResponse.Data))
+		rrCopy.Data = make([]common.RawQuorumRound, len(msgCopy.ReplicationResponse.Data))
 		copy(rrCopy.Data, msgCopy.ReplicationResponse.Data)
 		msgCopy.ReplicationResponse = &rrCopy
 

@@ -324,13 +324,13 @@ func TestReplicationRequestIncompleteResponses(t *testing.T) {
 
 type collectNotarizationComm struct {
 	lock          *sync.Mutex
-	notarizations map[uint64]*common.Notarization
+	notarizations map[uint64]*common.RawNotarization
 	testutil.TestNetworkCommunication
 
 	replicationResponses chan struct{}
 }
 
-func newCollectNotarizationComm(nodeID common.NodeID, net *testutil.ControlledInMemoryNetwork, notarizations map[uint64]*common.Notarization, lock *sync.Mutex) *collectNotarizationComm {
+func newCollectNotarizationComm(nodeID common.NodeID, net *testutil.ControlledInMemoryNetwork, notarizations map[uint64]*common.RawNotarization, lock *sync.Mutex) *collectNotarizationComm {
 	return &collectNotarizationComm{
 		notarizations:            notarizations,
 		TestNetworkCommunication: testutil.NewTestComm(nodeID, net.BasicInMemoryNetwork, testutil.AllowAllMessages),
@@ -367,8 +367,12 @@ func (c *collectNotarizationComm) removeFinalizationsFromReplicationResponses(ms
 		for i := 0; i < len(msg.VerifiedReplicationResponse.Data); i++ {
 			qr := msg.VerifiedReplicationResponse.Data[i]
 			if qr.Finalization != nil && c.notarizations[qr.GetRound()] != nil {
+				rawNotarization := c.notarizations[qr.GetRound()]
 				qr.Finalization = nil
-				qr.Notarization = c.notarizations[qr.GetRound()]
+				qr.Notarization = &common.Notarization{
+					Vote: rawNotarization.Vote,
+					QC:   rawNotarization.QC.(common.QuorumCertificate),
+				}
 			}
 			newData = append(newData, qr)
 		}
@@ -398,7 +402,7 @@ func TestReplicationRequestWithoutFinalization(t *testing.T) {
 	endDisconnect := uint64(10)
 	net := testutil.NewControlledNetwork(t, nodes)
 
-	notarizations := make(map[uint64]*common.Notarization)
+	notarizations := make(map[uint64]*common.RawNotarization)
 	mapLock := &sync.Mutex{}
 	testConfig := func(nodeID common.NodeID) *testutil.TestNodeConfig {
 		return &testutil.TestNodeConfig{
@@ -627,7 +631,7 @@ func TestReplicationResendsFinalizedBlocksThatFailedVerification(t *testing.T) {
 
 	// send the finalization to start the replication process
 	e.HandleMessage(&common.Message{
-		Finalization: &finalization,
+		Finalization: finalization.Raw(),
 	}, nodes[0])
 	// wait for the replication request to be sent
 	for {
@@ -637,10 +641,10 @@ func TestReplicationResendsFinalizedBlocksThatFailedVerification(t *testing.T) {
 		}
 	}
 	replicationResponse := &common.ReplicationResponse{
-		Data: []common.QuorumRound{
+		Data: []common.RawQuorumRound{
 			{
 				Block:        block,
-				Finalization: &finalization,
+				Finalization: finalization.Raw(),
 			},
 		},
 	}
@@ -661,10 +665,10 @@ func TestReplicationResendsFinalizedBlocksThatFailedVerification(t *testing.T) {
 
 	finalization, _ = testutil.NewFinalizationRecord(t, sigAggr, block, nodes[0:quorum])
 	replicationResponse = &common.ReplicationResponse{
-		Data: []common.QuorumRound{
+		Data: []common.RawQuorumRound{
 			{
 				Block:        block,
-				Finalization: &finalization,
+				Finalization: finalization.Raw(),
 			},
 		},
 	}

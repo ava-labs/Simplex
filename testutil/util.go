@@ -37,7 +37,9 @@ func DefaultTestNodeEpochConfig(t *testing.T, nodeID common.NodeID, comm common.
 			return &TestSignatureAggregator{N: len(weights)}
 		},
 		BlockDeserializer: &BlockDeserializer{},
-		QCDeserializer:    &testQCDeserializer{t: t},
+		QCDeserializerCreator: func(common.Nodes) common.QCDeserializer {
+			return &testQCDeserializer{t: t}
+		},
 		StartTime:         time.Now(),
 	}
 	return conf, wal, storage
@@ -92,7 +94,7 @@ func NewTestFinalizeVote(t *testing.T, block common.VerifiedBlock, id common.Nod
 
 func InjectTestFinalization(t *testing.T, e *simplex.Epoch, finalization *common.Finalization, from common.NodeID) {
 	err := e.HandleMessage(&common.Message{
-		Finalization: finalization,
+		Finalization: finalization.Raw(),
 	}, from)
 	require.NoError(t, err)
 }
@@ -106,13 +108,17 @@ func InjectTestFinalizeVote(t *testing.T, e *simplex.Epoch, block common.Verifie
 
 func InjectTestNotarization(t *testing.T, e *simplex.Epoch, notarization common.Notarization, id common.NodeID) {
 	err := e.HandleMessage(&common.Message{
-		Notarization: &notarization,
+		Notarization: notarization.Raw(),
 	}, id)
 	require.NoError(t, err)
 }
 
 type testQCDeserializer struct {
 	t *testing.T
+}
+
+func (t *testQCDeserializer) ParseQuorumCertificate(rawQC common.RawQuorumCertificate) (common.QuorumCertificate, error) {
+	return rawQC.(common.QuorumCertificate), nil
 }
 
 func (t *testQCDeserializer) DeserializeQuorumCertificate(bytes []byte) (common.QuorumCertificate, error) {

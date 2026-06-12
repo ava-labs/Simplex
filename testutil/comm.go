@@ -94,23 +94,23 @@ func (c *TestComm) SetFilter(filter MessageFilter) {
 
 func (c *TestComm) maybeTranslateOutgoingToIncomingMessageTypes(msg *common.Message) {
 	if msg.VerifiedReplicationResponse != nil {
-		data := make([]common.QuorumRound, 0, len(msg.VerifiedReplicationResponse.Data))
+		data := make([]common.RawQuorumRound, 0, len(msg.VerifiedReplicationResponse.Data))
 
 		for _, verifiedQuorumRound := range msg.VerifiedReplicationResponse.Data {
 			// Outgoing block is of type verified block but incoming block is of type Block,
 			// so we do a type cast because the test block implements both.
-			quorumRound := common.QuorumRound{}
+			quorumRound := common.RawQuorumRound{}
 			if verifiedQuorumRound.EmptyNotarization != nil {
-				quorumRound.EmptyNotarization = verifiedQuorumRound.EmptyNotarization
+				quorumRound.EmptyNotarization = verifiedQuorumRound.EmptyNotarization.Raw()
 			}
 			if verifiedQuorumRound.VerifiedBlock != nil {
 				quorumRound.Block = verifiedQuorumRound.VerifiedBlock.(common.Block)
 			}
 			if verifiedQuorumRound.Notarization != nil {
-				quorumRound.Notarization = verifiedQuorumRound.Notarization
+				quorumRound.Notarization = verifiedQuorumRound.Notarization.Raw()
 			}
 			if verifiedQuorumRound.Finalization != nil {
-				quorumRound.Finalization = verifiedQuorumRound.Finalization
+				quorumRound.Finalization = verifiedQuorumRound.Finalization.Raw()
 			}
 
 			data = append(data, quorumRound)
@@ -127,8 +127,8 @@ func (c *TestComm) maybeTranslateOutgoingToIncomingMessageTypes(msg *common.Mess
 
 		msg.ReplicationResponse = &common.ReplicationResponse{
 			Data:        data,
-			LatestRound: latestRound,
-			LatestSeq:   latestSeq,
+			LatestRound: latestRound.Raw(),
+			LatestSeq:   latestSeq.Raw(),
 		}
 	}
 

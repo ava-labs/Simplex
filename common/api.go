@@ -123,7 +123,14 @@ type QCDeserializer interface {
 	// DeserializeQuorumCertificate parses the given bytes and initializes a QuorumCertificate.
 	// Returns an error upon failure.
 	DeserializeQuorumCertificate(bytes []byte) (QuorumCertificate, error)
+
+	// ParseQuorumCertificate parses the given RawQuorumCertificate into a QuorumCertificate.
+	ParseQuorumCertificate(rawQC RawQuorumCertificate) (QuorumCertificate, error)
 }
+
+// QCDeserializerCreator creates a QCDeserializer from a list of NodePKs,
+// which are used to verify the signatures in the QuorumCertificate.
+type QCDeserializerCreator func(Nodes) QCDeserializer
 
 // SignatureAggregator aggregates signatures into a QuorumCertificate
 type SignatureAggregator interface {
@@ -156,6 +163,7 @@ func (nws Nodes) NodeIDs() []NodeID {
 type Node struct {
 	Node   NodeID
 	Weight uint64
+	PK []byte
 }
 
 // SignatureAggregatorCreator creates a SignatureAggregator from a list of nodes and their weights.
