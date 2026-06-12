@@ -11,11 +11,11 @@ import (
 	"slices"
 	"sync"
 
-	"github.com/ava-labs/simplex"
+	"github.com/ava-labs/simplex/common"
 	"go.uber.org/zap"
 )
 
-var emptyDigest = simplex.Digest{}
+var emptyDigest = common.Digest{}
 
 var (
 	errAlreadyAccepted         = errors.New("tx already accepted")
@@ -29,27 +29,27 @@ type Mempool struct {
 	lock     *sync.Mutex
 	config   *FuzzConfig
 	txsReady chan struct{}
-	logger   simplex.Logger
+	logger   common.Logger
 
 	// txID -> TX
 	unacceptedTxs map[txID]*TX
 
 	// blocks that have been verified but not accepted
-	verifiedButNotAcceptedBlocks map[simplex.Digest]*Block
+	verifiedButNotAcceptedBlocks map[common.Digest]*Block
 
 	// all the blocks that have been accepted
-	acceptedBlocks map[simplex.Digest]*Block
+	acceptedBlocks map[common.Digest]*Block
 
 	// fast lookup of accepted txs
 	acceptedTXs map[txID]struct{}
 }
 
-func NewMempool(l simplex.Logger, config *FuzzConfig) *Mempool {
+func NewMempool(l common.Logger, config *FuzzConfig) *Mempool {
 	return &Mempool{
 		unacceptedTxs:                make(map[txID]*TX),
-		verifiedButNotAcceptedBlocks: make(map[simplex.Digest]*Block),
+		verifiedButNotAcceptedBlocks: make(map[common.Digest]*Block),
 		acceptedTXs:                  make(map[txID]struct{}),
-		acceptedBlocks:               make(map[simplex.Digest]*Block),
+		acceptedBlocks:               make(map[common.Digest]*Block),
 		lock:                         &sync.Mutex{},
 		txsReady:                     make(chan struct{}, 1),
 		logger:                       l,
@@ -164,7 +164,7 @@ func (m *Mempool) isParentAcceptedOrVerified(block *Block) bool {
 }
 
 // verifyTx verifies a single transaction against the mempool state and the block's chain.
-func (m *Mempool) verifyTx(ctx context.Context, tx *TX, blockParent simplex.Digest) error {
+func (m *Mempool) verifyTx(ctx context.Context, tx *TX, blockParent common.Digest) error {
 	if _, exists := m.acceptedTXs[tx.ID]; exists {
 		return fmt.Errorf("%w: %s", errAlreadyAccepted, tx.ID)
 	}
@@ -180,7 +180,7 @@ func (m *Mempool) verifyTx(ctx context.Context, tx *TX, blockParent simplex.Dige
 }
 
 // recursively check if the tx has already been included in any ancestor block to prevent double spends
-func (m *Mempool) isTxInChain(txID txID, parentDigest simplex.Digest) bool {
+func (m *Mempool) isTxInChain(txID txID, parentDigest common.Digest) bool {
 	block, exists := m.verifiedButNotAcceptedBlocks[parentDigest]
 	if !exists {
 		return false
@@ -245,7 +245,7 @@ func (m *Mempool) moveTxsToUnaccepted(block *Block) {
 	}
 }
 
-func (m *Mempool) BuildBlock(ctx context.Context, md simplex.ProtocolMetadata, bl simplex.Blacklist) (simplex.VerifiedBlock, bool) {
+func (m *Mempool) BuildBlock(ctx context.Context, md common.ProtocolMetadata, bl common.Blacklist) (common.VerifiedBlock, bool) {
 	m.waitForPendingTxs(ctx)
 
 	// Pack the block once we have pending txs
@@ -271,7 +271,7 @@ func (m *Mempool) BuildBlock(ctx context.Context, md simplex.ProtocolMetadata, b
 	return block, true
 }
 
-func (m *Mempool) packBlock(ctx context.Context, maxTxs int, parentDigest simplex.Digest) []*TX {
+func (m *Mempool) packBlock(ctx context.Context, maxTxs int, parentDigest common.Digest) []*TX {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 
@@ -328,5 +328,5 @@ func (m *Mempool) Clear() {
 		}
 	}
 
-	m.verifiedButNotAcceptedBlocks = make(map[simplex.Digest]*Block)
+	m.verifiedButNotAcceptedBlocks = make(map[common.Digest]*Block)
 }

@@ -7,7 +7,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/ava-labs/simplex"
+	"github.com/ava-labs/simplex/common"
+	"github.com/ava-labs/simplex/simplex"
 	"github.com/ava-labs/simplex/testutil"
 	"github.com/stretchr/testify/require"
 )
@@ -30,7 +31,7 @@ type Node struct {
 	isCrashed atomic.Bool
 }
 
-func NewNode(t *testing.T, nodeID simplex.NodeID, net *testutil.BasicInMemoryNetwork, config *FuzzConfig, nodeConfig randomNodeConfig) *Node {
+func NewNode(t *testing.T, nodeID common.NodeID, net *testutil.BasicInMemoryNetwork, config *FuzzConfig, nodeConfig randomNodeConfig) *Node {
 	var l *testutil.TestLogger
 	if nodeConfig.logger != nil {
 		l = nodeConfig.logger
@@ -88,13 +89,13 @@ func NewNode(t *testing.T, nodeID simplex.NodeID, net *testutil.BasicInMemoryNet
 	return n
 }
 
-func (n *Node) HandleMessage(msg *simplex.Message, from simplex.NodeID) error {
+func (n *Node) HandleMessage(msg *common.Message, from common.NodeID) error {
 	msgCopy := n.copyMessage(msg)
 	return n.BasicNode.HandleMessage(&msgCopy, from)
 }
 
 // copyBlock creates a copy of a simplex.Block with the node's mempool.
-func (n *Node) copyBlock(b simplex.Block) simplex.Block {
+func (n *Node) copyBlock(b common.Block) common.Block {
 	blockCopy := *b.(*Block)
 	blockCopy.mempool = n.mempool
 	return &blockCopy
@@ -103,7 +104,7 @@ func (n *Node) copyBlock(b simplex.Block) simplex.Block {
 // copyMessage creates a copy of the message and its relevant fields to avoid mutating shared state in the in-memory network
 // this is important because blocks are not serialized/deserialized in our current comm implementation, so sending blocks
 // also sends relevant state associated with the node that is sending the message which can cause unintended side effects.
-func (n *Node) copyMessage(msg *simplex.Message) simplex.Message {
+func (n *Node) copyMessage(msg *common.Message) common.Message {
 	msgCopy := *msg
 
 	switch {
@@ -116,7 +117,7 @@ func (n *Node) copyMessage(msg *simplex.Message) simplex.Message {
 		rrCopy := *msgCopy.ReplicationResponse
 
 		// Also copy the Data slice to avoid mutating shared slice
-		rrCopy.Data = make([]simplex.QuorumRound, len(msgCopy.ReplicationResponse.Data))
+		rrCopy.Data = make([]common.QuorumRound, len(msgCopy.ReplicationResponse.Data))
 		copy(rrCopy.Data, msgCopy.ReplicationResponse.Data)
 		msgCopy.ReplicationResponse = &rrCopy
 

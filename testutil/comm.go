@@ -7,7 +7,7 @@ import (
 	"bytes"
 	"sync"
 
-	"github.com/ava-labs/simplex"
+	"github.com/ava-labs/simplex/common"
 	"github.com/stretchr/testify/require"
 )
 
@@ -20,30 +20,30 @@ import (
 //
 // Returns:
 //   - bool: true if the message can be transmitted, false otherwise
-type MessageFilter func(msg *simplex.Message, from simplex.NodeID, to simplex.NodeID) bool
+type MessageFilter func(msg *common.Message, from common.NodeID, to common.NodeID) bool
 
-type NoopComm simplex.Nodes
+type NoopComm common.Nodes
 
-func (n NoopComm) Nodes() simplex.Nodes {
-	return simplex.Nodes(n)
+func (n NoopComm) Nodes() common.Nodes {
+	return common.Nodes(n)
 }
 
-func (n NoopComm) Send(*simplex.Message, simplex.NodeID) {
+func (n NoopComm) Send(*common.Message, common.NodeID) {
 
 }
 
-func (n NoopComm) Broadcast(msg *simplex.Message) {
+func (n NoopComm) Broadcast(msg *common.Message) {
 
 }
 
 type TestComm struct {
-	from          simplex.NodeID
+	from          common.NodeID
 	net           *BasicInMemoryNetwork
 	messageFilter MessageFilter
 	lock          sync.RWMutex
 }
 
-func NewTestComm(from simplex.NodeID, net *BasicInMemoryNetwork, messageFilter MessageFilter) *TestComm {
+func NewTestComm(from common.NodeID, net *BasicInMemoryNetwork, messageFilter MessageFilter) *TestComm {
 	return &TestComm{
 		from:          from,
 		net:           net,
@@ -51,11 +51,11 @@ func NewTestComm(from simplex.NodeID, net *BasicInMemoryNetwork, messageFilter M
 	}
 }
 
-func (c *TestComm) Nodes() simplex.Nodes {
+func (c *TestComm) Nodes() common.Nodes {
 	return c.net.nodeWeights
 }
 
-func (c *TestComm) Send(msg *simplex.Message, destination simplex.NodeID) {
+func (c *TestComm) Send(msg *common.Message, destination common.NodeID) {
 	if !c.isMessagePermitted(msg, destination) {
 		return
 	}
@@ -92,19 +92,19 @@ func (c *TestComm) SetFilter(filter MessageFilter) {
 	c.messageFilter = filter
 }
 
-func (c *TestComm) maybeTranslateOutgoingToIncomingMessageTypes(msg *simplex.Message) {
+func (c *TestComm) maybeTranslateOutgoingToIncomingMessageTypes(msg *common.Message) {
 	if msg.VerifiedReplicationResponse != nil {
-		data := make([]simplex.QuorumRound, 0, len(msg.VerifiedReplicationResponse.Data))
+		data := make([]common.QuorumRound, 0, len(msg.VerifiedReplicationResponse.Data))
 
 		for _, verifiedQuorumRound := range msg.VerifiedReplicationResponse.Data {
 			// Outgoing block is of type verified block but incoming block is of type Block,
 			// so we do a type cast because the test block implements both.
-			quorumRound := simplex.QuorumRound{}
+			quorumRound := common.QuorumRound{}
 			if verifiedQuorumRound.EmptyNotarization != nil {
 				quorumRound.EmptyNotarization = verifiedQuorumRound.EmptyNotarization
 			}
 			if verifiedQuorumRound.VerifiedBlock != nil {
-				quorumRound.Block = verifiedQuorumRound.VerifiedBlock.(simplex.Block)
+				quorumRound.Block = verifiedQuorumRound.VerifiedBlock.(common.Block)
 			}
 			if verifiedQuorumRound.Notarization != nil {
 				quorumRound.Notarization = verifiedQuorumRound.Notarization
@@ -125,7 +125,7 @@ func (c *TestComm) maybeTranslateOutgoingToIncomingMessageTypes(msg *simplex.Mes
 			"message cannot include ReplicationResponse & VerifiedReplicationResponse",
 		)
 
-		msg.ReplicationResponse = &simplex.ReplicationResponse{
+		msg.ReplicationResponse = &common.ReplicationResponse{
 			Data:        data,
 			LatestRound: latestRound,
 			LatestSeq:   latestSeq,
@@ -134,39 +134,39 @@ func (c *TestComm) maybeTranslateOutgoingToIncomingMessageTypes(msg *simplex.Mes
 
 	if msg.VerifiedBlockMessage != nil {
 		require.Nil(c.net.t, msg.BlockMessage, "message cannot include BlockMessage & VerifiedBlockMessage")
-		msg.BlockMessage = &simplex.BlockMessage{
-			Block: msg.VerifiedBlockMessage.VerifiedBlock.(simplex.Block),
+		msg.BlockMessage = &common.BlockMessage{
+			Block: msg.VerifiedBlockMessage.VerifiedBlock.(common.Block),
 			Vote:  msg.VerifiedBlockMessage.Vote,
 		}
 	}
 }
 
-func verifiedQRtoQR(vqr *simplex.VerifiedQuorumRound) *simplex.QuorumRound {
+func verifiedQRtoQR(vqr *common.VerifiedQuorumRound) *common.QuorumRound {
 	if vqr == nil {
 		return nil
 	}
 
-	qr := &simplex.QuorumRound{
+	qr := &common.QuorumRound{
 		Notarization:      vqr.Notarization,
 		Finalization:      vqr.Finalization,
 		EmptyNotarization: vqr.EmptyNotarization,
 	}
 
 	if vqr.VerifiedBlock != nil {
-		qr.Block = vqr.VerifiedBlock.(simplex.Block)
+		qr.Block = vqr.VerifiedBlock.(common.Block)
 	}
 
 	return qr
 }
 
-func (c *TestComm) isMessagePermitted(msg *simplex.Message, destination simplex.NodeID) bool {
+func (c *TestComm) isMessagePermitted(msg *common.Message, destination common.NodeID) bool {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 
 	return c.messageFilter(msg, c.from, destination)
 }
 
-func (c *TestComm) Broadcast(msg *simplex.Message) {
+func (c *TestComm) Broadcast(msg *common.Message) {
 	if c.net.IsDisconnected(c.from) {
 		return
 	}
@@ -187,10 +187,10 @@ func (c *TestComm) Broadcast(msg *simplex.Message) {
 }
 
 // AllowAllMessages allows every message to be sent
-func AllowAllMessages(*simplex.Message, simplex.NodeID, simplex.NodeID) bool {
+func AllowAllMessages(*common.Message, common.NodeID, common.NodeID) bool {
 	return true
 }
 
-func NewNoopComm(nodes simplex.NodeIDs) NoopComm {
+func NewNoopComm(nodes common.NodeIDs) NoopComm {
 	return NoopComm(nodes.EqualWeightedNodes())
 }

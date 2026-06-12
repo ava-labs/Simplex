@@ -7,8 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ava-labs/simplex"
+	"github.com/ava-labs/simplex/common"
 	"github.com/ava-labs/simplex/record"
+	"github.com/ava-labs/simplex/simplex"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 )
@@ -20,7 +21,7 @@ type ControlledInMemoryNetwork struct {
 
 // NewControlledNetwork creates an in-memory network. Node IDs must be provided before
 // adding instances, as nodeWeights require prior knowledge of all participants.
-func NewControlledNetwork(t *testing.T, nodes simplex.NodeIDs) *ControlledInMemoryNetwork {
+func NewControlledNetwork(t *testing.T, nodes common.NodeIDs) *ControlledInMemoryNetwork {
 	simplex.SortNodes(nodes.EqualWeightedNodes())
 	net := &ControlledInMemoryNetwork{
 		BasicInMemoryNetwork: NewBasicInMemoryNetwork(t, nodes),
@@ -56,7 +57,7 @@ func (n *ControlledInMemoryNetwork) addNode(node *ControlledNode) {
 	n.Instances = append(n.Instances, node)
 }
 
-func (n *ControlledInMemoryNetwork) AdvanceWithoutLeader(round uint64, laggingNodeId simplex.NodeID) {
+func (n *ControlledInMemoryNetwork) AdvanceWithoutLeader(round uint64, laggingNodeId common.NodeID) {
 	// we need to ensure all blocks are waiting for the channel before proceeding
 	// otherwise, we may send to a channel that is not ready to receive
 	for _, n := range n.Instances {
@@ -97,7 +98,7 @@ type ControlledNode struct {
 }
 
 // newSimplexNode creates a new testNode and adds it to [net].
-func NewControlledSimplexNode(t *testing.T, nodeID simplex.NodeID, net *ControlledInMemoryNetwork, config *TestNodeConfig) *ControlledNode {
+func NewControlledSimplexNode(t *testing.T, nodeID common.NodeID, net *ControlledInMemoryNetwork, config *TestNodeConfig) *ControlledNode {
 	comm := NewTestComm(nodeID, net.BasicInMemoryNetwork, AllowAllMessages)
 	bb := NewTestControlledBlockBuilder(t)
 	if config != nil && config.BlockBuilder != nil {
@@ -210,7 +211,7 @@ func (t *testControlledBlockBuilder) TriggerNewBlock() {
 	}
 }
 
-func (t *testControlledBlockBuilder) BuildBlock(ctx context.Context, metadata simplex.ProtocolMetadata, blacklist simplex.Blacklist) (simplex.VerifiedBlock, bool) {
+func (t *testControlledBlockBuilder) BuildBlock(ctx context.Context, metadata common.ProtocolMetadata, blacklist common.Blacklist) (common.VerifiedBlock, bool) {
 	select {
 	case <-t.control:
 	case <-ctx.Done():

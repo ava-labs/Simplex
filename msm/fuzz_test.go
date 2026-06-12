@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ava-labs/simplex"
+	"github.com/ava-labs/simplex/common"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 )
@@ -145,7 +145,7 @@ func cloneBlock(t *testing.T, b *StateMachineBlock) *StateMachineBlock {
 //	block6: sealing block, built while collecting the quorum approval (epoch 1)
 //	block7: stateBuildBlockEpochSealed -> first block of epoch 2
 //	block8: stateBuildBlockNormalOp (epoch 2)
-func buildEpochChain(tb testing.TB, logger simplex.Logger) ([]*StateMachineBlock, *StateMachine) {
+func buildEpochChain(tb testing.TB, logger common.Logger) ([]*StateMachineBlock, *StateMachine) {
 	node1 := [20]byte{1}
 	node2 := [20]byte{2}
 	node3 := [20]byte{3}
@@ -196,7 +196,7 @@ func buildEpochChain(tb testing.TB, logger simplex.Logger) ([]*StateMachineBlock
 
 	ctx := context.Background()
 
-	addBlock := func(seq uint64, b *StateMachineBlock, fin *simplex.Finalization) {
+	addBlock := func(seq uint64, b *StateMachineBlock, fin *common.Finalization) {
 		tc.blockStore[seq] = &outerBlock{block: *b, finalization: fin}
 	}
 	nextInner := func(h uint64) *InnerBlock {
@@ -213,7 +213,7 @@ func buildEpochChain(tb testing.TB, logger simplex.Logger) ([]*StateMachineBlock
 		} else {
 			prevDigest = genesis.Digest()
 		}
-		md := simplex.ProtocolMetadata{Seq: seq, Round: round, Epoch: epoch, Prev: prevDigest}
+		md := common.ProtocolMetadata{Seq: seq, Round: round, Epoch: epoch, Prev: prevDigest}
 		block, err := sm.BuildBlock(ctx, md, nil)
 		require.NoError(tb, err)
 		return block
@@ -225,7 +225,7 @@ func buildEpochChain(tb testing.TB, logger simplex.Logger) ([]*StateMachineBlock
 	// the validator-set change and the sealing-block computation.
 	tc.blockBuilder.block = nextInner(1)
 	block1 := build(1, 0, 1, nil)
-	addBlock(1, block1, &simplex.Finalization{})
+	addBlock(1, block1, &common.Finalization{})
 	sm.LatestPersistedHeight = 1
 
 	// block2: a normal in-epoch block.
@@ -262,7 +262,7 @@ func buildEpochChain(tb testing.TB, logger simplex.Logger) ([]*StateMachineBlock
 	block6 := build(6, 5, 1, block5)
 	require.Equal(tb, stateBuildBlockEpochSealed, block6.Metadata.SimplexEpochInfo.NextState())
 	// Finalize the sealing block so the epoch transition can proceed.
-	addBlock(6, block6, &simplex.Finalization{})
+	addBlock(6, block6, &common.Finalization{})
 
 	// ----- Epoch 2 (its epoch number is the sealing block's sequence, 6) -----
 

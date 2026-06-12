@@ -1,0 +1,162 @@
+// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// See the file LICENSE for licensing terms.
+
+package common
+
+import (
+	"context"
+	"fmt"
+
+	"go.uber.org/zap"
+)
+
+type Logger interface {
+	// Log that a fatal error has occurred. The program should likely exit soon
+	// after this is called
+	Fatal(msg string, fields ...zap.Field)
+	// Log that an error has occurred. The program should be able to recover
+	// from this error
+	Error(msg string, fields ...zap.Field)
+	// Log that an event has occurred that may indicate a future error or
+	// vulnerability
+	Warn(msg string, fields ...zap.Field)
+	// Log an event that may be useful for a user to see to measure the progress
+	// of the protocol
+	Info(msg string, fields ...zap.Field)
+	// Log an event that may be useful for understanding the order of the
+	// execution of the protocol
+	Trace(msg string, fields ...zap.Field)
+	// Log an event that may be useful for a programmer to see when debuging the
+	// execution of the protocol
+	Debug(msg string, fields ...zap.Field)
+	// Log extremely detailed events that can be useful for inspecting every
+	// aspect of the program
+	Verbo(msg string, fields ...zap.Field)
+}
+
+type BlockBuilder interface {
+	// BuildBlock blocks until some transactions are available to be batched into a block,
+	// in which case a block and true are returned.
+	// When the given context is cancelled by the caller, returns false.
+	// The given metadata and blacklist are encoded into the built block.
+	BuildBlock(ctx context.Context, metadata ProtocolMetadata, blacklist Blacklist) (VerifiedBlock, bool)
+
+	// WaitForPendingBlock returns when either the given context is cancelled,
+	// or when the application signals that a block should be built.
+	WaitForPendingBlock(ctx context.Context)
+}
+
+var ErrBlockNotFound = fmt.Errorf("block not found")
+
+type Storage interface {
+	NumBlocks() uint64
+	// Retrieve returns the block and finalization at [seq].
+	// If [seq] the block cannot be found, returns ErrBlockNotFound.
+	Retrieve(seq uint64) (VerifiedBlock, Finalization, error)
+	Index(ctx context.Context, block VerifiedBlock, certificate Finalization) error
+}
+
+type Communication interface {
+	// Nodes returns all nodes that participate in the epoch.
+	Nodes() Nodes
+
+	// Send sends a message to the given destination node
+	Send(msg *Message, destination NodeID)
+
+	// Broadcast broadcasts the given message to all nodes.
+	// Does not send it to yourself.
+	Broadcast(msg *Message)
+}
+
+type Signer interface {
+	Sign(message []byte) ([]byte, error)
+}
+
+type SignatureVerifier interface {
+	Verify(message []byte, signature []byte, signer NodeID) error
+}
+
+type WriteAheadLog interface {
+	Append([]byte) error
+	ReadAll() ([][]byte, error)
+	Close() error
+}
+
+type Block interface {
+	// BlockHeader encodes a succinct and collision-free representation of a block.
+	BlockHeader() BlockHeader
+
+	Blacklist() Blacklist
+
+	// Verify verifies the block by speculatively executing it on top of its ancestor.
+	Verify(ctx context.Context) (VerifiedBlock, error)
+}
+
+type VerifiedBlock interface {
+	// BlockHeader encodes a succinct and collision-free representation of a block.
+	BlockHeader() BlockHeader
+
+	Blacklist() Blacklist
+
+	// Bytes returns a byte encoding of the block
+	Bytes() ([]byte, error)
+}
+
+// BlockDeserializer deserializes blocks according to formatting
+// enforced by the application.
+type BlockDeserializer interface {
+	// DeserializeBlock parses the given bytes and initializes a VerifiedBlock.
+	// Returns an error upon failure.
+	DeserializeBlock(ctx context.Context, bytes []byte) (Block, error)
+}
+
+// Signature encodes a signature and the node that signed it, without the message it was signed on.
+type Signature struct {
+	// Signer is the NodeID of the creator of the signature.
+	Signer NodeID
+	// Value is the byte representation of the signature.
+	Value []byte
+}
+
+// QCDeserializer deserializes QuorumCertificates according to formatting
+type QCDeserializer interface {
+	// DeserializeQuorumCertificate parses the given bytes and initializes a QuorumCertificate.
+	// Returns an error upon failure.
+	DeserializeQuorumCertificate(bytes []byte) (QuorumCertificate, error)
+}
+
+// SignatureAggregator aggregates signatures into a QuorumCertificate
+type SignatureAggregator interface {
+	// Aggregate aggregates several signatures into a QuorumCertificate
+	Aggregate([]Signature) (QuorumCertificate, error)
+
+	// AppendSignatures appends signatures to an existing signature.
+	// If the existing signature is empty, it just aggregates the given signatures.
+	AppendSignatures([]byte, ...[]byte) ([]byte, error)
+
+	// IsQuorum returns true if the given signers constitute a quorum.
+	// In the case of PoA, this means at least a quorum of the nodes are given.
+	// In the case of PoS, this means at least two thirds of the st.
+	IsQuorum([]NodeID) bool
+}
+
+// Nodes is a list of Node elements.
+type Nodes []Node
+
+// NodeIDs returns the NodeIDs of the nodes in the Nodes.
+func (nws Nodes) NodeIDs() []NodeID {
+	nodes := make([]NodeID, len(nws))
+	for i, nw := range nws {
+		nodes[i] = nw.Node
+	}
+	return nodes
+}
+
+// Node is a struct that pairs a node with its weight in the signature aggregator.
+type Node struct {
+	Node   NodeID
+	Weight uint64
+}
+
+// SignatureAggregatorCreator creates a SignatureAggregator from a list of nodes and their weights.
+type SignatureAggregatorCreator func([]Node) SignatureAggregator

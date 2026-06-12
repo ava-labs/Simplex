@@ -10,20 +10,20 @@ import (
 	"encoding/asn1"
 	"fmt"
 
-	"github.com/ava-labs/simplex"
+	"github.com/ava-labs/simplex/common"
 )
 
 type TestBlock struct {
 	Data              []byte
-	Metadata          simplex.ProtocolMetadata
-	blacklist         simplex.Blacklist
+	Metadata          common.ProtocolMetadata
+	blacklist         common.Blacklist
 	Digest            [32]byte
 	OnVerify          func()
 	VerificationDelay chan struct{}
 	VerificationError error
 }
 
-func NewTestBlock(metadata simplex.ProtocolMetadata, blacklist simplex.Blacklist) *TestBlock {
+func NewTestBlock(metadata common.ProtocolMetadata, blacklist common.Blacklist) *TestBlock {
 	tb := TestBlock{
 		blacklist: blacklist,
 		Metadata:  metadata,
@@ -34,11 +34,11 @@ func NewTestBlock(metadata simplex.ProtocolMetadata, blacklist simplex.Blacklist
 	return &tb
 }
 
-func (tb *TestBlock) Blacklist() simplex.Blacklist {
+func (tb *TestBlock) Blacklist() common.Blacklist {
 	return tb.blacklist
 }
 
-func (tb *TestBlock) Verify(context.Context) (simplex.VerifiedBlock, error) {
+func (tb *TestBlock) Verify(context.Context) (common.VerifiedBlock, error) {
 	defer func() {
 		if tb.OnVerify != nil {
 			tb.OnVerify()
@@ -69,15 +69,15 @@ func (tb *TestBlock) ComputeDigest() {
 	tb.Digest = sha256.Sum256(bb.Bytes())
 }
 
-func (t *TestBlock) BlockHeader() simplex.BlockHeader {
-	return simplex.BlockHeader{
+func (t *TestBlock) BlockHeader() common.BlockHeader {
+	return common.BlockHeader{
 		ProtocolMetadata: t.Metadata,
 		Digest:           t.Digest,
 	}
 }
 
 func (t *TestBlock) Bytes() ([]byte, error) {
-	bh := simplex.BlockHeader{
+	bh := common.BlockHeader{
 		ProtocolMetadata: t.Metadata,
 	}
 
@@ -112,19 +112,19 @@ type BlockDeserializer struct {
 	DelayedVerification chan struct{}
 }
 
-func (b *BlockDeserializer) DeserializeBlock(ctx context.Context, buff []byte) (simplex.Block, error) {
+func (b *BlockDeserializer) DeserializeBlock(ctx context.Context, buff []byte) (common.Block, error) {
 	var encodedBlock EncodedTestBlock
 	_, err := asn1.Unmarshal(buff, &encodedBlock)
 	if err != nil {
 		return nil, err
 	}
 
-	md, err := simplex.ProtocolMetadataFromBytes(encodedBlock.Metadata)
+	md, err := common.ProtocolMetadataFromBytes(encodedBlock.Metadata)
 	if err != nil {
 		return nil, err
 	}
 
-	var blacklist simplex.Blacklist
+	var blacklist common.Blacklist
 	if err := blacklist.FromBytes(encodedBlock.Blacklist); err != nil {
 		return nil, err
 	}

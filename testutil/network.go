@@ -9,20 +9,21 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ava-labs/simplex"
+	"github.com/ava-labs/simplex/common"
+	"github.com/ava-labs/simplex/simplex"
 	"github.com/stretchr/testify/require"
 )
 
 type BasicInMemoryNetwork struct {
 	t            *testing.T
-	nodes        []simplex.NodeID
-	nodeWeights  simplex.Nodes
+	nodes        []common.NodeID
+	nodeWeights  common.Nodes
 	lock         sync.RWMutex
 	disconnected map[string]struct{}
 	instances    []*BasicNode
 }
 
-func NewBasicInMemoryNetwork(t *testing.T, nodes simplex.NodeIDs) *BasicInMemoryNetwork {
+func NewBasicInMemoryNetwork(t *testing.T, nodes common.NodeIDs) *BasicInMemoryNetwork {
 	nodeWeights := nodes.EqualWeightedNodes()
 	simplex.SortNodes(nodeWeights)
 	return &BasicInMemoryNetwork{
@@ -35,11 +36,11 @@ func NewBasicInMemoryNetwork(t *testing.T, nodes simplex.NodeIDs) *BasicInMemory
 }
 
 type TestNetworkCommunication interface {
-	simplex.Communication
+	common.Communication
 	SetFilter(filter MessageFilter)
 }
 
-func (b *BasicInMemoryNetwork) SetNodeMessageFilter(node simplex.NodeID, filter MessageFilter) {
+func (b *BasicInMemoryNetwork) SetNodeMessageFilter(node common.NodeID, filter MessageFilter) {
 	b.lock.RLock()
 	defer b.lock.RUnlock()
 
@@ -68,7 +69,7 @@ func (b *BasicInMemoryNetwork) SetAllNodesMessageFilter(filter MessageFilter) {
 	}
 }
 
-func (b *BasicInMemoryNetwork) IsDisconnected(node simplex.NodeID) bool {
+func (b *BasicInMemoryNetwork) IsDisconnected(node common.NodeID) bool {
 	b.lock.RLock()
 	defer b.lock.RUnlock()
 
@@ -76,14 +77,14 @@ func (b *BasicInMemoryNetwork) IsDisconnected(node simplex.NodeID) bool {
 	return ok
 }
 
-func (b *BasicInMemoryNetwork) Connect(node simplex.NodeID) {
+func (b *BasicInMemoryNetwork) Connect(node common.NodeID) {
 	b.lock.Lock()
 	defer b.lock.Unlock()
 
 	delete(b.disconnected, string(node))
 }
 
-func (b *BasicInMemoryNetwork) Disconnect(node simplex.NodeID) {
+func (b *BasicInMemoryNetwork) Disconnect(node common.NodeID) {
 	b.lock.Lock()
 	defer b.lock.Unlock()
 

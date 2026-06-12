@@ -8,11 +8,11 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/ava-labs/simplex"
+	"github.com/ava-labs/simplex/common"
 	"github.com/ava-labs/simplex/testutil"
 )
 
-var _ simplex.BlockBuilder = (*LongRunningBlockBuilder)(nil)
+var _ common.BlockBuilder = (*LongRunningBlockBuilder)(nil)
 
 type LongRunningBlockBuilder struct {
 	t  *testing.T
@@ -39,9 +39,9 @@ func (b *LongRunningBlockBuilder) notifyChanged() {
 
 func (b *LongRunningBlockBuilder) BuildBlock(
 	ctx context.Context,
-	metadata simplex.ProtocolMetadata,
-	blacklist simplex.Blacklist,
-) (simplex.VerifiedBlock, bool) {
+	metadata common.ProtocolMetadata,
+	blacklist common.Blacklist,
+) (common.VerifiedBlock, bool) {
 	for {
 		b.mu.Lock()
 		pending := b.blockPending

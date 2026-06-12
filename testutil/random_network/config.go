@@ -6,7 +6,7 @@ package random_network
 import (
 	"time"
 
-	"github.com/ava-labs/simplex"
+	"github.com/ava-labs/simplex/simplex"
 )
 
 type FuzzConfig struct {

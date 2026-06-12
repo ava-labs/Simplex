@@ -4,11 +4,11 @@
 package random_network
 
 import (
-	"github.com/ava-labs/simplex"
+	"github.com/ava-labs/simplex/common"
 )
 
-func NewProtocolMetadata(round, seq uint64, prev simplex.Digest) simplex.ProtocolMetadata {
-	return simplex.ProtocolMetadata{
+func NewProtocolMetadata(round, seq uint64, prev common.Digest) common.ProtocolMetadata {
+	return common.ProtocolMetadata{
 		Round: round,
 		Seq:   seq,
 		Prev:  prev,

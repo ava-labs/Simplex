@@ -13,7 +13,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/ava-labs/simplex"
+	"github.com/ava-labs/simplex/common"
 	"go.uber.org/zap"
 )
 
@@ -151,7 +151,7 @@ type ValidatorSetRetriever func(pChainHeight uint64) (NodeBLSMappings, error)
 // BlockRetriever retrieves a block and its finalization status given the block's sequence number and expected digest.
 // If the block cannot be found it returns ErrBlockNotFound.
 // If an error occurs during retrieval, it returns a non-nil error.
-type BlockRetriever func(seq uint64, digest [32]byte) (StateMachineBlock, *simplex.Finalization, error)
+type BlockRetriever func(seq uint64, digest [32]byte) (StateMachineBlock, *common.Finalization, error)
 
 // BlockBuilder builds a new VM block with the given observed P-chain height.
 type BlockBuilder interface {
@@ -193,7 +193,7 @@ type Config struct {
 	// BlockBuilder builds new VM blocks.
 	BlockBuilder BlockBuilder
 	// Logger is used for logging state machine operations.
-	Logger simplex.Logger
+	Logger common.Logger
 	// GetValidatorSet retrieves the validator set at a given P-chain height.
 	GetValidatorSet ValidatorSetRetriever
 	// GetBlock retrieves a previously built or finalized block.
@@ -201,7 +201,7 @@ type Config struct {
 	// ApprovalsRetriever retrieves validator approvals for epoch transitions.
 	ApprovalsRetriever ApprovalsRetriever
 	// SignatureAggregatorCreator creates a new SignatureAggregator for aggregating validator signatures for epoch transitions.
-	SignatureAggregatorCreator simplex.SignatureAggregatorCreator
+	SignatureAggregatorCreator common.SignatureAggregatorCreator
 	// KeyAggregator aggregates public keys from validators.
 	KeyAggregator KeyAggregator
 	// SignatureVerifier verifies signatures from validators.
@@ -216,9 +216,9 @@ type Config struct {
 	// GenesisValidatorSet is the validator set used for the genesis block.
 	GenesisValidatorSet NodeBLSMappings
 	// MyNodeID
-	MyNodeID simplex.NodeID
+	MyNodeID common.NodeID
 	// Signer
-	Signer simplex.Signer
+	Signer common.Signer
 	// ComputeICMEpoch computes the ICM epoch information in order to know which P-chain height to encode.
 	ComputeICMEpoch ICMEpochTransition
 }
@@ -245,7 +245,7 @@ func NewStateMachine(config *Config) (*StateMachine, error) {
 }
 
 // BuildBlock constructs the next block on top of the given parent block, and passes in the provided simplex metadata and blacklist.
-func (sm *StateMachine) BuildBlock(ctx context.Context, metadata simplex.ProtocolMetadata, blacklist *simplex.Blacklist) (*StateMachineBlock, error) {
+func (sm *StateMachine) BuildBlock(ctx context.Context, metadata common.ProtocolMetadata, blacklist *common.Blacklist) (*StateMachineBlock, error) {
 	// The zero sequence number is reserved for the genesis block, which should never be built.
 	if metadata.Seq == 0 {
 		return nil, fmt.Errorf("%w: got %d", errInvalidProtocolMetadataSeq, metadata.Seq)
@@ -307,7 +307,7 @@ func (sm *StateMachine) VerifyBlock(ctx context.Context, block *StateMachineBloc
 		return errNilBlock
 	}
 
-	pmd, err := simplex.ProtocolMetadataFromBytes(block.Metadata.SimplexProtocolMetadata)
+	pmd, err := common.ProtocolMetadataFromBytes(block.Metadata.SimplexProtocolMetadata)
 	if err != nil {
 		return fmt.Errorf("failed to parse ProtocolMetadata: %w", err)
 	}
@@ -388,7 +388,7 @@ func verifyTimestamp(block *StateMachineBlock, prevBlock *StateMachineBlock, now
 }
 
 func (sm *StateMachine) verifyEpochNumber(block *StateMachineBlock) error {
-	md, err := simplex.ProtocolMetadataFromBytes(block.Metadata.SimplexProtocolMetadata)
+	md, err := common.ProtocolMetadataFromBytes(block.Metadata.SimplexProtocolMetadata)
 	if err != nil {
 		return fmt.Errorf("failed to parse ProtocolMetadata: %w", err)
 	}
@@ -739,7 +739,7 @@ func (sm *StateMachine) buildBlockZero(parentBlock StateMachineBlock, simplexMet
 	timestamp := sm.LastNonSimplexInnerBlock.Timestamp().UnixMilli()
 	simplexEpochInfo := constructSimplexZeroBlockSimplexEpochInfo(pChainHeight, validatorSet, prevVMBlockSeq)
 
-	md, err := simplex.ProtocolMetadataFromBytes(simplexMetadata)
+	md, err := common.ProtocolMetadataFromBytes(simplexMetadata)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse simplex metadata: %w", err)
 	}
@@ -940,7 +940,7 @@ func (sm *StateMachine) verifyNextEpochApprovalsSignature(prev SimplexEpochInfo,
 	pChainHeightBuff := make([]byte, 8)
 	binary.BigEndian.PutUint64(pChainHeightBuff, pChainHeight)
 
-	signedMsg := simplex.SignedMessage{Payload: pChainHeightBuff, Context: signatureContext}
+	signedMsg := common.SignedMessage{Payload: pChainHeightBuff, Context: signatureContext}
 	toBeSigned, err := asn1.Marshal(signedMsg)
 	if err != nil {
 		return err
@@ -1261,9 +1261,9 @@ func computeNewApprovals(
 	prevNextEpochApprovals *NextEpochApprovals,
 	approvalsFromPeers ValidatorSetApprovals,
 	pChainHeight uint64,
-	sigAggr simplex.SignatureAggregator,
+	sigAggr common.SignatureAggregator,
 	validators NodeBLSMappings,
-	logger simplex.Logger,
+	logger common.Logger,
 ) (*approvals, error) {
 	if prevNextEpochApprovals == nil {
 		prevNextEpochApprovals = &NextEpochApprovals{}
@@ -1304,8 +1304,8 @@ func computeNewApproverSignaturesAndSigners(
 	approvalsFromPeers ValidatorSetApprovals,
 	oldApprovingNodes bitmask,
 	nodeID2ValidatorIndex map[nodeID]int,
-	sigAggr simplex.SignatureAggregator,
-	logger simplex.Logger,
+	sigAggr common.SignatureAggregator,
+	logger common.Logger,
 ) ([]byte, bitmask, error) {
 	if nextEpochApprovals == nil {
 		return nil, bitmask{}, errEmptyNextEpochApprovals
@@ -1352,14 +1352,14 @@ func computeNewApproverSignaturesAndSigners(
 
 // sanitizeApprovals filters out approvals that are not valid by checking if they agree with our candidate auxiliary info digest and P-Chain height,
 // and if they are from the validator set and haven't already been approved.
-func sanitizeApprovals(approvals ValidatorSetApprovals, pChainHeight uint64, nodeID2ValidatorIndex map[nodeID]int, oldApprovingNodes bitmask, logger simplex.Logger) ValidatorSetApprovals {
+func sanitizeApprovals(approvals ValidatorSetApprovals, pChainHeight uint64, nodeID2ValidatorIndex map[nodeID]int, oldApprovingNodes bitmask, logger common.Logger) ValidatorSetApprovals {
 	filter1 := approvalsThatAgreeWithPChainHeight(pChainHeight)
 	filter2 := approvalsThatAreInValidatorSetAndHaveNotAlreadyApproved(oldApprovingNodes.Clone(), nodeID2ValidatorIndex)
 	return approvals.Filter(filter1, logger).Filter(filter2, logger).UniqueByNodeID()
 }
 
-func approvalsThatAgreeWithPChainHeight(pChainHeight uint64) func(approval ValidatorSetApproval, logger simplex.Logger) bool {
-	return func(approval ValidatorSetApproval, logger simplex.Logger) bool {
+func approvalsThatAgreeWithPChainHeight(pChainHeight uint64) func(approval ValidatorSetApproval, logger common.Logger) bool {
+	return func(approval ValidatorSetApproval, logger common.Logger) bool {
 		// Pick only approvals that agree with our P-Chain height
 		ok := approval.PChainHeight == pChainHeight
 		if !ok {
@@ -1372,8 +1372,8 @@ func approvalsThatAgreeWithPChainHeight(pChainHeight uint64) func(approval Valid
 	}
 }
 
-func approvalsThatAreInValidatorSetAndHaveNotAlreadyApproved(oldApprovingNodes bitmask, nodeID2ValidatorIndex map[nodeID]int) func(approval ValidatorSetApproval, logger simplex.Logger) bool {
-	return func(approval ValidatorSetApproval, logger simplex.Logger) bool {
+func approvalsThatAreInValidatorSetAndHaveNotAlreadyApproved(oldApprovingNodes bitmask, nodeID2ValidatorIndex map[nodeID]int) func(approval ValidatorSetApproval, logger common.Logger) bool {
+	return func(approval ValidatorSetApproval, logger common.Logger) bool {
 		approvingNodeIndexOfNewApprover, exists := nodeID2ValidatorIndex[approval.NodeID]
 		if !exists {
 			logger.Debug("Filtering out approval from node that is not in the validator set",

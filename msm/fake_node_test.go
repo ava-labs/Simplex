@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ava-labs/simplex"
+	"github.com/ava-labs/simplex/common"
 	"github.com/stretchr/testify/require"
 )
 
@@ -271,23 +271,23 @@ func newFakeNode(t *testing.T) *fakeNode {
 	fn.sm.BlockBuilder = fn
 	fn.sm.PChainProgressListener = fn
 
-	fn.sm.GetBlock = func(seq uint64, digest [32]byte) (StateMachineBlock, *simplex.Finalization, error) {
+	fn.sm.GetBlock = func(seq uint64, digest [32]byte) (StateMachineBlock, *common.Finalization, error) {
 		if seq == 0 {
 			return genesisBlock, nil, nil
 		}
 		for _, bs := range fn.blocks {
 			match := bs.block.Digest() == digest
 			if !match {
-				md, err := simplex.ProtocolMetadataFromBytes(bs.block.Metadata.SimplexProtocolMetadata)
+				md, err := common.ProtocolMetadataFromBytes(bs.block.Metadata.SimplexProtocolMetadata)
 				if err != nil {
 					return StateMachineBlock{}, nil, err
 				}
 				match = md.Seq == seq
 			}
 			if match {
-				var fin *simplex.Finalization
+				var fin *common.Finalization
 				if bs.finalized {
-					fin = &simplex.Finalization{}
+					fin = &common.Finalization{}
 				}
 				return bs.block, fin, nil
 			}
@@ -361,7 +361,7 @@ func (fn *fakeNode) tryFinalizeNextBlock() {
 	fn.blocks[nextIndex].finalized = true
 	block := fn.blocks[nextIndex].block
 
-	md, err := simplex.ProtocolMetadataFromBytes(block.Metadata.SimplexProtocolMetadata)
+	md, err := common.ProtocolMetadataFromBytes(block.Metadata.SimplexProtocolMetadata)
 	require.NoError(fn.t, err)
 
 	fn.sm.LatestPersistedHeight = md.Seq
@@ -414,7 +414,7 @@ func (fn *fakeNode) buildBlock() (VMBlock, *StateMachineBlock) {
 
 	fn.t.Logf("Building a block on top of %s parent with epoch %d", finalizedString, parentBlock.Metadata.SimplexEpochInfo.EpochNumber)
 
-	block, err := fn.sm.BuildBlock(context.Background(), simplex.ProtocolMetadata{
+	block, err := fn.sm.BuildBlock(context.Background(), common.ProtocolMetadata{
 		Seq:   lastMD.Seq + 1,
 		Round: lastMD.Round + 1,
 		Epoch: fn.epoch,
@@ -425,17 +425,17 @@ func (fn *fakeNode) buildBlock() (VMBlock, *StateMachineBlock) {
 	return block.InnerBlock, block
 }
 
-func (fn *fakeNode) prepareMetadataAndPrevBlockDigest() (*simplex.ProtocolMetadata, [32]byte) {
-	var lastMD *simplex.ProtocolMetadata
+func (fn *fakeNode) prepareMetadataAndPrevBlockDigest() (*common.ProtocolMetadata, [32]byte) {
+	var lastMD *common.ProtocolMetadata
 	var err error
 	lastBlockDigest := genesisBlock.Digest()
 	if len(fn.blocks) > 0 {
 		lastBlock := fn.blocks[len(fn.blocks)-1].block
 		lastBlockDigest = lastBlock.Digest()
-		lastMD, err = simplex.ProtocolMetadataFromBytes(lastBlock.Metadata.SimplexProtocolMetadata)
+		lastMD, err = common.ProtocolMetadataFromBytes(lastBlock.Metadata.SimplexProtocolMetadata)
 		require.NoError(fn.t, err)
 	} else {
-		lastMD = &simplex.ProtocolMetadata{
+		lastMD = &common.ProtocolMetadata{
 			Prev:  lastBlockDigest,
 			Epoch: 1,
 		}

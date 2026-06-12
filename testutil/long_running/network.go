@@ -9,7 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ava-labs/simplex"
+	"github.com/ava-labs/simplex/common"
+	"github.com/ava-labs/simplex/simplex"
 	"github.com/ava-labs/simplex/testutil"
 	"github.com/stretchr/testify/require"
 )
@@ -27,7 +28,7 @@ type LongRunningInMemoryNetwork struct {
 }
 
 func NewDefaultLongRunningNetwork(t *testing.T, numNodes int) *LongRunningInMemoryNetwork {
-	nodes := make([]simplex.NodeID, numNodes)
+	nodes := make([]common.NodeID, numNodes)
 	for i := range numNodes {
 		nodes[i] = testutil.GenerateNodeID(t)
 	}

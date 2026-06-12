@@ -8,7 +8,7 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	"github.com/ava-labs/simplex"
+	"github.com/ava-labs/simplex/common"
 	"go.uber.org/zap"
 )
 
@@ -22,13 +22,13 @@ type approvalAndTimestamp struct {
 type ApprovalStore struct {
 	signatureVerifier SignatureVerifier
 	validators        NodeBLSMappings
-	logger            simplex.Logger
+	logger            common.Logger
 	pkByNodeID        map[nodeID][]byte
 	approvalsByNodes  map[nodeID]approvalsByPChainHeight
 	storedCount       int
 }
 
-func NewApprovalStore(signatureVerifier SignatureVerifier, validators NodeBLSMappings, logger simplex.Logger) *ApprovalStore {
+func NewApprovalStore(signatureVerifier SignatureVerifier, validators NodeBLSMappings, logger common.Logger) *ApprovalStore {
 	pkByNodeID := make(map[nodeID][]byte)
 	for _, vdr := range validators {
 		pkByNodeID[vdr.NodeID] = vdr.BLSKey
@@ -127,7 +127,7 @@ func (as *ApprovalStore) checkApprovalSignature(approval *ValidatorSetApproval, 
 	pChainHeightBuff := make([]byte, 8)
 	binary.BigEndian.PutUint64(pChainHeightBuff, pChainHeight)
 
-	signedMsg := simplex.SignedMessage{Payload: pChainHeightBuff, Context: signatureContext}
+	signedMsg := common.SignedMessage{Payload: pChainHeightBuff, Context: signatureContext}
 	toBeSigned, err := asn1.Marshal(signedMsg)
 	if err != nil {
 		return err

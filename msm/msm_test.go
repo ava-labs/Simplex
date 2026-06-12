@@ -11,13 +11,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ava-labs/simplex"
+	"github.com/ava-labs/simplex/common"
 	"github.com/ava-labs/simplex/testutil"
 	"github.com/stretchr/testify/require"
 )
 
 func TestMSMBuildAndVerifyBlocksAfterGenesis(t *testing.T) {
-	validMD := simplex.ProtocolMetadata{
+	validMD := common.ProtocolMetadata{
 		Round: 1,
 		Seq:   1,
 		Epoch: 1,
@@ -26,7 +26,7 @@ func TestMSMBuildAndVerifyBlocksAfterGenesis(t *testing.T) {
 
 	for _, testCase := range []struct {
 		name        string
-		md          simplex.ProtocolMetadata
+		md          common.ProtocolMetadata
 		err         error
 		configure   func(*StateMachine, *testConfig)
 		mutateBlock func(*StateMachineBlock)
@@ -39,7 +39,7 @@ func TestMSMBuildAndVerifyBlocksAfterGenesis(t *testing.T) {
 			name: "verifying a genesis block",
 			md:   validMD,
 			mutateBlock: func(block *StateMachineBlock) {
-				md, err := simplex.ProtocolMetadataFromBytes(block.Metadata.SimplexProtocolMetadata)
+				md, err := common.ProtocolMetadataFromBytes(block.Metadata.SimplexProtocolMetadata)
 				require.NoError(t, err)
 				md.Seq = 0
 				block.Metadata.SimplexProtocolMetadata = md.Bytes()
@@ -52,7 +52,7 @@ func TestMSMBuildAndVerifyBlocksAfterGenesis(t *testing.T) {
 			configure: func(_ *StateMachine, tc *testConfig) {
 				delete(tc.blockStore, 0)
 			},
-			err: simplex.ErrBlockNotFound,
+			err: common.ErrBlockNotFound,
 		},
 		{
 			name: "parent has no inner block",
@@ -159,7 +159,7 @@ func TestMSMFirstSimplexBlockAfterPreSimplexBlocks(t *testing.T) {
 		},
 	}
 
-	md := simplex.ProtocolMetadata{
+	md := common.ProtocolMetadata{
 		Round: 0,
 		Seq:   43,
 		Epoch: 43,
@@ -218,7 +218,7 @@ func TestMSMBuildBlockRejectsZeroSeq(t *testing.T) {
 	// Seq 0 is reserved for the genesis block, which should never be built.
 	sm, _ := newStateMachine(t)
 
-	block, err := sm.BuildBlock(context.Background(), simplex.ProtocolMetadata{Seq: 0}, nil)
+	block, err := sm.BuildBlock(context.Background(), common.ProtocolMetadata{Seq: 0}, nil)
 	require.ErrorIs(t, err, errInvalidProtocolMetadataSeq)
 	require.Nil(t, block)
 }
@@ -246,7 +246,7 @@ func TestMSMNormalOp(t *testing.T) {
 		{
 			name: "trying to build a genesis block",
 			mutateBlock: func(block *StateMachineBlock) {
-				md, err := simplex.ProtocolMetadataFromBytes(block.Metadata.SimplexProtocolMetadata)
+				md, err := common.ProtocolMetadataFromBytes(block.Metadata.SimplexProtocolMetadata)
 				require.NoError(t, err)
 				md.Seq = 0
 				block.Metadata.SimplexProtocolMetadata = md.Bytes()
@@ -256,12 +256,12 @@ func TestMSMNormalOp(t *testing.T) {
 		{
 			name: "previous block not found",
 			mutateBlock: func(block *StateMachineBlock) {
-				md, err := simplex.ProtocolMetadataFromBytes(block.Metadata.SimplexProtocolMetadata)
+				md, err := common.ProtocolMetadataFromBytes(block.Metadata.SimplexProtocolMetadata)
 				require.NoError(t, err)
 				md.Seq = 999
 				block.Metadata.SimplexProtocolMetadata = md.Bytes()
 			},
-			err: simplex.ErrBlockNotFound,
+			err: common.ErrBlockNotFound,
 		},
 		{
 			name: "P-chain height too big",
@@ -338,19 +338,19 @@ func TestMSMNormalOp(t *testing.T) {
 			sm2, testConfig2 := newStateMachine(t)
 
 			for i, block := range chain {
-				testConfig1.blockStore[uint64(i)] = &outerBlock{block: block, finalization: &simplex.Finalization{}}
-				testConfig2.blockStore[uint64(i)] = &outerBlock{block: block, finalization: &simplex.Finalization{}}
+				testConfig1.blockStore[uint64(i)] = &outerBlock{block: block, finalization: &common.Finalization{}}
+				testConfig2.blockStore[uint64(i)] = &outerBlock{block: block, finalization: &common.Finalization{}}
 			}
 
 			lastBlock := chain[len(chain)-1]
-			md, err := simplex.ProtocolMetadataFromBytes(lastBlock.Metadata.SimplexProtocolMetadata)
+			md, err := common.ProtocolMetadataFromBytes(lastBlock.Metadata.SimplexProtocolMetadata)
 			require.NoError(t, err)
 
 			md.Seq++
 			md.Round++
 			md.Prev = lastBlock.Digest()
 
-			var blacklist simplex.Blacklist
+			var blacklist common.Blacklist
 			blacklist.NodeCount = 4
 
 			blockTime := lastBlock.InnerBlock.Timestamp().Add(time.Second)
@@ -560,7 +560,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 			smVerify.LastNonSimplexBlockPChainHeight = pChainHeight1
 
 			// addBlock adds a block to both block stores so builder and verifier stay in sync.
-			addBlock := func(seq uint64, block StateMachineBlock, fin *simplex.Finalization) {
+			addBlock := func(seq uint64, block StateMachineBlock, fin *common.Finalization) {
 				tc.blockStore[seq] = &outerBlock{block: block, finalization: fin}
 				tcVerify.blockStore[seq] = &outerBlock{block: block, finalization: fin}
 			}
@@ -572,7 +572,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 
 			// ----- Step 1: Build zero epoch block (first simplex block) -----
 			tc.blockBuilder.block = nextBlock(1)
-			md := simplex.ProtocolMetadata{
+			md := common.ProtocolMetadata{
 				Seq:   baseSeq + 1,
 				Round: 0,
 				Epoch: testCase.epochNum,
@@ -601,7 +601,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 					ICMEpochInfo: testCase.firstBlockICMEpochInfo,
 				},
 			}, block1)
-			addBlock(md.Seq, *block1, &simplex.Finalization{})
+			addBlock(md.Seq, *block1, &common.Finalization{})
 
 			require.NoError(t, smVerify.VerifyBlock(context.Background(), block1))
 
@@ -612,7 +612,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 			// ----- Step 2: Build a normal block (no validator set change) -----
 			currentTime = startTime.Add(2 * time.Millisecond)
 			tc.blockBuilder.block = nextBlock(2)
-			md = simplex.ProtocolMetadata{Seq: baseSeq + 2, Round: 1, Epoch: testCase.epochNum, Prev: block1.Digest()}
+			md = common.ProtocolMetadata{Seq: baseSeq + 2, Round: 1, Epoch: testCase.epochNum, Prev: block1.Digest()}
 			block2, err := sm.BuildBlock(context.Background(), md, nil)
 			require.NoError(t, err)
 			require.Equal(t, &StateMachineBlock{
@@ -642,7 +642,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 			// epochStart + 1s and transitions ICM to epoch 2.
 			currentTime = startTime.Add(time.Second + 3*time.Millisecond)
 			tc.blockBuilder.block = nextBlock(3)
-			md = simplex.ProtocolMetadata{Seq: baseSeq + 3, Round: 2, Epoch: testCase.epochNum, Prev: block2.Digest()}
+			md = common.ProtocolMetadata{Seq: baseSeq + 3, Round: 2, Epoch: testCase.epochNum, Prev: block2.Digest()}
 			block3, err := sm.BuildBlock(context.Background(), md, nil)
 			require.NoError(t, err)
 			require.Equal(t, &StateMachineBlock{
@@ -685,7 +685,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 
 			currentTime = startTime.Add(time.Second + 4*time.Millisecond)
 			tc.blockBuilder.block = nextBlock(4)
-			md = simplex.ProtocolMetadata{Seq: baseSeq + 4, Round: 3, Epoch: testCase.epochNum, Prev: block3.Digest()}
+			md = common.ProtocolMetadata{Seq: baseSeq + 4, Round: 3, Epoch: testCase.epochNum, Prev: block3.Digest()}
 			block4, err := sm.BuildBlock(context.Background(), md, nil)
 			require.NoError(t, err)
 			require.Equal(t, &StateMachineBlock{
@@ -727,7 +727,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 
 			currentTime = startTime.Add(time.Second + 5*time.Millisecond)
 			tc.blockBuilder.block = nextBlock(5)
-			md = simplex.ProtocolMetadata{Seq: baseSeq + 5, Round: 4, Epoch: testCase.epochNum, Prev: block4.Digest()}
+			md = common.ProtocolMetadata{Seq: baseSeq + 5, Round: 4, Epoch: testCase.epochNum, Prev: block4.Digest()}
 			block5, err := sm.BuildBlock(context.Background(), md, nil)
 			require.NoError(t, err)
 			require.Equal(t, &StateMachineBlock{
@@ -769,7 +769,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 
 			currentTime = startTime.Add(time.Second + 6*time.Millisecond)
 			tc.blockBuilder.block = nextBlock(6)
-			md = simplex.ProtocolMetadata{Seq: baseSeq + 6, Round: 5, Epoch: testCase.epochNum, Prev: block5.Digest()}
+			md = common.ProtocolMetadata{Seq: baseSeq + 6, Round: 5, Epoch: testCase.epochNum, Prev: block5.Digest()}
 			block6, err := sm.BuildBlock(context.Background(), md, nil)
 			require.NoError(t, err)
 			require.Equal(t, &StateMachineBlock{
@@ -820,7 +820,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 				{
 					name: "sealing block immediately finalized",
 					setup: func() {
-						addBlock(sealingSeq, tc.blockStore[sealingSeq].block, &simplex.Finalization{})
+						addBlock(sealingSeq, tc.blockStore[sealingSeq].block, &common.Finalization{})
 					},
 				},
 			} {
@@ -834,7 +834,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 					subTestCase.setup()
 
 					tc.blockBuilder.block = nextBlock(7)
-					md = simplex.ProtocolMetadata{Seq: baseSeq + 7, Round: 6, Epoch: testCase.epochNum, Prev: block6.Digest()}
+					md = common.ProtocolMetadata{Seq: baseSeq + 7, Round: 6, Epoch: testCase.epochNum, Prev: block6.Digest()}
 
 					// If the sealing block isn't finalized yet, we expect to build a Telock.
 					// However, despite the fact that the block builder is willing to build a new block,
@@ -863,7 +863,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 						}, telock)
 
 						// Next, finalize the sealing block after we have built a Telock.
-						addBlock(sealingSeq, tc.blockStore[sealingSeq].block, &simplex.Finalization{})
+						addBlock(sealingSeq, tc.blockStore[sealingSeq].block, &common.Finalization{})
 					}
 
 					// ----- Step 7: Build a new epoch block (sealing block is finalized) -----
@@ -1024,7 +1024,7 @@ func TestVerifyNextPChainRefHeightNormal(t *testing.T) {
 			next: SimplexEpochInfo{NextPChainReferenceHeight: nextPChainRefHeight},
 			setup: func(tc *testConfig) {
 				withChangedValidatorSet(tc)
-				tc.blockStore[sealingBlockSeq] = &outerBlock{finalization: &simplex.Finalization{}}
+				tc.blockStore[sealingBlockSeq] = &outerBlock{finalization: &common.Finalization{}}
 			},
 		},
 		{
@@ -1043,7 +1043,7 @@ func TestVerifyNextPChainRefHeightNormal(t *testing.T) {
 				withChangedValidatorSet(tc)
 				delete(tc.blockStore, sealingBlockSeq)
 			},
-			err: simplex.ErrBlockNotFound,
+			err: common.ErrBlockNotFound,
 		},
 	}
 
@@ -1425,7 +1425,7 @@ func TestBuildBlockCollectingApprovalsDedupsOwnApprovalAcrossRounds(t *testing.T
 	// Use concatAggregator so that AppendSignatures(existing) with zero new
 	// signatures returns `existing` verbatim. This makes signature equality
 	// a direct witness that no new signature was aggregated in.
-	sm.SignatureAggregatorCreator = func(_ []simplex.Node) simplex.SignatureAggregator {
+	sm.SignatureAggregatorCreator = func(_ []common.Node) common.SignatureAggregator {
 		return concatAggregator{}
 	}
 
@@ -1452,7 +1452,7 @@ func TestBuildBlockCollectingApprovalsDedupsOwnApprovalAcrossRounds(t *testing.T
 		InnerBlock: &InnerBlock{TS: time.Now(), BlockHeight: 1, Bytes: []byte{0xAA}},
 		Metadata: StateMachineMetadata{
 			PChainHeight: 200,
-			SimplexProtocolMetadata: (&simplex.ProtocolMetadata{
+			SimplexProtocolMetadata: (&common.ProtocolMetadata{
 				Seq: parentSeq, Round: 5, Epoch: 1,
 			}).Bytes(),
 			SimplexEpochInfo: SimplexEpochInfo{
@@ -1467,7 +1467,7 @@ func TestBuildBlockCollectingApprovalsDedupsOwnApprovalAcrossRounds(t *testing.T
 
 	// ----- Round 1: first collecting-approvals block -----
 	tc.blockBuilder.block = &InnerBlock{TS: time.Now(), BlockHeight: 2, Bytes: []byte{0x01}}
-	md1 := simplex.ProtocolMetadata{Seq: parentSeq + 1, Round: 6, Epoch: 1, Prev: parent.Digest()}
+	md1 := common.ProtocolMetadata{Seq: parentSeq + 1, Round: 6, Epoch: 1, Prev: parent.Digest()}
 	block1, err := sm.BuildBlock(context.Background(), md1, nil)
 	require.NoError(t, err)
 	require.NotNil(t, block1.Metadata.SimplexEpochInfo.NextEpochApprovals,
@@ -1483,7 +1483,7 @@ func TestBuildBlockCollectingApprovalsDedupsOwnApprovalAcrossRounds(t *testing.T
 
 	// ----- Round 2: another collecting-approvals block, still no peer approvals -----
 	tc.blockBuilder.block = &InnerBlock{TS: time.Now(), BlockHeight: 3, Bytes: []byte{0x02}}
-	md2 := simplex.ProtocolMetadata{Seq: md1.Seq + 1, Round: 7, Epoch: 1, Prev: block1.Digest()}
+	md2 := common.ProtocolMetadata{Seq: md1.Seq + 1, Round: 7, Epoch: 1, Prev: block1.Digest()}
 	block2, err := sm.BuildBlock(context.Background(), md2, nil)
 	require.NoError(t, err)
 	require.NotNil(t, block2.Metadata.SimplexEpochInfo.NextEpochApprovals)
