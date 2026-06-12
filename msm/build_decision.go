@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ava-labs/simplex"
+	"github.com/ava-labs/simplex/common"
 	"go.uber.org/zap"
 )
 
@@ -27,7 +27,7 @@ type PChainProgressListener interface {
 }
 
 type blockBuildingDecider struct {
-	logger                   simplex.Logger
+	logger                   common.Logger
 	maxBlockBuildingWaitTime time.Duration
 	pChainListener           PChainProgressListener
 	waitForPendingBlock      func(ctx context.Context)

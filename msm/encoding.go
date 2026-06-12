@@ -7,7 +7,7 @@ import (
 	"bytes"
 	"slices"
 
-	"github.com/ava-labs/simplex"
+	"github.com/ava-labs/simplex/common"
 )
 
 //go:generate go run github.com/StephenButtolph/canoto/canoto encoding.go
@@ -255,10 +255,10 @@ func (nea *NextEpochApprovals) Equals(other *NextEpochApprovals) bool {
 
 type NodeBLSMappings []NodeBLSMapping
 
-func (nbms NodeBLSMappings) NodeWeights() simplex.Nodes {
-	nodeWeights := make(simplex.Nodes, len(nbms))
+func (nbms NodeBLSMappings) NodeWeights() common.Nodes {
+	nodeWeights := make(common.Nodes, len(nbms))
 	for i, nbm := range nbms {
-		nodeWeights[i] = simplex.Node{
+		nodeWeights[i] = common.Node{
 			Node:   nbm.NodeID[:],
 			Weight: nbm.Weight,
 		}
@@ -276,8 +276,8 @@ func (nbms NodeBLSMappings) IndexByNodeID() map[nodeID]int {
 	return result
 }
 
-func (nbms NodeBLSMappings) SelectSubset(bitmask bitmask) []simplex.NodeID {
-	nodeIDs := make([]simplex.NodeID, 0, len(nbms))
+func (nbms NodeBLSMappings) SelectSubset(bitmask bitmask) []common.NodeID {
+	nodeIDs := make([]common.NodeID, 0, len(nbms))
 	for i, nbm := range nbms {
 		if !bitmask.Contains(i) {
 			continue
@@ -331,7 +331,7 @@ type ValidatorSetApproval struct {
 
 type ValidatorSetApprovals []ValidatorSetApproval
 
-func (vsa ValidatorSetApprovals) Filter(f func(ValidatorSetApproval, simplex.Logger) bool, logger simplex.Logger) ValidatorSetApprovals {
+func (vsa ValidatorSetApprovals) Filter(f func(ValidatorSetApproval, common.Logger) bool, logger common.Logger) ValidatorSetApprovals {
 	result := make(ValidatorSetApprovals, 0, len(vsa))
 	for _, v := range vsa {
 		if f(v, logger) {

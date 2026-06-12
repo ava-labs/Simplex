@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ava-labs/simplex"
+	"github.com/ava-labs/simplex/common"
 	"github.com/ava-labs/simplex/testutil"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -36,7 +36,7 @@ func NewNetwork(config *FuzzConfig, t *testing.T) *Network {
 	r := rand.New(rand.NewSource(config.RandomSeed))
 
 	numNodes := r.Intn(config.MaxNodes-config.MinNodes+1) + config.MinNodes
-	nodeIds := make([]simplex.NodeID, numNodes)
+	nodeIds := make([]common.NodeID, numNodes)
 	for i := range numNodes {
 		nodeIds[i] = []byte{byte(i)}
 	}
@@ -98,7 +98,7 @@ func (n *Network) Run() {
 	clearLogDirectory(n.config.LogDirectory)
 }
 
-func (n *Network) getMinHeightNodeID() simplex.NodeID {
+func (n *Network) getMinHeightNodeID() common.NodeID {
 	minHeight := n.nodes[0].storage.NumBlocks()
 	minHeightNodeID := n.nodes[0].E.ID
 
@@ -216,8 +216,8 @@ func (n *Network) crashAndRecoverNodes() {
 		return
 	}
 
-	crashedNodes := []simplex.NodeID{}
-	recoveredNodes := []simplex.NodeID{}
+	crashedNodes := []common.NodeID{}
+	recoveredNodes := []common.NodeID{}
 	maxLeftToCrash := f - int(n.numCrashedNodes())
 	// go through each node, randomly decide to crash based on NodeCrashPercentage
 	for i, node := range n.nodes {

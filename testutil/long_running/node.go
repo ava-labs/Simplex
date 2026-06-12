@@ -6,7 +6,8 @@ package long_running
 import (
 	"testing"
 
-	"github.com/ava-labs/simplex"
+	"github.com/ava-labs/simplex/common"
+	"github.com/ava-labs/simplex/simplex"
 	"github.com/ava-labs/simplex/testutil"
 	"github.com/stretchr/testify/require"
 )
@@ -26,7 +27,7 @@ type longRunningNodeConfig struct {
 	logger  *testutil.TestLogger
 }
 
-func defaultLongRunningNodeConfig(t *testing.T, nodeID simplex.NodeID, basicNetwork *testutil.BasicInMemoryNetwork, options longRunningNodeConfig) (simplex.EpochConfig, *LongRunningBlockBuilder, *testutil.TestWAL, *testutil.InMemStorage) {
+func defaultLongRunningNodeConfig(t *testing.T, nodeID common.NodeID, basicNetwork *testutil.BasicInMemoryNetwork, options longRunningNodeConfig) (simplex.EpochConfig, *LongRunningBlockBuilder, *testutil.TestWAL, *testutil.InMemStorage) {
 	comm := testutil.NewTestComm(nodeID, basicNetwork, testutil.AllowAllMessages)
 	bb := NewNetworkBlockBuilder(t)
 	if options.bb != nil {
@@ -56,7 +57,7 @@ func defaultLongRunningNodeConfig(t *testing.T, nodeID simplex.NodeID, basicNetw
 	return epochConfig, bb, wal, storage
 }
 
-func NewLongRunningNode(t *testing.T, nodeID simplex.NodeID, basicNetwork *testutil.BasicInMemoryNetwork, options longRunningNodeConfig) *LongRunningNode {
+func NewLongRunningNode(t *testing.T, nodeID common.NodeID, basicNetwork *testutil.BasicInMemoryNetwork, options longRunningNodeConfig) *LongRunningNode {
 	epochConfig, bb, wal, storage := defaultLongRunningNodeConfig(t, nodeID, basicNetwork, options)
 	e, err := simplex.NewEpoch(epochConfig)
 	require.NoError(t, err)

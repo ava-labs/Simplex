@@ -11,7 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ava-labs/simplex"
+	"github.com/ava-labs/simplex/common"
+	"github.com/ava-labs/simplex/simplex"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 )
@@ -26,14 +27,14 @@ type BasicNode struct {
 	E           *simplex.Epoch
 
 	ingress chan struct {
-		msg  *simplex.Message
-		from simplex.NodeID
+		msg  *common.Message
+		from common.NodeID
 	}
 	l                *TestLogger
 	t                *testing.T
 	messageTypesSent map[string]uint64
 
-	CustomHandler func(msg *simplex.Message, from simplex.NodeID) error
+	CustomHandler func(msg *common.Message, from common.NodeID) error
 }
 
 func NewBasicNode(t *testing.T, epoch *simplex.Epoch, logger *TestLogger) *BasicNode {
@@ -44,8 +45,8 @@ func NewBasicNode(t *testing.T, epoch *simplex.Epoch, logger *TestLogger) *Basic
 		running:    sync.WaitGroup{},
 		E:          epoch,
 		ingress: make(chan struct {
-			msg  *simplex.Message
-			from simplex.NodeID
+			msg  *common.Message
+			from common.NodeID
 		}, 100000),
 		l:                logger,
 		t:                t,
@@ -76,7 +77,7 @@ func (b *BasicNode) SilenceExceptKeywords(keywords ...string) {
 	b.l.SilenceExceptKeywords(keywords...)
 }
 
-func (b *BasicNode) HandleMessage(msg *simplex.Message, from simplex.NodeID) error {
+func (b *BasicNode) HandleMessage(msg *common.Message, from common.NodeID) error {
 	err := b.E.HandleMessage(msg, from)
 	if err != nil {
 		b.l.Error("error handling message", zap.Stringer("from", from), zap.Stringer("to", b.E.ID), zap.Error(err), zap.Error(err), zap.Any("message", msg))
@@ -105,7 +106,7 @@ func (b *BasicNode) handleMessages() {
 	}
 }
 
-func (b *BasicNode) enqueue(msg *simplex.Message, from, to simplex.NodeID) {
+func (b *BasicNode) enqueue(msg *common.Message, from, to common.NodeID) {
 	b.lock.Lock()
 	defer b.lock.Unlock()
 	if b.shouldStop.Load() {
@@ -122,8 +123,8 @@ func (b *BasicNode) enqueue(msg *simplex.Message, from, to simplex.NodeID) {
 
 	select {
 	case b.ingress <- struct {
-		msg  *simplex.Message
-		from simplex.NodeID
+		msg  *common.Message
+		from common.NodeID
 	}{msg: msg, from: from}:
 	default:
 		// drop the message if the ingress channel is full
@@ -141,7 +142,7 @@ func (b *BasicNode) Stop() {
 	b.running.Wait()
 }
 
-func (b *BasicNode) RecordMessageTypeSent(msg *simplex.Message) {
+func (b *BasicNode) RecordMessageTypeSent(msg *common.Message) {
 	switch {
 	case msg.BlockMessage != nil:
 		b.messageTypesSent["BlockMessage"]++
@@ -234,9 +235,9 @@ func UpdateEpochConfig(epochConfig *simplex.EpochConfig, testConfig *TestNodeCon
 // NodeConfig
 type TestNodeConfig struct {
 	// optional
-	InitialStorage       []simplex.VerifiedFinalizedBlock
-	Comm                 simplex.Communication
-	SigAggregatorCreator simplex.SignatureAggregatorCreator
+	InitialStorage       []common.VerifiedFinalizedBlock
+	Comm                 common.Communication
+	SigAggregatorCreator common.SignatureAggregatorCreator
 	ReplicationEnabled   bool
 	BlockBuilder         *testControlledBlockBuilder
 

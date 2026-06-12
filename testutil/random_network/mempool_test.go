@@ -7,15 +7,15 @@ import (
 	"context"
 	"testing"
 
-	"github.com/ava-labs/simplex"
+	"github.com/ava-labs/simplex/common"
 	"github.com/ava-labs/simplex/testutil"
 	"github.com/stretchr/testify/require"
 )
 
-var emptyBlacklist = simplex.Blacklist{
+var emptyBlacklist = common.Blacklist{
 	NodeCount:      4,
-	SuspectedNodes: simplex.SuspectedNodes{},
-	Updates:        []simplex.BlacklistUpdate{},
+	SuspectedNodes: common.SuspectedNodes{},
+	Updates:        []common.BlacklistUpdate{},
 }
 
 func TestMempoolVerifiesTx(t *testing.T) {
@@ -24,7 +24,7 @@ func TestMempoolVerifiesTx(t *testing.T) {
 
 	ctx := context.Background()
 	require := require.New(t)
-	round0MD := NewProtocolMetadata(0, 0, simplex.Digest{})
+	round0MD := NewProtocolMetadata(0, 0, common.Digest{})
 	config := DefaultFuzzConfig()
 
 	tests := []struct {
@@ -117,7 +117,7 @@ func TestMempoolVerifiesTx(t *testing.T) {
 				err := mempool.VerifyBlock(ctx, blockWithSameTxButNotParent)
 
 				mempool.AddPendingTXs(tx1)
-				block := NewBlock(NewProtocolMetadata(1, 1, simplex.Digest{}), emptyBlacklist, mempool, []*TX{tx1})
+				block := NewBlock(NewProtocolMetadata(1, 1, common.Digest{}), emptyBlacklist, mempool, []*TX{tx1})
 				return mempool, block, err
 			},
 		},

@@ -9,14 +9,14 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/ava-labs/simplex"
+	"github.com/ava-labs/simplex/common"
 	"github.com/ava-labs/simplex/record"
 	"github.com/ava-labs/simplex/wal"
 	"github.com/stretchr/testify/require"
 )
 
 type TestWAL struct {
-	simplex.WriteAheadLog
+	common.WriteAheadLog
 	t      *testing.T
 	lock   sync.Mutex
 	signal sync.Cond
@@ -89,7 +89,7 @@ func (tw *TestWAL) AssertNotarization(round uint64) uint16 {
 
 		for _, rawRecord := range rawRecords {
 			if binary.BigEndian.Uint16(rawRecord[:2]) == record.NotarizationRecordType {
-				_, vote, err := simplex.ParseNotarizationRecord(rawRecord)
+				_, vote, err := common.ParseNotarizationRecord(rawRecord)
 				require.NoError(tw.t, err)
 
 				if vote.Round == round {
@@ -97,7 +97,7 @@ func (tw *TestWAL) AssertNotarization(round uint64) uint16 {
 				}
 			}
 			if binary.BigEndian.Uint16(rawRecord[:2]) == record.EmptyNotarizationRecordType {
-				_, vote, err := simplex.ParseEmptyNotarizationRecord(rawRecord)
+				_, vote, err := common.ParseEmptyNotarizationRecord(rawRecord)
 				require.NoError(tw.t, err)
 
 				if vote.Round == round {
@@ -121,7 +121,7 @@ func (tw *TestWAL) AssertEmptyVote(round uint64) {
 
 		for _, rawRecord := range rawRecords {
 			if binary.BigEndian.Uint16(rawRecord[:2]) == record.EmptyVoteRecordType {
-				vote, err := simplex.ParseEmptyVoteRecord(rawRecord)
+				vote, err := common.ParseEmptyVoteRecord(rawRecord)
 				require.NoError(tw.t, err)
 
 				if vote.Round == round {
@@ -145,7 +145,7 @@ func (tw *TestWAL) AssertBlockProposal(round uint64) {
 
 		for _, rawRecord := range rawRecords {
 			if binary.BigEndian.Uint16(rawRecord[:2]) == record.BlockRecordType {
-				bh, _, err := simplex.ParseBlockRecord(rawRecord)
+				bh, _, err := common.ParseBlockRecord(rawRecord)
 				require.NoError(tw.t, err)
 
 				if bh.Round == round {
@@ -168,7 +168,7 @@ func (tw *TestWAL) ContainsNotarization(round uint64) bool {
 
 	for _, rawRecord := range rawRecords {
 		if binary.BigEndian.Uint16(rawRecord[:2]) == record.NotarizationRecordType {
-			_, vote, err := simplex.ParseNotarizationRecord(rawRecord)
+			_, vote, err := common.ParseNotarizationRecord(rawRecord)
 			require.NoError(tw.t, err)
 
 			if vote.Round == round {
@@ -189,7 +189,7 @@ func (tw *TestWAL) ContainsEmptyVote(round uint64) bool {
 
 	for _, rawRecord := range rawRecords {
 		if binary.BigEndian.Uint16(rawRecord[:2]) == record.EmptyVoteRecordType {
-			vote, err := simplex.ParseEmptyVoteRecord(rawRecord)
+			vote, err := common.ParseEmptyVoteRecord(rawRecord)
 			require.NoError(tw.t, err)
 
 			if vote.Round == round {
@@ -210,7 +210,7 @@ func (tw *TestWAL) ContainsEmptyNotarization(round uint64) bool {
 
 	for _, rawRecord := range rawRecords {
 		if binary.BigEndian.Uint16(rawRecord[:2]) == record.EmptyNotarizationRecordType {
-			_, vote, err := simplex.ParseEmptyNotarizationRecord(rawRecord)
+			_, vote, err := common.ParseEmptyNotarizationRecord(rawRecord)
 			require.NoError(tw.t, err)
 
 			if vote.Round == round {
@@ -232,7 +232,7 @@ type walRound struct {
 }
 
 // AssertHealthy checks that the WAL has at most one of each record type per round.
-func (tw *TestWAL) AssertHealthy(bd simplex.BlockDeserializer, qcd simplex.QCDeserializer) {
+func (tw *TestWAL) AssertHealthy(bd common.BlockDeserializer, qcd common.QCDeserializer) {
 	ctx := context.Background()
 	records, err := tw.WriteAheadLog.ReadAll()
 	require.NoError(tw.t, err)
@@ -244,7 +244,7 @@ func (tw *TestWAL) AssertHealthy(bd simplex.BlockDeserializer, qcd simplex.QCDes
 
 		switch recordType {
 		case record.BlockRecordType:
-			block, err := simplex.BlockFromRecord(ctx, bd, r)
+			block, err := common.BlockFromRecord(ctx, bd, r)
 			require.NoError(tw.t, err)
 			round := block.BlockHeader().Round
 			if _, exists := rounds[round]; !exists {
@@ -253,7 +253,7 @@ func (tw *TestWAL) AssertHealthy(bd simplex.BlockDeserializer, qcd simplex.QCDes
 			require.False(tw.t, rounds[round].blockRecord, "duplicate block record for round %d", round)
 			rounds[round].blockRecord = true
 		case record.NotarizationRecordType:
-			_, vote, err := simplex.ParseNotarizationRecord(r)
+			_, vote, err := common.ParseNotarizationRecord(r)
 			require.NoError(tw.t, err)
 			round := vote.Round
 			if _, exists := rounds[round]; !exists {
@@ -262,7 +262,7 @@ func (tw *TestWAL) AssertHealthy(bd simplex.BlockDeserializer, qcd simplex.QCDes
 			require.False(tw.t, rounds[round].notarizationRecord, "duplicate notarization record for round %d", round)
 			rounds[round].notarizationRecord = true
 		case record.EmptyNotarizationRecordType:
-			_, vote, err := simplex.ParseEmptyNotarizationRecord(r)
+			_, vote, err := common.ParseEmptyNotarizationRecord(r)
 			require.NoError(tw.t, err)
 			round := vote.Round
 			if _, exists := rounds[round]; !exists {
@@ -271,7 +271,7 @@ func (tw *TestWAL) AssertHealthy(bd simplex.BlockDeserializer, qcd simplex.QCDes
 			require.False(tw.t, rounds[round].emptyNotarizationRecord, "duplicate empty notarization record for round %d", round)
 			rounds[round].emptyNotarizationRecord = true
 		case record.EmptyVoteRecordType:
-			vote, err := simplex.ParseEmptyVoteRecord(r)
+			vote, err := common.ParseEmptyVoteRecord(r)
 			require.NoError(tw.t, err)
 			round := vote.Round
 			if _, exists := rounds[round]; !exists {
@@ -280,7 +280,7 @@ func (tw *TestWAL) AssertHealthy(bd simplex.BlockDeserializer, qcd simplex.QCDes
 			require.False(tw.t, rounds[round].emptyVoteRecord, "duplicate empty vote record for round %d", round)
 			rounds[round].emptyVoteRecord = true
 		case record.FinalizationRecordType:
-			finalization, err := simplex.FinalizationFromRecord(r, qcd)
+			finalization, err := common.FinalizationFromRecord(r, qcd)
 			require.NoError(tw.t, err)
 			round := finalization.Finalization.Round
 			if _, exists := rounds[round]; !exists {

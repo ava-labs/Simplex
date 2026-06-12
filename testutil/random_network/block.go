@@ -9,26 +9,26 @@ import (
 	"encoding/asn1"
 	"fmt"
 
-	"github.com/ava-labs/simplex"
+	"github.com/ava-labs/simplex/common"
 )
 
-var _ simplex.Block = (*Block)(nil)
+var _ common.Block = (*Block)(nil)
 
 type Block struct {
-	blacklist simplex.Blacklist
+	blacklist common.Blacklist
 
 	// contents
 	txs []*TX
 
 	// protocol metadata
-	metadata simplex.ProtocolMetadata
-	digest   simplex.Digest
+	metadata common.ProtocolMetadata
+	digest   common.Digest
 
 	// mempool access
 	mempool *Mempool
 }
 
-func NewBlock(metadata simplex.ProtocolMetadata, blacklist simplex.Blacklist, mempool *Mempool, txs []*TX) *Block {
+func NewBlock(metadata common.ProtocolMetadata, blacklist common.Blacklist, mempool *Mempool, txs []*TX) *Block {
 	b := &Block{
 		mempool:   mempool,
 		txs:       txs,
@@ -40,16 +40,16 @@ func NewBlock(metadata simplex.ProtocolMetadata, blacklist simplex.Blacklist, me
 	return b
 }
 
-func (b *Block) Verify(ctx context.Context) (simplex.VerifiedBlock, error) {
+func (b *Block) Verify(ctx context.Context) (common.VerifiedBlock, error) {
 	return b, b.mempool.VerifyBlock(ctx, b)
 }
 
-func (b *Block) Blacklist() simplex.Blacklist {
+func (b *Block) Blacklist() common.Blacklist {
 	return b.blacklist
 }
 
-func (b *Block) BlockHeader() simplex.BlockHeader {
-	return simplex.BlockHeader{
+func (b *Block) BlockHeader() common.BlockHeader {
+	return common.BlockHeader{
 		ProtocolMetadata: b.metadata,
 		Digest:           b.digest,
 	}
@@ -102,21 +102,21 @@ type BlockDeserializer struct {
 	mempool *Mempool
 }
 
-var _ simplex.BlockDeserializer = (*BlockDeserializer)(nil)
+var _ common.BlockDeserializer = (*BlockDeserializer)(nil)
 
-func (bd *BlockDeserializer) DeserializeBlock(ctx context.Context, buff []byte) (simplex.Block, error) {
+func (bd *BlockDeserializer) DeserializeBlock(ctx context.Context, buff []byte) (common.Block, error) {
 	var encodedBlock encodedBlock
 	_, err := asn1.Unmarshal(buff, &encodedBlock)
 	if err != nil {
 		return nil, err
 	}
 
-	md, err := simplex.ProtocolMetadataFromBytes(encodedBlock.ProtocolMetadata)
+	md, err := common.ProtocolMetadataFromBytes(encodedBlock.ProtocolMetadata)
 	if err != nil {
 		return nil, err
 	}
 
-	var blacklist simplex.Blacklist
+	var blacklist common.Blacklist
 	if err := blacklist.FromBytes(encodedBlock.Blacklist); err != nil {
 		return nil, err
 	}

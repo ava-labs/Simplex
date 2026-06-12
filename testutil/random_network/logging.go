@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/ava-labs/simplex"
+	"github.com/ava-labs/simplex/common"
 	"github.com/ava-labs/simplex/testutil"
 	"go.uber.org/zap/zapcore"
 )
@@ -35,7 +35,7 @@ func CreateNetworkLogger(t *testing.T, config *FuzzConfig) *testutil.TestLogger 
 }
 
 // CreateNodeLogger creates a logger for a node that writes to both console and {nodeID}.log
-func CreateNodeLogger(t *testing.T, config *FuzzConfig, nodeID simplex.NodeID) *testutil.TestLogger {
+func CreateNodeLogger(t *testing.T, config *FuzzConfig, nodeID common.NodeID) *testutil.TestLogger {
 	if config.LogDirectory == "" {
 		return testutil.MakeLogger(t, int(nodeID[0]))
 	}

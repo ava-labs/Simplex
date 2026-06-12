@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ava-labs/simplex"
+	"github.com/ava-labs/simplex/common"
 	"github.com/ava-labs/simplex/testutil"
 	"github.com/stretchr/testify/require"
 )
@@ -55,7 +55,7 @@ func (f *fakeVMBlock) Timestamp() time.Time                     { return time.Ti
 func (f *fakeVMBlock) Verify(_ context.Context, _ uint64) error { return nil }
 
 type outerBlock struct {
-	finalization *simplex.Finalization
+	finalization *common.Finalization
 	block        StateMachineBlock
 }
 
@@ -67,10 +67,10 @@ func (bs blockStore) clone() blockStore {
 	return newStore
 }
 
-func (bs blockStore) getBlock(seq uint64, _ [32]byte) (StateMachineBlock, *simplex.Finalization, error) {
+func (bs blockStore) getBlock(seq uint64, _ [32]byte) (StateMachineBlock, *common.Finalization, error) {
 	blk, exits := bs[seq]
 	if !exits {
-		return StateMachineBlock{}, nil, fmt.Errorf("%w: block %d not found", simplex.ErrBlockNotFound, seq)
+		return StateMachineBlock{}, nil, fmt.Errorf("%w: block %d not found", common.ErrBlockNotFound, seq)
 	}
 	return blk.block, blk.finalization, nil
 }
@@ -100,7 +100,7 @@ type aggregatrdSignature struct {
 	Signatures [][]byte
 }
 
-func (sv *signatureAggregator) Aggregate([]simplex.Signature) (simplex.QuorumCertificate, error) {
+func (sv *signatureAggregator) Aggregate([]common.Signature) (common.QuorumCertificate, error) {
 	panic("unused in tests")
 }
 
@@ -113,7 +113,7 @@ func (sv *signatureAggregator) AppendSignatures(existing []byte, sigs ...[]byte)
 	return asn1.Marshal(aggregatrdSignature{Signatures: all})
 }
 
-func (sv *signatureAggregator) IsQuorum(signers []simplex.NodeID) bool {
+func (sv *signatureAggregator) IsQuorum(signers []common.NodeID) bool {
 	var sum uint64
 	for _, signer := range signers {
 		sum += sv.weightByNodeID[string(signer)]
@@ -121,8 +121,8 @@ func (sv *signatureAggregator) IsQuorum(signers []simplex.NodeID) bool {
 	return sum*3 > sv.totalWeight*2
 }
 
-func newSignatureAggregatorCreator() simplex.SignatureAggregatorCreator {
-	return func(weights []simplex.Node) simplex.SignatureAggregator {
+func newSignatureAggregatorCreator() common.SignatureAggregatorCreator {
+	return func(weights []common.Node) common.SignatureAggregator {
 		s := &signatureAggregator{weightByNodeID: make(map[string]uint64, len(weights))}
 		for _, nw := range weights {
 			s.weightByNodeID[string(nw.Node)] = nw.Weight
@@ -238,7 +238,7 @@ func makeNormalSimplexBlock(t *testing.T, index int, blocks []StateMachineBlock,
 		},
 		Metadata: StateMachineMetadata{
 			PChainHeight: 100,
-			SimplexProtocolMetadata: (&simplex.ProtocolMetadata{
+			SimplexProtocolMetadata: (&common.ProtocolMetadata{
 				Round: round,
 				Seq:   seq,
 				Epoch: 1,
@@ -282,7 +282,7 @@ func newStateMachine(t *testing.T) (*StateMachine, *testConfig) {
 	return newStateMachineWithLogger(t, testutil.MakeLogger(t))
 }
 
-func newStateMachineWithLogger(tb testing.TB, logger simplex.Logger) (*StateMachine, *testConfig) {
+func newStateMachineWithLogger(tb testing.TB, logger common.Logger) (*StateMachine, *testConfig) {
 	bs := make(blockStore)
 	bs[0] = &outerBlock{block: genesisBlock}
 
@@ -346,7 +346,7 @@ func newStateMachineWithLogger(tb testing.TB, logger simplex.Logger) (*StateMach
 // concatAggregator concatenates signatures for easy verification in tests.
 type concatAggregator struct{}
 
-func (concatAggregator) Aggregate([]simplex.Signature) (simplex.QuorumCertificate, error) {
+func (concatAggregator) Aggregate([]common.Signature) (common.QuorumCertificate, error) {
 	panic("unused in tests")
 }
 
@@ -355,13 +355,13 @@ func (concatAggregator) AppendSignatures(existing []byte, sigs ...[]byte) ([]byt
 	return append(result, existing...), nil
 }
 
-func (concatAggregator) IsQuorum([]simplex.NodeID) bool {
+func (concatAggregator) IsQuorum([]common.NodeID) bool {
 	return false
 }
 
 type failingAggregator struct{}
 
-func (failingAggregator) Aggregate([]simplex.Signature) (simplex.QuorumCertificate, error) {
+func (failingAggregator) Aggregate([]common.Signature) (common.QuorumCertificate, error) {
 	panic("unused in tests")
 }
 
@@ -371,16 +371,16 @@ func (failingAggregator) AppendSignatures([]byte, ...[]byte) ([]byte, error) {
 	return nil, errTestAggregationFailed
 }
 
-func (failingAggregator) IsQuorum([]simplex.NodeID) bool {
+func (failingAggregator) IsQuorum([]common.NodeID) bool {
 	return false
 }
 
 type testBlockStore map[uint64]StateMachineBlock
 
-func (bs testBlockStore) getBlock(seq uint64, _ [32]byte) (StateMachineBlock, *simplex.Finalization, error) {
+func (bs testBlockStore) getBlock(seq uint64, _ [32]byte) (StateMachineBlock, *common.Finalization, error) {
 	blk, ok := bs[seq]
 	if !ok {
-		return StateMachineBlock{}, nil, fmt.Errorf("%w: block %d", simplex.ErrBlockNotFound, seq)
+		return StateMachineBlock{}, nil, fmt.Errorf("%w: block %d", common.ErrBlockNotFound, seq)
 	}
 	return blk, nil, nil
 }

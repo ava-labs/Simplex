@@ -7,7 +7,7 @@ import (
 	"encoding/base64"
 	"fmt"
 
-	"github.com/ava-labs/simplex"
+	"github.com/ava-labs/simplex/common"
 )
 
 // Creator creates a DeletableWAL. Returns an error upon failure.
@@ -28,7 +28,7 @@ type TruncateableWAL interface {
 
 // DeletableWAL is a WAL that can be deleted.
 type DeletableWAL interface {
-	simplex.WriteAheadLog
+	common.WriteAheadLog
 	// Delete deletes the WAL file and after it is called,
 	// it should no longer be used.
 	Delete() error

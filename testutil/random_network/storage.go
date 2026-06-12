@@ -6,7 +6,7 @@ package random_network
 import (
 	"context"
 
-	"github.com/ava-labs/simplex"
+	"github.com/ava-labs/simplex/common"
 	"github.com/ava-labs/simplex/testutil"
 )
 
@@ -22,7 +22,7 @@ func NewStorage(mempool *Mempool) *Storage {
 	}
 }
 
-func (s *Storage) Index(ctx context.Context, block simplex.VerifiedBlock, certificate simplex.Finalization) error {
+func (s *Storage) Index(ctx context.Context, block common.VerifiedBlock, certificate common.Finalization) error {
 	s.mempool.AcceptBlock(block.(*Block))
 	return s.InMemStorage.Index(ctx, block, certificate)
 }

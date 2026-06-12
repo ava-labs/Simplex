@@ -7,7 +7,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/ava-labs/simplex"
+	"github.com/ava-labs/simplex/common"
 )
 
 type TestBlockBuilder struct {
@@ -33,7 +33,7 @@ func (t *TestBlockBuilder) WithBlockShouldBeBuiltBuffer(buffer uint64) *TestBloc
 	return t
 }
 
-func (t *TestBlockBuilder) BuildBlock(_ context.Context, metadata simplex.ProtocolMetadata, blacklist simplex.Blacklist) (simplex.VerifiedBlock, bool) {
+func (t *TestBlockBuilder) BuildBlock(_ context.Context, metadata common.ProtocolMetadata, blacklist common.Blacklist) (common.VerifiedBlock, bool) {
 	tb := NewTestBlock(metadata, blacklist)
 
 	select {

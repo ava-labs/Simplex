@@ -1,0 +1,1766 @@
+// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// See the file LICENSE for licensing terms.
+
+package simplex_test
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/binary"
+	"fmt"
+	"math"
+	rand2 "math/rand"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	. "github.com/ava-labs/simplex/common"
+	"github.com/ava-labs/simplex/record"
+	. "github.com/ava-labs/simplex/simplex"
+	"github.com/ava-labs/simplex/testutil"
+
+	"github.com/stretchr/testify/require"
+	"go.uber.org/zap/zapcore"
+)
+
+var (
+	emptyBlacklist = Blacklist{
+		NodeCount:      4,
+		SuspectedNodes: SuspectedNodes{},
+		Updates:        []BlacklistUpdate{},
+	}
+)
+
+// TestFinalizeSameSequence tests that a node only verifies a block after it receives all the empty notarizations the block depends on.
+// This means the node can(and should) send a finalize vote for the same sequence if and only if a valid empty notarization has been verified.
+//
+// The test does this
+// Round 0 := finalized block of seq 0
+// Round 1 := receive block of seq 1, round 1 advance from notarization & send finalize vote
+// Round 2 := receive block of seq 1, round 2 and are unable to verify(because we don't have empty notarization yet)
+//
+// Once we receive the empty notarization, we can verify the block(seq 1, round 2) and send out a finalize vote
+func TestFinalizeSameSequence(t *testing.T) {
+	bb := testutil.NewTestBlockBuilder()
+	ctx := context.Background()
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	initialBlock := createBlocks(t, nodes, 1)[0]
+	recordingComm := &recordingComm{Communication: testutil.NewNoopComm(nodes), BroadcastMessages: make(chan *Message, 100), SentMessages: make(chan *Message, 100)}
+	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], recordingComm, bb)
+	storage.Index(ctx, initialBlock.VerifiedBlock, initialBlock.Finalization)
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+
+	require.NoError(t, e.Start())
+	require.Equal(t, uint64(1), e.Metadata().Seq)
+
+	// we receive a block and then notarize(this sends out a finalize vote for the block)
+	advanceRoundFromNotarization(t, e, bb)
+	require.Equal(t, uint64(2), e.Metadata().Seq)
+	require.Equal(t, uint64(2), e.Metadata().Round)
+
+	// wait for finalize votes
+	for {
+		msg := <-recordingComm.BroadcastMessages
+		if msg.FinalizeVote != nil {
+			require.Equal(t, uint64(1), msg.FinalizeVote.Finalization.Round)
+			require.Equal(t, uint64(1), msg.FinalizeVote.Finalization.Seq)
+			break
+		}
+	}
+
+	// clear the recorded messages
+	for len(recordingComm.BroadcastMessages) > 0 {
+		<-recordingComm.BroadcastMessages
+	}
+
+	md := ProtocolMetadata{
+		Round: 2,
+		Seq:   1, // set next seq to 1 not 2
+		Prev:  initialBlock.VerifiedBlock.BlockHeader().Digest,
+	}
+	vb, ok := bb.BuildBlock(context.Background(), md, Blacklist{
+		NodeCount: uint16(len(e.EpochConfig.Comm.Nodes())),
+	})
+	require.True(t, ok)
+
+	block := vb.(*testutil.TestBlock)
+	var verified atomic.Bool
+	block.OnVerify = func() {
+		verified.Store(true)
+	}
+
+	// send block from leader
+	vote, err := testutil.NewTestVote(block, nodes[2])
+	require.NoError(t, err)
+	err = e.HandleMessage(&Message{
+		BlockMessage: &BlockMessage{
+			Vote:  *vote,
+			Block: block,
+		},
+	}, nodes[2])
+	require.NoError(t, err)
+
+	// give some time for block to be (not)verified
+	require.Never(t, func() bool {
+		return verified.Load()
+	}, 200*time.Millisecond, 50*time.Millisecond)
+
+	// now lets send empty notarization
+	emptyNotarization := testutil.NewEmptyNotarization(nodes, 1)
+	err = e.HandleMessage(&Message{
+		EmptyNotarization: emptyNotarization,
+	}, nodes[3])
+	require.NoError(t, err)
+
+	// create a notarization and now we should send a finalize vote for seq 1 again
+	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Nodes())
+	notarization, err := testutil.NewNotarization(e.Logger, sigAggr, block, nodes[1:])
+	require.NoError(t, err)
+	testutil.InjectTestNotarization(t, e, notarization, nodes[1])
+
+	wal.AssertNotarization(block.Metadata.Round)
+
+	// wait for finalize votes
+	for {
+		msg := <-recordingComm.BroadcastMessages
+		if msg.FinalizeVote != nil {
+			require.Equal(t, uint64(2), msg.FinalizeVote.Finalization.Round)
+			require.Equal(t, uint64(1), msg.FinalizeVote.Finalization.Seq)
+			break
+		}
+	}
+
+	require.Equal(t, uint64(2), e.Metadata().Seq)
+	require.Equal(t, uint64(3), e.Metadata().Round)
+}
+
+func advanceWithFinalizeCheck(t *testing.T, e *Epoch, recordingComm *recordingComm, bb *testutil.TestBlockBuilder) *FinalizeVote {
+	round := e.Metadata().Round
+	seq := e.Metadata().Seq
+	advanceRoundFromNotarization(t, e, bb)
+
+	// wait for finalize votes for the round
+	for {
+		msg := <-recordingComm.BroadcastMessages
+		if msg.FinalizeVote != nil {
+			require.Equal(t, round, msg.FinalizeVote.Finalization.Round)
+			require.Equal(t, seq, msg.FinalizeVote.Finalization.Seq)
+			return msg.FinalizeVote
+		}
+	}
+}
+
+func TestFinalizeSameSequenceGap(t *testing.T) {
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+
+	for numEmpty := range uint64(5) {
+		for numNotarizations := range uint64(5) {
+			leader := LeaderForRound(nodes, 1+numEmpty+numNotarizations)
+			if leader.Equals(nodes[0]) {
+				continue
+			}
+
+			for seqToDoubleFinalize := uint64(1); seqToDoubleFinalize <= numNotarizations; seqToDoubleFinalize++ {
+				t.Run(fmt.Sprintf("empty=%d notarizations=%d seq=%d", numEmpty, numNotarizations, seqToDoubleFinalize), func(t *testing.T) {
+					t.Parallel()
+					testFinalizeSameSequenceGap(t, nodes, numEmpty, numNotarizations, seqToDoubleFinalize)
+				})
+			}
+		}
+	}
+}
+
+func testFinalizeSameSequenceGap(t *testing.T, nodes []NodeID, numEmptyNotarizations uint64, numNotarizations uint64, seqToDoubleFinalize uint64) {
+	bb := testutil.NewTestBlockBuilder()
+	ctx := context.Background()
+	initialBlock := createBlocks(t, nodes, 1)[0]
+	recordingComm := &recordingComm{Communication: testutil.NewNoopComm(nodes), BroadcastMessages: make(chan *Message, 100), SentMessages: make(chan *Message, 100)}
+	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], recordingComm, bb)
+	storage.Index(ctx, initialBlock.VerifiedBlock, initialBlock.Finalization)
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+
+	require.NoError(t, e.Start())
+	require.Equal(t, uint64(1), e.Metadata().Seq)
+
+	finalizeVoteSeqs := make(map[uint64]*FinalizeVote)
+	finalizeVoteSeqs[0] = &FinalizeVote{
+		Finalization: ToBeSignedFinalization{
+			BlockHeader: initialBlock.VerifiedBlock.BlockHeader(),
+		},
+	}
+
+	for i := uint64(0); i < numNotarizations; i++ {
+		fVote := advanceWithFinalizeCheck(t, e, recordingComm, bb)
+		finalizeVoteSeqs[fVote.Finalization.Seq] = fVote
+	}
+
+	for range numEmptyNotarizations {
+		leader := LeaderForRound(e.Comm.Nodes().NodeIDs(), e.Metadata().Round)
+		if e.ID.Equals(leader) {
+			fVote := advanceWithFinalizeCheck(t, e, recordingComm, bb)
+			finalizeVoteSeqs[fVote.Finalization.Seq] = fVote
+			numNotarizations++
+		}
+
+		advanceRoundFromEmpty(t, e)
+	}
+
+	require.Equal(t, 1+numEmptyNotarizations+numNotarizations, e.Metadata().Round)
+	require.Equal(t, 1+numNotarizations, e.Metadata().Seq)
+
+	// clear the recorded messages
+	for len(recordingComm.BroadcastMessages) > 0 {
+		<-recordingComm.BroadcastMessages
+	}
+
+	md := ProtocolMetadata{
+		Round: 1 + numEmptyNotarizations + numNotarizations,
+		Seq:   seqToDoubleFinalize,
+		Prev:  finalizeVoteSeqs[seqToDoubleFinalize-1].Finalization.Digest,
+	}
+	vb, ok := bb.BuildBlock(context.Background(), md, Blacklist{
+		NodeCount: uint16(len(e.EpochConfig.Comm.Nodes())),
+	})
+	require.True(t, ok)
+
+	block := vb.(*testutil.TestBlock)
+	verified := make(chan struct{}, 1)
+	block.OnVerify = func() {
+		verified <- struct{}{}
+	}
+
+	leader := LeaderForRound(e.Comm.Nodes().NodeIDs(), 1+numEmptyNotarizations+numNotarizations)
+	if e.ID.Equals(leader) {
+		return
+	}
+
+	// send block from leader
+	vote, err := testutil.NewTestVote(block, leader)
+	require.NoError(t, err)
+	err = e.HandleMessage(&Message{
+		BlockMessage: &BlockMessage{
+			Vote:  *vote,
+			Block: block,
+		},
+	}, leader)
+	require.NoError(t, err)
+
+	// give some time for block to be (not)verified
+	require.Never(t, func() bool {
+		return len(verified) > 0
+	}, 200*time.Millisecond, 50*time.Millisecond)
+
+	// now lets send empty notarizations seqToDoubleFinalize.round - seqToDoubleFinalize-1.round
+	startMissingNotarizationRound := finalizeVoteSeqs[seqToDoubleFinalize-1].Finalization.Round + 1
+	for i := startMissingNotarizationRound; i < md.Round; i++ {
+		emptyNotarization := testutil.NewEmptyNotarization(nodes, i)
+		err = e.HandleMessage(&Message{
+			EmptyNotarization: emptyNotarization,
+		}, nodes[3])
+		require.NoError(t, err)
+	}
+
+	<-verified
+
+	// drain any finalize votes that were sent
+	for len(recordingComm.BroadcastMessages) > 0 {
+		<-recordingComm.BroadcastMessages
+	}
+
+	// create a notarization and now we should send a finalize vote for seqToDoubleFinalize again
+	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Nodes())
+	notarization, err := testutil.NewNotarization(e.Logger, sigAggr, block, nodes[1:])
+	require.NoError(t, err)
+	testutil.InjectTestNotarization(t, e, notarization, nodes[1])
+
+	wal.AssertNotarization(block.Metadata.Round)
+
+	// wait for finalize votes
+	for {
+		msg := <-recordingComm.BroadcastMessages
+		if msg.FinalizeVote != nil {
+			require.Equal(t, seqToDoubleFinalize, msg.FinalizeVote.Finalization.Seq)
+			break
+		}
+	}
+
+	require.Equal(t, 2+numEmptyNotarizations+numNotarizations, e.Metadata().Round)
+}
+
+func TestBlockNotVerifiedIfParentNotNotarized(t *testing.T) {
+	bb := testutil.NewTestBlockBuilder()
+
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+
+	comm := testutil.NewNoopComm(nodes)
+	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[3], comm, bb)
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+
+	require.NoError(t, e.Start())
+
+	blocks := createBlocks(t, nodes, 2)
+
+	var block1Verified atomic.Bool
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	block0 := blocks[0].VerifiedBlock.(*testutil.TestBlock)
+	block0.OnVerify = func() {
+		wg.Done()
+	}
+	block1 := blocks[1].VerifiedBlock.(*testutil.TestBlock)
+	block1.OnVerify = func() {
+		block1Verified.Store(true)
+	}
+
+	v0, err := testutil.NewTestVote(block0, nodes[0])
+	require.NoError(t, err)
+
+	v1, err := testutil.NewTestVote(block1, nodes[1])
+	require.NoError(t, err)
+
+	emptyNotarization := testutil.NewEmptyNotarization(nodes, 0)
+
+	err = e.HandleMessage(&Message{
+		BlockMessage: &BlockMessage{
+			Vote:  *v0,
+			Block: block0,
+		},
+	}, nodes[0])
+	require.NoError(t, err)
+
+	wg.Wait()
+
+	err = e.HandleMessage(&Message{
+		BlockMessage: &BlockMessage{
+			Vote:  *v1,
+			Block: block1,
+		},
+	}, nodes[1])
+	require.NoError(t, err)
+
+	err = e.HandleMessage(&Message{
+		EmptyNotarization: emptyNotarization,
+	}, nodes[1])
+	require.NoError(t, err)
+
+	require.Never(t, func() bool {
+		return block1Verified.Load()
+	}, time.Second, 100*time.Millisecond)
+}
+
+func TestEpochHandleNotarizationFutureRound(t *testing.T) {
+	bb := testutil.NewTestBlockBuilder()
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	// Create the two blocks ahead of time
+	blocks := createBlocks(t, nodes, 2)
+	firstBlock := blocks[0].VerifiedBlock.(*testutil.TestBlock)
+	secondBlock := blocks[1].VerifiedBlock.(*testutil.TestBlock)
+
+	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
+	quorum := Quorum(len(nodes))
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+
+	require.NoError(t, e.Start())
+
+	// Create a notarization for round 1 which is a future round because we haven't gone through round 0 yet.
+	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Nodes())
+	notarization, err := testutil.NewNotarization(conf.Logger, sigAggr, secondBlock, nodes)
+	require.NoError(t, err)
+
+	// Give the node the notarization message before receiving the first block
+	e.HandleMessage(&Message{
+		Notarization: &notarization,
+	}, nodes[1])
+
+	// Run through round 0
+	notarizeAndFinalizeRoundWithMetadata(t, e, bb, &firstBlock.Metadata)
+
+	// Emulate round 1 by sending the block
+	vote, err := testutil.NewTestVote(secondBlock, nodes[1])
+	require.NoError(t, err)
+	err = e.HandleMessage(&Message{
+		BlockMessage: &BlockMessage{
+			Vote:  *vote,
+			Block: secondBlock,
+		},
+	}, nodes[1])
+	require.NoError(t, err)
+
+	// The node should store the notarization of the second block once it gets the block.
+	wal.AssertNotarization(1)
+
+	for i := 1; i < quorum; i++ {
+		testutil.InjectTestFinalizeVote(t, e, secondBlock, nodes[i])
+	}
+
+	blockCommitted := storage.WaitForBlockCommit(1)
+	require.Equal(t, secondBlock, blockCommitted)
+}
+
+// TestEpochIndexFinalization ensures that we properly index past finalizations when
+// there have been empty rounds
+func TestEpochIndexFinalization(t *testing.T) {
+	bb := testutil.NewTestBlockBuilder()
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	conf, _, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+
+	require.NoError(t, e.Start())
+	firstBlock, _ := advanceRoundFromNotarization(t, e, bb)
+	advanceRoundFromFinalization(t, e, bb)
+
+	require.Equal(t, uint64(2), e.Metadata().Round)
+	require.Equal(t, uint64(2), e.Metadata().Seq)
+	require.Equal(t, uint64(0), e.Storage.NumBlocks())
+
+	advanceRoundFromEmpty(t, e)
+	require.Equal(t, uint64(3), e.Metadata().Round)
+	require.Equal(t, uint64(2), e.Metadata().Seq)
+	require.Equal(t, uint64(0), e.Storage.NumBlocks())
+
+	advanceRoundFromFinalization(t, e, bb)
+	require.Equal(t, uint64(4), e.Metadata().Round)
+	require.Equal(t, uint64(3), e.Metadata().Seq)
+	require.Equal(t, uint64(0), e.Storage.NumBlocks())
+
+	// at this point we are waiting on finalization of seq 0.
+	// when we receive that finalization, we should commit the rest of the finalizations for seqs
+	// 1 & 2
+
+	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Nodes())
+	finalization, _ := testutil.NewFinalizationRecord(t, sigAggr, firstBlock, e.Comm.Nodes().NodeIDs())
+	testutil.InjectTestFinalization(t, e, &finalization, nodes[1])
+
+	storage.WaitForBlockCommit(2)
+}
+
+func TestEpochConsecutiveProposalsDoNotGetVerified(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		err  error
+	}{
+		{
+			name: "valid block",
+		},
+		{
+			name: "invalid block",
+			err:  fmt.Errorf("invalid block"),
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			bb := testutil.NewTestBlockBuilder()
+			nodes := []NodeID{{1}, {2}, {3}, {4}}
+
+			conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[1], testutil.NewNoopComm(nodes), bb)
+
+			e, err := NewEpoch(conf)
+			require.NoError(t, err)
+			t.Cleanup(e.Stop)
+
+			require.NoError(t, e.Start())
+
+			leader := nodes[0]
+
+			md := e.Metadata()
+			vb, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
+			require.True(t, ok)
+			require.Equal(t, md.Round, md.Seq)
+
+			onlyVerifyOnce := make(chan struct{})
+
+			block := vb.(*testutil.TestBlock)
+			block.OnVerify = func() {
+				close(onlyVerifyOnce)
+			}
+			block.VerificationError = test.err
+
+			vote, err := testutil.NewTestVote(block, leader)
+			require.NoError(t, err)
+
+			var wg sync.WaitGroup
+			wg.Add(DefaultProcessingBlocks)
+
+			for i := 0; i < DefaultProcessingBlocks; i++ {
+				go func() {
+					defer wg.Done()
+
+					err := e.HandleMessage(&Message{
+						BlockMessage: &BlockMessage{
+							Vote:  *vote,
+							Block: block,
+						},
+					}, leader)
+					require.NoError(t, err)
+				}()
+			}
+			wg.Wait()
+
+			select {
+			case <-onlyVerifyOnce:
+			case <-time.After(time.Minute):
+				require.Fail(t, "timeout waiting for shouldOnlyBeClosedOnce")
+			}
+		})
+	}
+}
+
+// TestEpochIncreasesRoundAfterFinalization ensures that the epochs round is incremented
+// if we receive a finalization for the current round(even if it is not the next seq to commit)
+func TestEpochIncreasesRoundAfterFinalization(t *testing.T) {
+	bb := testutil.NewTestBlockBuilder()
+	nodes := []NodeID{{1}, {2}, {3}, {4}, {5}, {6}}
+
+	conf, _, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[2], testutil.NewNoopComm(nodes), bb)
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+
+	require.NoError(t, e.Start())
+
+	block, _ := advanceRoundFromNotarization(t, e, bb)
+	advanceRoundFromFinalization(t, e, bb)
+	require.Equal(t, uint64(2), e.Metadata().Round)
+	require.Equal(t, uint64(0), storage.NumBlocks())
+
+	// create the finalized block
+	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Nodes())
+	finalization, _ := testutil.NewFinalizationRecord(t, sigAggr, block, nodes)
+	testutil.InjectTestFinalization(t, e, &finalization, nodes[1])
+
+	storage.WaitForBlockCommit(1)
+	require.Equal(t, uint64(2), e.Metadata().Round)
+	require.Equal(t, uint64(2), storage.NumBlocks())
+
+	// we are the leader, ensure we can continue & propose a block
+	notarizeAndFinalizeRound(t, e, bb)
+}
+
+func TestEpochNotarizeTwiceThenFinalize(t *testing.T) {
+	bb := testutil.NewTestBlockBuilder()
+
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+
+	recordedMessages := make(chan *Message, 100)
+	comm := &recordingComm{Communication: testutil.NewNoopComm(nodes), BroadcastMessages: recordedMessages}
+
+	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], comm, bb)
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+
+	require.NoError(t, e.Start())
+
+	// Round 0
+	block0 := bb.GetBuiltBlock()
+
+	testutil.InjectTestVote(t, e, block0, nodes[1])
+	testutil.InjectTestVote(t, e, block0, nodes[2])
+	wal.AssertNotarization(0)
+
+	// Round 1
+	emptyNote := testutil.NewEmptyNotarization(nodes, 1)
+	err = e.HandleMessage(&Message{
+		EmptyNotarization: emptyNote,
+	}, nodes[1])
+	require.NoError(t, err)
+	emptyRecord := wal.AssertNotarization(1)
+	require.Equal(t, record.EmptyNotarizationRecordType, emptyRecord)
+
+	// Round 2
+	md := e.Metadata()
+	_, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
+	require.True(t, ok)
+	block1 := bb.GetBuiltBlock()
+
+	vote, err := testutil.NewTestVote(block1, nodes[2])
+	require.NoError(t, err)
+	err = e.HandleMessage(&Message{
+		BlockMessage: &BlockMessage{
+			Vote:  *vote,
+			Block: block1,
+		},
+	}, nodes[1])
+	require.NoError(t, err)
+
+	testutil.InjectTestVote(t, e, block1, nodes[3])
+	wal.AssertNotarization(2)
+
+	// Round 3
+	md = e.Metadata()
+	_, ok = bb.BuildBlock(context.Background(), md, emptyBlacklist)
+	require.True(t, ok)
+	block2 := bb.GetBuiltBlock()
+
+	vote, err = testutil.NewTestVote(block2, nodes[3])
+	require.NoError(t, err)
+	err = e.HandleMessage(&Message{
+		BlockMessage: &BlockMessage{
+			Vote:  *vote,
+			Block: block2,
+		},
+	}, nodes[3])
+	require.NoError(t, err)
+
+	testutil.InjectTestVote(t, e, block2, nodes[2])
+	wal.AssertNotarization(3)
+	require.Equal(t, uint64(0), storage.NumBlocks())
+
+	// drain the recorded messages
+	for len(recordedMessages) > 0 {
+		<-recordedMessages
+	}
+
+	blocks := make(map[uint64]*testutil.TestBlock)
+	blocks[0] = block0
+	blocks[2] = block1
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	finish := make(chan struct{})
+	// Once the node sends a finalizeVote message, send it finalizeVote messages as a response
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-finish:
+				return
+			case msg := <-recordedMessages:
+				if msg.FinalizeVote != nil {
+					round := msg.FinalizeVote.Finalization.Round
+					if block, ok := blocks[round]; ok {
+						testutil.InjectTestFinalizeVote(t, e, block, nodes[1])
+						testutil.InjectTestFinalizeVote(t, e, block, nodes[2])
+					}
+				}
+			}
+		}
+	}()
+
+	testutil.InjectTestFinalizeVote(t, e, block2, nodes[1])
+	testutil.InjectTestFinalizeVote(t, e, block2, nodes[2])
+
+	storage.WaitForBlockCommit(0)
+	storage.WaitForBlockCommit(1)
+	storage.WaitForBlockCommit(2)
+
+	close(finish)
+	wg.Wait()
+}
+
+func TestEpochFinalizeThenNotarize(t *testing.T) {
+	bb := testutil.NewTestBlockBuilder()
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	quorum := Quorum(len(nodes))
+
+	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+
+	require.NoError(t, e.Start())
+
+	t.Run("commit without notarization, only with finalization", func(t *testing.T) {
+		for round := 0; round < 100; round++ {
+			advanceRoundFromFinalization(t, e, bb)
+			storage.WaitForBlockCommit(uint64(round))
+		}
+	})
+
+	t.Run("notarization after commit without notarizations", func(t *testing.T) {
+		// leader is the proposer of the new block for the given round
+		leader := LeaderForRound(nodes, uint64(100))
+		// only create blocks if we are not the node running the epoch
+		if !leader.Equals(e.ID) {
+			md := e.Metadata()
+			_, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
+			require.True(t, ok)
+		}
+
+		block := bb.GetBuiltBlock()
+
+		vote, err := testutil.NewTestVote(block, nodes[0])
+		require.NoError(t, err)
+		err = e.HandleMessage(&Message{
+			BlockMessage: &BlockMessage{
+				Vote:  *vote,
+				Block: block,
+			},
+		}, nodes[1])
+		require.NoError(t, err)
+
+		for i := 1; i < quorum; i++ {
+			testutil.InjectTestVote(t, e, block, nodes[i])
+		}
+
+		wal.AssertNotarization(100)
+	})
+
+}
+
+func TestEpochSimpleFlow(t *testing.T) {
+	bb := testutil.NewTestBlockBuilder()
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+
+	require.NoError(t, e.Start())
+
+	rounds := uint64(100)
+	for round := uint64(0); round < rounds; round++ {
+		notarizeAndFinalizeRound(t, e, bb)
+	}
+}
+
+func TestEpochStartedTwice(t *testing.T) {
+	bb := testutil.NewTestBlockBuilder()
+
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+
+	require.NoError(t, e.Start())
+	require.ErrorIs(t, e.Start(), ErrAlreadyStarted)
+}
+
+func advanceRoundFromEmpty(t *testing.T, e *Epoch) {
+	leader := LeaderForRound(e.Comm.Nodes().NodeIDs(), e.Metadata().Round)
+	require.False(t, e.ID.Equals(leader), "epoch cannot be the leader for the empty round")
+
+	emptyNote := testutil.NewEmptyNotarization(e.Comm.Nodes().NodeIDs(), e.Metadata().Round)
+	err := e.HandleMessage(&Message{
+		EmptyNotarization: emptyNote,
+	}, leader)
+
+	require.NoError(t, err)
+
+	emptyRecord := e.WAL.(*testutil.TestWAL).AssertNotarization(emptyNote.Vote.Round)
+	require.Equal(t, record.EmptyNotarizationRecordType, emptyRecord)
+}
+
+func advanceRoundFromNotarization(t *testing.T, e *Epoch, bb *testutil.TestBlockBuilder) (VerifiedBlock, *Notarization) {
+	return advanceRound(t, e, bb, true, false, nil)
+}
+
+func advanceRoundFromFinalization(t *testing.T, e *Epoch, bb *testutil.TestBlockBuilder) VerifiedBlock {
+	block, _ := advanceRound(t, e, bb, false, true, nil)
+	return block
+}
+
+func notarizeAndFinalizeRound(t *testing.T, e *Epoch, bb *testutil.TestBlockBuilder) (VerifiedBlock, *Notarization) {
+	return advanceRound(t, e, bb, true, true, nil)
+}
+
+func notarizeAndFinalizeRoundWithMetadata(t *testing.T, e *Epoch, bb *testutil.TestBlockBuilder, md *ProtocolMetadata) (VerifiedBlock, *Notarization) {
+	return advanceRound(t, e, bb, true, true, md)
+}
+
+func FuzzEpochInterleavingMessages(f *testing.F) {
+	f.Fuzz(func(t *testing.T, seed int64) {
+		testEpochInterleavingMessages(t, seed)
+	})
+}
+
+func TestEpochInterleavingMessages(t *testing.T) {
+	buff := make([]byte, 8)
+
+	for i := 0; i < 100; i++ {
+		_, err := rand.Read(buff)
+		require.NoError(t, err)
+		seed := int64(binary.BigEndian.Uint64(buff))
+		testEpochInterleavingMessages(t, seed)
+	}
+}
+
+func testEpochInterleavingMessages(t *testing.T, seed int64) {
+	rounds := 10
+	bb := testutil.NewTestBlockBuilder().WithBuiltBuffer(uint64(rounds))
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	conf, _, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+
+	var protocolMetadata ProtocolMetadata
+
+	callbacks := createCallbacks(t, rounds, protocolMetadata, nodes, e, bb)
+
+	require.NoError(t, e.Start())
+
+	r := rand2.New(rand2.NewSource(seed))
+	for i, index := range r.Perm(len(callbacks)) {
+		t.Log("Called callback", i, "out of", len(callbacks))
+		callbacks[index]()
+	}
+
+	for i := 0; i < rounds; i++ {
+		t.Log("Waiting for commit of round", i)
+		storage.WaitForBlockCommit(uint64(i))
+	}
+}
+
+func createCallbacks(t *testing.T, rounds int, protocolMetadata ProtocolMetadata, nodes []NodeID, e *Epoch, bb *testutil.TestBlockBuilder) []func() {
+	blocks := make([]VerifiedBlock, 0, rounds)
+
+	callbacks := make([]func(), 0, rounds*4+len(blocks))
+
+	for i := 0; i < rounds; i++ {
+		block := testutil.NewTestBlock(protocolMetadata, emptyBlacklist)
+		blocks = append(blocks, block)
+
+		protocolMetadata.Seq++
+		protocolMetadata.Round++
+		protocolMetadata.Prev = block.BlockHeader().Digest
+
+		leader := LeaderForRound(nodes, uint64(i))
+
+		if !leader.Equals(e.ID) {
+			vote, err := testutil.NewTestVote(block, leader)
+			require.NoError(t, err)
+
+			callbacks = append(callbacks, func() {
+				t.Log("Injecting block", block.BlockHeader().Round)
+				e.HandleMessage(&Message{
+					BlockMessage: &BlockMessage{
+						Block: block,
+						Vote:  *vote,
+					},
+				}, leader)
+			})
+		} else {
+			bb.SetBuiltBlock(block)
+		}
+
+		for j := 1; j <= 2; j++ {
+			node := nodes[j]
+			vote, err := testutil.NewTestVote(block, node)
+			require.NoError(t, err)
+			msg := Message{
+				VoteMessage: vote,
+			}
+
+			callbacks = append(callbacks, func() {
+				t.Log("Injecting vote for round",
+					msg.VoteMessage.Vote.Round, msg.VoteMessage.Vote.Digest, msg.VoteMessage.Signature.Signer)
+				err := e.HandleMessage(&msg, node)
+				require.NoError(t, err)
+			})
+		}
+
+		for j := 1; j <= 2; j++ {
+			node := nodes[j]
+			vote := testutil.NewTestFinalizeVote(t, block, node)
+			msg := Message{
+				FinalizeVote: vote,
+			}
+			callbacks = append(callbacks, func() {
+				t.Log("Injecting finalized vote for round", msg.FinalizeVote.Finalization.Round, msg.FinalizeVote.Finalization.Digest)
+				err := e.HandleMessage(&msg, node)
+				require.NoError(t, err)
+			})
+		}
+	}
+	return callbacks
+}
+
+func TestEpochBlockSentTwice(t *testing.T) {
+	var tooFarMsg, alreadyReceivedMsg bool
+
+	bb := testutil.NewTestBlockBuilder()
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[1], testutil.NewNoopComm(nodes), bb)
+
+	l := conf.Logger.(*testutil.TestLogger)
+
+	l.Intercept(func(entry zapcore.Entry) error {
+		if entry.Message == "Got block of a future round" {
+			tooFarMsg = true
+		}
+
+		if entry.Message == "Already received a proposal from this node for the round" {
+			alreadyReceivedMsg = true
+		}
+
+		return nil
+	})
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+
+	require.NoError(t, e.Start())
+
+	md := e.Metadata()
+	md.Round = 2
+
+	b, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
+	require.True(t, ok)
+
+	block := b.(Block)
+
+	vote, err := testutil.NewTestVote(block, nodes[2])
+	require.NoError(t, err)
+	err = e.HandleMessage(&Message{
+		BlockMessage: &BlockMessage{
+			Vote:  *vote,
+			Block: block,
+		},
+	}, nodes[2])
+	require.NoError(t, err)
+
+	wal.AssertWALSize(0)
+	require.True(t, tooFarMsg)
+
+	err = e.HandleMessage(&Message{
+		BlockMessage: &BlockMessage{
+			Vote:  *vote,
+			Block: block,
+		},
+	}, nodes[2])
+	require.NoError(t, err)
+
+	wal.AssertWALSize(0)
+	require.True(t, alreadyReceivedMsg)
+
+}
+
+func TestEpochQCSignedByNonExistentNodes(t *testing.T) {
+	var wg sync.WaitGroup
+	wg.Add(6)
+
+	defer wg.Wait()
+
+	unknownNotarizationChan := make(chan struct{})
+	unknownEmptyNotarizationChan := make(chan struct{})
+	unknownFinalizationChan := make(chan struct{})
+	doubleNotarizationChan := make(chan struct{})
+	doubleEmptyNotarizationChan := make(chan struct{})
+	doubleFinalizationChan := make(chan struct{})
+
+	callbacks := map[string]func(){
+		"Notarization quorum certificate contains an unknown signer": func() {
+			wg.Done()
+			close(unknownNotarizationChan)
+		},
+		"Empty notarization quorum certificate contains an unknown signer": func() {
+			wg.Done()
+			close(unknownEmptyNotarizationChan)
+		},
+		"Finalization quorum certificate contains an unknown signer": func() {
+			wg.Done()
+			close(unknownFinalizationChan)
+		},
+		"Notarization is signed by the same node more than once": func() {
+			wg.Done()
+			close(doubleNotarizationChan)
+		},
+		"Empty notarization is signed by the same node more than once": func() {
+			wg.Done()
+			close(doubleEmptyNotarizationChan)
+		},
+		"Finalization is signed by the same node more than once": func() {
+			wg.Done()
+			close(doubleFinalizationChan)
+		},
+	}
+
+	bb := testutil.NewTestBlockBuilder()
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
+	l := conf.Logger.(*testutil.TestLogger)
+	l.Intercept(func(entry zapcore.Entry) error {
+		for key, f := range callbacks {
+			if strings.Contains(entry.Message, key) {
+				f()
+			}
+		}
+		return nil
+	})
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+
+	require.NoError(t, e.Start())
+
+	block := bb.GetBuiltBlock()
+
+	wal.AssertWALSize(1)
+
+	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Nodes())
+
+	t.Run("notarization with unknown signer isn't taken into account", func(t *testing.T) {
+		notarization, err := testutil.NewNotarization(conf.Logger, sigAggr, block, []NodeID{{2}, {3}, {5}})
+		require.NoError(t, err)
+
+		err = e.HandleMessage(&Message{
+			Notarization: &notarization,
+		}, nodes[1])
+		require.NoError(t, err)
+
+		time.Sleep(time.Second)
+
+		wal.AssertWALSize(1)
+	})
+
+	t.Run("notarization with double signer isn't taken into account", func(t *testing.T) {
+		notarization, err := testutil.NewNotarization(conf.Logger, sigAggr, block, []NodeID{{2}, {3}})
+		require.NoError(t, err)
+
+		tqc := notarization.QC.(testutil.TestQC)
+		tqc = append(tqc, Signature{Signer: nodes[2], Value: []byte{0}})
+		notarization.QC = tqc
+
+		err = e.HandleMessage(&Message{
+			Notarization: &notarization,
+		}, nodes[1])
+		require.NoError(t, err)
+
+		wal.AssertWALSize(1)
+	})
+
+	t.Run("empty notarization with unknown signer isn't taken into account", func(t *testing.T) {
+		var qc testutil.TestQC
+		for i, n := range []NodeID{{2}, {3}, {5}} {
+			qc = append(qc, Signature{Signer: n, Value: []byte{byte(i)}})
+		}
+
+		err = e.HandleMessage(&Message{
+			EmptyNotarization: &EmptyNotarization{
+				Vote: ToBeSignedEmptyVote{EmptyVoteMetadata: EmptyVoteMetadata{
+					Round: 0,
+					Epoch: 0,
+				}},
+				QC: qc,
+			},
+		}, nodes[1])
+		require.NoError(t, err)
+
+		wal.AssertWALSize(1)
+	})
+
+	t.Run("empty notarization with double signer isn't taken into account", func(t *testing.T) {
+		var qc testutil.TestQC
+		for i, n := range []NodeID{{2}, {3}, {2}} {
+			qc = append(qc, Signature{Signer: n, Value: []byte{byte(i)}})
+		}
+
+		err = e.HandleMessage(&Message{
+			EmptyNotarization: &EmptyNotarization{
+				Vote: ToBeSignedEmptyVote{EmptyVoteMetadata: EmptyVoteMetadata{
+					Round: 0,
+					Epoch: 0,
+				}},
+				QC: qc,
+			},
+		}, nodes[1])
+		require.NoError(t, err)
+
+		wal.AssertWALSize(1)
+	})
+
+	t.Run("finalization with unknown signer isn't taken into account", func(t *testing.T) {
+		finalization, _ := testutil.NewFinalizationRecord(t, sigAggr, block, []NodeID{{2}, {3}, {5}})
+
+		err = e.HandleMessage(&Message{
+			Finalization: &finalization,
+		}, nodes[1])
+		require.NoError(t, err)
+
+		storage.EnsureNoBlockCommit(t, 0)
+	})
+
+	t.Run("finalization with double signer isn't taken into account", func(t *testing.T) {
+		finalization, _ := testutil.NewFinalizationRecord(t, sigAggr, block, []NodeID{{2}, {3}, {3}})
+
+		err = e.HandleMessage(&Message{
+			Finalization: &finalization,
+		}, nodes[1])
+		require.NoError(t, err)
+
+		storage.EnsureNoBlockCommit(t, 0)
+	})
+}
+
+func TestEpochBlockSentFromNonLeader(t *testing.T) {
+	nonLeaderMessage := false
+
+	bb := testutil.NewTestBlockBuilder()
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[1], testutil.NewNoopComm(nodes), bb)
+	l := conf.Logger.(*testutil.TestLogger)
+	l.Intercept(func(entry zapcore.Entry) error {
+		if entry.Message == "Got block from a block proposer that is not the leader of the round" {
+			nonLeaderMessage = true
+		}
+		return nil
+	})
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+
+	require.NoError(t, e.Start())
+
+	md := e.Metadata()
+	b, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
+	require.True(t, ok)
+
+	block := b.(Block)
+
+	notLeader := nodes[3]
+	vote, err := testutil.NewTestVote(block, notLeader)
+	require.NoError(t, err)
+	err = e.HandleMessage(&Message{
+		BlockMessage: &BlockMessage{
+			Vote:  *vote,
+			Block: block,
+		},
+	}, notLeader)
+	require.NoError(t, err)
+	require.True(t, nonLeaderMessage)
+	records, err := wal.WriteAheadLog.ReadAll()
+	require.NoError(t, err)
+	require.Len(t, records, 0)
+}
+
+func TestEpochBlockTooHighRound(t *testing.T) {
+	var rejectedBlock bool
+
+	bb := testutil.NewTestBlockBuilder()
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[1], testutil.NewNoopComm(nodes), bb)
+
+	l := conf.Logger.(*testutil.TestLogger)
+	l.Intercept(func(entry zapcore.Entry) error {
+		if entry.Message == "Received a block message for a too high round" {
+			rejectedBlock = true
+		}
+		return nil
+	})
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+
+	require.NoError(t, e.Start())
+
+	t.Run("block from higher round is rejected", func(t *testing.T) {
+		defer func() {
+			rejectedBlock = false
+		}()
+
+		md := e.Metadata()
+		md.Round = math.MaxUint64 - 3
+
+		b, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
+		require.True(t, ok)
+
+		block := b.(Block)
+
+		vote, err := testutil.NewTestVote(block, nodes[0])
+		require.NoError(t, err)
+		err = e.HandleMessage(&Message{
+			BlockMessage: &BlockMessage{
+				Vote:  *vote,
+				Block: block,
+			},
+		}, nodes[0])
+		require.NoError(t, err)
+		require.True(t, rejectedBlock)
+
+		wal.AssertWALSize(0)
+	})
+
+	t.Run("block is accepted", func(t *testing.T) {
+		defer func() {
+			rejectedBlock = false
+		}()
+
+		md := e.Metadata()
+		b, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
+		require.True(t, ok)
+
+		block := b.(Block)
+
+		vote, err := testutil.NewTestVote(block, nodes[0])
+		require.NoError(t, err)
+		err = e.HandleMessage(&Message{
+			BlockMessage: &BlockMessage{
+				Vote:  *vote,
+				Block: block,
+			},
+		}, nodes[0])
+		require.NoError(t, err)
+		require.False(t, rejectedBlock)
+
+		wal.AssertWALSize(1)
+	})
+}
+
+// TestEpochSendsBlockDigestRequest ensures that we send a block digest request
+// when we receive a notarization for a block we don't have
+func TestEpochSendsBlockDigestRequest(t *testing.T) {
+	bb := testutil.NewTestBlockBuilder()
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	ctx := context.Background()
+	recordedMessages := make(chan *Message, 100)
+	comm := &recordingComm{Communication: testutil.NewNoopComm(nodes), SentMessages: recordedMessages}
+	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[3], comm, bb)
+	conf.ReplicationEnabled = true
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+
+	require.NoError(t, e.Start())
+
+	round0Empty := testutil.NewEmptyNotarization(nodes, 0)
+	err = e.HandleMessage(&Message{
+		EmptyNotarization: round0Empty,
+	}, nodes[0])
+	require.NoError(t, err)
+
+	emptyNote := wal.AssertNotarization(0)
+	require.NoError(t, err)
+	require.Equal(t, record.EmptyNotarizationRecordType, emptyNote)
+
+	_, built := bb.BuildBlock(ctx, ProtocolMetadata{}, emptyBlacklist)
+	require.True(t, built)
+	block := bb.GetBuiltBlock()
+
+	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Nodes())
+	notarization, err := testutil.NewNotarization(conf.Logger, sigAggr, block, nodes)
+	require.NoError(t, err)
+
+	err = e.HandleMessage(&Message{
+		Notarization: &notarization,
+	}, nodes[1])
+	require.NoError(t, err)
+
+	// ensure we send the block digest request
+	for msg := range recordedMessages {
+		if msg.BlockDigestRequest != nil {
+			require.Equal(t, uint64(0), msg.BlockDigestRequest.Seq)
+			require.Equal(t, block.BlockHeader().Digest, msg.BlockDigestRequest.Digest)
+			break
+		}
+	}
+
+	// send the response with the block
+	replicationResponse := &ReplicationResponse{
+		Data: []QuorumRound{
+			{
+				Block:        block,
+				Notarization: &notarization,
+			},
+		},
+	}
+
+	err = e.HandleMessage(&Message{
+		ReplicationResponse: replicationResponse,
+	}, nodes[2])
+	require.NoError(t, err)
+
+	for {
+		if wal.ContainsNotarization(0) {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	// sanity check: ensure we didn't double increment the round!
+	require.Equal(t, uint64(1), e.Metadata().Round)
+}
+
+// TestMetadataProposedRound ensures the metadata only builds off blocks
+// with finalizations or notarizations
+func TestMetadataProposedRound(t *testing.T) {
+	bb := testutil.NewTestBlockBuilder()
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+
+	require.NoError(t, e.Start())
+
+	// assert the proposed block was written to the wal
+	wal.AssertWALSize(1)
+	require.Zero(t, e.Metadata().Round)
+	require.Zero(t, e.Metadata().Seq)
+}
+
+func TestEpochVotesForEquivocatedVotes(t *testing.T) {
+	bb := testutil.NewTestBlockBuilder()
+
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	recordedMessages := make(chan *Message, 100)
+	comm := &recordingComm{Communication: testutil.NewNoopComm(nodes), BroadcastMessages: recordedMessages}
+	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[3], comm, bb)
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+
+	require.NoError(t, e.Start())
+
+	md := e.Metadata()
+	_, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
+	require.True(t, ok)
+
+	block := bb.GetBuiltBlock()
+
+	// the leader and this node are sending the votes for the same block
+	leader := nodes[0]
+	vote, err := testutil.NewTestVote(block, leader)
+	require.NoError(t, err)
+
+	err = e.HandleMessage(&Message{
+		BlockMessage: &BlockMessage{
+			Vote:  *vote,
+			Block: block,
+		},
+	}, leader)
+	require.NoError(t, err)
+
+	// node 1 sends a vote for a different block
+	equivocatedBlock := testutil.NewTestBlock(block.Metadata, emptyBlacklist)
+	equivocatedBlock.Data = []byte{1, 2, 3}
+	equivocatedBlock.ComputeDigest()
+	testutil.InjectTestVote(t, e, equivocatedBlock, nodes[1])
+
+	// We should not have sent a notarization yet, since we have not received enough votes for the block we received from the leader
+	require.Never(t, func() bool {
+		select {
+		case msg := <-recordedMessages:
+			if msg.Notarization != nil {
+				return true
+			}
+		default:
+			return false
+		}
+		return false
+	}, time.Millisecond*500, time.Millisecond*100)
+
+	// node 2 sends a vote for the same block as the leader
+	testutil.InjectTestVote(t, e, block, nodes[2])
+
+	// Wait for the notarization to be sent
+	timeout := time.After(time.Minute)
+	var notarization *Notarization
+	for notarization == nil {
+		select {
+		case msg := <-recordedMessages:
+			if msg.Notarization != nil {
+				notarization = msg.Notarization
+			}
+		case <-timeout:
+			require.Fail(t, "timed out waiting for notarization")
+		}
+	}
+
+	for _, signer := range notarization.QC.(testutil.TestQC).Signers() {
+		require.NotEqual(t, nodes[1], signer, "Node 1 should not be in the notarization QC")
+	}
+}
+
+// TestEpochRequestsEmptyRoundDependency ensures that when we receive a block
+// that builds off an empty round we don't have, we request those missing empty notarizations.
+func TestEpochRequestsEmptyRoundDependency(t *testing.T) {
+	bb := testutil.NewTestBlockBuilder()
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	ctx := context.Background()
+	blocks := createBlocks(t, nodes, 1)
+	recordedMessages := make(chan *Message, 100)
+	comm := &recordingComm{Communication: testutil.NewNoopComm(nodes), SentMessages: recordedMessages}
+	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[3], comm, bb)
+	conf.ReplicationEnabled = true
+	storage.Index(ctx, blocks[0].VerifiedBlock, blocks[0].Finalization)
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+
+	require.NoError(t, e.Start())
+
+	advanceRoundFromNotarization(t, e, bb)
+	testutil.WaitToEnterRound(t, e, 2)
+
+	skippedMD := blocks[0].VerifiedBlock.BlockHeader().ProtocolMetadata
+	skippedMD.Round = 2
+	skippedMD.Seq = 1
+	skippedMD.Prev = blocks[0].VerifiedBlock.BlockHeader().Digest
+
+	// the next node, proposes a block that doesn't build off the first block. note seq = 1
+	_, built := bb.BuildBlock(ctx, skippedMD, emptyBlacklist)
+	require.True(t, built)
+	block2 := bb.GetBuiltBlock()
+
+	vote1, err := testutil.NewTestVote(block2, nodes[2])
+	require.NoError(t, err)
+
+	err = e.HandleMessage(&Message{
+		BlockMessage: &BlockMessage{
+			Block: block2,
+			Vote:  *vote1,
+		},
+	}, nodes[2])
+	require.NoError(t, err)
+
+	for msg := range recordedMessages {
+		if msg.ReplicationRequest != nil {
+			require.Equal(t, uint64(1), msg.ReplicationRequest.Rounds[0])
+			break
+		}
+	}
+
+	missingEmptyNotarization := testutil.NewEmptyNotarization(nodes, 1)
+
+	// send the response with the block
+	replicationResponse := &ReplicationResponse{
+		Data: []QuorumRound{
+			{
+				EmptyNotarization: missingEmptyNotarization,
+			},
+		},
+	}
+	err = e.HandleMessage(&Message{
+		ReplicationResponse: replicationResponse,
+	}, nodes[2])
+	require.NoError(t, err)
+
+	for {
+		if wal.ContainsEmptyNotarization(1) {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	// notarize the block and wait to increase the round
+	testutil.InjectTestVote(t, e, block2, nodes[0])
+	testutil.InjectTestVote(t, e, block2, nodes[1])
+
+	wal.AssertNotarization(2)
+	testutil.WaitToEnterRound(t, e, 3)
+
+	// sanity check: ensure we didn't double increment the round!
+	require.Equal(t, uint64(3), e.Metadata().Round)
+}
+
+// Ensures we don't double increment the round on persisting a notarization
+func TestDoubleIncrementOnPersistNotarization(t *testing.T) {
+	// add an empty notarization, then a notarization for a previous round
+	bb := testutil.NewTestBlockBuilder()
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[3], testutil.NewNoopComm(nodes), bb)
+	conf.ReplicationEnabled = true
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+
+	require.NoError(t, e.Start())
+
+	advanceRoundFromEmpty(t, e)
+	require.Equal(t, uint64(1), e.Metadata().Round)
+
+	// create a notarization for round 0
+	md := ProtocolMetadata{
+		Epoch: 0,
+		Round: 0,
+		Seq:   0,
+	}
+	_, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
+	require.True(t, ok)
+
+	block := bb.GetBuiltBlock()
+	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Nodes())
+	notarization, err := testutil.NewNotarization(conf.Logger, sigAggr, block, nodes)
+	require.NoError(t, err)
+
+	err = e.HandleMessage(&Message{
+		ReplicationResponse: &ReplicationResponse{
+			Data: []QuorumRound{
+				{
+					Block:        block,
+					Notarization: &notarization,
+				},
+			},
+		},
+	}, nodes[0])
+	require.NoError(t, err)
+
+	wal.AssertWALSize(2)
+	// ensure the round is still 1
+	require.Equal(t, uint64(1), e.Metadata().Round)
+}
+
+// ListnerComm is a comm that listens for incoming messages
+// and sends them to the [in] channel
+type listenerComm struct {
+	testutil.NoopComm
+	in chan *Message
+}
+
+func NewListenerComm(nodeIDs []NodeID) *listenerComm {
+	return &listenerComm{
+		NoopComm: testutil.NewNoopComm(nodeIDs),
+		in:       make(chan *Message, 1),
+	}
+}
+
+func (b *listenerComm) Send(msg *Message, id NodeID) {
+	b.in <- msg
+}
+
+func TestRejectsOldNotarizationAndVotes(t *testing.T) {
+	bb := testutil.NewTestBlockBuilder()
+	ctx := context.Background()
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	initialBlock := createBlocks(t, nodes, 1)[0]
+	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[3], testutil.NewNoopComm(nodes), bb)
+	storage.Index(ctx, initialBlock.VerifiedBlock, initialBlock.Finalization)
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+
+	require.NoError(t, e.Start())
+	require.Equal(t, uint64(1), e.Metadata().Seq)
+
+	// send a block for round 1. then finalization then notarization for round 1
+	md := e.Metadata()
+	_, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
+	require.True(t, ok)
+
+	block := bb.GetBuiltBlock()
+
+	vote, err := testutil.NewTestVote(block, nodes[1])
+	require.NoError(t, err)
+	err = e.HandleMessage(&Message{
+		BlockMessage: &BlockMessage{
+			Vote:  *vote,
+			Block: block,
+		},
+	}, nodes[1])
+	require.NoError(t, err)
+	wal.AssertBlockProposal(1)
+
+	for i := 0; i < len(nodes); i++ {
+		if nodes[i].Equals(e.ID) {
+			continue
+		}
+		testutil.InjectTestFinalizeVote(t, e, block, nodes[i])
+	}
+	testutil.WaitToEnterRound(t, e, 2)
+
+	increment := 1
+	// wait for the empty vote
+	for !wal.ContainsEmptyVote(2) {
+		if len(bb.BlockShouldBeBuilt) == 0 {
+			bb.BlockShouldBeBuilt <- struct{}{}
+		}
+		e.AdvanceTime(e.StartTime.Add(conf.MaxProposalWait * time.Duration(increment)))
+		time.Sleep(100 * time.Millisecond)
+		increment++
+	}
+
+	// send notarization for round 1, after the finalization was sent
+	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Nodes())
+	notarization, err := testutil.NewNotarization(conf.Logger, sigAggr, block, nodes)
+	require.NoError(t, err)
+
+	err = e.HandleMessage(&Message{
+		Notarization: &notarization,
+	}, nodes[0])
+	require.NoError(t, err)
+
+	timer := time.NewTimer(3 * time.Second)
+	defer timer.Stop()
+	for {
+		select {
+		case <-timer.C:
+			require.False(t, wal.ContainsNotarization(1), "notarization for old round should not be recorded")
+			return
+		default:
+			if len(bb.BlockShouldBeBuilt) == 0 {
+				bb.BlockShouldBeBuilt <- struct{}{}
+			}
+			wal.AssertHealthy(e.BlockDeserializer, e.QCDeserializer)
+			e.AdvanceTime(e.StartTime.Add(conf.MaxProposalWait * time.Duration(increment)))
+			time.Sleep(100 * time.Millisecond)
+			increment++
+		}
+	}
+}
+
+func TestBlockDeserializer(t *testing.T) {
+	var blockDeserializer testutil.BlockDeserializer
+
+	ctx := context.Background()
+	tb := testutil.NewTestBlock(ProtocolMetadata{Seq: 1, Round: 2, Epoch: 3}, emptyBlacklist)
+	tbBytes, err := tb.Bytes()
+	require.NoError(t, err)
+	tb2, err := blockDeserializer.DeserializeBlock(ctx, tbBytes)
+	require.NoError(t, err)
+	require.Equal(t, tb, tb2)
+}
+
+// advanceRound progresses [e] to a new round. If [notarize] is set, the round will progress due to a notarization.
+// If [finalize] is set, the round will advance and the block will be indexed to storage.
+// If [injectedMD] is non-nil, it will be used as the metadata for the new block instead of generating one from the epoch.
+func advanceRound(t *testing.T, e *Epoch, bb *testutil.TestBlockBuilder, notarize bool, finalize bool, injectedMD *ProtocolMetadata) (VerifiedBlock, *Notarization) {
+	require.True(t, notarize || finalize, "must either notarize or finalize a round to advance")
+	nextSeqToCommit := e.Storage.NumBlocks()
+	nodes := e.Comm.Nodes()
+	quorum := Quorum(len(nodes))
+	// leader is the proposer of the new block for the given round
+	leader := LeaderForRound(nodes.NodeIDs(), e.Metadata().Round)
+	md := e.Metadata()
+	if injectedMD != nil {
+		md = *injectedMD
+	}
+
+	// only create blocks if we are not the node running the epoch
+	isEpochNode := leader.Equals(e.ID)
+	if !isEpochNode {
+		_, ok := bb.BuildBlock(context.Background(), md, Blacklist{
+			NodeCount: uint16(len(e.EpochConfig.Comm.Nodes())),
+		})
+		require.True(t, ok)
+	}
+
+	block := bb.GetBuiltBlock()
+
+	if !isEpochNode {
+		// send node a message from the leader
+		vote, err := testutil.NewTestVote(block, leader)
+		require.NoError(t, err)
+		err = e.HandleMessage(&Message{
+			BlockMessage: &BlockMessage{
+				Vote:  *vote,
+				Block: block,
+			},
+		}, leader)
+		require.NoError(t, err)
+	}
+
+	var notarization *Notarization
+	if notarize {
+		// start at one since our node has already voted
+		sigAggr := e.SignatureAggregatorCreator(nodes)
+		n, err := testutil.NewNotarization(e.Logger, sigAggr, block, nodes.NodeIDs()[0:quorum])
+		testutil.InjectTestNotarization(t, e, n, nodes[1].Node)
+
+		e.WAL.(*testutil.TestWAL).AssertNotarization(block.Metadata.Round)
+		require.NoError(t, err)
+		notarization = &n
+	}
+
+	if finalize {
+		for i := 0; i <= quorum; i++ {
+			if nodes[i].Node.Equals(e.ID) {
+				continue
+			}
+			testutil.InjectTestFinalizeVote(t, e, block, nodes[i].Node)
+		}
+
+		if nextSeqToCommit != block.Metadata.Seq {
+			testutil.WaitToEnterRound(t, e, block.Metadata.Round+1)
+			return block, notarization
+		}
+
+		blockFromStorage := e.Storage.(*testutil.InMemStorage).WaitForBlockCommit(block.Metadata.Seq)
+		require.Equal(t, block, blockFromStorage)
+	}
+
+	return block, notarization
+}
+
+func TestQuorum(t *testing.T) {
+	for _, testCase := range []struct {
+		n int
+		f int
+		q int
+	}{
+		{
+			n: 1, f: 0,
+			q: 1,
+		},
+		{
+			n: 2, f: 0,
+			q: 2,
+		},
+		{
+			n: 3, f: 0,
+			q: 2,
+		},
+		{
+			n: 4, f: 1,
+			q: 3,
+		},
+		{
+			n: 5, f: 1,
+			q: 4,
+		},
+		{
+			n: 6, f: 1,
+			q: 4,
+		},
+		{
+			n: 7, f: 2,
+			q: 5,
+		},
+		{
+			n: 8, f: 2,
+			q: 6,
+		},
+		{
+			n: 9, f: 2,
+			q: 6,
+		},
+		{
+			n: 10, f: 3,
+			q: 7,
+		},
+		{
+			n: 11, f: 3,
+			q: 8,
+		},
+		{
+			n: 12, f: 3,
+			q: 8,
+		},
+	} {
+		t.Run(fmt.Sprintf("%d", testCase.n), func(t *testing.T) {
+			require.Equal(t, testCase.q, Quorum(testCase.n))
+		})
+	}
+}

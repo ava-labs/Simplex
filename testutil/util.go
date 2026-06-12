@@ -10,12 +10,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ava-labs/simplex"
+	"github.com/ava-labs/simplex/common"
+	"github.com/ava-labs/simplex/simplex"
 	"github.com/stretchr/testify/require"
 )
 
 // DefaultTestNodeEpochConfig returns a default epoch config for a given node.
-func DefaultTestNodeEpochConfig(t *testing.T, nodeID simplex.NodeID, comm simplex.Communication, bb simplex.BlockBuilder) (simplex.EpochConfig, *TestWAL, *InMemStorage) {
+func DefaultTestNodeEpochConfig(t *testing.T, nodeID common.NodeID, comm common.Communication, bb common.BlockBuilder) (simplex.EpochConfig, *TestWAL, *InMemStorage) {
 	l := MakeLogger(t, int(nodeID[0]))
 	storage := NewInMemStorage()
 	wal := NewTestWAL(t)
@@ -32,7 +33,7 @@ func DefaultTestNodeEpochConfig(t *testing.T, nodeID simplex.NodeID, comm simple
 		Verifier:                   &testVerifier{},
 		Storage:                    storage,
 		BlockBuilder:               bb,
-		SignatureAggregatorCreator: func(weights []simplex.Node) simplex.SignatureAggregator {
+		SignatureAggregatorCreator: func(weights []common.Node) common.SignatureAggregator {
 			return &TestSignatureAggregator{N: len(weights)}
 		},
 		BlockDeserializer: &BlockDeserializer{},
@@ -44,11 +45,11 @@ func DefaultTestNodeEpochConfig(t *testing.T, nodeID simplex.NodeID, comm simple
 
 type AnyBlock interface {
 	// BlockHeader encodes a succinct and collision-free representation of a block.
-	BlockHeader() simplex.BlockHeader
+	BlockHeader() common.BlockHeader
 }
 
-func NewTestVote(block AnyBlock, id simplex.NodeID) (*simplex.Vote, error) {
-	vote := simplex.ToBeSignedVote{
+func NewTestVote(block AnyBlock, id common.NodeID) (*common.Vote, error) {
+	vote := common.ToBeSignedVote{
 		BlockHeader: block.BlockHeader(),
 	}
 	sig, err := vote.Sign(&TestSigner{})
@@ -56,8 +57,8 @@ func NewTestVote(block AnyBlock, id simplex.NodeID) (*simplex.Vote, error) {
 		return nil, err
 	}
 
-	return &simplex.Vote{
-		Signature: simplex.Signature{
+	return &common.Vote{
+		Signature: common.Signature{
 			Signer: id,
 			Value:  sig,
 		},
@@ -65,46 +66,46 @@ func NewTestVote(block AnyBlock, id simplex.NodeID) (*simplex.Vote, error) {
 	}, nil
 }
 
-func InjectTestVote(t *testing.T, e *simplex.Epoch, block simplex.VerifiedBlock, id simplex.NodeID) {
+func InjectTestVote(t *testing.T, e *simplex.Epoch, block common.VerifiedBlock, id common.NodeID) {
 	vote, err := NewTestVote(block, id)
 	require.NoError(t, err)
-	err = e.HandleMessage(&simplex.Message{
+	err = e.HandleMessage(&common.Message{
 		VoteMessage: vote,
 	}, id)
 	require.NoError(t, err)
 }
 
-func NewTestFinalizeVote(t *testing.T, block simplex.VerifiedBlock, id simplex.NodeID) *simplex.FinalizeVote {
-	f := simplex.ToBeSignedFinalization{BlockHeader: block.BlockHeader()}
+func NewTestFinalizeVote(t *testing.T, block common.VerifiedBlock, id common.NodeID) *common.FinalizeVote {
+	f := common.ToBeSignedFinalization{BlockHeader: block.BlockHeader()}
 	sig, err := f.Sign(&TestSigner{})
 	require.NoError(t, err)
-	return &simplex.FinalizeVote{
-		Signature: simplex.Signature{
+	return &common.FinalizeVote{
+		Signature: common.Signature{
 			Signer: id,
 			Value:  sig,
 		},
-		Finalization: simplex.ToBeSignedFinalization{
+		Finalization: common.ToBeSignedFinalization{
 			BlockHeader: block.BlockHeader(),
 		},
 	}
 }
 
-func InjectTestFinalization(t *testing.T, e *simplex.Epoch, finalization *simplex.Finalization, from simplex.NodeID) {
-	err := e.HandleMessage(&simplex.Message{
+func InjectTestFinalization(t *testing.T, e *simplex.Epoch, finalization *common.Finalization, from common.NodeID) {
+	err := e.HandleMessage(&common.Message{
 		Finalization: finalization,
 	}, from)
 	require.NoError(t, err)
 }
 
-func InjectTestFinalizeVote(t *testing.T, e *simplex.Epoch, block simplex.VerifiedBlock, id simplex.NodeID) {
-	err := e.HandleMessage(&simplex.Message{
+func InjectTestFinalizeVote(t *testing.T, e *simplex.Epoch, block common.VerifiedBlock, id common.NodeID) {
+	err := e.HandleMessage(&common.Message{
 		FinalizeVote: NewTestFinalizeVote(t, block, id),
 	}, id)
 	require.NoError(t, err)
 }
 
-func InjectTestNotarization(t *testing.T, e *simplex.Epoch, notarization simplex.Notarization, id simplex.NodeID) {
-	err := e.HandleMessage(&simplex.Message{
+func InjectTestNotarization(t *testing.T, e *simplex.Epoch, notarization common.Notarization, id common.NodeID) {
+	err := e.HandleMessage(&common.Message{
 		Notarization: &notarization,
 	}, id)
 	require.NoError(t, err)
@@ -114,8 +115,8 @@ type testQCDeserializer struct {
 	t *testing.T
 }
 
-func (t *testQCDeserializer) DeserializeQuorumCertificate(bytes []byte) (simplex.QuorumCertificate, error) {
-	var qc []simplex.Signature
+func (t *testQCDeserializer) DeserializeQuorumCertificate(bytes []byte) (common.QuorumCertificate, error) {
+	var qc []common.Signature
 	rest, err := asn1.Unmarshal(bytes, &qc)
 	require.NoError(t.t, err)
 	require.Empty(t.t, rest)
@@ -125,7 +126,7 @@ func (t *testQCDeserializer) DeserializeQuorumCertificate(bytes []byte) (simplex
 type TestSignatureAggregator struct {
 	Err          error
 	N            int
-	IsQuorumFunc func(signatures []simplex.NodeID) bool
+	IsQuorumFunc func(signatures []common.NodeID) bool
 }
 
 func (t *TestSignatureAggregator) AppendSignatures(existing []byte, sigs ...[]byte) ([]byte, error) {
@@ -139,11 +140,11 @@ func (t *TestSignatureAggregator) AppendSignatures(existing []byte, sigs ...[]by
 	return result, nil
 }
 
-func (t *TestSignatureAggregator) Aggregate(signatures []simplex.Signature) (simplex.QuorumCertificate, error) {
+func (t *TestSignatureAggregator) Aggregate(signatures []common.Signature) (common.QuorumCertificate, error) {
 	return TestQC(signatures), t.Err
 }
 
-func (t *TestSignatureAggregator) IsQuorum(signers []simplex.NodeID) bool {
+func (t *TestSignatureAggregator) IsQuorum(signers []common.NodeID) bool {
 	if t.IsQuorumFunc != nil {
 		return t.IsQuorumFunc(signers)
 	}
@@ -154,10 +155,10 @@ func (t *TestSignatureAggregator) IsQuorum(signers []simplex.NodeID) bool {
 	return len(signers) >= simplex.Quorum(t.N)
 }
 
-type TestQC []simplex.Signature
+type TestQC []common.Signature
 
-func (t TestQC) Signers() []simplex.NodeID {
-	res := make([]simplex.NodeID, 0, len(t))
+func (t TestQC) Signers() []common.NodeID {
+	res := make([]common.NodeID, 0, len(t))
 	for _, sig := range t {
 		res = append(res, sig.Signer)
 	}
@@ -186,11 +187,11 @@ func (t *TestSigner) Sign([]byte) ([]byte, error) {
 type testVerifier struct {
 }
 
-func (t *testVerifier) VerifyBlock(simplex.VerifiedBlock) error {
+func (t *testVerifier) VerifyBlock(common.VerifiedBlock) error {
 	return nil
 }
 
-func (t *testVerifier) Verify(_ []byte, _ []byte, _ simplex.NodeID) error {
+func (t *testVerifier) Verify(_ []byte, _ []byte, _ common.NodeID) error {
 	return nil
 }
 
@@ -253,12 +254,12 @@ func WaitForBlockProposerTimeout(t *testing.T, e *simplex.Epoch, startTime *time
 	}
 }
 
-func GenerateNodeID(t *testing.T) simplex.NodeID {
+func GenerateNodeID(t *testing.T) common.NodeID {
 	b := make([]byte, 32)
 
 	// fill with cryptographically secure random data
 	_, err := rand.Read(b)
 	require.NoError(t, err)
 
-	return simplex.NodeID(b)
+	return common.NodeID(b)
 }
