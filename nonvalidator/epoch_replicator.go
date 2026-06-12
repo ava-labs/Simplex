@@ -9,6 +9,10 @@ import (
 	"go.uber.org/zap"
 )
 
+type latestValidatorSetRetriever interface {
+	Nodes() common.Nodes
+}
+
 // TODO: garbage collect map
 type epochReplicator struct {
 	logger common.Logger
@@ -20,13 +24,17 @@ type epochReplicator struct {
 
 	// digests stores the metadata associated with a sealing block.
 	digests map[string]*common.QuorumRound
+
+	// latestValidatorSetRetriever is used to calculate the threshold of votes needed to validate an epoch
+	latestValidatorSetRetriever latestValidatorSetRetriever
 }
 
-func newEpochReplicator(logger common.Logger) *epochReplicator {
+func newEpochReplicator(logger common.Logger, validatorSetRetriever latestValidatorSetRetriever) *epochReplicator {
 	return &epochReplicator{
-		digests:               make(map[string]*common.QuorumRound),
-		sealingBlockResponses: make(map[uint64]map[string]common.Digest),
-		logger:                logger,
+		digests:                     make(map[string]*common.QuorumRound),
+		sealingBlockResponses:       make(map[uint64]map[string]common.Digest),
+		logger:                      logger,
+		latestValidatorSetRetriever: validatorSetRetriever,
 	}
 }
 
@@ -39,7 +47,7 @@ func (e *epochReplicator) collectedQuorumRound(qr *common.QuorumRound, from comm
 	e.logger.Debug("Collected a quorum round with a sealing block", zap.Stringer("QR", qr), zap.Stringer("From", from))
 
 	sealingInfo := qr.Block.SealingBlockInfo()
-	threshold := simplex.F(len(sealingInfo.ValidatorSet)) + 1
+	threshold := simplex.F(len(e.latestValidatorSetRetriever.Nodes())) + 1
 	epochResponses, ok := e.sealingBlockResponses[sealingInfo.Epoch]
 	digest := qr.Block.BlockHeader().Digest
 	if !ok {
