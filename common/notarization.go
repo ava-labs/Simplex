@@ -9,8 +9,6 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/ava-labs/simplex/record"
-
 	"go.uber.org/zap"
 )
 
@@ -20,7 +18,7 @@ var (
 )
 
 func NewEmptyNotarizationRecord(emptyNotarization *EmptyNotarization) []byte {
-	return NewQuorumRecord(emptyNotarization.QC.Bytes(), emptyNotarization.Vote.Bytes(), record.EmptyNotarizationRecordType)
+	return NewQuorumRecord(emptyNotarization.QC.Bytes(), emptyNotarization.Vote.Bytes(), EmptyNotarizationRecordType)
 }
 
 func EmptyNotarizationFromRecord(record []byte, qd QCDeserializer) (EmptyNotarization, error) {

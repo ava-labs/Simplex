@@ -17,7 +17,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap/zapcore"
 
-	"github.com/ava-labs/simplex/record"
 	"github.com/ava-labs/simplex/testutil"
 	. "github.com/ava-labs/simplex/testutil"
 )
@@ -1490,7 +1489,7 @@ func TestReplicationChain(t *testing.T) {
 
 	// now the lagging node should catch up on empty notarizations
 	empty := laggingNode.WAL.AssertNotarization(numNotarizations - 1)
-	require.Equal(t, empty, record.EmptyNotarizationRecordType)
+	require.Equal(t, empty, common.EmptyNotarizationRecordType)
 
 	// seq should be 0, since filter gave empty notarizations
 	require.Equal(t, numNotarizations, laggingNode.E.Metadata().Round)
@@ -1637,7 +1636,7 @@ messages:
 
 	require.True(t, foundEmptyVote, "Node should send an empty vote after timeout following replication")
 	notarization := wal.AssertNotarization(uint64(len(blocks)))
-	require.Equal(t, record.EmptyNotarizationRecordType, notarization)
+	require.Equal(t, common.EmptyNotarizationRecordType, notarization)
 }
 
 // TestReplicationStartsRoundFromFinalizationWithBlock is a similar test to TestReplicationStartsRoundFromFinalization
@@ -1759,5 +1758,5 @@ messages:
 
 	require.True(t, foundEmptyVote, "Node should send an empty vote after timeout following replication")
 	notarization := wal.AssertNotarization(uint64(len(blocks)))
-	require.Equal(t, record.EmptyNotarizationRecordType, notarization)
+	require.Equal(t, common.EmptyNotarizationRecordType, notarization)
 }

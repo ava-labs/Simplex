@@ -8,8 +8,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-
-	"github.com/ava-labs/simplex/record"
 )
 
 type QuorumRecord struct {
@@ -101,8 +99,8 @@ func NewQuorumRecord(qc []byte, rawVote []byte, recordType uint16) []byte {
 // ParseNotarizationRecordBytes parses a notarization record into the bytes of the QC and the vote
 func ParseNotarizationRecord(r []byte) ([]byte, ToBeSignedVote, error) {
 	recordType := binary.BigEndian.Uint16(r)
-	if recordType != record.NotarizationRecordType {
-		return nil, ToBeSignedVote{}, fmt.Errorf("expected record type %d, got %d", record.NotarizationRecordType, recordType)
+	if recordType != NotarizationRecordType {
+		return nil, ToBeSignedVote{}, fmt.Errorf("expected record type %d, got %d", NotarizationRecordType, recordType)
 	}
 
 	record := r[2:]
@@ -139,7 +137,7 @@ func BlockRecord(bh BlockHeader, blockData []byte) []byte {
 	mdBytes := bh.Bytes()
 
 	buff := make([]byte, len(mdBytes)+len(blockData)+2)
-	binary.BigEndian.PutUint16(buff, record.BlockRecordType)
+	binary.BigEndian.PutUint16(buff, BlockRecordType)
 	copy(buff[2:], mdBytes)
 	copy(buff[2+BlockHeaderLen:], blockData)
 
@@ -157,8 +155,8 @@ func BlockFromRecord(ctx context.Context, blockDeserializer BlockDeserializer, r
 
 func ParseBlockRecord(buff []byte) (BlockHeader, []byte, error) {
 	recordType := binary.BigEndian.Uint16(buff)
-	if recordType != record.BlockRecordType {
-		return BlockHeader{}, nil, fmt.Errorf("expected record type %d, got %d", record.BlockRecordType, recordType)
+	if recordType != BlockRecordType {
+		return BlockHeader{}, nil, fmt.Errorf("expected record type %d, got %d", BlockRecordType, recordType)
 	}
 
 	buff = buff[2:]
@@ -182,8 +180,8 @@ func ParseBlockRecord(buff []byte) (BlockHeader, []byte, error) {
 
 func ParseEmptyNotarizationRecord(buff []byte) ([]byte, ToBeSignedEmptyVote, error) {
 	recordType := binary.BigEndian.Uint16(buff[:2])
-	if recordType != record.EmptyNotarizationRecordType {
-		return nil, ToBeSignedEmptyVote{}, fmt.Errorf("expected record type %d, got %d", record.NotarizationRecordType, recordType)
+	if recordType != EmptyNotarizationRecordType {
+		return nil, ToBeSignedEmptyVote{}, fmt.Errorf("expected record type %d, got %d", NotarizationRecordType, recordType)
 	}
 
 	record := buff[2:]
@@ -203,7 +201,7 @@ func ParseEmptyNotarizationRecord(buff []byte) ([]byte, ToBeSignedEmptyVote, err
 func NewEmptyVoteRecord(emptyVote ToBeSignedEmptyVote) []byte {
 	payload := emptyVote.Bytes()
 	buff := make([]byte, len(payload)+2)
-	binary.BigEndian.PutUint16(buff, record.EmptyVoteRecordType)
+	binary.BigEndian.PutUint16(buff, EmptyVoteRecordType)
 	copy(buff[2:], payload)
 
 	return buff
@@ -216,8 +214,8 @@ func ParseEmptyVoteRecord(rawEmptyVote []byte) (ToBeSignedEmptyVote, error) {
 
 	recordType := binary.BigEndian.Uint16(rawEmptyVote[:2])
 
-	if recordType != record.EmptyVoteRecordType {
-		return ToBeSignedEmptyVote{}, fmt.Errorf("expected record type %d, got %d", record.EmptyVoteRecordType, recordType)
+	if recordType != EmptyVoteRecordType {
+		return ToBeSignedEmptyVote{}, fmt.Errorf("expected record type %d, got %d", EmptyVoteRecordType, recordType)
 	}
 
 	var emptyVote ToBeSignedEmptyVote
@@ -284,13 +282,13 @@ func (wrr *WALRetentionReader) RetentionTerm(entry []byte) (uint64, error) {
 
 	recordType := binary.BigEndian.Uint16(entry[:2])
 	switch recordType {
-	case record.BlockRecordType:
+	case BlockRecordType:
 		return BlockRecordRetentionTerm(entry)
-	case record.NotarizationRecordType:
+	case NotarizationRecordType:
 		return QuorumRecordRetentionTerm(entry)
-	case record.EmptyNotarizationRecordType:
+	case EmptyNotarizationRecordType:
 		return QuorumRecordRetentionTerm(entry)
-	case record.EmptyVoteRecordType:
+	case EmptyVoteRecordType:
 		return EmptyVoteRecordRetentionTerm(entry)
 	default:
 		return 0, fmt.Errorf("unknown record type %d for retention term extraction", recordType)
