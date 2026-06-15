@@ -8,7 +8,6 @@ import (
 	"crypto/sha256"
 	"testing"
 
-	"github.com/ava-labs/simplex/record"
 	"github.com/stretchr/testify/require"
 )
 
@@ -140,7 +139,7 @@ func TestNotarizationRecord(t *testing.T) {
 	_, err = rand.Read(vote.Prev[:])
 	require.NoError(t, err)
 
-	record := NewQuorumRecord([]byte{1, 2, 3}, vote.Bytes(), record.NotarizationRecordType)
+	record := NewQuorumRecord([]byte{1, 2, 3}, vote.Bytes(), NotarizationRecordType)
 	retentionTerm, err := QuorumRecordRetentionTerm(record)
 	require.NoError(t, err)
 	require.Equal(t, uint64(666), retentionTerm)
@@ -174,7 +173,7 @@ func FuzzNotarizationRecord(f *testing.F) {
 			signers = append(signers, signer)
 		}
 
-		record := NewQuorumRecord([]byte{1, 2, 3}, vote.Bytes(), record.NotarizationRecordType)
+		record := NewQuorumRecord([]byte{1, 2, 3}, vote.Bytes(), NotarizationRecordType)
 		retentionTerm, err := QuorumRecordRetentionTerm(record)
 		require.NoError(t, err)
 		require.Equal(t, round, retentionTerm)
@@ -226,8 +225,8 @@ func TestRetentionTerm(t *testing.T) {
 			Round: 667,
 		}},
 	}
-	emptyNotarizationRecord := NewQuorumRecord([]byte{1, 2, 3}, en.Vote.Bytes(), record.EmptyNotarizationRecordType)
-	notarizationRecord := NewQuorumRecord([]byte{1, 2, 3}, vote.Bytes(), record.NotarizationRecordType)
+	emptyNotarizationRecord := NewQuorumRecord([]byte{1, 2, 3}, en.Vote.Bytes(), EmptyNotarizationRecordType)
+	notarizationRecord := NewQuorumRecord([]byte{1, 2, 3}, vote.Bytes(), NotarizationRecordType)
 	blockRecord := BlockRecord(BlockHeader{
 		ProtocolMetadata: ProtocolMetadata{
 			Version: 1,
@@ -237,7 +236,7 @@ func TestRetentionTerm(t *testing.T) {
 		},
 	}, []byte{11, 12, 13, 14, 15, 16})
 
-	finalizationRecord := NewQuorumRecord([]byte{1, 2, 3}, en.Vote.Bytes(), record.FinalizationRecordType)
+	finalizationRecord := NewQuorumRecord([]byte{1, 2, 3}, en.Vote.Bytes(), FinalizationRecordType)
 
 	for _, tc := range []struct {
 		name          string

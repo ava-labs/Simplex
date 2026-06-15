@@ -17,8 +17,6 @@ import (
 	"time"
 
 	"github.com/ava-labs/simplex/common"
-	"github.com/ava-labs/simplex/record"
-
 	"go.uber.org/zap"
 )
 
@@ -623,7 +621,7 @@ func (e *Epoch) setMetadataFromRecords(records [][]byte) error {
 	for i := range records {
 		recordType := binary.BigEndian.Uint16(records[i])
 		switch recordType {
-		case record.NotarizationRecordType:
+		case common.NotarizationRecordType:
 			notarization, err := common.NotarizationFromRecord(records[i], e.QCDeserializer)
 			if err != nil {
 				return err
@@ -633,7 +631,7 @@ func (e *Epoch) setMetadataFromRecords(records [][]byte) error {
 				highestEpoch = notarization.Vote.BlockHeader.Epoch
 				found = true
 			}
-		case record.EmptyNotarizationRecordType:
+		case common.EmptyNotarizationRecordType:
 			emptyNotarization, err := common.EmptyNotarizationFromRecord(records[i], e.QCDeserializer)
 			if err != nil {
 				return err
@@ -643,7 +641,7 @@ func (e *Epoch) setMetadataFromRecords(records [][]byte) error {
 				highestEpoch = emptyNotarization.Vote.Epoch
 				found = true
 			}
-		case record.FinalizationRecordType:
+		case common.FinalizationRecordType:
 			finalization, err := common.FinalizationFromRecord(records[i], e.QCDeserializer)
 			if err != nil {
 				return err
@@ -683,15 +681,15 @@ func (e *Epoch) restoreFromWal() error {
 		}
 		recordType := binary.BigEndian.Uint16(r)
 		switch recordType {
-		case record.BlockRecordType:
+		case common.BlockRecordType:
 			err = e.restoreBlockRecord(r, highestRoundRecord)
-		case record.NotarizationRecordType:
+		case common.NotarizationRecordType:
 			err = e.restoreNotarizationRecord(r, highestRoundRecord)
-		case record.FinalizationRecordType:
+		case common.FinalizationRecordType:
 			err = e.restoreFinalizationRecord(r, highestRoundRecord)
-		case record.EmptyNotarizationRecordType:
+		case common.EmptyNotarizationRecordType:
 			err = e.restoreEmptyNotarizationRecord(r, highestRoundRecord)
-		case record.EmptyVoteRecordType:
+		case common.EmptyVoteRecordType:
 			err = e.restoreEmptyVoteRecord(r, highestRoundRecord)
 		default:
 			e.Logger.Error("undefined record type", zap.Uint16("type", recordType))
@@ -1217,7 +1215,7 @@ func (e *Epoch) persistFinalization(finalization common.Finalization) error {
 			return err
 		}
 	} else {
-		finalizationRecord := common.NewQuorumRecord(finalization.QC.Bytes(), finalization.Finalization.Bytes(), record.FinalizationRecordType)
+		finalizationRecord := common.NewQuorumRecord(finalization.QC.Bytes(), finalization.Finalization.Bytes(), common.FinalizationRecordType)
 		if err := e.WAL.Append(finalizationRecord); err != nil {
 			e.Logger.Error("Failed to append finalization record to WAL", zap.Error(err))
 			return err
@@ -1526,7 +1524,7 @@ func (e *Epoch) maybeCollectNotarization() error {
 }
 
 func (e *Epoch) writeNotarizationToWal(notarization common.Notarization) error {
-	notarizationRecord := common.NewQuorumRecord(notarization.QC.Bytes(), notarization.Vote.Bytes(), record.NotarizationRecordType)
+	notarizationRecord := common.NewQuorumRecord(notarization.QC.Bytes(), notarization.Vote.Bytes(), common.NotarizationRecordType)
 
 	if err := e.WAL.Append(notarizationRecord); err != nil {
 		e.Logger.Error("Failed to append notarization record to WAL", zap.Error(err))

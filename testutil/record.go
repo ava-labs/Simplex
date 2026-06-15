@@ -7,8 +7,6 @@ import (
 	"testing"
 
 	"github.com/ava-labs/simplex/common"
-	"github.com/ava-labs/simplex/record"
-
 	"github.com/stretchr/testify/require"
 )
 
@@ -49,7 +47,7 @@ func NewNotarizationRecord(logger common.Logger, signatureAggregator common.Sign
 		return nil, err
 	}
 
-	record := common.NewQuorumRecord(notarization.QC.Bytes(), notarization.Vote.Bytes(), record.NotarizationRecordType)
+	record := common.NewQuorumRecord(notarization.QC.Bytes(), notarization.Vote.Bytes(), common.NotarizationRecordType)
 	return record, nil
 }
 
@@ -63,7 +61,7 @@ func NewFinalizationRecord(t *testing.T, signatureAggregator common.SignatureAgg
 	finalization, err := common.NewFinalization(signatureAggregator, finalizations)
 	require.NoError(t, err)
 
-	record := common.NewQuorumRecord(finalization.QC.Bytes(), finalization.Finalization.Bytes(), record.FinalizationRecordType)
+	record := common.NewQuorumRecord(finalization.QC.Bytes(), finalization.Finalization.Bytes(), common.FinalizationRecordType)
 
 	return finalization, record
 }

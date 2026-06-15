@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/ava-labs/simplex/record"
+	"github.com/ava-labs/simplex/common"
 	"github.com/ava-labs/simplex/testutil"
 	"github.com/ava-labs/simplex/wal"
 	"github.com/stretchr/testify/require"
@@ -35,13 +35,13 @@ func TestLastRecord(t *testing.T) {
 			t:       t,
 			TestWAL: testutil.NewTestWAL(t),
 		},
-		record.NotarizationRecordType,
+		common.NotarizationRecordType,
 	)
 	require.NoError(t, err)
 
-	entry1 := []byte{0, byte(record.NotarizationRecordType), 1, 2, 3, 4, 5}
-	entry2 := []byte{0, byte(record.EmptyNotarizationRecordType), 6, 7, 8, 9, 10}
-	entry3 := []byte{0, byte(record.NotarizationRecordType), 11, 12, 13, 14, 15}
+	entry1 := []byte{0, byte(common.NotarizationRecordType), 1, 2, 3, 4, 5}
+	entry2 := []byte{0, byte(common.EmptyNotarizationRecordType), 6, 7, 8, 9, 10}
+	entry3 := []byte{0, byte(common.NotarizationRecordType), 11, 12, 13, 14, 15}
 
 	require.NoError(t, testWAL.Append(entry1))
 	require.NoError(t, testWAL.Append(entry2))
@@ -67,7 +67,7 @@ func TestLastRecord(t *testing.T) {
 			t:       t,
 			TestWAL: testutil.NewTestWAL(t),
 		},
-		record.NotarizationRecordType,
+		common.NotarizationRecordType,
 	)
 	require.NoError(t, err)
 
@@ -80,7 +80,7 @@ func TestLastRecord(t *testing.T) {
 	// - Its last record is no longer entry3.
 	// - The last record file path is removed.
 
-	entry4 := []byte{0, byte(record.NotarizationRecordType), 16, 17, 18, 19, 20}
+	entry4 := []byte{0, byte(common.NotarizationRecordType), 16, 17, 18, 19, 20}
 	require.NoError(t, testWAL.Append(entry4))
 	require.Equal(t, entry4, testWAL.LastRecord())
 
