@@ -975,15 +975,15 @@ func TestEpochQCSignedByNonExistentNodes(t *testing.T) {
 			wg.Done()
 			close(unknownFinalizationChan)
 		},
-		"Notarization is signed by the same node more than once": func() {
+		"Notarization quorum certificate is signed by the same node": func() {
 			wg.Done()
 			close(doubleNotarizationChan)
 		},
-		"Empty notarization is signed by the same node more than once": func() {
+		"Empty notarization quorum certificate is signed by the same node": func() {
 			wg.Done()
 			close(doubleEmptyNotarizationChan)
 		},
-		"Finalization is signed by the same node more than once": func() {
+		"Finalization quorum certificate is signed by the same node": func() {
 			wg.Done()
 			close(doubleFinalizationChan)
 		},

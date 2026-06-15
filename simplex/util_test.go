@@ -63,7 +63,6 @@ func (u *unverifiableQC) Verify(Nodes) error {
 }
 
 func TestVerifyQC(t *testing.T) {
-	l := testutil.MakeLogger(t, 0)
 	var nodeIDs []NodeID
 	var nodes Nodes
 	for _, nodeID := range []NodeID{{1}, {2}, {3}, {4}, {5}} {
@@ -101,7 +100,7 @@ func TestVerifyQC(t *testing.T) {
 				return finalization
 			}(),
 			quorumSize:  quorumSize,
-			expectedErr: fmt.Errorf("finalization certificate signed by insufficient (3) nodes"),
+			expectedErr: fmt.Errorf("quorum certificate signed by insufficient (3) nodes"),
 		},
 		{
 			name: "signer signed twice",
@@ -112,7 +111,7 @@ func TestVerifyQC(t *testing.T) {
 				return finalization
 			}(),
 			quorumSize:  quorumSize,
-			expectedErr: fmt.Errorf("finalization is signed by the same node (0400000000000000) more than once"),
+			expectedErr: fmt.Errorf("quorum certificate is signed by the same node (0400000000000000) more than once"),
 		},
 		{
 			name:         "quorum certificate not in finalization",
@@ -128,7 +127,7 @@ func TestVerifyQC(t *testing.T) {
 				finalization, _ := testutil.NewFinalizationRecord(t, signatureAggregator, block, signers)
 				return finalization
 			}(), quorumSize: quorumSize,
-			expectedErr: fmt.Errorf("finalization quorum certificate contains an unknown signer (0600000000000000)"),
+			expectedErr: fmt.Errorf("quorum certificate contains an unknown signer (0600000000000000)"),
 		},
 		{
 			name: "invalid QC",
@@ -149,10 +148,10 @@ func TestVerifyQC(t *testing.T) {
 				return len(signers) >= tt.quorumSize
 			}
 			if tt.msgInvalid {
-				err := VerifyQC(tt.finalization.QC, l, "Finalization", isQuorum, eligibleSigners, &unverifiableQC{}, nil, nodes)
+				err := VerifyQC(tt.finalization.QC, isQuorum, eligibleSigners, &unverifiableQC{}, nodes)
 				require.EqualError(t, err, tt.expectedErr.Error())
 			} else {
-				err := VerifyQC(tt.finalization.QC, l, "Finalization", isQuorum, eligibleSigners, &tt.finalization, nil, nodes)
+				err := VerifyQC(tt.finalization.QC, isQuorum, eligibleSigners, &tt.finalization, nodes)
 				if tt.expectedErr != nil {
 					require.EqualError(t, err, tt.expectedErr.Error())
 				} else {
