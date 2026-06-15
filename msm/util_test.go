@@ -448,19 +448,19 @@ func (failingAggregator) IsQuorum([]common.NodeID) bool {
 type noopTestAuxInfoApp struct {
 }
 
-func (t *noopTestAuxInfoApp) IsLegalAuxInfoAppend(AppID, NodeBLSMappings, [][]byte, []byte) error {
+func (t *noopTestAuxInfoApp) IsLegalAuxInfoAppend(VersionID, NodeBLSMappings, [][]byte, []byte) error {
 	return nil
 }
 
-func (t *noopTestAuxInfoApp) IsFinalAuxInfoHistory(AppID, NodeBLSMappings, [][]byte) (bool, error) {
+func (t *noopTestAuxInfoApp) IsFinalAuxInfoHistory(VersionID, NodeBLSMappings, [][]byte) (bool, error) {
 	return true, nil
 }
 
-func (t *noopTestAuxInfoApp) GenerateAuxInfo(AppID, NodeBLSMappings, [][]byte) ([]byte, error) {
+func (t *noopTestAuxInfoApp) GenerateAuxInfo(VersionID, NodeBLSMappings, [][]byte) ([]byte, error) {
 	return nil, nil
 }
 
-func (t *noopTestAuxInfoApp) DefaultAppID() AppID {
+func (t *noopTestAuxInfoApp) DefaultVersionID() VersionID {
 	return 1
 }
 
@@ -469,7 +469,7 @@ type voteCountingAuxInfoApp struct {
 	randomTape func() []byte
 }
 
-func (t *voteCountingAuxInfoApp) IsLegalAuxInfoAppend(_ AppID, _ NodeBLSMappings, history [][]byte, addition []byte) error {
+func (t *voteCountingAuxInfoApp) IsLegalAuxInfoAppend(_ VersionID, _ NodeBLSMappings, history [][]byte, addition []byte) error {
 	set := make(map[string]struct{})
 	for _, item := range history {
 		set[string(item)] = struct{}{}
@@ -480,7 +480,7 @@ func (t *voteCountingAuxInfoApp) IsLegalAuxInfoAppend(_ AppID, _ NodeBLSMappings
 	return nil
 }
 
-func (t *voteCountingAuxInfoApp) IsFinalAuxInfoHistory(appID AppID, nodes NodeBLSMappings, history [][]byte) (bool, error) {
+func (t *voteCountingAuxInfoApp) IsFinalAuxInfoHistory(appID VersionID, nodes NodeBLSMappings, history [][]byte) (bool, error) {
 	if len(history) == 0 {
 		return t.threshold == 0, nil
 	}
@@ -499,7 +499,7 @@ func (t *voteCountingAuxInfoApp) IsFinalAuxInfoHistory(appID AppID, nodes NodeBL
 	return final, nil
 }
 
-func (t *voteCountingAuxInfoApp) GenerateAuxInfo(AppID, NodeBLSMappings, [][]byte) ([]byte, error) {
+func (t *voteCountingAuxInfoApp) GenerateAuxInfo(VersionID, NodeBLSMappings, [][]byte) ([]byte, error) {
 	// Simulate a random node voting
 	if t.randomTape != nil {
 		return t.randomTape(), nil
@@ -509,6 +509,6 @@ func (t *voteCountingAuxInfoApp) GenerateAuxInfo(AppID, NodeBLSMappings, [][]byt
 	return nodeID[:], nil
 }
 
-func (t *voteCountingAuxInfoApp) DefaultAppID() AppID {
+func (t *voteCountingAuxInfoApp) DefaultVersionID() VersionID {
 	return 1
 }

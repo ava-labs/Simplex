@@ -168,24 +168,24 @@ type BlockBuilder interface {
 // that is piggybacked on epoch transitions.
 type AuxiliaryInfoGenVerifier interface {
 	// IsLegalAuxInfoAppend checks whether the given auxiliary information byte slice [x]
-	// can be appended to the history of auxiliary information for the given appID, according to the app's rules.
+	// can be appended to the history of auxiliary information for the given versionID, according to the app's rules.
 	// Returns nil if the append is legal, or an error if the append is not legal or if any error occurs during the check.
-	IsLegalAuxInfoAppend(appID AppID, nodes NodeBLSMappings, history [][]byte, x []byte) error
+	IsLegalAuxInfoAppend(versionID VersionID, nodes NodeBLSMappings, history [][]byte, x []byte) error
 
-	// IsFinalAuxInfoHistory checks whether the given history of auxiliary information for the given appID is sufficient
+	// IsFinalAuxInfoHistory checks whether the given history of auxiliary information for the given versionID is sufficient
 	// to start the epoch transition process.
-	IsFinalAuxInfoHistory(appID AppID, nodes NodeBLSMappings, history [][]byte) (bool, error)
+	IsFinalAuxInfoHistory(versionID VersionID, nodes NodeBLSMappings, history [][]byte) (bool, error)
 
 	// GenerateAuxInfo generates an auxiliary information encoded as a byte slice based on the history of auxiliary information
-	// for the given appID in the current epoch so far.
-	// If this is the first invocation in the epoch, DefaultAppID() should be passed as the AppID.
-	// Otherwise, the appID from previous blocks in the epoch should be used.
+	// for the given versionID in the current epoch so far.
+	// If this is the first invocation in the epoch, DefaultversionID() should be passed as the VersionID.
+	// Otherwise, the versionID from previous blocks in the epoch should be used.
 	// If the application deems the given history to be sufficient for the epoch change, it can return a nil byte slice,
 	// in which case it will not be appended to the history.
-	GenerateAuxInfo(appID AppID, nodes NodeBLSMappings, history [][]byte) ([]byte, error)
+	GenerateAuxInfo(versionID VersionID, nodes NodeBLSMappings, history [][]byte) ([]byte, error)
 
-	// DefaultAppID returns the default AppID that should be used for epochs that don't have any any auxiliary information yet.
-	DefaultAppID() AppID
+	// DefaultVersionID returns the default VersionID that should be used for epochs that don't have any any auxiliary information yet.
+	DefaultVersionID() VersionID
 }
 
 // StateMachine manages block building and verification across epoch transitions.
@@ -1129,11 +1129,11 @@ func (aih *auxInfoHistory) lastHistory() []byte {
 
 // collectAuxiliaryInfo traverses backwards starting from the given block and collects the AuxiliaryInfo of all blocks in the chain.
 // returns the collected AuxiliaryInfo, the corresponding sequences of the blocks they were collected from,
-// and the application ID of the oldest block that contains a non empty Info (or defaultAppID if there was none).
-func collectAuxiliaryInfo(block StateMachineBlock, startSeq uint64, getBlock BlockRetriever, defaultAppID AppID) (auxInfoHistory, AppID, error) {
+// and the application ID of the oldest block that contains a non empty Info (or defaultversionID if there was none).
+func collectAuxiliaryInfo(block StateMachineBlock, startSeq uint64, getBlock BlockRetriever, defaultversionID VersionID) (auxInfoHistory, VersionID, error) {
 	var history [][]byte
 	var seqs []uint64
-	var appID = defaultAppID
+	var versionID = defaultversionID
 
 	// We traverse the chain of blocks backwards in the following manner:
 	// (1) Every block that doesn't have AuxiliaryInfo, its parents also do not have AuxiliaryInfo.
@@ -1150,7 +1150,7 @@ func collectAuxiliaryInfo(block StateMachineBlock, startSeq uint64, getBlock Blo
 		if len(auxInfo.Info) > 0 {
 			history = append(history, auxInfo.Info)
 			seqs = append(seqs, currentSeq)
-			appID = auxInfo.ApplicationID
+			versionID = auxInfo.VersionID
 		}
 		if auxInfo.PrevAuxInfoSeq == 0 {
 			// This is the first auxiliary info of the epoch, we can stop traversing back.
@@ -1167,7 +1167,7 @@ func collectAuxiliaryInfo(block StateMachineBlock, startSeq uint64, getBlock Blo
 	// Reverse so the history (and the matching seqs) are ordered from oldest to newest.
 	slices.Reverse(history)
 	slices.Reverse(seqs)
-	return auxInfoHistory{data: history, seq: seqs}, appID, nil
+	return auxInfoHistory{data: history, seq: seqs}, versionID, nil
 }
 
 // buildBlockImpatiently builds a block by waiting for the VM to build a block until MaxBlockBuildingWaitTime.
@@ -1388,7 +1388,7 @@ func (sm *StateMachine) computeExpectedAuxInfoForApprovalCollection(parentBlock 
 	nextMD := nextBlock.Metadata
 	prevMD := parentBlock.Metadata
 
-	auxInfoHistory, appID, err := collectAuxiliaryInfo(parentBlock, prevBlockSeq, sm.GetBlock, sm.AuxiliaryInfoApp.DefaultAppID())
+	auxInfoHistory, versionID, err := collectAuxiliaryInfo(parentBlock, prevBlockSeq, sm.GetBlock, sm.AuxiliaryInfoApp.DefaultVersionID())
 	if err != nil {
 		return nil, [32]byte{}, false, err
 	}
@@ -1396,7 +1396,7 @@ func (sm *StateMachine) computeExpectedAuxInfoForApprovalCollection(parentBlock 
 	if len(auxInfoHistory.data) > 0 && nextMD.AuxiliaryInfo == nil {
 		// If we have auxiliary info history but the proposed block doesn't include any auxiliary info,
 		// it means the block builder has dropped the auxiliary info, which is not allowed.
-		return nil, [32]byte{}, false, fmt.Errorf("expected auxiliary info for application %d with history length %d, but got nil", appID, len(auxInfoHistory.data))
+		return nil, [32]byte{}, false, fmt.Errorf("expected auxiliary info for application %d with history length %d, but got nil", versionID, len(auxInfoHistory.data))
 	}
 
 	// Else, either len(auxInfoHistory) == 0,
@@ -1410,21 +1410,21 @@ func (sm *StateMachine) computeExpectedAuxInfoForApprovalCollection(parentBlock 
 	if nextMD.AuxiliaryInfo != nil {
 		proposedAuxInf = nextMD.AuxiliaryInfo.Info
 		expectedAuxInfo = &AuxiliaryInfo{
-			ApplicationID: appID,
-			Info:          proposedAuxInf,
+			VersionID: versionID,
+			Info:      proposedAuxInf,
 		}
 		if prevMD.AuxiliaryInfo != nil {
 			expectedAuxInfo.PrevAuxInfoSeq = auxInfoHistory.lastAuxInfoSeq()
 		}
 	}
 
-	if err := sm.AuxiliaryInfoApp.IsLegalAuxInfoAppend(appID, validators, auxInfoHistory.data, proposedAuxInf); err != nil {
-		return nil, [32]byte{}, false, fmt.Errorf("proposed auxiliary info is not a legal append to the history for application %d: %w", appID, err)
+	if err := sm.AuxiliaryInfoApp.IsLegalAuxInfoAppend(versionID, validators, auxInfoHistory.data, proposedAuxInf); err != nil {
+		return nil, [32]byte{}, false, fmt.Errorf("proposed auxiliary info is not a legal append to the history for application %d: %w", versionID, err)
 	}
 
-	auxInfoReady, err := sm.AuxiliaryInfoApp.IsFinalAuxInfoHistory(appID, validators, auxInfoHistory.data)
+	auxInfoReady, err := sm.AuxiliaryInfoApp.IsFinalAuxInfoHistory(versionID, validators, auxInfoHistory.data)
 	if err != nil {
-		return nil, [32]byte{}, false, fmt.Errorf("failed to check if auxiliary info history is final for application %d: %w", appID, err)
+		return nil, [32]byte{}, false, fmt.Errorf("failed to check if auxiliary info history is final for application %d: %w", versionID, err)
 	}
 
 	var digest [32]byte
@@ -1437,12 +1437,12 @@ func (sm *StateMachine) computeExpectedAuxInfoForApprovalCollection(parentBlock 
 
 // computeAuxInfo computes the AuxiliaryInfo that should be included in the block being built, and whether the auxiliary info history is ready for epoch transition,
 func (sm *StateMachine) computeAuxInfo(parentBlock StateMachineBlock, prevBlockSeq uint64, validators NodeBLSMappings) (*AuxiliaryInfo, bool, common.Digest, error) {
-	auxInfoHistory, appID, err := collectAuxiliaryInfo(parentBlock, prevBlockSeq, sm.GetBlock, sm.AuxiliaryInfoApp.DefaultAppID())
+	auxInfoHistory, versionID, err := collectAuxiliaryInfo(parentBlock, prevBlockSeq, sm.GetBlock, sm.AuxiliaryInfoApp.DefaultVersionID())
 	if err != nil {
 		return nil, false, common.Digest{}, err
 	}
 
-	isAuxInfoReadyForEpochTransition, err := sm.AuxiliaryInfoApp.IsFinalAuxInfoHistory(appID, validators, auxInfoHistory.data)
+	isAuxInfoReadyForEpochTransition, err := sm.AuxiliaryInfoApp.IsFinalAuxInfoHistory(versionID, validators, auxInfoHistory.data)
 	if err != nil {
 		return nil, false, common.Digest{}, fmt.Errorf("failed to check if auxiliary info history is final: %w", err)
 	}
@@ -1451,7 +1451,7 @@ func (sm *StateMachine) computeAuxInfo(parentBlock StateMachineBlock, prevBlockS
 	parentAuxInfo := parentBlock.Metadata.AuxiliaryInfo
 	if parentAuxInfo != nil {
 		auxInfo = &AuxiliaryInfo{
-			ApplicationID:  parentAuxInfo.ApplicationID,
+			VersionID:      parentAuxInfo.VersionID,
 			PrevAuxInfoSeq: auxInfoHistory.lastAuxInfoSeq(),
 		}
 	}
@@ -1460,7 +1460,7 @@ func (sm *StateMachine) computeAuxInfo(parentBlock StateMachineBlock, prevBlockS
 		// If the auxiliary info isn't ready for epoch transition,
 		// we should focus on contributing to finalizing it before collecting approvals for the epoch transition,
 		// as without it being ready, we won't be able to transition epochs anyway.
-		auxInf, err := sm.AuxiliaryInfoApp.GenerateAuxInfo(appID, validators, auxInfoHistory.data)
+		auxInf, err := sm.AuxiliaryInfoApp.GenerateAuxInfo(versionID, validators, auxInfoHistory.data)
 		if err != nil {
 			return nil, false, common.Digest{}, fmt.Errorf("failed to generate auxiliary info: %w", err)
 		}
@@ -1468,12 +1468,12 @@ func (sm *StateMachine) computeAuxInfo(parentBlock StateMachineBlock, prevBlockS
 			// This is the first auxiliary info we're generating for this epoch,
 			// so we need to initialize it.
 			auxInfo = &AuxiliaryInfo{
-				ApplicationID: appID,
-				Info:          auxInf,
+				VersionID: versionID,
+				Info:      auxInf,
 			}
 		} else {
 			// Otherwise, we already have auxiliary info from the parent block,
-			// so we just update the Info field and carry over the ApplicationID and PrevAuxInfoSeq.
+			// so we just update the Info field and carry over the VersionID and PrevAuxInfoSeq.
 			auxInfo.Info = auxInf
 		}
 	}

@@ -63,8 +63,8 @@ func (ei *ICMEpochInfo) Equal(other *ICMEpochInfo) bool {
 	return ei.EpochStartTime == other.EpochStartTime && ei.EpochNumber == other.EpochNumber && ei.PChainEpochHeight == other.PChainEpochHeight
 }
 
-// AppID is an identifier for applications that care about epoch changes.
-type AppID uint32
+// VersionID is an identifier for applications that care about epoch changes.
+type VersionID uint32
 
 // AuxiliaryInfo defines application-specific information for applications that might care about epoch change,
 // such as threshold distributed public key generation.
@@ -75,9 +75,9 @@ type AuxiliaryInfo struct {
 	// PrevAuxInfoSeq is a sequence number that applications can use to find previous AuxiliaryInfo in the chain.
 	// It is zero if this is the first AuxiliaryInfo for this epoch.
 	PrevAuxInfoSeq uint64 `canoto:"uint,2"`
-	// ApplicationID is an identifier that identifies the application.
+	// VersionID is an identifier that identifies the application.
 	// Can be used for backward-compatibility and upgrade purposes.
-	ApplicationID AppID `canoto:"uint,3"`
+	VersionID VersionID `canoto:"uint,3"`
 
 	canotoData canotoData_AuxiliaryInfo
 }
@@ -94,7 +94,7 @@ func (ai *AuxiliaryInfo) Equal(a *AuxiliaryInfo) bool {
 	if a == nil {
 		return ai == nil
 	}
-	return bytes.Equal(ai.Info, a.Info) && ai.PrevAuxInfoSeq == a.PrevAuxInfoSeq && ai.ApplicationID == a.ApplicationID
+	return bytes.Equal(ai.Info, a.Info) && ai.PrevAuxInfoSeq == a.PrevAuxInfoSeq && ai.VersionID == a.VersionID
 }
 
 // SimplexEpochInfo is metadata used by the StateMachine.

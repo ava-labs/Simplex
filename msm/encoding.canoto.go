@@ -590,11 +590,11 @@ func (c *ICMEpochInfo) MarshalCanotoInto(w canoto.Writer) canoto.Writer {
 const (
 	canotoNumber_AuxiliaryInfo__Info           = 1
 	canotoNumber_AuxiliaryInfo__PrevAuxInfoSeq = 2
-	canotoNumber_AuxiliaryInfo__ApplicationID  = 3
+	canotoNumber_AuxiliaryInfo__VersionID      = 3
 
 	canotoTag_AuxiliaryInfo__Info           = "\x0a" // canoto.Tag(canotoNumber_AuxiliaryInfo__Info, canoto.Len)
 	canotoTag_AuxiliaryInfo__PrevAuxInfoSeq = "\x10" // canoto.Tag(canotoNumber_AuxiliaryInfo__PrevAuxInfoSeq, canoto.Varint)
-	canotoTag_AuxiliaryInfo__ApplicationID  = "\x18" // canoto.Tag(canotoNumber_AuxiliaryInfo__ApplicationID, canoto.Varint)
+	canotoTag_AuxiliaryInfo__VersionID      = "\x18" // canoto.Tag(canotoNumber_AuxiliaryInfo__VersionID, canoto.Varint)
 )
 
 type canotoData_AuxiliaryInfo struct {
@@ -620,10 +620,10 @@ func (*AuxiliaryInfo) CanotoSpec(...reflect.Type) *canoto.Spec {
 				TypeUint:    canoto.SizeOf(zero.PrevAuxInfoSeq),
 			},
 			{
-				FieldNumber: canotoNumber_AuxiliaryInfo__ApplicationID,
-				Name:        "ApplicationID",
+				FieldNumber: canotoNumber_AuxiliaryInfo__VersionID,
+				Name:        "VersionID",
 				OneOf:       "",
-				TypeUint:    canoto.SizeOf(zero.ApplicationID),
+				TypeUint:    canoto.SizeOf(zero.VersionID),
 			},
 		},
 	}
@@ -685,15 +685,15 @@ func (c *AuxiliaryInfo) UnmarshalCanotoFrom(r canoto.Reader) error {
 			if canoto.IsZero(c.PrevAuxInfoSeq) {
 				return canoto.ErrZeroValue
 			}
-		case canotoNumber_AuxiliaryInfo__ApplicationID:
+		case canotoNumber_AuxiliaryInfo__VersionID:
 			if wireType != canoto.Varint {
 				return canoto.ErrUnexpectedWireType
 			}
 
-			if err := canoto.ReadUint(&r, &c.ApplicationID); err != nil {
+			if err := canoto.ReadUint(&r, &c.VersionID); err != nil {
 				return err
 			}
-			if canoto.IsZero(c.ApplicationID) {
+			if canoto.IsZero(c.VersionID) {
 				return canoto.ErrZeroValue
 			}
 		default:
@@ -728,8 +728,8 @@ func (c *AuxiliaryInfo) CalculateCanotoCache() {
 	if !canoto.IsZero(c.PrevAuxInfoSeq) {
 		size += uint64(len(canotoTag_AuxiliaryInfo__PrevAuxInfoSeq)) + canoto.SizeUint(c.PrevAuxInfoSeq)
 	}
-	if !canoto.IsZero(c.ApplicationID) {
-		size += uint64(len(canotoTag_AuxiliaryInfo__ApplicationID)) + canoto.SizeUint(c.ApplicationID)
+	if !canoto.IsZero(c.VersionID) {
+		size += uint64(len(canotoTag_AuxiliaryInfo__VersionID)) + canoto.SizeUint(c.VersionID)
 	}
 	atomic.StoreUint64(&c.canotoData.size, size)
 }
@@ -777,9 +777,9 @@ func (c *AuxiliaryInfo) MarshalCanotoInto(w canoto.Writer) canoto.Writer {
 		canoto.Append(&w, canotoTag_AuxiliaryInfo__PrevAuxInfoSeq)
 		canoto.AppendUint(&w, c.PrevAuxInfoSeq)
 	}
-	if !canoto.IsZero(c.ApplicationID) {
-		canoto.Append(&w, canotoTag_AuxiliaryInfo__ApplicationID)
-		canoto.AppendUint(&w, c.ApplicationID)
+	if !canoto.IsZero(c.VersionID) {
+		canoto.Append(&w, canotoTag_AuxiliaryInfo__VersionID)
+		canoto.AppendUint(&w, c.VersionID)
 	}
 	return w
 }

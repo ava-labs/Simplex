@@ -1694,19 +1694,19 @@ func TestCollectingApprovalsAuxInfoGating(t *testing.T) {
 
 	// block1: history empty, not final -> generates vote1, collects no approvals.
 	block1 := build(parentSeq+1, parent)
-	requireAuxInfo(&AuxiliaryInfo{Info: vote1, ApplicationID: 1}, block1.Metadata.AuxiliaryInfo)
+	requireAuxInfo(&AuxiliaryInfo{Info: vote1, VersionID: 1}, block1.Metadata.AuxiliaryInfo)
 	require.Empty(t, approvals(block1).NodeIDs)
 
 	// block2: history [vote1], still not final -> generates vote2, collects no approvals.
 	block2 := build(parentSeq+2, *block1)
-	requireAuxInfo(&AuxiliaryInfo{Info: vote2, PrevAuxInfoSeq: parentSeq + 1, ApplicationID: 1}, block2.Metadata.AuxiliaryInfo)
+	requireAuxInfo(&AuxiliaryInfo{Info: vote2, PrevAuxInfoSeq: parentSeq + 1, VersionID: 1}, block2.Metadata.AuxiliaryInfo)
 	require.Empty(t, approvals(block2).NodeIDs)
 
 	// block3: history [vote1, vote2] is now final -> no new vote, and approvals are
 	// collected (the optimistic self-approval sets MyNodeID's bit). block3 is the first
 	// empty-Info block; it points at block2, the last non-empty Info block.
 	block3 := build(parentSeq+3, *block2)
-	requireAuxInfo(&AuxiliaryInfo{PrevAuxInfoSeq: parentSeq + 2, ApplicationID: 1}, block3.Metadata.AuxiliaryInfo)
+	requireAuxInfo(&AuxiliaryInfo{PrevAuxInfoSeq: parentSeq + 2, VersionID: 1}, block3.Metadata.AuxiliaryInfo)
 	require.Equal(t, []byte{1}, approvals(block3).NodeIDs, "self-approval bit should be set once aux info is ready")
 
 	// The collected approval must be signed over the epoch-transition payload for the
@@ -1724,17 +1724,17 @@ func TestCollectingApprovalsAuxInfoGating(t *testing.T) {
 	block4 := build(parentSeq+4, *block3)
 	require.NotEqual(t, parentSeq+3, block4.Metadata.AuxiliaryInfo.PrevAuxInfoSeq,
 		"PrevAuxInfoSeq must not point at the empty-Info parent block3")
-	requireAuxInfo(&AuxiliaryInfo{PrevAuxInfoSeq: parentSeq + 2, ApplicationID: 1}, block4.Metadata.AuxiliaryInfo)
+	requireAuxInfo(&AuxiliaryInfo{PrevAuxInfoSeq: parentSeq + 2, VersionID: 1}, block4.Metadata.AuxiliaryInfo)
 
 	// block5: another empty-Info block on top of the empty block4. The back-pointer still skips
 	// the whole empty run and points at block2, confirming the skip persists across consecutive
 	// empty-Info blocks (collectAuxiliaryInfo finds the same most-recent non-empty block each time).
 	block5 := build(parentSeq+5, *block4)
-	requireAuxInfo(&AuxiliaryInfo{PrevAuxInfoSeq: parentSeq + 2, ApplicationID: 1}, block5.Metadata.AuxiliaryInfo)
+	requireAuxInfo(&AuxiliaryInfo{PrevAuxInfoSeq: parentSeq + 2, VersionID: 1}, block5.Metadata.AuxiliaryInfo)
 }
 
 func TestCollectAuxiliaryInfo(t *testing.T) {
-	const appID = AppID(7)
+	const versionID = VersionID(7)
 
 	blockWithAuxInfo := func(info []byte, prevAuxInfoSeq uint64) StateMachineBlock {
 		return StateMachineBlock{
@@ -1742,7 +1742,7 @@ func TestCollectAuxiliaryInfo(t *testing.T) {
 				AuxiliaryInfo: &AuxiliaryInfo{
 					Info:           info,
 					PrevAuxInfoSeq: prevAuxInfoSeq,
-					ApplicationID:  appID,
+					VersionID:      versionID,
 				},
 			},
 		}
@@ -1754,14 +1754,14 @@ func TestCollectAuxiliaryInfo(t *testing.T) {
 	const startSeq = uint64(10)
 
 	tests := []struct {
-		name            string
-		block           StateMachineBlock
-		blocks          map[uint64]StateMachineBlock
-		getBlockErr     error
-		expectedHistory [][]byte
-		expectedSeqs    []uint64
-		expectedAppID   AppID
-		expectedErr     error
+		name              string
+		block             StateMachineBlock
+		blocks            map[uint64]StateMachineBlock
+		getBlockErr       error
+		expectedHistory   [][]byte
+		expectedSeqs      []uint64
+		expectedversionID VersionID
+		expectedErr       error
 	}{
 		{
 			name:  "block without auxiliary info",
@@ -1772,11 +1772,11 @@ func TestCollectAuxiliaryInfo(t *testing.T) {
 			block: blockWithAuxInfo(nil, 0),
 		},
 		{
-			name:            "non-empty info, first of epoch",
-			block:           blockWithAuxInfo([]byte{1}, 0),
-			expectedHistory: [][]byte{{1}},
-			expectedSeqs:    []uint64{startSeq},
-			expectedAppID:   appID,
+			name:              "non-empty info, first of epoch",
+			block:             blockWithAuxInfo([]byte{1}, 0),
+			expectedHistory:   [][]byte{{1}},
+			expectedSeqs:      []uint64{startSeq},
+			expectedversionID: versionID,
 		},
 		{
 			name:  "empty info pointing back to non-empty info",
@@ -1784,9 +1784,9 @@ func TestCollectAuxiliaryInfo(t *testing.T) {
 			blocks: map[uint64]StateMachineBlock{
 				3: blockWithAuxInfo([]byte{1}, 0),
 			},
-			expectedHistory: [][]byte{{1}},
-			expectedSeqs:    []uint64{3},
-			expectedAppID:   appID,
+			expectedHistory:   [][]byte{{1}},
+			expectedSeqs:      []uint64{3},
+			expectedversionID: versionID,
 		},
 		{
 			name:  "history is ordered from oldest to newest",
@@ -1795,9 +1795,9 @@ func TestCollectAuxiliaryInfo(t *testing.T) {
 				5: blockWithAuxInfo([]byte{2}, 2),
 				2: blockWithAuxInfo([]byte{1}, 0),
 			},
-			expectedHistory: [][]byte{{1}, {2}, {3}},
-			expectedSeqs:    []uint64{2, 5, startSeq},
-			expectedAppID:   appID,
+			expectedHistory:   [][]byte{{1}, {2}, {3}},
+			expectedSeqs:      []uint64{2, 5, startSeq},
+			expectedversionID: versionID,
 		},
 		{
 			name:  "traversal stops at a block without auxiliary info",
@@ -1805,9 +1805,9 @@ func TestCollectAuxiliaryInfo(t *testing.T) {
 			blocks: map[uint64]StateMachineBlock{
 				4: {},
 			},
-			expectedHistory: [][]byte{{2}},
-			expectedSeqs:    []uint64{startSeq},
-			expectedAppID:   appID,
+			expectedHistory:   [][]byte{{2}},
+			expectedSeqs:      []uint64{startSeq},
+			expectedversionID: versionID,
 		},
 		{
 			name:        "block retrieval failure",
@@ -1828,7 +1828,7 @@ func TestCollectAuxiliaryInfo(t *testing.T) {
 				return block, nil, nil
 			}
 
-			history, gotAppID, err := collectAuxiliaryInfo(tt.block, startSeq, getBlock, 0)
+			history, gotversionID, err := collectAuxiliaryInfo(tt.block, startSeq, getBlock, 0)
 			if tt.expectedErr != nil {
 				require.ErrorIs(t, err, tt.expectedErr)
 				require.ErrorIs(t, err, errAuxInfoBlockRetrieval)
@@ -1837,7 +1837,7 @@ func TestCollectAuxiliaryInfo(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, tt.expectedHistory, history.data)
 			require.Equal(t, tt.expectedSeqs, history.seq)
-			require.Equal(t, tt.expectedAppID, gotAppID)
+			require.Equal(t, tt.expectedversionID, gotversionID)
 		})
 	}
 }
