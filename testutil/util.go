@@ -165,7 +165,7 @@ func (t TestQC) Signers() []common.NodeID {
 	return res
 }
 
-func (t TestQC) Verify(msg []byte) error {
+func (t TestQC) Verify([]byte, common.Nodes) error {
 	return nil
 }
 

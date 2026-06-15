@@ -147,15 +147,16 @@ type Nodes []Node
 func (nws Nodes) NodeIDs() []NodeID {
 	nodes := make([]NodeID, len(nws))
 	for i, nw := range nws {
-		nodes[i] = nw.Node
+		nodes[i] = nw.Id
 	}
 	return nodes
 }
 
-// Node is a struct that pairs a node with its weight in the signature aggregator.
+// Node is a struct that pairs a node ID with its weight and public key.
 type Node struct {
-	Node   NodeID
+	Id     NodeID
 	Weight uint64
+	PK     []byte
 }
 
 // SignatureAggregatorCreator creates a SignatureAggregator from a list of nodes and their weights.

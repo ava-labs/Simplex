@@ -1676,7 +1676,7 @@ func advanceRound(t *testing.T, e *Epoch, bb *testutil.TestBlockBuilder, notariz
 		// start at one since our node has already voted
 		sigAggr := e.SignatureAggregatorCreator(nodes)
 		n, err := testutil.NewNotarization(e.Logger, sigAggr, block, nodes.NodeIDs()[0:quorum])
-		testutil.InjectTestNotarization(t, e, n, nodes[1].Node)
+		testutil.InjectTestNotarization(t, e, n, nodes[1].Id)
 
 		e.WAL.(*testutil.TestWAL).AssertNotarization(block.Metadata.Round)
 		require.NoError(t, err)
@@ -1685,10 +1685,10 @@ func advanceRound(t *testing.T, e *Epoch, bb *testutil.TestBlockBuilder, notariz
 
 	if finalize {
 		for i := 0; i <= quorum; i++ {
-			if nodes[i].Node.Equals(e.ID) {
+			if nodes[i].Id.Equals(e.ID) {
 				continue
 			}
-			testutil.InjectTestFinalizeVote(t, e, block, nodes[i].Node)
+			testutil.InjectTestFinalizeVote(t, e, block, nodes[i].Id)
 		}
 
 		if nextSeqToCommit != block.Metadata.Seq {

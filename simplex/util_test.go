@@ -58,16 +58,22 @@ func TestRetrieveFromStorage(t *testing.T) {
 
 type unverifiableQC struct{}
 
-func (u *unverifiableQC) Verify() error {
+func (u *unverifiableQC) Verify(Nodes) error {
 	return fmt.Errorf("invalid QC")
 }
 
 func TestVerifyQC(t *testing.T) {
 	l := testutil.MakeLogger(t, 0)
-	nodes := []NodeID{{1}, {2}, {3}, {4}, {5}}
+	var nodeIDs []NodeID
+	var nodes Nodes
+	for _, nodeID := range []NodeID{{1}, {2}, {3}, {4}, {5}} {
+		nodes = append(nodes, Node{Id: nodeID})
+		nodeIDs = append(nodeIDs, nodeID)
+	}
+
 	eligibleSigners := make(map[string]struct{})
 	for _, n := range nodes {
-		eligibleSigners[string(n)] = struct{}{}
+		eligibleSigners[string(n.Id)] = struct{}{}
 	}
 	quorumSize := Quorum(len(nodes))
 	signatureAggregator := &testutil.TestSignatureAggregator{N: len(nodes)}
@@ -83,7 +89,7 @@ func TestVerifyQC(t *testing.T) {
 			name: "valid finalization",
 			finalization: func() Finalization {
 				block := testutil.NewTestBlock(ProtocolMetadata{}, emptyBlacklist)
-				finalization, _ := testutil.NewFinalizationRecord(t, signatureAggregator, block, nodes[:quorumSize])
+				finalization, _ := testutil.NewFinalizationRecord(t, signatureAggregator, block, nodeIDs[:quorumSize])
 				return finalization
 			}(),
 			quorumSize: quorumSize,
@@ -91,7 +97,7 @@ func TestVerifyQC(t *testing.T) {
 			name: "not enough signers",
 			finalization: func() Finalization {
 				block := testutil.NewTestBlock(ProtocolMetadata{}, emptyBlacklist)
-				finalization, _ := testutil.NewFinalizationRecord(t, signatureAggregator, block, nodes[:quorumSize-1])
+				finalization, _ := testutil.NewFinalizationRecord(t, signatureAggregator, block, nodeIDs[:quorumSize-1])
 				return finalization
 			}(),
 			quorumSize:  quorumSize,
@@ -128,7 +134,7 @@ func TestVerifyQC(t *testing.T) {
 			name: "invalid QC",
 			finalization: func() Finalization {
 				block := testutil.NewTestBlock(ProtocolMetadata{}, emptyBlacklist)
-				finalization, _ := testutil.NewFinalizationRecord(t, signatureAggregator, block, nodes[:quorumSize])
+				finalization, _ := testutil.NewFinalizationRecord(t, signatureAggregator, block, nodeIDs[:quorumSize])
 				return finalization
 			}(),
 			quorumSize:  quorumSize,
@@ -143,10 +149,10 @@ func TestVerifyQC(t *testing.T) {
 				return len(signers) >= tt.quorumSize
 			}
 			if tt.msgInvalid {
-				err := VerifyQC(tt.finalization.QC, l, "Finalization", isQuorum, eligibleSigners, &unverifiableQC{}, nil)
+				err := VerifyQC(tt.finalization.QC, l, "Finalization", isQuorum, eligibleSigners, &unverifiableQC{}, nil, nodes)
 				require.EqualError(t, err, tt.expectedErr.Error())
 			} else {
-				err := VerifyQC(tt.finalization.QC, l, "Finalization", isQuorum, eligibleSigners, &tt.finalization, nil)
+				err := VerifyQC(tt.finalization.QC, l, "Finalization", isQuorum, eligibleSigners, &tt.finalization, nil, nodes)
 				if tt.expectedErr != nil {
 					require.EqualError(t, err, tt.expectedErr.Error())
 				} else {

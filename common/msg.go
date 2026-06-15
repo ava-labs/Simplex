@@ -124,14 +124,14 @@ func verifyContext(signature []byte, verifier SignatureVerifier, msg []byte, con
 	return verifier.Verify(toBeSigned, signature, signers)
 }
 
-func verifyContextQC(qc QuorumCertificate, msg []byte, context string) error {
+func verifyContextQC(qc QuorumCertificate, msg []byte, context string, nodes Nodes) error {
 	sm := SignedMessage{Payload: msg, Context: context}
 	toBeSigned, err := asn1.Marshal(sm)
 	if err != nil {
 		return err
 	}
 
-	return qc.Verify(toBeSigned)
+	return qc.Verify(toBeSigned, nodes)
 }
 
 // Vote represents a signed vote for a block.
@@ -171,9 +171,9 @@ type Finalization struct {
 	QC           QuorumCertificate
 }
 
-func (f *Finalization) Verify() error {
+func (f *Finalization) Verify(nodes Nodes) error {
 	context := "ToBeSignedFinalization"
-	return verifyContextQC(f.QC, f.Finalization.Bytes(), context)
+	return verifyContextQC(f.QC, f.Finalization.Bytes(), context, nodes)
 }
 
 // Notarization represents a block that has reached a quorum of votes.
@@ -182,9 +182,9 @@ type Notarization struct {
 	QC   QuorumCertificate
 }
 
-func (n *Notarization) Verify() error {
+func (n *Notarization) Verify(nodes Nodes) error {
 	context := "ToBeSignedVote"
-	return verifyContextQC(n.QC, n.Vote.Bytes(), context)
+	return verifyContextQC(n.QC, n.Vote.Bytes(), context, nodes)
 }
 
 type BlockMessage struct {
@@ -202,9 +202,9 @@ type EmptyNotarization struct {
 	QC   QuorumCertificate
 }
 
-func (en *EmptyNotarization) Verify() error {
+func (en *EmptyNotarization) Verify(nodes Nodes) error {
 	context := "ToBeSignedEmptyVote"
-	return verifyContextQC(en.QC, en.Vote.Bytes(), context)
+	return verifyContextQC(en.QC, en.Vote.Bytes(), context, nodes)
 }
 
 type SignedMessage struct {
@@ -218,7 +218,7 @@ type QuorumCertificate interface {
 	Signers() []NodeID
 	// Verify checks whether the nodes participated in creating this QuorumCertificate,
 	// signed the given message.
-	Verify(msg []byte) error
+	Verify(msg []byte, nodes Nodes) error
 	// Bytes returns a raw representation of the given QuorumCertificate.
 	Bytes() []byte
 }

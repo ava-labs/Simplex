@@ -125,7 +125,7 @@ func newSignatureAggregatorCreator() common.SignatureAggregatorCreator {
 	return func(weights []common.Node) common.SignatureAggregator {
 		s := &signatureAggregator{weightByNodeID: make(map[string]uint64, len(weights))}
 		for _, nw := range weights {
-			s.weightByNodeID[string(nw.Node)] = nw.Weight
+			s.weightByNodeID[string(nw.Id)] = nw.Weight
 			s.totalWeight += nw.Weight
 		}
 		return s

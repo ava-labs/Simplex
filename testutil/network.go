@@ -147,7 +147,7 @@ func (b *BasicInMemoryNetwork) AddNode(node *BasicNode) {
 
 	allowed := false
 	for _, nodeWeight := range b.nodeWeights {
-		if bytes.Equal(nodeWeight.Node, node.E.ID) {
+		if bytes.Equal(nodeWeight.Id, node.E.ID) {
 			allowed = true
 			break
 		}

@@ -259,7 +259,7 @@ func (nbms NodeBLSMappings) NodeWeights() common.Nodes {
 	nodeWeights := make(common.Nodes, len(nbms))
 	for i, nbm := range nbms {
 		nodeWeights[i] = common.Node{
-			Node:   nbm.NodeID[:],
+			Id:     nbm.NodeID[:],
 			Weight: nbm.Weight,
 		}
 	}
