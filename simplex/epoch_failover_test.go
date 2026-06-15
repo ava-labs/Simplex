@@ -1227,7 +1227,7 @@ func runCrashAndRestartExecution(t *testing.T, e *Epoch, bb *testutil.TestBlockB
 
 	// Case 2:
 	t.Run(fmt.Sprintf("%s-with-crash", t.Name()), func(t *testing.T) {
-		conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0].Node, testutil.NewNoopComm(nodes.NodeIDs()), bbAfterCrash)
+		conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0].Id, testutil.NewNoopComm(nodes.NodeIDs()), bbAfterCrash)
 		conf.Storage = cloneStorage
 		conf.WAL = cloneWAL
 

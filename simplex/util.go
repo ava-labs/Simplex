@@ -19,7 +19,7 @@ import (
 )
 
 type verifiableMessage interface {
-	Verify() error
+	Verify(nodes common.Nodes) error
 }
 
 // RetrieveLastIndexFromStorage retrieves the latest block and finalization from storage.
@@ -54,7 +54,7 @@ func hasSomeNodeSignedTwice(nodeIDs []common.NodeID, logger common.Logger) (comm
 	return common.NodeID{}, false
 }
 
-func VerifyQC(qc common.QuorumCertificate, logger common.Logger, messageType string, isQuorum func(signers []common.NodeID) bool, eligibleSigners map[string]struct{}, messageToVerify verifiableMessage, from common.NodeID) error {
+func VerifyQC(qc common.QuorumCertificate, logger common.Logger, messageType string, isQuorum func(signers []common.NodeID) bool, eligibleSigners map[string]struct{}, messageToVerify verifiableMessage, from common.NodeID, nodes common.Nodes) error {
 	if qc == nil {
 		logger.Debug("Received nil QuorumCertificate")
 		return fmt.Errorf("nil QuorumCertificate")
@@ -82,7 +82,7 @@ func VerifyQC(qc common.QuorumCertificate, logger common.Logger, messageType str
 		}
 	}
 
-	if err := messageToVerify.Verify(); err != nil {
+	if err := messageToVerify.Verify(nodes); err != nil {
 		if len(from) > 0 {
 			logger.Debug(fmt.Sprintf("%s quorum certificate is invalid", messageType), zap.Stringer("NodeID", from), zap.Error(err))
 		} else {
