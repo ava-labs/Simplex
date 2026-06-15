@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"slices"
-	"strings"
 	"sync"
 	"time"
 
@@ -40,12 +39,11 @@ func RetrieveLastIndexFromStorage(s common.Storage) (*common.VerifiedFinalizedBl
 	}, nil
 }
 
-func hasSomeNodeSignedTwice(nodeIDs []common.NodeID, logger common.Logger) (common.NodeID, bool) {
+func hasSomeNodeSignedTwice(nodeIDs []common.NodeID) (common.NodeID, bool) {
 	seen := make(map[string]struct{}, len(nodeIDs))
 
 	for _, nodeID := range nodeIDs {
 		if _, alreadySeen := seen[string(nodeID)]; alreadySeen {
-			logger.Debug("Observed a signature originating at least twice from the same node")
 			return nodeID, true
 		}
 		seen[string(nodeID)] = struct{}{}
@@ -54,43 +52,29 @@ func hasSomeNodeSignedTwice(nodeIDs []common.NodeID, logger common.Logger) (comm
 	return common.NodeID{}, false
 }
 
-func VerifyQC(qc common.QuorumCertificate, logger common.Logger, messageType string, isQuorum func(signers []common.NodeID) bool, eligibleSigners map[string]struct{}, messageToVerify verifiableMessage, from common.NodeID, nodes common.Nodes) error {
+func VerifyQC(qc common.QuorumCertificate, isQuorum func(signers []common.NodeID) bool, eligibleSigners map[string]struct{}, messageToVerify verifiableMessage, nodes common.Nodes) error {
 	if qc == nil {
-		logger.Debug("Received nil QuorumCertificate")
 		return fmt.Errorf("nil QuorumCertificate")
 	}
-	msgTypeLowerCase := strings.ToLower(messageType)
 	// Ensure no node signed the QuorumCertificate twice
-	doubleSigner, signedTwice := hasSomeNodeSignedTwice(qc.Signers(), logger)
+	doubleSigner, signedTwice := hasSomeNodeSignedTwice(qc.Signers())
 	if signedTwice {
-		logger.Debug(fmt.Sprintf("%s is signed by the same node more than once", messageType), zap.Stringer("signer", doubleSigner))
-		return fmt.Errorf("%s is signed by the same node (%s) more than once", msgTypeLowerCase, doubleSigner)
+		return fmt.Errorf("quorum certificate is signed by the same node (%s) more than once", doubleSigner)
 	}
 
 	// Check enough signers signed the QuorumCertificate
 	if !isQuorum(qc.Signers()) {
-		logger.Debug(fmt.Sprintf("%s certificate signed by insufficient nodes", messageType),
-			zap.Int("count", len(qc.Signers())))
-		return fmt.Errorf("%s certificate signed by insufficient (%d) nodes", msgTypeLowerCase, len(qc.Signers()))
+		return fmt.Errorf("quorum certificate signed by insufficient (%d) nodes", len(qc.Signers()))
 	}
 
 	// Check QuorumCertificate was signed by only eligible nodes
 	for _, signer := range qc.Signers() {
 		if _, exists := eligibleSigners[string(signer)]; !exists {
-			logger.Debug(fmt.Sprintf("%s quorum certificate contains an unknown signer", messageType), zap.Stringer("signer", signer))
-			return fmt.Errorf("%s quorum certificate contains an unknown signer (%s)", msgTypeLowerCase, signer)
+			return fmt.Errorf("quorum certificate contains an unknown signer (%s)", signer)
 		}
 	}
 
-	if err := messageToVerify.Verify(nodes); err != nil {
-		if len(from) > 0 {
-			logger.Debug(fmt.Sprintf("%s quorum certificate is invalid", messageType), zap.Stringer("NodeID", from), zap.Error(err))
-		} else {
-			logger.Debug(fmt.Sprintf("%s quorum certificate is invalid", messageType), zap.Error(err))
-		}
-		return err
-	}
-	return nil
+	return messageToVerify.Verify(nodes)
 }
 
 // GetLatestVerifiedQuorumRound returns the latest verified quorum round given
