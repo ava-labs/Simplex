@@ -381,7 +381,7 @@ func newStateMachineWithLogger(tb testing.TB, logger common.Logger) (*StateMachi
 		PChainProgressListener:   &noOpPChainListener{},
 		LastNonSimplexInnerBlock: genesisBlock.InnerBlock,
 		MyNodeID:                 myNodeID[:],
-		AuxiliaryInfoApp: &voteCountingAuxInfoApp{
+		AuxInfoCollector: &voteCountingAuxInfoApp{
 			threshold: 2,
 		},
 		Signer: &signer{},
@@ -448,15 +448,15 @@ func (failingAggregator) IsQuorum([]common.NodeID) bool {
 type noopTestAuxInfoApp struct {
 }
 
-func (t *noopTestAuxInfoApp) IsLegalAuxInfoAppend(VersionID, NodeBLSMappings, [][]byte, []byte) error {
+func (t *noopTestAuxInfoApp) IsLegal(VersionID, NodeBLSMappings, [][]byte, []byte) error {
 	return nil
 }
 
-func (t *noopTestAuxInfoApp) IsFinalAuxInfoHistory(VersionID, NodeBLSMappings, [][]byte) (bool, error) {
+func (t *noopTestAuxInfoApp) IsSufficient(VersionID, NodeBLSMappings, [][]byte) (bool, error) {
 	return true, nil
 }
 
-func (t *noopTestAuxInfoApp) GenerateAuxInfo(VersionID, NodeBLSMappings, [][]byte) ([]byte, error) {
+func (t *noopTestAuxInfoApp) Generate(VersionID, NodeBLSMappings, [][]byte) ([]byte, error) {
 	return nil, nil
 }
 
@@ -469,7 +469,7 @@ type voteCountingAuxInfoApp struct {
 	randomTape func() []byte
 }
 
-func (t *voteCountingAuxInfoApp) IsLegalAuxInfoAppend(_ VersionID, _ NodeBLSMappings, history [][]byte, addition []byte) error {
+func (t *voteCountingAuxInfoApp) IsLegal(_ VersionID, _ NodeBLSMappings, history [][]byte, addition []byte) error {
 	set := make(map[string]struct{})
 	for _, item := range history {
 		set[string(item)] = struct{}{}
@@ -480,13 +480,13 @@ func (t *voteCountingAuxInfoApp) IsLegalAuxInfoAppend(_ VersionID, _ NodeBLSMapp
 	return nil
 }
 
-func (t *voteCountingAuxInfoApp) IsFinalAuxInfoHistory(appID VersionID, nodes NodeBLSMappings, history [][]byte) (bool, error) {
+func (t *voteCountingAuxInfoApp) IsSufficient(appID VersionID, nodes NodeBLSMappings, history [][]byte) (bool, error) {
 	if len(history) == 0 {
 		return t.threshold == 0, nil
 	}
 	addition := history[len(history)-1]
 	history = history[:len(history)-1]
-	if err := t.IsLegalAuxInfoAppend(appID, nodes, history, addition); err != nil {
+	if err := t.IsLegal(appID, nodes, history, addition); err != nil {
 		return false, err
 	}
 
@@ -499,7 +499,7 @@ func (t *voteCountingAuxInfoApp) IsFinalAuxInfoHistory(appID VersionID, nodes No
 	return final, nil
 }
 
-func (t *voteCountingAuxInfoApp) GenerateAuxInfo(VersionID, NodeBLSMappings, [][]byte) ([]byte, error) {
+func (t *voteCountingAuxInfoApp) Generate(VersionID, NodeBLSMappings, [][]byte) ([]byte, error) {
 	// Simulate a random node voting
 	if t.randomTape != nil {
 		return t.randomTape(), nil

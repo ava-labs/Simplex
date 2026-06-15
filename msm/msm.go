@@ -89,6 +89,7 @@ var (
 	errTimestampDecreasing            = errors.New("invalid timestamp: proposed timestamp is before parent block's timestamp")
 	errTimestampTooFarInFuture        = errors.New("invalid timestamp: proposed timestamp is too far in the future compared to current time")
 	errAuxInfoBlockRetrieval          = errors.New("failed to retrieve block while collecting auxiliary info")
+	errUnexpectedAuxInfo              = errors.New("auxiliary info present in a block that is not collecting approvals")
 
 	signatureContext = "MSM approval"
 )
@@ -164,25 +165,25 @@ type BlockBuilder interface {
 	WaitForPendingBlock(ctx context.Context)
 }
 
-// AuxiliaryInfoGenVerifier abstracts the application-specific logic for generating and verifying auxiliary information
+// AuxiliaryInfoCollector abstracts the application-specific logic for generating and verifying auxiliary information
 // that is piggybacked on epoch transitions.
-type AuxiliaryInfoGenVerifier interface {
-	// IsLegalAuxInfoAppend checks whether the given auxiliary information byte slice [x]
+type AuxiliaryInfoCollector interface {
+	// IsLegal checks whether the given auxiliary information byte slice [x]
 	// can be appended to the history of auxiliary information for the given versionID, according to the app's rules.
 	// Returns nil if the append is legal, or an error if the append is not legal or if any error occurs during the check.
-	IsLegalAuxInfoAppend(versionID VersionID, nodes NodeBLSMappings, history [][]byte, x []byte) error
+	IsLegal(versionID VersionID, nodes NodeBLSMappings, history [][]byte, x []byte) error
 
-	// IsFinalAuxInfoHistory checks whether the given history of auxiliary information for the given versionID is sufficient
+	// IsSufficient checks whether the given history of auxiliary information for the given versionID is sufficient
 	// to start the epoch transition process.
-	IsFinalAuxInfoHistory(versionID VersionID, nodes NodeBLSMappings, history [][]byte) (bool, error)
+	IsSufficient(versionID VersionID, nodes NodeBLSMappings, history [][]byte) (bool, error)
 
-	// GenerateAuxInfo generates an auxiliary information encoded as a byte slice based on the history of auxiliary information
+	// Generate generates an auxiliary information encoded as a byte slice based on the history of auxiliary information
 	// for the given versionID in the current epoch so far.
-	// If this is the first invocation in the epoch, DefaultversionID() should be passed as the VersionID.
+	// If this is the first invocation in the epoch, DefaultVersionID() should be passed as the VersionID.
 	// Otherwise, the versionID from previous blocks in the epoch should be used.
-	// If the application deems the given history to be sufficient for the epoch change, it can return a nil byte slice,
-	// in which case it will not be appended to the history.
-	GenerateAuxInfo(versionID VersionID, nodes NodeBLSMappings, history [][]byte) ([]byte, error)
+	// Generate is only consulted while the history is not yet sufficient (see IsSufficient, which is the
+	// single source of truth for readiness); it should return the caller's contribution to the history.
+	Generate(versionID VersionID, nodes NodeBLSMappings, history [][]byte) ([]byte, error)
 
 	// DefaultVersionID returns the default VersionID that should be used for epochs that don't have any any auxiliary information yet.
 	DefaultVersionID() VersionID
@@ -237,8 +238,8 @@ type Config struct {
 	Signer common.Signer
 	// ComputeICMEpoch computes the ICM epoch information in order to know which P-chain height to encode.
 	ComputeICMEpoch ICMEpochTransition
-	// AuxiliaryInfoApp abstracts an application that piggybacks on epoch changes.
-	AuxiliaryInfoApp AuxiliaryInfoGenVerifier
+	// AuxInfoCollector abstracts an application that piggybacks on epoch changes.
+	AuxInfoCollector AuxiliaryInfoCollector
 }
 
 type state uint8
@@ -376,6 +377,13 @@ func (sm *StateMachine) verifyNonZeroBlock(ctx context.Context, block, prevBlock
 		return err
 	}
 
+	// Auxiliary info is only produced while collecting approvals for an epoch transition. Any other
+	// state carrying auxiliary info is illegal; the collecting-approvals path validates it explicitly
+	// (see verifyExpectedAuxInfo), so it is the only state allowed to carry it.
+	if currentState != stateBuildCollectingApprovals && block.Metadata.AuxiliaryInfo != nil {
+		return errUnexpectedAuxInfo
+	}
+
 	switch currentState {
 	case stateBuildBlockNormalOp:
 		return sm.verifyNormalBlock(ctx, *prevBlock, block, prevSeq)
@@ -507,16 +515,19 @@ func verifyAgainstExpected(
 	nextBlock *StateMachineBlock,
 	timestamp time.Time,
 	expectedIcmEpochInfo ICMEpochInfo,
-	auxInfo *AuxiliaryInfo,
 ) error {
 	if innerBlock != nil {
 		if err := innerBlock.Verify(ctx, expectedIcmEpochInfo.PChainEpochHeight); err != nil {
 			return err
 		}
 	}
+	// The auxiliary info is proposer-chosen and not predictable, so it is validated separately
+	// (see verifyExpectedAuxInfo) and the proposal's own value is carried into the expected block;
+	// the "aux info only in collecting-approvals blocks" guard in verifyNonZeroBlock ensures other
+	// states carry none.
 	expectedBlock := wrapBlock(
 		innerBlock, expectedSimplexEpochInfo, expectedPChainHeight,
-		nextBlock.Metadata.SimplexProtocolMetadata, nextBlock.Metadata.SimplexBlacklist, timestamp, expectedIcmEpochInfo, auxInfo)
+		nextBlock.Metadata.SimplexProtocolMetadata, nextBlock.Metadata.SimplexBlacklist, timestamp, expectedIcmEpochInfo, nextBlock.Metadata.AuxiliaryInfo)
 	if expectedBlock.Digest() != nextBlock.Digest() {
 		return fmt.Errorf("expected block digest %s does not match proposed block digest %s: %w",
 			expectedBlock.Digest(),
@@ -544,7 +555,7 @@ func (sm *StateMachine) verifyNormalBlock(ctx context.Context, parentBlock State
 	}
 	newSimplexEpochInfo.NextPChainReferenceHeight = nextBlock.Metadata.SimplexEpochInfo.NextPChainReferenceHeight
 
-	return verifyAgainstExpected(ctx, nextBlock.InnerBlock, newSimplexEpochInfo, proposedPChainHeight, nextBlock, timestamp, icmEpochInfo, nil)
+	return verifyAgainstExpected(ctx, nextBlock.InnerBlock, newSimplexEpochInfo, proposedPChainHeight, nextBlock, timestamp, icmEpochInfo)
 }
 
 func verifyPChainHeight(proposedPChainHeight uint64, currentPChainHeight uint64, prevPChainHeight uint64) error {
@@ -877,14 +888,19 @@ func (sm *StateMachine) buildBlockCollectingApprovals(ctx context.Context, paren
 		return nil, err
 	}
 
-	auxInfo, isAuxInfoReadyForEpochTransition, auxInfoDigest, err := sm.computeAuxInfo(parentBlock, prevBlockSeq, validators)
+	auxState, err := sm.collectAuxInfoState(parentBlock, prevBlockSeq, validators)
 	if err != nil {
-		return nil, fmt.Errorf("failed to compute auxiliary info: %w", err)
+		return nil, fmt.Errorf("failed to collect auxiliary info: %w", err)
+	}
+
+	auxInfo, err := auxState.buildEntry(sm.AuxInfoCollector, validators, parentBlock)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build auxiliary info: %w", err)
 	}
 
 	var newApprovals *approvals
-	if isAuxInfoReadyForEpochTransition {
-		newApprovals, err = sm.computeNewApprovals(parentBlock, validators, auxInfoDigest)
+	if auxState.ready {
+		newApprovals, err = sm.computeNewApprovals(parentBlock, validators, auxState.digest)
 		if err != nil {
 			return nil, err
 		}
@@ -926,22 +942,26 @@ func (sm *StateMachine) verifyCollectingApprovalsBlock(ctx context.Context, pare
 
 	newApprovals := nextBlock.Metadata.SimplexEpochInfo.NextEpochApprovals
 
-	expectedAuxInfo, auxInfoDigest, isAuxInfoReady, err := sm.computeExpectedAuxInfoForApprovalCollection(parentBlock, nextBlock, prevBlockSeq, validators)
+	auxState, err := sm.collectAuxInfoState(parentBlock, prevBlockSeq, validators)
 	if err != nil {
-		return fmt.Errorf("failed to compute expected auxiliary info for approval collection: %w", err)
+		return fmt.Errorf("failed to collect auxiliary info: %w", err)
+	}
+
+	if err := auxState.verifyExpectedAuxInfo(sm.AuxInfoCollector, validators, nextBlock.Metadata.AuxiliaryInfo); err != nil {
+		return fmt.Errorf("failed to verify auxiliary info for approval collection: %w", err)
 	}
 
 	// If the Auxiliary info is ready for epoch change, the block builder should at least include its own approval in the block it builds,
 	// so we should have some approvals in the proposed block.
 	if newApprovals == nil || len(newApprovals.NodeIDs) == 0 || len(newApprovals.Signature) == 0 {
-		if isAuxInfoReady {
+		if auxState.ready {
 			return errEmptyNextEpochApprovals
 		}
 	}
 
 	// If we aren't ready for epoch transition, we cannot collect approvals just yet.
 	// So just make an empty NextEpochApprovals.
-	if !isAuxInfoReady {
+	if !auxState.ready {
 		if newApprovals != nil && (len(newApprovals.NodeIDs) > 0 || len(newApprovals.Signature) > 0) {
 			return fmt.Errorf("expected no approvals when auxiliary info is not ready for epoch transition, but got some")
 		}
@@ -949,7 +969,7 @@ func (sm *StateMachine) verifyCollectingApprovalsBlock(ctx context.Context, pare
 		timestamp := time.UnixMilli(int64(nextBlock.Metadata.Timestamp))
 		icmEpochInfo := computeICMEpochInfo(parentBlock, sm.ComputeICMEpoch, timestamp)
 
-		return verifyAgainstExpected(ctx, nextBlock.InnerBlock, newSimplexEpochInfo, nextBlock.Metadata.PChainHeight, nextBlock, timestamp, icmEpochInfo, expectedAuxInfo)
+		return verifyAgainstExpected(ctx, nextBlock.InnerBlock, newSimplexEpochInfo, nextBlock.Metadata.PChainHeight, nextBlock, timestamp, icmEpochInfo)
 	}
 
 	newSimplexEpochInfo := computeSimplexEpochInfoForCollectingApprovalsBlock(parentBlock, prevBlockSeq, &approvals{
@@ -957,7 +977,7 @@ func (sm *StateMachine) verifyCollectingApprovalsBlock(ctx context.Context, pare
 		signature: newApprovals.Signature,
 	})
 
-	err = sm.verifyNextEpochApprovalsSignature(parentBlock.Metadata, nextBlock.Metadata, validators, auxInfoDigest)
+	err = sm.verifyNextEpochApprovalsSignature(parentBlock.Metadata, nextBlock.Metadata, validators, auxState.digest)
 	if err != nil {
 		return err
 	}
@@ -982,7 +1002,7 @@ func (sm *StateMachine) verifyCollectingApprovalsBlock(ctx context.Context, pare
 	timestamp := time.UnixMilli(int64(nextBlock.Metadata.Timestamp))
 	icmEpochInfo := computeICMEpochInfo(parentBlock, sm.ComputeICMEpoch, timestamp)
 
-	return verifyAgainstExpected(ctx, nextBlock.InnerBlock, newSimplexEpochInfo, nextBlock.Metadata.PChainHeight, nextBlock, timestamp, icmEpochInfo, expectedAuxInfo)
+	return verifyAgainstExpected(ctx, nextBlock.InnerBlock, newSimplexEpochInfo, nextBlock.Metadata.PChainHeight, nextBlock, timestamp, icmEpochInfo)
 }
 
 func (sm *StateMachine) verifyNextEpochApprovalsSignature(prevMD StateMachineMetadata, nextMD StateMachineMetadata, validators NodeBLSMappings, auxInfoDigest [32]byte) error {
@@ -1108,32 +1128,15 @@ func (sm *StateMachine) createSelfApproval(nextPChainReferenceHeight uint64, aux
 	return sig, nil
 }
 
-type auxInfoHistory struct {
-	data [][]byte
-	seq  []uint64
-}
-
-func (aih *auxInfoHistory) lastAuxInfoSeq() uint64 {
-	if len(aih.seq) == 0 {
-		return 0
-	}
-	return aih.seq[len(aih.seq)-1]
-}
-
-func (aih *auxInfoHistory) lastHistory() []byte {
-	if len(aih.data) == 0 {
-		return nil
-	}
-	return aih.data[len(aih.data)-1]
-}
-
-// collectAuxiliaryInfo traverses backwards starting from the given block and collects the AuxiliaryInfo of all blocks in the chain.
-// returns the collected AuxiliaryInfo, the corresponding sequences of the blocks they were collected from,
-// and the application ID of the oldest block that contains a non empty Info (or defaultversionID if there was none).
-func collectAuxiliaryInfo(block StateMachineBlock, startSeq uint64, getBlock BlockRetriever, defaultversionID VersionID) (auxInfoHistory, VersionID, error) {
-	var history [][]byte
-	var seqs []uint64
-	var versionID = defaultversionID
+// collectAuxiliaryInfo traverses backwards starting from the given block and collects the non-empty
+// AuxiliaryInfo entries of all blocks in the chain, ordered from oldest to newest. It also records the
+// sequence of the newest such entry (the back-pointer target for the next block) and the version of the
+// oldest non-empty entry (or defaultVersionID if there were none). The returned state's ready/digest
+// fields are left unset; collectAuxInfoState fills them in.
+func collectAuxiliaryInfo(block StateMachineBlock, startSeq uint64, getBlock BlockRetriever, defaultVersionID VersionID) (auxInfoState, error) {
+	var entries [][]byte
+	var lastSeq uint64
+	versionID := defaultVersionID
 
 	// We traverse the chain of blocks backwards in the following manner:
 	// (1) Every block that doesn't have AuxiliaryInfo, its parents also do not have AuxiliaryInfo.
@@ -1148,8 +1151,12 @@ func collectAuxiliaryInfo(block StateMachineBlock, startSeq uint64, getBlock Blo
 	currentSeq := startSeq
 	for auxInfo != nil {
 		if len(auxInfo.Info) > 0 {
-			history = append(history, auxInfo.Info)
-			seqs = append(seqs, currentSeq)
+			// The first non-empty entry we encounter going backwards is the newest one; its
+			// sequence is the back-pointer target for the block being built/verified.
+			if len(entries) == 0 {
+				lastSeq = currentSeq
+			}
+			entries = append(entries, auxInfo.Info)
 			versionID = auxInfo.VersionID
 		}
 		if auxInfo.PrevAuxInfoSeq == 0 {
@@ -1159,15 +1166,14 @@ func collectAuxiliaryInfo(block StateMachineBlock, startSeq uint64, getBlock Blo
 		currentSeq = auxInfo.PrevAuxInfoSeq
 		prevBlock, _, err := getBlock(auxInfo.PrevAuxInfoSeq, [32]byte{})
 		if err != nil {
-			return auxInfoHistory{}, 0, fmt.Errorf("%w: at sequence %d: %w", errAuxInfoBlockRetrieval, auxInfo.PrevAuxInfoSeq, err)
+			return auxInfoState{}, fmt.Errorf("%w: at sequence %d: %w", errAuxInfoBlockRetrieval, auxInfo.PrevAuxInfoSeq, err)
 		}
 		auxInfo = prevBlock.Metadata.AuxiliaryInfo
 	}
 
-	// Reverse so the history (and the matching seqs) are ordered from oldest to newest.
-	slices.Reverse(history)
-	slices.Reverse(seqs)
-	return auxInfoHistory{data: history, seq: seqs}, versionID, nil
+	// Reverse so the entries are ordered from oldest to newest.
+	slices.Reverse(entries)
+	return auxInfoState{entries: entries, lastSeq: lastSeq, versionID: versionID}, nil
 }
 
 // buildBlockImpatiently builds a block by waiting for the VM to build a block until MaxBlockBuildingWaitTime.
@@ -1358,7 +1364,7 @@ func (sm *StateMachine) verifyBlockEpochSealed(ctx context.Context, parentBlock 
 	newSimplexEpochInfo := computeSimplexEpochInfoForTelock(parentBlock, sealingBlockSeq, prevBlockSeq)
 
 	if !isSealingBlockFinalized {
-		return verifyAgainstExpected(ctx, nil, newSimplexEpochInfo, nextBlock.Metadata.PChainHeight, nextBlock, timestamp, icmEpochInfo, nil)
+		return verifyAgainstExpected(ctx, nil, newSimplexEpochInfo, nextBlock.Metadata.PChainHeight, nextBlock, timestamp, icmEpochInfo)
 	}
 
 	// Else, it's a new epoch.
@@ -1379,111 +1385,106 @@ func (sm *StateMachine) verifyBlockEpochSealed(ctx context.Context, parentBlock 
 	}
 	newSimplexEpochInfo.NextPChainReferenceHeight = nextBlock.Metadata.SimplexEpochInfo.NextPChainReferenceHeight
 
-	return verifyAgainstExpected(ctx, nextBlock.InnerBlock, newSimplexEpochInfo, proposedPChainHeight, nextBlock, timestamp, icmEpochInfo, nil)
+	return verifyAgainstExpected(ctx, nextBlock.InnerBlock, newSimplexEpochInfo, proposedPChainHeight, nextBlock, timestamp, icmEpochInfo)
 }
 
-// computeExpectedAuxInfoForApprovalCollection computes the expected AuxiliaryInfo that should be included in the proposed block
-// for approval collection, and returns the auxiliary info digest, and whether the auxiliary info history is ready for epoch transition.
-func (sm *StateMachine) computeExpectedAuxInfoForApprovalCollection(parentBlock StateMachineBlock, nextBlock *StateMachineBlock, prevBlockSeq uint64, validators NodeBLSMappings) (*AuxiliaryInfo, [32]byte, bool, error) {
-	nextMD := nextBlock.Metadata
-	prevMD := parentBlock.Metadata
-
-	auxInfoHistory, versionID, err := collectAuxiliaryInfo(parentBlock, prevBlockSeq, sm.GetBlock, sm.AuxiliaryInfoApp.DefaultVersionID())
-	if err != nil {
-		return nil, [32]byte{}, false, err
-	}
-
-	if len(auxInfoHistory.data) > 0 && nextMD.AuxiliaryInfo == nil {
-		// If we have auxiliary info history but the proposed block doesn't include any auxiliary info,
-		// it means the block builder has dropped the auxiliary info, which is not allowed.
-		return nil, [32]byte{}, false, fmt.Errorf("expected auxiliary info for application %d with history length %d, but got nil", versionID, len(auxInfoHistory.data))
-	}
-
-	// Else, either len(auxInfoHistory) == 0,
-	// or the proposed block includes auxiliary info.
-	// Both of these cases are fine, because a node doesn't have to include Auxiliary information.
-	// We will verify the legality of the proposed auxiliary info (if any) in the next step.
-
-	var expectedAuxInfo *AuxiliaryInfo
-	var proposedAuxInf []byte
-
-	if nextMD.AuxiliaryInfo != nil {
-		proposedAuxInf = nextMD.AuxiliaryInfo.Info
-		expectedAuxInfo = &AuxiliaryInfo{
-			VersionID: versionID,
-			Info:      proposedAuxInf,
-		}
-		if prevMD.AuxiliaryInfo != nil {
-			expectedAuxInfo.PrevAuxInfoSeq = auxInfoHistory.lastAuxInfoSeq()
-		}
-	}
-
-	if err := sm.AuxiliaryInfoApp.IsLegalAuxInfoAppend(versionID, validators, auxInfoHistory.data, proposedAuxInf); err != nil {
-		return nil, [32]byte{}, false, fmt.Errorf("proposed auxiliary info is not a legal append to the history for application %d: %w", versionID, err)
-	}
-
-	auxInfoReady, err := sm.AuxiliaryInfoApp.IsFinalAuxInfoHistory(versionID, validators, auxInfoHistory.data)
-	if err != nil {
-		return nil, [32]byte{}, false, fmt.Errorf("failed to check if auxiliary info history is final for application %d: %w", versionID, err)
-	}
-
-	var digest [32]byte
-	if auxInfoReady {
-		digest = sha256.Sum256(auxInfoHistory.lastHistory())
-	}
-
-	return expectedAuxInfo, digest, auxInfoReady, nil
+// auxInfoState is the consensus-critical view of the auxiliary info history at a block, computed
+// identically on the build and verify paths.
+type auxInfoState struct {
+	// entries are the non-empty Info blobs of the history, ordered oldest→newest — what the collector sees.
+	entries [][]byte
+	// lastSeq is the sequence of the newest entry; the back-pointer (PrevAuxInfoSeq) target for the next block.
+	lastSeq uint64
+	// versionID is the version the history is judged under.
+	versionID VersionID
+	// ready reports whether the history is sufficient to seal the epoch and begin collecting approvals.
+	ready bool
+	// digest is the value epoch-transition approvals are signed over, binding each approval to this
+	// exact history. It is only meaningful (and only consumed) once ready.
+	digest [32]byte
 }
 
-// computeAuxInfo computes the AuxiliaryInfo that should be included in the block being built, and whether the auxiliary info history is ready for epoch transition,
-func (sm *StateMachine) computeAuxInfo(parentBlock StateMachineBlock, prevBlockSeq uint64, validators NodeBLSMappings) (*AuxiliaryInfo, bool, common.Digest, error) {
-	auxInfoHistory, versionID, err := collectAuxiliaryInfo(parentBlock, prevBlockSeq, sm.GetBlock, sm.AuxiliaryInfoApp.DefaultVersionID())
+// entry builds an AuxiliaryInfo to embed in a block from this state, carrying the given Info. The
+// version and back-pointer are always taken from the collected state (never trusted from a proposer).
+func (s auxInfoState) entry(info []byte) *AuxiliaryInfo {
+	return &AuxiliaryInfo{
+		VersionID:      s.versionID,
+		PrevAuxInfoSeq: s.lastSeq,
+		Info:           info,
+	}
+}
+
+// collectAuxInfoState gathers the consensus-critical view of the auxiliary info history that both the
+// build and verify paths must agree on byte-for-byte: the ordered history, the version it is judged
+// under, whether it is sufficient to seal the epoch, and the digest that approvals bind to once it is.
+func (sm *StateMachine) collectAuxInfoState(parentBlock StateMachineBlock, prevBlockSeq uint64, validators NodeBLSMappings) (auxInfoState, error) {
+	state, err := collectAuxiliaryInfo(parentBlock, prevBlockSeq, sm.GetBlock, sm.AuxInfoCollector.DefaultVersionID())
 	if err != nil {
-		return nil, false, common.Digest{}, err
+		return auxInfoState{}, err
 	}
 
-	isAuxInfoReadyForEpochTransition, err := sm.AuxiliaryInfoApp.IsFinalAuxInfoHistory(versionID, validators, auxInfoHistory.data)
+	state.ready, err = sm.AuxInfoCollector.IsSufficient(state.versionID, validators, state.entries)
 	if err != nil {
-		return nil, false, common.Digest{}, fmt.Errorf("failed to check if auxiliary info history is final: %w", err)
+		return auxInfoState{}, fmt.Errorf("failed to check if auxiliary info history is sufficient: %w", err)
 	}
 
-	var auxInfo *AuxiliaryInfo
-	parentAuxInfo := parentBlock.Metadata.AuxiliaryInfo
-	if parentAuxInfo != nil {
-		auxInfo = &AuxiliaryInfo{
-			VersionID:      parentAuxInfo.VersionID,
-			PrevAuxInfoSeq: auxInfoHistory.lastAuxInfoSeq(),
+	if state.ready {
+		// Approvals bind to the digest of the newest entry.
+		var latest []byte
+		if n := len(state.entries); n > 0 {
+			latest = state.entries[n-1]
+		}
+		state.digest = sha256.Sum256(latest)
+	}
+	return state, nil
+}
+
+// buildEntry produces the AuxiliaryInfo to embed in a block being built on the given parent: once the
+// history is sufficient it carries the chain forward unchanged; otherwise it appends this node's
+// contribution from the collector. We always emit an entry while not ready (even with empty Info) so
+// the chain is established/continued for descendants.
+func (state auxInfoState) buildEntry(collector AuxiliaryInfoCollector, validators NodeBLSMappings, parentBlock StateMachineBlock) (*AuxiliaryInfo, error) {
+	if state.ready {
+		// History is sufficient: stop appending and carry the chain forward unchanged. There is
+		// nothing to carry when the parent has no auxiliary info.
+		if parentBlock.Metadata.AuxiliaryInfo == nil {
+			return nil, nil
+		}
+		return state.entry(nil), nil
+	}
+
+	info, err := collector.Generate(state.versionID, validators, state.entries)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate auxiliary info: %w", err)
+	}
+	return state.entry(info), nil
+}
+
+// verifyExpectedAuxInfo validates the auxiliary info a proposed block carries against the collected
+// state. The Info bytes are chosen by the proposer and cannot be predicted, so they are validated here
+// rather than via the block digest: the builder may not drop a non-empty history, the proposer's framing
+// (version and back-pointer) must match what we derive, and the contribution must be a legal append.
+func (state auxInfoState) verifyExpectedAuxInfo(collector AuxiliaryInfoCollector, validators NodeBLSMappings, proposed *AuxiliaryInfo) error {
+	// The builder may only omit auxiliary info when there is no history to preserve.
+	if len(state.entries) > 0 && proposed == nil {
+		return fmt.Errorf("expected auxiliary info for version %d with history length %d, but got nil", state.versionID, len(state.entries))
+	}
+
+	var proposedInfo []byte
+	if proposed != nil {
+		proposedInfo = proposed.Info
+		// The proposer chooses the Info, but the version and back-pointer must match what we derive
+		// from the collected state — we never trust the proposer's framing.
+		if !proposed.Equal(state.entry(proposedInfo)) {
+			return fmt.Errorf("proposed auxiliary info framing does not match expected for version %d", state.versionID)
 		}
 	}
 
-	if !isAuxInfoReadyForEpochTransition {
-		// If the auxiliary info isn't ready for epoch transition,
-		// we should focus on contributing to finalizing it before collecting approvals for the epoch transition,
-		// as without it being ready, we won't be able to transition epochs anyway.
-		auxInf, err := sm.AuxiliaryInfoApp.GenerateAuxInfo(versionID, validators, auxInfoHistory.data)
-		if err != nil {
-			return nil, false, common.Digest{}, fmt.Errorf("failed to generate auxiliary info: %w", err)
-		}
-		if auxInfo == nil {
-			// This is the first auxiliary info we're generating for this epoch,
-			// so we need to initialize it.
-			auxInfo = &AuxiliaryInfo{
-				VersionID: versionID,
-				Info:      auxInf,
-			}
-		} else {
-			// Otherwise, we already have auxiliary info from the parent block,
-			// so we just update the Info field and carry over the VersionID and PrevAuxInfoSeq.
-			auxInfo.Info = auxInf
-		}
+	if err := collector.IsLegal(state.versionID, validators, state.entries, proposedInfo); err != nil {
+		return fmt.Errorf("proposed auxiliary info is not a legal append to the history for version %d: %w", state.versionID, err)
 	}
 
-	var auxInfoDigest common.Digest
-	if isAuxInfoReadyForEpochTransition {
-		auxInfoDigest = sha256.Sum256(auxInfoHistory.lastHistory())
-	}
-
-	return auxInfo, isAuxInfoReadyForEpochTransition, auxInfoDigest, nil
+	return nil
 }
 
 // constructSimplexZeroBlockSimplexEpochInfo constructs the SimplexEpochInfo for the zero block, which is the first ever block built by Simplex.

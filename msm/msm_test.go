@@ -551,7 +551,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 			// first collecting round and no auxiliary info is generated. Auxiliary info
 			// behavior is covered by TestVerifyCollectingApprovalsNotReady and
 			// TestCollectAuxiliaryInfo.
-			sm.AuxiliaryInfoApp = &noopTestAuxInfoApp{}
+			sm.AuxInfoCollector = &noopTestAuxInfoApp{}
 			tc.blockStore[0] = &outerBlock{block: genesis}
 			tc.blockStore[42] = &outerBlock{block: notGenesis}
 
@@ -560,7 +560,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 			sm.LastNonSimplexBlockPChainHeight = pChainHeight1
 
 			smVerify, tcVerify := newStateMachine(t)
-			smVerify.AuxiliaryInfoApp = &noopTestAuxInfoApp{}
+			smVerify.AuxInfoCollector = &noopTestAuxInfoApp{}
 			smVerify.GetValidatorSet = getValidatorSet
 			smVerify.GetPChainHeight = getPChainHeight
 			smVerify.GetTime = fixedTime
@@ -1452,7 +1452,7 @@ func TestBuildBlockCollectingApprovalsDedupsOwnApprovalAcrossRounds(t *testing.T
 	// This test is about approval dedup, not auxiliary info. Use an app whose history
 	// is always final so approvals are collected from the first collecting round
 	// (the builder only collects approvals once the aux info history is ready).
-	sm.AuxiliaryInfoApp = &noopTestAuxInfoApp{}
+	sm.AuxInfoCollector = &noopTestAuxInfoApp{}
 
 	// Use concatAggregator so that AppendSignatures(existing) with zero new
 	// signatures returns `existing` verbatim. This makes signature equality
@@ -1636,7 +1636,7 @@ func TestCollectingApprovalsAuxInfoGating(t *testing.T) {
 	vote1 := []byte("vote-1")
 	vote2 := []byte("vote-2")
 	votes := [][]byte{vote1, vote2}
-	sm.AuxiliaryInfoApp = &voteCountingAuxInfoApp{
+	sm.AuxInfoCollector = &voteCountingAuxInfoApp{
 		threshold: 2,
 		randomTape: func() []byte {
 			next := votes[0]
@@ -1759,7 +1759,7 @@ func TestCollectAuxiliaryInfo(t *testing.T) {
 		blocks            map[uint64]StateMachineBlock
 		getBlockErr       error
 		expectedHistory   [][]byte
-		expectedSeqs      []uint64
+		expectedLastSeq   uint64
 		expectedversionID VersionID
 		expectedErr       error
 	}{
@@ -1775,7 +1775,7 @@ func TestCollectAuxiliaryInfo(t *testing.T) {
 			name:              "non-empty info, first of epoch",
 			block:             blockWithAuxInfo([]byte{1}, 0),
 			expectedHistory:   [][]byte{{1}},
-			expectedSeqs:      []uint64{startSeq},
+			expectedLastSeq:   startSeq,
 			expectedversionID: versionID,
 		},
 		{
@@ -1785,7 +1785,7 @@ func TestCollectAuxiliaryInfo(t *testing.T) {
 				3: blockWithAuxInfo([]byte{1}, 0),
 			},
 			expectedHistory:   [][]byte{{1}},
-			expectedSeqs:      []uint64{3},
+			expectedLastSeq:   3,
 			expectedversionID: versionID,
 		},
 		{
@@ -1796,7 +1796,7 @@ func TestCollectAuxiliaryInfo(t *testing.T) {
 				2: blockWithAuxInfo([]byte{1}, 0),
 			},
 			expectedHistory:   [][]byte{{1}, {2}, {3}},
-			expectedSeqs:      []uint64{2, 5, startSeq},
+			expectedLastSeq:   startSeq,
 			expectedversionID: versionID,
 		},
 		{
@@ -1806,7 +1806,7 @@ func TestCollectAuxiliaryInfo(t *testing.T) {
 				4: {},
 			},
 			expectedHistory:   [][]byte{{2}},
-			expectedSeqs:      []uint64{startSeq},
+			expectedLastSeq:   startSeq,
 			expectedversionID: versionID,
 		},
 		{
@@ -1828,16 +1828,16 @@ func TestCollectAuxiliaryInfo(t *testing.T) {
 				return block, nil, nil
 			}
 
-			history, gotversionID, err := collectAuxiliaryInfo(tt.block, startSeq, getBlock, 0)
+			state, err := collectAuxiliaryInfo(tt.block, startSeq, getBlock, 0)
 			if tt.expectedErr != nil {
 				require.ErrorIs(t, err, tt.expectedErr)
 				require.ErrorIs(t, err, errAuxInfoBlockRetrieval)
 				return
 			}
 			require.NoError(t, err)
-			require.Equal(t, tt.expectedHistory, history.data)
-			require.Equal(t, tt.expectedSeqs, history.seq)
-			require.Equal(t, tt.expectedversionID, gotversionID)
+			require.Equal(t, tt.expectedHistory, state.entries)
+			require.Equal(t, tt.expectedLastSeq, state.lastSeq)
+			require.Equal(t, tt.expectedversionID, state.versionID)
 		})
 	}
 }

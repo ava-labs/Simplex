@@ -33,7 +33,7 @@ func TestFakeNodeEpochChangesDespiteEmptyMempool(t *testing.T) {
 	var pChainHeight atomic.Uint64
 	pChainHeight.Store(100)
 	node := newFakeNode(t)
-	node.sm.AuxiliaryInfoApp = &noopTestAuxInfoApp{}
+	node.sm.AuxInfoCollector = &noopTestAuxInfoApp{}
 	node.sm.GetValidatorSet = validatorSetRetriever.getValidatorSet
 	node.sm.GetPChainHeight = func() uint64 {
 		return pChainHeight.Load()
@@ -87,7 +87,7 @@ func TestFakeNode(t *testing.T) {
 	var pChainHeight atomic.Uint64
 	pChainHeight.Store(100)
 	node := newFakeNode(t)
-	node.sm.AuxiliaryInfoApp = &noopTestAuxInfoApp{}
+	node.sm.AuxInfoCollector = &noopTestAuxInfoApp{}
 	node.sm.GetValidatorSet = validatorSetRetriever.getValidatorSet
 	node.sm.GetPChainHeight = func() uint64 {
 		return pChainHeight.Load()
@@ -154,7 +154,7 @@ func TestFakeNodeEmptyMempool(t *testing.T) {
 
 	var pChainHeight uint64 = 100
 	node := newFakeNode(t)
-	node.sm.AuxiliaryInfoApp = &noopTestAuxInfoApp{}
+	node.sm.AuxInfoCollector = &noopTestAuxInfoApp{}
 	node.sm.MaxBlockBuildingWaitTime = 100 * time.Millisecond
 	node.sm.GetValidatorSet = validatorSetRetriever.getValidatorSet
 	node.sm.GetPChainHeight = func() uint64 {

@@ -187,7 +187,7 @@ func buildEpochChain(tb testing.TB, logger common.Logger) ([]*StateMachineBlock,
 	// This chain exercises the epoch lifecycle, not auxiliary info. Use an app whose
 	// history is always final so approvals are collected from the first collecting
 	// round (the builder only collects approvals once the aux info history is ready).
-	sm.AuxiliaryInfoApp = &noopTestAuxInfoApp{}
+	sm.AuxInfoCollector = &noopTestAuxInfoApp{}
 	sm.GetValidatorSet = getValidatorSet
 	sm.GetPChainHeight = func() uint64 { return currentPChainHeight }
 	sm.GetTime = func() time.Time { return currentTime }
@@ -294,7 +294,7 @@ func buildEpochChain(tb testing.TB, logger common.Logger) ([]*StateMachineBlock,
 
 	// Build a separate verifier MSM with its own copy of the fully populated store.
 	verifier, vtc := newStateMachineWithLogger(tb, logger)
-	verifier.AuxiliaryInfoApp = &noopTestAuxInfoApp{}
+	verifier.AuxInfoCollector = &noopTestAuxInfoApp{}
 	vtc.blockStore = tc.blockStore.clone()
 	verifier.GetBlock = vtc.blockStore.getBlock
 	verifier.GetValidatorSet = getValidatorSet
