@@ -14,7 +14,6 @@ import (
 	"time"
 
 	. "github.com/ava-labs/simplex/common"
-	"github.com/ava-labs/simplex/record"
 	. "github.com/ava-labs/simplex/simplex"
 	"github.com/ava-labs/simplex/testutil"
 	"github.com/stretchr/testify/require"
@@ -822,7 +821,7 @@ func TestEpochLeaderFailoverBecauseOfBadBlock(t *testing.T) {
 
 	testutil.WaitForBlockProposerTimeout(t, e, &e.StartTime, 1)
 
-	require.Equal(t, record.EmptyNotarizationRecordType, wal.AssertNotarization(1))
+	require.Equal(t, EmptyNotarizationRecordType, wal.AssertNotarization(1))
 	notarizeAndFinalizeRound(t, e, bb)
 }
 

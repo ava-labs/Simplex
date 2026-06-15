@@ -17,7 +17,6 @@ import (
 	"time"
 
 	. "github.com/ava-labs/simplex/common"
-	"github.com/ava-labs/simplex/record"
 	. "github.com/ava-labs/simplex/simplex"
 	"github.com/ava-labs/simplex/testutil"
 
@@ -583,7 +582,7 @@ func TestEpochNotarizeTwiceThenFinalize(t *testing.T) {
 	}, nodes[1])
 	require.NoError(t, err)
 	emptyRecord := wal.AssertNotarization(1)
-	require.Equal(t, record.EmptyNotarizationRecordType, emptyRecord)
+	require.Equal(t, EmptyNotarizationRecordType, emptyRecord)
 
 	// Round 2
 	md := e.Metadata()
@@ -760,7 +759,7 @@ func advanceRoundFromEmpty(t *testing.T, e *Epoch) {
 	require.NoError(t, err)
 
 	emptyRecord := e.WAL.(*testutil.TestWAL).AssertNotarization(emptyNote.Vote.Round)
-	require.Equal(t, record.EmptyNotarizationRecordType, emptyRecord)
+	require.Equal(t, EmptyNotarizationRecordType, emptyRecord)
 }
 
 func advanceRoundFromNotarization(t *testing.T, e *Epoch, bb *testutil.TestBlockBuilder) (VerifiedBlock, *Notarization) {
@@ -1249,7 +1248,7 @@ func TestEpochSendsBlockDigestRequest(t *testing.T) {
 
 	emptyNote := wal.AssertNotarization(0)
 	require.NoError(t, err)
-	require.Equal(t, record.EmptyNotarizationRecordType, emptyNote)
+	require.Equal(t, EmptyNotarizationRecordType, emptyNote)
 
 	_, built := bb.BuildBlock(ctx, ProtocolMetadata{}, emptyBlacklist)
 	require.True(t, built)

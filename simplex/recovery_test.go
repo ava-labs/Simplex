@@ -10,7 +10,6 @@ import (
 	"time"
 
 	. "github.com/ava-labs/simplex/common"
-	"github.com/ava-labs/simplex/record"
 	. "github.com/ava-labs/simplex/simplex"
 	"github.com/ava-labs/simplex/testutil"
 	"github.com/stretchr/testify/require"
@@ -400,7 +399,7 @@ func TestWalWritesFinalization(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, records, 5)
 	recordType := binary.BigEndian.Uint16(records[4])
-	require.Equal(t, record.FinalizationRecordType, recordType)
+	require.Equal(t, FinalizationRecordType, recordType)
 	_, err = FinalizationFromRecord(records[4], e.QCDeserializer)
 	_, expectedFinalizationRecord := testutil.NewFinalizationRecord(t, sigAggregrator, secondBlock, nodes[0:quorum])
 	require.NoError(t, err)

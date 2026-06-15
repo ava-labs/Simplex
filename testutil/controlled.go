@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/ava-labs/simplex/common"
-	"github.com/ava-labs/simplex/record"
 	"github.com/ava-labs/simplex/simplex"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -86,7 +85,7 @@ func (n *ControlledInMemoryNetwork) AdvanceWithoutLeader(round uint64, laggingNo
 			continue
 		}
 		recordType := n.WAL.AssertNotarization(round)
-		require.Equal(n.t, record.EmptyNotarizationRecordType, recordType)
+		require.Equal(n.t, common.EmptyNotarizationRecordType, recordType)
 	}
 }
 

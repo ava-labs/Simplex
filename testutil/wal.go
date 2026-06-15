@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/ava-labs/simplex/common"
-	"github.com/ava-labs/simplex/record"
 	"github.com/ava-labs/simplex/wal"
 	"github.com/stretchr/testify/require"
 )
@@ -88,20 +87,20 @@ func (tw *TestWAL) AssertNotarization(round uint64) uint16 {
 		require.NoError(tw.t, err)
 
 		for _, rawRecord := range rawRecords {
-			if binary.BigEndian.Uint16(rawRecord[:2]) == record.NotarizationRecordType {
+			if binary.BigEndian.Uint16(rawRecord[:2]) == common.NotarizationRecordType {
 				_, vote, err := common.ParseNotarizationRecord(rawRecord)
 				require.NoError(tw.t, err)
 
 				if vote.Round == round {
-					return record.NotarizationRecordType
+					return common.NotarizationRecordType
 				}
 			}
-			if binary.BigEndian.Uint16(rawRecord[:2]) == record.EmptyNotarizationRecordType {
+			if binary.BigEndian.Uint16(rawRecord[:2]) == common.EmptyNotarizationRecordType {
 				_, vote, err := common.ParseEmptyNotarizationRecord(rawRecord)
 				require.NoError(tw.t, err)
 
 				if vote.Round == round {
-					return record.EmptyNotarizationRecordType
+					return common.EmptyNotarizationRecordType
 				}
 			}
 		}
@@ -120,7 +119,7 @@ func (tw *TestWAL) AssertEmptyVote(round uint64) {
 		require.NoError(tw.t, err)
 
 		for _, rawRecord := range rawRecords {
-			if binary.BigEndian.Uint16(rawRecord[:2]) == record.EmptyVoteRecordType {
+			if binary.BigEndian.Uint16(rawRecord[:2]) == common.EmptyVoteRecordType {
 				vote, err := common.ParseEmptyVoteRecord(rawRecord)
 				require.NoError(tw.t, err)
 
@@ -144,7 +143,7 @@ func (tw *TestWAL) AssertBlockProposal(round uint64) {
 		require.NoError(tw.t, err)
 
 		for _, rawRecord := range rawRecords {
-			if binary.BigEndian.Uint16(rawRecord[:2]) == record.BlockRecordType {
+			if binary.BigEndian.Uint16(rawRecord[:2]) == common.BlockRecordType {
 				bh, _, err := common.ParseBlockRecord(rawRecord)
 				require.NoError(tw.t, err)
 
@@ -167,7 +166,7 @@ func (tw *TestWAL) ContainsNotarization(round uint64) bool {
 	require.NoError(tw.t, err)
 
 	for _, rawRecord := range rawRecords {
-		if binary.BigEndian.Uint16(rawRecord[:2]) == record.NotarizationRecordType {
+		if binary.BigEndian.Uint16(rawRecord[:2]) == common.NotarizationRecordType {
 			_, vote, err := common.ParseNotarizationRecord(rawRecord)
 			require.NoError(tw.t, err)
 
@@ -188,7 +187,7 @@ func (tw *TestWAL) ContainsEmptyVote(round uint64) bool {
 	require.NoError(tw.t, err)
 
 	for _, rawRecord := range rawRecords {
-		if binary.BigEndian.Uint16(rawRecord[:2]) == record.EmptyVoteRecordType {
+		if binary.BigEndian.Uint16(rawRecord[:2]) == common.EmptyVoteRecordType {
 			vote, err := common.ParseEmptyVoteRecord(rawRecord)
 			require.NoError(tw.t, err)
 
@@ -209,7 +208,7 @@ func (tw *TestWAL) ContainsEmptyNotarization(round uint64) bool {
 	require.NoError(tw.t, err)
 
 	for _, rawRecord := range rawRecords {
-		if binary.BigEndian.Uint16(rawRecord[:2]) == record.EmptyNotarizationRecordType {
+		if binary.BigEndian.Uint16(rawRecord[:2]) == common.EmptyNotarizationRecordType {
 			_, vote, err := common.ParseEmptyNotarizationRecord(rawRecord)
 			require.NoError(tw.t, err)
 
@@ -243,7 +242,7 @@ func (tw *TestWAL) AssertHealthy(bd common.BlockDeserializer, qcd common.QCDeser
 		recordType := binary.BigEndian.Uint16(r)
 
 		switch recordType {
-		case record.BlockRecordType:
+		case common.BlockRecordType:
 			block, err := common.BlockFromRecord(ctx, bd, r)
 			require.NoError(tw.t, err)
 			round := block.BlockHeader().Round
@@ -252,7 +251,7 @@ func (tw *TestWAL) AssertHealthy(bd common.BlockDeserializer, qcd common.QCDeser
 			}
 			require.False(tw.t, rounds[round].blockRecord, "duplicate block record for round %d", round)
 			rounds[round].blockRecord = true
-		case record.NotarizationRecordType:
+		case common.NotarizationRecordType:
 			_, vote, err := common.ParseNotarizationRecord(r)
 			require.NoError(tw.t, err)
 			round := vote.Round
@@ -261,7 +260,7 @@ func (tw *TestWAL) AssertHealthy(bd common.BlockDeserializer, qcd common.QCDeser
 			}
 			require.False(tw.t, rounds[round].notarizationRecord, "duplicate notarization record for round %d", round)
 			rounds[round].notarizationRecord = true
-		case record.EmptyNotarizationRecordType:
+		case common.EmptyNotarizationRecordType:
 			_, vote, err := common.ParseEmptyNotarizationRecord(r)
 			require.NoError(tw.t, err)
 			round := vote.Round
@@ -270,7 +269,7 @@ func (tw *TestWAL) AssertHealthy(bd common.BlockDeserializer, qcd common.QCDeser
 			}
 			require.False(tw.t, rounds[round].emptyNotarizationRecord, "duplicate empty notarization record for round %d", round)
 			rounds[round].emptyNotarizationRecord = true
-		case record.EmptyVoteRecordType:
+		case common.EmptyVoteRecordType:
 			vote, err := common.ParseEmptyVoteRecord(r)
 			require.NoError(tw.t, err)
 			round := vote.Round
@@ -279,7 +278,7 @@ func (tw *TestWAL) AssertHealthy(bd common.BlockDeserializer, qcd common.QCDeser
 			}
 			require.False(tw.t, rounds[round].emptyVoteRecord, "duplicate empty vote record for round %d", round)
 			rounds[round].emptyVoteRecord = true
-		case record.FinalizationRecordType:
+		case common.FinalizationRecordType:
 			finalization, err := common.FinalizationFromRecord(r, qcd)
 			require.NoError(tw.t, err)
 			round := finalization.Finalization.Round
