@@ -53,10 +53,10 @@ func TestNewEpochs(t *testing.T) {
 	var nonSimplexBlock = indexedBlock{seq: 0, round: 0, epoch: 0, sealingInfo: nil}
 
 	nodes := common.Nodes{
-		{Node: common.NodeID{1}},
-		{Node: common.NodeID{2}},
-		{Node: common.NodeID{3}},
-		{Node: common.NodeID{4}},
+		{Id: common.NodeID{1}},
+		{Id: common.NodeID{2}},
+		{Id: common.NodeID{3}},
+		{Id: common.NodeID{4}},
 	}
 
 	sigAggCreator := func(n []common.Node) common.SignatureAggregator {
@@ -136,7 +136,7 @@ func TestNewEpochs(t *testing.T) {
 			require.Equal(t, nodes, meta.nodes)
 			require.Len(t, meta.nodeLookup, len(nodes))
 			for _, n := range nodes {
-				_, ok := meta.nodeLookup[string(n.Node)]
+				_, ok := meta.nodeLookup[string(n.Id)]
 				require.True(t, ok)
 			}
 			require.NotNil(t, meta.signatureAggregator)

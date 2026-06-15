@@ -340,7 +340,7 @@ func (n *NonValidator) handleFinalization(finalization *common.Finalization, fro
 		return nil
 	}
 
-	if err := simplex.VerifyQC(finalization.QC, n.Logger, "Finalization", epoch.signatureAggregator.IsQuorum, epoch.nodeLookup, finalization, from); err != nil {
+	if err := simplex.VerifyQC(finalization.QC, n.Logger, "Finalization", epoch.signatureAggregator.IsQuorum, epoch.nodeLookup, finalization, from, epoch.nodes); err != nil {
 		n.Logger.Debug("Received an invalid finalization",
 			zap.Int("round", int(bh.Round)),
 			zap.Stringer("NodeID", from))
@@ -459,7 +459,7 @@ func (n *NonValidator) processReplicationState() error {
 		return fmt.Errorf("expected epoch to have been validated: %d", block.BlockHeader().Epoch)
 	}
 
-	err := simplex.VerifyQC(finalization.QC, n.Logger, "Finalization", epoch.signatureAggregator.IsQuorum, epoch.nodeLookup, finalization, common.NodeID{})
+	err := simplex.VerifyQC(finalization.QC, n.Logger, "Finalization", epoch.signatureAggregator.IsQuorum, epoch.nodeLookup, finalization, common.NodeID{}, epoch.nodes)
 	if err != nil {
 		// We fetch from comm.Nodes instead of the nodes given in the finalization, because this node may give us an adversarial node list.
 		n.sequenceReplicator.ResendFinalizationRequest(block.BlockHeader().Seq, n.Comm.Nodes().NodeIDs())
@@ -524,7 +524,7 @@ func (n *NonValidator) processQuorumRound(qr *common.QuorumRound, from common.No
 		return nil
 	}
 
-	err := simplex.VerifyQC(qr.Finalization.QC, n.Logger, "Finalization", epoch.signatureAggregator.IsQuorum, epoch.nodeLookup, qr.Finalization, from)
+	err := simplex.VerifyQC(qr.Finalization.QC, n.Logger, "Finalization", epoch.signatureAggregator.IsQuorum, epoch.nodeLookup, qr.Finalization, from, epoch.nodes)
 	if err != nil {
 		return fmt.Errorf("could not verify quorum round QC: %w", err)
 	}

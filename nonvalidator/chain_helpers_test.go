@@ -12,10 +12,10 @@ import (
 )
 
 var testNodes = common.Nodes{
-	{Node: common.NodeID{1}, Weight: 1},
-	{Node: common.NodeID{2}, Weight: 1},
-	{Node: common.NodeID{3}, Weight: 1},
-	{Node: common.NodeID{4}, Weight: 1},
+	{Id: common.NodeID{1}, Weight: 1},
+	{Id: common.NodeID{2}, Weight: 1},
+	{Id: common.NodeID{3}, Weight: 1},
+	{Id: common.NodeID{4}, Weight: 1},
 }
 
 var genesis = testutil.NewTestBlock(common.ProtocolMetadata{
@@ -174,7 +174,7 @@ func (tc *testChain) signatureAggregatorCreator(nodes []common.Node) common.Sign
 		count := 0
 		nodeSet := make(map[string]struct{})
 		for _, node := range nodes {
-			nodeSet[node.Node.String()] = struct{}{}
+			nodeSet[node.Id.String()] = struct{}{}
 		}
 
 		for _, sig := range signatures {
@@ -206,7 +206,7 @@ func (tc *testChain) addEpochs(epochs ...uint64) {
 		require.True(tc.t, ok)
 
 		newNodes := append(validatorSet, common.Node{
-			Node:   common.NodeID{byte(epoch)},
+			Id:     common.NodeID{byte(epoch)},
 			Weight: 1,
 		})
 		sealing := tc.appendSealing(newNodes)

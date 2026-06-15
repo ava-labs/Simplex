@@ -50,11 +50,11 @@ func (r *nonValidatorResponderComm) Send(msg *common.Message, destination common
 func (r *nonValidatorResponderComm) Broadcast(msg *common.Message) {
 
 	for _, n := range r.nodes {
-		if bytes.Equal(n.Node, r.ID) {
+		if bytes.Equal(n.Id, r.ID) {
 			continue
 		}
 
-		r.handle(msg, n.Node)
+		r.handle(msg, n.Id)
 	}
 }
 

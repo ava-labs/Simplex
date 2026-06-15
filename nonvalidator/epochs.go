@@ -30,7 +30,7 @@ func newEpochMetadata(sealingMetadata *common.SealingBlockInfo, sigCreator commo
 	nodes := sealingMetadata.ValidatorSet
 	lookup := make(map[string]struct{}, len(nodes))
 	for _, node := range nodes {
-		lookup[string(node.Node)] = struct{}{}
+		lookup[string(node.Id)] = struct{}{}
 	}
 
 	return &epochMetadata{

@@ -15,7 +15,7 @@ import (
 func newSealingQuorumRound(epoch uint64, numValidators int) *common.QuorumRound {
 	validatorSet := make(common.Nodes, numValidators)
 	for i := range validatorSet {
-		validatorSet[i] = common.Node{Node: common.NodeID{byte(i + 1)}, Weight: 1}
+		validatorSet[i] = common.Node{Id: common.NodeID{byte(i + 1)}, Weight: 1}
 	}
 
 	return &common.QuorumRound{
@@ -64,11 +64,11 @@ func TestCollectedQuorumRound(t *testing.T) {
 
 			// Each distinct vote below the threshold leaves the epoch unconfirmed.
 			for i := 0; i < threshold-1; i++ {
-				require.False(t, e.collectedQuorumRound(tt.qr, voters[i].Node))
+				require.False(t, e.collectedQuorumRound(tt.qr, voters[i].Id))
 			}
 
 			// The threshold-th distinct vote for the same digest confirms it.
-			require.True(t, e.collectedQuorumRound(tt.qr, voters[threshold-1].Node))
+			require.True(t, e.collectedQuorumRound(tt.qr, voters[threshold-1].Id))
 		})
 	}
 }

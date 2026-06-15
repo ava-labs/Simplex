@@ -22,7 +22,7 @@ type errQC struct {
 	common.QuorumCertificate
 }
 
-func (errQC) Verify([]byte) error {
+func (errQC) Verify(_ []byte, _ common.Nodes) error {
 	return errors.New("qc verification failed")
 }
 
@@ -201,11 +201,11 @@ func TestHandleMessages(t *testing.T) {
 				tc := newSeededChain(t, testNodes, 2)
 
 				var epoch3Nodes = common.Nodes{
-					{Node: common.NodeID{1}, Weight: 1},
-					{Node: common.NodeID{2}, Weight: 1},
-					{Node: common.NodeID{3}, Weight: 1},
-					{Node: common.NodeID{4}, Weight: 1},
-					{Node: common.NodeID{5}, Weight: 1},
+					{Id: common.NodeID{1}, Weight: 1},
+					{Id: common.NodeID{2}, Weight: 1},
+					{Id: common.NodeID{3}, Weight: 1},
+					{Id: common.NodeID{4}, Weight: 1},
+					{Id: common.NodeID{5}, Weight: 1},
 				}
 
 				// Send the sealing block + finalization that transitions to epoch 3.
@@ -245,7 +245,7 @@ func TestHandleMessages(t *testing.T) {
 					Logger:                     testutil.MakeLogger(t, 1),
 					SignatureAggregatorCreator: tc.signatureAggregatorCreator,
 					MaxSequenceWindow:          simplex.DefaultMaxRoundWindow,
-					ID:                         testNodes[0].Node,
+					ID:                         testNodes[0].Id,
 				},
 			)
 			require.NoError(t, err)
@@ -269,7 +269,7 @@ func TestNonValidator_StopsGracefully(t *testing.T) {
 			Logger:                     testutil.MakeLogger(t, 1),
 			SignatureAggregatorCreator: tc.signatureAggregatorCreator,
 			MaxSequenceWindow:          simplex.DefaultMaxRoundWindow,
-			ID:                         testNodes[0].Node,
+			ID:                         testNodes[0].Id,
 		},
 	)
 	require.NoError(t, err)
@@ -300,7 +300,7 @@ func TestHandleMessages_DuplicateBlock(t *testing.T) {
 			Logger:                     testutil.MakeLogger(t, 1),
 			SignatureAggregatorCreator: tc.signatureAggregatorCreator,
 			MaxSequenceWindow:          simplex.DefaultMaxRoundWindow,
-			ID:                         testNodes[0].Node,
+			ID:                         testNodes[0].Id,
 		},
 	)
 	require.NoError(t, err)
@@ -528,11 +528,11 @@ func TestNonValidator_ReplicationRequests(t *testing.T) {
 func TestNonValidator_VerifiesFinalizationDuringReplication(t *testing.T) {
 	tc := newSeededChain(t, testNodes, 2)
 	epoch3Nodes := append(testNodes, common.Node{
-		Node:   common.NodeID{byte(10)},
+		Id:     common.NodeID{byte(10)},
 		Weight: 1,
 	})
 	epoch4Nodes := append(epoch3Nodes, common.Node{
-		Node:   common.NodeID{byte(11)},
+		Id:     common.NodeID{byte(11)},
 		Weight: 1,
 	})
 
