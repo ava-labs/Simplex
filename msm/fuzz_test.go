@@ -103,8 +103,9 @@ func FuzzVerifyBlock(f *testing.F) {
 
 		// Model the verifier as knowing the P-chain exactly up to the height the block
 		// references — the minimal knowledge required to verify it, mirroring production
-		// where GetPChainHeight returns the verifier's latest observed height.
-		sm.GetPChainHeight = func() uint64 { return block.Metadata.PChainHeight }
+		// where GetPChainHeightForVerifying returns the verifier's latest observed height.
+		sm.GetPChainHeightForProposing = func() uint64 { return block.Metadata.PChainHeight }
+		sm.GetPChainHeightForVerifying = func() uint64 { return block.Metadata.PChainHeight }
 
 		// The unfuzzed block built by the chain MSM must verify.
 		require.NoError(t, sm.VerifyBlock(context.Background(), block),
@@ -184,7 +185,8 @@ func buildEpochChain(tb testing.TB, logger common.Logger) ([]*StateMachineBlock,
 
 	sm, tc := newStateMachineWithLogger(tb, logger)
 	sm.GetValidatorSet = getValidatorSet
-	sm.GetPChainHeight = func() uint64 { return currentPChainHeight }
+	sm.GetPChainHeightForProposing = func() uint64 { return currentPChainHeight }
+	sm.GetPChainHeightForVerifying = func() uint64 { return currentPChainHeight }
 	sm.GetTime = func() time.Time { return currentTime }
 	sm.GenesisValidatorSet = validatorSet1
 	sm.LastNonSimplexBlockPChainHeight = pChainHeight1
@@ -287,7 +289,7 @@ func buildEpochChain(tb testing.TB, logger common.Logger) ([]*StateMachineBlock,
 	vtc.blockStore = tc.blockStore.clone()
 	verifier.GetBlock = vtc.blockStore.getBlock
 	verifier.GetValidatorSet = getValidatorSet
-	// GetPChainHeight is set by the caller per verified block (see FuzzVerifyBlock).
+	// GetPChainHeightForVerifying is set by the caller per verified block (see FuzzVerifyBlock).
 	// A time safely after every block, so the not-too-far-in-future check always passes.
 	verifyTime := startTime.Add(2 * time.Second)
 	verifier.GetTime = func() time.Time { return verifyTime }

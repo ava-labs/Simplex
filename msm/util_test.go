@@ -307,7 +307,10 @@ func newStateMachineWithLogger(tb testing.TB, logger common.Logger) (*StateMachi
 		SignatureAggregatorCreator:      newSignatureAggregatorCreator(),
 		BlockBuilder:                    &testConfig.blockBuilder,
 		KeyAggregator:                   &testConfig.keyAggregator,
-		GetPChainHeight: func() uint64 {
+		GetPChainHeightForProposing: func() uint64 {
+			return 100
+		},
+		GetPChainHeightForVerifying: func() uint64 {
 			return 100
 		},
 		GetValidatorSet:          testConfig.validatorSetRetriever.getValidatorSet,
