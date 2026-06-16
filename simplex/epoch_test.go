@@ -453,15 +453,18 @@ func TestEpochIndexFinalization(t *testing.T) {
 
 func TestEpochConsecutiveProposalsDoNotGetVerified(t *testing.T) {
 	for _, test := range []struct {
-		name string
-		err  error
+		name                      string
+		err                       error
+		expectedVerificationCount int
 	}{
 		{
-			name: "valid block",
+			name:                      "valid block",
+			expectedVerificationCount: 1,
 		},
 		{
-			name: "invalid block",
-			err:  fmt.Errorf("invalid block"),
+			name:                      "invalid block",
+			err:                       fmt.Errorf("invalid block"),
+			expectedVerificationCount: DefaultProcessingBlocks,
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -483,11 +486,15 @@ func TestEpochConsecutiveProposalsDoNotGetVerified(t *testing.T) {
 			require.True(t, ok)
 			require.Equal(t, md.Round, md.Seq)
 
-			onlyVerifyOnce := make(chan struct{})
+			var timesVerified atomic.Uint32
+
+			var scheduledWG sync.WaitGroup
+			scheduledWG.Add(test.expectedVerificationCount)
 
 			block := vb.(*testutil.TestBlock)
 			block.OnVerify = func() {
-				close(onlyVerifyOnce)
+				defer scheduledWG.Done()
+				timesVerified.Add(1)
 			}
 			block.VerificationError = test.err
 
@@ -511,12 +518,9 @@ func TestEpochConsecutiveProposalsDoNotGetVerified(t *testing.T) {
 				}()
 			}
 			wg.Wait()
+			scheduledWG.Wait()
 
-			select {
-			case <-onlyVerifyOnce:
-			case <-time.After(time.Minute):
-				require.Fail(t, "timeout waiting for shouldOnlyBeClosedOnce")
-			}
+			require.Equal(t, uint32(test.expectedVerificationCount), timesVerified.Load())
 		})
 	}
 }
