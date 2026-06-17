@@ -4,8 +4,10 @@
 package common
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"slices"
 
 	"go.uber.org/zap"
 )
@@ -157,6 +159,20 @@ type Node struct {
 	Id     NodeID
 	Weight uint64
 	PK     []byte
+}
+
+// SortNodes sorts the nodes in place by their byte representations.
+func SortNodes(nodes Nodes) {
+	slices.SortFunc(nodes, func(a, b Node) int {
+		return bytes.Compare(a.Id[:], b.Id[:])
+	})
+}
+
+func Quorum(n int) int {
+	f := (n - 1) / 3
+	// Obtained from the equation:
+	// Quorum * 2 = N + F + 1
+	return (n+f)/2 + 1
 }
 
 // SignatureAggregatorCreator creates a SignatureAggregator from a list of nodes and their weights.

@@ -200,7 +200,7 @@ func (e *Epoch) init() error {
 	e.blockBuilderCtx = context.Background()
 	e.blockBuilderCancelFunc = func() {}
 	e.nodes = e.Comm.Nodes()
-	SortNodes(e.nodes)
+	common.SortNodes(e.nodes)
 	e.nodeIDs = e.nodes.NodeIDs()
 	e.timedOutRounds = make(map[uint16]uint64, len(e.nodeIDs))
 	e.redeemedRounds = make(map[uint16]uint64, len(e.nodeIDs))
@@ -3425,23 +3425,9 @@ func (e *Epoch) nextSeqToCommit() uint64 {
 	return e.Storage.NumBlocks()
 }
 
-// SortNodes sorts the nodes in place by their byte representations.
-func SortNodes(nodes common.Nodes) {
-	slices.SortFunc(nodes, func(a, b common.Node) int {
-		return bytes.Compare(a.Id[:], b.Id[:])
-	})
-}
-
 func LeaderForRound(nodes []common.NodeID, r uint64) common.NodeID {
 	n := len(nodes)
 	return nodes[r%uint64(n)]
-}
-
-func Quorum(n int) int {
-	f := (n - 1) / 3
-	// Obtained from the equation:
-	// Quorum * 2 = N + F + 1
-	return (n+f)/2 + 1
 }
 
 // messagesFromNode maps nodeIds to the messages it sent in a given round.

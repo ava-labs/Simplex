@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/ava-labs/simplex/common"
-	"github.com/ava-labs/simplex/simplex"
 	"github.com/stretchr/testify/require"
 )
 
@@ -25,7 +24,7 @@ type BasicInMemoryNetwork struct {
 
 func NewBasicInMemoryNetwork(t *testing.T, nodes common.NodeIDs) *BasicInMemoryNetwork {
 	nodeWeights := nodes.EqualWeightedNodes()
-	simplex.SortNodes(nodeWeights)
+	common.SortNodes(nodeWeights)
 	return &BasicInMemoryNetwork{
 		t:            t,
 		nodeWeights:  nodeWeights,
