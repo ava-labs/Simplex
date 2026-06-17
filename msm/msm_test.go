@@ -325,7 +325,8 @@ func TestMSMNormalOp(t *testing.T) {
 				tc.validatorSetRetriever.resultMap = map[uint64]NodeBLSMappings{
 					newPChainHeight: newValidatorSet,
 				}
-				sm.GetPChainHeight = func() uint64 { return newPChainHeight }
+				sm.GetPChainHeightForProposing = func() uint64 { return newPChainHeight }
+				sm.GetPChainHeightForVerifying = func() uint64 { return newPChainHeight }
 			},
 			expectedPChainHeight:        newPChainHeight,
 			expectedNextPChainRefHeight: newPChainHeight,
@@ -501,8 +502,18 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 				}
 				return validatorSet1, nil
 			}
-			getPChainHeight := func() uint64 {
+			// In production the two P-chain height functions differ: proposing uses a slightly
+			// lagging "stable" height, while verifying uses the up-to-date real-time height.
+			// getProposingPChainHeight is the lagging height the builder proposes at (it drives
+			// the block contents, e.g. the validator-set-change observation at pChainHeight2).
+			// getVerifyingPChainHeight stays ahead of it, modelling the more up-to-date height
+			// the verifier checks against.
+			const pChainHeightLag = uint64(50)
+			getProposingPChainHeight := func() uint64 {
 				return currentPChainHeight
+			}
+			getVerifyingPChainHeight := func() uint64 {
+				return currentPChainHeight + pChainHeightLag
 			}
 
 			// Since we explicitly compare the built block with an expected value,
@@ -538,10 +549,9 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 			// The zero block carries over the parent's ICM epoch.
 			testCase.firstBlockBeforeSimplex.Metadata.ICMEpochInfo = testCase.firstBlockICMEpochInfo
 
-			// Create fresh state machine instances for each iteration.
 			sm, tc := newStateMachine(t)
 			sm.GetValidatorSet = getValidatorSet
-			sm.GetPChainHeight = getPChainHeight
+
 			sm.GetTime = fixedTime
 			tc.blockStore[0] = &outerBlock{block: genesis}
 			tc.blockStore[42] = &outerBlock{block: notGenesis}
@@ -552,7 +562,22 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 
 			smVerify, tcVerify := newStateMachine(t)
 			smVerify.GetValidatorSet = getValidatorSet
-			smVerify.GetPChainHeight = getPChainHeight
+
+			// sm only ever builds blocks and smVerify only ever verifies them.
+			// Each one fails the test if it consults the P-chain height function it must not use,
+			// proving that building reads GetPChainHeightForProposing and verifying reads GetPChainHeightForVerifying.
+			sm.GetPChainHeightForProposing = getProposingPChainHeight
+			sm.GetPChainHeightForVerifying = func() uint64 {
+				require.FailNow(t, "builder must not use GetPChainHeightForVerifying when proposing")
+				return 0
+			}
+
+			smVerify.GetPChainHeightForProposing = func() uint64 {
+				require.FailNow(t, "verifier must not use GetPChainHeightForProposing when verifying")
+				return 0
+			}
+			smVerify.GetPChainHeightForVerifying = getVerifyingPChainHeight
+
 			smVerify.GetTime = fixedTime
 
 			smVerify.LastNonSimplexInnerBlock = testCase.firstBlockBeforeSimplex.InnerBlock
