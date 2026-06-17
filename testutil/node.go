@@ -228,7 +228,7 @@ func UpdateEpochConfig(epochConfig *simplex.EpochConfig, testConfig *TestNodeCon
 	}
 
 	if testConfig.RandomSeed != nil {
-		epochConfig.RandomSource = simplex.NewRandomSourceFromSeed(*testConfig.RandomSeed)
+		epochConfig.RandomSource = common.NewRandomSourceFromSeed(*testConfig.RandomSeed)
 	}
 }
 
