@@ -1,18 +1,27 @@
 // Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
-package simplex_test
+package common
 
 import (
 	"slices"
 	"testing"
 	"time"
 
-	"github.com/ava-labs/simplex/simplex"
-	"github.com/ava-labs/simplex/testutil"
+	"go.uber.org/zap"
 
 	"github.com/stretchr/testify/require"
 )
+
+type noopLogger struct{}
+
+func (noopLogger) Fatal(string, ...zap.Field) {}
+func (noopLogger) Error(string, ...zap.Field) {}
+func (noopLogger) Warn(string, ...zap.Field)  {}
+func (noopLogger) Info(string, ...zap.Field)  {}
+func (noopLogger) Trace(string, ...zap.Field) {}
+func (noopLogger) Debug(string, ...zap.Field) {}
+func (noopLogger) Verbo(string, ...zap.Field) {}
 
 const testName = "test"
 const testRunInterval = 200 * time.Millisecond
@@ -40,7 +49,6 @@ func waitReceive[T any](t *testing.T, ch <-chan T) T {
 // "too-early" ticks are ignored by the runner loop.
 func TestTimeoutHandlerRunsOnlyOnInterval(t *testing.T) {
 	start := time.Now()
-	log := testutil.MakeLogger(t)
 
 	ran := make(chan []uint64, 4)
 	runner := func(ids []uint64) {
@@ -49,7 +57,7 @@ func TestTimeoutHandlerRunsOnlyOnInterval(t *testing.T) {
 		ran <- cp
 	}
 
-	h := simplex.NewTimeoutHandler(log, testName, start, testRunInterval, runner)
+	h := NewTimeoutHandler(noopLogger{}, testName, start, testRunInterval, runner)
 	defer h.Close()
 
 	h.AddTask(1)
@@ -77,12 +85,11 @@ func TestTimeoutHandlerRunsOnlyOnInterval(t *testing.T) {
 // Add & Remove single task, verifying it stops running after removal.
 func TestTimeoutHandler_AddThenRemoveTask(t *testing.T) {
 	start := time.Now()
-	log := testutil.MakeLogger(t)
 
 	ran := make(chan []uint64, 2)
 	runner := func(ids []uint64) { ran <- append([]uint64(nil), ids...) }
 
-	h := simplex.NewTimeoutHandler(log, testName, start, testRunInterval, runner)
+	h := NewTimeoutHandler(noopLogger{}, testName, start, testRunInterval, runner)
 	defer h.Close()
 
 	h.AddTask(7)
@@ -98,12 +105,11 @@ func TestTimeoutHandler_AddThenRemoveTask(t *testing.T) {
 // Multiple tasks get batched and delivered together; removing one leaves the rest.
 func TestTimeoutHandler_MultipleTasksBatchAndPersist(t *testing.T) {
 	start := time.Now()
-	log := testutil.MakeLogger(t)
 
 	ran := make(chan []uint64, 2)
 	runner := func(ids []uint64) { ran <- append([]uint64(nil), ids...) }
 
-	h := simplex.NewTimeoutHandler(log, testName, start, testRunInterval, runner)
+	h := NewTimeoutHandler(noopLogger{}, testName, start, testRunInterval, runner)
 	defer h.Close()
 
 	h.AddTask(1)
@@ -125,12 +131,11 @@ func TestTimeoutHandler_MultipleTasksBatchAndPersist(t *testing.T) {
 // Adding the same task twice should not duplicate it in the batch (set semantics).
 func TestTimeoutHandler_AddDuplicateTaskIsIdempotent(t *testing.T) {
 	start := time.Now()
-	log := testutil.MakeLogger(t)
 
 	ran := make(chan []uint64, 1)
 	runner := func(ids []uint64) { ran <- append([]uint64(nil), ids...) }
 
-	h := simplex.NewTimeoutHandler(log, testName, start, testRunInterval, runner)
+	h := NewTimeoutHandler(noopLogger{}, testName, start, testRunInterval, runner)
 	defer h.Close()
 
 	h.AddTask(42)
@@ -145,12 +150,11 @@ func TestTimeoutHandler_AddDuplicateTaskIsIdempotent(t *testing.T) {
 // With lessUint(a,b), that means id < cutoff.
 func TestTimeoutHandler_RemoveOldTasks(t *testing.T) {
 	start := time.Now()
-	log := testutil.MakeLogger(t)
 
 	ran := make(chan []uint64, 2)
 	runner := func(ids []uint64) { ran <- append([]uint64(nil), ids...) }
 
-	h := simplex.NewTimeoutHandler(log, testName, start, testRunInterval, runner)
+	h := NewTimeoutHandler(noopLogger{}, testName, start, testRunInterval, runner)
 	defer h.Close()
 
 	for _, id := range []uint64{1, 2, 3, 4, 5} {
@@ -177,12 +181,11 @@ func TestTimeoutHandler_RemoveOldTasks(t *testing.T) {
 // After Close, the goroutine stops and further ticks should not cause runs.
 func TestTimeoutHandler_CloseStopsRunner(t *testing.T) {
 	start := time.Now()
-	log := testutil.MakeLogger(t)
 
 	ran := make(chan []uint64, 1)
 	runner := func(ids []uint64) { ran <- append([]uint64(nil), ids...) }
 
-	h := simplex.NewTimeoutHandler(log, testName, start, testRunInterval, runner)
+	h := NewTimeoutHandler(noopLogger{}, testName, start, testRunInterval, runner)
 
 	h.Close()
 	// Calls after Close should be safe and no-ops for scheduling.
@@ -196,12 +199,11 @@ func TestTimeoutHandler_CloseStopsRunner(t *testing.T) {
 // but emphasizes back-to-back ticks.
 func TestTimeoutHandler_BackToBackTicksUnderIntervalDontRun(t *testing.T) {
 	start := time.Now()
-	log := testutil.MakeLogger(t)
 
 	ran := make(chan []uint64, 2)
 	runner := func(ids []uint64) { ran <- append([]uint64(nil), ids...) }
 
-	h := simplex.NewTimeoutHandler(log, testName, start, testRunInterval, runner)
+	h := NewTimeoutHandler(noopLogger{}, testName, start, testRunInterval, runner)
 	defer h.Close()
 
 	h.AddTask(100)

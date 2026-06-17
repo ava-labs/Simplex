@@ -86,7 +86,7 @@ type requestor struct {
 	highestObserved *signedQuorum
 
 	// Handles timeouts and retries for missing sequences/rounds.
-	timeoutHandler *TimeoutHandler[uint64]
+	timeoutHandler *common.TimeoutHandler[uint64]
 
 	logger common.Logger
 
@@ -114,7 +114,7 @@ func newRequestor(logger common.Logger, start time.Time, lock *sync.Mutex, maxRo
 	if !replicateSeqs {
 		name = "round-timeout-handler"
 	}
-	r.timeoutHandler = NewTimeoutHandler(logger, name, start, DefaultReplicationRequestTimeout, r.resendReplicationRequests)
+	r.timeoutHandler = common.NewTimeoutHandler(logger, name, start, DefaultReplicationRequestTimeout, r.resendReplicationRequests)
 	return r
 }
 

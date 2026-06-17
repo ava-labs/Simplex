@@ -84,8 +84,8 @@ type Epoch struct {
 	// Runtime
 	signatureAggregator            common.SignatureAggregator
 	oneTimeVerifier                *OneTimeVerifier
-	buildBlockScheduler            *BasicScheduler
-	blockVerificationScheduler     *BlockDependencyManager
+	buildBlockScheduler            *common.BasicScheduler
+	blockVerificationScheduler     *common.BlockDependencyManager
 	lock                           sync.Mutex
 	lastBlock                      *common.VerifiedFinalizedBlock // latest block & finalization committed
 	canReceiveMessages             atomic.Bool
@@ -104,7 +104,7 @@ type Epoch struct {
 	monitor                        *Monitor
 	haltedError                    error
 	cancelWaitForBlockNotarization context.CancelFunc
-	timeoutHandler                 *TimeoutHandler[string]
+	timeoutHandler                 *common.TimeoutHandler[string]
 	replicationState               *ReplicationState
 	timedOutRounds                 map[uint16]uint64 // NodeIndex -> round
 	redeemedRounds                 map[uint16]uint64 // NodeIndex -> round
@@ -191,9 +191,9 @@ func (e *Epoch) init() error {
 	}
 	e.initOldestNotFinalizedNotarization()
 	e.oneTimeVerifier = NewOneTimeVerifier(e.Logger)
-	scheduler := NewScheduler(e.Logger, DefaultProcessingBlocks)
-	e.blockVerificationScheduler = NewBlockVerificationScheduler(e.Logger, DefaultProcessingBlocks, scheduler)
-	e.buildBlockScheduler = NewScheduler(e.Logger, 1)
+	scheduler := common.NewScheduler(e.Logger, DefaultProcessingBlocks)
+	e.blockVerificationScheduler = common.NewBlockVerificationScheduler(e.Logger, DefaultProcessingBlocks, scheduler)
+	e.buildBlockScheduler = common.NewScheduler(e.Logger, 1)
 	e.monitor = NewMonitor(e.StartTime, e.Logger)
 	e.cancelWaitForBlockNotarization = func() {}
 	e.finishCtx, e.finishFn = context.WithCancel(context.Background())
@@ -209,7 +209,7 @@ func (e *Epoch) init() error {
 	e.eligibleNodeIDs = make(map[string]struct{}, len(e.nodeIDs))
 	e.futureMessages = make(messagesFromNode, len(e.nodeIDs))
 	e.replicationState = NewReplicationState(e.Logger, e.Comm, e.ID, e.MaxRoundWindow, e.ReplicationEnabled, e.StartTime, &e.lock, e.RandomSource)
-	e.timeoutHandler = NewTimeoutHandler(e.Logger, "emptyVoteRebroadcast", e.StartTime, e.MaxRebroadcastWait, e.emptyVoteTimeoutTaskRunner)
+	e.timeoutHandler = common.NewTimeoutHandler(e.Logger, "emptyVoteRebroadcast", e.StartTime, e.MaxRebroadcastWait, e.emptyVoteTimeoutTaskRunner)
 	e.signatureAggregator = e.SignatureAggregatorCreator(e.nodes)
 
 	for _, node := range e.nodeIDs {
