@@ -31,7 +31,10 @@ func TestFakeNodeEpochChangesDespiteEmptyMempool(t *testing.T) {
 	pChainHeight.Store(100)
 	node := newFakeNode(t)
 	node.sm.GetValidatorSet = validatorSetRetriever.getValidatorSet
-	node.sm.GetPChainHeight = func() uint64 {
+	node.sm.GetPChainHeightForProposing = func() uint64 {
+		return pChainHeight.Load()
+	}
+	node.sm.GetPChainHeightForVerifying = func() uint64 {
 		return pChainHeight.Load()
 	}
 	node.mempoolEmpty = true
@@ -84,7 +87,10 @@ func TestFakeNode(t *testing.T) {
 	pChainHeight.Store(100)
 	node := newFakeNode(t)
 	node.sm.GetValidatorSet = validatorSetRetriever.getValidatorSet
-	node.sm.GetPChainHeight = func() uint64 {
+	node.sm.GetPChainHeightForProposing = func() uint64 {
+		return pChainHeight.Load()
+	}
+	node.sm.GetPChainHeightForVerifying = func() uint64 {
 		return pChainHeight.Load()
 	}
 
@@ -151,7 +157,10 @@ func TestFakeNodeEmptyMempool(t *testing.T) {
 	node := newFakeNode(t)
 	node.sm.MaxBlockBuildingWaitTime = 100 * time.Millisecond
 	node.sm.GetValidatorSet = validatorSetRetriever.getValidatorSet
-	node.sm.GetPChainHeight = func() uint64 {
+	node.sm.GetPChainHeightForProposing = func() uint64 {
+		return pChainHeight
+	}
+	node.sm.GetPChainHeightForVerifying = func() uint64 {
 		return pChainHeight
 	}
 
@@ -245,7 +254,7 @@ func (fn *fakeNode) WaitForProgress(ctx context.Context, pChainHeight uint64) er
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-time.After(10 * time.Millisecond):
-			if fn.sm.GetPChainHeight() != pChainHeight {
+			if fn.sm.GetPChainHeightForProposing() != pChainHeight {
 				return nil
 			}
 		}

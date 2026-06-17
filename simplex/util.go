@@ -157,6 +157,17 @@ func (block *oneTimeVerifiedBlock) Verify(ctx context.Context) (common.VerifiedB
 	digest := header.Digest
 	seq := header.Seq
 
+	if result, exists := block.otv.digests[digest]; exists {
+		block.otv.logger.Debug("Attempted to verify an already verified block", zap.Uint64("round", header.Round), zap.Error(result.err))
+		return result.vb, result.err
+	}
+
+	vb, err := block.Block.Verify(ctx)
+	if err != nil {
+		block.otv.logger.Debug("Block verification failed", zap.Uint64("round", header.Round), zap.Error(err))
+		return nil, err
+	}
+
 	// cleanup
 	defer func() {
 		for digest, vr := range block.otv.digests {
@@ -165,13 +176,6 @@ func (block *oneTimeVerifiedBlock) Verify(ctx context.Context) (common.VerifiedB
 			}
 		}
 	}()
-
-	if result, exists := block.otv.digests[digest]; exists {
-		block.otv.logger.Debug("Attempted to verify an already verified block", zap.Uint64("round", header.Round), zap.Error(result.err))
-		return result.vb, result.err
-	}
-
-	vb, err := block.Block.Verify(ctx)
 
 	block.otv.digests[digest] = verifiedResult{
 		seq: seq,
