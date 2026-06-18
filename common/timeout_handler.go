@@ -1,14 +1,13 @@
 // Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
-package simplex
+package common
 
 import (
 	"maps"
 	"sync"
 	"time"
 
-	"github.com/ava-labs/simplex/common"
 	"go.uber.org/zap"
 )
 
@@ -28,13 +27,13 @@ type TimeoutHandler[T comparable] struct {
 	tasks map[T]struct{}
 	now   time.Time
 
-	log     common.Logger
+	log     Logger
 	running sync.WaitGroup
 }
 
 // NewTimeoutHandler returns a TimeoutHandler and starts a new goroutine that
 // listens for ticks and executes TimeoutTasks.
-func NewTimeoutHandler[T comparable](log common.Logger, name string, startTime time.Time, runInterval time.Duration, taskRunner timeoutRunner[T]) *TimeoutHandler[T] {
+func NewTimeoutHandler[T comparable](log Logger, name string, startTime time.Time, runInterval time.Duration, taskRunner timeoutRunner[T]) *TimeoutHandler[T] {
 	t := &TimeoutHandler[T]{
 		name:        name,
 		now:         startTime,

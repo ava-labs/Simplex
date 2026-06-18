@@ -46,12 +46,12 @@ type ReplicationState struct {
 	// it means a prior notarization for that block exists but is missing.
 	// Since we may not know which round that dependency belongs to,
 	// digestTimeouts ensures we re-request the missing digest until it arrives.
-	digestTimeouts *TimeoutHandler[seqAndDigest]
+	digestTimeouts *common.TimeoutHandler[seqAndDigest]
 
 	// emptyRoundTimeouts handles timeouts for fetching missing empty round notarizations.
 	// When replication encounters a notarized block that depends on an empty round we haven't received,
 	// emptyRoundTimeouts ensures we re-request those empty rounds until they are received.
-	emptyRoundTimeouts *TimeoutHandler[uint64]
+	emptyRoundTimeouts *common.TimeoutHandler[uint64]
 
 	roundRequestor        *requestor
 	finalizationRequestor *requestor
@@ -87,8 +87,8 @@ func NewReplicationState(logger common.Logger, comm Sender, myNodeID common.Node
 		epochLock: lock,
 	}
 
-	r.digestTimeouts = NewTimeoutHandler(logger, "digest", start, DefaultReplicationRequestTimeout, r.requestDigests)
-	r.emptyRoundTimeouts = NewTimeoutHandler(logger, "empty round replication", start, DefaultReplicationRequestTimeout, r.requestEmptyRounds)
+	r.digestTimeouts = common.NewTimeoutHandler(logger, "digest", start, DefaultReplicationRequestTimeout, r.requestDigests)
+	r.emptyRoundTimeouts = common.NewTimeoutHandler(logger, "empty round replication", start, DefaultReplicationRequestTimeout, r.requestEmptyRounds)
 
 	return r
 }

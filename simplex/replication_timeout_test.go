@@ -599,7 +599,7 @@ func TestReplicationResendsFinalizedBlocksThatFailedVerification(t *testing.T) {
 	bb := testutil.NewTestBlockBuilder()
 
 	nodes := []common.NodeID{{1}, {2}, {3}, {4}}
-	quorum := simplex.Quorum(len(nodes))
+	quorum := common.Quorum(len(nodes))
 	sentMessages := make(chan *common.Message, 100)
 
 	conf, _, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[1], &recordingComm{

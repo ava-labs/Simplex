@@ -80,7 +80,7 @@ func testReplication(t *testing.T, startSeq uint64, nodes []common.NodeID) {
 // notarizes a different block for the same round
 func TestReplicationAdversarialNode(t *testing.T) {
 	nodes := []common.NodeID{{1}, {2}, {3}, []byte("lagging")}
-	quorum := simplex.Quorum(len(nodes))
+	quorum := common.Quorum(len(nodes))
 	net := NewControlledNetwork(t, nodes)
 
 	testEpochConfig := &TestNodeConfig{
@@ -355,7 +355,7 @@ func testReplicationEmptyNotarizations(t *testing.T, nodes []common.NodeID, endR
 // starts replicating in the middle of the current round.
 func TestReplicationStartsBeforeCurrentRound(t *testing.T) {
 	nodes := []common.NodeID{{1}, {2}, {3}, []byte("lagging")}
-	quorum := simplex.Quorum(len(nodes))
+	quorum := common.Quorum(len(nodes))
 	net := NewControlledNetwork(t, nodes)
 	startSeq := uint64(simplex.DefaultMaxRoundWindow + 3)
 	storageData := createBlocks(t, nodes, startSeq)
@@ -414,7 +414,7 @@ func TestReplicationFutureFinalization(t *testing.T) {
 	// send a block, then simultaneously send a finalization for the block
 	bb := testutil.NewTestBlockBuilder()
 	nodes := []common.NodeID{{1}, {2}, {3}, {4}}
-	quorum := simplex.Quorum(len(nodes))
+	quorum := common.Quorum(len(nodes))
 
 	conf, _, storage := DefaultTestNodeEpochConfig(t, nodes[1], NewNoopComm(nodes), bb)
 
@@ -599,7 +599,7 @@ func TestReplicationStuckInProposingBlock(t *testing.T) {
 	nodes := []common.NodeID{{1}, {2}, {3}, {4}}
 	blocks := createBlocks(t, nodes, 5)
 
-	quorum := simplex.Quorum(len(nodes))
+	quorum := common.Quorum(len(nodes))
 	sentMessages := make(chan *common.Message, 100)
 
 	conf, _, storage := DefaultTestNodeEpochConfig(t, nodes[0], &recordingComm{
@@ -955,7 +955,7 @@ func TestReplicationVerifyNotarization(t *testing.T) {
 		return badQC
 	}
 
-	quorum := simplex.Quorum(len(nodes))
+	quorum := common.Quorum(len(nodes))
 	sentMessages := make(chan *common.Message, 100)
 
 	conf, wal, _ := DefaultTestNodeEpochConfig(t, nodes[1], &recordingComm{
@@ -1044,7 +1044,7 @@ func TestReplicationVerifyEmptyNotarization(t *testing.T) {
 		return badQC
 	}
 
-	quorum := simplex.Quorum(len(nodes))
+	quorum := common.Quorum(len(nodes))
 	sentMessages := make(chan *common.Message, 100)
 	conf, wal, _ := DefaultTestNodeEpochConfig(t, nodes[1], &recordingComm{
 		Communication: NewNoopComm(nodes),

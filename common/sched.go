@@ -1,17 +1,16 @@
 // Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
-package simplex
+package common
 
 import (
 	"sync"
 
-	"github.com/ava-labs/simplex/common"
 	"go.uber.org/zap"
 )
 
 type BasicScheduler struct {
-	logger common.Logger
+	logger Logger
 
 	mu      sync.Mutex
 	closed  bool
@@ -19,7 +18,7 @@ type BasicScheduler struct {
 	tasks   chan Task
 }
 
-func NewScheduler(logger common.Logger, maxTasks uint64) *BasicScheduler {
+func NewScheduler(logger Logger, maxTasks uint64) *BasicScheduler {
 	s := &BasicScheduler{
 		logger: logger,
 		tasks:  make(chan Task, maxTasks),
@@ -105,4 +104,4 @@ func (as *BasicScheduler) ScheduleOrReplace(task Task) {
 	as.tasks <- task
 }
 
-type Task func() common.Digest
+type Task func() Digest

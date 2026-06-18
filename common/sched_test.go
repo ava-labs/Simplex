@@ -1,16 +1,13 @@
 // Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
-package simplex_test
+package common
 
 import (
 	"crypto/rand"
 	"sync"
 	"testing"
 
-	"github.com/ava-labs/simplex/common"
-	"github.com/ava-labs/simplex/simplex"
-	"github.com/ava-labs/simplex/testutil"
 	"github.com/stretchr/testify/require"
 )
 
@@ -18,7 +15,7 @@ var defaultMaxTasks uint64 = 1000
 
 func TestAsyncScheduler(t *testing.T) {
 	t.Run("Executes asynchronously", func(t *testing.T) {
-		as := simplex.NewScheduler(testutil.MakeLogger(t), defaultMaxTasks)
+		as := NewScheduler(noopLogger{}, defaultMaxTasks)
 		defer as.Close()
 
 		ticks := make(chan struct{})
@@ -28,7 +25,7 @@ func TestAsyncScheduler(t *testing.T) {
 
 		dig2 := makeDigest(t)
 
-		as.Schedule(func() common.Digest {
+		as.Schedule(func() Digest {
 			defer wg.Done()
 			<-ticks
 			return dig2
@@ -39,13 +36,13 @@ func TestAsyncScheduler(t *testing.T) {
 	})
 
 	t.Run("Does not execute when closed", func(t *testing.T) {
-		as := simplex.NewScheduler(testutil.MakeLogger(t), defaultMaxTasks)
+		as := NewScheduler(noopLogger{}, defaultMaxTasks)
 		ticks := make(chan struct{}, 1)
 
 		as.Close()
 
 		dig := makeDigest(t)
-		as.Schedule(func() common.Digest {
+		as.Schedule(func() Digest {
 			close(ticks)
 			return dig
 		})
@@ -54,8 +51,8 @@ func TestAsyncScheduler(t *testing.T) {
 	})
 }
 
-func makeDigest(t *testing.T) common.Digest {
-	var dig common.Digest
+func makeDigest(t *testing.T) Digest {
+	var dig Digest
 	_, err := rand.Read(dig[:])
 	require.NoError(t, err)
 	return dig

@@ -152,7 +152,7 @@ func (t *TestSignatureAggregator) IsQuorum(signers []common.NodeID) bool {
 		panic("uninitialized TestSignatureAggregator")
 	}
 
-	return len(signers) >= simplex.Quorum(t.N)
+	return len(signers) >= common.Quorum(t.N)
 }
 
 type TestQC []common.Signature

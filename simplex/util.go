@@ -6,7 +6,6 @@ package simplex
 import (
 	"context"
 	cryptoRand "crypto/rand"
-	"encoding/binary"
 	"fmt"
 	"math/rand/v2"
 	"slices"
@@ -378,11 +377,4 @@ func newRandomSource() (*rand.Rand, error) {
 
 	chacha := rand.NewChaCha8(seedBytes)
 	return rand.New(chacha), nil
-}
-
-func NewRandomSourceFromSeed(seed int64) *rand.Rand {
-	var seedBytes [32]byte
-	binary.LittleEndian.PutUint64(seedBytes[:8], uint64(seed))
-	chacha := rand.NewChaCha8(seedBytes)
-	return rand.New(chacha)
 }

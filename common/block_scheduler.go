@@ -1,7 +1,7 @@
 // Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
-package simplex
+package common
 
 import (
 	"errors"
@@ -11,7 +11,6 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/ava-labs/simplex/common"
 	"go.uber.org/zap"
 )
 
@@ -27,7 +26,7 @@ type Scheduler interface {
 // It schedules tasks when their dependencies are resolved.
 type BlockDependencyManager struct {
 	lock      sync.Mutex
-	logger    common.Logger
+	logger    Logger
 	scheduler Scheduler
 
 	dependencies []*TaskWithDependents
@@ -39,7 +38,7 @@ type TaskWithDependents struct {
 	Task Task
 
 	blockSeq    uint64 // the seq of the block being verified
-	prevBlock   *common.Digest
+	prevBlock   *Digest
 	emptyRounds map[uint64]struct{}
 }
 
@@ -51,7 +50,7 @@ func (t *TaskWithDependents) String() string {
 	return fmt.Sprintf("BlockVerificationTask{blockSeq: %d, prevBlock: %v, emptyRounds: %v}", t.blockSeq, t.prevBlock, slices.Collect(maps.Keys(t.emptyRounds)))
 }
 
-func NewBlockVerificationScheduler(logger common.Logger, maxDeps uint64, scheduler Scheduler) *BlockDependencyManager {
+func NewBlockVerificationScheduler(logger Logger, maxDeps uint64, scheduler Scheduler) *BlockDependencyManager {
 	b := &BlockDependencyManager{
 		logger:    logger,
 		maxDeps:   maxDeps,
@@ -63,7 +62,7 @@ func NewBlockVerificationScheduler(logger common.Logger, maxDeps uint64, schedul
 }
 
 // ExecuteBlockDependents removes the given digest from dependent tasks and schedules any whose dependencies are now resolved.
-func (bs *BlockDependencyManager) ExecuteBlockDependents(prev common.Digest) {
+func (bs *BlockDependencyManager) ExecuteBlockDependents(prev Digest) {
 	bs.lock.Lock()
 	defer bs.lock.Unlock()
 
@@ -122,7 +121,7 @@ func (bs *BlockDependencyManager) ExecuteEmptyRoundDependents(emptyRound uint64)
 	bs.dependencies = remainingDeps
 }
 
-func (bs *BlockDependencyManager) ScheduleTaskWithDependencies(task Task, blockSeq uint64, prev *common.Digest, emptyRounds []uint64) error {
+func (bs *BlockDependencyManager) ScheduleTaskWithDependencies(task Task, blockSeq uint64, prev *Digest, emptyRounds []uint64) error {
 	bs.lock.Lock()
 	defer bs.lock.Unlock()
 
@@ -130,7 +129,7 @@ func (bs *BlockDependencyManager) ScheduleTaskWithDependencies(task Task, blockS
 		return nil
 	}
 
-	wrappedTask := func() common.Digest {
+	wrappedTask := func() Digest {
 		id := task()
 		bs.ExecuteBlockDependents(id)
 		return id
