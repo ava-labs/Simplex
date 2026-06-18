@@ -212,7 +212,7 @@ func (n *NonValidator) handleBlock(block common.Block, from common.NodeID) error
 	}
 
 	if !bytes.Equal(incomplete.finalization.Finalization.Digest[:], bh.Digest[:]) {
-		n.Logger.Info(
+		n.Logger.Debug(
 			"Received a block from the leader of a round whose digest mismatches the finalization",
 			zap.Stringer("Finalization Digest", incomplete.finalization.Finalization.Digest),
 			zap.Stringer("Block digest", bh.Digest),
@@ -556,15 +556,14 @@ func (n *NonValidator) broadcastLatestEpoch() {
 
 // sendRequest sends a common.BlockDigestRequest for a given sequence to a node.
 func (n *NonValidator) sendRequest(seq uint64, to common.NodeID) {
-	digestRequest := common.BlockDigestRequest{
-		Seq:    seq,
-		Digest: common.Digest{}, // TODO: In the epoch code, update how we process digests to not drop the request given an empty digest.
+	request := common.ReplicationRequest{
+		Seqs: []uint64{seq},
 	}
 
 	n.Logger.Debug("Broadcasting sealing block request", zap.Uint64("Requesting Seq", seq))
 
 	n.Config.Comm.Send(&common.Message{
-		BlockDigestRequest: &digestRequest,
+		ReplicationRequest: &request,
 	}, to)
 }
 
