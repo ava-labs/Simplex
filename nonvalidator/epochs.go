@@ -62,12 +62,14 @@ func newEpochs(storage common.Storage, sigAggCreator common.SignatureAggregatorC
 		return epochs, nil
 	}
 
-	sealingBlock := lastBlock
-	if sealingBlock.SealingBlockInfo() == nil {
+	var sealingBlock common.VerifiedBlock
+	if lastBlock.SealingBlockInfo() == nil {
 		sealingBlock, _, err = storage.Retrieve(lastBlock.BlockHeader().Epoch)
 		if err != nil {
 			return nil, err
 		}
+	} else {
+		sealingBlock = lastBlock
 	}
 
 	lastAcceptedEpoch := newEpochMetadata(sealingBlock.SealingBlockInfo(), sigAggCreator)

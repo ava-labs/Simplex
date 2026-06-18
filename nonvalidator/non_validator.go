@@ -135,7 +135,6 @@ func (n *NonValidator) AdvanceTime(t time.Time) {
 	n.sequenceReplicator.AdvanceTime(t)
 }
 
-// this function should be ran under a lock?
 func (n *NonValidator) HandleMessage(msg *common.Message, from common.NodeID) error {
 	n.lock.Lock()
 	defer n.lock.Unlock()
@@ -427,11 +426,11 @@ func (n *NonValidator) scheduleNewFinalizedBlockTask(block common.Block, finaliz
 }
 
 func (n *NonValidator) handleReplicationResponse(resp *common.ReplicationResponse, from common.NodeID) error {
-	n.Logger.Debug("Received replication response", zap.Stringer("from", from), zap.Int("num seqs", len(resp.Data)), zap.Stringer("latest seq", resp.LatestSeq), zap.Stringer("From", from), zap.Stringers("Data", resp.Data))
+	n.Logger.Debug("Received replication response", zap.Stringer("from", from), zap.Int("num seqs", len(resp.Data)), zap.Stringer("latest seq", resp.LatestSeq), zap.Stringer("From", from))
 
 	for _, qr := range resp.Data {
 		if err := n.processQuorumRound(&qr, from); err != nil {
-			n.Logger.Debug("Failed processing quorum round", zap.Stringer("QR", qr), zap.Error(err))
+			n.Logger.Debug("Failed processing quorum round", zap.Stringer("QR", &qr), zap.Error(err))
 		}
 	}
 
