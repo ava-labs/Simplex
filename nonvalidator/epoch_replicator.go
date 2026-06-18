@@ -21,16 +21,12 @@ type epochReplicator struct {
 	// Once we have collected f+1 messages for a finalization, the sealing block for that epoch is validated.
 	sealingBlockResponses map[uint64]map[string]common.Digest
 
-	// digests stores the metadata associated with a sealing block.
-	digests map[string]*common.QuorumRound
-
 	// latestValidatorSetRetriever is used to calculate the threshold of votes needed to validate an epoch
 	latestValidatorSetRetriever latestValidatorSetRetriever
 }
 
 func newEpochReplicator(logger common.Logger, validatorSetRetriever latestValidatorSetRetriever) *epochReplicator {
 	return &epochReplicator{
-		digests:                     make(map[string]*common.QuorumRound),
 		sealingBlockResponses:       make(map[uint64]map[string]common.Digest),
 		logger:                      logger,
 		latestValidatorSetRetriever: validatorSetRetriever,
@@ -56,20 +52,14 @@ func (e *epochReplicator) collectedQuorumRound(qr *common.QuorumRound, from comm
 	}
 	epochResponses[string(from)] = digest
 
-	e.digests[digest.String()] = qr
-
 	// check if we have a threshold of responses
-	counts := make(map[string]uint64)
+	counts := make(map[common.Digest]uint64)
 	for _, digest := range epochResponses {
-		sDigest := digest.String()
-		_, ok := counts[sDigest]
-		if !ok {
-			counts[sDigest] = 1
-		} else {
-			counts[sDigest] += 1
-		}
+		count := counts[digest]
+		count++
+		counts[digest] = count
 
-		if counts[sDigest] >= uint64(threshold) {
+		if counts[digest] >= uint64(threshold) {
 			e.logger.Info("We received enough messages to validate a higher epoch", zap.Stringer("EpochInfo", sealingInfo), zap.Int("Threshold", threshold), zap.Uint64("Responses", counts[sDigest]))
 			return true
 		}
