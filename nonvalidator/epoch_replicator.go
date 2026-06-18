@@ -12,7 +12,6 @@ type latestValidatorSetRetriever interface {
 	Nodes() common.Nodes
 }
 
-// TODO: garbage collect map
 type epochReplicator struct {
 	logger common.Logger
 
@@ -60,10 +59,18 @@ func (e *epochReplicator) collectedQuorumRound(qr *common.QuorumRound, from comm
 		counts[digest] = count
 
 		if counts[digest] >= uint64(threshold) {
-			e.logger.Info("We received enough messages to validate a higher epoch", zap.Stringer("EpochInfo", sealingInfo), zap.Int("Threshold", threshold), zap.Uint64("Responses", counts[sDigest]))
+			e.logger.Info("We received enough messages to validate a higher epoch", zap.Stringer("EpochInfo", sealingInfo), zap.Int("Threshold", threshold), zap.Uint64("Responses", counts[digest]))
 			return true
 		}
 	}
 
 	return false
+}
+
+func (e *epochReplicator) removeOldEpochs(minEpochToKeep uint64) {
+	for epoch, _ := range e.sealingBlockResponses {
+		if epoch < minEpochToKeep {
+			delete(e.sealingBlockResponses, epoch)
+		}
+	}
 }

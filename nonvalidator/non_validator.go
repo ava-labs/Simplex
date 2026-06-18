@@ -303,6 +303,7 @@ func (n *NonValidator) removeOldSequencesAndEpochs(lastCommittedSeq, minEpochToK
 	}
 
 	n.epochs.removeOldEpochs(minEpochToKeep)
+	n.highestEpochCollector.removeOldEpochs(minEpochToKeep)
 }
 
 // handleFinalization process a finalization message. If its for a future epoch, it will forward the finalization
