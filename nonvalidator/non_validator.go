@@ -301,7 +301,7 @@ func (n *NonValidator) maybeValidateNextEpoch(block common.Block) {
 	}
 	_, alreadyValidated := n.epochs[sealingInfo.Epoch]
 	if alreadyValidated {
-		n.Logger.Info("Already validated.", zap.Uint64("Epoch", sealingInfo.Epoch))
+		n.Logger.Debug("Already validated.", zap.Uint64("Epoch", sealingInfo.Epoch))
 		return
 	}
 
@@ -375,8 +375,9 @@ func (n *NonValidator) handleFinalization(finalization *common.Finalization, fro
 				zap.Uint64("Incoming Sequence", finalization.Finalization.Seq),
 				zap.Uint64("Stored sequence", incomplete.finalization.Finalization.Seq),
 			)
-			n.haltedError = fmt.Errorf("Conflicting finalizations")
-			return fmt.Errorf("Conflicting finalizations")
+			errConflictingFinalizations := fmt.Errorf("conflicting finalizations. seq: %d", bh.Seq)
+			n.haltedError = errConflictingFinalizations
+			return errConflictingFinalizations
 		}
 
 		n.sequenceReplicator.ReceivedFutureFinalization(finalization, n.nextSeqToCommit())
@@ -393,7 +394,7 @@ func (n *NonValidator) handleFinalization(finalization *common.Finalization, fro
 
 	digest := incomplete.block.BlockHeader().Digest
 	if !bytes.Equal(bh.Digest[:], digest[:]) {
-		n.Logger.Info(
+		n.Logger.Debug(
 			"Received a block from the leader of a round whose digest mismatches the finalization",
 			zap.Stringer("Finalization Digest", bh.Digest),
 			zap.Stringer("Block digest", digest),

@@ -26,13 +26,6 @@ func (errQC) Verify(_ []byte, _ common.Nodes) error {
 	return errors.New("qc verification failed")
 }
 
-type TestConfig struct {
-	nodes      common.Nodes
-	storage    common.Storage
-	comm       common.Communication
-	sigCreator common.SignatureAggregatorCreator
-}
-
 func blockMessage(t *testing.T, block common.Block, from common.NodeID) *common.Message {
 	vote, err := testutil.NewTestVote(block, from)
 	require.NoError(t, err)
@@ -251,7 +244,7 @@ func TestHandleMessages(t *testing.T) {
 			require.NoError(t, err)
 
 			for _, m := range msgs {
-				require.NoError(t, m.send(nv))
+				require.NoError(t, nv.HandleMessage(m.msg, m.from))
 			}
 
 			tc.WaitForBlockCommit(tt.expectedHeight - 1)
@@ -278,8 +271,10 @@ func TestNonValidator_StopsGracefully(t *testing.T) {
 	nv.Stop()
 
 	b3 := tc.appendBlock()
-	require.NoError(t, blockMsg(t, b3, testNodes).send(nv))
-	require.NoError(t, finalizationMsg(t, b3, testNodes).send(nv))
+	block := blockMsg(t, b3, testNodes)
+	require.NoError(t, nv.HandleMessage(block.msg, block.from))
+	fin := finalizationMsg(t, b3, testNodes)
+	require.NoError(t, nv.HandleMessage(fin.msg, fin.from))
 
 	require.Never(t,
 		func() bool {
@@ -310,14 +305,16 @@ func TestHandleMessages_DuplicateBlock(t *testing.T) {
 
 	// Send the sealing block + finalization that transitions to epoch 3.
 	b3 := tc.appendBlock()
-	require.NoError(t, blockMsg(t, b3, testNodes).send(nv))
-	require.NoError(t, finalizationMsg(t, b3, testNodes).send(nv))
+	block := blockMsg(t, b3, testNodes)
+	require.NoError(t, nv.HandleMessage(block.msg, block.from))
+	fin := finalizationMsg(t, b3, testNodes)
+	require.NoError(t, nv.HandleMessage(fin.msg, fin.from))
 
 	tc.WaitForBlockCommit(3)
 
 	// Storage will panic if we try indexing the same block twice
-	require.NoError(t, blockMsg(t, b3, testNodes).send(nv))
-	require.NoError(t, finalizationMsg(t, b3, testNodes).send(nv))
+	require.NoError(t, nv.HandleMessage(block.msg, block.from))
+	require.NoError(t, nv.HandleMessage(fin.msg, fin.from))
 }
 
 // TestNonValidator_RequestHighestEpochOnStart verifies that a non-validator
@@ -486,7 +483,7 @@ func TestNonValidator_ReplicationRequests(t *testing.T) {
 		for msg, ok := responder.popResponse(); ok; {
 			// drop every other message
 			if count%2 == 0 {
-				require.NoError(t, msg.send(nv))
+				require.NoError(t, nv.HandleMessage(msg.msg, msg.from))
 			}
 			count += 1
 			msg, ok = responder.popResponse()
@@ -627,7 +624,7 @@ func advanceUntil(nv *NonValidator, responder *nonValidatorResponderComm, seq ui
 		// Send any requests as responses back to the node
 		for msg, ok := responder.popResponse(); ok; {
 			// drop every other message
-			require.NoError(responder.t, msg.send(nv))
+			require.NoError(responder.t, nv.HandleMessage(msg.msg, msg.from))
 			msg, ok = responder.popResponse()
 		}
 

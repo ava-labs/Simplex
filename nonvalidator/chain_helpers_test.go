@@ -28,11 +28,6 @@ type messageInfo struct {
 	from common.NodeID
 }
 
-// send is a helper that calls HandleMessage on `nv` with `m`.
-func (m *messageInfo) send(nv *NonValidator) error {
-	return nv.HandleMessage(m.msg, m.from)
-}
-
 // testChain is a helper that book-keeps the current chain-tip, alongside any
 // blocks and finalizations indexed on the chain. It allows easy creation of block and sealing blocks.
 // It also manages validator sets, and the SignatureAggregatorCreator required by non-validators to verify finalizations.
