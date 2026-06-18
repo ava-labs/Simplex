@@ -108,6 +108,17 @@ func TestNewEpochs(t *testing.T) {
 			expectedEpoch: 1,
 			expectedLen:   1,
 		},
+		{
+			// the latest block is not a sealing block; its epoch field points back to
+			// the block at seq 1, but that block has no sealing info either.
+			name: "referenced block is missing sealing info",
+			blocks: []indexedBlock{
+				nonSimplexBlock,
+				{seq: 1, round: 1, epoch: 1, sealingInfo: nil},
+				{seq: 2, round: 2, epoch: 1, sealingInfo: nil},
+			},
+			expectedErr: errMissingSealingInfo,
+		},
 	}
 
 	for _, tt := range tests {

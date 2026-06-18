@@ -50,12 +50,11 @@ func (e *epochReplicator) collectedQuorumRound(qr *common.QuorumRound, from comm
 	epochResponses, ok := e.sealingBlockResponses[sealingInfo.Epoch]
 	digest := qr.Block.BlockHeader().Digest
 	if !ok {
-		digests := make(map[string]common.Digest)
-		digests[from.String()] = digest
-		e.sealingBlockResponses[sealingInfo.Epoch] = digests
-	} else {
+		epochResponses = make(map[string]common.Digest)
 		epochResponses[string(from)] = digest
+		e.sealingBlockResponses[sealingInfo.Epoch] = epochResponses
 	}
+	epochResponses[string(from)] = digest
 
 	e.digests[digest.String()] = qr
 

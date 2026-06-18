@@ -149,9 +149,6 @@ func (n *NonValidator) HandleMessage(msg *common.Message, from common.NodeID) er
 	}
 
 	switch {
-	case msg.BlockDigestRequest != nil:
-		// TODO: it seems reasonable for our non-validator to be able to process these messages and send out responses.
-		return nil
 	case msg.BlockMessage != nil && msg.BlockMessage.Block != nil:
 		return n.handleBlock(msg.BlockMessage.Block, from)
 	case msg.Finalization != nil:
@@ -179,7 +176,7 @@ func (n *NonValidator) handleBlock(block common.Block, from common.NodeID) error
 		return nil
 	}
 
-	if bh.Seq > n.MaxSequenceWindow+n.Storage.NumBlocks() {
+	if bh.Seq > n.MaxSequenceWindow+n.nextSeqToCommit() {
 		n.Logger.Debug("Received a block from a sequence too far ahead", zap.Uint64("Num Blocks", n.Storage.NumBlocks()), zap.Uint64("Block Sequence", bh.Seq), zap.Stringer("From", from))
 		return nil
 	}
@@ -221,7 +218,6 @@ func (n *NonValidator) handleBlock(block common.Block, from common.NodeID) error
 		return nil
 	}
 
-	// add test that ensure this is here. otherwise i think an adversarial node can have us schedule many tasks
 	incomplete.block = block
 
 	n.maybeValidateNextEpoch(block)
@@ -229,7 +225,7 @@ func (n *NonValidator) handleBlock(block common.Block, from common.NodeID) error
 }
 
 func (n *NonValidator) isAccepted(seq uint64) bool {
-	return n.Storage.NumBlocks() > seq
+	return n.nextSeqToCommit() > seq
 }
 
 // newFinalizedBlockTask verifies and indexes the nextSeqToCommit.
@@ -245,31 +241,21 @@ func (n *NonValidator) newFinalizedBlockTask(block common.Block, finalization *c
 		}()
 
 		verifiedBlock, err := block.Verify(n.ctx)
-		// We have failed verifying a finalized block
-		if err != nil {
-			n.lock.Lock()
-			defer n.lock.Unlock()
-
-			// defensive check in case we scheduled multiple finalized block verification tasks
-			if n.Storage.NumBlocks() != md.Seq {
-				n.Logger.Debug("Received finalized block that is not the next sequence to commit",
-					zap.Uint64("seq", md.Seq), zap.Uint64("height", n.Storage.NumBlocks()))
-				return md.Digest
-			}
-
-			n.Logger.Info("Failed verifying a block that has a finalization", zap.Uint64("Block Seq", md.Seq), zap.Stringer("Block Digest", md.Digest), zap.Error(err))
-
-			n.sequenceReplicator.ResendFinalizationRequest(md.Seq, finalization.QC.Signers())
-			return md.Digest
-		}
-
 		n.lock.Lock()
 		defer n.lock.Unlock()
 
+		nextSeqToCommit := n.nextSeqToCommit()
 		// defensive check in case we scheduled multiple finalized block verification tasks
-		if n.Storage.NumBlocks() != md.Seq {
+		if nextSeqToCommit != md.Seq {
 			n.Logger.Debug("Received finalized block that is not the next sequence to commit",
-				zap.Uint64("seq", md.Seq), zap.Uint64("height", n.Storage.NumBlocks()))
+				zap.Uint64("Received Seq", md.Seq), zap.Uint64("Next Seq", nextSeqToCommit))
+			return md.Digest
+		}
+
+		// We have failed verifying a finalized block
+		if err != nil {
+			n.Logger.Info("Failed verifying a block that has a finalization", zap.Uint64("Block Seq", md.Seq), zap.Stringer("Block Digest", md.Digest), zap.Error(err))
+			n.sequenceReplicator.ResendFinalizationRequest(md.Seq, finalization.QC.Signers())
 			return md.Digest
 		}
 
@@ -348,8 +334,8 @@ func (n *NonValidator) handleFinalization(finalization *common.Finalization, fro
 	}
 
 	// Don't store finalization in memory if it's too far ahead
-	if bh.Seq > n.MaxSequenceWindow+n.Storage.NumBlocks() {
-		n.Logger.Debug("Received a finalization from a sequence too far ahead", zap.Uint64("Num Blocks", n.Storage.NumBlocks()), zap.Uint64("Block Sequence", bh.Seq), zap.Stringer("From", from))
+	if bh.Seq > n.MaxSequenceWindow+n.nextSeqToCommit() {
+		n.Logger.Debug("Received a finalization from a sequence too far ahead", zap.Uint64("Num Blocks", n.nextSeqToCommit()), zap.Uint64("Block Sequence", bh.Seq), zap.Stringer("From", from))
 		n.sequenceReplicator.ReceivedFutureFinalization(finalization, n.nextSeqToCommit())
 		return nil
 	}

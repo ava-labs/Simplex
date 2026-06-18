@@ -10,7 +10,10 @@ import (
 	"github.com/ava-labs/simplex/common"
 )
 
-var errNoGenesis = errors.New("No Genesis Found")
+var (
+	errNoGenesis          = errors.New("No Genesis Found")
+	errMissingSealingInfo = errors.New("no sealing block info for sealing block")
+)
 
 type epochMetadata struct {
 	nodes                common.Nodes
@@ -67,6 +70,9 @@ func newEpochs(storage common.Storage, sigAggCreator common.SignatureAggregatorC
 		sealingBlock, _, err = storage.Retrieve(lastBlock.BlockHeader().Epoch)
 		if err != nil {
 			return nil, err
+		}
+		if sealingBlock.SealingBlockInfo() == nil {
+			return nil, errMissingSealingInfo
 		}
 	} else {
 		sealingBlock = lastBlock
