@@ -713,27 +713,19 @@ func TestEpochLeaderFailoverGarbageCollectedEmptyVotes(t *testing.T) {
 	waitForTimeout.Add(1)
 	var waitForTimeoutOnce sync.Once
 
-	var triggerEmptyBlockAgreement sync.WaitGroup
-	triggerEmptyBlockAgreement.Add(1)
-	var triggerEmptyBlockAgreementOnce sync.Once
-
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
 	t.Cleanup(e.Stop)
 
 	l := conf.Logger.(*testutil.TestLogger)
 	l.Intercept(func(entry zapcore.Entry) error {
-		if strings.Contains(entry.Message, "It is time to build a block") {
+		if strings.Contains(entry.Message, "It is time to build a block") && e.Storage.NumBlocks() == 3 {
 			emptyNotarization := testutil.NewEmptyNotarization(nodes[1:], 3)
 			e.HandleMessage(&Message{
 				EmptyNotarization: emptyNotarization,
 			}, nodes[1])
 
 			waitForTimeoutOnce.Do(waitForTimeout.Done)
-		}
-
-		if strings.Contains(entry.Message, "empty block agreement") {
-			triggerEmptyBlockAgreementOnce.Do(triggerEmptyBlockAgreement.Done)
 		}
 
 		return nil
@@ -760,10 +752,10 @@ func TestEpochLeaderFailoverGarbageCollectedEmptyVotes(t *testing.T) {
 	startTime = startTime.Add(e.EpochConfig.MaxProposalWait)
 	e.AdvanceTime(startTime)
 
-	triggerEmptyBlockAgreement.Wait()
-
-	// At this point, if we have initialized the timeout process, handling any message fails because we have a halted error.
-	// The halted error takes place because we attempted to timeout on a round that has already been garbage collected.
+	// The empty notarization advanced us past round 3 while a
+	// timeout for round 3 was also in flight.
+	// Verify that the node didn't error because it tried to process the timeout for round 3
+	// after it had already advanced to round 4.
 	err = e.HandleMessage(&Message{}, nodes[1])
 	require.NoError(t, err)
 }
