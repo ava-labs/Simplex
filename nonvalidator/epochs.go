@@ -14,7 +14,7 @@ var errNoGenesis = errors.New("No Genesis Found")
 
 type epochMetadata struct {
 	nodes                common.Nodes
-	nodeLookup           map[string]struct{}
+	eligibleSigners      map[string]struct{}
 	epoch                uint64
 	signatureAggregator  common.SignatureAggregator
 	prevSealingBlockHash common.Digest
@@ -35,7 +35,7 @@ func newEpochMetadata(sealingMetadata *common.SealingBlockInfo, sigCreator commo
 
 	return &epochMetadata{
 		nodes:                nodes,
-		nodeLookup:           lookup,
+		eligibleSigners:      lookup,
 		epoch:                sealingMetadata.Epoch,
 		signatureAggregator:  sigCreator(nodes),
 		prevSealingBlockHash: sealingMetadata.PrevSealingBlockHash,

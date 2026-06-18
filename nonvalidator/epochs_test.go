@@ -134,9 +134,9 @@ func TestNewEpochs(t *testing.T) {
 			require.True(t, ok)
 			require.Equal(t, tt.expectedEpoch, meta.epoch)
 			require.Equal(t, nodes, meta.nodes)
-			require.Len(t, meta.nodeLookup, len(nodes))
+			require.Len(t, meta.eligibleSigners, len(nodes))
 			for _, n := range nodes {
-				_, ok := meta.nodeLookup[string(n.Id)]
+				_, ok := meta.eligibleSigners[string(n.Id)]
 				require.True(t, ok)
 			}
 			require.NotNil(t, meta.signatureAggregator)
