@@ -25,7 +25,7 @@ type epochMetadata struct {
 
 type epochs map[uint64]*epochMetadata
 
-func newEpochMetadata(sealingMetadata *common.SealingBlockInfo, sigCreator common.SignatureAggregatorCreator) *epochMetadata {
+func newEpochMetadata(epoch uint64, sealingMetadata *common.SealingBlockInfo, sigCreator common.SignatureAggregatorCreator) *epochMetadata {
 	if sealingMetadata == nil {
 		return nil
 	}
@@ -39,7 +39,7 @@ func newEpochMetadata(sealingMetadata *common.SealingBlockInfo, sigCreator commo
 	return &epochMetadata{
 		nodes:                nodes,
 		eligibleSigners:      lookup,
-		epoch:                sealingMetadata.Epoch,
+		epoch:                epoch,
 		signatureAggregator:  sigCreator(nodes),
 		prevSealingBlockHash: sealingMetadata.PrevSealingBlockHash,
 	}
@@ -78,7 +78,7 @@ func newEpochs(storage common.Storage, sigAggCreator common.SignatureAggregatorC
 		sealingBlock = lastBlock
 	}
 
-	lastAcceptedEpoch := newEpochMetadata(sealingBlock.SealingBlockInfo(), sigAggCreator)
+	lastAcceptedEpoch := newEpochMetadata(sealingBlock.BlockHeader().Seq, sealingBlock.SealingBlockInfo(), sigAggCreator)
 	epochs[lastAcceptedEpoch.epoch] = lastAcceptedEpoch
 	return epochs, nil
 }
@@ -110,7 +110,8 @@ func (e epochs) canValidate(block common.Block) bool {
 		return false
 	}
 
-	_, ok := e[block.SealingBlockInfo().Epoch]
+	// the sequence number is the next proposed epoch
+	_, ok := e[block.BlockHeader().Seq]
 	if ok {
 		// cannot validate twice
 		return false

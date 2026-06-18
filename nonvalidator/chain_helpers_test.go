@@ -133,7 +133,6 @@ func (tc *testChain) appendSealing(validatorSet common.Nodes) *sealingTestBlock 
 	tc.seq++
 
 	block := newSealingTestBlock(tc.seq, tc.epoch, tc.digest, &common.SealingBlockInfo{
-		Epoch:                tc.seq,
 		ValidatorSet:         validatorSet,
 		PrevSealingBlockHash: tc.sealingBlockHash,
 	})
@@ -152,7 +151,6 @@ func (tc *testChain) appendFirstSimplexAfterGenesis(validatorSet common.Nodes) *
 	require.NoError(tc.t, err)
 
 	block := newSealingTestBlock(tc.seq, firstEverEpoch, tc.digest, &common.SealingBlockInfo{
-		Epoch:                tc.seq,
 		ValidatorSet:         validatorSet,
 		PrevSealingBlockHash: lastBlock.BlockHeader().Digest,
 	})

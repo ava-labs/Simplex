@@ -19,7 +19,6 @@ func newSealingQuorumRound(epoch uint64, numValidators int) *common.QuorumRound 
 
 	return &common.QuorumRound{
 		Block: newSealingTestBlock(1, epoch, common.Digest{}, &common.SealingBlockInfo{
-			Epoch:        epoch,
 			ValidatorSet: validatorSet,
 		}),
 	}

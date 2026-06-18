@@ -42,12 +42,13 @@ func (e *epochReplicator) collectedQuorumRound(qr *common.QuorumRound, from comm
 
 	sealingInfo := qr.Block.SealingBlockInfo()
 	threshold := common.F(len(e.latestValidatorSetRetriever.Nodes())) + 1
-	epochResponses, ok := e.sealingBlockResponses[sealingInfo.Epoch]
+	newEpoch := qr.Block.BlockHeader().Seq
+	epochResponses, ok := e.sealingBlockResponses[newEpoch]
 	digest := qr.Block.BlockHeader().Digest
 	if !ok {
 		epochResponses = make(map[string]common.Digest)
 		epochResponses[string(from)] = digest
-		e.sealingBlockResponses[sealingInfo.Epoch] = epochResponses
+		e.sealingBlockResponses[newEpoch] = epochResponses
 	}
 	epochResponses[string(from)] = digest
 

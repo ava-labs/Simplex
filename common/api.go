@@ -98,8 +98,6 @@ type Block interface {
 }
 
 type SealingBlockInfo struct {
-	// the new epoch number(aka the seq of the block this is in)
-	Epoch uint64
 	// ValidatorSet of the new epoch
 	ValidatorSet Nodes
 	// PrevSealingBlockHash is the hash of the previous sealing block
@@ -107,7 +105,7 @@ type SealingBlockInfo struct {
 }
 
 func (s *SealingBlockInfo) String() string {
-	return fmt.Sprintf("Info: Epoch %d. Num Validators %d, PrevHash %s", s.Epoch, len(s.ValidatorSet), s.PrevSealingBlockHash)
+	return fmt.Sprintf("Info: Num Validators %d, PrevHash %s", len(s.ValidatorSet), s.PrevSealingBlockHash)
 }
 
 type VerifiedBlock interface {

@@ -89,8 +89,8 @@ func TestNewEpochs(t *testing.T) {
 			name: "last accepted is sealing",
 			blocks: []indexedBlock{
 				nonSimplexBlock,
-				{seq: 1, round: 1, epoch: 1, sealingInfo: &common.SealingBlockInfo{Epoch: 1, ValidatorSet: nodes}},
-				{seq: 2, round: 2, epoch: 2, sealingInfo: &common.SealingBlockInfo{Epoch: 2, ValidatorSet: nodes}},
+				{seq: 1, round: 1, epoch: 1, sealingInfo: &common.SealingBlockInfo{ValidatorSet: nodes}},
+				{seq: 2, round: 2, epoch: 2, sealingInfo: &common.SealingBlockInfo{ValidatorSet: nodes}},
 			},
 			expectedEpoch: 2,
 			expectedLen:   1,
@@ -101,7 +101,7 @@ func TestNewEpochs(t *testing.T) {
 			name: "last accepted is not sealing",
 			blocks: []indexedBlock{
 				nonSimplexBlock,
-				{seq: 1, round: 1, epoch: 1, sealingInfo: &common.SealingBlockInfo{Epoch: 1, ValidatorSet: nodes}},
+				{seq: 1, round: 1, epoch: 1, sealingInfo: &common.SealingBlockInfo{ValidatorSet: nodes}},
 				{seq: 2, round: 2, epoch: 1, sealingInfo: nil},
 				{seq: 3, round: 3, epoch: 1, sealingInfo: nil},
 			},
@@ -223,7 +223,7 @@ func TestCanValidate(t *testing.T) {
 	require.False(t, epochs.canValidate(e3))
 
 	// say epoch 5 has been seen f + 1 times
-	epochs[e5.sealingInfo.Epoch] = newEpochMetadata(e5.SealingBlockInfo(), sigAggCreator)
+	epochs[e5.Metadata.Seq] = newEpochMetadata(e5.Metadata.Seq, e5.SealingBlockInfo(), sigAggCreator)
 
 	// we should be able to validate backwards now
 	require.False(t, epochs.canValidate(b6))
@@ -231,7 +231,7 @@ func TestCanValidate(t *testing.T) {
 	require.True(t, epochs.canValidate(e4))
 	require.False(t, epochs.canValidate(e3))
 
-	epochs[e4.sealingInfo.Epoch] = newEpochMetadata(e4.SealingBlockInfo(), sigAggCreator)
+	epochs[e4.Metadata.Seq] = newEpochMetadata(e4.Metadata.Seq, e4.SealingBlockInfo(), sigAggCreator)
 	require.False(t, epochs.canValidate(b6))
 	require.False(t, epochs.canValidate(e5))
 	require.False(t, epochs.canValidate(e4)) // cannot validate twice

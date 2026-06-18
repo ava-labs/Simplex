@@ -281,18 +281,19 @@ func (n *NonValidator) newFinalizedBlockTask(block common.Block, finalization *c
 }
 
 func (n *NonValidator) maybeValidateNextEpoch(block common.Block) {
+	nextEpoch := block.BlockHeader().Seq
 	sealingInfo := block.SealingBlockInfo()
 	if sealingInfo == nil {
 		return
 	}
-	_, alreadyValidated := n.epochs[sealingInfo.Epoch]
+	_, alreadyValidated := n.epochs[nextEpoch]
 	if alreadyValidated {
-		n.Logger.Debug("Already validated.", zap.Uint64("Epoch", sealingInfo.Epoch))
+		n.Logger.Debug("Already validated.", zap.Uint64("Epoch", nextEpoch))
 		return
 	}
 
-	n.Logger.Info("We have a valid sealing block, messages for that epoch can be processed.", zap.Uint64("Epoch", sealingInfo.Epoch))
-	n.epochs[sealingInfo.Epoch] = newEpochMetadata(sealingInfo, n.SignatureAggregatorCreator)
+	n.Logger.Info("We have a valid sealing block, messages for that epoch can be processed.", zap.Uint64("Epoch", nextEpoch))
+	n.epochs[nextEpoch] = newEpochMetadata(nextEpoch, sealingInfo, n.SignatureAggregatorCreator)
 }
 
 func (n *NonValidator) removeOldSequencesAndEpochs(lastCommittedSeq, minEpochToKeep uint64) {
