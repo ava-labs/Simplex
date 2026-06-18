@@ -5,7 +5,6 @@ package nonvalidator
 
 import (
 	"github.com/ava-labs/simplex/common"
-	"github.com/ava-labs/simplex/simplex"
 	"go.uber.org/zap"
 )
 
@@ -47,7 +46,7 @@ func (e *epochReplicator) collectedQuorumRound(qr *common.QuorumRound, from comm
 	e.logger.Debug("Collected a quorum round with a sealing block", zap.Stringer("QR", qr), zap.Stringer("From", from))
 
 	sealingInfo := qr.Block.SealingBlockInfo()
-	threshold := simplex.F(len(e.latestValidatorSetRetriever.Nodes())) + 1
+	threshold := common.F(len(e.latestValidatorSetRetriever.Nodes())) + 1
 	epochResponses, ok := e.sealingBlockResponses[sealingInfo.Epoch]
 	digest := qr.Block.BlockHeader().Digest
 	if !ok {

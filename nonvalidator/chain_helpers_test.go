@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/ava-labs/simplex/common"
-	"github.com/ava-labs/simplex/simplex"
 	"github.com/ava-labs/simplex/testutil"
 	"github.com/stretchr/testify/require"
 )
@@ -183,7 +182,7 @@ func (tc *testChain) signatureAggregatorCreator(nodes []common.Node) common.Sign
 			}
 		}
 
-		return count >= simplex.Quorum(len(nodes))
+		return count >= common.Quorum(len(nodes))
 	}
 	return &testutil.TestSignatureAggregator{
 		IsQuorumFunc: isQuorumFunc,

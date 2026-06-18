@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/ava-labs/simplex/common"
-	"github.com/ava-labs/simplex/simplex"
 	"github.com/ava-labs/simplex/testutil"
 	"github.com/stretchr/testify/require"
 )
@@ -56,7 +55,7 @@ func TestCollectedQuorumRound(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			voters := tt.qr.Block.SealingBlockInfo().ValidatorSet
 			// votes required to confirm the epoch.
-			threshold := simplex.F(len(voters)) + 1
+			threshold := common.F(len(voters)) + 1
 			require.GreaterOrEqual(t, len(voters), threshold, "need at least threshold validators to vote with")
 			e := newEpochReplicator(testutil.MakeLogger(t, 1), &testValidatorSetRetriever{
 				nodes: voters,

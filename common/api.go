@@ -194,5 +194,9 @@ func Quorum(n int) int {
 	return (n+f)/2 + 1
 }
 
+func F(n int) int {
+	return (n - 1) / 3
+}
+
 // SignatureAggregatorCreator creates a SignatureAggregator from a list of nodes and their weights.
 type SignatureAggregatorCreator func([]Node) SignatureAggregator

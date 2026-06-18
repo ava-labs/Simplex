@@ -134,19 +134,6 @@ func (bs *BlockDependencyManager) IsSequenceScheduled(seq uint64) bool {
 	return false
 }
 
-func (bs *BlockDependencyManager) IsSequenceScheduled(seq uint64) bool {
-	bs.lock.Lock()
-	defer bs.lock.Unlock()
-
-	for _, dep := range bs.dependencies {
-		if dep.blockSeq == seq {
-			return true
-		}
-	}
-
-	return false
-}
-
 func (bs *BlockDependencyManager) ScheduleTaskWithDependencies(task Task, blockSeq uint64, prev *Digest, emptyRounds []uint64) error {
 	bs.lock.Lock()
 	defer bs.lock.Unlock()

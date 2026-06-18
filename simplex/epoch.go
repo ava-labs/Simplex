@@ -3430,17 +3430,6 @@ func LeaderForRound(nodes []common.NodeID, r uint64) common.NodeID {
 	return nodes[r%uint64(n)]
 }
 
-func Quorum(n int) int {
-	f := F(n)
-	// Obtained from the equation:
-	// Quorum * 2 = N + F + 1
-	return (n+f)/2 + 1
-}
-
-func F(n int) int {
-	return (n - 1) / 3
-}
-
 // messagesFromNode maps nodeIds to the messages it sent in a given round.
 type messagesFromNode map[string]map[uint64]*messagesForRound
 
