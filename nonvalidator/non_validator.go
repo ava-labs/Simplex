@@ -342,6 +342,10 @@ func (n *NonValidator) handleFinalization(finalization *common.Finalization, fro
 	}
 
 	incomplete, ok := n.incompleteSequences[bh.Seq]
+	if !ok || (incomplete.finalization == nil || incomplete.block == nil) {
+		n.sequenceReplicator.ReceivedFutureFinalization(finalization, n.nextSeqToCommit())
+	}
+
 	if !ok {
 		// we have not received anything for this sequence
 		incompleteSeq := &finalizedSeq{
@@ -349,7 +353,6 @@ func (n *NonValidator) handleFinalization(finalization *common.Finalization, fro
 		}
 		n.incompleteSequences[bh.Seq] = incompleteSeq
 		n.Logger.Debug("Stored incomplete sequence", zap.Stringer("Sequence", incompleteSeq))
-		n.sequenceReplicator.ReceivedFutureFinalization(finalization, n.nextSeqToCommit())
 		return nil
 	}
 
@@ -367,7 +370,6 @@ func (n *NonValidator) handleFinalization(finalization *common.Finalization, fro
 			return errConflictingFinalizations
 		}
 
-		n.sequenceReplicator.ReceivedFutureFinalization(finalization, n.nextSeqToCommit())
 		return nil
 	}
 
@@ -375,7 +377,6 @@ func (n *NonValidator) handleFinalization(finalization *common.Finalization, fro
 
 	// No block received yet for this sequence.
 	if incomplete.block == nil {
-		n.sequenceReplicator.ReceivedFutureFinalization(finalization, n.nextSeqToCommit())
 		return nil
 	}
 

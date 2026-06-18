@@ -68,7 +68,7 @@ func (e *epochReplicator) collectedQuorumRound(qr *common.QuorumRound, from comm
 }
 
 func (e *epochReplicator) removeOldEpochs(minEpochToKeep uint64) {
-	for epoch, _ := range e.sealingBlockResponses {
+	for epoch := range e.sealingBlockResponses {
 		if epoch < minEpochToKeep {
 			delete(e.sealingBlockResponses, epoch)
 		}
