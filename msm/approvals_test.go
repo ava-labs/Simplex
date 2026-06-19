@@ -61,7 +61,7 @@ func TestApprovalStoreHandleApproval(t *testing.T) {
 			validators: 3,
 			sigErr:     errors.New("bad sig"),
 			approvals: []approvalAndTimestamp{
-				{ValidatorSetApproval{NodeID: makeNodeID(1), PChainHeight: 1, Signature: []byte{0xAA}}, 1},
+				{ValidatorSetApproval{NodeID: makeNodeID(1), PChainHeight: 1, Signature: signApproval(1, [32]byte{})}, 1},
 			},
 			verify: func(t *testing.T, as *ApprovalStore, _ []approvalAndTimestamp) {
 				require.Empty(t, as.Approvals())
@@ -74,7 +74,7 @@ func TestApprovalStoreHandleApproval(t *testing.T) {
 			name:       "valid approval is stored",
 			validators: 3,
 			approvals: []approvalAndTimestamp{
-				{ValidatorSetApproval{NodeID: makeNodeID(1), PChainHeight: 7, Signature: []byte{0x01}}, 100},
+				{ValidatorSetApproval{NodeID: makeNodeID(1), PChainHeight: 7, Signature: signApproval(7, [32]byte{})}, 100},
 			},
 			verify: func(t *testing.T, as *ApprovalStore, sent []approvalAndTimestamp) {
 				got := as.Approvals()
@@ -89,8 +89,8 @@ func TestApprovalStoreHandleApproval(t *testing.T) {
 			name:       "duplicate approval with same timestamp is a no-op",
 			validators: 3,
 			approvals: []approvalAndTimestamp{
-				{ValidatorSetApproval{NodeID: makeNodeID(1), PChainHeight: 7, Signature: []byte{0x01}}, 100},
-				{ValidatorSetApproval{NodeID: makeNodeID(1), PChainHeight: 7, Signature: []byte{0x01}}, 100},
+				{ValidatorSetApproval{NodeID: makeNodeID(1), PChainHeight: 7, Signature: signApproval(7, [32]byte{})}, 100},
+				{ValidatorSetApproval{NodeID: makeNodeID(1), PChainHeight: 7, Signature: signApproval(7, [32]byte{})}, 100},
 			},
 			verify: func(t *testing.T, as *ApprovalStore, _ []approvalAndTimestamp) {
 				require.Len(t, as.Approvals(), 1)
@@ -103,8 +103,8 @@ func TestApprovalStoreHandleApproval(t *testing.T) {
 			name:       "older timestamp is ignored",
 			validators: 3,
 			approvals: []approvalAndTimestamp{
-				{ValidatorSetApproval{NodeID: makeNodeID(1), PChainHeight: 7, Signature: []byte{0x02}}, 200}, // newer, stored first
-				{ValidatorSetApproval{NodeID: makeNodeID(1), PChainHeight: 7, Signature: []byte{0x01}}, 100}, // older, dropped
+				{ValidatorSetApproval{NodeID: makeNodeID(1), PChainHeight: 7, Signature: signApproval(7, [32]byte{})}, 200}, // newer, stored first
+				{ValidatorSetApproval{NodeID: makeNodeID(1), PChainHeight: 7, Signature: signApproval(7, [32]byte{})}, 100}, // older, dropped
 			},
 			verify: func(t *testing.T, as *ApprovalStore, sent []approvalAndTimestamp) {
 				got := as.Approvals()
@@ -119,8 +119,8 @@ func TestApprovalStoreHandleApproval(t *testing.T) {
 			name:       "newer timestamp replaces",
 			validators: 3,
 			approvals: []approvalAndTimestamp{
-				{ValidatorSetApproval{NodeID: makeNodeID(1), PChainHeight: 7, Signature: []byte{0x01}}, 100}, // older, stored first
-				{ValidatorSetApproval{NodeID: makeNodeID(1), PChainHeight: 7, Signature: []byte{0x02}}, 200}, // newer, replaces
+				{ValidatorSetApproval{NodeID: makeNodeID(1), PChainHeight: 7, Signature: signApproval(7, [32]byte{})}, 100}, // older, stored first
+				{ValidatorSetApproval{NodeID: makeNodeID(1), PChainHeight: 7, Signature: signApproval(7, [32]byte{})}, 200}, // newer, replaces
 			},
 			verify: func(t *testing.T, as *ApprovalStore, sent []approvalAndTimestamp) {
 				got := as.Approvals()
@@ -136,12 +136,12 @@ func TestApprovalStoreHandleApproval(t *testing.T) {
 			validators: 3,
 			// 3 validators x 2 heights, with timestamp == i*10 + h and Signature == {i} per validator.
 			approvals: []approvalAndTimestamp{
-				{ValidatorSetApproval{NodeID: makeNodeID(1), PChainHeight: 1, Signature: []byte{0}}, 1},
-				{ValidatorSetApproval{NodeID: makeNodeID(1), PChainHeight: 2, Signature: []byte{0}}, 2},
-				{ValidatorSetApproval{NodeID: makeNodeID(2), PChainHeight: 1, Signature: []byte{1}}, 11},
-				{ValidatorSetApproval{NodeID: makeNodeID(2), PChainHeight: 2, Signature: []byte{1}}, 12},
-				{ValidatorSetApproval{NodeID: makeNodeID(3), PChainHeight: 1, Signature: []byte{2}}, 21},
-				{ValidatorSetApproval{NodeID: makeNodeID(3), PChainHeight: 2, Signature: []byte{2}}, 22},
+				{ValidatorSetApproval{NodeID: makeNodeID(1), PChainHeight: 1, Signature: signApproval(1, [32]byte{})}, 1},
+				{ValidatorSetApproval{NodeID: makeNodeID(1), PChainHeight: 2, Signature: signApproval(2, [32]byte{})}, 2},
+				{ValidatorSetApproval{NodeID: makeNodeID(2), PChainHeight: 1, Signature: signApproval(1, [32]byte{})}, 11},
+				{ValidatorSetApproval{NodeID: makeNodeID(2), PChainHeight: 2, Signature: signApproval(2, [32]byte{})}, 12},
+				{ValidatorSetApproval{NodeID: makeNodeID(3), PChainHeight: 1, Signature: signApproval(1, [32]byte{})}, 21},
+				{ValidatorSetApproval{NodeID: makeNodeID(3), PChainHeight: 2, Signature: signApproval(2, [32]byte{})}, 22},
 			},
 			verify: func(t *testing.T, as *ApprovalStore, sent []approvalAndTimestamp) {
 				require.Len(t, as.Approvals(), len(sent))
@@ -154,9 +154,9 @@ func TestApprovalStoreHandleApproval(t *testing.T) {
 			name:       "prunes oldest when over cap",
 			validators: 2,
 			approvals: []approvalAndTimestamp{
-				{ValidatorSetApproval{NodeID: makeNodeID(1), PChainHeight: 1, Signature: []byte{1}}, 10},
-				{ValidatorSetApproval{NodeID: makeNodeID(1), PChainHeight: 2, Signature: []byte{2}}, 20},
-				{ValidatorSetApproval{NodeID: makeNodeID(1), PChainHeight: 3, Signature: []byte{3}}, 30},
+				{ValidatorSetApproval{NodeID: makeNodeID(1), PChainHeight: 1, Signature: signApproval(1, [32]byte{})}, 10},
+				{ValidatorSetApproval{NodeID: makeNodeID(1), PChainHeight: 2, Signature: signApproval(2, [32]byte{})}, 20},
+				{ValidatorSetApproval{NodeID: makeNodeID(1), PChainHeight: 3, Signature: signApproval(3, [32]byte{})}, 30},
 			},
 			verify: func(t *testing.T, as *ApprovalStore, _ []approvalAndTimestamp) {
 				got := as.Approvals()
@@ -175,14 +175,31 @@ func TestApprovalStoreHandleApproval(t *testing.T) {
 			},
 		},
 		{
+			// Verifies that the store keys on (NodeID, PChainHeight, AuxInfoDigest):
+			// two approvals from the same node at the same P-chain height but with different
+			// auxiliary info digests are kept as independent entries.
+			name:       "same height different aux info digest coexist",
+			validators: 3,
+			approvals: []approvalAndTimestamp{
+				{ValidatorSetApproval{NodeID: makeNodeID(1), PChainHeight: 7, AuxInfoDigest: [32]byte{0xAA}, Signature: signApproval(7, [32]byte{0xAA})}, 100},
+				{ValidatorSetApproval{NodeID: makeNodeID(1), PChainHeight: 7, AuxInfoDigest: [32]byte{0xBB}, Signature: signApproval(7, [32]byte{0xBB})}, 100},
+			},
+			verify: func(t *testing.T, as *ApprovalStore, sent []approvalAndTimestamp) {
+				got := as.Approvals()
+				require.Len(t, got, 2)
+				require.Equal(t, 2, as.storedCount)
+				require.ElementsMatch(t, []ValidatorSetApproval{sent[0].ValidatorSetApproval, sent[1].ValidatorSetApproval}, got)
+			},
+		},
+		{
 			// Verifies that an approval with the maximum uint64 timestamp is stored,
 			// and that a subsequent approval at the same (NodeID, PChainHeight) with any
 			// smaller timestamp is treated as older and does not replace it.
 			name:       "max uint64 timestamp is kept over any smaller timestamp",
 			validators: 3,
 			approvals: []approvalAndTimestamp{
-				{ValidatorSetApproval{NodeID: makeNodeID(1), PChainHeight: 7, Signature: []byte{0xFF}}, math.MaxUint64},     // maxTS
-				{ValidatorSetApproval{NodeID: makeNodeID(1), PChainHeight: 7, Signature: []byte{0x01}}, math.MaxUint64 - 1}, // older
+				{ValidatorSetApproval{NodeID: makeNodeID(1), PChainHeight: 7, Signature: signApproval(7, [32]byte{})}, math.MaxUint64},     // maxTS
+				{ValidatorSetApproval{NodeID: makeNodeID(1), PChainHeight: 7, Signature: signApproval(7, [32]byte{})}, math.MaxUint64 - 1}, // older
 			},
 			verify: func(t *testing.T, as *ApprovalStore, sent []approvalAndTimestamp) {
 				got := as.Approvals()
@@ -213,11 +230,11 @@ func TestApprovalStoreHandleApprovalStoredCountStaysConsistent(t *testing.T) {
 	node := vdrs[0].NodeID
 
 	for _, a := range []approvalAndTimestamp{
-		{ValidatorSetApproval{NodeID: node, PChainHeight: 1}, 10},
-		{ValidatorSetApproval{NodeID: node, PChainHeight: 1}, 10}, // duplicate
-		{ValidatorSetApproval{NodeID: node, PChainHeight: 1}, 20}, // replaces
-		{ValidatorSetApproval{NodeID: node, PChainHeight: 2}, 30}, // new height
-		{ValidatorSetApproval{NodeID: node, PChainHeight: 3}, 40}, // triggers prune
+		{ValidatorSetApproval{NodeID: node, PChainHeight: 1, Signature: signApproval(1, [32]byte{})}, 10},
+		{ValidatorSetApproval{NodeID: node, PChainHeight: 1, Signature: signApproval(1, [32]byte{})}, 10}, // duplicate
+		{ValidatorSetApproval{NodeID: node, PChainHeight: 1, Signature: signApproval(1, [32]byte{})}, 20}, // replaces
+		{ValidatorSetApproval{NodeID: node, PChainHeight: 2, Signature: signApproval(2, [32]byte{})}, 30}, // new height
+		{ValidatorSetApproval{NodeID: node, PChainHeight: 3, Signature: signApproval(3, [32]byte{})}, 40}, // triggers prune
 	} {
 		require.NoError(t, as.HandleApproval(&a.ValidatorSetApproval, a.Timestamp))
 		require.Len(t, as.Approvals(), as.storedCount)
@@ -235,12 +252,14 @@ func TestApprovalStoreHandleApprovalPruningIsPerNode(t *testing.T) {
 	require.NoError(t, as.HandleApproval(&ValidatorSetApproval{
 		NodeID:       vdrs[1].NodeID,
 		PChainHeight: 1,
+		Signature:    signApproval(1, [32]byte{}),
 	}, 100))
 
 	for h := uint64(1); h <= 10; h++ {
 		require.NoError(t, as.HandleApproval(&ValidatorSetApproval{
 			NodeID:       vdrs[0].NodeID,
 			PChainHeight: h,
+			Signature:    signApproval(h, [32]byte{}),
 		}, h))
 	}
 	require.Len(t, as.Approvals().UniqueByNodeID(), 2)

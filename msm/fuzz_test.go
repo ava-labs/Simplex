@@ -6,6 +6,7 @@ package metadata
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"testing"
 	"time"
 
@@ -114,6 +115,11 @@ func FuzzVerifyBlock(f *testing.F) {
 		// Mutating an authoritative field must make the block fail verification.
 		fuzzedMD := block.Metadata
 		field.set(&fuzzedMD, value)
+
+		if fieldIdx%2 == 1 && block.Metadata.AuxiliaryInfo == nil {
+			fuzzedMD.AuxiliaryInfo = &AuxiliaryInfo{PrevAuxInfoSeq: value}
+		}
+
 		if bytes.Equal(fuzzedMD.MarshalCanoto(), block.Metadata.MarshalCanoto()) {
 			t.Skip() // no-op mutation
 		}
@@ -184,6 +190,10 @@ func buildEpochChain(tb testing.TB, logger common.Logger) ([]*StateMachineBlock,
 	currentTime := startTime
 
 	sm, tc := newStateMachineWithLogger(tb, logger)
+	// This chain exercises the epoch lifecycle, not auxiliary info. Use an app whose
+	// history is always final so approvals are collected from the first collecting
+	// round (the builder only collects approvals once the aux info history is ready).
+	sm.AuxiliaryInfoApp = &noopTestAuxInfoApp{}
 	sm.GetValidatorSet = getValidatorSet
 	sm.GetPChainHeightForProposing = func() uint64 { return currentPChainHeight }
 	sm.GetPChainHeightForVerifying = func() uint64 { return currentPChainHeight }
@@ -244,21 +254,26 @@ func buildEpochChain(tb testing.TB, logger common.Logger) ([]*StateMachineBlock,
 	block3 := build(3, 2, 1, block2)
 	addBlock(3, block3, nil)
 
+	// The noopTestAuxInfoApp is always "ready" with an empty aux info history, so the candidate
+	// aux info digest the builder signs over is sha256 of the empty history. Peer approvals must
+	// carry the same digest to survive sanitizeApprovals' digest filter.
+	auxInfoDigest := sha256.Sum256(nil)
+
 	// block4 & block5: collecting-approvals blocks (1/3 then 2/3, not enough to seal).
-	approvalsResult = ValidatorSetApprovals{{NodeID: node1, PChainHeight: pChainHeight2, Signature: []byte("sig1")}}
+	approvalsResult = ValidatorSetApprovals{{NodeID: node1, PChainHeight: pChainHeight2, AuxInfoDigest: auxInfoDigest, Signature: signApproval(pChainHeight2, auxInfoDigest)}}
 	currentTime = startTime.Add(time.Second + 4*time.Millisecond)
 	tc.blockBuilder.block = nextInner(4)
 	block4 := build(4, 3, 1, block3)
 	addBlock(4, block4, nil)
 
-	approvalsResult = ValidatorSetApprovals{{NodeID: node2, PChainHeight: pChainHeight2, Signature: []byte("sig2")}}
+	approvalsResult = ValidatorSetApprovals{{NodeID: node2, PChainHeight: pChainHeight2, AuxInfoDigest: auxInfoDigest, Signature: signApproval(pChainHeight2, auxInfoDigest)}}
 	currentTime = startTime.Add(time.Second + 5*time.Millisecond)
 	tc.blockBuilder.block = nextInner(5)
 	block5 := build(5, 4, 1, block4)
 	addBlock(5, block5, nil)
 
 	// block6: the sealing block (3/3 approvals). Its successor is in stateBuildBlockEpochSealed.
-	approvalsResult = ValidatorSetApprovals{{NodeID: node3, PChainHeight: pChainHeight2, Signature: []byte("sig3")}}
+	approvalsResult = ValidatorSetApprovals{{NodeID: node3, PChainHeight: pChainHeight2, AuxInfoDigest: auxInfoDigest, Signature: signApproval(pChainHeight2, auxInfoDigest)}}
 	currentTime = startTime.Add(time.Second + 6*time.Millisecond)
 	tc.blockBuilder.block = nextInner(6)
 	block6 := build(6, 5, 1, block5)
@@ -286,6 +301,7 @@ func buildEpochChain(tb testing.TB, logger common.Logger) ([]*StateMachineBlock,
 
 	// Build a separate verifier MSM with its own copy of the fully populated store.
 	verifier, vtc := newStateMachineWithLogger(tb, logger)
+	verifier.AuxiliaryInfoApp = &noopTestAuxInfoApp{}
 	vtc.blockStore = tc.blockStore.clone()
 	verifier.GetBlock = vtc.blockStore.getBlock
 	verifier.GetValidatorSet = getValidatorSet
