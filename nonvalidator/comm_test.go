@@ -63,8 +63,6 @@ func (r *nonValidatorResponderComm) Broadcast(msg *common.Message) {
 
 func (r *nonValidatorResponderComm) handle(msg *common.Message, from common.NodeID) {
 	switch {
-	case msg.BlockDigestRequest != nil:
-		r.respondToDigestRequest(msg.BlockDigestRequest, from)
 	case msg.ReplicationRequest != nil:
 		r.respondToReplicationRequest(msg.ReplicationRequest, from)
 	}
@@ -76,26 +74,7 @@ func (r *nonValidatorResponderComm) clearResponses() {
 	r.responses = []*messageInfo{}
 }
 
-func (r *nonValidatorResponderComm) respondToDigestRequest(req *common.BlockDigestRequest, from common.NodeID) {
-	block, fin, err := r.storage.Retrieve(req.Seq)
-	if err != nil {
-		return
-	}
-
-	// Empty digest should mean "send any block at this seq"
-	if req.Digest != (common.Digest{}) && block.BlockHeader().Digest != req.Digest {
-		return
-	}
-
-	resp := &common.ReplicationResponse{
-		Data: []common.QuorumRound{{Block: block.(common.Block), Finalization: &fin}},
-	}
-
-	r.enqueue(&messageInfo{msg: &common.Message{ReplicationResponse: resp}, from: from})
-}
-
 func (r *nonValidatorResponderComm) respondToReplicationRequest(req *common.ReplicationRequest, from common.NodeID) {
-
 	resp := &common.ReplicationResponse{}
 
 	for _, seq := range req.Seqs {
