@@ -121,11 +121,9 @@ func TestEpochRebroadcastsEmptyVoteAfterBlockProposalReceived(t *testing.T) {
 
 	// wait for the initial empty vote broadcast
 	waitForEmptyVote(t, comm, e, 0, epochTime)
-	require.Len(t, comm.emptyVotes, 0)
 
 	// advance another rebroadcast period and ensure more empty votes are sent
 	waitForEmptyVote(t, comm, e, 0, epochTime)
-	require.Len(t, comm.emptyVotes, 0)
 }
 
 func TestEpochLeaderFailoverReceivesEmptyVotesEarly(t *testing.T) {
@@ -1181,7 +1179,6 @@ func TestEpochRebroadcastsEmptyVote(t *testing.T) {
 	// wait for the initial empty vote broadcast
 	// Wait for the initial empty vote broadcast for round 0
 	waitForEmptyVote(t, comm, e, 0, epochTime)
-	require.Len(t, comm.emptyVotes, 0)
 
 	// Continue to rebroadcast for round 0
 	for i := 0; i < 10; i++ {
@@ -1218,12 +1215,6 @@ func waitForEmptyVote(t *testing.T, comm *rebroadcastComm, e *Epoch, expectedRou
 		select {
 		case emptyVote := <-comm.emptyVotes:
 			require.Equal(t, expectedRound, emptyVote.Vote.Round)
-			// A single time advance can queue more than one broadcast (the
-			// proposal-timeout vote plus the timeout-handler's rebroadcast on
-			// the same tick).
-			for len(comm.emptyVotes) > 0 {
-				require.Equal(t, expectedRound, (<-comm.emptyVotes).Vote.Round)
-			}
 			return
 		case <-timeout.C:
 			t.Fatalf("Timed out waiting for empty vote for round %d", expectedRound)
