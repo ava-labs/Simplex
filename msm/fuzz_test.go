@@ -34,29 +34,29 @@ func (noopLogger) Verbo(string, ...zap.Field) {}
 type authoritativeField struct {
 	name string
 	// set overwrites the field with v.
-	set func(m *StateMachineMetadata, v uint64)
+	set func(m *common.StateMachineMetadata, v uint64)
 }
 
 var authoritativeFields = []authoritativeField{
-	{"SimplexEpochInfo.PChainReferenceHeight", func(m *StateMachineMetadata, v uint64) {
+	{"SimplexEpochInfo.PChainReferenceHeight", func(m *common.StateMachineMetadata, v uint64) {
 		m.SimplexEpochInfo.PChainReferenceHeight = v
 	}},
-	{"SimplexEpochInfo.EpochNumber", func(m *StateMachineMetadata, v uint64) {
+	{"SimplexEpochInfo.EpochNumber", func(m *common.StateMachineMetadata, v uint64) {
 		m.SimplexEpochInfo.EpochNumber = v
 	}},
-	{"SimplexEpochInfo.PrevVMBlockSeq", func(m *StateMachineMetadata, v uint64) {
+	{"SimplexEpochInfo.PrevVMBlockSeq", func(m *common.StateMachineMetadata, v uint64) {
 		m.SimplexEpochInfo.PrevVMBlockSeq = v
 	}},
-	{"SimplexEpochInfo.SealingBlockSeq", func(m *StateMachineMetadata, v uint64) {
+	{"SimplexEpochInfo.SealingBlockSeq", func(m *common.StateMachineMetadata, v uint64) {
 		m.SimplexEpochInfo.SealingBlockSeq = v
 	}},
-	{"ICMEpochInfo.EpochNumber", func(m *StateMachineMetadata, v uint64) {
+	{"ICMEpochInfo.EpochNumber", func(m *common.StateMachineMetadata, v uint64) {
 		m.ICMEpochInfo.EpochNumber = v
 	}},
-	{"ICMEpochInfo.EpochStartTime", func(m *StateMachineMetadata, v uint64) {
+	{"ICMEpochInfo.EpochStartTime", func(m *common.StateMachineMetadata, v uint64) {
 		m.ICMEpochInfo.EpochStartTime = v
 	}},
-	{"ICMEpochInfo.PChainEpochHeight", func(m *StateMachineMetadata, v uint64) {
+	{"ICMEpochInfo.PChainEpochHeight", func(m *common.StateMachineMetadata, v uint64) {
 		m.ICMEpochInfo.PChainEpochHeight = v
 	}},
 }
@@ -117,7 +117,7 @@ func FuzzVerifyBlock(f *testing.F) {
 		field.set(&fuzzedMD, value)
 
 		if fieldIdx%2 == 1 && block.Metadata.AuxiliaryInfo == nil {
-			fuzzedMD.AuxiliaryInfo = &AuxiliaryInfo{PrevAuxInfoSeq: value}
+			fuzzedMD.AuxiliaryInfo = &common.AuxiliaryInfo{PrevAuxInfoSeq: value}
 		}
 
 		if bytes.Equal(fuzzedMD.MarshalCanoto(), block.Metadata.MarshalCanoto()) {
@@ -133,7 +133,7 @@ func FuzzVerifyBlock(f *testing.F) {
 // encoding so the copy shares no pointers with b, and the inner block is reused as-is
 // since verification only reads it.
 func cloneBlock(t *testing.T, b *StateMachineBlock) *StateMachineBlock {
-	var md StateMachineMetadata
+	var md common.StateMachineMetadata
 	require.NoError(t, md.UnmarshalCanoto(b.Metadata.MarshalCanoto()))
 	return &StateMachineBlock{InnerBlock: b.InnerBlock, Metadata: md}
 }
@@ -157,12 +157,12 @@ func buildEpochChain(tb testing.TB, logger common.Logger) ([]*StateMachineBlock,
 	node2 := [20]byte{2}
 	node3 := [20]byte{3}
 
-	validatorSet1 := NodeBLSMappings{
+	validatorSet1 := common.NodeBLSMappings{
 		{NodeID: node1, BLSKey: []byte{1}, Weight: 1},
 		{NodeID: node2, BLSKey: []byte{2}, Weight: 1},
 		{NodeID: node3, BLSKey: []byte{3}, Weight: 1},
 	}
-	validatorSet2 := NodeBLSMappings{
+	validatorSet2 := common.NodeBLSMappings{
 		{NodeID: node1, BLSKey: []byte{1}, Weight: 1},
 		{NodeID: node2, BLSKey: []byte{4}, Weight: 1},
 		{NodeID: node3, BLSKey: []byte{5}, Weight: 1},
@@ -175,7 +175,7 @@ func buildEpochChain(tb testing.TB, logger common.Logger) ([]*StateMachineBlock,
 	// (see the comment in TestMSMFullEpochLifecycle).
 	startTime := time.Now().Truncate(time.Second)
 
-	getValidatorSet := func(height uint64) (NodeBLSMappings, error) {
+	getValidatorSet := func(height uint64) (common.NodeBLSMappings, error) {
 		if height >= pChainHeight2 {
 			return validatorSet2, nil
 		}
@@ -203,7 +203,7 @@ func buildEpochChain(tb testing.TB, logger common.Logger) ([]*StateMachineBlock,
 	sm.LastNonSimplexInnerBlock = genesis.InnerBlock
 	tc.blockStore[0] = &outerBlock{block: genesis}
 
-	var approvalsResult ValidatorSetApprovals
+	var approvalsResult common.ValidatorSetApprovals
 	sm.ApprovalsRetriever = &dynamicApprovalsRetriever{approvals: &approvalsResult}
 
 	ctx := context.Background()
@@ -260,24 +260,24 @@ func buildEpochChain(tb testing.TB, logger common.Logger) ([]*StateMachineBlock,
 	auxInfoDigest := sha256.Sum256(nil)
 
 	// block4 & block5: collecting-approvals blocks (1/3 then 2/3, not enough to seal).
-	approvalsResult = ValidatorSetApprovals{{NodeID: node1, PChainHeight: pChainHeight2, AuxInfoDigest: auxInfoDigest, Signature: signApproval(pChainHeight2, auxInfoDigest)}}
+	approvalsResult = common.ValidatorSetApprovals{{NodeID: node1, PChainHeight: pChainHeight2, AuxInfoDigest: auxInfoDigest, Signature: signApproval(pChainHeight2, auxInfoDigest)}}
 	currentTime = startTime.Add(time.Second + 4*time.Millisecond)
 	tc.blockBuilder.block = nextInner(4)
 	block4 := build(4, 3, 1, block3)
 	addBlock(4, block4, nil)
 
-	approvalsResult = ValidatorSetApprovals{{NodeID: node2, PChainHeight: pChainHeight2, AuxInfoDigest: auxInfoDigest, Signature: signApproval(pChainHeight2, auxInfoDigest)}}
+	approvalsResult = common.ValidatorSetApprovals{{NodeID: node2, PChainHeight: pChainHeight2, AuxInfoDigest: auxInfoDigest, Signature: signApproval(pChainHeight2, auxInfoDigest)}}
 	currentTime = startTime.Add(time.Second + 5*time.Millisecond)
 	tc.blockBuilder.block = nextInner(5)
 	block5 := build(5, 4, 1, block4)
 	addBlock(5, block5, nil)
 
 	// block6: the sealing block (3/3 approvals). Its successor is in stateBuildBlockEpochSealed.
-	approvalsResult = ValidatorSetApprovals{{NodeID: node3, PChainHeight: pChainHeight2, AuxInfoDigest: auxInfoDigest, Signature: signApproval(pChainHeight2, auxInfoDigest)}}
+	approvalsResult = common.ValidatorSetApprovals{{NodeID: node3, PChainHeight: pChainHeight2, AuxInfoDigest: auxInfoDigest, Signature: signApproval(pChainHeight2, auxInfoDigest)}}
 	currentTime = startTime.Add(time.Second + 6*time.Millisecond)
 	tc.blockBuilder.block = nextInner(6)
 	block6 := build(6, 5, 1, block5)
-	require.Equal(tb, stateBuildBlockEpochSealed, block6.Metadata.SimplexEpochInfo.NextState())
+	require.Equal(tb, stateBuildBlockEpochSealed, NextState(block6.Metadata.SimplexEpochInfo))
 	// Finalize the sealing block so the epoch transition can proceed.
 	addBlock(6, block6, &common.Finalization{})
 

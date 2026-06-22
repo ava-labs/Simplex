@@ -3,7 +3,11 @@
 
 package metadata
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/ava-labs/simplex/common"
+)
 
 type BlockType uint8
 
@@ -29,7 +33,7 @@ func (bt BlockType) String() string {
 	}
 }
 
-func IdentifyBlockType(nextBlockMD StateMachineMetadata, prevBlockMD StateMachineMetadata, prevSeq uint64) BlockType {
+func IdentifyBlockType(nextBlockMD common.StateMachineMetadata, prevBlockMD common.StateMachineMetadata, prevSeq uint64) BlockType {
 	simplexEpochInfo := nextBlockMD.SimplexEpochInfo
 	prevSimplexEpochInfo := prevBlockMD.SimplexEpochInfo
 

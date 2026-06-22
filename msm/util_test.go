@@ -93,10 +93,10 @@ func (bs blockStore) getBlock(seq uint64, _ [32]byte) (StateMachineBlock, *commo
 }
 
 type approvalsRetriever struct {
-	result ValidatorSetApprovals
+	result common.ValidatorSetApprovals
 }
 
-func (a approvalsRetriever) Approvals() ValidatorSetApprovals {
+func (a approvalsRetriever) Approvals() common.ValidatorSetApprovals {
 	return a.result
 }
 
@@ -207,7 +207,7 @@ func (n *noOpPChainListener) WaitForProgress(ctx context.Context, _ uint64) erro
 }
 
 type blockBuilder struct {
-	block VMBlock
+	block common.VMBlock
 	err   error
 }
 
@@ -215,17 +215,17 @@ func (bb *blockBuilder) WaitForPendingBlock(_ context.Context) {
 	// Block is always ready in tests.
 }
 
-func (bb *blockBuilder) BuildBlock(_ context.Context, _ uint64) (VMBlock, error) {
+func (bb *blockBuilder) BuildBlock(_ context.Context, _ uint64) (common.VMBlock, error) {
 	return bb.block, bb.err
 }
 
 type validatorSetRetriever struct {
-	result    NodeBLSMappings
-	resultMap map[uint64]NodeBLSMappings
+	result    common.NodeBLSMappings
+	resultMap map[uint64]common.NodeBLSMappings
 	err       error
 }
 
-func (vsr *validatorSetRetriever) getValidatorSet(height uint64) (NodeBLSMappings, error) {
+func (vsr *validatorSetRetriever) getValidatorSet(height uint64) (common.NodeBLSMappings, error) {
 	if vsr.resultMap != nil {
 		if result, ok := vsr.resultMap[height]; ok {
 			return result, vsr.err
@@ -255,10 +255,10 @@ var (
 )
 
 type dynamicApprovalsRetriever struct {
-	approvals *ValidatorSetApprovals
+	approvals *common.ValidatorSetApprovals
 }
 
-func (d *dynamicApprovalsRetriever) Approvals() ValidatorSetApprovals {
+func (d *dynamicApprovalsRetriever) Approvals() common.ValidatorSetApprovals {
 	return *d.approvals
 }
 
@@ -303,7 +303,7 @@ func makeNormalSimplexBlock(t *testing.T, index int, blocks []StateMachineBlock,
 			BlockHeight: h,
 			Bytes:       []byte{1, 2, 3},
 		},
-		Metadata: StateMachineMetadata{
+		Metadata: common.StateMachineMetadata{
 			PChainHeight: 100,
 			SimplexProtocolMetadata: (&common.ProtocolMetadata{
 				Round: round,
@@ -311,7 +311,7 @@ func makeNormalSimplexBlock(t *testing.T, index int, blocks []StateMachineBlock,
 				Epoch: 1,
 				Prev:  prev,
 			}).Bytes(),
-			SimplexEpochInfo: SimplexEpochInfo{
+			SimplexEpochInfo: common.SimplexEpochInfo{
 				PrevSealingBlockHash:  [32]byte{},
 				PChainReferenceHeight: 100,
 				EpochNumber:           1,
@@ -353,16 +353,16 @@ func newStateMachineWithLogger(tb testing.TB, logger common.Logger) (*StateMachi
 	bs := make(blockStore)
 	bs[0] = &outerBlock{block: genesisBlock}
 
-	var myNodeID nodeID
+	var myNodeID common.NodeIdentifier
 
 	var testConfig testConfig
 	testConfig.blockStore = bs
-	testConfig.validatorSetRetriever.result = NodeBLSMappings{
+	testConfig.validatorSetRetriever.result = common.NodeBLSMappings{
 		{BLSKey: []byte{1}, Weight: 1}, {BLSKey: []byte{2}, Weight: 1},
 	}
 
 	smConfig := Config{
-		GenesisValidatorSet:             NodeBLSMappings{{BLSKey: []byte{1}, Weight: 1}, {BLSKey: []byte{2}, Weight: 1}},
+		GenesisValidatorSet:             common.NodeBLSMappings{{BLSKey: []byte{1}, Weight: 1}, {BLSKey: []byte{2}, Weight: 1}},
 		LastNonSimplexBlockPChainHeight: 100,
 		GetTime:                         time.Now,
 		TimeSkewLimit:                   time.Second * 5,
@@ -383,16 +383,16 @@ func newStateMachineWithLogger(tb testing.TB, logger common.Logger) (*StateMachi
 		GetValidatorSet:          testConfig.validatorSetRetriever.getValidatorSet,
 		PChainProgressListener:   &noOpPChainListener{},
 		LastNonSimplexInnerBlock: genesisBlock.InnerBlock,
-		MyNodeID:                 myNodeID[:],
+		MyNodeID: common.NodeIdentifier(myNodeID[:]),
 		AuxiliaryInfoApp: &voteCountingAuxInfoApp{
 			threshold: 2,
 		},
 		Signer: &signer{},
-		ComputeICMEpoch: func(input ICMEpochInput) ICMEpochInfo {
+		ComputeICMEpoch: func(input ICMEpochInput) common.ICMEpochInfo {
 			// This is just the ACP-181 implementation from avalanchego
-			var zeroEpoch ICMEpochInfo
+			var zeroEpoch common.ICMEpochInfo
 			if input.ParentEpoch == zeroEpoch {
-				return ICMEpochInfo{
+				return common.ICMEpochInfo{
 					PChainEpochHeight: input.ParentPChainHeight,
 					EpochNumber:       1,
 					EpochStartTime:    uint64(input.ParentTimestamp.Unix()),
@@ -402,7 +402,7 @@ func newStateMachineWithLogger(tb testing.TB, logger common.Logger) (*StateMachi
 			if input.ParentTimestamp.Before(endTime) {
 				return input.ParentEpoch
 			}
-			return ICMEpochInfo{
+			return common.ICMEpochInfo{
 				PChainEpochHeight: input.ParentPChainHeight,
 				EpochNumber:       input.ParentEpoch.EpochNumber + 1,
 				EpochStartTime:    uint64(input.ParentTimestamp.Unix()),
@@ -451,19 +451,19 @@ func (failingAggregator) IsQuorum([]common.NodeID) bool {
 type noopTestAuxInfoApp struct {
 }
 
-func (t *noopTestAuxInfoApp) IsLegalAppend(VersionID, NodeBLSMappings, [][]byte, []byte) error {
+func (t *noopTestAuxInfoApp) IsLegalAppend(common.VersionID, common.NodeBLSMappings, [][]byte, []byte) error {
 	return nil
 }
 
-func (t *noopTestAuxInfoApp) IsSufficient(VersionID, NodeBLSMappings, [][]byte) (bool, error) {
+func (t *noopTestAuxInfoApp) IsSufficient(common.VersionID, common.NodeBLSMappings, [][]byte) (bool, error) {
 	return true, nil
 }
 
-func (t *noopTestAuxInfoApp) Generate(VersionID, NodeBLSMappings, [][]byte) ([]byte, error) {
+func (t *noopTestAuxInfoApp) Generate(common.VersionID, common.NodeBLSMappings, [][]byte) ([]byte, error) {
 	return nil, nil
 }
 
-func (t *noopTestAuxInfoApp) DefaultVersionID() VersionID {
+func (t *noopTestAuxInfoApp) DefaultVersionID() common.VersionID {
 	return 1
 }
 
@@ -472,7 +472,7 @@ type voteCountingAuxInfoApp struct {
 	randomTape func() []byte
 }
 
-func (t *voteCountingAuxInfoApp) IsLegalAppend(_ VersionID, _ NodeBLSMappings, history [][]byte, addition []byte) error {
+func (t *voteCountingAuxInfoApp) IsLegalAppend(_ common.VersionID, _ common.NodeBLSMappings, history [][]byte, addition []byte) error {
 	set := make(map[string]struct{})
 	for _, item := range history {
 		set[string(item)] = struct{}{}
@@ -483,7 +483,7 @@ func (t *voteCountingAuxInfoApp) IsLegalAppend(_ VersionID, _ NodeBLSMappings, h
 	return nil
 }
 
-func (t *voteCountingAuxInfoApp) IsSufficient(appID VersionID, nodes NodeBLSMappings, history [][]byte) (bool, error) {
+func (t *voteCountingAuxInfoApp) IsSufficient(appID common.VersionID, nodes common.NodeBLSMappings, history [][]byte) (bool, error) {
 	if len(history) == 0 {
 		return t.threshold == 0, nil
 	}
@@ -502,17 +502,17 @@ func (t *voteCountingAuxInfoApp) IsSufficient(appID VersionID, nodes NodeBLSMapp
 	return final, nil
 }
 
-func (t *voteCountingAuxInfoApp) Generate(VersionID, NodeBLSMappings, [][]byte) ([]byte, error) {
+func (t *voteCountingAuxInfoApp) Generate(common.VersionID, common.NodeBLSMappings, [][]byte) ([]byte, error) {
 	// Simulate a random node voting
 	if t.randomTape != nil {
 		return t.randomTape(), nil
 	}
-	var nodeID nodeID
+	var nodeID common.NodeIdentifier
 	rand.Read(nodeID[:])
 	return nodeID[:], nil
 }
 
-func (t *voteCountingAuxInfoApp) DefaultVersionID() VersionID {
+func (t *voteCountingAuxInfoApp) DefaultVersionID() common.VersionID {
 	return 1
 }
 
@@ -526,15 +526,15 @@ type versionRecordingAuxInfoApp struct {
 	t                 *testing.T
 	threshold         int
 	votes             [][]byte
-	defaultVersionID  VersionID
-	expectedVersionID VersionID
+	defaultVersionID  common.VersionID
+	expectedVersionID common.VersionID
 }
 
-func (a *versionRecordingAuxInfoApp) DefaultVersionID() VersionID {
+func (a *versionRecordingAuxInfoApp) DefaultVersionID() common.VersionID {
 	return a.defaultVersionID
 }
 
-func (a *versionRecordingAuxInfoApp) IsLegalAppend(versionID VersionID, _ NodeBLSMappings, history [][]byte, addition []byte) error {
+func (a *versionRecordingAuxInfoApp) IsLegalAppend(versionID common.VersionID, _ common.NodeBLSMappings, history [][]byte, addition []byte) error {
 	require.Equal(a.t, a.expectedVersionID, versionID)
 	set := make(map[string]struct{})
 	for _, item := range history {
@@ -546,7 +546,7 @@ func (a *versionRecordingAuxInfoApp) IsLegalAppend(versionID VersionID, _ NodeBL
 	return nil
 }
 
-func (a *versionRecordingAuxInfoApp) IsSufficient(versionID VersionID, _ NodeBLSMappings, history [][]byte) (bool, error) {
+func (a *versionRecordingAuxInfoApp) IsSufficient(versionID common.VersionID, _ common.NodeBLSMappings, history [][]byte) (bool, error) {
 	require.Equal(a.t, a.expectedVersionID, versionID)
 	set := make(map[string]struct{})
 	for _, item := range history {
@@ -555,7 +555,7 @@ func (a *versionRecordingAuxInfoApp) IsSufficient(versionID VersionID, _ NodeBLS
 	return len(set) >= a.threshold, nil
 }
 
-func (a *versionRecordingAuxInfoApp) Generate(versionID VersionID, _ NodeBLSMappings, _ [][]byte) ([]byte, error) {
+func (a *versionRecordingAuxInfoApp) Generate(versionID common.VersionID, _ common.NodeBLSMappings, _ [][]byte) ([]byte, error) {
 	require.Equal(a.t, a.expectedVersionID, versionID)
 	next := a.votes[0]
 	a.votes = a.votes[1:]

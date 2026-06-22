@@ -1,13 +1,11 @@
 // Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
-package metadata
+package common
 
 import (
 	"testing"
 
-	"github.com/ava-labs/simplex/common"
-	"github.com/ava-labs/simplex/testutil"
 	"github.com/stretchr/testify/require"
 )
 
@@ -112,14 +110,14 @@ func TestSimplexEpochInfoEqual(t *testing.T) {
 			a: &SimplexEpochInfo{
 				BlockValidationDescriptor: &BlockValidationDescriptor{
 					AggregatedMembership: AggregatedMembership{
-						Members: []NodeBLSMapping{{NodeID: nodeID{1}, Weight: 10}},
+						Members: []NodeBLSMapping{{NodeID: NodeIdentifier{1}, Weight: 10}},
 					},
 				},
 			},
 			b: &SimplexEpochInfo{
 				BlockValidationDescriptor: &BlockValidationDescriptor{
 					AggregatedMembership: AggregatedMembership{
-						Members: []NodeBLSMapping{{NodeID: nodeID{1}, Weight: 10}},
+						Members: []NodeBLSMapping{{NodeID: NodeIdentifier{1}, Weight: 10}},
 					},
 				},
 			},
@@ -130,14 +128,14 @@ func TestSimplexEpochInfoEqual(t *testing.T) {
 			a: &SimplexEpochInfo{
 				BlockValidationDescriptor: &BlockValidationDescriptor{
 					AggregatedMembership: AggregatedMembership{
-						Members: []NodeBLSMapping{{NodeID: nodeID{1}, Weight: 10}},
+						Members: []NodeBLSMapping{{NodeID: NodeIdentifier{1}, Weight: 10}},
 					},
 				},
 			},
 			b: &SimplexEpochInfo{
 				BlockValidationDescriptor: &BlockValidationDescriptor{
 					AggregatedMembership: AggregatedMembership{
-						Members: []NodeBLSMapping{{NodeID: nodeID{2}, Weight: 20}},
+						Members: []NodeBLSMapping{{NodeID: NodeIdentifier{2}, Weight: 20}},
 					},
 				},
 			},
@@ -185,14 +183,14 @@ func TestNodeBLSMappingEquals(t *testing.T) {
 		},
 		{
 			name:     "equal with values",
-			a:        NodeBLSMapping{NodeID: nodeID{1, 2, 3}, BLSKey: []byte{4, 5}, Weight: 100},
-			b:        NodeBLSMapping{NodeID: nodeID{1, 2, 3}, BLSKey: []byte{4, 5}, Weight: 100},
+			a:        NodeBLSMapping{NodeID: NodeIdentifier{1, 2, 3}, BLSKey: []byte{4, 5}, Weight: 100},
+			b:        NodeBLSMapping{NodeID: NodeIdentifier{1, 2, 3}, BLSKey: []byte{4, 5}, Weight: 100},
 			expected: true,
 		},
 		{
 			name:     "different NodeID",
-			a:        NodeBLSMapping{NodeID: nodeID{1}},
-			b:        NodeBLSMapping{NodeID: nodeID{2}},
+			a:        NodeBLSMapping{NodeID: NodeIdentifier{1}},
+			b:        NodeBLSMapping{NodeID: NodeIdentifier{2}},
 			expected: false,
 		},
 		{
@@ -241,12 +239,12 @@ func TestBlockValidationDescriptorEquals(t *testing.T) {
 			name: "equal members",
 			a: &BlockValidationDescriptor{
 				AggregatedMembership: AggregatedMembership{
-					Members: []NodeBLSMapping{{NodeID: nodeID{1}, Weight: 10}},
+					Members: []NodeBLSMapping{{NodeID: NodeIdentifier{1}, Weight: 10}},
 				},
 			},
 			b: &BlockValidationDescriptor{
 				AggregatedMembership: AggregatedMembership{
-					Members: []NodeBLSMapping{{NodeID: nodeID{1}, Weight: 10}},
+					Members: []NodeBLSMapping{{NodeID: NodeIdentifier{1}, Weight: 10}},
 				},
 			},
 			expected: true,
@@ -255,12 +253,12 @@ func TestBlockValidationDescriptorEquals(t *testing.T) {
 			name: "different members",
 			a: &BlockValidationDescriptor{
 				AggregatedMembership: AggregatedMembership{
-					Members: []NodeBLSMapping{{NodeID: nodeID{1}, Weight: 10}},
+					Members: []NodeBLSMapping{{NodeID: NodeIdentifier{1}, Weight: 10}},
 				},
 			},
 			b: &BlockValidationDescriptor{
 				AggregatedMembership: AggregatedMembership{
-					Members: []NodeBLSMapping{{NodeID: nodeID{2}, Weight: 20}},
+					Members: []NodeBLSMapping{{NodeID: NodeIdentifier{2}, Weight: 20}},
 				},
 			},
 			expected: false,
@@ -292,14 +290,14 @@ func TestAggregatedMembershipEquals(t *testing.T) {
 		},
 		{
 			name:     "equal",
-			members:  []NodeBLSMapping{{NodeID: nodeID{1}, BLSKey: []byte{2}, Weight: 3}},
-			other:    []NodeBLSMapping{{NodeID: nodeID{1}, BLSKey: []byte{2}, Weight: 3}},
+			members:  []NodeBLSMapping{{NodeID: NodeIdentifier{1}, BLSKey: []byte{2}, Weight: 3}},
+			other:    []NodeBLSMapping{{NodeID: NodeIdentifier{1}, BLSKey: []byte{2}, Weight: 3}},
 			expected: true,
 		},
 		{
 			name:     "different",
-			members:  []NodeBLSMapping{{NodeID: nodeID{1}}},
-			other:    []NodeBLSMapping{{NodeID: nodeID{2}}},
+			members:  []NodeBLSMapping{{NodeID: NodeIdentifier{1}}},
+			other:    []NodeBLSMapping{{NodeID: NodeIdentifier{2}}},
 			expected: false,
 		},
 	}
@@ -378,20 +376,20 @@ func TestNodeBLSMappingsCompare(t *testing.T) {
 		},
 		{
 			name:     "equal same order",
-			a:        NodeBLSMappings{{NodeID: nodeID{1}, Weight: 10}, {NodeID: nodeID{2}, Weight: 20}},
-			b:        NodeBLSMappings{{NodeID: nodeID{1}, Weight: 10}, {NodeID: nodeID{2}, Weight: 20}},
+			a:        NodeBLSMappings{{NodeID: NodeIdentifier{1}, Weight: 10}, {NodeID: NodeIdentifier{2}, Weight: 20}},
+			b:        NodeBLSMappings{{NodeID: NodeIdentifier{1}, Weight: 10}, {NodeID: NodeIdentifier{2}, Weight: 20}},
 			expected: true,
 		},
 		{
 			name:     "equal different order",
-			a:        NodeBLSMappings{{NodeID: nodeID{2}, Weight: 20}, {NodeID: nodeID{1}, Weight: 10}},
-			b:        NodeBLSMappings{{NodeID: nodeID{1}, Weight: 10}, {NodeID: nodeID{2}, Weight: 20}},
+			a:        NodeBLSMappings{{NodeID: NodeIdentifier{2}, Weight: 20}, {NodeID: NodeIdentifier{1}, Weight: 10}},
+			b:        NodeBLSMappings{{NodeID: NodeIdentifier{1}, Weight: 10}, {NodeID: NodeIdentifier{2}, Weight: 20}},
 			expected: true,
 		},
 		{
 			name:     "different values",
-			a:        NodeBLSMappings{{NodeID: nodeID{1}, Weight: 10}},
-			b:        NodeBLSMappings{{NodeID: nodeID{1}, Weight: 99}},
+			a:        NodeBLSMappings{{NodeID: NodeIdentifier{1}, Weight: 10}},
+			b:        NodeBLSMappings{{NodeID: NodeIdentifier{1}, Weight: 99}},
 			expected: false,
 		},
 	}
@@ -404,23 +402,22 @@ func TestNodeBLSMappingsCompare(t *testing.T) {
 }
 
 func TestValidatorSetApprovalsFilter(t *testing.T) {
-	logger := testutil.MakeLogger(t)
 	approvals := ValidatorSetApprovals{
-		{NodeID: nodeID{1}, PChainHeight: 10},
-		{NodeID: nodeID{2}, PChainHeight: 20},
-		{NodeID: nodeID{3}, PChainHeight: 30},
+		{NodeID: NodeIdentifier{1}, PChainHeight: 10},
+		{NodeID: NodeIdentifier{2}, PChainHeight: 20},
+		{NodeID: NodeIdentifier{3}, PChainHeight: 30},
 	}
 
-	filtered := approvals.Filter(func(v ValidatorSetApproval, _ common.Logger) bool {
+	filtered := approvals.Filter(func(v ValidatorSetApproval, _ Logger) bool {
 		return v.PChainHeight > 15
-	}, logger)
+	}, nil)
 	require.Len(t, filtered, 2)
 	require.Equal(t, uint64(20), filtered[0].PChainHeight)
 	require.Equal(t, uint64(30), filtered[1].PChainHeight)
 
 	// Filter all
-	filtered = approvals.Filter(func(ValidatorSetApproval, common.Logger) bool {
+	filtered = approvals.Filter(func(ValidatorSetApproval, Logger) bool {
 		return false
-	}, logger)
+	}, nil)
 	require.Empty(t, filtered)
 }

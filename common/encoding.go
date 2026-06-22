@@ -1,13 +1,11 @@
 // Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
-package metadata
+package common
 
 import (
 	"bytes"
 	"slices"
-
-	"github.com/ava-labs/simplex/common"
 )
 
 //go:generate go run github.com/StephenButtolph/canoto/canoto encoding.go
@@ -176,35 +174,9 @@ func (sei *SimplexEpochInfo) Equal(other *SimplexEpochInfo) bool {
 	return true
 }
 
-// NextState returns the state used to build (or verify) the block that follows the one
-// described by the SimplexEpochInfo.
-func (sei *SimplexEpochInfo) NextState() state {
-	// No Simplex epoch has started yet: the next block is the first one built by Simplex.
-	if sei.EpochNumber == 0 {
-		return stateFirstSimplexBlock
-	}
-
-	// No epoch transition in progress, so the next block is a normal in-epoch block.
-	if sei.NextPChainReferenceHeight == 0 {
-		return stateBuildBlockNormalOp
-	}
-
-	// If NextPChainReferenceHeight > 0, then an epoch transition is in progress.
-	// An epoch is sealed if
-	//   - SealingBlockSeq > 0: SimplexEpochInfo describes a Telock.
-	//   - BlockValidationDescriptor != nil: SimplexEpochInfo describes the sealing block itself.
-	if sei.SealingBlockSeq > 0 || sei.BlockValidationDescriptor != nil {
-		return stateBuildBlockEpochSealed
-	}
-
-	// NextPChainReferenceHeight > 0 but the epoch is not yet sealed: we are still
-	// collecting validator approvals for the next epoch.
-	return stateBuildCollectingApprovals
-}
-
 type NodeBLSMapping struct {
-	NodeID nodeID `canoto:"fixed bytes,1"`
-	BLSKey []byte `canoto:"bytes,2"`
+	NodeID NodeIdentifier `canoto:"fixed bytes,1"`
+	BLSKey []byte         `canoto:"bytes,2"`
 	Weight uint64 `canoto:"uint,3"`
 
 	canotoData canotoData_NodeBLSMapping
@@ -292,10 +264,10 @@ func (nea *NextEpochApprovals) Equals(other *NextEpochApprovals) bool {
 
 type NodeBLSMappings []NodeBLSMapping
 
-func (nbms NodeBLSMappings) NodeWeights() common.Nodes {
-	nodeWeights := make(common.Nodes, len(nbms))
+func (nbms NodeBLSMappings) NodeWeights() Nodes {
+	nodeWeights := make(Nodes, len(nbms))
 	for i, nbm := range nbms {
-		nodeWeights[i] = common.Node{
+		nodeWeights[i] = Node{
 			Id:     nbm.NodeID[:],
 			Weight: nbm.Weight,
 		}
@@ -305,16 +277,16 @@ func (nbms NodeBLSMappings) NodeWeights() common.Nodes {
 
 // IndexByNodeID returns a mapping from NodeID to the validator's index in the set,
 // which is the position used by approval bitmasks.
-func (nbms NodeBLSMappings) IndexByNodeID() map[nodeID]int {
-	result := make(map[nodeID]int, len(nbms))
+func (nbms NodeBLSMappings) IndexByNodeID() map[NodeIdentifier]int {
+	result := make(map[NodeIdentifier]int, len(nbms))
 	for i, nbm := range nbms {
 		result[nbm.NodeID] = i
 	}
 	return result
 }
 
-func (nbms NodeBLSMappings) SelectSubset(bitmask bitmask) []common.NodeID {
-	nodeIDs := make([]common.NodeID, 0, len(nbms))
+func (nbms NodeBLSMappings) SelectSubset(bitmask Bitmask) []NodeID {
+	nodeIDs := make([]NodeID, 0, len(nbms))
 	for i, nbm := range nbms {
 		if !bitmask.Contains(i) {
 			continue
@@ -358,8 +330,8 @@ func (nbms NodeBLSMappings) Equal(other NodeBLSMappings) bool {
 }
 
 type ValidatorSetApproval struct {
-	NodeID        nodeID   `canoto:"fixed bytes,1"`
-	AuxInfoDigest [32]byte `canoto:"fixed bytes,2"`
+	NodeID        NodeIdentifier `canoto:"fixed bytes,1"`
+	AuxInfoDigest [32]byte        `canoto:"fixed bytes,2"`
 	PChainHeight  uint64   `canoto:"uint,3"`
 	Signature     []byte   `canoto:"bytes,4"`
 
@@ -368,7 +340,7 @@ type ValidatorSetApproval struct {
 
 type ValidatorSetApprovals []ValidatorSetApproval
 
-func (vsa ValidatorSetApprovals) Filter(f func(ValidatorSetApproval, common.Logger) bool, logger common.Logger) ValidatorSetApprovals {
+func (vsa ValidatorSetApprovals) Filter(f func(ValidatorSetApproval, Logger) bool, logger Logger) ValidatorSetApprovals {
 	result := make(ValidatorSetApprovals, 0, len(vsa))
 	for _, v := range vsa {
 		if f(v, logger) {
@@ -379,7 +351,7 @@ func (vsa ValidatorSetApprovals) Filter(f func(ValidatorSetApproval, common.Logg
 }
 
 func (vsa ValidatorSetApprovals) UniqueByNodeID() ValidatorSetApprovals {
-	seen := make(map[nodeID]struct{})
+	seen := make(map[NodeIdentifier]struct{})
 	result := make(ValidatorSetApprovals, 0, len(vsa))
 	for _, v := range vsa {
 		if _, exists := seen[v.NodeID]; !exists {

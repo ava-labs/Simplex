@@ -607,12 +607,12 @@ func (sns *SuspectedNodes) Bytes() []byte {
 // A suspected node that is blacklisted can be redeemed by gathering f+1 redeeming votes.
 // A suspected node that has been redeemed by f+1 votes or more is removed from the blacklist.
 // Each suspected node is encoded in the following manner:
-// A bitmask byte for the fields except the node index that are non-zero.
-// 4 top bits of the bitmask are the bitmask for { suspectingCount, redeemingCount, orbitSuspected, orbitToRedeem }.
+// A Bitmask byte for the fields except the node index that are non-zero.
+// 4 top bits of the Bitmask are the Bitmask for { suspectingCount, redeemingCount, orbitSuspected, orbitToRedeem }.
 // A bit is set to 1 if the corresponding field is non-zero.
 // The next 2 bytes are the node index.
-// The next bytes correspond to the non-zero fields in the order of the bitmask.
-// [bitmask byte]
+// The next bytes correspond to the non-zero fields in the order of the Bitmask.
+// [Bitmask byte]
 // [node index (2 bytes)]
 // [suspectingCount (2 bytes, if non-zero)]
 // [redeemingCount (2 bytes, if non-zero)]
@@ -654,7 +654,7 @@ func (sn *SuspectedNode) write(buff []byte) int {
 
 	var bitmask byte
 
-	pos++ // Reserve space for the bitmask.
+	pos++ // Reserve space for the Bitmask.
 
 	binary.BigEndian.PutUint16(buff[pos:pos+2], sn.NodeIndex)
 	pos += 2
@@ -696,7 +696,7 @@ func (sn *SuspectedNode) Read(buff []byte) (int, error) {
 
 	bitmask := buff[pos]
 
-	// Check bitmask validity.
+	// Check Bitmask validity.
 	// Lower 4 bites must be zero.
 	if bitmask&15 != 0 {
 		return 0, fmt.Errorf("invalid bitmask: lower 4 bits must be zero, got %08b", bitmask)
@@ -767,7 +767,7 @@ func (sn *SuspectedNode) Len() int {
 		buffSize += 8
 	}
 
-	return buffSize + 1 + 2 // +1 for bitmask, +2 for node index
+	return buffSize + 1 + 2 // +1 for Bitmask, +2 for node index
 }
 
 // isStillSuspected returns true if the suspected node is still suspected in the given orbit.

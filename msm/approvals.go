@@ -18,26 +18,26 @@ type approvalKey struct {
 type approvalsByPChainHeightAndAuxInfoDigest map[approvalKey]*approvalAndTimestamp
 
 type approvalAndTimestamp struct {
-	ValidatorSetApproval
+	common.ValidatorSetApproval
 	Timestamp uint64
 }
 
 type ApprovalStore struct {
 	signatureVerifier SignatureVerifier
-	validators        NodeBLSMappings
+	validators        common.NodeBLSMappings
 	logger            common.Logger
-	pkByNodeID        map[nodeID][]byte
-	approvalsByNodes  map[nodeID]approvalsByPChainHeightAndAuxInfoDigest
+	pkByNodeID        map[common.NodeIdentifier][]byte
+	approvalsByNodes  map[common.NodeIdentifier]approvalsByPChainHeightAndAuxInfoDigest
 	storedCount       int
 }
 
-func NewApprovalStore(signatureVerifier SignatureVerifier, validators NodeBLSMappings, logger common.Logger) *ApprovalStore {
-	pkByNodeID := make(map[nodeID][]byte)
+func NewApprovalStore(signatureVerifier SignatureVerifier, validators common.NodeBLSMappings, logger common.Logger) *ApprovalStore {
+	pkByNodeID := make(map[common.NodeIdentifier][]byte)
 	for _, vdr := range validators {
 		pkByNodeID[vdr.NodeID] = vdr.BLSKey
 	}
 
-	approvalsByNodes := make(map[nodeID]approvalsByPChainHeightAndAuxInfoDigest, len(validators))
+	approvalsByNodes := make(map[common.NodeIdentifier]approvalsByPChainHeightAndAuxInfoDigest, len(validators))
 	for _, vdr := range validators {
 		approvalsByNodes[vdr.NodeID] = make(approvalsByPChainHeightAndAuxInfoDigest)
 	}
@@ -51,8 +51,8 @@ func NewApprovalStore(signatureVerifier SignatureVerifier, validators NodeBLSMap
 	}
 }
 
-func (as *ApprovalStore) Approvals() ValidatorSetApprovals {
-	approvals := make(ValidatorSetApprovals, 0, as.storedCount)
+func (as *ApprovalStore) Approvals() common.ValidatorSetApprovals {
+	approvals := make(common.ValidatorSetApprovals, 0, as.storedCount)
 	for _, approvalsByHeight := range as.approvalsByNodes {
 		for _, approval := range approvalsByHeight {
 			approvals = append(approvals, (*approval).ValidatorSetApproval)
@@ -61,7 +61,7 @@ func (as *ApprovalStore) Approvals() ValidatorSetApprovals {
 	return approvals
 }
 
-func (as *ApprovalStore) HandleApproval(approval *ValidatorSetApproval, timestamp uint64) error {
+func (as *ApprovalStore) HandleApproval(approval *common.ValidatorSetApproval, timestamp uint64) error {
 	// First thing we check is if the node that sent this approval is a validator.
 	pk, exists := as.getPKOfNode(approval.NodeID)
 	if !exists {
@@ -108,7 +108,7 @@ func (as *ApprovalStore) HandleApproval(approval *ValidatorSetApproval, timestam
 	return nil
 }
 
-func (as *ApprovalStore) maybePruneOldApprovals(approval *ValidatorSetApproval) {
+func (as *ApprovalStore) maybePruneOldApprovals(approval *common.ValidatorSetApproval) {
 	if len(as.approvalsByNodes[approval.NodeID]) <= len(as.validators) {
 		return
 	}
@@ -135,7 +135,7 @@ func (as *ApprovalStore) maybePruneOldApprovals(approval *ValidatorSetApproval) 
 	}
 }
 
-func (as *ApprovalStore) checkApprovalSignature(approval *ValidatorSetApproval, pk []byte) error {
+func (as *ApprovalStore) checkApprovalSignature(approval *common.ValidatorSetApproval, pk []byte) error {
 	toBeSigned, err := assembleApprovalToBeSigned(approval.PChainHeight, approval.AuxInfoDigest)
 	if err != nil {
 		return err
@@ -145,12 +145,12 @@ func (as *ApprovalStore) checkApprovalSignature(approval *ValidatorSetApproval, 
 	return as.signatureVerifier.VerifySignature(approval.Signature, toBeSigned, pk)
 }
 
-func (as *ApprovalStore) getPKOfNode(nodeID nodeID) ([]byte, bool) {
+func (as *ApprovalStore) getPKOfNode(nodeID common.NodeIdentifier) ([]byte, bool) {
 	pk, exists := as.pkByNodeID[nodeID]
 	return pk, exists
 }
 
-func (as *ApprovalStore) approvalExistsAndUpToDate(approval *ValidatorSetApproval, timestamp uint64) bool {
+func (as *ApprovalStore) approvalExistsAndUpToDate(approval *common.ValidatorSetApproval, timestamp uint64) bool {
 	if as.approvalsByNodes[approval.NodeID] == nil {
 		return false
 	}

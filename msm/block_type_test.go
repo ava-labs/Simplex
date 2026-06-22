@@ -6,29 +6,30 @@ package metadata
 import (
 	"testing"
 
+	"github.com/ava-labs/simplex/common"
 	"github.com/stretchr/testify/require"
 )
 
 func TestIdentifyBlockType(t *testing.T) {
-	bvd := &BlockValidationDescriptor{}
+	bvd := &common.BlockValidationDescriptor{}
 
 	for _, tc := range []struct {
-		name     string
-		nextMD   StateMachineMetadata
-		prevMD   StateMachineMetadata
-		prevSeq  uint64
+		name    string
+		nextMD  common.StateMachineMetadata
+		prevMD  common.StateMachineMetadata
+		prevSeq uint64
 		expected BlockType
 	}{
 		{
 			name:     "next block has BlockValidationDescriptor",
-			nextMD:   StateMachineMetadata{SimplexEpochInfo: SimplexEpochInfo{BlockValidationDescriptor: bvd}},
-			prevMD:   StateMachineMetadata{},
+			nextMD:   common.StateMachineMetadata{SimplexEpochInfo: common.SimplexEpochInfo{BlockValidationDescriptor: bvd}},
+			prevMD:   common.StateMachineMetadata{},
 			expected: BlockTypeSealing,
 		},
 		{
 			name:   "prev is zero-epoch block (epoch 1, NextPChainReferenceHeight 0)",
-			nextMD: StateMachineMetadata{SimplexEpochInfo: SimplexEpochInfo{EpochNumber: 1}},
-			prevMD: StateMachineMetadata{SimplexEpochInfo: SimplexEpochInfo{
+			nextMD: common.StateMachineMetadata{SimplexEpochInfo: common.SimplexEpochInfo{EpochNumber: 1}},
+			prevMD: common.StateMachineMetadata{SimplexEpochInfo: common.SimplexEpochInfo{
 				EpochNumber:               1,
 				NextPChainReferenceHeight: 0,
 			}},
@@ -36,8 +37,8 @@ func TestIdentifyBlockType(t *testing.T) {
 		},
 		{
 			name:   "prev is sealing block and next epoch matches prevSeq",
-			nextMD: StateMachineMetadata{SimplexEpochInfo: SimplexEpochInfo{EpochNumber: 10}},
-			prevMD: StateMachineMetadata{SimplexEpochInfo: SimplexEpochInfo{
+			nextMD: common.StateMachineMetadata{SimplexEpochInfo: common.SimplexEpochInfo{EpochNumber: 10}},
+			prevMD: common.StateMachineMetadata{SimplexEpochInfo: common.SimplexEpochInfo{
 				BlockValidationDescriptor: bvd,
 				EpochNumber:               1,
 				NextPChainReferenceHeight: 200,
@@ -47,8 +48,8 @@ func TestIdentifyBlockType(t *testing.T) {
 		},
 		{
 			name:   "prev is sealing block and next epoch does not match prevSeq (Telock)",
-			nextMD: StateMachineMetadata{SimplexEpochInfo: SimplexEpochInfo{EpochNumber: 1}},
-			prevMD: StateMachineMetadata{SimplexEpochInfo: SimplexEpochInfo{
+			nextMD: common.StateMachineMetadata{SimplexEpochInfo: common.SimplexEpochInfo{EpochNumber: 1}},
+			prevMD: common.StateMachineMetadata{SimplexEpochInfo: common.SimplexEpochInfo{
 				BlockValidationDescriptor: bvd,
 				EpochNumber:               1,
 				NextPChainReferenceHeight: 200,
@@ -58,8 +59,8 @@ func TestIdentifyBlockType(t *testing.T) {
 		},
 		{
 			name:   "same epoch with non-zero SealingBlockSeq (Telock)",
-			nextMD: StateMachineMetadata{SimplexEpochInfo: SimplexEpochInfo{EpochNumber: 5}},
-			prevMD: StateMachineMetadata{SimplexEpochInfo: SimplexEpochInfo{
+			nextMD: common.StateMachineMetadata{SimplexEpochInfo: common.SimplexEpochInfo{EpochNumber: 5}},
+			prevMD: common.StateMachineMetadata{SimplexEpochInfo: common.SimplexEpochInfo{
 				EpochNumber:     5,
 				SealingBlockSeq: 8,
 			}},
@@ -67,8 +68,8 @@ func TestIdentifyBlockType(t *testing.T) {
 		},
 		{
 			name:   "epoch number matches prev SealingBlockSeq (NewEpoch)",
-			nextMD: StateMachineMetadata{SimplexEpochInfo: SimplexEpochInfo{EpochNumber: 8}},
-			prevMD: StateMachineMetadata{SimplexEpochInfo: SimplexEpochInfo{
+			nextMD: common.StateMachineMetadata{SimplexEpochInfo: common.SimplexEpochInfo{EpochNumber: 8}},
+			prevMD: common.StateMachineMetadata{SimplexEpochInfo: common.SimplexEpochInfo{
 				EpochNumber:     5,
 				SealingBlockSeq: 8,
 			}},
@@ -76,8 +77,8 @@ func TestIdentifyBlockType(t *testing.T) {
 		},
 		{
 			name:   "normal block in the middle of an epoch",
-			nextMD: StateMachineMetadata{SimplexEpochInfo: SimplexEpochInfo{EpochNumber: 5}},
-			prevMD: StateMachineMetadata{SimplexEpochInfo: SimplexEpochInfo{
+			nextMD: common.StateMachineMetadata{SimplexEpochInfo: common.SimplexEpochInfo{EpochNumber: 5}},
+			prevMD: common.StateMachineMetadata{SimplexEpochInfo: common.SimplexEpochInfo{
 				EpochNumber: 5,
 			}},
 			expected: BlockTypeNormal,

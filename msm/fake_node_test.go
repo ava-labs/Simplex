@@ -20,7 +20,7 @@ var emptyAuxInfoDigest = sha256.Sum256(nil)
 
 func TestFakeNodeEpochChangesDespiteEmptyMempool(t *testing.T) {
 	validatorSetRetriever := validatorSetRetriever{
-		resultMap: map[uint64]NodeBLSMappings{
+		resultMap: map[uint64]common.NodeBLSMappings{
 			0:   {{BLSKey: []byte{1}, Weight: 1, NodeID: [20]byte{1}}, {BLSKey: []byte{2}, Weight: 1, NodeID: [20]byte{2}}},
 			100: {{BLSKey: []byte{1}, Weight: 1, NodeID: [20]byte{1}}, {BLSKey: []byte{2}, Weight: 1, NodeID: [20]byte{2}}},
 			200: {{BLSKey: []byte{1}, Weight: 1, NodeID: [20]byte{1}}, {BLSKey: []byte{2}, Weight: 2, NodeID: [20]byte{2}},
@@ -61,11 +61,11 @@ func TestFakeNodeEpochChangesDespiteEmptyMempool(t *testing.T) {
 		}
 		if flipCoin() {
 			node.sm.ApprovalsRetriever = &approvalsRetriever{
-				result: []ValidatorSetApproval{{NodeID: [20]byte{1}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}},
+				result: []common.ValidatorSetApproval{{NodeID: [20]byte{1}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}},
 			}
 		} else {
 			node.sm.ApprovalsRetriever = &approvalsRetriever{
-				result: []ValidatorSetApproval{{NodeID: [20]byte{2}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}},
+				result: []common.ValidatorSetApproval{{NodeID: [20]byte{2}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}},
 			}
 		}
 
@@ -77,7 +77,7 @@ func TestFakeNodeEpochChangesDespiteEmptyMempool(t *testing.T) {
 
 func TestFakeNode(t *testing.T) {
 	validatorSetRetriever := validatorSetRetriever{
-		resultMap: map[uint64]NodeBLSMappings{
+		resultMap: map[uint64]common.NodeBLSMappings{
 			0:   {{BLSKey: []byte{1}, Weight: 1, NodeID: [20]byte{1}}, {BLSKey: []byte{2}, Weight: 1, NodeID: [20]byte{2}}},
 			100: {{BLSKey: []byte{1}, Weight: 1, NodeID: [20]byte{1}}, {BLSKey: []byte{2}, Weight: 1, NodeID: [20]byte{2}}},
 			200: {{BLSKey: []byte{1}, Weight: 1, NodeID: [20]byte{1}}, {BLSKey: []byte{2}, Weight: 2, NodeID: [20]byte{2}},
@@ -112,11 +112,11 @@ func TestFakeNode(t *testing.T) {
 		node.act()
 		if flipCoin() {
 			node.sm.ApprovalsRetriever = &approvalsRetriever{
-				result: []ValidatorSetApproval{{NodeID: [20]byte{1}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}},
+				result: []common.ValidatorSetApproval{{NodeID: [20]byte{1}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}},
 			}
 		} else {
 			node.sm.ApprovalsRetriever = &approvalsRetriever{
-				result: []ValidatorSetApproval{{NodeID: [20]byte{2}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}},
+				result: []common.ValidatorSetApproval{{NodeID: [20]byte{2}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}},
 			}
 		}
 	}
@@ -133,11 +133,11 @@ func TestFakeNode(t *testing.T) {
 		node.act()
 		if flipCoin() {
 			node.sm.ApprovalsRetriever = &approvalsRetriever{
-				result: []ValidatorSetApproval{{NodeID: [20]byte{2}, PChainHeight: 300, Signature: signApproval(300, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}},
+				result: []common.ValidatorSetApproval{{NodeID: [20]byte{2}, PChainHeight: 300, Signature: signApproval(300, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}},
 			}
 		} else {
 			node.sm.ApprovalsRetriever = &approvalsRetriever{
-				result: []ValidatorSetApproval{{NodeID: [20]byte{3}, PChainHeight: 300, Signature: signApproval(300, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}},
+				result: []common.ValidatorSetApproval{{NodeID: [20]byte{3}, PChainHeight: 300, Signature: signApproval(300, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}},
 			}
 		}
 	}
@@ -148,7 +148,7 @@ func TestFakeNode(t *testing.T) {
 
 func TestFakeNodeEmptyMempool(t *testing.T) {
 	validatorSetRetriever := validatorSetRetriever{
-		resultMap: map[uint64]NodeBLSMappings{
+		resultMap: map[uint64]common.NodeBLSMappings{
 			0:   {{BLSKey: []byte{1}, Weight: 1, NodeID: [20]byte{1}}, {BLSKey: []byte{2}, Weight: 1, NodeID: [20]byte{2}}},
 			100: {{BLSKey: []byte{1}, Weight: 1, NodeID: [20]byte{1}}, {BLSKey: []byte{2}, Weight: 1, NodeID: [20]byte{2}}},
 			200: {{BLSKey: []byte{1}, Weight: 1, NodeID: [20]byte{1}}, {BLSKey: []byte{2}, Weight: 2, NodeID: [20]byte{2}},
@@ -186,11 +186,11 @@ func TestFakeNodeEmptyMempool(t *testing.T) {
 		node.act()
 		if flipCoin() {
 			node.sm.ApprovalsRetriever = &approvalsRetriever{
-				result: []ValidatorSetApproval{{NodeID: [20]byte{1}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}},
+				result: []common.ValidatorSetApproval{{NodeID: [20]byte{1}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}},
 			}
 		} else {
 			node.sm.ApprovalsRetriever = &approvalsRetriever{
-				result: []ValidatorSetApproval{{NodeID: [20]byte{2}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}},
+				result: []common.ValidatorSetApproval{{NodeID: [20]byte{2}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}},
 			}
 		}
 	}
@@ -219,11 +219,11 @@ func TestFakeNodeEmptyMempool(t *testing.T) {
 		node.act()
 		if flipCoin() {
 			node.sm.ApprovalsRetriever = &approvalsRetriever{
-				result: []ValidatorSetApproval{{NodeID: [20]byte{2}, PChainHeight: 300, Signature: signApproval(300, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}},
+				result: []common.ValidatorSetApproval{{NodeID: [20]byte{2}, PChainHeight: 300, Signature: signApproval(300, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}},
 			}
 		} else {
 			node.sm.ApprovalsRetriever = &approvalsRetriever{
-				result: []ValidatorSetApproval{{NodeID: [20]byte{3}, PChainHeight: 300, Signature: signApproval(300, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}},
+				result: []common.ValidatorSetApproval{{NodeID: [20]byte{3}, PChainHeight: 300, Signature: signApproval(300, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}},
 			}
 		}
 	}
@@ -241,7 +241,7 @@ type innerBlock struct {
 type blockState struct {
 	block      StateMachineBlock
 	finalized  bool
-	innerBlock VMBlock
+	innerBlock common.VMBlock
 }
 
 type fakeNode struct {
@@ -414,7 +414,7 @@ func (fn *fakeNode) buildAndNotarizeBlock() {
 	fn.blocks = append(fn.blocks, blockState{block: *block, innerBlock: vmBlock})
 }
 
-func (fn *fakeNode) buildBlock() (VMBlock, *StateMachineBlock) {
+func (fn *fakeNode) buildBlock() (common.VMBlock, *StateMachineBlock) {
 	parentBlock := fn.getParentBlock()
 
 	lastMD, prevBlockDigest := fn.prepareMetadataAndPrevBlockDigest()
@@ -458,7 +458,7 @@ func (fn *fakeNode) prepareMetadataAndPrevBlockDigest() (*common.ProtocolMetadat
 	return lastMD, lastBlockDigest
 }
 
-func (fn *fakeNode) BuildBlock(ctx context.Context, _ uint64) (VMBlock, error) {
+func (fn *fakeNode) BuildBlock(ctx context.Context, _ uint64) (common.VMBlock, error) {
 	if fn.mempoolEmpty {
 		<-ctx.Done()
 		return nil, ctx.Err()

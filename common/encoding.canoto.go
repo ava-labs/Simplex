@@ -3,7 +3,7 @@
 // 	canoto v0.19.0
 // source: encoding.go
 
-package metadata
+package common
 
 import (
 	"io"
