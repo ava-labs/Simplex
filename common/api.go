@@ -97,6 +97,8 @@ type Block interface {
 	SealingBlockInfo() *SealingBlockInfo
 }
 
+// SealingBlockInfo defines information that is derived from a sealing block,
+// namely the validator set and the hash of the previous sealing block if applicable.
 type SealingBlockInfo struct {
 	// ValidatorSet of the new epoch
 	ValidatorSet Nodes
@@ -117,7 +119,7 @@ type VerifiedBlock interface {
 	// Bytes returns a byte encoding of the block
 	Bytes() ([]byte, error)
 
-	// non nil only for sealing blocks & first ever simplex block
+	// SealingBlockInfo returns a non-nil value for a block that is not a sealing block and that is not the first ever simplex block.
 	SealingBlockInfo() *SealingBlockInfo
 }
 

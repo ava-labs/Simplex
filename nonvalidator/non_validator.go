@@ -72,7 +72,7 @@ type NonValidator struct {
 	incompleteSequences map[uint64]*finalizedSeq
 
 	// highestEpochCollector
-	highestEpochCollector *epochReplicator
+	highestEpochCollector *epochDigestCounter
 
 	// sequence replication state
 	sequenceReplicator *simplex.ReplicationState
@@ -462,7 +462,9 @@ func (n *NonValidator) processReplicationState() error {
 	return n.scheduleNewFinalizedBlockTask(block, finalization)
 }
 
-// This should only validate and store in the state.
+// processQuorumRound validates qr can be stored in the replication state. We also try and validate
+// epochs when qr has a sealing block, either by checking that we have received a threshold, or by backwards hash chain validation.
+// Returns an error if the qr could not be processed.
 func (n *NonValidator) processQuorumRound(qr *common.QuorumRound, from common.NodeID) error {
 	if qr == nil {
 		return nil
@@ -486,32 +488,7 @@ func (n *NonValidator) processQuorumRound(qr *common.QuorumRound, from common.No
 
 	epoch, ok := n.epochs[block.BlockHeader().Epoch]
 	if !ok {
-		n.Logger.Debug("Received a QR from an Epoch that we have not validated", zap.Uint64("Epoch", block.BlockHeader().Epoch), zap.Uint64("Block Seq", block.BlockHeader().Seq), zap.Stringer("Block digest", block.BlockHeader().Digest))
-		n.sendRequest(qr.Block.BlockHeader().Epoch, from)
-
-		// This block is in an epoch that we do not have. Therefore, we cannot verify its finalization.
-		// However, if it is a sealing block we may be able to validate the epoch if its part of the sealing block hash-chain.
-		if n.epochs.canValidate(block) {
-			n.Logger.Debug("We can validate an epoch block as we have validated the one after it.", zap.Stringer("Info", block.SealingBlockInfo()))
-			n.maybeValidateNextEpoch(block)
-
-			// We are storing a quorum round with a finalization we have not yet verified.
-			// We do this to tell the replicator a valid sequence exists and to begin replication if necessary.
-			// We will check the validity when we process this round.
-			n.sequenceReplicator.StoreQuorumRound(qr)
-			return nil
-		}
-
-		if n.highestEpochCollector.collectedQuorumRound(qr, from) {
-			n.Logger.Debug("We can validate an epoch because we have received a threshold of messages of it.", zap.Stringer("Info", block.SealingBlockInfo()))
-			n.maybeValidateNextEpoch(block)
-
-			// We are storing a quorum round with a finalization we have not yet verified.
-			// We do this to tell the replicator a valid sequence exists and to begin replication if necessary.
-			// We will check the validity when we process this round.
-			n.sequenceReplicator.StoreQuorumRound(qr)
-		}
-
+		n.handleQrFromUnknownEpoch(qr, from)
 		return nil
 	}
 
@@ -524,6 +501,38 @@ func (n *NonValidator) processQuorumRound(qr *common.QuorumRound, from common.No
 	n.maybeValidateNextEpoch(block)
 	n.sequenceReplicator.StoreQuorumRound(qr)
 	return nil
+}
+
+func (n *NonValidator) handleQrFromUnknownEpoch(qr *common.QuorumRound, from common.NodeID) {
+	block := qr.Block
+	n.Logger.Debug("Received a QR from an Epoch that we have not validated",
+		zap.Uint64("Epoch", block.BlockHeader().Epoch),
+		zap.Uint64("Block Seq", block.BlockHeader().Seq),
+		zap.Stringer("Block digest", block.BlockHeader().Digest))
+	n.sendRequest(block.BlockHeader().Epoch, from)
+
+	// This block is in an epoch that we do not have. Therefore, we cannot verify its finalization.
+	// However, if it is a sealing block we may be able to validate the epoch if its part of the sealing block hash-chain.
+	if n.epochs.canValidate(block) {
+		n.Logger.Debug("We can validate an epoch block as we have validated the one after it.", zap.Stringer("Info", block.SealingBlockInfo()))
+		n.maybeValidateNextEpoch(block)
+
+		// We are storing a quorum round with a finalization we have not yet verified.
+		// We do this to tell the replicator a valid sequence exists and to begin replication if necessary.
+		// We will check the validity when we process this round.
+		n.sequenceReplicator.StoreQuorumRound(qr)
+		return
+	}
+
+	if n.highestEpochCollector.collectedSealingBlockInfo(qr.Block.SealingBlockInfo(), qr.Block.BlockHeader(), from) {
+		n.Logger.Debug("We can validate an epoch because we have received a threshold of messages of it.", zap.Stringer("Info", block.SealingBlockInfo()))
+		n.maybeValidateNextEpoch(block)
+
+		// We are storing a quorum round with a finalization we have not yet verified.
+		// We do this to tell the replicator a valid sequence exists and to begin replication if necessary.
+		// We will check the validity when we process this round.
+		n.sequenceReplicator.StoreQuorumRound(qr)
+	}
 }
 
 // TODO: add a re-broadcast timeout task until we have validated an epoch.
@@ -544,13 +553,13 @@ func (n *NonValidator) broadcastLatestEpoch() {
 	})
 }
 
-// sendRequest sends a common.BlockDigestRequest for a given sequence to a node.
+// sendRequest sends a common.ReplicationRequest for a given sequence to a node.
 func (n *NonValidator) sendRequest(seq uint64, to common.NodeID) {
 	request := common.ReplicationRequest{
 		Seqs: []uint64{seq},
 	}
 
-	n.Logger.Debug("Broadcasting sealing block request", zap.Uint64("Requesting Seq", seq))
+	n.Logger.Debug("Sending sealing block request", zap.Uint64("Requesting Seq", seq))
 
 	n.Config.Comm.Send(&common.Message{
 		ReplicationRequest: &request,

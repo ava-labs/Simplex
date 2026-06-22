@@ -285,7 +285,7 @@ func TestNonValidator_StopsGracefully(t *testing.T) {
 	)
 }
 
-// TestHandleMessages_DuplicateBlock tests that when a duplicate block is received, the block is verify & indexed only once
+// TestHandleMessages_DuplicateBlock tests that when a duplicate block is received, the block is verified & indexed only once
 func TestHandleMessages_DuplicateBlock(t *testing.T) {
 	tc := newSeededChain(t, testNodes, 2)
 	nv, err := NewNonValidator(
