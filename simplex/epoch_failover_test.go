@@ -514,13 +514,22 @@ func TestEpochNoFinalizationAfterEmptyVote(t *testing.T) {
 	// A block should not have been committed because we do not include our own finalization.
 	storage.EnsureNoBlockCommit(t, 1)
 
-	// There should only two messages sent, which are an empty vote and a notarization.
+	// The only messages sent should be empty votes and a notarization.
 	// This proves that a finalization or a regular vote were never sent by us.
+	// The empty vote may be rebroadcast more than once if a rebroadcast
+	// timeout fires while we wait for the proposer timeout, so tolerate
+	// duplicate empty votes before the notarization.
 	msg := <-recordedMessages
 	require.NotNil(t, msg.EmptyVoteMessage)
 
-	msg = <-recordedMessages
-	require.NotNil(t, msg.Notarization)
+	for {
+		msg = <-recordedMessages
+		if msg.EmptyVoteMessage != nil {
+			continue
+		}
+		require.NotNil(t, msg.Notarization)
+		break
+	}
 
 	require.Empty(t, recordedMessages)
 }
