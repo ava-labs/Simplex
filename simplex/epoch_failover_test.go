@@ -172,6 +172,11 @@ func TestEpochLeaderFailoverReceivesEmptyVotesEarly(t *testing.T) {
 	block := bb.GetBuiltBlock()
 
 	runCrashAndRestartExecution(t, e, bb, wal, storage, func(t *testing.T, e *Epoch, bb *testutil.TestBlockBuilder, storage *testutil.InMemStorage, wal *testutil.TestWAL) {
+		// Forming the empty notarization advances us to round 4, where our node
+		// is the leader and asynchronously proposes a round 4 block. Wait for
+		// that proposal to be persisted so the positional read below is stable.
+		wal.AssertBlockProposal(4)
+
 		walContent, err := wal.ReadAll()
 		require.NoError(t, err)
 
