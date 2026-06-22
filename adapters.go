@@ -1,0 +1,318 @@
+// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// See the file LICENSE for licensing terms.
+
+package simplex
+
+import (
+	"context"
+	"fmt"
+	"sync"
+	"sync/atomic"
+
+	"github.com/ava-labs/simplex/common"
+	metadata "github.com/ava-labs/simplex/msm"
+)
+
+// epochChangeSupression is used to suppress sending messages during an epoch change or using the VM.
+// The motivation is that an epoch change occurrs during indexing a block, and we don't want any further
+// external side effects to take place before the epoch change finishes.
+// We therefore drop all messages and cancel VM operations such as block building,
+// and delay VM transaction listening until the epoch change is complete.
+type epochChangeSupression struct {
+	lock            sync.RWMutex
+	sealingBlockSeq uint64
+	active          bool
+}
+
+func (ecs *epochChangeSupression) isSupressionActive() bool {
+	ecs.lock.RLock()
+	defer ecs.lock.RUnlock()
+	return ecs.active
+}
+
+func (ecs *epochChangeSupression) sendProhibited(seq uint64) bool {
+	ecs.lock.RLock()
+	defer ecs.lock.RUnlock()
+	if !ecs.active {
+		return false
+	}
+	return seq > ecs.sealingBlockSeq
+}
+
+func (ecs *epochChangeSupression) setSupression(sealingBlockSeq uint64) {
+	ecs.lock.Lock()
+	defer ecs.lock.Unlock()
+	ecs.sealingBlockSeq = sealingBlockSeq
+	ecs.active = true
+}
+
+func (ecs *epochChangeSupression) clearSupression() {
+	ecs.lock.Lock()
+	defer ecs.lock.Unlock()
+	ecs.active = false
+}
+
+type Communication struct {
+	epochChangeSupression *epochChangeSupression
+	nodes                 atomic.Value // common.Nodes
+	Sender
+	Broadcaster
+}
+
+func (c *Communication) SetValidators(nodes common.Nodes) {
+	c.nodes.Store(nodes)
+}
+
+func (c *Communication) Validators() common.Nodes {
+	nodes, ok := c.nodes.Load().(common.Nodes)
+	if !ok {
+		return nil
+	}
+	return nodes
+}
+
+func (c *Communication) Broadcast(msg *common.Message) {
+	if c.epochChangeSupression.sendProhibited(msg.Seq()) {
+		return
+	}
+
+	c.Broadcaster.Broadcast(msg)
+}
+
+func (c *Communication) Send(msg *common.Message, destination common.NodeID) {
+	if c.epochChangeSupression.sendProhibited(msg.Seq()) {
+		return
+	}
+
+	c.Sender.Send(msg, destination)
+}
+
+// EpochAwareStorage is a wrapper around Storage that is aware of epoch changes.
+// Upon an epoch change, it will ignore blocks from previous epochs
+// and will call the OnEpochChange callback when a new epoch is detected.
+type EpochAwareStorage struct {
+	msm           *metadata.StateMachine
+	OnEpochChange func(seq uint64, validators common.Nodes) error
+	Storage
+	Epoch uint64
+}
+
+func (e *EpochAwareStorage) Retrieve(seq uint64) (common.VerifiedBlock, common.Finalization, error) {
+	block, finalization, err := e.Storage.GetBlock(seq)
+	if err != nil {
+		return nil, common.Finalization{}, err
+	}
+	parsedBlock := &ParsedBlock{
+		msm:               e.msm,
+		StateMachineBlock: block,
+	}
+	return parsedBlock, *finalization, nil
+}
+
+func (e *EpochAwareStorage) Index(ctx context.Context, block common.VerifiedBlock, certificate common.Finalization) error {
+	if block.BlockHeader().Epoch < e.Epoch {
+		// This is a Telock from a previous h, so we ignore it and do not index it.
+		return nil
+	}
+	if err := e.Storage.Index(ctx, block, certificate); err != nil {
+		return err
+	}
+	if block.SealingBlockInfo() != nil {
+		if err := e.OnEpochChange(block.BlockHeader().Seq, block.SealingBlockInfo().ValidatorSet); err != nil {
+			return err
+		}
+		// We are now in a new h, so we update the h number to prevent indexing Telocks from the previous h.
+		e.Epoch = block.BlockHeader().Seq
+	}
+	return nil
+}
+
+// cachedBlock is a wrapper around ParsedBlock that caches the block in the CachedStorage upon verification.
+// It is needed for the MSM because the MSM needs to be able to retrieve blocks that aren't finalized during its execution.
+// These blocks are cached in the CachedStorage upon verification, and removed from the cache upon finalization (indexing).
+type cachedBlock struct {
+	cache *CachedStorage
+	*ParsedBlock
+}
+
+func (cb *cachedBlock) Verify(ctx context.Context) (common.VerifiedBlock, error) {
+	vb, err := cb.ParsedBlock.Verify(ctx)
+	if err == nil {
+		cb.cache.insertBlock(cb.ParsedBlock)
+	}
+	return vb, err
+}
+
+type CachedStorage struct {
+	msm  *metadata.StateMachine
+	lock sync.RWMutex
+	Storage
+	cache map[[32]byte]cachedBlock
+}
+
+func NewCachedStorage(storage Storage) *CachedStorage {
+	return &CachedStorage{
+		Storage: storage,
+		cache:   make(map[[32]byte]cachedBlock),
+	}
+}
+
+func (cs *CachedStorage) RetrieveBlock(seq uint64, digest [32]byte) (metadata.StateMachineBlock, *common.Finalization, error) {
+	block, finalization, err := cs.Retrieve(seq, digest)
+	if err != nil {
+		return metadata.StateMachineBlock{}, nil, err
+	}
+
+	return block.(*ParsedBlock).StateMachineBlock, finalization, nil
+}
+
+func (cs *CachedStorage) Retrieve(seq uint64, digest [32]byte) (common.VerifiedBlock, *common.Finalization, error) {
+	cs.lock.RLock()
+	item, exists := cs.cache[digest]
+	if exists {
+		cs.lock.RUnlock()
+		// If the block is cached, it means it's not finalized yet, because upon finalizing the block (indexing)
+		// we also remove it from the cache. Therefore, we return nil for the finalization.
+		return item.ParsedBlock, nil, nil
+	}
+	cs.lock.RUnlock()
+
+	// We don't populate the cache here because we populate it externally.
+
+	block, finalization, err := cs.Storage.GetBlock(seq)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return &ParsedBlock{
+		StateMachineBlock: block,
+		msm:               cs.msm,
+	}, finalization, nil
+}
+
+func (cs *CachedStorage) Index(ctx context.Context, block common.VerifiedBlock, certificate common.Finalization) error {
+	err := cs.Storage.Index(ctx, block, certificate)
+
+	if err == nil {
+		// We delete the block from the cache after it has been indexed because now that it is persisted,
+		// we can just lookup by sequence number instead of digest.
+		cs.lock.Lock()
+		defer cs.lock.Unlock()
+		delete(cs.cache, block.BlockHeader().Digest)
+
+		// We also delete all blocks that are older than the indexed block, because they are now finalized and persisted.
+		for digest, cachedBlock := range cs.cache {
+			if cachedBlock.BlockHeader().Seq < block.BlockHeader().Seq {
+				delete(cs.cache, digest)
+			}
+		}
+	}
+
+	return err
+}
+
+func (cs *CachedStorage) insertBlock(block *ParsedBlock) {
+	cs.lock.Lock()
+	defer cs.lock.Unlock()
+
+	cs.cache[block.Digest()] = cachedBlock{
+		ParsedBlock: block,
+	}
+}
+
+type NoopAuxiliaryInfoApp struct{}
+
+func (n *NoopAuxiliaryInfoApp) IsLegalAppend(versionID metadata.VersionID, nodes metadata.NodeBLSMappings, history [][]byte, x []byte) error {
+	if len(x) > 0 {
+		return fmt.Errorf("input should be empty")
+	}
+	return nil
+}
+
+func (n *NoopAuxiliaryInfoApp) IsSufficient(versionID metadata.VersionID, nodes metadata.NodeBLSMappings, history [][]byte) (bool, error) {
+	return true, nil
+}
+
+func (n *NoopAuxiliaryInfoApp) Generate(metadata.VersionID, metadata.NodeBLSMappings, [][]byte) ([]byte, error) {
+	return nil, nil
+}
+
+func (n *NoopAuxiliaryInfoApp) DefaultVersionID() metadata.VersionID {
+	return 0
+}
+
+type BlockBuilderWaiter struct {
+	epochChangeSupression *epochChangeSupression
+	lock                  sync.Mutex
+	cancel                context.CancelFunc
+	msm                   *metadata.StateMachine
+	vm                    VM
+}
+
+func (bw *BlockBuilderWaiter) stop() {
+	bw.lock.Lock()
+	defer bw.lock.Unlock()
+	if bw.cancel != nil {
+		bw.cancel()
+		bw.cancel = nil
+	}
+}
+
+func (bw *BlockBuilderWaiter) WaitForPendingBlock(ctx context.Context) {
+	if bw.epochChangeSupression.isSupressionActive() {
+		<-ctx.Done() // We wait for the context to be cancelled once the epoch is tore down.
+		return
+	}
+
+	bw.lock.Lock()
+	if bw.cancel != nil {
+		bw.cancel()
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	bw.cancel = cancel
+	bw.lock.Unlock()
+	defer cancel()
+	bw.vm.WaitForPendingBlock(ctx)
+}
+
+func (bw *BlockBuilderWaiter) BuildBlock(ctx context.Context, metadata common.ProtocolMetadata, blacklist common.Blacklist) (common.VerifiedBlock, bool) {
+	if bw.epochChangeSupression.isSupressionActive() {
+		return nil, false
+	}
+
+	block, err := bw.msm.BuildBlock(ctx, metadata, &blacklist)
+	if err != nil {
+		return nil, false
+	}
+
+	pb := ParsedBlock{
+		StateMachineBlock: *block,
+		msm:               bw.msm,
+	}
+
+	return &pb, true
+}
+
+type blockDeserializer struct {
+	vm  VM
+	msm *metadata.StateMachine
+}
+
+func (bp *blockDeserializer) DeserializeBlock(ctx context.Context, bytes []byte) (common.Block, error) {
+	var rawBlock RawBlock
+	if err := rawBlock.UnmarshalCanoto(bytes); err != nil {
+		return nil, err
+	}
+
+	block, err := bp.vm.ParseBlock(ctx, rawBlock.InnerBlockBytes)
+	if err != nil {
+		return nil, err
+	}
+	return &ParsedBlock{
+		StateMachineBlock: metadata.StateMachineBlock{
+			InnerBlock: block,
+			Metadata:   rawBlock.Metadata,
+		},
+		msm: bp.msm,
+	}, nil
+}

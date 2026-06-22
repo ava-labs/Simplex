@@ -75,7 +75,7 @@ type Signer interface {
 }
 
 type SignatureVerifier interface {
-	Verify(message []byte, signature []byte, publicKey []byte) error
+	VerifySignature(message []byte, signature []byte, publicKey []byte) error
 }
 
 type WriteAheadLog interface {
@@ -126,7 +126,7 @@ type VerifiedBlock interface {
 // BlockDeserializer deserializes blocks according to formatting
 // enforced by the application.
 type BlockDeserializer interface {
-	// DeserializeBlock parses the given bytes and initializes a VerifiedBlock.
+	// DeserializeBlock deserializes the given bytes and initializes a VerifiedBlock.
 	// Returns an error upon failure.
 	DeserializeBlock(ctx context.Context, bytes []byte) (Block, error)
 }

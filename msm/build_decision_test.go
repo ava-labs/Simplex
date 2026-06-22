@@ -32,7 +32,7 @@ func TestShouldBuildBlock_VMSignalsBlock(t *testing.T) {
 		},
 		waitForPendingBlock:    func(ctx context.Context) {},
 		hasValidatorSetChanged: func(uint64) (bool, NodeBLSMappings, error) { return false, nil, nil },
-		getPChainHeight:        func() uint64 { return 100 },
+		getPChainHeight:        func(context.Context) (uint64, error) { return 100, nil },
 	}
 
 	decision, err := bbd.shouldBuildBlock(t.Context())
@@ -56,7 +56,7 @@ func TestShouldBuildBlock_ContextCanceled(t *testing.T) {
 			<-ctx.Done()
 		},
 		hasValidatorSetChanged: func(uint64) (bool, NodeBLSMappings, error) { return false, nil, nil },
-		getPChainHeight:        func() uint64 { return 100 },
+		getPChainHeight:        func(context.Context) (uint64, error) { return 100, nil },
 	}
 
 	decision, err := bbd.shouldBuildBlock(ctx)
@@ -88,7 +88,7 @@ func TestShouldBuildBlock_PChainHeightChangeTriggersEpochTransition(t *testing.T
 		hasValidatorSetChanged: func(height uint64) (bool, NodeBLSMappings, error) {
 			return height == 200, nil, nil
 		},
-		getPChainHeight: func() uint64 { return pChainHeight.Load() },
+		getPChainHeight: func(context.Context) (uint64, error) { return pChainHeight.Load(), nil },
 	}
 
 	decision, err := bbd.shouldBuildBlock(t.Context())
@@ -123,7 +123,7 @@ func TestShouldBuildBlock_PChainHeightChangeButNoEpochTransition(t *testing.T) {
 			}
 		},
 		hasValidatorSetChanged: func(uint64) (bool, NodeBLSMappings, error) { return false, nil, nil },
-		getPChainHeight:        func() uint64 { return pChainHeight.Load() },
+		getPChainHeight:        func(context.Context) (uint64, error) { return pChainHeight.Load(), nil },
 	}
 
 	decision, err := bbd.shouldBuildBlock(t.Context())
@@ -142,7 +142,7 @@ func TestShouldBuildBlock_EpochTransitionWithVMBlock(t *testing.T) {
 		},
 		waitForPendingBlock:    func(ctx context.Context) {},
 		hasValidatorSetChanged: func(uint64) (bool, NodeBLSMappings, error) { return true, nil, nil },
-		getPChainHeight:        func() uint64 { return 100 },
+		getPChainHeight:        func(context.Context) (uint64, error) { return 100, nil },
 	}
 
 	decision, err := bbd.shouldBuildBlock(t.Context())
@@ -163,7 +163,7 @@ func TestShouldBuildBlock_EpochTransitionWithoutVMBlock(t *testing.T) {
 			<-ctx.Done()
 		},
 		hasValidatorSetChanged: func(uint64) (bool, NodeBLSMappings, error) { return true, nil, nil },
-		getPChainHeight:        func() uint64 { return 100 },
+		getPChainHeight:        func(context.Context) (uint64, error) { return 100, nil },
 	}
 
 	decision, err := bbd.shouldBuildBlock(t.Context())
@@ -188,7 +188,7 @@ func TestShouldBuildBlock_EpochTransitionContextCanceled(t *testing.T) {
 			<-ctx.Done()
 		},
 		hasValidatorSetChanged: func(uint64) (bool, NodeBLSMappings, error) { return true, nil, nil },
-		getPChainHeight:        func() uint64 { return 100 },
+		getPChainHeight:        func(context.Context) (uint64, error) { return 100, nil },
 	}
 
 	decision, err := bbd.shouldBuildBlock(ctx)

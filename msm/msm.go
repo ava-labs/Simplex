@@ -194,6 +194,9 @@ type StateMachine struct {
 
 // Config contains the dependencies and configuration parameters needed to initialize the StateMachine.
 type Config struct {
+	// SkipMSMVerification indicates whether to skip the verification of the state machine transition when verifying blocks,
+	// and only verify the inner block. This is useful when replicating finalized blocks as a non-validator.
+	SkipMSMVerification bool
 	// LatestPersistedHeight is the height of the most recently persisted block.
 	LatestPersistedHeight uint64
 	// MaxBlockBuildingWaitTime is the maximum duration to wait for the VM to build a block
@@ -204,9 +207,9 @@ type Config struct {
 	// GetTime returns the current time.
 	GetTime func() time.Time
 	// GetPChainHeightForProposing returns the latest known P-chain height to be used when building a block.
-	GetPChainHeightForProposing func() uint64
+	GetPChainHeightForProposing func(context.Context) (uint64, error)
 	// GetPChainHeightForVerifying returns the latest known P-chain height to be used when verifying a block.
-	GetPChainHeightForVerifying func() uint64
+	GetPChainHeightForVerifying func(context.Context) (uint64, error)
 	// BlockBuilder builds new VM blocks.
 	BlockBuilder BlockBuilder
 	// Logger is used for logging state machine operations.
@@ -358,6 +361,14 @@ func (sm *StateMachine) VerifyBlock(ctx context.Context, block *StateMachineBloc
 		return errNilBlock
 	}
 
+	if sm.SkipMSMVerification {
+		// If SkipMSMVerification is true, we only verify the inner block and skip the state machine verification.
+		if block.InnerBlock == nil {
+			return nil
+		}
+		return block.InnerBlock.Verify(ctx, block.Metadata.ICMEpochInfo.PChainEpochHeight)
+	}
+
 	pmd, err := common.ProtocolMetadataFromBytes(block.Metadata.SimplexProtocolMetadata)
 	if err != nil {
 		return fmt.Errorf("failed to parse ProtocolMetadata: %w", err)
@@ -396,7 +407,10 @@ func (sm *StateMachine) verifyNonZeroBlock(ctx context.Context, block, prevBlock
 		return fmt.Errorf("failed to verify timestamp: %w", err)
 	}
 
-	currentPChainHeight := sm.GetPChainHeightForVerifying()
+	currentPChainHeight, err := sm.GetPChainHeightForVerifying(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get current P-chain height for verifying: %w", err)
+	}
 	prevPChainHeight := prevBlockMD.PChainHeight
 	proposedPChainHeight := block.Metadata.PChainHeight
 
@@ -404,7 +418,7 @@ func (sm *StateMachine) verifyNonZeroBlock(ctx context.Context, block, prevBlock
 		return fmt.Errorf("failed to verify P-chain height: %w", err)
 	}
 
-	err := sm.verifyEpochNumber(block)
+	err = sm.verifyEpochNumber(block)
 	if err != nil {
 		return err
 	}
@@ -573,7 +587,7 @@ func (sm *StateMachine) verifyNormalBlock(ctx context.Context, parentBlock State
 
 	icmEpochInfo := computeICMEpochInfo(parentBlock, sm.ComputeICMEpoch, timestamp)
 
-	if err := sm.verifyNextPChainRefHeightNormal(parentBlock.Metadata, nextBlock.Metadata.SimplexEpochInfo); err != nil {
+	if err := sm.verifyNextPChainRefHeightNormal(ctx, parentBlock.Metadata, nextBlock.Metadata.SimplexEpochInfo); err != nil {
 		return fmt.Errorf("failed to verify next P-chain reference height for normal block: %w", err)
 	}
 	newSimplexEpochInfo.NextPChainReferenceHeight = nextBlock.Metadata.SimplexEpochInfo.NextPChainReferenceHeight
@@ -594,7 +608,7 @@ func verifyPChainHeight(proposedPChainHeight uint64, currentPChainHeight uint64,
 	return nil
 }
 
-func (sm *StateMachine) verifyNextPChainRefHeightNormal(prevMD StateMachineMetadata, next SimplexEpochInfo) error {
+func (sm *StateMachine) verifyNextPChainRefHeightNormal(ctx context.Context, prevMD StateMachineMetadata, next SimplexEpochInfo) error {
 	prev := prevMD.SimplexEpochInfo
 	// Next P-chain height can only increase, not decrease.
 	if next.NextPChainReferenceHeight > 0 && prev.PChainReferenceHeight > next.NextPChainReferenceHeight {
@@ -625,7 +639,10 @@ func (sm *StateMachine) verifyNextPChainRefHeightNormal(prevMD StateMachineMetad
 	}
 
 	// Make sure we have reached the next P-chain reference height, otherwise we won't be able to validate it.
-	pChainHeight := sm.GetPChainHeightForVerifying()
+	pChainHeight, err := sm.GetPChainHeightForVerifying(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get current P-chain height for verifying: %w", err)
+	}
 
 	if pChainHeight < next.NextPChainReferenceHeight {
 		return fmt.Errorf("%w: target %d, current %d", errPChainHeightNotReached, next.NextPChainReferenceHeight, pChainHeight)
@@ -668,7 +685,7 @@ func (sm *StateMachine) verifyNextPChainRefHeightNormal(prevMD StateMachineMetad
 // We cannot reuse verifyNextPChainRefHeightNormal here — the baseline
 // for the validator-set change check is the new epoch's PChainReferenceHeight, not the parent's,
 // as in verifyNextPChainRefHeightNormal.
-func (sm *StateMachine) verifyNextPChainRefHeightForNewEpoch(expectedEpochInfo SimplexEpochInfo, next SimplexEpochInfo) error {
+func (sm *StateMachine) verifyNextPChainRefHeightForNewEpoch(ctx context.Context, expectedEpochInfo SimplexEpochInfo, next SimplexEpochInfo) error {
 	// The first block of the epoch doesn't trigger an epoch change, we're all set.
 	if next.NextPChainReferenceHeight == 0 {
 		return nil
@@ -684,7 +701,10 @@ func (sm *StateMachine) verifyNextPChainRefHeightForNewEpoch(expectedEpochInfo S
 
 	// If we haven't reached this P-chain height yet, we cannot accept the next P-chain reference height,
 	// because there is no way of querying the validator set for the next P-chain reference height.
-	pChainHeight := sm.GetPChainHeightForVerifying()
+	pChainHeight, err := sm.GetPChainHeightForVerifying(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get current P-chain height for verifying: %w", err)
+	}
 	if pChainHeight < next.NextPChainReferenceHeight {
 		return fmt.Errorf("%w: target %d, current %d", errPChainHeightNotReached, next.NextPChainReferenceHeight, pChainHeight)
 	}
@@ -734,8 +754,8 @@ func (sm *StateMachine) createBlockBuildingDecider(pChainReferenceHeight uint64)
 
 			if !currentValidatorSet.Equal(newValidatorSet) {
 				sm.Logger.Debug("Validator set has changed, should transition epoch",
-					zap.String("currentValidatorSet", fmt.Sprintf("%v", currentValidatorSet.NodeWeights())),
-					zap.String("newValidatorSet", fmt.Sprintf("%v", newValidatorSet.NodeWeights())),
+					zap.String("currentValidatorSet", fmt.Sprintf("%v", currentValidatorSet.Nodes())),
+					zap.String("newValidatorSet", fmt.Sprintf("%v", newValidatorSet.Nodes())),
 					zap.Uint64("currentPChainRefHeight", pChainReferenceHeight),
 					zap.Uint64("newPChainHeight", pChainHeight))
 				return true, newValidatorSet, nil
@@ -966,6 +986,8 @@ func (sm *StateMachine) verifyCollectingApprovalsBlock(ctx context.Context, pare
 		return err
 	}
 
+	sm.maybeInitializeApprovalStore(validators)
+
 	newApprovals := nextBlock.Metadata.SimplexEpochInfo.NextEpochApprovals
 
 	expectedAuxInfo, auxInfoDigest, isAuxInfoReady, err := sm.computeExpectedAuxInfoForApprovalCollection(parentBlock, nextBlock, prevBlockSeq, validators)
@@ -1010,7 +1032,7 @@ func (sm *StateMachine) verifyCollectingApprovalsBlock(ctx context.Context, pare
 		return err
 	}
 
-	sigAggr := sm.SignatureAggregatorCreator(validators.NodeWeights())
+	sigAggr := sm.SignatureAggregatorCreator(validators.Nodes())
 	approvals := bitmaskFromBytes(newApprovals.NodeIDs)
 	canSeal := sigAggr.IsQuorum(validators.SelectSubset(approvals))
 
@@ -1105,7 +1127,7 @@ func computeSimplexEpochInfoForCollectingApprovalsBlock(parentBlock StateMachine
 
 func (sm *StateMachine) computeNewApprovals(parentBlock StateMachineBlock, validators NodeBLSMappings, auxInfoDigest [32]byte) (*approvals, error) {
 	prevBlockNextPChainReferenceHeight := parentBlock.Metadata.SimplexEpochInfo.NextPChainReferenceHeight
-	sigAggr := sm.SignatureAggregatorCreator(validators.NodeWeights())
+	sigAggr := sm.SignatureAggregatorCreator(validators.Nodes())
 
 	// We retrieve approvals that validators have sent us for the next epoch.
 	// These approvals are signed by validators of the next epoch.
@@ -1411,13 +1433,16 @@ func (sm *StateMachine) verifyBlockEpochSealed(ctx context.Context, parentBlock 
 	// the proposed pchain height and (optional) next pchain reference height, mirroring
 	// what buildBlockOrTransitionEpoch does on the build side.
 	proposedPChainHeight := nextBlock.Metadata.PChainHeight
-	currentPChainHeight := sm.GetPChainHeightForVerifying()
+	currentPChainHeight, err := sm.GetPChainHeightForVerifying(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get current P-chain height for verifying: %w", err)
+	}
 	prevPChainHeight := parentBlock.Metadata.PChainHeight
 	if err := verifyPChainHeight(proposedPChainHeight, currentPChainHeight, prevPChainHeight); err != nil {
 		return fmt.Errorf("failed to verify P-chain height: %w", err)
 	}
 
-	if err := sm.verifyNextPChainRefHeightForNewEpoch(newSimplexEpochInfo, nextBlock.Metadata.SimplexEpochInfo); err != nil {
+	if err := sm.verifyNextPChainRefHeightForNewEpoch(ctx, newSimplexEpochInfo, nextBlock.Metadata.SimplexEpochInfo); err != nil {
 		return fmt.Errorf("failed to verify next P-chain reference height for new epoch block: %w", err)
 	}
 	newSimplexEpochInfo.NextPChainReferenceHeight = nextBlock.Metadata.SimplexEpochInfo.NextPChainReferenceHeight

@@ -16,6 +16,10 @@ import (
 	"go.uber.org/zap"
 )
 
+const (
+	DefaultMaxSequenceWindow = 100
+)
+
 type finalizedSeq struct {
 	block        common.Block
 	finalization *common.Finalization
@@ -143,6 +147,8 @@ func (n *NonValidator) HandleMessage(msg *common.Message, from common.NodeID) er
 	if n.ctx.Err() != nil {
 		return nil
 	}
+
+	n.Config.Logger.Debug("Received a message", zap.Any("Message", msg), zap.Stringer("from", from))
 
 	if n.haltedError != nil {
 		return n.haltedError

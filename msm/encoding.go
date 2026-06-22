@@ -292,12 +292,13 @@ func (nea *NextEpochApprovals) Equals(other *NextEpochApprovals) bool {
 
 type NodeBLSMappings []NodeBLSMapping
 
-func (nbms NodeBLSMappings) NodeWeights() common.Nodes {
+func (nbms NodeBLSMappings) Nodes() common.Nodes {
 	nodeWeights := make(common.Nodes, len(nbms))
 	for i, nbm := range nbms {
 		nodeWeights[i] = common.Node{
 			Id:     nbm.NodeID[:],
 			Weight: nbm.Weight,
+			PK:     nbm.BLSKey[:],
 		}
 	}
 	return nodeWeights

@@ -35,7 +35,7 @@ type blockBuildingDecider struct {
 	// hasValidatorSetChanged should return whether the validator set has changed since the
 	// P-chain height referenced by the last block in the chain and until the provided P-chain height.
 	hasValidatorSetChanged func(pChainHeight uint64) (bool, NodeBLSMappings, error)
-	getPChainHeight        func() uint64
+	getPChainHeight        func(ctx context.Context) (uint64, error)
 }
 
 // shouldBuildBlock determines whether we should build a block at the current time,
@@ -47,7 +47,10 @@ func (bbd *blockBuildingDecider) shouldBuildBlock(
 	ctx context.Context,
 ) (blockBuildingDecision, error) {
 	for {
-		pChainHeight := bbd.getPChainHeight()
+		pChainHeight, err := bbd.getPChainHeight(ctx)
+		if err != nil {
+			return blockBuildingDecision{}, err
+		}
 
 		shouldTransitionEpoch, newValidatorSet, err := bbd.hasValidatorSetChanged(pChainHeight)
 		if err != nil {
@@ -72,7 +75,11 @@ func (bbd *blockBuildingDecider) shouldBuildBlock(
 
 		// If the P-chain height changed, re-evaluate again whether we should transition to a new epoch,
 		// or continue waiting to build a block.
-		if bbd.getPChainHeight() != pChainHeight {
+		h, err := bbd.getPChainHeight(ctx)
+		if err != nil {
+			return blockBuildingDecision{}, err
+		}
+		if h != pChainHeight {
 			continue
 		}
 
