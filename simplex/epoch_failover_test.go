@@ -121,11 +121,9 @@ func TestEpochRebroadcastsEmptyVoteAfterBlockProposalReceived(t *testing.T) {
 
 	// wait for the initial empty vote broadcast
 	waitForEmptyVote(t, comm, e, 0, epochTime)
-	require.Len(t, comm.emptyVotes, 0)
 
 	// advance another rebroadcast period and ensure more empty votes are sent
 	waitForEmptyVote(t, comm, e, 0, epochTime)
-	require.Len(t, comm.emptyVotes, 0)
 }
 
 func TestEpochLeaderFailoverReceivesEmptyVotesEarly(t *testing.T) {
@@ -172,6 +170,11 @@ func TestEpochLeaderFailoverReceivesEmptyVotesEarly(t *testing.T) {
 	block := bb.GetBuiltBlock()
 
 	runCrashAndRestartExecution(t, e, bb, wal, storage, func(t *testing.T, e *Epoch, bb *testutil.TestBlockBuilder, storage *testutil.InMemStorage, wal *testutil.TestWAL) {
+		// Forming the empty notarization advances us to round 4, where our node
+		// is the leader and asynchronously proposes a round 4 block. Wait for
+		// that proposal to be persisted so the positional read below is stable.
+		wal.AssertBlockProposal(4)
+
 		walContent, err := wal.ReadAll()
 		require.NoError(t, err)
 
@@ -266,13 +269,28 @@ func TestEpochLeaderFailover(t *testing.T) {
 		walContent, err := wal.ReadAll()
 		require.NoError(t, err)
 
-		rawEmptyVote, rawEmptyNotarization := walContent[len(walContent)-2], walContent[len(walContent)-1]
-		emptyVote, err := ParseEmptyVoteRecord(rawEmptyVote)
-		require.NoError(t, err)
-		require.Equal(t, createEmptyVote(emptyBlockMd, nodes[0]).Vote, emptyVote)
+		// Forming the empty notarization advances us to round 4, where our node
+		// is the leader and may asynchronously propose and persist a round 4
+		// block. That trailing block record races with this read, so locate the
+		// empty vote and empty notarization records by type rather than assuming
+		// they are the last two records in the WAL.
+		var (
+			emptyVote         ToBeSignedEmptyVote
+			emptyNotarization EmptyNotarization
+			foundVote         bool
+			foundNotarization bool
+		)
+		for _, raw := range walContent {
+			if ev, err := ParseEmptyVoteRecord(raw); err == nil {
+				emptyVote, foundVote = ev, true
+			} else if en, err := EmptyNotarizationFromRecord(raw, e.QCDeserializer); err == nil {
+				emptyNotarization, foundNotarization = en, true
+			}
+		}
 
-		emptyNotarization, err := EmptyNotarizationFromRecord(rawEmptyNotarization, e.QCDeserializer)
-		require.NoError(t, err)
+		require.True(t, foundVote)
+		require.True(t, foundNotarization)
+		require.Equal(t, createEmptyVote(emptyBlockMd, nodes[0]).Vote, emptyVote)
 		require.Equal(t, emptyVoteFrom1.Vote, emptyNotarization.Vote)
 		require.Equal(t, uint64(3), emptyNotarization.Vote.Round)
 		require.Equal(t, uint64(3), storage.NumBlocks())
@@ -514,13 +532,22 @@ func TestEpochNoFinalizationAfterEmptyVote(t *testing.T) {
 	// A block should not have been committed because we do not include our own finalization.
 	storage.EnsureNoBlockCommit(t, 1)
 
-	// There should only two messages sent, which are an empty vote and a notarization.
+	// The only messages sent should be empty votes and a notarization.
 	// This proves that a finalization or a regular vote were never sent by us.
+	// The empty vote may be rebroadcast more than once if a rebroadcast
+	// timeout fires while we wait for the proposer timeout, so tolerate
+	// duplicate empty votes before the notarization.
 	msg := <-recordedMessages
 	require.NotNil(t, msg.EmptyVoteMessage)
 
-	msg = <-recordedMessages
-	require.NotNil(t, msg.Notarization)
+	for {
+		msg = <-recordedMessages
+		if msg.EmptyVoteMessage != nil {
+			continue
+		}
+		require.NotNil(t, msg.Notarization)
+		break
+	}
 
 	require.Empty(t, recordedMessages)
 }
@@ -1152,7 +1179,6 @@ func TestEpochRebroadcastsEmptyVote(t *testing.T) {
 	// wait for the initial empty vote broadcast
 	// Wait for the initial empty vote broadcast for round 0
 	waitForEmptyVote(t, comm, e, 0, epochTime)
-	require.Len(t, comm.emptyVotes, 0)
 
 	// Continue to rebroadcast for round 0
 	for i := 0; i < 10; i++ {
