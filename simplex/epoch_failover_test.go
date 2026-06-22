@@ -266,13 +266,28 @@ func TestEpochLeaderFailover(t *testing.T) {
 		walContent, err := wal.ReadAll()
 		require.NoError(t, err)
 
-		rawEmptyVote, rawEmptyNotarization := walContent[len(walContent)-2], walContent[len(walContent)-1]
-		emptyVote, err := ParseEmptyVoteRecord(rawEmptyVote)
-		require.NoError(t, err)
-		require.Equal(t, createEmptyVote(emptyBlockMd, nodes[0]).Vote, emptyVote)
+		// Forming the empty notarization advances us to round 4, where our node
+		// is the leader and may asynchronously propose and persist a round 4
+		// block. That trailing block record races with this read, so locate the
+		// empty vote and empty notarization records by type rather than assuming
+		// they are the last two records in the WAL.
+		var (
+			emptyVote         ToBeSignedEmptyVote
+			emptyNotarization EmptyNotarization
+			foundVote         bool
+			foundNotarization bool
+		)
+		for _, raw := range walContent {
+			if ev, err := ParseEmptyVoteRecord(raw); err == nil {
+				emptyVote, foundVote = ev, true
+			} else if en, err := EmptyNotarizationFromRecord(raw, e.QCDeserializer); err == nil {
+				emptyNotarization, foundNotarization = en, true
+			}
+		}
 
-		emptyNotarization, err := EmptyNotarizationFromRecord(rawEmptyNotarization, e.QCDeserializer)
-		require.NoError(t, err)
+		require.True(t, foundVote)
+		require.True(t, foundNotarization)
+		require.Equal(t, createEmptyVote(emptyBlockMd, nodes[0]).Vote, emptyVote)
 		require.Equal(t, emptyVoteFrom1.Vote, emptyNotarization.Vote)
 		require.Equal(t, uint64(3), emptyNotarization.Vote.Round)
 		require.Equal(t, uint64(3), storage.NumBlocks())
