@@ -2274,6 +2274,11 @@ func (e *Epoch) verifyProposalMetadataAndBlacklist(block common.Block) bool {
 
 		prevBlacklist = prevBlock.Blacklist()
 
+		// If the previous block belongs to an earlier epoch, the blacklist should be empty.
+		if prevBlock.BlockHeader().Epoch < e.Epoch {
+			prevBlacklist = common.NewBlacklist(uint16(len(e.validatorNodeIDs)))
+		}
+
 		if prevBlacklist.IsEmpty() {
 			prevBlacklist = common.NewBlacklist(uint16(len(e.validatorNodeIDs)))
 		}
@@ -2428,6 +2433,11 @@ func (e *Epoch) retrieveBlacklistOfParentBlock(metadata common.ProtocolMetadata)
 		}
 
 		blacklist = prevBlock.Blacklist()
+
+		// If the previous block belongs to a previous epoch, we need to reset the blacklist to be empty.
+		if metadata.Epoch > prevBlock.BlockHeader().Epoch {
+			blacklist = common.NewBlacklist(uint16(len(e.validatorNodeIDs)))
+		}
 	}
 
 	if blacklist.IsEmpty() {

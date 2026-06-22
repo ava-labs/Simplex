@@ -47,12 +47,12 @@ func TestGarbageCollectedWAL(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, records, walRecords)
 
-	require.NoError(t, gcw.Truncate(6))
+	require.NoError(t, gcw.GarbageCollect(6))
 	walRecords, err = gcw.ReadAll()
 	require.NoError(t, err)
 	require.Equal(t, records[6:], walRecords)
 
-	require.NoError(t, gcw.Truncate(10))
+	require.NoError(t, gcw.GarbageCollect(10))
 	walRecords, err = gcw.ReadAll()
 	require.NoError(t, err)
 	require.Empty(t, walRecords)

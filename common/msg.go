@@ -121,7 +121,7 @@ func verifyContext(signature []byte, verifier SignatureVerifier, msg []byte, con
 	if err != nil {
 		return err
 	}
-	return verifier.Verify(toBeSigned, signature, pk)
+	return verifier.VerifySignature(toBeSigned, signature, pk)
 }
 
 func verifyContextQC(qc QuorumCertificate, msg []byte, context string, nodes Nodes) error {

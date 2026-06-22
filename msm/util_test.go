@@ -42,11 +42,15 @@ func init() {
 type InnerBlock struct {
 	TS          time.Time
 	BlockHeight uint64
-	Bytes       []byte
+	bytes       []byte
+}
+
+func (i *InnerBlock) Bytes() ([]byte, error) {
+	return i.bytes, nil
 }
 
 func (i *InnerBlock) Digest() [32]byte {
-	return sha256.Sum256(i.Bytes)
+	return sha256.Sum256(i.bytes)
 }
 
 func (i *InnerBlock) Height() uint64 {
@@ -64,6 +68,10 @@ func (i *InnerBlock) Verify(_ context.Context, _ uint64) error {
 // fakeVMBlock is a minimal VMBlock implementation for tests.
 type fakeVMBlock struct {
 	height uint64
+}
+
+func (f *fakeVMBlock) Bytes() ([]byte, error) {
+	panic("implement me")
 }
 
 func (f *fakeVMBlock) Digest() [32]byte                         { return [32]byte{} }
@@ -90,14 +98,6 @@ func (bs blockStore) getBlock(seq uint64, _ [32]byte) (StateMachineBlock, *commo
 		return StateMachineBlock{}, nil, fmt.Errorf("%w: block %d not found", common.ErrBlockNotFound, seq)
 	}
 	return blk.block, blk.finalization, nil
-}
-
-type approvalsRetriever struct {
-	result ValidatorSetApprovals
-}
-
-func (a approvalsRetriever) Approvals() ValidatorSetApprovals {
-	return a.result
 }
 
 type signer struct {
@@ -206,19 +206,6 @@ func (n *noOpPChainListener) WaitForProgress(ctx context.Context, _ uint64) erro
 	return ctx.Err()
 }
 
-type blockBuilder struct {
-	block VMBlock
-	err   error
-}
-
-func (bb *blockBuilder) WaitForPendingBlock(_ context.Context) {
-	// Block is always ready in tests.
-}
-
-func (bb *blockBuilder) BuildBlock(_ context.Context, _ uint64) (VMBlock, error) {
-	return bb.block, bb.err
-}
-
 type validatorSetRetriever struct {
 	result    NodeBLSMappings
 	resultMap map[uint64]NodeBLSMappings
@@ -247,20 +234,12 @@ func (ka *keyAggregator) AggregateKeys(keys ...[]byte) ([]byte, error) {
 var (
 	genesisBlock = StateMachineBlock{
 		// Genesis block metadata has all zero values
-		InnerBlock: &InnerBlock{
-			TS:    time.Now(),
-			Bytes: []byte{1, 2, 3},
+		InnerBlock: &testutil.InnerBlock{
+			TS:      time.Now(),
+			Content: []byte{1, 2, 3},
 		},
 	}
 )
-
-type dynamicApprovalsRetriever struct {
-	approvals *ValidatorSetApprovals
-}
-
-func (d *dynamicApprovalsRetriever) Approvals() ValidatorSetApprovals {
-	return *d.approvals
-}
 
 func makeChain(t *testing.T, simplexStartHeight uint64, endHeight uint64) []StateMachineBlock {
 	startTime := time.Now().Add(-time.Duration(endHeight+2) * time.Second)
@@ -301,7 +280,7 @@ func makeNormalSimplexBlock(t *testing.T, index int, blocks []StateMachineBlock,
 		InnerBlock: &InnerBlock{
 			TS:          start.Add(time.Duration(h) * time.Second),
 			BlockHeight: h,
-			Bytes:       []byte{1, 2, 3},
+			bytes:       []byte{1, 2, 3},
 		},
 		Metadata: StateMachineMetadata{
 			PChainHeight: 100,
@@ -330,20 +309,31 @@ func makeNonSimplexBlock(t *testing.T, startHeight uint64, start time.Time, h ui
 		InnerBlock: &InnerBlock{
 			TS:          start.Add(time.Duration(h-startHeight) * time.Second),
 			BlockHeight: h,
-			Bytes:       []byte{1, 2, 3},
+			bytes:       []byte{1, 2, 3},
 		},
 	}
 }
 
 type testConfig struct {
 	blockStore            blockStore
-	approvalsRetriever    approvalsRetriever
 	signatureVerifier     signatureVerifier
 	signatureAggregator   signatureAggregator
-	blockBuilder          blockBuilder
+	blockBuilder          mockBlockBuilder
 	keyAggregator         keyAggregator
 	validatorSetRetriever validatorSetRetriever
 }
+
+// mockBlockBuilder is a test BlockBuilder whose BuildBlock returns a preconfigured block/error.
+type mockBlockBuilder struct {
+	Block VMBlock
+	Err   error
+}
+
+func (bb *mockBlockBuilder) BuildBlock(context.Context, uint64) (VMBlock, error) {
+	return bb.Block, bb.Err
+}
+
+func (bb *mockBlockBuilder) WaitForPendingBlock(context.Context) {}
 
 func newStateMachine(t *testing.T) (*StateMachine, *testConfig) {
 	return newStateMachineWithLogger(t, testutil.MakeLogger(t))
@@ -369,16 +359,15 @@ func newStateMachineWithLogger(tb testing.TB, logger common.Logger) (*StateMachi
 		Logger:                          logger,
 		GetBlock:                        testConfig.blockStore.getBlock,
 		MaxBlockBuildingWaitTime:        time.Second,
-		ApprovalsRetriever:              &testConfig.approvalsRetriever,
 		SignatureVerifier:               &testConfig.signatureVerifier,
 		SignatureAggregatorCreator:      newSignatureAggregatorCreator(),
 		BlockBuilder:                    &testConfig.blockBuilder,
 		KeyAggregator:                   &testConfig.keyAggregator,
-		GetPChainHeightForProposing: func() uint64 {
-			return 100
+		GetPChainHeightForProposing: func(context.Context) (uint64, error) {
+			return 100, nil
 		},
-		GetPChainHeightForVerifying: func() uint64 {
-			return 100
+		GetPChainHeightForVerifying: func(context.Context) (uint64, error) {
+			return 100, nil
 		},
 		GetValidatorSet:          testConfig.validatorSetRetriever.getValidatorSet,
 		PChainProgressListener:   &noOpPChainListener{},
