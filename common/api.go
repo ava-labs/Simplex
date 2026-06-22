@@ -92,6 +92,22 @@ type Block interface {
 
 	// Verify verifies the block by speculatively executing it on top of its ancestor.
 	Verify(ctx context.Context) (VerifiedBlock, error)
+
+	// non nil only for sealing blocks & first ever simplex block
+	SealingBlockInfo() *SealingBlockInfo
+}
+
+// SealingBlockInfo defines information that is derived from a sealing block,
+// namely the validator set and the hash of the previous sealing block if applicable.
+type SealingBlockInfo struct {
+	// ValidatorSet of the new epoch
+	ValidatorSet Nodes
+	// PrevSealingBlockHash is the hash of the previous sealing block
+	PrevSealingBlockHash Digest
+}
+
+func (s *SealingBlockInfo) String() string {
+	return fmt.Sprintf("Info: Num Validators %d, PrevHash %s", len(s.ValidatorSet), s.PrevSealingBlockHash)
 }
 
 type VerifiedBlock interface {
@@ -102,6 +118,9 @@ type VerifiedBlock interface {
 
 	// Bytes returns a byte encoding of the block
 	Bytes() ([]byte, error)
+
+	// SealingBlockInfo returns a non-nil value for a block that is not a sealing block and that is not the first ever simplex block.
+	SealingBlockInfo() *SealingBlockInfo
 }
 
 // BlockDeserializer deserializes blocks according to formatting
@@ -173,6 +192,10 @@ func Quorum(n int) int {
 	// Obtained from the equation:
 	// Quorum * 2 = N + F + 1
 	return (n+f)/2 + 1
+}
+
+func F(n int) int {
+	return (n - 1) / 3
 }
 
 // SignatureAggregatorCreator creates a SignatureAggregator from a list of nodes and their weights.

@@ -261,7 +261,7 @@ func (e *Epoch) maybeAssignDefaultConfig() error {
 		e.MaxRebroadcastWait = DefaultEmptyVoteRebroadcastTimeout
 	}
 	if e.RandomSource == nil {
-		source, err := newRandomSource()
+		source, err := NewRandomSource()
 		if err != nil {
 			return err
 		}

@@ -1189,6 +1189,12 @@ func waitForEmptyVote(t *testing.T, comm *rebroadcastComm, e *Epoch, expectedRou
 		select {
 		case emptyVote := <-comm.emptyVotes:
 			require.Equal(t, expectedRound, emptyVote.Vote.Round)
+			// A single time advance can queue more than one broadcast (the
+			// proposal-timeout vote plus the timeout-handler's rebroadcast on
+			// the same tick).
+			for len(comm.emptyVotes) > 0 {
+				require.Equal(t, expectedRound, (<-comm.emptyVotes).Vote.Round)
+			}
 			return
 		case <-timeout.C:
 			t.Fatalf("Timed out waiting for empty vote for round %d", expectedRound)
