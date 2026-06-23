@@ -63,11 +63,11 @@ func (v *ToBeSignedEmptyVote) Sign(signer Signer) ([]byte, error) {
 	return signContext(signer, msg, context)
 }
 
-func (v *ToBeSignedEmptyVote) Verify(signature []byte, verifier SignatureVerifier, signers NodeID) error {
+func (v *ToBeSignedEmptyVote) Verify(signature []byte, verifier SignatureVerifier, pk []byte) error {
 	context := "ToBeSignedEmptyVote"
 	msg := v.Bytes()
 
-	return verifyContext(signature, verifier, msg, context, signers)
+	return verifyContext(signature, verifier, msg, context, pk)
 }
 
 type ToBeSignedVote struct {
@@ -81,11 +81,11 @@ func (v *ToBeSignedVote) Sign(signer Signer) ([]byte, error) {
 	return signContext(signer, msg, context)
 }
 
-func (v *ToBeSignedVote) Verify(signature []byte, verifier SignatureVerifier, signers NodeID) error {
+func (v *ToBeSignedVote) Verify(signature []byte, verifier SignatureVerifier, pk []byte) error {
 	context := "ToBeSignedVote"
 	msg := v.Bytes()
 
-	return verifyContext(signature, verifier, msg, context, signers)
+	return verifyContext(signature, verifier, msg, context, pk)
 }
 
 type ToBeSignedFinalization struct {
@@ -99,11 +99,11 @@ func (f *ToBeSignedFinalization) Sign(signer Signer) ([]byte, error) {
 	return signContext(signer, msg, context)
 }
 
-func (f *ToBeSignedFinalization) Verify(signature []byte, verifier SignatureVerifier, signers NodeID) error {
+func (f *ToBeSignedFinalization) Verify(signature []byte, verifier SignatureVerifier, pk []byte) error {
 	context := "ToBeSignedFinalization"
 	msg := f.Bytes()
 
-	return verifyContext(signature, verifier, msg, context, signers)
+	return verifyContext(signature, verifier, msg, context, pk)
 }
 
 func signContext(signer Signer, msg []byte, context string) ([]byte, error) {
@@ -115,13 +115,13 @@ func signContext(signer Signer, msg []byte, context string) ([]byte, error) {
 	return signer.Sign(toBeSigned)
 }
 
-func verifyContext(signature []byte, verifier SignatureVerifier, msg []byte, context string, signers NodeID) error {
+func verifyContext(signature []byte, verifier SignatureVerifier, msg []byte, context string, pk []byte) error {
 	sm := SignedMessage{Payload: msg, Context: context}
 	toBeSigned, err := asn1.Marshal(sm)
 	if err != nil {
 		return err
 	}
-	return verifier.Verify(toBeSigned, signature, signers)
+	return verifier.Verify(toBeSigned, signature, pk)
 }
 
 func verifyContextQC(qc QuorumCertificate, msg []byte, context string, nodes Nodes) error {

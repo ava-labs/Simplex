@@ -191,7 +191,7 @@ func (t *testVerifier) VerifyBlock(common.VerifiedBlock) error {
 	return nil
 }
 
-func (t *testVerifier) Verify(_ []byte, _ []byte, _ common.NodeID) error {
+func (t *testVerifier) Verify(_ []byte, _ []byte, pk []byte) error {
 	return nil
 }
 
