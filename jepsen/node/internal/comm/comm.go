@@ -27,6 +27,7 @@ type MessageHandler interface {
 type Comm struct {
 	pb.UnimplementedNodeServiceServer
 	pb.UnimplementedControlServiceServer
+	pb.UnimplementedAdminServiceServer
 
 	selfID  common.NodeID
 	nodes   common.Nodes   // all nodes including self
@@ -44,6 +45,8 @@ type Comm struct {
 
 	mu      sync.RWMutex
 	started atomic.Bool
+	
+	partitioned map[string]bool
 }
 
 // BlockBuilderIface is a subset of BlockBuilder used by Comm.
@@ -58,7 +61,7 @@ type StorageIface interface {
 }
 
 // New creates a Comm, pre-dialing all peer addresses.
-// peerAddrs maps NodeID (hex string of compressed pubkey) → "host:port".
+// peerAddrs maps NodeID (hex string of compressed pubkey) to "host:port".
 func New(
 	selfID common.NodeID,
 	nodes common.Nodes,
@@ -99,6 +102,7 @@ func New(
 		bd:         bd,
 		qd:         qd,
 		log:        log,
+		partitioned: make(map[string]bool),
 	}, nil
 }
 
@@ -113,6 +117,10 @@ func (c *Comm) Nodes() common.Nodes {
 func (c *Comm) Send(msg *common.Message, destination common.NodeID) {
 	c.mu.RLock()
 	client, ok := c.clients[string(destination)]
+	if c.partitioned[string(destination)] {
+		c.mu.RUnlock()
+		return
+	}
 	c.mu.RUnlock()
 	if !ok {
 		c.log.Warn("comm: unknown destination", zap.String("node", fmt.Sprintf("%x", []byte(destination))))
@@ -149,6 +157,9 @@ func (c *Comm) Broadcast(msg *common.Message) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	for nodeStr, client := range c.clients {
+		if c.partitioned[nodeStr] {
+			continue
+		}
 		nodeStr := nodeStr
 		client := client
 		go func() {
@@ -175,6 +186,13 @@ func (c *Comm) SendMessage(_ context.Context, req *pb.SendMessageRequest) (*pb.S
 		return nil, fmt.Errorf("comm: fromProto: %w", err)
 	}
 	from := common.NodeID(req.From)
+	c.mu.RLock()
+	partitioned := c.partitioned[string(from)]
+	c.mu.RUnlock()
+	if partitioned {
+		return &pb.SendMessageResponse{}, nil
+	}
+
 
 	go func() {
 		if err := c.handler.HandleMessage(msg, from); err != nil {
@@ -221,4 +239,28 @@ func (c *Comm) GetCommittedBlocks(_ context.Context, req *pb.GetCommittedBlocksR
 		})
 	}
 	return &pb.GetCommittedBlocksResponse{Blocks: blocks}, nil
+}
+
+
+func (c *Comm) Partition(_ context.Context, req *pb.PartitionRequest) (*pb.PartitionResponse, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, id := range req.PeerIds{
+		c.partitioned[string(id)]= true 
+	}
+	return &pb.PartitionResponse{}, nil
+}
+
+func (c *Comm) Heal (_ context.Context, req *pb.HealRequest) (*pb.HealResponse, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(req.PeerIds) == 0 {
+		c.partitioned = make (map[string] bool)
+	} else {
+		for _, id := range req.PeerIds{
+			delete (c.partitioned, string(id))
+		}
+	}
+	return &pb.HealResponse{}, nil
+
 }

@@ -151,3 +151,20 @@ service ControlService {
   rpc GetStatus(GetStatusRequest)                 returns (GetStatusResponse);
   rpc GetCommittedBlocks(GetCommittedBlocksRequest) returns (GetCommittedBlocksResponse);
 }
+
+message PartitionRequest {
+  repeated bytes peer_ids = 1;
+}
+
+message PartitionResponse {}
+
+message HealRequest {
+  repeated bytes peer_ids = 1;
+}
+
+message HealResponse {}
+
+service AdminService {
+  rpc Partition(PartitionRequest) returns (PartitionResponse);
+  rpc Heal(HealRequest) returns (HealResponse);
+}

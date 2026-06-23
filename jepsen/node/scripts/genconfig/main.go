@@ -1,6 +1,3 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
-// See the file LICENSE for licensing terms.
-
 // genconfig generates BLS keys and config files for a local multi-node test.
 //
 // Usage:

@@ -2,7 +2,7 @@
 // versions:
 // 	protoc-gen-go v1.36.11
 // 	protoc        v7.35.0
-// source: simplex.proto
+// source: proto/simplex.proto
 
 package proto
 
@@ -34,7 +34,7 @@ type ProtocolMetadata struct {
 
 func (x *ProtocolMetadata) Reset() {
 	*x = ProtocolMetadata{}
-	mi := &file_simplex_proto_msgTypes[0]
+	mi := &file_proto_simplex_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -46,7 +46,7 @@ func (x *ProtocolMetadata) String() string {
 func (*ProtocolMetadata) ProtoMessage() {}
 
 func (x *ProtocolMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_simplex_proto_msgTypes[0]
+	mi := &file_proto_simplex_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -59,7 +59,7 @@ func (x *ProtocolMetadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProtocolMetadata.ProtoReflect.Descriptor instead.
 func (*ProtocolMetadata) Descriptor() ([]byte, []int) {
-	return file_simplex_proto_rawDescGZIP(), []int{0}
+	return file_proto_simplex_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *ProtocolMetadata) GetVersion() uint32 {
@@ -107,7 +107,7 @@ type BlockHeader struct {
 
 func (x *BlockHeader) Reset() {
 	*x = BlockHeader{}
-	mi := &file_simplex_proto_msgTypes[1]
+	mi := &file_proto_simplex_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -119,7 +119,7 @@ func (x *BlockHeader) String() string {
 func (*BlockHeader) ProtoMessage() {}
 
 func (x *BlockHeader) ProtoReflect() protoreflect.Message {
-	mi := &file_simplex_proto_msgTypes[1]
+	mi := &file_proto_simplex_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -132,7 +132,7 @@ func (x *BlockHeader) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BlockHeader.ProtoReflect.Descriptor instead.
 func (*BlockHeader) Descriptor() ([]byte, []int) {
-	return file_simplex_proto_rawDescGZIP(), []int{1}
+	return file_proto_simplex_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *BlockHeader) GetMetadata() *ProtocolMetadata {
@@ -159,7 +159,7 @@ type Signature struct {
 
 func (x *Signature) Reset() {
 	*x = Signature{}
-	mi := &file_simplex_proto_msgTypes[2]
+	mi := &file_proto_simplex_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -171,7 +171,7 @@ func (x *Signature) String() string {
 func (*Signature) ProtoMessage() {}
 
 func (x *Signature) ProtoReflect() protoreflect.Message {
-	mi := &file_simplex_proto_msgTypes[2]
+	mi := &file_proto_simplex_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -184,7 +184,7 @@ func (x *Signature) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Signature.ProtoReflect.Descriptor instead.
 func (*Signature) Descriptor() ([]byte, []int) {
-	return file_simplex_proto_rawDescGZIP(), []int{2}
+	return file_proto_simplex_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *Signature) GetSigner() []byte {
@@ -211,7 +211,7 @@ type QuorumCertificate struct {
 
 func (x *QuorumCertificate) Reset() {
 	*x = QuorumCertificate{}
-	mi := &file_simplex_proto_msgTypes[3]
+	mi := &file_proto_simplex_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -223,7 +223,7 @@ func (x *QuorumCertificate) String() string {
 func (*QuorumCertificate) ProtoMessage() {}
 
 func (x *QuorumCertificate) ProtoReflect() protoreflect.Message {
-	mi := &file_simplex_proto_msgTypes[3]
+	mi := &file_proto_simplex_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -236,7 +236,7 @@ func (x *QuorumCertificate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QuorumCertificate.ProtoReflect.Descriptor instead.
 func (*QuorumCertificate) Descriptor() ([]byte, []int) {
-	return file_simplex_proto_rawDescGZIP(), []int{3}
+	return file_proto_simplex_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *QuorumCertificate) GetSigners() [][]byte {
@@ -263,7 +263,7 @@ type Vote struct {
 
 func (x *Vote) Reset() {
 	*x = Vote{}
-	mi := &file_simplex_proto_msgTypes[4]
+	mi := &file_proto_simplex_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -275,7 +275,7 @@ func (x *Vote) String() string {
 func (*Vote) ProtoMessage() {}
 
 func (x *Vote) ProtoReflect() protoreflect.Message {
-	mi := &file_simplex_proto_msgTypes[4]
+	mi := &file_proto_simplex_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -288,7 +288,7 @@ func (x *Vote) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Vote.ProtoReflect.Descriptor instead.
 func (*Vote) Descriptor() ([]byte, []int) {
-	return file_simplex_proto_rawDescGZIP(), []int{4}
+	return file_proto_simplex_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *Vote) GetBlockHeader() *BlockHeader {
@@ -316,7 +316,7 @@ type EmptyVote struct {
 
 func (x *EmptyVote) Reset() {
 	*x = EmptyVote{}
-	mi := &file_simplex_proto_msgTypes[5]
+	mi := &file_proto_simplex_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -328,7 +328,7 @@ func (x *EmptyVote) String() string {
 func (*EmptyVote) ProtoMessage() {}
 
 func (x *EmptyVote) ProtoReflect() protoreflect.Message {
-	mi := &file_simplex_proto_msgTypes[5]
+	mi := &file_proto_simplex_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -341,7 +341,7 @@ func (x *EmptyVote) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EmptyVote.ProtoReflect.Descriptor instead.
 func (*EmptyVote) Descriptor() ([]byte, []int) {
-	return file_simplex_proto_rawDescGZIP(), []int{5}
+	return file_proto_simplex_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *EmptyVote) GetRound() uint64 {
@@ -375,7 +375,7 @@ type FinalizeVote struct {
 
 func (x *FinalizeVote) Reset() {
 	*x = FinalizeVote{}
-	mi := &file_simplex_proto_msgTypes[6]
+	mi := &file_proto_simplex_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -387,7 +387,7 @@ func (x *FinalizeVote) String() string {
 func (*FinalizeVote) ProtoMessage() {}
 
 func (x *FinalizeVote) ProtoReflect() protoreflect.Message {
-	mi := &file_simplex_proto_msgTypes[6]
+	mi := &file_proto_simplex_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -400,7 +400,7 @@ func (x *FinalizeVote) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FinalizeVote.ProtoReflect.Descriptor instead.
 func (*FinalizeVote) Descriptor() ([]byte, []int) {
-	return file_simplex_proto_rawDescGZIP(), []int{6}
+	return file_proto_simplex_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *FinalizeVote) GetBlockHeader() *BlockHeader {
@@ -427,7 +427,7 @@ type Notarization struct {
 
 func (x *Notarization) Reset() {
 	*x = Notarization{}
-	mi := &file_simplex_proto_msgTypes[7]
+	mi := &file_proto_simplex_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -439,7 +439,7 @@ func (x *Notarization) String() string {
 func (*Notarization) ProtoMessage() {}
 
 func (x *Notarization) ProtoReflect() protoreflect.Message {
-	mi := &file_simplex_proto_msgTypes[7]
+	mi := &file_proto_simplex_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -452,7 +452,7 @@ func (x *Notarization) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Notarization.ProtoReflect.Descriptor instead.
 func (*Notarization) Descriptor() ([]byte, []int) {
-	return file_simplex_proto_rawDescGZIP(), []int{7}
+	return file_proto_simplex_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *Notarization) GetBlockHeader() *BlockHeader {
@@ -480,7 +480,7 @@ type EmptyNotarization struct {
 
 func (x *EmptyNotarization) Reset() {
 	*x = EmptyNotarization{}
-	mi := &file_simplex_proto_msgTypes[8]
+	mi := &file_proto_simplex_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -492,7 +492,7 @@ func (x *EmptyNotarization) String() string {
 func (*EmptyNotarization) ProtoMessage() {}
 
 func (x *EmptyNotarization) ProtoReflect() protoreflect.Message {
-	mi := &file_simplex_proto_msgTypes[8]
+	mi := &file_proto_simplex_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -505,7 +505,7 @@ func (x *EmptyNotarization) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EmptyNotarization.ProtoReflect.Descriptor instead.
 func (*EmptyNotarization) Descriptor() ([]byte, []int) {
-	return file_simplex_proto_rawDescGZIP(), []int{8}
+	return file_proto_simplex_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *EmptyNotarization) GetRound() uint64 {
@@ -539,7 +539,7 @@ type Finalization struct {
 
 func (x *Finalization) Reset() {
 	*x = Finalization{}
-	mi := &file_simplex_proto_msgTypes[9]
+	mi := &file_proto_simplex_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -551,7 +551,7 @@ func (x *Finalization) String() string {
 func (*Finalization) ProtoMessage() {}
 
 func (x *Finalization) ProtoReflect() protoreflect.Message {
-	mi := &file_simplex_proto_msgTypes[9]
+	mi := &file_proto_simplex_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -564,7 +564,7 @@ func (x *Finalization) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Finalization.ProtoReflect.Descriptor instead.
 func (*Finalization) Descriptor() ([]byte, []int) {
-	return file_simplex_proto_rawDescGZIP(), []int{9}
+	return file_proto_simplex_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *Finalization) GetBlockHeader() *BlockHeader {
@@ -591,7 +591,7 @@ type BlockMessage struct {
 
 func (x *BlockMessage) Reset() {
 	*x = BlockMessage{}
-	mi := &file_simplex_proto_msgTypes[10]
+	mi := &file_proto_simplex_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -603,7 +603,7 @@ func (x *BlockMessage) String() string {
 func (*BlockMessage) ProtoMessage() {}
 
 func (x *BlockMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_simplex_proto_msgTypes[10]
+	mi := &file_proto_simplex_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -616,7 +616,7 @@ func (x *BlockMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BlockMessage.ProtoReflect.Descriptor instead.
 func (*BlockMessage) Descriptor() ([]byte, []int) {
-	return file_simplex_proto_rawDescGZIP(), []int{10}
+	return file_proto_simplex_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *BlockMessage) GetBlockBytes() []byte {
@@ -645,7 +645,7 @@ type QuorumRound struct {
 
 func (x *QuorumRound) Reset() {
 	*x = QuorumRound{}
-	mi := &file_simplex_proto_msgTypes[11]
+	mi := &file_proto_simplex_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -657,7 +657,7 @@ func (x *QuorumRound) String() string {
 func (*QuorumRound) ProtoMessage() {}
 
 func (x *QuorumRound) ProtoReflect() protoreflect.Message {
-	mi := &file_simplex_proto_msgTypes[11]
+	mi := &file_proto_simplex_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -670,7 +670,7 @@ func (x *QuorumRound) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QuorumRound.ProtoReflect.Descriptor instead.
 func (*QuorumRound) Descriptor() ([]byte, []int) {
-	return file_simplex_proto_rawDescGZIP(), []int{11}
+	return file_proto_simplex_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *QuorumRound) GetBlockBytes() []byte {
@@ -713,7 +713,7 @@ type ReplicationRequest struct {
 
 func (x *ReplicationRequest) Reset() {
 	*x = ReplicationRequest{}
-	mi := &file_simplex_proto_msgTypes[12]
+	mi := &file_proto_simplex_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -725,7 +725,7 @@ func (x *ReplicationRequest) String() string {
 func (*ReplicationRequest) ProtoMessage() {}
 
 func (x *ReplicationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_simplex_proto_msgTypes[12]
+	mi := &file_proto_simplex_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -738,7 +738,7 @@ func (x *ReplicationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReplicationRequest.ProtoReflect.Descriptor instead.
 func (*ReplicationRequest) Descriptor() ([]byte, []int) {
-	return file_simplex_proto_rawDescGZIP(), []int{12}
+	return file_proto_simplex_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ReplicationRequest) GetSeqs() []uint64 {
@@ -780,7 +780,7 @@ type ReplicationResponse struct {
 
 func (x *ReplicationResponse) Reset() {
 	*x = ReplicationResponse{}
-	mi := &file_simplex_proto_msgTypes[13]
+	mi := &file_proto_simplex_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -792,7 +792,7 @@ func (x *ReplicationResponse) String() string {
 func (*ReplicationResponse) ProtoMessage() {}
 
 func (x *ReplicationResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_simplex_proto_msgTypes[13]
+	mi := &file_proto_simplex_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -805,7 +805,7 @@ func (x *ReplicationResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReplicationResponse.ProtoReflect.Descriptor instead.
 func (*ReplicationResponse) Descriptor() ([]byte, []int) {
-	return file_simplex_proto_rawDescGZIP(), []int{13}
+	return file_proto_simplex_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *ReplicationResponse) GetData() []*QuorumRound {
@@ -839,7 +839,7 @@ type BlockDigestRequest struct {
 
 func (x *BlockDigestRequest) Reset() {
 	*x = BlockDigestRequest{}
-	mi := &file_simplex_proto_msgTypes[14]
+	mi := &file_proto_simplex_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -851,7 +851,7 @@ func (x *BlockDigestRequest) String() string {
 func (*BlockDigestRequest) ProtoMessage() {}
 
 func (x *BlockDigestRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_simplex_proto_msgTypes[14]
+	mi := &file_proto_simplex_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -864,7 +864,7 @@ func (x *BlockDigestRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BlockDigestRequest.ProtoReflect.Descriptor instead.
 func (*BlockDigestRequest) Descriptor() ([]byte, []int) {
-	return file_simplex_proto_rawDescGZIP(), []int{14}
+	return file_proto_simplex_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *BlockDigestRequest) GetSeq() uint64 {
@@ -902,7 +902,7 @@ type SimplexMessage struct {
 
 func (x *SimplexMessage) Reset() {
 	*x = SimplexMessage{}
-	mi := &file_simplex_proto_msgTypes[15]
+	mi := &file_proto_simplex_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -914,7 +914,7 @@ func (x *SimplexMessage) String() string {
 func (*SimplexMessage) ProtoMessage() {}
 
 func (x *SimplexMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_simplex_proto_msgTypes[15]
+	mi := &file_proto_simplex_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -927,7 +927,7 @@ func (x *SimplexMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SimplexMessage.ProtoReflect.Descriptor instead.
 func (*SimplexMessage) Descriptor() ([]byte, []int) {
-	return file_simplex_proto_rawDescGZIP(), []int{15}
+	return file_proto_simplex_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *SimplexMessage) GetPayload() isSimplexMessage_Payload {
@@ -1101,7 +1101,7 @@ type SendMessageRequest struct {
 
 func (x *SendMessageRequest) Reset() {
 	*x = SendMessageRequest{}
-	mi := &file_simplex_proto_msgTypes[16]
+	mi := &file_proto_simplex_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1113,7 +1113,7 @@ func (x *SendMessageRequest) String() string {
 func (*SendMessageRequest) ProtoMessage() {}
 
 func (x *SendMessageRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_simplex_proto_msgTypes[16]
+	mi := &file_proto_simplex_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1126,7 +1126,7 @@ func (x *SendMessageRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SendMessageRequest.ProtoReflect.Descriptor instead.
 func (*SendMessageRequest) Descriptor() ([]byte, []int) {
-	return file_simplex_proto_rawDescGZIP(), []int{16}
+	return file_proto_simplex_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *SendMessageRequest) GetFrom() []byte {
@@ -1151,7 +1151,7 @@ type SendMessageResponse struct {
 
 func (x *SendMessageResponse) Reset() {
 	*x = SendMessageResponse{}
-	mi := &file_simplex_proto_msgTypes[17]
+	mi := &file_proto_simplex_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1163,7 +1163,7 @@ func (x *SendMessageResponse) String() string {
 func (*SendMessageResponse) ProtoMessage() {}
 
 func (x *SendMessageResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_simplex_proto_msgTypes[17]
+	mi := &file_proto_simplex_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1176,7 +1176,7 @@ func (x *SendMessageResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SendMessageResponse.ProtoReflect.Descriptor instead.
 func (*SendMessageResponse) Descriptor() ([]byte, []int) {
-	return file_simplex_proto_rawDescGZIP(), []int{17}
+	return file_proto_simplex_proto_rawDescGZIP(), []int{17}
 }
 
 type SubmitTransactionRequest struct {
@@ -1188,7 +1188,7 @@ type SubmitTransactionRequest struct {
 
 func (x *SubmitTransactionRequest) Reset() {
 	*x = SubmitTransactionRequest{}
-	mi := &file_simplex_proto_msgTypes[18]
+	mi := &file_proto_simplex_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1200,7 +1200,7 @@ func (x *SubmitTransactionRequest) String() string {
 func (*SubmitTransactionRequest) ProtoMessage() {}
 
 func (x *SubmitTransactionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_simplex_proto_msgTypes[18]
+	mi := &file_proto_simplex_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1213,7 +1213,7 @@ func (x *SubmitTransactionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubmitTransactionRequest.ProtoReflect.Descriptor instead.
 func (*SubmitTransactionRequest) Descriptor() ([]byte, []int) {
-	return file_simplex_proto_rawDescGZIP(), []int{18}
+	return file_proto_simplex_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *SubmitTransactionRequest) GetData() []byte {
@@ -1232,7 +1232,7 @@ type SubmitTransactionResponse struct {
 
 func (x *SubmitTransactionResponse) Reset() {
 	*x = SubmitTransactionResponse{}
-	mi := &file_simplex_proto_msgTypes[19]
+	mi := &file_proto_simplex_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1244,7 +1244,7 @@ func (x *SubmitTransactionResponse) String() string {
 func (*SubmitTransactionResponse) ProtoMessage() {}
 
 func (x *SubmitTransactionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_simplex_proto_msgTypes[19]
+	mi := &file_proto_simplex_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1257,7 +1257,7 @@ func (x *SubmitTransactionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubmitTransactionResponse.ProtoReflect.Descriptor instead.
 func (*SubmitTransactionResponse) Descriptor() ([]byte, []int) {
-	return file_simplex_proto_rawDescGZIP(), []int{19}
+	return file_proto_simplex_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *SubmitTransactionResponse) GetAccepted() bool {
@@ -1275,7 +1275,7 @@ type GetStatusRequest struct {
 
 func (x *GetStatusRequest) Reset() {
 	*x = GetStatusRequest{}
-	mi := &file_simplex_proto_msgTypes[20]
+	mi := &file_proto_simplex_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1287,7 +1287,7 @@ func (x *GetStatusRequest) String() string {
 func (*GetStatusRequest) ProtoMessage() {}
 
 func (x *GetStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_simplex_proto_msgTypes[20]
+	mi := &file_proto_simplex_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1300,7 +1300,7 @@ func (x *GetStatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetStatusRequest.ProtoReflect.Descriptor instead.
 func (*GetStatusRequest) Descriptor() ([]byte, []int) {
-	return file_simplex_proto_rawDescGZIP(), []int{20}
+	return file_proto_simplex_proto_rawDescGZIP(), []int{20}
 }
 
 type GetStatusResponse struct {
@@ -1314,7 +1314,7 @@ type GetStatusResponse struct {
 
 func (x *GetStatusResponse) Reset() {
 	*x = GetStatusResponse{}
-	mi := &file_simplex_proto_msgTypes[21]
+	mi := &file_proto_simplex_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1326,7 +1326,7 @@ func (x *GetStatusResponse) String() string {
 func (*GetStatusResponse) ProtoMessage() {}
 
 func (x *GetStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_simplex_proto_msgTypes[21]
+	mi := &file_proto_simplex_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1339,7 +1339,7 @@ func (x *GetStatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetStatusResponse.ProtoReflect.Descriptor instead.
 func (*GetStatusResponse) Descriptor() ([]byte, []int) {
-	return file_simplex_proto_rawDescGZIP(), []int{21}
+	return file_proto_simplex_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *GetStatusResponse) GetEpoch() uint64 {
@@ -1372,7 +1372,7 @@ type GetCommittedBlocksRequest struct {
 
 func (x *GetCommittedBlocksRequest) Reset() {
 	*x = GetCommittedBlocksRequest{}
-	mi := &file_simplex_proto_msgTypes[22]
+	mi := &file_proto_simplex_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1384,7 +1384,7 @@ func (x *GetCommittedBlocksRequest) String() string {
 func (*GetCommittedBlocksRequest) ProtoMessage() {}
 
 func (x *GetCommittedBlocksRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_simplex_proto_msgTypes[22]
+	mi := &file_proto_simplex_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1397,7 +1397,7 @@ func (x *GetCommittedBlocksRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetCommittedBlocksRequest.ProtoReflect.Descriptor instead.
 func (*GetCommittedBlocksRequest) Descriptor() ([]byte, []int) {
-	return file_simplex_proto_rawDescGZIP(), []int{22}
+	return file_proto_simplex_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *GetCommittedBlocksRequest) GetFromSeq() uint64 {
@@ -1419,7 +1419,7 @@ type CommittedBlock struct {
 
 func (x *CommittedBlock) Reset() {
 	*x = CommittedBlock{}
-	mi := &file_simplex_proto_msgTypes[23]
+	mi := &file_proto_simplex_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1431,7 +1431,7 @@ func (x *CommittedBlock) String() string {
 func (*CommittedBlock) ProtoMessage() {}
 
 func (x *CommittedBlock) ProtoReflect() protoreflect.Message {
-	mi := &file_simplex_proto_msgTypes[23]
+	mi := &file_proto_simplex_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1444,7 +1444,7 @@ func (x *CommittedBlock) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CommittedBlock.ProtoReflect.Descriptor instead.
 func (*CommittedBlock) Descriptor() ([]byte, []int) {
-	return file_simplex_proto_rawDescGZIP(), []int{23}
+	return file_proto_simplex_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *CommittedBlock) GetSeq() uint64 {
@@ -1484,7 +1484,7 @@ type GetCommittedBlocksResponse struct {
 
 func (x *GetCommittedBlocksResponse) Reset() {
 	*x = GetCommittedBlocksResponse{}
-	mi := &file_simplex_proto_msgTypes[24]
+	mi := &file_proto_simplex_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1496,7 +1496,7 @@ func (x *GetCommittedBlocksResponse) String() string {
 func (*GetCommittedBlocksResponse) ProtoMessage() {}
 
 func (x *GetCommittedBlocksResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_simplex_proto_msgTypes[24]
+	mi := &file_proto_simplex_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1509,7 +1509,7 @@ func (x *GetCommittedBlocksResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetCommittedBlocksResponse.ProtoReflect.Descriptor instead.
 func (*GetCommittedBlocksResponse) Descriptor() ([]byte, []int) {
-	return file_simplex_proto_rawDescGZIP(), []int{24}
+	return file_proto_simplex_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *GetCommittedBlocksResponse) GetBlocks() []*CommittedBlock {
@@ -1519,11 +1519,171 @@ func (x *GetCommittedBlocksResponse) GetBlocks() []*CommittedBlock {
 	return nil
 }
 
-var File_simplex_proto protoreflect.FileDescriptor
+type PartitionRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	PeerIds       [][]byte               `protobuf:"bytes,1,rep,name=peer_ids,json=peerIds,proto3" json:"peer_ids,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
 
-const file_simplex_proto_rawDesc = "" +
+func (x *PartitionRequest) Reset() {
+	*x = PartitionRequest{}
+	mi := &file_proto_simplex_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PartitionRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PartitionRequest) ProtoMessage() {}
+
+func (x *PartitionRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_simplex_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PartitionRequest.ProtoReflect.Descriptor instead.
+func (*PartitionRequest) Descriptor() ([]byte, []int) {
+	return file_proto_simplex_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *PartitionRequest) GetPeerIds() [][]byte {
+	if x != nil {
+		return x.PeerIds
+	}
+	return nil
+}
+
+type PartitionResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PartitionResponse) Reset() {
+	*x = PartitionResponse{}
+	mi := &file_proto_simplex_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PartitionResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PartitionResponse) ProtoMessage() {}
+
+func (x *PartitionResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_simplex_proto_msgTypes[26]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PartitionResponse.ProtoReflect.Descriptor instead.
+func (*PartitionResponse) Descriptor() ([]byte, []int) {
+	return file_proto_simplex_proto_rawDescGZIP(), []int{26}
+}
+
+type HealRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	PeerIds       [][]byte               `protobuf:"bytes,1,rep,name=peer_ids,json=peerIds,proto3" json:"peer_ids,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *HealRequest) Reset() {
+	*x = HealRequest{}
+	mi := &file_proto_simplex_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HealRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HealRequest) ProtoMessage() {}
+
+func (x *HealRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_simplex_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HealRequest.ProtoReflect.Descriptor instead.
+func (*HealRequest) Descriptor() ([]byte, []int) {
+	return file_proto_simplex_proto_rawDescGZIP(), []int{27}
+}
+
+func (x *HealRequest) GetPeerIds() [][]byte {
+	if x != nil {
+		return x.PeerIds
+	}
+	return nil
+}
+
+type HealResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *HealResponse) Reset() {
+	*x = HealResponse{}
+	mi := &file_proto_simplex_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HealResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HealResponse) ProtoMessage() {}
+
+func (x *HealResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_simplex_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HealResponse.ProtoReflect.Descriptor instead.
+func (*HealResponse) Descriptor() ([]byte, []int) {
+	return file_proto_simplex_proto_rawDescGZIP(), []int{28}
+}
+
+var File_proto_simplex_proto protoreflect.FileDescriptor
+
+const file_proto_simplex_proto_rawDesc = "" +
 	"\n" +
-	"\rsimplex.proto\x12\asimplex\"~\n" +
+	"\x13proto/simplex.proto\x12\asimplex\"~\n" +
 	"\x10ProtocolMetadata\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\rR\aversion\x12\x14\n" +
 	"\x05epoch\x18\x02 \x01(\x04R\x05epoch\x12\x14\n" +
@@ -1621,28 +1781,37 @@ const file_simplex_proto_rawDesc = "" +
 	"\x05epoch\x18\x03 \x01(\x04R\x05epoch\x12\x16\n" +
 	"\x06digest\x18\x04 \x01(\fR\x06digest\"M\n" +
 	"\x1aGetCommittedBlocksResponse\x12/\n" +
-	"\x06blocks\x18\x01 \x03(\v2\x17.simplex.CommittedBlockR\x06blocks2W\n" +
+	"\x06blocks\x18\x01 \x03(\v2\x17.simplex.CommittedBlockR\x06blocks\"-\n" +
+	"\x10PartitionRequest\x12\x19\n" +
+	"\bpeer_ids\x18\x01 \x03(\fR\apeerIds\"\x13\n" +
+	"\x11PartitionResponse\"(\n" +
+	"\vHealRequest\x12\x19\n" +
+	"\bpeer_ids\x18\x01 \x03(\fR\apeerIds\"\x0e\n" +
+	"\fHealResponse2W\n" +
 	"\vNodeService\x12H\n" +
 	"\vSendMessage\x12\x1b.simplex.SendMessageRequest\x1a\x1c.simplex.SendMessageResponse2\x8f\x02\n" +
 	"\x0eControlService\x12Z\n" +
 	"\x11SubmitTransaction\x12!.simplex.SubmitTransactionRequest\x1a\".simplex.SubmitTransactionResponse\x12B\n" +
 	"\tGetStatus\x12\x19.simplex.GetStatusRequest\x1a\x1a.simplex.GetStatusResponse\x12]\n" +
-	"\x12GetCommittedBlocks\x12\".simplex.GetCommittedBlocksRequest\x1a#.simplex.GetCommittedBlocksResponseB/Z-github.com/ava-labs/simplex/jepsen/node/protob\x06proto3"
+	"\x12GetCommittedBlocks\x12\".simplex.GetCommittedBlocksRequest\x1a#.simplex.GetCommittedBlocksResponse2\x87\x01\n" +
+	"\fAdminService\x12B\n" +
+	"\tPartition\x12\x19.simplex.PartitionRequest\x1a\x1a.simplex.PartitionResponse\x123\n" +
+	"\x04Heal\x12\x14.simplex.HealRequest\x1a\x15.simplex.HealResponseB/Z-github.com/ava-labs/simplex/jepsen/node/protob\x06proto3"
 
 var (
-	file_simplex_proto_rawDescOnce sync.Once
-	file_simplex_proto_rawDescData []byte
+	file_proto_simplex_proto_rawDescOnce sync.Once
+	file_proto_simplex_proto_rawDescData []byte
 )
 
-func file_simplex_proto_rawDescGZIP() []byte {
-	file_simplex_proto_rawDescOnce.Do(func() {
-		file_simplex_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_simplex_proto_rawDesc), len(file_simplex_proto_rawDesc)))
+func file_proto_simplex_proto_rawDescGZIP() []byte {
+	file_proto_simplex_proto_rawDescOnce.Do(func() {
+		file_proto_simplex_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_proto_simplex_proto_rawDesc), len(file_proto_simplex_proto_rawDesc)))
 	})
-	return file_simplex_proto_rawDescData
+	return file_proto_simplex_proto_rawDescData
 }
 
-var file_simplex_proto_msgTypes = make([]protoimpl.MessageInfo, 25)
-var file_simplex_proto_goTypes = []any{
+var file_proto_simplex_proto_msgTypes = make([]protoimpl.MessageInfo, 29)
+var file_proto_simplex_proto_goTypes = []any{
 	(*ProtocolMetadata)(nil),           // 0: simplex.ProtocolMetadata
 	(*BlockHeader)(nil),                // 1: simplex.BlockHeader
 	(*Signature)(nil),                  // 2: simplex.Signature
@@ -1668,8 +1837,12 @@ var file_simplex_proto_goTypes = []any{
 	(*GetCommittedBlocksRequest)(nil),  // 22: simplex.GetCommittedBlocksRequest
 	(*CommittedBlock)(nil),             // 23: simplex.CommittedBlock
 	(*GetCommittedBlocksResponse)(nil), // 24: simplex.GetCommittedBlocksResponse
+	(*PartitionRequest)(nil),           // 25: simplex.PartitionRequest
+	(*PartitionResponse)(nil),          // 26: simplex.PartitionResponse
+	(*HealRequest)(nil),                // 27: simplex.HealRequest
+	(*HealResponse)(nil),               // 28: simplex.HealResponse
 }
-var file_simplex_proto_depIdxs = []int32{
+var file_proto_simplex_proto_depIdxs = []int32{
 	0,  // 0: simplex.BlockHeader.metadata:type_name -> simplex.ProtocolMetadata
 	1,  // 1: simplex.Vote.block_header:type_name -> simplex.BlockHeader
 	2,  // 2: simplex.Vote.signature:type_name -> simplex.Signature
@@ -1704,25 +1877,29 @@ var file_simplex_proto_depIdxs = []int32{
 	18, // 31: simplex.ControlService.SubmitTransaction:input_type -> simplex.SubmitTransactionRequest
 	20, // 32: simplex.ControlService.GetStatus:input_type -> simplex.GetStatusRequest
 	22, // 33: simplex.ControlService.GetCommittedBlocks:input_type -> simplex.GetCommittedBlocksRequest
-	17, // 34: simplex.NodeService.SendMessage:output_type -> simplex.SendMessageResponse
-	19, // 35: simplex.ControlService.SubmitTransaction:output_type -> simplex.SubmitTransactionResponse
-	21, // 36: simplex.ControlService.GetStatus:output_type -> simplex.GetStatusResponse
-	24, // 37: simplex.ControlService.GetCommittedBlocks:output_type -> simplex.GetCommittedBlocksResponse
-	34, // [34:38] is the sub-list for method output_type
-	30, // [30:34] is the sub-list for method input_type
+	25, // 34: simplex.AdminService.Partition:input_type -> simplex.PartitionRequest
+	27, // 35: simplex.AdminService.Heal:input_type -> simplex.HealRequest
+	17, // 36: simplex.NodeService.SendMessage:output_type -> simplex.SendMessageResponse
+	19, // 37: simplex.ControlService.SubmitTransaction:output_type -> simplex.SubmitTransactionResponse
+	21, // 38: simplex.ControlService.GetStatus:output_type -> simplex.GetStatusResponse
+	24, // 39: simplex.ControlService.GetCommittedBlocks:output_type -> simplex.GetCommittedBlocksResponse
+	26, // 40: simplex.AdminService.Partition:output_type -> simplex.PartitionResponse
+	28, // 41: simplex.AdminService.Heal:output_type -> simplex.HealResponse
+	36, // [36:42] is the sub-list for method output_type
+	30, // [30:36] is the sub-list for method input_type
 	30, // [30:30] is the sub-list for extension type_name
 	30, // [30:30] is the sub-list for extension extendee
 	0,  // [0:30] is the sub-list for field type_name
 }
 
-func init() { file_simplex_proto_init() }
-func file_simplex_proto_init() {
-	if File_simplex_proto != nil {
+func init() { file_proto_simplex_proto_init() }
+func file_proto_simplex_proto_init() {
+	if File_proto_simplex_proto != nil {
 		return
 	}
-	file_simplex_proto_msgTypes[11].OneofWrappers = []any{}
-	file_simplex_proto_msgTypes[13].OneofWrappers = []any{}
-	file_simplex_proto_msgTypes[15].OneofWrappers = []any{
+	file_proto_simplex_proto_msgTypes[11].OneofWrappers = []any{}
+	file_proto_simplex_proto_msgTypes[13].OneofWrappers = []any{}
+	file_proto_simplex_proto_msgTypes[15].OneofWrappers = []any{
 		(*SimplexMessage_BlockMessage)(nil),
 		(*SimplexMessage_VoteMessage)(nil),
 		(*SimplexMessage_EmptyVoteMessage)(nil),
@@ -1738,17 +1915,17 @@ func file_simplex_proto_init() {
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_simplex_proto_rawDesc), len(file_simplex_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_simplex_proto_rawDesc), len(file_proto_simplex_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   25,
+			NumMessages:   29,
 			NumExtensions: 0,
-			NumServices:   2,
+			NumServices:   3,
 		},
-		GoTypes:           file_simplex_proto_goTypes,
-		DependencyIndexes: file_simplex_proto_depIdxs,
-		MessageInfos:      file_simplex_proto_msgTypes,
+		GoTypes:           file_proto_simplex_proto_goTypes,
+		DependencyIndexes: file_proto_simplex_proto_depIdxs,
+		MessageInfos:      file_proto_simplex_proto_msgTypes,
 	}.Build()
-	File_simplex_proto = out.File
-	file_simplex_proto_goTypes = nil
-	file_simplex_proto_depIdxs = nil
+	File_proto_simplex_proto = out.File
+	file_proto_simplex_proto_goTypes = nil
+	file_proto_simplex_proto_depIdxs = nil
 }

@@ -1,5 +1,5 @@
 // Package storage provides a bbolt-backed implementation of common.Storage.
-//   - Tracks lastIndexedDigest for digest-chain validation.
+//   - Tracks lastIndexedDigest for digest validation.
 //   - Stores blocks and finalizations in separate bbolt buckets.
 //   - Uses atomic.Uint64 for numBlocks.
 package storage

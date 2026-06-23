@@ -222,6 +222,7 @@ func run(cfg *Config) error {
 	grpcServer := grpc.NewServer()
 	pb.RegisterNodeServiceServer(grpcServer, commInst)
 	pb.RegisterControlServiceServer(grpcServer, commInst)
+	pb.RegisterAdminServiceServer(grpcServer, commInst)
 
 	go func() {
 		logger.Info("gRPC server listening", zap.String("addr", cfg.ListenAddr))
