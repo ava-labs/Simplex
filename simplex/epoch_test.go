@@ -83,7 +83,7 @@ func TestFinalizeSameSequence(t *testing.T) {
 		Prev:  initialBlock.VerifiedBlock.BlockHeader().Digest,
 	}
 	vb, ok := bb.BuildBlock(context.Background(), md, Blacklist{
-		NodeCount: uint16(len(e.EpochConfig.Comm.Nodes())),
+		NodeCount: uint16(len(e.EpochConfig.Comm.Validators())),
 	})
 	require.True(t, ok)
 
@@ -117,7 +117,7 @@ func TestFinalizeSameSequence(t *testing.T) {
 	require.NoError(t, err)
 
 	// create a notarization and now we should send a finalize vote for seq 1 again
-	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Nodes())
+	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Validators())
 	notarization, err := testutil.NewNotarization(e.Logger, sigAggr, block, nodes[1:])
 	require.NoError(t, err)
 	testutil.InjectTestNotarization(t, e, notarization, nodes[1])
@@ -202,7 +202,7 @@ func testFinalizeSameSequenceGap(t *testing.T, nodes []NodeID, numEmptyNotarizat
 	}
 
 	for range numEmptyNotarizations {
-		leader := LeaderForRound(e.Comm.Nodes().NodeIDs(), e.Metadata().Round)
+		leader := LeaderForRound(e.Comm.Validators().NodeIDs(), e.Metadata().Round)
 		if e.ID.Equals(leader) {
 			fVote := advanceWithFinalizeCheck(t, e, recordingComm, bb)
 			finalizeVoteSeqs[fVote.Finalization.Seq] = fVote
@@ -226,7 +226,7 @@ func testFinalizeSameSequenceGap(t *testing.T, nodes []NodeID, numEmptyNotarizat
 		Prev:  finalizeVoteSeqs[seqToDoubleFinalize-1].Finalization.Digest,
 	}
 	vb, ok := bb.BuildBlock(context.Background(), md, Blacklist{
-		NodeCount: uint16(len(e.EpochConfig.Comm.Nodes())),
+		NodeCount: uint16(len(e.EpochConfig.Comm.Validators())),
 	})
 	require.True(t, ok)
 
@@ -236,7 +236,7 @@ func testFinalizeSameSequenceGap(t *testing.T, nodes []NodeID, numEmptyNotarizat
 		verified <- struct{}{}
 	}
 
-	leader := LeaderForRound(e.Comm.Nodes().NodeIDs(), 1+numEmptyNotarizations+numNotarizations)
+	leader := LeaderForRound(e.Comm.Validators().NodeIDs(), 1+numEmptyNotarizations+numNotarizations)
 	if e.ID.Equals(leader) {
 		return
 	}
@@ -275,7 +275,7 @@ func testFinalizeSameSequenceGap(t *testing.T, nodes []NodeID, numEmptyNotarizat
 	}
 
 	// create a notarization and now we should send a finalize vote for seqToDoubleFinalize again
-	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Nodes())
+	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Validators())
 	notarization, err := testutil.NewNotarization(e.Logger, sigAggr, block, nodes[1:])
 	require.NoError(t, err)
 	testutil.InjectTestNotarization(t, e, notarization, nodes[1])
@@ -378,7 +378,7 @@ func TestEpochHandleNotarizationFutureRound(t *testing.T) {
 	require.NoError(t, e.Start())
 
 	// Create a notarization for round 1 which is a future round because we haven't gone through round 0 yet.
-	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Nodes())
+	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Validators())
 	notarization, err := testutil.NewNotarization(conf.Logger, sigAggr, secondBlock, nodes)
 	require.NoError(t, err)
 
@@ -444,8 +444,8 @@ func TestEpochIndexFinalization(t *testing.T) {
 	// when we receive that finalization, we should commit the rest of the finalizations for seqs
 	// 1 & 2
 
-	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Nodes())
-	finalization, _ := testutil.NewFinalizationRecord(t, sigAggr, firstBlock, e.Comm.Nodes().NodeIDs())
+	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Validators())
+	finalization, _ := testutil.NewFinalizationRecord(t, sigAggr, firstBlock, e.Comm.Validators().NodeIDs())
 	testutil.InjectTestFinalization(t, e, &finalization, nodes[1])
 
 	storage.WaitForBlockCommit(2)
@@ -544,7 +544,7 @@ func TestEpochIncreasesRoundAfterFinalization(t *testing.T) {
 	require.Equal(t, uint64(0), storage.NumBlocks())
 
 	// create the finalized block
-	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Nodes())
+	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Validators())
 	finalization, _ := testutil.NewFinalizationRecord(t, sigAggr, block, nodes)
 	testutil.InjectTestFinalization(t, e, &finalization, nodes[1])
 
@@ -752,10 +752,10 @@ func TestEpochStartedTwice(t *testing.T) {
 }
 
 func advanceRoundFromEmpty(t *testing.T, e *Epoch) {
-	leader := LeaderForRound(e.Comm.Nodes().NodeIDs(), e.Metadata().Round)
+	leader := LeaderForRound(e.Comm.Validators().NodeIDs(), e.Metadata().Round)
 	require.False(t, e.ID.Equals(leader), "epoch cannot be the leader for the empty round")
 
-	emptyNote := testutil.NewEmptyNotarization(e.Comm.Nodes().NodeIDs(), e.Metadata().Round)
+	emptyNote := testutil.NewEmptyNotarization(e.Comm.Validators().NodeIDs(), e.Metadata().Round)
 	err := e.HandleMessage(&Message{
 		EmptyNotarization: emptyNote,
 	}, leader)
@@ -1016,7 +1016,7 @@ func TestEpochQCSignedByNonExistentNodes(t *testing.T) {
 
 	wal.AssertWALSize(1)
 
-	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Nodes())
+	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Validators())
 
 	t.Run("notarization with unknown signer isn't taken into account", func(t *testing.T) {
 		notarization, err := testutil.NewNotarization(conf.Logger, sigAggr, block, []NodeID{{2}, {3}, {5}})
@@ -1258,7 +1258,7 @@ func TestEpochSendsBlockDigestRequest(t *testing.T) {
 	require.True(t, built)
 	block := bb.GetBuiltBlock()
 
-	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Nodes())
+	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Validators())
 	notarization, err := testutil.NewNotarization(conf.Logger, sigAggr, block, nodes)
 	require.NoError(t, err)
 
@@ -1504,7 +1504,7 @@ func TestDoubleIncrementOnPersistNotarization(t *testing.T) {
 	require.True(t, ok)
 
 	block := bb.GetBuiltBlock()
-	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Nodes())
+	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Validators())
 	notarization, err := testutil.NewNotarization(conf.Logger, sigAggr, block, nodes)
 	require.NoError(t, err)
 
@@ -1596,7 +1596,7 @@ func TestRejectsOldNotarizationAndVotes(t *testing.T) {
 	}
 
 	// send notarization for round 1, after the finalization was sent
-	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Nodes())
+	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Validators())
 	notarization, err := testutil.NewNotarization(conf.Logger, sigAggr, block, nodes)
 	require.NoError(t, err)
 
@@ -1642,7 +1642,7 @@ func TestBlockDeserializer(t *testing.T) {
 func advanceRound(t *testing.T, e *Epoch, bb *testutil.TestBlockBuilder, notarize bool, finalize bool, injectedMD *ProtocolMetadata) (VerifiedBlock, *Notarization) {
 	require.True(t, notarize || finalize, "must either notarize or finalize a round to advance")
 	nextSeqToCommit := e.Storage.NumBlocks()
-	nodes := e.Comm.Nodes()
+	nodes := e.Comm.Validators()
 	quorum := Quorum(len(nodes))
 	// leader is the proposer of the new block for the given round
 	leader := LeaderForRound(nodes.NodeIDs(), e.Metadata().Round)
@@ -1655,7 +1655,7 @@ func advanceRound(t *testing.T, e *Epoch, bb *testutil.TestBlockBuilder, notariz
 	isEpochNode := leader.Equals(e.ID)
 	if !isEpochNode {
 		_, ok := bb.BuildBlock(context.Background(), md, Blacklist{
-			NodeCount: uint16(len(e.EpochConfig.Comm.Nodes())),
+			NodeCount: uint16(len(e.EpochConfig.Comm.Validators())),
 		})
 		require.True(t, ok)
 	}

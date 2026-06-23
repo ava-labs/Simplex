@@ -1144,7 +1144,7 @@ func newRebroadcastComm(nodes Nodes) *rebroadcastComm {
 	}
 }
 
-func (r *rebroadcastComm) Nodes() Nodes {
+func (r *rebroadcastComm) Validators() Nodes {
 	return r.nodes
 }
 
@@ -1232,7 +1232,7 @@ func runCrashAndRestartExecution(t *testing.T, e *Epoch, bb *testutil.TestBlockB
 	cloneWAL := wal.Clone()
 	cloneStorage := storage.Clone()
 
-	nodes := e.Comm.Nodes()
+	nodes := e.Comm.Validators()
 
 	// Clone the block builder
 	bbAfterCrash := testutil.NewTestBlockBuilder().WithBlockShouldBeBuiltBuffer(uint64(cap(bb.BlockShouldBeBuilt)))

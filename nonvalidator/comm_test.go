@@ -42,7 +42,7 @@ func newTestResponder(t *testing.T, myNodeID common.NodeID, tc *testChain) *nonV
 	}
 }
 
-func (r *nonValidatorResponderComm) Nodes() common.Nodes { return r.nodes }
+func (r *nonValidatorResponderComm) Validators() common.Nodes { return r.nodes }
 
 // Enqueues a response coming from `destination`.
 func (r *nonValidatorResponderComm) Send(msg *common.Message, destination common.NodeID) {

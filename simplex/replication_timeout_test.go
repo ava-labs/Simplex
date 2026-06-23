@@ -622,7 +622,7 @@ func TestReplicationResendsFinalizedBlocksThatFailedVerification(t *testing.T) {
 	block := bb.GetBuiltBlock()
 	block.VerificationError = errors.New("block verification failed")
 
-	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Nodes())
+	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Validators())
 	finalization, _ := testutil.NewFinalizationRecord(t, sigAggr, block, nodes[0:quorum])
 
 	// send the finalization to start the replication process

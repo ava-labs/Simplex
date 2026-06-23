@@ -255,7 +255,7 @@ type testValidatorSetRetriever struct {
 	nodes common.Nodes
 }
 
-func (v *testValidatorSetRetriever) Nodes() common.Nodes {
+func (v *testValidatorSetRetriever) Validators() common.Nodes {
 	return v.nodes
 }
 

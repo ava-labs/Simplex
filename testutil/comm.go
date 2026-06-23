@@ -24,7 +24,7 @@ type MessageFilter func(msg *common.Message, from common.NodeID, to common.NodeI
 
 type NoopComm common.Nodes
 
-func (n NoopComm) Nodes() common.Nodes {
+func (n NoopComm) Validators() common.Nodes {
 	return common.Nodes(n)
 }
 
@@ -51,7 +51,7 @@ func NewTestComm(from common.NodeID, net *BasicInMemoryNetwork, messageFilter Me
 	}
 }
 
-func (c *TestComm) Nodes() common.Nodes {
+func (c *TestComm) Validators() common.Nodes {
 	return c.net.nodeWeights
 }
 
