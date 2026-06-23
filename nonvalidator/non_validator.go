@@ -453,7 +453,7 @@ func (n *NonValidator) processReplicationState() error {
 	if err != nil {
 		n.Logger.Debug("Failed verifying QC that was next to commit", zap.Error(err))
 		// We fetch from comm.Nodes instead of the nodes given in the finalization, because this node may give us an adversarial node list.
-		n.sequenceReplicator.ResendFinalizationRequest(block.BlockHeader().Seq, n.Comm.Nodes().NodeIDs())
+		n.sequenceReplicator.ResendFinalizationRequest(block.BlockHeader().Seq, n.Comm.Validators().NodeIDs())
 		return nil
 	}
 

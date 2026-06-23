@@ -59,8 +59,8 @@ type Storage interface {
 }
 
 type Communication interface {
-	// Nodes returns all nodes that participate in the epoch.
-	Nodes() Nodes
+	// Validators returns all nodes that participate in consensus in the epoch.
+	Validators() Nodes
 
 	// Send sends a message to the given destination node
 	Send(msg *Message, destination NodeID)

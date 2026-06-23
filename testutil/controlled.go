@@ -72,7 +72,7 @@ func (n *ControlledInMemoryNetwork) AdvanceWithoutLeader(round uint64, laggingNo
 	}
 
 	for _, n := range n.Instances {
-		leader := n.E.ID.Equals(simplex.LeaderForRound(n.E.Comm.Nodes().NodeIDs(), n.E.Metadata().Round))
+		leader := n.E.ID.Equals(simplex.LeaderForRound(n.E.Comm.Validators().NodeIDs(), n.E.Metadata().Round))
 		if leader || laggingNodeId.Equals(n.E.ID) {
 			continue
 		}
