@@ -70,9 +70,9 @@ func TestVerifyQC(t *testing.T) {
 		nodeIDs = append(nodeIDs, nodeID)
 	}
 
-	eligibleSigners := make(map[string]struct{})
+	validatorsToPks := make(map[string][]byte)
 	for _, n := range nodes {
-		eligibleSigners[string(n.Id)] = struct{}{}
+		validatorsToPks[string(n.Id)] = []byte{}
 	}
 	quorumSize := Quorum(len(nodes))
 	signatureAggregator := &testutil.TestSignatureAggregator{N: len(nodes)}
@@ -148,10 +148,10 @@ func TestVerifyQC(t *testing.T) {
 				return len(signers) >= tt.quorumSize
 			}
 			if tt.msgInvalid {
-				err := VerifyQC(tt.finalization.QC, isQuorum, eligibleSigners, &unverifiableQC{}, nodes)
+				err := VerifyQC(tt.finalization.QC, isQuorum, validatorsToPks, &unverifiableQC{}, nodes)
 				require.EqualError(t, err, tt.expectedErr.Error())
 			} else {
-				err := VerifyQC(tt.finalization.QC, isQuorum, eligibleSigners, &tt.finalization, nodes)
+				err := VerifyQC(tt.finalization.QC, isQuorum, validatorsToPks, &tt.finalization, nodes)
 				if tt.expectedErr != nil {
 					require.EqualError(t, err, tt.expectedErr.Error())
 				} else {

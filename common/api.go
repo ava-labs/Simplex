@@ -75,7 +75,7 @@ type Signer interface {
 }
 
 type SignatureVerifier interface {
-	Verify(message []byte, signature []byte, signer NodeID) error
+	Verify(message []byte, signature []byte, publicKey []byte) error
 }
 
 type WriteAheadLog interface {

@@ -95,7 +95,7 @@ type Epoch struct {
 	blockBuilderCancelFunc         context.CancelFunc
 	nodeIDs                        common.NodeIDs
 	nodes                          common.Nodes
-	eligibleNodeIDs                map[string]struct{}
+	validatorsToPKs                map[string][]byte
 	rounds                         map[uint64]*Round
 	emptyVotes                     map[uint64]*EmptyVoteSet
 	oldestNotFinalizedNotarization NotarizationTime
@@ -152,7 +152,7 @@ func (e *Epoch) HandleMessage(msg *common.Message, from common.NodeID) error {
 	}
 
 	// Guard against receiving messages from unknown nodes
-	_, known := e.eligibleNodeIDs[string(from)]
+	_, known := e.validatorsToPKs[string(from)]
 	if !known {
 		e.Logger.Debug("Received message from an unknown node", zap.Stringer("nodeID", from))
 		return nil
@@ -206,17 +206,16 @@ func (e *Epoch) init() error {
 	e.redeemedRounds = make(map[uint16]uint64, len(e.nodeIDs))
 	e.rounds = make(map[uint64]*Round)
 	e.emptyVotes = make(map[uint64]*EmptyVoteSet)
-	e.eligibleNodeIDs = make(map[string]struct{}, len(e.nodeIDs))
 	e.futureMessages = make(messagesFromNode, len(e.nodeIDs))
 	e.replicationState = NewReplicationState(e.Logger, e.Comm, e.ID, e.MaxRoundWindow, e.ReplicationEnabled, e.StartTime, &e.lock, e.RandomSource)
 	e.timeoutHandler = common.NewTimeoutHandler(e.Logger, "emptyVoteRebroadcast", e.StartTime, e.MaxRebroadcastWait, e.emptyVoteTimeoutTaskRunner)
 	e.signatureAggregator = e.SignatureAggregatorCreator(e.nodes)
-
-	for _, node := range e.nodeIDs {
-		e.futureMessages[string(node)] = make(map[uint64]*messagesForRound)
+	e.validatorsToPKs = make(map[string][]byte, len(e.nodeIDs))
+	for _, node := range e.nodes {
+		e.validatorsToPKs[string(node.Id)] = node.PK
 	}
 	for _, node := range e.nodeIDs {
-		e.eligibleNodeIDs[string(node)] = struct{}{}
+		e.futureMessages[string(node)] = make(map[uint64]*messagesForRound)
 	}
 	err := e.loadLastBlock()
 	if err != nil {
@@ -742,7 +741,7 @@ func (e *Epoch) handleFinalizationMessage(message *common.Finalization, from com
 		return nil
 	}
 
-	if err := VerifyQC(message.QC, e.signatureAggregator.IsQuorum, e.eligibleNodeIDs, message, e.nodes); err != nil {
+	if err := VerifyQC(message.QC, e.signatureAggregator.IsQuorum, e.validatorsToPKs, message, e.nodes); err != nil {
 		e.Logger.Debug(fmt.Sprintf("Finalization %s", err),
 			zap.Int("round", int(message.Finalization.Round)),
 			zap.Stringer("NodeID", from))
@@ -843,7 +842,7 @@ func (e *Epoch) handleFinalizeVoteMessage(message *common.FinalizeVote, from com
 		return nil
 	}
 
-	if !e.isFinalizationValid(message.Signature.Value, vote, from) {
+	if !e.isFinalizationVoteValid(message.Signature, vote, from) {
 		return nil
 	}
 
@@ -913,7 +912,13 @@ func (e *Epoch) handleEmptyVoteMessage(message *common.EmptyVote, from common.No
 
 	signature := message.Signature
 
-	if err := vote.Verify(signature.Value, e.Verifier, signature.Signer); err != nil {
+	pk, exists := e.validatorsToPKs[string(signature.Signer)]
+	if !exists {
+		e.Logger.Debug("Received a finalization from an unknown node", zap.Stringer("NodeID", from))
+		return nil
+	}
+
+	if err := vote.Verify(signature.Value, e.Verifier, pk); err != nil {
 		e.Logger.Debug("ToBeSignedEmptyVote verification failed", zap.Stringer("NodeID", signature.Signer), zap.Error(err))
 		return nil
 	}
@@ -1065,8 +1070,15 @@ func (e *Epoch) handleVoteMessage(message *common.Vote, from common.NodeID) erro
 
 	// Only verify the vote if we haven't verified it in the past.
 	signature := message.Signature
+
+	pk, exists := e.validatorsToPKs[string(signature.Signer)]
+	if !exists {
+		e.Logger.Debug("Received a finalization from an unknown node", zap.Stringer("NodeID", from))
+		return nil
+	}
+
 	if _, exists := round.votes[string(signature.Signer)]; !exists {
-		if err := vote.Verify(signature.Value, e.Verifier, signature.Signer); err != nil {
+		if err := vote.Verify(signature.Value, e.Verifier, pk); err != nil {
 			e.Logger.Debug("ToBeSignedVote verification failed", zap.Stringer("NodeID", signature.Signer), zap.Error(err))
 			return nil
 		}
@@ -1125,8 +1137,13 @@ func (e *Epoch) deleteFutureNotarization(from common.NodeID, round uint64) {
 	msgsForRound.notarization = nil
 }
 
-func (e *Epoch) isFinalizationValid(signature []byte, finalization common.ToBeSignedFinalization, from common.NodeID) bool {
-	if err := finalization.Verify(signature, e.Verifier, from); err != nil {
+func (e *Epoch) isFinalizationVoteValid(signature common.Signature, finalization common.ToBeSignedFinalization, from common.NodeID) bool {
+	pk, exists := e.validatorsToPKs[string(signature.Signer)]
+	if !exists {
+		e.Logger.Debug("Received a finalization from an unknown node", zap.Stringer("NodeID", from))
+		return false
+	}
+	if err := finalization.Verify(signature.Value, e.Verifier, pk); err != nil {
 		e.Logger.Debug("Received a finalization with an invalid signature", zap.Uint64("round", finalization.Round), zap.Error(err))
 		return false
 	}
@@ -1601,7 +1618,7 @@ func (e *Epoch) handleEmptyNotarizationMessage(emptyNotarization *common.EmptyNo
 	}
 
 	// Otherwise, this round is not notarized or finalized yet, so verify the empty notarization and store it.
-	if err := VerifyQC(emptyNotarization.QC, e.signatureAggregator.IsQuorum, e.eligibleNodeIDs, emptyNotarization, e.nodes); err != nil {
+	if err := VerifyQC(emptyNotarization.QC, e.signatureAggregator.IsQuorum, e.validatorsToPKs, emptyNotarization, e.nodes); err != nil {
 		e.Logger.Debug(fmt.Sprintf("Empty notarization %s", err),
 			zap.Stringer("NodeID", from))
 		return nil
@@ -1659,7 +1676,7 @@ func (e *Epoch) handleNotarizationMessage(message *common.Notarization, from com
 		return nil
 	}
 
-	if err := VerifyQC(message.QC, e.signatureAggregator.IsQuorum, e.eligibleNodeIDs, message, e.nodes); err != nil {
+	if err := VerifyQC(message.QC, e.signatureAggregator.IsQuorum, e.validatorsToPKs, message, e.nodes); err != nil {
 		e.Logger.Debug(fmt.Sprintf("Notarization %s", err),
 			zap.Stringer("NodeID", from))
 		return nil
@@ -2204,6 +2221,12 @@ func (e *Epoch) VerifyBlockMessageVote(from common.NodeID, md common.BlockHeader
 		}
 	}
 
+	pk, exists := e.validatorsToPKs[string(vote.Signature.Signer)]
+	if !exists {
+		e.Logger.Debug("Received a finalization from an unknown node", zap.Stringer("NodeID", from))
+		return fmt.Errorf("received a finalization from an unknown node %s", from)
+	}
+
 	// Ensure the block was voted on by its block producer:
 
 	// 1) Verify block digest corresponds to the digest voted on
@@ -2213,7 +2236,7 @@ func (e *Epoch) VerifyBlockMessageVote(from common.NodeID, md common.BlockHeader
 		return errors.New("vote digest mismatches block digest")
 	}
 	// 2) Verify the vote is properly signed
-	if err := vote.Vote.Verify(vote.Signature.Value, e.Verifier, vote.Signature.Signer); err != nil {
+	if err := vote.Vote.Verify(vote.Signature.Value, e.Verifier, pk); err != nil {
 		e.Logger.Debug("ToBeSignedVote verification failed", zap.Stringer("NodeID", vote.Signature.Signer), zap.Error(err))
 		return errors.New("vote signature verification failed")
 	}
@@ -3213,19 +3236,19 @@ func (e *Epoch) verifyQuorumRound(q common.QuorumRound) error {
 
 	if q.Finalization != nil {
 		// extra check needed if we have a finalized block
-		if err := VerifyQC(q.Finalization.QC, e.signatureAggregator.IsQuorum, e.eligibleNodeIDs, q.Finalization, e.nodes); err != nil {
+		if err := VerifyQC(q.Finalization.QC, e.signatureAggregator.IsQuorum, e.validatorsToPKs, q.Finalization, e.nodes); err != nil {
 			return fmt.Errorf("invalid finalization: %w", err)
 		}
 	}
 
 	if q.Notarization != nil {
-		if err := VerifyQC(q.Notarization.QC, e.signatureAggregator.IsQuorum, e.eligibleNodeIDs, q.Notarization, e.nodes); err != nil {
+		if err := VerifyQC(q.Notarization.QC, e.signatureAggregator.IsQuorum, e.validatorsToPKs, q.Notarization, e.nodes); err != nil {
 			return fmt.Errorf("invalid notarization: %w", err)
 		}
 	}
 
 	if q.EmptyNotarization != nil {
-		if err := VerifyQC(q.EmptyNotarization.QC, e.signatureAggregator.IsQuorum, e.eligibleNodeIDs, q.EmptyNotarization, e.nodes); err != nil {
+		if err := VerifyQC(q.EmptyNotarization.QC, e.signatureAggregator.IsQuorum, e.validatorsToPKs, q.EmptyNotarization, e.nodes); err != nil {
 			return fmt.Errorf("invalid empty notarization QC: %w", err)
 		}
 	}

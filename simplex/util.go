@@ -51,7 +51,7 @@ func hasSomeNodeSignedTwice(nodeIDs []common.NodeID) (common.NodeID, bool) {
 	return common.NodeID{}, false
 }
 
-func VerifyQC(qc common.QuorumCertificate, isQuorum func(signers []common.NodeID) bool, eligibleSigners map[string]struct{}, messageToVerify verifiableMessage, nodes common.Nodes) error {
+func VerifyQC(qc common.QuorumCertificate, isQuorum func(signers []common.NodeID) bool, eligibleSigners map[string][]byte, messageToVerify verifiableMessage, nodes common.Nodes) error {
 	if qc == nil {
 		return fmt.Errorf("nil QuorumCertificate")
 	}
