@@ -132,7 +132,7 @@ func TestReplicationAdversarialNode(t *testing.T) {
 	require.Equal(t, uint64(0), laggingNode.E.Metadata().Round)
 	net.Connect(laggingNode.E.ID)
 
-	sigAggr := laggingNode.E.SignatureAggregatorCreator(laggingNode.E.Comm.Nodes())
+	sigAggr := laggingNode.E.SignatureAggregatorCreator(laggingNode.E.Comm.Validators())
 	finalization, _ := NewFinalizationRecord(t, sigAggr, blocks[1], nodes[:quorum])
 	finalizationMsg := &common.Message{
 		Finalization: &finalization,
@@ -376,7 +376,7 @@ func TestReplicationStartsBeforeCurrentRound(t *testing.T) {
 	record := common.BlockRecord(firstBlock.BlockHeader(), fBytes)
 	laggingNode.WAL.Append(record)
 
-	sigAggr := laggingNode.E.SignatureAggregatorCreator(laggingNode.E.Comm.Nodes())
+	sigAggr := laggingNode.E.SignatureAggregatorCreator(laggingNode.E.Comm.Validators())
 	firstNotarizationRecord, err := NewNotarizationRecord(laggingNode.E.Logger, sigAggr, firstBlock, nodes[0:quorum])
 	require.NoError(t, err)
 	laggingNode.WAL.Append(firstNotarizationRecord)
@@ -443,7 +443,7 @@ func TestReplicationFutureFinalization(t *testing.T) {
 	}, nodes[0])
 	require.NoError(t, err)
 
-	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Nodes())
+	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Validators())
 	finalization, _ := NewFinalizationRecord(t, sigAggr, block, nodes[0:quorum])
 	// send finalization
 	err = e.HandleMessage(&common.Message{
@@ -630,7 +630,7 @@ func TestReplicationStuckInProposingBlock(t *testing.T) {
 
 	highBlock, _ := blocks[3].VerifiedBlock.(*TestBlock)
 
-	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Nodes())
+	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Validators())
 	highFinalization, _ := NewFinalizationRecord(t, sigAggr, highBlock, nodes[0:quorum])
 
 	// Trigger the replication process to start by sending a finalization for a block we do not have
@@ -976,7 +976,7 @@ func TestReplicationVerifyNotarization(t *testing.T) {
 
 	block := bb.GetBuiltBlock()
 
-	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Nodes())
+	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Validators())
 	finalization, _ := NewFinalizationRecord(t, sigAggr, block, nodes[0:quorum])
 
 	// Trigger the replication process to start by sending a finalization for a block we do not have
@@ -1064,7 +1064,7 @@ func TestReplicationVerifyEmptyNotarization(t *testing.T) {
 
 	block := bb.GetBuiltBlock()
 
-	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Nodes())
+	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Validators())
 	finalization, _ := NewFinalizationRecord(t, sigAggr, block, nodes[0:quorum])
 
 	// Trigger the replication process to start by sending a finalization for a block we do not have

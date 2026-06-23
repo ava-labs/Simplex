@@ -199,7 +199,7 @@ func (e *Epoch) init() error {
 	e.finishCtx, e.finishFn = context.WithCancel(context.Background())
 	e.blockBuilderCtx = context.Background()
 	e.blockBuilderCancelFunc = func() {}
-	e.nodes = e.Comm.Nodes()
+	e.nodes = e.Comm.Validators()
 	common.SortNodes(e.nodes)
 	e.nodeIDs = e.nodes.NodeIDs()
 	e.timedOutRounds = make(map[uint16]uint64, len(e.nodeIDs))
