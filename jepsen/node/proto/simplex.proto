@@ -1,0 +1,153 @@
+syntax = "proto3";
+
+package simplex;
+
+option go_package = "github.com/ava-labs/simplex/jepsen/node/proto";
+
+message ProtocolMetadata {
+  uint32 version = 1;
+  uint64 epoch   = 2;
+  uint64 round   = 3;
+  uint64 seq     = 4;
+  bytes  prev    = 5;
+}
+
+message BlockHeader {
+  ProtocolMetadata metadata = 1;
+  bytes            digest   = 2;
+}
+
+message Signature {
+  bytes signer = 1;
+  bytes value  = 2;
+}
+
+message QuorumCertificate {
+  repeated bytes signers = 1;
+  bytes          data    = 2;
+}
+
+message Vote {
+  BlockHeader block_header = 1;
+  Signature   signature    = 2;
+}
+
+message EmptyVote {
+  uint64    round     = 1;
+  uint64    epoch     = 2;
+  Signature signature = 3;
+}
+
+message FinalizeVote {
+  BlockHeader block_header = 1;
+  Signature   signature    = 2;
+}
+
+message Notarization {
+  BlockHeader       block_header = 1;
+  QuorumCertificate qc           = 2;
+}
+
+message EmptyNotarization {
+  uint64            round = 1;
+  uint64            epoch = 2;
+  QuorumCertificate qc    = 3;
+}
+
+message Finalization {
+  BlockHeader       block_header = 1;
+  QuorumCertificate qc           = 2;
+}
+
+message BlockMessage {
+  bytes block_bytes = 1;
+  Vote  vote        = 2;
+}
+
+message QuorumRound {
+  bytes         block_bytes         = 1;
+  optional Notarization      notarization       = 2;
+  optional Finalization      finalization       = 3;
+  optional EmptyNotarization empty_notarization = 4;
+}
+
+message ReplicationRequest {
+  repeated uint64 seqs                  = 1;
+  repeated uint64 rounds                = 2;
+  uint64          latest_round          = 3;
+  uint64          latest_finalized_seq  = 4;
+}
+
+message ReplicationResponse {
+  repeated QuorumRound      data          = 1;
+  optional QuorumRound      latest_round  = 2;
+  optional QuorumRound      latest_seq    = 3;
+}
+
+message BlockDigestRequest {
+  uint64 seq    = 1;
+  bytes  digest = 2;
+}
+
+message SimplexMessage {
+  oneof payload {
+    BlockMessage        block_message        = 1;
+    Vote                vote_message         = 2;
+    EmptyVote           empty_vote_message   = 3;
+    Notarization        notarization         = 4;
+    EmptyNotarization   empty_notarization   = 5;
+    FinalizeVote        finalize_vote        = 6;
+    Finalization        finalization         = 7;
+    ReplicationRequest  replication_request  = 8;
+    ReplicationResponse replication_response = 9;
+    BlockDigestRequest  block_digest_request = 10;
+  }
+}
+
+message SendMessageRequest {
+  bytes         from    = 1;
+  SimplexMessage message = 2;
+}
+
+message SendMessageResponse {}
+
+message SubmitTransactionRequest {
+  bytes data = 1;
+}
+
+message SubmitTransactionResponse {
+  bool accepted = 1;
+}
+
+message GetStatusRequest {}
+
+message GetStatusResponse {
+  uint64 epoch = 1;
+  uint64 round = 2;
+  uint64 seq   = 3;
+}
+
+message GetCommittedBlocksRequest {
+  uint64 from_seq = 1;
+}
+
+message CommittedBlock {
+  uint64 seq   = 1;
+  uint64 round = 2;
+  uint64 epoch = 3;
+  bytes  digest = 4;
+}
+
+message GetCommittedBlocksResponse {
+  repeated CommittedBlock blocks = 1;
+}
+
+service NodeService {
+  rpc SendMessage(SendMessageRequest) returns (SendMessageResponse);
+}
+
+service ControlService {
+  rpc SubmitTransaction(SubmitTransactionRequest) returns (SubmitTransactionResponse);
+  rpc GetStatus(GetStatusRequest)                 returns (GetStatusResponse);
+  rpc GetCommittedBlocks(GetCommittedBlocksRequest) returns (GetCommittedBlocksResponse);
+}
