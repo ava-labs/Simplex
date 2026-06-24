@@ -36,6 +36,12 @@ func (f *finalizedSeq) String() string {
 	return fmt.Sprintf("FinalizedSeq {BlockDigest: %s, Seq: %d, BlockExists %t, FinalizationExists %t}", digest, seq, f.block != nil, f.finalization != nil)
 }
 
+var (
+	maxRebroadcastAttempts = uint64(5)
+	// How often we send broadcast requests until we validate the latest epoch
+	defaultRebroadcastTimeout = 5 * time.Second
+)
+
 type Config struct {
 	Storage                    common.Storage
 	Comm                       common.Communication
@@ -81,6 +87,10 @@ type NonValidator struct {
 	epochs epochs
 
 	verifier *common.BlockDependencyManager
+
+	// bootstrapRebroadcastHandler handles rebroadcasting our latest epoch to catch up with the current tip
+	// in the case that our original broadcast requests failed.
+	bootstrapRebroadcastHandler *common.TimeoutHandler[uint64]
 }
 
 // NewNonValidator creates a NonValidator with the given `config`.
@@ -105,7 +115,7 @@ func NewNonValidator(config Config) (*NonValidator, error) {
 
 	replicator := simplex.NewReplicationState(config.Logger, config.Comm, config.ID, config.MaxSequenceWindow, true, config.StartTime, lock, randomSource)
 
-	return &NonValidator{
+	n := &NonValidator{
 		Config:                config,
 		incompleteSequences:   make(map[uint64]*finalizedSeq),
 		ctx:                   ctx,
@@ -116,7 +126,10 @@ func NewNonValidator(config Config) (*NonValidator, error) {
 		highestEpochCollector: newEpochReplicator(config.Logger, config.Comm),
 		oneTimeVerifier:       simplex.NewOneTimeVerifier(config.Logger),
 		sequenceReplicator:    replicator,
-	}, nil
+	}
+
+	n.bootstrapRebroadcastHandler = common.NewTimeoutHandler(config.Logger, "NonValidator TimeoutHandler", config.StartTime, defaultRebroadcastTimeout, n.bootstrapRunner)
+	return n, nil
 }
 
 func (n *NonValidator) Start() {
@@ -294,6 +307,11 @@ func (n *NonValidator) maybeValidateNextEpoch(block common.Block) {
 
 	n.Logger.Info("We have a valid sealing block, messages for that epoch can be processed.", zap.Uint64("Epoch", nextEpoch))
 	n.epochs[nextEpoch] = newEpochMetadata(nextEpoch, sealingInfo, n.SignatureAggregatorCreator)
+
+	// remove all the rebroadcast tasks once we advanced to the next epoch
+	n.bootstrapRebroadcastHandler.RemoveOldTasks(func(_ uint64, _ struct{}) bool {
+		return true
+	})
 }
 
 func (n *NonValidator) removeOldSequencesAndEpochs(lastCommittedSeq, minEpochToKeep uint64) {
@@ -568,4 +586,24 @@ func (n *NonValidator) sendRequest(seq uint64, to common.NodeID) {
 
 func (n *NonValidator) nextSeqToCommit() uint64 {
 	return n.Storage.NumBlocks()
+}
+
+func (n *NonValidator) bootstrapRunner(taskIds []uint64) {
+	if len(taskIds) != 1 {
+		return
+	}
+
+	// drop the task we just processed; we reschedule the next attempt below.
+	n.bootstrapRebroadcastHandler.RemoveTask(taskIds[0])
+
+	attempt := taskIds[0] + 1
+
+	// too many attempts, don't rebroadcast
+	if attempt > maxRebroadcastAttempts {
+		return
+	}
+
+	n.Logger.Debug("Rebroadcasting latest epoch", zap.Uint64("Next to commit", n.nextSeqToCommit()))
+	n.broadcastLatestEpoch()
+	n.bootstrapRebroadcastHandler.AddTask(attempt)
 }
