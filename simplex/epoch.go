@@ -162,7 +162,6 @@ func (e *Epoch) HandleMessage(msg *common.Message, from common.NodeID) error {
 			return nil
 		}
 	}
-
 	switch {
 	case msg.BlockMessage != nil:
 		return e.handleBlockMessage(msg.BlockMessage, from)
@@ -285,7 +284,7 @@ func (e *Epoch) Start() error {
 	}
 
 	// Only init receiving messages once you have initialized the data structures required for it.
-	e.Logger.Debug("Epoch is ready to receive messages")
+	e.Logger.Debug("Epoch is ready to receive messages", zap.Uint64("epoch", e.Epoch))
 	e.canReceiveMessages.Store(true)
 	e.broadcastReplicationSync()
 
@@ -2994,7 +2993,7 @@ func (e *Epoch) storeProposal(block common.VerifiedBlock) bool {
 
 // HandleRequest processes a request and returns a response. It also sends a response to the sender.
 func (e *Epoch) handleReplicationRequest(req *common.ReplicationRequest, from common.NodeID) error {
-	e.Logger.Debug("Received replication request", zap.Stringer("from", from), zap.Int("num seqs", len(req.Seqs)), zap.Int("num rounds", len(req.Rounds)), zap.Uint64("latest round", req.LatestRound))
+	e.Logger.Debug("Received replication request", zap.Stringer("from", from), zap.Uint64s("seqs", req.Seqs), zap.Int("num rounds", len(req.Rounds)), zap.Uint64("latest round", req.LatestRound), zap.Uint64("latest seq", req.LatestFinalizedSeq))
 	if !e.ReplicationEnabled {
 		return nil
 	}
