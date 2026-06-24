@@ -302,6 +302,78 @@ func TestReplicationRequestUnknownSeqsAndRounds(t *testing.T) {
 	require.Never(t, func() bool { return len(comm.in) > 0 }, 5*time.Second, 100*time.Millisecond)
 }
 
+// TestNonValidatorReplicationRequestServed ensures that a replication request
+// from a non-validator node is still served when replication is enabled.
+func TestNonValidatorReplicationRequestServed(t *testing.T) {
+	bb := testutil.NewTestBlockBuilder()
+	nodes := []common.NodeID{{1}, {2}, {3}, {4}}
+	comm := NewListenerComm(nodes)
+	ctx := context.Background()
+	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], comm, bb)
+	conf.ReplicationEnabled = true
+
+	numBlocks := uint64(10)
+	seqs := createBlocks(t, nodes, numBlocks)
+	for _, data := range seqs {
+		err := conf.Storage.Index(ctx, data.VerifiedBlock, data.Finalization)
+		require.NoError(t, err)
+	}
+	e, err := simplex.NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+
+	// a node that is not part of the validator set
+	nonValidator := common.NodeID{5}
+
+	sequences := []uint64{0, 1, 2, 3}
+	req := &common.Message{
+		ReplicationRequest: &common.ReplicationRequest{
+			Seqs:        sequences,
+			LatestRound: numBlocks,
+		},
+	}
+
+	err = e.HandleMessage(req, nonValidator)
+	require.NoError(t, err)
+
+	msg := <-comm.in
+	resp := msg.VerifiedReplicationResponse
+	require.Equal(t, len(sequences), len(resp.Data))
+	for i, data := range resp.Data {
+		require.Equal(t, seqs[i].Finalization, *data.Finalization)
+		require.Equal(t, seqs[i].VerifiedBlock, data.VerifiedBlock)
+	}
+}
+
+// TestNonValidatorNonReplicationMessageDropped ensures that non-replication
+// messages from a non-validator node are dropped and have no effect on the
+// epoch's state.
+func TestNonValidatorNonReplicationMessageDropped(t *testing.T) {
+	bb := testutil.NewTestBlockBuilder()
+	nodes := []common.NodeID{{1}, {2}, {3}, {4}}
+	comm := NewListenerComm(nodes)
+	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], comm, bb)
+	conf.ReplicationEnabled = true
+
+	e, err := simplex.NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+
+	nonValidator := common.NodeID{5}
+
+	// an empty notarization from a validator would advance the round; from a
+	// non-validator it must be dropped, leaving the round unchanged.
+	emptyNotarization := testutil.NewEmptyNotarization(nodes, 0)
+	err = e.HandleMessage(&common.Message{
+		EmptyNotarization: emptyNotarization,
+	}, nonValidator)
+	require.NoError(t, err)
+
+	require.Equal(t, uint64(0), e.Metadata().Round)
+}
+
 func TestNilReplicationResponse(t *testing.T) {
 	nodes := []common.NodeID{{1}, {2}, {3}, {4}}
 	net := testutil.NewControlledNetwork(t, nodes)
