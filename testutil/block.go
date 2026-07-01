@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/asn1"
 	"fmt"
+	"time"
 
 	"github.com/ava-labs/simplex/common"
 )
@@ -146,4 +147,30 @@ func (b *BlockDeserializer) DeserializeBlock(ctx context.Context, buff []byte) (
 	tb.ComputeDigest()
 
 	return &tb, nil
+}
+
+type InnerBlock struct {
+	TS          time.Time
+	BlockHeight uint64
+	Content     []byte
+}
+
+func (i *InnerBlock) Bytes() ([]byte, error) {
+	return i.Content, nil
+}
+
+func (i *InnerBlock) Digest() [32]byte {
+	return sha256.Sum256(i.Content)
+}
+
+func (i *InnerBlock) Height() uint64 {
+	return i.BlockHeight
+}
+
+func (i *InnerBlock) Timestamp() time.Time {
+	return i.TS
+}
+
+func (i *InnerBlock) Verify(_ context.Context, _ uint64) error {
+	return nil
 }

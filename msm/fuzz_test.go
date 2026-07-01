@@ -105,8 +105,8 @@ func FuzzVerifyBlock(f *testing.F) {
 		// Model the verifier as knowing the P-chain exactly up to the height the block
 		// references — the minimal knowledge required to verify it, mirroring production
 		// where GetPChainHeightForVerifying returns the verifier's latest observed height.
-		sm.GetPChainHeightForProposing = func() uint64 { return block.Metadata.PChainHeight }
-		sm.GetPChainHeightForVerifying = func() uint64 { return block.Metadata.PChainHeight }
+		sm.GetPChainHeightForProposing = func(context.Context) (uint64, error) { return block.Metadata.PChainHeight, nil }
+		sm.GetPChainHeightForVerifying = func(context.Context) (uint64, error) { return block.Metadata.PChainHeight, nil }
 
 		// The unfuzzed block built by the chain MSM must verify.
 		require.NoError(t, sm.VerifyBlock(context.Background(), block),
@@ -184,7 +184,7 @@ func buildEpochChain(tb testing.TB, logger common.Logger) ([]*StateMachineBlock,
 
 	// Use a genesis block anchored at startTime: the zero block carries over the last
 	// non-Simplex block's timestamp, so it must not be ahead of the blocks built after it.
-	genesis := StateMachineBlock{InnerBlock: &InnerBlock{BlockHeight: 0, TS: startTime, Bytes: []byte{0}}}
+	genesis := StateMachineBlock{InnerBlock: &InnerBlock{BlockHeight: 0, TS: startTime, bytes: []byte{0}}}
 
 	currentPChainHeight := pChainHeight1
 	currentTime := startTime
@@ -195,16 +195,13 @@ func buildEpochChain(tb testing.TB, logger common.Logger) ([]*StateMachineBlock,
 	// round (the builder only collects approvals once the aux info history is ready).
 	sm.AuxiliaryInfoApp = &noopTestAuxInfoApp{}
 	sm.GetValidatorSet = getValidatorSet
-	sm.GetPChainHeightForProposing = func() uint64 { return currentPChainHeight }
-	sm.GetPChainHeightForVerifying = func() uint64 { return currentPChainHeight }
+	sm.GetPChainHeightForProposing = func(context.Context) (uint64, error) { return currentPChainHeight, nil }
+	sm.GetPChainHeightForVerifying = func(context.Context) (uint64, error) { return currentPChainHeight, nil }
 	sm.GetTime = func() time.Time { return currentTime }
 	sm.GenesisValidatorSet = validatorSet1
 	sm.LastNonSimplexBlockPChainHeight = pChainHeight1
 	sm.LastNonSimplexInnerBlock = genesis.InnerBlock
 	tc.blockStore[0] = &outerBlock{block: genesis}
-
-	var approvalsResult ValidatorSetApprovals
-	sm.ApprovalsRetriever = &dynamicApprovalsRetriever{approvals: &approvalsResult}
 
 	ctx := context.Background()
 
@@ -215,7 +212,7 @@ func buildEpochChain(tb testing.TB, logger common.Logger) ([]*StateMachineBlock,
 		return &InnerBlock{
 			TS:          startTime.Add(time.Duration(h) * time.Millisecond),
 			BlockHeight: h,
-			Bytes:       []byte{byte(h)},
+			bytes:       []byte{byte(h)},
 		}
 	}
 	build := func(seq, round, epoch uint64, prev *StateMachineBlock) *StateMachineBlock {
@@ -235,14 +232,14 @@ func buildEpochChain(tb testing.TB, logger common.Logger) ([]*StateMachineBlock,
 
 	// block1: the zero block, finalized so it can later serve as the epoch's reference for
 	// the validator-set change and the sealing-block computation.
-	tc.blockBuilder.block = nextInner(1)
+	tc.blockBuilder.Block = nextInner(1)
 	block1 := build(1, 0, 1, nil)
 	addBlock(1, block1, &common.Finalization{})
 	sm.LatestPersistedHeight = 1
 
 	// block2: a normal in-epoch block.
 	currentTime = startTime.Add(2 * time.Millisecond)
-	tc.blockBuilder.block = nextInner(2)
+	tc.blockBuilder.Block = nextInner(2)
 	block2 := build(2, 1, 1, block1)
 	addBlock(2, block2, nil)
 
@@ -250,7 +247,7 @@ func buildEpochChain(tb testing.TB, logger common.Logger) ([]*StateMachineBlock,
 	// collect approvals for the next epoch.
 	currentPChainHeight = pChainHeight2
 	currentTime = startTime.Add(time.Second + 3*time.Millisecond)
-	tc.blockBuilder.block = nextInner(3)
+	tc.blockBuilder.Block = nextInner(3)
 	block3 := build(3, 2, 1, block2)
 	addBlock(3, block3, nil)
 
@@ -260,22 +257,22 @@ func buildEpochChain(tb testing.TB, logger common.Logger) ([]*StateMachineBlock,
 	auxInfoDigest := sha256.Sum256(nil)
 
 	// block4 & block5: collecting-approvals blocks (1/3 then 2/3, not enough to seal).
-	approvalsResult = ValidatorSetApprovals{{NodeID: node1, PChainHeight: pChainHeight2, AuxInfoDigest: auxInfoDigest, Signature: signApproval(pChainHeight2, auxInfoDigest)}}
+	require.NoError(tb, sm.HandleApproval(&ValidatorSetApproval{NodeID: node1, PChainHeight: pChainHeight2, AuxInfoDigest: auxInfoDigest, Signature: signApproval(pChainHeight2, auxInfoDigest)}, 1))
 	currentTime = startTime.Add(time.Second + 4*time.Millisecond)
-	tc.blockBuilder.block = nextInner(4)
+	tc.blockBuilder.Block = nextInner(4)
 	block4 := build(4, 3, 1, block3)
 	addBlock(4, block4, nil)
 
-	approvalsResult = ValidatorSetApprovals{{NodeID: node2, PChainHeight: pChainHeight2, AuxInfoDigest: auxInfoDigest, Signature: signApproval(pChainHeight2, auxInfoDigest)}}
+	require.NoError(tb, sm.HandleApproval(&ValidatorSetApproval{NodeID: node2, PChainHeight: pChainHeight2, AuxInfoDigest: auxInfoDigest, Signature: signApproval(pChainHeight2, auxInfoDigest)}, 2))
 	currentTime = startTime.Add(time.Second + 5*time.Millisecond)
-	tc.blockBuilder.block = nextInner(5)
+	tc.blockBuilder.Block = nextInner(5)
 	block5 := build(5, 4, 1, block4)
 	addBlock(5, block5, nil)
 
 	// block6: the sealing block (3/3 approvals). Its successor is in stateBuildBlockEpochSealed.
-	approvalsResult = ValidatorSetApprovals{{NodeID: node3, PChainHeight: pChainHeight2, AuxInfoDigest: auxInfoDigest, Signature: signApproval(pChainHeight2, auxInfoDigest)}}
+	require.NoError(tb, sm.HandleApproval(&ValidatorSetApproval{NodeID: node3, PChainHeight: pChainHeight2, AuxInfoDigest: auxInfoDigest, Signature: signApproval(pChainHeight2, auxInfoDigest)}, 3))
 	currentTime = startTime.Add(time.Second + 6*time.Millisecond)
-	tc.blockBuilder.block = nextInner(6)
+	tc.blockBuilder.Block = nextInner(6)
 	block6 := build(6, 5, 1, block5)
 	require.Equal(tb, stateBuildBlockEpochSealed, block6.Metadata.SimplexEpochInfo.NextState())
 	// Finalize the sealing block so the epoch transition can proceed.
@@ -286,13 +283,13 @@ func buildEpochChain(tb testing.TB, logger common.Logger) ([]*StateMachineBlock,
 	// block7: the first block of the new epoch, built in stateBuildBlockEpochSealed.
 	sealingSeq := uint64(6)
 	currentTime = startTime.Add(time.Second + 7*time.Millisecond)
-	tc.blockBuilder.block = nextInner(7)
+	tc.blockBuilder.Block = nextInner(7)
 	block7 := build(7, 6, sealingSeq, block6)
 	addBlock(7, block7, nil)
 
 	// block8: a normal in-epoch block in the second epoch.
 	currentTime = startTime.Add(time.Second + 8*time.Millisecond)
-	tc.blockBuilder.block = nextInner(8)
+	tc.blockBuilder.Block = nextInner(8)
 	block8 := build(8, 7, sealingSeq, block7)
 	addBlock(8, block8, nil)
 

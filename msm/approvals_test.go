@@ -222,6 +222,152 @@ func TestApprovalStoreHandleApproval(t *testing.T) {
 	}
 }
 
+func TestApprovalStorePutApprovals(t *testing.T) {
+	// findApproval locates the approval for a given (NodeID, PChainHeight) in a slice returned by
+	// Approvals(). It is used to assert which of two competing approvals (source vs. destination)
+	// survived a merge, since Approvals() does not carry the timestamp but does carry the Signature,
+	// and signApproval produces a distinct signature per call.
+	findApproval := func(got ValidatorSetApprovals, node nodeID, height uint64) (ValidatorSetApproval, bool) {
+		for _, a := range got {
+			if a.NodeID == node && a.PChainHeight == height {
+				return a, true
+			}
+		}
+		return ValidatorSetApproval{}, false
+	}
+
+	for _, tc := range []struct {
+		name string
+		// srcValidators/dstValidators size the two stores via makeValidators; NodeIDs are makeNodeID(i+1).
+		srcValidators int
+		dstValidators int
+		// srcApprovals are loaded into the source store; dstApprovals are pre-loaded into the destination
+		// store before PutApprovals is called.
+		srcApprovals []approvalAndTimestamp
+		dstApprovals []approvalAndTimestamp
+		// verify asserts on the destination (and source) store after src.PutApprovals(dst).
+		verify func(t *testing.T, dst, src *ApprovalStore, srcSent, dstSent []approvalAndTimestamp)
+	}{
+		{
+			// Copies every source approval into an empty destination that shares the same validator set,
+			// and leaves the source store untouched (PutApprovals copies, it does not move).
+			name:          "copies all approvals into empty destination",
+			srcValidators: 3,
+			dstValidators: 3,
+			srcApprovals: []approvalAndTimestamp{
+				{ValidatorSetApproval{NodeID: makeNodeID(1), PChainHeight: 7, Signature: signApproval(7, [32]byte{})}, 100},
+				{ValidatorSetApproval{NodeID: makeNodeID(2), PChainHeight: 8, Signature: signApproval(8, [32]byte{})}, 100},
+			},
+			verify: func(t *testing.T, dst, src *ApprovalStore, srcSent, _ []approvalAndTimestamp) {
+				got := dst.Approvals()
+				require.Len(t, got, 2)
+				require.Equal(t, 2, dst.storedCount)
+				require.ElementsMatch(t, []ValidatorSetApproval{srcSent[0].ValidatorSetApproval, srcSent[1].ValidatorSetApproval}, got)
+				// The source store is unchanged.
+				require.Len(t, src.Approvals(), 2)
+				require.Equal(t, 2, src.storedCount)
+			},
+		},
+		{
+			// Approvals from nodes absent from the destination's (smaller) validator set are dropped on
+			// carry-over. This is the epoch-change case: a validator that is not part of the new set does
+			// not have its approval carried into the new store.
+			name:          "drops approvals from nodes not in destination validator set",
+			srcValidators: 3,
+			dstValidators: 2,
+			srcApprovals: []approvalAndTimestamp{
+				{ValidatorSetApproval{NodeID: makeNodeID(1), PChainHeight: 1, Signature: signApproval(1, [32]byte{})}, 10},
+				{ValidatorSetApproval{NodeID: makeNodeID(2), PChainHeight: 1, Signature: signApproval(1, [32]byte{})}, 10},
+				{ValidatorSetApproval{NodeID: makeNodeID(3), PChainHeight: 1, Signature: signApproval(1, [32]byte{})}, 10},
+			},
+			verify: func(t *testing.T, dst, _ *ApprovalStore, _, _ []approvalAndTimestamp) {
+				got := dst.Approvals()
+				require.Len(t, got, 2, "only approvals from nodes in the destination set carry over")
+				require.Equal(t, 2, dst.storedCount)
+				_, ok := findApproval(got, makeNodeID(3), 1)
+				require.False(t, ok, "node 3 is not in the destination validator set")
+			},
+		},
+		{
+			// Merges into a non-empty destination: a pre-existing destination approval with a newer
+			// timestamp is kept over an older one carried from the source, while a brand-new node's
+			// approval from the source is added.
+			name:          "keeps newer destination approval and adds new node",
+			srcValidators: 2,
+			dstValidators: 2,
+			dstApprovals: []approvalAndTimestamp{
+				{ValidatorSetApproval{NodeID: makeNodeID(1), PChainHeight: 7, Signature: signApproval(7, [32]byte{})}, 200}, // newer, already present
+			},
+			srcApprovals: []approvalAndTimestamp{
+				{ValidatorSetApproval{NodeID: makeNodeID(1), PChainHeight: 7, Signature: signApproval(7, [32]byte{})}, 100}, // older, must not overwrite
+				{ValidatorSetApproval{NodeID: makeNodeID(2), PChainHeight: 7, Signature: signApproval(7, [32]byte{})}, 100}, // new node, added
+			},
+			verify: func(t *testing.T, dst, _ *ApprovalStore, _, dstSent []approvalAndTimestamp) {
+				got := dst.Approvals()
+				require.Len(t, got, 2)
+				require.Equal(t, 2, dst.storedCount)
+				kept, ok := findApproval(got, makeNodeID(1), 7)
+				require.True(t, ok)
+				require.Equal(t, dstSent[0].ValidatorSetApproval, kept, "the newer destination approval is retained")
+				_, ok = findApproval(got, makeNodeID(2), 7)
+				require.True(t, ok, "the new node's approval is carried over")
+			},
+		},
+		{
+			// A source approval with a newer timestamp replaces the stale destination approval at the
+			// same (NodeID, PChainHeight).
+			name:          "newer source approval replaces stale destination approval",
+			srcValidators: 2,
+			dstValidators: 2,
+			dstApprovals: []approvalAndTimestamp{
+				{ValidatorSetApproval{NodeID: makeNodeID(1), PChainHeight: 7, Signature: signApproval(7, [32]byte{})}, 100}, // older, present
+			},
+			srcApprovals: []approvalAndTimestamp{
+				{ValidatorSetApproval{NodeID: makeNodeID(1), PChainHeight: 7, Signature: signApproval(7, [32]byte{})}, 200}, // newer, replaces
+			},
+			verify: func(t *testing.T, dst, _ *ApprovalStore, srcSent, _ []approvalAndTimestamp) {
+				got := dst.Approvals()
+				require.Len(t, got, 1)
+				require.Equal(t, 1, dst.storedCount)
+				require.Equal(t, srcSent[0].ValidatorSetApproval, got[0], "the newer source approval replaces the stale one")
+			},
+		},
+		{
+			// An empty source store is a no-op: the destination is left exactly as it was.
+			name:          "empty source is a no-op",
+			srcValidators: 2,
+			dstValidators: 2,
+			dstApprovals: []approvalAndTimestamp{
+				{ValidatorSetApproval{NodeID: makeNodeID(1), PChainHeight: 1, Signature: signApproval(1, [32]byte{})}, 10},
+			},
+			verify: func(t *testing.T, dst, _ *ApprovalStore, _, dstSent []approvalAndTimestamp) {
+				got := dst.Approvals()
+				require.Len(t, got, 1)
+				require.Equal(t, 1, dst.storedCount)
+				require.Equal(t, dstSent[0].ValidatorSetApproval, got[0])
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			src := NewApprovalStore(&signatureVerifier{}, makeValidators(tc.srcValidators), testutil.MakeLogger(t))
+			dst := NewApprovalStore(&signatureVerifier{}, makeValidators(tc.dstValidators), testutil.MakeLogger(t))
+
+			for _, a := range tc.srcApprovals {
+				require.NoError(t, src.HandleApproval(&a.ValidatorSetApproval, a.Timestamp))
+			}
+			for _, a := range tc.dstApprovals {
+				require.NoError(t, dst.HandleApproval(&a.ValidatorSetApproval, a.Timestamp))
+			}
+
+			src.PutApprovals(dst)
+
+			// storedCount must always stay in sync with the number of retrievable approvals.
+			require.Len(t, dst.Approvals(), dst.storedCount)
+			tc.verify(t, dst, src, tc.srcApprovals, tc.dstApprovals)
+		})
+	}
+}
+
 func TestApprovalStoreHandleApprovalStoredCountStaysConsistent(t *testing.T) {
 	// Runs a mixed workload (insert, duplicate, replace, new height, prune)
 	// and asserts that storedCount equals len(Approvals()) after every step.

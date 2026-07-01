@@ -30,7 +30,7 @@ func DefaultTestNodeEpochConfig(t *testing.T, nodeID common.NodeID, comm common.
 		ID:                         nodeID,
 		Signer:                     &TestSigner{},
 		WAL:                        wal,
-		Verifier:                   &testVerifier{},
+		Verifier:                   &TestVerifier{},
 		Storage:                    storage,
 		BlockBuilder:               bb,
 		SignatureAggregatorCreator: func(weights []common.Node) common.SignatureAggregator {
@@ -184,14 +184,14 @@ func (t *TestSigner) Sign([]byte) ([]byte, error) {
 	return []byte{1, 2, 3}, nil
 }
 
-type testVerifier struct {
+type TestVerifier struct {
 }
 
-func (t *testVerifier) VerifyBlock(common.VerifiedBlock) error {
+func (t *TestVerifier) VerifyBlock(common.VerifiedBlock) error {
 	return nil
 }
 
-func (t *testVerifier) Verify(_ []byte, _ []byte, pk []byte) error {
+func (t *TestVerifier) VerifySignature(_ []byte, _ []byte, pk []byte) error {
 	return nil
 }
 

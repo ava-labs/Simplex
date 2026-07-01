@@ -18,6 +18,7 @@ type blockBuildingDecision struct {
 	buildInnerBlock bool
 	transitionEpoch bool
 	pChainHeight    uint64
+	validatorSet NodeBLSMappings
 }
 
 // PChainProgressListener listens for changes in the P-chain height.
@@ -33,8 +34,8 @@ type blockBuildingDecider struct {
 	waitForPendingBlock      func(ctx context.Context)
 	// hasValidatorSetChanged should return whether the validator set has changed since the
 	// P-chain height referenced by the last block in the chain and until the provided P-chain height.
-	hasValidatorSetChanged func(pChainHeight uint64) (bool, error)
-	getPChainHeight        func() uint64
+	hasValidatorSetChanged func(pChainHeight uint64) (bool, NodeBLSMappings, error)
+	getPChainHeight        func(ctx context.Context) (uint64, error)
 }
 
 // shouldBuildBlock determines whether we should build a block at the current time,
@@ -46,16 +47,19 @@ func (bbd *blockBuildingDecider) shouldBuildBlock(
 	ctx context.Context,
 ) (blockBuildingDecision, error) {
 	for {
-		pChainHeight := bbd.getPChainHeight()
+		pChainHeight, err := bbd.getPChainHeight(ctx)
+		if err != nil {
+			return blockBuildingDecision{}, err
+		}
 
-		shouldTransitionEpoch, err := bbd.hasValidatorSetChanged(pChainHeight)
+		shouldTransitionEpoch, newValidatorSet, err := bbd.hasValidatorSetChanged(pChainHeight)
 		if err != nil {
 			return blockBuildingDecision{}, err
 		}
 
 		if shouldTransitionEpoch {
 			// If we should transition to a new epoch, maybe we can also build a block along the way.
-			return bbd.buildBlockWithEpochTransition(ctx, pChainHeight)
+			return bbd.buildBlockWithEpochTransition(ctx, pChainHeight, newValidatorSet)
 		}
 
 		// Else, we don't need to transition to a new epoch, but maybe we should build a block.
@@ -71,7 +75,11 @@ func (bbd *blockBuildingDecider) shouldBuildBlock(
 
 		// If the P-chain height changed, re-evaluate again whether we should transition to a new epoch,
 		// or continue waiting to build a block.
-		if bbd.getPChainHeight() != pChainHeight {
+		h, err := bbd.getPChainHeight(ctx)
+		if err != nil {
+			return blockBuildingDecision{}, err
+		}
+		if h != pChainHeight {
 			continue
 		}
 
@@ -109,7 +117,7 @@ func (bbd *blockBuildingDecider) waitForPChainChangeOrPendingBlock(ctx context.C
 // It waits up to a limited amount of time (bbd.maxBlockBuildingWaitTime) for a block to be ready to be built,
 // and if no block is ready by then, it returns the decision to transition epoch without building a block.
 // Otherwise, it returns the decision to build a block and transition epoch along the way.
-func (bbd *blockBuildingDecider) buildBlockWithEpochTransition(ctx context.Context, pChainHeight uint64) (blockBuildingDecision, error) {
+func (bbd *blockBuildingDecider) buildBlockWithEpochTransition(ctx context.Context, pChainHeight uint64, validatorSet NodeBLSMappings) (blockBuildingDecision, error) {
 	impatientContext, cancel := context.WithTimeout(ctx, bbd.maxBlockBuildingWaitTime)
 	defer cancel()
 
@@ -124,9 +132,9 @@ func (bbd *blockBuildingDecider) buildBlockWithEpochTransition(ctx context.Conte
 	if impatientContext.Err() != nil {
 		// We have returned from waitForPendingBlock because impatientContext has timed out,
 		// which means we don't need to build a block.
-		return blockBuildingDecision{transitionEpoch: true, pChainHeight: pChainHeight}, nil
+		return blockBuildingDecision{transitionEpoch: true, pChainHeight: pChainHeight, validatorSet: validatorSet}, nil
 	}
 
 	// Block is ready to be built
-	return blockBuildingDecision{buildInnerBlock: true, transitionEpoch: true, pChainHeight: pChainHeight}, nil
+	return blockBuildingDecision{buildInnerBlock: true, transitionEpoch: true, pChainHeight: pChainHeight, validatorSet: validatorSet}, nil
 }
