@@ -151,6 +151,37 @@ func toProto(msg *common.Message) (*pb.SimplexMessage, error) {
 			},
 		}, nil
 
+	case msg.VerifiedReplicationResponse != nil:
+		resp := msg.VerifiedReplicationResponse
+		pbData := make([]*pb.QuorumRound, 0, len(resp.Data))
+		for i := range resp.Data {
+			pbQR, err := verifiedQuorumRoundToProto(&resp.Data[i])
+			if err != nil {
+				return nil, err
+			}
+			pbData = append(pbData, pbQR)
+		}
+		pbMsg := &pb.ReplicationResponse{Data: pbData}
+		if resp.LatestRound != nil {
+			pbQR, err := verifiedQuorumRoundToProto(resp.LatestRound)
+			if err != nil {
+				return nil, err
+			}
+			pbMsg.LatestRound = pbQR
+		}
+		if resp.LatestFinalizedSeq != nil {
+			pbQR, err := verifiedQuorumRoundToProto(resp.LatestFinalizedSeq)
+			if err != nil {
+				return nil, err
+			}
+			pbMsg.LatestSeq = pbQR
+		}
+		return &pb.SimplexMessage{
+			Payload: &pb.SimplexMessage_ReplicationResponse{
+				ReplicationResponse: pbMsg,
+			},
+		}, nil
+
 	case msg.BlockDigestRequest != nil:
 		bdr := msg.BlockDigestRequest
 		return &pb.SimplexMessage{
@@ -432,6 +463,38 @@ func quorumRoundToProto(qr *common.QuorumRound) (*pb.QuorumRound, error) {
 		blockBytes, err := blockBytesFromBlock(qr.Block)
 		if err != nil {
 			return nil, fmt.Errorf("quorumRoundToProto: %w", err)
+		}
+		pbQR.BlockBytes = blockBytes
+	}
+	if qr.Notarization != nil {
+		pbQR.Notarization = &pb.Notarization{
+			BlockHeader: blockHeaderToProto(qr.Notarization.Vote.BlockHeader),
+			Qc:          qcToProto(qr.Notarization.QC),
+		}
+	}
+	if qr.Finalization != nil {
+		pbQR.Finalization = &pb.Finalization{
+			BlockHeader: blockHeaderToProto(qr.Finalization.Finalization.BlockHeader),
+			Qc:          qcToProto(qr.Finalization.QC),
+		}
+	}
+	if qr.EmptyNotarization != nil {
+		en := qr.EmptyNotarization
+		pbQR.EmptyNotarization = &pb.EmptyNotarization{
+			Round: en.Vote.Round,
+			Epoch: en.Vote.Epoch,
+			Qc:    qcToProto(en.QC),
+		}
+	}
+	return pbQR, nil
+}
+
+func verifiedQuorumRoundToProto(qr *common.VerifiedQuorumRound) (*pb.QuorumRound, error) {
+	pbQR := &pb.QuorumRound{}
+	if qr.VerifiedBlock != nil {
+		blockBytes, err := qr.VerifiedBlock.Bytes()
+		if err != nil {
+			return nil, fmt.Errorf("verifiedQuorumRoundToProto: %w", err)
 		}
 		pbQR.BlockBytes = blockBytes
 	}

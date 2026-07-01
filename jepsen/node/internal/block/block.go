@@ -126,36 +126,47 @@ type BlockBuilder struct {
 	mu      sync.Mutex
 	pending []byte    // first pending transaction
 	ready   chan struct{} // closed/sent when a transaction is ready
+	notify  chan struct{} // signals waitForPendingBlock
 }
 
 // NewBlockBuilder creates a BlockBuilder.
 func NewBlockBuilder() *BlockBuilder {
 	return &BlockBuilder{
 		ready: make(chan struct{}, 1),
+		notify: make(chan struct{}, 1),
 	}
 }
 
-// SubmitTransaction enqueues a transaction. Only the first pending transaction
-// is retained until BuildBlock consumes it.
+// SubmitTransaction enqueues a transaction, overwriting any previously pending
+// transaction that has not yet been built into a committed block.
 func (bb *BlockBuilder) SubmitTransaction(data []byte) {
 	bb.mu.Lock()
 	defer bb.mu.Unlock()
-	if bb.pending == nil {
-		bb.pending = data
-		// Non-blocking send; if the channel already has a token there is
-		// already a pending transaction.
-		select {
-		case bb.ready <- struct{}{}:
-		default:
-		}
+	bb.pending = data
+	select {
+	case bb.ready <- struct{}{}:
+	default:
+	}
+	select {
+	case bb.notify <- struct{}{}:
+	default:
 	}
 }
 
-// WaitForPendingBlock returns immediately so the simplex engine's monitor
-// goroutine is never blocked. The actual wait for a transaction happens in
-// BuildBlock. Blocking here would prevent the MaxProposalWait timer from
-// firing on non-leader nodes because the monitor is a single goroutine.
-func (bb *BlockBuilder) WaitForPendingBlock(_ context.Context) {}
+
+func (bb *BlockBuilder) WaitForPendingBlock(ctx context.Context) {
+	bb.mu.Lock()
+	if bb.pending != nil {
+		bb.mu.Unlock()
+		return
+	}
+	bb.mu.Unlock()
+
+	select {
+	case <-bb.notify:
+	case <-ctx.Done():
+	}
+}
 
 // BuildBlock waits for a pending transaction and constructs a Block.
 // Returns (nil, false) if ctx is cancelled before a transaction arrives.
@@ -165,7 +176,6 @@ func (bb *BlockBuilder) BuildBlock(ctx context.Context, metadata common.Protocol
 		bb.mu.Lock()
 		if bb.pending != nil {
 			data := bb.pending
-			bb.pending = nil
 			bb.mu.Unlock()
 			return newBlock(data, metadata, blacklist), true
 		}
