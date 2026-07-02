@@ -60,13 +60,9 @@ func TestFakeNodeEpochChangesDespiteEmptyMempool(t *testing.T) {
 			node.tryFinalizeNextBlock()
 		}
 		if flipCoin() {
-			node.sm.ApprovalsRetriever = &approvalsRetriever{
-				result: []ValidatorSetApproval{{NodeID: [20]byte{1}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}},
-			}
+			require.NoError(t, node.sm.HandleApproval(&ValidatorSetApproval{NodeID: [20]byte{1}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1))
 		} else {
-			node.sm.ApprovalsRetriever = &approvalsRetriever{
-				result: []ValidatorSetApproval{{NodeID: [20]byte{2}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}},
-			}
+			require.NoError(t, node.sm.HandleApproval(&ValidatorSetApproval{NodeID: [20]byte{2}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1))
 		}
 
 		if node.isLastBlockSealing() {
@@ -111,13 +107,9 @@ func TestFakeNode(t *testing.T) {
 	for node.Epoch() == epoch {
 		node.act()
 		if flipCoin() {
-			node.sm.ApprovalsRetriever = &approvalsRetriever{
-				result: []ValidatorSetApproval{{NodeID: [20]byte{1}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}},
-			}
+			require.NoError(t, node.sm.HandleApproval(&ValidatorSetApproval{NodeID: [20]byte{1}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1))
 		} else {
-			node.sm.ApprovalsRetriever = &approvalsRetriever{
-				result: []ValidatorSetApproval{{NodeID: [20]byte{2}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}},
-			}
+			require.NoError(t, node.sm.HandleApproval(&ValidatorSetApproval{NodeID: [20]byte{2}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1))
 		}
 	}
 
@@ -132,13 +124,9 @@ func TestFakeNode(t *testing.T) {
 	for node.Epoch() == epoch {
 		node.act()
 		if flipCoin() {
-			node.sm.ApprovalsRetriever = &approvalsRetriever{
-				result: []ValidatorSetApproval{{NodeID: [20]byte{2}, PChainHeight: 300, Signature: signApproval(300, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}},
-			}
+			require.NoError(t, node.sm.HandleApproval(&ValidatorSetApproval{NodeID: [20]byte{2}, PChainHeight: 300, Signature: signApproval(300, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1))
 		} else {
-			node.sm.ApprovalsRetriever = &approvalsRetriever{
-				result: []ValidatorSetApproval{{NodeID: [20]byte{3}, PChainHeight: 300, Signature: signApproval(300, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}},
-			}
+			require.NoError(t, node.sm.HandleApproval(&ValidatorSetApproval{NodeID: [20]byte{3}, PChainHeight: 300, Signature: signApproval(300, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1))
 		}
 	}
 
@@ -185,13 +173,9 @@ func TestFakeNodeEmptyMempool(t *testing.T) {
 	for node.lastFinalizedBlock().Metadata.SimplexEpochInfo.BlockValidationDescriptor == nil {
 		node.act()
 		if flipCoin() {
-			node.sm.ApprovalsRetriever = &approvalsRetriever{
-				result: []ValidatorSetApproval{{NodeID: [20]byte{1}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}},
-			}
+			require.NoError(t, node.sm.HandleApproval(&ValidatorSetApproval{NodeID: [20]byte{1}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1))
 		} else {
-			node.sm.ApprovalsRetriever = &approvalsRetriever{
-				result: []ValidatorSetApproval{{NodeID: [20]byte{2}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}},
-			}
+			require.NoError(t, node.sm.HandleApproval(&ValidatorSetApproval{NodeID: [20]byte{2}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1))
 		}
 	}
 
@@ -218,13 +202,9 @@ func TestFakeNodeEmptyMempool(t *testing.T) {
 	for node.Height() < 30 {
 		node.act()
 		if flipCoin() {
-			node.sm.ApprovalsRetriever = &approvalsRetriever{
-				result: []ValidatorSetApproval{{NodeID: [20]byte{2}, PChainHeight: 300, Signature: signApproval(300, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}},
-			}
+			require.NoError(t, node.sm.HandleApproval(&ValidatorSetApproval{NodeID: [20]byte{2}, PChainHeight: 300, Signature: signApproval(300, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1))
 		} else {
-			node.sm.ApprovalsRetriever = &approvalsRetriever{
-				result: []ValidatorSetApproval{{NodeID: [20]byte{3}, PChainHeight: 300, Signature: signApproval(300, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}},
-			}
+			require.NoError(t, node.sm.HandleApproval(&ValidatorSetApproval{NodeID: [20]byte{3}, PChainHeight: 300, Signature: signApproval(300, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1))
 		}
 	}
 

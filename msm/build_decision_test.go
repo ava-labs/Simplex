@@ -31,7 +31,7 @@ func TestShouldBuildBlock_VMSignalsBlock(t *testing.T) {
 			},
 		},
 		waitForPendingBlock:    func(ctx context.Context) {},
-		hasValidatorSetChanged: func(uint64) (bool, error) { return false, nil },
+		hasValidatorSetChanged: func(uint64) (bool, NodeBLSMappings, error) { return false, nil, nil },
 		getPChainHeight:        func() uint64 { return 100 },
 	}
 
@@ -55,7 +55,7 @@ func TestShouldBuildBlock_ContextCanceled(t *testing.T) {
 			cancel()
 			<-ctx.Done()
 		},
-		hasValidatorSetChanged: func(uint64) (bool, error) { return false, nil },
+		hasValidatorSetChanged: func(uint64) (bool, NodeBLSMappings, error) { return false, nil, nil },
 		getPChainHeight:        func() uint64 { return 100 },
 	}
 
@@ -85,8 +85,8 @@ func TestShouldBuildBlock_PChainHeightChangeTriggersEpochTransition(t *testing.T
 		waitForPendingBlock: func(ctx context.Context) {
 			<-ctx.Done()
 		},
-		hasValidatorSetChanged: func(height uint64) (bool, error) {
-			return height == 200, nil
+		hasValidatorSetChanged: func(height uint64) (bool, NodeBLSMappings, error) {
+			return height == 200, nil, nil
 		},
 		getPChainHeight: func() uint64 { return pChainHeight.Load() },
 	}
@@ -122,7 +122,7 @@ func TestShouldBuildBlock_PChainHeightChangeButNoEpochTransition(t *testing.T) {
 				<-ctx.Done()
 			}
 		},
-		hasValidatorSetChanged: func(uint64) (bool, error) { return false, nil },
+		hasValidatorSetChanged: func(uint64) (bool, NodeBLSMappings, error) { return false, nil, nil },
 		getPChainHeight:        func() uint64 { return pChainHeight.Load() },
 	}
 
@@ -141,7 +141,7 @@ func TestShouldBuildBlock_EpochTransitionWithVMBlock(t *testing.T) {
 			},
 		},
 		waitForPendingBlock:    func(ctx context.Context) {},
-		hasValidatorSetChanged: func(uint64) (bool, error) { return true, nil },
+		hasValidatorSetChanged: func(uint64) (bool, NodeBLSMappings, error) { return true, nil, nil },
 		getPChainHeight:        func() uint64 { return 100 },
 	}
 
@@ -162,7 +162,7 @@ func TestShouldBuildBlock_EpochTransitionWithoutVMBlock(t *testing.T) {
 		waitForPendingBlock: func(ctx context.Context) {
 			<-ctx.Done()
 		},
-		hasValidatorSetChanged: func(uint64) (bool, error) { return true, nil },
+		hasValidatorSetChanged: func(uint64) (bool, NodeBLSMappings, error) { return true, nil, nil },
 		getPChainHeight:        func() uint64 { return 100 },
 	}
 
@@ -187,7 +187,7 @@ func TestShouldBuildBlock_EpochTransitionContextCanceled(t *testing.T) {
 			cancel()
 			<-ctx.Done()
 		},
-		hasValidatorSetChanged: func(uint64) (bool, error) { return true, nil },
+		hasValidatorSetChanged: func(uint64) (bool, NodeBLSMappings, error) { return true, nil, nil },
 		getPChainHeight:        func() uint64 { return 100 },
 	}
 

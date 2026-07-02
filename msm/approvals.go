@@ -5,6 +5,7 @@ package metadata
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/ava-labs/simplex/common"
 	"go.uber.org/zap"
@@ -27,8 +28,12 @@ type ApprovalStore struct {
 	validators        NodeBLSMappings
 	logger            common.Logger
 	pkByNodeID        map[nodeID][]byte
-	approvalsByNodes  map[nodeID]approvalsByPChainHeightAndAuxInfoDigest
-	storedCount       int
+	// lock guards the mutable state below (approvalsByNodes, storedCount). The
+	// store is accessed concurrently: approvals are handled as they arrive while
+	// the block builder reads the accumulated approvals when building a block.
+	lock             sync.RWMutex
+	approvalsByNodes map[nodeID]approvalsByPChainHeightAndAuxInfoDigest
+	storedCount      int
 }
 
 func NewApprovalStore(signatureVerifier SignatureVerifier, validators NodeBLSMappings, logger common.Logger) *ApprovalStore {
@@ -52,6 +57,9 @@ func NewApprovalStore(signatureVerifier SignatureVerifier, validators NodeBLSMap
 }
 
 func (as *ApprovalStore) Approvals() ValidatorSetApprovals {
+	as.lock.RLock()
+	defer as.lock.RUnlock()
+
 	approvals := make(ValidatorSetApprovals, 0, as.storedCount)
 	for _, approvalsByHeight := range as.approvalsByNodes {
 		for _, approval := range approvalsByHeight {
@@ -70,17 +78,21 @@ func (as *ApprovalStore) HandleApproval(approval *ValidatorSetApproval, timestam
 		return nil
 	}
 
-	// Second thing we check is if we already have an approval for this height from this node.
-	if as.approvalExistsAndUpToDate(approval, timestamp) {
-		as.logger.Debug("Already have an approval from the node", zap.String("nodeID",
+	// Second thing we check is if the signature of the approval is valid.
+	// We need it to be valid in order for nodes to be able to aggregate it later on along with other approvals.
+	// This is checked before taking the lock, as it only reads immutable state.
+	if err := as.checkApprovalSignature(approval, pk); err != nil {
+		as.logger.Debug("Received an approval with an invalid signature", zap.String("nodeID",
 			fmt.Sprintf("%x", approval.NodeID)), zap.Uint64("pChainHeight", approval.PChainHeight))
 		return nil
 	}
 
-	// Third thing we check is if the signature of the approval is valid.
-	// We need it to be valid in order for nodes to be able to aggregate it later on along with other approvals.
-	if err := as.checkApprovalSignature(approval, pk); err != nil {
-		as.logger.Debug("Received an approval with an invalid signature", zap.String("nodeID",
+	as.lock.Lock()
+	defer as.lock.Unlock()
+
+	// Third thing we check is if we already have an approval for this height from this node.
+	if as.approvalExistsAndUpToDate(approval, timestamp) {
+		as.logger.Debug("Already have an approval from the node", zap.String("nodeID",
 			fmt.Sprintf("%x", approval.NodeID)), zap.Uint64("pChainHeight", approval.PChainHeight))
 		return nil
 	}
@@ -166,4 +178,29 @@ func (as *ApprovalStore) approvalExistsAndUpToDate(approval *ValidatorSetApprova
 	}
 
 	return existingApproval.Timestamp >= timestamp
+}
+
+func (as *ApprovalStore) PutApprovals(approvalStore *ApprovalStore) {
+	// Snapshot the approvals under our lock, then hand them to the destination
+	// store (which takes its own lock). Copying first avoids holding two store
+	// locks at once.
+	as.lock.Lock()
+	type approvalWithTimestamp struct {
+		approval  ValidatorSetApproval
+		timestamp uint64
+	}
+	snapshot := make([]approvalWithTimestamp, 0, as.storedCount)
+	for _, approvalsByHeight := range as.approvalsByNodes {
+		for _, approval := range approvalsByHeight {
+			snapshot = append(snapshot, approvalWithTimestamp{
+				approval:  approval.ValidatorSetApproval,
+				timestamp: approval.Timestamp,
+			})
+		}
+	}
+	as.lock.Unlock()
+
+	for _, a := range snapshot {
+		approvalStore.HandleApproval(&a.approval, a.timestamp)
+	}
 }

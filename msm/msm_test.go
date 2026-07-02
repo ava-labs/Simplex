@@ -701,19 +701,13 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 
 			// ----- Step 4: First collecting block (1/3 approvals, not enough to seal) -----
 
-			// Override ApprovalsRetriever to use our dynamic approvals.
-			var approvalsResult ValidatorSetApprovals
-			sm.ApprovalsRetriever = &dynamicApprovalsRetriever{approvals: &approvalsResult}
-
 			sig1 := signApproval(pChainHeight2, emptyAuxInfoDigest)
-			approvalsResult = ValidatorSetApprovals{
-				{
-					NodeID:        node1,
-					PChainHeight:  pChainHeight2,
-					AuxInfoDigest: emptyAuxInfoDigest,
-					Signature:     sig1,
-				},
-			}
+			require.NoError(t, sm.HandleApproval(&ValidatorSetApproval{
+				NodeID:        node1,
+				PChainHeight:  pChainHeight2,
+				AuxInfoDigest: emptyAuxInfoDigest,
+				Signature:     sig1,
+			}, 1))
 
 			// node1 is at index 0 in validatorSet2 → bitmask bit 0 → {1}
 			bitmask := []byte{1}
@@ -750,14 +744,12 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 
 			// ----- Step 5: Second collecting block (2/3 approvals, still not enough since threshold is strictly > 2/3) -----
 			sig2 := signApproval(pChainHeight2, emptyAuxInfoDigest)
-			approvalsResult = ValidatorSetApprovals{
-				{
-					NodeID:        node2,
-					PChainHeight:  pChainHeight2,
-					AuxInfoDigest: emptyAuxInfoDigest,
-					Signature:     sig2,
-				},
-			}
+			require.NoError(t, sm.HandleApproval(&ValidatorSetApproval{
+				NodeID:        node2,
+				PChainHeight:  pChainHeight2,
+				AuxInfoDigest: emptyAuxInfoDigest,
+				Signature:     sig2,
+			}, 2))
 
 			// node2 is at index 1 → bitmask bits 0,1 → {3}
 			sig, err = aggr.AppendSignatures(sig, sig2)
@@ -794,14 +786,12 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 
 			// ----- Step 6: Sealing block (3/3 approvals, enough to seal) -----
 			sig3 := signApproval(pChainHeight2, emptyAuxInfoDigest)
-			approvalsResult = ValidatorSetApprovals{
-				{
-					NodeID:        node3,
-					PChainHeight:  pChainHeight2,
-					AuxInfoDigest: emptyAuxInfoDigest,
-					Signature:     sig3,
-				},
-			}
+			require.NoError(t, sm.HandleApproval(&ValidatorSetApproval{
+				NodeID:        node3,
+				PChainHeight:  pChainHeight2,
+				AuxInfoDigest: emptyAuxInfoDigest,
+				Signature:     sig3,
+			}, 3))
 
 			// node3 is at index 2 → bitmask bits 0,1,2 → {7}
 			sig6, err := aggr.AppendSignatures(sig, sig3)
