@@ -737,6 +737,43 @@ func TestEpochSimpleFlow(t *testing.T) {
 	}
 }
 
+func TestEpochResizesBlacklistOnEpochChange(t *testing.T) {
+	storage := testutil.NewInMemStorage()
+	epoch1Block := testutil.NewTestBlock(ProtocolMetadata{Epoch: 1, Round: 0, Seq: 0}, NewBlacklist(1))
+	require.NoError(t, storage.Index(context.Background(), epoch1Block, Finalization{}))
+	require.Equal(t, uint16(1), epoch1Block.Blacklist().NodeCount,
+		"blacklist must contain exactly one node")
+
+	// Restart the node into epoch 2 with a two-validator set.
+	nodes := []NodeID{{1}, {2}}
+	bb := testutil.NewTestBlockBuilder()
+	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, NodeID{2}, testutil.NewNoopComm(nodes), bb)
+	conf.Storage = storage
+	conf.Epoch = 2
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	// Run as epoch 2 while the last committed block still belongs to epoch 1.
+	e.Epoch = conf.Epoch
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+
+	// The node (leader) builds the next block on top of the epoch-1 block. Its
+	// blacklist must be sized for the new validator set (2), not inherited from the
+	// parent (1) — otherwise its blacklist is malformed and the block cannot be
+	// notarized.
+	bb.BlockShouldBeBuilt <- struct{}{}
+	block := bb.GetBuiltBlock()
+	require.Equal(t, uint16(2), block.Blacklist().NodeCount,
+		"blacklist must be resized to the new epoch's validator count")
+
+	// The other validator votes for the block; together with the node's own vote
+	// that is a quorum, so the node persists a notarization for the block's round.
+	// This proves the blacklist has been verified by this node.
+	testutil.InjectTestVote(t, e, block, NodeID{1})
+	wal.AssertNotarization(block.BlockHeader().Round)
+}
+
 func TestEpochStartedTwice(t *testing.T) {
 	bb := testutil.NewTestBlockBuilder()
 
