@@ -2374,7 +2374,7 @@ func (e *Epoch) locateBlock(seq uint64, digest []byte) (common.VerifiedBlock, *n
 func (e *Epoch) buildBlock() {
 	metadata := e.metadata()
 
-	prevBlacklist, ok := e.retrieveBlacklistOfParentBlock(metadata)
+	prevBlacklist, ok := e.retrieveBlacklistForBlockBuilding(metadata)
 	if !ok {
 		return
 	}
@@ -2419,7 +2419,7 @@ func (e *Epoch) buildBlock() {
 	e.buildBlockScheduler.ScheduleOrReplace(task)
 }
 
-func (e *Epoch) retrieveBlacklistOfParentBlock(metadata common.ProtocolMetadata) (common.Blacklist, bool) {
+func (e *Epoch) retrieveBlacklistForBlockBuilding(metadata common.ProtocolMetadata) (common.Blacklist, bool) {
 	var blacklist common.Blacklist
 	if metadata.Seq > 0 {
 		prevBlock, _, ok := e.locateBlock(metadata.Seq-1, metadata.Prev[:])
