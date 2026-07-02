@@ -1679,6 +1679,92 @@ func (*HealResponse) Descriptor() ([]byte, []int) {
 	return file_proto_simplex_proto_rawDescGZIP(), []int{28}
 }
 
+// SetMessageFilterRequest controls which incoming message types are silently
+// dropped on the receiving node. An empty drop_types list clears all filters.
+// Valid type names match the SimplexMessage oneof field names:
+// block_message, vote_message, empty_vote_message, notarization,
+// empty_notarization, finalize_vote, finalization, replication_request,
+// replication_response, block_digest_request.
+type SetMessageFilterRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	DropTypes     []string               `protobuf:"bytes,1,rep,name=drop_types,json=dropTypes,proto3" json:"drop_types,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetMessageFilterRequest) Reset() {
+	*x = SetMessageFilterRequest{}
+	mi := &file_proto_simplex_proto_msgTypes[29]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetMessageFilterRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetMessageFilterRequest) ProtoMessage() {}
+
+func (x *SetMessageFilterRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_simplex_proto_msgTypes[29]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetMessageFilterRequest.ProtoReflect.Descriptor instead.
+func (*SetMessageFilterRequest) Descriptor() ([]byte, []int) {
+	return file_proto_simplex_proto_rawDescGZIP(), []int{29}
+}
+
+func (x *SetMessageFilterRequest) GetDropTypes() []string {
+	if x != nil {
+		return x.DropTypes
+	}
+	return nil
+}
+
+type SetMessageFilterResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetMessageFilterResponse) Reset() {
+	*x = SetMessageFilterResponse{}
+	mi := &file_proto_simplex_proto_msgTypes[30]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetMessageFilterResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetMessageFilterResponse) ProtoMessage() {}
+
+func (x *SetMessageFilterResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_simplex_proto_msgTypes[30]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetMessageFilterResponse.ProtoReflect.Descriptor instead.
+func (*SetMessageFilterResponse) Descriptor() ([]byte, []int) {
+	return file_proto_simplex_proto_rawDescGZIP(), []int{30}
+}
+
 var File_proto_simplex_proto protoreflect.FileDescriptor
 
 const file_proto_simplex_proto_rawDesc = "" +
@@ -1787,16 +1873,21 @@ const file_proto_simplex_proto_rawDesc = "" +
 	"\x11PartitionResponse\"(\n" +
 	"\vHealRequest\x12\x19\n" +
 	"\bpeer_ids\x18\x01 \x03(\fR\apeerIds\"\x0e\n" +
-	"\fHealResponse2W\n" +
+	"\fHealResponse\"8\n" +
+	"\x17SetMessageFilterRequest\x12\x1d\n" +
+	"\n" +
+	"drop_types\x18\x01 \x03(\tR\tdropTypes\"\x1a\n" +
+	"\x18SetMessageFilterResponse2W\n" +
 	"\vNodeService\x12H\n" +
 	"\vSendMessage\x12\x1b.simplex.SendMessageRequest\x1a\x1c.simplex.SendMessageResponse2\x8f\x02\n" +
 	"\x0eControlService\x12Z\n" +
 	"\x11SubmitTransaction\x12!.simplex.SubmitTransactionRequest\x1a\".simplex.SubmitTransactionResponse\x12B\n" +
 	"\tGetStatus\x12\x19.simplex.GetStatusRequest\x1a\x1a.simplex.GetStatusResponse\x12]\n" +
-	"\x12GetCommittedBlocks\x12\".simplex.GetCommittedBlocksRequest\x1a#.simplex.GetCommittedBlocksResponse2\x87\x01\n" +
+	"\x12GetCommittedBlocks\x12\".simplex.GetCommittedBlocksRequest\x1a#.simplex.GetCommittedBlocksResponse2\xe0\x01\n" +
 	"\fAdminService\x12B\n" +
 	"\tPartition\x12\x19.simplex.PartitionRequest\x1a\x1a.simplex.PartitionResponse\x123\n" +
-	"\x04Heal\x12\x14.simplex.HealRequest\x1a\x15.simplex.HealResponseB/Z-github.com/ava-labs/simplex/jepsen/node/protob\x06proto3"
+	"\x04Heal\x12\x14.simplex.HealRequest\x1a\x15.simplex.HealResponse\x12W\n" +
+	"\x10SetMessageFilter\x12 .simplex.SetMessageFilterRequest\x1a!.simplex.SetMessageFilterResponseB/Z-github.com/ava-labs/simplex/jepsen/node/protob\x06proto3"
 
 var (
 	file_proto_simplex_proto_rawDescOnce sync.Once
@@ -1810,7 +1901,7 @@ func file_proto_simplex_proto_rawDescGZIP() []byte {
 	return file_proto_simplex_proto_rawDescData
 }
 
-var file_proto_simplex_proto_msgTypes = make([]protoimpl.MessageInfo, 29)
+var file_proto_simplex_proto_msgTypes = make([]protoimpl.MessageInfo, 31)
 var file_proto_simplex_proto_goTypes = []any{
 	(*ProtocolMetadata)(nil),           // 0: simplex.ProtocolMetadata
 	(*BlockHeader)(nil),                // 1: simplex.BlockHeader
@@ -1841,6 +1932,8 @@ var file_proto_simplex_proto_goTypes = []any{
 	(*PartitionResponse)(nil),          // 26: simplex.PartitionResponse
 	(*HealRequest)(nil),                // 27: simplex.HealRequest
 	(*HealResponse)(nil),               // 28: simplex.HealResponse
+	(*SetMessageFilterRequest)(nil),    // 29: simplex.SetMessageFilterRequest
+	(*SetMessageFilterResponse)(nil),   // 30: simplex.SetMessageFilterResponse
 }
 var file_proto_simplex_proto_depIdxs = []int32{
 	0,  // 0: simplex.BlockHeader.metadata:type_name -> simplex.ProtocolMetadata
@@ -1879,14 +1972,16 @@ var file_proto_simplex_proto_depIdxs = []int32{
 	22, // 33: simplex.ControlService.GetCommittedBlocks:input_type -> simplex.GetCommittedBlocksRequest
 	25, // 34: simplex.AdminService.Partition:input_type -> simplex.PartitionRequest
 	27, // 35: simplex.AdminService.Heal:input_type -> simplex.HealRequest
-	17, // 36: simplex.NodeService.SendMessage:output_type -> simplex.SendMessageResponse
-	19, // 37: simplex.ControlService.SubmitTransaction:output_type -> simplex.SubmitTransactionResponse
-	21, // 38: simplex.ControlService.GetStatus:output_type -> simplex.GetStatusResponse
-	24, // 39: simplex.ControlService.GetCommittedBlocks:output_type -> simplex.GetCommittedBlocksResponse
-	26, // 40: simplex.AdminService.Partition:output_type -> simplex.PartitionResponse
-	28, // 41: simplex.AdminService.Heal:output_type -> simplex.HealResponse
-	36, // [36:42] is the sub-list for method output_type
-	30, // [30:36] is the sub-list for method input_type
+	29, // 36: simplex.AdminService.SetMessageFilter:input_type -> simplex.SetMessageFilterRequest
+	17, // 37: simplex.NodeService.SendMessage:output_type -> simplex.SendMessageResponse
+	19, // 38: simplex.ControlService.SubmitTransaction:output_type -> simplex.SubmitTransactionResponse
+	21, // 39: simplex.ControlService.GetStatus:output_type -> simplex.GetStatusResponse
+	24, // 40: simplex.ControlService.GetCommittedBlocks:output_type -> simplex.GetCommittedBlocksResponse
+	26, // 41: simplex.AdminService.Partition:output_type -> simplex.PartitionResponse
+	28, // 42: simplex.AdminService.Heal:output_type -> simplex.HealResponse
+	30, // 43: simplex.AdminService.SetMessageFilter:output_type -> simplex.SetMessageFilterResponse
+	37, // [37:44] is the sub-list for method output_type
+	30, // [30:37] is the sub-list for method input_type
 	30, // [30:30] is the sub-list for extension type_name
 	30, // [30:30] is the sub-list for extension extendee
 	0,  // [0:30] is the sub-list for field type_name
@@ -1917,7 +2012,7 @@ func file_proto_simplex_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_simplex_proto_rawDesc), len(file_proto_simplex_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   29,
+			NumMessages:   31,
 			NumExtensions: 0,
 			NumServices:   3,
 		},

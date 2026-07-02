@@ -164,7 +164,20 @@ message HealRequest {
 
 message HealResponse {}
 
+// SetMessageFilterRequest controls which incoming message types are silently
+// dropped on the receiving node. An empty drop_types list clears all filters.
+// Valid type names match the SimplexMessage oneof field names:
+// block_message, vote_message, empty_vote_message, notarization,
+// empty_notarization, finalize_vote, finalization, replication_request,
+// replication_response, block_digest_request.
+message SetMessageFilterRequest {
+  repeated string drop_types = 1;
+}
+
+message SetMessageFilterResponse {}
+
 service AdminService {
   rpc Partition(PartitionRequest) returns (PartitionResponse);
   rpc Heal(HealRequest) returns (HealResponse);
+  rpc SetMessageFilter(SetMessageFilterRequest) returns (SetMessageFilterResponse);
 }

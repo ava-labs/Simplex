@@ -299,8 +299,9 @@ var ControlService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	AdminService_Partition_FullMethodName = "/simplex.AdminService/Partition"
-	AdminService_Heal_FullMethodName      = "/simplex.AdminService/Heal"
+	AdminService_Partition_FullMethodName        = "/simplex.AdminService/Partition"
+	AdminService_Heal_FullMethodName             = "/simplex.AdminService/Heal"
+	AdminService_SetMessageFilter_FullMethodName = "/simplex.AdminService/SetMessageFilter"
 )
 
 // AdminServiceClient is the client API for AdminService service.
@@ -309,6 +310,7 @@ const (
 type AdminServiceClient interface {
 	Partition(ctx context.Context, in *PartitionRequest, opts ...grpc.CallOption) (*PartitionResponse, error)
 	Heal(ctx context.Context, in *HealRequest, opts ...grpc.CallOption) (*HealResponse, error)
+	SetMessageFilter(ctx context.Context, in *SetMessageFilterRequest, opts ...grpc.CallOption) (*SetMessageFilterResponse, error)
 }
 
 type adminServiceClient struct {
@@ -339,12 +341,23 @@ func (c *adminServiceClient) Heal(ctx context.Context, in *HealRequest, opts ...
 	return out, nil
 }
 
+func (c *adminServiceClient) SetMessageFilter(ctx context.Context, in *SetMessageFilterRequest, opts ...grpc.CallOption) (*SetMessageFilterResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SetMessageFilterResponse)
+	err := c.cc.Invoke(ctx, AdminService_SetMessageFilter_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AdminServiceServer is the server API for AdminService service.
 // All implementations must embed UnimplementedAdminServiceServer
 // for forward compatibility.
 type AdminServiceServer interface {
 	Partition(context.Context, *PartitionRequest) (*PartitionResponse, error)
 	Heal(context.Context, *HealRequest) (*HealResponse, error)
+	SetMessageFilter(context.Context, *SetMessageFilterRequest) (*SetMessageFilterResponse, error)
 	mustEmbedUnimplementedAdminServiceServer()
 }
 
@@ -360,6 +373,9 @@ func (UnimplementedAdminServiceServer) Partition(context.Context, *PartitionRequ
 }
 func (UnimplementedAdminServiceServer) Heal(context.Context, *HealRequest) (*HealResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Heal not implemented")
+}
+func (UnimplementedAdminServiceServer) SetMessageFilter(context.Context, *SetMessageFilterRequest) (*SetMessageFilterResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SetMessageFilter not implemented")
 }
 func (UnimplementedAdminServiceServer) mustEmbedUnimplementedAdminServiceServer() {}
 func (UnimplementedAdminServiceServer) testEmbeddedByValue()                      {}
@@ -418,6 +434,24 @@ func _AdminService_Heal_Handler(srv interface{}, ctx context.Context, dec func(i
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AdminService_SetMessageFilter_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetMessageFilterRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).SetMessageFilter(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_SetMessageFilter_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).SetMessageFilter(ctx, req.(*SetMessageFilterRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AdminService_ServiceDesc is the grpc.ServiceDesc for AdminService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -432,6 +466,10 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Heal",
 			Handler:    _AdminService_Heal_Handler,
+		},
+		{
+			MethodName: "SetMessageFilter",
+			Handler:    _AdminService_SetMessageFilter_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

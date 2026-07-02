@@ -33,15 +33,29 @@ var tests = []struct {
 	{"cross-minority-partition", testCrossMinorityPartition},
 	{"leader-assassination", testLeaderAssassination},
 	{"flapping-partition", testFlappingPartition},
+	{"single-crash", testSingleCrash},
+	{"rolling-crash", testRollingCrash},
+	{"repeated-crash", testRepeatedCrash},
+	{"crash-during-replication", testCrashDuringReplication},
+	{"leader-crash", testLeaderCrash},
+	{"simultaneous-crash", testSimultaneousCrash},
+	{"full-cluster-restart", testFullClusterRestart},
+	{"drop-votes", testDropVotes},
+	{"drop-replication-response", testDropReplicationResponse},
+	{"drop-block-message", testDropBlockMessage},
+	{"drop-finalize-vote", testDropFinalizeVote},
+	{"drop-empty-vote", testDropEmptyVote},
 }
 
 type Cluster struct {
-	dir 	string 
-	procs 	[]*os.Process
-	addrs 	[]string
-	nodeIDs []string
-	ctrl    []pb.ControlServiceClient
-	admin   []pb.AdminServiceClient
+	dir       string
+	configDir string
+	nodeBin   string
+	procs     []*os.Process
+	addrs     []string
+	nodeIDs   []string
+	ctrl      []pb.ControlServiceClient
+	admin     []pb.AdminServiceClient
 }
 
 func main() {
@@ -229,12 +243,14 @@ func setupCluster(n int, bins *Binaries) (*Cluster, error) {
 	}
 
 	return &Cluster{
-		dir:     dir,
-		procs:   procs,
-		addrs:   addrs,
-		nodeIDs: nodeIDs,
-		ctrl:    ctrlClients,
-		admin:   adminClients,
+		dir:       dir,
+		configDir: configDir,
+		nodeBin:   bins.nodeBin,
+		procs:     procs,
+		addrs:     addrs,
+		nodeIDs:   nodeIDs,
+		ctrl:      ctrlClients,
+		admin:     adminClients,
 	}, nil
 }
 func findFreePort() (int, error) {
@@ -277,12 +293,43 @@ func waitForNodes(ctx context.Context, addrs []string) error {
 	}
 }
 
-func (c *Cluster) TearDown(){
+func (c *Cluster) TearDown() {
 	for _, p := range c.procs {
 		p.Kill()
 	}
 	os.RemoveAll(c.dir)
+}
 
+// Kill sends SIGKILL to node i, simulating a hard crash with no cleanup.
+func (c *Cluster) Kill(i int) error {
+	if err := c.procs[i].Kill(); err != nil {
+		return fmt.Errorf("kill node%d: %w", i, err)
+	}
+	c.procs[i].Wait() // reap the zombie so the port is released
+	fmt.Printf("node %d (%s) killed\n", i, c.addrs[i])
+	return nil
+}
+
+// Restart relaunches node i from its on-disk config (same address, same WAL).
+// The node replays committed state from storage and rejoins the cluster.
+func (c *Cluster) Restart(i int) error {
+	cfgPath := filepath.Join(c.configDir, fmt.Sprintf("node%d", i), "config.json")
+	cmd := exec.Command(c.nodeBin, "-config", cfgPath)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("restart node%d: %w", i, err)
+	}
+	c.procs[i] = cmd.Process
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	if err := waitForNodes(ctx, []string{c.addrs[i]}); err != nil {
+		cmd.Process.Kill()
+		return fmt.Errorf("node%d did not become ready after restart: %w", i, err)
+	}
+	fmt.Printf("node %d (%s) restarted\n", i, c.addrs[i])
+	return nil
 }
 
 func (c *Cluster) waitForBlocks(minSeq uint64, timeout time.Duration) error {
@@ -368,6 +415,32 @@ func (c *Cluster) Heal(nodeIdx int) error {
 	return nil
 }
 
+// DropMessages installs a message-type filter on node nodeIdx: any incoming
+// message whose type is in msgTypes is silently dropped before reaching the engine.
+// Valid type names: block_message, vote_message, empty_vote_message, notarization,
+// empty_notarization, finalize_vote, finalization, replication_request,
+// replication_response, block_digest_request.
+func (c *Cluster) DropMessages(nodeIdx int, msgTypes ...string) error {
+	_, err := c.admin[nodeIdx].SetMessageFilter(context.Background(), &pb.SetMessageFilterRequest{
+		DropTypes: msgTypes,
+	})
+	if err != nil {
+		return fmt.Errorf("SetMessageFilter node%d: %w", nodeIdx, err)
+	}
+	fmt.Printf("node %d (%s) dropping message types: %v\n", nodeIdx, c.addrs[nodeIdx], msgTypes)
+	return nil
+}
+
+// ClearMessages removes all message-type filters on node nodeIdx.
+func (c *Cluster) ClearMessages(nodeIdx int) error {
+	_, err := c.admin[nodeIdx].SetMessageFilter(context.Background(), &pb.SetMessageFilterRequest{})
+	if err != nil {
+		return fmt.Errorf("ClearMessageFilter node%d: %w", nodeIdx, err)
+	}
+	fmt.Printf("node %d (%s) message filter cleared\n", nodeIdx, c.addrs[nodeIdx])
+	return nil
+}
+
 func (c *Cluster) waitForBlocksOnNodes(minSeq uint64, timeout time.Duration, nodeIdxs ...int) error {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -397,7 +470,7 @@ func (c *Cluster) waitForBlocksOnNodes(minSeq uint64, timeout time.Duration, nod
 }
 
 
-// Tests 
+// Partition Tests 
 
 func testSafety (c *Cluster) error {
 	ctx := context.Background()
@@ -1151,6 +1224,924 @@ func testFlappingPartition(c *Cluster) error {
 	}
 	if err := c.waitForBlocks(before.Seq+5, 60*time.Second); err != nil {
 		return fmt.Errorf("cluster failed to converge after flapping: %w", err)
+	}
+
+	return c.verifyAgreement()
+}
+
+
+// testSingleCrash kills node3 with SIGKILL, lets the remaining 3 advance,
+// then restarts it. On restart the node recovers its committed seq from bbolt
+// (the WAL check), replicates only the missing blocks, and must agree with
+// the rest of the cluster.
+func testSingleCrash(c *Cluster) error {
+	ctx := context.Background()
+
+	// Baseline: commit ≥4 blocks so there is real history in the WAL.
+	for i := 0; i < 4; i++ {
+		_, err := c.ctrl[i].SubmitTransaction(ctx, &pb.SubmitTransactionRequest{Data: []byte("tx-before-crash")})
+		if err != nil {
+			return fmt.Errorf("SubmitTransaction to node%d: %w", i, err)
+		}
+	}
+	if err := c.waitForBlocks(4, 60*time.Second); err != nil {
+		return err
+	}
+
+	// Snapshot node3's seq before the crash — used for the WAL check later.
+	node3PreCrash, err := c.ctrl[3].GetStatus(ctx, &pb.GetStatusRequest{})
+	if err != nil {
+		return fmt.Errorf("GetStatus node3 pre-crash: %w", err)
+	}
+
+	if err := c.Kill(3); err != nil {
+		return err
+	}
+
+	// Nodes 0-2 advance 3 more blocks while node3 is dead.
+	for i := 0; i < 3; i++ {
+		_, err := c.ctrl[i].SubmitTransaction(ctx, &pb.SubmitTransactionRequest{Data: []byte("tx-during-crash")})
+		if err != nil {
+			return fmt.Errorf("SubmitTransaction to node%d: %w", i, err)
+		}
+	}
+	if err := c.waitForBlocksOnNodes(node3PreCrash.Seq+3, 30*time.Second, 0, 1, 2); err != nil {
+		return fmt.Errorf("nodes 0-2 failed to progress while node3 was crashed: %w", err)
+	}
+
+	// Restart node3. bbolt recovers numBlocks and lastIndexedDigest on open.
+	if err := c.Restart(3); err != nil {
+		return err
+	}
+
+	// WAL check: node3 must resume from its pre-crash seq, not from 0.
+	node3PostRestart, err := c.ctrl[3].GetStatus(ctx, &pb.GetStatusRequest{})
+	if err != nil {
+		return fmt.Errorf("GetStatus node3 post-restart: %w", err)
+	}
+	if node3PostRestart.Seq < node3PreCrash.Seq {
+		return fmt.Errorf("WAL recovery failed: node3 restarted at seq=%d, expected >=%d",
+			node3PostRestart.Seq, node3PreCrash.Seq)
+	}
+	fmt.Printf("WAL recovery OK: node3 resumed at seq=%d (pre-crash seq=%d)\n",
+		node3PostRestart.Seq, node3PreCrash.Seq)
+
+	// Drive convergence: node3 must replicate the gap and rejoin consensus.
+	for i := 0; i < 4; i++ {
+		_, err := c.ctrl[i].SubmitTransaction(ctx, &pb.SubmitTransactionRequest{Data: []byte("tx-after-restart")})
+		if err != nil {
+			return fmt.Errorf("SubmitTransaction to node%d: %w", i, err)
+		}
+	}
+	if err := c.waitForBlocks(node3PreCrash.Seq+4, 60*time.Second); err != nil {
+		return fmt.Errorf("cluster failed to converge after restart: %w", err)
+	}
+
+	return c.verifyAgreement()
+}
+
+// testRollingCrash kills each node in turn (0→1→2→3) while the remaining 3
+// keep committing blocks. Each crashed node is restarted, its WAL recovery
+// is verified, and the cluster must fully reconverge before the next crash.
+func testRollingCrash(c *Cluster) error {
+	ctx := context.Background()
+
+	for i := 0; i < 4; i++ {
+		_, err := c.ctrl[i].SubmitTransaction(ctx, &pb.SubmitTransactionRequest{Data: []byte("tx-before-rolling-crash")})
+		if err != nil {
+			return fmt.Errorf("SubmitTransaction to node%d: %w", i, err)
+		}
+	}
+	if err := c.waitForBlocks(4, 60*time.Second); err != nil {
+		return err
+	}
+
+	for nodeIdx := 0; nodeIdx < 4; nodeIdx++ {
+		peers := make([]int, 0, 3)
+		for i := 0; i < 4; i++ {
+			if i != nodeIdx {
+				peers = append(peers, i)
+			}
+		}
+
+		preCrash, err := c.ctrl[nodeIdx].GetStatus(ctx, &pb.GetStatusRequest{})
+		if err != nil {
+			return fmt.Errorf("GetStatus node%d pre-crash: %w", nodeIdx, err)
+		}
+
+		if err := c.Kill(nodeIdx); err != nil {
+			return err
+		}
+
+		for _, p := range peers {
+			_, err := c.ctrl[p].SubmitTransaction(ctx, &pb.SubmitTransactionRequest{
+				Data: []byte(fmt.Sprintf("tx-rolling-crash-%d", nodeIdx)),
+			})
+			if err != nil {
+				return fmt.Errorf("SubmitTransaction to node%d: %w", p, err)
+			}
+		}
+		if err := c.waitForBlocksOnNodes(preCrash.Seq+3, 30*time.Second, peers...); err != nil {
+			return fmt.Errorf("peers failed to progress while node%d was crashed: %w", nodeIdx, err)
+		}
+
+		if err := c.Restart(nodeIdx); err != nil {
+			return err
+		}
+
+		postRestart, err := c.ctrl[nodeIdx].GetStatus(ctx, &pb.GetStatusRequest{})
+		if err != nil {
+			return fmt.Errorf("GetStatus node%d post-restart: %w", nodeIdx, err)
+		}
+		if postRestart.Seq < preCrash.Seq {
+			return fmt.Errorf("WAL recovery failed: node%d restarted at seq=%d, expected >=%d",
+				nodeIdx, postRestart.Seq, preCrash.Seq)
+		}
+		fmt.Printf("node%d WAL recovery OK: resumed at seq=%d (pre-crash seq=%d)\n",
+			nodeIdx, postRestart.Seq, preCrash.Seq)
+
+		for i := 0; i < 4; i++ {
+			_, err := c.ctrl[i].SubmitTransaction(ctx, &pb.SubmitTransactionRequest{Data: []byte("tx-after-rolling-crash")})
+			if err != nil {
+				return fmt.Errorf("SubmitTransaction to node%d: %w", i, err)
+			}
+		}
+		if err := c.waitForBlocks(preCrash.Seq+4, 60*time.Second); err != nil {
+			return fmt.Errorf("cluster failed to converge after crashing node%d: %w", nodeIdx, err)
+		}
+
+		fmt.Printf("node%d rolling crash cycle complete\n", nodeIdx)
+	}
+
+	return c.verifyAgreement()
+}
+
+// testRepeatedCrash crashes the same node (node3) 5 times in succession,
+// accumulating new committed blocks between each crash. Tests that repeated
+// WAL recovery from an increasingly deep history doesn't corrupt state.
+func testRepeatedCrash(c *Cluster) error {
+	ctx := context.Background()
+
+	for i := 0; i < 4; i++ {
+		_, err := c.ctrl[i].SubmitTransaction(ctx, &pb.SubmitTransactionRequest{Data: []byte("tx-before-repeated-crash")})
+		if err != nil {
+			return fmt.Errorf("SubmitTransaction to node%d: %w", i, err)
+		}
+	}
+	if err := c.waitForBlocks(4, 60*time.Second); err != nil {
+		return err
+	}
+
+	const crashCount = 5
+	for cycle := 0; cycle < crashCount; cycle++ {
+		preCrash, err := c.ctrl[3].GetStatus(ctx, &pb.GetStatusRequest{})
+		if err != nil {
+			return fmt.Errorf("GetStatus node3 cycle %d pre-crash: %w", cycle, err)
+		}
+
+		if err := c.Kill(3); err != nil {
+			return err
+		}
+
+		for i := 0; i < 3; i++ {
+			_, err := c.ctrl[i].SubmitTransaction(ctx, &pb.SubmitTransactionRequest{
+				Data: []byte(fmt.Sprintf("tx-repeated-crash-%d", cycle)),
+			})
+			if err != nil {
+				return fmt.Errorf("SubmitTransaction to node%d: %w", i, err)
+			}
+		}
+		if err := c.waitForBlocksOnNodes(preCrash.Seq+2, 30*time.Second, 0, 1, 2); err != nil {
+			return fmt.Errorf("nodes 0-2 failed to progress in cycle %d: %w", cycle, err)
+		}
+
+		if err := c.Restart(3); err != nil {
+			return err
+		}
+
+		postRestart, err := c.ctrl[3].GetStatus(ctx, &pb.GetStatusRequest{})
+		if err != nil {
+			return fmt.Errorf("GetStatus node3 cycle %d post-restart: %w", cycle, err)
+		}
+		if postRestart.Seq < preCrash.Seq {
+			return fmt.Errorf("cycle %d WAL recovery failed: node3 at seq=%d, expected >=%d",
+				cycle, postRestart.Seq, preCrash.Seq)
+		}
+
+		for i := 0; i < 4; i++ {
+			_, err := c.ctrl[i].SubmitTransaction(ctx, &pb.SubmitTransactionRequest{Data: []byte("tx-after-repeated-crash")})
+			if err != nil {
+				return fmt.Errorf("SubmitTransaction to node%d: %w", i, err)
+			}
+		}
+		if err := c.waitForBlocks(preCrash.Seq+3, 60*time.Second); err != nil {
+			return fmt.Errorf("cluster failed to converge in cycle %d: %w", cycle, err)
+		}
+
+		fmt.Printf("repeated crash cycle %d/%d complete: node3 seq>=%d\n", cycle+1, crashCount, preCrash.Seq+3)
+	}
+
+	return c.verifyAgreement()
+}
+
+// testCrashDuringReplication crashes node3 while it is actively catching up
+// after a large gap. node3 is first partitioned so it falls 8 blocks behind,
+// then killed. On restart it begins replicating; after ~1s (mid-replication)
+// it is killed again. The second restart must fully recover and rejoin consensus.
+func testCrashDuringReplication(c *Cluster) error {
+	ctx := context.Background()
+
+	for i := 0; i < 4; i++ {
+		_, err := c.ctrl[i].SubmitTransaction(ctx, &pb.SubmitTransactionRequest{Data: []byte("tx-before-crash-replication")})
+		if err != nil {
+			return fmt.Errorf("SubmitTransaction to node%d: %w", i, err)
+		}
+	}
+	if err := c.waitForBlocks(4, 60*time.Second); err != nil {
+		return err
+	}
+
+	// Partition node3 so it doesn't see new blocks.
+	if err := c.Partition(3, 0, 1, 2); err != nil {
+		return fmt.Errorf("partition node3: %w", err)
+	}
+
+	preCrash, err := c.ctrl[3].GetStatus(ctx, &pb.GetStatusRequest{})
+	if err != nil {
+		return fmt.Errorf("GetStatus node3 before gap: %w", err)
+	}
+
+	// Drive 8 blocks on nodes 0-2 to create a large replication gap.
+	for round := 0; round < 8; round++ {
+		for i := 0; i < 3; i++ {
+			_, err := c.ctrl[i].SubmitTransaction(ctx, &pb.SubmitTransactionRequest{
+				Data: []byte(fmt.Sprintf("tx-gap-%d", round)),
+			})
+			if err != nil {
+				return fmt.Errorf("SubmitTransaction to node%d: %w", i, err)
+			}
+		}
+	}
+	if err := c.waitForBlocksOnNodes(preCrash.Seq+8, 60*time.Second, 0, 1, 2); err != nil {
+		return fmt.Errorf("nodes 0-2 failed to build gap: %w", err)
+	}
+	fmt.Printf("gap created: nodes 0-2 at seq>=%d, node3 still at seq=%d\n", preCrash.Seq+8, preCrash.Seq)
+
+	// Kill node3 while still partitioned (process kill clears network state on restart).
+	if err := c.Kill(3); err != nil {
+		return err
+	}
+
+	// First restart: node3 begins replicating the 8-block gap.
+	if err := c.Restart(3); err != nil {
+		return err
+	}
+
+	// Kill mid-replication.
+	time.Sleep(1 * time.Second)
+	if err := c.Kill(3); err != nil {
+		return err
+	}
+	fmt.Println("node3 killed mid-replication")
+
+	// Second restart: must recover from partially-applied replication state.
+	if err := c.Restart(3); err != nil {
+		return err
+	}
+
+	postRestart, err := c.ctrl[3].GetStatus(ctx, &pb.GetStatusRequest{})
+	if err != nil {
+		return fmt.Errorf("GetStatus node3 after second restart: %w", err)
+	}
+	if postRestart.Seq < preCrash.Seq {
+		return fmt.Errorf("second restart regression: node3 at seq=%d, expected >=%d",
+			postRestart.Seq, preCrash.Seq)
+	}
+	fmt.Printf("second restart OK: node3 at seq=%d (gap start was seq=%d)\n", postRestart.Seq, preCrash.Seq)
+
+	for i := 0; i < 4; i++ {
+		_, err := c.ctrl[i].SubmitTransaction(ctx, &pb.SubmitTransactionRequest{Data: []byte("tx-after-crash-replication")})
+		if err != nil {
+			return fmt.Errorf("SubmitTransaction to node%d: %w", i, err)
+		}
+	}
+	if err := c.waitForBlocks(preCrash.Seq+10, 60*time.Second); err != nil {
+		return fmt.Errorf("cluster failed to converge after crash-during-replication: %w", err)
+	}
+
+	return c.verifyAgreement()
+}
+
+// testLeaderCrash SIGKILLs the expected next-round leader before it can complete
+// its proposal broadcast. Unlike leader-assassination (which partitions the leader),
+// a killed leader may have sent BlockMessage to some peers but not others before dying,
+// leaving the round in a partially-broadcast state. The surviving 3 nodes must
+// advance via empty votes (MaxProposalWait=2s) and the restarted leader must recover.
+func testLeaderCrash(c *Cluster) error {
+	ctx := context.Background()
+
+	sortedIndices := make([]int, len(c.nodeIDs))
+	for i := range sortedIndices {
+		sortedIndices[i] = i
+	}
+	sort.Slice(sortedIndices, func(i, j int) bool {
+		return c.nodeIDs[sortedIndices[i]] < c.nodeIDs[sortedIndices[j]]
+	})
+	leaderFor := func(round uint64) int {
+		return sortedIndices[round%uint64(len(sortedIndices))]
+	}
+
+	for i := 0; i < 4; i++ {
+		_, err := c.ctrl[i].SubmitTransaction(ctx, &pb.SubmitTransactionRequest{Data: []byte("tx-before-leader-crash")})
+		if err != nil {
+			return fmt.Errorf("SubmitTransaction to node%d: %w", i, err)
+		}
+	}
+	if err := c.waitForBlocks(4, 60*time.Second); err != nil {
+		return err
+	}
+
+	status, err := c.ctrl[0].GetStatus(ctx, &pb.GetStatusRequest{})
+	if err != nil {
+		return fmt.Errorf("GetStatus: %w", err)
+	}
+
+	targetRound := status.Round + 1
+	leaderIdx := leaderFor(targetRound)
+	peers := make([]int, 0, 3)
+	for i := 0; i < 4; i++ {
+		if i != leaderIdx {
+			peers = append(peers, i)
+		}
+	}
+
+	preCrash, err := c.ctrl[leaderIdx].GetStatus(ctx, &pb.GetStatusRequest{})
+	if err != nil {
+		return fmt.Errorf("GetStatus leader node%d: %w", leaderIdx, err)
+	}
+
+	fmt.Printf("killing leader node%d (expected leader for round %d)\n", leaderIdx, targetRound)
+	if err := c.Kill(leaderIdx); err != nil {
+		return err
+	}
+
+	for _, p := range peers {
+		_, err := c.ctrl[p].SubmitTransaction(ctx, &pb.SubmitTransactionRequest{Data: []byte("tx-after-leader-crash")})
+		if err != nil {
+			return fmt.Errorf("SubmitTransaction to node%d: %w", p, err)
+		}
+	}
+
+	// Surviving nodes advance via empty votes after MaxProposalWait (2s).
+	if err := c.waitForBlocksOnNodes(status.Seq+1, 60*time.Second, peers...); err != nil {
+		return fmt.Errorf("surviving peers failed to advance after leader crash: %w", err)
+	}
+
+	if err := c.Restart(leaderIdx); err != nil {
+		return err
+	}
+
+	postRestart, err := c.ctrl[leaderIdx].GetStatus(ctx, &pb.GetStatusRequest{})
+	if err != nil {
+		return fmt.Errorf("GetStatus leader post-restart: %w", err)
+	}
+	if postRestart.Seq < preCrash.Seq {
+		return fmt.Errorf("WAL recovery failed: leader node%d at seq=%d, expected >=%d",
+			leaderIdx, postRestart.Seq, preCrash.Seq)
+	}
+	fmt.Printf("leader WAL recovery OK: node%d at seq=%d (pre-crash seq=%d)\n",
+		leaderIdx, postRestart.Seq, preCrash.Seq)
+
+	for i := 0; i < 4; i++ {
+		_, err := c.ctrl[i].SubmitTransaction(ctx, &pb.SubmitTransactionRequest{Data: []byte("tx-after-leader-restart")})
+		if err != nil {
+			return fmt.Errorf("SubmitTransaction to node%d: %w", i, err)
+		}
+	}
+	if err := c.waitForBlocks(status.Seq+2, 60*time.Second); err != nil {
+		return fmt.Errorf("cluster failed to converge after leader crash: %w", err)
+	}
+
+	return c.verifyAgreement()
+}
+
+// testSimultaneousCrash kills node2 and node3 at the same time, dropping to
+// 2-of-4 live nodes (below quorum=3). Verifies the cluster stalls, then restarts
+// both and confirms full recovery. Tests quorum math under a double failure.
+func testSimultaneousCrash(c *Cluster) error {
+	ctx := context.Background()
+
+	for i := 0; i < 4; i++ {
+		_, err := c.ctrl[i].SubmitTransaction(ctx, &pb.SubmitTransactionRequest{Data: []byte("tx-before-simultaneous-crash")})
+		if err != nil {
+			return fmt.Errorf("SubmitTransaction to node%d: %w", i, err)
+		}
+	}
+	if err := c.waitForBlocks(4, 60*time.Second); err != nil {
+		return err
+	}
+
+	if err := c.Kill(2); err != nil {
+		return err
+	}
+	if err := c.Kill(3); err != nil {
+		return err
+	}
+
+	seq0, err := c.ctrl[0].GetStatus(ctx, &pb.GetStatusRequest{})
+	if err != nil {
+		return fmt.Errorf("GetStatus node0: %w", err)
+	}
+	seq1, err := c.ctrl[1].GetStatus(ctx, &pb.GetStatusRequest{})
+	if err != nil {
+		return fmt.Errorf("GetStatus node1: %w", err)
+	}
+
+	time.Sleep(5 * time.Second)
+
+	after0, err := c.ctrl[0].GetStatus(ctx, &pb.GetStatusRequest{})
+	if err != nil {
+		return fmt.Errorf("GetStatus node0 after stall: %w", err)
+	}
+	after1, err := c.ctrl[1].GetStatus(ctx, &pb.GetStatusRequest{})
+	if err != nil {
+		return fmt.Errorf("GetStatus node1 after stall: %w", err)
+	}
+	if after0.Seq != seq0.Seq {
+		return fmt.Errorf("SAFETY VIOLATION: node0 advanced from seq=%d to seq=%d with only 2-of-4 nodes alive",
+			seq0.Seq, after0.Seq)
+	}
+	if after1.Seq != seq1.Seq {
+		return fmt.Errorf("SAFETY VIOLATION: node1 advanced from seq=%d to seq=%d with only 2-of-4 nodes alive",
+			seq1.Seq, after1.Seq)
+	}
+	fmt.Println("simultaneous crash stall verified: 2-of-4 cannot make progress")
+
+	if err := c.Restart(2); err != nil {
+		return err
+	}
+	if err := c.Restart(3); err != nil {
+		return err
+	}
+
+	for i := 0; i < 4; i++ {
+		_, err := c.ctrl[i].SubmitTransaction(ctx, &pb.SubmitTransactionRequest{Data: []byte("tx-after-simultaneous-crash")})
+		if err != nil {
+			return fmt.Errorf("SubmitTransaction to node%d: %w", i, err)
+		}
+	}
+	if err := c.waitForBlocks(seq0.Seq+2, 60*time.Second); err != nil {
+		return fmt.Errorf("cluster failed to converge after simultaneous crash: %w", err)
+	}
+
+	return c.verifyAgreement()
+}
+
+// testFullClusterRestart kills all 4 nodes and restarts them sequentially.
+// Each node must recover its committed state from bbolt alone. Because nodes
+// restart sequentially, quorum (3-of-4) forms as the third node comes up,
+// so nodes restarted before quorum must wait in their WAL-recovered state
+// until enough peers are live to resume consensus.
+func testFullClusterRestart(c *Cluster) error {
+	ctx := context.Background()
+
+	for i := 0; i < 4; i++ {
+		_, err := c.ctrl[i].SubmitTransaction(ctx, &pb.SubmitTransactionRequest{Data: []byte("tx-before-full-restart")})
+		if err != nil {
+			return fmt.Errorf("SubmitTransaction to node%d: %w", i, err)
+		}
+	}
+	if err := c.waitForBlocks(8, 60*time.Second); err != nil {
+		return err
+	}
+
+	preSeqs := make([]uint64, 4)
+	for i := 0; i < 4; i++ {
+		resp, err := c.ctrl[i].GetStatus(ctx, &pb.GetStatusRequest{})
+		if err != nil {
+			return fmt.Errorf("GetStatus node%d pre-shutdown: %w", i, err)
+		}
+		preSeqs[i] = resp.Seq
+	}
+	fmt.Printf("cluster state before shutdown: seqs=%v\n", preSeqs)
+
+	for i := 0; i < 4; i++ {
+		if err := c.Kill(i); err != nil {
+			return err
+		}
+	}
+	fmt.Println("all 4 nodes killed")
+
+	for i := 0; i < 4; i++ {
+		if err := c.Restart(i); err != nil {
+			return err
+		}
+	}
+
+	for i := 0; i < 4; i++ {
+		resp, err := c.ctrl[i].GetStatus(ctx, &pb.GetStatusRequest{})
+		if err != nil {
+			return fmt.Errorf("GetStatus node%d post-restart: %w", i, err)
+		}
+		if resp.Seq < preSeqs[i] {
+			return fmt.Errorf("WAL regression: node%d at seq=%d, expected >=%d",
+				i, resp.Seq, preSeqs[i])
+		}
+		fmt.Printf("node%d cold-start OK: seq=%d (pre-crash seq=%d)\n", i, resp.Seq, preSeqs[i])
+	}
+
+	for i := 0; i < 4; i++ {
+		_, err := c.ctrl[i].SubmitTransaction(ctx, &pb.SubmitTransactionRequest{Data: []byte("tx-after-full-restart")})
+		if err != nil {
+			return fmt.Errorf("SubmitTransaction to node%d: %w", i, err)
+		}
+	}
+
+	maxPreSeq := preSeqs[0]
+	for _, s := range preSeqs[1:] {
+		if s > maxPreSeq {
+			maxPreSeq = s
+		}
+	}
+	if err := c.waitForBlocks(maxPreSeq+2, 60*time.Second); err != nil {
+		return fmt.Errorf("cluster failed to converge after full restart: %w", err)
+	}
+
+	return c.verifyAgreement()
+}
+
+// testDropVotes drops all incoming vote_message on every node. No notarization
+// QC can form, so each round times out and advances via empty votes (no blocks
+// committed). The key assertions are:
+//   - rounds advance (empty-vote path is live)
+//   - seq stays frozen (empty rounds do not commit blocks)
+//
+// After clearing the filter, real voting resumes and blocks are committed.
+func testDropVotes(c *Cluster) error {
+	ctx := context.Background()
+
+	for i := 0; i < 4; i++ {
+		_, err := c.ctrl[i].SubmitTransaction(ctx, &pb.SubmitTransactionRequest{Data: []byte("tx-before-drop-votes")})
+		if err != nil {
+			return fmt.Errorf("SubmitTransaction to node%d: %w", i, err)
+		}
+	}
+	if err := c.waitForBlocks(4, 60*time.Second); err != nil {
+		return err
+	}
+
+	// Drop vote_message on all 4 nodes — no notarization QC can form.
+	for i := 0; i < 4; i++ {
+		if err := c.DropMessages(i, "vote_message"); err != nil {
+			return err
+		}
+	}
+
+	// Wait one MaxProposalWait for any in-flight votes to resolve before
+	// snapshotting — otherwise a round already past quorum could commit seq+1.
+	time.Sleep(3 * time.Second)
+
+	before, err := c.ctrl[0].GetStatus(ctx, &pb.GetStatusRequest{})
+	if err != nil {
+		return fmt.Errorf("GetStatus after filter applied: %w", err)
+	}
+
+	for i := 0; i < 4; i++ {
+		_, err := c.ctrl[i].SubmitTransaction(ctx, &pb.SubmitTransactionRequest{Data: []byte("tx-during-drop-votes")})
+		if err != nil {
+			return fmt.Errorf("SubmitTransaction to node%d: %w", i, err)
+		}
+	}
+
+	// Wait for ~5 more empty-vote rounds (each takes MaxProposalWait ≈ 2s).
+	time.Sleep(11 * time.Second)
+
+	// Verify: rounds must have advanced (empty-vote path is live) and seq must be
+	// frozen (empty rounds do not commit blocks).
+	for i := 0; i < 4; i++ {
+		resp, err := c.ctrl[i].GetStatus(ctx, &pb.GetStatusRequest{})
+		if err != nil {
+			return fmt.Errorf("GetStatus node%d during drop: %w", i, err)
+		}
+		if resp.Seq != before.Seq {
+			return fmt.Errorf("unexpected block commit with votes dropped: node%d seq=%d (expected %d)",
+				i, resp.Seq, before.Seq)
+		}
+		if resp.Round <= before.Round {
+			return fmt.Errorf("empty-vote path stalled: node%d round=%d (expected > %d)",
+				i, resp.Round, before.Round)
+		}
+	}
+	fmt.Printf("empty-vote path verified: seq frozen at %d, rounds advanced beyond %d\n", before.Seq, before.Round)
+
+	// Clear filter — real voting resumes and blocks commit.
+	for i := 0; i < 4; i++ {
+		if err := c.ClearMessages(i); err != nil {
+			return err
+		}
+	}
+
+	for i := 0; i < 4; i++ {
+		_, err := c.ctrl[i].SubmitTransaction(ctx, &pb.SubmitTransactionRequest{Data: []byte("tx-after-drop-votes")})
+		if err != nil {
+			return fmt.Errorf("SubmitTransaction to node%d: %w", i, err)
+		}
+	}
+	if err := c.waitForBlocks(before.Seq+3, 60*time.Second); err != nil {
+		return fmt.Errorf("cluster failed to commit blocks after clearing vote filter: %w", err)
+	}
+
+	return c.verifyAgreement()
+}
+
+// testDropReplicationResponse drops all incoming replication_response on node3,
+// then partitions it to create a block gap. After healing the partition node3
+// attempts to replicate but all responses are dropped — it stays behind.
+// Clearing the filter lets node3 catch up and rejoin.
+func testDropReplicationResponse(c *Cluster) error {
+	ctx := context.Background()
+
+	for i := 0; i < 4; i++ {
+		_, err := c.ctrl[i].SubmitTransaction(ctx, &pb.SubmitTransactionRequest{Data: []byte("tx-before-drop-replication")})
+		if err != nil {
+			return fmt.Errorf("SubmitTransaction to node%d: %w", i, err)
+		}
+	}
+	if err := c.waitForBlocks(4, 60*time.Second); err != nil {
+		return err
+	}
+
+	// Install the filter before partitioning so node3 can't replicate on heal.
+	if err := c.DropMessages(3, "replication_response"); err != nil {
+		return err
+	}
+
+	if err := c.Partition(3, 0, 1, 2); err != nil {
+		return fmt.Errorf("partition node3: %w", err)
+	}
+
+	gapStart, err := c.ctrl[3].GetStatus(ctx, &pb.GetStatusRequest{})
+	if err != nil {
+		return fmt.Errorf("GetStatus node3 before gap: %w", err)
+	}
+
+	for i := 0; i < 3; i++ {
+		_, err := c.ctrl[i].SubmitTransaction(ctx, &pb.SubmitTransactionRequest{Data: []byte("tx-gap")})
+		if err != nil {
+			return fmt.Errorf("SubmitTransaction to node%d: %w", i, err)
+		}
+	}
+	if err := c.waitForBlocksOnNodes(gapStart.Seq+5, 30*time.Second, 0, 1, 2); err != nil {
+		return fmt.Errorf("nodes 0-2 failed to build gap: %w", err)
+	}
+
+	// Heal the partition — node3 sees messages again but replication_response is dropped.
+	if err := c.Heal(3); err != nil {
+		return fmt.Errorf("heal node3: %w", err)
+	}
+
+	// Give node3 time to attempt replication (which will fail silently).
+	// 2s is enough to verify it is blocked; a longer sleep risks nodes 0-2
+	// advancing thousands of blocks (BlockBuilder never clears pending).
+	time.Sleep(2 * time.Second)
+
+	stuck, err := c.ctrl[3].GetStatus(ctx, &pb.GetStatusRequest{})
+	if err != nil {
+		return fmt.Errorf("GetStatus node3 while filter active: %w", err)
+	}
+	if stuck.Seq >= gapStart.Seq+5 {
+		return fmt.Errorf("expected node3 to be stuck behind seq=%d but it reached seq=%d",
+			gapStart.Seq+5, stuck.Seq)
+	}
+	fmt.Printf("replication blocked: node3 at seq=%d while peers are at seq>=%d\n",
+		stuck.Seq, gapStart.Seq+5)
+
+	// Snapshot the current head of nodes 0-2 before clearing — this is the
+	// target node3 must replicate up to.
+	head, err := c.ctrl[0].GetStatus(ctx, &pb.GetStatusRequest{})
+	if err != nil {
+		return fmt.Errorf("GetStatus node0 before clear: %w", err)
+	}
+
+	// Clear filter — replication succeeds.
+	if err := c.ClearMessages(3); err != nil {
+		return err
+	}
+
+	for i := 0; i < 4; i++ {
+		_, err := c.ctrl[i].SubmitTransaction(ctx, &pb.SubmitTransactionRequest{Data: []byte("tx-after-drop-replication")})
+		if err != nil {
+			return fmt.Errorf("SubmitTransaction to node%d: %w", i, err)
+		}
+	}
+	// Wait for all nodes to reach head+3. Nodes 0-2 are already past head;
+	// node3 must replicate the gap first. Use a generous timeout since the
+	// gap can be large.
+	if err := c.waitForBlocks(head.Seq+3, 120*time.Second); err != nil {
+		return fmt.Errorf("cluster failed to converge after clearing replication filter: %w", err)
+	}
+
+	return c.verifyAgreement()
+}
+
+// testDropBlockMessage drops all incoming block_message on node3 so it never
+// receives proposals from other leaders. Node3 always empty-votes when it is
+// not the leader, while the other 3 nodes vote normally. This exercises the
+// mixed-quorum path: rounds led by non-node3 leaders commit via 3 real votes
+// (0,1,2); rounds led by node3 commit normally since node3 broadcasts its own
+// proposal. After clearing the filter all 4 nodes must agree.
+func testDropBlockMessage(c *Cluster) error {
+	ctx := context.Background()
+
+	for i := 0; i < 4; i++ {
+		_, err := c.ctrl[i].SubmitTransaction(ctx, &pb.SubmitTransactionRequest{Data: []byte("tx-before-drop-block")})
+		if err != nil {
+			return fmt.Errorf("SubmitTransaction to node%d: %w", i, err)
+		}
+	}
+	if err := c.waitForBlocks(4, 60*time.Second); err != nil {
+		return err
+	}
+
+	before, err := c.ctrl[0].GetStatus(ctx, &pb.GetStatusRequest{})
+	if err != nil {
+		return fmt.Errorf("GetStatus before drop: %w", err)
+	}
+
+	if err := c.DropMessages(3, "block_message"); err != nil {
+		return err
+	}
+
+	for i := 0; i < 4; i++ {
+		_, err := c.ctrl[i].SubmitTransaction(ctx, &pb.SubmitTransactionRequest{Data: []byte("tx-during-drop-block")})
+		if err != nil {
+			return fmt.Errorf("SubmitTransaction to node%d: %w", i, err)
+		}
+	}
+
+	// Cluster must advance: rounds where node3 is not leader commit via votes
+	// from nodes 0,1,2 (quorum=3); node3 empty-votes those rounds.
+	// Rounds where node3 is leader commit normally (node3 broadcasts the block,
+	// it doesn't need to receive it). Allow extra time for empty-vote rounds.
+	if err := c.waitForBlocks(before.Seq+6, 90*time.Second); err != nil {
+		return fmt.Errorf("cluster failed to advance with block_message dropped on node3: %w", err)
+	}
+	fmt.Println("mixed empty/real vote path verified")
+
+	if err := c.ClearMessages(3); err != nil {
+		return err
+	}
+
+	for i := 0; i < 4; i++ {
+		_, err := c.ctrl[i].SubmitTransaction(ctx, &pb.SubmitTransactionRequest{Data: []byte("tx-after-drop-block")})
+		if err != nil {
+			return fmt.Errorf("SubmitTransaction to node%d: %w", i, err)
+		}
+	}
+	if err := c.waitForBlocks(before.Seq+8, 60*time.Second); err != nil {
+		return fmt.Errorf("cluster failed to converge after clearing block filter: %w", err)
+	}
+
+	return c.verifyAgreement()
+}
+
+// testDropFinalizeVote drops all incoming finalize_vote on every node.
+// Notarization QCs form normally (votes are not dropped) so rounds advance,
+// but no finalization QC can ever form — seq stays frozen.
+// After clearing the filter finalization catches up and blocks are committed.
+func testDropFinalizeVote(c *Cluster) error {
+	ctx := context.Background()
+
+	for i := 0; i < 4; i++ {
+		_, err := c.ctrl[i].SubmitTransaction(ctx, &pb.SubmitTransactionRequest{Data: []byte("tx-before-drop-finalize")})
+		if err != nil {
+			return fmt.Errorf("SubmitTransaction to node%d: %w", i, err)
+		}
+	}
+	if err := c.waitForBlocks(4, 60*time.Second); err != nil {
+		return err
+	}
+
+	// Drop finalize_vote on all nodes — notarization still forms, finalization can't.
+	for i := 0; i < 4; i++ {
+		if err := c.DropMessages(i, "finalize_vote"); err != nil {
+			return err
+		}
+	}
+
+	// Settle: let any in-flight finalize votes resolve before snapshotting.
+	time.Sleep(3 * time.Second)
+
+	before, err := c.ctrl[0].GetStatus(ctx, &pb.GetStatusRequest{})
+	if err != nil {
+		return fmt.Errorf("GetStatus after filter applied: %w", err)
+	}
+
+	for i := 0; i < 4; i++ {
+		_, err := c.ctrl[i].SubmitTransaction(ctx, &pb.SubmitTransactionRequest{Data: []byte("tx-during-drop-finalize")})
+		if err != nil {
+			return fmt.Errorf("SubmitTransaction to node%d: %w", i, err)
+		}
+	}
+
+	// Wait for several rounds — rounds should advance via notarization, seq must stay frozen.
+	// Stay within MaxRoundWindow (10) to avoid vote rejection.
+	time.Sleep(11 * time.Second)
+
+	for i := 0; i < 4; i++ {
+		resp, err := c.ctrl[i].GetStatus(ctx, &pb.GetStatusRequest{})
+		if err != nil {
+			return fmt.Errorf("GetStatus node%d during drop: %w", i, err)
+		}
+		if resp.Seq != before.Seq {
+			return fmt.Errorf("unexpected commit with finalize_vote dropped: node%d seq=%d (expected %d)",
+				i, resp.Seq, before.Seq)
+		}
+		if resp.Round <= before.Round {
+			return fmt.Errorf("rounds stalled with finalize_vote dropped: node%d round=%d (expected > %d)",
+				i, resp.Round, before.Round)
+		}
+	}
+	fmt.Printf("finalize_vote drop verified: seq frozen at %d, rounds advanced beyond %d\n", before.Seq, before.Round)
+
+	// Clear filter — finalization QC forms, seq catches up.
+	for i := 0; i < 4; i++ {
+		if err := c.ClearMessages(i); err != nil {
+			return err
+		}
+	}
+
+	for i := 0; i < 4; i++ {
+		_, err := c.ctrl[i].SubmitTransaction(ctx, &pb.SubmitTransactionRequest{Data: []byte("tx-after-drop-finalize")})
+		if err != nil {
+			return fmt.Errorf("SubmitTransaction to node%d: %w", i, err)
+		}
+	}
+	if err := c.waitForBlocks(before.Seq+3, 60*time.Second); err != nil {
+		return fmt.Errorf("cluster failed to commit blocks after clearing finalize_vote filter: %w", err)
+	}
+
+	return c.verifyAgreement()
+}
+
+// testDropEmptyVote drops all incoming empty_vote_message on every node.
+// The empty-vote path (timeout → EmptyNotarization → round++) is blocked, but
+// the commit path (vote → notarization → finalize → commit) is unaffected.
+// With transactions available the cluster must still make progress via real votes.
+func testDropEmptyVote(c *Cluster) error {
+	ctx := context.Background()
+
+	for i := 0; i < 4; i++ {
+		_, err := c.ctrl[i].SubmitTransaction(ctx, &pb.SubmitTransactionRequest{Data: []byte("tx-before-drop-empty-vote")})
+		if err != nil {
+			return fmt.Errorf("SubmitTransaction to node%d: %w", i, err)
+		}
+	}
+	if err := c.waitForBlocks(4, 60*time.Second); err != nil {
+		return err
+	}
+
+	before, err := c.ctrl[0].GetStatus(ctx, &pb.GetStatusRequest{})
+	if err != nil {
+		return fmt.Errorf("GetStatus before drop: %w", err)
+	}
+
+	// Drop empty_vote_message on all nodes.
+	for i := 0; i < 4; i++ {
+		if err := c.DropMessages(i, "empty_vote_message"); err != nil {
+			return err
+		}
+	}
+
+	// Submit tx to all nodes — commit path (real votes) must still work.
+	for i := 0; i < 4; i++ {
+		_, err := c.ctrl[i].SubmitTransaction(ctx, &pb.SubmitTransactionRequest{Data: []byte("tx-during-drop-empty-vote")})
+		if err != nil {
+			return fmt.Errorf("SubmitTransaction to node%d: %w", i, err)
+		}
+	}
+
+	// With txs available the cluster commits via real votes despite empty_vote being dropped.
+	if err := c.waitForBlocks(before.Seq+3, 30*time.Second); err != nil {
+		return fmt.Errorf("commit path broken with empty_vote dropped: %w", err)
+	}
+	fmt.Println("commit path works independently of empty-vote path")
+
+	// Clear filter and verify full agreement.
+	for i := 0; i < 4; i++ {
+		if err := c.ClearMessages(i); err != nil {
+			return err
+		}
+	}
+
+	for i := 0; i < 4; i++ {
+		_, err := c.ctrl[i].SubmitTransaction(ctx, &pb.SubmitTransactionRequest{Data: []byte("tx-after-drop-empty-vote")})
+		if err != nil {
+			return fmt.Errorf("SubmitTransaction to node%d: %w", i, err)
+		}
+	}
+	if err := c.waitForBlocks(before.Seq+5, 60*time.Second); err != nil {
+		return fmt.Errorf("cluster failed to converge after clearing empty_vote filter: %w", err)
 	}
 
 	return c.verifyAgreement()

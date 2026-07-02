@@ -45,8 +45,9 @@ type Comm struct {
 
 	mu      sync.RWMutex
 	started atomic.Bool
-	
+
 	partitioned map[string]bool
+	dropTypes   map[string]bool
 }
 
 // BlockBuilderIface is a subset of BlockBuilder used by Comm.
@@ -103,6 +104,7 @@ func New(
 		qd:         qd,
 		log:        log,
 		partitioned: make(map[string]bool),
+		dropTypes:   make(map[string]bool),
 	}, nil
 }
 
@@ -180,18 +182,48 @@ func (c *Comm) Broadcast(msg *common.Message) {
 
 // SendMessage is the gRPC handler for incoming protocol messages from peers.
 // It dispatches to the engine handler in a goroutine to avoid deadlocks.
+func messageTypeName(msg *pb.SimplexMessage) string {
+	switch msg.Payload.(type) {
+	case *pb.SimplexMessage_BlockMessage:
+		return "block_message"
+	case *pb.SimplexMessage_VoteMessage:
+		return "vote_message"
+	case *pb.SimplexMessage_EmptyVoteMessage:
+		return "empty_vote_message"
+	case *pb.SimplexMessage_Notarization:
+		return "notarization"
+	case *pb.SimplexMessage_EmptyNotarization:
+		return "empty_notarization"
+	case *pb.SimplexMessage_FinalizeVote:
+		return "finalize_vote"
+	case *pb.SimplexMessage_Finalization:
+		return "finalization"
+	case *pb.SimplexMessage_ReplicationRequest:
+		return "replication_request"
+	case *pb.SimplexMessage_ReplicationResponse:
+		return "replication_response"
+	case *pb.SimplexMessage_BlockDigestRequest:
+		return "block_digest_request"
+	default:
+		return "unknown"
+	}
+}
+
 func (c *Comm) SendMessage(_ context.Context, req *pb.SendMessageRequest) (*pb.SendMessageResponse, error) {
+	c.mu.RLock()
+	droppedByType := c.dropTypes[messageTypeName(req.Message)]
+	partitioned := c.partitioned[string(req.From)]
+	c.mu.RUnlock()
+
+	if partitioned || droppedByType {
+		return &pb.SendMessageResponse{}, nil
+	}
+
 	msg, err := fromProto(req.Message, c.bd, c.qd)
 	if err != nil {
 		return nil, fmt.Errorf("comm: fromProto: %w", err)
 	}
 	from := common.NodeID(req.From)
-	c.mu.RLock()
-	partitioned := c.partitioned[string(from)]
-	c.mu.RUnlock()
-	if partitioned {
-		return &pb.SendMessageResponse{}, nil
-	}
 
 
 	go func() {
@@ -241,6 +273,16 @@ func (c *Comm) GetCommittedBlocks(_ context.Context, req *pb.GetCommittedBlocksR
 	return &pb.GetCommittedBlocksResponse{Blocks: blocks}, nil
 }
 
+
+func (c *Comm) SetMessageFilter(_ context.Context, req *pb.SetMessageFilterRequest) (*pb.SetMessageFilterResponse, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.dropTypes = make(map[string]bool)
+	for _, t := range req.DropTypes {
+		c.dropTypes[t] = true
+	}
+	return &pb.SetMessageFilterResponse{}, nil
+}
 
 func (c *Comm) Partition(_ context.Context, req *pb.PartitionRequest) (*pb.PartitionResponse, error) {
 	c.mu.Lock()

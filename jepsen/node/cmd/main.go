@@ -157,7 +157,9 @@ func run(cfg *Config) error {
 	var epochRef *simplexengine.Epoch
 
 	statusFunc := func() (uint64, uint64, uint64) {
-		// epoch=0 (single epoch for testing), round and seq from storage
+		if epochRef != nil {
+			return 0, epochRef.Round(), stor.NumBlocks()
+		}
 		return 0, 0, stor.NumBlocks()
 	}
 
