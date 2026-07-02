@@ -678,7 +678,7 @@ func TestReplicationResendsFinalizedBlocksThatFailedVerification(t *testing.T) {
 	require.Equal(t, block, storedBlock)
 }
 
-// TestReplicationResendSplitsRequests ensures that when replication requests time out, the missing sequences 
+// TestReplicationResendSplitsRequests ensures that when replication requests time out, the missing sequences
 // are re-requested split across the nodes that signed the highest observed quorum, just like the initial requests are.
 func TestReplicationResendSplitsRequests(t *testing.T) {
 	bb := testutil.NewTestBlockBuilder()

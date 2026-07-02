@@ -1761,7 +1761,7 @@ messages:
 	require.Equal(t, common.EmptyNotarizationRecordType, notarization)
 }
 
-// TestReplicationRequestsWithinMaxRoundWindow ensures that a node that observes a finalization more than MaxRoundWindow 
+// TestReplicationRequestsWithinMaxRoundWindow ensures that a node that observes a finalization more than MaxRoundWindow
 // sequences ahead of its next sequence to commit only requests sequences up to MaxRoundWindow-1 ahead of it
 func TestReplicationRequestsWithinMaxRoundWindow(t *testing.T) {
 	bb := testutil.NewTestBlockBuilder()
