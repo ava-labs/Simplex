@@ -2274,6 +2274,11 @@ func (e *Epoch) verifyProposalMetadataAndBlacklist(block common.Block) bool {
 
 		prevBlacklist = prevBlock.Blacklist()
 
+		// If the previous block belongs to an earlier epoch, the blacklist should be empty.
+		if prevBlock.BlockHeader().Epoch < e.Epoch {
+			prevBlacklist = common.NewBlacklist(uint16(len(e.validatorNodeIDs)))
+		}
+
 		if prevBlacklist.IsEmpty() {
 			prevBlacklist = common.NewBlacklist(uint16(len(e.validatorNodeIDs)))
 		}
@@ -2369,7 +2374,7 @@ func (e *Epoch) locateBlock(seq uint64, digest []byte) (common.VerifiedBlock, *n
 func (e *Epoch) buildBlock() {
 	metadata := e.metadata()
 
-	prevBlacklist, ok := e.retrieveBlacklistOfParentBlock(metadata)
+	prevBlacklist, ok := e.retrieveBlacklistForBlockBuilding(metadata)
 	if !ok {
 		return
 	}
@@ -2414,7 +2419,7 @@ func (e *Epoch) buildBlock() {
 	e.buildBlockScheduler.ScheduleOrReplace(task)
 }
 
-func (e *Epoch) retrieveBlacklistOfParentBlock(metadata common.ProtocolMetadata) (common.Blacklist, bool) {
+func (e *Epoch) retrieveBlacklistForBlockBuilding(metadata common.ProtocolMetadata) (common.Blacklist, bool) {
 	var blacklist common.Blacklist
 	if metadata.Seq > 0 {
 		prevBlock, _, ok := e.locateBlock(metadata.Seq-1, metadata.Prev[:])
@@ -2428,6 +2433,11 @@ func (e *Epoch) retrieveBlacklistOfParentBlock(metadata common.ProtocolMetadata)
 		}
 
 		blacklist = prevBlock.Blacklist()
+
+		// If the previous block belongs to a previous epoch, we need to reset the blacklist to be empty.
+		if metadata.Epoch > prevBlock.BlockHeader().Epoch {
+			blacklist = common.NewBlacklist(uint16(len(e.validatorNodeIDs)))
+		}
 	}
 
 	if blacklist.IsEmpty() {

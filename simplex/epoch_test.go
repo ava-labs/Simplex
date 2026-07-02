@@ -737,6 +737,61 @@ func TestEpochSimpleFlow(t *testing.T) {
 	}
 }
 
+func TestEpochResizesBlacklistOnEpochChange(t *testing.T) {
+	epoch1Block := testutil.NewTestBlock(ProtocolMetadata{Epoch: 1, Round: 0, Seq: 0}, NewBlacklist(1))
+	nodes := []NodeID{{1}, {2}}
+	bb := testutil.NewTestBlockBuilder()
+	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, NodeID{2}, testutil.NewNoopComm(nodes), bb)
+	conf.Epoch = 2
+	require.NoError(t, conf.Storage.Index(context.Background(), epoch1Block, Finalization{}))
+	require.Equal(t, uint16(1), epoch1Block.Blacklist().NodeCount,
+		"blacklist must contain exactly one node")
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	e.Epoch = conf.Epoch
+	require.NoError(t, e.Start())
+	require.Equal(t, uint64(2), e.Metadata().Epoch)
+
+	// The node (leader) builds the next block on top of the epoch-1 block. Its
+	// blacklist must be sized for the new validator set (2), not inherited from the
+	// parent (1) — otherwise its blacklist is malformed and the block cannot be
+	// notarized.
+	bb.BlockShouldBeBuilt <- struct{}{}
+	block := bb.GetBuiltBlock()
+	require.Equal(t, uint16(2), block.Blacklist().NodeCount,
+		"blacklist must be resized to the new epoch's validator count")
+	e.Stop()
+
+	// Next, create the other node (follower) and ensure it can verify the block.
+	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, NodeID{1}, testutil.NewNoopComm(nodes), bb)
+	conf.Epoch = 2
+
+	require.NoError(t, conf.Storage.Index(context.Background(), epoch1Block, Finalization{}))
+	require.Equal(t, uint16(1), epoch1Block.Blacklist().NodeCount,
+		"blacklist must contain exactly one node")
+
+	e, err = NewEpoch(conf)
+	require.NoError(t, err)
+	e.Epoch = conf.Epoch
+	require.NoError(t, e.Start())
+	t.Cleanup(e.Stop)
+	require.Equal(t, uint64(2), e.Metadata().Epoch)
+
+	vote, err := testutil.NewTestVote(block, nodes[1])
+	require.NoError(t, err)
+
+	err = e.HandleMessage(&Message{
+		BlockMessage: &BlockMessage{
+			Vote:  *vote,
+			Block: block,
+		},
+	}, nodes[1])
+	require.NoError(t, err)
+	wal.AssertNotarization(1)
+
+}
+
 func TestEpochStartedTwice(t *testing.T) {
 	bb := testutil.NewTestBlockBuilder()
 
