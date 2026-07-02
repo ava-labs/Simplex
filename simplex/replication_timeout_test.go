@@ -677,3 +677,70 @@ func TestReplicationResendsFinalizedBlocksThatFailedVerification(t *testing.T) {
 	require.Equal(t, uint64(1), storage.NumBlocks())
 	require.Equal(t, block, storedBlock)
 }
+
+// TestReplicationResendSplitsRequests ensures that when replication requests time out, the missing sequences 
+// are re-requested split across the nodes that signed the highest observed quorum, just like the initial requests are.
+func TestReplicationResendSplitsRequests(t *testing.T) {
+	bb := testutil.NewTestBlockBuilder()
+	nodes := []common.NodeID{{1}, {2}, {3}, {4}}
+	sentMessages := make(chan *common.Message, 100)
+	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[1], &recordingComm{
+		Communication: testutil.NewNoopComm(nodes),
+		SentMessages:  sentMessages,
+	}, bb)
+	conf.ReplicationEnabled = true
+
+	e, err := simplex.NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+
+	// observe a finalization more than MaxRoundWindow sequences ahead of us
+	seqCount := 2 * conf.MaxRoundWindow
+	finalization := createBlocks(t, nodes, seqCount)[seqCount-1].Finalization
+	err = e.HandleMessage(&common.Message{Finalization: &finalization}, nodes[0])
+	require.NoError(t, err)
+
+	// collect the initial replication requests sent in response to the finalization
+	initiallyRequested := make(map[uint64]struct{})
+	timeout := time.After(30 * time.Second)
+	for uint64(len(initiallyRequested)) < conf.MaxRoundWindow {
+		select {
+		case msg := <-sentMessages:
+			if msg.ReplicationRequest == nil {
+				continue
+			}
+			for _, seq := range msg.ReplicationRequest.Seqs {
+				initiallyRequested[seq] = struct{}{}
+			}
+		case <-timeout:
+			require.FailNow(t, "timed out waiting for replication requests")
+		}
+	}
+
+	// no node responds, so the requests time out and are re-sent
+	e.AdvanceTime(e.StartTime.Add(2 * simplex.DefaultReplicationRequestTimeout))
+
+	// collect the re-sent requests until they cover all outstanding sequences
+	resentRequests := 0
+	resentSeqs := make(map[uint64]struct{})
+	for len(resentSeqs) < len(initiallyRequested) {
+		select {
+		case msg := <-sentMessages:
+			if msg.ReplicationRequest == nil {
+				continue
+			}
+			resentRequests++
+			require.LessOrEqual(t, uint64(len(msg.ReplicationRequest.Seqs)), conf.MaxRoundWindow,
+				"a replication request with more than MaxRoundWindow seqs is dropped by the responder")
+			for _, seq := range msg.ReplicationRequest.Seqs {
+				resentSeqs[seq] = struct{}{}
+			}
+		case <-timeout:
+			require.FailNow(t, "timed out waiting for re-sent replication requests")
+		}
+	}
+
+	require.Greater(t, resentRequests, 1,
+		"timed out requests should be re-sent split across the signers of the highest observed quorum")
+}
