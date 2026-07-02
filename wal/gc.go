@@ -10,6 +10,10 @@ import (
 	"github.com/ava-labs/simplex/common"
 )
 
+const (
+	defaultMaxWALSize = 100 * 1024 * 1024 // 100 MB
+)
+
 // Creator creates a DeletableWAL. Returns an error upon failure.
 type Creator func() (DeletableWAL, error)
 
@@ -60,6 +64,11 @@ func NewGarbageCollectedWAL(WALs []DeletableWAL, creator Creator, reader Reader,
 		}
 		wals = append(wals, wal)
 	}
+
+	if maxWALSize == 0 {
+		maxWALSize = defaultMaxWALSize
+	}
+
 	return &GarbageCollectedWAL{
 		maxWalSize: maxWALSize,
 		reader:     reader,
@@ -158,7 +167,7 @@ func (gcw *GarbageCollectedWAL) ReadAll() ([][]byte, error) {
 	return allEntries, nil
 }
 
-func (gcw *GarbageCollectedWAL) Truncate(retentionTerm uint64) error {
+func (gcw *GarbageCollectedWAL) GarbageCollect(retentionTerm uint64) error {
 	newWALs := make([]garbageCollectedWAL, 0, len(gcw.wals))
 
 	for i, wal := range gcw.wals {
@@ -175,5 +184,15 @@ func (gcw *GarbageCollectedWAL) Truncate(retentionTerm uint64) error {
 
 	gcw.wals = newWALs
 
+	return nil
+}
+
+func (gcw *GarbageCollectedWAL) Close() error {
+	for i, wal := range gcw.wals {
+		if err := wal.Close(); err != nil {
+			return fmt.Errorf("error closing WAL %d: %v", i, err)
+		}
+	}
+	gcw.wals = nil
 	return nil
 }
