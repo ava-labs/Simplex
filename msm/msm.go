@@ -650,7 +650,7 @@ func (sm *StateMachine) verifyNextPChainRefHeightNormal(prevMD StateMachineMetad
 			errValidatorSetUnchanged, next.NextPChainReferenceHeight, prev.PChainReferenceHeight)
 	}
 
-	// Else, ! currentValidatorSet.Equal(newValidatorSet) || next.NextPChainReferenceHeight == 0
+	// Else, !currentValidatorSet.Equal(newValidatorSet) || next.NextPChainReferenceHeight == 0
 	// so if next.NextPChainReferenceHeight > 0, we should initialize the approval store for the new validator set.
 	if next.NextPChainReferenceHeight > 0 {
 		sm.maybeInitializeApprovalStore(newValidatorSet)

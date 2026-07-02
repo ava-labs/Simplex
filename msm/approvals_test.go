@@ -347,6 +347,26 @@ func TestApprovalStorePutApprovals(t *testing.T) {
 				require.Equal(t, dstSent[0].ValidatorSetApproval, got[0])
 			},
 		},
+		{
+			// A source approval with the same timestamp as an existing destination approval at the same
+			// (NodeID, PChainHeight) does not overwrite it: the >= tie in approvalExistsAndUpToDate goes
+			// to the current destination.
+			name:          "equal-timestamp source does not overwrite destination",
+			srcValidators: 2,
+			dstValidators: 2,
+			dstApprovals: []approvalAndTimestamp{
+				{ValidatorSetApproval{NodeID: makeNodeID(1), PChainHeight: 7, Signature: signApproval(7, [32]byte{})}, 100},
+			},
+			srcApprovals: []approvalAndTimestamp{
+				{ValidatorSetApproval{NodeID: makeNodeID(1), PChainHeight: 7, Signature: signApproval(7, [32]byte{})}, 100},
+			},
+			verify: func(t *testing.T, dst, _ *ApprovalStore, _, dstSent []approvalAndTimestamp) {
+				got := dst.Approvals()
+				require.Len(t, got, 1)
+				require.Equal(t, 1, dst.storedCount)
+				require.Equal(t, dstSent[0].ValidatorSetApproval, got[0], "the destination approval is retained on a timestamp tie")
+			},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			src := NewApprovalStore(&signatureVerifier{}, makeValidators(tc.srcValidators), testutil.MakeLogger(t))

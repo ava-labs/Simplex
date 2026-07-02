@@ -27,7 +27,7 @@ type ApprovalStore struct {
 	signatureVerifier SignatureVerifier
 	validators        NodeBLSMappings
 	logger            common.Logger
-	pkByNodeID        map[nodeID][]byte
+	nodeIDToPK        map[nodeID][]byte
 	// lock guards the mutable state below (approvalsByNodes, storedCount). The
 	// store is accessed concurrently: approvals are handled as they arrive while
 	// the block builder reads the accumulated approvals when building a block.
@@ -50,7 +50,7 @@ func NewApprovalStore(signatureVerifier SignatureVerifier, validators NodeBLSMap
 	return &ApprovalStore{
 		signatureVerifier: signatureVerifier,
 		validators:        validators,
-		pkByNodeID:        pkByNodeID,
+		nodeIDToPK:        pkByNodeID,
 		logger:            logger,
 		approvalsByNodes:  approvalsByNodes,
 	}
@@ -71,7 +71,7 @@ func (as *ApprovalStore) Approvals() ValidatorSetApprovals {
 
 func (as *ApprovalStore) HandleApproval(approval *ValidatorSetApproval, timestamp uint64) error {
 	// First thing we check is if the node that sent this approval is a validator.
-	pk, exists := as.getPKOfNode(approval.NodeID)
+	pk, exists := as.nodeIDToPK[approval.NodeID]
 	if !exists {
 		as.logger.Debug("Received an approval from a node that is not a validator", zap.String("nodeID",
 			fmt.Sprintf("%x", approval.NodeID)), zap.Uint64("pChainHeight", approval.PChainHeight))
@@ -157,11 +157,6 @@ func (as *ApprovalStore) checkApprovalSignature(approval *ValidatorSetApproval, 
 	return as.signatureVerifier.VerifySignature(approval.Signature, toBeSigned, pk)
 }
 
-func (as *ApprovalStore) getPKOfNode(nodeID nodeID) ([]byte, bool) {
-	pk, exists := as.pkByNodeID[nodeID]
-	return pk, exists
-}
-
 func (as *ApprovalStore) approvalExistsAndUpToDate(approval *ValidatorSetApproval, timestamp uint64) bool {
 	if as.approvalsByNodes[approval.NodeID] == nil {
 		return false
@@ -180,27 +175,24 @@ func (as *ApprovalStore) approvalExistsAndUpToDate(approval *ValidatorSetApprova
 	return existingApproval.Timestamp >= timestamp
 }
 
+// PutApprovals copies all approvals from this store to the given approvalStore.
 func (as *ApprovalStore) PutApprovals(approvalStore *ApprovalStore) {
 	// Snapshot the approvals under our lock, then hand them to the destination
 	// store (which takes its own lock). Copying first avoids holding two store
 	// locks at once.
-	as.lock.Lock()
-	type approvalWithTimestamp struct {
-		approval  ValidatorSetApproval
-		timestamp uint64
-	}
-	snapshot := make([]approvalWithTimestamp, 0, as.storedCount)
+	as.lock.RLock()
+	snapshot := make([]approvalAndTimestamp, 0, as.storedCount)
 	for _, approvalsByHeight := range as.approvalsByNodes {
 		for _, approval := range approvalsByHeight {
-			snapshot = append(snapshot, approvalWithTimestamp{
-				approval:  approval.ValidatorSetApproval,
-				timestamp: approval.Timestamp,
+			snapshot = append(snapshot, approvalAndTimestamp{
+				ValidatorSetApproval: approval.ValidatorSetApproval,
+				Timestamp:            approval.Timestamp,
 			})
 		}
 	}
-	as.lock.Unlock()
+	as.lock.RUnlock()
 
 	for _, a := range snapshot {
-		approvalStore.HandleApproval(&a.approval, a.timestamp)
+		approvalStore.HandleApproval(&a.ValidatorSetApproval, a.Timestamp)
 	}
 }
