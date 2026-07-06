@@ -369,7 +369,6 @@ func newStateMachineWithLogger(tb testing.TB, logger common.Logger) (*StateMachi
 		Logger:                          logger,
 		GetBlock:                        testConfig.blockStore.getBlock,
 		MaxBlockBuildingWaitTime:        time.Second,
-		ApprovalsRetriever:              &testConfig.approvalsRetriever,
 		SignatureVerifier:               &testConfig.signatureVerifier,
 		SignatureAggregatorCreator:      newSignatureAggregatorCreator(),
 		BlockBuilder:                    &testConfig.blockBuilder,
