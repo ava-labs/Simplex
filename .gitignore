@@ -32,4 +32,4 @@ go.work.sum
 .idea/
 
 # tmp folder
-/tmptmp/
+/tmp

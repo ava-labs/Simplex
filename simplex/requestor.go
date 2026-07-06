@@ -163,7 +163,7 @@ func (r *requestor) observedSignedQuorum(observed *signedQuorum, currentSeqOrRou
 func (r *requestor) sendMoreReplicationRequests(observedSeqOrRound, currentSeqOrRound uint64) {
 	start := math.Max(float64(currentSeqOrRound), float64(r.highestRequested))
 	// we limit the number of outstanding requests to be at most maxRoundWindow ahead of nextSeqToCommit
-	end := math.Min(float64(observedSeqOrRound), float64(r.maxRoundWindow+currentSeqOrRound -1))
+	end := math.Min(float64(observedSeqOrRound), float64(r.maxRoundWindow+currentSeqOrRound-1))
 
 	r.logger.Debug("Node is behind, attempting to request missing values", zap.Uint64("value", observedSeqOrRound), zap.Uint64("start", uint64(start)), zap.Uint64("end", uint64(end)), zap.Bool("seq requestor", r.replicateSeqs))
 	r.sendReplicationRequests(uint64(start), uint64(end))
