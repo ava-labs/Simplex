@@ -380,100 +380,100 @@ func TestDistributeSequenceRequests(t *testing.T) {
 
 func TestDistributeMissingSequences(t *testing.T) {
 	tests := []struct {
-		name    string
+		name        string
 		missingSeqs []uint64
-		numNodes int
-		maxSize uint64
-		expected []Segment
-	}{ {
-            name:        "empty input",
-        	missingSeqs: []uint64{},
-            numNodes:    3,
-            maxSize:     10,
-            expected:    nil,
-            },
+		numNodes    int
+		maxSize     uint64
+		expected    []Segment
+	}{{
+		name:        "empty input",
+		missingSeqs: []uint64{},
+		numNodes:    3,
+		maxSize:     10,
+		expected:    nil,
+	},
 		{
-            name:         "single missing sequence",
-        	missingSeqs: []uint64{5},
-            numNodes:    3,
-            maxSize:     10,
-            expected:    []Segment{{Start: 5, End: 5}},
-            },
+			name:        "single missing sequence",
+			missingSeqs: []uint64{5},
+			numNodes:    3,
+			maxSize:     10,
+			expected:    []Segment{{Start: 5, End: 5}},
+		},
 		{
-            name:         "contiguous range split among nodes",
-        	missingSeqs: []uint64{5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15},
-            numNodes:    3,
-            maxSize:     10,
-            expected:    []Segment{
-                              {Start: 5, End: 8},
-                              {Start: 9, End: 12},
-                              {Start: 13, End: 15},
-                      },
-            },
+			name:        "contiguous range split among nodes",
+			missingSeqs: []uint64{5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15},
+			numNodes:    3,
+			maxSize:     10,
+			expected: []Segment{
+				{Start: 5, End: 8},
+				{Start: 9, End: 12},
+				{Start: 13, End: 15},
+			},
+		},
 		{
-            name:         "unsorted input with gaps",
-        	missingSeqs: []uint64{9,7,3,0,1,2,8},
-            numNodes:    2,
-            maxSize:     10,
-            expected:    []Segment{
-                              {Start: 0, End: 1},
-                              {Start: 2, End: 3},
-                              {Start: 7, End: 8},
-                              {Start: 9, End: 9},
-                      },
-            },
+			name:        "unsorted input with gaps",
+			missingSeqs: []uint64{9, 7, 3, 0, 1, 2, 8},
+			numNodes:    2,
+			maxSize:     10,
+			expected: []Segment{
+				{Start: 0, End: 1},
+				{Start: 2, End: 3},
+				{Start: 7, End: 8},
+				{Start: 9, End: 9},
+			},
+		},
 		{
-            name:         "single node segments capped at maxSize",
-        	missingSeqs: []uint64{
-                              0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
-                              13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
-                      },
-            numNodes:    1,
-            maxSize:     10,
-            expected:    []Segment{
-                              {Start: 0, End: 9},
-                              {Start: 10, End: 19},
-                              {Start: 20, End: 24},
-                      },
-            },
+			name: "single node segments capped at maxSize",
+			missingSeqs: []uint64{
+				0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
+				13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
+			},
+			numNodes: 1,
+			maxSize:  10,
+			expected: []Segment{
+				{Start: 0, End: 9},
+				{Start: 10, End: 19},
+				{Start: 20, End: 24},
+			},
+		},
 		{
-            name:        "zero max size",
-        	missingSeqs: []uint64{1,2,3},
-            numNodes:    2,
-            maxSize:     0,
-            expected:    nil,
-            },
+			name:        "zero max size",
+			missingSeqs: []uint64{1, 2, 3},
+			numNodes:    2,
+			maxSize:     0,
+			expected:    nil,
+		},
 		{
-            name:        "zero nodes",
-        	missingSeqs: []uint64{1,2,3},
-            numNodes:    0,
-            maxSize:     10,
-            expected:    nil,
-            },
+			name:        "zero nodes",
+			missingSeqs: []uint64{1, 2, 3},
+			numNodes:    0,
+			maxSize:     10,
+			expected:    nil,
+		},
 		{
-            name:        "range exceeds maxSize but node shares are within it",
-        	missingSeqs: []uint64{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14},
-            numNodes:    2,
-            maxSize:     10,
-            expected:   []Segment{
+			name:        "range exceeds maxSize but node shares are within it",
+			missingSeqs: []uint64{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14},
+			numNodes:    2,
+			maxSize:     10,
+			expected: []Segment{
 				{Start: 0, End: 7},
 				{Start: 8, End: 14},
-				},
 			},
+		},
 		{
-            name:        "node shares still exceed maxSize and are chunked",
-        	missingSeqs: []uint64{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14},
-            numNodes:    3,
-            maxSize:     3,
-            expected:    []Segment{
-              {Start: 0, End: 2},
-              {Start: 3, End: 4},
-              {Start: 5, End: 7},
-              {Start: 8, End: 9},
-              {Start: 10, End: 12},
-              {Start: 13, End: 14},
-				},
+			name:        "node shares still exceed maxSize and are chunked",
+			missingSeqs: []uint64{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14},
+			numNodes:    3,
+			maxSize:     3,
+			expected: []Segment{
+				{Start: 0, End: 2},
+				{Start: 3, End: 4},
+				{Start: 5, End: 7},
+				{Start: 8, End: 9},
+				{Start: 10, End: 12},
+				{Start: 13, End: 14},
 			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -484,8 +484,6 @@ func TestDistributeMissingSequences(t *testing.T) {
 	}
 
 }
-
-
 
 func TestNotarizationTime(t *testing.T) {
 	defaultFinalizeVoteRebroadcastTimeout := time.Second * 6

@@ -128,7 +128,6 @@ func (r *requestor) resendReplicationRequests(missingIds []uint64) {
 	r.epochLock.Lock()
 	defer r.epochLock.Unlock()
 
-
 	// split each contiguous range among the nodes that signed,
 	// just like the initial requests, so that a single request never exceeds
 	// the maxRoundWindow limit enforced by the responding nodes
