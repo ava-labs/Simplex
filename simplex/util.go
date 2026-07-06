@@ -262,6 +262,23 @@ func DistributeSequenceRequests(start, end uint64, numNodes int) []Segment {
 	return segments
 }
 
+
+func DistributeMissingSequences(missingSeqs []uint64, numNodes int, maxSize uint64) []Segment {
+	var segments []Segment
+	if maxSize == 0 {
+		return nil
+	}
+	for _, segment := range CompressSequences(missingSeqs) {
+		for _, distributed := range DistributeSequenceRequests(segment.Start, segment.End, numNodes) {
+			for start := distributed.Start; start <= distributed.End; start+= maxSize {
+				segments = append(segments, Segment {Start: start,
+				End: min (start + maxSize - 1, distributed.End)})
+			}
+		}
+	}
+	return segments
+}
+
 type NotarizationTime struct {
 	// config
 	getRound                       func() uint64
