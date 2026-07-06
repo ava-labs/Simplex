@@ -1786,17 +1786,13 @@ func TestReplicationRequestsWithinMaxRoundWindow(t *testing.T) {
 
 	// collect the replication requests sent out in response to the finalization
 	requested := make(map[uint64]struct{})
-	for done := false; !done; {
-		select {
-		case msg := <-sentMessages:
-			if msg.ReplicationRequest == nil {
-				continue
-			}
-			for _, seq := range msg.ReplicationRequest.Seqs {
-				requested[seq] = struct{}{}
-			}
-		default:
-			done = true
+	for len(sentMessages) > 0 {
+	 	msg := <-sentMessages
+		if msg.ReplicationRequest == nil {
+			continue
+		}
+		for _, seq := range msg.ReplicationRequest.Seqs {
+			requested[seq] = struct{}{}
 		}
 	}
 
