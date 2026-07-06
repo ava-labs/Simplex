@@ -203,9 +203,6 @@ func buildEpochChain(tb testing.TB, logger common.Logger) ([]*StateMachineBlock,
 	sm.LastNonSimplexInnerBlock = genesis.InnerBlock
 	tc.blockStore[0] = &outerBlock{block: genesis}
 
-	var approvalsResult ValidatorSetApprovals
-	sm.ApprovalsRetriever = &dynamicApprovalsRetriever{approvals: &approvalsResult}
-
 	ctx := context.Background()
 
 	addBlock := func(seq uint64, b *StateMachineBlock, fin *common.Finalization) {
@@ -260,20 +257,20 @@ func buildEpochChain(tb testing.TB, logger common.Logger) ([]*StateMachineBlock,
 	auxInfoDigest := sha256.Sum256(nil)
 
 	// block4 & block5: collecting-approvals blocks (1/3 then 2/3, not enough to seal).
-	approvalsResult = ValidatorSetApprovals{{NodeID: node1, PChainHeight: pChainHeight2, AuxInfoDigest: auxInfoDigest, Signature: signApproval(pChainHeight2, auxInfoDigest)}}
+	require.NoError(tb, sm.HandleApproval(&ValidatorSetApproval{NodeID: node1, PChainHeight: pChainHeight2, AuxInfoDigest: auxInfoDigest, Signature: signApproval(pChainHeight2, auxInfoDigest)}, 1))
 	currentTime = startTime.Add(time.Second + 4*time.Millisecond)
 	tc.blockBuilder.block = nextInner(4)
 	block4 := build(4, 3, 1, block3)
 	addBlock(4, block4, nil)
 
-	approvalsResult = ValidatorSetApprovals{{NodeID: node2, PChainHeight: pChainHeight2, AuxInfoDigest: auxInfoDigest, Signature: signApproval(pChainHeight2, auxInfoDigest)}}
+	require.NoError(tb, sm.HandleApproval(&ValidatorSetApproval{NodeID: node2, PChainHeight: pChainHeight2, AuxInfoDigest: auxInfoDigest, Signature: signApproval(pChainHeight2, auxInfoDigest)}, 2))
 	currentTime = startTime.Add(time.Second + 5*time.Millisecond)
 	tc.blockBuilder.block = nextInner(5)
 	block5 := build(5, 4, 1, block4)
 	addBlock(5, block5, nil)
 
 	// block6: the sealing block (3/3 approvals). Its successor is in stateBuildBlockEpochSealed.
-	approvalsResult = ValidatorSetApprovals{{NodeID: node3, PChainHeight: pChainHeight2, AuxInfoDigest: auxInfoDigest, Signature: signApproval(pChainHeight2, auxInfoDigest)}}
+	require.NoError(tb, sm.HandleApproval(&ValidatorSetApproval{NodeID: node3, PChainHeight: pChainHeight2, AuxInfoDigest: auxInfoDigest, Signature: signApproval(pChainHeight2, auxInfoDigest)}, 3))
 	currentTime = startTime.Add(time.Second + 6*time.Millisecond)
 	tc.blockBuilder.block = nextInner(6)
 	block6 := build(6, 5, 1, block5)
