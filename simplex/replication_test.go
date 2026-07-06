@@ -1760,3 +1760,51 @@ messages:
 	notarization := wal.AssertNotarization(uint64(len(blocks)))
 	require.Equal(t, common.EmptyNotarizationRecordType, notarization)
 }
+
+
+// TestReplicationRequestsWithinMaxRoundWindow ensures that a node that observes a finalization more than MaxRoundWindow
+// sequences ahead of its next sequence to commit only requests sequences up to MaxRoundWindow-1 ahead of it
+func TestReplicationRequestsWithinMaxRoundWindow(t *testing.T) {
+	bb := testutil.NewTestBlockBuilder()
+	nodes := []common.NodeID{{1}, {2}, {3}, {4}}
+	sentMessages := make(chan *common.Message, 100)
+	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[1], &recordingComm{
+		Communication: testutil.NewNoopComm(nodes),
+		SentMessages:  sentMessages,
+	}, bb)
+	conf.ReplicationEnabled = true
+
+	e, err := simplex.NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+
+	// observe a finalization more than MaxRoundWindow sequences ahead of us
+	seqCount := 2 * conf.MaxRoundWindow
+	finalization := createBlocks(t, nodes, seqCount)[seqCount-1].Finalization
+	err = e.HandleMessage(&common.Message{Finalization: &finalization}, nodes[0])
+	require.NoError(t, err)
+
+	// collect the replication requests sent out in response to the finalization
+	requested := make(map[uint64]struct{})
+	timeout := time.After(30 * time.Second)
+	for uint64(len(requested)) < conf.MaxRoundWindow {
+		select {
+		case msg := <-sentMessages:
+			if msg.ReplicationRequest == nil {
+				continue
+			}
+			for _, seq := range msg.ReplicationRequest.Seqs {
+				requested[seq] = struct{}{}
+			}
+		case <-timeout:
+			require.FailNow(t, "timed out waiting for replication requests")
+		}
+	}
+
+	// our next sequence to commit is 0, so we may request at most sequences [0, MaxRoundWindow-1]
+	for seq := range requested {
+		require.Less(t, seq, conf.MaxRoundWindow,
+			"requested a sequence more than MaxRoundWindow ahead of the next sequence to commit")
+	}
+}
