@@ -1786,8 +1786,7 @@ func TestReplicationRequestsWithinMaxRoundWindow(t *testing.T) {
 
 	// collect the replication requests sent out in response to the finalization
 	requested := make(map[uint64]struct{})
-	timeout := time.After(30 * time.Second)
-	for uint64(len(requested)) < conf.MaxRoundWindow {
+	for done := false; !done; {
 		select {
 		case msg := <-sentMessages:
 			if msg.ReplicationRequest == nil {
@@ -1796,12 +1795,13 @@ func TestReplicationRequestsWithinMaxRoundWindow(t *testing.T) {
 			for _, seq := range msg.ReplicationRequest.Seqs {
 				requested[seq] = struct{}{}
 			}
-		case <-timeout:
-			require.FailNow(t, "timed out waiting for replication requests")
+		default:
+			done = true
 		}
 	}
 
 	// our next sequence to commit is 0, so we may request at most sequences [0, MaxRoundWindow-1]
+	require.Len(t, requested, int(conf.MaxRoundWindow))
 	for seq := range requested {
 		require.Less(t, seq, conf.MaxRoundWindow,
 			"requested a sequence more than MaxRoundWindow ahead of the next sequence to commit")
