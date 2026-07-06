@@ -1787,7 +1787,7 @@ func TestReplicationRequestsWithinMaxRoundWindow(t *testing.T) {
 	// collect the replication requests sent out in response to the finalization
 	requested := make(map[uint64]struct{})
 	for len(sentMessages) > 0 {
-	 	msg := <-sentMessages
+		msg := <-sentMessages
 		if msg.ReplicationRequest == nil {
 			continue
 		}
