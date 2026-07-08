@@ -30,7 +30,7 @@ const (
 	DefaultEmptyVoteRebroadcastTimeout    = 5 * time.Second
 	DefaultFinalizeVoteRebroadcastTimeout = 6 * time.Second
 	EmptyVoteTimeoutID                    = "rebroadcast_empty_vote"
-	MaxRoundRequests                      = 10
+	MaxRoundRequests                      = 10 // max number of rounds or sequences that fit in one replication request
 )
 
 type EmptyVoteSet struct {

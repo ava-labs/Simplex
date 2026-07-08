@@ -185,31 +185,24 @@ func (block *oneTimeVerifiedBlock) Verify(ctx context.Context) (common.VerifiedB
 	return vb, err
 }
 
-func BatchSequences(seqs []uint64, numNodes int, maxSize uint64) [][]uint64 {
-	if len(seqs) == 0 || numNodes <= 0 || maxSize == 0 {
+// BatchSequences distributes [seqs] as evenly as possible among [numNodes]
+// nodes, returning one batch per node share. Every batch contains at most
+// [maxSize] sequences. a share exceeding [maxSize] is emitted as multiple
+// batches. [seqs] does not need to be sorted or contiguous, it is sorted in
+// place, and the returned batches are sub-slices of it, ordered from lowest
+// to highest sequence.
+func BatchSequences(seqs []uint64, numNodes uint64, maxSize uint64) [][]uint64 {
+	if len(seqs) == 0 || numNodes == 0 || maxSize == 0 {
 		return nil
 	}
 	slices.Sort(seqs)
 
 	numSeqs := uint64(len(seqs))
-	share := numSeqs / uint64(numNodes)
-	remainder := numSeqs % uint64(numNodes)
 
-	var batches [][]uint64
-	start := uint64(0)
-	for i := 0; i < numNodes && start < numSeqs; i++ {
-		nodeShare := share
-		if uint64(i) < remainder {
-			nodeShare++
-		}
-		for nodeShare > 0 {
-			n := min(nodeShare, maxSize)
-			batches = append(batches, seqs[start:start+n])
-			start += n
-			nodeShare -= n
-		}
-	}
-	return batches
+	seqsPerNode := (numSeqs + uint64(numNodes) - 1) / uint64(numNodes)
+
+	batchSize := min(seqsPerNode, maxSize)
+	return slices.Collect(slices.Chunk(seqs, int(batchSize)))
 }
 
 type NotarizationTime struct {

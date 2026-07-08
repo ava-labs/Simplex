@@ -122,6 +122,9 @@ func (r *requestor) advanceTime(now time.Time) {
 	r.timeoutHandler.Tick(now)
 }
 
+// resendReplicationRequests re-sends requests for [missingIds], the sequences
+// or rounds that were previously requested but not received before their
+// timeout expired.
 func (r *requestor) resendReplicationRequests(missingIds []uint64) {
 	// we call this function in the timeout handler goroutine, so we need to
 	// ensure we don't have concurrent access to highestObserved
@@ -168,10 +171,15 @@ func (r *requestor) sendMoreReplicationRequests(observedSeqOrRound, currentSeqOr
 	r.sendRequests(seqsOrRounds)
 }
 
+// sendRequests requests [seqsOrRounds] from the nodes that have signed
+// [highestObserved], by splitting them into batches of at most
+// MaxRoundRequests and sending each batch to one of the signers.
+// It is the single send path, used both for initial replication requests
+// and for re-sending requests that have timed out.
 func (r *requestor) sendRequests(seqsOrRounds []uint64) {
 	signers := r.highestObserved.signers
 	numNodes := len(signers)
-	batches := BatchSequences(seqsOrRounds, numNodes, MaxRoundRequests)
+	batches := BatchSequences(seqsOrRounds, uint64(numNodes), MaxRoundRequests)
 
 	for i, batch := range batches {
 		index := (i + r.requestIterator) % numNodes
@@ -180,9 +188,10 @@ func (r *requestor) sendRequests(seqsOrRounds []uint64) {
 	r.requestIterator++
 }
 
-// sendRequestToNode requests [start, end] from nodes[index].
-// In case the nodes[index] does not respond, we create a timeout that will
-// re-send the request.
+// sendRequestToNode requests [seqsOrRounds] from node, skipping
+// any sequences we have already committed. In case the node does not respond,
+// we create a timeout that will re-send the request. seqsOrRounds is expected to be sorted in ascending order,
+// as the last element is used to update highestRequested.
 func (r *requestor) sendRequestToNode(seqsOrRounds []uint64, node common.NodeID) {
 	toRequest := make([]uint64, 0, len(seqsOrRounds))
 	for _, seqOrRound := range seqsOrRounds {
