@@ -185,97 +185,31 @@ func (block *oneTimeVerifiedBlock) Verify(ctx context.Context) (common.VerifiedB
 	return vb, err
 }
 
-type Segment struct {
-	Start uint64
-	End   uint64
-}
-
-// compressSequences takes a slice of uint64 values representing
-// missing sequence numbers and compresses consecutive numbers into segments.
-// Each segment represents a continuous block of missing sequence numbers.
-func CompressSequences(missingSeqs []uint64) []Segment {
-	slices.Sort(missingSeqs)
-	var segments []Segment
-
-	if len(missingSeqs) == 0 {
-		return segments
-	}
-
-	startSeq := missingSeqs[0]
-	endSeq := missingSeqs[0]
-
-	for i, currentSeq := range missingSeqs[1:] {
-		if currentSeq != missingSeqs[i]+1 {
-			segments = append(segments, Segment{
-				Start: startSeq,
-				End:   endSeq,
-			})
-			startSeq = currentSeq
-		}
-		endSeq = currentSeq
-	}
-
-	segments = append(segments, Segment{
-		Start: startSeq,
-		End:   endSeq,
-	})
-
-	return segments
-}
-
-// DistributeSequenceRequests evenly creates segments amongst [numNodes] over
-// the range [start, end].
-func DistributeSequenceRequests(start, end uint64, numNodes int) []Segment {
-	var segments []Segment
-
-	if numNodes <= 0 || start > end {
-		return segments
-	}
-
-	numSeqs := end + 1 - start
-	seqsPerNode := numSeqs / uint64(numNodes)
-	remainder := numSeqs % uint64(numNodes)
-
-	if seqsPerNode == 0 {
-		seqsPerNode = 1
-	}
-
-	nodeStart := start
-
-	for i := 0; i < numNodes && nodeStart <= end; i++ {
-		segmentLength := seqsPerNode
-		if remainder > 0 {
-			segmentLength++
-			remainder--
-		}
-
-		nodeEnd := min(nodeStart+segmentLength-1, end)
-
-		segments = append(segments, Segment{
-			Start: nodeStart,
-			End:   nodeEnd,
-		})
-
-		nodeStart = nodeEnd + 1
-	}
-
-	return segments
-}
-
-func DistributeMissingSequences(missingSeqs []uint64, numNodes int, maxSize uint64) []Segment {
-	var segments []Segment
-	if maxSize == 0 {
+func BatchSequences(seqs []uint64, numNodes int, maxSize uint64) [][]uint64 {
+	if len(seqs) == 0 || numNodes <= 0 || maxSize == 0 {
 		return nil
 	}
-	for _, segment := range CompressSequences(missingSeqs) {
-		for _, distributed := range DistributeSequenceRequests(segment.Start, segment.End, numNodes) {
-			for start := distributed.Start; start <= distributed.End; start += maxSize {
-				segments = append(segments, Segment{Start: start,
-					End: min(start+maxSize-1, distributed.End)})
-			}
+	slices.Sort(seqs)
+
+	numSeqs := uint64(len(seqs))
+	share := numSeqs / uint64(numNodes)
+	remainder := numSeqs % uint64(numNodes)
+
+	var batches [][]uint64
+	start := uint64(0)
+	for i := 0; i < numNodes && start < numSeqs; i++ {
+		nodeShare := share
+		if uint64(i) < remainder {
+			nodeShare++
+		}
+		for nodeShare > 0 {
+			n := min(nodeShare, maxSize)
+			batches = append(batches, seqs[start:start+n])
+			start += n
+			nodeShare -= n
 		}
 	}
-	return segments
+	return batches
 }
 
 type NotarizationTime struct {

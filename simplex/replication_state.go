@@ -235,7 +235,7 @@ func (r *ReplicationState) ResendFinalizationRequest(seq uint64, signers []commo
 	// because we are resending because the block failed to verify, we should remove the stored quorum round
 	// so that we can try to get a new block & finalization
 	r.DeleteSeq(seq)
-	r.finalizationRequestor.sendRequestToNode(seq, seq, signers[index])
+	r.finalizationRequestor.sendRequestToNode([]uint64{seq}, signers[index])
 }
 
 // CreateDependencyTasks creates tasks to refetch the given parent digest and empty rounds. If there are no
