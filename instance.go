@@ -64,16 +64,16 @@ type timeAdvancer interface {
 }
 
 type Instance struct {
-	Config                Config
-	lock                  sync.Mutex
-	cs                    *CachedStorage
-	wal                   *wal.GarbageCollectedWAL
-	msm                   *metadata.StateMachine
-	e                     *simplex.Epoch
-	nv                    *nonvalidator.NonValidator
-	epochOrNV             timeAdvancer
-	epochChanges          chan epochChange
-	stopCh                chan struct{}
+	Config       Config
+	lock         sync.Mutex
+	cs           *CachedStorage
+	wal          *wal.GarbageCollectedWAL
+	msm          *metadata.StateMachine
+	e            *simplex.Epoch
+	nv           *nonvalidator.NonValidator
+	epochOrNV    timeAdvancer
+	epochChanges chan epochChange
+	stopCh       chan struct{}
 }
 
 func (i *Instance) Start(ctx context.Context) error {

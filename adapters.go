@@ -14,7 +14,7 @@ import (
 )
 
 type Communication struct {
-	nodes                 atomic.Value // common.Nodes
+	nodes atomic.Value // common.Nodes
 	Sender
 	Broadcaster
 }
@@ -186,10 +186,10 @@ func (n *NoopAuxiliaryInfoApp) DefaultVersionID() metadata.VersionID {
 }
 
 type BlockBuilderWaiter struct {
-	lock                  sync.Mutex
-	cancel                context.CancelFunc
-	msm                   *metadata.StateMachine
-	vm                    VM
+	lock   sync.Mutex
+	cancel context.CancelFunc
+	msm    *metadata.StateMachine
+	vm     VM
 }
 
 func (bw *BlockBuilderWaiter) stop() {
