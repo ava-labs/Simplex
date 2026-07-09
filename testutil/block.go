@@ -21,6 +21,8 @@ type TestBlock struct {
 	OnVerify          func()
 	VerificationDelay chan struct{}
 	VerificationError error
+	// SealingInfo, when non-nil, is returned by SealingBlockInfo() to mark this block as a sealing block.
+	SealingInfo *common.SealingBlockInfo
 }
 
 func NewTestBlock(metadata common.ProtocolMetadata, blacklist common.Blacklist) *TestBlock {
@@ -59,7 +61,7 @@ func (tb *TestBlock) Verify(context.Context) (common.VerifiedBlock, error) {
 }
 
 func (tb *TestBlock) SealingBlockInfo() *common.SealingBlockInfo {
-	return nil
+	return tb.SealingInfo
 }
 
 func (tb *TestBlock) ComputeDigest() {

@@ -82,6 +82,7 @@ type EpochConfig struct {
 type Epoch struct {
 	EpochConfig
 	// Runtime
+	epochSealed                    atomic.Bool
 	signatureAggregator            common.SignatureAggregator
 	oneTimeVerifier                *OneTimeVerifier
 	buildBlockScheduler            *common.BasicScheduler
@@ -511,7 +512,7 @@ func (e *Epoch) broadcastReplicationSync() {
 			LatestFinalizedSeq: latestFinalizedSeq,
 		},
 	}
-	e.Comm.Broadcast(replicationRequest)
+	e.broadcast(replicationRequest)
 }
 
 // resumeFromWal resumes the epoch from the records of the write ahead log.
@@ -521,7 +522,7 @@ func (e *Epoch) resumeFromWal(highestRoundRecord *walRound) error {
 	// Handle the most relevant record based on priority: finalization > notarization > emptyNotarization > emptyVote > block
 	if highestRoundRecord.finalization != nil {
 		finalizationMsg := &common.Message{Finalization: highestRoundRecord.finalization}
-		e.Comm.Broadcast(finalizationMsg)
+		e.broadcast(finalizationMsg)
 
 		e.Logger.Debug("Broadcast finalization",
 			zap.Uint64("round", highestRoundRecord.finalization.Finalization.Round),
@@ -533,7 +534,7 @@ func (e *Epoch) resumeFromWal(highestRoundRecord *walRound) error {
 	if highestRoundRecord.notarization != nil {
 		notarization := highestRoundRecord.notarization
 		lastMessage := common.Message{Notarization: notarization}
-		e.Comm.Broadcast(&lastMessage)
+		e.broadcast(&lastMessage)
 
 		if e.sequenceAlreadyIndexed(notarization.Vote.Seq) {
 			e.Logger.Debug("Notarization already indexed, skipping restoration", zap.Uint64("Sequence", notarization.Vote.Seq))
@@ -545,7 +546,7 @@ func (e *Epoch) resumeFromWal(highestRoundRecord *walRound) error {
 
 	if highestRoundRecord.emptyNotarization != nil {
 		lastMessage := common.Message{EmptyNotarization: highestRoundRecord.emptyNotarization}
-		e.Comm.Broadcast(&lastMessage)
+		e.broadcast(&lastMessage)
 		return e.startRound()
 	}
 
@@ -560,7 +561,7 @@ func (e *Epoch) resumeFromWal(highestRoundRecord *walRound) error {
 			return fmt.Errorf("could not find my own vote for round %d", ev.Round)
 		}
 		lastMessage := common.Message{EmptyVoteMessage: emptyVote}
-		e.Comm.Broadcast(&lastMessage)
+		e.broadcast(&lastMessage)
 		e.Logger.Info("Rebroadcasting empty vote from WAL", zap.Uint64("round", ev.Round))
 		e.addEmptyVoteRebroadcastTimeout()
 	}
@@ -590,7 +591,7 @@ func (e *Epoch) resumeFromWal(highestRoundRecord *walRound) error {
 				},
 			}
 			// broadcast only if we are the leader
-			e.Comm.Broadcast(proposal)
+			e.broadcast(proposal)
 			err = e.handleVoteMessage(&vote, e.ID)
 			if err != nil {
 				return err
@@ -735,6 +736,10 @@ func (e *Epoch) Stop() {
 	e.replicationState.Close()
 }
 
+func (e *Epoch) isEpochSealed() bool {
+	return e.epochSealed.Load()
+}
+
 func (e *Epoch) handleFinalizationMessage(message *common.Finalization, from common.NodeID) error {
 	e.Logger.Verbo("Received finalization message",
 		zap.Stringer("from", from), zap.Uint64("round", message.Finalization.Round), zap.Uint64("seq", message.Finalization.Seq))
@@ -840,7 +845,7 @@ func (e *Epoch) handleFinalizeVoteMessage(message *common.FinalizeVote, from com
 			return nil
 		}
 		// send the finalization to the sender in case they missed it
-		e.Comm.Send(&common.Message{
+		e.send(&common.Message{
 			Finalization: round.finalization,
 		}, from)
 		return nil
@@ -946,7 +951,7 @@ func (e *Epoch) sendLatestFinalization(to common.NodeID) {
 		Finalization: &e.lastBlock.Finalization,
 	}
 	e.Logger.Debug("Node appears behind, sending it the latest finalization", zap.Stringer("to", to), zap.Uint64("round", e.lastBlock.Finalization.Finalization.Round), zap.Uint64("sequence", e.lastBlock.Finalization.Finalization.Seq))
-	e.Comm.Send(msg, to)
+	e.send(msg, to)
 }
 
 func (e *Epoch) sendHighestRound(to common.NodeID) {
@@ -962,7 +967,7 @@ func (e *Epoch) sendHighestRound(to common.NodeID) {
 			Notarization: latestQR.Notarization,
 		}
 		e.Logger.Debug("Node appears behind, sending it the highest round", zap.Stringer("to", to), zap.Uint64("round", latestQR.Notarization.Vote.Round))
-		e.Comm.Send(msg, to)
+		e.send(msg, to)
 		return
 	}
 
@@ -971,7 +976,7 @@ func (e *Epoch) sendHighestRound(to common.NodeID) {
 			EmptyNotarization: latestQR.EmptyNotarization,
 		}
 		e.Logger.Debug("Node appears behind, sending it the highest empty notarized round", zap.Stringer("to", to), zap.Uint64("round", latestQR.EmptyNotarization.Vote.Round))
-		e.Comm.Send(msg, to)
+		e.send(msg, to)
 		return
 	}
 }
@@ -987,7 +992,7 @@ func (e *Epoch) maybeSendNotarizationOrFinalization(to common.NodeID, round uint
 				EmptyNotarization: evs.emptyNotarization,
 			}
 			e.Logger.Debug("Node appears behind, sending it an empty notarization", zap.Stringer("to", to), zap.Uint64("round", round))
-			e.Comm.Send(msg, to)
+			e.send(msg, to)
 		}
 
 		return
@@ -997,7 +1002,7 @@ func (e *Epoch) maybeSendNotarizationOrFinalization(to common.NodeID, round uint
 		msg := &common.Message{
 			Finalization: r.finalization,
 		}
-		e.Comm.Send(msg, to)
+		e.send(msg, to)
 		return
 	}
 
@@ -1006,7 +1011,7 @@ func (e *Epoch) maybeSendNotarizationOrFinalization(to common.NodeID, round uint
 		msg := &common.Message{
 			Notarization: r.notarization,
 		}
-		e.Comm.Send(msg, to)
+		e.send(msg, to)
 		return
 	}
 }
@@ -1268,7 +1273,7 @@ func (e *Epoch) persistFinalization(finalization common.Finalization) error {
 	}
 
 	finalizationMsg := &common.Message{Finalization: &finalization}
-	e.Comm.Broadcast(finalizationMsg)
+	e.broadcast(finalizationMsg)
 
 	e.Logger.Debug("Broadcast finalization",
 		zap.Uint64("round", finalization.Finalization.Round),
@@ -1317,10 +1322,30 @@ func (e *Epoch) rebroadcastPastFinalizeVotes() error {
 			finalizeVoteMessage = msg
 		}
 		e.Logger.Debug("Rebroadcasting finalize vote", zap.Uint64("round", r), zap.Uint64("seq", finalizeVoteMessage.FinalizeVote.Finalization.Seq))
-		e.Comm.Broadcast(finalizeVoteMessage)
+		e.broadcast(finalizeVoteMessage)
 	}
 
 	return nil
+}
+
+func (e *Epoch) broadcast(msg *common.Message) {
+	// If the epoch is sealed, we only allow messages related to replication to be broadcasted.
+	// This is to prevent advancing the entire protocol state, but allowing replicating past protocol state.
+	if e.isEpochSealed() && !msg.IsReplicationMessage() {
+		e.Logger.Debug("Epoch is sealed, aborting message broadcast")
+		return
+	}
+	e.Comm.Broadcast(msg)
+}
+
+func (e *Epoch) send(msg *common.Message, to common.NodeID) {
+	// If the epoch is sealed, we only allow messages related to replication to be sent.
+	// This is to prevent advancing the entire protocol state, but allowing replicating past protocol state.
+	if e.isEpochSealed() && !msg.IsReplicationMessage() {
+		e.Logger.Debug("Epoch is sealed, aborting message send", zap.Stringer("to", to))
+		return
+	}
+	e.Comm.Send(msg, to)
 }
 
 func (e *Epoch) maxRoundInRoundsMap() uint64 {
@@ -1399,6 +1424,20 @@ func (e *Epoch) indexFinalization(block common.VerifiedBlock, finalization commo
 		Finalization:  finalization,
 	}
 
+	// If this is a sealing block, and is not the zero block, then we have sealed the epoch and should stop processing messages.
+	// In case it's the zero block, we do not not seal the epoch.
+	if block.SealingBlockInfo() != nil && block.SealingBlockInfo().PrevSealingBlockHash != [32]byte{} {
+		e.Logger.Info("Committed a sealing block, epoch is sealed",
+			zap.Uint64("round", finalization.Finalization.Round),
+			zap.Uint64("sequence", finalization.Finalization.Seq),
+			zap.Stringer("digest", finalization.Finalization.BlockHeader.Digest))
+
+		finalizationMsg := &common.Message{Finalization: &finalization}
+		e.broadcast(finalizationMsg)
+
+		e.epochSealed.Store(true)
+	}
+
 	// We have committed because we have collected a finalization.
 	// However, we may have not witnessed a notarization.
 	// Regardless of that, we can safely progress to the round succeeding the finalization.
@@ -1472,7 +1511,7 @@ func (e *Epoch) persistEmptyNotarization(emptyVotes *EmptyVoteSet, shouldBroadca
 	emptyVotes.persisted = true
 	if shouldBroadcast {
 		notarizationMessage := &common.Message{EmptyNotarization: emptyNotarization}
-		e.Comm.Broadcast(notarizationMessage)
+		e.broadcast(notarizationMessage)
 		e.Logger.Debug("Broadcast empty notarization",
 			zap.Uint64("round", emptyNotarization.Vote.Round))
 	}
@@ -1599,7 +1638,7 @@ func (e *Epoch) persistAndBroadcastNotarization(notarization common.Notarization
 	}
 
 	notarizationMessage := &common.Message{Notarization: &notarization}
-	e.Comm.Broadcast(notarizationMessage)
+	e.broadcast(notarizationMessage)
 
 	e.Logger.Debug("Broadcast notarization",
 		zap.Uint64("round", notarization.Vote.Round),
@@ -1718,7 +1757,7 @@ func (e *Epoch) handleNotarizationMessage(message *common.Notarization, from com
 				Seq:    vote.Seq,
 			},
 		}
-		e.Comm.Send(blockDigestRequest, from)
+		e.send(blockDigestRequest, from)
 		return nil
 	}
 
@@ -1849,7 +1888,7 @@ func (e *Epoch) sendMissingRoundsRequest(to common.NodeID, missingRounds []uint6
 		},
 	}
 
-	e.Comm.Send(request, to)
+	e.send(request, to)
 }
 
 // blockDependencies returns the dependencies bh has before it can be verified.
@@ -2015,6 +2054,10 @@ func (e *Epoch) createBlockVerificationTask(block common.Block, from common.Node
 			e.Logger.Debug("Block verification ended", zap.Uint64("round", md.Round), zap.Duration("elapsed", elapsed))
 		}()
 
+		if e.isEpochSealed() {
+			e.Logger.Debug("Aborting block verification because the epoch is sealed", zap.Uint64("seq", md.Seq))
+			return md.Digest
+		}
 		verifiedBlock, err := block.Verify(context.Background())
 
 		e.lock.Lock()
@@ -2103,6 +2146,11 @@ func (e *Epoch) createFinalizedBlockVerificationTask(block common.Block, finaliz
 			e.Logger.Debug("Block verification ended", zap.Uint64("round", md.Round), zap.Duration("elapsed", elapsed))
 		}()
 
+		if e.isEpochSealed() {
+			e.Logger.Debug("Aborting block verification because the epoch is sealed", zap.Uint64("seq", md.Seq))
+			return md.Digest
+		}
+
 		verifiedBlock, err := block.Verify(context.Background())
 		if err != nil {
 			e.Logger.Debug("Failed verifying block", zap.Error(err))
@@ -2170,6 +2218,11 @@ func (e *Epoch) createNotarizedBlockVerificationTask(block common.Block, notariz
 			elapsed := time.Since(start)
 			e.Logger.Debug("Block verification ended", zap.Uint64("round", md.Round), zap.Duration("elapsed", elapsed))
 		}()
+
+		if e.isEpochSealed() {
+			e.Logger.Debug("Aborting block verification because the epoch is sealed", zap.Uint64("seq", md.Seq))
+			return md.Digest
+		}
 
 		verifiedBlock, err := block.Verify(context.Background())
 		if err != nil {
@@ -2273,6 +2326,11 @@ func (e *Epoch) verifyProposalMetadataAndBlacklist(block common.Block) bool {
 
 		prevBlacklist = prevBlock.Blacklist()
 
+		// If the previous block belongs to an earlier epoch, the blacklist should be empty.
+		if prevBlock.BlockHeader().Epoch < e.Epoch {
+			prevBlacklist = common.NewBlacklist(uint16(len(e.validatorNodeIDs)))
+		}
+
 		if prevBlacklist.IsEmpty() {
 			prevBlacklist = common.NewBlacklist(uint16(len(e.validatorNodeIDs)))
 		}
@@ -2368,7 +2426,7 @@ func (e *Epoch) locateBlock(seq uint64, digest []byte) (common.VerifiedBlock, *n
 func (e *Epoch) buildBlock() {
 	metadata := e.metadata()
 
-	prevBlacklist, ok := e.retrieveBlacklistOfParentBlock(metadata)
+	prevBlacklist, ok := e.retrieveBlacklistForBlockBuilding(metadata)
 	if !ok {
 		return
 	}
@@ -2413,7 +2471,7 @@ func (e *Epoch) buildBlock() {
 	e.buildBlockScheduler.ScheduleOrReplace(task)
 }
 
-func (e *Epoch) retrieveBlacklistOfParentBlock(metadata common.ProtocolMetadata) (common.Blacklist, bool) {
+func (e *Epoch) retrieveBlacklistForBlockBuilding(metadata common.ProtocolMetadata) (common.Blacklist, bool) {
 	var blacklist common.Blacklist
 	if metadata.Seq > 0 {
 		prevBlock, _, ok := e.locateBlock(metadata.Seq-1, metadata.Prev[:])
@@ -2427,6 +2485,11 @@ func (e *Epoch) retrieveBlacklistOfParentBlock(metadata common.ProtocolMetadata)
 		}
 
 		blacklist = prevBlock.Blacklist()
+
+		// If the previous block belongs to a previous epoch, we need to reset the blacklist to be empty.
+		if metadata.Epoch > prevBlock.BlockHeader().Epoch {
+			blacklist = common.NewBlacklist(uint16(len(e.validatorNodeIDs)))
+		}
 	}
 
 	if blacklist.IsEmpty() {
@@ -2443,6 +2506,14 @@ func (e *Epoch) createBlockBuildingTask(metadata common.ProtocolMetadata, blackl
 	cancel := e.blockBuilderCancelFunc
 
 	return func() common.Digest {
+		e.lock.Lock()
+		if e.isEpochSealed() {
+			e.lock.Unlock()
+			e.Logger.Debug("Aborting block building because the epoch is sealed")
+			return common.Digest{}
+		}
+		e.lock.Unlock()
+
 		block, ok := e.BlockBuilder.BuildBlock(context, metadata, blacklist)
 
 		e.lock.Lock()
@@ -2501,7 +2572,7 @@ func (e *Epoch) proposeBlock(block common.VerifiedBlock) error {
 		},
 	}
 
-	e.Comm.Broadcast(proposal)
+	e.broadcast(proposal)
 	e.Logger.Debug("Proposal broadcast",
 		zap.Uint64("round", md.Round),
 		zap.Int("size", len(rawBlock)),
@@ -2584,7 +2655,7 @@ func (e *Epoch) triggerEmptyBlockNotarization(round uint64) {
 	// Add our own empty vote to the set
 	emptyVotes.votes[string(e.ID)] = &signedEV
 
-	e.Comm.Broadcast(&common.Message{EmptyVoteMessage: &signedEV})
+	e.broadcast(&common.Message{EmptyVoteMessage: &signedEV})
 
 	e.addEmptyVoteRebroadcastTimeout()
 
@@ -2612,7 +2683,7 @@ func (e *Epoch) emptyVoteTimeoutTaskRunner(_ []string) {
 	}
 
 	e.Logger.Debug("Rebroadcasting empty vote because round has not advanced", zap.Uint64("round", ourVote.Vote.Round))
-	e.Comm.Broadcast(&common.Message{EmptyVoteMessage: ourVote})
+	e.broadcast(&common.Message{EmptyVoteMessage: ourVote})
 }
 
 func (e *Epoch) addEmptyVoteRebroadcastTimeout() {
@@ -2784,7 +2855,7 @@ func (e *Epoch) doProposed(block common.VerifiedBlock) error {
 		zap.Uint64("round", md.Round),
 		zap.Stringer("digest", md.Digest))
 
-	e.Comm.Broadcast(voteMsg)
+	e.broadcast(voteMsg)
 	// Send yourself a vote message
 	return e.handleVoteMessage(&vote, e.ID)
 }
@@ -2859,7 +2930,7 @@ func (e *Epoch) doNotarized(r uint64) error {
 	if err != nil {
 		return err
 	}
-	e.Comm.Broadcast(finalizeVoteMsg)
+	e.broadcast(finalizeVoteMsg)
 
 	e.Logger.Debug("Broadcasting finalize vote",
 		zap.Uint64("round", md.Round),
@@ -3061,7 +3132,7 @@ func (e *Epoch) handleReplicationRequest(req *common.ReplicationRequest, from co
 
 	e.Logger.Debug("Sending response back to node", zap.Stringer("to", from), zap.Int("num rounds", len(data)))
 	msg := &common.Message{VerifiedReplicationResponse: response}
-	e.Comm.Send(msg, from)
+	e.send(msg, from)
 	return nil
 }
 
@@ -3191,7 +3262,7 @@ func (e *Epoch) handleBlockDigestRequest(req *common.BlockDigestRequest, from co
 	}
 
 	msg := &common.Message{VerifiedReplicationResponse: response}
-	e.Comm.Send(msg, from)
+	e.send(msg, from)
 	return nil
 }
 
