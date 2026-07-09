@@ -9,7 +9,6 @@ import (
 
 	"github.com/ava-labs/simplex/common"
 	metadata "github.com/ava-labs/simplex/msm"
-	"github.com/ava-labs/simplex/wal"
 )
 
 type ParameterConfig struct {
@@ -72,9 +71,6 @@ type Storage interface {
 
 	// Index indexes the given block and finalization in the storage.
 	Index(ctx context.Context, block common.VerifiedBlock, certificate common.Finalization) error
-
-	// CreateWAL creates a new Write-Ahead Log (WAL).
-	CreateWAL() (wal.DeletableWAL, error)
 }
 
 type CryptoOps interface {
@@ -83,25 +79,4 @@ type CryptoOps interface {
 	VerifySignature(message []byte, signature []byte, publicKey []byte) error
 	CreateSignatureAggregator([]common.Node) common.SignatureAggregator
 	DeserializeQuorumCertificate(bytes []byte) (common.QuorumCertificate, error)
-}
-
-type MSMConfig struct {
-	LastNonSimplexInnerBlock metadata.VMBlock
-	ComputeICMEpoch          metadata.ICMEpochTransition
-}
-
-type EpochParams struct {
-	ID                         common.NodeID
-	Sender                     Sender
-	Storage                    Storage
-	QCDeserializer             common.QCDeserializer
-	BlockDeserializer          common.BlockDeserializer
-	Verifier                   common.SignatureVerifier
-	MaxProposalWait            time.Duration
-	MaxRoundWindow             uint64
-	MaxRebroadcastWait         time.Duration
-	FinalizeRebroadcastTimeout time.Duration
-	MaxWALSize                 int
-	WALCreator                 wal.Creator
-	WALs                       []wal.DeletableWAL
 }

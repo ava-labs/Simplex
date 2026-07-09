@@ -33,12 +33,12 @@ func (c *Communication) Validators() common.Nodes {
 
 // EpochAwareStorage is a wrapper around Storage that is aware of epoch changes.
 // Upon an epoch change, it will ignore blocks from previous epochs
-// and will call the OnEpochChange callback when a new epoch is detected.
+// and will call the onEpochChange callback when a new epoch is detected.
 type EpochAwareStorage struct {
 	msm           *metadata.StateMachine
-	OnEpochChange func(seq uint64, validators common.Nodes) error
+	onEpochChange func(seq uint64, validators common.Nodes) error
 	Storage
-	Epoch uint64
+	epoch uint64
 }
 
 func (e *EpochAwareStorage) Retrieve(seq uint64) (common.VerifiedBlock, common.Finalization, error) {
@@ -54,7 +54,7 @@ func (e *EpochAwareStorage) Retrieve(seq uint64) (common.VerifiedBlock, common.F
 }
 
 func (e *EpochAwareStorage) Index(ctx context.Context, block common.VerifiedBlock, certificate common.Finalization) error {
-	if block.BlockHeader().Epoch < e.Epoch {
+	if block.BlockHeader().Epoch < e.epoch {
 		// This is a Telock from a previous h, so we ignore it and do not index it.
 		return nil
 	}
@@ -62,11 +62,11 @@ func (e *EpochAwareStorage) Index(ctx context.Context, block common.VerifiedBloc
 		return err
 	}
 	if block.SealingBlockInfo() != nil {
-		if err := e.OnEpochChange(block.BlockHeader().Seq, block.SealingBlockInfo().ValidatorSet); err != nil {
+		if err := e.onEpochChange(block.BlockHeader().Seq, block.SealingBlockInfo().ValidatorSet); err != nil {
 			return err
 		}
 		// We are now in a new h, so we update the h number to prevent indexing Telocks from the previous h.
-		e.Epoch = block.BlockHeader().Seq
+		e.epoch = block.BlockHeader().Seq
 	}
 	return nil
 }

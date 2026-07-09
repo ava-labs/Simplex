@@ -141,6 +141,7 @@ func newInstance(t *testing.T, nodeID common.NodeID, storage *MockStorage, net *
 			PlatformChain:            pChain,
 			CryptoOps:                cops,
 			LastNonSimplexInnerBlock: genesisBlock,
+			WalCreator:               storage.CreateWAL,
 			ParameterConfig: ParameterConfig{
 				MaxNetworkDelay:  500 * time.Millisecond,
 				MaxRoundWindow:   100,

@@ -31,16 +31,19 @@ type Config struct {
 	ParameterConfig ParameterConfig
 	// PlatformChain is the interface to the P-chain.
 	PlatformChain PlatformChain
+	// Broadcaster is the interface to broadcast messages to other nodes in the network.
+	Broadcaster Broadcaster
 	// CryptoOps is the interface to the cryptographic operations needed by the simplex instance.
 	CryptoOps CryptoOps
+	// WalCreator is the interface to create new write-ahead logs for the simplex instance.
+	WalCreator wal.Creator
 	// Storage is the interface to the block storage layer for the simplex instance.
-	Storage     Storage
-	Logger      common.Logger
-	Sender      Sender
-	Broadcaster Broadcaster
-	WALs        []wal.DeletableWAL
-	VM          VM
-	ID          common.NodeID
+	Storage Storage
+	Logger  common.Logger
+	Sender  Sender
+	WALs    []wal.DeletableWAL
+	VM      VM
+	ID      common.NodeID
 }
 
 type MessageHandler interface {
@@ -144,9 +147,9 @@ func (i *Instance) createNonValidatorConfig(epochNum uint64, validators common.N
 	comm.SetValidators(validators)
 
 	epochAwareStorage := &EpochAwareStorage{
-		Epoch:   epochNum,
+		epoch:   epochNum,
 		Storage: i.Config.Storage,
-		OnEpochChange: func(epoch uint64, validators common.Nodes) error {
+		onEpochChange: func(epoch uint64, validators common.Nodes) error {
 			height := i.Config.PlatformChain.GetCurrentHeight()
 			vdrs, err := i.Config.PlatformChain.GetValidatorSet(height)
 			if err != nil {
@@ -410,7 +413,7 @@ func (i *Instance) createEpochConfig() (simplex.EpochConfig, error) {
 		return simplex.EpochConfig{}, err
 	}
 
-	wal, err := wal.NewGarbageCollectedWAL(i.Config.WALs, i.Config.Storage.CreateWAL, &common.WALRetentionReader{}, i.Config.ParameterConfig.WALMaxEntryCount)
+	wal, err := wal.NewGarbageCollectedWAL(i.Config.WALs, i.Config.WalCreator, &common.WALRetentionReader{}, i.Config.ParameterConfig.WALMaxEntryCount)
 	if err != nil {
 		return simplex.EpochConfig{}, fmt.Errorf("error creating garbage collected wal: %w", err)
 	}
@@ -464,9 +467,9 @@ func (i *Instance) createEpochConfig() (simplex.EpochConfig, error) {
 
 	epochAwareStorage := &EpochAwareStorage{
 		msm:     msm,
-		Epoch:   epochNum,
+		epoch:   epochNum,
 		Storage: i.cs,
-		OnEpochChange: func(epoch uint64, validators common.Nodes) error {
+		onEpochChange: func(epoch uint64, validators common.Nodes) error {
 			blockBuilder.stop()
 			comm.SetValidators(validators)
 			i.notifyEpochChange(epoch, validators, validator)
