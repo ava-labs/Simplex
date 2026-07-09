@@ -322,18 +322,24 @@ func TestHandleMessages_DuplicateBlock(t *testing.T) {
 // epoch on startup.
 func TestNonValidator_RequestHighestEpochOnStart(t *testing.T) {
 	tc := newSeededChain(t, testNodes, 2)
-	tc.addEpochs(4, 8)
-	responder := newTestResponder(t, testNodes.NodeIDs()[0], tc)
+	tc.indexEpochs(4, 8)
+
+	myNodeID := common.NodeID{100}
+	comm := &routerComm{
+		messageQueue: &messageQueue{},
+		ID:           myNodeID,
+		nodes:        tc.nodes(),
+	}
 
 	nvStorage := tc.CloneUntil(2)
 	nv, err := NewNonValidator(
 		Config{
 			Storage:                    nvStorage,
-			Comm:                       responder,
+			Comm:                       comm,
 			Logger:                     testutil.MakeLogger(t, 1),
 			SignatureAggregatorCreator: tc.signatureAggregatorCreator,
 			MaxSequenceWindow:          simplex.DefaultMaxRoundWindow,
-			ID:                         responder.ID,
+			ID:                         myNodeID,
 		},
 	)
 
@@ -342,10 +348,10 @@ func TestNonValidator_RequestHighestEpochOnStart(t *testing.T) {
 	nv.Start()
 	defer nv.Stop()
 
-	msg, ok := responder.popResponse()
+	msg, ok := comm.messageQueue.popResponse()
 	require.True(t, ok)
-	require.NotNil(t, msg.msg.ReplicationResponse)
-	require.NotNil(t, msg.msg.ReplicationResponse.LatestSeq)
+	require.NotNil(t, msg.msg.ReplicationRequest)
+	require.Equal(t, uint64(1), msg.msg.ReplicationRequest.LatestFinalizedSeq)
 }
 
 // TestNonValidator_Bootstrap ensures a non-validator can replicate sequences given different states of the chain.
@@ -365,7 +371,7 @@ func TestNonValidator_Bootstrap(t *testing.T) {
 			name: "replicates epochs",
 			setup: func(t *testing.T) *testChain {
 				tc := newSeededChain(t, testNodes, 2)
-				tc.addEpochs(5, 10, 20, 30, 40)
+				tc.indexEpochs(5, 10, 20, 30, 40)
 				return tc
 			},
 			maxSequenceWindow: 50,
@@ -377,7 +383,7 @@ func TestNonValidator_Bootstrap(t *testing.T) {
 			name: "past max round window",
 			setup: func(t *testing.T) *testChain {
 				tc := newSeededChain(t, testNodes, 2)
-				tc.addEpochs(5, 10, 20, 30, 40, 50, 60, 80, 100)
+				tc.indexEpochs(5, 10, 20, 30, 40, 50, 60, 80, 100)
 				return tc
 			},
 			maxSequenceWindow: 5, // significantly lower
@@ -389,7 +395,7 @@ func TestNonValidator_Bootstrap(t *testing.T) {
 			name: "from genesis",
 			setup: func(t *testing.T) *testChain {
 				tc := newSeededChain(t, testNodes, 2)
-				tc.addEpochs(5, 10, 20)
+				tc.indexEpochs(5, 10, 20)
 				return tc
 			},
 			maxSequenceWindow: 50,
@@ -416,7 +422,7 @@ func TestNonValidator_Bootstrap(t *testing.T) {
 				tc := newSnowToSimplexChain(t, 10)
 				firstBlock := tc.appendFirstSimplexAfterGenesis(testNodes)
 				tc.Index(context.Background(), firstBlock, tc.newFinalization(firstBlock))
-				tc.addEpochs(20, 30)
+				tc.indexEpochs(20, 30)
 				return tc
 			},
 			maxSequenceWindow: 50,
@@ -428,18 +434,29 @@ func TestNonValidator_Bootstrap(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tc := tt.setup(t)
-			responder := newTestResponder(t, testNodes.NodeIDs()[0], tc)
+			myNodeID := common.NodeID{16}
+			msgQueue := &messageQueue{}
+			nonValidatorComm := &routerComm{
+				nodes:        tc.nodes(),
+				t:            tc.t,
+				ID:           myNodeID,
+				messageQueue: msgQueue,
+			}
+			epochs := newTestEpochs(tc, msgQueue, tt.maxSequenceWindow)
+			epochs.start()
+			defer epochs.stop()
+
 			nvStorage := tc.CloneUntil(tt.initialHeight)
 			require.Equal(t, tt.initialHeight, nvStorage.NumBlocks())
 
 			nv, err := NewNonValidator(
 				Config{
 					Storage:                    nvStorage,
-					Comm:                       responder,
+					Comm:                       nonValidatorComm,
 					Logger:                     testutil.MakeLogger(t, 1),
 					SignatureAggregatorCreator: tc.signatureAggregatorCreator,
 					MaxSequenceWindow:          tt.maxSequenceWindow,
-					ID:                         responder.ID,
+					ID:                         myNodeID,
 					StartTime:                  time.Now(),
 				},
 			)
@@ -448,7 +465,7 @@ func TestNonValidator_Bootstrap(t *testing.T) {
 			nv.Start()
 			defer nv.Stop()
 
-			advanceUntil(nv, responder, tt.lastSeq)
+			advanceUntil(nv, epochs, msgQueue, tt.lastSeq)
 		})
 	}
 }
@@ -457,18 +474,30 @@ func TestNonValidator_ReplicationRequests(t *testing.T) {
 	tc := newSeededChain(t, testNodes, 2)
 	lastSeq := uint64(40)
 	initialHeight := uint64(2)
-	tc.addEpochs(5, 10, 20, 30, lastSeq)
-	responder := newTestResponder(t, testNodes.NodeIDs()[0], tc)
+	tc.indexEpochs(5, 10, 20, 30, lastSeq)
+	maxSeqWindow := uint64(50)
+	myNodeID := common.NodeID{255}
+	msgQueue := &messageQueue{}
+	nonValidatorComm := &routerComm{
+		nodes:        tc.nodes(),
+		t:            tc.t,
+		ID:           myNodeID,
+		messageQueue: msgQueue,
+	}
+	epochs := newTestEpochs(tc, msgQueue, maxSeqWindow)
+	epochs.start()
+	defer epochs.stop()
+
 	nvStorage := tc.CloneUntil(initialHeight)
 	startTime := time.Now()
 	nv, err := NewNonValidator(
 		Config{
 			Storage:                    nvStorage,
-			Comm:                       responder,
+			Comm:                       nonValidatorComm,
 			Logger:                     testutil.MakeLogger(t, 1),
 			SignatureAggregatorCreator: tc.signatureAggregatorCreator,
-			MaxSequenceWindow:          50,
-			ID:                         responder.ID,
+			MaxSequenceWindow:          maxSeqWindow,
+			ID:                         myNodeID,
 			StartTime:                  startTime,
 		},
 	)
@@ -479,43 +508,48 @@ func TestNonValidator_ReplicationRequests(t *testing.T) {
 
 	count := 0
 	for {
-		// Send any requests as responses back to the node
-		for msg, ok := responder.popResponse(); ok; {
-			// drop every other message
-			if count%2 == 0 {
-				require.NoError(t, nv.HandleMessage(msg.msg, msg.from))
+		for msg, ok := msgQueue.popResponse(); ok; {
+			// drops 25% of messages
+			// TODO: we can handle a higher threshold once we implement https://github.com/ava-labs/Simplex/issues/425
+			if count%4 != 0 {
+				handleMessage(epochs, nv, msg)
 			}
-			count += 1
-			msg, ok = responder.popResponse()
+			count++
+			msg, ok = msgQueue.popResponse()
 		}
 
 		// check if storage has indexed all
-		if lastSeq == nvStorage.NumBlocks()-1 {
+		if lastSeq == nv.Storage.NumBlocks()-1 {
 			break
 		}
 
-		// update the time
+		// update the time so pending replication requests time out and re-fire
 		startTime = startTime.Add(simplex.DefaultReplicationRequestTimeout)
+		time.Sleep(50 * time.Millisecond)
 		nv.AdvanceTime(startTime)
 	}
 
-	// clear in flight responses
+	// clear in flight messages
 	startTime = startTime.Add(simplex.DefaultReplicationRequestTimeout)
 	nv.AdvanceTime(startTime)
-	responder.clearResponses()
+	time.Sleep(50 * time.Millisecond)
+	msgQueue.clearResponses()
 
-	// ensure all timeout tasks were removed
+	// ensure all timeout tasks were removed: advancing time should no longer
+	// cause the non-validator to emit any further requests.
 	count = 0
 	for {
 		startTime = startTime.Add(simplex.DefaultReplicationRequestTimeout)
 		nv.AdvanceTime(startTime)
-		msg, ok := responder.popResponse()
+		time.Sleep(50 * time.Millisecond)
+
+		msg, ok := msgQueue.popResponse()
 		require.False(t, ok, fmt.Sprintf("all replication request tasks should be finished %v", msg))
 
 		if count > 3 {
 			break
 		}
-		count += 1
+		count++
 	}
 }
 
@@ -618,14 +652,13 @@ func TestNonValidator_VerifiesFinalizationDuringReplication(t *testing.T) {
 	)
 }
 
-func advanceUntil(nv *NonValidator, responder *nonValidatorResponderComm, seq uint64) {
+func advanceUntil(nv *NonValidator, epochs *testEpochs, msgQueue *messageQueue, seq uint64) {
 	startTime := nv.StartTime
 	for {
 		// Send any requests as responses back to the node
-		for msg, ok := responder.popResponse(); ok; {
-			// drop every other message
-			require.NoError(responder.t, nv.HandleMessage(msg.msg, msg.from))
-			msg, ok = responder.popResponse()
+		for msg, ok := msgQueue.popResponse(); ok; {
+			handleMessage(epochs, nv, msg)
+			msg, ok = msgQueue.popResponse()
 		}
 
 		// check if storage has indexed all
@@ -635,6 +668,7 @@ func advanceUntil(nv *NonValidator, responder *nonValidatorResponderComm, seq ui
 
 		// update the time
 		startTime = startTime.Add(simplex.DefaultReplicationRequestTimeout)
+		time.Sleep(50 * time.Millisecond)
 		nv.AdvanceTime(startTime)
 	}
 }

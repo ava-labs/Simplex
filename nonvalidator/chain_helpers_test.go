@@ -29,6 +29,7 @@ var genesis = testutil.NewTestBlock(common.ProtocolMetadata{
 type messageInfo struct {
 	msg  *common.Message
 	from common.NodeID
+	to   common.NodeID
 }
 
 // testChain is a helper that book-keeps the current chain-tip, alongside any
@@ -186,8 +187,8 @@ func (tc *testChain) signatureAggregatorCreator(nodes []common.Node) common.Sign
 	}
 }
 
-// addEpochs adds sealing blocks at epochs, and normal blocks in between
-func (tc *testChain) addEpochs(epochs ...uint64) {
+// indexEpochs indexes sealing blocks at epochs, and normal blocks in between
+func (tc *testChain) indexEpochs(epochs ...uint64) {
 	// ensure that the new epoch we are adding is not already indexed
 	require.Greater(tc.t, epochs[0], tc.seq)
 
