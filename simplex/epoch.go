@@ -1330,7 +1330,9 @@ func (e *Epoch) rebroadcastPastFinalizeVotes() error {
 }
 
 func (e *Epoch) broadcast(msg *common.Message) {
-	if e.isEpochSealed() {
+	// If the epoch is sealed, we only allow messages related to replication to be broadcasted.
+	// This is to prevent advancing the entire protocol state, but allowing replicating past protocol state.
+	if e.isEpochSealed() && !msg.IsReplicationMessage() {
 		e.Logger.Debug("Epoch is sealed, aborting message broadcast")
 		return
 	}
@@ -1338,7 +1340,9 @@ func (e *Epoch) broadcast(msg *common.Message) {
 }
 
 func (e *Epoch) send(msg *common.Message, to common.NodeID) {
-	if e.isEpochSealed() {
+	// If the epoch is sealed, we only allow messages related to replication to be sent.
+	// This is to prevent advancing the entire protocol state, but allowing replicating past protocol state.
+	if e.isEpochSealed() && !msg.IsReplicationMessage() {
 		e.Logger.Debug("Epoch is sealed, aborting message send", zap.Stringer("to", to))
 		return
 	}
