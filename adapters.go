@@ -13,47 +13,7 @@ import (
 	metadata "github.com/ava-labs/simplex/msm"
 )
 
-// epochChangeSupression is used to suppress sending messages during an epoch change or using the VM.
-// The motivation is that an epoch change occurrs during indexing a block, and we don't want any further
-// external side effects to take place before the epoch change finishes.
-// We therefore drop all messages and cancel VM operations such as block building,
-// and delay VM transaction listening until the epoch change is complete.
-type epochChangeSupression struct {
-	lock            sync.RWMutex
-	sealingBlockSeq uint64
-	active          bool
-}
-
-func (ecs *epochChangeSupression) isSupressionActive() bool {
-	ecs.lock.RLock()
-	defer ecs.lock.RUnlock()
-	return ecs.active
-}
-
-func (ecs *epochChangeSupression) sendProhibited(seq uint64) bool {
-	ecs.lock.RLock()
-	defer ecs.lock.RUnlock()
-	if !ecs.active {
-		return false
-	}
-	return seq > ecs.sealingBlockSeq
-}
-
-func (ecs *epochChangeSupression) setSupression(sealingBlockSeq uint64) {
-	ecs.lock.Lock()
-	defer ecs.lock.Unlock()
-	ecs.sealingBlockSeq = sealingBlockSeq
-	ecs.active = true
-}
-
-func (ecs *epochChangeSupression) clearSupression() {
-	ecs.lock.Lock()
-	defer ecs.lock.Unlock()
-	ecs.active = false
-}
-
 type Communication struct {
-	epochChangeSupression *epochChangeSupression
 	nodes                 atomic.Value // common.Nodes
 	Sender
 	Broadcaster
@@ -69,22 +29,6 @@ func (c *Communication) Validators() common.Nodes {
 		return nil
 	}
 	return nodes
-}
-
-func (c *Communication) Broadcast(msg *common.Message) {
-	if c.epochChangeSupression.sendProhibited(msg.Seq()) {
-		return
-	}
-
-	c.Broadcaster.Broadcast(msg)
-}
-
-func (c *Communication) Send(msg *common.Message, destination common.NodeID) {
-	if c.epochChangeSupression.sendProhibited(msg.Seq()) {
-		return
-	}
-
-	c.Sender.Send(msg, destination)
 }
 
 // EpochAwareStorage is a wrapper around Storage that is aware of epoch changes.
@@ -242,7 +186,6 @@ func (n *NoopAuxiliaryInfoApp) DefaultVersionID() metadata.VersionID {
 }
 
 type BlockBuilderWaiter struct {
-	epochChangeSupression *epochChangeSupression
 	lock                  sync.Mutex
 	cancel                context.CancelFunc
 	msm                   *metadata.StateMachine
@@ -259,11 +202,6 @@ func (bw *BlockBuilderWaiter) stop() {
 }
 
 func (bw *BlockBuilderWaiter) WaitForPendingBlock(ctx context.Context) {
-	if bw.epochChangeSupression.isSupressionActive() {
-		<-ctx.Done() // We wait for the context to be cancelled once the epoch is tore down.
-		return
-	}
-
 	bw.lock.Lock()
 	if bw.cancel != nil {
 		bw.cancel()
@@ -276,10 +214,6 @@ func (bw *BlockBuilderWaiter) WaitForPendingBlock(ctx context.Context) {
 }
 
 func (bw *BlockBuilderWaiter) BuildBlock(ctx context.Context, metadata common.ProtocolMetadata, blacklist common.Blacklist) (common.VerifiedBlock, bool) {
-	if bw.epochChangeSupression.isSupressionActive() {
-		return nil, false
-	}
-
 	block, err := bw.msm.BuildBlock(ctx, metadata, &blacklist)
 	if err != nil {
 		return nil, false

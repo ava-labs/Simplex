@@ -74,7 +74,6 @@ type Instance struct {
 	epochOrNV             timeAdvancer
 	epochChanges          chan epochChange
 	stopCh                chan struct{}
-	epochChangeSupression epochChangeSupression
 }
 
 func (i *Instance) Start(ctx context.Context) error {
@@ -151,14 +150,13 @@ func (i *Instance) createNonValidatorConfig(epochNum uint64, validators common.N
 		return nonvalidator.Config{}, err
 	}
 
-	comm := &Communication{Sender: i.Config.Sender, Broadcaster: i.Config.Broadcaster, epochChangeSupression: &i.epochChangeSupression}
+	comm := &Communication{Sender: i.Config.Sender, Broadcaster: i.Config.Broadcaster}
 	comm.SetValidators(validators)
 
 	epochAwareStorage := &EpochAwareStorage{
 		Epoch:   epochNum,
 		Storage: i.Config.Storage,
 		OnEpochChange: func(epoch uint64, validators common.Nodes) error {
-			i.epochChangeSupression.setSupression(epoch) // The epoch number is also the sealing block sequence.
 			i.notifyEpochChange(epoch, validators, nonValidator)
 			comm.SetValidators(validators)
 			return nil
@@ -252,10 +250,6 @@ func (i *Instance) stopValidator() {
 func (i *Instance) HandleMessage(msg *common.Message, from common.NodeID) error {
 	i.lock.Lock()
 	defer i.lock.Unlock()
-
-	if i.epochChangeSupression.isSupressionActive() {
-		return nil
-	}
 
 	switch {
 	case msg.BlockMessage != nil:
@@ -453,7 +447,7 @@ func (i *Instance) createEpochConfig() (simplex.EpochConfig, error) {
 		return simplex.EpochConfig{}, err
 	}
 
-	blockBuilder := &BlockBuilderWaiter{vm: i.Config.VM, msm: msm, epochChangeSupression: &i.epochChangeSupression}
+	blockBuilder := &BlockBuilderWaiter{vm: i.Config.VM, msm: msm}
 
 	comm := &Communication{Sender: i.Config.Sender, Broadcaster: i.Config.Broadcaster, epochChangeSupression: &i.epochChangeSupression}
 	comm.SetValidators(nodes)
@@ -463,7 +457,6 @@ func (i *Instance) createEpochConfig() (simplex.EpochConfig, error) {
 		Epoch:   epochNum,
 		Storage: i.cs,
 		OnEpochChange: func(epoch uint64, validators common.Nodes) error {
-			i.epochChangeSupression.setSupression(epoch) // The epoch number is also the sealing block sequence.
 			blockBuilder.stop()
 			comm.SetValidators(validators)
 			i.notifyEpochChange(epoch, validators, validator)
@@ -520,8 +513,6 @@ func (i *Instance) transitionEpochNonValidator(epochChange epochChange) {
 
 	// Stop the non-validator before doing anything else, so that we don't process any more messages while we are changing epochs.
 	i.stopNonValidator()
-
-	i.epochChangeSupression.clearSupression()
 
 	// First, figure out if I'm still a validator.
 	if i.determineValidatorOrNot(epochChange.validators) {
