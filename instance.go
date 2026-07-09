@@ -449,7 +449,7 @@ func (i *Instance) createEpochConfig() (simplex.EpochConfig, error) {
 
 	blockBuilder := &BlockBuilderWaiter{vm: i.Config.VM, msm: msm}
 
-	comm := &Communication{Sender: i.Config.Sender, Broadcaster: i.Config.Broadcaster, epochChangeSupression: &i.epochChangeSupression}
+	comm := &Communication{Sender: i.Config.Sender, Broadcaster: i.Config.Broadcaster}
 	comm.SetValidators(nodes)
 
 	epochAwareStorage := &EpochAwareStorage{
@@ -536,8 +536,6 @@ func (i *Instance) transitionEpochValidator(epochChange epochChange) {
 	if err := i.wal.GarbageCollect(math.MaxUint64); err != nil {
 		i.Config.Logger.Error("Error garbage collecting epoch config on epoch change", zap.Error(err))
 	}
-
-	i.epochChangeSupression.clearSupression()
 
 	// First, figure out if I'm still a validator.
 	if !i.determineValidatorOrNot(epochChange.validators) {

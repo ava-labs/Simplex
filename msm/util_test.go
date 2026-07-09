@@ -318,22 +318,22 @@ type testConfig struct {
 	blockStore            blockStore
 	signatureVerifier     signatureVerifier
 	signatureAggregator   signatureAggregator
-	blockBuilder          mockBlockBuilder
+	blockBuilder          bb
 	keyAggregator         keyAggregator
 	validatorSetRetriever validatorSetRetriever
 }
 
-// mockBlockBuilder is a test BlockBuilder whose BuildBlock returns a preconfigured block/error.
-type mockBlockBuilder struct {
+// bb is a test BlockBuilder whose BuildBlock returns a preconfigured block/error.
+type bb struct {
 	Block VMBlock
 	Err   error
 }
 
-func (bb *mockBlockBuilder) BuildBlock(context.Context, uint64) (VMBlock, error) {
+func (bb *bb) BuildBlock(context.Context, uint64) (VMBlock, error) {
 	return bb.Block, bb.Err
 }
 
-func (bb *mockBlockBuilder) WaitForPendingBlock(context.Context) {}
+func (bb *bb) WaitForPendingBlock(context.Context) {}
 
 func newStateMachine(t *testing.T) (*StateMachine, *testConfig) {
 	return newStateMachineWithLogger(t, testutil.MakeLogger(t))
