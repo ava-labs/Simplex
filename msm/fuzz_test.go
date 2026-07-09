@@ -105,8 +105,8 @@ func FuzzVerifyBlock(f *testing.F) {
 		// Model the verifier as knowing the P-chain exactly up to the height the block
 		// references — the minimal knowledge required to verify it, mirroring production
 		// where GetPChainHeightForVerifying returns the verifier's latest observed height.
-		sm.GetPChainHeightForProposing = func(context.Context) (uint64, error) { return block.Metadata.PChainHeight, nil }
-		sm.GetPChainHeightForVerifying = func(context.Context) (uint64, error) { return block.Metadata.PChainHeight, nil }
+		sm.GetPChainHeightForProposing = func() uint64 { return block.Metadata.PChainHeight }
+		sm.GetPChainHeightForVerifying = func() uint64 { return block.Metadata.PChainHeight }
 
 		// The unfuzzed block built by the chain MSM must verify.
 		require.NoError(t, sm.VerifyBlock(context.Background(), block),
@@ -195,8 +195,8 @@ func buildEpochChain(tb testing.TB, logger common.Logger) ([]*StateMachineBlock,
 	// round (the builder only collects approvals once the aux info history is ready).
 	sm.AuxiliaryInfoApp = &noopTestAuxInfoApp{}
 	sm.GetValidatorSet = getValidatorSet
-	sm.GetPChainHeightForProposing = func(context.Context) (uint64, error) { return currentPChainHeight, nil }
-	sm.GetPChainHeightForVerifying = func(context.Context) (uint64, error) { return currentPChainHeight, nil }
+	sm.GetPChainHeightForProposing = func() uint64 { return currentPChainHeight }
+	sm.GetPChainHeightForVerifying = func() uint64 { return currentPChainHeight }
 	sm.GetTime = func() time.Time { return currentTime }
 	sm.GenesisValidatorSet = validatorSet1
 	sm.LastNonSimplexBlockPChainHeight = pChainHeight1

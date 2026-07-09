@@ -27,9 +27,9 @@ type PlatformChain interface {
 	// GenesisValidatorSet returns the first ever validator set for this network.
 	GenesisValidatorSet() metadata.NodeBLSMappings
 	// GetMinimumHeight returns the minimum height of the block still in the proposal window.
-	GetMinimumHeight(context.Context) (uint64, error)
+	GetMinimumHeight() uint64
 	// GetCurrentHeight returns the current height of the P-chain.
-	GetCurrentHeight(context.Context) (uint64, error)
+	GetCurrentHeight() uint64
 	// WaitForProgress should block until either the context is cancelled, or the P-chain height has increased from the provided pChainHeight.
 	WaitForProgress(ctx context.Context, pChainHeight uint64) error
 	// LastNonSimplexBlockPChainHeight returns the P-chain height of the last non-simplex block in the chain.

@@ -363,11 +363,11 @@ func newStateMachineWithLogger(tb testing.TB, logger common.Logger) (*StateMachi
 		SignatureAggregatorCreator:      newSignatureAggregatorCreator(),
 		BlockBuilder:                    &testConfig.blockBuilder,
 		KeyAggregator:                   &testConfig.keyAggregator,
-		GetPChainHeightForProposing: func(context.Context) (uint64, error) {
-			return 100, nil
+		GetPChainHeightForProposing: func() uint64 {
+			return 100
 		},
-		GetPChainHeightForVerifying: func(context.Context) (uint64, error) {
-			return 100, nil
+		GetPChainHeightForVerifying: func() uint64 {
+			return 100
 		},
 		GetValidatorSet:          testConfig.validatorSetRetriever.getValidatorSet,
 		PChainProgressListener:   &noOpPChainListener{},

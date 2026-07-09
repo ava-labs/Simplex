@@ -348,12 +348,12 @@ func (pc *testPlatformChain) GenesisValidatorSet() metadata.NodeBLSMappings {
 	return pc.validatorSet(pc.baseHeight)
 }
 
-func (pc *testPlatformChain) GetMinimumHeight(context.Context) (uint64, error) {
-	return pc.currentHeight(), nil
+func (pc *testPlatformChain) GetMinimumHeight() uint64 {
+	return pc.currentHeight()
 }
 
-func (pc *testPlatformChain) GetCurrentHeight(context.Context) (uint64, error) {
-	return pc.currentHeight(), nil
+func (pc *testPlatformChain) GetCurrentHeight() uint64 {
+	return pc.currentHeight()
 }
 
 func (pc *testPlatformChain) WaitForProgress(ctx context.Context, pChainHeight uint64) error {

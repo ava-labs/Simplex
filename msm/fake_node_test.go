@@ -38,11 +38,11 @@ func TestFakeNodeEpochChangesDespiteEmptyMempool(t *testing.T) {
 	node.sm.MyNodeID = myID[:]
 	node.sm.AuxiliaryInfoApp = &noopTestAuxInfoApp{}
 	node.sm.GetValidatorSet = validatorSetRetriever.getValidatorSet
-	node.sm.GetPChainHeightForProposing = func(context.Context) (uint64, error) {
-		return pChainHeight.Load(), nil
+	node.sm.GetPChainHeightForProposing = func() uint64 {
+		return pChainHeight.Load()
 	}
-	node.sm.GetPChainHeightForVerifying = func(context.Context) (uint64, error) {
-		return pChainHeight.Load(), nil
+	node.sm.GetPChainHeightForVerifying = func() uint64 {
+		return pChainHeight.Load()
 	}
 	node.mempoolEmpty = true
 	node.sm.MaxBlockBuildingWaitTime = 100 * time.Millisecond
@@ -93,11 +93,11 @@ func TestFakeNode(t *testing.T) {
 	node.sm.MyNodeID = myID[:]
 	node.sm.AuxiliaryInfoApp = &noopTestAuxInfoApp{}
 	node.sm.GetValidatorSet = validatorSetRetriever.getValidatorSet
-	node.sm.GetPChainHeightForProposing = func(context.Context) (uint64, error) {
-		return pChainHeight.Load(), nil
+	node.sm.GetPChainHeightForProposing = func() uint64 {
+		return pChainHeight.Load()
 	}
-	node.sm.GetPChainHeightForVerifying = func(context.Context) (uint64, error) {
-		return pChainHeight.Load(), nil
+	node.sm.GetPChainHeightForVerifying = func() uint64 {
+		return pChainHeight.Load()
 	}
 
 	// Create some blocks and finalize them, until we reach height 10
@@ -158,11 +158,11 @@ func TestFakeNodeEmptyMempool(t *testing.T) {
 	node.sm.AuxiliaryInfoApp = &noopTestAuxInfoApp{}
 	node.sm.MaxBlockBuildingWaitTime = 100 * time.Millisecond
 	node.sm.GetValidatorSet = validatorSetRetriever.getValidatorSet
-	node.sm.GetPChainHeightForProposing = func(context.Context) (uint64, error) {
-		return pChainHeight, nil
+	node.sm.GetPChainHeightForProposing = func() uint64 {
+		return pChainHeight
 	}
-	node.sm.GetPChainHeightForVerifying = func(context.Context) (uint64, error) {
-		return pChainHeight, nil
+	node.sm.GetPChainHeightForVerifying = func() uint64 {
+		return pChainHeight
 	}
 
 	// Create some blocks and finalize them, until we reach height 10
@@ -247,10 +247,7 @@ func (fn *fakeNode) WaitForProgress(ctx context.Context, pChainHeight uint64) er
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-time.After(10 * time.Millisecond):
-			height, err := fn.sm.GetPChainHeightForProposing(ctx)
-			if err != nil {
-				return err
-			}
+			height := fn.sm.GetPChainHeightForProposing()
 			if height != pChainHeight {
 				return nil
 			}

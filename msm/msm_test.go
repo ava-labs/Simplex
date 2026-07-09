@@ -327,8 +327,8 @@ func TestMSMNormalOp(t *testing.T) {
 				tc.validatorSetRetriever.resultMap = map[uint64]NodeBLSMappings{
 					newPChainHeight: newValidatorSet,
 				}
-				sm.GetPChainHeightForProposing = func(context.Context) (uint64, error) { return newPChainHeight, nil }
-				sm.GetPChainHeightForVerifying = func(context.Context) (uint64, error) { return newPChainHeight, nil }
+				sm.GetPChainHeightForProposing = func() uint64 { return newPChainHeight }
+				sm.GetPChainHeightForVerifying = func() uint64 { return newPChainHeight }
 			},
 			expectedPChainHeight:        newPChainHeight,
 			expectedNextPChainRefHeight: newPChainHeight,
@@ -511,11 +511,11 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 			// getVerifyingPChainHeight stays ahead of it, modelling the more up-to-date height
 			// the verifier checks against.
 			const pChainHeightLag = uint64(50)
-			getProposingPChainHeight := func(context.Context) (uint64, error) {
-				return currentPChainHeight, nil
+			getProposingPChainHeight := func() uint64 {
+				return currentPChainHeight
 			}
-			getVerifyingPChainHeight := func(context.Context) (uint64, error) {
-				return currentPChainHeight + pChainHeightLag, nil
+			getVerifyingPChainHeight := func() uint64 {
+				return currentPChainHeight + pChainHeightLag
 			}
 
 			// Since we explicitly compare the built block with an expected value,
@@ -577,14 +577,14 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 			// Each one fails the test if it consults the P-chain height function it must not use,
 			// proving that building reads GetPChainHeightForProposing and verifying reads GetPChainHeightForVerifying.
 			sm.GetPChainHeightForProposing = getProposingPChainHeight
-			sm.GetPChainHeightForVerifying = func(context.Context) (uint64, error) {
+			sm.GetPChainHeightForVerifying = func() uint64 {
 				require.FailNow(t, "builder must not use GetPChainHeightForVerifying when proposing")
-				return 0, nil
+				return 0
 			}
 
-			smVerify.GetPChainHeightForProposing = func(context.Context) (uint64, error) {
+			smVerify.GetPChainHeightForProposing = func() uint64 {
 				require.FailNow(t, "verifier must not use GetPChainHeightForProposing when verifying")
-				return 0, nil
+				return 0
 			}
 			smVerify.GetPChainHeightForVerifying = getVerifyingPChainHeight
 
@@ -1558,8 +1558,8 @@ func TestVerifyCollectingApprovalsNotReady(t *testing.T) {
 		sm, tc := newStateMachine(t)
 		// Default app (AuxiliaryInfoGenVerifier) for newStateMachine has threshold 2
 		// so IsSufficient returns false: the aux info is not ready.
-		sm.GetPChainHeightForProposing = func(context.Context) (uint64, error) { return nextPChainRefHeight, nil }
-		sm.GetPChainHeightForVerifying = func(context.Context) (uint64, error) { return nextPChainRefHeight, nil }
+		sm.GetPChainHeightForProposing = func() uint64 { return nextPChainRefHeight }
+		sm.GetPChainHeightForVerifying = func() uint64 { return nextPChainRefHeight }
 
 		// Parent block: epoch transition in progress (NextPChainReferenceHeight > 0),
 		// not yet sealed, so NextState() is stateBuildCollectingApprovals.
@@ -1642,8 +1642,8 @@ func TestCollectingApprovalsAuxInfoGating(t *testing.T) {
 	)
 
 	sm, tc := newStateMachine(t)
-	sm.GetPChainHeightForProposing = func(context.Context) (uint64, error) { return nextPChainRefHeight, nil }
-	sm.GetPChainHeightForVerifying = func(context.Context) (uint64, error) { return nextPChainRefHeight, nil }
+	sm.GetPChainHeightForProposing = func() uint64 { return nextPChainRefHeight }
+	sm.GetPChainHeightForVerifying = func() uint64 { return nextPChainRefHeight }
 
 	// Deterministic votes so the built auxiliary info is predictable.
 	vote1 := []byte("vote-1")
@@ -1767,8 +1767,8 @@ func TestCollectingApprovalsAuxInfoVersionIDIsBackwardCompatible(t *testing.T) {
 	)
 
 	sm, tc := newStateMachine(t)
-	sm.GetPChainHeightForVerifying = func(context.Context) (uint64, error) { return nextPChainRefHeight, nil }
-	sm.GetPChainHeightForProposing = func(context.Context) (uint64, error) { return nextPChainRefHeight, nil }
+	sm.GetPChainHeightForVerifying = func() uint64 { return nextPChainRefHeight }
+	sm.GetPChainHeightForProposing = func() uint64 { return nextPChainRefHeight }
 
 	// threshold 4 so Generate() runs for the first three collecting blocks built on top of the
 	// pre-seeded parent (history not yet sufficient), giving us one "first" and several "later"

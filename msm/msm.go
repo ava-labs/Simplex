@@ -207,9 +207,9 @@ type Config struct {
 	// GetTime returns the current time.
 	GetTime func() time.Time
 	// GetPChainHeightForProposing returns the latest known P-chain height to be used when building a block.
-	GetPChainHeightForProposing func(context.Context) (uint64, error)
+	GetPChainHeightForProposing func() uint64
 	// GetPChainHeightForVerifying returns the latest known P-chain height to be used when verifying a block.
-	GetPChainHeightForVerifying func(context.Context) (uint64, error)
+	GetPChainHeightForVerifying func() uint64
 	// BlockBuilder builds new VM blocks.
 	BlockBuilder BlockBuilder
 	// Logger is used for logging state machine operations.
@@ -407,10 +407,7 @@ func (sm *StateMachine) verifyNonZeroBlock(ctx context.Context, block, prevBlock
 		return fmt.Errorf("failed to verify timestamp: %w", err)
 	}
 
-	currentPChainHeight, err := sm.GetPChainHeightForVerifying(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get current P-chain height for verifying: %w", err)
-	}
+	currentPChainHeight := sm.GetPChainHeightForVerifying()
 	prevPChainHeight := prevBlockMD.PChainHeight
 	proposedPChainHeight := block.Metadata.PChainHeight
 
@@ -418,8 +415,7 @@ func (sm *StateMachine) verifyNonZeroBlock(ctx context.Context, block, prevBlock
 		return fmt.Errorf("failed to verify P-chain height: %w", err)
 	}
 
-	err = sm.verifyEpochNumber(block)
-	if err != nil {
+	if err := sm.verifyEpochNumber(block); err != nil {
 		return err
 	}
 
@@ -639,10 +635,7 @@ func (sm *StateMachine) verifyNextPChainRefHeightNormal(ctx context.Context, pre
 	}
 
 	// Make sure we have reached the next P-chain reference height, otherwise we won't be able to validate it.
-	pChainHeight, err := sm.GetPChainHeightForVerifying(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get current P-chain height for verifying: %w", err)
-	}
+	pChainHeight := sm.GetPChainHeightForVerifying()
 
 	if pChainHeight < next.NextPChainReferenceHeight {
 		return fmt.Errorf("%w: target %d, current %d", errPChainHeightNotReached, next.NextPChainReferenceHeight, pChainHeight)
@@ -701,10 +694,7 @@ func (sm *StateMachine) verifyNextPChainRefHeightForNewEpoch(ctx context.Context
 
 	// If we haven't reached this P-chain height yet, we cannot accept the next P-chain reference height,
 	// because there is no way of querying the validator set for the next P-chain reference height.
-	pChainHeight, err := sm.GetPChainHeightForVerifying(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get current P-chain height for verifying: %w", err)
-	}
+	pChainHeight := sm.GetPChainHeightForVerifying()
 	if pChainHeight < next.NextPChainReferenceHeight {
 		return fmt.Errorf("%w: target %d, current %d", errPChainHeightNotReached, next.NextPChainReferenceHeight, pChainHeight)
 	}
@@ -1433,10 +1423,7 @@ func (sm *StateMachine) verifyBlockEpochSealed(ctx context.Context, parentBlock 
 	// the proposed pchain height and (optional) next pchain reference height, mirroring
 	// what buildBlockOrTransitionEpoch does on the build side.
 	proposedPChainHeight := nextBlock.Metadata.PChainHeight
-	currentPChainHeight, err := sm.GetPChainHeightForVerifying(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get current P-chain height for verifying: %w", err)
-	}
+	currentPChainHeight := sm.GetPChainHeightForVerifying()
 	prevPChainHeight := parentBlock.Metadata.PChainHeight
 	if err := verifyPChainHeight(proposedPChainHeight, currentPChainHeight, prevPChainHeight); err != nil {
 		return fmt.Errorf("failed to verify P-chain height: %w", err)
