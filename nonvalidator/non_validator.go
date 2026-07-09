@@ -16,10 +16,6 @@ import (
 	"go.uber.org/zap"
 )
 
-const (
-	DefaultMaxSequenceWindow = 100
-)
-
 type finalizedSeq struct {
 	block        common.Block
 	finalization *common.Finalization

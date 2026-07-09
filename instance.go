@@ -82,7 +82,7 @@ func (i *Instance) Start(ctx context.Context) error {
 	defer i.lock.Unlock()
 
 	i.stopCh = make(chan struct{})
-	i.epochChanges = make(chan epochChange)
+	i.epochChanges = make(chan epochChange, 1)
 	context.AfterFunc(ctx, i.Stop)
 
 	cachedStorage := NewCachedStorage(i.Config.Storage)
@@ -97,17 +97,7 @@ func (i *Instance) Start(ctx context.Context) error {
 		return fmt.Errorf("error determining latest epoch and validator set: %w", err)
 	}
 
-	iAmValidator := i.determineValidatorOrNot(nodes)
-
-	if iAmValidator {
-		if err := i.startValidator(); err != nil {
-			return fmt.Errorf("error starting validator: %w", err)
-		}
-	} else {
-		if err := i.startNonValidator(epochNum, nodes); err != nil {
-			return fmt.Errorf("error starting non-validator: %w", err)
-		}
-	}
+	i.startValidatorOrNonValidator(nodes, epochNum)
 
 	go i.tick()
 	go i.listenForEpochChanges()
@@ -157,8 +147,19 @@ func (i *Instance) createNonValidatorConfig(epochNum uint64, validators common.N
 		Epoch:   epochNum,
 		Storage: i.Config.Storage,
 		OnEpochChange: func(epoch uint64, validators common.Nodes) error {
-			i.notifyEpochChange(epoch, validators, nonValidator)
+			height := i.Config.PlatformChain.GetCurrentHeight()
+			vdrs, err := i.Config.PlatformChain.GetValidatorSet(height)
+			if err != nil {
+				i.Config.Logger.Error("error getting validator set", zap.Error(err))
+				return fmt.Errorf("error getting validator set from platform chain: %w", err)
+			}
 			comm.SetValidators(validators)
+			if i.iAmValidator(vdrs.Nodes()) {
+				i.notifyEpochChange(epoch, validators, nonValidator)
+			} else {
+				i.Config.Logger.Debug("I am still a non-validator at the tip of the P-chain, skipping role change",
+					zap.Uint64("height", height))
+			}
 			return nil
 		},
 	}
@@ -179,7 +180,7 @@ func (i *Instance) createNonValidatorConfig(epochNum uint64, validators common.N
 		Logger:                     i.Config.Logger,
 		StartTime:                  time.Now(),
 		SignatureAggregatorCreator: i.Config.CryptoOps.CreateSignatureAggregator,
-		MaxSequenceWindow:          nonvalidator.DefaultMaxSequenceWindow,
+		MaxSequenceWindow:          simplex.DefaultMaxRoundWindow,
 	}
 	return config, nil
 }
@@ -344,9 +345,15 @@ func (i *Instance) listenForEpochChanges() {
 func (i *Instance) processEpochChange(epochChange epochChange) {
 	switch epochChange.nodeRole {
 	case nonValidator:
-		i.transitionEpochNonValidator(epochChange)
+		if err := i.transitionEpochNonValidator(epochChange); err != nil {
+			i.Config.Logger.Error("Error transitioning epoch for non-validator", zap.Error(err))
+			i.Stop()
+		}
 	case validator:
-		i.transitionEpochValidator(epochChange)
+		if err := i.transitionEpochValidator(epochChange); err != nil {
+			i.Config.Logger.Error("Error transitioning epoch for validator", zap.Error(err))
+			i.Stop()
+		}
 	default: // This should never happen, but we log it just in case.
 		i.Config.Logger.Fatal("Unknown node role on epoch change",
 			zap.String("role", fmt.Sprintf("%v", epochChange.nodeRole)))
@@ -381,7 +388,7 @@ func (i *Instance) lastBlock() (metadata.StateMachineBlock, uint64, error) {
 	return lastBlock, numBlocks, nil
 }
 
-func (i *Instance) determineValidatorOrNot(nodes common.Nodes) bool {
+func (i *Instance) iAmValidator(nodes common.Nodes) bool {
 	for _, node := range nodes {
 		if i.Config.ID.Equals(node.Id) {
 			return true
@@ -392,6 +399,9 @@ func (i *Instance) determineValidatorOrNot(nodes common.Nodes) bool {
 
 func (i *Instance) createEpochConfig() (simplex.EpochConfig, error) {
 	lastBlock, numBlocks, err := i.lastBlock()
+	if err != nil {
+		return simplex.EpochConfig{}, err
+	}
 
 	lastNonSimplexHeight := i.Config.LastNonSimplexInnerBlock.Height()
 	genesisValidatorSet := i.Config.PlatformChain.GenesisValidatorSet()
@@ -507,24 +517,38 @@ func (i *Instance) maybeGarbageCollectWAL(lastBlock metadata.StateMachineBlock) 
 	return nil
 }
 
-func (i *Instance) transitionEpochNonValidator(epochChange epochChange) {
+func (i *Instance) transitionEpochNonValidator(epochChange epochChange) error {
 	i.lock.Lock()
 	defer i.lock.Unlock()
+
+	if !i.iAmValidator(epochChange.validators) {
+		i.Config.Logger.Debug("Skipping restarting a non-validator because I am not a validator yet")
+		return nil
+	}
 
 	// Stop the non-validator before doing anything else, so that we don't process any more messages while we are changing epochs.
 	i.stopNonValidator()
 
-	// First, figure out if I'm still a validator.
-	if i.determineValidatorOrNot(epochChange.validators) {
-		i.Config.Logger.Info("I am now a validator")
-		i.startValidator()
-		return
-	}
-
-	i.startNonValidator(epochChange.epochNum, epochChange.validators)
+	return i.startValidatorOrNonValidator(epochChange.validators, epochChange.epochNum)
 }
 
-func (i *Instance) transitionEpochValidator(epochChange epochChange) {
+func (i *Instance) startValidatorOrNonValidator(validators common.Nodes, epoch uint64) error {
+	if i.iAmValidator(validators) {
+		if err := i.startValidator(); err != nil {
+			i.Config.Logger.Error("Error starting validator on epoch change", zap.Error(err))
+			return err
+		}
+		return nil
+	}
+
+	if err := i.startNonValidator(epoch, validators); err != nil {
+		i.Config.Logger.Error("Error starting non-validator on epoch change", zap.Error(err))
+		return err
+	}
+	return nil
+}
+
+func (i *Instance) transitionEpochValidator(epochChange epochChange) error {
 	i.lock.Lock()
 	defer i.lock.Unlock()
 
@@ -537,27 +561,7 @@ func (i *Instance) transitionEpochValidator(epochChange epochChange) {
 		i.Config.Logger.Error("Error garbage collecting epoch config on epoch change", zap.Error(err))
 	}
 
-	// First, figure out if I'm still a validator.
-	if !i.determineValidatorOrNot(epochChange.validators) {
-		i.Config.Logger.Info("I am no longer a validator")
-		i.startNonValidator(epochChange.epochNum, epochChange.validators)
-		return
-	}
-
-	config, err := i.createEpochConfig()
-	if err != nil {
-		i.Config.Logger.Error("Error creating epoch config on epoch change", zap.Error(err))
-		return
-	}
-
-	if config.Epoch != epochChange.epochNum {
-		i.Config.Logger.Error("Epoch number mismatch on epoch change", zap.Uint64("expected", epochChange.epochNum), zap.Uint64("actual", config.Epoch))
-		return
-	}
-
-	if err := i.startEpoch(config); err != nil {
-		i.Config.Logger.Error("Error starting new epoch on epoch change", zap.Error(err))
-	}
+	return i.startValidatorOrNonValidator(epochChange.validators, epochChange.epochNum)
 }
 
 func constructEpochAndValidatorSet(lastNonSimplexInnerBlockHeight uint64, genesisValidatorSet metadata.NodeBLSMappings, numBlocks uint64, lastBlock ParsedBlock, storage Storage) (common.Nodes, uint64, error) {
