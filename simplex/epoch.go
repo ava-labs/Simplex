@@ -1428,6 +1428,10 @@ func (e *Epoch) indexFinalization(block common.VerifiedBlock, finalization commo
 			zap.Uint64("round", finalization.Finalization.Round),
 			zap.Uint64("sequence", finalization.Finalization.Seq),
 			zap.Stringer("digest", finalization.Finalization.BlockHeader.Digest))
+
+		finalizationMsg := &common.Message{Finalization: &finalization}
+		e.broadcast(finalizationMsg)
+
 		e.epochSealed.Store(true)
 	}
 
