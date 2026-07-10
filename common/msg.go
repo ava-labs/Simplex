@@ -40,31 +40,6 @@ func (m *Message) IsReplicationMessage() bool {
 	}
 }
 
-func (m *Message) Seq() uint64 {
-	switch {
-	case m.BlockMessage != nil:
-		return m.BlockMessage.Block.BlockHeader().Seq
-	case m.VerifiedBlockMessage != nil:
-		return m.VerifiedBlockMessage.VerifiedBlock.BlockHeader().Seq
-	case m.EmptyNotarization != nil:
-		// Empty notarizations have no sequence, only a round.
-		return m.EmptyNotarization.Vote.Round
-	case m.VoteMessage != nil:
-		return m.VoteMessage.Vote.Seq
-	case m.EmptyVoteMessage != nil:
-		// Empty votes have no sequence, only a round.
-		return m.EmptyVoteMessage.Vote.Round
-	case m.Notarization != nil:
-		return m.Notarization.Vote.Seq
-	case m.FinalizeVote != nil:
-		return m.FinalizeVote.Finalization.Seq
-	case m.Finalization != nil:
-		return m.Finalization.Finalization.Seq
-	default:
-		return 0
-	}
-}
-
 type EmptyVoteMetadata struct {
 	Round uint64
 	Epoch uint64

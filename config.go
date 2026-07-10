@@ -14,7 +14,7 @@ import (
 type ParameterConfig struct {
 	// WalMaxEntryCount is the maximum number of entries in the write-ahead log before it is closed.
 	WALMaxEntryCount int
-	// MaxnetworkDelay is the assumed upper bound on the network delay for messages to be delivered.
+	// MaxNetworkDelay is the assumed upper bound on the network delay for messages to be delivered.
 	MaxNetworkDelay time.Duration
 	// MaxRoundWindow is the maximum number of rounds that can be stored in memory.
 	MaxRoundWindow uint64
