@@ -5,6 +5,7 @@ package simplex
 
 import (
 	"math"
+	"slices"
 	"sync"
 	"time"
 
@@ -179,7 +180,7 @@ func (r *requestor) sendMoreReplicationRequests(observedSeqOrRound, currentSeqOr
 func (r *requestor) sendRequests(seqsOrRounds []uint64) {
 	signers := r.highestObserved.signers
 	numNodes := len(signers)
-	batches := BatchSequences(seqsOrRounds, uint64(numNodes), MaxRoundRequests)
+	batches := BatchSequences(seqsOrRounds, uint64(numNodes), maxItemCountPerRequest)
 
 	for i, batch := range batches {
 		index := (i + r.requestIterator) % numNodes
@@ -208,6 +209,9 @@ func (r *requestor) sendRequestToNode(seqsOrRounds []uint64, node common.NodeID)
 		return
 	}
 
+	if !slices.IsSorted(toRequest) {
+		slices.Sort(toRequest)
+	}
 	if last := toRequest[len(toRequest)-1]; last > r.highestRequested {
 		r.highestRequested = last
 	}

@@ -678,69 +678,53 @@ func TestReplicationResendsFinalizedBlocksThatFailedVerification(t *testing.T) {
 	require.Equal(t, block, storedBlock)
 }
 
-// TestReplicationResendSplitsRequests ensures that when replication requests time out, the missing sequences
-// are re-requested split across the nodes that signed the highest observed quorum, just like the initial requests are.
 func TestReplicationResendSplitsRequests(t *testing.T) {
-	bb := testutil.NewTestBlockBuilder()
+	// ensures that when replication requests time out, the missing sequences
+	// are re-requested split across the nodes that signed the highest observed quorum, just like the initial requests are.
 	nodes := []common.NodeID{{1}, {2}, {3}, {4}}
-	sentMessages := make(chan *common.Message, 100)
-	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[1], &recordingComm{
-		Communication: testutil.NewNoopComm(nodes),
-		SentMessages:  sentMessages,
-	}, bb)
-	conf.ReplicationEnabled = true
+	startSeq := 2 * uint64(simplex.DefaultMaxRoundWindow)
 
-	e, err := simplex.NewEpoch(conf)
-	require.NoError(t, err)
-	t.Cleanup(e.Stop)
-	require.NoError(t, e.Start())
+	net := testutil.NewControlledNetwork(t, nodes)
+	storageData := createBlocks(t, nodes, startSeq)
 
-	// observe a finalization more than MaxRoundWindow sequences ahead of us
-	seqCount := 2 * conf.MaxRoundWindow
-	finalization := createBlocks(t, nodes, seqCount)[seqCount-1].Finalization
-	err = e.HandleMessage(&common.Message{Finalization: &finalization}, nodes[0])
-	require.NoError(t, err)
-
-	// collect the initial replication requests sent in response to the finalization
-	initiallyRequested := make(map[uint64]struct{})
-	timeout := time.After(30 * time.Second)
-	for uint64(len(initiallyRequested)) < conf.MaxRoundWindow {
-		select {
-		case msg := <-sentMessages:
-			if msg.ReplicationRequest == nil {
-				continue
-			}
-			for _, seq := range msg.ReplicationRequest.Seqs {
-				initiallyRequested[seq] = struct{}{}
-			}
-		case <-timeout:
-			require.FailNow(t, "timed out waiting for replication requests")
+	newNodeConfig := func(from common.NodeID) *testutil.TestNodeConfig {
+		comm := testutil.NewTestComm(from, net.BasicInMemoryNetwork, rejectReplicationRequests)
+		return &testutil.TestNodeConfig{
+			InitialStorage:     storageData,
+			Comm:               comm,
+			ReplicationEnabled: true,
 		}
 	}
 
-	// no node responds, so the requests time out and are re-sent
-	e.AdvanceTime(e.StartTime.Add(2 * simplex.DefaultReplicationRequestTimeout))
+	testutil.NewControlledSimplexNode(t, nodes[0], net, newNodeConfig(nodes[0]))
+	testutil.NewControlledSimplexNode(t, nodes[1], net, newNodeConfig(nodes[1]))
+	testutil.NewControlledSimplexNode(t, nodes[2], net, newNodeConfig(nodes[2]))
+	laggingNode := testutil.NewControlledSimplexNode(t, nodes[3], net, &testutil.TestNodeConfig{
+		ReplicationEnabled: true,
+		// twice the responder's window: the timed-out sequences span more
+		// than a responder is willing to server in a single request
+		MaxRoundWindow: startSeq,
+	})
 
-	// collect the re-sent requests until they cover all outstanding sequences
-	resentRequests := 0
-	resentSeqs := make(map[uint64]struct{})
-	for len(resentSeqs) < len(initiallyRequested) {
-		select {
-		case msg := <-sentMessages:
-			if msg.ReplicationRequest == nil {
-				continue
-			}
-			resentRequests++
-			require.LessOrEqual(t, uint64(len(msg.ReplicationRequest.Seqs)), conf.MaxRoundWindow,
-				"a replication request with more than MaxRoundWindow seqs is dropped by the responder")
-			for _, seq := range msg.ReplicationRequest.Seqs {
-				resentSeqs[seq] = struct{}{}
-			}
-		case <-timeout:
-			require.FailNow(t, "timed out waiting for re-sent replication requests")
+	net.StartInstances()
+	defer net.StopInstances()
+	net.TriggerLeaderBlockBuilder(startSeq)
+
+	// the healthy nodes commit, the lagging node's replciation responses
+	// were all dropped, so it is stuck at 0.
+	for _, n := range net.Instances {
+		if n.E.ID.Equals(laggingNode.E.ID) {
+			continue
 		}
+		n.Storage.WaitForBlockCommit(startSeq)
 	}
-
-	require.Greater(t, resentRequests, 1,
-		"timed out requests should be re-sent split across the signers of the highest observed quorum")
+	require.Equal(t, uint64(0), laggingNode.Storage.NumBlocks())
+	// wait to register the timeout before healing
+	time.Sleep(100 * time.Millisecond)
+	// network healed, responsed are no longer dropped
+	net.SetAllNodesMessageFilter(testutil.AllowAllMessages)
+	// trigger the resend of all timed-out responses. If the resend path doesn't split/ doesn't account for maxRoundWindow
+	// this test would hang forever because the responses would be dropped silently.
+	laggingNode.E.AdvanceTime(laggingNode.E.StartTime.Add(simplex.DefaultReplicationRequestTimeout * 2))
+	laggingNode.Storage.WaitForBlockCommit(startSeq)
 }
