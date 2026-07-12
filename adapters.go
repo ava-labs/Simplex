@@ -55,7 +55,7 @@ func (e *EpochAwareStorage) Retrieve(seq uint64) (common.VerifiedBlock, common.F
 
 func (e *EpochAwareStorage) Index(ctx context.Context, block common.VerifiedBlock, certificate common.Finalization) error {
 	if block.BlockHeader().Epoch < e.epoch {
-		// This is a Telock from a previous h, so we ignore it and do not index it.
+		// This is a Telock from a previous epoch, so we ignore it and do not index it.
 		return nil
 	}
 	if err := e.Storage.Index(ctx, block, certificate); err != nil {
@@ -65,7 +65,7 @@ func (e *EpochAwareStorage) Index(ctx context.Context, block common.VerifiedBloc
 		if err := e.onEpochChange(block.BlockHeader().Seq, block.SealingBlockInfo().ValidatorSet); err != nil {
 			return err
 		}
-		// We are now in a new h, so we update the h number to prevent indexing Telocks from the previous h.
+		// We are now in a new epoch, so we update the epoch number to prevent indexing Telocks from the previous epoch.
 		e.epoch = block.BlockHeader().Seq
 	}
 	return nil
@@ -91,17 +91,17 @@ type CachedStorage struct {
 	msm  *metadata.StateMachine
 	lock sync.RWMutex
 	Storage
-	cache map[[32]byte]cachedBlock
+	cache map[common.Digest]cachedBlock
 }
 
 func NewCachedStorage(storage Storage) *CachedStorage {
 	return &CachedStorage{
 		Storage: storage,
-		cache:   make(map[[32]byte]cachedBlock),
+		cache:   make(map[common.Digest]cachedBlock),
 	}
 }
 
-func (cs *CachedStorage) RetrieveBlock(seq uint64, digest [32]byte) (metadata.StateMachineBlock, *common.Finalization, error) {
+func (cs *CachedStorage) RetrieveBlock(seq uint64, digest common.Digest) (metadata.StateMachineBlock, *common.Finalization, error) {
 	block, finalization, err := cs.Retrieve(seq, digest)
 	if err != nil {
 		return metadata.StateMachineBlock{}, nil, err
@@ -110,7 +110,7 @@ func (cs *CachedStorage) RetrieveBlock(seq uint64, digest [32]byte) (metadata.St
 	return block.(*ParsedBlock).StateMachineBlock, finalization, nil
 }
 
-func (cs *CachedStorage) Retrieve(seq uint64, digest [32]byte) (common.VerifiedBlock, *common.Finalization, error) {
+func (cs *CachedStorage) Retrieve(seq uint64, digest common.Digest) (common.VerifiedBlock, *common.Finalization, error) {
 	cs.lock.RLock()
 	item, exists := cs.cache[digest]
 	if exists {

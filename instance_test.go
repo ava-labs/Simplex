@@ -316,25 +316,24 @@ func waitForSealingBlockCount(t *testing.T, storage *MockStorage, target int) {
 
 func newInstance(t *testing.T, nodeID common.NodeID, storage *MockStorage, net *inMemNetwork, pChain *testPlatformChain, cops *testCryptoOps, genesisBlock *testInnerBlock) *Instance {
 	comm := &networkSender{net: net, self: nodeID}
-	return &Instance{
-		Config: Config{
-			Logger:                   testutil.MakeLogger(t, int(nodeID[0])),
-			ID:                       nodeID,
-			VM:                       newTestVM(),
-			Storage:                  storage,
-			Sender:                   comm,
-			Broadcaster:              comm,
-			PlatformChain:            pChain,
-			CryptoOps:                cops,
-			LastNonSimplexInnerBlock: genesisBlock,
-			WalCreator:               storage.CreateWAL,
-			ParameterConfig: ParameterConfig{
-				MaxNetworkDelay:  500 * time.Millisecond,
-				MaxRoundWindow:   100,
-				WALMaxEntryCount: 1024,
-			},
+	config := Config{
+		Logger:                   testutil.MakeLogger(t, int(nodeID[0])),
+		ID:                       nodeID,
+		VM:                       newTestVM(),
+		Storage:                  storage,
+		Sender:                   comm,
+		Broadcaster:              comm,
+		PlatformChain:            pChain,
+		CryptoOps:                cops,
+		LastNonSimplexInnerBlock: genesisBlock,
+		WalCreator:               storage.CreateWAL,
+		ParameterConfig: ParameterConfig{
+			MaxNetworkDelay:  500 * time.Millisecond,
+			MaxRoundWindow:   100,
+			WALMaxEntryCount: 1024,
 		},
 	}
+	return NewInstance(config)
 }
 
 func latestValidatorID(t *testing.T, storage *MockStorage) common.NodeID {

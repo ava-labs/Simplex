@@ -72,8 +72,7 @@ func (bbd *blockBuildingDecider) shouldBuildBlock(
 
 		// If the P-chain height changed, re-evaluate again whether we should transition to a new epoch,
 		// or continue waiting to build a block.
-		h := bbd.getPChainHeight()
-		if h != pChainHeight {
+		if bbd.getPChainHeight() != pChainHeight {
 			continue
 		}
 

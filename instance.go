@@ -46,9 +46,6 @@ type Config struct {
 	ID      common.NodeID
 }
 
-type MessageHandler interface {
-}
-
 type nodeRole byte
 
 const (
@@ -79,19 +76,26 @@ type Instance struct {
 	stopCh       chan struct{}
 }
 
+func NewInstance(config Config) *Instance {
+	return &Instance{
+		Config:       config,
+		stopCh:       make(chan struct{}),
+		cs:           NewCachedStorage(config.Storage),
+		epochChanges: make(chan epochChange, 1),
+	}
+}
+
 func (i *Instance) Start(ctx context.Context) error {
 	// Hold the lock throughout startup to block HandleMessage from being called in between.
 	i.lock.Lock()
 	defer i.lock.Unlock()
 
-	i.stopCh = make(chan struct{})
-	i.epochChanges = make(chan epochChange, 1)
 	context.AfterFunc(ctx, i.Stop)
 
-	cachedStorage := NewCachedStorage(i.Config.Storage)
-	i.cs = cachedStorage
-
 	lastBlock, numBlocks, err := i.lastBlock()
+	if err != nil {
+		return fmt.Errorf("error retrieving last block: %w", err)
+	}
 
 	lastNonSimplexHeight := i.Config.LastNonSimplexInnerBlock.Height()
 	genesisValidatorSet := i.Config.PlatformChain.GenesisValidatorSet()
@@ -100,7 +104,9 @@ func (i *Instance) Start(ctx context.Context) error {
 		return fmt.Errorf("error determining latest epoch and validator set: %w", err)
 	}
 
-	i.startValidatorOrNonValidator(nodes, epochNum)
+	if err := i.startAtEpoch(nodes, epochNum); err != nil {
+		return fmt.Errorf("error starting instance at epoch %d: %w", epochNum, err)
+	}
 
 	go i.tick()
 	go i.listenForEpochChanges()
@@ -113,12 +119,7 @@ func (i *Instance) startValidator() error {
 	if err != nil {
 		return err
 	}
-
-	if err := i.startEpoch(epochConfig); err != nil {
-		return err
-	}
-
-	return nil
+	return i.startEpoch(epochConfig)
 }
 
 func (i *Instance) startNonValidator(epochNum uint64, validators common.Nodes) error {
@@ -230,9 +231,8 @@ func (i *Instance) Stop() {
 		close(i.stopCh)
 	}
 
-	if i.e != nil {
-		i.stopValidator()
-	}
+	i.stopValidator()
+	i.stopNonValidator()
 }
 
 func (i *Instance) stopNonValidator() {
@@ -255,6 +255,8 @@ func (i *Instance) HandleMessage(msg *common.Message, from common.NodeID) error 
 	i.lock.Lock()
 	defer i.lock.Unlock()
 
+	// We need to artificially wire the MSM and the cache to the block,
+	// in order to intercept the Verify() call.
 	switch {
 	case msg.BlockMessage != nil:
 		err := i.wireBlockMessage(msg)
@@ -283,54 +285,51 @@ func (i *Instance) HandleMessage(msg *common.Message, from common.NodeID) error 
 func (i *Instance) wireReplicationResponse(msg *common.Message) error {
 	resp := msg.ReplicationResponse
 	if resp.LatestRound != nil && resp.LatestRound.Block != nil {
-		pb, isParsedBlock := resp.LatestRound.Block.(*ParsedBlock)
-		if !isParsedBlock {
-			return fmt.Errorf("expected ParsedBlock, got %T", resp.LatestRound.Block)
+		block, err := i.wireBlock(resp.LatestRound.Block)
+		if err != nil {
+			return err
 		}
-		resp.LatestRound.Block = &cachedBlock{
-			cache:       i.cs,
-			ParsedBlock: pb,
-		}
-		pb.msm = i.msm
+		resp.LatestRound.Block = block
 	}
 	if resp.LatestSeq != nil && resp.LatestSeq.Block != nil {
-		pb, isParsedBlock := resp.LatestSeq.Block.(*ParsedBlock)
-		if !isParsedBlock {
-			return fmt.Errorf("expected ParsedBlock, got %T", resp.LatestSeq.Block)
+		block, err := i.wireBlock(resp.LatestSeq.Block)
+		if err != nil {
+			return err
 		}
-		resp.LatestSeq.Block = &cachedBlock{
-			cache:       i.cs,
-			ParsedBlock: pb,
-		}
-		pb.msm = i.msm
+		resp.LatestSeq.Block = block
 	}
 	for j, datum := range resp.Data {
 		if datum.Block == nil {
 			continue
 		}
-		pb, isParsedBlock := datum.Block.(*ParsedBlock)
-		if !isParsedBlock {
-			return fmt.Errorf("expected ParsedBlock, got %T", datum.Block)
+		block, err := i.wireBlock(datum.Block)
+		if err != nil {
+			return err
 		}
-		resp.Data[j].Block = &cachedBlock{
-			cache:       i.cs,
-			ParsedBlock: pb,
-		}
-		pb.msm = i.msm
+		resp.Data[j].Block = block
 	}
 	return nil
 }
 
-func (i *Instance) wireBlockMessage(msg *common.Message) error {
-	pb, isParsedBlock := msg.BlockMessage.Block.(*ParsedBlock)
+func (i *Instance) wireBlock(block common.Block) (common.Block, error) {
+	pb, isParsedBlock := block.(*ParsedBlock)
 	if !isParsedBlock {
-		return fmt.Errorf("expected ParsedBlock, got %T", msg.BlockMessage.Block)
+		return nil, fmt.Errorf("expected ParsedBlock, got %T", block)
 	}
-	msg.BlockMessage.Block = &cachedBlock{
+	block = &cachedBlock{
 		cache:       i.cs,
 		ParsedBlock: pb,
 	}
 	pb.msm = i.msm
+	return block, nil
+}
+
+func (i *Instance) wireBlockMessage(msg *common.Message) error {
+	block, err := i.wireBlock(msg.BlockMessage.Block)
+	if err != nil {
+		return err
+	}
+	msg.BlockMessage.Block = block
 	return nil
 }
 
@@ -346,20 +345,20 @@ func (i *Instance) listenForEpochChanges() {
 }
 
 func (i *Instance) processEpochChange(epochChange epochChange) {
+	var err error
 	switch epochChange.nodeRole {
 	case nonValidator:
-		if err := i.transitionEpochNonValidator(epochChange); err != nil {
-			i.Config.Logger.Error("Error transitioning epoch for non-validator", zap.Error(err))
-			i.Stop()
-		}
+		err = i.transitionEpochNonValidator(epochChange)
 	case validator:
-		if err := i.transitionEpochValidator(epochChange); err != nil {
-			i.Config.Logger.Error("Error transitioning epoch for validator", zap.Error(err))
-			i.Stop()
-		}
+		err = i.transitionEpochValidator(epochChange)
 	default: // This should never happen, but we log it just in case.
 		i.Config.Logger.Fatal("Unknown node role on epoch change",
 			zap.String("role", fmt.Sprintf("%v", epochChange.nodeRole)))
+		return
+	}
+	if err != nil {
+		i.Config.Logger.Error("Error transitioning epoch", zap.Uint8("role", uint8(epochChange.nodeRole)), zap.Error(err))
+		i.Stop()
 	}
 }
 
@@ -532,10 +531,10 @@ func (i *Instance) transitionEpochNonValidator(epochChange epochChange) error {
 	// Stop the non-validator before doing anything else, so that we don't process any more messages while we are changing epochs.
 	i.stopNonValidator()
 
-	return i.startValidatorOrNonValidator(epochChange.validators, epochChange.epochNum)
+	return i.startAtEpoch(epochChange.validators, epochChange.epochNum)
 }
 
-func (i *Instance) startValidatorOrNonValidator(validators common.Nodes, epoch uint64) error {
+func (i *Instance) startAtEpoch(validators common.Nodes, epoch uint64) error {
 	if i.iAmValidator(validators) {
 		if err := i.startValidator(); err != nil {
 			i.Config.Logger.Error("Error starting validator on epoch change", zap.Error(err))
@@ -564,7 +563,7 @@ func (i *Instance) transitionEpochValidator(epochChange epochChange) error {
 		i.Config.Logger.Error("Error garbage collecting epoch config on epoch change", zap.Error(err))
 	}
 
-	return i.startValidatorOrNonValidator(epochChange.validators, epochChange.epochNum)
+	return i.startAtEpoch(epochChange.validators, epochChange.epochNum)
 }
 
 func constructEpochAndValidatorSet(lastNonSimplexInnerBlockHeight uint64, genesisValidatorSet metadata.NodeBLSMappings, numBlocks uint64, lastBlock ParsedBlock, storage Storage) (common.Nodes, uint64, error) {
@@ -579,14 +578,14 @@ func constructEpochAndValidatorSet(lastNonSimplexInnerBlockHeight uint64, genesi
 		validatorSet = genesisValidatorSet
 		nodes = validatorSetToNodes(genesisValidatorSet)
 		epochNum = lastNonSimplexInnerBlockHeight + 1
-	// If the last block persisted is a sealing block, then we are in the next h.
+	// If the last block persisted is a sealing block, then we are in the next epoch.
 	case lastBlock.SealingBlockInfo() != nil:
 		epochNum = lastBlock.BlockHeader().Seq
 		validatorSet = constructValidatorSetFromSealingBlock(lastBlock)
 		nodes = lastBlock.SealingBlockInfo().ValidatorSet
 	// Else, we have at least one Simplex block in the ledger, and it's not a sealing block.
 	default:
-		// Therefore, the sequence of the sealing block is the h number.
+		// Therefore, the sequence of the sealing block is the epoch number.
 		sealingBlockSeq := lastBlock.BlockHeader().Epoch
 		sealingBlock, _, err := storage.GetBlock(sealingBlockSeq)
 		if err != nil {
@@ -601,9 +600,9 @@ func constructEpochAndValidatorSet(lastNonSimplexInnerBlockHeight uint64, genesi
 	return nodes, epochNum, nil
 }
 
-func validatorSetToNodes(genesisValidatorSet metadata.NodeBLSMappings) common.Nodes {
+func validatorSetToNodes(validatorSet metadata.NodeBLSMappings) common.Nodes {
 	var nodes common.Nodes
-	for _, vdr := range genesisValidatorSet {
+	for _, vdr := range validatorSet {
 		nodes = append(nodes, common.Node{
 			Id:     vdr.NodeID[:],
 			Weight: vdr.Weight,

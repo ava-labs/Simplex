@@ -1934,7 +1934,7 @@ func TestCollectAuxiliaryInfo(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			getBlock := func(seq uint64, _ [32]byte) (StateMachineBlock, *common.Finalization, error) {
+			getBlock := func(seq uint64, _ common.Digest) (StateMachineBlock, *common.Finalization, error) {
 				if tt.getBlockErr != nil {
 					return StateMachineBlock{}, nil, tt.getBlockErr
 				}

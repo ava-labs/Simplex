@@ -92,7 +92,7 @@ func (bs blockStore) clone() blockStore {
 	return newStore
 }
 
-func (bs blockStore) getBlock(seq uint64, _ [32]byte) (StateMachineBlock, *common.Finalization, error) {
+func (bs blockStore) getBlock(seq uint64, _ common.Digest) (StateMachineBlock, *common.Finalization, error) {
 	blk, exits := bs[seq]
 	if !exits {
 		return StateMachineBlock{}, nil, fmt.Errorf("%w: block %d not found", common.ErrBlockNotFound, seq)

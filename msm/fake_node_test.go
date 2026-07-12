@@ -274,7 +274,7 @@ func newFakeNode(t *testing.T) *fakeNode {
 	fn.sm.BlockBuilder = fn
 	fn.sm.PChainProgressListener = fn
 
-	fn.sm.GetBlock = func(seq uint64, digest [32]byte) (StateMachineBlock, *common.Finalization, error) {
+	fn.sm.GetBlock = func(seq uint64, digest common.Digest) (StateMachineBlock, *common.Finalization, error) {
 		if seq == 0 {
 			return genesisBlock, nil, nil
 		}
