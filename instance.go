@@ -219,6 +219,15 @@ func (i *Instance) tick() {
 	}
 }
 
+func (i *Instance) isStopped() bool {
+	select {
+	case <-i.stopCh:
+		return true
+	default:
+		return false
+	}
+}
+
 func (i *Instance) Stop() {
 	i.lock.Lock()
 	defer i.lock.Unlock()
@@ -522,6 +531,11 @@ func (i *Instance) maybeGarbageCollectWAL(lastBlock metadata.StateMachineBlock) 
 func (i *Instance) transitionEpochNonValidator(epochChange epochChange) error {
 	i.lock.Lock()
 	defer i.lock.Unlock()
+
+	if i.isStopped() {
+		i.Config.Logger.Info("instance is already stopped, skipping epoch change")
+		return nil
+	}
 
 	if !i.iAmValidator(epochChange.validators) {
 		i.Config.Logger.Debug("Skipping restarting a non-validator because I am not a validator yet")
