@@ -77,7 +77,8 @@ func TestBlockRecord(t *testing.T) {
 	require.NoError(t, err)
 
 	payload := []byte{11, 12, 13, 14, 15, 16}
-	record := BlockRecord(bh, payload)
+	record, err := BlockRecord(bh, payload)
+	require.NoError(t, err)
 
 	retentionTerm, err := BlockRecordRetentionTerm(record)
 	require.NoError(t, err)
@@ -86,7 +87,7 @@ func TestBlockRecord(t *testing.T) {
 	md2, payload2, err := ParseBlockRecord(record)
 	require.NoError(t, err)
 
-	require.Equal(t, bh, md2)
+	require.True(t, bh.Equals(&md2))
 	require.Equal(t, payload, payload2)
 }
 
@@ -104,7 +105,8 @@ func FuzzBlockRecord(f *testing.F) {
 			},
 			Digest: digest,
 		}
-		record := BlockRecord(bh, payload)
+		record, err := BlockRecord(bh, payload)
+		require.NoError(t, err)
 		retentionTerm, err := BlockRecordRetentionTerm(record)
 		require.NoError(t, err)
 		require.Equal(t, round, retentionTerm)
@@ -140,14 +142,14 @@ func TestNotarizationRecord(t *testing.T) {
 	require.NoError(t, err)
 
 	record := NewQuorumRecord([]byte{1, 2, 3}, vote.Bytes(), NotarizationRecordType)
-	retentionTerm, err := QuorumRecordRetentionTerm(record)
+	retentionTerm, err := notarizationQuorumRecordRetentionTerm(record)
 	require.NoError(t, err)
 	require.Equal(t, uint64(666), retentionTerm)
 
 	qc, vote2, err := ParseNotarizationRecord(record)
 	require.NoError(t, err)
 	require.Equal(t, []byte{1, 2, 3}, qc)
-	require.Equal(t, vote, vote2)
+	require.True(t, vote.BlockHeader.Equals(&vote2.BlockHeader))
 }
 
 func FuzzNotarizationRecord(f *testing.F) {
@@ -174,14 +176,14 @@ func FuzzNotarizationRecord(f *testing.F) {
 		}
 
 		record := NewQuorumRecord([]byte{1, 2, 3}, vote.Bytes(), NotarizationRecordType)
-		retentionTerm, err := QuorumRecordRetentionTerm(record)
+		retentionTerm, err := notarizationQuorumRecordRetentionTerm(record)
 		require.NoError(t, err)
 		require.Equal(t, round, retentionTerm)
 
 		qc, vote2, err := ParseNotarizationRecord(record)
 		require.NoError(t, err)
 		require.Equal(t, []byte{1, 2, 3}, qc)
-		require.Equal(t, vote, vote2)
+		require.True(t, vote.BlockHeader.Equals(&vote2.BlockHeader))
 	})
 }
 
@@ -227,7 +229,7 @@ func TestRetentionTerm(t *testing.T) {
 	}
 	emptyNotarizationRecord := NewQuorumRecord([]byte{1, 2, 3}, en.Vote.Bytes(), EmptyNotarizationRecordType)
 	notarizationRecord := NewQuorumRecord([]byte{1, 2, 3}, vote.Bytes(), NotarizationRecordType)
-	blockRecord := BlockRecord(BlockHeader{
+	blockRecord, err := BlockRecord(BlockHeader{
 		ProtocolMetadata: ProtocolMetadata{
 			Version: 1,
 			Round:   668,
@@ -235,6 +237,7 @@ func TestRetentionTerm(t *testing.T) {
 			Epoch:   4,
 		},
 	}, []byte{11, 12, 13, 14, 15, 16})
+	require.NoError(t, err)
 
 	finalizationRecord := NewQuorumRecord([]byte{1, 2, 3}, en.Vote.Bytes(), FinalizationRecordType)
 

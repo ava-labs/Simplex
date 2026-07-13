@@ -2089,7 +2089,11 @@ func (e *Epoch) createBlockVerificationTask(block common.Block, from common.Node
 			return md.Digest
 		}
 
-		blockRecord := common.BlockRecord(md, blockBytes)
+		blockRecord, err := common.BlockRecord(md, blockBytes)
+		if err != nil {
+			e.Logger.Error("Failed to create block record for WAL", zap.Error(err))
+			return md.Digest
+		}
 		if err := e.WAL.Append(blockRecord); err != nil {
 			e.haltedError = err
 			e.Logger.Error("Failed to append block record to WAL", zap.Error(err))
@@ -2359,8 +2363,8 @@ func (e *Epoch) verifyProposalMetadataAndBlacklist(block common.Block) bool {
 
 	if !equals {
 		e.Logger.Debug("Received block with an incorrect header",
-			zap.Stringer("expected", expectedBH),
-			zap.Stringer("received", bh))
+			zap.Stringer("expected", &expectedBH),
+			zap.Stringer("received", &bh))
 	}
 
 	return equals
@@ -2556,7 +2560,11 @@ func (e *Epoch) proposeBlock(block common.VerifiedBlock) error {
 		return errors.New("failed to store block proposed by me")
 	}
 
-	blockRecord := common.BlockRecord(block.BlockHeader(), rawBlock)
+	blockRecord, err := common.BlockRecord(block.BlockHeader(), rawBlock)
+	if err != nil {
+		e.Logger.Error("Failed creating block record for WAL", zap.Error(err))
+		return err
+	}
 	if err := e.WAL.Append(blockRecord); err != nil {
 		e.Logger.Error("Failed appending block to WAL", zap.Error(err))
 		return err

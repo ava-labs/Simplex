@@ -439,7 +439,9 @@ func TestReplicationRequestSeqsAndRoundsTruncated(t *testing.T) {
 	for _, data := range blocks[numIndexed:] {
 		blockBytes, err := data.VerifiedBlock.Bytes()
 		require.NoError(t, err)
-		require.NoError(t, wal.Append(common.BlockRecord(data.VerifiedBlock.BlockHeader(), blockBytes)))
+		br, err := common.BlockRecord(data.VerifiedBlock.BlockHeader(), blockBytes)
+		require.NoError(t, err)
+		require.NoError(t, wal.Append(br))
 
 		notarization, err := testutil.NewNotarization(conf.Logger, &testutil.TestSignatureAggregator{N: len(nodes)}, data.VerifiedBlock, nodes[:quorom])
 		require.NoError(t, err)
@@ -489,6 +491,35 @@ func TestReplicationRequestSeqsAndRoundsTruncated(t *testing.T) {
 
 	msg := <-comm.in
 	resp := msg.VerifiedReplicationResponse
-	require.Equal(t, expected, resp.Data)
+	requireEqualQuorumRounds(t, expected, resp.Data)
 
+}
+
+// requireEqualQuorumRounds compares quorum rounds semantically, avoiding
+// reflect.DeepEqual on canoto-encoded values (whose unexported size cache and
+// nil-vs-empty slices differ between freshly-built and round-tripped values).
+func requireEqualQuorumRounds(t *testing.T, expected, actual []common.VerifiedQuorumRound) {
+	require.Equal(t, len(expected), len(actual))
+	for i := range expected {
+		exp, act := expected[i], actual[i]
+		require.Equal(t, exp.VerifiedBlock.BlockHeader().Digest, act.VerifiedBlock.BlockHeader().Digest)
+
+		if exp.Finalization != nil {
+			require.NotNil(t, act.Finalization)
+			require.True(t, exp.Finalization.Finalization.BlockHeader.Equals(&act.Finalization.Finalization.BlockHeader))
+			require.Equal(t, exp.Finalization.QC, act.Finalization.QC)
+		} else {
+			require.Nil(t, act.Finalization)
+		}
+
+		if exp.Notarization != nil {
+			require.NotNil(t, act.Notarization)
+			require.True(t, exp.Notarization.Vote.BlockHeader.Equals(&act.Notarization.Vote.BlockHeader))
+			require.Equal(t, exp.Notarization.QC, act.Notarization.QC)
+		} else {
+			require.Nil(t, act.Notarization)
+		}
+
+		require.Equal(t, exp.EmptyNotarization, act.EmptyNotarization)
+	}
 }

@@ -518,10 +518,7 @@ func (i *Instance) maybeGarbageCollectWAL(lastBlock metadata.StateMachineBlock) 
 		// TODO: We need to test a scenario where an epoch change occurred and then a few notarizations have been persisted to WAL,
 		// but no block has been finalized. So the WAL contains entries from previous epochs as well as from the current epoch.
 		// TODO: We need to test a scenario where an epoch change occurred but the node has crashed after notarizing some Telocks.
-		md, err := common.ProtocolMetadataFromBytes(lastBlock.Metadata.SimplexProtocolMetadata)
-		if err != nil {
-			return fmt.Errorf("error parsing protocol metadata from last block: %w", err)
-		}
+		md := lastBlock.Metadata.SimplexProtocolMetadata
 		if err := i.wal.GarbageCollect(md.Round); err != nil {
 			return fmt.Errorf("error garbage collecting WALs: %w", err)
 		}

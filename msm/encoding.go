@@ -21,10 +21,10 @@ type StateMachineMetadata struct {
 	// SimplexEpochInfo is the metadata that the StateMachine uses for its own epoching.
 	SimplexEpochInfo SimplexEpochInfo `canoto:"value,1"`
 	// SimplexProtocolMetadata is the metadata that Simplex uses for its protocol, such as sequence and round number.
-	SimplexProtocolMetadata []byte `canoto:"bytes,2"`
+	SimplexProtocolMetadata common.ProtocolMetadata `canoto:"value,2"`
 	// SimplexBlacklist is the metadata that Simplex uses to keep track of blacklisted nodes.
 	// Blacklisted nodes do not become leaders.
-	SimplexBlacklist []byte `canoto:"bytes,3"`
+	SimplexBlacklist common.Blacklist `canoto:"value,3"`
 	// PChainHeight is the P-Chain height that the StateMachine sampled at the time of building the block.
 	// It's used for ICM epoching, not for Simplex epoching.
 	// For Simplex epoching, the P-Chain height that matters is the PChainReferenceHeight in the SimplexEpochInfo.

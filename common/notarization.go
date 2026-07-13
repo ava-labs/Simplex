@@ -48,7 +48,7 @@ func NewNotarization(logger Logger, signatureAggregator SignatureAggregator, vot
 	for _, vote := range votesForCurrentRound {
 		if !vote.Vote.BlockHeader.Equals(&blockHeader) {
 			logger.Debug("Skipping vote for block header different than the proposal block header",
-				zap.Stringer("voteDigest", vote.Vote.BlockHeader), zap.Stringer("NodeID", vote.Signature.Signer))
+				zap.Stringer("voteDigest", &vote.Vote.BlockHeader), zap.Stringer("NodeID", vote.Signature.Signer))
 			continue
 		}
 		logger.Debug("Collected vote from node", zap.Stringer("NodeID", vote.Signature.Signer),

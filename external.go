@@ -39,28 +39,16 @@ func (p *ParsedBlock) Bytes() ([]byte, error) {
 }
 
 func (p *ParsedBlock) BlockHeader() common.BlockHeader {
-	var md *common.ProtocolMetadata
-	var err error
-	if len(p.Metadata.SimplexProtocolMetadata) > 0 {
-		md, err = common.ProtocolMetadataFromBytes(p.Metadata.SimplexProtocolMetadata)
-		if err != nil {
-			panic(err) // TODO: handle error
-		}
-	} else {
-		md = &common.ProtocolMetadata{}
-	}
-
+	md := p.Metadata.SimplexProtocolMetadata
 	digest := p.StateMachineBlock.Digest()
 	return common.BlockHeader{
-		ProtocolMetadata: *md,
+		ProtocolMetadata: md,
 		Digest:           digest,
 	}
 }
 
 func (p *ParsedBlock) Blacklist() common.Blacklist {
-	var blacklist common.Blacklist
-	_ = blacklist.FromBytes(p.Metadata.SimplexBlacklist) // TODO: encode blacklist with Canoto
-	return blacklist
+	return p.Metadata.SimplexBlacklist
 }
 
 func (p *ParsedBlock) Verify(ctx context.Context) (common.VerifiedBlock, error) {
