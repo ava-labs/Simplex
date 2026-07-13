@@ -367,14 +367,24 @@ func TestInstanceRestartAcrossEpochs(t *testing.T) {
 	// The restarted node keeps extending the chain.
 	waitForNumBlocks(t, storage, storage.NumBlocks()+2)
 }
+
 func TestParseBlockSizeMatchesBytes(t *testing.T) {
 	// Case 1: Bytes() first, Size() second, size returns the cached length.
 	pb := &ParsedBlock{
 		StateMachineBlock: metadata.StateMachineBlock{
 			Metadata: metadata.StateMachineMetadata{
-				SimplexProtocolMetadata: []byte{1, 2, 3},
-				SimplexBlacklist:        []byte{4, 5},
-				PChainHeight:            6,
+				SimplexProtocolMetadata: common.ProtocolMetadata{
+					Version: 1,
+					Prev:    common.Digest{},
+					Round:   1,
+					Epoch:   4,
+					Seq:     2,
+				},
+				SimplexBlacklist: common.Blacklist{
+					Updates:   common.BlacklistUpdates{{NodeIndex: 1, Type: 1}},
+					NodeCount: 2,
+				},
+				PChainHeight: 6,
 			},
 			InnerBlock: &testInnerBlock{
 				Height_: 7,
@@ -392,9 +402,18 @@ func TestParseBlockSizeMatchesBytes(t *testing.T) {
 	pb2 := &ParsedBlock{
 		StateMachineBlock: metadata.StateMachineBlock{
 			Metadata: metadata.StateMachineMetadata{
-				SimplexProtocolMetadata: []byte{1, 2, 3},
-				SimplexBlacklist:        []byte{4, 5},
-				PChainHeight:            6,
+				SimplexProtocolMetadata: common.ProtocolMetadata{
+					Version: 1,
+					Prev:    common.Digest{},
+					Round:   1,
+					Epoch:   4,
+					Seq:     2,
+				},
+				SimplexBlacklist: common.Blacklist{
+					Updates:   common.BlacklistUpdates{{NodeIndex: 1, Type: 1}},
+					NodeCount: 2,
+				},
+				PChainHeight: 6,
 			},
 			InnerBlock: &testInnerBlock{
 				Height_: 9,
@@ -416,9 +435,18 @@ func TestParseBlockSizeMatchesBytes(t *testing.T) {
 	pb3 := &ParsedBlock{
 		StateMachineBlock: metadata.StateMachineBlock{
 			Metadata: metadata.StateMachineMetadata{
-				SimplexProtocolMetadata: []byte{1, 2, 3},
-				SimplexBlacklist:        []byte{4, 5},
-				PChainHeight:            6,
+				SimplexProtocolMetadata: common.ProtocolMetadata{
+					Version: 1,
+					Prev:    common.Digest{},
+					Round:   1,
+					Epoch:   4,
+					Seq:     2,
+				},
+				SimplexBlacklist: common.Blacklist{
+					Updates:   common.BlacklistUpdates{{NodeIndex: 1, Type: 1}},
+					NodeCount: 2,
+				},
+				PChainHeight: 6,
 			},
 			InnerBlock: &testInnerBlock{
 				Height_: 11,

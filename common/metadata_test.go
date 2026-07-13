@@ -34,7 +34,7 @@ func TestMetadata(t *testing.T) {
 
 	var bh2 BlockHeader
 	require.NoError(t, bh2.FromBytes(bh.Bytes()))
-	require.Equal(t, bh, bh2)
+	require.True(t, bh.Equals(&bh2))
 }
 
 func FuzzMetadata(f *testing.F) {
@@ -56,6 +56,6 @@ func FuzzMetadata(f *testing.F) {
 
 		var bh2 BlockHeader
 		require.NoError(t, bh2.FromBytes(bh.Bytes()))
-		require.Equal(t, bh, bh2)
+		require.True(t, bh.Equals(&bh2))
 	})
 }

@@ -282,10 +282,7 @@ func newFakeNode(t *testing.T) *fakeNode {
 		for _, bs := range fn.blocks {
 			match := bs.block.Digest() == digest
 			if !match {
-				md, err := common.ProtocolMetadataFromBytes(bs.block.Metadata.SimplexProtocolMetadata)
-				if err != nil {
-					return StateMachineBlock{}, nil, err
-				}
+				md := bs.block.Metadata.SimplexProtocolMetadata
 				match = md.Seq == seq
 			}
 			if match {
@@ -365,8 +362,7 @@ func (fn *fakeNode) tryFinalizeNextBlock() {
 	fn.blocks[nextIndex].finalized = true
 	block := fn.blocks[nextIndex].block
 
-	md, err := common.ProtocolMetadataFromBytes(block.Metadata.SimplexProtocolMetadata)
-	require.NoError(fn.t, err)
+	md := block.Metadata.SimplexProtocolMetadata
 
 	fn.sm.LatestPersistedHeight = md.Seq
 	fn.t.Logf("Finalized block at height %d with epoch %d", md.Seq, block.Metadata.SimplexEpochInfo.EpochNumber)
@@ -423,7 +419,7 @@ func (fn *fakeNode) buildBlock() (avalanchego.VMBlock, *StateMachineBlock) {
 		Round: lastMD.Round + 1,
 		Epoch: fn.epoch,
 		Prev:  prevBlockDigest,
-	}, nil)
+	}, common.Blacklist{})
 	require.NoError(fn.t, err)
 
 	return block.InnerBlock, block
@@ -431,13 +427,11 @@ func (fn *fakeNode) buildBlock() (avalanchego.VMBlock, *StateMachineBlock) {
 
 func (fn *fakeNode) prepareMetadataAndPrevBlockDigest() (*common.ProtocolMetadata, [32]byte) {
 	var lastMD *common.ProtocolMetadata
-	var err error
 	lastBlockDigest := genesisBlock.Digest()
 	if len(fn.blocks) > 0 {
 		lastBlock := fn.blocks[len(fn.blocks)-1].block
 		lastBlockDigest = lastBlock.Digest()
-		lastMD, err = common.ProtocolMetadataFromBytes(lastBlock.Metadata.SimplexProtocolMetadata)
-		require.NoError(fn.t, err)
+		lastMD = &lastBlock.Metadata.SimplexProtocolMetadata
 	} else {
 		lastMD = &common.ProtocolMetadata{
 			Prev:  lastBlockDigest,
