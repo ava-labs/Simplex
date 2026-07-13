@@ -87,7 +87,7 @@ func (p *ParsedBlock) SealingBlockInfo() *common.SealingBlockInfo {
 	}
 
 	return &common.SealingBlockInfo{
-		ValidatorSet: nodes,
+		ValidatorSet:         nodes,
 		PrevSealingBlockHash: p.Metadata.SimplexEpochInfo.PrevSealingBlockHash,
 	}
 }
