@@ -288,6 +288,114 @@ func TestInstanceNonValidatorBootstraps(t *testing.T) {
 	waitForNumBlocks(t, storage2, extendedTarget)
 }
 
+func TestInstanceRestartAcrossEpochs(t *testing.T) {
+	// Restart a single validator at three different points in its lifecycle so that,
+	// on each (re)start, constructEpochAndValidatorSet takes a different branch of
+	// its switch:
+	//
+	//   - Cold boot, ledger holds only the genesis (non-Simplex) block  -> "genesis" branch.
+	//   - Restart when the tip is a sealing block                        -> "sealing block at tip" branch.
+	//   - Restart mid-epoch, when the tip is an ordinary Simplex block   -> "sealing block in storage" branch.
+	//
+	const basePChainHeight = uint64(1)
+
+	var id [20]byte
+	rand.Read(id[:])
+	nodeID := common.NodeID(id[:])
+
+	validatorSetsAtHeight := map[uint64]metadata.NodeBLSMappings{
+		basePChainHeight: {
+			{NodeID: id, BLSKey: []byte{0xaa}, Weight: 1},
+		},
+	}
+
+	pChain := newTestPlatformChain(basePChainHeight, validatorSetsAtHeight)
+	cops := &testCryptoOps{}
+	genesisBlock := &testInnerBlock{Height_: 0, TS: time.Now(), Payload: []byte("genesis")}
+
+	net := newInMemNetwork(t)
+	t.Cleanup(net.stop)
+
+	storage := NewMockStorage(t)
+	smb := metadata.StateMachineBlock{InnerBlock: genesisBlock}
+	require.NoError(t, storage.Index(context.Background(), &ParsedBlock{StateMachineBlock: smb}, common.Finalization{}))
+
+	vm := newTestVM()
+
+	const (
+		logEpochFromGenesis        = "Determined epoch and validator set from genesis (ledger holds only non-Simplex blocks)"
+		logEpochFromSealingTip     = "Determined epoch and validator set from sealing block at tip"
+		logEpochFromSealingStorage = "Determined epoch and validator set from sealing block in storage"
+	)
+
+	// lastEpochBranch holds the full debug message constructEpochAndValidatorSet
+	// logs, identifying which branch of its switch the latest (re)start took. It is
+	// written synchronously during Start, but also from the epoch-change goroutine,
+	// so an atomic guards it.
+	var lastEpochBranch atomic.Pointer[string]
+
+	// start (re)creates an instance over the same storage/network/VM. The log
+	// interceptor, installed before Start, records which branch startup took.
+	start := func() *Instance {
+		inst := newInstanceWithVM(t, nodeID, storage, net, pChain, cops, genesisBlock, vm)
+		inst.Config.Logger.(*testutil.TestLogger).Intercept(func(entry zapcore.Entry) error {
+			switch entry.Message {
+			case logEpochFromGenesis, logEpochFromSealingTip, logEpochFromSealingStorage:
+				msg := entry.Message
+				lastEpochBranch.Store(&msg)
+			}
+			return nil
+		})
+		net.register(nodeID, inst)
+		require.NoError(t, inst.Start(t.Context()))
+		return inst
+	}
+
+	// Pause block production before the node even starts: only protocol blocks (the
+	// zero block, the epoch transition and its sealing block) get built, and the
+	// chain stops at the sealing block since no ordinary block can be built on top.
+	vm.pause()
+
+	// --- Case 1: cold boot, ledger holds only the genesis block. ---
+	inst := start()
+	require.Equal(t, logEpochFromGenesis, *lastEpochBranch.Load())
+
+	// --- Case 2: restart when the tip is a sealing block. ---
+	// countSealingBlocks == 2: the zero block plus the sealing block of the initial
+	// epoch transition. With the VM paused, that sealing block stays the tip.
+	waitForSealingBlockCount(t, storage, 2)
+	requireTipIsSealing(t, storage, true)
+
+	inst.Stop()
+	inst = start()
+	require.Equal(t, logEpochFromSealingTip, *lastEpochBranch.Load())
+
+	// --- Case 3: restart mid-epoch, tip is an ordinary Simplex block. ---
+	// Resume production; the node extends the new epoch with ordinary blocks.
+	vm.resume()
+	waitForNumBlocks(t, storage, storage.NumBlocks()+3)
+	requireTipIsSealing(t, storage, false)
+
+	inst.Stop()
+	inst = start()
+	t.Cleanup(inst.Stop)
+	require.Equal(t, logEpochFromSealingStorage, *lastEpochBranch.Load())
+
+	// The restarted node keeps extending the chain.
+	waitForNumBlocks(t, storage, storage.NumBlocks()+2)
+}
+
+// requireTipIsSealing asserts whether the last block in storage is a sealing block.
+func requireTipIsSealing(t *testing.T, storage *MockStorage, want bool) {
+	t.Helper()
+	num := storage.NumBlocks()
+	require.Positive(t, num)
+	block, ok := storage.blockAt(num - 1)
+	require.True(t, ok)
+	isSealing := block.Metadata.SimplexEpochInfo.BlockValidationDescriptor != nil
+	require.Equal(t, want, isSealing)
+}
+
 // countSealingBlocks returns the number of sealing blocks (blocks carrying a
 // BlockValidationDescriptor) currently in storage.
 func countSealingBlocks(t *testing.T, storage *MockStorage) int {
@@ -315,11 +423,17 @@ func waitForSealingBlockCount(t *testing.T, storage *MockStorage, target int) {
 }
 
 func newInstance(t *testing.T, nodeID common.NodeID, storage *MockStorage, net *inMemNetwork, pChain *testPlatformChain, cops *testCryptoOps, genesisBlock *testInnerBlock) *Instance {
+	return newInstanceWithVM(t, nodeID, storage, net, pChain, cops, genesisBlock, newTestVM())
+}
+
+// newInstanceWithVM is like newInstance but uses a caller-supplied VM, so a test
+// can share one controllable VM across restarts of the same node.
+func newInstanceWithVM(t *testing.T, nodeID common.NodeID, storage *MockStorage, net *inMemNetwork, pChain *testPlatformChain, cops *testCryptoOps, genesisBlock *testInnerBlock, vm VM) *Instance {
 	comm := &networkSender{net: net, self: nodeID}
 	config := Config{
 		Logger:                   testutil.MakeLogger(t, int(nodeID[0])),
 		ID:                       nodeID,
-		VM:                       newTestVM(),
+		VM:                       vm,
 		Storage:                  storage,
 		Sender:                   comm,
 		Broadcaster:              comm,
@@ -428,6 +542,13 @@ func parseTestInnerBlock(buff []byte) (*testInnerBlock, error) {
 
 type testVM struct {
 	nextHeight atomic.Uint64
+	// When paused, the VM behaves as a chain with no pending transactions:
+	// WaitForPendingBlock and BuildBlock block until their context expires, so the
+	// epoch stops producing ordinary blocks. The epoch-transition and sealing
+	// machinery, which builds its block once the inner build times out, still runs —
+	// so pausing before an epoch change leaves the sealing block at the tip with
+	// nothing built on top. Lets a test pin the chain tip without touching storage.
+	paused atomic.Bool
 }
 
 func newTestVM() *testVM {
@@ -436,7 +557,14 @@ func newTestVM() *testVM {
 	return vm
 }
 
-func (vm *testVM) BuildBlock(_ context.Context, _ uint64) (metadata.VMBlock, error) {
+func (vm *testVM) pause()  { vm.paused.Store(true) }
+func (vm *testVM) resume() { vm.paused.Store(false) }
+
+func (vm *testVM) BuildBlock(ctx context.Context, _ uint64) (metadata.VMBlock, error) {
+	if vm.paused.Load() {
+		<-ctx.Done() // let the caller's impatient build time out
+		return nil, ctx.Err()
+	}
 	h := vm.nextHeight.Add(1) - 1
 	payload := make([]byte, 8)
 	binary.BigEndian.PutUint64(payload, h)
@@ -444,6 +572,10 @@ func (vm *testVM) BuildBlock(_ context.Context, _ uint64) (metadata.VMBlock, err
 }
 
 func (vm *testVM) WaitForPendingBlock(ctx context.Context) {
+	if vm.paused.Load() {
+		<-ctx.Done() // no pending block while paused
+		return
+	}
 	select {
 	case <-ctx.Done():
 	case <-time.After(100 * time.Millisecond):
@@ -721,8 +853,18 @@ func (n *inMemNetwork) register(id common.NodeID, inst *Instance) {
 		stopped: make(chan struct{}),
 	}
 	n.lock.Lock()
+	defer n.lock.Unlock()
+
+	// If an instance was previously registered under this id (e.g. a restart replacing
+	// the node), stop its delivery goroutine before swapping in the new one.
+	old := n.nodes[string(id)]
+	if old != nil {
+		close(old.done)
+		<-old.stopped
+	}
+
 	n.nodes[string(id)] = node
-	n.lock.Unlock()
+
 	go n.deliver(node)
 }
 

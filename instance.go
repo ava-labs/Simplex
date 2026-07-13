@@ -99,7 +99,7 @@ func (i *Instance) Start(ctx context.Context) error {
 
 	lastNonSimplexHeight := i.Config.LastNonSimplexInnerBlock.Height()
 	genesisValidatorSet := i.Config.PlatformChain.GenesisValidatorSet()
-	nodes, epochNum, err := constructEpochAndValidatorSet(lastNonSimplexHeight, genesisValidatorSet, numBlocks, ParsedBlock{StateMachineBlock: lastBlock}, i.Config.Storage)
+	nodes, epochNum, err := constructEpochAndValidatorSet(i.Config.Logger, lastNonSimplexHeight, genesisValidatorSet, numBlocks, ParsedBlock{StateMachineBlock: lastBlock}, i.Config.Storage)
 	if err != nil {
 		return fmt.Errorf("error determining latest epoch and validator set: %w", err)
 	}
@@ -407,7 +407,7 @@ func (i *Instance) createEpochConfig() (simplex.EpochConfig, error) {
 
 	lastNonSimplexHeight := i.Config.LastNonSimplexInnerBlock.Height()
 	genesisValidatorSet := i.Config.PlatformChain.GenesisValidatorSet()
-	nodes, epochNum, err := constructEpochAndValidatorSet(lastNonSimplexHeight, genesisValidatorSet, numBlocks, ParsedBlock{StateMachineBlock: lastBlock}, i.Config.Storage)
+	nodes, epochNum, err := constructEpochAndValidatorSet(i.Config.Logger, lastNonSimplexHeight, genesisValidatorSet, numBlocks, ParsedBlock{StateMachineBlock: lastBlock}, i.Config.Storage)
 	if err != nil {
 		return simplex.EpochConfig{}, err
 	}
@@ -566,7 +566,7 @@ func (i *Instance) transitionEpochValidator(epochChange epochChange) error {
 	return i.startAtEpoch(epochChange.validators, epochChange.epochNum)
 }
 
-func constructEpochAndValidatorSet(lastNonSimplexInnerBlockHeight uint64, genesisValidatorSet metadata.NodeBLSMappings, numBlocks uint64, lastBlock ParsedBlock, storage Storage) (common.Nodes, uint64, error) {
+func constructEpochAndValidatorSet(logger common.Logger, lastNonSimplexInnerBlockHeight uint64, genesisValidatorSet metadata.NodeBLSMappings, numBlocks uint64, lastBlock ParsedBlock, storage Storage) (common.Nodes, uint64, error) {
 	epochNum := lastBlock.BlockHeader().Epoch
 
 	var validatorSet metadata.NodeBLSMappings
@@ -578,11 +578,15 @@ func constructEpochAndValidatorSet(lastNonSimplexInnerBlockHeight uint64, genesi
 		validatorSet = genesisValidatorSet
 		nodes = validatorSetToNodes(genesisValidatorSet)
 		epochNum = lastNonSimplexInnerBlockHeight + 1
+		logger.Debug("Determined epoch and validator set from genesis (ledger holds only non-Simplex blocks)",
+			zap.Uint64("epoch", epochNum))
 	// If the last block persisted is a sealing block, then we are in the next epoch.
 	case lastBlock.SealingBlockInfo() != nil:
 		epochNum = lastBlock.BlockHeader().Seq
 		validatorSet = constructValidatorSetFromSealingBlock(lastBlock)
 		nodes = lastBlock.SealingBlockInfo().ValidatorSet
+		logger.Debug("Determined epoch and validator set from sealing block at tip",
+			zap.Uint64("epoch", epochNum))
 	// Else, we have at least one Simplex block in the ledger, and it's not a sealing block.
 	default:
 		// Therefore, the sequence of the sealing block is the epoch number.
@@ -596,6 +600,8 @@ func constructEpochAndValidatorSet(lastNonSimplexInnerBlockHeight uint64, genesi
 		}
 		validatorSet = constructValidatorSetFromSealingBlock(ParsedBlock{StateMachineBlock: sealingBlock})
 		nodes = validatorSetToNodes(validatorSet)
+		logger.Debug("Determined epoch and validator set from sealing block in storage",
+			zap.Uint64("epoch", epochNum), zap.Uint64("sealingBlockSeq", sealingBlockSeq))
 	}
 	return nodes, epochNum, nil
 }
