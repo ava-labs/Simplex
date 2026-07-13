@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/ava-labs/simplex/common"
+	"github.com/ava-labs/simplex/testutil"
 	"github.com/stretchr/testify/require"
 )
 
@@ -33,6 +34,8 @@ func TestFakeNodeEpochChangesDespiteEmptyMempool(t *testing.T) {
 	var pChainHeight atomic.Uint64
 	pChainHeight.Store(100)
 	node := newFakeNode(t)
+	myID := [20]byte{1}
+	node.sm.MyNodeID = myID[:]
 	node.sm.AuxiliaryInfoApp = &noopTestAuxInfoApp{}
 	node.sm.GetValidatorSet = validatorSetRetriever.getValidatorSet
 	node.sm.GetPChainHeightForProposing = func() uint64 {
@@ -86,6 +89,8 @@ func TestFakeNode(t *testing.T) {
 	var pChainHeight atomic.Uint64
 	pChainHeight.Store(100)
 	node := newFakeNode(t)
+	myID := [20]byte{1}
+	node.sm.MyNodeID = myID[:]
 	node.sm.AuxiliaryInfoApp = &noopTestAuxInfoApp{}
 	node.sm.GetValidatorSet = validatorSetRetriever.getValidatorSet
 	node.sm.GetPChainHeightForProposing = func() uint64 {
@@ -148,6 +153,8 @@ func TestFakeNodeEmptyMempool(t *testing.T) {
 
 	var pChainHeight uint64 = 100
 	node := newFakeNode(t)
+	myID := [20]byte{1}
+	node.sm.MyNodeID = myID[:]
 	node.sm.AuxiliaryInfoApp = &noopTestAuxInfoApp{}
 	node.sm.MaxBlockBuildingWaitTime = 100 * time.Millisecond
 	node.sm.GetValidatorSet = validatorSetRetriever.getValidatorSet
@@ -214,7 +221,7 @@ func TestFakeNodeEmptyMempool(t *testing.T) {
 }
 
 type innerBlock struct {
-	InnerBlock
+	testutil.InnerBlock
 	Prev [32]byte
 }
 
@@ -240,7 +247,8 @@ func (fn *fakeNode) WaitForProgress(ctx context.Context, pChainHeight uint64) er
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-time.After(10 * time.Millisecond):
-			if fn.sm.GetPChainHeightForProposing() != pChainHeight {
+			height := fn.sm.GetPChainHeightForProposing()
+			if height != pChainHeight {
 				return nil
 			}
 		}
@@ -266,7 +274,7 @@ func newFakeNode(t *testing.T) *fakeNode {
 	fn.sm.BlockBuilder = fn
 	fn.sm.PChainProgressListener = fn
 
-	fn.sm.GetBlock = func(seq uint64, digest [32]byte) (StateMachineBlock, *common.Finalization, error) {
+	fn.sm.GetBlock = func(seq uint64, digest common.Digest) (StateMachineBlock, *common.Finalization, error) {
 		if seq == 0 {
 			return genesisBlock, nil, nil
 		}
@@ -454,8 +462,8 @@ func (fn *fakeNode) BuildBlock(ctx context.Context, _ uint64) (VMBlock, error) {
 
 	vmBlock := &innerBlock{
 		Prev: fn.getLastVMBlockDigest(),
-		InnerBlock: InnerBlock{
-			Bytes:       randomBuff(10),
+		InnerBlock: testutil.InnerBlock{
+			Content:     randomBuff(10),
 			TS:          time.Now(),
 			BlockHeight: uint64(count),
 		},
@@ -467,7 +475,7 @@ func (fn *fakeNode) getParentBlock() StateMachineBlock {
 	if len(fn.blocks) > 0 {
 		return fn.blocks[len(fn.blocks)-1].block
 	}
-	gb := genesisBlock.InnerBlock.(*InnerBlock)
+	gb := genesisBlock.InnerBlock.(*testutil.InnerBlock)
 	return StateMachineBlock{
 		InnerBlock: &innerBlock{
 			InnerBlock: *gb,
