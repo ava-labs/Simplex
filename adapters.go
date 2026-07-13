@@ -61,7 +61,8 @@ func (e *EpochAwareStorage) Index(ctx context.Context, block common.VerifiedBloc
 	if err := e.Storage.Index(ctx, block, certificate); err != nil {
 		return err
 	}
-	if block.SealingBlockInfo() != nil {
+	// This is a sealing block, and it is not the zero block
+	if block.SealingBlockInfo() != nil  && block.SealingBlockInfo().PrevSealingBlockHash != [32]byte{} {
 		if err := e.onEpochChange(block.BlockHeader().Seq, block.SealingBlockInfo().ValidatorSet); err != nil {
 			return err
 		}
