@@ -3074,23 +3074,21 @@ func (e *Epoch) handleReplicationRequest(req *common.ReplicationRequest, from co
 	seqs := req.Seqs
 	slices.Sort(seqs)
 	if len(seqs) > int(e.MaxRoundWindow) {
-		e.Logger.Debug("Truncating replication request seqs", 
-			zap.Stringer("from", from), 
-			zap.Int("nums seqs", len(req.Seqs)),  
+		e.Logger.Debug("Truncating replication request seqs",
+			zap.Stringer("from", from),
+			zap.Int("nums seqs", len(req.Seqs)),
 			zap.Uint64("max round window", e.MaxRoundWindow))
 		seqs = seqs[:e.MaxRoundWindow]
 	}
-	rounds := req.Rounds 
+	rounds := req.Rounds
 	slices.Sort(rounds)
 	if len(rounds) > int(e.MaxRoundWindow) {
-		e.Logger.Debug("Truncating replication request rounds", 
-			zap.Stringer("from", from), 
-			zap.Int("num rounds", len(req.Rounds)), 
+		e.Logger.Debug("Truncating replication request rounds",
+			zap.Stringer("from", from),
+			zap.Int("num rounds", len(req.Rounds)),
 			zap.Uint64("max round window", e.MaxRoundWindow))
 		rounds = rounds[:e.MaxRoundWindow]
 	}
-
-
 
 	if req.LatestRound > 0 {
 		latestRound := e.getLatestVerifiedQuorumRound()
