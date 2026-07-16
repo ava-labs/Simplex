@@ -367,7 +367,6 @@ func (q *VerifiedQuorumRound) GetRound() uint64 {
 	return 0
 }
 
-
 type VerifiedFinalizedBlock struct {
 	VerifiedBlock VerifiedBlock
 	Finalization  Finalization
