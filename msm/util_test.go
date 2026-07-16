@@ -113,7 +113,7 @@ func (s *signer) Sign(digest []byte) ([]byte, error) {
 // signatureVerifier above accepts it. Use this instead of placeholder signature bytes for any
 // approval fixture that is expected to pass signature verification.
 func signApproval(pChainHeight uint64, auxInfoDigest [32]byte) []byte {
-	toBeSigned, err := assembleApprovalToBeSigned(pChainHeight, auxInfoDigest)
+	toBeSigned, err := AssembleApprovalToBeSigned(pChainHeight, auxInfoDigest)
 	if err != nil {
 		panic(fmt.Sprintf("failed to assemble approval payload: %v", err))
 	}

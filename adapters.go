@@ -34,11 +34,19 @@ func (c *Communication) Validators() common.Nodes {
 // InstanceStorage is a wrapper around Storage that skips indexing Telocks
 // and delegates post-index handling to a caller-provided onIndex hook.
 type InstanceStorage struct {
+	Storage
+
 	msm *metadata.StateMachine
 
-	// onIndex is called after a block has been successfully indexed.
-	onIndex func(block *metadata.StateMachineBlock) error
-	Storage
+	onIndex func(block *ParsedBlock) error
+}
+
+func NewInstanceStorage(storage Storage, msm *metadata.StateMachine, onIndex func(block *ParsedBlock) error) *InstanceStorage {
+	return &InstanceStorage{
+		Storage: storage,
+		msm:     msm,
+		onIndex: onIndex,
+	}
 }
 
 func (s *InstanceStorage) Retrieve(seq uint64) (common.VerifiedBlock, common.Finalization, error) {
@@ -68,7 +76,7 @@ func (s *InstanceStorage) Index(ctx context.Context, block common.VerifiedBlock,
 		return err
 	}
 
-	return s.onIndex(&pb.StateMachineBlock)
+	return s.onIndex(pb)
 }
 
 // cachedBlock is a wrapper around ParsedBlock that caches the block in the CachedStorage upon verification.

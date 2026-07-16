@@ -1726,7 +1726,7 @@ func TestCollectingApprovalsAuxInfoGating(t *testing.T) {
 	// The collected approval must be signed over the epoch-transition payload for the
 	//mnext epoch's P-chain reference height (200) and the digest
 	// of the final auxiliary info history, which is sha256 of the last vote (vote2).
-	wantSigned, err := assembleApprovalToBeSigned(nextPChainRefHeight, sha256.Sum256(vote2))
+	wantSigned, err := AssembleApprovalToBeSigned(nextPChainRefHeight, sha256.Sum256(vote2))
 	require.NoError(t, err)
 	require.NoError(t, (&signatureVerifier{}).VerifySignature(approvals(block3).Signature, wantSigned, nil),
 		"NextEpochApprovals signature must verify against P-chain height 200 and the digest of vote2")
@@ -1944,15 +1944,15 @@ func TestCollectAuxiliaryInfo(t *testing.T) {
 				return block, nil, nil
 			}
 
-			history, gotversionID, err := collectAuxiliaryInfo(&tt.block, startSeq, getBlock, 0)
+			history, gotversionID, err := CollectAuxiliaryInfo(&tt.block, startSeq, getBlock, 0)
 			if tt.expectedErr != nil {
 				require.ErrorIs(t, err, tt.expectedErr)
 				require.ErrorIs(t, err, errAuxInfoBlockRetrieval)
 				return
 			}
 			require.NoError(t, err)
-			require.Equal(t, tt.expectedHistory, history.data)
-			require.Equal(t, tt.expectedLastSeq, history.lastSeq)
+			require.Equal(t, tt.expectedHistory, history.Data)
+			require.Equal(t, tt.expectedLastSeq, history.LastSeq)
 			require.Equal(t, tt.expectedversionID, gotversionID)
 		})
 	}

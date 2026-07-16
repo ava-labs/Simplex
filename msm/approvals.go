@@ -149,7 +149,7 @@ func (as *ApprovalStore) maybePruneOldApprovals(approval *common.ValidatorSetApp
 }
 
 func (as *ApprovalStore) checkApprovalSignature(approval *common.ValidatorSetApproval, pk []byte) error {
-	toBeSigned, err := assembleApprovalToBeSigned(approval.PChainHeight, approval.AuxInfoDigest)
+	toBeSigned, err := AssembleApprovalToBeSigned(approval.PChainHeight, approval.AuxInfoDigest)
 	if err != nil {
 		return err
 	}

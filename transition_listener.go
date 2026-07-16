@@ -30,8 +30,17 @@ type EpochTransitionListener struct {
 	onEpochChange func(epoch uint64, validators common.Nodes) error
 }
 
+func NewEpochTransitionListener(comm common.Communication, myNodeID avalanchego.NodeID, onEpochChange func(epoch uint64, validators common.Nodes) error) *EpochTransitionListener {
+	return &EpochTransitionListener{
+		comm:          comm,
+		myNodeID:      myNodeID,
+		onEpochChange: onEpochChange,
+		// TODO: timeouts: common.NewTimeoutHandler(),
+	}
+}
+
 func (a *EpochTransitionListener) createSelfApproval(signer common.Signer, nextPChainReferenceHeight uint64, auxInfoDigest [32]byte) ([]byte, error) {
-	toBeSigned, err := assembleApprovalToBeSigned(nextPChainReferenceHeight, auxInfoDigest)
+	toBeSigned, err := metadata.AssembleApprovalToBeSigned(nextPChainReferenceHeight, auxInfoDigest)
 	if err != nil {
 		return nil, err
 	}
@@ -95,16 +104,16 @@ func (a *EpochTransitionListener) handleTransitionBlock(block *ParsedBlock) erro
 		return err
 	}
 
-	auxInfoHistory, versionID, err := collectAuxiliaryInfo(block, md.Seq, block.msm.GetBlock, block.msm.AuxiliaryInfoApp.DefaultVersionID())
-	isSufficient, err := block.msm.AuxiliaryInfoApp.IsSufficient(versionID, nextEpochValidatorSet, auxInfoHistory.data)
+	auxInfoHistory, versionID, err := metadata.CollectAuxiliaryInfo(&block.StateMachineBlock, md.Seq, block.msm.GetBlock, block.msm.AuxiliaryInfoApp.DefaultVersionID())
+	isSufficient, err := block.msm.AuxiliaryInfoApp.IsSufficient(versionID, nextEpochValidatorSet, auxInfoHistory.Data)
 
 	if isSufficient {
 		// maybe handle approvals
-		lastAuxInfoDigest := auxInfoHistory.lastHistoryDigest()
+		lastAuxInfoDigest := auxInfoHistory.LastHistoryDigest()
 		return a.maybeSendApprovals(block, lastAuxInfoDigest)
 	}
 
-	generatedAuxInfo, err := block.msm.AuxiliaryInfoApp.Generate(versionID, nextEpochValidatorSet, auxInfoHistory.data)
+	generatedAuxInfo, err := block.msm.AuxiliaryInfoApp.Generate(versionID, nextEpochValidatorSet, auxInfoHistory.Data)
 	if err != nil {
 		return err
 	}
@@ -167,7 +176,8 @@ func (a *EpochTransitionListener) maybeSendApprovals(block *ParsedBlock, auxInfo
 	}
 
 	a.comm.Broadcast(&approvalMessage)
+	// TODO: timestamp
+	block.msm.HandleApproval(&approval, 0)
 	a.timeouts.AddTask(task)
-	// TODO: also add it to our own approval store
 	return nil
 }

@@ -475,17 +475,13 @@ func (i *Instance) createEpochConfig() (simplex.EpochConfig, error) {
 	comm := &Communication{Sender: i.Config.Sender, Broadcaster: i.Config.Broadcaster}
 	comm.SetValidators(nodes)
 
-	epochAwareStorage := &EpochAwareStorage{
-		msm:     msm,
-		epoch:   epochNum,
-		Storage: i.cs,
-		onEpochChange: func(epoch uint64, validators common.Nodes) error {
-			blockBuilder.stop()
-			comm.SetValidators(validators)
-			i.notifyEpochChange(epoch, validators, validator)
-			return nil
-		},
-	}
+	transitionListener := NewEpochTransitionListener(comm, avalanchego.NodeID(i.Config.ID), func(epoch uint64, validators common.Nodes) error {
+		blockBuilder.stop()
+		comm.SetValidators(validators)
+		i.notifyEpochChange(epoch, validators, validator)
+		return nil
+	})
+	instanceStorage := NewInstanceStorage(i.cs, msm, transitionListener.onIndex)
 
 	epochConfig := simplex.EpochConfig{
 		Epoch:              epochNum,
@@ -504,7 +500,7 @@ func (i *Instance) createEpochConfig() (simplex.EpochConfig, error) {
 		QCDeserializer:             i.Config.CryptoOps,
 		Signer:                     i.Config.CryptoOps,
 		Verifier:                   i.Config.CryptoOps,
-		Storage:                    epochAwareStorage,
+		Storage:                    instanceStorage,
 		Comm:                       comm,
 		BlockBuilder:               blockBuilder,
 		BlockDeserializer:          &blockDeserializer{vm: i.Config.VM, msm: msm},
