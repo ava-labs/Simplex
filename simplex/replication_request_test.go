@@ -3,7 +3,6 @@ package simplex_test
 import (
 	"bytes"
 	"context"
-	"slices"
 	"testing"
 	"time"
 
@@ -412,19 +411,21 @@ func TestMalformedReplicationResponse(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestReplicationRequestTruncated ensures a request with more seqs
-// than MaxRoundWindow is answered with the lowest MaxRoundWindow entries
+// TestReplicationRequestSeqsAndRoundsTruncated ensures a request with more seqs and more rounds
+// than MaxRoundWindow is answered with both truncated to the lowest MaxRoundWindow entries
 // rather than being dropped.
-func TestReplicationRequestTruncated(t *testing.T) {
+func TestReplicationRequestSeqsAndRoundsTruncated(t *testing.T) {
 	bb := testutil.NewTestBlockBuilder()
 	nodes := []common.NodeID{{1}, {2}, {3}, {4}}
 	comm := NewListenerComm(nodes)
+	noop := testutil.NewNoopComm(nodes)
 	ctx := context.Background()
-	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], comm, bb)
+	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], noop, bb)
 	conf.ReplicationEnabled = true
 
-	numBlocks := 2 * conf.MaxRoundWindow
-	seqs := createBlocks(t, nodes, numBlocks)
+	// index maxRoundsWindow + 2 blocks: 0...11
+	numIndexed := conf.MaxRoundWindow + 2
+	seqs := createBlocks(t, nodes, numIndexed)
 	for _, data := range seqs {
 		require.NoError(t, conf.Storage.Index(ctx, data.VerifiedBlock, data.Finalization))
 	}
@@ -434,30 +435,55 @@ func TestReplicationRequestTruncated(t *testing.T) {
 	t.Cleanup(e.Stop)
 	require.NoError(t, e.Start())
 
-	// request 2*MaxRoundWindow seqs, unsorted (highest first),
-	// to also pin down that truncation happens after sorting
-	requested := make([]uint64, 0, numBlocks)
-	for i := numBlocks; i > 0; i-- {
-		requested = append(requested, i-1)
+	// notarize a few rounds past the indexed blocks: rounds 12...16
+	// not finalized
+	numNotarized := uint64(5)
+	for i := uint64(0); i < numNotarized; i++ {
+		advanceRoundFromNotarization(t, e, bb)
 	}
 
-	req := &common.Message{
-		ReplicationRequest: &common.ReplicationRequest{
-			Seqs:   requested,
-			Rounds: slices.Clone(requested),
-		},
+	// oversized, unsortedseqs seqs request: 0 ...2*MaxRoundWindow
+	// truncation keeps seqs 0...9
+	requestedSeqs := make([]uint64, 0, 2*conf.MaxRoundWindow)
+	for i := 2 * conf.MaxRoundWindow; i > 0; i-- {
+		requestedSeqs = append(requestedSeqs, i-1)
 	}
-	require.NoError(t, e.HandleMessage(req, nodes[1]))
+
+	// oversized, unsorted rounds request: 4..24
+	// truncation keeps rounds 4...13
+	roundStart := numIndexed - 8 // 4
+	requestedRounds := make([]uint64, 0, 2*conf.MaxRoundWindow)
+	for i := roundStart + 2*conf.MaxRoundWindow; i > roundStart; i-- {
+		requestedRounds = append(requestedRounds, i-1)
+	}
+
+	e.Comm = comm
+	require.NoError(t, e.HandleMessage(&common.Message{
+		ReplicationRequest: &common.ReplicationRequest{
+			Seqs:   requestedSeqs,
+			Rounds: requestedRounds,
+		},
+	}, nodes[1]))
 
 	msg := <-comm.in
 	resp := msg.VerifiedReplicationResponse
 
-	// we should get exactly the lowest MaxRoundWindow seqs: 0..MaxRoundWindow-1
-	require.Len(t, resp.Data, int(conf.MaxRoundWindow))
-	for i, data := range resp.Data {
-		require.Equal(t, uint64(i), data.VerifiedBlock.BlockHeader().Seq)
+	require.Len(t, resp.Data, int(conf.MaxRoundWindow)+2)
+
+	// firts maxRoundWindow items: 0...9 in order
+	for i := uint64(0); i < conf.MaxRoundWindow; i++ {
+		data := resp.Data[i]
+		require.Equal(t, i, data.VerifiedBlock.BlockHeader().Seq)
+		require.NotNil(t, data.Finalization)
 		require.Equal(t, seqs[i].Finalization, *data.Finalization)
-		require.Equal(t, seqs[i].VerifiedBlock, data.VerifiedBlock)
+	}
+
+	// last two items: notarized rounds 12, 13 -- 14..16 truncated as well
+	for i, expectedRound := range []uint64{numIndexed, numIndexed + 1} {
+		data := resp.Data[int(conf.MaxRoundWindow)+i]
+		require.Equal(t, expectedRound, data.VerifiedBlock.BlockHeader().Round)
+		require.NotNil(t, data.Notarization)
+		require.Nil(t, data.Finalization)
 	}
 
 }
