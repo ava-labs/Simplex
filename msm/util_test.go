@@ -440,19 +440,19 @@ func (failingAggregator) IsQuorum([]common.NodeID) bool {
 type noopTestAuxInfoApp struct {
 }
 
-func (t *noopTestAuxInfoApp) IsLegalAppend(VersionID, NodeBLSMappings, [][]byte, []byte) error {
+func (t *noopTestAuxInfoApp) IsLegalAppend(common.VersionID, NodeBLSMappings, [][]byte, []byte) error {
 	return nil
 }
 
-func (t *noopTestAuxInfoApp) IsSufficient(VersionID, NodeBLSMappings, [][]byte) (bool, error) {
+func (t *noopTestAuxInfoApp) IsSufficient(common.VersionID, NodeBLSMappings, [][]byte) (bool, error) {
 	return true, nil
 }
 
-func (t *noopTestAuxInfoApp) Generate(VersionID, NodeBLSMappings, [][]byte) ([]byte, error) {
+func (t *noopTestAuxInfoApp) Generate(common.VersionID, NodeBLSMappings, [][]byte) ([]byte, error) {
 	return nil, nil
 }
 
-func (t *noopTestAuxInfoApp) DefaultVersionID() VersionID {
+func (t *noopTestAuxInfoApp) DefaultVersionID() common.VersionID {
 	return 1
 }
 
@@ -461,7 +461,7 @@ type voteCountingAuxInfoApp struct {
 	randomTape func() []byte
 }
 
-func (t *voteCountingAuxInfoApp) IsLegalAppend(_ VersionID, _ NodeBLSMappings, history [][]byte, addition []byte) error {
+func (t *voteCountingAuxInfoApp) IsLegalAppend(_ common.VersionID, _ NodeBLSMappings, history [][]byte, addition []byte) error {
 	set := make(map[string]struct{})
 	for _, item := range history {
 		set[string(item)] = struct{}{}
@@ -472,7 +472,7 @@ func (t *voteCountingAuxInfoApp) IsLegalAppend(_ VersionID, _ NodeBLSMappings, h
 	return nil
 }
 
-func (t *voteCountingAuxInfoApp) IsSufficient(appID VersionID, nodes NodeBLSMappings, history [][]byte) (bool, error) {
+func (t *voteCountingAuxInfoApp) IsSufficient(appID common.VersionID, nodes NodeBLSMappings, history [][]byte) (bool, error) {
 	if len(history) == 0 {
 		return t.threshold == 0, nil
 	}
@@ -491,7 +491,7 @@ func (t *voteCountingAuxInfoApp) IsSufficient(appID VersionID, nodes NodeBLSMapp
 	return final, nil
 }
 
-func (t *voteCountingAuxInfoApp) Generate(VersionID, NodeBLSMappings, [][]byte) ([]byte, error) {
+func (t *voteCountingAuxInfoApp) Generate(common.VersionID, NodeBLSMappings, [][]byte) ([]byte, error) {
 	// Simulate a random node voting
 	if t.randomTape != nil {
 		return t.randomTape(), nil
@@ -501,7 +501,7 @@ func (t *voteCountingAuxInfoApp) Generate(VersionID, NodeBLSMappings, [][]byte) 
 	return nodeID[:], nil
 }
 
-func (t *voteCountingAuxInfoApp) DefaultVersionID() VersionID {
+func (t *voteCountingAuxInfoApp) DefaultVersionID() common.VersionID {
 	return 1
 }
 
@@ -515,15 +515,15 @@ type versionRecordingAuxInfoApp struct {
 	t                 *testing.T
 	threshold         int
 	votes             [][]byte
-	defaultVersionID  VersionID
-	expectedVersionID VersionID
+	defaultVersionID  common.VersionID
+	expectedVersionID common.VersionID
 }
 
-func (a *versionRecordingAuxInfoApp) DefaultVersionID() VersionID {
+func (a *versionRecordingAuxInfoApp) DefaultVersionID() common.VersionID {
 	return a.defaultVersionID
 }
 
-func (a *versionRecordingAuxInfoApp) IsLegalAppend(versionID VersionID, _ NodeBLSMappings, history [][]byte, addition []byte) error {
+func (a *versionRecordingAuxInfoApp) IsLegalAppend(versionID common.VersionID, _ NodeBLSMappings, history [][]byte, addition []byte) error {
 	require.Equal(a.t, a.expectedVersionID, versionID)
 	set := make(map[string]struct{})
 	for _, item := range history {
@@ -535,7 +535,7 @@ func (a *versionRecordingAuxInfoApp) IsLegalAppend(versionID VersionID, _ NodeBL
 	return nil
 }
 
-func (a *versionRecordingAuxInfoApp) IsSufficient(versionID VersionID, _ NodeBLSMappings, history [][]byte) (bool, error) {
+func (a *versionRecordingAuxInfoApp) IsSufficient(versionID common.VersionID, _ NodeBLSMappings, history [][]byte) (bool, error) {
 	require.Equal(a.t, a.expectedVersionID, versionID)
 	set := make(map[string]struct{})
 	for _, item := range history {
@@ -544,7 +544,7 @@ func (a *versionRecordingAuxInfoApp) IsSufficient(versionID VersionID, _ NodeBLS
 	return len(set) >= a.threshold, nil
 }
 
-func (a *versionRecordingAuxInfoApp) Generate(versionID VersionID, _ NodeBLSMappings, _ [][]byte) ([]byte, error) {
+func (a *versionRecordingAuxInfoApp) Generate(versionID common.VersionID, _ NodeBLSMappings, _ [][]byte) ([]byte, error) {
 	require.Equal(a.t, a.expectedVersionID, versionID)
 	next := a.votes[0]
 	a.votes = a.votes[1:]

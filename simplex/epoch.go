@@ -1413,9 +1413,13 @@ func (e *Epoch) indexFinalizations(startRound uint64) error {
 }
 
 func (e *Epoch) indexFinalization(block common.VerifiedBlock, finalization common.Finalization) error {
-	if err := e.Storage.Index(e.finishCtx, block, finalization); err != nil {
-		return err
+	// index only if the epoch is not sealed
+	if !e.epochSealed.Load() {
+		if err := e.Storage.Index(e.finishCtx, block, finalization); err != nil {
+			return err
+		}
 	}
+
 	e.Logger.Info("Committed block",
 		zap.Uint64("round", finalization.Finalization.Round),
 		zap.Uint64("sequence", finalization.Finalization.Seq),

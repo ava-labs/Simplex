@@ -63,9 +63,6 @@ func (ei *ICMEpochInfo) Equal(other *ICMEpochInfo) bool {
 	return ei.EpochStartTime == other.EpochStartTime && ei.EpochNumber == other.EpochNumber && ei.PChainEpochHeight == other.PChainEpochHeight
 }
 
-// VersionID is an identifier for applications that care about epoch changes.
-type VersionID uint32
-
 // AuxiliaryInfo defines application-specific information for applications that might care about epoch change,
 // such as threshold distributed public key generation.
 type AuxiliaryInfo struct {
@@ -77,7 +74,7 @@ type AuxiliaryInfo struct {
 	PrevAuxInfoSeq uint64 `canoto:"uint,2"`
 	// VersionID is an identifier that identifies the application.
 	// Can be used for backward-compatibility and upgrade purposes.
-	VersionID VersionID `canoto:"uint,3"`
+	VersionID common.VersionID `canoto:"uint,3"`
 
 	canotoData canotoData_AuxiliaryInfo
 }
@@ -356,37 +353,4 @@ func (nbms NodeBLSMappings) Equal(other NodeBLSMappings) bool {
 		}
 	}
 	return true
-}
-
-type ValidatorSetApproval struct {
-	NodeID        nodeID   `canoto:"fixed bytes,1"`
-	AuxInfoDigest [32]byte `canoto:"fixed bytes,2"`
-	PChainHeight  uint64   `canoto:"uint,3"`
-	Signature     []byte   `canoto:"bytes,4"`
-
-	canotoData canotoData_ValidatorSetApproval
-}
-
-type ValidatorSetApprovals []ValidatorSetApproval
-
-func (vsa ValidatorSetApprovals) Filter(f func(ValidatorSetApproval, common.Logger) bool, logger common.Logger) ValidatorSetApprovals {
-	result := make(ValidatorSetApprovals, 0, len(vsa))
-	for _, v := range vsa {
-		if f(v, logger) {
-			result = append(result, v)
-		}
-	}
-	return result
-}
-
-func (vsa ValidatorSetApprovals) UniqueByNodeID() ValidatorSetApprovals {
-	seen := make(map[nodeID]struct{})
-	result := make(ValidatorSetApprovals, 0, len(vsa))
-	for _, v := range vsa {
-		if _, exists := seen[v.NodeID]; !exists {
-			seen[v.NodeID] = struct{}{}
-			result = append(result, v)
-		}
-	}
-	return result
 }

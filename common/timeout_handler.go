@@ -149,3 +149,11 @@ func (t *TimeoutHandler[T]) Close() {
 		close(t.close)
 	}
 }
+
+func (t *TimeoutHandler[T]) Has(item T) bool {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+
+	_, ok := t.tasks[item]
+	return ok
+}

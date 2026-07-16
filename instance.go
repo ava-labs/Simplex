@@ -64,7 +64,8 @@ type timeAdvancer interface {
 }
 
 type Instance struct {
-	Config       Config
+	Config Config
+
 	lock         sync.Mutex
 	cs           *CachedStorage
 	wal          *wal.GarbageCollectedWAL
