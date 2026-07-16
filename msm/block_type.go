@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/ava-labs/simplex/avalanchego"
+	"github.com/ava-labs/simplex/common"
 )
 
 type BlockType uint8
@@ -84,4 +85,29 @@ func (smb *StateMachineBlock) Type() BlockType {
 
 	// Otherwise, we do not fall into any of these cases, so it's a normal block
 	return BlockTypeNormal
+}
+
+// SealingBlockInfo returns the information derived from this block's BlockValidationDescriptor:
+// the validator set of the next epoch and the hash of the previous sealing block.
+// It returns the zero value for blocks that carry no descriptor (any block that is neither
+// a sealing block nor the zero block).
+func (smb *StateMachineBlock) SealingBlockInfo() *common.SealingBlockInfo {
+	bvd := smb.Metadata.SimplexEpochInfo.BlockValidationDescriptor
+	if bvd == nil {
+		return nil
+	}
+
+	nodes := make(common.Nodes, 0, len(bvd.AggregatedMembership.Members))
+	for _, vdr := range bvd.AggregatedMembership.Members {
+		nodes = append(nodes, common.Node{
+			Id:     vdr.NodeID[:],
+			Weight: vdr.Weight,
+			PK:     vdr.BLSKey,
+		})
+	}
+
+	return &common.SealingBlockInfo{
+		ValidatorSet:         nodes,
+		PrevSealingBlockHash: smb.Metadata.SimplexEpochInfo.PrevSealingBlockHash,
+	}
 }

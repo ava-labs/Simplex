@@ -69,32 +69,3 @@ func (p *ParsedBlock) Verify(ctx context.Context) (common.VerifiedBlock, error) 
 	}
 	return p, nil
 }
-
-// IsTelock reports whether this block is a Telock — a block built after the epoch
-// is sealed that only extends time until the epoch transition finalizes.
-// Only Telocks carry a non-zero SealingBlockSeq.
-func (p *ParsedBlock) IsTelock() bool {
-	return p.Metadata.SimplexEpochInfo.SealingBlockSeq > 0
-}
-
-func (p *ParsedBlock) SealingBlockInfo() *common.SealingBlockInfo {
-	if p.Metadata.SimplexEpochInfo.BlockValidationDescriptor == nil {
-		return nil
-	}
-
-	bdc := p.Metadata.SimplexEpochInfo.BlockValidationDescriptor
-	var nodes common.Nodes
-
-	for _, vdr := range bdc.AggregatedMembership.Members {
-		nodes = append(nodes, common.Node{
-			Id:     vdr.NodeID[:],
-			Weight: vdr.Weight,
-			PK:     vdr.BLSKey,
-		})
-	}
-
-	return &common.SealingBlockInfo{
-		ValidatorSet:         nodes,
-		PrevSealingBlockHash: p.Metadata.SimplexEpochInfo.PrevSealingBlockHash,
-	}
-}

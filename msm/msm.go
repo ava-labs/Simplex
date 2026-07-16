@@ -1517,7 +1517,7 @@ func constructSimplexZeroBlockSimplexEpochInfo(pChainHeight uint64, newValidator
 
 func computeNewApprovals(
 	prevNextEpochApprovals *NextEpochApprovals,
-	approvalsFromPeers common.ValidatorSetApprovals,
+	approvalsFromPeers ValidatorSetApprovals,
 	pChainHeight uint64,
 	auxInfoDigest [32]byte,
 	sigAggr common.SignatureAggregator,
@@ -1560,7 +1560,7 @@ func computeNewApprovals(
 // and bitmask of nodes that correspond to those signatures, and aggregates all signatures together.
 func computeNewApproverSignaturesAndSigners(
 	nextEpochApprovals *NextEpochApprovals,
-	approvalsFromPeers common.ValidatorSetApprovals,
+	approvalsFromPeers ValidatorSetApprovals,
 	oldApprovingNodes avalanchego.Bitmask,
 	nodeID2ValidatorIndex map[avalanchego.NodeID]int,
 	sigAggr common.SignatureAggregator,
@@ -1611,7 +1611,7 @@ func computeNewApproverSignaturesAndSigners(
 
 // sanitizeApprovals filters out approvals that are not valid by checking if they agree with our candidate auxiliary info digest and P-Chain height,
 // and if they are from the validator set and haven't already been approved.
-func sanitizeApprovals(approvals common.ValidatorSetApprovals, pChainHeight uint64, auxInfoDigest [32]byte, nodeID2ValidatorIndex map[avalanchego.NodeID]int, oldApprovingNodes avalanchego.Bitmask, logger common.Logger) common.ValidatorSetApprovals {
+func sanitizeApprovals(approvals ValidatorSetApprovals, pChainHeight uint64, auxInfoDigest [32]byte, nodeID2ValidatorIndex map[avalanchego.NodeID]int, oldApprovingNodes avalanchego.Bitmask, logger common.Logger) ValidatorSetApprovals {
 	filter1 := approvalsThatAgreeWithPChainHeightAndAuxInfoDigest(pChainHeight, auxInfoDigest)
 	filter2 := approvalsThatAreInValidatorSetAndHaveNotAlreadyApproved(oldApprovingNodes.Clone(), nodeID2ValidatorIndex)
 	return approvals.Filter(filter1, logger).Filter(filter2, logger).UniqueByNodeID()

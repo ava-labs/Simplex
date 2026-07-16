@@ -229,7 +229,7 @@ func TestApprovalStorePutApprovals(t *testing.T) {
 	// Approvals(). It is used to assert which of two competing approvals (source vs. destination)
 	// survived a merge, since Approvals() does not carry the timestamp but does carry the Signature,
 	// and signApproval produces a distinct signature per call.
-	findApproval := func(got common.ValidatorSetApprovals, node avalanchego.NodeID, height uint64) (common.ValidatorSetApproval, bool) {
+	findApproval := func(got ValidatorSetApprovals, node avalanchego.NodeID, height uint64) (common.ValidatorSetApproval, bool) {
 		for _, a := range got {
 			if a.NodeID == node && a.PChainHeight == height {
 				return a, true

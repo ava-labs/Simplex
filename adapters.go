@@ -37,7 +37,7 @@ type InstanceStorage struct {
 	msm *metadata.StateMachine
 
 	// onIndex is called after a block has been successfully indexed.
-	onIndex func(block common.VerifiedBlock) error
+	onIndex func(block *metadata.StateMachineBlock) error
 	Storage
 }
 
@@ -58,8 +58,9 @@ func (s *InstanceStorage) Index(ctx context.Context, block common.VerifiedBlock,
 	if !ok {
 		return fmt.Errorf("expected ParsedBlock, got %T", block)
 	}
+
 	// A Telock only extends time until the epoch transition finalizes, so we never index it.
-	if pb.IsTelock() {
+	if pb.Type() == metadata.BlockTypeTelock {
 		return nil
 	}
 
@@ -67,7 +68,7 @@ func (s *InstanceStorage) Index(ctx context.Context, block common.VerifiedBlock,
 		return err
 	}
 
-	return s.onIndex(block)
+	return s.onIndex(&pb.StateMachineBlock)
 }
 
 // cachedBlock is a wrapper around ParsedBlock that caches the block in the CachedStorage upon verification.

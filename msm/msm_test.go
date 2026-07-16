@@ -1277,7 +1277,7 @@ func TestSanitizeApprovals(t *testing.T) {
 	logger := testutil.MakeLogger(t)
 
 	t.Run("filters by p-chain height", func(t *testing.T) {
-		approvals := common.ValidatorSetApprovals{
+		approvals := ValidatorSetApprovals{
 			{NodeID: node0, PChainHeight: 100},
 			{NodeID: node1, PChainHeight: 200},
 		}
@@ -1288,7 +1288,7 @@ func TestSanitizeApprovals(t *testing.T) {
 	})
 
 	t.Run("filters by aux info digest", func(t *testing.T) {
-		approvals := common.ValidatorSetApprovals{
+		approvals := ValidatorSetApprovals{
 			{NodeID: node0, PChainHeight: 100, AuxInfoDigest: [32]byte{0xAA}},
 			{NodeID: node1, PChainHeight: 100, AuxInfoDigest: [32]byte{0xBB}},
 		}
@@ -1299,7 +1299,7 @@ func TestSanitizeApprovals(t *testing.T) {
 	})
 
 	t.Run("filters out already approved", func(t *testing.T) {
-		approvals := common.ValidatorSetApprovals{
+		approvals := ValidatorSetApprovals{
 			{NodeID: node0, PChainHeight: 100},
 			{NodeID: node1, PChainHeight: 100},
 		}
@@ -1310,7 +1310,7 @@ func TestSanitizeApprovals(t *testing.T) {
 	})
 
 	t.Run("filters out nodes not in validator set", func(t *testing.T) {
-		approvals := common.ValidatorSetApprovals{
+		approvals := ValidatorSetApprovals{
 			{NodeID: node3, PChainHeight: 100},
 			{NodeID: node2, PChainHeight: 100},
 		}
@@ -1321,7 +1321,7 @@ func TestSanitizeApprovals(t *testing.T) {
 	})
 
 	t.Run("deduplicates by node ID", func(t *testing.T) {
-		approvals := common.ValidatorSetApprovals{
+		approvals := ValidatorSetApprovals{
 			{NodeID: node0, PChainHeight: 100},
 			{NodeID: node0, PChainHeight: 100},
 		}
@@ -1354,7 +1354,7 @@ func TestComputeNewApproverSignaturesAndSigners(t *testing.T) {
 		}
 		oldApproving := avalanchego.BitmaskFromBytes([]byte{1})
 
-		peers := common.ValidatorSetApprovals{
+		peers := ValidatorSetApprovals{
 			{NodeID: node0, Signature: []byte("sig0")},
 			{NodeID: node0, Signature: []byte("sig0")},
 		}
@@ -1370,7 +1370,7 @@ func TestComputeNewApproverSignaturesAndSigners(t *testing.T) {
 	t.Run("nil approvals", func(t *testing.T) {
 		oldApproving := avalanchego.BitmaskFromBytes(nil)
 
-		peers := common.ValidatorSetApprovals{
+		peers := ValidatorSetApprovals{
 			{NodeID: node0, Signature: []byte("sig0")},
 			{NodeID: node1, Signature: []byte("sig1")},
 		}
@@ -1383,7 +1383,7 @@ func TestComputeNewApproverSignaturesAndSigners(t *testing.T) {
 		prevApprovals := &NextEpochApprovals{}
 		oldApproving := avalanchego.BitmaskFromBytes(nil)
 
-		peers := common.ValidatorSetApprovals{
+		peers := ValidatorSetApprovals{
 			{NodeID: node0, Signature: []byte("sig0")},
 			{NodeID: node1, Signature: []byte("sig1")},
 		}
@@ -1403,7 +1403,7 @@ func TestComputeNewApproverSignaturesAndSigners(t *testing.T) {
 		}
 		oldApproving := avalanchego.BitmaskFromBytes([]byte{1}) // node0 already approved
 
-		peers := common.ValidatorSetApprovals{
+		peers := ValidatorSetApprovals{
 			{NodeID: node2, Signature: []byte("sig2")},
 		}
 
@@ -1433,7 +1433,7 @@ func TestComputeNewApproverSignaturesAndSigners(t *testing.T) {
 		oldApproving := avalanchego.BitmaskFromBytes(nil)
 		unknownNode := avalanchego.NodeID{99}
 
-		peers := common.ValidatorSetApprovals{
+		peers := ValidatorSetApprovals{
 			{NodeID: unknownNode, Signature: []byte("unknown")},
 			{NodeID: node0, Signature: []byte("sig0")},
 		}
@@ -1448,7 +1448,7 @@ func TestComputeNewApproverSignaturesAndSigners(t *testing.T) {
 	t.Run("aggregation error propagated", func(t *testing.T) {
 		prevApprovals := &NextEpochApprovals{}
 		oldApproving := avalanchego.BitmaskFromBytes(nil)
-		peers := common.ValidatorSetApprovals{
+		peers := ValidatorSetApprovals{
 			{NodeID: node0, Signature: []byte("sig0")},
 		}
 

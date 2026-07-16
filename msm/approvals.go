@@ -57,11 +57,11 @@ func NewApprovalStore(signatureVerifier SignatureVerifier, validators NodeBLSMap
 	}
 }
 
-func (as *ApprovalStore) Approvals() common.ValidatorSetApprovals {
+func (as *ApprovalStore) Approvals() ValidatorSetApprovals {
 	as.lock.RLock()
 	defer as.lock.RUnlock()
 
-	approvals := make(common.ValidatorSetApprovals, 0, as.storedCount)
+	approvals := make(ValidatorSetApprovals, 0, as.storedCount)
 	for _, approvalsByHeight := range as.approvalsByNodes {
 		for _, approval := range approvalsByHeight {
 			approvals = append(approvals, (*approval).ValidatorSetApproval)
@@ -203,162 +203,29 @@ func (as *ApprovalStore) PutApprovals(approvalStore *ApprovalStore) {
 // to ensure they have the same flow.
 // AuxillaryInfo and Approvals will need to be sent as there own messages. And should be aggregated by block builders.
 // This means sending approvals and generating aux info can be done async from the MSM code.
-type EpochTransitionListener struct {
+// type EpochTransitionListener struct {
+// }
+
+type ValidatorSetApprovals []common.ValidatorSetApproval
+
+func (vsa ValidatorSetApprovals) Filter(f func(common.ValidatorSetApproval, common.Logger) bool, logger common.Logger) ValidatorSetApprovals {
+	result := make(ValidatorSetApprovals, 0, len(vsa))
+	for _, v := range vsa {
+		if f(v, logger) {
+			result = append(result, v)
+		}
+	}
+	return result
 }
 
-// ApprovalSender listens to finalizations that not an epoch change is incoming.
-// If the pChain height referenced includes our node ID we send and broadcast approvals
-// our own approval until the epoch change is complete.
-// This is better than the previous where we would need to wait for validators to send there approval
-// only when they are block builders.
-// It also makes the logic the same for validators and non-validators to reduce code duplication.
-// It also means that we can process and send approvals asynchronously from block building, speeding up the process for epoch transitions.
-type ApprovalSender struct {
-	// to send approvals
-	comm common.Communication
-
-	// to resend in the case of network issues
-	// the id is the epoch number we are waiting
-	timeouts common.TimeoutHandler[approvalTask]
-
-	// signer
-	signer common.Signer
-
-	getValidatorSet ValidatorSetRetriever
-
-	myNodeID avalanchego.NodeID
-
-	auxInfo  AuxiliaryInfoGenVerifier
-	GetBlock BlockRetriever
-}
-
-func (a *ApprovalSender) createSelfApproval(nextPChainReferenceHeight uint64, auxInfoDigest [32]byte) ([]byte, error) {
-	toBeSigned, err := assembleApprovalToBeSigned(nextPChainReferenceHeight, auxInfoDigest)
-	if err != nil {
-		return nil, err
+func (vsa ValidatorSetApprovals) UniqueByNodeID() ValidatorSetApprovals {
+	seen := make(map[avalanchego.NodeID]struct{})
+	result := make(ValidatorSetApprovals, 0, len(vsa))
+	for _, v := range vsa {
+		if _, exists := seen[v.NodeID]; !exists {
+			seen[v.NodeID] = struct{}{}
+			result = append(result, v)
+		}
 	}
-
-	sig, err := a.signer.Sign(toBeSigned)
-	if err != nil {
-		return nil, fmt.Errorf("failed to sign approval: %w", err)
-	}
-	return sig, nil
-}
-
-func (a *ApprovalSender) onIndex(block *StateMachineBlock) error {
-	switch block.Type() {
-	case BlockTypeSealing:
-		return a.handleSealingBlockIndexed(block)
-	case BlockTypeTransitioning:
-		return a.handleTransitionBlock(block)
-	}
-
-	return nil
-}
-
-// handleSealingBlockIndexed removes all timeout tasks <= oldEpoch
-func (a *ApprovalSender) handleSealingBlockIndexed(block *StateMachineBlock) error {
-	oldEpoch := block.Metadata.SimplexEpochInfo.EpochNumber
-	a.timeouts.RemoveOldTasks(
-		func(id approvalTask, _ struct{}) bool {
-			return id.epoch <= oldEpoch
-		},
-	)
-	return nil
-}
-
-func (a *ApprovalSender) handleTransitionBlock(block *StateMachineBlock) error {
-	nextEpochPChainReference := block.Metadata.SimplexEpochInfo.NextPChainReferenceHeight
-
-	// is our node a validator in the next epoch?
-	nextEpochValidatorSet, err := a.getValidatorSet(nextEpochPChainReference)
-	if err != nil {
-		return err
-	}
-
-	indexes := nextEpochValidatorSet.IndexByNodeID()
-	if _, ok := indexes[a.myNodeID]; !ok {
-		return nil // we are not in the next validator set, return
-	}
-
-	md, err := common.ProtocolMetadataFromBytes(block.Metadata.SimplexProtocolMetadata)
-	if err != nil {
-		return err
-	}
-
-	auxInfoHistory, versionID, err := collectAuxiliaryInfo(block, md.Seq, a.GetBlock, a.auxInfo.DefaultVersionID())
-	isSufficient, err := a.auxInfo.IsSufficient(versionID, nextEpochValidatorSet, auxInfoHistory.data)
-
-	if isSufficient {
-		// maybe handle approvals
-		lastAuxInfoDigest := auxInfoHistory.lastHistoryDigest()
-		return a.maybeSendApprovals(block, lastAuxInfoDigest)
-	}
-
-	generatedAuxInfo, err := a.auxInfo.Generate(versionID, nextEpochValidatorSet, auxInfoHistory.data)
-	if err != nil {
-		return err
-	}
-
-	if generatedAuxInfo == nil {
-		return nil
-	}
-
-	auxInfoMessage := &common.Message{
-		AuxiliaryInfo: &common.AuxiliaryInfo{
-			Version: versionID,
-			Data:    generatedAuxInfo,
-		},
-	}
-
-	a.comm.Broadcast(auxInfoMessage)
-	return nil
-}
-
-type approvalTask struct {
-	epoch         uint64
-	pChainRef     uint64
-	auxInfoDigest [32]byte
-}
-
-// TODO: use common.Digest
-// TODO: if the digest has changed do we need to resend our approval?
-// TODO: can the digest ever change?
-func (a *ApprovalSender) maybeSendApprovals(block *StateMachineBlock, auxInfoDigest [32]byte) error {
-	nextEpochPChainReference := block.Metadata.SimplexEpochInfo.NextPChainReferenceHeight
-	epoch := block.Metadata.SimplexEpochInfo.EpochNumber
-
-	task := approvalTask{
-		epoch:         epoch,
-		auxInfoDigest: auxInfoDigest,
-		pChainRef:     nextEpochPChainReference,
-	}
-
-	// we have recently already sent this approval, the timeout handler will re-send if necessary
-	if a.timeouts.Has(task) {
-		return nil
-	}
-
-	sig, err := a.createSelfApproval(nextEpochPChainReference, auxInfoDigest)
-	if err != nil {
-		return err
-	}
-
-	approval := common.ValidatorSetApproval{
-		NodeID:        a.myNodeID,
-		PChainHeight:  nextEpochPChainReference,
-		AuxInfoDigest: auxInfoDigest,
-		Signature:     sig,
-	}
-
-	approvalMessage := common.Message{
-		EpochTransitionApproval: &common.EpochTransitionApproval{
-			Approval: approval,
-		},
-	}
-
-	a.comm.Broadcast(&approvalMessage)
-	a.timeouts.AddTask(task)
-	// TODO: also add it to our own approval store
-	return nil
+	return result
 }

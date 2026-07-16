@@ -403,30 +403,6 @@ type ValidatorSetApproval struct {
 	Signature     []byte
 }
 
-type ValidatorSetApprovals []ValidatorSetApproval
-
-func (vsa ValidatorSetApprovals) Filter(f func(ValidatorSetApproval, Logger) bool, logger Logger) ValidatorSetApprovals {
-	result := make(ValidatorSetApprovals, 0, len(vsa))
-	for _, v := range vsa {
-		if f(v, logger) {
-			result = append(result, v)
-		}
-	}
-	return result
-}
-
-func (vsa ValidatorSetApprovals) UniqueByNodeID() ValidatorSetApprovals {
-	seen := make(map[avalanchego.NodeID]struct{})
-	result := make(ValidatorSetApprovals, 0, len(vsa))
-	for _, v := range vsa {
-		if _, exists := seen[v.NodeID]; !exists {
-			seen[v.NodeID] = struct{}{}
-			result = append(result, v)
-		}
-	}
-	return result
-}
-
 type EpochTransitionApproval struct {
 	Approval ValidatorSetApproval
 }

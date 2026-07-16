@@ -406,7 +406,7 @@ func TestNodeBLSMappingsCompare(t *testing.T) {
 
 func TestValidatorSetApprovalsFilter(t *testing.T) {
 	logger := testutil.MakeLogger(t)
-	approvals := common.ValidatorSetApprovals{
+	approvals := ValidatorSetApprovals{
 		{NodeID: avalanchego.NodeID{1}, PChainHeight: 10},
 		{NodeID: avalanchego.NodeID{2}, PChainHeight: 20},
 		{NodeID: avalanchego.NodeID{3}, PChainHeight: 30},
