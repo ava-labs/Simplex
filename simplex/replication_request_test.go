@@ -539,3 +539,97 @@ func TestReplicationRequestRoundsTruncated(t *testing.T) {
 		require.Equal(t, rounds[uint64(i)].Notarization, data.Notarization)
 	}
 }
+
+// TestReplicationRequestSizeLimited ensures a replication response is capped
+// at MaxReplicationResponseSize estimated bytes, starting wit the lowest seqs first.
+// Sequences that do not fit are requested again by the requester
+// so a partial response is not lost.
+func TestReplicationRequestSizeLimited(t *testing.T) {
+	bb := testutil.NewTestBlockBuilder()
+	nodes := []common.NodeID{{1}, {2}, {3}, {4}}
+	comm := NewListenerComm(nodes)
+	ctx := context.Background()
+	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], comm, bb)
+	conf.ReplicationEnabled = true
+
+	numBlocks := uint64(8) // within MaxRoundWindow
+	seqs := createBlocks(t, nodes, numBlocks)
+	for _, data := range seqs {
+		require.NoError(t, conf.Storage.Index(ctx, data.VerifiedBlock, data.Finalization))
+	}
+
+	// measure one quorum round and budget for roughly three of them
+	oneRound, err := (&common.VerifiedQuorumRound{
+		VerifiedBlock: seqs[0].VerifiedBlock,
+		Finalization:  &seqs[0].Finalization,
+	}).EstimateSize()
+	require.NoError(t, err)
+	conf.MaxReplicationResponseSize = 3*oneRound + oneRound/2
+
+	e, err := simplex.NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+
+	requested := make([]uint64, numBlocks)
+	for i := range requested {
+		requested[i] = uint64(i)
+	}
+	require.NoError(t, e.HandleMessage(&common.Message{
+		ReplicationRequest: &common.ReplicationRequest{
+			Seqs: requested,
+		},
+	}, nodes[1]))
+
+	msg := <-comm.in
+	resp := msg.VerifiedReplicationResponse
+
+	// only the lowest seqs that fit under the budget are sent
+	require.Len(t, resp.Data, 3)
+	total := 0
+	for i, data := range resp.Data {
+		require.Equal(t, uint64(i), data.VerifiedBlock.BlockHeader().Seq)
+		size, err := data.EstimateSize()
+		require.NoError(t, err)
+		total += size
+	}
+	require.LessOrEqual(t, total, conf.MaxReplicationResponseSize)
+}
+
+// TestReplicationRequestSizeLimitedLatestFinalizedSeq ensures the latest-seq/round are
+// sent even when they alone exceed the response size limit. A single item that
+// cannot fit in a message could not have been sent through the network in the
+// first place.
+func TestReplicationRequestSizeLimitedLatestFinalizedSeq(t *testing.T) {
+	bb := testutil.NewTestBlockBuilder()
+	nodes := []common.NodeID{{1}, {2}, {3}, {4}}
+	comm := NewListenerComm(nodes)
+	ctx := context.Background()
+	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], comm, bb)
+	conf.ReplicationEnabled = true
+	conf.MaxReplicationResponseSize = 1
+
+	numBlocks := uint64(4)
+	seqs := createBlocks(t, nodes, numBlocks)
+	for _, data := range seqs {
+		require.NoError(t, conf.Storage.Index(ctx, data.VerifiedBlock, data.Finalization))
+	}
+
+	e, err := simplex.NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+
+	// ask for data and the hint: the hint must arrive, the data must not
+	require.NoError(t, e.HandleMessage(&common.Message{
+		ReplicationRequest: &common.ReplicationRequest{
+			Seqs:               []uint64{0, 1, 2},
+			LatestFinalizedSeq: 1,
+		},
+	}, nodes[1]))
+
+	msg := <-comm.in
+	resp := msg.VerifiedReplicationResponse
+	require.NotNil(t, resp.LatestFinalizedSeq)
+	require.Empty(t, resp.Data)
+}

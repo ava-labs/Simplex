@@ -367,6 +367,34 @@ func (q *VerifiedQuorumRound) GetRound() uint64 {
 	return 0
 }
 
+// quoromRoundSizeSlack is added to the estimated size of each VerifiedQuoromRound
+// to account for encoding overhead (in avalanchego each item adds protobuf
+// field tags and length prefixes on top of the block, QC, and header bytes)
+// it is tens of bytes in practivce, 512 is a generous bound
+const quoromRoundSizeSlack = 512
+
+func (q *VerifiedQuorumRound) EstimateSize() (int, error) {
+	size := quoromRoundSizeSlack
+
+	if q.VerifiedBlock != nil {
+		blockBytes, err := q.VerifiedBlock.Bytes()
+		if err != nil {
+			return 0, err
+		}
+		size += len(blockBytes)
+	}
+	if q.Notarization != nil {
+		size += len(q.Notarization.Vote.Bytes()) + len(q.Notarization.QC.Bytes())
+	}
+	if q.Finalization != nil {
+		size += len(q.Finalization.Finalization.Bytes()) + len(q.Finalization.QC.Bytes())
+	}
+	if q.EmptyNotarization != nil {
+		size += len(q.EmptyNotarization.Vote.Bytes()) + len(q.EmptyNotarization.QC.Bytes())
+	}
+	return size, nil
+}
+
 type VerifiedFinalizedBlock struct {
 	VerifiedBlock VerifiedBlock
 	Finalization  Finalization

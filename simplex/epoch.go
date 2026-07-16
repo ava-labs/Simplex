@@ -31,6 +31,9 @@ const (
 	DefaultFinalizeVoteRebroadcastTimeout = 6 * time.Second
 	EmptyVoteTimeoutID                    = "rebroadcast_empty_vote"
 	maxItemCountPerRequest                = 10 // max number of rounds or sequences that fit in one replication request
+	// DefaultMaxReplicationResponseSize is the max size of a replication response. avalanchego rejects messages larger
+	// than 2 MiB. we cap at 80% (4/5) same as avalanchego (see utils/constants/network.go)
+	DefaultMaxReplicationResponseSize = 2 * 1024 * 1024 * 4 / 5
 )
 
 type EmptyVoteSet struct {
@@ -61,6 +64,7 @@ func NewRound(block common.VerifiedBlock) *Round {
 type EpochConfig struct {
 	MaxProposalWait            time.Duration
 	MaxRoundWindow             uint64
+	MaxReplicationResponseSize int
 	MaxRebroadcastWait         time.Duration
 	FinalizeRebroadcastTimeout time.Duration
 	QCDeserializer             common.QCDeserializer
@@ -264,6 +268,9 @@ func (e *Epoch) maybeAssignDefaultConfig() error {
 	}
 	if e.MaxRebroadcastWait == 0 {
 		e.MaxRebroadcastWait = DefaultEmptyVoteRebroadcastTimeout
+	}
+	if e.MaxReplicationResponseSize == 0 {
+		e.MaxReplicationResponseSize = DefaultMaxReplicationResponseSize
 	}
 	if e.RandomSource == nil {
 		source, err := NewRandomSource()
@@ -3089,18 +3096,32 @@ func (e *Epoch) handleReplicationRequest(req *common.ReplicationRequest, from co
 			zap.Uint64("max round window", e.MaxRoundWindow))
 		rounds = rounds[:e.MaxRoundWindow]
 	}
+	remainingBytes := e.MaxReplicationResponseSize
 
 	if req.LatestRound > 0 {
 		latestRound := e.getLatestVerifiedQuorumRound()
 		if latestRound != nil && latestRound.GetRound() > req.LatestRound {
-			response.LatestRound = latestRound
+			size, err := latestRound.EstimateSize()
+			if err != nil {
+				e.Logger.Error("Failed estimating size of latest round", zap.Error(err))
+			} else {
+				response.LatestRound = latestRound
+				remainingBytes -= size
+			}
 		}
 	}
 	if req.LatestFinalizedSeq > 0 {
 		if e.lastBlock != nil && e.lastBlock.Finalization.Finalization.Seq > req.LatestFinalizedSeq {
-			response.LatestFinalizedSeq = &common.VerifiedQuorumRound{
+			latestFinalizedSeq := &common.VerifiedQuorumRound{
 				VerifiedBlock: e.lastBlock.VerifiedBlock,
 				Finalization:  &e.lastBlock.Finalization,
+			}
+			size, err := latestFinalizedSeq.EstimateSize()
+			if err != nil {
+				e.Logger.Error("Failed estimating size of latest finalized seq", zap.Error(err))
+			} else {
+				response.LatestFinalizedSeq = latestFinalizedSeq
+				remainingBytes -= size
 			}
 		}
 	}
@@ -3113,6 +3134,21 @@ func (e *Epoch) handleReplicationRequest(req *common.ReplicationRequest, from co
 			seqData = seqData[:i]
 			break
 		}
+		size, err := quorumRound.EstimateSize()
+		if err != nil {
+			e.Logger.Error("Failed estimating size of quorom round", zap.Uint64("seq", seq), zap.Error(err))
+			seqData = seqData[:i]
+			break
+		}
+		if size > remainingBytes {
+			e.Logger.Debug("Replication response reached size limit",
+				zap.Stringer("from", from),
+				zap.Uint64("Stopped at Seq", seq),
+				zap.Int("max size", e.MaxReplicationResponseSize))
+			seqData = seqData[:i]
+			break
+		}
+		remainingBytes -= size
 
 		seqData[i] = *quorumRound
 	}
@@ -3124,6 +3160,20 @@ func (e *Epoch) handleReplicationRequest(req *common.ReplicationRequest, from co
 			// we cannot break early since empty votes may
 			continue
 		}
+		size, err := quorumRound.EstimateSize()
+		if err != nil {
+			e.Logger.Error("Failed estimating size of quorom round", zap.Uint64("round", roundNum), zap.Error(err))
+			break
+		}
+		if size > remainingBytes {
+			e.Logger.Debug("Replication response reached size limit",
+				zap.Stringer("from", from),
+				zap.Uint64("Stopped at Round", roundNum),
+				zap.Int("max size", e.MaxReplicationResponseSize))
+			break
+		}
+		remainingBytes -= size
+
 		roundData = append(roundData, *quorumRound)
 	}
 
