@@ -3076,7 +3076,7 @@ func (e *Epoch) handleReplicationRequest(req *common.ReplicationRequest, from co
 	if len(seqs) > int(e.MaxRoundWindow) {
 		e.Logger.Debug("Truncating replication request seqs",
 			zap.Stringer("from", from),
-			zap.Int("nums seqs", len(req.Seqs)),
+			zap.Int("num seqs", len(req.Seqs)),
 			zap.Uint64("max round window", e.MaxRoundWindow))
 		seqs = seqs[:e.MaxRoundWindow]
 	}

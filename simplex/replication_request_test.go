@@ -3,6 +3,7 @@ package simplex_test
 import (
 	"bytes"
 	"context"
+	"slices"
 	"testing"
 	"time"
 
@@ -443,6 +444,7 @@ func TestReplicationRequestTruncated(t *testing.T) {
 	req := &common.Message{
 		ReplicationRequest: &common.ReplicationRequest{
 			Seqs: requested,
+			Rounds: slices.Clone(requested),
 		},
 	}
 	require.NoError(t, e.HandleMessage(req, nodes[1]))
