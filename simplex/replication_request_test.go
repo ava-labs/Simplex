@@ -443,7 +443,7 @@ func TestReplicationRequestTruncated(t *testing.T) {
 
 	req := &common.Message{
 		ReplicationRequest: &common.ReplicationRequest{
-			Seqs: requested,
+			Seqs:   requested,
 			Rounds: slices.Clone(requested),
 		},
 	}
