@@ -620,7 +620,7 @@ func TestReplicationRequestSizeLimitedLatestFinalizedSeq(t *testing.T) {
 	t.Cleanup(e.Stop)
 	require.NoError(t, e.Start())
 
-	// ask for data and the hint: the hint must arrive, the data must not
+	// ask for data and the latest finalized seq: the latest finalized seq must arrive, the data must not
 	require.NoError(t, e.HandleMessage(&common.Message{
 		ReplicationRequest: &common.ReplicationRequest{
 			Seqs:               []uint64{0, 1, 2},
