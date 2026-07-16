@@ -6,6 +6,7 @@ package simplex
 import (
 	"context"
 
+	"github.com/ava-labs/simplex/common"
 	metadata "github.com/ava-labs/simplex/msm"
 )
 
@@ -37,32 +38,32 @@ func (p *ParsedBlock) Bytes() ([]byte, error) {
 	return rawBlock.MarshalCanoto(), nil
 }
 
-func (p *ParsedBlock) BlockHeader() BlockHeader {
-	var md *ProtocolMetadata
+func (p *ParsedBlock) BlockHeader() common.BlockHeader {
+	var md *common.ProtocolMetadata
 	var err error
 	if len(p.Metadata.SimplexProtocolMetadata) > 0 {
-		md, err = ProtocolMetadataFromBytes(p.Metadata.SimplexProtocolMetadata)
+		md, err = common.ProtocolMetadataFromBytes(p.Metadata.SimplexProtocolMetadata)
 		if err != nil {
 			panic(err) // TODO: handle error
 		}
 	} else {
-		md = &ProtocolMetadata{}
+		md = &common.ProtocolMetadata{}
 	}
 
 	digest := p.StateMachineBlock.Digest()
-	return BlockHeader{
+	return common.BlockHeader{
 		ProtocolMetadata: *md,
 		Digest:           digest,
 	}
 }
 
-func (p *ParsedBlock) Blacklist() Blacklist {
-	var blacklist Blacklist
+func (p *ParsedBlock) Blacklist() common.Blacklist {
+	var blacklist common.Blacklist
 	_ = blacklist.FromBytes(p.Metadata.SimplexBlacklist) // TODO: encode blacklist with Canoto
 	return blacklist
 }
 
-func (p *ParsedBlock) Verify(ctx context.Context) (VerifiedBlock, error) {
+func (p *ParsedBlock) Verify(ctx context.Context) (common.VerifiedBlock, error) {
 	if err := p.msm.VerifyBlock(ctx, &p.StateMachineBlock); err != nil {
 		return nil, err
 	}
@@ -76,23 +77,23 @@ func (p *ParsedBlock) IsTelock() bool {
 	return p.Metadata.SimplexEpochInfo.SealingBlockSeq > 0
 }
 
-func (p *ParsedBlock) SealingBlockInfo() *SealingBlockInfo {
+func (p *ParsedBlock) SealingBlockInfo() *common.SealingBlockInfo {
 	if p.Metadata.SimplexEpochInfo.BlockValidationDescriptor == nil {
 		return nil
 	}
 
 	bdc := p.Metadata.SimplexEpochInfo.BlockValidationDescriptor
-	var nodes Nodes
+	var nodes common.Nodes
 
 	for _, vdr := range bdc.AggregatedMembership.Members {
-		nodes = append(nodes, Node{
+		nodes = append(nodes, common.Node{
 			Id:     vdr.NodeID[:],
 			Weight: vdr.Weight,
 			PK:     vdr.BLSKey,
 		})
 	}
 
-	return &SealingBlockInfo{
+	return &common.SealingBlockInfo{
 		ValidatorSet:         nodes,
 		PrevSealingBlockHash: p.Metadata.SimplexEpochInfo.PrevSealingBlockHash,
 	}

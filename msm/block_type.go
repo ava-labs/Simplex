@@ -6,6 +6,8 @@ package metadata
 import (
 	"crypto/sha256"
 	"fmt"
+
+	"github.com/ava-labs/simplex/avalanchego"
 )
 
 type BlockType uint8
@@ -13,7 +15,7 @@ type BlockType uint8
 // A StateMachineBlock is a representation of a parsed OuterBlock, containing the inner block and the metadata.
 type StateMachineBlock struct {
 	// InnerBlock is the VM-level block, or nil if this is a block without an inner block (e.g., a Telock block).
-	InnerBlock VMBlock
+	InnerBlock avalanchego.VMBlock
 	// Metadata contains the state machine metadata associated with this block.
 	Metadata StateMachineMetadata
 }

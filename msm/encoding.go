@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"slices"
 
+	"github.com/ava-labs/simplex/avalanchego"
 	"github.com/ava-labs/simplex/common"
 )
 
@@ -200,9 +201,9 @@ func (sei *SimplexEpochInfo) NextState() state {
 }
 
 type NodeBLSMapping struct {
-	NodeID nodeID `canoto:"fixed bytes,1"`
-	BLSKey []byte `canoto:"bytes,2"`
-	Weight uint64 `canoto:"uint,3"`
+	NodeID avalanchego.NodeID `canoto:"fixed bytes,1"`
+	BLSKey []byte             `canoto:"bytes,2"`
+	Weight uint64             `canoto:"uint,3"`
 
 	canotoData canotoData_NodeBLSMapping
 }
@@ -303,15 +304,15 @@ func (nbms NodeBLSMappings) Nodes() common.Nodes {
 
 // IndexByNodeID returns a mapping from NodeID to the validator's index in the set,
 // which is the position used by approval bitmasks.
-func (nbms NodeBLSMappings) IndexByNodeID() map[nodeID]int {
-	result := make(map[nodeID]int, len(nbms))
+func (nbms NodeBLSMappings) IndexByNodeID() map[avalanchego.NodeID]int {
+	result := make(map[avalanchego.NodeID]int, len(nbms))
 	for i, nbm := range nbms {
 		result[nbm.NodeID] = i
 	}
 	return result
 }
 
-func (nbms NodeBLSMappings) SelectSubset(bitmask bitmask) []common.NodeID {
+func (nbms NodeBLSMappings) SelectSubset(bitmask avalanchego.Bitmask) []common.NodeID {
 	nodeIDs := make([]common.NodeID, 0, len(nbms))
 	for i, nbm := range nbms {
 		if !bitmask.Contains(i) {

@@ -6,6 +6,7 @@ package metadata
 import (
 	"testing"
 
+	"github.com/ava-labs/simplex/avalanchego"
 	"github.com/ava-labs/simplex/common"
 	"github.com/ava-labs/simplex/testutil"
 	"github.com/stretchr/testify/require"
@@ -112,14 +113,14 @@ func TestSimplexEpochInfoEqual(t *testing.T) {
 			a: &SimplexEpochInfo{
 				BlockValidationDescriptor: &BlockValidationDescriptor{
 					AggregatedMembership: AggregatedMembership{
-						Members: []NodeBLSMapping{{NodeID: nodeID{1}, Weight: 10}},
+						Members: []NodeBLSMapping{{NodeID: avalanchego.NodeID{1}, Weight: 10}},
 					},
 				},
 			},
 			b: &SimplexEpochInfo{
 				BlockValidationDescriptor: &BlockValidationDescriptor{
 					AggregatedMembership: AggregatedMembership{
-						Members: []NodeBLSMapping{{NodeID: nodeID{1}, Weight: 10}},
+						Members: []NodeBLSMapping{{NodeID: avalanchego.NodeID{1}, Weight: 10}},
 					},
 				},
 			},
@@ -130,14 +131,14 @@ func TestSimplexEpochInfoEqual(t *testing.T) {
 			a: &SimplexEpochInfo{
 				BlockValidationDescriptor: &BlockValidationDescriptor{
 					AggregatedMembership: AggregatedMembership{
-						Members: []NodeBLSMapping{{NodeID: nodeID{1}, Weight: 10}},
+						Members: []NodeBLSMapping{{NodeID: avalanchego.NodeID{1}, Weight: 10}},
 					},
 				},
 			},
 			b: &SimplexEpochInfo{
 				BlockValidationDescriptor: &BlockValidationDescriptor{
 					AggregatedMembership: AggregatedMembership{
-						Members: []NodeBLSMapping{{NodeID: nodeID{2}, Weight: 20}},
+						Members: []NodeBLSMapping{{NodeID: avalanchego.NodeID{2}, Weight: 20}},
 					},
 				},
 			},
@@ -185,14 +186,14 @@ func TestNodeBLSMappingEquals(t *testing.T) {
 		},
 		{
 			name:     "equal with values",
-			a:        NodeBLSMapping{NodeID: nodeID{1, 2, 3}, BLSKey: []byte{4, 5}, Weight: 100},
-			b:        NodeBLSMapping{NodeID: nodeID{1, 2, 3}, BLSKey: []byte{4, 5}, Weight: 100},
+			a:        NodeBLSMapping{NodeID: avalanchego.NodeID{1, 2, 3}, BLSKey: []byte{4, 5}, Weight: 100},
+			b:        NodeBLSMapping{NodeID: avalanchego.NodeID{1, 2, 3}, BLSKey: []byte{4, 5}, Weight: 100},
 			expected: true,
 		},
 		{
 			name:     "different NodeID",
-			a:        NodeBLSMapping{NodeID: nodeID{1}},
-			b:        NodeBLSMapping{NodeID: nodeID{2}},
+			a:        NodeBLSMapping{NodeID: avalanchego.NodeID{1}},
+			b:        NodeBLSMapping{NodeID: avalanchego.NodeID{2}},
 			expected: false,
 		},
 		{
@@ -241,12 +242,12 @@ func TestBlockValidationDescriptorEquals(t *testing.T) {
 			name: "equal members",
 			a: &BlockValidationDescriptor{
 				AggregatedMembership: AggregatedMembership{
-					Members: []NodeBLSMapping{{NodeID: nodeID{1}, Weight: 10}},
+					Members: []NodeBLSMapping{{NodeID: avalanchego.NodeID{1}, Weight: 10}},
 				},
 			},
 			b: &BlockValidationDescriptor{
 				AggregatedMembership: AggregatedMembership{
-					Members: []NodeBLSMapping{{NodeID: nodeID{1}, Weight: 10}},
+					Members: []NodeBLSMapping{{NodeID: avalanchego.NodeID{1}, Weight: 10}},
 				},
 			},
 			expected: true,
@@ -255,12 +256,12 @@ func TestBlockValidationDescriptorEquals(t *testing.T) {
 			name: "different members",
 			a: &BlockValidationDescriptor{
 				AggregatedMembership: AggregatedMembership{
-					Members: []NodeBLSMapping{{NodeID: nodeID{1}, Weight: 10}},
+					Members: []NodeBLSMapping{{NodeID: avalanchego.NodeID{1}, Weight: 10}},
 				},
 			},
 			b: &BlockValidationDescriptor{
 				AggregatedMembership: AggregatedMembership{
-					Members: []NodeBLSMapping{{NodeID: nodeID{2}, Weight: 20}},
+					Members: []NodeBLSMapping{{NodeID: avalanchego.NodeID{2}, Weight: 20}},
 				},
 			},
 			expected: false,
@@ -292,14 +293,14 @@ func TestAggregatedMembershipEquals(t *testing.T) {
 		},
 		{
 			name:     "equal",
-			members:  []NodeBLSMapping{{NodeID: nodeID{1}, BLSKey: []byte{2}, Weight: 3}},
-			other:    []NodeBLSMapping{{NodeID: nodeID{1}, BLSKey: []byte{2}, Weight: 3}},
+			members:  []NodeBLSMapping{{NodeID: avalanchego.NodeID{1}, BLSKey: []byte{2}, Weight: 3}},
+			other:    []NodeBLSMapping{{NodeID: avalanchego.NodeID{1}, BLSKey: []byte{2}, Weight: 3}},
 			expected: true,
 		},
 		{
 			name:     "different",
-			members:  []NodeBLSMapping{{NodeID: nodeID{1}}},
-			other:    []NodeBLSMapping{{NodeID: nodeID{2}}},
+			members:  []NodeBLSMapping{{NodeID: avalanchego.NodeID{1}}},
+			other:    []NodeBLSMapping{{NodeID: avalanchego.NodeID{2}}},
 			expected: false,
 		},
 	}
@@ -378,20 +379,20 @@ func TestNodeBLSMappingsCompare(t *testing.T) {
 		},
 		{
 			name:     "equal same order",
-			a:        NodeBLSMappings{{NodeID: nodeID{1}, Weight: 10}, {NodeID: nodeID{2}, Weight: 20}},
-			b:        NodeBLSMappings{{NodeID: nodeID{1}, Weight: 10}, {NodeID: nodeID{2}, Weight: 20}},
+			a:        NodeBLSMappings{{NodeID: avalanchego.NodeID{1}, Weight: 10}, {NodeID: avalanchego.NodeID{2}, Weight: 20}},
+			b:        NodeBLSMappings{{NodeID: avalanchego.NodeID{1}, Weight: 10}, {NodeID: avalanchego.NodeID{2}, Weight: 20}},
 			expected: true,
 		},
 		{
 			name:     "equal different order",
-			a:        NodeBLSMappings{{NodeID: nodeID{2}, Weight: 20}, {NodeID: nodeID{1}, Weight: 10}},
-			b:        NodeBLSMappings{{NodeID: nodeID{1}, Weight: 10}, {NodeID: nodeID{2}, Weight: 20}},
+			a:        NodeBLSMappings{{NodeID: avalanchego.NodeID{2}, Weight: 20}, {NodeID: avalanchego.NodeID{1}, Weight: 10}},
+			b:        NodeBLSMappings{{NodeID: avalanchego.NodeID{1}, Weight: 10}, {NodeID: avalanchego.NodeID{2}, Weight: 20}},
 			expected: true,
 		},
 		{
 			name:     "different values",
-			a:        NodeBLSMappings{{NodeID: nodeID{1}, Weight: 10}},
-			b:        NodeBLSMappings{{NodeID: nodeID{1}, Weight: 99}},
+			a:        NodeBLSMappings{{NodeID: avalanchego.NodeID{1}, Weight: 10}},
+			b:        NodeBLSMappings{{NodeID: avalanchego.NodeID{1}, Weight: 99}},
 			expected: false,
 		},
 	}
@@ -405,13 +406,13 @@ func TestNodeBLSMappingsCompare(t *testing.T) {
 
 func TestValidatorSetApprovalsFilter(t *testing.T) {
 	logger := testutil.MakeLogger(t)
-	approvals := ValidatorSetApprovals{
-		{NodeID: nodeID{1}, PChainHeight: 10},
-		{NodeID: nodeID{2}, PChainHeight: 20},
-		{NodeID: nodeID{3}, PChainHeight: 30},
+	approvals := common.ValidatorSetApprovals{
+		{NodeID: avalanchego.NodeID{1}, PChainHeight: 10},
+		{NodeID: avalanchego.NodeID{2}, PChainHeight: 20},
+		{NodeID: avalanchego.NodeID{3}, PChainHeight: 30},
 	}
 
-	filtered := approvals.Filter(func(v ValidatorSetApproval, _ common.Logger) bool {
+	filtered := approvals.Filter(func(v common.ValidatorSetApproval, _ common.Logger) bool {
 		return v.PChainHeight > 15
 	}, logger)
 	require.Len(t, filtered, 2)
@@ -419,7 +420,7 @@ func TestValidatorSetApprovalsFilter(t *testing.T) {
 	require.Equal(t, uint64(30), filtered[1].PChainHeight)
 
 	// Filter all
-	filtered = approvals.Filter(func(ValidatorSetApproval, common.Logger) bool {
+	filtered = approvals.Filter(func(common.ValidatorSetApproval, common.Logger) bool {
 		return false
 	}, logger)
 	require.Empty(t, filtered)

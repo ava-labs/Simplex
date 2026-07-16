@@ -8,13 +8,14 @@ import (
 	"math"
 	"testing"
 
+	"github.com/ava-labs/simplex/avalanchego"
 	"github.com/ava-labs/simplex/common"
 	"github.com/ava-labs/simplex/testutil"
 	"github.com/stretchr/testify/require"
 )
 
-func makeNodeID(seed byte) nodeID {
-	var n nodeID
+func makeNodeID(seed byte) avalanchego.NodeID {
+	var n avalanchego.NodeID
 	n[0] = seed
 	return n
 }
@@ -80,7 +81,7 @@ func TestApprovalStoreHandleApproval(t *testing.T) {
 			verify: func(t *testing.T, as *ApprovalStore, sent []approvalAndTimestamp) {
 				got := as.Approvals()
 				require.Len(t, got, 1)
-				require.Equal(t, sent[0].common.ValidatorSetApproval, got[0])
+				require.Equal(t, sent[0].ValidatorSetApproval, got[0])
 				require.Equal(t, 1, as.storedCount)
 			},
 		},
@@ -110,7 +111,7 @@ func TestApprovalStoreHandleApproval(t *testing.T) {
 			verify: func(t *testing.T, as *ApprovalStore, sent []approvalAndTimestamp) {
 				got := as.Approvals()
 				require.Len(t, got, 1)
-				require.Equal(t, sent[0].common.ValidatorSetApproval, got[0]) // the newer approval is kept
+				require.Equal(t, sent[0].ValidatorSetApproval, got[0]) // the newer approval is kept
 				require.Equal(t, 1, as.storedCount)
 			},
 		},
@@ -126,7 +127,7 @@ func TestApprovalStoreHandleApproval(t *testing.T) {
 			verify: func(t *testing.T, as *ApprovalStore, sent []approvalAndTimestamp) {
 				got := as.Approvals()
 				require.Len(t, got, 1)
-				require.Equal(t, sent[1].common.ValidatorSetApproval, got[0]) // the newer approval replaces the older one
+				require.Equal(t, sent[1].ValidatorSetApproval, got[0]) // the newer approval replaces the older one
 				require.Equal(t, 1, as.storedCount)
 			},
 		},
@@ -189,7 +190,7 @@ func TestApprovalStoreHandleApproval(t *testing.T) {
 				got := as.Approvals()
 				require.Len(t, got, 2)
 				require.Equal(t, 2, as.storedCount)
-				require.ElementsMatch(t, []common.ValidatorSetApproval{sent[0].common.ValidatorSetApproval, sent[1].common.ValidatorSetApproval}, got)
+				require.ElementsMatch(t, []common.ValidatorSetApproval{sent[0].ValidatorSetApproval, sent[1].ValidatorSetApproval}, got)
 			},
 		},
 		{
@@ -205,7 +206,7 @@ func TestApprovalStoreHandleApproval(t *testing.T) {
 			verify: func(t *testing.T, as *ApprovalStore, sent []approvalAndTimestamp) {
 				got := as.Approvals()
 				require.Len(t, got, 1)
-				require.Equal(t, sent[0].common.ValidatorSetApproval, got[0]) // the max-timestamp approval is kept
+				require.Equal(t, sent[0].ValidatorSetApproval, got[0]) // the max-timestamp approval is kept
 				require.Equal(t, 1, as.storedCount)
 			},
 		},
@@ -215,7 +216,7 @@ func TestApprovalStoreHandleApproval(t *testing.T) {
 			as := NewApprovalStore(&signatureVerifier{err: tc.sigErr}, vdrs, testutil.MakeLogger(t))
 
 			for _, a := range tc.approvals {
-				require.NoError(t, as.HandleApproval(&a.common.ValidatorSetApproval, a.Timestamp))
+				require.NoError(t, as.HandleApproval(&a.ValidatorSetApproval, a.Timestamp))
 			}
 
 			tc.verify(t, as, tc.approvals)
@@ -228,7 +229,7 @@ func TestApprovalStorePutApprovals(t *testing.T) {
 	// Approvals(). It is used to assert which of two competing approvals (source vs. destination)
 	// survived a merge, since Approvals() does not carry the timestamp but does carry the Signature,
 	// and signApproval produces a distinct signature per call.
-	findApproval := func(got common.ValidatorSetApprovals, node nodeID, height uint64) (common.ValidatorSetApproval, bool) {
+	findApproval := func(got common.ValidatorSetApprovals, node avalanchego.NodeID, height uint64) (common.ValidatorSetApproval, bool) {
 		for _, a := range got {
 			if a.NodeID == node && a.PChainHeight == height {
 				return a, true
@@ -263,7 +264,7 @@ func TestApprovalStorePutApprovals(t *testing.T) {
 				got := dst.Approvals()
 				require.Len(t, got, 2)
 				require.Equal(t, 2, dst.storedCount)
-				require.ElementsMatch(t, []common.ValidatorSetApproval{srcSent[0].common.ValidatorSetApproval, srcSent[1].common.ValidatorSetApproval}, got)
+				require.ElementsMatch(t, []common.ValidatorSetApproval{srcSent[0].ValidatorSetApproval, srcSent[1].ValidatorSetApproval}, got)
 				// The source store is unchanged.
 				require.Len(t, src.Approvals(), 2)
 				require.Equal(t, 2, src.storedCount)
@@ -309,7 +310,7 @@ func TestApprovalStorePutApprovals(t *testing.T) {
 				require.Equal(t, 2, dst.storedCount)
 				kept, ok := findApproval(got, makeNodeID(1), 7)
 				require.True(t, ok)
-				require.Equal(t, dstSent[0].common.ValidatorSetApproval, kept, "the newer destination approval is retained")
+				require.Equal(t, dstSent[0].ValidatorSetApproval, kept, "the newer destination approval is retained")
 				_, ok = findApproval(got, makeNodeID(2), 7)
 				require.True(t, ok, "the new node's approval is carried over")
 			},
@@ -330,7 +331,7 @@ func TestApprovalStorePutApprovals(t *testing.T) {
 				got := dst.Approvals()
 				require.Len(t, got, 1)
 				require.Equal(t, 1, dst.storedCount)
-				require.Equal(t, srcSent[0].common.ValidatorSetApproval, got[0], "the newer source approval replaces the stale one")
+				require.Equal(t, srcSent[0].ValidatorSetApproval, got[0], "the newer source approval replaces the stale one")
 			},
 		},
 		{
@@ -345,7 +346,7 @@ func TestApprovalStorePutApprovals(t *testing.T) {
 				got := dst.Approvals()
 				require.Len(t, got, 1)
 				require.Equal(t, 1, dst.storedCount)
-				require.Equal(t, dstSent[0].common.ValidatorSetApproval, got[0])
+				require.Equal(t, dstSent[0].ValidatorSetApproval, got[0])
 			},
 		},
 		{
@@ -365,7 +366,7 @@ func TestApprovalStorePutApprovals(t *testing.T) {
 				got := dst.Approvals()
 				require.Len(t, got, 1)
 				require.Equal(t, 1, dst.storedCount)
-				require.Equal(t, dstSent[0].common.ValidatorSetApproval, got[0], "the destination approval is retained on a timestamp tie")
+				require.Equal(t, dstSent[0].ValidatorSetApproval, got[0], "the destination approval is retained on a timestamp tie")
 			},
 		},
 	} {
@@ -374,10 +375,10 @@ func TestApprovalStorePutApprovals(t *testing.T) {
 			dst := NewApprovalStore(&signatureVerifier{}, makeValidators(tc.dstValidators), testutil.MakeLogger(t))
 
 			for _, a := range tc.srcApprovals {
-				require.NoError(t, src.HandleApproval(&a.common.ValidatorSetApproval, a.Timestamp))
+				require.NoError(t, src.HandleApproval(&a.ValidatorSetApproval, a.Timestamp))
 			}
 			for _, a := range tc.dstApprovals {
-				require.NoError(t, dst.HandleApproval(&a.common.ValidatorSetApproval, a.Timestamp))
+				require.NoError(t, dst.HandleApproval(&a.ValidatorSetApproval, a.Timestamp))
 			}
 
 			src.PutApprovals(dst)
@@ -403,7 +404,7 @@ func TestApprovalStoreHandleApprovalStoredCountStaysConsistent(t *testing.T) {
 		{common.ValidatorSetApproval{NodeID: node, PChainHeight: 2, Signature: signApproval(2, [32]byte{})}, 30}, // new height
 		{common.ValidatorSetApproval{NodeID: node, PChainHeight: 3, Signature: signApproval(3, [32]byte{})}, 40}, // triggers prune
 	} {
-		require.NoError(t, as.HandleApproval(&a.common.ValidatorSetApproval, a.Timestamp))
+		require.NoError(t, as.HandleApproval(&a.ValidatorSetApproval, a.Timestamp))
 		require.Len(t, as.Approvals(), as.storedCount)
 	}
 	require.Equal(t, 2, len(as.Approvals()))

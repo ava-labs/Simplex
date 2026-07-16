@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ava-labs/simplex/avalanchego"
 	"github.com/ava-labs/simplex/common"
 	"github.com/ava-labs/simplex/testutil"
 	"github.com/stretchr/testify/require"
@@ -65,7 +66,7 @@ func (i *InnerBlock) Verify(_ context.Context, _ uint64) error {
 	return nil
 }
 
-// fakeVMBlock is a minimal VMBlock implementation for tests.
+// fakeVMBlock is a minimal avalanchego.VMBlock implementation for tests.
 type fakeVMBlock struct {
 	height uint64
 }
@@ -325,11 +326,11 @@ type testConfig struct {
 
 // bb is a test BlockBuilder whose BuildBlock returns a preconfigured block/error.
 type bb struct {
-	Block VMBlock
+	Block avalanchego.VMBlock
 	Err   error
 }
 
-func (bb *bb) BuildBlock(context.Context, uint64) (VMBlock, error) {
+func (bb *bb) BuildBlock(context.Context, uint64) (avalanchego.VMBlock, error) {
 	return bb.Block, bb.Err
 }
 
@@ -343,7 +344,7 @@ func newStateMachineWithLogger(tb testing.TB, logger common.Logger) (*StateMachi
 	bs := make(blockStore)
 	bs[0] = &outerBlock{block: genesisBlock}
 
-	var myNodeID nodeID
+	var myNodeID avalanchego.NodeID
 
 	var testConfig testConfig
 	testConfig.blockStore = bs
@@ -496,9 +497,9 @@ func (t *voteCountingAuxInfoApp) Generate(common.VersionID, NodeBLSMappings, [][
 	if t.randomTape != nil {
 		return t.randomTape(), nil
 	}
-	var nodeID nodeID
-	rand.Read(nodeID[:])
-	return nodeID[:], nil
+	var id avalanchego.NodeID
+	rand.Read(id[:])
+	return id[:], nil
 }
 
 func (t *voteCountingAuxInfoApp) DefaultVersionID() common.VersionID {
