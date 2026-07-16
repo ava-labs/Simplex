@@ -45,10 +45,14 @@ func (bt BlockType) String() string {
 	switch bt {
 	case BlockTypeNormal:
 		return "Normal"
+	case BlockTypeZero:
+		return "Zero"
 	case BlockTypeTelock:
 		return "Telock"
 	case BlockTypeSealing:
 		return "Sealing"
+	case BlockTypeTransitioning:
+		return "Transitioning"
 	default:
 		return fmt.Sprintf("UnknownBlockType(%d)", bt)
 	}

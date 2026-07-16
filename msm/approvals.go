@@ -358,5 +358,6 @@ func (a *ApprovalSender) maybeSendApprovals(block *StateMachineBlock, auxInfoDig
 
 	a.comm.Broadcast(&approvalMessage)
 	a.timeouts.AddTask(task)
+	// TODO: also add it to our own approval store
 	return nil
 }
