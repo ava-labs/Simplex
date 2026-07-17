@@ -26,6 +26,19 @@ type PlatformChain interface {
 	GetValidatorSet(uint64) (metadata.NodeBLSMappings, error)
 	// GenesisValidatorSet returns the first ever validator set for this network.
 	GenesisValidatorSet() metadata.NodeBLSMappings
+
+	// GetHighestValidatorSet is a placeholder for logic that returns the validator set of the highest epoch.
+	// We cannot use GetMinimumHeight or GetCurrentHeight because this pChainHeight may reference a validator set that
+	// has not yet been finalized.
+	// We need the highest validator set for non-validators and validators that have fallen behind to be able to
+	// request replication requests, and ensure these nodes are currently validating the network to ensure a response back.
+	// TODO: we need broadcast to send broadcast messages to all nodes, not just validators.
+	// Ex. what if a validator node goes offline for a few minutes, then wakes up and its no longer a validator.
+	// 		if comm.broadcast excludes them from finalization messages how will our validator receive a message telling them they are behind?
+
+	// Returns epoch of highest validator set and the nodes in that epoch
+	GetHighestValidatorSet() (uint64, common.Nodes)
+
 	// GetMinimumHeight returns the minimum height of the block still in the proposal window.
 	GetMinimumHeight() uint64
 	// GetCurrentHeight returns the current height of the P-chain.

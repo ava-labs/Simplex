@@ -27,10 +27,10 @@ type EpochTransitionListener struct {
 
 	myNodeID avalanchego.NodeID
 
-	onEpochChange func(validators common.Nodes) error
+	onEpochChange func(epoch uint64)
 }
 
-func NewEpochTransitionListener(comm common.Communication, myNodeID avalanchego.NodeID, onEpochChange func(validators common.Nodes) error) *EpochTransitionListener {
+func NewEpochTransitionListener(comm common.Communication, myNodeID avalanchego.NodeID, onEpochChange func(epoch uint64)) *EpochTransitionListener {
 	return &EpochTransitionListener{
 		comm:          comm,
 		myNodeID:      myNodeID,
@@ -77,7 +77,8 @@ func (a *EpochTransitionListener) handleSealingBlockIndexed(block *ParsedBlock) 
 		return errors.New("sealing block does not have sealingInfo")
 	}
 
-	return a.onEpochChange(sealingInfo.ValidatorSet)
+	a.onEpochChange(block.BlockHeader().Seq)
+	return nil
 }
 
 func (a *EpochTransitionListener) handleTransitionBlock(block *ParsedBlock) error {
@@ -94,12 +95,7 @@ func (a *EpochTransitionListener) handleTransitionBlock(block *ParsedBlock) erro
 		return nil // we are not in the next validator set, return
 	}
 
-	md, err := common.ProtocolMetadataFromBytes(block.Metadata.SimplexProtocolMetadata)
-	if err != nil {
-		return err
-	}
-
-	auxInfoHistory, versionID, err := metadata.CollectAuxiliaryInfo(&block.StateMachineBlock, md.Seq, block.msm.GetBlock, block.msm.AuxiliaryInfoApp.DefaultVersionID())
+	auxInfoHistory, versionID, err := metadata.CollectAuxiliaryInfo(&block.StateMachineBlock, block.BlockHeader().Seq, block.msm.GetBlock, block.msm.AuxiliaryInfoApp.DefaultVersionID())
 	isSufficient, err := block.msm.AuxiliaryInfoApp.IsSufficient(versionID, nextEpochValidatorSet, auxInfoHistory.Data)
 
 	if isSufficient {

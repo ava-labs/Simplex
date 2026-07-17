@@ -59,7 +59,7 @@ type Storage interface {
 }
 
 type Communication interface {
-	// Validators returns all nodes that participate in consensus in the epoch.
+	// Validators returns the nodes of the latest validator set.
 	Validators() Nodes
 
 	// Send sends a message to the given destination node
@@ -171,6 +171,12 @@ func (nws Nodes) NodeIDs() []NodeID {
 		nodes[i] = nw.Id
 	}
 	return nodes
+}
+
+func (nws Nodes) Contains(id NodeID) bool {
+	return slices.ContainsFunc(nws, func(node Node) bool {
+		return id.Equals(node.Id)
+	})
 }
 
 // Node is a struct that pairs a node ID with its weight and public key.

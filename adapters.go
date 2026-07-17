@@ -7,28 +7,19 @@ import (
 	"context"
 	"fmt"
 	"sync"
-	"sync/atomic"
 
 	"github.com/ava-labs/simplex/common"
 	metadata "github.com/ava-labs/simplex/msm"
 )
 
 type Communication struct {
-	nodes atomic.Value // common.Nodes
 	Sender
 	Broadcaster
-}
-
-func (c *Communication) SetValidators(nodes common.Nodes) {
-	c.nodes.Store(nodes)
+	highestValidator func() common.Nodes
 }
 
 func (c *Communication) Validators() common.Nodes {
-	nodes, ok := c.nodes.Load().(common.Nodes)
-	if !ok {
-		return nil
-	}
-	return nodes
+	return c.highestValidator()
 }
 
 // InstanceStorage is a wrapper around Storage that skips indexing Telocks
