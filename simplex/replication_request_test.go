@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/ava-labs/simplex/common"
-	metadata "github.com/ava-labs/simplex/msm"
 	"github.com/ava-labs/simplex/simplex"
 	"github.com/ava-labs/simplex/testutil"
 	"github.com/stretchr/testify/require"
