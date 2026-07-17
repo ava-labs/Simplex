@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ava-labs/simplex/common"
+	metadata "github.com/ava-labs/simplex/msm"
 	"github.com/ava-labs/simplex/simplex"
 	"github.com/ava-labs/simplex/testutil"
 	"github.com/stretchr/testify/require"
@@ -559,11 +560,10 @@ func TestReplicationRequestSizeLimited(t *testing.T) {
 	}
 
 	// measure one quorum round and budget for roughly three of them
-	oneRound, err := (&common.VerifiedQuorumRound{
+	oneRound := (&common.VerifiedQuorumRound{
 		VerifiedBlock: seqs[0].VerifiedBlock,
 		Finalization:  &seqs[0].Finalization,
-	}).EstimateSize()
-	require.NoError(t, err)
+	}).Size()
 	conf.MaxReplicationResponseSize = 3*oneRound + oneRound/2
 
 	e, err := simplex.NewEpoch(conf)
@@ -589,7 +589,7 @@ func TestReplicationRequestSizeLimited(t *testing.T) {
 	total := 0
 	for i, data := range resp.Data {
 		require.Equal(t, uint64(i), data.VerifiedBlock.BlockHeader().Seq)
-		size, err := data.EstimateSize()
+		size := data.Size()
 		require.NoError(t, err)
 		total += size
 	}

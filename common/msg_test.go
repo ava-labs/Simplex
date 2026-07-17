@@ -207,3 +207,40 @@ func TestQuorumRoundMalformed(t *testing.T) {
 	}
 
 }
+
+func TestSizeMatchesBytes(t *testing.T) {
+	qc := testutil.TestQC{
+		{Signer: common.NodeID{1}, Value: []byte("signature1")},
+		{Signer: common.NodeID{2}, Value: []byte("signature2")},
+		{Signer: common.NodeID{3}, Value: []byte("signature3")},
+	}
+
+	bh := common.BlockHeader{
+		ProtocolMetadata: common.ProtocolMetadata{
+			Version: 1,
+			Epoch: 2,
+			Round: 3,
+			Seq: 4,
+			Prev: common.Digest{3},
+		},
+		Digest: common.Digest{6},
+	}
+	require.Equal(t, len(bh.Bytes()), bh.Size())
+
+
+	emptyVote := common.ToBeSignedEmptyVote{
+        EmptyVoteMetadata: common.EmptyVoteMetadata{Round: 7, Epoch: 8},
+    }
+	require.Equal(t, len(emptyVote.Bytes()), emptyVote.Size())
+
+
+	notarization := common.Notarization{Vote: common.ToBeSignedVote{BlockHeader: bh}, QC: qc}
+	require.Equal(t, len(notarization.Vote.Bytes())+len(notarization.QC.Bytes()), notarization.Size())
+
+	finalization := common.Finalization{Finalization: common.ToBeSignedFinalization{BlockHeader: bh}, QC: qc}
+	require.Equal(t, len(finalization.Finalization.Bytes())+len(finalization.QC.Bytes()), finalization.Size())
+
+	emptyNotarization := common.EmptyNotarization{Vote: emptyVote, QC: qc}
+	require.Equal(t, len(emptyNotarization.Vote.Bytes())+len(emptyNotarization.QC.Bytes()), emptyNotarization.Size())
+
+}

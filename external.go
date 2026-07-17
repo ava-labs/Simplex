@@ -6,6 +6,7 @@ package simplex
 import (
 	"context"
 
+	"github.com/StephenButtolph/canoto"
 	"github.com/ava-labs/simplex/common"
 	metadata "github.com/ava-labs/simplex/msm"
 )
@@ -36,6 +37,21 @@ func (p *ParsedBlock) Bytes() ([]byte, error) {
 		InnerBlockBytes: innerBlockBytes,
 	}
 	return rawBlock.MarshalCanoto(), nil
+}
+func (p *ParsedBlock) Size() int {
+	(&p.Metadata).CalculateCanotoCache()
+	metadataSize := (&p.Metadata).CachedCanotoSize()
+	var size uint64
+	if metadataSize != 0 {
+		size += uint64(len(canotoTag_RawBlock__Metadata)) + canoto.SizeUint(metadataSize) + metadataSize
+	}
+	if p.InnerBlock != nil {
+		innerBlockSize := uint64(p.InnerBlock.Size())
+		if innerBlockSize != 0 {
+			size += uint64(len(canotoTag_RawBlock__InnerBlockBytes)) + canoto.SizeUint(innerBlockSize) + innerBlockSize
+		}
+	}
+	return int(size)
 }
 
 func (p *ParsedBlock) BlockHeader() common.BlockHeader {

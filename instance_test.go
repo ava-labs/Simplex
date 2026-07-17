@@ -384,6 +384,25 @@ func TestInstanceRestartAcrossEpochs(t *testing.T) {
 	// The restarted node keeps extending the chain.
 	waitForNumBlocks(t, storage, storage.NumBlocks()+2)
 }
+func TestParseBlockSizeMatchesBytes(t *testing.T) {
+	pb := &ParsedBlock{
+		StateMachineBlock: metadata.StateMachineBlock{
+			Metadata: metadata.StateMachineMetadata{
+				SimplexProtocolMetadata: []byte{1, 2, 3},
+				SimplexBlacklist:        []byte{4, 5},
+				PChainHeight:            6,
+			},
+			InnerBlock: &testInnerBlock{
+				Height_: 7,
+				TS:      time.UnixMilli(8),
+				Payload: []byte("payload"),
+			},
+		},
+	}
+	bytes, err := pb.Bytes()
+	require.NoError(t, err)
+	require.Equal(t, len(bytes), pb.Size())
+}
 
 // requireTipIsSealing asserts whether the last block in storage is a sealing block.
 func requireTipIsSealing(t *testing.T, storage *MockStorage, want bool) {
@@ -526,6 +545,9 @@ func (b *testInnerBlock) Bytes() ([]byte, error) {
 func (b *testInnerBlock) Digest() [32]byte {
 	bytes, _ := b.Bytes()
 	return sha256.Sum256(bytes)
+}
+func (b *testInnerBlock) Size() int {
+	return 16 + len(b.Payload)
 }
 
 func (b *testInnerBlock) Height() uint64                       { return b.Height_ }

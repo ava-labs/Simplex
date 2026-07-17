@@ -49,15 +49,17 @@ type ToBeSignedEmptyVote struct {
 	EmptyVoteMetadata
 }
 
+const emptyVoteLen = 1 + 8 + 8 // Version + Epoch + Round
+
 func (v *ToBeSignedEmptyVote) Bytes() []byte {
-	bytes := make([]byte, 1+8+8) // Version + Epoch + Round
+	bytes := make([]byte, emptyVoteLen)
 	binary.BigEndian.PutUint64(bytes[1:9], v.EmptyVoteMetadata.Epoch)
 	binary.BigEndian.PutUint64(bytes[9:17], v.EmptyVoteMetadata.Round)
 	return bytes
 }
 
 func (v *ToBeSignedEmptyVote) FromBytes(buff []byte) error {
-	if len(buff) != 17 {
+	if len(buff) != emptyVoteLen {
 		return fmt.Errorf("invalid buffer length, expected 17, got %d", len(buff))
 	}
 
@@ -69,6 +71,10 @@ func (v *ToBeSignedEmptyVote) FromBytes(buff []byte) error {
 		Epoch: epoch,
 	}
 	return nil
+}
+
+func (v *ToBeSignedEmptyVote) Size() int {
+	return emptyVoteLen
 }
 
 func (v *ToBeSignedEmptyVote) Sign(signer Signer) ([]byte, error) {
@@ -191,6 +197,10 @@ func (f *Finalization) Verify(nodes Nodes) error {
 	return verifyContextQC(f.QC, f.Finalization.Bytes(), context, nodes)
 }
 
+func (f *Finalization) Size() int {
+	return f.Finalization.Size() + f.QC.Size()
+}
+
 // Notarization represents a block that has reached a quorum of votes.
 type Notarization struct {
 	Vote ToBeSignedVote
@@ -200,6 +210,10 @@ type Notarization struct {
 func (n *Notarization) Verify(nodes Nodes) error {
 	context := "ToBeSignedVote"
 	return verifyContextQC(n.QC, n.Vote.Bytes(), context, nodes)
+}
+
+func (n *Notarization) Size() int {
+	return n.Vote.Size() + n.QC.Size()
 }
 
 type BlockMessage struct {
@@ -221,6 +235,9 @@ func (en *EmptyNotarization) Verify(nodes Nodes) error {
 	context := "ToBeSignedEmptyVote"
 	return verifyContextQC(en.QC, en.Vote.Bytes(), context, nodes)
 }
+func (en *EmptyNotarization) Size() int {
+	return en.Vote.Size() + en.QC.Size()
+}
 
 type SignedMessage struct {
 	Payload []byte
@@ -236,6 +253,8 @@ type QuorumCertificate interface {
 	Verify(msg []byte, nodes Nodes) error
 	// Bytes returns a raw representation of the given QuorumCertificate.
 	Bytes() []byte
+	// Size returns the number of bytes
+	Size() int
 }
 
 type ReplicationRequest struct {
@@ -367,32 +386,22 @@ func (q *VerifiedQuorumRound) GetRound() uint64 {
 	return 0
 }
 
-// quoromRoundSizeSlack is added to the estimated size of each VerifiedQuoromRound
-// to account for encoding overhead (in avalanchego each item adds protobuf
-// field tags and length prefixes on top of the block, QC, and header bytes)
-// it is tens of bytes in practivce, 512 is a generous bound
-const quoromRoundSizeSlack = 512
-
-func (q *VerifiedQuorumRound) EstimateSize() (int, error) {
-	size := quoromRoundSizeSlack
+func (q *VerifiedQuorumRound) Size() int {
+	var size int
 
 	if q.VerifiedBlock != nil {
-		blockBytes, err := q.VerifiedBlock.Bytes()
-		if err != nil {
-			return 0, err
-		}
-		size += len(blockBytes)
+		size += q.VerifiedBlock.Size()
 	}
 	if q.Notarization != nil {
-		size += len(q.Notarization.Vote.Bytes()) + len(q.Notarization.QC.Bytes())
+		size += q.Notarization.Size()
 	}
 	if q.Finalization != nil {
-		size += len(q.Finalization.Finalization.Bytes()) + len(q.Finalization.QC.Bytes())
+		size += q.Finalization.Size()
 	}
 	if q.EmptyNotarization != nil {
-		size += len(q.EmptyNotarization.Vote.Bytes()) + len(q.EmptyNotarization.QC.Bytes())
+		size += q.EmptyNotarization.Size()
 	}
-	return size, nil
+	return size
 }
 
 type VerifiedFinalizedBlock struct {

@@ -3101,13 +3101,9 @@ func (e *Epoch) handleReplicationRequest(req *common.ReplicationRequest, from co
 	if req.LatestRound > 0 {
 		latestRound := e.getLatestVerifiedQuorumRound()
 		if latestRound != nil && latestRound.GetRound() > req.LatestRound {
-			size, err := latestRound.EstimateSize()
-			if err != nil {
-				e.Logger.Error("Failed estimating size of latest round", zap.Error(err))
-			} else {
-				response.LatestRound = latestRound
-				remainingBytes -= size
-			}
+			size := latestRound.Size()
+			response.LatestRound = latestRound
+			remainingBytes -= size
 		}
 	}
 	if req.LatestFinalizedSeq > 0 {
@@ -3116,13 +3112,10 @@ func (e *Epoch) handleReplicationRequest(req *common.ReplicationRequest, from co
 				VerifiedBlock: e.lastBlock.VerifiedBlock,
 				Finalization:  &e.lastBlock.Finalization,
 			}
-			size, err := latestFinalizedSeq.EstimateSize()
-			if err != nil {
-				e.Logger.Error("Failed estimating size of latest finalized seq", zap.Error(err))
-			} else {
-				response.LatestFinalizedSeq = latestFinalizedSeq
-				remainingBytes -= size
-			}
+			size := latestFinalizedSeq.Size()
+			response.LatestFinalizedSeq = latestFinalizedSeq
+			remainingBytes -= size
+
 		}
 	}
 
@@ -3134,12 +3127,7 @@ func (e *Epoch) handleReplicationRequest(req *common.ReplicationRequest, from co
 			seqData = seqData[:i]
 			break
 		}
-		size, err := quorumRound.EstimateSize()
-		if err != nil {
-			e.Logger.Error("Failed estimating size of quorom round", zap.Uint64("seq", seq), zap.Error(err))
-			seqData = seqData[:i]
-			break
-		}
+		size := quorumRound.Size()
 		if size > remainingBytes {
 			e.Logger.Debug("Replication response reached size limit",
 				zap.Stringer("from", from),
@@ -3160,11 +3148,7 @@ func (e *Epoch) handleReplicationRequest(req *common.ReplicationRequest, from co
 			// we cannot break early since empty votes may
 			continue
 		}
-		size, err := quorumRound.EstimateSize()
-		if err != nil {
-			e.Logger.Error("Failed estimating size of quorom round", zap.Uint64("round", roundNum), zap.Error(err))
-			break
-		}
+		size := quorumRound.Size()
 		if size > remainingBytes {
 			e.Logger.Debug("Replication response reached size limit",
 				zap.Stringer("from", from),

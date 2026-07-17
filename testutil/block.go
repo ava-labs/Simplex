@@ -108,6 +108,14 @@ func (t *TestBlock) Bytes() ([]byte, error) {
 	return rawBytes, nil
 }
 
+func (t *TestBlock) Size() int {
+	bytes, err := t.Bytes()
+	if err != nil {
+		return 0
+	}
+	return len(bytes)
+}
+
 type EncodedTestBlock struct {
 	Data      []byte
 	Metadata  []byte
@@ -159,6 +167,14 @@ type InnerBlock struct {
 
 func (i *InnerBlock) Bytes() ([]byte, error) {
 	return i.Content, nil
+}
+
+func (i *InnerBlock) Size() int {
+	bytes, err := i.Bytes()
+	if err != nil {
+		return 0
+	}
+	return len(bytes)
 }
 
 func (i *InnerBlock) Digest() [32]byte {

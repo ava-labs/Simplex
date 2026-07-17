@@ -52,6 +52,8 @@ type VMBlock interface {
 
 	// Bytes returns the byte representation of this block.
 	Bytes() ([]byte, error)
+	// Size returns the number of bytes of the Bytes representation
+	Size() int
 }
 
 type bitmask big.Int
