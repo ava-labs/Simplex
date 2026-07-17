@@ -218,21 +218,19 @@ func TestSizeMatchesBytes(t *testing.T) {
 	bh := common.BlockHeader{
 		ProtocolMetadata: common.ProtocolMetadata{
 			Version: 1,
-			Epoch: 2,
-			Round: 3,
-			Seq: 4,
-			Prev: common.Digest{3},
+			Epoch:   2,
+			Round:   3,
+			Seq:     4,
+			Prev:    common.Digest{3},
 		},
 		Digest: common.Digest{6},
 	}
 	require.Equal(t, len(bh.Bytes()), bh.Size())
 
-
 	emptyVote := common.ToBeSignedEmptyVote{
-        EmptyVoteMetadata: common.EmptyVoteMetadata{Round: 7, Epoch: 8},
-    }
+		EmptyVoteMetadata: common.EmptyVoteMetadata{Round: 7, Epoch: 8},
+	}
 	require.Equal(t, len(emptyVote.Bytes()), emptyVote.Size())
-
 
 	notarization := common.Notarization{Vote: common.ToBeSignedVote{BlockHeader: bh}, QC: qc}
 	require.Equal(t, len(notarization.Vote.Bytes())+len(notarization.QC.Bytes()), notarization.Size())
