@@ -55,7 +55,6 @@ const (
 )
 
 type epochChange struct {
-	epochNum   uint64
 	validators common.Nodes
 	nodeRole   nodeRole
 }
@@ -94,19 +93,12 @@ func (i *Instance) Start(ctx context.Context) error {
 
 	context.AfterFunc(ctx, i.Stop)
 
-	lastBlock, numBlocks, err := i.lastBlock()
-	if err != nil {
-		return fmt.Errorf("error retrieving last block: %w", err)
-	}
-
-	lastNonSimplexHeight := i.Config.LastNonSimplexInnerBlock.Height()
-	genesisValidatorSet := i.Config.PlatformChain.GenesisValidatorSet()
-	nodes, epochNum, err := constructEpochAndValidatorSet(i.Config.Logger, lastNonSimplexHeight, genesisValidatorSet, numBlocks, ParsedBlock{StateMachineBlock: lastBlock}, i.Config.Storage)
+	nodes, epochNum, err := i.getLastAcceptedEpochAndValidatorSet()
 	if err != nil {
 		return fmt.Errorf("error determining latest epoch and validator set: %w", err)
 	}
 
-	if err := i.startAtEpoch(nodes, epochNum); err != nil {
+	if err := i.startAtEpoch(nodes); err != nil {
 		return fmt.Errorf("error starting instance at epoch %d: %w", epochNum, err)
 	}
 
@@ -114,6 +106,17 @@ func (i *Instance) Start(ctx context.Context) error {
 	go i.listenForEpochChanges()
 
 	return nil
+}
+
+func (i *Instance) getLastAcceptedEpochAndValidatorSet() (common.Nodes, uint64, error) {
+	lastBlock, numBlocks, err := i.lastBlock()
+	if err != nil {
+		return nil, 0, fmt.Errorf("error retrieving last block: %w", err)
+	}
+
+	lastNonSimplexHeight := i.Config.LastNonSimplexInnerBlock.Height()
+	genesisValidatorSet := i.Config.PlatformChain.GenesisValidatorSet()
+	return constructEpochAndValidatorSet(i.Config.Logger, lastNonSimplexHeight, genesisValidatorSet, numBlocks, ParsedBlock{StateMachineBlock: lastBlock}, i.Config.Storage)
 }
 
 func (i *Instance) startValidator() error {
@@ -124,8 +127,8 @@ func (i *Instance) startValidator() error {
 	return i.startEpoch(epochConfig)
 }
 
-func (i *Instance) startNonValidator(epochNum uint64, validators common.Nodes) error {
-	config, err := i.createNonValidatorConfig(epochNum, validators)
+func (i *Instance) startNonValidator(validators common.Nodes) error {
+	config, err := i.createNonValidatorConfig(validators)
 	if err != nil {
 		return err
 	}
@@ -140,7 +143,7 @@ func (i *Instance) startNonValidator(epochNum uint64, validators common.Nodes) e
 	return nil
 }
 
-func (i *Instance) createNonValidatorConfig(epochNum uint64, validators common.Nodes) (nonvalidator.Config, error) {
+func (i *Instance) createNonValidatorConfig(validators common.Nodes) (nonvalidator.Config, error) {
 	source, err := simplex.NewRandomSource()
 	if err != nil {
 		return nonvalidator.Config{}, err
@@ -149,26 +152,22 @@ func (i *Instance) createNonValidatorConfig(epochNum uint64, validators common.N
 	comm := &Communication{Sender: i.Config.Sender, Broadcaster: i.Config.Broadcaster}
 	comm.SetValidators(validators)
 
-	epochAwareStorage := &EpochAwareStorage{
-		epoch:   epochNum,
-		Storage: i.Config.Storage,
-		onEpochChange: func(epoch uint64, validators common.Nodes) error {
-			height := i.Config.PlatformChain.GetCurrentHeight()
-			vdrs, err := i.Config.PlatformChain.GetValidatorSet(height)
-			if err != nil {
-				i.Config.Logger.Error("error getting validator set", zap.Error(err))
-				return fmt.Errorf("error getting validator set from platform chain: %w", err)
-			}
-			comm.SetValidators(validators)
-			if i.iAmValidator(vdrs.Nodes()) {
-				i.notifyEpochChange(epoch, validators, nonValidator)
-			} else {
-				i.Config.Logger.Debug("I am still a non-validator at the tip of the P-chain, skipping role change",
-					zap.Uint64("height", height))
-			}
-			return nil
-		},
-	}
+	transitionListener := NewEpochTransitionListener(comm, avalanchego.NodeID(i.Config.ID), func(validators common.Nodes) error {
+		height := i.Config.PlatformChain.GetCurrentHeight()
+		vdrs, err := i.Config.PlatformChain.GetValidatorSet(height)
+		if err != nil {
+			i.Config.Logger.Error("error getting validator set", zap.Error(err))
+			return fmt.Errorf("error getting validator set from platform chain: %w", err)
+		}
+		comm.SetValidators(validators)
+		if i.iAmValidator(vdrs.Nodes()) {
+			i.notifyEpochChange(validators, nonValidator)
+		} else {
+			i.Config.Logger.Debug("I am still a non-validator at the tip of the P-chain, skipping role change",
+				zap.Uint64("height", height))
+		}
+		return nil
+	})
 
 	// Plant an artificial MSM that just skips verification.
 	i.msm = &metadata.StateMachine{
@@ -176,12 +175,13 @@ func (i *Instance) createNonValidatorConfig(epochNum uint64, validators common.N
 			SkipMSMVerification: true,
 		},
 	}
-	i.cs.msm = i.msm
+	i.cs.msm = i.msm // TODO: why do we set cached storage msm, but don't use the cached storage later?
+	instanceStorage := NewInstanceStorage(i.Config.Storage, i.msm, transitionListener.onIndex)
 
 	config := nonvalidator.Config{
 		ID:                         i.Config.ID,
 		RandomSource:               source,
-		Storage:                    epochAwareStorage,
+		Storage:                    instanceStorage,
 		Comm:                       comm,
 		Logger:                     i.Config.Logger,
 		StartTime:                  time.Now(),
@@ -191,10 +191,9 @@ func (i *Instance) createNonValidatorConfig(epochNum uint64, validators common.N
 	return config, nil
 }
 
-func (i *Instance) notifyEpochChange(epoch uint64, validators common.Nodes, role nodeRole) {
+func (i *Instance) notifyEpochChange(validators common.Nodes, role nodeRole) {
 	select {
 	case i.epochChanges <- epochChange{
-		epochNum:   epoch,
 		validators: validators,
 		nodeRole:   role,
 	}:
@@ -411,17 +410,7 @@ func (i *Instance) iAmValidator(nodes common.Nodes) bool {
 }
 
 func (i *Instance) createEpochConfig() (simplex.EpochConfig, error) {
-	lastBlock, numBlocks, err := i.lastBlock()
-	if err != nil {
-		return simplex.EpochConfig{}, err
-	}
-
-	lastNonSimplexHeight := i.Config.LastNonSimplexInnerBlock.Height()
-	genesisValidatorSet := i.Config.PlatformChain.GenesisValidatorSet()
-	nodes, epochNum, err := constructEpochAndValidatorSet(i.Config.Logger, lastNonSimplexHeight, genesisValidatorSet, numBlocks, ParsedBlock{StateMachineBlock: lastBlock}, i.Config.Storage)
-	if err != nil {
-		return simplex.EpochConfig{}, err
-	}
+	nodes, epochNum, err := i.getLastAcceptedEpochAndValidatorSet()
 
 	wal, err := wal.NewGarbageCollectedWAL(i.Config.WALs, i.Config.WalCreator, &common.WALRetentionReader{}, i.Config.ParameterConfig.WALMaxEntryCount)
 	if err != nil {
@@ -432,7 +421,7 @@ func (i *Instance) createEpochConfig() (simplex.EpochConfig, error) {
 	// We might have crashed right after a sealing block was persisted to storage,
 	// but before the WAL was garbage collected.
 	// In that case, we need to garbage collect the WAL to remove all entries from previous epochs.
-	if err := i.maybeGarbageCollectWAL(lastBlock); err != nil {
+	if err := i.maybeGarbageCollectWAL(); err != nil {
 		return simplex.EpochConfig{}, err
 	}
 
@@ -447,8 +436,8 @@ func (i *Instance) createEpochConfig() (simplex.EpochConfig, error) {
 		MaxBlockBuildingWaitTime:        i.Config.ParameterConfig.MaxNetworkDelay,
 		Logger:                          i.Config.Logger,
 		Signer:                          i.Config.CryptoOps,
-		GenesisValidatorSet:             genesisValidatorSet,
-		LastNonSimplexBlockPChainHeight: lastNonSimplexHeight,
+		GenesisValidatorSet:             i.Config.PlatformChain.GenesisValidatorSet(),
+		LastNonSimplexBlockPChainHeight: i.Config.LastNonSimplexInnerBlock.Height(),
 		SignatureAggregatorCreator:      i.Config.CryptoOps.CreateSignatureAggregator,
 		BlockBuilder:                    i.Config.VM,
 		LastNonSimplexInnerBlock:        i.Config.LastNonSimplexInnerBlock,
@@ -475,10 +464,10 @@ func (i *Instance) createEpochConfig() (simplex.EpochConfig, error) {
 	comm := &Communication{Sender: i.Config.Sender, Broadcaster: i.Config.Broadcaster}
 	comm.SetValidators(nodes)
 
-	transitionListener := NewEpochTransitionListener(comm, avalanchego.NodeID(i.Config.ID), func(epoch uint64, validators common.Nodes) error {
+	transitionListener := NewEpochTransitionListener(comm, avalanchego.NodeID(i.Config.ID), func(validators common.Nodes) error {
 		blockBuilder.stop()
 		comm.SetValidators(validators)
-		i.notifyEpochChange(epoch, validators, validator)
+		i.notifyEpochChange(validators, validator)
 		return nil
 	})
 	instanceStorage := NewInstanceStorage(i.cs, msm, transitionListener.onIndex)
@@ -508,7 +497,12 @@ func (i *Instance) createEpochConfig() (simplex.EpochConfig, error) {
 	return epochConfig, nil
 }
 
-func (i *Instance) maybeGarbageCollectWAL(lastBlock metadata.StateMachineBlock) error {
+func (i *Instance) maybeGarbageCollectWAL() error {
+	lastBlock, _, err := i.lastBlock()
+	if err != nil {
+		return fmt.Errorf("error retrieving last block: %w", err)
+	}
+
 	if lastBlock.Metadata.SimplexEpochInfo.BlockValidationDescriptor != nil {
 		i.Config.Logger.Info("Last block is a sealing block, garbage collecting all WALs preceding it to start a new epoch")
 		// We figure out the round number of the latest block and garbage collect all WALs preceding it.
@@ -543,10 +537,10 @@ func (i *Instance) transitionEpochNonValidator(epochChange epochChange) error {
 	// Stop the non-validator before doing anything else, so that we don't process any more messages while we are changing epochs.
 	i.stopNonValidator()
 
-	return i.startAtEpoch(epochChange.validators, epochChange.epochNum)
+	return i.startAtEpoch(epochChange.validators)
 }
 
-func (i *Instance) startAtEpoch(validators common.Nodes, epoch uint64) error {
+func (i *Instance) startAtEpoch(validators common.Nodes) error {
 	if i.iAmValidator(validators) {
 		if err := i.startValidator(); err != nil {
 			i.Config.Logger.Error("Error starting validator on epoch change", zap.Error(err))
@@ -555,7 +549,7 @@ func (i *Instance) startAtEpoch(validators common.Nodes, epoch uint64) error {
 		return nil
 	}
 
-	if err := i.startNonValidator(epoch, validators); err != nil {
+	if err := i.startNonValidator(validators); err != nil {
 		i.Config.Logger.Error("Error starting non-validator on epoch change", zap.Error(err))
 		return err
 	}
@@ -575,7 +569,7 @@ func (i *Instance) transitionEpochValidator(epochChange epochChange) error {
 		i.Config.Logger.Error("Error garbage collecting epoch config on epoch change", zap.Error(err))
 	}
 
-	return i.startAtEpoch(epochChange.validators, epochChange.epochNum)
+	return i.startAtEpoch(epochChange.validators)
 }
 
 func constructEpochAndValidatorSet(logger common.Logger, lastNonSimplexInnerBlockHeight uint64, genesisValidatorSet metadata.NodeBLSMappings, numBlocks uint64, lastBlock ParsedBlock, storage Storage) (common.Nodes, uint64, error) {

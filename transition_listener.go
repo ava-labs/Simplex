@@ -27,10 +27,10 @@ type EpochTransitionListener struct {
 
 	myNodeID avalanchego.NodeID
 
-	onEpochChange func(epoch uint64, validators common.Nodes) error
+	onEpochChange func(validators common.Nodes) error
 }
 
-func NewEpochTransitionListener(comm common.Communication, myNodeID avalanchego.NodeID, onEpochChange func(epoch uint64, validators common.Nodes) error) *EpochTransitionListener {
+func NewEpochTransitionListener(comm common.Communication, myNodeID avalanchego.NodeID, onEpochChange func(validators common.Nodes) error) *EpochTransitionListener {
 	return &EpochTransitionListener{
 		comm:          comm,
 		myNodeID:      myNodeID,
@@ -77,12 +77,7 @@ func (a *EpochTransitionListener) handleSealingBlockIndexed(block *ParsedBlock) 
 		return errors.New("sealing block does not have sealingInfo")
 	}
 
-	md, err := common.ProtocolMetadataFromBytes(block.Metadata.SimplexProtocolMetadata)
-	if err != nil {
-		return err
-	}
-
-	return a.onEpochChange(md.Seq, sealingInfo.ValidatorSet)
+	return a.onEpochChange(sealingInfo.ValidatorSet)
 }
 
 func (a *EpochTransitionListener) handleTransitionBlock(block *ParsedBlock) error {
