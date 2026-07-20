@@ -1250,7 +1250,7 @@ func TestComputePrevVMBlockSeq(t *testing.T) {
 			InnerBlock: nil,
 			Metadata:   StateMachineMetadata{SimplexEpochInfo: SimplexEpochInfo{PrevVMBlockSeq: 42}},
 		}
-		require.Equal(t, uint64(42), computePrevVMBlockSeq(parent, 100))
+		require.Equal(t, uint64(42), computePrevVMBlockSeq(&parent, 100))
 	})
 
 	t.Run("parent has inner block", func(t *testing.T) {
@@ -1258,7 +1258,7 @@ func TestComputePrevVMBlockSeq(t *testing.T) {
 			InnerBlock: &fakeVMBlock{height: 10},
 			Metadata:   StateMachineMetadata{SimplexEpochInfo: SimplexEpochInfo{PrevVMBlockSeq: 42}},
 		}
-		require.Equal(t, uint64(100), computePrevVMBlockSeq(parent, 100))
+		require.Equal(t, uint64(100), computePrevVMBlockSeq(&parent, 100))
 	})
 }
 
@@ -1612,7 +1612,7 @@ func TestVerifyCollectingApprovalsNotReady(t *testing.T) {
 		// The regression: verifying a not-ready block with nil approvals must not panic.
 		// (The digest no longer matches, so an error is expected — just not a panic.)
 		require.NotPanics(t, func() {
-			_ = sm.verifyCollectingApprovalsBlock(context.Background(), parent, block, parentSeq)
+			_ = sm.verifyCollectingApprovalsBlock(context.Background(), &parent, block, parentSeq)
 		})
 	})
 
@@ -1624,7 +1624,7 @@ func TestVerifyCollectingApprovalsNotReady(t *testing.T) {
 			Signature: []byte("sig"),
 		}
 
-		err := sm.verifyCollectingApprovalsBlock(context.Background(), parent, block, parentSeq)
+		err := sm.verifyCollectingApprovalsBlock(context.Background(), &parent, block, parentSeq)
 		require.ErrorContains(t, err, "expected no approvals")
 	})
 }
@@ -1944,7 +1944,7 @@ func TestCollectAuxiliaryInfo(t *testing.T) {
 				return block, nil, nil
 			}
 
-			history, gotversionID, err := collectAuxiliaryInfo(tt.block, startSeq, getBlock, 0)
+			history, gotversionID, err := collectAuxiliaryInfo(&tt.block, startSeq, getBlock, 0)
 			if tt.expectedErr != nil {
 				require.ErrorIs(t, err, tt.expectedErr)
 				require.ErrorIs(t, err, errAuxInfoBlockRetrieval)

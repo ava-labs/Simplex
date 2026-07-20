@@ -11,81 +11,69 @@ import (
 
 func TestIdentifyBlockType(t *testing.T) {
 	bvd := &BlockValidationDescriptor{}
+	prevSealingBlockHash := [32]byte{1}
 
 	for _, tc := range []struct {
 		name     string
-		nextMD   StateMachineMetadata
-		prevMD   StateMachineMetadata
-		prevSeq  uint64
+		sei      SimplexEpochInfo
 		expected BlockType
 	}{
 		{
-			name:     "next block has BlockValidationDescriptor",
-			nextMD:   StateMachineMetadata{SimplexEpochInfo: SimplexEpochInfo{BlockValidationDescriptor: bvd}},
-			prevMD:   StateMachineMetadata{},
+			name: "zero block: descriptor set, empty prev sealing block hash",
+			sei: SimplexEpochInfo{
+				EpochNumber:               1,
+				BlockValidationDescriptor: bvd,
+			},
+			expected: BlockTypeZero,
+		},
+		{
+			name: "sealing block: descriptor set, prev sealing block hash set",
+			sei: SimplexEpochInfo{
+				EpochNumber:               1,
+				NextPChainReferenceHeight: 200,
+				BlockValidationDescriptor: bvd,
+				PrevSealingBlockHash:      prevSealingBlockHash,
+			},
 			expected: BlockTypeSealing,
 		},
 		{
-			name:   "prev is zero-epoch block (epoch 1, NextPChainReferenceHeight 0)",
-			nextMD: StateMachineMetadata{SimplexEpochInfo: SimplexEpochInfo{EpochNumber: 1}},
-			prevMD: StateMachineMetadata{SimplexEpochInfo: SimplexEpochInfo{
+			name: "telock: sealing block seq set, no descriptor",
+			sei: SimplexEpochInfo{
 				EpochNumber:               1,
-				NextPChainReferenceHeight: 0,
-			}},
+				NextPChainReferenceHeight: 200,
+				SealingBlockSeq:           8,
+			},
+			expected: BlockTypeTelock,
+		},
+		{
+			name: "transitioning block: next p-chain reference height set, epoch not yet sealed",
+			sei: SimplexEpochInfo{
+				EpochNumber:               1,
+				NextPChainReferenceHeight: 200,
+			},
+			expected: BlockTypeTransitioning,
+		},
+		{
+			name: "normal block in the middle of an epoch",
+			sei: SimplexEpochInfo{
+				EpochNumber: 5,
+			},
 			expected: BlockTypeNormal,
 		},
 		{
-			name:   "prev is sealing block and next epoch matches prevSeq",
-			nextMD: StateMachineMetadata{SimplexEpochInfo: SimplexEpochInfo{EpochNumber: 10}},
-			prevMD: StateMachineMetadata{SimplexEpochInfo: SimplexEpochInfo{
-				BlockValidationDescriptor: bvd,
-				EpochNumber:               1,
-				NextPChainReferenceHeight: 200,
-			}},
-			prevSeq:  10,
-			expected: BlockTypeNewEpoch,
-		},
-		{
-			name:   "prev is sealing block and next epoch does not match prevSeq (Telock)",
-			nextMD: StateMachineMetadata{SimplexEpochInfo: SimplexEpochInfo{EpochNumber: 1}},
-			prevMD: StateMachineMetadata{SimplexEpochInfo: SimplexEpochInfo{
-				BlockValidationDescriptor: bvd,
-				EpochNumber:               1,
-				NextPChainReferenceHeight: 200,
-			}},
-			prevSeq:  10,
-			expected: BlockTypeTelock,
-		},
-		{
-			name:   "same epoch with non-zero SealingBlockSeq (Telock)",
-			nextMD: StateMachineMetadata{SimplexEpochInfo: SimplexEpochInfo{EpochNumber: 5}},
-			prevMD: StateMachineMetadata{SimplexEpochInfo: SimplexEpochInfo{
-				EpochNumber:     5,
-				SealingBlockSeq: 8,
-			}},
-			expected: BlockTypeTelock,
-		},
-		{
-			name:   "epoch number matches prev SealingBlockSeq (NewEpoch)",
-			nextMD: StateMachineMetadata{SimplexEpochInfo: SimplexEpochInfo{EpochNumber: 8}},
-			prevMD: StateMachineMetadata{SimplexEpochInfo: SimplexEpochInfo{
-				EpochNumber:     5,
-				SealingBlockSeq: 8,
-			}},
-			expected: BlockTypeNewEpoch,
-		},
-		{
-			name:   "normal block in the middle of an epoch",
-			nextMD: StateMachineMetadata{SimplexEpochInfo: SimplexEpochInfo{EpochNumber: 5}},
-			prevMD: StateMachineMetadata{SimplexEpochInfo: SimplexEpochInfo{
-				EpochNumber: 5,
-			}},
+			name: "first block of a new epoch is a normal block",
+			sei: SimplexEpochInfo{
+				EpochNumber:           8,
+				PChainReferenceHeight: 200,
+			},
 			expected: BlockTypeNormal,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			result := IdentifyBlockType(tc.nextMD, tc.prevMD, tc.prevSeq)
-			require.Equal(t, tc.expected, result)
+			smb := &StateMachineBlock{
+				Metadata: StateMachineMetadata{SimplexEpochInfo: tc.sei},
+			}
+			require.Equal(t, tc.expected, smb.Type())
 		})
 	}
 }
