@@ -159,6 +159,20 @@ func (e *Epoch) HandleMessage(msg *common.Message, from common.NodeID) error {
 		switch {
 		case msg.ReplicationRequest != nil && e.ReplicationEnabled:
 			return e.handleReplicationRequest(msg.ReplicationRequest, from)
+		case msg.ReplicationResponse != nil && e.ReplicationEnabled:
+			// TODO: handle
+			// The
+		case msg.Finalization != nil:
+			// TODO: handle
+			// Say our epoch has been offline. A new epoch has advanced with a disjoint validator set.
+			// This node will block all messages from these new validators since they are not validators of the current epoch.
+			// Furthermore, these non-validators will not broadcast many messages to non-validators. Maybe they will only broadcast finalization messages.
+			// Therefore, we need to be able to accept finalization messages from non-validators. And update `handleFinalizationMessage` to send out
+			// a replication request for the seq of the epoch this new finalization is in. We can send this to the node who sent us the finalization.
+			// If we have missed multiple epochs, we will keep feeding these finalizations through `handleFinalizationMessage` until we receive the sealing block for the
+			// epoch we are in.
+			// Once this happens, our epoch replication process will kick off. Then, the instance will change from validator -> non-validator on the index of the sealing block
+			// Note: because our node is sending replication requests to nodes it thinks are "non-validators", we must be able to process replication responses from those same nodes.
 		default:
 			e.Logger.Debug("Invalid message type", zap.Stringer("from", from))
 			return nil
