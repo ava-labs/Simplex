@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ava-labs/simplex/avalanchego"
 	"github.com/ava-labs/simplex/common"
 	"github.com/ava-labs/simplex/testutil"
 	"github.com/stretchr/testify/require"
@@ -63,9 +64,9 @@ func TestFakeNodeEpochChangesDespiteEmptyMempool(t *testing.T) {
 			node.tryFinalizeNextBlock()
 		}
 		if flipCoin() {
-			require.NoError(t, node.sm.HandleApproval(&ValidatorSetApproval{NodeID: [20]byte{1}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1))
+			require.NoError(t, node.sm.HandleApproval(&common.ValidatorSetApproval{NodeID: [20]byte{1}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1))
 		} else {
-			require.NoError(t, node.sm.HandleApproval(&ValidatorSetApproval{NodeID: [20]byte{2}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1))
+			require.NoError(t, node.sm.HandleApproval(&common.ValidatorSetApproval{NodeID: [20]byte{2}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1))
 		}
 
 		if node.isLastBlockSealing() {
@@ -112,9 +113,9 @@ func TestFakeNode(t *testing.T) {
 	for node.Epoch() == epoch {
 		node.act()
 		if flipCoin() {
-			require.NoError(t, node.sm.HandleApproval(&ValidatorSetApproval{NodeID: [20]byte{1}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1))
+			require.NoError(t, node.sm.HandleApproval(&common.ValidatorSetApproval{NodeID: [20]byte{1}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1))
 		} else {
-			require.NoError(t, node.sm.HandleApproval(&ValidatorSetApproval{NodeID: [20]byte{2}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1))
+			require.NoError(t, node.sm.HandleApproval(&common.ValidatorSetApproval{NodeID: [20]byte{2}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1))
 		}
 	}
 
@@ -129,9 +130,9 @@ func TestFakeNode(t *testing.T) {
 	for node.Epoch() == epoch {
 		node.act()
 		if flipCoin() {
-			require.NoError(t, node.sm.HandleApproval(&ValidatorSetApproval{NodeID: [20]byte{2}, PChainHeight: 300, Signature: signApproval(300, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1))
+			require.NoError(t, node.sm.HandleApproval(&common.ValidatorSetApproval{NodeID: [20]byte{2}, PChainHeight: 300, Signature: signApproval(300, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1))
 		} else {
-			require.NoError(t, node.sm.HandleApproval(&ValidatorSetApproval{NodeID: [20]byte{3}, PChainHeight: 300, Signature: signApproval(300, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1))
+			require.NoError(t, node.sm.HandleApproval(&common.ValidatorSetApproval{NodeID: [20]byte{3}, PChainHeight: 300, Signature: signApproval(300, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1))
 		}
 	}
 
@@ -180,9 +181,9 @@ func TestFakeNodeEmptyMempool(t *testing.T) {
 	for node.lastFinalizedBlock().Metadata.SimplexEpochInfo.BlockValidationDescriptor == nil {
 		node.act()
 		if flipCoin() {
-			require.NoError(t, node.sm.HandleApproval(&ValidatorSetApproval{NodeID: [20]byte{1}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1))
+			require.NoError(t, node.sm.HandleApproval(&common.ValidatorSetApproval{NodeID: [20]byte{1}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1))
 		} else {
-			require.NoError(t, node.sm.HandleApproval(&ValidatorSetApproval{NodeID: [20]byte{2}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1))
+			require.NoError(t, node.sm.HandleApproval(&common.ValidatorSetApproval{NodeID: [20]byte{2}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1))
 		}
 	}
 
@@ -209,9 +210,9 @@ func TestFakeNodeEmptyMempool(t *testing.T) {
 	for node.Height() < 30 {
 		node.act()
 		if flipCoin() {
-			require.NoError(t, node.sm.HandleApproval(&ValidatorSetApproval{NodeID: [20]byte{2}, PChainHeight: 300, Signature: signApproval(300, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1))
+			require.NoError(t, node.sm.HandleApproval(&common.ValidatorSetApproval{NodeID: [20]byte{2}, PChainHeight: 300, Signature: signApproval(300, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1))
 		} else {
-			require.NoError(t, node.sm.HandleApproval(&ValidatorSetApproval{NodeID: [20]byte{3}, PChainHeight: 300, Signature: signApproval(300, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1))
+			require.NoError(t, node.sm.HandleApproval(&common.ValidatorSetApproval{NodeID: [20]byte{3}, PChainHeight: 300, Signature: signApproval(300, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1))
 		}
 	}
 
@@ -228,7 +229,7 @@ type innerBlock struct {
 type blockState struct {
 	block      StateMachineBlock
 	finalized  bool
-	innerBlock VMBlock
+	innerBlock avalanchego.VMBlock
 }
 
 type fakeNode struct {
@@ -402,7 +403,7 @@ func (fn *fakeNode) buildAndNotarizeBlock() {
 	fn.blocks = append(fn.blocks, blockState{block: *block, innerBlock: vmBlock})
 }
 
-func (fn *fakeNode) buildBlock() (VMBlock, *StateMachineBlock) {
+func (fn *fakeNode) buildBlock() (avalanchego.VMBlock, *StateMachineBlock) {
 	parentBlock := fn.getParentBlock()
 
 	lastMD, prevBlockDigest := fn.prepareMetadataAndPrevBlockDigest()
@@ -446,7 +447,7 @@ func (fn *fakeNode) prepareMetadataAndPrevBlockDigest() (*common.ProtocolMetadat
 	return lastMD, lastBlockDigest
 }
 
-func (fn *fakeNode) BuildBlock(ctx context.Context, _ uint64) (VMBlock, error) {
+func (fn *fakeNode) BuildBlock(ctx context.Context, _ uint64) (avalanchego.VMBlock, error) {
 	if fn.mempoolEmpty {
 		<-ctx.Done()
 		return nil, ctx.Err()

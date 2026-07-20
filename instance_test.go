@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ava-labs/simplex/avalanchego"
 	"github.com/ava-labs/simplex/common"
 	metadata "github.com/ava-labs/simplex/msm"
 	"github.com/ava-labs/simplex/testutil"
@@ -107,7 +108,7 @@ func TestInstanceMixedNodeType(t *testing.T) {
 	// Trigger the epoch change: the validator set changes at epochChangePChainHeight,
 	// growing from one validator to two.
 	pChain.advanceTo(epochChangePChainHeight)
-	approval := &metadata.ValidatorSetApproval{
+	approval := &common.ValidatorSetApproval{
 		NodeID:        peerID,
 		PChainHeight:  epochChangePChainHeight,
 		AuxInfoDigest: sha256.Sum256(nil),
@@ -255,7 +256,7 @@ func TestInstanceNonValidatorBootstraps(t *testing.T) {
 
 	// Now grow the validator set to include the peer at the P-chain tip.
 	pChain.advanceTo(joinEpochP)
-	approval := &metadata.ValidatorSetApproval{
+	approval := &common.ValidatorSetApproval{
 		NodeID:        nv,
 		PChainHeight:  joinEpochP,
 		AuxInfoDigest: sha256.Sum256(nil),
@@ -480,7 +481,7 @@ func waitForNumBlocks(t *testing.T, storage *MockStorage, targetHeight uint64) {
 // waitForSealingBlock waits until a sealing block (a block carrying a BlockValidationDescriptor with the new weight)
 // is committed at or after fromSeq. It periodically injects approvals into the given instance.
 // Returns the seq of the sealing block.
-func waitForSealingBlock(t *testing.T, inst *Instance, approval *metadata.ValidatorSetApproval, fromSeq uint64) uint64 {
+func waitForSealingBlock(t *testing.T, inst *Instance, approval *common.ValidatorSetApproval, fromSeq uint64) uint64 {
 	t.Helper()
 	var result uint64
 	storage := inst.Config.Storage.(*MockStorage)
@@ -560,7 +561,7 @@ func newTestVM() *testVM {
 func (vm *testVM) pause()  { vm.paused.Store(true) }
 func (vm *testVM) resume() { vm.paused.Store(false) }
 
-func (vm *testVM) BuildBlock(ctx context.Context, _ uint64) (metadata.VMBlock, error) {
+func (vm *testVM) BuildBlock(ctx context.Context, _ uint64) (avalanchego.VMBlock, error) {
 	if vm.paused.Load() {
 		<-ctx.Done() // let the caller's impatient build time out
 		return nil, ctx.Err()
@@ -582,7 +583,7 @@ func (vm *testVM) WaitForPendingBlock(ctx context.Context) {
 	}
 }
 
-func (vm *testVM) ParseBlock(_ context.Context, b []byte) (metadata.VMBlock, error) {
+func (vm *testVM) ParseBlock(_ context.Context, b []byte) (avalanchego.VMBlock, error) {
 	return parseTestInnerBlock(b)
 }
 
@@ -797,7 +798,7 @@ func (m *MockStorage) blockAt(seq uint64) (metadata.StateMachineBlock, bool) {
 func (m *MockStorage) parseStored(encoded []byte) metadata.StateMachineBlock {
 	raw := &RawBlock{}
 	require.NoError(m.t, raw.UnmarshalCanoto(encoded))
-	var inner metadata.VMBlock
+	var inner avalanchego.VMBlock
 	if len(raw.InnerBlockBytes) > 0 {
 		parsed, err := parseTestInnerBlock(raw.InnerBlockBytes)
 		require.NoError(m.t, err)
@@ -932,7 +933,7 @@ func toRawBlock(t *testing.T, vb common.VerifiedBlock) *RawBlock {
 // sender's live block, so that remaining references to the sender's block don't race with the receiver.
 func reparseBlock(t *testing.T, vb common.VerifiedBlock) *ParsedBlock {
 	raw := toRawBlock(t, vb)
-	var inner metadata.VMBlock
+	var inner avalanchego.VMBlock
 	if len(raw.InnerBlockBytes) > 0 {
 		parsed, err := parseTestInnerBlock(raw.InnerBlockBytes)
 		require.NoError(t, err)

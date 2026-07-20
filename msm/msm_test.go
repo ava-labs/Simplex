@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ava-labs/simplex/avalanchego"
 	"github.com/ava-labs/simplex/common"
 	"github.com/ava-labs/simplex/testutil"
 	"github.com/stretchr/testify/require"
@@ -702,7 +703,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 			// ----- Step 4: First collecting block (1/3 approvals, not enough to seal) -----
 
 			sig1 := signApproval(pChainHeight2, emptyAuxInfoDigest)
-			require.NoError(t, sm.HandleApproval(&ValidatorSetApproval{
+			require.NoError(t, sm.HandleApproval(&common.ValidatorSetApproval{
 				NodeID:        node1,
 				PChainHeight:  pChainHeight2,
 				AuxInfoDigest: emptyAuxInfoDigest,
@@ -744,7 +745,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 
 			// ----- Step 5: Second collecting block (2/3 approvals, still not enough since threshold is strictly > 2/3) -----
 			sig2 := signApproval(pChainHeight2, emptyAuxInfoDigest)
-			require.NoError(t, sm.HandleApproval(&ValidatorSetApproval{
+			require.NoError(t, sm.HandleApproval(&common.ValidatorSetApproval{
 				NodeID:        node2,
 				PChainHeight:  pChainHeight2,
 				AuxInfoDigest: emptyAuxInfoDigest,
@@ -786,7 +787,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 
 			// ----- Step 6: Sealing block (3/3 approvals, enough to seal) -----
 			sig3 := signApproval(pChainHeight2, emptyAuxInfoDigest)
-			require.NoError(t, sm.HandleApproval(&ValidatorSetApproval{
+			require.NoError(t, sm.HandleApproval(&common.ValidatorSetApproval{
 				NodeID:        node3,
 				PChainHeight:  pChainHeight2,
 				AuxInfoDigest: emptyAuxInfoDigest,
@@ -1262,12 +1263,12 @@ func TestComputePrevVMBlockSeq(t *testing.T) {
 }
 
 func TestSanitizeApprovals(t *testing.T) {
-	node0 := nodeID{0}
-	node1 := nodeID{1}
-	node2 := nodeID{2}
-	node3 := nodeID{3}
+	node0 := avalanchego.NodeID{0}
+	node1 := avalanchego.NodeID{1}
+	node2 := avalanchego.NodeID{2}
+	node3 := avalanchego.NodeID{3}
 
-	nodeID2Index := map[nodeID]int{
+	nodeID2Index := map[avalanchego.NodeID]int{
 		node0: 0,
 		node1: 1,
 		node2: 2,
@@ -1280,7 +1281,7 @@ func TestSanitizeApprovals(t *testing.T) {
 			{NodeID: node0, PChainHeight: 100},
 			{NodeID: node1, PChainHeight: 200},
 		}
-		oldApproving := bitmaskFromBytes(nil)
+		oldApproving := avalanchego.BitmaskFromBytes(nil)
 		result := sanitizeApprovals(approvals, 100, [32]byte{}, nodeID2Index, oldApproving, logger)
 		require.Len(t, result, 1)
 		require.Equal(t, node0, result[0].NodeID)
@@ -1291,7 +1292,7 @@ func TestSanitizeApprovals(t *testing.T) {
 			{NodeID: node0, PChainHeight: 100, AuxInfoDigest: [32]byte{0xAA}},
 			{NodeID: node1, PChainHeight: 100, AuxInfoDigest: [32]byte{0xBB}},
 		}
-		oldApproving := bitmaskFromBytes(nil)
+		oldApproving := avalanchego.BitmaskFromBytes(nil)
 		result := sanitizeApprovals(approvals, 100, [32]byte{0xAA}, nodeID2Index, oldApproving, logger)
 		require.Len(t, result, 1)
 		require.Equal(t, node0, result[0].NodeID)
@@ -1302,7 +1303,7 @@ func TestSanitizeApprovals(t *testing.T) {
 			{NodeID: node0, PChainHeight: 100},
 			{NodeID: node1, PChainHeight: 100},
 		}
-		oldApproving := bitmaskFromBytes([]byte{1})
+		oldApproving := avalanchego.BitmaskFromBytes([]byte{1})
 		result := sanitizeApprovals(approvals, 100, [32]byte{}, nodeID2Index, oldApproving, logger)
 		require.Len(t, result, 1)
 		require.Equal(t, node1, result[0].NodeID)
@@ -1313,7 +1314,7 @@ func TestSanitizeApprovals(t *testing.T) {
 			{NodeID: node3, PChainHeight: 100},
 			{NodeID: node2, PChainHeight: 100},
 		}
-		oldApproving := bitmaskFromBytes(nil)
+		oldApproving := avalanchego.BitmaskFromBytes(nil)
 		result := sanitizeApprovals(approvals, 100, [32]byte{}, nodeID2Index, oldApproving, logger)
 		require.Len(t, result, 1)
 		require.Equal(t, node2, result[0].NodeID)
@@ -1324,18 +1325,18 @@ func TestSanitizeApprovals(t *testing.T) {
 			{NodeID: node0, PChainHeight: 100},
 			{NodeID: node0, PChainHeight: 100},
 		}
-		oldApproving := bitmaskFromBytes(nil)
+		oldApproving := avalanchego.BitmaskFromBytes(nil)
 		result := sanitizeApprovals(approvals, 100, [32]byte{}, nodeID2Index, oldApproving, logger)
 		require.Len(t, result, 1)
 	})
 }
 
 func TestComputeNewApproverSignaturesAndSigners(t *testing.T) {
-	node0 := nodeID{0}
-	node1 := nodeID{1}
-	node2 := nodeID{2}
+	node0 := avalanchego.NodeID{0}
+	node1 := avalanchego.NodeID{1}
+	node2 := avalanchego.NodeID{2}
 
-	nodeID2Index := map[nodeID]int{
+	nodeID2Index := map[avalanchego.NodeID]int{
 		node0: 0,
 		node1: 1,
 		node2: 2,
@@ -1351,7 +1352,7 @@ func TestComputeNewApproverSignaturesAndSigners(t *testing.T) {
 			NodeIDs:   []byte{1}, // bit 0
 			Signature: []byte("existing"),
 		}
-		oldApproving := bitmaskFromBytes([]byte{1})
+		oldApproving := avalanchego.BitmaskFromBytes([]byte{1})
 
 		peers := ValidatorSetApprovals{
 			{NodeID: node0, Signature: []byte("sig0")},
@@ -1367,7 +1368,7 @@ func TestComputeNewApproverSignaturesAndSigners(t *testing.T) {
 	})
 
 	t.Run("nil approvals", func(t *testing.T) {
-		oldApproving := bitmaskFromBytes(nil)
+		oldApproving := avalanchego.BitmaskFromBytes(nil)
 
 		peers := ValidatorSetApprovals{
 			{NodeID: node0, Signature: []byte("sig0")},
@@ -1380,7 +1381,7 @@ func TestComputeNewApproverSignaturesAndSigners(t *testing.T) {
 
 	t.Run("new approvals with no previous", func(t *testing.T) {
 		prevApprovals := &NextEpochApprovals{}
-		oldApproving := bitmaskFromBytes(nil)
+		oldApproving := avalanchego.BitmaskFromBytes(nil)
 
 		peers := ValidatorSetApprovals{
 			{NodeID: node0, Signature: []byte("sig0")},
@@ -1400,7 +1401,7 @@ func TestComputeNewApproverSignaturesAndSigners(t *testing.T) {
 			NodeIDs:   []byte{1}, // bit 0
 			Signature: []byte("existing"),
 		}
-		oldApproving := bitmaskFromBytes([]byte{1}) // node0 already approved
+		oldApproving := avalanchego.BitmaskFromBytes([]byte{1}) // node0 already approved
 
 		peers := ValidatorSetApprovals{
 			{NodeID: node2, Signature: []byte("sig2")},
@@ -1419,7 +1420,7 @@ func TestComputeNewApproverSignaturesAndSigners(t *testing.T) {
 			NodeIDs:   []byte{1},
 			Signature: []byte("existing"),
 		}
-		oldApproving := bitmaskFromBytes([]byte{1})
+		oldApproving := avalanchego.BitmaskFromBytes([]byte{1})
 
 		aggSig, newApproving, err := computeNewApproverSignaturesAndSigners(prevApprovals, nil, oldApproving, nodeID2Index, concatAggregator{}, logger)
 		require.NoError(t, err)
@@ -1429,8 +1430,8 @@ func TestComputeNewApproverSignaturesAndSigners(t *testing.T) {
 
 	t.Run("peer not in validator set is skipped", func(t *testing.T) {
 		prevApprovals := &NextEpochApprovals{}
-		oldApproving := bitmaskFromBytes(nil)
-		unknownNode := nodeID{99}
+		oldApproving := avalanchego.BitmaskFromBytes(nil)
+		unknownNode := avalanchego.NodeID{99}
 
 		peers := ValidatorSetApprovals{
 			{NodeID: unknownNode, Signature: []byte("unknown")},
@@ -1446,7 +1447,7 @@ func TestComputeNewApproverSignaturesAndSigners(t *testing.T) {
 
 	t.Run("aggregation error propagated", func(t *testing.T) {
 		prevApprovals := &NextEpochApprovals{}
-		oldApproving := bitmaskFromBytes(nil)
+		oldApproving := avalanchego.BitmaskFromBytes(nil)
 		peers := ValidatorSetApprovals{
 			{NodeID: node0, Signature: []byte("sig0")},
 		}
@@ -1478,12 +1479,12 @@ func TestBuildBlockCollectingApprovalsDedupsOwnApprovalAcrossRounds(t *testing.T
 
 	// Place MyNodeID at index 0 of a 3-node validator set so quorum is not
 	// reachable from a single approval (canSeal stays false on both rounds).
-	var myID nodeID
+	var myID avalanchego.NodeID
 	copy(myID[:], sm.MyNodeID)
 	validators := NodeBLSMappings{
-		{NodeID: nodeID(sm.MyNodeID), BLSKey: []byte{1}, Weight: 1},
-		{NodeID: nodeID{0xBB}, BLSKey: []byte{2}, Weight: 1},
-		{NodeID: nodeID{0xCC}, BLSKey: []byte{3}, Weight: 1},
+		{NodeID: avalanchego.NodeID(sm.MyNodeID), BLSKey: []byte{1}, Weight: 1},
+		{NodeID: avalanchego.NodeID{0xBB}, BLSKey: []byte{2}, Weight: 1},
+		{NodeID: avalanchego.NodeID{0xCC}, BLSKey: []byte{3}, Weight: 1},
 	}
 	tc.validatorSetRetriever.result = validators
 
@@ -1662,9 +1663,9 @@ func TestCollectingApprovalsAuxInfoGating(t *testing.T) {
 	// is retained once approvals are collected, but a single approval is below quorum (the
 	// block stays in the collecting state rather than sealing).
 	validators := NodeBLSMappings{
-		{NodeID: nodeID(sm.MyNodeID), BLSKey: []byte{1}, Weight: 1},
-		{NodeID: nodeID{0xBB}, BLSKey: []byte{2}, Weight: 1},
-		{NodeID: nodeID{0xCC}, BLSKey: []byte{3}, Weight: 1},
+		{NodeID: avalanchego.NodeID(sm.MyNodeID), BLSKey: []byte{1}, Weight: 1},
+		{NodeID: avalanchego.NodeID{0xBB}, BLSKey: []byte{2}, Weight: 1},
+		{NodeID: avalanchego.NodeID{0xCC}, BLSKey: []byte{3}, Weight: 1},
 	}
 	tc.validatorSetRetriever.result = validators
 
@@ -1784,9 +1785,9 @@ func TestCollectingApprovalsAuxInfoVersionIDIsBackwardCompatible(t *testing.T) {
 	sm.AuxiliaryInfoApp = app
 
 	validators := NodeBLSMappings{
-		{NodeID: nodeID(sm.MyNodeID), BLSKey: []byte{1}, Weight: 1},
-		{NodeID: nodeID{0xBB}, BLSKey: []byte{2}, Weight: 1},
-		{NodeID: nodeID{0xCC}, BLSKey: []byte{3}, Weight: 1},
+		{NodeID: avalanchego.NodeID(sm.MyNodeID), BLSKey: []byte{1}, Weight: 1},
+		{NodeID: avalanchego.NodeID{0xBB}, BLSKey: []byte{2}, Weight: 1},
+		{NodeID: avalanchego.NodeID{0xCC}, BLSKey: []byte{3}, Weight: 1},
 	}
 	tc.validatorSetRetriever.result = validators
 
@@ -1831,25 +1832,25 @@ func TestCollectingApprovalsAuxInfoVersionIDIsBackwardCompatible(t *testing.T) {
 	// application's default to 2. Verifying block1 also reads VersionID 1 from the parent's aux
 	// info, so it passes despite the changed default.
 	block1 := buildAndVerify(parentSeq+1, parent)
-	require.Equal(t, VersionID(1), block1.Metadata.AuxiliaryInfo.VersionID)
+	require.Equal(t, common.VersionID(1), block1.Metadata.AuxiliaryInfo.VersionID)
 	app.defaultVersionID = 2
 
 	// block2, block3: the default is now 2, but each block's buildAndVerify and verify still read VersionID
 	// 1 back from the chain and ignore the changed default.
 	block2 := buildAndVerify(parentSeq+2, *block1)
-	require.Equal(t, VersionID(1), block2.Metadata.AuxiliaryInfo.VersionID)
+	require.Equal(t, common.VersionID(1), block2.Metadata.AuxiliaryInfo.VersionID)
 
 	block3 := buildAndVerify(parentSeq+3, *block2)
-	require.Equal(t, VersionID(1), block3.Metadata.AuxiliaryInfo.VersionID)
+	require.Equal(t, common.VersionID(1), block3.Metadata.AuxiliaryInfo.VersionID)
 
 	// block4: history [vote-0, vote-1, vote-2, vote-3] is now sufficient, so no further vote is
 	// generated and approvals are collected -- still under VersionID 1.
 	block4 := buildAndVerify(parentSeq+4, *block3)
-	require.Equal(t, VersionID(1), block4.Metadata.AuxiliaryInfo.VersionID)
+	require.Equal(t, common.VersionID(1), block4.Metadata.AuxiliaryInfo.VersionID)
 }
 
 func TestCollectAuxiliaryInfo(t *testing.T) {
-	const versionID = VersionID(7)
+	const versionID = common.VersionID(7)
 
 	blockWithAuxInfo := func(info []byte, prevAuxInfoSeq uint64) StateMachineBlock {
 		return StateMachineBlock{
@@ -1875,7 +1876,7 @@ func TestCollectAuxiliaryInfo(t *testing.T) {
 		getBlockErr       error
 		expectedHistory   [][]byte
 		expectedLastSeq   uint64
-		expectedversionID VersionID
+		expectedversionID common.VersionID
 		expectedErr       error
 	}{
 		{

@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ava-labs/simplex/avalanchego"
 	"github.com/ava-labs/simplex/common"
 	"go.uber.org/zap"
 )
@@ -97,7 +98,7 @@ var (
 // A StateMachineBlock is a representation of a parsed OuterBlock, containing the inner block and the metadata.
 type StateMachineBlock struct {
 	// InnerBlock is the VM-level block, or nil if this is a block without an inner block (e.g., a Telock block).
-	InnerBlock VMBlock
+	InnerBlock avalanchego.VMBlock
 	// Metadata contains the state machine metadata associated with this block.
 	Metadata StateMachineMetadata
 }
@@ -153,7 +154,7 @@ type BlockRetriever func(seq uint64, digest common.Digest) (StateMachineBlock, *
 
 // BlockBuilder builds a new VM block with the given observed P-chain height.
 type BlockBuilder interface {
-	BuildBlock(ctx context.Context, pChainHeight uint64) (VMBlock, error)
+	BuildBlock(ctx context.Context, pChainHeight uint64) (avalanchego.VMBlock, error)
 
 	// WaitForPendingBlock returns when either the given context is cancelled,
 	// or when the VM signals that a block should be built.
@@ -166,11 +167,11 @@ type AuxiliaryInfoGenVerifier interface {
 	// IsLegalAppend checks whether the given auxiliary information byte slice [x]
 	// can be appended to the history of auxiliary information for the given versionID, according to the app's rules.
 	// Returns nil if the append is legal, or an error if the append is not legal or if any error occurs during the check.
-	IsLegalAppend(versionID VersionID, nodes NodeBLSMappings, history [][]byte, x []byte) error
+	IsLegalAppend(versionID common.VersionID, nodes NodeBLSMappings, history [][]byte, x []byte) error
 
 	// IsSufficient checks whether the given history of auxiliary information for the given versionID is sufficient
 	// to start the epoch transition process.
-	IsSufficient(versionID VersionID, nodes NodeBLSMappings, history [][]byte) (bool, error)
+	IsSufficient(versionID common.VersionID, nodes NodeBLSMappings, history [][]byte) (bool, error)
 
 	// Generate generates an auxiliary information encoded as a byte slice based on the history of auxiliary information
 	// for the given versionID in the current epoch so far.
@@ -178,10 +179,10 @@ type AuxiliaryInfoGenVerifier interface {
 	// Otherwise, the versionID from previous blocks in the epoch should be used.
 	// If the application deems the given history to be sufficient for the epoch change, it can return a nil byte slice,
 	// in which case it will not be appended to the history.
-	Generate(versionID VersionID, nodes NodeBLSMappings, history [][]byte) ([]byte, error)
+	Generate(versionID common.VersionID, nodes NodeBLSMappings, history [][]byte) ([]byte, error)
 
 	// DefaultVersionID returns the default VersionID that should be used for epochs that don't have any any auxiliary information yet.
-	DefaultVersionID() VersionID
+	DefaultVersionID() common.VersionID
 }
 
 // StateMachine manages block building and verification across epoch transitions.
@@ -230,7 +231,7 @@ type Config struct {
 	// It is used to determine the validator set of the first ever Simplex epoch.
 	LastNonSimplexBlockPChainHeight uint64
 	// LastNonSimplexInnerBlock is the inner block of the last block built by a non-Simplex proposer.
-	LastNonSimplexInnerBlock VMBlock
+	LastNonSimplexInnerBlock avalanchego.VMBlock
 	// GenesisValidatorSet is the validator set used for the genesis block.
 	GenesisValidatorSet NodeBLSMappings
 	// MyNodeID
@@ -264,7 +265,7 @@ func NewStateMachine(config *Config) (*StateMachine, error) {
 	return &sm, nil
 }
 
-func (sm *StateMachine) HandleApproval(approval *ValidatorSetApproval, timestamp uint64) error {
+func (sm *StateMachine) HandleApproval(approval *common.ValidatorSetApproval, timestamp uint64) error {
 	sm.lock.Lock()
 	approvalStore := sm.approvalStore
 	sm.lock.Unlock()
@@ -515,7 +516,7 @@ func (sm *StateMachine) buildBlockOrTransitionEpoch(ctx context.Context, parentB
 	now := sm.GetTime()
 	icmEpochInfo := computeICMEpochInfo(parentBlock, sm.ComputeICMEpoch, now)
 
-	var innerBlock VMBlock
+	var innerBlock avalanchego.VMBlock
 
 	if decisionToBuildBlock.buildInnerBlock {
 		innerBlock, err = sm.BlockBuilder.BuildBlock(ctx, icmEpochInfo.PChainEpochHeight)
@@ -545,7 +546,7 @@ func computeICMEpochInfo(parentBlock StateMachineBlock, computeICMEpoch ICMEpoch
 
 func verifyAgainstExpected(
 	ctx context.Context,
-	innerBlock VMBlock,
+	innerBlock avalanchego.VMBlock,
 	expectedSimplexEpochInfo SimplexEpochInfo,
 	expectedPChainHeight uint64,
 	nextBlock *StateMachineBlock,
@@ -1023,7 +1024,7 @@ func (sm *StateMachine) verifyCollectingApprovalsBlock(ctx context.Context, pare
 	}
 
 	sigAggr := sm.SignatureAggregatorCreator(validators.Nodes())
-	approvals := bitmaskFromBytes(newApprovals.NodeIDs)
+	approvals := avalanchego.BitmaskFromBytes(newApprovals.NodeIDs)
 	canSeal := sigAggr.IsQuorum(validators.SelectSubset(approvals))
 
 	if canSeal {
@@ -1077,7 +1078,7 @@ func assembleApprovalToBeSigned(pChainHeight uint64, auxInfoDigest [32]byte) ([]
 }
 
 func (sm *StateMachine) aggregatePubKeysForBitmask(nodeIDsBitmask []byte, validators NodeBLSMappings) ([]byte, error) {
-	approvingNodes := bitmaskFromBytes(nodeIDsBitmask)
+	approvingNodes := avalanchego.BitmaskFromBytes(nodeIDsBitmask)
 	publicKeys := make([][]byte, 0, len(validators))
 	for i := range validators {
 		if !approvingNodes.Contains(i) {
@@ -1133,8 +1134,8 @@ func (sm *StateMachine) computeNewApprovals(parentBlock StateMachineBlock, valid
 		return nil, err
 	}
 
-	approvalsFromPeers = append(approvalsFromPeers, ValidatorSetApproval{
-		NodeID:        nodeID(sm.MyNodeID),
+	approvalsFromPeers = append(approvalsFromPeers, common.ValidatorSetApproval{
+		NodeID:        avalanchego.NodeID(sm.MyNodeID),
 		PChainHeight:  prevBlockNextPChainReferenceHeight,
 		AuxInfoDigest: auxInfoDigest,
 		Signature:     sig,
@@ -1178,7 +1179,7 @@ func (aih *auxInfoHistory) lastHistory() []byte {
 // collectAuxiliaryInfo traverses backwards starting from the given block and collects the AuxiliaryInfo of all blocks in the chain.
 // returns the collected AuxiliaryInfo, the corresponding sequences of the blocks they were collected from,
 // and the application ID of the oldest block that contains a non empty Info (or defaultVersionID if there was none).
-func collectAuxiliaryInfo(block StateMachineBlock, startSeq uint64, getBlock BlockRetriever, defaultVersionID VersionID) (auxInfoHistory, VersionID, error) {
+func collectAuxiliaryInfo(block StateMachineBlock, startSeq uint64, getBlock BlockRetriever, defaultVersionID common.VersionID) (auxInfoHistory, common.VersionID, error) {
 	var lastSeq *uint64
 	var history [][]byte
 	var versionID = defaultVersionID
@@ -1296,7 +1297,7 @@ func (sm *StateMachine) computeSimplexEpochInfoForSealingBlock(simplexEpochInfo 
 
 // wrapBlock creates a new StateMachineBlock by wrapping the VM block (if applicable) and adding the appropriate metadata.
 func wrapBlock(
-	childBlock VMBlock,
+	childBlock avalanchego.VMBlock,
 	newSimplexEpochInfo SimplexEpochInfo,
 	pChainHeight uint64,
 	simplexMetadata,
@@ -1575,7 +1576,7 @@ func computeNewApprovals(
 		prevNextEpochApprovals = &NextEpochApprovals{}
 	}
 
-	oldApprovingNodes := bitmaskFromBytes(prevNextEpochApprovals.NodeIDs)
+	oldApprovingNodes := avalanchego.BitmaskFromBytes(prevNextEpochApprovals.NodeIDs)
 
 	nodeID2ValidatorIndex := validators.IndexByNodeID()
 
@@ -1608,13 +1609,13 @@ func computeNewApprovals(
 func computeNewApproverSignaturesAndSigners(
 	nextEpochApprovals *NextEpochApprovals,
 	approvalsFromPeers ValidatorSetApprovals,
-	oldApprovingNodes bitmask,
-	nodeID2ValidatorIndex map[nodeID]int,
+	oldApprovingNodes avalanchego.Bitmask,
+	nodeID2ValidatorIndex map[avalanchego.NodeID]int,
 	sigAggr common.SignatureAggregator,
 	logger common.Logger,
-) ([]byte, bitmask, error) {
+) ([]byte, avalanchego.Bitmask, error) {
 	if nextEpochApprovals == nil {
-		return nil, bitmask{}, errEmptyNextEpochApprovals
+		return nil, avalanchego.Bitmask{}, errEmptyNextEpochApprovals
 	}
 	// Prepare the new signatures from the new approvals that haven't approved yet and that agree with our candidate auxiliary info digest and P-Chain height.
 	newSignatures := make([][]byte, 0, len(approvalsFromPeers)+1)
@@ -1650,7 +1651,7 @@ func computeNewApproverSignaturesAndSigners(
 	// Finally, we aggregate all signatures together, to compute the new aggregated signature.
 	aggregatedSignature, err := sigAggr.AppendSignatures(existingSignature, newSignatures...)
 	if err != nil {
-		return nil, bitmask{}, fmt.Errorf("failed to aggregate signatures: %w", err)
+		return nil, avalanchego.Bitmask{}, fmt.Errorf("failed to aggregate signatures: %w", err)
 	}
 
 	return aggregatedSignature, newApprovingNodes, nil
@@ -1658,14 +1659,14 @@ func computeNewApproverSignaturesAndSigners(
 
 // sanitizeApprovals filters out approvals that are not valid by checking if they agree with our candidate auxiliary info digest and P-Chain height,
 // and if they are from the validator set and haven't already been approved.
-func sanitizeApprovals(approvals ValidatorSetApprovals, pChainHeight uint64, auxInfoDigest [32]byte, nodeID2ValidatorIndex map[nodeID]int, oldApprovingNodes bitmask, logger common.Logger) ValidatorSetApprovals {
+func sanitizeApprovals(approvals ValidatorSetApprovals, pChainHeight uint64, auxInfoDigest [32]byte, nodeID2ValidatorIndex map[avalanchego.NodeID]int, oldApprovingNodes avalanchego.Bitmask, logger common.Logger) ValidatorSetApprovals {
 	filter1 := approvalsThatAgreeWithPChainHeightAndAuxInfoDigest(pChainHeight, auxInfoDigest)
 	filter2 := approvalsThatAreInValidatorSetAndHaveNotAlreadyApproved(oldApprovingNodes.Clone(), nodeID2ValidatorIndex)
 	return approvals.Filter(filter1, logger).Filter(filter2, logger).UniqueByNodeID()
 }
 
-func approvalsThatAgreeWithPChainHeightAndAuxInfoDigest(pChainHeight uint64, auxInfoDigest [32]byte) func(approval ValidatorSetApproval, logger common.Logger) bool {
-	return func(approval ValidatorSetApproval, logger common.Logger) bool {
+func approvalsThatAgreeWithPChainHeightAndAuxInfoDigest(pChainHeight uint64, auxInfoDigest [32]byte) func(approval common.ValidatorSetApproval, logger common.Logger) bool {
+	return func(approval common.ValidatorSetApproval, logger common.Logger) bool {
 		// Pick only approvals that agree with our P-Chain height
 		ok := approval.PChainHeight == pChainHeight && approval.AuxInfoDigest == auxInfoDigest
 		if !ok {
@@ -1679,8 +1680,8 @@ func approvalsThatAgreeWithPChainHeightAndAuxInfoDigest(pChainHeight uint64, aux
 	}
 }
 
-func approvalsThatAreInValidatorSetAndHaveNotAlreadyApproved(oldApprovingNodes bitmask, nodeID2ValidatorIndex map[nodeID]int) func(approval ValidatorSetApproval, logger common.Logger) bool {
-	return func(approval ValidatorSetApproval, logger common.Logger) bool {
+func approvalsThatAreInValidatorSetAndHaveNotAlreadyApproved(oldApprovingNodes avalanchego.Bitmask, nodeID2ValidatorIndex map[avalanchego.NodeID]int) func(approval common.ValidatorSetApproval, logger common.Logger) bool {
+	return func(approval common.ValidatorSetApproval, logger common.Logger) bool {
 		approvingNodeIndexOfNewApprover, exists := nodeID2ValidatorIndex[approval.NodeID]
 		if !exists {
 			logger.Debug("Filtering out approval from node that is not in the validator set",
@@ -1712,8 +1713,8 @@ func areNextEpochApprovalsSignersSupersetOfApprovalsOfPrevBlock(prev SimplexEpoc
 		return fmt.Errorf("%w: previous block has next epoch approvals but proposed block doesn't have next epoch approvals", errNextEpochApprovalsShrunk)
 	}
 	// Make sure that previous signers are still there.
-	prevSigners := bitmaskFromBytes(prev.NextEpochApprovals.NodeIDs)
-	nextSigners := bitmaskFromBytes(next.NextEpochApprovals.NodeIDs)
+	prevSigners := avalanchego.BitmaskFromBytes(prev.NextEpochApprovals.NodeIDs)
+	nextSigners := avalanchego.BitmaskFromBytes(next.NextEpochApprovals.NodeIDs)
 	// Remove all bits in nextSigners from prevSigners
 	prevSigners.Difference(&nextSigners)
 	// If we have some bits left, it means there was a bit in prevSigners that wasn't in nextSigners
