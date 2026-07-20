@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/ava-labs/simplex/avalanchego"
 	"github.com/ava-labs/simplex/common"
 	"go.uber.org/zap"
 )
@@ -19,7 +20,7 @@ type approvalKey struct {
 type approvalsByPChainHeightAndAuxInfoDigest map[approvalKey]*approvalAndTimestamp
 
 type approvalAndTimestamp struct {
-	ValidatorSetApproval
+	common.ValidatorSetApproval
 	Timestamp uint64
 }
 
@@ -27,22 +28,22 @@ type ApprovalStore struct {
 	signatureVerifier SignatureVerifier
 	validators        NodeBLSMappings
 	logger            common.Logger
-	nodeIDToPK        map[nodeID][]byte
+	nodeIDToPK        map[avalanchego.NodeID][]byte
 	// lock guards the mutable state below (approvalsByNodes, storedCount). The
 	// store is accessed concurrently: approvals are handled as they arrive while
 	// the block builder reads the accumulated approvals when building a block.
 	lock             sync.RWMutex
-	approvalsByNodes map[nodeID]approvalsByPChainHeightAndAuxInfoDigest
+	approvalsByNodes map[avalanchego.NodeID]approvalsByPChainHeightAndAuxInfoDigest
 	storedCount      int
 }
 
 func NewApprovalStore(signatureVerifier SignatureVerifier, validators NodeBLSMappings, logger common.Logger) *ApprovalStore {
-	pkByNodeID := make(map[nodeID][]byte)
+	pkByNodeID := make(map[avalanchego.NodeID][]byte)
 	for _, vdr := range validators {
 		pkByNodeID[vdr.NodeID] = vdr.BLSKey
 	}
 
-	approvalsByNodes := make(map[nodeID]approvalsByPChainHeightAndAuxInfoDigest, len(validators))
+	approvalsByNodes := make(map[avalanchego.NodeID]approvalsByPChainHeightAndAuxInfoDigest, len(validators))
 	for _, vdr := range validators {
 		approvalsByNodes[vdr.NodeID] = make(approvalsByPChainHeightAndAuxInfoDigest)
 	}
@@ -69,9 +70,9 @@ func (as *ApprovalStore) Approvals() ValidatorSetApprovals {
 	return approvals
 }
 
-func (as *ApprovalStore) HandleApproval(approval *ValidatorSetApproval, timestamp uint64) error {
+func (as *ApprovalStore) HandleApproval(approval *common.ValidatorSetApproval, timestamp uint64) error {
 	// First thing we check is if the node that sent this approval is a validator.
-	pk, exists := as.nodeIDToPK[approval.NodeID]
+	pk, exists := as.nodeIDToPK[avalanchego.NodeID(approval.NodeID)]
 	if !exists {
 		as.logger.Debug("Received an approval from a node that is not a validator", zap.String("nodeID",
 			fmt.Sprintf("%x", approval.NodeID)), zap.Uint64("pChainHeight", approval.PChainHeight))
@@ -103,8 +104,8 @@ func (as *ApprovalStore) HandleApproval(approval *ValidatorSetApproval, timestam
 	}
 
 	// Store the approval.
-	oldApproval := as.approvalsByNodes[approval.NodeID][key]
-	as.approvalsByNodes[approval.NodeID][key] = &approvalAndTimestamp{
+	oldApproval := as.approvalsByNodes[avalanchego.NodeID(approval.NodeID)][key]
+	as.approvalsByNodes[avalanchego.NodeID(approval.NodeID)][key] = &approvalAndTimestamp{
 		ValidatorSetApproval: *approval,
 		Timestamp:            timestamp,
 	}
@@ -120,13 +121,13 @@ func (as *ApprovalStore) HandleApproval(approval *ValidatorSetApproval, timestam
 	return nil
 }
 
-func (as *ApprovalStore) maybePruneOldApprovals(approval *ValidatorSetApproval) {
-	if len(as.approvalsByNodes[approval.NodeID]) <= len(as.validators) {
+func (as *ApprovalStore) maybePruneOldApprovals(approval *common.ValidatorSetApproval) {
+	if len(as.approvalsByNodes[avalanchego.NodeID(approval.NodeID)]) <= len(as.validators) {
 		return
 	}
 	// Find the oldest approval and delete it.
 	var oldestApproval *approvalAndTimestamp
-	for _, approval := range as.approvalsByNodes[approval.NodeID] {
+	for _, approval := range as.approvalsByNodes[avalanchego.NodeID(approval.NodeID)] {
 		if oldestApproval == nil || approval.Timestamp < oldestApproval.Timestamp {
 			oldestApproval = approval
 		}
@@ -142,12 +143,12 @@ func (as *ApprovalStore) maybePruneOldApprovals(approval *ValidatorSetApproval) 
 			zap.String("nodeID", fmt.Sprintf("%x", oldestApproval.NodeID)),
 			zap.String("oldestApprovalPChainHeight",
 				fmt.Sprintf("%d", oldestApproval.PChainHeight)), zap.Uint64("oldestApprovalTimestamp", oldestApproval.Timestamp))
-		delete(as.approvalsByNodes[approval.NodeID], key)
+		delete(as.approvalsByNodes[avalanchego.NodeID(approval.NodeID)], key)
 		as.storedCount--
 	}
 }
 
-func (as *ApprovalStore) checkApprovalSignature(approval *ValidatorSetApproval, pk []byte) error {
+func (as *ApprovalStore) checkApprovalSignature(approval *common.ValidatorSetApproval, pk []byte) error {
 	toBeSigned, err := assembleApprovalToBeSigned(approval.PChainHeight, approval.AuxInfoDigest)
 	if err != nil {
 		return err
@@ -157,8 +158,8 @@ func (as *ApprovalStore) checkApprovalSignature(approval *ValidatorSetApproval, 
 	return as.signatureVerifier.VerifySignature(approval.Signature, toBeSigned, pk)
 }
 
-func (as *ApprovalStore) approvalExistsAndUpToDate(approval *ValidatorSetApproval, timestamp uint64) bool {
-	if as.approvalsByNodes[approval.NodeID] == nil {
+func (as *ApprovalStore) approvalExistsAndUpToDate(approval *common.ValidatorSetApproval, timestamp uint64) bool {
+	if as.approvalsByNodes[avalanchego.NodeID(approval.NodeID)] == nil {
 		return false
 	}
 
@@ -167,7 +168,7 @@ func (as *ApprovalStore) approvalExistsAndUpToDate(approval *ValidatorSetApprova
 		auxInfoDigest: approval.AuxInfoDigest,
 	}
 
-	existingApproval := as.approvalsByNodes[approval.NodeID][key]
+	existingApproval := as.approvalsByNodes[avalanchego.NodeID(approval.NodeID)][key]
 	if existingApproval == nil {
 		return false
 	}

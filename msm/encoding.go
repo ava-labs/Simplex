@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"slices"
 
+	"github.com/ava-labs/simplex/avalanchego"
 	"github.com/ava-labs/simplex/common"
 )
 
@@ -63,9 +64,6 @@ func (ei *ICMEpochInfo) Equal(other *ICMEpochInfo) bool {
 	return ei.EpochStartTime == other.EpochStartTime && ei.EpochNumber == other.EpochNumber && ei.PChainEpochHeight == other.PChainEpochHeight
 }
 
-// VersionID is an identifier for applications that care about epoch changes.
-type VersionID uint32
-
 // AuxiliaryInfo defines application-specific information for applications that might care about epoch change,
 // such as threshold distributed public key generation.
 type AuxiliaryInfo struct {
@@ -77,7 +75,7 @@ type AuxiliaryInfo struct {
 	PrevAuxInfoSeq uint64 `canoto:"uint,2"`
 	// VersionID is an identifier that identifies the application.
 	// Can be used for backward-compatibility and upgrade purposes.
-	VersionID VersionID `canoto:"uint,3"`
+	VersionID common.VersionID `canoto:"uint,3"`
 
 	canotoData canotoData_AuxiliaryInfo
 }
@@ -203,9 +201,9 @@ func (sei *SimplexEpochInfo) NextState() state {
 }
 
 type NodeBLSMapping struct {
-	NodeID nodeID `canoto:"fixed bytes,1"`
-	BLSKey []byte `canoto:"bytes,2"`
-	Weight uint64 `canoto:"uint,3"`
+	NodeID avalanchego.NodeID `canoto:"fixed bytes,1"`
+	BLSKey []byte             `canoto:"bytes,2"`
+	Weight uint64             `canoto:"uint,3"`
 
 	canotoData canotoData_NodeBLSMapping
 }
@@ -306,15 +304,15 @@ func (nbms NodeBLSMappings) Nodes() common.Nodes {
 
 // IndexByNodeID returns a mapping from NodeID to the validator's index in the set,
 // which is the position used by approval bitmasks.
-func (nbms NodeBLSMappings) IndexByNodeID() map[nodeID]int {
-	result := make(map[nodeID]int, len(nbms))
+func (nbms NodeBLSMappings) IndexByNodeID() map[avalanchego.NodeID]int {
+	result := make(map[avalanchego.NodeID]int, len(nbms))
 	for i, nbm := range nbms {
 		result[nbm.NodeID] = i
 	}
 	return result
 }
 
-func (nbms NodeBLSMappings) SelectSubset(bitmask bitmask) []common.NodeID {
+func (nbms NodeBLSMappings) SelectSubset(bitmask avalanchego.Bitmask) []common.NodeID {
 	nodeIDs := make([]common.NodeID, 0, len(nbms))
 	for i, nbm := range nbms {
 		if !bitmask.Contains(i) {
@@ -358,18 +356,9 @@ func (nbms NodeBLSMappings) Equal(other NodeBLSMappings) bool {
 	return true
 }
 
-type ValidatorSetApproval struct {
-	NodeID        nodeID   `canoto:"fixed bytes,1"`
-	AuxInfoDigest [32]byte `canoto:"fixed bytes,2"`
-	PChainHeight  uint64   `canoto:"uint,3"`
-	Signature     []byte   `canoto:"bytes,4"`
+type ValidatorSetApprovals []common.ValidatorSetApproval
 
-	canotoData canotoData_ValidatorSetApproval
-}
-
-type ValidatorSetApprovals []ValidatorSetApproval
-
-func (vsa ValidatorSetApprovals) Filter(f func(ValidatorSetApproval, common.Logger) bool, logger common.Logger) ValidatorSetApprovals {
+func (vsa ValidatorSetApprovals) Filter(f func(common.ValidatorSetApproval, common.Logger) bool, logger common.Logger) ValidatorSetApprovals {
 	result := make(ValidatorSetApprovals, 0, len(vsa))
 	for _, v := range vsa {
 		if f(v, logger) {
@@ -380,7 +369,7 @@ func (vsa ValidatorSetApprovals) Filter(f func(ValidatorSetApproval, common.Logg
 }
 
 func (vsa ValidatorSetApprovals) UniqueByNodeID() ValidatorSetApprovals {
-	seen := make(map[nodeID]struct{})
+	seen := make(map[avalanchego.NodeID]struct{})
 	result := make(ValidatorSetApprovals, 0, len(vsa))
 	for _, v := range vsa {
 		if _, exists := seen[v.NodeID]; !exists {

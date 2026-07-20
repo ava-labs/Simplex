@@ -167,22 +167,22 @@ func (cs *CachedStorage) insertBlock(block *ParsedBlock) {
 
 type NoopAuxiliaryInfoApp struct{}
 
-func (n *NoopAuxiliaryInfoApp) IsLegalAppend(versionID metadata.VersionID, nodes metadata.NodeBLSMappings, history [][]byte, x []byte) error {
+func (n *NoopAuxiliaryInfoApp) IsLegalAppend(versionID common.VersionID, nodes metadata.NodeBLSMappings, history [][]byte, x []byte) error {
 	if len(x) > 0 {
 		return fmt.Errorf("input should be empty")
 	}
 	return nil
 }
 
-func (n *NoopAuxiliaryInfoApp) IsSufficient(versionID metadata.VersionID, nodes metadata.NodeBLSMappings, history [][]byte) (bool, error) {
+func (n *NoopAuxiliaryInfoApp) IsSufficient(versionID common.VersionID, nodes metadata.NodeBLSMappings, history [][]byte) (bool, error) {
 	return true, nil
 }
 
-func (n *NoopAuxiliaryInfoApp) Generate(metadata.VersionID, metadata.NodeBLSMappings, [][]byte) ([]byte, error) {
+func (n *NoopAuxiliaryInfoApp) Generate(common.VersionID, metadata.NodeBLSMappings, [][]byte) ([]byte, error) {
 	return nil, nil
 }
 
-func (n *NoopAuxiliaryInfoApp) DefaultVersionID() metadata.VersionID {
+func (n *NoopAuxiliaryInfoApp) DefaultVersionID() common.VersionID {
 	return 0
 }
 
