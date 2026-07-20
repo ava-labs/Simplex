@@ -152,7 +152,7 @@ type AuxiliaryInfoGenVerifier interface {
 
 	// Generate generates an auxiliary information encoded as a byte slice based on the history of auxiliary information
 	// for the given versionID in the current epoch so far.
-	// If this is the first invocation in the epoch, DefaultversionID() should be passed as the VersionID.
+	// If this is the first invocation in the epoch, DefaultVersionID() should be passed as the VersionID.
 	// Otherwise, the versionID from previous blocks in the epoch should be used.
 	// If the application deems the given history to be sufficient for the epoch change, it can return a nil byte slice,
 	// in which case it will not be appended to the history.
