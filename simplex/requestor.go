@@ -5,6 +5,7 @@ package simplex
 
 import (
 	"math"
+	"slices"
 	"sync"
 	"time"
 
@@ -122,17 +123,16 @@ func (r *requestor) advanceTime(now time.Time) {
 	r.timeoutHandler.Tick(now)
 }
 
+// resendReplicationRequests re-sends requests for [missingIds], the sequences
+// or rounds that were previously requested but not received before their
+// timeout expired.
 func (r *requestor) resendReplicationRequests(missingIds []uint64) {
 	// we call this function in the timeout handler goroutine, so we need to
 	// ensure we don't have concurrent access to highestObserved
 	r.epochLock.Lock()
 	defer r.epochLock.Unlock()
 
-	segments := CompressSequences(missingIds)
-
-	r.sendSegments(segments)
-
-	r.requestIterator++
+	r.sendRequests(missingIds)
 }
 
 // observedSignedQuorum is called when we observe a signed quorum for a future round/sequence.
@@ -157,76 +157,78 @@ func (r *requestor) observedSignedQuorum(observed *signedQuorum, currentSeqOrRou
 // maybeSendMoreReplicationRequests checks if we need to send more replication requests given an observed quorum.
 // it limits the amount of outstanding requests to be at most [maxRoundWindow] ahead of [currentSeqOrRound].
 func (r *requestor) sendMoreReplicationRequests(observedSeqOrRound, currentSeqOrRound uint64) {
-	start := math.Max(float64(currentSeqOrRound), float64(r.highestRequested))
+	start := uint64(math.Max(float64(currentSeqOrRound), float64(r.highestRequested)))
 	// we limit the number of outstanding requests to be at most maxRoundWindow ahead of nextSeqToCommit
-	end := math.Min(float64(observedSeqOrRound), float64(r.maxRoundWindow+currentSeqOrRound))
+	end := uint64(math.Min(float64(observedSeqOrRound), float64(r.maxRoundWindow+currentSeqOrRound-1)))
 
+	if start > end {
+		return
+	}
+	seqsOrRounds := make([]uint64, 0, end-start+1)
+	for i := start; i <= end; i++ {
+		seqsOrRounds = append(seqsOrRounds, i)
+	}
 	r.logger.Debug("Node is behind, attempting to request missing values", zap.Uint64("value", observedSeqOrRound), zap.Uint64("start", uint64(start)), zap.Uint64("end", uint64(end)), zap.Bool("seq requestor", r.replicateSeqs))
-	r.sendReplicationRequests(uint64(start), uint64(end))
+	r.sendRequests(seqsOrRounds)
 }
 
-// sendReplicationRequests sends requests for missing sequences for the
-// range of sequences [start, end] <- inclusive. It does so by splitting the
-// range of sequences equally amount the nodes that have signed [highestObserved].
-func (r *requestor) sendReplicationRequests(start uint64, end uint64) {
-	nodes := r.highestObserved.signers
-	numNodes := len(nodes)
+// sendRequests requests [seqsOrRounds] from the nodes that have signed
+// [highestObserved], by splitting them into batches of at most
+// MaxRoundRequests and sending each batch to one of the signers.
+// It is the single send path, used both for initial replication requests
+// and for re-sending requests that have timed out.
+func (r *requestor) sendRequests(seqsOrRounds []uint64) {
+	signers := r.highestObserved.signers
+	numNodes := len(signers)
+	batches := BatchSequences(seqsOrRounds, uint64(numNodes), maxItemCountPerRequest)
 
-	seqRequests := DistributeSequenceRequests(start, end, numNodes)
-	r.logger.Debug("Distributing replication requests", zap.Uint64("start", start), zap.Uint64("end", end), zap.Stringer("nodes", common.NodeIDs(nodes)))
-
-	r.sendSegments(seqRequests)
-
-	// next time we send requests, we start with a different permutation
+	for i, batch := range batches {
+		index := (i + r.requestIterator) % numNodes
+		r.sendRequestToNode(batch, signers[index])
+	}
 	r.requestIterator++
 }
 
-func (r *requestor) sendSegments(segments []Segment) {
-	numNodes := len(r.highestObserved.signers)
-	for i, seqsOrRounds := range segments {
-		index := (i + r.requestIterator) % numNodes
-		r.sendRequestToNode(seqsOrRounds.Start, seqsOrRounds.End, r.highestObserved.signers[index])
-	}
-}
-
-// sendRequestToNode requests [start, end] from nodes[index].
-// In case the nodes[index] does not respond, we create a timeout that will
-// re-send the request.
-func (r *requestor) sendRequestToNode(start uint64, end uint64, node common.NodeID) {
-	seqsOrRound := make([]uint64, 0, (end+1)-start)
-	for i := start; i <= end; i++ {
+// sendRequestToNode requests [seqsOrRounds] from node, skipping
+// any sequences we have already committed. In case the node does not respond,
+// we create a timeout that will re-send the request. seqsOrRounds is expected to be sorted in ascending order,
+// as the last element is used to update highestRequested.
+func (r *requestor) sendRequestToNode(seqsOrRounds []uint64, node common.NodeID) {
+	toRequest := make([]uint64, 0, len(seqsOrRounds))
+	for _, seqOrRound := range seqsOrRounds {
 		// Skip sequences we have already committed;
-		if r.replicateSeqs && r.highestCommitted != nil && i <= *r.highestCommitted {
+		if r.replicateSeqs && r.highestCommitted != nil && seqOrRound <= *r.highestCommitted {
 			continue
 		}
-		seqsOrRound = append(seqsOrRound, i)
+		toRequest = append(toRequest, seqOrRound)
 		// ensure we set a timeout for this sequence
-		r.timeoutHandler.AddTask(i)
+		r.timeoutHandler.AddTask(seqOrRound)
 	}
 
-	if len(seqsOrRound) == 0 {
+	if len(toRequest) == 0 {
 		return
 	}
 
-	if r.highestRequested < end {
-		r.highestRequested = end
+	if !slices.IsSorted(toRequest) {
+		slices.Sort(toRequest)
+	}
+	if last := toRequest[len(toRequest)-1]; last > r.highestRequested {
+		r.highestRequested = last
 	}
 
 	request := &common.ReplicationRequest{}
 	if r.replicateSeqs {
 		request.LatestFinalizedSeq = r.highestObserved.seq
-		request.Seqs = seqsOrRound
+		request.Seqs = toRequest
 	} else {
 		request.LatestRound = r.highestObserved.round
-		request.Rounds = seqsOrRound
+		request.Rounds = toRequest
 	}
 
 	msg := &common.Message{ReplicationRequest: request}
 
 	r.logger.Debug("Requesting missing rounds/sequences ",
 		zap.Stringer("from", node),
-		zap.Uint64("start", start),
-		zap.Uint64("end", end),
 		zap.Int("sequence count", len(request.Seqs)),
 		zap.Int("round count", len(request.Rounds)),
 		zap.Uint64("latestSeq", request.LatestFinalizedSeq),

@@ -25,6 +25,21 @@ type Message struct {
 	BlockDigestRequest          *BlockDigestRequest
 }
 
+func (m *Message) IsReplicationMessage() bool {
+	switch {
+	case m.ReplicationResponse != nil:
+		return true
+	case m.ReplicationRequest != nil:
+		return true
+	case m.VerifiedReplicationResponse != nil:
+		return true
+	case m.BlockDigestRequest != nil:
+		return true
+	default:
+		return false
+	}
+}
+
 type EmptyVoteMetadata struct {
 	Round uint64
 	Epoch uint64
@@ -121,7 +136,7 @@ func verifyContext(signature []byte, verifier SignatureVerifier, msg []byte, con
 	if err != nil {
 		return err
 	}
-	return verifier.Verify(toBeSigned, signature, pk)
+	return verifier.VerifySignature(toBeSigned, signature, pk)
 }
 
 func verifyContextQC(qc QuorumCertificate, msg []byte, context string, nodes Nodes) error {

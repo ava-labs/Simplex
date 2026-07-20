@@ -677,3 +677,54 @@ func TestReplicationResendsFinalizedBlocksThatFailedVerification(t *testing.T) {
 	require.Equal(t, uint64(1), storage.NumBlocks())
 	require.Equal(t, block, storedBlock)
 }
+
+func TestReplicationResendSplitsRequests(t *testing.T) {
+	// ensures that when replication requests time out, the missing sequences
+	// are re-requested split across the nodes that signed the highest observed quorum, just like the initial requests are.
+	nodes := []common.NodeID{{1}, {2}, {3}, {4}}
+	startSeq := 2 * uint64(simplex.DefaultMaxRoundWindow)
+
+	net := testutil.NewControlledNetwork(t, nodes)
+	storageData := createBlocks(t, nodes, startSeq)
+
+	newNodeConfig := func(from common.NodeID) *testutil.TestNodeConfig {
+		comm := testutil.NewTestComm(from, net.BasicInMemoryNetwork, rejectReplicationRequests)
+		return &testutil.TestNodeConfig{
+			InitialStorage:     storageData,
+			Comm:               comm,
+			ReplicationEnabled: true,
+		}
+	}
+
+	testutil.NewControlledSimplexNode(t, nodes[0], net, newNodeConfig(nodes[0]))
+	testutil.NewControlledSimplexNode(t, nodes[1], net, newNodeConfig(nodes[1]))
+	testutil.NewControlledSimplexNode(t, nodes[2], net, newNodeConfig(nodes[2]))
+	laggingNode := testutil.NewControlledSimplexNode(t, nodes[3], net, &testutil.TestNodeConfig{
+		ReplicationEnabled: true,
+		// twice the responder's window: the timed-out sequences span more
+		// than a responder is willing to server in a single request
+		MaxRoundWindow: startSeq,
+	})
+
+	net.StartInstances()
+	defer net.StopInstances()
+	net.TriggerLeaderBlockBuilder(startSeq)
+
+	// the healthy nodes commit, the lagging node's replciation responses
+	// were all dropped, so it is stuck at 0.
+	for _, n := range net.Instances {
+		if n.E.ID.Equals(laggingNode.E.ID) {
+			continue
+		}
+		n.Storage.WaitForBlockCommit(startSeq)
+	}
+	require.Equal(t, uint64(0), laggingNode.Storage.NumBlocks())
+	// wait to register the timeout before healing
+	time.Sleep(100 * time.Millisecond)
+	// network healed, responsed are no longer dropped
+	net.SetAllNodesMessageFilter(testutil.AllowAllMessages)
+	// trigger the resend of all timed-out responses. If the resend path doesn't split/ doesn't account for maxRoundWindow
+	// this test would hang forever because the responses would be dropped silently.
+	laggingNode.E.AdvanceTime(laggingNode.E.StartTime.Add(simplex.DefaultReplicationRequestTimeout * 2))
+	laggingNode.Storage.WaitForBlockCommit(startSeq)
+}

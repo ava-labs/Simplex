@@ -242,137 +242,135 @@ func TestGetHighestQuorumRound(t *testing.T) {
 		})
 	}
 }
-
-func TestCompressSequences(t *testing.T) {
+func TestBatchSequences(t *testing.T) {
 	tests := []struct {
 		name     string
-		input    []uint64
-		expected []Segment
+		seqs     []uint64
+		numNodes int
+		maxSize  uint64
+		expected [][]uint64
 	}{
 		{
 			name:     "empty input",
-			input:    []uint64{},
-			expected: nil,
-		},
-		{
-			name:  "single element",
-			input: []uint64{5},
-			expected: []Segment{
-				{Start: 5, End: 5},
-			},
-		},
-		{
-			name:  "all consecutive",
-			input: []uint64{1, 2, 3, 4, 5},
-			expected: []Segment{
-				{Start: 1, End: 5},
-			},
-		},
-		{
-			name:  "no consecutive elements",
-			input: []uint64{2, 4, 6, 8},
-			expected: []Segment{
-				{Start: 2, End: 2},
-				{Start: 4, End: 4},
-				{Start: 6, End: 6},
-				{Start: 8, End: 8},
-			},
-		},
-		{
-			name:  "mixed consecutive and non-consecutive",
-			input: []uint64{3, 4, 5, 7, 8, 10},
-			expected: []Segment{
-				{Start: 3, End: 5},
-				{Start: 7, End: 8},
-				{Start: 10, End: 10},
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := CompressSequences(tt.input)
-			require.Equal(t, tt.expected, result)
-		})
-	}
-}
-
-func TestDistributeSequenceRequests(t *testing.T) {
-	tests := []struct {
-		name     string
-		start    uint64
-		end      uint64
-		numNodes int
-		expected []Segment
-	}{
-		{
-			name:     "even distribution",
-			start:    0,
-			end:      9,
-			numNodes: 2,
-			expected: []Segment{
-				{Start: 0, End: 4},
-				{Start: 5, End: 9},
-			},
-		},
-		{
-			name:     "uneven distribution",
-			start:    0,
-			end:      10,
+			seqs:     []uint64{},
 			numNodes: 3,
-			expected: []Segment{
-				{Start: 0, End: 3},
-				{Start: 4, End: 7},
-				{Start: 8, End: 10},
-			},
-		},
-		{
-			name:     "single node full range",
-			start:    5,
-			end:      15,
-			numNodes: 1,
-			expected: []Segment{
-				{Start: 5, End: 15},
-			},
-		},
-		{
-			name:     "numNodes greater than sequences",
-			start:    0,
-			end:      2,
-			numNodes: 5,
-			expected: []Segment{
-				{Start: 0, End: 1},
-				{Start: 2, End: 2},
-			},
-		},
-		{
-			name:     "zero-length range",
-			start:    5,
-			end:      5,
-			numNodes: 3,
-			expected: []Segment{
-				{Start: 5, End: 5},
-			},
-		},
-		{
-			name:     "start > end",
-			start:    10,
-			end:      5,
-			numNodes: 2,
+			maxSize:  10,
 			expected: nil,
 		},
 		{
 			name:     "zero nodes",
-			start:    0,
-			end:      10,
+			seqs:     []uint64{1, 2, 3},
 			numNodes: 0,
+			maxSize:  10,
 			expected: nil,
+		},
+		{
+			name:     "zero max size",
+			seqs:     []uint64{1, 2, 3},
+			numNodes: 2,
+			maxSize:  0,
+			expected: nil,
+		},
+		{
+			name:     "single sequence",
+			seqs:     []uint64{5},
+			numNodes: 3,
+			maxSize:  10,
+			expected: [][]uint64{{5}},
+		},
+		{
+			name:     "even split among nodes",
+			seqs:     []uint64{0, 1, 2, 3, 4, 5, 6, 7, 8},
+			numNodes: 3,
+			maxSize:  10,
+			expected: [][]uint64{
+				{0, 1, 2},
+				{3, 4, 5},
+				{6, 7, 8},
+			},
+		},
+		{
+			name:     "even split among nodes with gaps",
+			seqs:     []uint64{0, 1, 3, 4, 6, 7, 8, 10, 11},
+			numNodes: 3,
+			maxSize:  10,
+			expected: [][]uint64{
+				{0, 1, 3},
+				{4, 6, 7},
+				{8, 10, 11},
+			},
+		},
+		{
+			name:     "remainder goes to first nodes",
+			seqs:     []uint64{0, 1, 2, 3, 4, 5, 6, 7, 8, 9},
+			numNodes: 3,
+			maxSize:  10,
+			expected: [][]uint64{
+				{0, 1, 2, 3},
+				{4, 5, 6, 7},
+				{8, 9},
+			},
+		},
+		{
+			name:     "gaps split by total not per run",
+			seqs:     []uint64{0, 1, 2, 3, 4, 6, 7, 8, 9, 10, 12, 13, 14, 15},
+			numNodes: 5,
+			maxSize:  40,
+			expected: [][]uint64{
+				{0, 1, 2},
+				{3, 4, 6},
+				{7, 8, 9},
+				{10, 12, 13},
+				{14, 15},
+			},
+		},
+		{
+			name:     "unsorted input is sorted first",
+			seqs:     []uint64{9, 0, 4, 2, 7},
+			numNodes: 2,
+			maxSize:  10,
+			expected: [][]uint64{
+				{0, 2, 4},
+				{7, 9},
+			},
+		},
+		{
+			name:     "more nodes than sequences",
+			seqs:     []uint64{1, 2, 3},
+			numNodes: 5,
+			maxSize:  10,
+			expected: [][]uint64{{1}, {2}, {3}},
+		},
+		{
+			name: "single node share capped at maxSize",
+			seqs: []uint64{
+				0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
+				13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
+			},
+			numNodes: 1,
+			maxSize:  10,
+			expected: [][]uint64{
+				{0, 1, 2, 3, 4, 5, 6, 7, 8, 9},
+				{10, 11, 12, 13, 14, 15, 16, 17, 18, 19},
+				{20, 21, 22, 23, 24},
+			},
+		},
+		{
+			name:     "node shares exceed maxSize and are chunked",
+			seqs:     []uint64{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14},
+			numNodes: 3,
+			maxSize:  3,
+			expected: [][]uint64{
+				{0, 1, 2}, {3, 4, 5},
+				{6, 7, 8}, {9, 10, 11},
+				{12, 13, 14},
+			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := DistributeSequenceRequests(tt.start, tt.end, tt.numNodes)
+			result := BatchSequences(tt.seqs, uint64(tt.numNodes), tt.maxSize)
 			require.Equal(t, tt.expected, result)
 		})
 	}

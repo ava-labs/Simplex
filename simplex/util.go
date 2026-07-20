@@ -185,81 +185,24 @@ func (block *oneTimeVerifiedBlock) Verify(ctx context.Context) (common.VerifiedB
 	return vb, err
 }
 
-type Segment struct {
-	Start uint64
-	End   uint64
-}
-
-// compressSequences takes a slice of uint64 values representing
-// missing sequence numbers and compresses consecutive numbers into segments.
-// Each segment represents a continuous block of missing sequence numbers.
-func CompressSequences(missingSeqs []uint64) []Segment {
-	slices.Sort(missingSeqs)
-	var segments []Segment
-
-	if len(missingSeqs) == 0 {
-		return segments
+// BatchSequences distributes [seqs] as evenly as possible among [numNodes]
+// nodes, returning one batch per node share. Every batch contains at most
+// [maxSize] sequences. a share exceeding [maxSize] is emitted as multiple
+// batches. [seqs] does not need to be sorted or contiguous, it is sorted in
+// place, and the returned batches are sub-slices of it, ordered from lowest
+// to highest sequence.
+func BatchSequences(seqs []uint64, numNodes uint64, maxSize uint64) [][]uint64 {
+	if len(seqs) == 0 || numNodes == 0 || maxSize == 0 {
+		return nil
 	}
+	slices.Sort(seqs)
 
-	startSeq := missingSeqs[0]
-	endSeq := missingSeqs[0]
+	numSeqs := uint64(len(seqs))
 
-	for i, currentSeq := range missingSeqs[1:] {
-		if currentSeq != missingSeqs[i]+1 {
-			segments = append(segments, Segment{
-				Start: startSeq,
-				End:   endSeq,
-			})
-			startSeq = currentSeq
-		}
-		endSeq = currentSeq
-	}
+	seqsPerNode := (numSeqs + uint64(numNodes) - 1) / uint64(numNodes)
 
-	segments = append(segments, Segment{
-		Start: startSeq,
-		End:   endSeq,
-	})
-
-	return segments
-}
-
-// DistributeSequenceRequests evenly creates segments amongst [numNodes] over
-// the range [start, end].
-func DistributeSequenceRequests(start, end uint64, numNodes int) []Segment {
-	var segments []Segment
-
-	if numNodes <= 0 || start > end {
-		return segments
-	}
-
-	numSeqs := end + 1 - start
-	seqsPerNode := numSeqs / uint64(numNodes)
-	remainder := numSeqs % uint64(numNodes)
-
-	if seqsPerNode == 0 {
-		seqsPerNode = 1
-	}
-
-	nodeStart := start
-
-	for i := 0; i < numNodes && nodeStart <= end; i++ {
-		segmentLength := seqsPerNode
-		if remainder > 0 {
-			segmentLength++
-			remainder--
-		}
-
-		nodeEnd := min(nodeStart+segmentLength-1, end)
-
-		segments = append(segments, Segment{
-			Start: nodeStart,
-			End:   nodeEnd,
-		})
-
-		nodeStart = nodeEnd + 1
-	}
-
-	return segments
+	batchSize := min(seqsPerNode, maxSize)
+	return slices.Collect(slices.Chunk(seqs, int(batchSize)))
 }
 
 type NotarizationTime struct {

@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/asn1"
 	"fmt"
+	"time"
 
 	"github.com/ava-labs/simplex/common"
 )
@@ -21,6 +22,8 @@ type TestBlock struct {
 	OnVerify          func()
 	VerificationDelay chan struct{}
 	VerificationError error
+	// SealingInfo, when non-nil, is returned by SealingBlockInfo() to mark this block as a sealing block.
+	SealingInfo *common.SealingBlockInfo
 }
 
 func NewTestBlock(metadata common.ProtocolMetadata, blacklist common.Blacklist) *TestBlock {
@@ -59,7 +62,7 @@ func (tb *TestBlock) Verify(context.Context) (common.VerifiedBlock, error) {
 }
 
 func (tb *TestBlock) SealingBlockInfo() *common.SealingBlockInfo {
-	return nil
+	return tb.SealingInfo
 }
 
 func (tb *TestBlock) ComputeDigest() {
@@ -146,4 +149,30 @@ func (b *BlockDeserializer) DeserializeBlock(ctx context.Context, buff []byte) (
 	tb.ComputeDigest()
 
 	return &tb, nil
+}
+
+type InnerBlock struct {
+	TS          time.Time
+	BlockHeight uint64
+	Content     []byte
+}
+
+func (i *InnerBlock) Bytes() ([]byte, error) {
+	return i.Content, nil
+}
+
+func (i *InnerBlock) Digest() [32]byte {
+	return sha256.Sum256(i.Content)
+}
+
+func (i *InnerBlock) Height() uint64 {
+	return i.BlockHeight
+}
+
+func (i *InnerBlock) Timestamp() time.Time {
+	return i.TS
+}
+
+func (i *InnerBlock) Verify(_ context.Context, _ uint64) error {
+	return nil
 }
