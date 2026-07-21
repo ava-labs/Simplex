@@ -40,9 +40,8 @@ type StateMachineMetadata struct {
 	canotoData canotoData_StateMachineMetadata
 }
 
-// Clone returns a shallow copy of the metadata: slices and pointers are shared with the
-// original. Unlike a plain struct copy, it does not read the canoto caches, which are
-// written when the original is marshaled and thus cannot be copied concurrently.
+// Clone returns a shallow copy of the metadata, skipping the canoto caches
+// so it is safe to call while the original is being marshaled.
 func (smm *StateMachineMetadata) Clone() StateMachineMetadata {
 	return StateMachineMetadata{
 		SimplexEpochInfo:        smm.SimplexEpochInfo.Clone(),
@@ -69,8 +68,8 @@ type ICMEpochInfo struct {
 	canotoData canotoData_ICMEpochInfo
 }
 
-// Clone returns a copy of the ICMEpochInfo without reading the canoto cache,
-// which is written when the original is marshaled and thus cannot be copied concurrently.
+// Clone returns a copy of the ICMEpochInfo, skipping the canoto cache
+// so it is safe to call while the original is being marshaled.
 func (ei *ICMEpochInfo) Clone() ICMEpochInfo {
 	return ICMEpochInfo{
 		EpochStartTime:    ei.EpochStartTime,
@@ -157,9 +156,8 @@ type SimplexEpochInfo struct {
 	canotoData canotoData_SimplexEpochInfo
 }
 
-// Clone returns a shallow copy of the SimplexEpochInfo: pointers are shared with the
-// original. Unlike a plain struct copy, it does not read the canoto cache, which is
-// written when the original is marshaled and thus cannot be copied concurrently.
+// Clone returns a shallow copy of the SimplexEpochInfo, skipping the canoto cache
+// so it is safe to call while the original is being marshaled.
 func (sei *SimplexEpochInfo) Clone() SimplexEpochInfo {
 	return SimplexEpochInfo{
 		PChainReferenceHeight:     sei.PChainReferenceHeight,

@@ -21,9 +21,8 @@ type StateMachineBlock struct {
 	Metadata StateMachineMetadata
 }
 
-// Clone returns a shallow copy of the block: the inner block, slices and pointers are shared
-// with the original. Unlike a plain struct copy, it does not read the canoto caches, which are
-// written when the original block is marshaled and thus cannot be copied concurrently.
+// Clone returns a shallow copy of the block, skipping the canoto caches
+// so it is safe to call while the original is being marshaled.
 func (smb *StateMachineBlock) Clone() StateMachineBlock {
 	return StateMachineBlock{
 		InnerBlock: smb.InnerBlock,
