@@ -3071,13 +3071,23 @@ func (e *Epoch) handleReplicationRequest(req *common.ReplicationRequest, from co
 	}
 	response := &common.VerifiedReplicationResponse{}
 
-	if len(req.Seqs) > int(e.MaxRoundWindow) || len(req.Rounds) > int(e.MaxRoundWindow) {
-		e.Logger.Info("Replication request exceeds maximum allowed seqs and rounds",
+	seqs := req.Seqs
+	slices.Sort(seqs)
+	if len(seqs) > int(e.MaxRoundWindow) {
+		e.Logger.Debug("Truncating replication request seqs",
 			zap.Stringer("from", from),
 			zap.Int("num seqs", len(req.Seqs)),
+			zap.Uint64("max round window", e.MaxRoundWindow))
+		seqs = seqs[:e.MaxRoundWindow]
+	}
+	rounds := req.Rounds
+	slices.Sort(rounds)
+	if len(rounds) > int(e.MaxRoundWindow) {
+		e.Logger.Debug("Truncating replication request rounds",
+			zap.Stringer("from", from),
 			zap.Int("num rounds", len(req.Rounds)),
 			zap.Uint64("max round window", e.MaxRoundWindow))
-		return nil
+		rounds = rounds[:e.MaxRoundWindow]
 	}
 
 	if req.LatestRound > 0 {
@@ -3095,8 +3105,6 @@ func (e *Epoch) handleReplicationRequest(req *common.ReplicationRequest, from co
 		}
 	}
 
-	seqs := req.Seqs
-	slices.Sort(seqs)
 	seqData := make([]common.VerifiedQuorumRound, len(seqs))
 	for i, seq := range seqs {
 		quorumRound := e.locateQuorumRecord(seq)
@@ -3109,9 +3117,7 @@ func (e *Epoch) handleReplicationRequest(req *common.ReplicationRequest, from co
 		seqData[i] = *quorumRound
 	}
 
-	rounds := req.Rounds
 	roundData := make([]common.VerifiedQuorumRound, 0, len(rounds))
-	slices.Sort(rounds)
 	for _, roundNum := range rounds {
 		quorumRound := e.locateQuorumRecordByRound(roundNum)
 		if quorumRound == nil {

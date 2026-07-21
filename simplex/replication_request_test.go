@@ -410,3 +410,85 @@ func TestMalformedReplicationResponse(t *testing.T) {
 	}, nodes[1])
 	require.NoError(t, err)
 }
+
+// TestReplicationRequestSeqsAndRoundsTruncated ensures a request with more seqs and more rounds
+// than MaxRoundWindow is answered with both truncated to the lowest MaxRoundWindow entries
+// rather than being dropped.
+func TestReplicationRequestSeqsAndRoundsTruncated(t *testing.T) {
+	bb := testutil.NewTestBlockBuilder()
+	nodes := []common.NodeID{{1}, {2}, {3}, {4}}
+	comm := NewListenerComm(nodes)
+	ctx := context.Background()
+	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], comm, bb)
+	conf.ReplicationEnabled = true
+
+	// index maxRoundsWindow + 2 blocks: 0...11
+	numIndexed := conf.MaxRoundWindow + 2
+	numNotarized := uint64(5)
+	blocks := createBlocks(t, nodes, numIndexed+numNotarized)
+	seqs := blocks[:numIndexed]
+	for _, data := range seqs {
+		require.NoError(t, conf.Storage.Index(ctx, data.VerifiedBlock, data.Finalization))
+	}
+
+	// notarize a few rounds past the indexed blocks: rounds 12...16
+	// not finalized
+	quorom := common.Quorum(len(nodes))
+	notarized := make([]common.VerifiedQuorumRound, 0, numNotarized)
+
+	for _, data := range blocks[numIndexed:] {
+		blockBytes, err := data.VerifiedBlock.Bytes()
+		require.NoError(t, err)
+		require.NoError(t, wal.Append(common.BlockRecord(data.VerifiedBlock.BlockHeader(), blockBytes)))
+
+		notarization, err := testutil.NewNotarization(conf.Logger, &testutil.TestSignatureAggregator{N: len(nodes)}, data.VerifiedBlock, nodes[:quorom])
+		require.NoError(t, err)
+		require.NoError(t, wal.Append(common.NewQuorumRecord(notarization.QC.Bytes(), notarization.Vote.Bytes(), common.NotarizationRecordType)))
+
+		notarized = append(notarized, common.VerifiedQuorumRound{
+			VerifiedBlock: data.VerifiedBlock,
+			Notarization:  &notarization,
+		})
+	}
+
+	// oversized, unsorted seqs seqs request: 0 ...2*MaxRoundWindow
+	// truncation keeps seqs 0...9
+	requestedSeqs := make([]uint64, 0, 2*conf.MaxRoundWindow)
+	for i := 2 * conf.MaxRoundWindow; i > 0; i-- {
+		requestedSeqs = append(requestedSeqs, i-1)
+	}
+
+	// oversized, unsorted rounds request: 4..24
+	// truncation keeps rounds 4...13
+	roundStart := numIndexed - 8 // 4
+	requestedRounds := make([]uint64, 0, 2*conf.MaxRoundWindow)
+	for i := roundStart + 2*conf.MaxRoundWindow; i > roundStart; i-- {
+		requestedRounds = append(requestedRounds, i-1)
+	}
+
+	expected := make([]common.VerifiedQuorumRound, 0, conf.MaxRoundWindow+2)
+	for i := uint64(0); i < conf.MaxRoundWindow; i++ {
+		expected = append(expected, common.VerifiedQuorumRound{
+			VerifiedBlock: seqs[i].VerifiedBlock,
+			Finalization:  &seqs[i].Finalization,
+		})
+	}
+	expected = append(expected, notarized[:2]...)
+
+	e, err := simplex.NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+
+	require.NoError(t, e.HandleMessage(&common.Message{
+		ReplicationRequest: &common.ReplicationRequest{
+			Seqs:   requestedSeqs,
+			Rounds: requestedRounds,
+		},
+	}, nodes[1]))
+
+	msg := <-comm.in
+	resp := msg.VerifiedReplicationResponse
+	require.Equal(t, expected, resp.Data)
+
+}
