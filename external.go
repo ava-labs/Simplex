@@ -6,52 +6,13 @@ package simplex
 import (
 	"context"
 
-	"github.com/StephenButtolph/canoto"
 	"github.com/ava-labs/simplex/common"
 	metadata "github.com/ava-labs/simplex/msm"
 )
 
-type RawBlock struct {
-	Metadata        metadata.StateMachineMetadata `canoto:"value,1"`
-	InnerBlockBytes []byte                        `canoto:"bytes,2"`
-
-	canotoData canotoData_RawBlock
-}
-
 type ParsedBlock struct {
 	metadata.StateMachineBlock
 	msm *metadata.StateMachine
-}
-
-func (p *ParsedBlock) Bytes() ([]byte, error) {
-	var innerBlockBytes []byte
-	if p.InnerBlock != nil {
-		rawInnerBlock, err := p.InnerBlock.Bytes()
-		if err != nil {
-			return nil, err
-		}
-		innerBlockBytes = rawInnerBlock
-	}
-	rawBlock := &RawBlock{
-		Metadata:        p.Metadata,
-		InnerBlockBytes: innerBlockBytes,
-	}
-	return rawBlock.MarshalCanoto(), nil
-}
-func (p *ParsedBlock) Size() int {
-	(&p.Metadata).CalculateCanotoCache()
-	metadataSize := (&p.Metadata).CachedCanotoSize()
-	var size uint64
-	if metadataSize != 0 {
-		size += uint64(len(canotoTag_RawBlock__Metadata)) + canoto.SizeUint(metadataSize) + metadataSize
-	}
-	if p.InnerBlock != nil {
-		innerBlockSize := uint64(p.InnerBlock.Size())
-		if innerBlockSize != 0 {
-			size += uint64(len(canotoTag_RawBlock__InnerBlockBytes)) + canoto.SizeUint(innerBlockSize) + innerBlockSize
-		}
-	}
-	return int(size)
 }
 
 func (p *ParsedBlock) BlockHeader() common.BlockHeader {

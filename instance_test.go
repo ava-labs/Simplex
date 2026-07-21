@@ -818,7 +818,7 @@ func (m *MockStorage) blockAt(seq uint64) (metadata.StateMachineBlock, bool) {
 }
 
 func (m *MockStorage) parseStored(encoded []byte) metadata.StateMachineBlock {
-	raw := &RawBlock{}
+	raw := &metadata.RawBlock{}
 	require.NoError(m.t, raw.UnmarshalCanoto(encoded))
 	var inner avalanchego.VMBlock
 	if len(raw.InnerBlockBytes) > 0 {
@@ -942,10 +942,10 @@ func (n *inMemNetwork) dispatch(inst *Instance, m netMsg) {
 
 // toRawBlock re-encodes a verified block into the wire RawBlock the receiving
 // instance parses in HandleBlockMessage.
-func toRawBlock(t *testing.T, vb common.VerifiedBlock) *RawBlock {
+func toRawBlock(t *testing.T, vb common.VerifiedBlock) *metadata.RawBlock {
 	bytes, err := vb.Bytes()
 	require.NoError(t, err)
-	raw := &RawBlock{}
+	raw := &metadata.RawBlock{}
 	require.NoError(t, raw.UnmarshalCanoto(bytes))
 	return raw
 }
