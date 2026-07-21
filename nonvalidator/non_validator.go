@@ -555,7 +555,6 @@ func (n *NonValidator) handleQrFromUnknownEpoch(qr *common.QuorumRound, from com
 	}
 }
 
-// TODO: add a re-broadcast timeout task until we have validated an epoch.
 func (n *NonValidator) broadcastLatestEpoch() {
 	highestEpoch, _ := n.epochs.highestEpoch()
 
@@ -591,7 +590,11 @@ func (n *NonValidator) nextSeqToCommit() uint64 {
 }
 
 func (n *NonValidator) bootstrapRunner(taskIds []uint64) {
+	n.lock.Lock()
+	defer n.lock.Unlock()
+
 	if len(taskIds) != 1 {
+		n.Logger.Fatal("Enqueued more than one task on the non-validator bootstrap runner.")
 		return
 	}
 
