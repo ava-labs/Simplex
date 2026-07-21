@@ -40,6 +40,21 @@ type StateMachineMetadata struct {
 	canotoData canotoData_StateMachineMetadata
 }
 
+// Clone returns a shallow copy of the metadata: slices and pointers are shared with the
+// original. Unlike a plain struct copy, it does not read the canoto caches, which are
+// written when the original is marshaled and thus cannot be copied concurrently.
+func (smm *StateMachineMetadata) Clone() StateMachineMetadata {
+	return StateMachineMetadata{
+		SimplexEpochInfo:        smm.SimplexEpochInfo.Clone(),
+		SimplexProtocolMetadata: smm.SimplexProtocolMetadata,
+		SimplexBlacklist:        smm.SimplexBlacklist,
+		PChainHeight:            smm.PChainHeight,
+		Timestamp:               smm.Timestamp,
+		ICMEpochInfo:            smm.ICMEpochInfo.Clone(),
+		AuxiliaryInfo:           smm.AuxiliaryInfo,
+	}
+}
+
 // ICMEpochInfo is the ICM epoch information that is maintained by the StateMachine and used for the ICM protocol.
 // The StateMachine maintains this information identically to how the proposerVM maintains it, and it does so by
 // building the ICMEpochInput and then passing it into the StateMachine's ComputeICMEpoch function.
@@ -52,6 +67,16 @@ type ICMEpochInfo struct {
 	PChainEpochHeight uint64 `canoto:"uint,3"`
 
 	canotoData canotoData_ICMEpochInfo
+}
+
+// Clone returns a copy of the ICMEpochInfo without reading the canoto cache,
+// which is written when the original is marshaled and thus cannot be copied concurrently.
+func (ei *ICMEpochInfo) Clone() ICMEpochInfo {
+	return ICMEpochInfo{
+		EpochStartTime:    ei.EpochStartTime,
+		EpochNumber:       ei.EpochNumber,
+		PChainEpochHeight: ei.PChainEpochHeight,
+	}
 }
 
 func (ei *ICMEpochInfo) Equal(other *ICMEpochInfo) bool {
@@ -130,6 +155,22 @@ type SimplexEpochInfo struct {
 	SealingBlockSeq uint64 `canoto:"uint,8"`
 
 	canotoData canotoData_SimplexEpochInfo
+}
+
+// Clone returns a shallow copy of the SimplexEpochInfo: pointers are shared with the
+// original. Unlike a plain struct copy, it does not read the canoto cache, which is
+// written when the original is marshaled and thus cannot be copied concurrently.
+func (sei *SimplexEpochInfo) Clone() SimplexEpochInfo {
+	return SimplexEpochInfo{
+		PChainReferenceHeight:     sei.PChainReferenceHeight,
+		EpochNumber:               sei.EpochNumber,
+		PrevSealingBlockHash:      sei.PrevSealingBlockHash,
+		NextPChainReferenceHeight: sei.NextPChainReferenceHeight,
+		PrevVMBlockSeq:            sei.PrevVMBlockSeq,
+		BlockValidationDescriptor: sei.BlockValidationDescriptor,
+		NextEpochApprovals:        sei.NextEpochApprovals,
+		SealingBlockSeq:           sei.SealingBlockSeq,
+	}
 }
 
 func (sei *SimplexEpochInfo) IsZero() bool {
