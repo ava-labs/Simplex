@@ -108,7 +108,7 @@ func (cs *CachedStorage) RetrieveBlock(seq uint64, digest common.Digest) (metada
 		return metadata.StateMachineBlock{}, nil, err
 	}
 
-	return block.(*ParsedBlock).StateMachineBlock, finalization, nil
+	return block.(*ParsedBlock).StateMachineBlock.Clone(), finalization, nil
 }
 
 func (cs *CachedStorage) Retrieve(seq uint64, digest common.Digest) (common.VerifiedBlock, *common.Finalization, error) {

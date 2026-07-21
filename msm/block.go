@@ -21,6 +21,15 @@ type StateMachineBlock struct {
 	Metadata StateMachineMetadata
 }
 
+// Clone returns a shallow copy of the block, skipping the canoto caches
+// so it is safe to call while the original is being marshaled.
+func (smb *StateMachineBlock) Clone() StateMachineBlock {
+	return StateMachineBlock{
+		InnerBlock: smb.InnerBlock,
+		Metadata:   smb.Metadata.Clone(),
+	}
+}
+
 // Digest returns the SHA-256 hash of the combined inner block digest and metadata digest.
 func (smb *StateMachineBlock) Digest() [32]byte {
 	var blockDigest [32]byte
