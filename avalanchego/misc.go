@@ -1,7 +1,7 @@
 // Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
-package metadata
+package avalanchego
 
 import (
 	"context"
@@ -25,7 +25,7 @@ func safeAdd(a, b uint64) (uint64, error) {
 	return a + b, nil
 }
 
-type nodeID [20]byte
+type NodeID [20]byte
 
 type VMBlock interface {
 	// Digest returns a succinct representation of this block.
@@ -56,34 +56,34 @@ type VMBlock interface {
 	Size() int
 }
 
-type bitmask big.Int
+type Bitmask big.Int
 
-func (bm *bitmask) Bytes() []byte {
+func (bm *Bitmask) Bytes() []byte {
 	return (*big.Int)(bm).Bytes()
 }
 
-func (bm *bitmask) Clone() bitmask {
-	var newBM bitmask
+func (bm *Bitmask) Clone() Bitmask {
+	var newBM Bitmask
 	(*big.Int)(&newBM).Set((*big.Int)(bm))
 	return newBM
 }
 
-func (bm *bitmask) Contains(i int) bool {
+func (bm *Bitmask) Contains(i int) bool {
 	return (*big.Int)(bm).Bit(i) == 1
 }
 
-func (bm *bitmask) Add(i int) {
+func (bm *Bitmask) Add(i int) {
 	bits := (*big.Int)(bm)
 	bits.SetBit(bits, i, 1)
 }
 
-func (bm *bitmask) Difference(bm2 *bitmask) {
+func (bm *Bitmask) Difference(bm2 *Bitmask) {
 	bits := (*big.Int)(bm)
 	bits2 := (*big.Int)(bm2)
 	bits.AndNot(bits, bits2)
 }
 
-func (bm *bitmask) Len() int {
+func (bm *Bitmask) Len() int {
 	bmAsBigInt := (*big.Int)(bm)
 	bits := new(big.Int).Set(bmAsBigInt)
 
@@ -99,8 +99,8 @@ func (bm *bitmask) Len() int {
 	return result
 }
 
-func bitmaskFromBytes(bytes []byte) bitmask {
-	var bm bitmask
+func BitmaskFromBytes(bytes []byte) Bitmask {
+	var bm Bitmask
 	(*big.Int)(&bm).SetBytes(bytes)
 	return bm
 }

@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"slices"
 
+	"github.com/ava-labs/simplex/avalanchego"
 	"github.com/ava-labs/simplex/common"
 )
 
@@ -39,6 +40,20 @@ type StateMachineMetadata struct {
 	canotoData canotoData_StateMachineMetadata
 }
 
+// Clone returns a shallow copy of the metadata, skipping the canoto caches
+// so it is safe to call while the original is being marshaled.
+func (smm *StateMachineMetadata) Clone() StateMachineMetadata {
+	return StateMachineMetadata{
+		SimplexEpochInfo:        smm.SimplexEpochInfo.Clone(),
+		SimplexProtocolMetadata: smm.SimplexProtocolMetadata,
+		SimplexBlacklist:        smm.SimplexBlacklist,
+		PChainHeight:            smm.PChainHeight,
+		Timestamp:               smm.Timestamp,
+		ICMEpochInfo:            smm.ICMEpochInfo.Clone(),
+		AuxiliaryInfo:           smm.AuxiliaryInfo,
+	}
+}
+
 // ICMEpochInfo is the ICM epoch information that is maintained by the StateMachine and used for the ICM protocol.
 // The StateMachine maintains this information identically to how the proposerVM maintains it, and it does so by
 // building the ICMEpochInput and then passing it into the StateMachine's ComputeICMEpoch function.
@@ -53,6 +68,16 @@ type ICMEpochInfo struct {
 	canotoData canotoData_ICMEpochInfo
 }
 
+// Clone returns a copy of the ICMEpochInfo, skipping the canoto cache
+// so it is safe to call while the original is being marshaled.
+func (ei *ICMEpochInfo) Clone() ICMEpochInfo {
+	return ICMEpochInfo{
+		EpochStartTime:    ei.EpochStartTime,
+		EpochNumber:       ei.EpochNumber,
+		PChainEpochHeight: ei.PChainEpochHeight,
+	}
+}
+
 func (ei *ICMEpochInfo) Equal(other *ICMEpochInfo) bool {
 	if ei == nil {
 		return other == nil
@@ -62,9 +87,6 @@ func (ei *ICMEpochInfo) Equal(other *ICMEpochInfo) bool {
 	}
 	return ei.EpochStartTime == other.EpochStartTime && ei.EpochNumber == other.EpochNumber && ei.PChainEpochHeight == other.PChainEpochHeight
 }
-
-// VersionID is an identifier for applications that care about epoch changes.
-type VersionID uint32
 
 // AuxiliaryInfo defines application-specific information for applications that might care about epoch change,
 // such as threshold distributed public key generation.
@@ -77,7 +99,7 @@ type AuxiliaryInfo struct {
 	PrevAuxInfoSeq uint64 `canoto:"uint,2"`
 	// VersionID is an identifier that identifies the application.
 	// Can be used for backward-compatibility and upgrade purposes.
-	VersionID VersionID `canoto:"uint,3"`
+	VersionID common.VersionID `canoto:"uint,3"`
 
 	canotoData canotoData_AuxiliaryInfo
 }
@@ -132,6 +154,21 @@ type SimplexEpochInfo struct {
 	SealingBlockSeq uint64 `canoto:"uint,8"`
 
 	canotoData canotoData_SimplexEpochInfo
+}
+
+// Clone returns a shallow copy of the SimplexEpochInfo, skipping the canoto cache
+// so it is safe to call while the original is being marshaled.
+func (sei *SimplexEpochInfo) Clone() SimplexEpochInfo {
+	return SimplexEpochInfo{
+		PChainReferenceHeight:     sei.PChainReferenceHeight,
+		EpochNumber:               sei.EpochNumber,
+		PrevSealingBlockHash:      sei.PrevSealingBlockHash,
+		NextPChainReferenceHeight: sei.NextPChainReferenceHeight,
+		PrevVMBlockSeq:            sei.PrevVMBlockSeq,
+		BlockValidationDescriptor: sei.BlockValidationDescriptor,
+		NextEpochApprovals:        sei.NextEpochApprovals,
+		SealingBlockSeq:           sei.SealingBlockSeq,
+	}
 }
 
 func (sei *SimplexEpochInfo) IsZero() bool {
@@ -203,9 +240,9 @@ func (sei *SimplexEpochInfo) NextState() state {
 }
 
 type NodeBLSMapping struct {
-	NodeID nodeID `canoto:"fixed bytes,1"`
-	BLSKey []byte `canoto:"bytes,2"`
-	Weight uint64 `canoto:"uint,3"`
+	NodeID avalanchego.NodeID `canoto:"fixed bytes,1"`
+	BLSKey []byte             `canoto:"bytes,2"`
+	Weight uint64             `canoto:"uint,3"`
 
 	canotoData canotoData_NodeBLSMapping
 }
@@ -306,15 +343,15 @@ func (nbms NodeBLSMappings) Nodes() common.Nodes {
 
 // IndexByNodeID returns a mapping from NodeID to the validator's index in the set,
 // which is the position used by approval bitmasks.
-func (nbms NodeBLSMappings) IndexByNodeID() map[nodeID]int {
-	result := make(map[nodeID]int, len(nbms))
+func (nbms NodeBLSMappings) IndexByNodeID() map[avalanchego.NodeID]int {
+	result := make(map[avalanchego.NodeID]int, len(nbms))
 	for i, nbm := range nbms {
 		result[nbm.NodeID] = i
 	}
 	return result
 }
 
-func (nbms NodeBLSMappings) SelectSubset(bitmask bitmask) []common.NodeID {
+func (nbms NodeBLSMappings) SelectSubset(bitmask avalanchego.Bitmask) []common.NodeID {
 	nodeIDs := make([]common.NodeID, 0, len(nbms))
 	for i, nbm := range nbms {
 		if !bitmask.Contains(i) {
@@ -358,18 +395,9 @@ func (nbms NodeBLSMappings) Equal(other NodeBLSMappings) bool {
 	return true
 }
 
-type ValidatorSetApproval struct {
-	NodeID        nodeID   `canoto:"fixed bytes,1"`
-	AuxInfoDigest [32]byte `canoto:"fixed bytes,2"`
-	PChainHeight  uint64   `canoto:"uint,3"`
-	Signature     []byte   `canoto:"bytes,4"`
+type ValidatorSetApprovals []common.ValidatorSetApproval
 
-	canotoData canotoData_ValidatorSetApproval
-}
-
-type ValidatorSetApprovals []ValidatorSetApproval
-
-func (vsa ValidatorSetApprovals) Filter(f func(ValidatorSetApproval, common.Logger) bool, logger common.Logger) ValidatorSetApprovals {
+func (vsa ValidatorSetApprovals) Filter(f func(common.ValidatorSetApproval, common.Logger) bool, logger common.Logger) ValidatorSetApprovals {
 	result := make(ValidatorSetApprovals, 0, len(vsa))
 	for _, v := range vsa {
 		if f(v, logger) {
@@ -380,7 +408,7 @@ func (vsa ValidatorSetApprovals) Filter(f func(ValidatorSetApproval, common.Logg
 }
 
 func (vsa ValidatorSetApprovals) UniqueByNodeID() ValidatorSetApprovals {
-	seen := make(map[nodeID]struct{})
+	seen := make(map[avalanchego.NodeID]struct{})
 	result := make(ValidatorSetApprovals, 0, len(vsa))
 	for _, v := range vsa {
 		if _, exists := seen[v.NodeID]; !exists {

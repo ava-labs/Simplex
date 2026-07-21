@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ava-labs/simplex/avalanchego"
 	"github.com/ava-labs/simplex/common"
 	metadata "github.com/ava-labs/simplex/msm"
 	"github.com/ava-labs/simplex/nonvalidator"
@@ -26,7 +27,7 @@ const (
 type Config struct {
 	// LastNonSimplexInnerBlock is the last non-simplex inner block that was persisted to storage.
 	// This is used to determine the current epoch and validator set.
-	LastNonSimplexInnerBlock metadata.VMBlock
+	LastNonSimplexInnerBlock avalanchego.VMBlock
 	// ParameterConfig is the configuration for the simplex instance.
 	ParameterConfig ParameterConfig
 	// PlatformChain is the interface to the P-chain.

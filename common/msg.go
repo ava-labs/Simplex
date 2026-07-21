@@ -8,21 +8,28 @@ import (
 	"encoding/asn1"
 	"encoding/binary"
 	"fmt"
+
+	"github.com/ava-labs/simplex/avalanchego"
 )
 
 type Message struct {
-	BlockMessage                *BlockMessage
+	// Simplex Messages
+	BlockMessage      *BlockMessage
+	EmptyNotarization *EmptyNotarization
+	VoteMessage       *Vote
+	EmptyVoteMessage  *EmptyVote
+	Notarization      *Notarization
+	FinalizeVote      *FinalizeVote
+	Finalization      *Finalization
+
+	// Replication Messages
+	ReplicationResponse *ReplicationResponse
+	ReplicationRequest  *ReplicationRequest
+	BlockDigestRequest  *BlockDigestRequest
+
+	// Verified Messages
 	VerifiedBlockMessage        *VerifiedBlockMessage
-	EmptyNotarization           *EmptyNotarization
-	VoteMessage                 *Vote
-	EmptyVoteMessage            *EmptyVote
-	Notarization                *Notarization
-	FinalizeVote                *FinalizeVote
-	Finalization                *Finalization
-	ReplicationResponse         *ReplicationResponse
 	VerifiedReplicationResponse *VerifiedReplicationResponse
-	ReplicationRequest          *ReplicationRequest
-	BlockDigestRequest          *BlockDigestRequest
 }
 
 func (m *Message) IsReplicationMessage() bool {
@@ -412,4 +419,14 @@ type VerifiedFinalizedBlock struct {
 type BlockDigestRequest struct {
 	Seq    uint64
 	Digest Digest
+}
+
+// VersionID is an identifier for applications that care about epoch changes.
+type VersionID uint32
+
+type ValidatorSetApproval struct {
+	NodeID        avalanchego.NodeID
+	AuxInfoDigest [32]byte
+	PChainHeight  uint64
+	Signature     []byte
 }

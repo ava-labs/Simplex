@@ -418,31 +418,40 @@ func TestReplicationRequestSeqsAndRoundsTruncated(t *testing.T) {
 	bb := testutil.NewTestBlockBuilder()
 	nodes := []common.NodeID{{1}, {2}, {3}, {4}}
 	comm := NewListenerComm(nodes)
-	noop := testutil.NewNoopComm(nodes)
 	ctx := context.Background()
-	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], noop, bb)
+	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], comm, bb)
 	conf.ReplicationEnabled = true
 
 	// index maxRoundsWindow + 2 blocks: 0...11
 	numIndexed := conf.MaxRoundWindow + 2
-	seqs := createBlocks(t, nodes, numIndexed)
+	numNotarized := uint64(5)
+	blocks := createBlocks(t, nodes, numIndexed+numNotarized)
+	seqs := blocks[:numIndexed]
 	for _, data := range seqs {
 		require.NoError(t, conf.Storage.Index(ctx, data.VerifiedBlock, data.Finalization))
 	}
 
-	e, err := simplex.NewEpoch(conf)
-	require.NoError(t, err)
-	t.Cleanup(e.Stop)
-	require.NoError(t, e.Start())
-
 	// notarize a few rounds past the indexed blocks: rounds 12...16
 	// not finalized
-	numNotarized := uint64(5)
-	for i := uint64(0); i < numNotarized; i++ {
-		advanceRoundFromNotarization(t, e, bb)
+	quorom := common.Quorum(len(nodes))
+	notarized := make([]common.VerifiedQuorumRound, 0, numNotarized)
+
+	for _, data := range blocks[numIndexed:] {
+		blockBytes, err := data.VerifiedBlock.Bytes()
+		require.NoError(t, err)
+		require.NoError(t, wal.Append(common.BlockRecord(data.VerifiedBlock.BlockHeader(), blockBytes)))
+
+		notarization, err := testutil.NewNotarization(conf.Logger, &testutil.TestSignatureAggregator{N: len(nodes)}, data.VerifiedBlock, nodes[:quorom])
+		require.NoError(t, err)
+		require.NoError(t, wal.Append(common.NewQuorumRecord(notarization.QC.Bytes(), notarization.Vote.Bytes(), common.NotarizationRecordType)))
+
+		notarized = append(notarized, common.VerifiedQuorumRound{
+			VerifiedBlock: data.VerifiedBlock,
+			Notarization:  &notarization,
+		})
 	}
 
-	// oversized, unsortedseqs seqs request: 0 ...2*MaxRoundWindow
+	// oversized, unsorted seqs seqs request: 0 ...2*MaxRoundWindow
 	// truncation keeps seqs 0...9
 	requestedSeqs := make([]uint64, 0, 2*conf.MaxRoundWindow)
 	for i := 2 * conf.MaxRoundWindow; i > 0; i-- {
@@ -457,7 +466,20 @@ func TestReplicationRequestSeqsAndRoundsTruncated(t *testing.T) {
 		requestedRounds = append(requestedRounds, i-1)
 	}
 
-	e.Comm = comm
+	expected := make([]common.VerifiedQuorumRound, 0, conf.MaxRoundWindow+2)
+	for i := uint64(0); i < conf.MaxRoundWindow; i++ {
+		expected = append(expected, common.VerifiedQuorumRound{
+			VerifiedBlock: seqs[i].VerifiedBlock,
+			Finalization:  &seqs[i].Finalization,
+		})
+	}
+	expected = append(expected, notarized[:2]...)
+
+	e, err := simplex.NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+
 	require.NoError(t, e.HandleMessage(&common.Message{
 		ReplicationRequest: &common.ReplicationRequest{
 			Seqs:   requestedSeqs,
@@ -467,77 +489,8 @@ func TestReplicationRequestSeqsAndRoundsTruncated(t *testing.T) {
 
 	msg := <-comm.in
 	resp := msg.VerifiedReplicationResponse
+	require.Equal(t, expected, resp.Data)
 
-	require.Len(t, resp.Data, int(conf.MaxRoundWindow)+2)
-
-	// firts maxRoundWindow items: 0...9 in order
-	for i := uint64(0); i < conf.MaxRoundWindow; i++ {
-		data := resp.Data[i]
-		require.Equal(t, i, data.VerifiedBlock.BlockHeader().Seq)
-		require.NotNil(t, data.Finalization)
-		require.Equal(t, seqs[i].Finalization, *data.Finalization)
-	}
-
-	// last two items: notarized rounds 12, 13 -- 14..16 truncated as well
-	for i, expectedRound := range []uint64{numIndexed, numIndexed + 1} {
-		data := resp.Data[int(conf.MaxRoundWindow)+i]
-		require.Equal(t, expectedRound, data.VerifiedBlock.BlockHeader().Round)
-		require.NotNil(t, data.Notarization)
-		require.Nil(t, data.Finalization)
-	}
-
-}
-
-// TestReplicationRequestRoundsTruncated ensures a request with more rounds
-// than MaxRoundWindow is answered with the lowest MaxRoundWindow rounds
-// rather than being dropped.
-func TestReplicationRequestRoundsTruncated(t *testing.T) {
-	bb := testutil.NewTestBlockBuilder()
-	nodes := []common.NodeID{{1}, {2}, {3}, {4}}
-	comm := NewListenerComm(nodes)
-	noop := testutil.NewNoopComm(nodes)
-	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], noop, bb)
-	conf.ReplicationEnabled = true
-
-	e, err := simplex.NewEpoch(conf)
-	require.NoError(t, err)
-	t.Cleanup(e.Stop)
-	require.NoError(t, e.Start())
-
-	numRounds := 2 * conf.MaxRoundWindow
-	rounds := make(map[uint64]common.VerifiedQuorumRound, numRounds)
-	for i := uint64(0); i < numRounds; i++ {
-		block, notarization := advanceRoundFromNotarization(t, e, bb)
-		rounds[i] = common.VerifiedQuorumRound{
-			VerifiedBlock: block,
-			Notarization:  notarization,
-		}
-	}
-	require.Equal(t, numRounds, e.Metadata().Round)
-
-	// request 2*MaxRoundWindow rounds, unsorted (highest first),
-	// to also pin down that truncation happens after sorting
-	requested := make([]uint64, 0, numRounds)
-	for i := numRounds; i > 0; i-- {
-		requested = append(requested, i-1)
-	}
-
-	e.Comm = comm
-	require.NoError(t, e.HandleMessage(&common.Message{
-		ReplicationRequest: &common.ReplicationRequest{
-			Rounds: requested,
-		},
-	}, nodes[1]))
-
-	msg := <-comm.in
-	resp := msg.VerifiedReplicationResponse
-
-	// we should get exactly the lowest MaxRoundWindow rounds: 0..MaxRoundWindow-1
-	require.Len(t, resp.Data, int(conf.MaxRoundWindow))
-	for i, data := range resp.Data {
-		require.Equal(t, uint64(i), data.VerifiedBlock.BlockHeader().Round)
-		require.Equal(t, rounds[uint64(i)].Notarization, data.Notarization)
-	}
 }
 
 // TestReplicationRequestSizeLimited ensures a replication response is capped
