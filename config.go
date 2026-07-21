@@ -7,6 +7,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/ava-labs/simplex/avalanchego"
 	"github.com/ava-labs/simplex/common"
 	metadata "github.com/ava-labs/simplex/msm"
 )
@@ -47,14 +48,14 @@ type Sender interface {
 
 type VM interface {
 	// BuildBlock builds a block given the current context and the P-chain height.
-	BuildBlock(ctx context.Context, pChainHeight uint64) (metadata.VMBlock, error)
+	BuildBlock(ctx context.Context, pChainHeight uint64) (avalanchego.VMBlock, error)
 
 	// WaitForPendingBlock returns when either the given context is cancelled,
 	// or when the VM signals that a block should be built.
 	WaitForPendingBlock(ctx context.Context)
 
 	// ParseBlock parses the given block bytes into a VMBlock.
-	ParseBlock(context.Context, []byte) (metadata.VMBlock, error)
+	ParseBlock(context.Context, []byte) (avalanchego.VMBlock, error)
 
 	// ComputeICMEpoch computes the ICM epoch transition given the input parameters.
 	ComputeICMEpoch(input metadata.ICMEpochInput) metadata.ICMEpochInfo
