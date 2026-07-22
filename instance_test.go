@@ -386,6 +386,151 @@ func TestInstanceRestartAcrossEpochs(t *testing.T) {
 	waitForNumBlocks(t, storage, storage.NumBlocks()+2)
 }
 
+type noopComm struct{}
+
+func (noopComm) Broadcast(*common.Message)           {}
+func (noopComm) Send(*common.Message, common.NodeID) {}
+
+func TestInstanceOutOfOrderFinalizationPersistedToWAL(t *testing.T) {
+	// When a *wal.GarbageCollectedWAL's Append calls
+	// WALRetentionReader.RetentionTerm on a finalization record,
+	// the WALRetentionReader.RetentionTerm must return a non-error value,
+	// otherwise the Append fails.
+	// This test simply exercises this scenario by finalizing a block while the previous block is uncommitted.
+	// We do that by notarizing a round but not finalizing it, and then finalizing the next round.
+	// As a result, the finalization of the next round is persisted to the WAL because the previous round is uncommitted.
+	const basePChainHeight = uint64(1)
+
+	const numNodes = 4
+	ids := make([]common.NodeID, numNodes)
+	members := make(metadata.NodeBLSMappings, numNodes)
+	for i := range ids {
+		var raw [20]byte
+		raw[0] = byte(i + 1)
+		ids[i] = raw[:]
+		members[i] = metadata.NodeBLSMapping{NodeID: raw, BLSKey: []byte{byte(0xaa + i)}, Weight: 1}
+	}
+	node := ids[0]
+	blacklist := common.NewBlacklist(numNodes)
+
+	pChain := newTestPlatformChain(basePChainHeight, map[uint64]metadata.NodeBLSMappings{basePChainHeight: members})
+	cops := &testCryptoOps{}
+	genesisBlock := &testInnerBlock{Height_: 0, TS: time.Now(), Payload: []byte("genesis")}
+
+	storage := NewMockStorage(t)
+	require.NoError(t, storage.Index(context.Background(),
+		&ParsedBlock{StateMachineBlock: metadata.StateMachineBlock{InnerBlock: genesisBlock}}, common.Finalization{}))
+
+	inst := NewInstance(Config{
+		Logger:                   testutil.MakeLogger(t, int(node[0])),
+		ID:                       node,
+		VM:                       newTestVM(),
+		Storage:                  storage,
+		Sender:                   noopComm{},
+		Broadcaster:              noopComm{},
+		PlatformChain:            pChain,
+		CryptoOps:                cops,
+		LastNonSimplexInnerBlock: genesisBlock,
+		WalCreator:               storage.CreateWAL,
+		ParameterConfig: ParameterConfig{
+			MaxNetworkDelay:  500 * time.Millisecond,
+			MaxRoundWindow:   100,
+			WALMaxEntryCount: 1024,
+		},
+	})
+
+	require.NoError(t, inst.Start(t.Context()))
+	t.Cleanup(inst.Stop)
+
+	// Start constructs the epoch and state machine synchronously on this
+	// goroutine, and nothing rewrites them without an epoch change (which never
+	// happens here), so we can read them directly.
+	e, msm := inst.e, inst.msm
+
+	initialBlocks := storage.NumBlocks()
+
+	// injectVote feeds a vote from the given validator through the Instance.
+	injectVote := func(block common.VerifiedBlock, id common.NodeID) {
+		vote, err := testutil.NewTestVote(block, id)
+		require.NoError(t, err)
+		require.NoError(t, inst.HandleMessage(&common.Message{VoteMessage: vote}, id))
+	}
+
+	notarizeBlock := func(round uint64) *ParsedBlock {
+		require.Eventually(t, func() bool { return e.Metadata().Round == round }, 5*time.Second, 10*time.Millisecond)
+
+		blockSM, err := msm.BuildBlock(t.Context(), e.Metadata(), blacklist)
+		require.NoError(t, err)
+		block := &ParsedBlock{StateMachineBlock: *blockSM, msm: msm}
+
+		leader := ids[round%numNodes]
+		vote, err := testutil.NewTestVote(block, leader)
+		require.NoError(t, err)
+
+		// Hand the instance its own copy of the block. The instance verifies it on a
+		// background goroutine (mutating its canoto digest cache), so it must not
+		// share the object the test keeps using to build votes — same reason the
+		// network path re-parses blocks per receiver.
+		require.NoError(t, inst.HandleMessage(&common.Message{
+			BlockMessage: &common.BlockMessage{Vote: *vote, Block: &ParsedBlock{StateMachineBlock: blockSM.Clone(), msm: msm}},
+		}, leader))
+
+		// The proposer's vote plus two more from the remaining non-node validators
+		// make a quorum (3 of 4), notarizing the round and advancing the node.
+		others := make([]common.NodeID, 0, 2)
+		for _, id := range ids {
+			if !bytes.Equal(id, node) && !bytes.Equal(id, leader) {
+				others = append(others, id)
+			}
+		}
+		injectVote(block, others[0])
+		injectVote(block, others[1])
+		// Wait until the node has persisted a notarization for the round. A node
+		// only notarizes a block it has verified, and verification is what caches
+		// the block — so once the notarization is in the WAL the block is
+		// retrievable as the parent when we build the next round.
+		require.Eventually(t, func() bool { return storage.ContainsNotarization(round) }, 5*time.Second, 10*time.Millisecond)
+		return block
+	}
+
+	// finalizeRound feeds a quorum of finalize votes for the given block. The node
+	// must accept each one without error — a failed WAL append (the bug) is
+	// returned by persistFinalization all the way up through HandleMessage.
+	finalizeRound := func(block *ParsedBlock) {
+		for _, id := range ids {
+			if bytes.Equal(id, node) {
+				continue
+			}
+			require.NoError(t, inst.HandleMessage(&common.Message{
+				FinalizeVote: testutil.NewTestFinalizeVote(t, block, id),
+			}, id))
+		}
+	}
+
+	// The fist round is the zero block so we just finalize it normally.
+	block1 := notarizeBlock(1)
+	finalizeRound(block1)
+	require.Eventually(t, func() bool { return storage.NumBlocks() == initialBlocks+1 }, 5*time.Second, 10*time.Millisecond)
+
+	// Round 2: notarize a normal block, but never finalize it, so its
+	// sequence stays uncommitted.
+	notarizeBlock(2)
+
+	// Round 3: notarize the next block, which the node now holds on top
+	// of the uncommitted round-2 block.
+	block3 := notarizeBlock(3)
+
+	// Finalize round 3 while round 2 is still uncommitted. The quorum of finalize
+	// votes appends the finalization to the WAL.
+	finalizeRound(block3)
+
+	// Confirm the finalization is in the WAL.
+	require.True(t, storage.ContainsFinalization(block3.BlockHeader().Round))
+
+	// Only round 1 was finalized; rounds 2 and 3 stay uncommitted.
+	require.Equal(t, initialBlocks+1, storage.NumBlocks())
+}
+
 // requireTipIsSealing asserts whether the last block in storage is a sealing block.
 func requireTipIsSealing(t *testing.T, storage *MockStorage, want bool) {
 	t.Helper()
@@ -741,6 +886,9 @@ type MockStorage struct {
 
 	snapLock sync.Mutex
 	blocks   map[uint64]storedBlock
+
+	walsLock sync.Mutex
+	wals     []*testutil.TestWAL
 }
 
 type storedBlock struct {
@@ -808,7 +956,37 @@ func (m *MockStorage) parseStored(encoded []byte) metadata.StateMachineBlock {
 }
 
 func (m *MockStorage) CreateWAL() (wal.DeletableWAL, error) {
-	return testutil.NewTestWAL(m.t), nil
+	tw := testutil.NewTestWAL(m.t)
+	m.walsLock.Lock()
+	m.wals = append(m.wals, tw)
+	m.walsLock.Unlock()
+	return tw, nil
+}
+
+// ContainsNotarization reports whether any WAL segment the instance created
+// holds a notarization for the given round.
+func (m *MockStorage) ContainsNotarization(round uint64) bool {
+	m.walsLock.Lock()
+	defer m.walsLock.Unlock()
+	for _, w := range m.wals {
+		if w.ContainsNotarization(round) {
+			return true
+		}
+	}
+	return false
+}
+
+// ContainsFinalization reports whether any WAL segment the instance created
+// holds a finalization for the given round.
+func (m *MockStorage) ContainsFinalization(round uint64) bool {
+	m.walsLock.Lock()
+	defer m.walsLock.Unlock()
+	for _, w := range m.wals {
+		if w.ContainsFinalization(round) {
+			return true
+		}
+	}
+	return false
 }
 
 // ---------------------------------------------------------------------------
