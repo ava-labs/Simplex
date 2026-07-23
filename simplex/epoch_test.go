@@ -451,6 +451,109 @@ func TestEpochIndexFinalization(t *testing.T) {
 	storage.WaitForBlockCommit(2)
 }
 
+func TestEquivocatedBlockFinalized(t *testing.T) {
+	bb := testutil.NewTestBlockBuilder()
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+
+	recordingComm := &recordingComm{
+		Communication:     testutil.NewNoopComm(nodes),
+		BroadcastMessages: make(chan *Message, 100),
+		SentMessages:      make(chan *Message, 100),
+	}
+	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[1], recordingComm, bb)
+	conf.ReplicationEnabled = true
+
+	leader := LeaderForRound(nodes, 0)
+	require.NotEqual(t, conf.ID, leader) // Ensure that the node is not the leader for the first round.
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+
+	// (1) Byzantine leader equivocates and sends a block to the node.
+	md := e.Metadata()
+	_, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
+	require.True(t, ok)
+	blockA := bb.GetBuiltBlock()
+
+	voteA, err := testutil.NewTestVote(blockA, leader)
+	require.NoError(t, err)
+	require.NoError(t, e.HandleMessage(&Message{
+		BlockMessage: &BlockMessage{
+			Vote:  *voteA,
+			Block: blockA,
+		},
+	}, leader))
+
+	// (2) Ensure the node has written the block to the WAL.
+	wal.AssertWALSize(1)
+
+	// (3) The honest majority finalizes a *different* block B
+	blockB := testutil.NewTestBlock(blockA.BlockHeader().ProtocolMetadata, emptyBlacklist)
+	blockB.Data = []byte("equivocated-block-B")
+	blockB.ComputeDigest()
+	// Ensure that the two blocks are different.
+	require.NotEqual(t, blockA.BlockHeader().Digest, blockB.BlockHeader().Digest)
+
+	validators := e.Comm.Validators()
+	quorum := Quorum(len(validators))
+	sigAggr := e.SignatureAggregatorCreator(validators)
+	finalizationB, _ := testutil.NewFinalizationRecord(t, sigAggr, blockB, validators.NodeIDs()[:quorum])
+	require.Equal(t, blockB.BlockHeader().Digest, finalizationB.Finalization.BlockHeader.Digest)
+
+	// (4) Send the finalization for block B to the node.
+	testutil.InjectTestFinalization(t, e, &finalizationB, nodes[2])
+
+	// Block 0 should not commit the block because it has never received block B.
+	storage.EnsureNoBlockCommit(t, 0)
+
+	// (5) The honest majority continues past the equivocated round: round 1 is empty
+	// notarized (a timeout), and block C is finalized at round 2 building directly on
+	// top of block B (seq 1). Receiving the finalization for round 2 makes the node
+	// realize it is behind and triggers replication.
+
+	blockC := testutil.NewTestBlock(ProtocolMetadata{
+		Round: 2,
+		Seq:   1,
+		Prev:  blockB.BlockHeader().Digest,
+	}, emptyBlacklist)
+	finalizationC, _ := testutil.NewFinalizationRecord(t, sigAggr, blockC, validators.NodeIDs()[:quorum])
+
+	// (6) The future finalization for round 2 triggers a replication request.
+	testutil.InjectTestFinalization(t, e, &finalizationC, nodes[2])
+
+	for msg := range recordingComm.SentMessages {
+		if msg.ReplicationRequest != nil {
+			break
+		}
+	}
+
+	// (7) Feed the node the replication response containing the correctly finalized
+	// block B and block C built on block B.
+	replicationResponse := &ReplicationResponse{
+		Data: []QuorumRound{
+			{
+				Block:        blockB,
+				Finalization: &finalizationB,
+			},
+			{
+				Block:        blockC,
+				Finalization: &finalizationC,
+			},
+		},
+	}
+	require.NoError(t, e.HandleMessage(&Message{
+		ReplicationResponse: replicationResponse,
+	}, nodes[2]))
+
+	// (8) The node recovers by committing the block the network actually finalized
+	// (block B) at seq 0, not the equivocated block A, followed by block C at seq 1.
+	require.Equal(t, blockB, storage.WaitForBlockCommit(0))
+	require.Equal(t, blockC, storage.WaitForBlockCommit(1))
+	require.Equal(t, uint64(2), storage.NumBlocks())
+}
+
 func TestEpochConsecutiveProposalsDoNotGetVerified(t *testing.T) {
 	for _, test := range []struct {
 		name                      string

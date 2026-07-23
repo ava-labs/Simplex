@@ -483,13 +483,11 @@ func (e *Epoch) loadFinalizationRecord(r []byte) error {
 		e.Logger.Debug("Finalization already indexed, skipping restoration", zap.Uint64("Sequence", finalization.Finalization.Seq))
 		return nil
 	}
-
-	round, ok := e.rounds[finalization.Finalization.Round]
-	if !ok {
-		return fmt.Errorf("round not found for finalization")
+	err = e.storeFinalization(&finalization)
+	if err != nil {
+		return err
 	}
 	e.Logger.Info("Finalization Recovered From WAL", zap.Uint64("Round", finalization.Finalization.Round))
-	round.finalization = &finalization
 	return nil
 }
 
@@ -762,18 +760,15 @@ func (e *Epoch) handleFinalizationMessage(message *common.Finalization, from com
 		return nil
 	}
 
-	round, exists := e.rounds[message.Finalization.Round]
+	_, exists := e.rounds[message.Finalization.Round]
 	if !exists {
 		e.handleFinalizationForPendingOrFutureRound(message, message.Finalization.Round, nextSeqToCommit)
 		return nil
 	}
 
-	if round.finalization != nil {
-		e.Logger.Debug("Received finalization for an already finalized round", zap.Uint64("round", message.Finalization.Round))
+	if err := e.storeFinalization(message); err != nil {
 		return nil
 	}
-
-	round.finalization = message
 
 	return e.persistFinalization(*message)
 }
@@ -1204,10 +1199,10 @@ func (e *Epoch) maybeCollectFinalization(round *Round) error {
 		return nil
 	}
 
-	return e.assembleFinalization(round, finalizations)
+	return e.assembleFinalization(finalizations)
 }
 
-func (e *Epoch) assembleFinalization(round *Round, finalizationVotes []*common.FinalizeVote) error {
+func (e *Epoch) assembleFinalization(finalizationVotes []*common.FinalizeVote) error {
 	for _, vote := range finalizationVotes {
 		e.Logger.Debug("Collected a finalize vote from node", zap.Stringer("NodeID", vote.Signature.Signer), zap.Uint64("round", vote.Finalization.Round), zap.Uint64("seq", vote.Finalization.Seq))
 	}
@@ -1217,7 +1212,10 @@ func (e *Epoch) assembleFinalization(round *Round, finalizationVotes []*common.F
 		return err
 	}
 
-	round.finalization = &finalization
+	if err := e.storeFinalization(&finalization); err != nil {
+		return nil
+	}
+
 	return e.persistFinalization(finalization)
 }
 
@@ -1954,7 +1952,10 @@ func (e *Epoch) processFinalizedBlock(block common.Block, finalization *common.F
 			delete(e.rounds, round.num)
 			return e.processFinalizedBlock(block, finalization)
 		}
-		round.finalization = finalization
+		if err := e.storeFinalization(finalization); err != nil {
+			e.Logger.Error("Failed storing finalization", zap.Error(err))
+			return err
+		}
 		prevEpochRound := e.round
 		if err := e.indexFinalizations(round.num); err != nil {
 			e.Logger.Error("Failed to index finalization", zap.Error(err))
@@ -2182,8 +2183,10 @@ func (e *Epoch) createFinalizedBlockVerificationTask(block common.Block, finaliz
 
 		// Store the verified block in rounds map so subsequent blocks can find it as a dependency
 		roundEntry := NewRound(verifiedBlock)
-		roundEntry.finalization = finalization
 		e.rounds[md.Round] = roundEntry
+		if err := e.storeFinalization(finalization); err != nil {
+			return md.Digest
+		}
 		e.Logger.Debug("Stored finalized replicated block in rounds map",
 			zap.Uint64("round", md.Round),
 			zap.Uint64("seq", md.Seq),
@@ -2831,6 +2834,38 @@ func (e *Epoch) retrieveLastPersistedBlacklist() (common.Blacklist, bool) {
 		blacklist = e.lastBlock.VerifiedBlock.Blacklist()
 	}
 	return blacklist, true
+}
+
+func (e *Epoch) storeFinalization(finalization *common.Finalization) error {
+	if finalization == nil {
+		return errors.New("finalization is nil")
+	}
+	roundNum := finalization.Finalization.BlockHeader.Round
+	round, exists := e.rounds[roundNum]
+	if !exists {
+		return fmt.Errorf("round %d not found", roundNum)
+	}
+	if round.finalization != nil {
+		e.Logger.Debug("Received finalization for an already finalized round", zap.Uint64("round", finalization.Finalization.Round))
+		return fmt.Errorf("round %d already has a finalization", roundNum)
+	}
+	if round.block == nil {
+		return fmt.Errorf("round %d has no block to associate finalization with", roundNum)
+	}
+
+	expectedBlockHeader := round.block.BlockHeader()
+	if !expectedBlockHeader.Equals(&finalization.Finalization.BlockHeader) {
+		e.Logger.Debug("Equivocation detected: finalization block header does not match round block header",
+			zap.Uint64("round", roundNum),
+			zap.Stringer("block header", &expectedBlockHeader),
+			zap.Stringer("finalized block header", &finalization.Finalization.BlockHeader))
+		delete(e.rounds, roundNum)
+		return fmt.Errorf("finalization block header does not match round %d block header", roundNum)
+	}
+
+	round.finalization = finalization
+
+	return nil
 }
 
 func (e *Epoch) startRound() error {
