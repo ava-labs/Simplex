@@ -49,9 +49,6 @@ type InnerBlock struct {
 func (i *InnerBlock) Bytes() ([]byte, error) {
 	return i.bytes, nil
 }
-func (i *InnerBlock) Size() int {
-	return len(i.bytes)
-}
 
 func (i *InnerBlock) Digest() [32]byte {
 	return sha256.Sum256(i.bytes)
@@ -76,9 +73,6 @@ type fakeVMBlock struct {
 
 func (f *fakeVMBlock) Bytes() ([]byte, error) {
 	panic("implement me")
-}
-func (f *fakeVMBlock) Size() int {
-	return 0
 }
 
 func (f *fakeVMBlock) Digest() [32]byte                         { return [32]byte{} }

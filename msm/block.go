@@ -9,7 +9,6 @@ import (
 
 	"github.com/ava-labs/simplex/avalanchego"
 	"github.com/ava-labs/simplex/common"
-	"github.com/StephenButtolph/canoto"
 )
 
 //go:generate go run github.com/StephenButtolph/canoto/canoto block.go
@@ -22,14 +21,16 @@ type StateMachineBlock struct {
 	InnerBlock avalanchego.VMBlock
 	// Metadata contains the state machine metadata associated with this block.
 	Metadata StateMachineMetadata
+	// size is the number of bytes of the serialized block, set at serialization
+	size int
 }
 
 // RawBlock is the serialized form of a StateMachineBlock.
 type RawBlock struct {
-    Metadata        StateMachineMetadata `canoto:"value,1"`
-    InnerBlockBytes []byte               `canoto:"bytes,2"`
+	Metadata        StateMachineMetadata `canoto:"value,1"`
+	InnerBlockBytes []byte               `canoto:"bytes,2"`
 
-    canotoData canotoData_RawBlock
+	canotoData canotoData_RawBlock
 }
 
 // Clone returns a shallow copy of the block, skipping the canoto caches
@@ -132,8 +133,7 @@ func (smb *StateMachineBlock) SealingBlockInfo() *common.SealingBlockInfo {
 	}
 }
 
-
-func (smb *StateMachineBlock) Bytes() ([]byte, error){
+func (smb *StateMachineBlock) Bytes() ([]byte, error) {
 	var innerBlockBytes []byte
 	if smb.InnerBlock != nil {
 		rawInnerBlock, err := smb.InnerBlock.Bytes()
@@ -146,21 +146,17 @@ func (smb *StateMachineBlock) Bytes() ([]byte, error){
 		Metadata:        smb.Metadata,
 		InnerBlockBytes: innerBlockBytes,
 	}
-	return rawBlock.MarshalCanoto(), nil
+	encoded := rawBlock.MarshalCanoto()
+	smb.size = len(encoded)
+	return encoded, nil
 }
 
+// Size returns the number of bytes of the bytes encoding of the block.
 func (smb *StateMachineBlock) Size() int {
-	(&smb.Metadata).CalculateCanotoCache()
-	metadataSize := (&smb.Metadata).CachedCanotoSize()
-	var size uint64
-	if metadataSize != 0 {
-		size += uint64(len(canotoTag_RawBlock__Metadata)) + canoto.SizeUint(metadataSize) + metadataSize
-	}
-	if smb.InnerBlock != nil {
-		innerBlockSize := uint64(smb.InnerBlock.Size())
-		if innerBlockSize != 0 {
-			size += uint64(len(canotoTag_RawBlock__InnerBlockBytes)) + canoto.SizeUint(innerBlockSize) + innerBlockSize
+	if smb.size == 0 {
+		if _, err := smb.Bytes(); err != nil {
+			return 0
 		}
 	}
-	return int(size)
+	return smb.size
 }

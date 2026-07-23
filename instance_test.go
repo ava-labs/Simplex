@@ -386,6 +386,7 @@ func TestInstanceRestartAcrossEpochs(t *testing.T) {
 	waitForNumBlocks(t, storage, storage.NumBlocks()+2)
 }
 func TestParseBlockSizeMatchesBytes(t *testing.T) {
+	// Case 1: Bytes() first, Size() second, size returns the cached length.
 	pb := &ParsedBlock{
 		StateMachineBlock: metadata.StateMachineBlock{
 			Metadata: metadata.StateMachineMetadata{
@@ -403,6 +404,28 @@ func TestParseBlockSizeMatchesBytes(t *testing.T) {
 	bytes, err := pb.Bytes()
 	require.NoError(t, err)
 	require.Equal(t, len(bytes), pb.Size())
+
+	// Case 2: Size() first on a non serialized block. it will
+	// compute the size and match a later Byte() call.
+	pb2 := &ParsedBlock{
+		StateMachineBlock: metadata.StateMachineBlock{
+			Metadata: metadata.StateMachineMetadata{
+				SimplexProtocolMetadata: []byte{1, 2, 3},
+				SimplexBlacklist:        []byte{4, 5},
+				PChainHeight:            6,
+			},
+			InnerBlock: &testInnerBlock{
+				Height_: 9,
+				TS:      time.UnixMilli(10),
+				Payload: []byte("other payload"),
+			},
+		},
+	}
+	size := pb2.Size()
+	require.NotZero(t, size)
+	bytes2, err := pb2.Bytes()
+	require.NoError(t, err)
+	require.Equal(t, len(bytes2), size)
 }
 
 // requireTipIsSealing asserts whether the last block in storage is a sealing block.
@@ -546,9 +569,6 @@ func (b *testInnerBlock) Bytes() ([]byte, error) {
 func (b *testInnerBlock) Digest() [32]byte {
 	bytes, _ := b.Bytes()
 	return sha256.Sum256(bytes)
-}
-func (b *testInnerBlock) Size() int {
-	return 16 + len(b.Payload)
 }
 
 func (b *testInnerBlock) Height() uint64                       { return b.Height_ }

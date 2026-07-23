@@ -169,14 +169,6 @@ func (i *InnerBlock) Bytes() ([]byte, error) {
 	return i.Content, nil
 }
 
-func (i *InnerBlock) Size() int {
-	bytes, err := i.Bytes()
-	if err != nil {
-		return 0
-	}
-	return len(bytes)
-}
-
 func (i *InnerBlock) Digest() [32]byte {
 	return sha256.Sum256(i.Content)
 }
