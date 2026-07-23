@@ -258,6 +258,9 @@ type walRound struct {
 
 // AssertHealthy checks that the WAL has at most one of each record type per round.
 func (tw *TestWAL) AssertHealthy(bd common.BlockDeserializer, qcd common.QCDeserializer) {
+	tw.lock.Lock()
+	defer tw.lock.Unlock()
+
 	ctx := context.Background()
 	records, err := tw.WriteAheadLog.ReadAll()
 	require.NoError(tw.t, err)
