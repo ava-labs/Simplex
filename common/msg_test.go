@@ -193,6 +193,31 @@ func TestQuorumRoundMalformed(t *testing.T) {
 			},
 			expectedErr: false,
 		},
+		{
+			name: "empty notarization and finalization, no block",
+			qr: common.QuorumRound{
+				EmptyNotarization: &common.EmptyNotarization{},
+				Finalization:      &common.Finalization{},
+			},
+			expectedErr: true,
+		},
+		{
+			name: "empty notarization and notarization, no block",
+			qr: common.QuorumRound{
+				EmptyNotarization: &common.EmptyNotarization{},
+				Notarization:      &common.Notarization{},
+			},
+			expectedErr: true,
+		},
+		{
+			name: "empty notarization and notarization and finalization, no block",
+			qr: common.QuorumRound{
+				EmptyNotarization: &common.EmptyNotarization{},
+				Notarization:      &common.Notarization{},
+				Finalization:      &common.Finalization{},
+			},
+			expectedErr: true,
+		},
 	}
 
 	for _, test := range tests {
