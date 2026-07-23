@@ -369,12 +369,45 @@ func (e *Epoch) loadNotarizationRecord(r []byte) error {
 		return nil
 	}
 
-	round, exists := e.rounds[notarization.Vote.Round]
-	if !exists {
-		return fmt.Errorf("could not find round %d, its proposal was probably not persisted earlier", notarization.Vote.Round)
+	if err := e.storeNotarization(&notarization); err != nil {
+		return err
 	}
-	round.notarization = &notarization
+
 	e.Logger.Info("Notarization Recovered From WAL", zap.Uint64("Round", notarization.Vote.Round))
+	return nil
+}
+
+func (e *Epoch) storeNotarization(notarization *common.Notarization) error {
+	if notarization == nil {
+		return errors.New("notarization is nil")
+	}
+
+	roundNum := notarization.Vote.Round
+	round, exists := e.rounds[roundNum]
+	if !exists {
+		return fmt.Errorf("could not find round %d", roundNum)
+	}
+
+	if round.notarization != nil {
+		return fmt.Errorf("notarization for round %d already exists", roundNum)
+	}
+
+	if round.block == nil {
+		return fmt.Errorf("round %d has no block to associate notarization with", roundNum)
+	}
+
+	expectedBlockHeader := round.block.BlockHeader()
+	if !expectedBlockHeader.Equals(&notarization.Vote.BlockHeader) {
+		e.Logger.Debug("Equivocation detected: notarization block header does not match round block header",
+			zap.Uint64("round", roundNum),
+			zap.Stringer("block header", &expectedBlockHeader),
+			zap.Stringer("notarized block header", &notarization.Vote.BlockHeader))
+		delete(e.rounds, roundNum)
+		return fmt.Errorf("notarization block header does not match round %d block header", roundNum)
+	}
+
+	round.notarization = notarization
+
 	return nil
 }
 
@@ -1583,6 +1616,11 @@ func (e *Epoch) maybeCollectNotarization() error {
 		return err
 	}
 
+	if err := e.storeNotarization(&notarization); err != nil {
+		e.Logger.Debug("Not persisting notarization", zap.Error(err))
+		return nil
+	}
+
 	return e.persistAndBroadcastNotarization(notarization)
 }
 
@@ -1603,13 +1641,6 @@ func (e *Epoch) writeNotarizationToWal(notarization common.Notarization) error {
 }
 
 func (e *Epoch) persistNotarization(notarization common.Notarization) error {
-	r, exists := e.rounds[notarization.Vote.Round]
-	if !exists {
-		return fmt.Errorf("attempted to store notarization of a non existent round %d", notarization.Vote.Round)
-	}
-
-	r.notarization = &notarization
-
 	if err := e.writeNotarizationToWal(notarization); err != nil {
 		return err
 	}
@@ -1770,6 +1801,11 @@ func (e *Epoch) handleNotarizationMessage(message *common.Notarization, from com
 	// Else, this is a notarization for the current round, and we have stored the proposal for this round.
 	// Note that we don't need to check if we have timed out on this round,
 	// because if we had collected an empty notarization for this round, we would have progressed to the next round.
+	if err := e.storeNotarization(message); err != nil {
+		e.Logger.Debug("Not persisting notarization", zap.Error(err))
+		return nil
+	}
+
 	return e.persistAndBroadcastNotarization(*message)
 }
 
@@ -2031,6 +2067,10 @@ func (e *Epoch) processNotarizedBlock(block common.Block, notarization *common.N
 			return e.processNotarizedBlock(block, notarization)
 		}
 
+		if err := e.storeNotarization(notarization); err != nil {
+			return nil
+		}
+
 		if err := e.persistNotarization(*notarization); err != nil {
 			e.Logger.Warn("Failed to persist notarization", zap.Error(err))
 			e.haltedError = err
@@ -2256,6 +2296,10 @@ func (e *Epoch) createNotarizedBlockVerificationTask(block common.Block, notariz
 		// store the block in rounds
 		if !e.storeProposal(verifiedBlock) {
 			e.Logger.Debug("Unable to store proposed block for the round", zap.Uint64("round", md.Round))
+			return md.Digest
+		}
+
+		if err := e.storeNotarization(&notarization); err != nil {
 			return md.Digest
 		}
 
