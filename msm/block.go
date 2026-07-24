@@ -21,8 +21,6 @@ type StateMachineBlock struct {
 	InnerBlock avalanchego.VMBlock
 	// Metadata contains the state machine metadata associated with this block.
 	Metadata StateMachineMetadata
-	// size is the number of bytes of the serialized block, set at serialization
-	size int
 }
 
 // RawBlock is the serialized form of a StateMachineBlock.
@@ -146,17 +144,5 @@ func (smb *StateMachineBlock) Bytes() ([]byte, error) {
 		Metadata:        smb.Metadata,
 		InnerBlockBytes: innerBlockBytes,
 	}
-	encoded := rawBlock.MarshalCanoto()
-	smb.size = len(encoded)
-	return encoded, nil
-}
-
-// Size returns the number of bytes of the bytes encoding of the block.
-func (smb *StateMachineBlock) Size() int {
-	if smb.size == 0 {
-		if _, err := smb.Bytes(); err != nil {
-			return 0
-		}
-	}
-	return smb.size
+	return rawBlock.MarshalCanoto(), nil
 }

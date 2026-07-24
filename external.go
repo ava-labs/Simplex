@@ -5,6 +5,7 @@ package simplex
 
 import (
 	"context"
+	"sync"
 
 	"github.com/ava-labs/simplex/common"
 	metadata "github.com/ava-labs/simplex/msm"
@@ -13,6 +14,10 @@ import (
 type ParsedBlock struct {
 	metadata.StateMachineBlock
 	msm *metadata.StateMachine
+	// sizeLock guards size, so Size() can be invoked concurrently
+	sizeLock sync.Mutex
+	// size caches the length of the Bytes encoding, computed on first use
+	size int
 }
 
 func (p *ParsedBlock) BlockHeader() common.BlockHeader {
@@ -45,4 +50,16 @@ func (p *ParsedBlock) Verify(ctx context.Context) (common.VerifiedBlock, error) 
 		return nil, err
 	}
 	return p, nil
+}
+func (p *ParsedBlock) Size() int {
+	p.sizeLock.Lock()
+	defer p.sizeLock.Unlock()
+	if p.size == 0 {
+		bytes, err := p.Bytes()
+		if err != nil {
+			return 0
+		}
+		p.size = len(bytes)
+	}
+	return p.size
 }

@@ -426,6 +426,40 @@ func TestParseBlockSizeMatchesBytes(t *testing.T) {
 	bytes2, err := pb2.Bytes()
 	require.NoError(t, err)
 	require.Equal(t, len(bytes2), size)
+
+	// case 3: cincurrent Size() calls on a block that was never serialized.
+	// the goroutines rase to compute the size, the lock must make this
+	// safe and every call must return the correct value
+
+	pb3 := &ParsedBlock{
+		StateMachineBlock: metadata.StateMachineBlock{
+			Metadata: metadata.StateMachineMetadata{
+				SimplexProtocolMetadata: []byte{1, 2, 3},
+				SimplexBlacklist:        []byte{4, 5},
+				PChainHeight:            6,
+			},
+			InnerBlock: &testInnerBlock{
+				Height_: 11,
+				TS:      time.UnixMilli(12),
+				Payload: []byte("concurrent"),
+			},
+		},
+	}
+	var wg sync.WaitGroup
+	sizes := make([]int, 4)
+	for i := range sizes {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sizes[i] = pb3.Size()
+		}()
+	}
+	wg.Wait()
+	bytes3, err := pb3.Bytes()
+	require.NoError(t, err)
+	for _, size := range sizes {
+		require.Equal(t, len(bytes3), size)
+	}
 }
 
 // requireTipIsSealing asserts whether the last block in storage is a sealing block.
