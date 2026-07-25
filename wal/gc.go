@@ -114,7 +114,9 @@ func (gcw *GarbageCollectedWAL) Append(payload []byte) error {
 	if gcw.shouldWeCreateNewWAL(payload) {
 		// Close the last WAL in use because we won't be needing it anymore
 		if len(gcw.wals) > 0 {
-			gcw.wals[len(gcw.wals)-1].Close()
+			if err := gcw.wals[len(gcw.wals)-1].Close(); err != nil {
+				return fmt.Errorf("error closing last WAL: %v", err)
+			}
 		}
 		newWAL, err := gcw.createWAL()
 		if err != nil {
@@ -125,6 +127,9 @@ func (gcw *GarbageCollectedWAL) Append(payload []byte) error {
 			retentionTerm: rt,
 			size:          len(payload),
 		})
+	} else {
+		// We're still using the last WAL, so we need to update its size
+		gcw.wals[len(gcw.wals)-1].size += len(payload)
 	}
 
 	last := len(gcw.wals) - 1
@@ -132,9 +137,7 @@ func (gcw *GarbageCollectedWAL) Append(payload []byte) error {
 		gcw.wals[last].retentionTerm = rt
 	}
 
-	gcw.wals[last].Append(payload)
-
-	return nil
+	return gcw.wals[last].Append(payload)
 }
 
 func (gcw *GarbageCollectedWAL) shouldWeCreateNewWAL(payload []byte) bool {
