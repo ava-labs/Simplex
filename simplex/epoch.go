@@ -1405,7 +1405,7 @@ func (e *Epoch) indexFinalizations(startRound uint64) error {
 				if round > finalization.Finalization.Round {
 					continue
 				}
-				delete(messagesFromNode, finalization.Finalization.Round)
+				delete(messagesFromNode, round)
 			}
 		}
 	}
@@ -2999,11 +2999,6 @@ func (e *Epoch) maybeLoadFutureMessages() error {
 						return err
 					}
 				}
-				if e.futureMessagesForRoundEmpty(msgs) {
-					e.Logger.Debug("Deleting future messages",
-						zap.Stringer("from", common.NodeID(from)), zap.Uint64("round", round))
-					delete(messagesFromNode, round)
-				}
 			} else {
 				e.Logger.Debug("No future messages received for this round",
 					zap.Stringer("from", common.NodeID(from)), zap.Uint64("round", round))
@@ -3030,11 +3025,6 @@ func (e *Epoch) maybeLoadFutureMessages() error {
 		}
 		e.Logger.Debug("Round or height was increased while processing future messages", zap.Uint64("epoch round", e.round), zap.Uint64("Round", round), zap.Uint64("previous nextSeqToCommit", nextSeqToCommit), zap.Uint64("nextSeqToCommit", e.nextSeqToCommit()))
 	}
-}
-
-func (e *Epoch) futureMessagesForRoundEmpty(msgs *messagesForRound) bool {
-	return msgs.proposal == nil && msgs.vote == nil && msgs.finalizeVote == nil &&
-		msgs.notarization == nil && msgs.finalization != nil
 }
 
 // storeProposal stores a block in the epochs memory(NOT storage).
