@@ -238,11 +238,22 @@ func TestApprovalStorePutApprovals(t *testing.T) {
 		return common.ValidatorSetApproval{}, false
 	}
 
+	errStaleSignature := errors.New("signature does not verify under this key")
+
 	for _, tc := range []struct {
 		name string
 		// srcValidators/dstValidators size the two stores via makeValidators; NodeIDs are makeNodeID(i+1).
 		srcValidators int
 		dstValidators int
+		// srcVdrs/dstVdrs, when non-nil, override the validator set (and therefore the per-node public keys)
+		// used to build the store, taking precedence over srcValidators/dstValidators. This lets a case give
+		// the same NodeID a different BLSKey in the two stores to model a key rotation across an epoch change.
+		srcVdrs NodeBLSMappings
+		dstVdrs NodeBLSMappings
+		// dstSigErr, when set, makes the destination store's signature verifier reject every signature. It
+		// models an approval whose signature no longer verifies under the destination's key; a case combines
+		// it with a rotated key to prove PutApprovals re-verifies (and drops) instead of copying blindly.
+		dstSigErr error
 		// srcApprovals are loaded into the source store; dstApprovals are pre-loaded into the destination
 		// store before PutApprovals is called.
 		srcApprovals []approvalAndTimestamp
@@ -369,10 +380,73 @@ func TestApprovalStorePutApprovals(t *testing.T) {
 				require.Equal(t, dstSent[0].ValidatorSetApproval, got[0], "the destination approval is retained on a timestamp tie")
 			},
 		},
+		{
+			// Fast path: the carried-over node keeps the same public key across the two stores, so its
+			// already-verified signature is copied without re-verification. We prove verification is skipped
+			// by making the destination verifier reject everything (dstSigErr): the approval must still land.
+			name:      "unchanged public key skips signature re-verification on carry-over",
+			srcVdrs:   NodeBLSMappings{{NodeID: makeNodeID(1), BLSKey: []byte{0xa1}, Weight: 1}},
+			dstVdrs:   NodeBLSMappings{{NodeID: makeNodeID(1), BLSKey: []byte{0xa1}, Weight: 1}}, // identical key
+			dstSigErr: errStaleSignature,
+			srcApprovals: []approvalAndTimestamp{
+				{common.ValidatorSetApproval{NodeID: makeNodeID(1), PChainHeight: 7, Signature: signApproval(7, [32]byte{})}, 100},
+			},
+			verify: func(t *testing.T, dst, _ *ApprovalStore, srcSent, _ []approvalAndTimestamp) {
+				got := dst.Approvals()
+				require.Len(t, got, 1, "the approval carries over without re-verifying the signature when the key is unchanged")
+				require.Equal(t, 1, dst.storedCount)
+				require.Equal(t, srcSent[0].ValidatorSetApproval, got[0])
+			},
+		},
+		{
+			// Key-rotation branch: the same NodeID has a different key in
+			// the destination store. PutApprovals must NOT copy blindly; it re-verifies via HandleApproval,
+			// and since the signature no longer verifies under the new key (dstSigErr) the stale approval is
+			// dropped. Against the previous "always skip" implementation this approval would leak into dst.
+			name:      "rotated public key re-verifies and drops the now-invalid approval",
+			srcVdrs:   NodeBLSMappings{{NodeID: makeNodeID(1), BLSKey: []byte{0xa1}, Weight: 1}},
+			dstVdrs:   NodeBLSMappings{{NodeID: makeNodeID(1), BLSKey: []byte{0xb2}, Weight: 1}}, // key rotated
+			dstSigErr: errStaleSignature,
+			srcApprovals: []approvalAndTimestamp{
+				{common.ValidatorSetApproval{NodeID: makeNodeID(1), PChainHeight: 7, Signature: signApproval(7, [32]byte{})}, 100},
+			},
+			verify: func(t *testing.T, dst, _ *ApprovalStore, _, _ []approvalAndTimestamp) {
+				require.Empty(t, dst.Approvals(), "a stale-key approval is re-verified against the new key and dropped")
+				require.Equal(t, 0, dst.storedCount)
+			},
+		},
+		{
+			// Key-rotation branch, happy path: the key changed, but the signature still verifies under the new
+			// key (dstSigErr unset), so the re-verified approval is carried over. This shows the branch does not
+			// blanket-drop on rotation — it re-verifies and keeps what is still valid.
+			name:    "rotated public key re-verifies and keeps the still-valid approval",
+			srcVdrs: NodeBLSMappings{{NodeID: makeNodeID(1), BLSKey: []byte{0xa1}, Weight: 1}},
+			dstVdrs: NodeBLSMappings{{NodeID: makeNodeID(1), BLSKey: []byte{0xb2}, Weight: 1}}, // key rotated
+			srcApprovals: []approvalAndTimestamp{
+				{common.ValidatorSetApproval{NodeID: makeNodeID(1), PChainHeight: 7, Signature: signApproval(7, [32]byte{})}, 100},
+			},
+			verify: func(t *testing.T, dst, _ *ApprovalStore, srcSent, _ []approvalAndTimestamp) {
+				got := dst.Approvals()
+				require.Len(t, got, 1, "on key rotation the approval is re-verified and, if still valid, carried over")
+				require.Equal(t, 1, dst.storedCount)
+				require.Equal(t, srcSent[0].ValidatorSetApproval, got[0])
+			},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			src := NewApprovalStore(&signatureVerifier{}, makeValidators(tc.srcValidators), testutil.MakeLogger(t))
-			dst := NewApprovalStore(&signatureVerifier{}, makeValidators(tc.dstValidators), testutil.MakeLogger(t))
+			srcVdrs := tc.srcVdrs
+			if srcVdrs == nil {
+				srcVdrs = makeValidators(tc.srcValidators)
+			}
+			dstVdrs := tc.dstVdrs
+			if dstVdrs == nil {
+				dstVdrs = makeValidators(tc.dstValidators)
+			}
+
+			// The source verifier always accepts, so the fixtures load. Only the destination
+			// verifier is parameterized, to model a signature that no longer verifies under a rotated key.
+			src := NewApprovalStore(&signatureVerifier{}, srcVdrs, testutil.MakeLogger(t))
+			dst := NewApprovalStore(&signatureVerifier{err: tc.dstSigErr}, dstVdrs, testutil.MakeLogger(t))
 
 			for _, a := range tc.srcApprovals {
 				require.NoError(t, src.HandleApproval(&a.ValidatorSetApproval, a.Timestamp))

@@ -4,6 +4,7 @@
 package metadata
 
 import (
+	"bytes"
 	"fmt"
 	"sync"
 
@@ -11,6 +12,8 @@ import (
 	"github.com/ava-labs/simplex/common"
 	"go.uber.org/zap"
 )
+
+type approvalCheck func(approval *common.ValidatorSetApproval, pk []byte) error
 
 type approvalKey struct {
 	pChainHeight  uint64
@@ -71,6 +74,10 @@ func (as *ApprovalStore) Approvals() ValidatorSetApprovals {
 }
 
 func (as *ApprovalStore) HandleApproval(approval *common.ValidatorSetApproval, timestamp uint64) error {
+	return as.handleApproval(approval, timestamp, as.checkApprovalSignature)
+}
+
+func (as *ApprovalStore) handleApproval(approval *common.ValidatorSetApproval, timestamp uint64, checkApproval approvalCheck) error {
 	// First thing we check is if the node that sent this approval is a validator.
 	pk, exists := as.nodeIDToPK[avalanchego.NodeID(approval.NodeID)]
 	if !exists {
@@ -82,7 +89,7 @@ func (as *ApprovalStore) HandleApproval(approval *common.ValidatorSetApproval, t
 	// Second thing we check is if the signature of the approval is valid.
 	// We need it to be valid in order for nodes to be able to aggregate it later on along with other approvals.
 	// This is checked before taking the lock, as it only reads immutable state.
-	if err := as.checkApprovalSignature(approval, pk); err != nil {
+	if err := checkApproval(approval, pk); err != nil {
 		as.logger.Debug("Received an approval with an invalid signature", zap.String("nodeID",
 			fmt.Sprintf("%x", approval.NodeID)), zap.Uint64("pChainHeight", approval.PChainHeight))
 		return nil
@@ -194,6 +201,20 @@ func (as *ApprovalStore) PutApprovals(approvalStore *ApprovalStore) {
 	as.lock.RUnlock()
 
 	for _, a := range snapshot {
-		approvalStore.HandleApproval(&a.ValidatorSetApproval, a.Timestamp)
+		oldPK := as.nodeIDToPK[a.NodeID]
+		newPK := approvalStore.nodeIDToPK[a.NodeID]
+		if oldPK == nil || newPK == nil || !bytes.Equal(oldPK, newPK) {
+			// Either this node is/was not a validator any longer,
+			// or the node's public key has changed between the two stores.
+			// In either case, we cannot verify the signature of this approval,
+			// so we just invoke HandleApproval to simulate receiving it as a fresh approval.
+			approvalStore.HandleApproval(&a.ValidatorSetApproval, a.Timestamp)
+			continue
+		}
+		approvalStore.handleApproval(&a.ValidatorSetApproval, a.Timestamp, func(*common.ValidatorSetApproval, []byte) error {
+			// We don't need to check the signature when copying approvals from one store to another,
+			// because we already verified the signature when we first received it.
+			return nil
+		})
 	}
 }
