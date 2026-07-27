@@ -257,7 +257,7 @@ func (sm *StateMachine) HandleApproval(approval *common.ValidatorSetApproval, ti
 	return approvalStore.HandleApproval(approval, timestamp)
 }
 
-func (sm *StateMachine) maybeInitializeApprovalStore(validatorSet NodeBLSMappings) error {
+func (sm *StateMachine) maybeInitializeApprovalStore(validatorSet NodeBLSMappings) *ApprovalStore {
 	sm.lock.Lock()
 	defer sm.lock.Unlock()
 
@@ -270,10 +270,8 @@ func (sm *StateMachine) maybeInitializeApprovalStore(validatorSet NodeBLSMapping
 		if oldApprovalStore != nil {
 			oldApprovalStore.PutApprovals(sm.approvalStore)
 		}
-		return nil
 	}
-
-	return nil
+	return sm.approvalStore
 }
 
 // BuildBlock constructs the next block on top of the given parent block, and passes in the provided simplex metadata and blacklist.
@@ -1099,8 +1097,8 @@ func (sm *StateMachine) computeNewApprovals(parentBlock *StateMachineBlock, vali
 
 	// We retrieve approvals that validators have sent us for the next epoch.
 	// These approvals are signed by validators of the next epoch.
-	sm.maybeInitializeApprovalStore(validators)
-	approvalsFromPeers := sm.approvalStore.Approvals()
+	approvalStore := sm.maybeInitializeApprovalStore(validators)
+	approvalsFromPeers := approvalStore.Approvals()
 	sm.Logger.Debug("Retrieved approvals from peers", zap.Int("numApprovals", len(approvalsFromPeers)))
 
 	// Optimistically sign the epoch transition even if we have already did so in a previous round.
