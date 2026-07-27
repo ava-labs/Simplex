@@ -141,7 +141,7 @@ func (smb *StateMachineBlock) Bytes() ([]byte, error) {
 		innerBlockBytes = rawInnerBlock
 	}
 	rawBlock := &RawBlock{
-		Metadata:        smb.Metadata,
+		Metadata:        smb.Metadata.Clone(),
 		InnerBlockBytes: innerBlockBytes,
 	}
 	return rawBlock.MarshalCanoto(), nil

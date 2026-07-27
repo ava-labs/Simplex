@@ -14,7 +14,7 @@ import (
 type ParsedBlock struct {
 	metadata.StateMachineBlock
 	msm *metadata.StateMachine
-	// sizeLock guards size, so Size() can be invoked concurrently
+	// sizeLock locks size, so Size() can be invoked concurrently
 	sizeLock sync.Mutex
 	// size caches the length of the Bytes encoding, computed on first use
 	size int

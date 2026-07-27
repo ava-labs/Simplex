@@ -119,7 +119,7 @@ type VerifiedBlock interface {
 	// Bytes returns a byte encoding of the block
 	Bytes() ([]byte, error)
 
-	//Size returns the number of the bytes encoding of the block
+	// Size returns the number of the bytes encoding of the block
 	Size() int
 
 	// SealingBlockInfo returns a non-nil value for a block that is not a sealing block and that is not the first ever simplex block.
