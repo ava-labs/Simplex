@@ -3098,14 +3098,6 @@ func (e *Epoch) handleReplicationRequest(req *common.ReplicationRequest, from co
 	}
 	remainingBytes := e.MaxReplicationResponseSize
 
-	if req.LatestRound > 0 {
-		latestRound := e.getLatestVerifiedQuorumRound()
-		if latestRound != nil && latestRound.GetRound() > req.LatestRound {
-			size := latestRound.Size()
-			response.LatestRound = latestRound
-			remainingBytes -= size
-		}
-	}
 	if req.LatestFinalizedSeq > 0 {
 		if e.lastBlock != nil && e.lastBlock.Finalization.Finalization.Seq > req.LatestFinalizedSeq {
 			latestFinalizedSeq := &common.VerifiedQuorumRound{
@@ -3116,6 +3108,16 @@ func (e *Epoch) handleReplicationRequest(req *common.ReplicationRequest, from co
 			response.LatestFinalizedSeq = latestFinalizedSeq
 			remainingBytes -= size
 
+		}
+	}
+	if req.LatestRound > 0 {
+		latestRound := e.getLatestVerifiedQuorumRound()
+		if latestRound != nil && latestRound.GetRound() > req.LatestRound {
+			size := latestRound.Size()
+			if size <= remainingBytes || response.LatestFinalizedSeq == nil {
+				response.LatestRound = latestRound
+				remainingBytes -= size
+			}
 		}
 	}
 

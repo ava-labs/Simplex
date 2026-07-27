@@ -585,3 +585,49 @@ func TestReplicationRequestSizeLimitedLatestFinalizedSeq(t *testing.T) {
 	require.NotNil(t, resp.LatestFinalizedSeq)
 	require.Empty(t, resp.Data)
 }
+
+//
+
+func TestReplicationRequestSizeLimitedBothLatest(t *testing.T) {
+	bb := testutil.NewTestBlockBuilder()
+	nodes := []common.NodeID{{1}, {2}, {3}, {4}}
+	comm := NewListenerComm(nodes)
+	ctx := context.Background()
+	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], comm, bb)
+	conf.ReplicationEnabled = true
+	conf.MaxReplicationResponseSize = 1
+
+	// blocks 0..3 indexed to storage (provides lastBlock for LatestFinalizedSeq)
+	// block 4 notarized via a Wal record (provides a round for LatestRound)
+	blocks := createBlocks(t, nodes, 5)
+	for _, data := range blocks[:4] {
+		require.NoError(t, conf.Storage.Index(ctx, data.VerifiedBlock, data.Finalization))
+	}
+	notarizedBlock := blocks[4].VerifiedBlock
+	blockBytes, err := notarizedBlock.Bytes()
+	require.NoError(t, err)
+	require.NoError(t, wal.Append(common.BlockRecord(notarizedBlock.BlockHeader(), blockBytes)))
+	notarization, err := testutil.NewNotarization(conf.Logger,
+		&testutil.TestSignatureAggregator{N: len(nodes)},
+		notarizedBlock, nodes[:common.Quorum(len(nodes))])
+	require.NoError(t, err)
+	require.NoError(t, wal.Append(common.NewQuorumRecord(notarization.QC.Bytes(),
+		notarization.Vote.Bytes(), common.NotarizationRecordType)))
+
+	e, err := simplex.NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+
+	require.NoError(t, e.HandleMessage(&common.Message{
+		ReplicationRequest: &common.ReplicationRequest{
+			LatestRound:        1,
+			LatestFinalizedSeq: 1,
+		},
+	}, nodes[1]))
+	msg := <-comm.in
+	resp := msg.VerifiedReplicationResponse
+	require.NotNil(t, resp.LatestFinalizedSeq)
+	require.Nil(t, resp.LatestRound)
+	require.Empty(t, resp.Data)
+}
