@@ -56,7 +56,7 @@ func (w *WriteAheadLog) Append(b []byte) error {
 
 func (w *WriteAheadLog) Delete() error {
 	if w.file == nil {
-		return os.Remove(w.file.Name())
+		return os.Remove(w.fileName)
 	}
 
 	if err := w.file.Close(); err != nil {
