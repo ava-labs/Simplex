@@ -52,8 +52,8 @@ func (p *ParsedBlock) Verify(ctx context.Context) (common.VerifiedBlock, error) 
 	return p, nil
 }
 func (p *ParsedBlock) Size() int {
-	p.sizeLock.Lock()
-	defer p.sizeLock.Unlock()
+	p.lock.Lock()
+	defer p.lock.Unlock()
 	if p.size == 0 {
 		bytes, err := p.Bytes()
 		if err != nil {
