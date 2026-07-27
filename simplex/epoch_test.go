@@ -514,28 +514,15 @@ func TestEquivocatedBlockNotarized(t *testing.T) {
 	// The equivocated notarization is not persisted to the WAL (still just the block record).
 	wal.AssertWALSize(1)
 
-	// (5) The honest majority continues past the equivocated round: round 1 is empty
-	// notarized (a timeout), and block C is finalized at round 2 building directly on
-	// top of block B (seq 1). Receiving the finalization for round 2 makes the node
-	// realize it is behind and triggers replication.
-	blockC := testutil.NewTestBlock(ProtocolMetadata{
-		Round: 2,
-		Seq:   1,
-		Prev:  blockB.BlockHeader().Digest,
-	}, emptyBlacklist)
-	finalizationC, _ := testutil.NewFinalizationRecord(t, sigAggr, blockC, validators.NodeIDs()[:quorum])
-
-	// (6) The future finalization for round 2 triggers a replication request.
-	testutil.InjectTestFinalization(t, e, &finalizationC, nodes[2])
-
+	// (5) Wait until we receive a request to replicate the authentic block, block B.
 	for msg := range recordingComm.SentMessages {
 		if msg.ReplicationRequest != nil {
 			break
 		}
 	}
 
-	// (7) Feed the node the replication response containing block B (notarized and
-	// finalized by the network) and block C built on block B.
+	// (6) Feed the node the replication response containing block B (notarized and
+	// finalized by the network)
 	finalizationB, _ := testutil.NewFinalizationRecord(t, sigAggr, blockB, validators.NodeIDs()[:quorum])
 	replicationResponse := &ReplicationResponse{
 		Data: []QuorumRound{
@@ -543,21 +530,16 @@ func TestEquivocatedBlockNotarized(t *testing.T) {
 				Block:        blockB,
 				Finalization: &finalizationB,
 			},
-			{
-				Block:        blockC,
-				Finalization: &finalizationC,
-			},
 		},
 	}
 	require.NoError(t, e.HandleMessage(&Message{
 		ReplicationResponse: replicationResponse,
 	}, nodes[2]))
 
-	// (8) The node recovers by committing the block the network actually agreed on
-	// (block B) at seq 0, not the equivocated block A, followed by block C at seq 1.
+	// (7) The node commits the block the network actually agreed on
+	// (block B) at seq 0, not the equivocated block A.
 	require.Equal(t, blockB, storage.WaitForBlockCommit(0))
-	require.Equal(t, blockC, storage.WaitForBlockCommit(1))
-	require.Equal(t, uint64(2), storage.NumBlocks())
+	require.Equal(t, uint64(1), storage.NumBlocks())
 }
 
 func TestEquivocatedBlockFinalized(t *testing.T) {
@@ -617,38 +599,20 @@ func TestEquivocatedBlockFinalized(t *testing.T) {
 	// Block 0 should not commit the block because it has never received block B.
 	storage.EnsureNoBlockCommit(t, 0)
 
-	// (5) The honest majority continues past the equivocated round: round 1 is empty
-	// notarized (a timeout), and block C is finalized at round 2 building directly on
-	// top of block B (seq 1). Receiving the finalization for round 2 makes the node
-	// realize it is behind and triggers replication.
-
-	blockC := testutil.NewTestBlock(ProtocolMetadata{
-		Round: 2,
-		Seq:   1,
-		Prev:  blockB.BlockHeader().Digest,
-	}, emptyBlacklist)
-	finalizationC, _ := testutil.NewFinalizationRecord(t, sigAggr, blockC, validators.NodeIDs()[:quorum])
-
-	// (6) The future finalization for round 2 triggers a replication request.
-	testutil.InjectTestFinalization(t, e, &finalizationC, nodes[2])
-
+	// (5) Wait until we receive a request to replicate the authentic block, block B.
 	for msg := range recordingComm.SentMessages {
 		if msg.ReplicationRequest != nil {
 			break
 		}
 	}
 
-	// (7) Feed the node the replication response containing the correctly finalized
-	// block B and block C built on block B.
+	// (6) Feed the node the replication response containing the correctly finalized
+	// block B.
 	replicationResponse := &ReplicationResponse{
 		Data: []QuorumRound{
 			{
 				Block:        blockB,
 				Finalization: &finalizationB,
-			},
-			{
-				Block:        blockC,
-				Finalization: &finalizationC,
 			},
 		},
 	}
@@ -659,8 +623,7 @@ func TestEquivocatedBlockFinalized(t *testing.T) {
 	// (8) The node recovers by committing the block the network actually finalized
 	// (block B) at seq 0, not the equivocated block A, followed by block C at seq 1.
 	require.Equal(t, blockB, storage.WaitForBlockCommit(0))
-	require.Equal(t, blockC, storage.WaitForBlockCommit(1))
-	require.Equal(t, uint64(2), storage.NumBlocks())
+	require.Equal(t, uint64(1), storage.NumBlocks())
 }
 
 func TestEpochConsecutiveProposalsDoNotGetVerified(t *testing.T) {

@@ -382,6 +382,10 @@ func (e *Epoch) storeNotarization(notarization *common.Notarization) error {
 		return errors.New("notarization is nil")
 	}
 
+	if notarization.QC == nil {
+		return errors.New("notarization has no QC")
+	}
+
 	roundNum := notarization.Vote.Round
 	round, exists := e.rounds[roundNum]
 	if !exists {
@@ -403,6 +407,8 @@ func (e *Epoch) storeNotarization(notarization *common.Notarization) error {
 			zap.Stringer("block header", &expectedBlockHeader),
 			zap.Stringer("notarized block header", &notarization.Vote.BlockHeader))
 		delete(e.rounds, roundNum)
+		// We need to request the correct block from the network, as we have received the wrong block for this round.
+		e.replicationState.ReceivedFutureRound(expectedBlockHeader.Round, expectedBlockHeader.Seq, e.round, notarization.QC.Signers())
 		return fmt.Errorf("notarization block header does not match round %d block header", roundNum)
 	}
 
@@ -2904,6 +2910,9 @@ func (e *Epoch) storeFinalization(finalization *common.Finalization) error {
 			zap.Stringer("block header", &expectedBlockHeader),
 			zap.Stringer("finalized block header", &finalization.Finalization.BlockHeader))
 		delete(e.rounds, roundNum)
+		// We have received a block that has been equivocated and doesn't match the finalization that was assembled.
+		// We therefore need to request a different block that corresponds to this finalization.
+		e.replicationState.ReceivedFutureFinalization(finalization, e.nextSeqToCommit())
 		return fmt.Errorf("finalization block header does not match round %d block header", roundNum)
 	}
 
