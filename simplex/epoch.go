@@ -2156,6 +2156,8 @@ func (e *Epoch) createFinalizedBlockVerificationTask(block common.Block, finaliz
 		if err != nil {
 			e.Logger.Debug("Failed verifying block", zap.Error(err))
 			// if we fail to verify the block, we re-add to request timeout
+			e.lock.Lock()
+			defer e.lock.Unlock()
 			e.replicationState.ResendFinalizationRequest(md.Seq, finalization.QC.Signers())
 			return md.Digest
 		}
