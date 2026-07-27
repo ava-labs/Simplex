@@ -145,6 +145,41 @@ func TestDelete(t *testing.T) {
 	require.ErrorIs(err, os.ErrNotExist)
 }
 
+func TestDeleteWhenFileNil(t *testing.T) {
+	t.Run("never opened", func(t *testing.T) {
+		require := require.New(t)
+
+		fileName := filepath.Join(t.TempDir(), "simplex.wal")
+		require.NoError(os.WriteFile(fileName, nil, WalPermissions))
+
+		wal := New(fileName)
+
+		require.NotPanics(func() {
+			require.NoError(wal.Delete())
+		})
+
+		_, err := os.Stat(fileName)
+		require.ErrorIs(err, os.ErrNotExist)
+	})
+
+	t.Run("closed before delete", func(t *testing.T) {
+		require := require.New(t)
+
+		fileName := filepath.Join(t.TempDir(), "simplex.wal")
+		wal := New(fileName)
+
+		require.NoError(wal.Append([]byte{3, 4, 5}))
+		require.NoError(wal.Close()) // w.file is now nil
+
+		require.NotPanics(func() {
+			require.NoError(wal.Delete())
+		})
+
+		_, err := os.Stat(fileName)
+		require.ErrorIs(err, os.ErrNotExist)
+	})
+}
+
 func TestReadWriteAfterTruncate(t *testing.T) {
 	require := require.New(t)
 
