@@ -484,6 +484,10 @@ func (n *NonValidator) processQuorumRound(qr *common.QuorumRound, from common.No
 		return nil
 	}
 
+	if block == nil {
+		return fmt.Errorf("received a quorum round with a finalization but no block")
+	}
+
 	if n.isAccepted(block.BlockHeader().Seq) {
 		return fmt.Errorf("processing quorum round for a block we already indexed")
 	}
