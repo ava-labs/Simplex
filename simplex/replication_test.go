@@ -1803,3 +1803,138 @@ func TestReplicationRequestsWithinMaxRoundWindow(t *testing.T) {
 			"requested a sequence more than MaxRoundWindow ahead of the next sequence to commit")
 	}
 }
+
+func TestLeaderStartsRoundAfterReplicatedQuorumRound(t *testing.T) {
+	// This test makes sure that a node that replicates a notarization or a finalization,
+	// starts the next round.
+	// The test works as follows:
+	// The node in the test is the second node in the list of nodes.
+	// The first node is the leader of round 0, and the second node is the leader of round 1.
+	// The node receives a notarization/finalization for round 0, which it does not have the block for.
+	// It will request the block and the notarization/finalization again, which should make it advance to round 1.
+	// Since node is the leader of round 1, it should propose a block.
+	nodes := []common.NodeID{{1}, {2}, {3}, {4}}
+
+	for _, testCase := range []struct {
+		name string
+		// quorumRound builds the round 0 quorum round (block + notarization or finalization) and the
+		// bare message carrying only the notarization/finalization, which the node receives without the block.
+		quorumRound func(t *testing.T, e *simplex.Epoch, block *testutil.TestBlock) (common.QuorumRound, *common.Message)
+		// requestsMissingBlock reports whether msg is the request the node sends to fetch the missing block.
+		requestsMissingBlock func(msg *common.Message, block *testutil.TestBlock) bool
+		// commits is true if replicating the quorum round also commits block 0.
+		commits bool
+	}{
+		{
+			name: "notarization",
+			quorumRound: func(t *testing.T, e *simplex.Epoch, block *testutil.TestBlock) (common.QuorumRound, *common.Message) {
+				validators := e.Comm.Validators()
+				quorum := common.Quorum(len(validators))
+				sigAggr := e.SignatureAggregatorCreator(validators)
+				notarization, err := testutil.NewNotarization(e.Logger, sigAggr, block, validators.NodeIDs()[:quorum])
+				require.NoError(t, err)
+				return common.QuorumRound{Block: block, Notarization: &notarization}, &common.Message{Notarization: &notarization}
+			},
+			// The notarization path asks for the missing block via a block digest request.
+			requestsMissingBlock: func(msg *common.Message, block *testutil.TestBlock) bool {
+				return msg.BlockDigestRequest != nil && msg.BlockDigestRequest.Digest == block.BlockHeader().Digest
+			},
+		},
+		{
+			name: "finalization",
+			quorumRound: func(t *testing.T, e *simplex.Epoch, block *testutil.TestBlock) (common.QuorumRound, *common.Message) {
+				validators := e.Comm.Validators()
+				quorum := common.Quorum(len(validators))
+				sigAggr := e.SignatureAggregatorCreator(validators)
+				finalization, _ := testutil.NewFinalizationRecord(t, sigAggr, block, validators.NodeIDs()[:quorum])
+				return common.QuorumRound{Block: block, Finalization: &finalization}, &common.Message{Finalization: &finalization}
+			},
+			// The finalization path asks for the missing block through the replication path.
+			requestsMissingBlock: func(msg *common.Message, block *testutil.TestBlock) bool {
+				if msg.ReplicationRequest == nil {
+					return false
+				}
+				for _, seq := range msg.ReplicationRequest.Seqs {
+					if seq == block.BlockHeader().Seq {
+						return true
+					}
+				}
+				return false
+			},
+			// A finalization also commits block 0 as the node advances.
+			commits: true,
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			// nodes[1] leads round 1 but not round 0 - it is the node we drive.
+			require.NotEqual(t, nodes[1], simplex.LeaderForRound(nodes, 0))
+			require.Equal(t, nodes[1], simplex.LeaderForRound(nodes, 1))
+
+			recordingComm := &recordingComm{
+				Communication:     testutil.NewNoopComm(nodes),
+				BroadcastMessages: make(chan *common.Message, 100),
+				SentMessages:      make(chan *common.Message, 100),
+			}
+
+			bb := testutil.NewTestBlockBuilder()
+			conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[1], recordingComm, bb)
+			conf.ReplicationEnabled = true
+
+			e, err := simplex.NewEpoch(conf)
+			require.NoError(t, err)
+			t.Cleanup(e.Stop)
+			require.NoError(t, e.Start())
+
+			// Build a notarized/finalized block B for round 0 (the round led by nodes[0]), which the
+			// node under test never received directly.
+			blockB := testutil.NewTestBlock(e.Metadata(), emptyBlacklist)
+			quorumRound, bareMessage := testCase.quorumRound(t, e, blockB)
+
+			// Send the node a notarization/finalization for round 0 without the block itself.
+			// Since the node does not have block 0, it will start replication.
+			require.NoError(t, e.HandleMessage(bareMessage, nodes[0]))
+
+			// The node asks for the missing block for round 0.
+			require.Eventually(t, func() bool {
+				for {
+					select {
+					case msg := <-recordingComm.SentMessages:
+						if testCase.requestsMissingBlock(msg, blockB) {
+							return true
+						}
+					default:
+						return false
+					}
+				}
+			}, 5*time.Second, 10*time.Millisecond, "node did not request the missing block for round 0")
+
+			// Answer the request with the notarized/finalized round 0 through the replication path,
+			// delivering the block together with the notarization/finalization once more.
+			require.NoError(t, e.HandleMessage(&common.Message{
+				ReplicationResponse: &common.ReplicationResponse{
+					Data: []common.QuorumRound{quorumRound},
+				},
+			}, nodes[0]))
+
+			// The node advances to round 1 off the replicated notarization/finalization.
+			require.Eventually(t, func() bool {
+				return e.Metadata().Round == 1
+			}, 5*time.Second, 10*time.Millisecond, "node did not advance to round 1")
+
+			// Being the leader of round 1, the node must propose a block.
+			require.Eventually(t, func() bool {
+				for {
+					select {
+					case msg := <-recordingComm.BroadcastMessages:
+						if msg.VerifiedBlockMessage != nil || msg.BlockMessage != nil {
+							require.Equal(t, uint64(1), msg.VerifiedBlockMessage.VerifiedBlock.BlockHeader().Round)
+							return true
+						}
+					default:
+						return false
+					}
+				}
+			}, 5*time.Second, 50*time.Millisecond, "leader never proposed a block for round 1 after advancing via a replicated quorum round")
+		})
+	}
+}

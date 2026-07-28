@@ -2265,6 +2265,14 @@ func (e *Epoch) createNotarizedBlockVerificationTask(block common.Block, notariz
 			return md.Digest
 		}
 
+		// If we have advanced a round, and the new round is beyond our replication state, start the new round.
+		if e.round > md.Round && e.round > e.replicationState.GetHighestRound() {
+			if err := e.startRound(); err != nil {
+				e.haltedError = err
+				return md.Digest
+			}
+		}
+
 		return md.Digest
 	}
 }
