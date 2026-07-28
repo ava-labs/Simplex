@@ -20,7 +20,10 @@ import (
 	"go.uber.org/zap"
 )
 
-var ErrAlreadyStarted = errors.New("epoch already started")
+var (
+	ErrAlreadyStarted = errors.New("epoch already started")
+	notarizationBlockMismatch = errors.New("notarization block header mismatches stored round block header")
+)
 
 const (
 	DefaultMaxRoundWindow                 = 10
@@ -369,7 +372,8 @@ func (e *Epoch) loadNotarizationRecord(r []byte) error {
 		return nil
 	}
 
-	if err := e.storeNotarization(&notarization); err != nil {
+	if err := e.storeNotarization(&notarization); err != nil && ! errors.Is(err, notarizationBlockMismatch){
+		e.Logger.Debug("Failed to store notarization from WAL", zap.Uint64("Round", notarization.Vote.Round), zap.Error(err))
 		return err
 	}
 
@@ -409,7 +413,7 @@ func (e *Epoch) storeNotarization(notarization *common.Notarization) error {
 		delete(e.rounds, roundNum)
 		// We need to request the correct block from the network, as we have received the wrong block for this round.
 		e.replicationState.ReceivedFutureRound(expectedBlockHeader.Round, expectedBlockHeader.Seq, e.round, notarization.QC.Signers())
-		return fmt.Errorf("notarization block header does not match round %d block header", roundNum)
+		return notarizationBlockMismatch
 	}
 
 	round.notarization = notarization
@@ -2296,6 +2300,20 @@ func (e *Epoch) createNotarizedBlockVerificationTask(block common.Block, notariz
 		if ok && round.notarization != nil {
 			e.Logger.Debug("Verifying notarized block that already has a notarization for the round",
 				zap.Uint64("round", md.Round))
+			return md.Digest
+		}
+
+		blockBytes, err := verifiedBlock.Bytes()
+		if err != nil {
+			e.haltedError = err
+			e.Logger.Error("Failed to serialize block", zap.Error(err))
+			return md.Digest
+		}
+
+		blockRecord := common.BlockRecord(md, blockBytes)
+		if err := e.WAL.Append(blockRecord); err != nil {
+			e.haltedError = err
+			e.Logger.Error("Failed to append block record to WAL", zap.Error(err))
 			return md.Digest
 		}
 

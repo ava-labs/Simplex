@@ -468,7 +468,6 @@ func TestEquivocatedBlockNotarized(t *testing.T) {
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
-	t.Cleanup(e.Stop)
 	require.NoError(t, e.Start())
 
 	// (1) Byzantine leader equivocates and sends a block to the node.
@@ -523,12 +522,15 @@ func TestEquivocatedBlockNotarized(t *testing.T) {
 
 	// (6) Feed the node the replication response containing block B (notarized and
 	// finalized by the network)
-	finalizationB, _ := testutil.NewFinalizationRecord(t, sigAggr, blockB, validators.NodeIDs()[:quorum])
+	l := testutil.MakeLogger(t)
+	notarization, err := testutil.NewNotarization(l, sigAggr, blockB, validators.NodeIDs()[:quorum])
+	require.NoError(t, err)
+
 	replicationResponse := &ReplicationResponse{
 		Data: []QuorumRound{
 			{
 				Block:        blockB,
-				Finalization: &finalizationB,
+				Notarization: &notarization,
 			},
 		},
 	}
@@ -536,10 +538,51 @@ func TestEquivocatedBlockNotarized(t *testing.T) {
 		ReplicationResponse: replicationResponse,
 	}, nodes[2]))
 
-	// (7) The node commits the block the network actually agreed on
-	// (block B) at seq 0, not the equivocated block A.
-	require.Equal(t, blockB, storage.WaitForBlockCommit(0))
-	require.Equal(t, uint64(1), storage.NumBlocks())
+	// (7) The node writes the notarization of (block B) to the WAL
+	require.Equal(t, NotarizationRecordType, wal.AssertNotarization(0))
+	require.Equal(t, uint64(0), storage.NumBlocks())
+
+	// The rest of the test ensures that when the node restarts,
+	// the node will have in its memory only the correct block and not the equivocated block.
+	e.Stop()
+	e, err = NewEpoch(conf)
+	require.NoError(t, err)
+	require.NoError(t, e.Start())
+	t.Cleanup(e.Stop)
+
+	// Drain the output channel
+	for len(recordingComm.SentMessages) > 0 {
+		<-recordingComm.SentMessages
+	}
+
+	// Next we send a replication request to the node and we expect to get the correct block B and not the equivocated block A.
+	require.NoError(t, e.HandleMessage(&Message{
+		ReplicationRequest: &ReplicationRequest{
+			Rounds: []uint64{0},
+		},
+	}, nodes[2]))
+
+	// The node should reply with the block the network finalized (block B), never the
+	// equivocated block A that only it ever saw.
+	var resp *VerifiedReplicationResponse
+	require.Eventually(t, func() bool {
+		for {
+			select {
+			case msg := <-recordingComm.SentMessages:
+				if msg.VerifiedReplicationResponse != nil {
+					resp = msg.VerifiedReplicationResponse
+					return true
+				}
+			default:
+				return false
+			}
+		}
+	}, 5*time.Second, 50*time.Millisecond, "node did not reply to the replication request")
+
+	require.Len(t, resp.Data, 1)
+	gotBlock := resp.Data[0].VerifiedBlock
+	require.Equal(t, blockB.BlockHeader().Digest, gotBlock.BlockHeader().Digest)
+	require.NotEqual(t, blockA.BlockHeader().Digest, gotBlock.BlockHeader().Digest)
 }
 
 func TestEquivocatedBlockFinalized(t *testing.T) {
@@ -559,7 +602,6 @@ func TestEquivocatedBlockFinalized(t *testing.T) {
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
-	t.Cleanup(e.Stop)
 	require.NoError(t, e.Start())
 
 	// (1) Byzantine leader equivocates and sends a block to the node.
@@ -624,6 +666,44 @@ func TestEquivocatedBlockFinalized(t *testing.T) {
 	// (block B) at seq 0, not the equivocated block A, followed by block C at seq 1.
 	require.Equal(t, blockB, storage.WaitForBlockCommit(0))
 	require.Equal(t, uint64(1), storage.NumBlocks())
+
+	// The rest of the test ensures that when the node restarts,
+	// the node will have in its memory only the correct block and not the equivocated block.
+	e.Stop()
+	e, err = NewEpoch(conf)
+	require.NoError(t, err)
+	require.NoError(t, e.Start())
+	t.Cleanup(e.Stop)
+
+	// Send a replication request to the restarted node and expect to get the correct
+	// block B and not the equivocated block A.
+	require.NoError(t, e.HandleMessage(&Message{
+		ReplicationRequest: &ReplicationRequest{
+			Seqs: []uint64{0},
+		},
+	}, nodes[2]))
+
+	// The node should reply with the block the network finalized (block B), never the
+	// equivocated block A that only it ever saw.
+	var resp *VerifiedReplicationResponse
+	require.Eventually(t, func() bool {
+		for {
+			select {
+			case msg := <-recordingComm.SentMessages:
+				if msg.VerifiedReplicationResponse != nil {
+					resp = msg.VerifiedReplicationResponse
+					return true
+				}
+			default:
+				return false
+			}
+		}
+	}, 5*time.Second, 50*time.Millisecond, "node did not reply to the replication request")
+
+	require.Len(t, resp.Data, 1)
+	gotBlock := resp.Data[0].VerifiedBlock
+	require.Equal(t, blockB.BlockHeader().Digest, gotBlock.BlockHeader().Digest)
+	require.NotEqual(t, blockA.BlockHeader().Digest, gotBlock.BlockHeader().Digest)
 }
 
 func TestEpochConsecutiveProposalsDoNotGetVerified(t *testing.T) {
