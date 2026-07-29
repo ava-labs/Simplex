@@ -451,7 +451,6 @@ func TestEpochIndexFinalization(t *testing.T) {
 	storage.WaitForBlockCommit(2)
 }
 
-
 func TestEquivocatedBlock(t *testing.T) {
 	// Tests a case where a Byzantine leader equivocates:
 	// it sends block A to the node while the honest majority certifies a different
@@ -1771,7 +1770,7 @@ func TestDoubleIncrementOnPersistNotarization(t *testing.T) {
 	}, nodes[0])
 	require.NoError(t, err)
 
-	wal.AssertWALSize(2)
+	wal.AssertWALSize(3)
 	// ensure the round is still 1
 	require.Equal(t, uint64(1), e.Metadata().Round)
 }

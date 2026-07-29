@@ -21,7 +21,7 @@ import (
 )
 
 var (
-	ErrAlreadyStarted = errors.New("epoch already started")
+	ErrAlreadyStarted         = errors.New("epoch already started")
 	notarizationBlockMismatch = errors.New("notarization block header mismatches stored round block header")
 )
 
@@ -372,7 +372,7 @@ func (e *Epoch) loadNotarizationRecord(r []byte) error {
 		return nil
 	}
 
-	if err := e.storeNotarization(&notarization); err != nil && ! errors.Is(err, notarizationBlockMismatch){
+	if err := e.storeNotarization(&notarization); err != nil && !errors.Is(err, notarizationBlockMismatch) {
 		e.Logger.Debug("Failed to store notarization from WAL", zap.Uint64("Round", notarization.Vote.Round), zap.Error(err))
 		return err
 	}
@@ -2310,16 +2310,16 @@ func (e *Epoch) createNotarizedBlockVerificationTask(block common.Block, notariz
 			return md.Digest
 		}
 
+		// store the block in rounds
+		if !e.storeProposal(verifiedBlock) {
+			e.Logger.Debug("Unable to store proposed block for the round", zap.Uint64("round", md.Round))
+			return md.Digest
+		}
+
 		blockRecord := common.BlockRecord(md, blockBytes)
 		if err := e.WAL.Append(blockRecord); err != nil {
 			e.haltedError = err
 			e.Logger.Error("Failed to append block record to WAL", zap.Error(err))
-			return md.Digest
-		}
-
-		// store the block in rounds
-		if !e.storeProposal(verifiedBlock) {
-			e.Logger.Debug("Unable to store proposed block for the round", zap.Uint64("round", md.Round))
 			return md.Digest
 		}
 
