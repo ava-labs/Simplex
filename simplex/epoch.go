@@ -163,6 +163,7 @@ func (e *Epoch) HandleMessage(msg *common.Message, from common.NodeID) error {
 		switch {
 		case msg.ReplicationRequest != nil && e.ReplicationEnabled:
 			return e.handleReplicationRequest(msg.ReplicationRequest, from)
+		// TODO: process finalizations from non-validators
 		default:
 			e.Logger.Debug("Invalid message type", zap.Stringer("from", from))
 			return nil
@@ -755,6 +756,8 @@ func (e *Epoch) handleFinalizationMessage(message *common.Finalization, from com
 		return nil
 	}
 
+	// TODO: check if this finalization message is from a different epoch. If so, we need to request the sealing block.
+	// https://github.com/ava-labs/Simplex/issues/442
 	if err := VerifyQC(message.QC, e.signatureAggregator.IsQuorum, e.validatorsToPKs, message, e.validators); err != nil {
 		e.Logger.Debug(fmt.Sprintf("Finalization %s", err),
 			zap.Int("round", int(message.Finalization.Round)),
@@ -1417,9 +1420,13 @@ func (e *Epoch) indexFinalizations(startRound uint64) error {
 }
 
 func (e *Epoch) indexFinalization(block common.VerifiedBlock, finalization common.Finalization) error {
-	if err := e.Storage.Index(e.finishCtx, block, finalization); err != nil {
-		return err
+	// index only if the epoch is not sealed
+	if !e.epochSealed.Load() {
+		if err := e.Storage.Index(e.finishCtx, block, finalization); err != nil {
+			return err
+		}
 	}
+
 	e.Logger.Info("Committed block",
 		zap.Uint64("round", finalization.Finalization.Round),
 		zap.Uint64("sequence", finalization.Finalization.Seq),
