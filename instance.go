@@ -142,17 +142,29 @@ func (i *Instance) createNonValidatorConfig() (nonvalidator.Config, error) {
 	}
 	comm := newCommunication(i.Config.Sender, i.Config.Broadcaster, nodes)
 
-	transitionListener := newEpochTransitionListener(i.Config.Logger, comm, avalanchego.NodeID(i.Config.ID), func(epoch uint64, validators common.Nodes) error {
-		// set the communication to the highest validator set, since this node is a non-validator and may be behind.
-		nodes, err := GetHighestValidatorSet(i.Config.PlatformChain)
-		if err != nil {
-			return err
-		}
-		comm.SetValidators(nodes)
-		i.notifyEpochChange(epoch, validators)
+	// Non-validators have no block builder, so they pass a nil approval handler:
+	// they broadcast approvals but do not need to record their own locally.
+	transitionListener := newEpochTransitionListener(
+		i.Config.Logger,
+		comm,
+		avalanchego.NodeID(i.Config.ID),
+		i.Config.PlatformChain.GetValidatorSet,
+		i.cs.RetrieveBlock,
+		i.Config.CryptoOps,
+		&NoopAuxiliaryInfoApp{}, // TODO: set this in the config
+		nil,
+		func(epoch uint64, validators common.Nodes) error {
+			// set the communication to the highest validator set, since this node is a non-validator and may be behind.
+			nodes, err := GetHighestValidatorSet(i.Config.PlatformChain)
+			if err != nil {
+				return err
+			}
+			comm.SetValidators(nodes)
+			i.notifyEpochChange(epoch, validators)
 
-		return nil
-	})
+			return nil
+		},
+	)
 
 	// Plant an artificial MSM that just skips verification.
 	i.msm = &metadata.StateMachine{
@@ -268,6 +280,13 @@ func (i *Instance) HandleMessage(msg *common.Message, from common.NodeID) error 
 	}
 
 	if i.e != nil {
+		switch {
+		case msg.AuxiliaryInfo != nil:
+			i.msm.HandleAuxiliaryInfo(*msg.AuxiliaryInfo, avalanchego.NodeID(from))
+		case msg.EpochTransitionApproval != nil:
+			// TODO: pass in time.Now() rather than uint64
+			i.msm.HandleApproval(msg.EpochTransitionApproval, uint64(time.Now().Unix()))
+		}
 		return i.e.HandleMessage(msg, from)
 	}
 
@@ -347,7 +366,7 @@ func (i *Instance) processEpochChange(epochChange epochChange) {
 
 	var err error
 	switch {
-	case i.e != nil && i.nv == nil:
+	case i.e != nil && i.nv != nil:
 		i.Config.Logger.Fatal("We are running both a validator and non-validator")
 		return
 	case i.nv != nil:
@@ -445,12 +464,22 @@ func (i *Instance) createEpochConfig(epoch uint64, validators common.Nodes) (sim
 
 	comm := newCommunication(i.Config.Sender, i.Config.Broadcaster, validators)
 
-	transitionListener := newEpochTransitionListener(i.Config.Logger, comm, avalanchego.NodeID(i.Config.ID), func(epoch uint64, validators common.Nodes) error {
-		blockBuilder.stop()
-		comm.SetValidators(validators)
-		i.notifyEpochChange(epoch, validators)
-		return nil
-	})
+	transitionListener := newEpochTransitionListener(
+		i.Config.Logger,
+		comm,
+		avalanchego.NodeID(i.Config.ID),
+		i.Config.PlatformChain.GetValidatorSet,
+		i.cs.RetrieveBlock,
+		i.Config.CryptoOps,
+		&NoopAuxiliaryInfoApp{},
+		msm.HandleApproval,
+		func(epoch uint64, validators common.Nodes) error {
+			blockBuilder.stop()
+			comm.SetValidators(validators)
+			i.notifyEpochChange(epoch, validators)
+			return nil
+		},
+	)
 	instanceStorage := NewInstanceStorage(i.cs, msm, transitionListener.onIndex)
 
 	epochConfig := simplex.EpochConfig{

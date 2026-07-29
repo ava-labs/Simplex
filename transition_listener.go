@@ -16,11 +16,24 @@ import (
 // Non-validators should also use this listener, since they may become
 // validators after the transition.
 type epochTransitionListener struct {
-	// broadcaster is used for broadcasting potential approvals and a auxiliary information
-	// it should be broadcasted to the validators of the current epoch
+	// broadcaster is used for broadcasting potential approvals and auxiliary information.
+	// It should be broadcast to the validators of the current epoch.
 	broadcaster Broadcaster
 
 	myNodeID avalanchego.NodeID
+
+	// getValidatorSet returns the validator set at a given P-chain height.
+	getValidatorSet metadata.ValidatorSetRetriever
+	// getBlock retrieves a previously finalized block, used to traverse the auxiliary info history.
+	getBlock metadata.BlockRetriever
+	// signer signs epoch transition approvals.
+	signer common.Signer
+	// auxInfoApp decides whether the auxiliary info history is sufficient and generates new entries.
+	auxInfoApp metadata.AuxiliaryInfoGenVerifier
+	// handleApproval records our own broadcast approval in the local approval store.
+	// It is set for validators (whose MSM builds the next blocks and must include the
+	// approval) and nil for non-validators, which have no block builder to feed.
+	handleApproval func(approval *common.ValidatorSetApproval, timestamp uint64) error
 
 	// onEpochChange is a callback the listener invokes once a sealing block for `epoch` has been indexed.
 	onEpochChange func(epoch uint64, validators common.Nodes) error
@@ -28,12 +41,27 @@ type epochTransitionListener struct {
 	logger common.Logger
 }
 
-func newEpochTransitionListener(logger common.Logger, broadcaster Broadcaster, myNodeID avalanchego.NodeID, onEpochChange func(epoch uint64, validator common.Nodes) error) *epochTransitionListener {
+func newEpochTransitionListener(
+	logger common.Logger,
+	broadcaster Broadcaster,
+	myNodeID avalanchego.NodeID,
+	getValidatorSet metadata.ValidatorSetRetriever,
+	getBlock metadata.BlockRetriever,
+	signer common.Signer,
+	auxInfoApp metadata.AuxiliaryInfoGenVerifier,
+	handleApproval func(approval *common.ValidatorSetApproval, timestamp uint64) error,
+	onEpochChange func(epoch uint64, validators common.Nodes) error,
+) *epochTransitionListener {
 	return &epochTransitionListener{
-		broadcaster:   broadcaster,
-		myNodeID:      myNodeID,
-		onEpochChange: onEpochChange,
-		logger:        logger,
+		broadcaster:     broadcaster,
+		myNodeID:        myNodeID,
+		getValidatorSet: getValidatorSet,
+		getBlock:        getBlock,
+		signer:          signer,
+		auxInfoApp:      auxInfoApp,
+		handleApproval:  handleApproval,
+		onEpochChange:   onEpochChange,
+		logger:          logger,
 	}
 }
 
@@ -55,7 +83,7 @@ func (a *epochTransitionListener) handleTransitionBlock(block *ParsedBlock) erro
 	nextEpochPChainReference := block.Metadata.SimplexEpochInfo.NextPChainReferenceHeight
 
 	// if our node is not in the next validator set, no need to send anything.
-	nextEpochValidatorSet, err := block.msm.GetValidatorSet(nextEpochPChainReference)
+	nextEpochValidatorSet, err := a.getValidatorSet(nextEpochPChainReference)
 	if err != nil {
 		return err
 	}
@@ -65,8 +93,15 @@ func (a *epochTransitionListener) handleTransitionBlock(block *ParsedBlock) erro
 		return nil // we are not in the next validator set
 	}
 
-	auxInfoHistory, err := metadata.GetAuxiliaryHistory(&block.StateMachineBlock, block.BlockHeader().Seq, block.msm.GetBlock, block.msm.AuxiliaryInfoApp.DefaultVersionID())
-	isSufficient, err := block.msm.AuxiliaryInfoApp.IsSufficient(auxInfoHistory.OldestVersionID, nextEpochValidatorSet, auxInfoHistory.Data)
+	auxInfoHistory, err := metadata.GetAuxiliaryHistory(&block.StateMachineBlock, block.BlockHeader().Seq, a.getBlock, a.auxInfoApp.DefaultVersionID())
+	if err != nil {
+		return err
+	}
+
+	isSufficient, err := a.auxInfoApp.IsSufficient(auxInfoHistory.OldestVersionID, nextEpochValidatorSet, auxInfoHistory.Data)
+	if err != nil {
+		return err
+	}
 
 	if isSufficient {
 		// no more auxiliary info to send, maybe send our approval
@@ -75,7 +110,7 @@ func (a *epochTransitionListener) handleTransitionBlock(block *ParsedBlock) erro
 	}
 
 	// we need more auxiliary information, attempt to generate
-	generatedAuxInfo, err := block.msm.AuxiliaryInfoApp.Generate(auxInfoHistory.OldestVersionID, nextEpochValidatorSet, auxInfoHistory.Data)
+	generatedAuxInfo, err := a.auxInfoApp.Generate(auxInfoHistory.OldestVersionID, nextEpochValidatorSet, auxInfoHistory.Data)
 	if err != nil {
 		return err
 	}
@@ -99,7 +134,7 @@ func (a *epochTransitionListener) handleTransitionBlock(block *ParsedBlock) erro
 func (a *epochTransitionListener) maybeSendApprovals(block *ParsedBlock, auxInfoDigest [32]byte) error {
 	nextEpochPChainReference := block.Metadata.SimplexEpochInfo.NextPChainReferenceHeight
 
-	sig, err := metadata.SignApproval(block.msm.Signer, nextEpochPChainReference, auxInfoDigest)
+	sig, err := metadata.SignApproval(a.signer, nextEpochPChainReference, auxInfoDigest)
 	if err != nil {
 		return err
 	}
@@ -112,12 +147,16 @@ func (a *epochTransitionListener) maybeSendApprovals(block *ParsedBlock, auxInfo
 	}
 
 	approvalMessage := common.Message{
-		EpochTransitionApproval: &common.EpochTransitionApproval{
-			Approval: approval,
-		},
+		EpochTransitionApproval: &approval,
 	}
 
 	a.broadcaster.Broadcast(&approvalMessage)
+
+	// Validators also record their own approval locally so the next block they build
+	// includes it. Non-validators have no block builder, so handleApproval is nil.
+	if a.handleApproval == nil {
+		return nil
+	}
 	timestamp := uint64(time.Now().UnixMilli())
-	return block.msm.HandleApproval(&approval, timestamp)
+	return a.handleApproval(&approval, timestamp)
 }

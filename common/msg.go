@@ -33,7 +33,7 @@ type Message struct {
 
 	// Epoch Transition Messages
 	AuxiliaryInfo           *AuxiliaryInfo
-	EpochTransitionApproval *EpochTransitionApproval
+	EpochTransitionApproval *ValidatorSetApproval
 }
 
 func (m *Message) IsReplicationMessage() bool {
@@ -413,8 +413,4 @@ type ValidatorSetApproval struct {
 	AuxInfoDigest [32]byte
 	PChainHeight  uint64
 	Signature     []byte
-}
-
-type EpochTransitionApproval struct {
-	Approval ValidatorSetApproval
 }
