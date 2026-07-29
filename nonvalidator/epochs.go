@@ -164,6 +164,14 @@ func (e *epochDigestCounter) collectedSealingBlockInfo(sealingBlockInfo *common.
 	if sealingBlockInfo == nil {
 		return false
 	}
+
+	validators := e.latestValidatorSetRetriever.Validators()
+
+	if !validators.Contains(from) {
+		e.logger.Debug("Received a quorum round from a node that is not a validator", zap.Stringer("from", from))
+		return false
+	}
+
 	e.logger.Debug("Collected a sealing block", zap.Stringer("QR", sealingBlockInfo), zap.Stringer("From", from))
 
 	threshold := common.F(len(e.latestValidatorSetRetriever.Validators())) + 1
