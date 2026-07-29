@@ -2130,30 +2130,12 @@ func (e *Epoch) createBlockVerificationTask(block common.Block, from common.Node
 			return md.Digest
 		}
 
-		blockBytes, err := verifiedBlock.Bytes()
-		if err != nil {
-			e.haltedError = err
-			e.Logger.Error("Failed to serialize block", zap.Error(err))
-			return md.Digest
-		}
-
 		e.deleteFutureProposal(from, md.Round)
 
 		if !e.storeProposal(verifiedBlock) {
 			e.Logger.Debug("Unable to store proposed block for the round", zap.Stringer("NodeID", from), zap.Uint64("round", md.Round))
 			return md.Digest
 		}
-
-		blockRecord := common.BlockRecord(md, blockBytes)
-		if err := e.WAL.Append(blockRecord); err != nil {
-			e.haltedError = err
-			e.Logger.Error("Failed to append block record to WAL", zap.Error(err))
-			return md.Digest
-		}
-
-		e.Logger.Debug("Persisted block to WAL",
-			zap.Uint64("round", md.Round),
-			zap.Stringer("digest", md.Digest))
 
 		// We might have received votes and finalizations from future rounds before we received this block.
 		// So load the messages into our round data structure now that we have created it.
@@ -2303,23 +2285,9 @@ func (e *Epoch) createNotarizedBlockVerificationTask(block common.Block, notariz
 			return md.Digest
 		}
 
-		blockBytes, err := verifiedBlock.Bytes()
-		if err != nil {
-			e.haltedError = err
-			e.Logger.Error("Failed to serialize block", zap.Error(err))
-			return md.Digest
-		}
-
 		// store the block in rounds
 		if !e.storeProposal(verifiedBlock) {
 			e.Logger.Debug("Unable to store proposed block for the round", zap.Uint64("round", md.Round))
-			return md.Digest
-		}
-
-		blockRecord := common.BlockRecord(md, blockBytes)
-		if err := e.WAL.Append(blockRecord); err != nil {
-			e.haltedError = err
-			e.Logger.Error("Failed to append block record to WAL", zap.Error(err))
 			return md.Digest
 		}
 
@@ -2640,16 +2608,6 @@ func (e *Epoch) proposeBlock(block common.VerifiedBlock) error {
 	if !e.storeProposal(block) {
 		return errors.New("failed to store block proposed by me")
 	}
-
-	blockRecord := common.BlockRecord(block.BlockHeader(), rawBlock)
-	if err := e.WAL.Append(blockRecord); err != nil {
-		e.Logger.Error("Failed appending block to WAL", zap.Error(err))
-		return err
-	}
-	e.Logger.Debug("Wrote block to WAL",
-		zap.Uint64("round", md.Round),
-		zap.Int("size", len(rawBlock)),
-		zap.Stringer("digest", md.Digest))
 
 	proposal := &common.Message{
 		VerifiedBlockMessage: &common.VerifiedBlockMessage{
@@ -3147,7 +3105,7 @@ func (e *Epoch) maybeLoadFutureMessages() error {
 	}
 }
 
-// storeProposal stores a block in the epochs memory(NOT storage).
+// storeProposal stores a block in the epochs memory(NOT ledger) and appends it to the WAL.
 // it creates a new round with the block and stores it in the rounds map.
 func (e *Epoch) storeProposal(block common.VerifiedBlock) bool {
 	md := block.BlockHeader()
@@ -3168,6 +3126,25 @@ func (e *Epoch) storeProposal(block common.VerifiedBlock) bool {
 	e.Logger.Debug("Stored proposal in memory",
 		zap.Uint64("round", md.Round),
 		zap.Uint64("seq", md.Seq),
+		zap.Stringer("digest", md.Digest))
+
+	blockBytes, err := block.Bytes()
+	if err != nil {
+		e.haltedError = err
+		e.Logger.Error("Failed to serialize block", zap.Error(err))
+		return false
+	}
+
+	blockRecord := common.BlockRecord(md, blockBytes)
+	if err := e.WAL.Append(blockRecord); err != nil {
+		e.haltedError = err
+		e.Logger.Error("Failed to append block record to WAL", zap.Error(err))
+		return false
+	}
+
+	e.Logger.Debug("Appended block record to WAL", zap.Uint64("round", md.Round),
+		zap.Uint64("seq", md.Seq),
+		zap.Int("size", len(blockBytes)),
 		zap.Stringer("digest", md.Digest))
 
 	return true
