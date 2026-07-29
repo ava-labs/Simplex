@@ -1727,6 +1727,58 @@ func TestEpochRequestsEmptyRoundDependency(t *testing.T) {
 	require.Equal(t, uint64(3), e.Metadata().Round)
 }
 
+func TestReplicatedNotarizationRestart(t *testing.T) {
+	// A test that makes a notarization be replicated to a node that doesn't have the block,
+	// and then restarts the node. The node must recover from the WAL and start successfully.
+
+	bb := testutil.NewTestBlockBuilder()
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+
+	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[1], testutil.NewNoopComm(nodes), bb)
+	conf.ReplicationEnabled = true
+
+	leader := LeaderForRound(nodes, 0)
+	require.NotEqual(t, conf.ID, leader) // The node is not the leader for round 0.
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	require.NoError(t, e.Start())
+
+	// Build the block the leader proposed for round 0. The node itself never receives it.
+	md := e.Metadata()
+	_, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
+	require.True(t, ok)
+	block := bb.GetBuiltBlock()
+
+	validators := e.Comm.Validators()
+	sigAggr := e.SignatureAggregatorCreator(validators)
+	signers := validators.NodeIDs()[:Quorum(len(validators))]
+
+	notarization, err := testutil.NewNotarization(conf.Logger, sigAggr, block, signers)
+	require.NoError(t, err)
+
+	// (1) Feed the node the notarization. It has no block for this round, so it must
+	// request the block from the network (replication).
+	testutil.InjectTestNotarization(t, e, notarization, nodes[2])
+
+	// (2) Feed the node the replication response carrying the authentic notarized block.
+	require.NoError(t, e.HandleMessage(&Message{
+		ReplicationResponse: &ReplicationResponse{
+			Data: []QuorumRound{{Block: block, Notarization: &notarization}},
+		},
+	}, nodes[2]))
+
+	// (3) The node persisted the notarization to the WAL.
+	require.Equal(t, NotarizationRecordType, wal.AssertNotarization(0))
+
+	// (4) Restart: the node must recover from the WAL and start successfully.
+	e.Stop()
+	e, err = NewEpoch(conf)
+	require.NoError(t, err)
+	require.NoError(t, e.Start())
+	t.Cleanup(e.Stop)
+}
+
 // Ensures we don't double increment the round on persisting a notarization
 func TestDoubleIncrementOnPersistNotarization(t *testing.T) {
 	// add an empty notarization, then a notarization for a previous round
