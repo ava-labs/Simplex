@@ -1425,12 +1425,12 @@ func (e *Epoch) indexFinalization(block common.VerifiedBlock, finalization commo
 		if err := e.Storage.Index(e.finishCtx, block, finalization); err != nil {
 			return err
 		}
+		e.Logger.Info("Committed block",
+			zap.Uint64("round", finalization.Finalization.Round),
+			zap.Uint64("sequence", finalization.Finalization.Seq),
+			zap.Stringer("digest", finalization.Finalization.BlockHeader.Digest))
 	}
 
-	e.Logger.Info("Committed block",
-		zap.Uint64("round", finalization.Finalization.Round),
-		zap.Uint64("sequence", finalization.Finalization.Seq),
-		zap.Stringer("digest", finalization.Finalization.BlockHeader.Digest))
 	e.lastBlock = &common.VerifiedFinalizedBlock{
 		VerifiedBlock: block,
 		Finalization:  finalization,
