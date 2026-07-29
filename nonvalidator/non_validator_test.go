@@ -652,6 +652,82 @@ func TestNonValidator_VerifiesFinalizationDuringReplication(t *testing.T) {
 	)
 }
 
+// TestNonValidator_RebroadcastsUntilMaxAttempts verifies that a pending
+// rebroadcast task re-fires on every interval until it reaches
+// maxRebroadcastAttempts, then stops on its own.
+func TestNonValidator_RebroadcastsUntilMaxAttempts(t *testing.T) {
+	tc := newSeededChain(t, testNodes, 2)
+	myNodeID := common.NodeID{100}
+	msgQueue := &messageQueue{}
+	comm := &routerComm{nodes: tc.nodes(), t: t, ID: myNodeID, messageQueue: msgQueue}
+
+	start := time.Now()
+	nv, err := NewNonValidator(Config{
+		Storage:                    tc,
+		Comm:                       comm,
+		Logger:                     testutil.MakeLogger(t, 1),
+		SignatureAggregatorCreator: tc.signatureAggregatorCreator,
+		MaxSequenceWindow:          simplex.DefaultMaxRoundWindow,
+		ID:                         myNodeID,
+		StartTime:                  start,
+	})
+	require.NoError(t, err)
+	defer nv.Stop()
+
+	// Seed the first attempt, then tick a few intervals past the cap. Each tick
+	// fires one rebroadcast and schedules the next attempt; ticks past the cap
+	// should be no-ops.
+	nv.bootstrapRebroadcastHandler.AddTask(0)
+	for i := 1; i <= int(maxRebroadcastAttempts)+3; i++ {
+		nv.bootstrapRebroadcastHandler.Tick(start.Add(time.Duration(i) * defaultRebroadcastTimeout))
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	// broadcastLatestEpoch fans a ReplicationRequest out to every peer, so one
+	// rebroadcast equals len(testNodes) queued messages.
+	msgs := 0
+	for msg, ok := msgQueue.popResponse(); ok; msg, ok = msgQueue.popResponse() {
+		require.NotNil(t, msg.msg.ReplicationRequest)
+		msgs++
+	}
+	require.Equal(t, int(maxRebroadcastAttempts)*len(testNodes), msgs)
+}
+
+// TestNonValidator_CancelsRebroadcastOnEpochValidation verifies that once the
+// non-validator validates a new epoch, it cancels the pending rebroadcast
+// attempts and stops sending.
+func TestNonValidator_CancelsRebroadcastOnEpochValidation(t *testing.T) {
+	tc := newSeededChain(t, testNodes, 2)
+	myNodeID := common.NodeID{100}
+	msgQueue := &messageQueue{}
+	comm := &routerComm{nodes: tc.nodes(), t: t, ID: myNodeID, messageQueue: msgQueue}
+
+	start := time.Now()
+	nv, err := NewNonValidator(Config{
+		Storage:                    tc,
+		Comm:                       comm,
+		Logger:                     testutil.MakeLogger(t, 1),
+		SignatureAggregatorCreator: tc.signatureAggregatorCreator,
+		MaxSequenceWindow:          simplex.DefaultMaxRoundWindow,
+		ID:                         myNodeID,
+		StartTime:                  start,
+	})
+	require.NoError(t, err)
+	defer nv.Stop()
+
+	// Validating a new epoch should drop every pending rebroadcast task.
+	nv.bootstrapRebroadcastHandler.AddTask(0)
+	nv.maybeValidateNextEpoch(tc.appendSealing(testNodes))
+
+	// Ticking past the interval no longer rebroadcasts.
+	nv.bootstrapRebroadcastHandler.Tick(start.Add(defaultRebroadcastTimeout))
+
+	require.Never(t, func() bool {
+		_, ok := msgQueue.popResponse()
+		return ok
+	}, 2*time.Second, 50*time.Millisecond)
+}
+
 func advanceUntil(nv *NonValidator, epochs *testEpochs, msgQueue *messageQueue, seq uint64) {
 	startTime := nv.StartTime
 	for {
