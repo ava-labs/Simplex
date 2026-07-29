@@ -179,32 +179,6 @@ func (tw *TestWAL) ContainsNotarization(round uint64) bool {
 	return false
 }
 
-func (tw *TestWAL) ContainsFinalization(round uint64) bool {
-	tw.lock.Lock()
-	defer tw.lock.Unlock()
-
-	rawRecords, err := tw.WriteAheadLog.ReadAll()
-	require.NoError(tw.t, err)
-
-	for _, rawRecord := range rawRecords {
-		if binary.BigEndian.Uint16(rawRecord[:2]) != common.FinalizationRecordType {
-			continue
-		}
-
-		var qr common.QuorumRecord
-		require.NoError(tw.t, qr.FromBytes(rawRecord[2:]))
-
-		var finalization common.ToBeSignedFinalization
-		require.NoError(tw.t, finalization.FromBytes(qr.Vote))
-
-		if finalization.Round == round {
-			return true
-		}
-	}
-
-	return false
-}
-
 func (tw *TestWAL) ContainsEmptyVote(round uint64) bool {
 	tw.lock.Lock()
 	defer tw.lock.Unlock()
