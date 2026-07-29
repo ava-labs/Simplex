@@ -19,6 +19,27 @@ func (m *mockWALReader) RetentionTerm(entry []byte) (uint64, error) {
 	return binary.BigEndian.Uint64(entry[:8]), nil
 }
 
+// makeRecord builds a payload of exactly `size` bytes whose first 8 bytes
+// encode the retention term (as read back by mockWALReader).
+func makeRecord(t *testing.T, retentionTerm uint64, size int) []byte {
+	require.GreaterOrEqual(t, size, 8)
+	buff := make([]byte, size)
+	binary.BigEndian.PutUint64(buff[:8], retentionTerm)
+	_, err := rand.Read(buff[8:])
+	require.NoError(t, err)
+	return buff
+}
+
+// countingCreator returns a Creator that records how many WALs it has created
+// and hands back a pointer to the running count.
+func countingCreator(t *testing.T) (wal.Creator, *int) {
+	count := new(int)
+	return func() (wal.DeletableWAL, error) {
+		*count++
+		return testutil.NewTestWAL(t), nil
+	}, count
+}
+
 func TestGarbageCollectedWAL(t *testing.T) {
 
 	var testWALs []wal.DeletableWAL
@@ -84,4 +105,153 @@ func TestGarbageCollectedWAL(t *testing.T) {
 	walRecords, err = gcw.ReadAll()
 	require.Equal(t, 2, newWALCreatedCount)
 	require.Equal(t, buffs, walRecords)
+}
+
+func TestGarbageCollectedWALRotatesBySize(t *testing.T) {
+	// WAL rotates when the total number of records exceed maxWALSize.
+	// Each WAL is expected to contain 2 records, so 6 records should result in 3 WALs.
+	const (
+		maxWALSize = 100
+		recordSize = 40
+		numRecords = 6
+	)
+
+	creator, newWALCount := countingCreator(t)
+
+	gcw, err := wal.NewGarbageCollectedWAL(nil, creator, &mockWALReader{}, maxWALSize)
+	require.NoError(t, err)
+
+	records := make([][]byte, numRecords)
+	for i := 0; i < numRecords; i++ {
+		records[i] = makeRecord(t, uint64(i), recordSize)
+		require.NoError(t, gcw.Append(records[i]))
+	}
+
+	// Each WAL fits two 40-byte records: 40+40=80 <= 100, but 80+40=120 > 100
+	// forces a rotation. So 6 records land in 3 WALs.
+	require.Equal(t, 3, *newWALCount)
+
+	// Every record must still be readable, in the original append order,
+	// across the rotated WALs.
+	got, err := gcw.ReadAll()
+	require.NoError(t, err)
+	require.Equal(t, records, got)
+}
+
+func TestGarbageCollectedWALRotatesOnOversizedPayload(t *testing.T) {
+	// WAL rotates if a really big record is inserted.
+	const maxWALSize = 100
+
+	creator, newWALCount := countingCreator(t)
+
+	gcw, err := wal.NewGarbageCollectedWAL(nil, creator, &mockWALReader{}, maxWALSize)
+	require.NoError(t, err)
+
+	small := makeRecord(t, 0, 16)
+	require.NoError(t, gcw.Append(small))
+	require.Equal(t, 1, *newWALCount)
+
+	// A single record bigger than maxWALSize rotates into its own WAL.
+	big := makeRecord(t, 1, maxWALSize+50)
+	require.NoError(t, gcw.Append(big))
+	require.Equal(t, 2, *newWALCount)
+
+	got, err := gcw.ReadAll()
+	require.NoError(t, err)
+	require.Equal(t, [][]byte{small, big}, got)
+}
+
+func TestGarbageCollectedWALGarbageCollectsRotatedWALs(t *testing.T) {
+	// Verifies a WAL is removed only once its highest retention term drops below the cutoff.
+	const (
+		maxWALSize = 100
+		recordSize = 40
+		numRecords = 6
+	)
+
+	creator, newWALCount := countingCreator(t)
+
+	gcw, err := wal.NewGarbageCollectedWAL(nil, creator, &mockWALReader{}, maxWALSize)
+	require.NoError(t, err)
+
+	// Retention terms 0..5, two per WAL:
+	//   WAL0 -> {0,1} (max 1), WAL1 -> {2,3} (max 3), WAL2 -> {4,5} (max 5)
+	records := make([][]byte, numRecords)
+	for rt := 0; rt < numRecords; rt++ {
+		records[rt] = makeRecord(t, uint64(rt), recordSize)
+		require.NoError(t, gcw.Append(records[rt]))
+	}
+	require.Equal(t, 3, *newWALCount) // 6 records, two per WAL -> 3 WALs.
+
+	// Does not drop any WALs because the cutoff is below the max retention term of WAL0.
+	require.NoError(t, gcw.GarbageCollect(1))
+	got, err := gcw.ReadAll()
+	require.NoError(t, err)
+	require.Equal(t, records, got)
+
+	// Drop WAL 0 (max retention 1 < 2) but keeps WAL1 and WAL2.
+	require.NoError(t, gcw.GarbageCollect(2))
+	got, err = gcw.ReadAll()
+	require.NoError(t, err)
+	require.Equal(t, records[2:], got)
+
+	// Does not drop WAL1 because the cutoff is equal to the max retention term of WAL1.
+	require.NoError(t, gcw.GarbageCollect(3))
+	got, err = gcw.ReadAll()
+	require.NoError(t, err)
+	require.Equal(t, records[2:], got)
+
+	// Cutoff 4 drops WAL1 (max retention 3 < 4).
+	require.NoError(t, gcw.GarbageCollect(4))
+	got, err = gcw.ReadAll()
+	require.NoError(t, err)
+	require.Equal(t, records[4:], got)
+
+	// Cutoff 6 drops the last WAL.
+	require.NoError(t, gcw.GarbageCollect(6))
+	got, err = gcw.ReadAll()
+	require.NoError(t, err)
+	require.Empty(t, got)
+
+	// No new WALs were created by GC or ReadAll.
+	require.Equal(t, 3, *newWALCount)
+}
+
+func TestGarbageCollectedWALAppendAfterRotationAndGC(t *testing.T) {
+	// Verifies that appends resume  correctly (and keep rotating)
+	// after the WAL has been fully garbage collected down to empty.
+	const (
+		maxWALSize = 100
+		recordSize = 40
+	)
+
+	creator, newWALCount := countingCreator(t)
+
+	gcw, err := wal.NewGarbageCollectedWAL(nil, creator, &mockWALReader{}, maxWALSize)
+	require.NoError(t, err)
+
+	for i := 0; i < 4; i++ {
+		require.NoError(t, gcw.Append(makeRecord(t, uint64(i), recordSize)))
+	}
+	// 4 records, two per WAL -> 2 WALs.
+	require.Equal(t, 2, *newWALCount)
+
+	// GC everything away.
+	require.NoError(t, gcw.GarbageCollect(100))
+	got, err := gcw.ReadAll()
+	require.NoError(t, err)
+	require.Empty(t, got)
+
+	// Appending again must create a fresh WAL and continue rotating.
+	next := make([][]byte, 3)
+	for i := 0; i < 3; i++ {
+		next[i] = makeRecord(t, uint64(200+i), recordSize)
+		require.NoError(t, gcw.Append(next[i]))
+	}
+	// First append starts a new WAL; the third crosses maxWALSize -> 2 more WALs.
+	require.Equal(t, 4, *newWALCount)
+
+	got, err = gcw.ReadAll()
+	require.NoError(t, err)
+	require.Equal(t, next, got)
 }

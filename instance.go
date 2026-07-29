@@ -67,6 +67,7 @@ type timeAdvancer interface {
 type Instance struct {
 	Config       Config
 	lock         sync.Mutex
+	started      bool
 	cs           *CachedStorage
 	wal          *wal.GarbageCollectedWAL
 	msm          *metadata.StateMachine
@@ -90,6 +91,12 @@ func (i *Instance) Start(ctx context.Context) error {
 	// Hold the lock throughout startup to block HandleMessage from being called in between.
 	i.lock.Lock()
 	defer i.lock.Unlock()
+
+	if i.started {
+		return fmt.Errorf("instance already started")
+	}
+
+	i.started = true
 
 	context.AfterFunc(ctx, i.Stop)
 

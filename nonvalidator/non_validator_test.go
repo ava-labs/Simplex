@@ -772,3 +772,38 @@ func advanceUntil(nv *NonValidator, epochs *testEpochs, msgQueue *messageQueue, 
 		nv.AdvanceTime(startTime)
 	}
 }
+
+func TestNilBlockPanicMissingBlock(t *testing.T) {
+	startTime := time.Now()
+	storage := testutil.NewInMemStorage()
+	require.NoError(t, storage.Index(context.Background(), genesis, common.Finalization{}))
+
+	tc := newSeededChain(t, testNodes, 2)
+
+	nv, err := NewNonValidator(
+		Config{
+			Storage:                    storage,
+			Comm:                       testutil.NewNoopComm(testNodes.NodeIDs()),
+			Logger:                     testutil.MakeLogger(t, 1),
+			SignatureAggregatorCreator: tc.signatureAggregatorCreator,
+			MaxSequenceWindow:          5,
+			ID:                         testNodes.NodeIDs()[0],
+			StartTime:                  startTime,
+		},
+	)
+	require.NoError(t, err)
+	nv.Start()
+	defer nv.Stop()
+
+	malicious := common.QuorumRound{
+		Block:             nil,
+		EmptyNotarization: &common.EmptyNotarization{},
+		Finalization:      &common.Finalization{},
+	}
+
+	resp := &common.ReplicationResponse{
+		Data: []common.QuorumRound{malicious},
+	}
+
+	require.NoError(t, nv.HandleMessage(&common.Message{ReplicationResponse: resp}, testNodes.NodeIDs()[2]))
+}
