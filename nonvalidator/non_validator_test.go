@@ -242,6 +242,7 @@ func TestHandleMessages(t *testing.T) {
 				},
 			)
 			require.NoError(t, err)
+			defer nv.Stop()
 
 			for _, m := range msgs {
 				require.NoError(t, nv.HandleMessage(m.msg, m.from))
