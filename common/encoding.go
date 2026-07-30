@@ -284,7 +284,7 @@ func (wrr *WALRetentionReader) RetentionTerm(entry []byte) (uint64, error) {
 	switch recordType {
 	case BlockRecordType:
 		return BlockRecordRetentionTerm(entry)
-	case NotarizationRecordType:
+	case NotarizationRecordType, FinalizationRecordType:
 		return QuorumRecordRetentionTerm(entry)
 	case EmptyNotarizationRecordType:
 		return QuorumRecordRetentionTerm(entry)

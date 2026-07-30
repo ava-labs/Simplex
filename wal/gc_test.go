@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"testing"
 
+	"github.com/ava-labs/simplex/common"
 	"github.com/ava-labs/simplex/testutil"
 	wal "github.com/ava-labs/simplex/wal"
 	"github.com/stretchr/testify/require"
@@ -215,6 +216,57 @@ func TestGarbageCollectedWALGarbageCollectsRotatedWALs(t *testing.T) {
 
 	// No new WALs were created by GC or ReadAll.
 	require.Equal(t, 3, *newWALCount)
+}
+
+func TestGarbageCollectedWALAppendOutOfOrder(t *testing.T) {
+	walRecordBlock := func(round uint64) *testutil.TestBlock {
+		return testutil.NewTestBlock(common.ProtocolMetadata{Round: round, Seq: round}, common.Blacklist{})
+	}
+	nodes := []common.NodeID{{1}, {2}, {3}, {4}}
+	sigAggr := &testutil.TestSignatureAggregator{N: len(nodes)}
+
+	blockRecord := func(round uint64) []byte {
+		b := walRecordBlock(round)
+		raw, err := b.Bytes()
+		require.NoError(t, err)
+		return common.BlockRecord(b.BlockHeader(), raw)
+	}
+	notarizationRecord := func(round uint64) []byte {
+		rec, err := testutil.NewNotarizationRecord(testutil.MakeLogger(t), sigAggr, walRecordBlock(round), nodes)
+		require.NoError(t, err)
+		return rec
+	}
+	finalizationRecord := func(round uint64) []byte {
+		_, rec := testutil.NewFinalizationRecord(t, sigAggr, walRecordBlock(round), nodes)
+		return rec
+	}
+
+	// We create a block record for 4 and a finalization record for 3 out of order.
+	// The WALRetentionReader must be able to read the retention term from every
+	// record type, or GarbageCollectedWAL.Append will fail on the finalization.
+	records := [][]byte{
+		blockRecord(1), notarizationRecord(1),
+		blockRecord(2), notarizationRecord(2),
+		blockRecord(3), notarizationRecord(3),
+		blockRecord(4),
+		finalizationRecord(3),
+	}
+
+	// A small maxWALSize forces the stream across several WAL segments so ReadAll must stitch every segment back together.
+	creator, newWALCount := countingCreator(t)
+	gcw, err := wal.NewGarbageCollectedWAL(nil, creator, &common.WALRetentionReader{}, 512)
+	require.NoError(t, err)
+
+	for _, rec := range records {
+		require.NoError(t, gcw.Append(rec))
+	}
+	require.Equal(t, *newWALCount, 3)
+
+	// Every record — including the out-of-order Finalization — reads back in the
+	// order it was appended.
+	got, err := gcw.ReadAll()
+	require.NoError(t, err)
+	require.Equal(t, records, got)
 }
 
 func TestGarbageCollectedWALAppendAfterRotationAndGC(t *testing.T) {
