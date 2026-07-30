@@ -236,7 +236,20 @@ func TestRetentionTerm(t *testing.T) {
 		},
 	}, []byte{11, 12, 13, 14, 15, 16})
 
-	finalizationRecord := NewQuorumRecord([]byte{1, 2, 3}, en.Vote.Bytes(), FinalizationRecordType)
+	finalization := ToBeSignedFinalization{
+		BlockHeader{
+			ProtocolMetadata: ProtocolMetadata{
+				Version: 1,
+				Round:   670,
+				Seq:     3,
+				Epoch:   4,
+			},
+		},
+	}
+	finalizationRecord := NewQuorumRecord([]byte{1, 2, 3}, finalization.Bytes(), FinalizationRecordType)
+
+	// A record whose type is not any of the known WAL record types.
+	unknownRecord := NewQuorumRecord([]byte{1, 2, 3}, en.Vote.Bytes(), 9999)
 
 	for _, tc := range []struct {
 		name          string
@@ -251,8 +264,13 @@ func TestRetentionTerm(t *testing.T) {
 		},
 		{
 			name:          "wrong record type",
-			record:        finalizationRecord,
+			record:        unknownRecord,
 			expectedError: "unknown record type",
+		},
+		{
+			name:         "FinalizationRecord",
+			record:       finalizationRecord,
+			expectedTerm: 670,
 		},
 		{
 			name:         "EmptyVoteRecord",
