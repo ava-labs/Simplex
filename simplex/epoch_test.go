@@ -451,6 +451,201 @@ func TestEpochIndexFinalization(t *testing.T) {
 	storage.WaitForBlockCommit(2)
 }
 
+func TestEquivocatedBlock(t *testing.T) {
+	// Tests a case where a Byzantine leader equivocates:
+	// it sends block A to the node while the honest majority certifies a different
+	// block B for the same round. The node must discard the equivocated round, replicate
+	// the authentic block B, and — after a restart — serve block B (never block A).
+	// The two sub-cases differ only in whether the honest majority notarized or
+	// finalized block B.
+
+	for _, tt := range []struct {
+		name string
+		// injectEquivocation delivers the honest majority's certificate for block B
+		// (which the node itself never received) to the running node.
+		injectEquivocation func(t *testing.T, e *Epoch, sigAggr SignatureAggregator, blockB *testutil.TestBlock, signers []NodeID, from NodeID)
+		// assertEquivocationDiscarded verifies the node discarded the equivocated round
+		// rather than acting on a certificate for a block it never saw.
+		assertEquivocationDiscarded func(t *testing.T, e *Epoch, wal *testutil.TestWAL, storage *testutil.InMemStorage)
+		// buildQR builds the QuorumRound carrying the authentic block B.
+		buildQR func(t *testing.T, sigAggr SignatureAggregator, blockB *testutil.TestBlock, signers []NodeID) QuorumRound
+		// assertReplicated verifies the node persisted block B after replication.
+		assertReplicated func(t *testing.T, wal *testutil.TestWAL, storage *testutil.InMemStorage, blockB *testutil.TestBlock)
+		// replicationRequest is the request sent to the restarted node to fetch block B.
+		replicationRequest ReplicationRequest
+	}{
+		{
+			name: "Notarized",
+			injectEquivocation: func(t *testing.T, e *Epoch, sigAggr SignatureAggregator, blockB *testutil.TestBlock, signers []NodeID, from NodeID) {
+				notarizationB, err := testutil.NewNotarization(e.Logger, sigAggr, blockB, signers)
+				require.NoError(t, err)
+				require.Equal(t, blockB.BlockHeader().Digest, notarizationB.Vote.BlockHeader.Digest)
+				testutil.InjectTestNotarization(t, e, notarizationB, from)
+			},
+			assertEquivocationDiscarded: func(t *testing.T, e *Epoch, wal *testutil.TestWAL, storage *testutil.InMemStorage) {
+				// The node must NOT advance the round: it never received block B, so it
+				// cannot notarize the round it has (which holds block A). The equivocated
+				// round is thrown away.
+				require.Never(t, func() bool {
+					return e.Metadata().Round > 0
+				}, time.Second, 100*time.Millisecond)
+				// The equivocated notarization is not persisted to the WAL (still just the block record).
+				wal.AssertWALSize(1)
+			},
+			buildQR: func(t *testing.T, sigAggr SignatureAggregator, blockB *testutil.TestBlock, signers []NodeID) QuorumRound {
+				notarization, err := testutil.NewNotarization(testutil.MakeLogger(t), sigAggr, blockB, signers)
+				require.NoError(t, err)
+				return QuorumRound{Block: blockB, Notarization: &notarization}
+			},
+			assertReplicated: func(t *testing.T, wal *testutil.TestWAL, storage *testutil.InMemStorage, blockB *testutil.TestBlock) {
+				// The node writes the notarization of block B to the WAL but does not commit it.
+				require.Equal(t, NotarizationRecordType, wal.AssertNotarization(0))
+				require.Equal(t, uint64(0), storage.NumBlocks())
+			},
+			replicationRequest: ReplicationRequest{Rounds: []uint64{0}},
+		},
+		{
+			name: "Finalized",
+			injectEquivocation: func(t *testing.T, e *Epoch, sigAggr SignatureAggregator, blockB *testutil.TestBlock, signers []NodeID, from NodeID) {
+				finalizationB, _ := testutil.NewFinalizationRecord(t, sigAggr, blockB, signers)
+				require.Equal(t, blockB.BlockHeader().Digest, finalizationB.Finalization.BlockHeader.Digest)
+				testutil.InjectTestFinalization(t, e, &finalizationB, from)
+			},
+			assertEquivocationDiscarded: func(t *testing.T, e *Epoch, wal *testutil.TestWAL, storage *testutil.InMemStorage) {
+				// Block 0 should not commit because the node never received block B.
+				storage.EnsureNoBlockCommit(t, 0)
+			},
+			buildQR: func(t *testing.T, sigAggr SignatureAggregator, blockB *testutil.TestBlock, signers []NodeID) QuorumRound {
+				finalizationB, _ := testutil.NewFinalizationRecord(t, sigAggr, blockB, signers)
+				return QuorumRound{Block: blockB, Finalization: &finalizationB}
+			},
+			assertReplicated: func(t *testing.T, wal *testutil.TestWAL, storage *testutil.InMemStorage, blockB *testutil.TestBlock) {
+				// The node recovers by committing the block the network actually finalized
+				// (block B) at seq 0, not the equivocated block A.
+				require.Equal(t, blockB, storage.WaitForBlockCommit(0))
+				require.Equal(t, uint64(1), storage.NumBlocks())
+			},
+			replicationRequest: ReplicationRequest{Seqs: []uint64{0}},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			bb := testutil.NewTestBlockBuilder()
+			nodes := []NodeID{{1}, {2}, {3}, {4}}
+
+			recordingComm := &recordingComm{
+				Communication:     testutil.NewNoopComm(nodes),
+				BroadcastMessages: make(chan *Message, 100),
+				SentMessages:      make(chan *Message, 100),
+			}
+			conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[1], recordingComm, bb)
+			conf.ReplicationEnabled = true
+
+			leader := LeaderForRound(nodes, 0)
+			require.NotEqual(t, conf.ID, leader) // Ensure that the node is not the leader for the first round.
+
+			e, err := NewEpoch(conf)
+			require.NoError(t, err)
+			require.NoError(t, e.Start())
+
+			// (1) Byzantine leader equivocates and sends block A to the node.
+			md := e.Metadata()
+			_, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
+			require.True(t, ok)
+			blockA := bb.GetBuiltBlock()
+
+			voteA, err := testutil.NewTestVote(blockA, leader)
+			require.NoError(t, err)
+			require.NoError(t, e.HandleMessage(&Message{
+				BlockMessage: &BlockMessage{
+					Vote:  *voteA,
+					Block: blockA,
+				},
+			}, leader))
+
+			// (2) Ensure the node has written the block to the WAL.
+			wal.AssertWALSize(1)
+
+			// (3) The honest majority certifies a *different* block B for the same round.
+			blockB := testutil.NewTestBlock(blockA.BlockHeader().ProtocolMetadata, emptyBlacklist)
+			blockB.Data = []byte("equivocated-block-B")
+			blockB.ComputeDigest()
+			// Ensure that the two blocks are different.
+			require.NotEqual(t, blockA.BlockHeader().Digest, blockB.BlockHeader().Digest)
+
+			validators := e.Comm.Validators()
+			quorum := Quorum(len(validators))
+			sigAggr := e.SignatureAggregatorCreator(validators)
+			signers := validators.NodeIDs()[:quorum]
+
+			// (4) Send the honest majority's certificate for block B to the node.
+			tt.injectEquivocation(t, e, sigAggr, blockB, signers, nodes[2])
+
+			// The node must discard the equivocated round: it never received block B.
+			tt.assertEquivocationDiscarded(t, e, wal, storage)
+
+			// (5) Wait until we receive a request to replicate the authentic block, block B.
+			for msg := range recordingComm.SentMessages {
+				if msg.ReplicationRequest != nil {
+					break
+				}
+			}
+
+			// (6) Feed the node the replication response containing the authentic block B.
+			replicationResponse := &ReplicationResponse{
+				Data: []QuorumRound{tt.buildQR(t, sigAggr, blockB, signers)},
+			}
+			require.NoError(t, e.HandleMessage(&Message{
+				ReplicationResponse: replicationResponse,
+			}, nodes[2]))
+
+			// (7) The node persists block B.
+			tt.assertReplicated(t, wal, storage, blockB)
+
+			// The rest of the test ensures that when the node restarts, it has in its
+			// storage/memory only the correct block B and not the equivocated block A.
+			e.Stop()
+			e, err = NewEpoch(conf)
+			require.NoError(t, err)
+			require.NoError(t, e.Start())
+			t.Cleanup(e.Stop)
+
+			// Drain the output channel.
+			for len(recordingComm.SentMessages) > 0 {
+				<-recordingComm.SentMessages
+			}
+
+			// (8) Send a replication request to the restarted node and expect to get the
+			// correct block B and not the equivocated block A.
+			replicationRequest := tt.replicationRequest
+			require.NoError(t, e.HandleMessage(&Message{
+				ReplicationRequest: &replicationRequest,
+			}, nodes[2]))
+
+			// The node should reply with the block the network certified (block B), never
+			// the equivocated block A that only it ever saw.
+			var resp *VerifiedReplicationResponse
+			require.Eventually(t, func() bool {
+				for {
+					select {
+					case msg := <-recordingComm.SentMessages:
+						if msg.VerifiedReplicationResponse != nil {
+							resp = msg.VerifiedReplicationResponse
+							return true
+						}
+					default:
+						return false
+					}
+				}
+			}, 5*time.Second, 50*time.Millisecond, "node did not reply to the replication request")
+
+			require.Len(t, resp.Data, 1)
+			gotBlock := resp.Data[0].VerifiedBlock
+			require.Equal(t, blockB.BlockHeader().Digest, gotBlock.BlockHeader().Digest)
+			require.NotEqual(t, blockA.BlockHeader().Digest, gotBlock.BlockHeader().Digest)
+		})
+	}
+}
+
 func TestEpochConsecutiveProposalsDoNotGetVerified(t *testing.T) {
 	for _, test := range []struct {
 		name                      string
@@ -1532,6 +1727,58 @@ func TestEpochRequestsEmptyRoundDependency(t *testing.T) {
 	require.Equal(t, uint64(3), e.Metadata().Round)
 }
 
+func TestReplicatedNotarizationRestart(t *testing.T) {
+	// A test that makes a notarization be replicated to a node that doesn't have the block,
+	// and then restarts the node. The node must recover from the WAL and start successfully.
+
+	bb := testutil.NewTestBlockBuilder()
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+
+	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[1], testutil.NewNoopComm(nodes), bb)
+	conf.ReplicationEnabled = true
+
+	leader := LeaderForRound(nodes, 0)
+	require.NotEqual(t, conf.ID, leader) // The node is not the leader for round 0.
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	require.NoError(t, e.Start())
+
+	// Build the block the leader proposed for round 0. The node itself never receives it.
+	md := e.Metadata()
+	_, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
+	require.True(t, ok)
+	block := bb.GetBuiltBlock()
+
+	validators := e.Comm.Validators()
+	sigAggr := e.SignatureAggregatorCreator(validators)
+	signers := validators.NodeIDs()[:Quorum(len(validators))]
+
+	notarization, err := testutil.NewNotarization(conf.Logger, sigAggr, block, signers)
+	require.NoError(t, err)
+
+	// (1) Feed the node the notarization. It has no block for this round, so it must
+	// request the block from the network (replication).
+	testutil.InjectTestNotarization(t, e, notarization, nodes[2])
+
+	// (2) Feed the node the replication response carrying the authentic notarized block.
+	require.NoError(t, e.HandleMessage(&Message{
+		ReplicationResponse: &ReplicationResponse{
+			Data: []QuorumRound{{Block: block, Notarization: &notarization}},
+		},
+	}, nodes[2]))
+
+	// (3) The node persisted the notarization to the WAL.
+	require.Equal(t, NotarizationRecordType, wal.AssertNotarization(0))
+
+	// (4) Restart: the node must recover from the WAL and start successfully.
+	e.Stop()
+	e, err = NewEpoch(conf)
+	require.NoError(t, err)
+	require.NoError(t, e.Start())
+	t.Cleanup(e.Stop)
+}
+
 // Ensures we don't double increment the round on persisting a notarization
 func TestDoubleIncrementOnPersistNotarization(t *testing.T) {
 	// add an empty notarization, then a notarization for a previous round
@@ -1575,7 +1822,7 @@ func TestDoubleIncrementOnPersistNotarization(t *testing.T) {
 	}, nodes[0])
 	require.NoError(t, err)
 
-	wal.AssertWALSize(2)
+	wal.AssertWALSize(3)
 	// ensure the round is still 1
 	require.Equal(t, uint64(1), e.Metadata().Round)
 }
