@@ -274,6 +274,162 @@ func TestInstanceNonValidatorBootstraps(t *testing.T) {
 	waitForNumBlocks(t, storage2, extendedTarget)
 }
 
+func TestInstanceValidatorSkipsAnEpoch(t *testing.T) {
+	// A node that is a validator in one epoch, absent from the validator set of the next one,
+	// and a validator again in the one after that. It has to take up and give up its validator
+	// role as the chain moves through those epochs, tracking the chain as a non-validator in
+	// between:
+	//
+	//   - It first joins a chain that has already sealed the epoch admitting it, so at the
+	//     P-chain tip it is a validator, but it cannot act as one until it has replicated up to
+	//     that epoch. It therefore starts as a non-validator, syncs, and converts exactly at the
+	//     epoch that admits it.
+	//   - The next epoch drops it from the validator set, so it gives up its validator role and
+	//     tracks the chain as a non-validator while the remaining validator extends it alone.
+	//   - The epoch after that admits it again, and it converts back into a validator.
+	const (
+		basePChainHeight = uint64(1)
+		joinP            = uint64(100)
+		dropP            = uint64(200)
+		rejoinP          = uint64(300)
+	)
+
+	var id [20]byte
+	rand.Read(id[:])
+	validatorNodeID := common.NodeID(id[:])
+
+	// The node whose validator role comes and goes. It syncs from scratch, after the chain has
+	// already admitted it.
+	var peer [20]byte
+	rand.Read(peer[:])
+	peerNodeID := common.NodeID(peer[:])
+
+	// The first node is a validator at every height. The peer is admitted at joinP, dropped at
+	// dropP and admitted again at rejoinP, so each of those heights seals an epoch.
+	validatorSetsAtHeight := map[uint64]metadata.NodeBLSMappings{
+		basePChainHeight: {
+			{NodeID: id, BLSKey: []byte{0xaa}, Weight: 1},
+		},
+		joinP: {
+			{NodeID: id, BLSKey: []byte{0xaa}, Weight: 2},
+			{NodeID: peer, BLSKey: []byte{0xbb}, Weight: 1},
+		},
+		dropP: {
+			{NodeID: id, BLSKey: []byte{0xaa}, Weight: 2},
+		},
+		rejoinP: {
+			{NodeID: id, BLSKey: []byte{0xaa}, Weight: 2},
+			{NodeID: peer, BLSKey: []byte{0xbb}, Weight: 1},
+		},
+	}
+
+	pChain := newTestPlatformChain(basePChainHeight, validatorSetsAtHeight)
+	cops := &testCryptoOps{}
+
+	genesisBlock := &testInnerBlock{Height_: 0, TS: time.Now(), Payload: []byte("genesis")}
+
+	net := newInMemNetwork(t)
+	t.Cleanup(net.stop)
+
+	// Both storages start with only the genesis block.
+	storage := NewMockStorage(t)
+	smb := metadata.StateMachineBlock{InnerBlock: genesisBlock}
+	require.NoError(t, storage.Index(context.Background(), &ParsedBlock{StateMachineBlock: smb}, common.Finalization{}))
+
+	storage2 := NewMockStorage(t)
+	smb = metadata.StateMachineBlock{InnerBlock: genesisBlock}
+	require.NoError(t, storage2.Index(context.Background(), &ParsedBlock{StateMachineBlock: smb}, common.Finalization{}))
+
+	validatorInstance := newInstance(t, validatorNodeID, storage, net, pChain, cops, genesisBlock)
+	peerInstance := newInstance(t, peerNodeID, storage2, net, pChain, cops, genesisBlock)
+
+	// Only the validator runs at first; it builds and seals the chain on its own.
+	net.register(validatorNodeID, validatorInstance)
+	require.NoError(t, validatorInstance.Start(t.Context()))
+	t.Cleanup(validatorInstance.Stop)
+
+	waitForNumBlocks(t, storage, 5) // genesis(0) + zero block(1) + a few normal blocks
+
+	// Seal the epoch that admits the peer, while the peer is still not running. With two
+	// validators the validator's self-approval is no longer a quorum and the peer cannot approve
+	// on its own behalf, so we inject the peer's approval until the sealing block commits.
+	// TODO: Implement this capability in production so we won't need to inject approvals in tests.
+	pChain.advanceTo(joinP)
+	joinSealingSeq := waitForSealingBlock(t, validatorInstance, peerApproval(peer, joinP), storage.NumBlocks())
+
+	// A quorum of that epoch needs both nodes, so the chain cannot grow past the sealing block
+	// until the peer catches up.
+	require.Equal(t, peerInstance.Config.ID, latestValidatorID(t, storage))
+
+	// The peer is a validator at the P-chain tip before it even starts.
+	tipValidators, err := GetHighestValidatorSet(pChain)
+	require.NoError(t, err)
+	require.True(t, tipValidators.Contains(peerNodeID))
+
+	net.register(peerNodeID, peerInstance)
+	require.NoError(t, peerInstance.Start(t.Context()))
+	t.Cleanup(peerInstance.Stop)
+
+	// Even so, it comes up as a non-validator: its ledger holds only the genesis block, so the
+	// epoch it starts at is the first one, whose validator set does not include it.
+	require.NotNil(t, currentNonValidator(peerInstance))
+
+	// It replicates the chain, including the sealing block that admits it, and only that epoch
+	// converts it into a validator: had an earlier epoch change promoted it, it would be running
+	// that (lower) epoch instead.
+	waitForNumBlocks(t, storage2, joinSealingSeq+1)
+	require.Equal(t, joinSealingSeq, waitForValidatorRole(t, peerInstance))
+
+	// With both validators live, the epoch commits blocks past the sealing block, which is only
+	// possible if the promoted node takes part in consensus.
+	const twoValidatorExtra = uint64(3)
+	waitForNumBlocks(t, storage, joinSealingSeq+twoValidatorExtra)
+	waitForNumBlocks(t, storage2, joinSealingSeq+twoValidatorExtra)
+
+	// Now seal an epoch that drops the peer from the validator set. The new set is the remaining
+	// validator alone, so its own approval is a quorum and no approval has to be injected.
+	sealingBlocksBeforeDrop := countSealingBlocks(t, storage)
+	pChain.advanceTo(dropP)
+	waitForSealingBlockCount(t, storage, sealingBlocksBeforeDrop+1)
+
+	// The peer is not in that epoch's validator set, so it gives up its validator role and
+	// tracks the chain as a non-validator instead.
+	nonValidator := waitForNonValidatorRole(t, peerInstance)
+
+	// The remaining validator extends the epoch on its own, and the peer replicates those blocks
+	// as a non-validator: the epoch changes it sees while catching up do not restart it, since a
+	// restart would stop this non-validator and install a new one.
+	soloTarget := storage.NumBlocks() + 3
+	waitForNumBlocks(t, storage, soloTarget)
+	waitForNumBlocks(t, storage2, soloTarget)
+	require.Same(t, nonValidator, currentNonValidator(peerInstance))
+
+	// Finally, seal an epoch that admits the peer again. As before, the peer is a non-validator
+	// and cannot approve the new set, so we inject its approval.
+	pChain.advanceTo(rejoinP)
+	rejoinSealingSeq := waitForSealingBlock(t, validatorInstance, peerApproval(peer, rejoinP), storage.NumBlocks())
+
+	// Replicating that sealing block converts the peer back into a validator, at that epoch and
+	// not at the one it just tracked through as a non-validator.
+	waitForNumBlocks(t, storage2, rejoinSealingSeq+1)
+	require.Equal(t, rejoinSealingSeq, waitForValidatorRole(t, peerInstance))
+
+	// And again, growing past the sealing block takes both validators.
+	waitForNumBlocks(t, storage, rejoinSealingSeq+twoValidatorExtra)
+	waitForNumBlocks(t, storage2, rejoinSealingSeq+twoValidatorExtra)
+}
+
+// peerApproval builds the approval a node would have signed for the validator set at
+// pChainHeight, for tests that inject approvals on behalf of a node that cannot send them.
+func peerApproval(nodeID [20]byte, pChainHeight uint64) *common.ValidatorSetApproval {
+	return &common.ValidatorSetApproval{
+		NodeID:        nodeID,
+		PChainHeight:  pChainHeight,
+		AuxInfoDigest: sha256.Sum256(nil),
+		Signature:     []byte{1, 2, 3},
+	}
+}
+
 func TestInstanceRestartAcrossEpochs(t *testing.T) {
 	// Restart a single validator at three different points in its lifecycle so that,
 	// on each (re)start, constructEpochAndValidatorSet takes a different branch of
@@ -413,15 +569,35 @@ func currentNonValidator(inst *Instance) *nonvalidator.NonValidator {
 	return inst.nv
 }
 
-// waitForValidatorRole waits until the instance has replaced its non-validator with a
-// validator epoch.
-func waitForValidatorRole(t *testing.T, inst *Instance) {
+// waitForNonValidatorRole waits until the instance has replaced its validator epoch with a
+// non-validator, and returns that non-validator.
+func waitForNonValidatorRole(t *testing.T, inst *Instance) *nonvalidator.NonValidator {
 	t.Helper()
+	var nv *nonvalidator.NonValidator
 	require.Eventually(t, func() bool {
 		inst.lock.Lock()
 		defer inst.lock.Unlock()
-		return inst.nv == nil && inst.e != nil
+		nv = inst.nv
+		return nv != nil && inst.e == nil
 	}, 20*time.Second, 100*time.Millisecond)
+	return nv
+}
+
+// waitForValidatorRole waits until the instance has replaced its non-validator with a
+// validator epoch, and returns the epoch it started as a validator.
+func waitForValidatorRole(t *testing.T, inst *Instance) uint64 {
+	t.Helper()
+	var epoch uint64
+	require.Eventually(t, func() bool {
+		inst.lock.Lock()
+		defer inst.lock.Unlock()
+		if inst.nv != nil || inst.e == nil {
+			return false
+		}
+		epoch = inst.e.Epoch
+		return true
+	}, 20*time.Second, 100*time.Millisecond)
+	return epoch
 }
 
 // requireTipIsSealing asserts whether the last block in storage is a sealing block.
