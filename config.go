@@ -13,12 +13,17 @@ import (
 )
 
 type ParameterConfig struct {
-	// WalMaxEntryCount is the maximum number of entries in the write-ahead log before it is closed.
-	WALMaxEntryCount int
+	// WALMaxSize is the maximum size of a WAL before it is rotated.
+	// If WALMaxSize is 0, it defaults to wal.defaultMaxWALSize.
+	WALMaxSize int
 	// MaxNetworkDelay is the assumed upper bound on the network delay for messages to be delivered.
 	MaxNetworkDelay time.Duration
 	// MaxRoundWindow is the maximum number of rounds that can be stored in memory.
 	MaxRoundWindow uint64
+	// WALGCInterval is the interval at which the write-ahead log is garbage collected.
+	// The WAL is garbage collected upon every WALGCInterval blocks.
+	// If WALGCInterval is 0, the WAL is never garbage collected.
+	WALGCInterval int
 }
 
 // PlatformChain is an interface that abstracts the interaction with the P-chain.
