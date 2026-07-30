@@ -12,7 +12,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"sort"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -21,6 +20,7 @@ import (
 	"github.com/ava-labs/simplex/avalanchego"
 	"github.com/ava-labs/simplex/common"
 	metadata "github.com/ava-labs/simplex/msm"
+	"github.com/ava-labs/simplex/nonvalidator"
 	"github.com/ava-labs/simplex/testutil"
 	"github.com/ava-labs/simplex/wal"
 
@@ -135,10 +135,14 @@ func TestInstanceNonValidatorBootstraps(t *testing.T) {
 	// One node is a validator and progresses the chain by building blocks,
 	// and its weight changes while the chain progresses in 3 different P-chain epoch heights.
 	// Then, we add another node which is a non-validator.
-	// The node should bootstrap the chain but without shutting down the non-validator instance,
-	// and the test should detect the log entry "I am still a non-validator at the tip of the P-chain, skipping role change"
-	// being printed several times until the non-validator node bootstraps.
-	// Later on, the non-validator becomes a validator.
+	// The node should bootstrap the chain without ever restarting its non-validator: each
+	// sealed epoch it replicates notifies the instance of an epoch change, and since the node
+	// is still absent from the validator set at the P-chain tip, none of those notifications
+	// may tear the non-validator down. The test asserts this by holding on to the
+	// non-validator the instance started with and requiring it to still be the running one
+	// after the whole chain has been replicated.
+	// Later on, the non-validator becomes a validator, and only then is it replaced by a
+	// validator epoch.
 	const (
 		basePChainHeight = uint64(1)
 		secondEpochP     = uint64(100)
@@ -195,27 +199,6 @@ func TestInstanceNonValidatorBootstraps(t *testing.T) {
 	validatorInstance := newInstance(t, validatorNodeID, storage, net, pChain, cops, genesisBlock)
 	nonValidatorInstance := newInstance(t, nonValidatorNodeID, storage2, net, pChain, cops, genesisBlock)
 
-	// Count how many times the non-validator reports that it is still not a validator at the
-	// tip of the P-chain while it replicates across the sealed epochs.
-	var stillNonValidatorLogs atomic.Uint64
-	// transitioned is closed when the node starts a Simplex epoch, i.e. becomes a validator.
-	// The node only ever starts an epoch here as part of its non-validator -> validator
-	// transition.
-	transitioned := make(chan struct{})
-	nonValidatorInstance.Config.Logger.(*testutil.TestLogger).Intercept(func(entry zapcore.Entry) error {
-		if strings.Contains(entry.Message, "I am still a non-validator at the tip of the P-chain, skipping role change") {
-			stillNonValidatorLogs.Add(1)
-		}
-		if strings.Contains(entry.Message, "Starting Simplex Epoch") {
-			select {
-			case <-transitioned:
-			default:
-				close(transitioned)
-			}
-		}
-		return nil
-	})
-
 	// Only the validator is running at first; it builds and seals the chain on its own.
 	net.register(validatorNodeID, validatorInstance)
 	require.NoError(t, validatorInstance.Start(t.Context()))
@@ -243,16 +226,22 @@ func TestInstanceNonValidatorBootstraps(t *testing.T) {
 	require.NoError(t, nonValidatorInstance.Start(t.Context()))
 	t.Cleanup(nonValidatorInstance.Stop)
 
-	// The non-validator replicates every sealed epoch. It stays a non-validator throughout,
-	// so on each sealing block it logs that it is still a non-validator at the tip.
+	// It came up as a non-validator, since it is absent from the validator set at the
+	// P-chain tip. Hold on to that non-validator to detect a restart later.
+	nonValidator := currentNonValidator(nonValidatorInstance)
+	require.NotNil(t, nonValidator)
+
+	// The non-validator replicates the whole chain, including every sealed epoch: each of
+	// those sealing blocks notifies the instance of an epoch change while the node is still
+	// not a validator.
 	bootstrapTarget := storage.NumBlocks()
 	waitForNumBlocks(t, storage2, bootstrapTarget)
+	waitForSealingBlockCount(t, storage2, 3)
 
-	// The "still a non-validator" message was printed several times (once per sealed epoch it
-	// replicated through) while it caught up.
-	require.Eventually(t, func() bool {
-		return stillNonValidatorLogs.Load() >= 3
-	}, 20*time.Second, 100*time.Millisecond)
+	// None of those epoch changes restarted the node: a restart stops the running
+	// non-validator and installs a new one, so the same non-validator still running means it
+	// was never torn down while it caught up.
+	require.Same(t, nonValidator, currentNonValidator(nonValidatorInstance))
 
 	// Now grow the validator set to include the peer at the P-chain tip.
 	pChain.advanceTo(joinEpochP)
@@ -270,12 +259,8 @@ func TestInstanceNonValidatorBootstraps(t *testing.T) {
 	waitForNumBlocks(t, storage2, sealingBlockSeq)
 
 	// Once the non-validator replicates the sealing block that admits it, it detects that it is
-	// now a validator at the tip and transitions from non-validator to validator.
-	select {
-	case <-transitioned:
-	case <-time.After(20 * time.Second):
-		t.Fatal("non-validator did not transition to validator")
-	}
+	// now a validator at the tip and only then replaces its non-validator with a validator epoch.
+	waitForValidatorRole(t, nonValidatorInstance)
 
 	// The newly promoted validator now participates in extending the chain.
 	require.Equal(t, nonValidatorInstance.Config.ID, latestValidatorID(t, storage))
@@ -417,6 +402,26 @@ func TestInstanceDoubleStartFails(t *testing.T) {
 	t.Cleanup(inst.Stop)
 
 	require.ErrorContains(t, inst.Start(t.Context()), "instance already started")
+}
+
+// currentNonValidator returns the non-validator the instance is running, or nil if it
+// is running a validator epoch instead. Since a restart installs a freshly created
+// non-validator, comparing the returned pointer across time detects one.
+func currentNonValidator(inst *Instance) *nonvalidator.NonValidator {
+	inst.lock.Lock()
+	defer inst.lock.Unlock()
+	return inst.nv
+}
+
+// waitForValidatorRole waits until the instance has replaced its non-validator with a
+// validator epoch.
+func waitForValidatorRole(t *testing.T, inst *Instance) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		inst.lock.Lock()
+		defer inst.lock.Unlock()
+		return inst.nv == nil && inst.e != nil
+	}, 20*time.Second, 100*time.Millisecond)
 }
 
 // requireTipIsSealing asserts whether the last block in storage is a sealing block.
