@@ -242,6 +242,7 @@ func TestHandleMessages(t *testing.T) {
 				},
 			)
 			require.NoError(t, err)
+			defer nv.Stop()
 
 			for _, m := range msgs {
 				require.NoError(t, nv.HandleMessage(m.msg, m.from))
@@ -650,6 +651,106 @@ func TestNonValidator_VerifiesFinalizationDuringReplication(t *testing.T) {
 		2*time.Second,
 		50*time.Millisecond,
 	)
+}
+
+func TestNonValidatorRejectsQuorumRoundFromNonValidator(t *testing.T) {
+	validators := testNodes
+	sigAggCreator := func(nodes []common.Node) common.SignatureAggregator {
+		return &testutil.TestSignatureAggregator{N: len(nodes)}
+	}
+
+	// The attacker-controlled validator set the attacker wants us to adopt.
+	// It is completely disjoint from the real validator set, so a block
+	// finalized by it must never be committed by a correct non-validator.
+	attackerSet := common.Nodes{
+		{Id: common.NodeID{200}, Weight: 1},
+		{Id: common.NodeID{201}, Weight: 1},
+		{Id: common.NodeID{202}, Weight: 1},
+	}
+
+	makeZeroBlockQR := func(set common.Nodes) common.QuorumRound {
+		block := newSealingTestBlock(1, 1, genesis.Digest, &common.SealingBlockInfo{
+			ValidatorSet:         set,
+			PrevSealingBlockHash: genesis.Digest,
+		})
+		fin, _ := testutil.NewFinalizationRecord(t, sigAggCreator(set), block, set.NodeIDs())
+		return common.QuorumRound{Block: block, Finalization: &fin}
+	}
+
+	threshold := common.F(len(validators)) + 1
+
+	tests := []struct {
+		name string
+		// epochSet is the validator set embedded in the first-epoch sealing block that the non-validator receives.
+		// It is either a forged set or the real set.
+		epochSet common.Nodes
+		// senders are the peers that vouch for the sealing block.
+		senders []common.NodeID
+		// expectCommit is whether the non-validator should commit the block.
+		expectCommit bool
+	}{
+		{
+			name:         "forged epoch vouched for by non-validators",
+			epochSet:     attackerSet,
+			senders:      []common.NodeID{{100}, {101}, {102}},
+			expectCommit: false,
+		},
+		{
+			name:         "authentic epoch vouched for by validators",
+			epochSet:     validators,
+			senders:      validators.NodeIDs(),
+			expectCommit: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.GreaterOrEqual(t, len(tt.senders), threshold)
+
+			storage := testutil.NewInMemStorage()
+			require.NoError(t, storage.Index(context.Background(), genesis, common.Finalization{}))
+
+			nv, err := NewNonValidator(
+				Config{
+					Storage:                    storage,
+					Comm:                       testutil.NewNoopComm(validators.NodeIDs()),
+					Logger:                     testutil.MakeLogger(t, 1),
+					SignatureAggregatorCreator: sigAggCreator,
+					MaxSequenceWindow:          10,
+					ID:                         validators.NodeIDs()[0],
+					StartTime:                  time.Now(),
+				},
+			)
+			require.NoError(t, err)
+			nv.Start()
+			defer nv.Stop()
+
+			qr := makeZeroBlockQR(tt.epochSet)
+
+			// Deliver f+1 quorum rounds, each from a distinct sender, all vouching
+			// for the same sealing block.
+			for i := 0; i < threshold; i++ {
+				require.NoError(t, nv.HandleMessage(&common.Message{
+					ReplicationResponse: &common.ReplicationResponse{
+						Data: []common.QuorumRound{qr},
+					},
+				}, tt.senders[i]))
+			}
+
+			if tt.expectCommit {
+				committed := storage.WaitForBlockCommit(1)
+				require.Equal(t, qr.Block.BlockHeader().Digest, committed.BlockHeader().Digest)
+				require.Equal(t, uint64(2), storage.NumBlocks())
+				return
+			}
+
+			require.Never(t,
+				func() bool { return storage.NumBlocks() > 1 },
+				2*time.Second, 50*time.Millisecond,
+				"non-validator committed a block finalized by a validator set that only non-validators vouched for (C2 fork)",
+			)
+		})
+	}
 }
 
 func advanceUntil(nv *NonValidator, epochs *testEpochs, msgQueue *messageQueue, seq uint64) {
