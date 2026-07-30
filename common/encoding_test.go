@@ -80,9 +80,9 @@ func TestBlockRecord(t *testing.T) {
 	record, err := BlockRecord(bh, payload)
 	require.NoError(t, err)
 
-	retentionTerm, err := BlockRecordRetentionTerm(record)
+	extractedRound, err := BlockRecordRound(record)
 	require.NoError(t, err)
-	require.Equal(t, uint64(666), retentionTerm)
+	require.Equal(t, uint64(666), extractedRound)
 
 	md2, payload2, err := ParseBlockRecord(record)
 	require.NoError(t, err)
@@ -107,11 +107,20 @@ func FuzzBlockRecord(f *testing.F) {
 		}
 		record, err := BlockRecord(bh, payload)
 		require.NoError(t, err)
-		retentionTerm, err := BlockRecordRetentionTerm(record)
+		extractedRound, err := BlockRecordRound(record)
 		require.NoError(t, err)
-		require.Equal(t, round, retentionTerm)
+		require.Equal(t, round, extractedRound)
+		extractedEpoch, err := BlockRecordEpoch(record)
+		require.NoError(t, err)
+		require.Equal(t, epoch, extractedEpoch)
 
 		md2, payload2, err := ParseBlockRecord(record)
+		// A record carries a block, so parsing a record built from no block data is rejected,
+		// even though its header is still readable above.
+		if len(payload) == 0 {
+			require.ErrorContains(t, err, "expected block data")
+			return
+		}
 		require.NoError(t, err)
 
 		require.Equal(t, bh, md2)
@@ -142,9 +151,9 @@ func TestNotarizationRecord(t *testing.T) {
 	require.NoError(t, err)
 
 	record := NewQuorumRecord([]byte{1, 2, 3}, vote.Bytes(), NotarizationRecordType)
-	retentionTerm, err := toBeSignedVoteQuorumRecordRetentionTerm(record)
+	extractedRound, err := toBeSignedVoteQuorumRecordRound(record)
 	require.NoError(t, err)
-	require.Equal(t, uint64(666), retentionTerm)
+	require.Equal(t, uint64(666), extractedRound)
 
 	qc, vote2, err := ParseNotarizationRecord(record)
 	require.NoError(t, err)
@@ -171,9 +180,12 @@ func FuzzNotarizationRecord(f *testing.F) {
 		}
 
 		record := NewQuorumRecord([]byte{1, 2, 3}, vote.Bytes(), NotarizationRecordType)
-		retentionTerm, err := toBeSignedVoteQuorumRecordRetentionTerm(record)
+		extractedRound, err := toBeSignedVoteQuorumRecordRound(record)
 		require.NoError(t, err)
-		require.Equal(t, round, retentionTerm)
+		require.Equal(t, round, extractedRound)
+		extractedEpoch, err := toBeSignedVoteQuorumRecordEpoch(record)
+		require.NoError(t, err)
+		require.Equal(t, epoch, extractedEpoch)
 
 		qc, vote2, err := ParseNotarizationRecord(record)
 		require.NoError(t, err)
@@ -190,15 +202,65 @@ func TestEmptyVote(t *testing.T) {
 		},
 	})
 
-	retentionTerm, err := EmptyVoteRecordRetentionTerm(record)
+	extractedRound, err := EmptyVoteRecordRound(record)
 	require.NoError(t, err)
-	require.Equal(t, uint64(666), retentionTerm)
+	require.Equal(t, uint64(666), extractedRound)
 
-	_, err = EmptyVoteRecordRetentionTerm(record[2:])
+	extractedEpoch, err := EmptyVoteRecordEpoch(record)
+	require.NoError(t, err)
+	require.Equal(t, uint64(4), extractedEpoch)
+
+	_, err = EmptyVoteRecordRound(record[2:])
 	require.ErrorContains(t, err, "record too short to extract round")
+
+	_, err = EmptyVoteRecordEpoch(record[2:])
+	require.ErrorContains(t, err, "record too short to extract epoch")
 }
 
-func TestRetentionTerm(t *testing.T) {
+func FuzzWALReaderEmptyVoteRecord(f *testing.F) {
+	f.Fuzz(func(t *testing.T, round, epoch uint64) {
+		record := NewEmptyVoteRecord(ToBeSignedEmptyVote{
+			EmptyVoteMetadata{Round: round, Epoch: epoch},
+		})
+
+		var rr WALReader
+		extractedRound, err := rr.Round(record)
+		require.NoError(t, err)
+		require.Equal(t, round, extractedRound)
+
+		extractedEpoch, err := rr.Epoch(record)
+		require.NoError(t, err)
+		require.Equal(t, epoch, extractedEpoch)
+
+		vote, err := ParseEmptyVoteRecord(record)
+		require.NoError(t, err)
+		require.Equal(t, EmptyVoteMetadata{Round: round, Epoch: epoch}, vote.EmptyVoteMetadata)
+	})
+}
+
+func FuzzWALReaderEmptyNotarizationRecord(f *testing.F) {
+	f.Fuzz(func(t *testing.T, round, epoch uint64, qc []byte) {
+		en := &EmptyNotarization{
+			Vote: ToBeSignedEmptyVote{EmptyVoteMetadata: EmptyVoteMetadata{Round: round, Epoch: epoch}},
+		}
+		record := NewQuorumRecord(qc, en.Vote.Bytes(), EmptyNotarizationRecordType)
+
+		var rr WALReader
+		extractedRound, err := rr.Round(record)
+		require.NoError(t, err)
+		require.Equal(t, round, extractedRound)
+
+		extractedEpoch, err := rr.Epoch(record)
+		require.NoError(t, err)
+		require.Equal(t, epoch, extractedEpoch)
+
+		_, vote, err := ParseEmptyNotarizationRecord(record)
+		require.NoError(t, err)
+		require.Equal(t, EmptyVoteMetadata{Round: round, Epoch: epoch}, vote.EmptyVoteMetadata)
+	})
+}
+
+func TestRound(t *testing.T) {
 	emptyVoteRecord := NewEmptyVoteRecord(ToBeSignedEmptyVote{
 		EmptyVoteMetadata{
 			Round: 669,
@@ -252,7 +314,7 @@ func TestRetentionTerm(t *testing.T) {
 	for _, tc := range []struct {
 		name          string
 		record        []byte
-		expectedTerm  uint64
+		expectedRound uint64
 		expectedError string
 	}{
 		{
@@ -266,37 +328,155 @@ func TestRetentionTerm(t *testing.T) {
 			expectedError: "unknown record type",
 		},
 		{
-			name:         "FinalizationRecord",
-			record:       finalizationRecord,
-			expectedTerm: 670,
+			name:          "FinalizationRecord",
+			record:        finalizationRecord,
+			expectedRound: 670,
 		},
 		{
-			name:         "EmptyVoteRecord",
-			record:       emptyVoteRecord,
-			expectedTerm: 669,
+			name:          "EmptyVoteRecord",
+			record:        emptyVoteRecord,
+			expectedRound: 669,
 		},
 		{
-			name:         "NotarizationRecord",
-			record:       notarizationRecord,
-			expectedTerm: 666,
+			name:          "NotarizationRecord",
+			record:        notarizationRecord,
+			expectedRound: 666,
 		},
 		{
-			name:         "EmptyNotarizationRecord",
-			record:       emptyNotarizationRecord,
-			expectedTerm: 667,
+			name:          "EmptyNotarizationRecord",
+			record:        emptyNotarizationRecord,
+			expectedRound: 667,
 		},
 		{
-			name:         "BlockRecord",
-			record:       blockRecord,
-			expectedTerm: 668,
+			name:          "BlockRecord",
+			record:        blockRecord,
+			expectedRound: 668,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			var rr WALRetentionReader
-			retentionTerm, err := rr.RetentionTerm(tc.record)
+			var rr WALReader
+			extractedRound, err := rr.Round(tc.record)
 			if tc.expectedError == "" {
 				require.NoError(t, err)
-				require.Equal(t, tc.expectedTerm, retentionTerm)
+				require.Equal(t, tc.expectedRound, extractedRound)
+			} else {
+				require.ErrorContains(t, err, tc.expectedError)
+			}
+		})
+	}
+}
+
+func TestEpoch(t *testing.T) {
+	// Every record carries a distinct epoch, so that a record read at a wrong offset is caught.
+	emptyVoteRecord := NewEmptyVoteRecord(ToBeSignedEmptyVote{
+		EmptyVoteMetadata{
+			Round: 669,
+			Epoch: 5,
+		},
+	})
+
+	vote := ToBeSignedVote{
+		BlockHeader{
+			ProtocolMetadata: ProtocolMetadata{
+				Version: 1,
+				Round:   666,
+				Seq:     3,
+				Epoch:   6,
+			},
+		},
+	}
+
+	en := &EmptyNotarization{
+		Vote: ToBeSignedEmptyVote{EmptyVoteMetadata: EmptyVoteMetadata{
+			Round: 667,
+			Epoch: 7,
+		}},
+	}
+	emptyNotarizationRecord := NewQuorumRecord([]byte{1, 2, 3}, en.Vote.Bytes(), EmptyNotarizationRecordType)
+	notarizationRecord := NewQuorumRecord([]byte{1, 2, 3}, vote.Bytes(), NotarizationRecordType)
+	blockRecord, err := BlockRecord(BlockHeader{
+		ProtocolMetadata: ProtocolMetadata{
+			Version: 1,
+			Round:   668,
+			Seq:     3,
+			Epoch:   8,
+		},
+	}, []byte{11, 12, 13, 14, 15, 16})
+	require.NoError(t, err)
+
+	finalization := ToBeSignedFinalization{
+		BlockHeader{
+			ProtocolMetadata: ProtocolMetadata{
+				Version: 1,
+				Round:   670,
+				Seq:     3,
+				Epoch:   9,
+			},
+		},
+	}
+	finalizationRecord := NewQuorumRecord([]byte{1, 2, 3}, finalization.Bytes(), FinalizationRecordType)
+
+	// A record whose type is not any of the known WAL record types.
+	unknownRecord := NewQuorumRecord([]byte{1, 2, 3}, en.Vote.Bytes(), 9999)
+
+	for _, tc := range []struct {
+		name          string
+		record        []byte
+		expectedEpoch uint64
+		expectedError string
+	}{
+		{
+			name:          "not enough bytes",
+			record:        []byte{1},
+			expectedError: "entry too short to extract record",
+		},
+		{
+			name:          "wrong record type",
+			record:        unknownRecord,
+			expectedError: "unknown record type",
+		},
+		{
+			name:          "truncated EmptyVoteRecord",
+			record:        emptyVoteRecord[:len(emptyVoteRecord)-1],
+			expectedError: "record too short to extract epoch",
+		},
+		{
+			name:          "truncated EmptyNotarizationRecord",
+			record:        emptyNotarizationRecord[:emptyNotarizationRecordMinLen-1],
+			expectedError: "record too short to extract epoch",
+		},
+		{
+			name:          "FinalizationRecord",
+			record:        finalizationRecord,
+			expectedEpoch: 9,
+		},
+		{
+			name:          "EmptyVoteRecord",
+			record:        emptyVoteRecord,
+			expectedEpoch: 5,
+		},
+		{
+			name:          "NotarizationRecord",
+			record:        notarizationRecord,
+			expectedEpoch: 6,
+		},
+		{
+			name:          "EmptyNotarizationRecord",
+			record:        emptyNotarizationRecord,
+			expectedEpoch: 7,
+		},
+		{
+			name:          "BlockRecord",
+			record:        blockRecord,
+			expectedEpoch: 8,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var rr WALReader
+			extractedEpoch, err := rr.Epoch(tc.record)
+			if tc.expectedError == "" {
+				require.NoError(t, err)
+				require.Equal(t, tc.expectedEpoch, extractedEpoch)
 			} else {
 				require.ErrorContains(t, err, tc.expectedError)
 			}

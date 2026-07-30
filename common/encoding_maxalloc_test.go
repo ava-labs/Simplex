@@ -78,61 +78,105 @@ func TestParseBlockRecordErrors(t *testing.T) {
 	}
 }
 
-func TestBlockRecordRetentionTermErrors(t *testing.T) {
+func TestBlockRecordRoundAndEpochErrors(t *testing.T) {
 	bh := BlockHeader{ProtocolMetadata: ProtocolMetadata{Version: 1, Round: 42, Seq: 2, Epoch: 3}}
 	valid, err := BlockRecord(bh, []byte{9})
 	require.NoError(t, err)
 
 	for _, tc := range []struct {
-		name         string
-		input        []byte
-		expectedTerm uint64
-		errContains  string
+		name          string
+		input         []byte
+		expectedRound uint64
+		expectedEpoch uint64
+		errContains   string
 	}{
-		{"valid returns round", valid, 42, ""},
-		{"too short for metadata size", []byte{0, 0, 0}, 0, "too short to extract metadata size"},
-		{"metadata size too large", sizePrefixedRecord(BlockRecordType, maxAllocationSize+1), 0, "metadata size too large"},
-		{"metadata size at limit but truncated", sizePrefixedRecord(BlockRecordType, maxAllocationSize), 0, "too short to extract round"},
-		{"declared size exceeds buffer", sizePrefixedRecord(BlockRecordType, 40, 0x01), 0, "too short to extract round"},
-		{"invalid metadata bytes", sizePrefixedRecord(BlockRecordType, 1, 0x80), 0, "failed to deserialize block metadata"},
+		{"valid returns round and epoch", valid, 42, 3, ""},
+		{"too short for metadata size", []byte{0, 0, 0}, 0, 0, "too short to extract metadata size"},
+		{"metadata size too large", sizePrefixedRecord(BlockRecordType, maxAllocationSize+1), 0, 0, "metadata size too large"},
+		{"metadata size at limit but truncated", sizePrefixedRecord(BlockRecordType, maxAllocationSize), 0, 0, "too short to extract round"},
+		{"declared size exceeds buffer", sizePrefixedRecord(BlockRecordType, 40, 0x01), 0, 0, "too short to extract round"},
+		{"invalid metadata bytes", sizePrefixedRecord(BlockRecordType, 1, 0x80), 0, 0, "failed to deserialize block metadata"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			term, err := BlockRecordRetentionTerm(tc.input)
+			round, roundErr := BlockRecordRound(tc.input)
+			epoch, epochErr := BlockRecordEpoch(tc.input)
 			if tc.errContains == "" {
-				require.NoError(t, err)
-				require.Equal(t, tc.expectedTerm, term)
+				require.NoError(t, roundErr)
+				require.NoError(t, epochErr)
+				require.Equal(t, tc.expectedRound, round)
+				require.Equal(t, tc.expectedEpoch, epoch)
 				return
 			}
-			require.ErrorContains(t, err, tc.errContains)
+			require.ErrorContains(t, roundErr, tc.errContains)
+			require.ErrorContains(t, epochErr, tc.errContains)
 		})
 	}
 }
 
-func TestNotarizationQuorumRecordRetentionTermErrors(t *testing.T) {
+func TestNotarizationQuorumRecordRoundAndEpochErrors(t *testing.T) {
 	vote := ToBeSignedVote{BlockHeader{ProtocolMetadata: ProtocolMetadata{Version: 1, Round: 99, Seq: 2, Epoch: 3}}}
 	valid := NewQuorumRecord([]byte{1, 2, 3}, vote.Bytes(), NotarizationRecordType)
 
 	for _, tc := range []struct {
-		name         string
-		input        []byte
-		expectedTerm uint64
-		errContains  string
+		name          string
+		input         []byte
+		expectedRound uint64
+		expectedEpoch uint64
+		errContains   string
 	}{
-		{"valid returns round", valid, 99, ""},
-		{"too short for vote size", []byte{0, 0, 0}, 0, "too short to extract vote size"},
-		{"vote size too large", sizePrefixedRecord(NotarizationRecordType, maxAllocationSize+1), 0, "vote size too large"},
-		{"vote size at limit but truncated", sizePrefixedRecord(NotarizationRecordType, maxAllocationSize), 0, "too short to extract vote,"},
-		{"declared size exceeds buffer", sizePrefixedRecord(NotarizationRecordType, 40, 0x01), 0, "too short to extract vote,"},
-		{"invalid vote bytes", sizePrefixedRecord(NotarizationRecordType, 1, 0x80), 0, "failed to deserialize vote"},
+		{"valid returns round and epoch", valid, 99, 3, ""},
+		{"too short for vote size", []byte{0, 0, 0}, 0, 0, "too short to extract vote size"},
+		{"vote size too large", sizePrefixedRecord(NotarizationRecordType, maxAllocationSize+1), 0, 0, "vote size too large"},
+		{"vote size at limit but truncated", sizePrefixedRecord(NotarizationRecordType, maxAllocationSize), 0, 0, "too short to extract vote,"},
+		{"declared size exceeds buffer", sizePrefixedRecord(NotarizationRecordType, 40, 0x01), 0, 0, "too short to extract vote,"},
+		{"invalid vote bytes", sizePrefixedRecord(NotarizationRecordType, 1, 0x80), 0, 0, "failed to deserialize vote"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			term, err := toBeSignedVoteQuorumRecordRetentionTerm(tc.input)
+			round, roundErr := toBeSignedVoteQuorumRecordRound(tc.input)
+			epoch, epochErr := toBeSignedVoteQuorumRecordEpoch(tc.input)
 			if tc.errContains == "" {
-				require.NoError(t, err)
-				require.Equal(t, tc.expectedTerm, term)
+				require.NoError(t, roundErr)
+				require.NoError(t, epochErr)
+				require.Equal(t, tc.expectedRound, round)
+				require.Equal(t, tc.expectedEpoch, epoch)
 				return
 			}
-			require.ErrorContains(t, err, tc.errContains)
+			require.ErrorContains(t, roundErr, tc.errContains)
+			require.ErrorContains(t, epochErr, tc.errContains)
+		})
+	}
+}
+
+func TestEmptyRecordsRoundAndEpochLengthChecks(t *testing.T) {
+	emptyVote := NewEmptyVoteRecord(ToBeSignedEmptyVote{EmptyVoteMetadata{Round: 7, Epoch: 5}})
+	require.Len(t, emptyVote, emptyVoteRecordMinLen)
+
+	en := &EmptyNotarization{Vote: ToBeSignedEmptyVote{EmptyVoteMetadata: EmptyVoteMetadata{Round: 8, Epoch: 6}}}
+	emptyNotarization := NewQuorumRecord(nil, en.Vote.Bytes(), EmptyNotarizationRecordType)
+	require.Len(t, emptyNotarization, emptyNotarizationRecordMinLen)
+
+	for _, tc := range []struct {
+		name  string
+		round func([]byte) (uint64, error)
+		epoch func([]byte) (uint64, error)
+		expectedRound, expectedEpoch uint64
+		valid []byte
+	}{
+		{"empty vote", EmptyVoteRecordRound, EmptyVoteRecordEpoch, 7, 5, emptyVote},
+		{"empty notarization", emptyNotarizationQuorumRecordRound, emptyNotarizationQuorumRecordEpoch, 8, 6, emptyNotarization},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			round, err := tc.round(tc.valid)
+			require.NoError(t, err)
+			epoch, err := tc.epoch(tc.valid)
+			require.NoError(t, err)
+			require.NotEqual(t, round, epoch, "the round and epoch offsets must differ")
+
+			truncated := tc.valid[:len(tc.valid)-1]
+			_, err = tc.round(truncated)
+			require.ErrorContains(t, err, "too short to extract round")
+			_, err = tc.epoch(truncated)
+			require.ErrorContains(t, err, "too short to extract epoch")
 		})
 	}
 }

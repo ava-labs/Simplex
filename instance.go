@@ -67,7 +67,7 @@ type Instance struct {
 	started            bool
 	cs                 *CachedStorage
 	transitionListener *epochTransitionListener
-	wal                *wal.GarbageCollectedWAL
+	wal                wal.GarbageCollectableWAL
 	msm                *metadata.StateMachine
 	e                  *simplex.Epoch
 	nv                 *nonvalidator.NonValidator
@@ -136,7 +136,7 @@ func (i *Instance) maybeReplicateEpochs() error {
 		return err
 	}
 
-	latestIndexedEpochValidators, err := getLastAcceptedValidatorSet(&i.Config)
+	latestIndexedEpochValidators, epochNum, err := getLastAcceptedValidatorSet(&i.Config)
 	if err != nil {
 		return err
 	}
@@ -147,7 +147,7 @@ func (i *Instance) maybeReplicateEpochs() error {
 	inLatestSet := latestValidatorSet.Nodes().Contains(i.Config.ID)
 	if upToDate && inLatestSet {
 		i.Config.Logger.Debug("Skipping validator set replication, because the latest validator set is up to date with the Platform Chain")
-		return i.startValidator(latestIndexedEpochValidators)
+		return i.startValidator(latestIndexedEpochValidators, epochNum)
 	}
 
 	// Start as non-validator if our last indexed validator set does not equal, the latest p-chain validator set
@@ -158,8 +158,8 @@ func (i *Instance) maybeReplicateEpochs() error {
 	return i.startNonValidator(false)
 }
 
-func (i *Instance) startValidator(validators common.Nodes) error {
-	epochConfig, err := i.createEpochConfig(validators)
+func (i *Instance) startValidator(validators common.Nodes, epochNumber uint64) error {
+	epochConfig, err := i.createEpochConfig(validators, epochNumber)
 	if err != nil {
 		return err
 	}
@@ -489,10 +489,10 @@ func (i *Instance) processEpochChange(epochChange epochChange) {
 	case runningNonValidator:
 		// Stop the non-validator before doing anything else, so that we don't process any more messages while we are changing epochs.
 		i.stopNonValidator()
-		err = i.startAtEpoch(epochChange.validators)
+		err = i.startAtEpoch(epochChange.validators, epochChange.epoch)
 	case runningValidator:
 		i.stopValidator(true)
-		err = i.startAtEpoch(epochChange.validators)
+		err = i.startAtEpoch(epochChange.validators, epochChange.epoch)
 	default: // This should never happen, but we log it just in case.
 		i.lock.Unlock()
 		i.Config.Logger.Fatal("We are not running either a validator or non-validator")
@@ -506,18 +506,27 @@ func (i *Instance) processEpochChange(epochChange epochChange) {
 	}
 }
 
-func (i *Instance) createEpochConfig(validators common.Nodes) (*epochConfig, error) {
-	wal, err := wal.NewGarbageCollectedWAL(i.Config.WALs, i.Config.WalCreator, &common.WALRetentionReader{}, i.Config.ParameterConfig.WALMaxSizeBytes)
+func (i *Instance) createEpochConfig(validators common.Nodes, epochNumber uint64) (*epochConfig, error) {
+	reader := &common.WALReader{}
+
+	gcWAL, err := wal.NewGarbageCollectedWAL(i.Config.WALs, i.Config.WalCreator, reader, i.Config.ParameterConfig.WALMaxSizeBytes)
 	if err != nil {
 		return nil, fmt.Errorf("error creating garbage collected wal: %w", err)
 	}
-	i.wal = wal
+	i.wal = gcWAL
 
 	// We might have crashed right after a sealing block was persisted to storage,
 	// but before the WAL was garbage collected.
 	// In that case, we need to garbage collect the WAL to remove all entries from previous epochs.
-	if err := i.maybeGarbageCollectWAL(); err != nil {
+	if err := i.maybeGarbageCollectWALAfterSealingBlockCommit(); err != nil {
 		return nil, err
+	}
+
+	// Ignore records in the WAL that are of old epochs.
+	i.wal = &wal.EpochAwareWAL{
+		GarbageCollectableWAL: gcWAL,
+		Reader:                reader,
+		LowestEpoch:           epochNumber,
 	}
 
 	numBlocks := i.Config.Storage.NumBlocks()
@@ -569,7 +578,11 @@ func (i *Instance) createEpochConfig(validators common.Nodes) (*epochConfig, err
 
 	// set the handle approval method so that the MSM can receive self approvals
 	i.transitionListener.handleApproval = msm.HandleApproval
+	garbageCollectWAL := garbageCollectWALOnIndex(i.Config.ParameterConfig.WALGCInterval, i.wal)
 	instanceStorage := NewCallbackStorage(i.cs, msm, func(block *ParsedBlock) error {
+		if err := garbageCollectWAL(block); err != nil {
+			return err
+		}
 		if err := msm.OnBlockIndex(block.StateMachineBlock); err != nil {
 			return err
 		}
@@ -596,7 +609,7 @@ func (i *Instance) createEpochConfig(validators common.Nodes) (*epochConfig, err
 		MaxRoundWindow:             i.Config.ParameterConfig.MaxRoundWindow,
 		ID:                         i.Config.ID,
 		RandomSource:               source, // Seed the random source from crypto/rand
-		WAL:                        wal,
+		WAL:                        i.wal,
 		Logger:                     i.Config.Logger,
 		SignatureAggregatorCreator: i.Config.CryptoOps.CreateSignatureAggregator,
 		QCDeserializer:             i.Config.CryptoOps,
@@ -613,7 +626,26 @@ func (i *Instance) createEpochConfig(validators common.Nodes) (*epochConfig, err
 	}, nil
 }
 
-func (i *Instance) maybeGarbageCollectWAL() error {
+// garbageCollectWALOnIndex returns an index hook that garbage collects the WAL
+// upon every walInterval rounds, discarding the WAL files whose entries all belong
+// to rounds below the one of the indexed block. A non-positive walInterval disables it.
+func garbageCollectWALOnIndex(walInterval int, wal wal.GarbageCollectableWAL) func(block *ParsedBlock) error {
+	return func(block *ParsedBlock) error {
+		round := block.BlockHeader().Round
+		if round == 0 {
+			return nil
+		}
+		if walInterval <= 0 {
+			return nil
+		}
+		if round%uint64(walInterval) == 0 {
+			return wal.GarbageCollect(round)
+		}
+		return nil
+	}
+}
+
+func (i *Instance) maybeGarbageCollectWALAfterSealingBlockCommit() error {
 	lastNonSimplexHeight := i.Config.LastNonSimplexInnerBlock.Height()
 	numBlocks := i.Config.Storage.NumBlocks()
 
@@ -642,9 +674,9 @@ func (i *Instance) maybeGarbageCollectWAL() error {
 }
 
 // startAtEpoch starts either a validator or non-validator at `epoch“.
-func (i *Instance) startAtEpoch(validators common.Nodes) error {
+func (i *Instance) startAtEpoch(validators common.Nodes, epochNumber uint64) error {
 	if validators.Contains(i.Config.ID) {
-		return i.startValidator(validators)
+		return i.startValidator(validators, epochNumber)
 	}
 
 	return i.startNonValidator(true)

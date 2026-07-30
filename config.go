@@ -20,6 +20,10 @@ type ParameterConfig struct {
 	MaxNetworkDelay time.Duration
 	// MaxRoundWindow is the maximum number of rounds that can be stored in memory.
 	MaxRoundWindow uint64
+	// WALGCInterval is the interval at which the write-ahead log is garbage collected.
+	// The WAL is garbage collected upon every WALGCInterval blocks.
+	// If WALGCInterval is 0, the WAL is never garbage collected.
+	WALGCInterval int
 }
 
 // PlatformChain is an interface that abstracts the interaction with the P-chain.

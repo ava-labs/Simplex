@@ -12,6 +12,7 @@ import (
 	metadata "github.com/ava-labs/simplex/msm"
 	"github.com/ava-labs/simplex/simplex"
 	"github.com/ava-labs/simplex/testutil"
+	"github.com/ava-labs/simplex/wal"
 	"github.com/stretchr/testify/require"
 )
 
@@ -424,6 +425,224 @@ func TestInstanceRestartsAfterZeroBlock(t *testing.T) {
 
 	// The restarted node keeps the chain going.
 	network.acceptNewBlock()
+}
+
+// TestInstanceGarbageCollectsWAL asserts a validator garbage collects its WAL every
+// walGCInterval rounds, so the WAL never holds an entry from a round below the last
+// round it garbage collected at.
+func TestInstanceGarbageCollectsWAL(t *testing.T) {
+	const targetBlocks = uint64(100)
+
+	validator := newNodeMapping(1)
+	// The validator set never changes, so the node commits every block on its own
+	// and the chain stays in a single Simplex epoch throughout.
+	pChain := newTestPChain([]metadata.NodeBLSMapping{validator})
+	network := newNetwork(t, pChain)
+
+	// A tiny WAL size makes the WAL rotate upon every entry, so garbage collection
+	// discards entries round by round rather than in large batches.
+	params := paramConfig
+	params.WALMaxSizeBytes = 10
+	node := network.addNodeWithConfig(validator.NodeID[:], nodeConfig{params: &params}).sync()
+
+	// collectRoundsFromWAL returns the rounds of the entries the node's WAL currently
+	// holds, across all the WAL files it rotated through. Garbage collected files are
+	// deleted, hence contribute no entries.
+	collectRoundsFromWAL := func() []uint64 {
+		var reader common.WALReader
+		var rounds []uint64
+
+		node.wals.lock.Lock()
+		defer node.wals.lock.Unlock()
+		for _, w := range node.wals.wals {
+			entries, err := w.ReadAll()
+			require.NoError(t, err)
+			for _, entry := range entries {
+				round, err := reader.Round(entry)
+				require.NoError(t, err)
+				rounds = append(rounds, round)
+			}
+		}
+		return rounds
+	}
+
+	var garbageCollectedRoundThreshold uint64
+	for range targetBlocks {
+		block, _ := network.acceptNewBlock()
+		round := block.BlockHeader().Round
+
+		// When we commit a sealing block we wipe out the WAL entirely, so ignore this corner case.
+		// We only care about the ordinary blocks because we're testing regular garbage collection of the WAL.
+		// We also ignore the first walGCInterval rounds because the WAL is not garbage collected until after that.
+		if block.SealingBlockInfo() != nil || round < walGCInterval {
+			continue
+		}
+
+		// A block is indexed, which is what the commit reports, before the garbage
+		// collection it triggers runs. The garbage collection of the previous interval
+		// has certainly completed by now though, so verify the WAL against it.
+		roundsFromWAL := collectRoundsFromWAL()
+		require.NotEmpty(t, roundsFromWAL) // Just a check that the below for loop doesn't iterate over an empty slice.
+		for _, r := range roundsFromWAL {
+			require.GreaterOrEqual(t, r, garbageCollectedRoundThreshold,
+				"WAL holds an entry of round %d although it was garbage collected at round %d", r, garbageCollectedRoundThreshold)
+		}
+
+		// We garbage collect the WAL every walGCInterval rounds,
+		// but we want to check the GC one round after the GC because we don't want the WAL to be empty when we check it.
+		// The WAL purges all entries of rounds below the round before this round.
+		if round > walGCInterval && round%walGCInterval == 1 {
+			garbageCollectedRoundThreshold = round - 1
+		}
+	}
+
+	// Committing targetBlocks blocks takes at least as many rounds, so the chain ran
+	// long enough for the WAL to have been garbage collected several times over.
+	require.GreaterOrEqual(t, garbageCollectedRoundThreshold, targetBlocks-2*walGCInterval)
+
+	// The garbage collection kept the entries of the rounds at and above the round it garbage collected at.
+	require.NotEmpty(t, collectRoundsFromWAL())
+}
+
+// TestInstanceRestartSkipsSealedEpochWALRecords emulates a crash right after a sealing block
+// was persisted, but before the WAL was wiped for the new epoch. The WAL then still holds the
+// sealed epoch's records: the sealing block's own, and the Telocks that extended the epoch
+// until the sealing block finalized. Telock rounds collide with the new epoch's first rounds,
+// so replaying them would drag the node back into the sealed epoch. The restarted node must
+// ignore them, start in the new epoch, and keep committing blocks.
+//
+// The WAL is the node's own: the test delays the finalization of the sealing block so that the
+// validators extend the sealed epoch with Telocks, and then takes the WAL as the node wiped it
+// when it moved to the new epoch, which is what a crash in that window would have left behind.
+func TestInstanceRestartSkipsSealedEpochWALRecords(t *testing.T) {
+	validator := newNodeMapping(1)
+	leavingValidator := newNodeMapping(2)
+	genesisSet := metadata.NodeBLSMappings{validator, leavingValidator}
+	pChain := newTestPChain(genesisSet)
+	network := newNetwork(t, pChain)
+	node := network.addNode(validator.NodeID[:])
+	otherNode := network.addNode(leavingValidator.NodeID[:]).sync()
+	network.acceptNewBlock()
+
+	// Hold back the finalize votes for the sealing block and for whatever follows it in the
+	// sealed epoch. The sealing block is then notarized but not finalized, so the leaders
+	// must extend the epoch with Telocks. The sender has written the block to its WAL by the
+	// time it votes to finalize it, so the block's type is read from there.
+	walsOf := map[string]*walCreator{
+		string(node.id):      node.wals,
+		string(otherNode.id): otherNode.wals,
+	}
+	extendsSealedEpoch := func(from common.NodeID, round uint64) bool {
+		for _, block := range walsOf[string(from)].blocksInWAL() {
+			if block.Metadata.SimplexProtocolMetadata.Round != round {
+				continue
+			}
+			blockType := block.Type()
+			return blockType == metadata.BlockTypeSealing || blockType == metadata.BlockTypeTelock
+		}
+		return false
+	}
+	network.holdMessages(func(from common.NodeID, msg *common.Message) bool {
+		switch {
+		case msg.FinalizeVote != nil:
+			return extendsSealedEpoch(from, msg.FinalizeVote.Finalization.Round)
+		case msg.Finalization != nil:
+			return extendsSealedEpoch(from, msg.Finalization.Finalization.Round)
+		default:
+			return false
+		}
+	})
+
+	// Seal the first epoch by shrinking the validator set to our node alone, which then
+	// carries the new epoch on its own.
+	newValidatorSet := metadata.NodeBLSMappings{validator}
+	pChain.setValidatorSetAt(10, newValidatorSet)
+	pChain.advanceHeight(10)
+
+	// Wait until our node holds a sealing block and a Telock built on top of it.
+	telocksInWAL := func(blocks []metadata.StateMachineBlock) (sealingRound uint64, telocks int) {
+		for _, block := range blocks {
+			switch block.Type() {
+			case metadata.BlockTypeSealing:
+				sealingRound = block.Metadata.SimplexProtocolMetadata.Round
+			case metadata.BlockTypeTelock:
+				telocks++
+			}
+		}
+		return sealingRound, telocks
+	}
+	require.Eventually(t, func() bool {
+		_, telocks := telocksInWAL(node.wals.blocksInWAL())
+		return telocks > 0
+	}, 30*time.Second, 10*time.Millisecond, "the sealed epoch was never extended by a Telock")
+
+	// Let the finalize votes through. The sealing block finalizes, our node commits it, moves to
+	// the new epoch and wipes its WAL, which the WAL creator records for us.
+	network.releaseHeldMessages()
+	sealingBlock := network.waitUntilSealingBlock(newValidatorSet.Nodes())
+	sealingHeader := sealingBlock.BlockHeader()
+	sealedEpoch, newEpoch := sealingHeader.Epoch, sealingHeader.Seq
+	require.NotEqual(t, sealedEpoch, newEpoch)
+
+	require.Eventually(t, func() bool {
+		node.inst.lock.Lock()
+		defer node.inst.lock.Unlock()
+		return node.inst.e != nil && node.inst.e.Metadata().Epoch == newEpoch
+	}, 20*time.Second, 10*time.Millisecond, "the node never moved to the new epoch")
+
+	// From here on only our node matters; the one that left must not interfere with its restart.
+	network.setOffline(leavingValidator.NodeID[:])
+	node.stop()
+	// A crash right after the sealing block was persisted leaves it at the tip.
+	require.Equal(t, sealingHeader.Seq, node.storage.NumBlocks()-1)
+
+	// The WAL the node wiped is what it would have found on restart after such a crash:
+	// the sealing block and the Telocks that extended its epoch, all in the sealed epoch.
+	staleRecords := node.wals.deletedRecords()
+	staleSealingRound, staleTelocks := telocksInWAL(parseBlockRecords(t, staleRecords))
+	require.Equal(t, sealingHeader.Round, staleSealingRound)
+	require.Positive(t, staleTelocks)
+	var reader common.WALReader
+	for _, record := range staleRecords {
+		epoch, err := reader.Epoch(record)
+		require.NoError(t, err)
+		require.Equal(t, sealedEpoch, epoch)
+	}
+
+	staleWAL := testutil.NewTestWAL(t)
+	for _, record := range staleRecords {
+		require.NoError(t, staleWAL.Append(record))
+	}
+
+	// Come back up over the same storage with the stale WAL. Starting is where the WAL is replayed.
+	restarted := network.addNodeWithConfig(validator.NodeID[:], nodeConfig{
+		wals: []wal.DeletableWAL{staleWAL}, storage: node.storage, existingNode: true,
+	})
+
+	restarted.inst.lock.Lock()
+	epoch := restarted.inst.e
+	restarted.inst.lock.Unlock()
+	require.NotNil(t, epoch, "the node should have restarted as a validator")
+
+	// The node starts in the new epoch, past the sealing round, not in the epoch the stale records belong to.
+	md := epoch.Metadata()
+	require.Equal(t, newEpoch, md.Epoch)
+	require.Greater(t, md.Round, sealingHeader.Round)
+
+	// It keeps committing blocks in the new epoch, at the sequence right after the sealing block,
+	// which the first Telock would have occupied had it been replayed.
+	network.pending.addPendingBlock()
+	nextSeq := sealingHeader.Seq + 1
+	require.Eventually(t, func() bool {
+		return restarted.storage.NumBlocks() > nextSeq
+	}, 20*time.Second, 10*time.Millisecond, "the restarted node never committed a block in the new epoch")
+
+	block, _, err := restarted.storage.Retrieve(nextSeq)
+	require.NoError(t, err)
+	require.Equal(t, newEpoch, block.BlockHeader().Epoch)
+	require.Equal(t, nextSeq, block.BlockHeader().Seq)
+	require.Equal(t, sealingHeader.Digest, block.BlockHeader().Prev)
+	require.Equal(t, metadata.BlockTypeNormal, block.(*ParsedBlock).Type())
 }
 
 func TestInstanceDoubleStartFails(t *testing.T) {
