@@ -1078,6 +1078,7 @@ func TestEpochBlacklist(t *testing.T) {
 	wal.AssertNotarization(11)
 
 	// Now it's our turn to propose a new block.
+	// We make sure it is built how we expect it to be built below.
 	bb.BlockShouldBeBuilt <- struct{}{}
 
 	block = bb.GetBuiltBlock()
@@ -1096,21 +1097,8 @@ func TestEpochBlacklist(t *testing.T) {
 		Updates: []BlacklistUpdate{{Type: BlacklistOpType_NodeRedeemed, NodeIndex: 3}},
 	}, block.Blacklist(), "Node should vote to redeem the previously failed node")
 
-	blacklist = Blacklist{
-		NodeCount: 4,
-		SuspectedNodes: SuspectedNodes{
-			{
-				NodeIndex:       3,
-				SuspectingCount: 2,
-				OrbitSuspected:  1,
-				RedeemingCount:  2,
-				OrbitToRedeem:   Orbit(12, 3, 4),
-			},
-		},
-		Updates: []BlacklistUpdate{{Type: BlacklistOpType_NodeRedeemed, NodeIndex: 3}},
-	}
-
-	block, _ = bb.BuildBlock(context.Background(), e.Metadata(), blacklist)
+	require.Equal(t, conf.ID, LeaderForRound(nodes, block.BlockHeader().Round))
+	bb.SetBuiltBlock(block.(*testutil.TestBlock)) // Insert the block built by the block builder back into block builder so it will re-propose it
 	block, _ = notarizeAndFinalizeRound(t, e, bb)
 
 	// The next blacklist garbage collects node 3 from the blacklist.

@@ -462,6 +462,39 @@ func TestParseBlockSizeMatchesBytes(t *testing.T) {
 	}
 }
 
+func TestInstanceDoubleStartFails(t *testing.T) {
+	const basePChainHeight = uint64(1)
+
+	var id [20]byte
+	rand.Read(id[:])
+	nodeID := common.NodeID(id[:])
+
+	// Single-validator set including this node, so Start brings up a validator epoch.
+	validatorSetsAtHeight := map[uint64]metadata.NodeBLSMappings{
+		basePChainHeight: {
+			{NodeID: id, BLSKey: []byte{0xaa}, Weight: 1},
+		},
+	}
+
+	pChain := newTestPlatformChain(basePChainHeight, validatorSetsAtHeight)
+	cops := &testCryptoOps{}
+	genesisBlock := &testInnerBlock{Height_: 0, TS: time.Now(), Payload: []byte("genesis")}
+
+	net := newInMemNetwork(t)
+	t.Cleanup(net.stop)
+
+	storage := NewMockStorage(t)
+	smb := metadata.StateMachineBlock{InnerBlock: genesisBlock}
+	require.NoError(t, storage.Index(context.Background(), &ParsedBlock{StateMachineBlock: smb}, common.Finalization{}))
+
+	inst := newInstance(t, nodeID, storage, net, pChain, cops, genesisBlock)
+
+	require.NoError(t, inst.Start(t.Context()))
+	t.Cleanup(inst.Stop)
+
+	require.ErrorContains(t, inst.Start(t.Context()), "instance already started")
+}
+
 // requireTipIsSealing asserts whether the last block in storage is a sealing block.
 func requireTipIsSealing(t *testing.T, storage *MockStorage, want bool) {
 	t.Helper()

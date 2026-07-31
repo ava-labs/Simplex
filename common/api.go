@@ -176,6 +176,15 @@ func (nws Nodes) NodeIDs() []NodeID {
 	return nodes
 }
 
+func (nws Nodes) Contains(nodeID NodeID) bool {
+	for _, nw := range nws {
+		if bytes.Equal(nw.Id, nodeID) {
+			return true
+		}
+	}
+	return false
+}
+
 // Node is a struct that pairs a node ID with its weight and public key.
 type Node struct {
 	Id     NodeID
