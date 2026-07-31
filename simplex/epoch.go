@@ -3209,13 +3209,7 @@ func (e *Epoch) handleReplicationRequest(req *common.ReplicationRequest, from co
 		latestRound := e.getLatestVerifiedQuorumRound()
 		if latestRound != nil && latestRound.GetRound() > req.LatestRound {
 			size := latestRound.Size()
-			if size > remainingBytes {
-				e.Logger.Error("Latest round exceeds the remaining replication response size",
-					zap.Stringer("from", from),
-					zap.Uint64("round", latestRound.GetRound()),
-					zap.Int("size", size),
-					zap.Int("remaining bytes", remainingBytes))
-			} else {
+			if size <= remainingBytes || response.LatestFinalizedSeq == nil {
 				response.LatestRound = latestRound
 				remainingBytes -= size
 			}
