@@ -19,7 +19,7 @@ import (
 var errOverflow = errors.New("overflow")
 
 const (
-	MiB = 1024 * 0124
+	MiB = 1024 * 1024
 
 	DefaultMaxMessageSize = 2 * MiB
 

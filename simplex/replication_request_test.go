@@ -558,6 +558,7 @@ func TestReplicationRequestSizeLimitedLatestFinalizedSeq(t *testing.T) {
 	ctx := context.Background()
 	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], comm, bb)
 	conf.ReplicationEnabled = true
+	conf.Logger.(*testutil.TestLogger).Silence()
 	conf.MaxReplicationResponseSize = 1
 
 	numBlocks := uint64(4)
@@ -592,6 +593,7 @@ func TestReplicationRequestSizeLimitedBothLatest(t *testing.T) {
 	ctx := context.Background()
 	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], comm, bb)
 	conf.ReplicationEnabled = true
+	conf.Logger.(*testutil.TestLogger).Silence()
 	conf.MaxReplicationResponseSize = 1
 
 	// blocks 0..3 indexed to storage (provides lastBlock for LatestFinalizedSeq)
