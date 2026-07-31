@@ -274,6 +274,206 @@ func TestInstanceNonValidatorBootstraps(t *testing.T) {
 	waitForNumBlocks(t, storage2, extendedTarget)
 }
 
+func TestInstanceNonValidatorRoleChange(t *testing.T) {
+	// A non-validator handed an epoch change must only restart as a validator when the change is for
+	// the latest epoch it knows of AND it is a validator of that epoch. Anything else has to leave it
+	// a non-validator
+	const (
+		basePChainHeight = uint64(1)
+
+		firstEpoch   = uint64(1)
+		secondEpoch  = uint64(2)
+		highestEpoch = uint64(3)
+	)
+
+	for _, tt := range []struct {
+		name string
+		// validatedHighestEpoch means we have replicated the highest epoch as a non-validator.
+		validatedHighestEpoch bool
+
+		// our node is a validator for the second epoch
+		validatorForSecondEpoch bool
+
+		// our node is a validator for the highest epoch
+		validatorForHighestEpoch bool
+
+		// do we expect the node to be a validator after indexing the second epoch
+		wantValidator bool
+	}{
+		{
+			name:                  "epoch is not the latest epoch",
+			validatedHighestEpoch: true,
+			wantValidator:         false,
+		},
+		{
+			name:                     "epoch is not the latest epoch, but validator for the latest epoch",
+			validatedHighestEpoch:    true,
+			validatorForSecondEpoch:  true,
+			validatorForHighestEpoch: true,
+			wantValidator:            false,
+		},
+		{
+			name:                    "validator for the epoch, but not for the latest epoch",
+			validatedHighestEpoch:   true,
+			validatorForSecondEpoch: true,
+			wantValidator:           false,
+		},
+		{
+			name:          "epoch is the latest epoch, but not a validator for it",
+			wantValidator: false,
+		},
+		{
+			name:                     "validator for the latest epoch, transitioning to the latest epoch",
+			validatorForSecondEpoch:  true,
+			validatorForHighestEpoch: true,
+			wantValidator:            true,
+			// we only validated the second epoch
+			validatedHighestEpoch: false,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var ourNodeAvaID, peerID [20]byte
+			rand.Read(ourNodeAvaID[:])
+			rand.Read(peerID[:])
+			ourNodeID := common.NodeID(ourNodeAvaID[:])
+			peerNodeID := common.NodeID(peerID[:])
+
+			// A validator set is built from two entries: our node, whose role each case decides, and a
+			// peer that belongs to every set, so that a set our node is absent from still has a member.
+			ourNode := metadata.NodeBLSMapping{NodeID: ourNodeAvaID, BLSKey: []byte{0xaa}, Weight: 1}
+			alwaysValidator := metadata.NodeBLSMapping{NodeID: peerID, BLSKey: []byte{0xbb}, Weight: 1}
+
+			// The first epoch is validated by the peer alone, so our node comes up as a non-validator,
+			// and the peer by itself is a quorum of the set that finalizes what our node replicates.
+			firstEpochValidators := metadata.NodeBLSMappings{alwaysValidator}
+
+			secondEpochValidators := metadata.NodeBLSMappings{alwaysValidator}
+			if tt.validatorForSecondEpoch {
+				secondEpochValidators = metadata.NodeBLSMappings{alwaysValidator, ourNode}
+			}
+			highestEpochValidators := metadata.NodeBLSMappings{alwaysValidator}
+			if tt.validatorForHighestEpoch {
+				highestEpochValidators = metadata.NodeBLSMappings{alwaysValidator, ourNode}
+			}
+
+			pChain := newTestPlatformChain(1, map[uint64]metadata.NodeBLSMappings{basePChainHeight: highestEpochValidators})
+			cops := &testCryptoOps{}
+			genesisBlock := &testInnerBlock{Height_: 0, TS: time.Now(), Payload: []byte("genesis")}
+
+			net := newInMemNetwork(t)
+			t.Cleanup(net.stop)
+
+			storage := newStorageWithGenesis(t, genesisBlock)
+			require.NoError(t, storage.Index(context.Background(), zeroBlockAt(firstEpoch, firstEpochValidators), common.Finalization{}))
+
+			inst := newInstance(t, ourNodeID, storage, net, pChain, cops, genesisBlock)
+			require.NoError(t, inst.Start(t.Context()))
+			t.Cleanup(inst.Stop)
+			nonValidator := runningNonValidator(inst)
+			require.NotNil(t, nonValidator, "expected the node to come up as a non-validator")
+
+			if tt.validatedHighestEpoch {
+				replicateFinalizedBlock(t, inst, peerNodeID, sealingBlockAt(highestEpoch, secondEpoch, highestEpochValidators), firstEpochValidators)
+			}
+			replicateFinalizedBlock(t, inst, peerNodeID, sealingBlockAt(secondEpoch, firstEpoch, secondEpochValidators), firstEpochValidators)
+
+			// Committing the sealing block is what hands the node its epoch change.
+			waitForNumBlocks(t, storage, secondEpoch+1)
+
+			if tt.wantValidator {
+				require.Eventually(t, func() bool {
+					return isRunningValidator(inst)
+				}, 20*time.Second, 100*time.Millisecond, "expected the node to restart as a validator")
+				require.Nil(t, runningNonValidator(inst))
+				return
+			}
+
+			// The epoch change is acted on by another goroutine, so the node has to be given the
+			// chance to restart before concluding that it did not.
+			require.Never(t, func() bool {
+				return isRunningValidator(inst)
+			}, 2*time.Second, 100*time.Millisecond, "expected the node to stay a non-validator")
+
+			// Polling could miss a restart that ended up back on a non-validator, but such a restart
+			// installs a freshly created one -- so the very same non-validator still running means the
+			// node never gave up the role at any point.
+			require.Same(t, nonValidator, runningNonValidator(inst))
+		})
+	}
+}
+
+// newStorageWithGenesis returns storage holding only the genesis block, the ledger every node
+// here starts from.
+func newStorageWithGenesis(t *testing.T, genesisBlock *testInnerBlock) *MockStorage {
+	t.Helper()
+	storage := NewMockStorage(t)
+	genesis := &ParsedBlock{StateMachineBlock: metadata.StateMachineBlock{InnerBlock: genesisBlock}}
+	require.NoError(t, storage.Index(context.Background(), genesis, common.Finalization{}))
+	return storage
+}
+
+// replicateFinalizedBlock  sends a finalized quorum round to the instance
+func replicateFinalizedBlock(t *testing.T, inst *Instance, from common.NodeID, block *ParsedBlock, signers metadata.NodeBLSMappings) {
+	t.Helper()
+	signatures := make([]common.Signature, 0, len(signers))
+	for _, signer := range signers {
+		signatures = append(signatures, common.Signature{Signer: signer.NodeID[:], Value: []byte{1}})
+	}
+	response := &common.ReplicationResponse{
+		Data: []common.QuorumRound{{
+			Block: block,
+			Finalization: &common.Finalization{
+				Finalization: common.ToBeSignedFinalization{BlockHeader: block.BlockHeader()},
+				QC:           testutil.TestQC(signatures),
+			},
+		}},
+	}
+	require.NoError(t, inst.HandleMessage(&common.Message{ReplicationResponse: response}, from))
+}
+
+// isRunningValidator reports whether the instance is currently running a Simplex epoch.
+func isRunningValidator(inst *Instance) bool {
+	inst.lock.Lock()
+	defer inst.lock.Unlock()
+	return inst.e != nil
+}
+
+// runningNonValidator returns the non-validator the instance is running, or nil when it is running
+// a validator epoch instead. Every restart installs a freshly created non-validator, so comparing
+// the pointer over time detects one.
+func runningNonValidator(inst *Instance) *nonvalidator.NonValidator {
+	inst.lock.Lock()
+	defer inst.lock.Unlock()
+	return inst.nv
+}
+
+// sealingBlockAt builds the sealing block of epoch `epoch` at sequence `seq`
+func sealingBlockAt(seq, epoch uint64, validators metadata.NodeBLSMappings) *ParsedBlock {
+	md := common.ProtocolMetadata{Epoch: epoch, Round: seq, Seq: seq}
+	return &ParsedBlock{StateMachineBlock: metadata.StateMachineBlock{
+		InnerBlock: &testInnerBlock{Height_: seq, TS: time.Now(), Payload: []byte("block")},
+		Metadata: metadata.StateMachineMetadata{
+			SimplexProtocolMetadata: md.Bytes(),
+			SimplexEpochInfo: metadata.SimplexEpochInfo{
+				EpochNumber:          epoch,
+				PrevSealingBlockHash: [32]byte{1},
+				BlockValidationDescriptor: &metadata.BlockValidationDescriptor{
+					AggregatedMembership: metadata.AggregatedMembership{Members: validators},
+				},
+			},
+		},
+	}}
+}
+
+// zeroBlockAt builds the zero block that starts epoch `epoch`, carrying that epoch's validator set.
+// It is the first Simplex block of a ledger, so it sits at sequence 1.
+func zeroBlockAt(epoch uint64, validators metadata.NodeBLSMappings) *ParsedBlock {
+	block := sealingBlockAt(1, epoch, validators)
+	// No sealing block precedes the zero block.
+	block.Metadata.SimplexEpochInfo.PrevSealingBlockHash = [32]byte{}
+	return block
+}
+
 func TestInstanceValidatorSkipsAnEpoch(t *testing.T) {
 	// A node that is a validator in one epoch, absent from the validator set of the next one,
 	// and a validator again in the one after that. It has to take up and give up its validator
