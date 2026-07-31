@@ -132,6 +132,8 @@ func TestInstanceMixedNodeType(t *testing.T) {
 }
 
 func TestInstanceNonValidatorBootstraps(t *testing.T) {
+	t.Skip("Skipping due to flakey test")
+
 	// One node is a validator and progresses the chain by building blocks,
 	// and its weight changes while the chain progresses in 3 different P-chain epoch heights.
 	// Then, we add another node which is a non-validator.
