@@ -16,6 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/ava-labs/simplex/avalanchego"
 	"github.com/ava-labs/simplex/common"
 	"go.uber.org/zap"
 )
@@ -35,8 +36,8 @@ const (
 	EmptyVoteTimeoutID                    = "rebroadcast_empty_vote"
 	maxItemCountPerRequest                = 10 // max number of rounds or sequences that fit in one replication request
 	// DefaultMaxReplicationResponseSize is the max size of a replication response. avalanchego rejects messages larger
-	// than 2 MiB. we cap at 80% (4/5) same as avalanchego (see utils/constants/network.go)
-	DefaultMaxReplicationResponseSize = 2 * 1024 * 1024 * 4 / 5
+	// than 2 MiB. we cap at 80% (4/5) same as avalanchego (see utils/constants/networking.go)
+	DefaultMaxReplicationResponseSize = avalanchego.MaxContainersLen
 )
 
 type EmptyVoteSet struct {
@@ -3192,16 +3193,29 @@ func (e *Epoch) handleReplicationRequest(req *common.ReplicationRequest, from co
 				Finalization:  &e.lastBlock.Finalization,
 			}
 			size := latestFinalizedSeq.Size()
+			if size > remainingBytes {
+				e.Logger.Error("Latest finalized block exceeds the maximum replication response size",
+					zap.Stringer("from", from),
+					zap.Uint64("seq", e.lastBlock.Finalization.Finalization.Seq),
+					zap.Int("size", size),
+					zap.Int("max size", e.MaxReplicationResponseSize))
+				return nil
+			}
 			response.LatestFinalizedSeq = latestFinalizedSeq
 			remainingBytes -= size
-
 		}
 	}
 	if req.LatestRound > 0 {
 		latestRound := e.getLatestVerifiedQuorumRound()
 		if latestRound != nil && latestRound.GetRound() > req.LatestRound {
 			size := latestRound.Size()
-			if size <= remainingBytes || response.LatestFinalizedSeq == nil {
+			if size > remainingBytes {
+				e.Logger.Error("Latest round exceeds the remaining replication response size",
+					zap.Stringer("from", from),
+					zap.Uint64("round", latestRound.GetRound()),
+					zap.Int("size", size),
+					zap.Int("remaining bytes", remainingBytes))
+			} else {
 				response.LatestRound = latestRound
 				remainingBytes -= size
 			}

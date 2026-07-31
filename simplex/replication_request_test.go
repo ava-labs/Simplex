@@ -548,10 +548,9 @@ func TestReplicationRequestSizeLimited(t *testing.T) {
 	require.LessOrEqual(t, total, conf.MaxReplicationResponseSize)
 }
 
-// TestReplicationRequestSizeLimitedLatestFinalizedSeq ensures the latest-seq/round are
-// sent even when they alone exceed the response size limit. A single item that
-// cannot fit in a message could not have been sent through the network in the
-// first place.
+// TestReplicationRequestSizeLimitedLatestFinalizedSeq ensures that when the latest
+// finalized block alone exceeds the response size limit, no response is sent at all.
+// An oversized message would be rejected by the network anyway.
 func TestReplicationRequestSizeLimitedLatestFinalizedSeq(t *testing.T) {
 	bb := testutil.NewTestBlockBuilder()
 	nodes := []common.NodeID{{1}, {2}, {3}, {4}}
@@ -580,14 +579,12 @@ func TestReplicationRequestSizeLimitedLatestFinalizedSeq(t *testing.T) {
 		},
 	}, nodes[1]))
 
-	msg := <-comm.in
-	resp := msg.VerifiedReplicationResponse
-	require.NotNil(t, resp.LatestFinalizedSeq)
-	require.Empty(t, resp.Data)
+	require.Empty(t, comm.in)
 }
 
-//
-
+// TestReplicationRequestSizeLimitedBothLatest ensures that when both latest fields are
+// requested but only one fits, the latest finalized seq is sent and the latest round
+// is omitted rather than pushing the response over the limit.
 func TestReplicationRequestSizeLimitedBothLatest(t *testing.T) {
 	bb := testutil.NewTestBlockBuilder()
 	nodes := []common.NodeID{{1}, {2}, {3}, {4}}
@@ -613,6 +610,12 @@ func TestReplicationRequestSizeLimitedBothLatest(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, wal.Append(common.NewQuorumRecord(notarization.QC.Bytes(),
 		notarization.Vote.Bytes(), common.NotarizationRecordType)))
+
+	// budget exactly one fnalized quorom round, leaving no room for the latest round
+	conf.MaxReplicationResponseSize = (&common.VerifiedQuorumRound{
+		VerifiedBlock: blocks[3].VerifiedBlock,
+		Finalization:  &blocks[3].Finalization,
+	}).Size()
 
 	e, err := simplex.NewEpoch(conf)
 	require.NoError(t, err)
