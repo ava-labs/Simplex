@@ -19,6 +19,15 @@ type Communication struct {
 	Broadcaster
 }
 
+func newCommunication(sender Sender, broadcaster Broadcaster, validators common.Nodes) *Communication {
+	c := &Communication{
+		Sender:      sender,
+		Broadcaster: broadcaster,
+	}
+	c.SetValidators(validators)
+	return c
+}
+
 func (c *Communication) SetValidators(nodes common.Nodes) {
 	c.nodes.Store(nodes)
 }

@@ -365,13 +365,15 @@ func (i *Instance) processEpochChange(epochChange epochChange) {
 	}
 
 	var err error
+	isValidator, isNonValidator := i.isValidator(), i.isNonValidator()
+
 	switch {
-	case i.e != nil && i.nv != nil:
+	case isValidator && isNonValidator:
 		i.Config.Logger.Fatal("We are running both a validator and non-validator")
 		return
-	case i.nv != nil:
+	case isNonValidator:
 		err = i.transitionEpochNonValidator(epochChange)
-	case i.e != nil:
+	case isValidator:
 		err = i.transitionEpochValidator(epochChange)
 	default: // This should never happen, but we log it just in case.
 		i.Config.Logger.Fatal("We are not running either a validator or non-validator")
@@ -382,6 +384,14 @@ func (i *Instance) processEpochChange(epochChange epochChange) {
 		i.Config.Logger.Error("Error transitioning epoch", zap.Error(err))
 		i.Stop()
 	}
+}
+
+func (i *Instance) isValidator() bool {
+	return i.e != nil
+}
+
+func (i *Instance) isNonValidator() bool {
+	return i.nv != nil
 }
 
 // startEpoch starts a new epoch with the given configuration.
@@ -669,7 +679,7 @@ func constructValidatorSetFromSealingBlock(lastBlock ParsedBlock) metadata.NodeB
 }
 
 func GetHighestValidatorSet(platform PlatformChain) (common.Nodes, error) {
-	height := platform.GetMinimumHeight()
+	height := platform.GetCurrentHeight()
 	mappings, err := platform.GetValidatorSet(height)
 	if err != nil {
 		return nil, err
