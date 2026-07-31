@@ -67,7 +67,7 @@ func (v *ToBeSignedEmptyVote) Bytes() []byte {
 
 func (v *ToBeSignedEmptyVote) FromBytes(buff []byte) error {
 	if len(buff) != emptyVoteLen {
-		return fmt.Errorf("invalid buffer length, expected 17, got %d", len(buff))
+		return fmt.Errorf("invalid buffer length, expected %d, got %d", emptyVoteLen, len(buff))
 	}
 
 	epoch := binary.BigEndian.Uint64(buff[1:9])
