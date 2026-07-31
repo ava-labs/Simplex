@@ -402,16 +402,6 @@ func TestInstanceNonValidatorRoleChange(t *testing.T) {
 	}
 }
 
-// newStorageWithGenesis returns storage holding only the genesis block, the ledger every node
-// here starts from.
-func newStorageWithGenesis(t *testing.T, genesisBlock *testInnerBlock) *MockStorage {
-	t.Helper()
-	storage := NewMockStorage(t)
-	genesis := &ParsedBlock{StateMachineBlock: metadata.StateMachineBlock{InnerBlock: genesisBlock}}
-	require.NoError(t, storage.Index(context.Background(), genesis, common.Finalization{}))
-	return storage
-}
-
 // replicateFinalizedBlock  sends a finalized quorum round to the instance
 func replicateFinalizedBlock(t *testing.T, inst *Instance, from common.NodeID, block *ParsedBlock, signers metadata.NodeBLSMappings) {
 	t.Helper()
