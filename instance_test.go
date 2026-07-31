@@ -69,17 +69,9 @@ func TestInstanceMixedNodeType(t *testing.T) {
 	net := newInMemNetwork(t)
 	t.Cleanup(net.stop)
 
-	// newInstance builds an Instance sharing the common test dependencies but with
-	// its own ID, storage and VM.
-
 	// Create the storage for the instances and append the genesis block to each
-	storage := NewMockStorage(t)
-	smb := metadata.StateMachineBlock{InnerBlock: genesisBlock}
-	require.NoError(t, storage.Index(context.Background(), &ParsedBlock{StateMachineBlock: smb}, common.Finalization{}))
-
-	storage2 := NewMockStorage(t)
-	smb = metadata.StateMachineBlock{InnerBlock: genesisBlock}
-	require.NoError(t, storage2.Index(context.Background(), &ParsedBlock{StateMachineBlock: smb}, common.Finalization{}))
+	storage := newStorageWithGenesis(t, genesisBlock)
+	storage2 := newStorageWithGenesis(t, genesisBlock)
 
 	// Create the instances and register them to the network
 	firstInstance := newInstance(t, firstNodeID, storage, net, pChain, cops, genesisBlock)
@@ -97,9 +89,6 @@ func TestInstanceMixedNodeType(t *testing.T) {
 	const epoch1Target = uint64(5) // genesis(0) + zero block(1) + 3 normal blocks
 	waitForNumBlocks(t, storage, epoch1Target)
 	waitForNumBlocks(t, storage2, epoch1Target)
-
-	require.GreaterOrEqual(t, storage.NumBlocks(), epoch1Target)
-	require.GreaterOrEqual(t, storage2.NumBlocks(), epoch1Target)
 
 	// The validator set in force is the one introduced by the most recent block
 	// that carries a BlockValidationDescriptor (the zero block in epoch 1).
@@ -185,13 +174,8 @@ func TestInstanceNonValidatorBootstraps(t *testing.T) {
 	t.Cleanup(net.stop)
 
 	// Both storages start with only the genesis block.
-	storage := NewMockStorage(t)
-	smb := metadata.StateMachineBlock{InnerBlock: genesisBlock}
-	require.NoError(t, storage.Index(context.Background(), &ParsedBlock{StateMachineBlock: smb}, common.Finalization{}))
-
-	storage2 := NewMockStorage(t)
-	smb = metadata.StateMachineBlock{InnerBlock: genesisBlock}
-	require.NoError(t, storage2.Index(context.Background(), &ParsedBlock{StateMachineBlock: smb}, common.Finalization{}))
+	storage := newStorageWithGenesis(t, genesisBlock)
+	storage2 := newStorageWithGenesis(t, genesisBlock)
 
 	validatorInstance := newInstance(t, validatorNodeID, storage, net, pChain, cops, genesisBlock)
 	nonValidatorInstance := newInstance(t, nonValidatorNodeID, storage2, net, pChain, cops, genesisBlock)
@@ -674,9 +658,7 @@ func TestInstanceRestartAcrossEpochs(t *testing.T) {
 	net := newInMemNetwork(t)
 	t.Cleanup(net.stop)
 
-	storage := NewMockStorage(t)
-	smb := metadata.StateMachineBlock{InnerBlock: genesisBlock}
-	require.NoError(t, storage.Index(context.Background(), &ParsedBlock{StateMachineBlock: smb}, common.Finalization{}))
+	storage := newStorageWithGenesis(t, genesisBlock)
 
 	vm := newTestVM()
 
@@ -764,9 +746,7 @@ func TestInstanceDoubleStartFails(t *testing.T) {
 	net := newInMemNetwork(t)
 	t.Cleanup(net.stop)
 
-	storage := NewMockStorage(t)
-	smb := metadata.StateMachineBlock{InnerBlock: genesisBlock}
-	require.NoError(t, storage.Index(context.Background(), &ParsedBlock{StateMachineBlock: smb}, common.Finalization{}))
+	storage := newStorageWithGenesis(t, genesisBlock)
 
 	inst := newInstance(t, nodeID, storage, net, pChain, cops, genesisBlock)
 
@@ -823,8 +803,7 @@ func requireTipIsSealing(t *testing.T, storage *MockStorage, want bool) {
 	require.Positive(t, num)
 	block, ok := storage.blockAt(num - 1)
 	require.True(t, ok)
-	isSealing := block.Metadata.SimplexEpochInfo.BlockValidationDescriptor != nil
-	require.Equal(t, want, isSealing)
+	require.Equal(t, want, block.SealingBlockInfo() != nil)
 }
 
 // countSealingBlocks returns the number of sealing blocks (blocks carrying a
@@ -838,7 +817,7 @@ func countSealingBlocks(t *testing.T, storage *MockStorage) int {
 		if !ok {
 			continue
 		}
-		if block.Metadata.SimplexEpochInfo.BlockValidationDescriptor != nil {
+		if block.SealingBlockInfo() != nil {
 			count++
 		}
 	}
@@ -853,6 +832,18 @@ func waitForSealingBlockCount(t *testing.T, storage *MockStorage, target int) {
 	}, 20*time.Second, 100*time.Millisecond)
 }
 
+// newStorageWithGenesis returns storage holding only the genesis block, the ledger every node
+// here starts from.
+func newStorageWithGenesis(t *testing.T, genesisBlock *testInnerBlock) *MockStorage {
+	t.Helper()
+	storage := NewMockStorage(t)
+	genesis := &ParsedBlock{StateMachineBlock: metadata.StateMachineBlock{InnerBlock: genesisBlock}}
+	require.NoError(t, storage.Index(context.Background(), genesis, common.Finalization{}))
+	return storage
+}
+
+// newInstance builds an Instance sharing the common test dependencies but with its own ID,
+// storage and VM.
 func newInstance(t *testing.T, nodeID common.NodeID, storage *MockStorage, net *inMemNetwork, pChain *testPlatformChain, cops *testCryptoOps, genesisBlock *testInnerBlock) *Instance {
 	return newInstanceWithVM(t, nodeID, storage, net, pChain, cops, genesisBlock, newTestVM())
 }
@@ -890,10 +881,8 @@ func latestValidatorID(t *testing.T, storage *MockStorage) common.NodeID {
 		if !ok {
 			continue
 		}
-		bvd := block.Metadata.SimplexEpochInfo.BlockValidationDescriptor
-		if bvd != nil {
-			validatorCount := len(bvd.AggregatedMembership.Members)
-			return bvd.AggregatedMembership.Members[validatorCount-1].NodeID[:]
+		if info := block.SealingBlockInfo(); info != nil {
+			return info.ValidatorSet[len(info.ValidatorSet)-1].Id
 		}
 	}
 	t.Fatalf("no block with a BlockValidationDescriptor found in storage")
@@ -929,8 +918,7 @@ func waitForSealingBlock(t *testing.T, inst *Instance, approval *common.Validato
 			if !ok {
 				continue
 			}
-			bvd := block.Metadata.SimplexEpochInfo.BlockValidationDescriptor
-			if bvd != nil {
+			if block.SealingBlockInfo() != nil {
 				result = seq
 				return true
 			}
@@ -984,7 +972,7 @@ type testVM struct {
 
 func newTestVM() *testVM {
 	vm := &testVM{}
-	vm.nextHeight.Store(2) // genesis inner block is height 1
+	vm.nextHeight.Store(1) // the genesis inner block is height 0
 	return vm
 }
 
@@ -1313,6 +1301,18 @@ func (n *inMemNetwork) stop() {
 	}
 }
 
+// registeredIDs returns the nodes currently wired into the network. Broadcasters go through it
+// rather than reading the map directly, since nodes register while others are already running.
+func (n *inMemNetwork) registeredIDs() []common.NodeID {
+	n.lock.Lock()
+	defer n.lock.Unlock()
+	ids := make([]common.NodeID, 0, len(n.nodes))
+	for _, node := range n.nodes {
+		ids = append(ids, node.inst.Config.ID)
+	}
+	return ids
+}
+
 func (n *inMemNetwork) enqueue(dest common.NodeID, m netMsg) {
 	n.lock.Lock()
 	node := n.nodes[string(dest)]
@@ -1380,8 +1380,8 @@ type networkSender struct {
 }
 
 func (s *networkSender) Broadcast(msg *common.Message) {
-	for _, n := range s.net.nodes {
-		s.Send(msg, n.inst.Config.ID)
+	for _, dest := range s.net.registeredIDs() {
+		s.Send(msg, dest)
 	}
 }
 
