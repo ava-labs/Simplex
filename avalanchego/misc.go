@@ -18,6 +18,14 @@ import (
 
 var errOverflow = errors.New("overflow")
 
+const (
+	MiB = 1024 * 1024
+
+	DefaultMaxMessageSize = 2 * MiB
+
+	MaxContainersLen = int(4 * DefaultMaxMessageSize / 5)
+)
+
 func safeAdd(a, b uint64) (uint64, error) {
 	if a > math.MaxUint64-b {
 		return 0, fmt.Errorf("%w: %d + %d > maxuint64", errOverflow, a, b)

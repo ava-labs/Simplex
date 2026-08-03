@@ -5,37 +5,19 @@ package simplex
 
 import (
 	"context"
+	"sync"
 
 	"github.com/ava-labs/simplex/common"
 	metadata "github.com/ava-labs/simplex/msm"
 )
 
-type RawBlock struct {
-	Metadata        metadata.StateMachineMetadata `canoto:"value,1"`
-	InnerBlockBytes []byte                        `canoto:"bytes,2"`
-
-	canotoData canotoData_RawBlock
-}
-
 type ParsedBlock struct {
 	metadata.StateMachineBlock
 	msm *metadata.StateMachine
-}
-
-func (p *ParsedBlock) Bytes() ([]byte, error) {
-	var innerBlockBytes []byte
-	if p.InnerBlock != nil {
-		rawInnerBlock, err := p.InnerBlock.Bytes()
-		if err != nil {
-			return nil, err
-		}
-		innerBlockBytes = rawInnerBlock
-	}
-	rawBlock := &RawBlock{
-		Metadata:        p.Metadata,
-		InnerBlockBytes: innerBlockBytes,
-	}
-	return rawBlock.MarshalCanoto(), nil
+	// lock guards size, so Size() can be invoked concurrently
+	lock sync.Mutex
+	// size caches the length of the Bytes encoding, computed on first use
+	size int
 }
 
 func (p *ParsedBlock) BlockHeader() common.BlockHeader {
@@ -68,4 +50,19 @@ func (p *ParsedBlock) Verify(ctx context.Context) (common.VerifiedBlock, error) 
 		return nil, err
 	}
 	return p, nil
+}
+func (p *ParsedBlock) Size() int {
+	p.lock.Lock()
+	defer p.lock.Unlock()
+	if p.size == 0 {
+		bytes, err := p.Bytes()
+		// TODO(#465): Bytes() fails when serializing the inner block when it is not nil and can't be serialized.
+		// So returning 0 here is not correct, because it will be silently swallowed up in the addition of other blocks.
+		// once Bytes() no longer returns an error (https://github.com/ava-labs/Simplex/issues/465), remove this branch.
+		if err != nil {
+			return 0
+		}
+		p.size = len(bytes)
+	}
+	return p.size
 }

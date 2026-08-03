@@ -108,6 +108,14 @@ func (t *TestBlock) Bytes() ([]byte, error) {
 	return rawBytes, nil
 }
 
+func (t *TestBlock) Size() int {
+	bytes, err := t.Bytes()
+	if err != nil {
+		return 0
+	}
+	return len(bytes)
+}
+
 type EncodedTestBlock struct {
 	Data      []byte
 	Metadata  []byte

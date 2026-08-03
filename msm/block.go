@@ -11,6 +11,8 @@ import (
 	"github.com/ava-labs/simplex/common"
 )
 
+//go:generate go run github.com/StephenButtolph/canoto/canoto block.go
+
 type BlockType uint8
 
 // A StateMachineBlock is a representation of a parsed OuterBlock, containing the inner block and the metadata.
@@ -19,6 +21,14 @@ type StateMachineBlock struct {
 	InnerBlock avalanchego.VMBlock
 	// Metadata contains the state machine metadata associated with this block.
 	Metadata StateMachineMetadata
+}
+
+// RawBlock is the serialized form of a StateMachineBlock.
+type RawBlock struct {
+	Metadata        StateMachineMetadata `canoto:"value,1"`
+	InnerBlockBytes []byte               `canoto:"bytes,2"`
+
+	canotoData canotoData_RawBlock
 }
 
 // Clone returns a shallow copy of the block, skipping the canoto caches
@@ -119,4 +129,20 @@ func (smb *StateMachineBlock) SealingBlockInfo() *common.SealingBlockInfo {
 		ValidatorSet:         nodes,
 		PrevSealingBlockHash: smb.Metadata.SimplexEpochInfo.PrevSealingBlockHash,
 	}
+}
+
+func (smb *StateMachineBlock) Bytes() ([]byte, error) {
+	var innerBlockBytes []byte
+	if smb.InnerBlock != nil {
+		rawInnerBlock, err := smb.InnerBlock.Bytes()
+		if err != nil {
+			return nil, err
+		}
+		innerBlockBytes = rawInnerBlock
+	}
+	rawBlock := &RawBlock{
+		Metadata:        smb.Metadata.Clone(),
+		InnerBlockBytes: innerBlockBytes,
+	}
+	return rawBlock.MarshalCanoto(), nil
 }
