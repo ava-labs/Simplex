@@ -250,6 +250,18 @@ func (i *Instance) Stop() {
 
 	i.stopValidator()
 	i.stopNonValidator()
+	if err := i.closeWAL(); err != nil {
+		i.Config.Logger.Error("Error closing WAL on shutdown", zap.Error(err))
+	}
+}
+
+// closeWAL closes the WAL currently in use, if any.
+// Must be called under the lock, and only once the epoch or non-validator using it has been stopped.
+func (i *Instance) closeWAL() error {
+	if i.wal == nil {
+		return nil
+	}
+	return i.wal.Close()
 }
 
 func (i *Instance) stopNonValidator() {
@@ -427,6 +439,14 @@ func (i *Instance) createEpochConfig() (simplex.EpochConfig, error) {
 	nodes, epochNum, err := constructEpochAndValidatorSet(i.Config.Logger, lastNonSimplexHeight, genesisValidatorSet, numBlocks, &ParsedBlock{StateMachineBlock: lastBlock}, i.Config.Storage)
 	if err != nil {
 		return simplex.EpochConfig{}, err
+	}
+
+	// The epoch that used the previous WAL has already been stopped by now,
+	// so close it before replacing it, otherwise we leak the files it holds open.
+	// Failing to close it doesn't prevent the new epoch from running, so as with
+	// garbage collecting the WAL on an epoch change, we only log the error.
+	if err := i.closeWAL(); err != nil {
+		i.Config.Logger.Error("Error closing the WAL of the previous epoch", zap.Error(err))
 	}
 
 	wal, err := wal.NewGarbageCollectedWAL(i.Config.WALs, i.Config.WalCreator, &common.WALRetentionReader{}, i.Config.ParameterConfig.WALMaxEntryCount)
