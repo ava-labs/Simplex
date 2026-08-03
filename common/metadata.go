@@ -77,6 +77,9 @@ func (bh *BlockHeader) Bytes() []byte {
 
 	return buff
 }
+func (bh *BlockHeader) Size() int {
+	return BlockHeaderLen
+}
 
 func (bh *BlockHeader) FromBytes(buff []byte) error {
 	if len(buff) != BlockHeaderLen {

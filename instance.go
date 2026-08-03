@@ -647,7 +647,7 @@ func (i *Instance) getLastAcceptedEpochAndValidatorSet() (common.Nodes, uint64, 
 		if sealingBlock.Metadata.SimplexEpochInfo.BlockValidationDescriptor == nil {
 			return nil, 0, fmt.Errorf("expected sealing block at seq %d, but got a non-sealing block", sealingBlockSeq)
 		}
-		validatorSet = constructValidatorSetFromSealingBlock(ParsedBlock{StateMachineBlock: sealingBlock})
+		validatorSet = constructValidatorSetFromSealingBlock(&ParsedBlock{StateMachineBlock: sealingBlock})
 		nodes = validatorSetToNodes(validatorSet)
 		i.Config.Logger.Debug("Determined epoch and validator set from sealing block in storage",
 			zap.Uint64("epoch", epochNum), zap.Uint64("sealingBlockSeq", sealingBlockSeq))
@@ -667,7 +667,7 @@ func validatorSetToNodes(validatorSet metadata.NodeBLSMappings) common.Nodes {
 	return nodes
 }
 
-func constructValidatorSetFromSealingBlock(lastBlock ParsedBlock) metadata.NodeBLSMappings {
+func constructValidatorSetFromSealingBlock(lastBlock *ParsedBlock) metadata.NodeBLSMappings {
 	var validatorSet metadata.NodeBLSMappings
 	vdrs := lastBlock.Metadata.SimplexEpochInfo.BlockValidationDescriptor.AggregatedMembership.Members
 	for _, vdr := range vdrs {

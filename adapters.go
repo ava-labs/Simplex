@@ -243,7 +243,7 @@ type blockDeserializer struct {
 }
 
 func (bp *blockDeserializer) DeserializeBlock(ctx context.Context, bytes []byte) (common.Block, error) {
-	var rawBlock RawBlock
+	var rawBlock metadata.RawBlock
 	if err := rawBlock.UnmarshalCanoto(bytes); err != nil {
 		return nil, err
 	}

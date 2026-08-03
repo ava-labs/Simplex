@@ -84,6 +84,14 @@ func (b *Block) Bytes() ([]byte, error) {
 	return asn1.Marshal(encodedB)
 }
 
+func (b *Block) Size() int {
+	bytes, err := b.Bytes()
+	if err != nil {
+		return 0
+	}
+	return len(bytes)
+}
+
 func (b *Block) containsTX(txID txID) bool {
 	for _, tx := range b.txs {
 		if tx.ID == txID {

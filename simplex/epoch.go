@@ -16,6 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/ava-labs/simplex/avalanchego"
 	"github.com/ava-labs/simplex/common"
 	"go.uber.org/zap"
 )
@@ -34,6 +35,9 @@ const (
 	DefaultFinalizeVoteRebroadcastTimeout = 6 * time.Second
 	EmptyVoteTimeoutID                    = "rebroadcast_empty_vote"
 	maxItemCountPerRequest                = 10 // max number of rounds or sequences that fit in one replication request
+	// DefaultMaxReplicationResponseSize is the max size of a replication response. avalanchego rejects messages larger
+	// than 2 MiB. we cap at 80% (4/5) same as avalanchego (see utils/constants/networking.go)
+	DefaultMaxReplicationResponseSize = avalanchego.MaxContainersLen
 )
 
 type EmptyVoteSet struct {
@@ -64,6 +68,7 @@ func NewRound(block common.VerifiedBlock) *Round {
 type EpochConfig struct {
 	MaxProposalWait            time.Duration
 	MaxRoundWindow             uint64
+	MaxReplicationResponseSize int
 	MaxRebroadcastWait         time.Duration
 	FinalizeRebroadcastTimeout time.Duration
 	QCDeserializer             common.QCDeserializer
@@ -271,6 +276,9 @@ func (e *Epoch) maybeAssignDefaultConfig() error {
 	}
 	if e.MaxRebroadcastWait == 0 {
 		e.MaxRebroadcastWait = DefaultEmptyVoteRebroadcastTimeout
+	}
+	if e.MaxReplicationResponseSize == 0 {
+		e.MaxReplicationResponseSize = DefaultMaxReplicationResponseSize
 	}
 	if e.RandomSource == nil {
 		source, err := NewRandomSource()
@@ -3176,18 +3184,34 @@ func (e *Epoch) handleReplicationRequest(req *common.ReplicationRequest, from co
 			zap.Uint64("max round window", e.MaxRoundWindow))
 		rounds = rounds[:e.MaxRoundWindow]
 	}
+	remainingBytes := e.MaxReplicationResponseSize
 
+	if req.LatestFinalizedSeq > 0 {
+		if e.lastBlock != nil && e.lastBlock.Finalization.Finalization.Seq > req.LatestFinalizedSeq {
+			latestFinalizedSeq := &common.VerifiedQuorumRound{
+				VerifiedBlock: e.lastBlock.VerifiedBlock,
+				Finalization:  &e.lastBlock.Finalization,
+			}
+			size := latestFinalizedSeq.Size()
+			if size > remainingBytes {
+				e.Logger.Error("Latest finalized block exceeds the maximum replication response size",
+					zap.Stringer("from", from),
+					zap.Uint64("seq", e.lastBlock.Finalization.Finalization.Seq),
+					zap.Int("size", size),
+					zap.Int("max size", e.MaxReplicationResponseSize))
+				return nil
+			}
+			response.LatestFinalizedSeq = latestFinalizedSeq
+			remainingBytes -= size
+		}
+	}
 	if req.LatestRound > 0 {
 		latestRound := e.getLatestVerifiedQuorumRound()
 		if latestRound != nil && latestRound.GetRound() > req.LatestRound {
-			response.LatestRound = latestRound
-		}
-	}
-	if req.LatestFinalizedSeq > 0 {
-		if e.lastBlock != nil && e.lastBlock.Finalization.Finalization.Seq > req.LatestFinalizedSeq {
-			response.LatestFinalizedSeq = &common.VerifiedQuorumRound{
-				VerifiedBlock: e.lastBlock.VerifiedBlock,
-				Finalization:  &e.lastBlock.Finalization,
+			size := latestRound.Size()
+			if size <= remainingBytes || response.LatestFinalizedSeq == nil {
+				response.LatestRound = latestRound
+				remainingBytes -= size
 			}
 		}
 	}
@@ -3200,6 +3224,16 @@ func (e *Epoch) handleReplicationRequest(req *common.ReplicationRequest, from co
 			seqData = seqData[:i]
 			break
 		}
+		size := quorumRound.Size()
+		if size > remainingBytes {
+			e.Logger.Debug("Replication response reached size limit",
+				zap.Stringer("from", from),
+				zap.Uint64("Stopped at Seq", seq),
+				zap.Int("max size", e.MaxReplicationResponseSize))
+			seqData = seqData[:i]
+			break
+		}
+		remainingBytes -= size
 
 		seqData[i] = *quorumRound
 	}
@@ -3211,6 +3245,16 @@ func (e *Epoch) handleReplicationRequest(req *common.ReplicationRequest, from co
 			// we cannot break early since empty votes may
 			continue
 		}
+		size := quorumRound.Size()
+		if size > remainingBytes {
+			e.Logger.Debug("Replication response reached size limit",
+				zap.Stringer("from", from),
+				zap.Uint64("Stopped at Round", roundNum),
+				zap.Int("max size", e.MaxReplicationResponseSize))
+			break
+		}
+		remainingBytes -= size
+
 		roundData = append(roundData, *quorumRound)
 	}
 
