@@ -632,7 +632,7 @@ func (i *Instance) getLastAcceptedEpochAndValidatorSet() (common.Nodes, uint64, 
 	// If the last block persisted is a sealing block, then we are in the next epoch.
 	case lastBlock.SealingBlockInfo() != nil:
 		epochNum = parsedLastBlock.BlockHeader().Seq
-		validatorSet = constructValidatorSetFromSealingBlock(parsedLastBlock)
+		validatorSet = constructValidatorSetFromSealingBlock(&parsedLastBlock)
 		nodes = lastBlock.SealingBlockInfo().ValidatorSet
 		i.Config.Logger.Debug("Determined epoch and validator set from sealing block at tip",
 			zap.Uint64("epoch", epochNum))
