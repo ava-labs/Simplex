@@ -28,6 +28,10 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+// walGCInterval is the number of rounds after which instances under test garbage
+// collect their WAL.
+const walGCInterval = 10
+
 func TestInstanceMixedNodeType(t *testing.T) {
 	// One node is a validator at genesis, the other is a non-validator.
 	// After some blocks, the second (non-validator) node also becomes a validator.
@@ -444,6 +448,110 @@ func TestParseBlockSizeMatchesBytes(t *testing.T) {
 	}
 }
 
+func TestInstanceGarbageCollectsWAL(t *testing.T) {
+	// A single validator builds and commits 100 blocks on its own. It garbage
+	// collects its WAL every walGCInterval rounds, so the WAL must never hold an
+	// entry from a round below the last round it garbage collected at.
+	const (
+		basePChainHeight = uint64(1)
+		targetBlocks     = uint64(100)
+	)
+
+	var id [20]byte
+	rand.Read(id[:])
+	nodeID := common.NodeID(id[:])
+
+	// The validator set never changes, so the node commits every block on its own
+	// and the chain stays in a single Simplex epoch throughout.
+	validatorSetsAtHeight := map[uint64]metadata.NodeBLSMappings{
+		basePChainHeight: {
+			{NodeID: id, BLSKey: []byte{0xaa}, Weight: 1},
+		},
+	}
+
+	pChain := newTestPlatformChain(basePChainHeight, validatorSetsAtHeight)
+	cops := &testCryptoOps{}
+	genesisBlock := &testInnerBlock{Height_: 0, TS: time.Now(), Payload: []byte("genesis")}
+
+	net := newInMemNetwork(t)
+	t.Cleanup(net.stop)
+
+	storage := NewMockStorage(t)
+	smb := metadata.StateMachineBlock{InnerBlock: genesisBlock}
+	require.NoError(t, storage.Index(context.Background(), &ParsedBlock{StateMachineBlock: smb}, common.Finalization{}))
+
+	// The test paces block production itself, a block at a time.
+	vm := newOnDemandTestVM()
+	inst := newInstanceWithVM(t, nodeID, storage, net, pChain, cops, genesisBlock, vm)
+	inst.Config.ParameterConfig.WALMaxSize = 10 // Set the WAL max size low so that it rotates upon each entry to make testing easier.
+	net.register(nodeID, inst)
+	require.NoError(t, inst.Start(t.Context()))
+	t.Cleanup(inst.Stop)
+
+	// collectRoundsFromWAL returns the rounds of the entries the instance's WAL
+	// currently holds, across all the WAL files it rotated through. Garbage collected
+	// files are deleted, hence contribute no entries.
+	collectRoundsFromWAL := func() []uint64 {
+		var reader common.WALRetentionReader
+		var rounds []uint64
+		for _, w := range storage.createdWALs() {
+			entries, err := w.ReadAll()
+			require.NoError(t, err)
+			for _, entry := range entries {
+				round, err := reader.RetentionTerm(entry)
+				require.NoError(t, err)
+				rounds = append(rounds, round)
+			}
+		}
+		return rounds
+	}
+
+	var garbageCollectedRoundThreshold uint64
+	for range targetBlocks {
+		numBlocks := storage.NumBlocks()
+		vm.produceBlock(t)
+		require.Eventually(t, func() bool {
+			return storage.NumBlocks() > numBlocks
+		}, 20*time.Second, 10*time.Millisecond, "block not committed")
+
+		block, _, err := storage.Retrieve(storage.NumBlocks() - 1)
+		require.NoError(t, err)
+
+		round := block.BlockHeader().Round
+
+		// When we commit a sealing block we wipe out the WAL entirely, so ignore this corner case.
+		// We only care about the ordinary blocks because we're testing regular garbage collection of the WAL.
+		// We also ignore the first walGCInterval rounds because the WAL is not garbage collected until after that.
+		if block.SealingBlockInfo() != nil || round < walGCInterval {
+			continue
+		}
+
+		// A block is indexed, which is what the commit reports, before the garbage
+		// collection it triggers runs. The garbage collection of the previous interval
+		// has certainly completed by now though, so verify the WAL against it.
+		roundsFromWAL := collectRoundsFromWAL()
+		require.NotEmpty(t, roundsFromWAL) // Just a check that the below for loop doesn't iterate over an empty slice.
+		for _, r := range roundsFromWAL {
+			require.GreaterOrEqual(t, r, garbageCollectedRoundThreshold,
+				"WAL holds an entry of round %d although it was garbage collected at round %d", r, garbageCollectedRoundThreshold)
+		}
+
+		// We garbage collect the WAL every walGCInterval rounds,
+		// but we want to check the GC one round after the GC because we don't want the WAL to be empty when we check it.
+		// The WAL purges all entries of rounds below the round before this round.
+		if round > walGCInterval && round%walGCInterval == 1 {
+			garbageCollectedRoundThreshold = round - 1
+		}
+	}
+
+	// Committing targetBlocks blocks takes at least as many rounds, so the chain ran
+	// long enough for the WAL to have been garbage collected several times over.
+	require.GreaterOrEqual(t, garbageCollectedRoundThreshold, targetBlocks-2*walGCInterval)
+
+	// The garbage collection kept the entries of the rounds at and above its retention term,
+	require.NotEmpty(t, collectRoundsFromWAL())
+}
+
 func TestInstanceDoubleStartFails(t *testing.T) {
 	const basePChainHeight = uint64(1)
 
@@ -543,9 +651,10 @@ func newInstanceWithVM(t *testing.T, nodeID common.NodeID, storage *MockStorage,
 		LastNonSimplexInnerBlock: genesisBlock,
 		WalCreator:               storage.CreateWAL,
 		ParameterConfig: ParameterConfig{
-			MaxNetworkDelay:  500 * time.Millisecond,
-			MaxRoundWindow:   100,
-			WALMaxEntryCount: 1024,
+			WALGCInterval:   walGCInterval,
+			MaxNetworkDelay: 500 * time.Millisecond,
+			MaxRoundWindow:  100,
+			WALMaxSize:      1024,
 		},
 	}
 	return NewInstance(config)
@@ -647,12 +756,35 @@ type testVM struct {
 	// so pausing before an epoch change leaves the sealing block at the tip with
 	// nothing built on top. Lets a test pin the chain tip without touching storage.
 	paused atomic.Bool
+	// When onDemand is non-nil, the VM reports a pending block only once the test asks
+	// for one through produceBlock, letting the test drive the chain round by round
+	// instead of waiting for blocks to trickle in.
+	onDemand chan struct{}
 }
 
 func newTestVM() *testVM {
 	vm := &testVM{}
 	vm.nextHeight.Store(1) // the genesis inner block is height 0
 	return vm
+}
+
+// newOnDemandTestVM creates a VM that only has a block pending once the test asks
+// for one, so that the test rather than a timer paces block production.
+func newOnDemandTestVM() *testVM {
+	vm := newTestVM()
+	vm.onDemand = make(chan struct{}, 1)
+	return vm
+}
+
+// produceBlock hands the epoch a single pending block, which it then builds and
+// proposes. It waits for the epoch to be ready to build if it isn't already.
+func (vm *testVM) produceBlock(t *testing.T) {
+	t.Helper()
+	select {
+	case vm.onDemand <- struct{}{}:
+	case <-time.After(20 * time.Second):
+		t.Fatal("the epoch never asked the VM for a block")
+	}
 }
 
 func (vm *testVM) pause()  { vm.paused.Store(true) }
@@ -672,6 +804,13 @@ func (vm *testVM) BuildBlock(ctx context.Context, _ uint64) (avalanchego.VMBlock
 func (vm *testVM) WaitForPendingBlock(ctx context.Context) {
 	if vm.paused.Load() {
 		<-ctx.Done() // no pending block while paused
+		return
+	}
+	if vm.onDemand != nil {
+		select {
+		case <-ctx.Done():
+		case <-vm.onDemand: // a block is pending only once the test asks for one
+		}
 		return
 	}
 	select {
@@ -838,6 +977,9 @@ type MockStorage struct {
 
 	snapLock sync.Mutex
 	blocks   map[uint64]storedBlock
+
+	walLock sync.Mutex
+	wals    []*testutil.TestWAL
 }
 
 type storedBlock struct {
@@ -905,7 +1047,18 @@ func (m *MockStorage) parseStored(encoded []byte) metadata.StateMachineBlock {
 }
 
 func (m *MockStorage) CreateWAL() (wal.DeletableWAL, error) {
-	return testutil.NewTestWAL(m.t), nil
+	w := testutil.NewTestWAL(m.t)
+	m.walLock.Lock()
+	m.wals = append(m.wals, w)
+	m.walLock.Unlock()
+	return w, nil
+}
+
+// createdWALs returns every WAL handed out by CreateWAL in creation order.
+func (m *MockStorage) createdWALs() []*testutil.TestWAL {
+	m.walLock.Lock()
+	defer m.walLock.Unlock()
+	return append([]*testutil.TestWAL(nil), m.wals...)
 }
 
 // ---------------------------------------------------------------------------

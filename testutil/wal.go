@@ -42,7 +42,12 @@ func (tw *TestWAL) Clone() *TestWAL {
 	return wal
 }
 
+// Delete discards the entries of the WAL, as deleting a real WAL file would.
 func (tw *TestWAL) Delete() error {
+	tw.lock.Lock()
+	defer tw.lock.Unlock()
+
+	tw.WriteAheadLog = wal.NewMemWAL(tw.t)
 	return nil
 }
 

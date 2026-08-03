@@ -251,3 +251,23 @@ func (bp *blockDeserializer) DeserializeBlock(ctx context.Context, bytes []byte)
 		msm: bp.msm,
 	}, nil
 }
+
+type IndexOp func(ctx context.Context, block common.VerifiedBlock, certificate common.Finalization) error
+
+type ReactiveStorage struct {
+	Storage
+	Actions []IndexOp
+}
+
+func (rs *ReactiveStorage) Index(ctx context.Context, block common.VerifiedBlock, certificate common.Finalization) error {
+	err := rs.Storage.Index(ctx, block, certificate)
+	if err != nil {
+		return err
+	}
+	for _, action := range rs.Actions {
+		if err := action(ctx, block, certificate); err != nil {
+			return err
+		}
+	}
+	return nil
+}

@@ -429,7 +429,7 @@ func (i *Instance) createEpochConfig() (simplex.EpochConfig, error) {
 		return simplex.EpochConfig{}, err
 	}
 
-	wal, err := wal.NewGarbageCollectedWAL(i.Config.WALs, i.Config.WalCreator, &common.WALRetentionReader{}, i.Config.ParameterConfig.WALMaxEntryCount)
+	wal, err := wal.NewGarbageCollectedWAL(i.Config.WALs, i.Config.WalCreator, &common.WALRetentionReader{}, i.Config.ParameterConfig.WALMaxSize)
 	if err != nil {
 		return simplex.EpochConfig{}, fmt.Errorf("error creating garbage collected wal: %w", err)
 	}
@@ -438,7 +438,7 @@ func (i *Instance) createEpochConfig() (simplex.EpochConfig, error) {
 	// We might have crashed right after a sealing block was persisted to storage,
 	// but before the WAL was garbage collected.
 	// In that case, we need to garbage collect the WAL to remove all entries from previous epochs.
-	if err := i.maybeGarbageCollectWAL(lastBlock); err != nil {
+	if err := i.maybeGarbageCollectWALAfterSealingBlockCommit(lastBlock); err != nil {
 		return simplex.EpochConfig{}, err
 	}
 
@@ -481,10 +481,17 @@ func (i *Instance) createEpochConfig() (simplex.EpochConfig, error) {
 	comm := &Communication{Sender: i.Config.Sender, Broadcaster: i.Config.Broadcaster}
 	comm.SetValidators(nodes)
 
+	reactiveStorage := &ReactiveStorage{
+		Storage: i.cs,
+		Actions: []IndexOp{
+			garbageCollectWALOnIndex(i.Config.ParameterConfig.WALGCInterval, wal),
+		},
+	}
+
 	epochAwareStorage := &EpochAwareStorage{
 		msm:     msm,
 		epoch:   epochNum,
-		Storage: i.cs,
+		Storage: reactiveStorage,
 		onEpochChange: func(epoch uint64, validators common.Nodes) error {
 			blockBuilder.stop()
 			comm.SetValidators(validators)
@@ -518,7 +525,22 @@ func (i *Instance) createEpochConfig() (simplex.EpochConfig, error) {
 	return epochConfig, nil
 }
 
-func (i *Instance) maybeGarbageCollectWAL(lastBlock metadata.StateMachineBlock) error {
+func garbageCollectWALOnIndex(walInterval int, wal *wal.GarbageCollectedWAL) IndexOp {
+	return func(ctx context.Context, block common.VerifiedBlock, certificate common.Finalization) error {
+		if certificate.Finalization.Round == 0 {
+			return nil
+		}
+		if walInterval <= 0 {
+			return nil
+		}
+		if certificate.Finalization.Round%uint64(walInterval) == 0 {
+			return wal.GarbageCollect(certificate.Finalization.Round)
+		}
+		return nil
+	}
+}
+
+func (i *Instance) maybeGarbageCollectWALAfterSealingBlockCommit(lastBlock metadata.StateMachineBlock) error {
 	if lastBlock.Metadata.SimplexEpochInfo.BlockValidationDescriptor != nil {
 		i.Config.Logger.Info("Last block is a sealing block, garbage collecting all WALs preceding it to start a new epoch")
 		// We figure out the round number of the latest block and garbage collect all WALs preceding it.
