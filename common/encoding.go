@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"math"
 )
 
 type QuorumRecord struct {
@@ -135,7 +136,11 @@ func NotarizationFromRecord(record []byte, qd QCDeserializer) (Notarization, err
 
 func BlockRecord(bh BlockHeader, blockData []byte) []byte {
 	mdBytes := bh.Bytes()
-
+	// Cannot overflow in practice (len is a 64-bit int), but guard explicitly
+	// so a truncated allocation can never be followed by an out-of-bounds.
+	if len(blockData) > math.MaxInt-len(mdBytes)-2 {
+		panic(fmt.Sprintf("block data too large to encode: %d bytes", len(blockData)))
+	}
 	buff := make([]byte, len(mdBytes)+len(blockData)+2)
 	binary.BigEndian.PutUint16(buff, BlockRecordType)
 	copy(buff[2:], mdBytes)
