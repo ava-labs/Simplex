@@ -437,8 +437,7 @@ func TestReplicationRequestSeqsAndRoundsTruncated(t *testing.T) {
 	notarized := make([]common.VerifiedQuorumRound, 0, numNotarized)
 
 	for _, data := range blocks[numIndexed:] {
-		blockBytes, err := data.VerifiedBlock.Bytes()
-		require.NoError(t, err)
+		blockBytes := data.VerifiedBlock.Bytes()
 		require.NoError(t, wal.Append(common.BlockRecord(data.VerifiedBlock.BlockHeader(), blockBytes)))
 
 		notarization, err := testutil.NewNotarization(conf.Logger, &testutil.TestSignatureAggregator{N: len(nodes)}, data.VerifiedBlock, nodes[:quorom])
@@ -603,8 +602,7 @@ func TestReplicationRequestSizeLimitedBothLatest(t *testing.T) {
 		require.NoError(t, conf.Storage.Index(ctx, data.VerifiedBlock, data.Finalization))
 	}
 	notarizedBlock := blocks[4].VerifiedBlock
-	blockBytes, err := notarizedBlock.Bytes()
-	require.NoError(t, err)
+	blockBytes := notarizedBlock.Bytes()
 	require.NoError(t, wal.Append(common.BlockRecord(notarizedBlock.BlockHeader(), blockBytes)))
 	notarization, err := testutil.NewNotarization(conf.Logger,
 		&testutil.TestSignatureAggregator{N: len(nodes)},

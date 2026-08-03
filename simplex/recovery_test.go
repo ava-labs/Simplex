@@ -32,8 +32,7 @@ func TestRecoverFromWALProposed(t *testing.T) {
 	protocolMetadata := e.Metadata()
 	firstBlock, ok := bb.BuildBlock(ctx, protocolMetadata, emptyBlacklist)
 	require.True(t, ok)
-	fBytes, err := firstBlock.Bytes()
-	require.NoError(t, err)
+	fBytes := firstBlock.Bytes()
 	record := BlockRecord(firstBlock.BlockHeader(), fBytes)
 
 	// write block record to wal
@@ -110,8 +109,7 @@ func TestRecoverFromNotarization(t *testing.T) {
 	protocolMetadata := e.Metadata()
 	block, ok := bb.BuildBlock(ctx, protocolMetadata, emptyBlacklist)
 	require.True(t, ok)
-	bBytes, err := block.Bytes()
-	require.NoError(t, err)
+	bBytes := block.Bytes()
 	blockRecord := BlockRecord(block.BlockHeader(), bBytes)
 
 	// write block blockRecord to wal
@@ -142,8 +140,7 @@ func TestRecoverFromNotarization(t *testing.T) {
 
 	firstBlock, _, err := storage.Retrieve(0)
 	require.NoError(t, err)
-	committedData, err := firstBlock.Bytes()
-	require.NoError(t, err)
+	committedData := firstBlock.Bytes()
 	require.Equal(t, bBytes, committedData)
 	require.Equal(t, uint64(1), e.Storage.NumBlocks())
 }
@@ -169,8 +166,7 @@ func TestRecoverFromWalWithStorage(t *testing.T) {
 	protocolMetadata := e.Metadata()
 	block, ok := bb.BuildBlock(ctx, protocolMetadata, emptyBlacklist)
 	require.True(t, ok)
-	bBytes, err := block.Bytes()
-	require.NoError(t, err)
+	bBytes := block.Bytes()
 	record := BlockRecord(block.BlockHeader(), bBytes)
 
 	// write block record to wal
@@ -204,9 +200,8 @@ func TestRecoverFromWalWithStorage(t *testing.T) {
 
 	secondBlock, _, err := storage.Retrieve(1)
 	require.NoError(t, err)
-	committedData, err := secondBlock.Bytes()
-	require.NoError(t, err)
-	bBytes, err = block.Bytes()
+	committedData := secondBlock.Bytes()
+	bBytes = block.Bytes()
 	require.Equal(t, bBytes, committedData)
 	require.Equal(t, uint64(2), e.Storage.NumBlocks())
 }
@@ -265,10 +260,8 @@ func TestWalCreatedProperly(t *testing.T) {
 
 	blockRetrieved, _, err := storage.Retrieve(0)
 	require.NoError(t, err)
-	committedData, err := blockRetrieved.Bytes()
-	require.NoError(t, err)
-	bBytes, err := block.Bytes()
-	require.NoError(t, err)
+	committedData := blockRetrieved.Bytes()
+	bBytes := block.Bytes()
 	require.Equal(t, bBytes, committedData)
 }
 
@@ -428,8 +421,7 @@ func TestRecoverFromMultipleNotarizations(t *testing.T) {
 	protocolMetadata := e.Metadata()
 	firstBlock, ok := bb.BuildBlock(ctx, protocolMetadata, emptyBlacklist)
 	require.True(t, ok)
-	fBytes, err := firstBlock.Bytes()
-	require.NoError(t, err)
+	fBytes := firstBlock.Bytes()
 	record := BlockRecord(firstBlock.BlockHeader(), fBytes)
 	wal.Append(record)
 
@@ -441,8 +433,7 @@ func TestRecoverFromMultipleNotarizations(t *testing.T) {
 	protocolMetadata.Seq = 1
 	secondBlock, ok := bb.BuildBlock(ctx, protocolMetadata, emptyBlacklist)
 	require.True(t, ok)
-	sBytes, err := secondBlock.Bytes()
-	require.NoError(t, err)
+	sBytes := secondBlock.Bytes()
 	record = BlockRecord(secondBlock.BlockHeader(), sBytes)
 	wal.Append(record)
 
@@ -471,14 +462,12 @@ func TestRecoverFromMultipleNotarizations(t *testing.T) {
 	require.Equal(t, uint64(2), e.Storage.NumBlocks())
 	firstBlockRetrieved, finalizationRetrieved1, err := storage.Retrieve(0)
 	require.NoError(t, err)
-	storageBytes, err := firstBlockRetrieved.Bytes()
-	require.NoError(t, err)
+	storageBytes := firstBlockRetrieved.Bytes()
 	require.Equal(t, fBytes, storageBytes)
 
 	secondBlockRetrieved, finalizationRetrieved2, err := storage.Retrieve(1)
 	require.NoError(t, err)
-	storageBytes, err = secondBlockRetrieved.Bytes()
-	require.NoError(t, err)
+	storageBytes = secondBlockRetrieved.Bytes()
 	require.Equal(t, sBytes, storageBytes)
 	require.Equal(t, finalization1, finalizationRetrieved1)
 	require.Equal(t, finalization2, finalizationRetrieved2)
@@ -495,8 +484,7 @@ func TestRecoveryBlocksIndexed(t *testing.T) {
 
 	protocolMetadata := ProtocolMetadata{Seq: 0, Round: 0, Epoch: 0}
 	firstBlock, ok := bb.BuildBlock(ctx, protocolMetadata, emptyBlacklist)
-	fBytes, err := firstBlock.Bytes()
-	require.NoError(t, err)
+	fBytes := firstBlock.Bytes()
 	require.True(t, ok)
 	record := BlockRecord(firstBlock.BlockHeader(), fBytes)
 	wal.Append(record)
@@ -513,8 +501,7 @@ func TestRecoveryBlocksIndexed(t *testing.T) {
 	protocolMetadata.Seq = 1
 	secondBlock, ok := bb.BuildBlock(ctx, protocolMetadata, emptyBlacklist)
 	require.True(t, ok)
-	sBytes, err := secondBlock.Bytes()
-	require.NoError(t, err)
+	sBytes := secondBlock.Bytes()
 	record = BlockRecord(secondBlock.BlockHeader(), sBytes)
 	wal.Append(record)
 
@@ -522,8 +509,7 @@ func TestRecoveryBlocksIndexed(t *testing.T) {
 	protocolMetadata.Seq = 2
 	thirdBlock, ok := bb.BuildBlock(ctx, protocolMetadata, emptyBlacklist)
 	require.True(t, ok)
-	tBytes, err := thirdBlock.Bytes()
-	require.NoError(t, err)
+	tBytes := thirdBlock.Bytes()
 	record = BlockRecord(thirdBlock.BlockHeader(), tBytes)
 	wal.Append(record)
 
@@ -619,8 +605,7 @@ func TestRecoveryReVerifiesBlocks(t *testing.T) {
 	protocolMetadata := e.Metadata()
 	firstBlock, ok := bb.BuildBlock(ctx, protocolMetadata, emptyBlacklist)
 	require.True(t, ok)
-	fBytes, err := firstBlock.Bytes()
-	require.NoError(t, err)
+	fBytes := firstBlock.Bytes()
 	record := BlockRecord(firstBlock.BlockHeader(), fBytes)
 	wal.Append(record)
 
@@ -650,8 +635,7 @@ func TestWalRecoveryTriggersEmptyVoteTimeout(t *testing.T) {
 	protocolMetadata := e.Metadata()
 	block, ok := bb.BuildBlock(ctx, protocolMetadata, emptyBlacklist)
 	require.True(t, ok)
-	bBytes, err := block.Bytes()
-	require.NoError(t, err)
+	bBytes := block.Bytes()
 	blockRecord := BlockRecord(block.BlockHeader(), bBytes)
 
 	// write block blockRecord to wal
@@ -715,8 +699,7 @@ func TestWalRecoveryMonitorsProgress(t *testing.T) {
 	protocolMetadata := e.Metadata()
 	block, ok := bb.BuildBlock(ctx, protocolMetadata, emptyBlacklist)
 	require.True(t, ok)
-	bBytes, err := block.Bytes()
-	require.NoError(t, err)
+	bBytes := block.Bytes()
 	blockRecord := BlockRecord(block.BlockHeader(), bBytes)
 
 	// write block blockRecord to wal
@@ -761,8 +744,7 @@ func TestWalRecoverySetsRoundCorrectly(t *testing.T) {
 			setupRecords: func(t *testing.T, bb *testutil.TestBlockBuilder, conf EpochConfig) [][]byte {
 				block, ok := bb.BuildBlock(ctx, ProtocolMetadata{Round: 0, Epoch: 0}, emptyBlacklist)
 				require.True(t, ok)
-				bBytes, err := block.Bytes()
-				require.NoError(t, err)
+				bBytes := block.Bytes()
 				blockRecord := BlockRecord(block.BlockHeader(), bBytes)
 
 				notarizationRecord, err := testutil.NewNotarizationRecord(conf.Logger, conf.SignatureAggregatorCreator(conf.Comm.Validators()), block, nodes[0:quorum])
@@ -779,8 +761,7 @@ func TestWalRecoverySetsRoundCorrectly(t *testing.T) {
 				// Create block for round 1
 				block1, ok := bb.BuildBlock(ctx, ProtocolMetadata{Round: 1, Epoch: 0, Seq: 1}, emptyBlacklist)
 				require.True(t, ok)
-				bBytes1, err := block1.Bytes()
-				require.NoError(t, err)
+				bBytes1 := block1.Bytes()
 				blockRecord1 := BlockRecord(block1.BlockHeader(), bBytes1)
 
 				_, finalizationRecord1 := testutil.NewFinalizationRecord(t, conf.SignatureAggregatorCreator(conf.Comm.Validators()), block1, nodes[0:quorum])
@@ -801,15 +782,14 @@ func TestWalRecoverySetsRoundCorrectly(t *testing.T) {
 				// Create blocks and notarizations for rounds 0, 1, 2
 				block0, ok := bb.BuildBlock(ctx, ProtocolMetadata{Round: 0, Epoch: 0, Seq: 0}, emptyBlacklist)
 				require.True(t, ok)
-				bBytes0, err := block0.Bytes()
-				require.NoError(t, err)
+				bBytes0 := block0.Bytes()
 				blockRecord0 := BlockRecord(block0.BlockHeader(), bBytes0)
 				notarizationRecord0, err := testutil.NewNotarizationRecord(conf.Logger, conf.SignatureAggregatorCreator(conf.Comm.Validators()), block0, nodes[0:quorum])
 				require.NoError(t, err)
 
 				block1, ok := bb.BuildBlock(ctx, ProtocolMetadata{Round: 1, Epoch: 0, Seq: 1}, emptyBlacklist)
 				require.True(t, ok)
-				bBytes1, err := block1.Bytes()
+				bBytes1 := block1.Bytes()
 				require.NoError(t, err)
 				blockRecord1 := BlockRecord(block1.BlockHeader(), bBytes1)
 				notarizationRecord1, err := testutil.NewNotarizationRecord(conf.Logger, conf.SignatureAggregatorCreator(conf.Comm.Validators()), block1, nodes[0:quorum])
@@ -817,7 +797,7 @@ func TestWalRecoverySetsRoundCorrectly(t *testing.T) {
 
 				block2, ok := bb.BuildBlock(ctx, ProtocolMetadata{Round: 2, Epoch: 0, Seq: 2}, emptyBlacklist)
 				require.True(t, ok)
-				bBytes2, err := block2.Bytes()
+				bBytes2 := block2.Bytes()
 				require.NoError(t, err)
 				blockRecord2 := BlockRecord(block2.BlockHeader(), bBytes2)
 				notarizationRecord2, err := testutil.NewNotarizationRecord(conf.Logger, conf.SignatureAggregatorCreator(conf.Comm.Validators()), block2, nodes[0:quorum])
@@ -844,8 +824,7 @@ func TestWalRecoverySetsRoundCorrectly(t *testing.T) {
 				// Create finalization for round 3
 				block3, ok := bb.BuildBlock(ctx, ProtocolMetadata{Round: 3, Epoch: 1, Seq: 3}, emptyBlacklist)
 				require.True(t, ok)
-				bBytes3, err := block3.Bytes()
-				require.NoError(t, err)
+				bBytes3 := block3.Bytes()
 				blockRecord3 := BlockRecord(block3.BlockHeader(), bBytes3)
 				_, finalizationRecord3 := testutil.NewFinalizationRecord(t, conf.SignatureAggregatorCreator(conf.Comm.Validators()), block3, nodes[0:quorum])
 
@@ -857,8 +836,7 @@ func TestWalRecoverySetsRoundCorrectly(t *testing.T) {
 				// Create notarization for round 1
 				block1, ok := bb.BuildBlock(ctx, ProtocolMetadata{Round: 1, Epoch: 1, Seq: 1}, emptyBlacklist)
 				require.True(t, ok)
-				bBytes1, err := block1.Bytes()
-				require.NoError(t, err)
+				bBytes1 := block1.Bytes()
 				blockRecord1 := BlockRecord(block1.BlockHeader(), bBytes1)
 				notarizationRecord1, err := testutil.NewNotarizationRecord(conf.Logger, conf.SignatureAggregatorCreator(conf.Comm.Validators()), block1, nodes[0:quorum])
 				require.NoError(t, err)
@@ -879,8 +857,7 @@ func TestWalRecoverySetsRoundCorrectly(t *testing.T) {
 				// Create notarization for round 0
 				block0, ok := bb.BuildBlock(ctx, ProtocolMetadata{Round: 0, Epoch: 0, Seq: 0}, emptyBlacklist)
 				require.True(t, ok)
-				bBytes0, err := block0.Bytes()
-				require.NoError(t, err)
+				bBytes0 := block0.Bytes()
 				blockRecord0 := BlockRecord(block0.BlockHeader(), bBytes0)
 				notarizationRecord0, err := testutil.NewNotarizationRecord(conf.Logger, conf.SignatureAggregatorCreator(conf.Comm.Validators()), block0, nodes[0:quorum])
 				require.NoError(t, err)
@@ -888,7 +865,7 @@ func TestWalRecoverySetsRoundCorrectly(t *testing.T) {
 				// Create finalization for round 10 (highest)
 				block10, ok := bb.BuildBlock(ctx, ProtocolMetadata{Round: 10, Epoch: 0, Seq: 10}, emptyBlacklist)
 				require.True(t, ok)
-				bBytes10, err := block10.Bytes()
+				bBytes10 := block10.Bytes()
 				require.NoError(t, err)
 				blockRecord10 := BlockRecord(block10.BlockHeader(), bBytes10)
 				_, finalizationRecord10 := testutil.NewFinalizationRecord(t, conf.SignatureAggregatorCreator(conf.Comm.Validators()), block10, nodes[0:quorum])
@@ -913,8 +890,7 @@ func TestWalRecoverySetsRoundCorrectly(t *testing.T) {
 				// Create block and all record types for round 2
 				block2, ok := bb.BuildBlock(ctx, ProtocolMetadata{Round: 2, Epoch: 0, Seq: 2}, emptyBlacklist)
 				require.True(t, ok)
-				bBytes2, err := block2.Bytes()
-				require.NoError(t, err)
+				bBytes2 := block2.Bytes()
 				blockRecord2 := BlockRecord(block2.BlockHeader(), bBytes2)
 
 				notarizationRecord2, err := testutil.NewNotarizationRecord(conf.Logger, conf.SignatureAggregatorCreator(conf.Comm.Validators()), block2, nodes[0:quorum])

@@ -55,13 +55,7 @@ func (p *ParsedBlock) Size() int {
 	p.lock.Lock()
 	defer p.lock.Unlock()
 	if p.size == 0 {
-		bytes, err := p.Bytes()
-		// TODO(#465): Bytes() fails when serializing the inner block when it is not nil and can't be serialized.
-		// So returning 0 here is not correct, because it will be silently swallowed up in the addition of other blocks.
-		// once Bytes() no longer returns an error (https://github.com/ava-labs/Simplex/issues/465), remove this branch.
-		if err != nil {
-			return 0
-		}
+		bytes := p.Bytes()
 		p.size = len(bytes)
 	}
 	return p.size
