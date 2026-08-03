@@ -156,8 +156,9 @@ func (i *Instance) createNonValidatorConfig(epochNum uint64, validators common.N
 	comm.SetValidators(validators)
 
 	epochAwareStorage := &EpochAwareStorage{
-		epoch:   epochNum,
-		Storage: i.Config.Storage,
+		lastNonSimplexHeight: i.Config.LastNonSimplexInnerBlock.Height(),
+		epoch:                epochNum,
+		Storage:              i.Config.Storage,
 		onEpochChange: func(epoch uint64, validators common.Nodes) error {
 			height := i.Config.PlatformChain.GetCurrentHeight()
 			vdrs, err := i.Config.PlatformChain.GetValidatorSet(height)
@@ -482,9 +483,10 @@ func (i *Instance) createEpochConfig() (simplex.EpochConfig, error) {
 	comm.SetValidators(nodes)
 
 	epochAwareStorage := &EpochAwareStorage{
-		msm:     msm,
-		epoch:   epochNum,
-		Storage: i.cs,
+		lastNonSimplexHeight: i.Config.LastNonSimplexInnerBlock.Height(),
+		msm:                  msm,
+		epoch:                epochNum,
+		Storage:              i.cs,
 		onEpochChange: func(epoch uint64, validators common.Nodes) error {
 			blockBuilder.stop()
 			comm.SetValidators(validators)
