@@ -21,20 +21,17 @@ type ParsedBlock struct {
 	size int
 }
 
-func (p *ParsedBlock) Bytes() ([]byte, error) {
+func (p *ParsedBlock) Bytes() []byte {
 	var innerBlockBytes []byte
 	if p.InnerBlock != nil {
-		rawInnerBlock, err := p.InnerBlock.Bytes()
-		if err != nil {
-			return nil, err
-		}
+		rawInnerBlock := p.InnerBlock.Bytes()
 		innerBlockBytes = rawInnerBlock
 	}
 	rawBlock := &metadata.RawBlock{
 		Metadata:        p.Metadata.Clone(),
 		InnerBlockBytes: innerBlockBytes,
 	}
-	return rawBlock.MarshalCanoto(), nil
+	return rawBlock.MarshalCanoto()
 }
 
 func (p *ParsedBlock) BlockHeader() common.BlockHeader {
