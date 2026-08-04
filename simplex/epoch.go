@@ -1670,7 +1670,11 @@ func (e *Epoch) persistNotarization(notarization common.Notarization) error {
 	for _, signer := range notarization.QC.Signers() {
 		if signerIndex := e.validatorNodeIDs.IndexOf(signer); signerIndex != -1 {
 			e.Logger.Debug("Potentially redeeming node", zap.Stringer("signer", signer), zap.Uint64("round", round))
-			e.redeemedRounds[uint16(signerIndex)] = round
+			// Replication persists notarizations for past rounds, so only keep the latest round
+			// we have seen the node sign in.
+			if prev, seen := e.redeemedRounds[uint16(signerIndex)]; !seen || round > prev {
+				e.redeemedRounds[uint16(signerIndex)] = round
+			}
 		} else {
 			e.Logger.Error("Signer of notarization not found in eligible nodes", zap.Stringer("signer", signer))
 		}
