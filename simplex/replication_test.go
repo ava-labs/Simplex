@@ -1937,3 +1937,66 @@ func TestLeaderStartsRoundAfterReplicatedQuorumRound(t *testing.T) {
 		})
 	}
 }
+
+// setupFutureFinalization returns a node whose storage holds seq 0 and whose WAL holds the
+// block and finalization for round 2 (seq 2), which recovery restores into the rounds map
+// without indexing, since seq 2 is a future finalization. Only seq 1 is genuinely missing.
+func setupFutureFinalization(t *testing.T, nodes []common.NodeID) (*simplex.Epoch, *InMemStorage, []common.VerifiedFinalizedBlock) {
+	ctx := context.Background()
+	blocks := createBlocks(t, nodes, 3)
+
+	conf, wal, storage := DefaultTestNodeEpochConfig(t, nodes[3], NewNoopComm(nodes), testutil.NewTestBlockBuilder())
+	conf.ReplicationEnabled = true
+	require.NoError(t, storage.Index(ctx, blocks[0].VerifiedBlock, blocks[0].Finalization))
+
+	third := blocks[2].VerifiedBlock
+	blockRecord, err := common.BlockRecord(third.BlockHeader(), third.Bytes())
+	require.NoError(t, err)
+	require.NoError(t, wal.Append(blockRecord))
+	_, finalizationRecord := NewFinalizationRecord(t, &TestSignatureAggregator{N: len(nodes)}, third, nodes)
+	require.NoError(t, wal.Append(finalizationRecord))
+
+	e, err := simplex.NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+	require.Equal(t, uint64(1), storage.NumBlocks())
+
+	return e, storage, blocks
+}
+
+func replicateSeq(block common.VerifiedFinalizedBlock) *common.Message {
+	return &common.Message{ReplicationResponse: &common.ReplicationResponse{
+		Data: []common.QuorumRound{{
+			Block:        block.VerifiedBlock.(common.Block),
+			Finalization: &block.Finalization,
+		}},
+	}}
+}
+
+// TestReplicationIndexesFutureFinalization asserts a node indexes a future finalization once nextSeqToCommit
+// is processed via replication.
+func TestReplicationIndexesFutureFinalization(t *testing.T) {
+	nodes := []common.NodeID{{1}, {2}, {3}, {4}}
+	e, storage, blocks := setupFutureFinalization(t, nodes)
+
+	// filling the one real gap should commit seq 1 and then seq 2 from the rounds map
+	require.NoError(t, e.HandleMessage(replicateSeq(blocks[1]), nodes[1]))
+	storage.WaitForBlockCommit(1)
+	require.Eventually(t, func() bool { return storage.NumBlocks() == 3 },
+		5*time.Second, 10*time.Millisecond,
+		"seq 2 never indexed, though the node holds its block and finalization")
+}
+
+// TestReplicationRedeliversStoredFinalization asserts a replication response with a
+// finalization the rounds map already holds is not an error.
+func TestReplicationRedeliversStoredFinalization(t *testing.T) {
+	nodes := []common.NodeID{{1}, {2}, {3}, {4}}
+	e, storage, blocks := setupFutureFinalization(t, nodes)
+
+	require.NoError(t, e.HandleMessage(replicateSeq(blocks[1]), nodes[1]))
+	storage.WaitForBlockCommit(1)
+
+	// a peer answering with seq 2, whose finalization round 2 already holds, must not fail
+	require.NoError(t, e.HandleMessage(replicateSeq(blocks[2]), nodes[1]))
+}
