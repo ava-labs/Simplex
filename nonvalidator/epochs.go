@@ -6,6 +6,7 @@ package nonvalidator
 import (
 	"bytes"
 	"errors"
+	"slices"
 
 	"github.com/ava-labs/simplex/common"
 	"go.uber.org/zap"
@@ -31,7 +32,11 @@ func newEpochMetadata(epoch uint64, sealingMetadata *common.SealingBlockInfo, si
 		return nil
 	}
 
-	nodes := sealingMetadata.ValidatorSet
+	// We sort the validators so that LeaderForRound derives the same leader the validators do.
+	// Cloned because the validator set belongs to the caller.
+	nodes := slices.Clone(sealingMetadata.ValidatorSet)
+	common.SortNodes(nodes)
+
 	lookup := make(map[string][]byte, len(nodes))
 	for _, node := range nodes {
 		lookup[string(node.Id)] = []byte{}

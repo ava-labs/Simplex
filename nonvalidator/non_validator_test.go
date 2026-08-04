@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"testing"
 	"time"
 
@@ -807,4 +808,58 @@ func TestNilBlockPanicMissingBlock(t *testing.T) {
 	}
 
 	require.NoError(t, nv.HandleMessage(&common.Message{ReplicationResponse: resp}, testNodes.NodeIDs()[2]))
+}
+
+// TestNonValidatorAcceptsProposalFromUnsortedValidatorSet asserts that a non-validator elects the
+// same leader as the validators when the validator set it was handed is not in sorted order.
+//
+// simplex.LeaderForRound indexes with round % len(nodes), so it is order sensitive. Validators
+// sort their set in Epoch.init, so if the non-validator keeps the set in the order it arrived, the
+// two disagree about who leads every round. handleBlock then drops every live proposal as "not
+// from the leader of that round" and the non-validator silently degrades to replication only.
+func TestNonValidatorAcceptsProposalFromUnsortedValidatorSet(t *testing.T) {
+	unsortedNodes := common.Nodes{
+		{Id: common.NodeID{4}, Weight: 1},
+		{Id: common.NodeID{2}, Weight: 1},
+		{Id: common.NodeID{3}, Weight: 1},
+		{Id: common.NodeID{1}, Weight: 1},
+	}
+
+	// The order the validators run with, and therefore the leader the network actually elects.
+	sortedNodes := slices.Clone(unsortedNodes)
+	common.SortNodes(sortedNodes)
+
+	// The sealing block carries the set unsorted.
+	tc := newSeededChain(t, unsortedNodes, 2)
+	nv, err := NewNonValidator(
+		Config{
+			Storage:                    tc,
+			Comm:                       testutil.NewNoopComm(sortedNodes.NodeIDs()),
+			Logger:                     testutil.MakeLogger(t, 1),
+			SignatureAggregatorCreator: tc.signatureAggregatorCreator,
+			MaxSequenceWindow:          simplex.DefaultMaxRoundWindow,
+			ID:                         common.NodeID{100},
+		},
+	)
+	require.NoError(t, err)
+
+	nv.Start()
+	defer nv.Stop()
+
+	b := tc.appendBlock()
+	require.NotEqual(t,
+		simplex.LeaderForRound(unsortedNodes.NodeIDs(), b.BlockHeader().Round),
+		simplex.LeaderForRound(sortedNodes.NodeIDs(), b.BlockHeader().Round),
+		"test requires a round whose leader differs between the two orderings")
+
+	// The proposal arrives from the leader the validators elected.
+	block := blockMsg(t, b, sortedNodes)
+	require.NoError(t, nv.HandleMessage(block.msg, block.from))
+	fin := finalizationMsg(t, b, sortedNodes)
+	require.NoError(t, nv.HandleMessage(fin.msg, fin.from))
+
+	require.Eventually(t, func() bool {
+		return tc.NumBlocks() == b.BlockHeader().Seq+1
+	}, 5*time.Second, 10*time.Millisecond,
+		"non-validator never committed the block, having dropped the proposal because it ordered the validator set differently than the validators")
 }
