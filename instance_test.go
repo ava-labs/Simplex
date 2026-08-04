@@ -368,6 +368,59 @@ func TestInstanceRestartAcrossEpochs(t *testing.T) {
 	waitForNumBlocks(t, storage, storage.NumBlocks()+2)
 }
 
+// TestTestVMResumeWakesPausedCallers asserts that resume() releases callers already
+// parked in the testVM pause gate, while paused still produces no block. The gate
+// sampled the paused flag once and then waited only on ctx.Done(), so a caller that
+// entered before resume() stayed parked until its context was cancelled, which never
+// happens while the round it is stalling cannot advance.
+func TestTestVMResumeWakesPausedCallers(t *testing.T) {
+	vm := newTestVM()
+	vm.pause()
+
+	waited := make(chan struct{})
+	go func() {
+		vm.WaitForPendingBlock(t.Context())
+		close(waited)
+	}()
+
+	type buildResult struct {
+		blk avalanchego.VMBlock
+		err error
+	}
+	built := make(chan buildResult, 1)
+	go func() {
+		blk, err := vm.BuildBlock(t.Context(), 0)
+		built <- buildResult{blk: blk, err: err}
+	}()
+
+	// Long enough for both callers to enter the gate, and for the unpaused
+	// WaitForPendingBlock path (100ms) to have returned had the gate not held.
+	time.Sleep(200 * time.Millisecond)
+	select {
+	case <-waited:
+		require.Fail(t, "WaitForPendingBlock returned while paused")
+	case r := <-built:
+		require.Fail(t, "BuildBlock returned while paused", "block %v err %v", r.blk, r.err)
+	default:
+	}
+
+	vm.resume()
+
+	select {
+	case <-waited:
+	case <-time.After(3 * time.Second):
+		require.Fail(t, "WaitForPendingBlock did not return after resume")
+	}
+
+	select {
+	case r := <-built:
+		require.NoError(t, r.err)
+		require.NotNil(t, r.blk)
+	case <-time.After(3 * time.Second):
+		require.Fail(t, "BuildBlock did not return after resume")
+	}
+}
+
 func TestParseBlockSizeMatchesBytes(t *testing.T) {
 	// Case 1: Bytes() first, Size() second, size returns the cached length.
 	pb := &ParsedBlock{
@@ -674,7 +727,13 @@ type testVM struct {
 	// machinery, which builds its block once the inner build times out, still runs —
 	// so pausing before an epoch change leaves the sealing block at the tip with
 	// nothing built on top. Lets a test pin the chain tip without touching storage.
-	paused atomic.Bool
+	//
+	// resume closes resumed, which releases callers already parked in the gate. A
+	// caller must wake on resume and not only on ctx cancellation: the epoch cancels
+	// that context on a round transition, and a round waiting for a block to build
+	// cannot transition, so the parked caller would never be released.
+	lock    sync.Mutex
+	resumed chan struct{} // non-nil while paused
 }
 
 func newTestVM() *testVM {
@@ -683,13 +742,37 @@ func newTestVM() *testVM {
 	return vm
 }
 
-func (vm *testVM) pause()  { vm.paused.Store(true) }
-func (vm *testVM) resume() { vm.paused.Store(false) }
+func (vm *testVM) pause() {
+	vm.lock.Lock()
+	defer vm.lock.Unlock()
+	if vm.resumed == nil {
+		vm.resumed = make(chan struct{})
+	}
+}
+
+func (vm *testVM) resume() {
+	vm.lock.Lock()
+	defer vm.lock.Unlock()
+	if vm.resumed != nil {
+		close(vm.resumed)
+		vm.resumed = nil
+	}
+}
+
+// pauseGate returns the channel the next resume closes, or nil if not paused.
+func (vm *testVM) pauseGate() <-chan struct{} {
+	vm.lock.Lock()
+	defer vm.lock.Unlock()
+	return vm.resumed
+}
 
 func (vm *testVM) BuildBlock(ctx context.Context, _ uint64) (avalanchego.VMBlock, error) {
-	if vm.paused.Load() {
-		<-ctx.Done() // let the caller's impatient build time out
-		return nil, ctx.Err()
+	if gate := vm.pauseGate(); gate != nil {
+		select {
+		case <-gate:
+		case <-ctx.Done(): // let the caller's impatient build time out
+			return nil, ctx.Err()
+		}
 	}
 	h := vm.nextHeight.Add(1) - 1
 	payload := make([]byte, 8)
@@ -698,8 +781,11 @@ func (vm *testVM) BuildBlock(ctx context.Context, _ uint64) (avalanchego.VMBlock
 }
 
 func (vm *testVM) WaitForPendingBlock(ctx context.Context) {
-	if vm.paused.Load() {
-		<-ctx.Done() // no pending block while paused
+	if gate := vm.pauseGate(); gate != nil {
+		select {
+		case <-gate: // resumed, a block is pending again
+		case <-ctx.Done(): // no pending block while paused
+		}
 		return
 	}
 	select {
