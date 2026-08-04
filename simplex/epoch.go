@@ -766,15 +766,6 @@ func (e *Epoch) restoreFromWal() error {
 		return err
 	}
 
-	// A restored finalization is stored but never indexed, so one may already be for the next
-	// sequence to commit. Blocks below that sequence are not restored, so the lowest round in
-	// the map holds the lowest restored sequence and is where the sweep has to start.
-	if len(e.rounds) > 0 {
-		if err := e.indexFinalizations(e.minRoundInRoundsMap()); err != nil {
-			return err
-		}
-	}
-
 	return e.resumeFromWal(highestRoundRecord)
 }
 
@@ -2019,13 +2010,9 @@ func (e *Epoch) processFinalizedBlock(block common.Block, finalization *common.F
 			delete(e.rounds, round.num)
 			return e.processFinalizedBlock(block, finalization)
 		}
-		// The round can already hold this finalization, stored while its sequence was ahead
-		// of the storage or restored from the WAL. Indexing it is all that remains.
-		if round.finalization == nil {
-			if err := e.storeFinalization(finalization); err != nil {
-				e.Logger.Error("Failed storing finalization", zap.Error(err))
-				return err
-			}
+		if err := e.storeFinalization(finalization); err != nil {
+			e.Logger.Error("Failed storing finalization", zap.Error(err))
+			return err
 		}
 		prevEpochRound := e.round
 		if err := e.indexFinalizations(round.num); err != nil {

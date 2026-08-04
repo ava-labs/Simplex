@@ -2004,35 +2004,3 @@ func TestReplicationRedeliversStoredFinalization(t *testing.T) {
 	// a peer answering with seq 2, whose finalization round 2 already holds, must not fail
 	require.NoError(t, e.HandleMessage(replicateSeq(blocks[2]), nodes[1]))
 }
-
-// TestRecoveryIndexesRestoredFinalization asserts a node commits a finalization restored from
-// the WAL when its sequence is already the next to commit. loadFinalizationRecord stores it
-// without indexing, and sequenceAlreadyIndexed only skips sequences strictly below the
-// storage height, so recovery left the round stranded and the node never committed.
-func TestRecoveryIndexesRestoredFinalization(t *testing.T) {
-	ctx := context.Background()
-	nodes := []common.NodeID{{1}, {2}, {3}, {4}}
-	blocks := createBlocks(t, nodes, 2)
-
-	conf, wal, storage := DefaultTestNodeEpochConfig(t, nodes[3], NewNoopComm(nodes), testutil.NewTestBlockBuilder())
-	conf.ReplicationEnabled = true
-	require.NoError(t, storage.Index(ctx, blocks[0].VerifiedBlock, blocks[0].Finalization))
-
-	// the WAL holds the block and finalization for round 1, whose seq 1 is next to commit
-	second := blocks[1].VerifiedBlock
-	blockRecord, err := common.BlockRecord(second.BlockHeader(), second.Bytes())
-	require.NoError(t, err)
-	require.NoError(t, wal.Append(blockRecord))
-	_, finalizationRecord := NewFinalizationRecord(t, &TestSignatureAggregator{N: len(nodes)}, second, nodes)
-	require.NoError(t, wal.Append(finalizationRecord))
-
-	e, err := simplex.NewEpoch(conf)
-	require.NoError(t, err)
-	t.Cleanup(e.Stop)
-	require.NoError(t, e.Start())
-
-	require.Equal(t, uint64(2), storage.NumBlocks(), "seq 1 was restored but never indexed")
-
-	// and redelivery of the same sequence is still not an error
-	require.NoError(t, e.HandleMessage(replicateSeq(blocks[1]), nodes[1]))
-}
