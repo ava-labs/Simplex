@@ -250,9 +250,6 @@ func (i *Instance) Stop() {
 
 	i.stopValidator()
 	i.stopNonValidator()
-	if err := i.closeWAL(); err != nil {
-		i.Config.Logger.Error("Error closing WAL on shutdown", zap.Error(err))
-	}
 }
 
 // closeWAL closes the WAL currently in use, if any.
@@ -261,7 +258,9 @@ func (i *Instance) closeWAL() error {
 	if i.wal == nil {
 		return nil
 	}
-	return i.wal.Close()
+	err := i.wal.Close()
+	i.wal = nil
+	return err
 }
 
 func (i *Instance) stopNonValidator() {
@@ -277,6 +276,10 @@ func (i *Instance) stopValidator() {
 		i.e.Stop()
 		i.e = nil
 		i.epochOrNV = nil
+	}
+
+	if err := i.closeWAL(); err != nil {
+		i.Config.Logger.Error("Error closing the WAL of the previous epoch", zap.Error(err))
 	}
 }
 
@@ -441,14 +444,6 @@ func (i *Instance) createEpochConfig() (simplex.EpochConfig, error) {
 		return simplex.EpochConfig{}, err
 	}
 
-	// The epoch that used the previous WAL has already been stopped by now,
-	// so close it before replacing it, otherwise we leak the files it holds open.
-	// Failing to close it doesn't prevent the new epoch from running, so as with
-	// garbage collecting the WAL on an epoch change, we only log the error.
-	if err := i.closeWAL(); err != nil {
-		i.Config.Logger.Error("Error closing the WAL of the previous epoch", zap.Error(err))
-	}
-
 	wal, err := wal.NewGarbageCollectedWAL(i.Config.WALs, i.Config.WalCreator, &common.WALRetentionReader{}, i.Config.ParameterConfig.WALMaxEntryCount)
 	if err != nil {
 		return simplex.EpochConfig{}, fmt.Errorf("error creating garbage collected wal: %w", err)
@@ -598,6 +593,7 @@ func (i *Instance) transitionEpochValidator(epochChange epochChange) error {
 
 	// Stop the epoch before doing anything else, so that we don't process any more messages while we are changing epochs.
 	i.stopValidator()
+
 	// Wipe out the WALs from the config so we won't try to load them again
 	i.Config.WALs = nil
 	// On epoch change, garbage collect the WAL to remove all entries from previous epochs.
