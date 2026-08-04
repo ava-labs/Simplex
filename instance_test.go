@@ -443,7 +443,7 @@ func sealingBlockAt(seq, epoch uint64, validators metadata.NodeBLSMappings) *Par
 	return &ParsedBlock{StateMachineBlock: metadata.StateMachineBlock{
 		InnerBlock: &testInnerBlock{Height_: seq, TS: time.Now(), Payload: []byte("block")},
 		Metadata: metadata.StateMachineMetadata{
-			SimplexProtocolMetadata: md.Bytes(),
+			SimplexProtocolMetadata: md,
 			SimplexEpochInfo: metadata.SimplexEpochInfo{
 				EpochNumber:          epoch,
 				PrevSealingBlockHash: [32]byte{1},
