@@ -50,7 +50,6 @@ type epochChange struct {
 	epoch      uint64
 	validators common.Nodes
 }
-
 type timeAdvancer interface {
 	AdvanceTime(t time.Time)
 }
@@ -115,8 +114,8 @@ func (i *Instance) startValidator(epoch uint64, validators common.Nodes) error {
 	return i.startEpoch(epochConfig)
 }
 
-func (i *Instance) startNonValidator(epoch uint64) error {
-	config, err := i.createNonValidatorConfig(epoch)
+func (i *Instance) startNonValidator() error {
+	config, err := i.createNonValidatorConfig()
 	if err != nil {
 		return err
 	}
@@ -131,7 +130,7 @@ func (i *Instance) startNonValidator(epoch uint64) error {
 	return nil
 }
 
-func (i *Instance) createNonValidatorConfig(epochNum uint64) (nonvalidator.Config, error) {
+func (i *Instance) createNonValidatorConfig() (nonvalidator.Config, error) {
 	source, err := simplex.NewRandomSource()
 	if err != nil {
 		return nonvalidator.Config{}, err
@@ -143,10 +142,18 @@ func (i *Instance) createNonValidatorConfig(epochNum uint64) (nonvalidator.Confi
 	}
 	comm := newCommunication(i.Config.Sender, i.Config.Broadcaster, nodes)
 
-	epochAwareStorage := &EpochAwareStorage{
-		epoch:   epochNum,
-		Storage: i.Config.Storage,
-		onEpochChange: func(epoch uint64, validators common.Nodes) error {
+	// Non-validators have no block builder, so they pass a nil approval handler:
+	// they broadcast approvals but do not need to record their own locally.
+	transitionListener := newEpochTransitionListener(
+		i.Config.Logger,
+		comm,
+		avalanchego.NodeID(i.Config.ID),
+		i.Config.PlatformChain.GetValidatorSet,
+		i.cs.RetrieveBlock,
+		i.Config.CryptoOps,
+		&NoopAuxiliaryInfoApp{}, // TODO: set this in the config
+		nil,
+		func(epoch uint64, validators common.Nodes) error {
 			// set the communication to the highest validator set, since this node is a non-validator and may be behind.
 			nodes, err := GetHighestValidatorSet(i.Config.PlatformChain)
 			if err != nil {
@@ -157,7 +164,7 @@ func (i *Instance) createNonValidatorConfig(epochNum uint64) (nonvalidator.Confi
 
 			return nil
 		},
-	}
+	)
 
 	// Plant an artificial MSM that just skips verification.
 	i.msm = &metadata.StateMachine{
@@ -166,11 +173,12 @@ func (i *Instance) createNonValidatorConfig(epochNum uint64) (nonvalidator.Confi
 		},
 	}
 	i.cs.msm = i.msm
+	instanceStorage := NewInstanceStorage(i.Config.Storage, i.msm, transitionListener.onIndex)
 
 	config := nonvalidator.Config{
 		ID:                         i.Config.ID,
 		RandomSource:               source,
-		Storage:                    epochAwareStorage,
+		Storage:                    instanceStorage,
 		Comm:                       comm,
 		Logger:                     i.Config.Logger,
 		StartTime:                  time.Now(),
@@ -295,6 +303,13 @@ func (i *Instance) HandleMessage(msg *common.Message, from common.NodeID) error 
 	}
 
 	if i.e != nil {
+		switch {
+		case msg.AuxiliaryInfo != nil:
+			i.msm.HandleAuxiliaryInfo(*msg.AuxiliaryInfo, avalanchego.NodeID(from))
+		case msg.EpochTransitionApproval != nil:
+			// TODO: pass in time.Now() rather than uint64
+			i.msm.HandleApproval(msg.EpochTransitionApproval, uint64(time.Now().Unix()))
+		}
 		return i.e.HandleMessage(msg, from)
 	}
 
@@ -358,8 +373,8 @@ func (i *Instance) wireBlockMessage(msg *common.Message) error {
 func (i *Instance) listenForEpochChanges() {
 	for {
 		select {
-		case epochChange := <-i.epochChanges:
-			i.processEpochChange(epochChange)
+		case newEpoch := <-i.epochChanges:
+			i.processEpochChange(newEpoch)
 		case <-i.stopCh:
 			return
 		}
@@ -482,17 +497,23 @@ func (i *Instance) createEpochConfig(epoch uint64, validators common.Nodes) (sim
 
 	comm := newCommunication(i.Config.Sender, i.Config.Broadcaster, validators)
 
-	epochAwareStorage := &EpochAwareStorage{
-		msm:     msm,
-		epoch:   epoch,
-		Storage: i.cs,
-		onEpochChange: func(epoch uint64, validators common.Nodes) error {
+	transitionListener := newEpochTransitionListener(
+		i.Config.Logger,
+		comm,
+		avalanchego.NodeID(i.Config.ID),
+		i.Config.PlatformChain.GetValidatorSet,
+		i.cs.RetrieveBlock,
+		i.Config.CryptoOps,
+		&NoopAuxiliaryInfoApp{},
+		msm.HandleApproval,
+		func(epoch uint64, validators common.Nodes) error {
 			blockBuilder.stop()
 			comm.SetValidators(validators)
 			i.notifyEpochChange(epoch, validators)
 			return nil
 		},
-	}
+	)
+	instanceStorage := NewInstanceStorage(i.cs, msm, transitionListener.onIndex)
 
 	epochConfig := simplex.EpochConfig{
 		Epoch:              epoch,
@@ -511,7 +532,7 @@ func (i *Instance) createEpochConfig(epoch uint64, validators common.Nodes) (sim
 		QCDeserializer:             i.Config.CryptoOps,
 		Signer:                     i.Config.CryptoOps,
 		Verifier:                   i.Config.CryptoOps,
-		Storage:                    epochAwareStorage,
+		Storage:                    instanceStorage,
 		Comm:                       comm,
 		BlockBuilder:               blockBuilder,
 		BlockDeserializer:          &blockDeserializer{vm: i.Config.VM, msm: msm},
@@ -579,7 +600,7 @@ func (i *Instance) startAtEpoch(validators common.Nodes, epoch uint64) error {
 		return nil
 	}
 
-	if err := i.startNonValidator(epoch); err != nil {
+	if err := i.startNonValidator(); err != nil {
 		i.Config.Logger.Error("Error starting non-validator on epoch change", zap.Error(err))
 		return err
 	}
