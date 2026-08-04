@@ -591,15 +591,16 @@ func (i *Instance) transitionEpochValidator(epochChange epochChange) error {
 	i.lock.Lock()
 	defer i.lock.Unlock()
 
+	// On epoch change, garbage collect the WAL to remove all entries from previous epochs.
+	if err := i.wal.GarbageCollect(math.MaxUint64); err != nil {
+		i.Config.Logger.Error("Error garbage collecting epoch config on epoch change", zap.Error(err))
+	}
+
 	// Stop the epoch before doing anything else, so that we don't process any more messages while we are changing epochs.
 	i.stopValidator()
 
 	// Wipe out the WALs from the config so we won't try to load them again
 	i.Config.WALs = nil
-	// On epoch change, garbage collect the WAL to remove all entries from previous epochs.
-	if err := i.wal.GarbageCollect(math.MaxUint64); err != nil {
-		i.Config.Logger.Error("Error garbage collecting epoch config on epoch change", zap.Error(err))
-	}
 
 	return i.startAtEpoch(epochChange.validators, epochChange.epochNum)
 }
