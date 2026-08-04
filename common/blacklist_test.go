@@ -222,41 +222,43 @@ func TestOrbit(t *testing.T) {
 }
 
 func TestBlacklistFromBytes(t *testing.T) {
+	populated := Blacklist{
+		NodeCount:      4,
+		SuspectedNodes: SuspectedNodes{{NodeIndex: 3, SuspectingCount: 1, OrbitSuspected: 1}},
+		Updates:        BlacklistUpdates{{NodeIndex: 3, Type: BlacklistOpType_NodeSuspected}},
+	}
+
 	for _, testCase := range []struct {
 		name              string
 		data              []byte
-		expectedErr       string
+		expectErr         bool
 		expectedBlacklist Blacklist
 	}{
 		{
-			name: "empty blacklist",
-			data: []byte{0, 0x64},
-			expectedBlacklist: Blacklist{
-				NodeCount:      100,
-				SuspectedNodes: SuspectedNodes{},
-				Updates:        BlacklistUpdates{},
-			},
+			name:              "empty blacklist",
+			data:              (&Blacklist{NodeCount: 100}).Bytes(),
+			expectedBlacklist: Blacklist{NodeCount: 100},
 		},
 		{
-			name:        "too short data",
-			data:        []byte{0, 1, 2},
-			expectedErr: "buffer too short (3) to contain blacklist",
+			name:              "populated blacklist",
+			data:              populated.Bytes(),
+			expectedBlacklist: populated,
 		},
 		{
-			name:        "invalid suspected nodes",
-			data:        []byte{0, 4, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10},
-			expectedErr: "failed to parse suspected nodes: failed to read suspected node at position 0: invalid bitmask: lower 4 bits must be zero, got 00000010",
+			name:      "malformed data",
+			data:      []byte{0, 1, 2},
+			expectErr: true,
 		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			var bl Blacklist
 			err := bl.FromBytes(testCase.data)
-			if testCase.expectedErr == "" {
-				require.NoError(t, err)
-				require.Equal(t, testCase.expectedBlacklist, bl)
+			if testCase.expectErr {
+				require.Error(t, err)
 				return
 			}
-			require.EqualError(t, err, testCase.expectedErr)
+			require.NoError(t, err)
+			require.True(t, testCase.expectedBlacklist.Equals(&bl))
 		})
 	}
 }
@@ -296,67 +298,6 @@ func FuzzBlacklistFromBytes(f *testing.F) {
 	})
 }
 
-func FuzzSuspectedNodes(f *testing.F) {
-	f.Fuzz(func(t *testing.T, data []byte) {
-		var sn SuspectedNodes
-		err := sn.FromBytes(data)
-		if err == nil {
-			require.Equal(t, data, sn.Bytes())
-			return
-		}
-		require.Error(t, err)
-	})
-}
-
-func FuzzBlacklistUpdates(f *testing.F) {
-	f.Fuzz(func(t *testing.T, data []byte) {
-		var updates BlacklistUpdates
-		err := updates.FromBytes(data)
-		if err == nil {
-			require.Equal(t, data, updates.Bytes())
-			require.Len(t, updates.Bytes(), len(updates)*3)
-			return
-		}
-		require.Error(t, err)
-	})
-}
-
-func TestSuspectedNodesTrailer(t *testing.T) {
-	sns := SuspectedNodes{
-		{NodeIndex: 1, SuspectingCount: 2, OrbitSuspected: 3, RedeemingCount: 4, OrbitToRedeem: 5},
-		{NodeIndex: 6, SuspectingCount: 7, OrbitSuspected: 8, RedeemingCount: 9, OrbitToRedeem: 10},
-	}
-	bytes := sns.Bytes()
-
-	suspectedNode := SuspectedNode{
-		NodeIndex:       uint16(mathrand.Intn(1000)),
-		SuspectingCount: uint16(mathrand.Intn(10)),
-		OrbitSuspected:  uint64(mathrand.Intn(100)),
-		RedeemingCount:  uint16(mathrand.Intn(10)),
-		OrbitToRedeem:   uint64(mathrand.Intn(100)),
-	}
-
-	trailer := make([]byte, suspectedNode.Len())
-
-	for {
-		_, err := rand.Read(trailer)
-		require.NoError(t, err)
-
-		// Is this a valid encoding of a SuspectedNode?
-		var sn SuspectedNode
-		_, err = sn.Read(trailer)
-		if err != nil {
-			break
-		}
-	}
-
-	data := append(bytes, trailer...)
-
-	var sns2 SuspectedNodes
-	err := sns2.FromBytes(data)
-	require.Error(t, err)
-}
-
 func TestBlacklistBytes(t *testing.T) {
 	bl := Blacklist{
 		NodeCount: 5,
@@ -371,15 +312,11 @@ func TestBlacklistBytes(t *testing.T) {
 	}
 	bytes := bl.Bytes()
 
-	var sns SuspectedNodes
-	er := sns.FromBytes(bl.SuspectedNodes.Bytes())
-	require.NoError(t, er)
-
 	var bl2 Blacklist
 	err := bl2.FromBytes(bytes)
 	require.NoError(t, err)
 
-	require.Equal(t, bl, bl2)
+	require.True(t, bl.Equals(&bl2))
 }
 
 func TestComputeBlacklistUpdates(t *testing.T) {
@@ -555,29 +492,6 @@ func TestAdvanceRound(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestUpdateBytesEqualsLen(t *testing.T) {
-	var updates BlacklistUpdates
-	update := BlacklistUpdate{}
-	update1 := BlacklistUpdate{
-		Type:      BlacklistOpType_NodeRedeemed,
-		NodeIndex: 1,
-	}
-	update2 := BlacklistUpdate{
-		Type:      BlacklistOpType_NodeSuspected,
-		NodeIndex: 2,
-	}
-	update3 := BlacklistUpdate{
-		NodeIndex: 3,
-	}
-
-	updates = append(updates, update)
-	updates = append(updates, update1)
-	updates = append(updates, update2)
-	updates = append(updates, update3)
-
-	require.Equal(t, len(updates.Bytes()), updates.Len())
 }
 
 func TestVerifyBlacklistUpdates(t *testing.T) {

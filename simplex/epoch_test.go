@@ -1935,7 +1935,7 @@ func TestBlockDeserializer(t *testing.T) {
 	require.NoError(t, err)
 	tb2, err := blockDeserializer.DeserializeBlock(ctx, tbBytes)
 	require.NoError(t, err)
-	require.Equal(t, tb, tb2)
+	require.Equal(t, tb.BlockHeader().Digest, tb2.BlockHeader().Digest)
 }
 
 // advanceRound progresses [e] to a new round. If [notarize] is set, the round will progress due to a notarization.

@@ -285,12 +285,12 @@ func makeNormalSimplexBlock(t *testing.T, index int, blocks []StateMachineBlock,
 		},
 		Metadata: StateMachineMetadata{
 			PChainHeight: 100,
-			SimplexProtocolMetadata: (&common.ProtocolMetadata{
+			SimplexProtocolMetadata: common.ProtocolMetadata{
 				Round: round,
 				Seq:   seq,
 				Epoch: 1,
 				Prev:  prev,
-			}).Bytes(),
+			},
 			SimplexEpochInfo: SimplexEpochInfo{
 				PrevSealingBlockHash:  [32]byte{},
 				PChainReferenceHeight: 100,
