@@ -1938,10 +1938,10 @@ func TestLeaderStartsRoundAfterReplicatedQuorumRound(t *testing.T) {
 	}
 }
 
-// setupStrandedFinalization returns a node whose storage holds seq 0 and whose WAL holds the
+// setupFutureFinalization returns a node whose storage holds seq 0 and whose WAL holds the
 // block and finalization for round 2 (seq 2), which recovery restores into the rounds map
-// without indexing. Only seq 1 is genuinely missing.
-func setupStrandedFinalization(t *testing.T, nodes []common.NodeID) (*simplex.Epoch, *InMemStorage, []common.VerifiedFinalizedBlock) {
+// without indexing, since seq 2 is a future finalization. Only seq 1 is genuinely missing.
+func setupFutureFinalization(t *testing.T, nodes []common.NodeID) (*simplex.Epoch, *InMemStorage, []common.VerifiedFinalizedBlock) {
 	ctx := context.Background()
 	blocks := createBlocks(t, nodes, 3)
 
@@ -1974,13 +1974,11 @@ func replicateSeq(block common.VerifiedFinalizedBlock) *common.Message {
 	}}
 }
 
-// TestReplicationIndexesStrandedFinalization asserts a node commits a finalization it already
-// holds once storage reaches its sequence. createFinalizedBlockVerificationTask indexed only
-// the block it verified, so a finalization stored while it was ahead of storage was never
-// revisited and the node stalled holding everything it needed.
-func TestReplicationIndexesStrandedFinalization(t *testing.T) {
+// TestReplicationIndexesFutureFinalization asserts a node indexes a future finalization once nextSeqToCommit
+// is processed via replication.
+func TestReplicationIndexesFutureFinalization(t *testing.T) {
 	nodes := []common.NodeID{{1}, {2}, {3}, {4}}
-	e, storage, blocks := setupStrandedFinalization(t, nodes)
+	e, storage, blocks := setupFutureFinalization(t, nodes)
 
 	// filling the one real gap should commit seq 1 and then seq 2 from the rounds map
 	require.NoError(t, e.HandleMessage(replicateSeq(blocks[1]), nodes[1]))
@@ -1990,13 +1988,11 @@ func TestReplicationIndexesStrandedFinalization(t *testing.T) {
 		"seq 2 never indexed, though the node holds its block and finalization")
 }
 
-// TestReplicationRedeliversStoredFinalization asserts a replication response carrying a
-// finalization the round already holds is not an error. processFinalizedBlock propagated
-// storeFinalization's "already has a finalization" error, which reached HandleMessage
-// whenever a peer answered with a sequence the node had stranded.
+// TestReplicationRedeliversStoredFinalization asserts a replication response with a
+// finalization the rounds map already holds is not an error.
 func TestReplicationRedeliversStoredFinalization(t *testing.T) {
 	nodes := []common.NodeID{{1}, {2}, {3}, {4}}
-	e, storage, blocks := setupStrandedFinalization(t, nodes)
+	e, storage, blocks := setupFutureFinalization(t, nodes)
 
 	require.NoError(t, e.HandleMessage(replicateSeq(blocks[1]), nodes[1]))
 	storage.WaitForBlockCommit(1)
@@ -2005,10 +2001,9 @@ func TestReplicationRedeliversStoredFinalization(t *testing.T) {
 	require.NoError(t, e.HandleMessage(replicateSeq(blocks[2]), nodes[1]))
 }
 
-// TestReplicationRedeliversRestoredFinalization asserts a replication response for a round that
-// already holds a finalization is committed rather than failing. indexFinalizations stops at the
-// first round holding a block with no finalization, so a round can stay stranded at the next
-// sequence to commit and processFinalizedBlock then reached storeFinalization on it.
+// TestReplicationRedeliversRestoredFinalization asserts that we can index a finalized block that already has
+// a finalization in the rounds map. This is possible if the WAL recovered the finalization or if it was sent via
+// a finalization message.
 func TestReplicationRedeliversRestoredFinalization(t *testing.T) {
 	ctx := context.Background()
 	nodes := []common.NodeID{{1}, {2}, {3}, {4}}
