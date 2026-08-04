@@ -2010,9 +2010,13 @@ func (e *Epoch) processFinalizedBlock(block common.Block, finalization *common.F
 			delete(e.rounds, round.num)
 			return e.processFinalizedBlock(block, finalization)
 		}
-		if err := e.storeFinalization(finalization); err != nil {
-			e.Logger.Error("Failed storing finalization", zap.Error(err))
-			return err
+		// The round can already hold this finalization, stored while its sequence was ahead
+		// of the storage. Indexing it is all that remains.
+		if round.finalization == nil {
+			if err := e.storeFinalization(finalization); err != nil {
+				e.Logger.Error("Failed storing finalization", zap.Error(err))
+				return err
+			}
 		}
 		prevEpochRound := e.round
 		if err := e.indexFinalizations(round.num); err != nil {

@@ -2004,3 +2004,33 @@ func TestReplicationRedeliversStoredFinalization(t *testing.T) {
 	// a peer answering with seq 2, whose finalization round 2 already holds, must not fail
 	require.NoError(t, e.HandleMessage(replicateSeq(blocks[2]), nodes[1]))
 }
+
+// TestReplicationRedeliversRestoredFinalization asserts a replication response for a round that
+// already holds a finalization is committed rather than failing. indexFinalizations stops at the
+// first round holding a block with no finalization, so a round can stay stranded at the next
+// sequence to commit and processFinalizedBlock then reached storeFinalization on it.
+func TestReplicationRedeliversRestoredFinalization(t *testing.T) {
+	ctx := context.Background()
+	nodes := []common.NodeID{{1}, {2}, {3}, {4}}
+	blocks := createBlocks(t, nodes, 2)
+
+	conf, wal, storage := DefaultTestNodeEpochConfig(t, nodes[3], NewNoopComm(nodes), testutil.NewTestBlockBuilder())
+	conf.ReplicationEnabled = true
+	require.NoError(t, storage.Index(ctx, blocks[0].VerifiedBlock, blocks[0].Finalization))
+
+	// the round is restored holding a finalization whose seq is the next one to commit
+	second := blocks[1].VerifiedBlock
+	blockRecord, err := common.BlockRecord(second.BlockHeader(), second.Bytes())
+	require.NoError(t, err)
+	require.NoError(t, wal.Append(blockRecord))
+	_, finalizationRecord := NewFinalizationRecord(t, &TestSignatureAggregator{N: len(nodes)}, second, nodes)
+	require.NoError(t, wal.Append(finalizationRecord))
+
+	e, err := simplex.NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+
+	require.NoError(t, e.HandleMessage(replicateSeq(blocks[1]), nodes[1]))
+	storage.WaitForBlockCommit(1)
+}
