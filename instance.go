@@ -181,15 +181,6 @@ func (i *Instance) createNonValidatorConfig(epochNum uint64) (nonvalidator.Confi
 }
 
 // notifyEpochChange hands the latest epoch change to listenForEpochChanges.
-//
-// It must never block. Callers hold the non-validator or epoch lock while
-// indexing the sealing block that triggers it, and the consumer needs that same
-// lock (see isValidatorForLatestEpoch), so a blocking send deadlocks. Indexing
-// also outruns epoch processing during bootstrap, which makes a full channel the
-// common case rather than an edge case.
-//
-// epochChanges is therefore a single slot holding only the highest epoch seen:
-// superseded epoch changes are dropped, the newest never is.
 func (i *Instance) notifyEpochChange(epoch uint64, validators common.Nodes) {
 	ec := epochChange{
 		epoch:      epoch,
