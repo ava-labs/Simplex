@@ -2232,9 +2232,7 @@ func (e *Epoch) createFinalizedBlockVerificationTask(block common.Block, finaliz
 			zap.Uint64("seq", md.Seq),
 			zap.Stringer("digest", md.Digest))
 
-		// Sweep from this round, not just this block. Later rounds may already hold a
-		// finalization stored while their sequence was ahead of the storage.
-		if err := e.indexFinalizations(md.Round); err != nil {
+		if err := e.indexFinalization(verifiedBlock, *finalization); err != nil {
 			e.haltedError = err
 			e.Logger.Error("Failed to index finalization", zap.Error(err))
 			return md.Digest
