@@ -5,6 +5,7 @@ package simplex_test
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"strings"
@@ -1271,3 +1272,87 @@ func (rc *recordingComm) Send(msg *Message, node NodeID) {
 }
 
 type epochExecution func(t *testing.T, e *Epoch, bb *testutil.TestBlockBuilder, storage *testutil.InMemStorage, wal *testutil.TestWAL)
+
+// countEmptyVoteRecords returns how many empty vote records the WAL holds for the round. It
+// returns an error rather than asserting, so it is safe to call from the condition goroutine
+// require.Never spawns.
+func countEmptyVoteRecords(wal *testutil.TestWAL, round uint64) (int, error) {
+	rawRecords, err := wal.ReadAll()
+	if err != nil {
+		return 0, err
+	}
+
+	var count int
+	for _, rawRecord := range rawRecords {
+		if binary.BigEndian.Uint16(rawRecord[:2]) != EmptyVoteRecordType {
+			continue
+		}
+
+		vote, err := ParseEmptyVoteRecord(rawRecord)
+		if err != nil {
+			return 0, err
+		}
+
+		if vote.Round == round {
+			count++
+		}
+	}
+	return count, nil
+}
+
+// TestEmptyVoteNotDuplicatedAfterFailedVerification asserts that a round contributes at most one
+// empty vote record to the WAL. triggerEmptyBlockNotarization sets emptyVotes.timedOut but never
+// checks it, so timing out on a round and then failing to verify its late proposal appends a
+// second record for that round.
+func TestEmptyVoteNotDuplicatedAfterFailedVerification(t *testing.T) {
+	bb := testutil.NewTestBlockBuilder()
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+
+	// nodes[0] leads round 0, so as nodes[1] we wait for a proposal.
+	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[1], testutil.NewNoopComm(nodes), bb)
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+
+	require.NoError(t, e.Start())
+
+	leader := nodes[0]
+	require.False(t, e.ID.Equals(leader), "test requires that we are not the leader of round 0")
+
+	// Build the block the leader would have proposed, but hold it back for now.
+	md := e.Metadata()
+	vb, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
+	require.True(t, ok)
+
+	block := vb.(*testutil.TestBlock)
+	block.VerificationError = fmt.Errorf("invalid block")
+
+	// The proposal never showed up in time, so we time out on round 0.
+	bb.BlockShouldBeBuilt <- struct{}{}
+	testutil.WaitForBlockProposerTimeout(t, e, &e.StartTime, 0)
+
+	count, err := countEmptyVoteRecords(wal, 0)
+	require.NoError(t, err)
+	require.Equal(t, 1, count, "timing out on round 0 should write exactly one empty vote record")
+	require.Equal(t, uint64(0), e.Metadata().Round, "round should not have advanced")
+
+	// The late proposal arrives and fails verification.
+	vote, err := testutil.NewTestVote(block, leader)
+	require.NoError(t, err)
+
+	require.NoError(t, e.HandleMessage(&Message{
+		BlockMessage: &BlockMessage{
+			Vote:  *vote,
+			Block: block,
+		},
+	}, leader))
+
+	// The epoch appends to the WAL after Verify returns and after it re-acquires the lock, so
+	// there is nothing to synchronise on. Assert that a second record never shows up.
+	require.Never(t, func() bool {
+		count, err := countEmptyVoteRecords(wal, 0)
+		return err == nil && count > 1
+	}, 3*time.Second, 10*time.Millisecond,
+		"a failed block verification appended a second empty vote record for a round we already timed out on")
+}
