@@ -114,7 +114,6 @@ func TestRecoverFromNotarization(t *testing.T) {
 	blockRecord, err := BlockRecord(block.BlockHeader(), bBytes)
 	require.NoError(t, err)
 
-
 	// write block blockRecord to wal
 	require.NoError(t, wal.Append(blockRecord))
 
