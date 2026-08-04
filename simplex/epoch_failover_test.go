@@ -200,7 +200,7 @@ func TestEpochLeaderFailoverReceivesEmptyVotesEarly(t *testing.T) {
 		}
 
 		block2 := storage.WaitForBlockCommit(3)
-		require.Equal(t, block, block2)
+		require.Equal(t, block.BlockHeader().Digest, block2.BlockHeader().Digest)
 		require.Equal(t, uint64(4), storage.NumBlocks())
 		require.Equal(t, uint64(4), block2.BlockHeader().Round)
 		require.Equal(t, uint64(3), block2.BlockHeader().Seq)
@@ -986,11 +986,13 @@ func TestEpochBlacklist(t *testing.T) {
 	require.Equal(t, nodes[0], LeaderForRound(nodes, block.BlockHeader().Round)) // our node will propose the empty block
 
 	// Make sure our node properly constructed the blacklist
-	require.Equal(t, Blacklist{
+	actual := block.Blacklist()
+	expected := Blacklist{
 		NodeCount:      4,
 		SuspectedNodes: SuspectedNodes{{NodeIndex: 3, SuspectingCount: 1, OrbitSuspected: 1}},
 		Updates:        []BlacklistUpdate{{Type: BlacklistOpType_NodeSuspected, NodeIndex: 3}},
-	}, block.Blacklist())
+	}
+	require.True(t, expected.Equals(&actual))
 
 	// Compute next blacklist
 	blacklist := NewBlacklist(4)
@@ -1004,7 +1006,8 @@ func TestEpochBlacklist(t *testing.T) {
 	block, _ = notarizeAndFinalizeRound(t, e, bb)
 
 	// It should have the blacklist we have previously constructed
-	require.Equal(t, blacklist, block.Blacklist())
+	actual = block.Blacklist()
+	require.True(t, blacklist.Equals(&actual))
 
 	// Do it again but preserve the blacklist until we get to the round of the last node.
 	// This time, there are no updates to the blacklist, it just carries over.
@@ -1083,7 +1086,7 @@ func TestEpochBlacklist(t *testing.T) {
 
 	block = bb.GetBuiltBlock()
 
-	require.Equal(t, Blacklist{
+	expected = Blacklist{
 		NodeCount: 4,
 		SuspectedNodes: SuspectedNodes{
 			{
@@ -1095,7 +1098,9 @@ func TestEpochBlacklist(t *testing.T) {
 			},
 		},
 		Updates: []BlacklistUpdate{{Type: BlacklistOpType_NodeRedeemed, NodeIndex: 3}},
-	}, block.Blacklist(), "Node should vote to redeem the previously failed node")
+	}
+	actual = block.Blacklist()
+	require.True(t, expected.Equals(&actual), "Node should vote to redeem the previously failed node")
 
 	require.Equal(t, conf.ID, LeaderForRound(nodes, block.BlockHeader().Round))
 	bb.SetBuiltBlock(block.(*testutil.TestBlock)) // Insert the block built by the block builder back into block builder so it will re-propose it

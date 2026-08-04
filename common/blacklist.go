@@ -4,7 +4,6 @@
 package common
 
 import (
-	"encoding/binary"
 	"fmt"
 	"slices"
 	"strings"
@@ -39,15 +38,17 @@ func Orbit(round uint64, nodeIndex uint16, nodeCount uint16) uint64 {
 // It can be derived by applying the recorded Updates to the parent block's blacklist.
 type Blacklist struct {
 	// NodeCount is the configuration of the blacklist.
-	NodeCount uint16
+	NodeCount uint16 `canoto:"uint,1"`
 
 	// SuspectedNodes is the list of nodes that are currently suspected.
 	// it's the inner state of the blacklist.
-	SuspectedNodes SuspectedNodes
+	SuspectedNodes SuspectedNodes `canoto:"repeated value,2"`
 
 	// Updates is the list of modifications that a block builder is proposing
 	// to perform to the blacklist.
-	Updates BlacklistUpdates
+	Updates BlacklistUpdates `canoto:"repeated value,3"`
+
+	canotoData canotoData_Blacklist
 }
 
 func NewBlacklist(nodeCount uint16) Blacklist {
@@ -58,8 +59,8 @@ func NewBlacklist(nodeCount uint16) Blacklist {
 
 func (bl *Blacklist) String() string {
 	sn := make([]string, len(bl.SuspectedNodes))
-	for i, n := range bl.SuspectedNodes {
-		sn[i] = n.String()
+	for i := range bl.SuspectedNodes {
+		sn[i] = bl.SuspectedNodes[i].String()
 	}
 
 	return fmt.Sprintf(
@@ -72,8 +73,8 @@ func (bl *Blacklist) String() string {
 
 func BlacklistUpdatesAsString(updates []BlacklistUpdate) string {
 	out := make([]string, len(updates))
-	for i, u := range updates {
-		out[i] = u.String()
+	for i := range updates {
+		out[i] = updates[i].String()
 	}
 	return strings.Join(out, ",")
 }
@@ -115,53 +116,22 @@ const (
 
 type BlacklistUpdates []BlacklistUpdate
 
-func (updates BlacklistUpdates) Len() int {
-	return len(updates) * 3
-}
-
-func (updates BlacklistUpdates) Bytes() []byte {
-	// Each update is encoded as:
-	// 1 byte for the type
-	// 2 bytes for the node index
-	if len(updates) == 0 {
-		return []byte{}
-	}
-
-	buff := make([]byte, len(updates)*3)
-	for i, blu := range updates {
-		pos := i * 3
-		buff[pos] = byte(blu.Type)
-		binary.BigEndian.PutUint16(buff[pos+1:pos+3], blu.NodeIndex)
-	}
-	return buff
-}
-
-func (updates *BlacklistUpdates) FromBytes(buff []byte) error {
-	if len(buff) == 0 {
-		return nil
-	}
-	if len(buff)%3 != 0 {
-		return fmt.Errorf("buffer length is not a multiple of 3")
-	}
-	numUpdates := len(buff) / 3
-	*updates = make([]BlacklistUpdate, numUpdates)
-	for i := 0; i < numUpdates; i++ {
-		pos := i * 3
-		(*updates)[i] = BlacklistUpdate{
-			Type:      BlacklistOpType(buff[pos]),
-			NodeIndex: binary.BigEndian.Uint16(buff[pos+1 : pos+3]),
-		}
-	}
-	return nil
-}
-
 type BlacklistUpdate struct {
-	Type      BlacklistOpType
-	NodeIndex uint16
+	Type      BlacklistOpType `canoto:"uint,1"`
+	NodeIndex uint16          `canoto:"uint,2"`
+
+	canotoData canotoData_BlacklistUpdate
 }
 
 func (bu *BlacklistUpdate) Equals(bu2 *BlacklistUpdate) bool {
 	return bu.Type == bu2.Type && bu.NodeIndex == bu2.NodeIndex
+}
+
+func (bu *BlacklistUpdate) Clone() BlacklistUpdate {
+	return BlacklistUpdate{
+		Type:      bu.Type,
+		NodeIndex: bu.NodeIndex,
+	}
 }
 
 func (bu *BlacklistUpdate) String() string {
@@ -190,7 +160,8 @@ func (bl *Blacklist) ApplyUpdates(updates []BlacklistUpdate, round uint64) Black
 
 	newBlacklist.SuspectedNodes = bl.garbageCollectSuspectedNodes(round)
 
-	for _, update := range updates {
+	for i := range updates {
+		update := &updates[i]
 		orbit := Orbit(round, update.NodeIndex, bl.NodeCount)
 		switch update.Type {
 		case BlacklistOpType_NodeSuspected:
@@ -213,14 +184,15 @@ func (bl *Blacklist) garbageCollectSuspectedNodes(round uint64) SuspectedNodes {
 	newSuspectedNodes := make([]SuspectedNode, 0, len(bl.SuspectedNodes))
 	threshold := bl.computeThreshold()
 
-	for _, sn := range bl.SuspectedNodes {
+	for i := range bl.SuspectedNodes {
+		sn := &bl.SuspectedNodes[i]
 		orbit := Orbit(round, sn.NodeIndex, bl.NodeCount)
 		// Node is no longer suspected, just skip it.
 		if !sn.isStillSuspected(threshold, orbit) {
 			continue
 		}
 
-		newSuspectedNode := sn
+		newSuspectedNode := sn.Clone()
 
 		//  Reset the redeemingCount and orbitToRedeem if it was a past orbit.
 		if sn.OrbitToRedeem < orbit {
@@ -350,8 +322,8 @@ func (bl *Blacklist) computeThreshold() uint16 {
 func (bl *Blacklist) IsNodeSuspected(nodeIndex uint16) bool {
 	threshold := bl.computeThreshold()
 
-	for _, sn := range bl.SuspectedNodes {
-
+	for i := range bl.SuspectedNodes {
+		sn := &bl.SuspectedNodes[i]
 		if sn.NodeIndex == nodeIndex {
 			return sn.SuspectingCount >= threshold && sn.RedeemingCount < threshold
 		}
@@ -360,75 +332,30 @@ func (bl *Blacklist) IsNodeSuspected(nodeIndex uint16) bool {
 	return false
 }
 
+func (bl *Blacklist) Clone() Blacklist {
+	clone := Blacklist{
+		NodeCount: bl.NodeCount,
+	}
+	clone.SuspectedNodes = make(SuspectedNodes, 0, len(bl.SuspectedNodes))
+	for i := range bl.SuspectedNodes {
+		clone.SuspectedNodes = append(clone.SuspectedNodes, bl.SuspectedNodes[i].Clone())
+	}
+	clone.Updates = make(BlacklistUpdates, 0, len(bl.Updates))
+	for i := range bl.Updates {
+		clone.Updates = append(clone.Updates, bl.Updates[i].Clone())
+	}
+	return clone
+}
+
 // Bytes returns the byte representation of the blacklist.
-// The bytes of a blacklist are encoded as follows:
-// 2 bytes for the node count
-// 2 bytes for the number of updates
-// N bytes for the suspected nodes section
-// The rest of the bytes encode the updates section.
 func (bl *Blacklist) Bytes() []byte {
-	buff := make([]byte, 2+2+bl.Updates.Len()+bl.SuspectedNodes.Len())
-	binary.BigEndian.PutUint16(buff[0:2], bl.NodeCount)
-	if len(bl.SuspectedNodes) == 0 && len(bl.Updates) == 0 {
-		buff = buff[:2]
-		return buff
-	}
-	binary.BigEndian.PutUint16(buff[2:4], uint16(len(bl.Updates)))
-	if bl.SuspectedNodes.Len() > 0 {
-		copy(buff[4:4+bl.SuspectedNodes.Len()], bl.SuspectedNodes.Bytes())
-	}
-	if bl.Updates.Len() > 0 {
-		copy(buff[4+bl.SuspectedNodes.Len():], bl.Updates.Bytes())
-	}
-	return buff
+	clone := bl.Clone()
+	return clone.MarshalCanoto()
 }
 
 // FromBytes populates the blacklist from the given bytes.
 func (bl *Blacklist) FromBytes(buff []byte) error {
-	if len(buff) == 2 {
-		bl.NodeCount = binary.BigEndian.Uint16(buff[0:2])
-		bl.SuspectedNodes = SuspectedNodes{}
-		bl.Updates = BlacklistUpdates{}
-		return nil
-	}
-
-	if len(buff) < 4 {
-		return fmt.Errorf("buffer too short (%d) to contain blacklist", len(buff))
-	}
-
-	bl.NodeCount = binary.BigEndian.Uint16(buff[0:2])
-	numUpdates := binary.BigEndian.Uint16(buff[2:4])
-
-	originalBuffSize := len(buff)
-	buff = buff[4:]
-
-	updateLen := int(numUpdates) * 3
-	if len(buff) < updateLen {
-		return fmt.Errorf("buffer too short (%d) to contain %d bytes for updates", len(buff), 4+3*numUpdates)
-	}
-
-	suspectedNodesLen := len(buff) - updateLen
-
-	if numUpdates == 0 && suspectedNodesLen == 0 {
-		return fmt.Errorf("buffer too large (%d) to contain no updates and no suspected nodes", originalBuffSize)
-	}
-
-	var suspectedNodes SuspectedNodes
-	if err := suspectedNodes.FromBytes(buff[:suspectedNodesLen]); err != nil {
-		return fmt.Errorf("failed to parse suspected nodes: %w", err)
-	}
-
-	bl.SuspectedNodes = suspectedNodes
-
-	if err := bl.Updates.FromBytes(buff[suspectedNodesLen:]); err != nil {
-		return fmt.Errorf("failed to parse blacklist updates: %w", err)
-	}
-
-	if updateLen != len(buff[suspectedNodesLen:]) {
-		return fmt.Errorf("expected %d bytes for updates, but got %d", updateLen, len(buff[suspectedNodesLen:]))
-	}
-
-	return nil
+	return bl.UnmarshalCanoto(buff)
 }
 
 func (bl *Blacklist) VerifyProposedBlacklist(candidateBlacklist Blacklist, round uint64) error {
@@ -455,7 +382,8 @@ func (bl *Blacklist) verifyBlacklistUpdates(updates []BlacklistUpdate) error {
 	if len(updates) > int(bl.NodeCount) {
 		return fmt.Errorf("%w: %d, only %d nodes exist", errBlacklistTooManyUpdates, len(updates), bl.NodeCount)
 	}
-	for _, update := range updates {
+	for i := range updates {
+		update := &updates[i]
 		if update.NodeIndex >= bl.NodeCount {
 			return fmt.Errorf("%w: %d, needs to be in [%d, %d]",
 				errBlacklistInvalidNodeIndex, update.NodeIndex, 0, bl.NodeCount-1)
@@ -556,81 +484,36 @@ func (bl *Blacklist) ComputeBlacklistUpdates(round uint64, nodeCount uint16, tim
 
 type SuspectedNodes []SuspectedNode
 
-func (sns *SuspectedNodes) FromBytes(buff []byte) error {
-	pos := 0
-	for pos < len(buff) {
-		var sn SuspectedNode
-		bytesRead, err := sn.Read(buff[pos:])
-		if err != nil {
-			return fmt.Errorf("failed to read suspected node at position %d: %w", pos, err)
-		}
-		*sns = append(*sns, sn)
-		pos += bytesRead
-	}
-	return nil
-}
-
-func (sns *SuspectedNodes) Len() int {
-	var totalLen int
-	for _, sn := range *sns {
-		totalLen += sn.Len()
-	}
-	return totalLen
-}
-
-func (sns *SuspectedNodes) Bytes() []byte {
-	// Suspected nodes are encoded by concatenating all suspected nodes one after the other.
-
-	if len(*sns) == 0 {
-		return []byte{}
-	}
-
-	var buffSize int
-	for _, sn := range *sns {
-		buffSize += sn.Len()
-	}
-
-	buff := make([]byte, buffSize)
-
-	var pos int
-	for _, sn := range *sns {
-		bytesWritten := sn.write(buff[pos:])
-		pos += bytesWritten
-	}
-
-	return buff
-}
-
 // SuspectedNode is the information we keep for each suspected node.
 // A suspected node records the number of accusations and when it was accused in.
 // A suspected node that has above f+1 accusations is considered as blacklisted.
 // A suspected node that is blacklisted can be redeemed by gathering f+1 redeeming votes.
 // A suspected node that has been redeemed by f+1 votes or more is removed from the blacklist.
-// Each suspected node is encoded in the following manner:
-// A bitmask byte for the fields except the node index that are non-zero.
-// 4 top bits of the bitmask are the bitmask for { suspectingCount, redeemingCount, orbitSuspected, orbitToRedeem }.
-// A bit is set to 1 if the corresponding field is non-zero.
-// The next 2 bytes are the node index.
-// The next bytes correspond to the non-zero fields in the order of the bitmask.
-// [bitmask byte]
-// [node index (2 bytes)]
-// [suspectingCount (2 bytes, if non-zero)]
-// [redeemingCount (2 bytes, if non-zero)]
-// [orbitSuspected (8 bytes, if non-zero)]
-// [orbitToRedeem (8 bytes, if non-zero)]
 type SuspectedNode struct {
 	// NodeIndex is the index of the suspected node among the nodes of the validator set.
-	NodeIndex uint16
+	NodeIndex uint16 `canoto:"uint,1"`
 	// SuspectingCount is the number of nodes that have suspected this node in the current orbit denoted by OrbitSuspected.
 	// If this count is >= f+1, then the node is considered blacklisted.
-	SuspectingCount uint16
+	SuspectingCount uint16 `canoto:"uint,2"`
 	// RedeemingCount is the number of nodes that have redeemed this node in the current orbit denoted by OrbitToRedeem.
 	// If this count reaches >= f+1, the node is removed from the blacklist.
-	RedeemingCount uint16
+	RedeemingCount uint16 `canoto:"uint,3"`
 	// OrbitSuspected is the orbit in which the node was last suspected.
-	OrbitSuspected uint64
+	OrbitSuspected uint64 `canoto:"uint,4"`
 	// OrbitToRedeem is the orbit in which the node was last redeemed.
-	OrbitToRedeem uint64
+	OrbitToRedeem uint64 `canoto:"uint,5"`
+
+	canotoData canotoData_SuspectedNode
+}
+
+func (sn *SuspectedNode) Clone() SuspectedNode {
+	return SuspectedNode{
+		NodeIndex:       sn.NodeIndex,
+		SuspectingCount: sn.SuspectingCount,
+		RedeemingCount:  sn.RedeemingCount,
+		OrbitSuspected:  sn.OrbitSuspected,
+		OrbitToRedeem:   sn.OrbitToRedeem,
+	}
 }
 
 func (sn *SuspectedNode) Equals(sn2 *SuspectedNode) bool {
@@ -644,130 +527,6 @@ func (sn *SuspectedNode) Equals(sn2 *SuspectedNode) bool {
 func (sn *SuspectedNode) String() string {
 	return fmt.Sprintf("{NodeIndex=%d, SuspectingCount=%d, RedeemingCount=%d, OrbitSuspected=%d, OrbitToRedeem=%d}",
 		sn.NodeIndex, sn.SuspectingCount, sn.RedeemingCount, sn.OrbitSuspected, sn.OrbitToRedeem)
-}
-
-// Write writes the suspected node to the given buffer.
-// It returns the number of bytes written.
-// Assumes the buffer is large enough to hold the suspected node.
-func (sn *SuspectedNode) write(buff []byte) int {
-	var pos int
-
-	var bitmask byte
-
-	pos++ // Reserve space for the bitmask.
-
-	binary.BigEndian.PutUint16(buff[pos:pos+2], sn.NodeIndex)
-	pos += 2
-
-	if sn.SuspectingCount > 0 {
-		bitmask |= 128
-		binary.BigEndian.PutUint16(buff[pos:pos+2], sn.SuspectingCount)
-		pos += 2
-	}
-	if sn.RedeemingCount > 0 {
-		bitmask |= 64
-		binary.BigEndian.PutUint16(buff[pos:pos+2], sn.RedeemingCount)
-		pos += 2
-	}
-	if sn.OrbitSuspected > 0 {
-		bitmask |= 32
-		binary.BigEndian.PutUint64(buff[pos:pos+8], sn.OrbitSuspected)
-		pos += 8
-	}
-	if sn.OrbitToRedeem > 0 {
-		bitmask |= 16
-		binary.BigEndian.PutUint64(buff[pos:pos+8], sn.OrbitToRedeem)
-		pos += 8
-	}
-
-	buff[0] = bitmask
-
-	return pos
-}
-
-// Read reads the suspected node from the given buffer.
-// It returns the number of bytes read and an error if occurs.
-func (sn *SuspectedNode) Read(buff []byte) (int, error) {
-	if len(buff) < 3 {
-		return 0, fmt.Errorf("given buffer too short (%d) to contain bitmask and node index", len(buff))
-	}
-
-	var pos int
-
-	bitmask := buff[pos]
-
-	// Check bitmask validity.
-	// Lower 4 bites must be zero.
-	if bitmask&15 != 0 {
-		return 0, fmt.Errorf("invalid bitmask: lower 4 bits must be zero, got %08b", bitmask)
-	}
-
-	pos++
-
-	sn.NodeIndex = binary.BigEndian.Uint16(buff[pos : pos+2])
-	pos += 2
-
-	if bitmask&128 != 0 {
-		if len(buff[pos:]) < 2 {
-			return 0, fmt.Errorf("suspecting count field is missing")
-		}
-		sn.SuspectingCount = binary.BigEndian.Uint16(buff[pos : pos+2])
-		if sn.SuspectingCount == 0 {
-			return 0, fmt.Errorf("suspecting count cannot be zero if its bitmask is set")
-		}
-		pos += 2
-	}
-	if bitmask&64 != 0 {
-		if len(buff[pos:]) < 2 {
-			return 0, fmt.Errorf("redeeming count field is missing")
-		}
-		sn.RedeemingCount = binary.BigEndian.Uint16(buff[pos : pos+2])
-		if sn.RedeemingCount == 0 {
-			return 0, fmt.Errorf("redeeming count cannot be zero if its bitmask is set")
-		}
-		pos += 2
-	}
-	if bitmask&32 != 0 {
-		if len(buff[pos:]) < 8 {
-			return 0, fmt.Errorf("orbit suspected field is missing")
-		}
-		sn.OrbitSuspected = binary.BigEndian.Uint64(buff[pos : pos+8])
-		if sn.OrbitSuspected == 0 {
-			return 0, fmt.Errorf("orbit suspected cannot be zero if its bitmask is set")
-		}
-		pos += 8
-	}
-	if bitmask&16 != 0 {
-		if len(buff[pos:]) < 8 {
-			return 0, fmt.Errorf("orbit redeemed field is missing")
-		}
-		sn.OrbitToRedeem = binary.BigEndian.Uint64(buff[pos : pos+8])
-		if sn.OrbitToRedeem == 0 {
-			return 0, fmt.Errorf("orbit to redeem cannot be zero if its bitmask is set")
-		}
-		pos += 8
-	}
-
-	return pos, nil
-}
-
-func (sn *SuspectedNode) Len() int {
-	var buffSize int
-
-	if sn.SuspectingCount > 0 {
-		buffSize += 2
-	}
-	if sn.RedeemingCount > 0 {
-		buffSize += 2
-	}
-	if sn.OrbitSuspected > 0 {
-		buffSize += 8
-	}
-	if sn.OrbitToRedeem > 0 {
-		buffSize += 8
-	}
-
-	return buffSize + 1 + 2 // +1 for bitmask, +2 for node index
 }
 
 // isStillSuspected returns true if the suspected node is still suspected in the given orbit.

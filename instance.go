@@ -531,10 +531,7 @@ func (i *Instance) maybeGarbageCollectWAL() error {
 		// TODO: We need to test a scenario where an epoch change occurred and then a few notarizations have been persisted to WAL,
 		// but no block has been finalized. So the WAL contains entries from previous epochs as well as from the current epoch.
 		// TODO: We need to test a scenario where an epoch change occurred but the node has crashed after notarizing some Telocks.
-		md, err := common.ProtocolMetadataFromBytes(lastBlock.Metadata.SimplexProtocolMetadata)
-		if err != nil {
-			return fmt.Errorf("error parsing protocol metadata from last block: %w", err)
-		}
+		md := lastBlock.Metadata.SimplexProtocolMetadata
 		if err := i.wal.GarbageCollect(md.Round); err != nil {
 			return fmt.Errorf("error garbage collecting WALs: %w", err)
 		}
@@ -657,7 +654,8 @@ func (i *Instance) getLastAcceptedEpochAndValidatorSet() (common.Nodes, uint64, 
 
 func validatorSetToNodes(validatorSet metadata.NodeBLSMappings) common.Nodes {
 	var nodes common.Nodes
-	for _, vdr := range validatorSet {
+	for i := range validatorSet {
+		vdr := &validatorSet[i]
 		nodes = append(nodes, common.Node{
 			Id:     vdr.NodeID[:],
 			Weight: vdr.Weight,
@@ -670,7 +668,8 @@ func validatorSetToNodes(validatorSet metadata.NodeBLSMappings) common.Nodes {
 func constructValidatorSetFromSealingBlock(lastBlock *ParsedBlock) metadata.NodeBLSMappings {
 	var validatorSet metadata.NodeBLSMappings
 	vdrs := lastBlock.Metadata.SimplexEpochInfo.BlockValidationDescriptor.AggregatedMembership.Members
-	for _, vdr := range vdrs {
+	for i := range vdrs {
+		vdr := &vdrs[i]
 		validatorSet = append(validatorSet, metadata.NodeBLSMapping{
 			NodeID: vdr.NodeID,
 			BLSKey: vdr.BLSKey,
