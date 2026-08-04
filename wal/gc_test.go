@@ -228,7 +228,9 @@ func TestGarbageCollectedWALAppendOutOfOrder(t *testing.T) {
 	blockRecord := func(round uint64) []byte {
 		b := walRecordBlock(round)
 		raw := b.Bytes()
-		return common.BlockRecord(b.BlockHeader(), raw)
+		bytes, err := common.BlockRecord(b.BlockHeader(), raw)
+		require.NoError(t, err)
+		return bytes
 	}
 	notarizationRecord := func(round uint64) []byte {
 		rec, err := testutil.NewNotarizationRecord(testutil.MakeLogger(t), sigAggr, walRecordBlock(round), nodes)
@@ -253,13 +255,16 @@ func TestGarbageCollectedWALAppendOutOfOrder(t *testing.T) {
 
 	// A small maxWALSize forces the stream across several WAL segments so ReadAll must stitch every segment back together.
 	creator, newWALCount := countingCreator(t)
-	gcw, err := wal.NewGarbageCollectedWAL(nil, creator, &common.WALRetentionReader{}, 512)
+	walSize := 512
+	gcw, err := wal.NewGarbageCollectedWAL(nil, creator, &common.WALRetentionReader{}, walSize)
 	require.NoError(t, err)
 
+	var sum int
 	for _, rec := range records {
+		sum += len(rec)
 		require.NoError(t, gcw.Append(rec))
 	}
-	require.Equal(t, *newWALCount, 3)
+	require.Equal(t, *newWALCount, sum/walSize+1)
 
 	// Every record — including the out-of-order Finalization — reads back in the
 	// order it was appended.

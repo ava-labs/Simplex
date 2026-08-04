@@ -371,8 +371,10 @@ func TestReplicationStartsBeforeCurrentRound(t *testing.T) {
 	})
 
 	firstBlock := storageData[0].VerifiedBlock
+
 	fBytes := firstBlock.Bytes()
-	record := common.BlockRecord(firstBlock.BlockHeader(), fBytes)
+	record, err := common.BlockRecord(firstBlock.BlockHeader(), fBytes)
+	require.NoError(t, err)
 	laggingNode.WAL.Append(record)
 
 	sigAggr := laggingNode.E.SignatureAggregatorCreator(laggingNode.E.Comm.Validators())
@@ -382,7 +384,8 @@ func TestReplicationStartsBeforeCurrentRound(t *testing.T) {
 
 	secondBlock := storageData[1].VerifiedBlock
 	sBytes := secondBlock.Bytes()
-	record = common.BlockRecord(secondBlock.BlockHeader(), sBytes)
+	record, err = common.BlockRecord(secondBlock.BlockHeader(), sBytes)
+	require.NoError(t, err)
 	laggingNode.WAL.Append(record)
 
 	secondNotarizationRecord, err := NewNotarizationRecord(laggingNode.E.Logger, sigAggr, secondBlock, nodes[0:quorum])

@@ -2420,8 +2420,8 @@ func (e *Epoch) verifyProposalMetadataAndBlacklist(block common.Block) bool {
 
 	if !equals {
 		e.Logger.Debug("Received block with an incorrect header",
-			zap.Stringer("expected", expectedBH),
-			zap.Stringer("received", bh))
+			zap.Stringer("expected", &expectedBH),
+			zap.Stringer("received", &bh))
 	}
 
 	return equals
@@ -3134,7 +3134,12 @@ func (e *Epoch) storeProposal(block common.VerifiedBlock) bool {
 
 	blockBytes := block.Bytes()
 
-	blockRecord := common.BlockRecord(md, blockBytes)
+	blockRecord, err := common.BlockRecord(md, blockBytes)
+	if err != nil {
+		e.haltedError = err
+		e.Logger.Error("Failed to create block record for WAL", zap.Error(err))
+		return false
+	}
 	if err := e.WAL.Append(blockRecord); err != nil {
 		e.haltedError = err
 		e.Logger.Error("Failed to append block record to WAL", zap.Error(err))
