@@ -454,7 +454,7 @@ func (i *Instance) createEpochConfig() (simplex.EpochConfig, error) {
 		Logger:                          i.Config.Logger,
 		Signer:                          i.Config.CryptoOps,
 		GenesisValidatorSet:             genesisValidatorSet,
-		LastNonSimplexBlockPChainHeight: lastNonSimplexHeight,
+		LastNonSimplexBlockPChainHeight: i.Config.PlatformChain.LastNonSimplexBlockPChainHeight(),
 		SignatureAggregatorCreator:      i.Config.CryptoOps.CreateSignatureAggregator,
 		BlockBuilder:                    i.Config.VM,
 		LastNonSimplexInnerBlock:        i.Config.LastNonSimplexInnerBlock,
