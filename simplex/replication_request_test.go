@@ -437,9 +437,10 @@ func TestReplicationRequestSeqsAndRoundsTruncated(t *testing.T) {
 	notarized := make([]common.VerifiedQuorumRound, 0, numNotarized)
 
 	for _, data := range blocks[numIndexed:] {
-		blockBytes, err := data.VerifiedBlock.Bytes()
+		blockBytes := data.VerifiedBlock.Bytes()
+		br, err := common.BlockRecord(data.VerifiedBlock.BlockHeader(), blockBytes)
 		require.NoError(t, err)
-		require.NoError(t, wal.Append(common.BlockRecord(data.VerifiedBlock.BlockHeader(), blockBytes)))
+		require.NoError(t, wal.Append(br))
 
 		notarization, err := testutil.NewNotarization(conf.Logger, &testutil.TestSignatureAggregator{N: len(nodes)}, data.VerifiedBlock, nodes[:quorom])
 		require.NoError(t, err)
@@ -489,8 +490,36 @@ func TestReplicationRequestSeqsAndRoundsTruncated(t *testing.T) {
 
 	msg := <-comm.in
 	resp := msg.VerifiedReplicationResponse
-	require.Equal(t, expected, resp.Data)
+	requireEqualQuorumRounds(t, expected, resp.Data)
 
+}
+
+// requireEqualQuorumRounds compares quorum rounds semantically, avoiding
+// reflect.DeepEqual on canoto-encoded values.
+func requireEqualQuorumRounds(t *testing.T, expected, actual []common.VerifiedQuorumRound) {
+	require.Equal(t, len(expected), len(actual))
+	for i := range expected {
+		exp, act := expected[i], actual[i]
+		require.Equal(t, exp.VerifiedBlock.BlockHeader().Digest, act.VerifiedBlock.BlockHeader().Digest)
+
+		if exp.Finalization != nil {
+			require.NotNil(t, act.Finalization)
+			require.True(t, exp.Finalization.Finalization.BlockHeader.Equals(&act.Finalization.Finalization.BlockHeader))
+			require.Equal(t, exp.Finalization.QC, act.Finalization.QC)
+		} else {
+			require.Nil(t, act.Finalization)
+		}
+
+		if exp.Notarization != nil {
+			require.NotNil(t, act.Notarization)
+			require.True(t, exp.Notarization.Vote.BlockHeader.Equals(&act.Notarization.Vote.BlockHeader))
+			require.Equal(t, exp.Notarization.QC, act.Notarization.QC)
+		} else {
+			require.Nil(t, act.Notarization)
+		}
+
+		require.Equal(t, exp.EmptyNotarization, act.EmptyNotarization)
+	}
 }
 
 // TestReplicationRequestSizeLimited ensures a replication response is capped
@@ -511,12 +540,16 @@ func TestReplicationRequestSizeLimited(t *testing.T) {
 		require.NoError(t, conf.Storage.Index(ctx, data.VerifiedBlock, data.Finalization))
 	}
 
-	// measure one quorum round and budget for roughly three of them
-	oneRound := (&common.VerifiedQuorumRound{
-		VerifiedBlock: seqs[0].VerifiedBlock,
-		Finalization:  &seqs[0].Finalization,
-	}).Size()
-	conf.MaxReplicationResponseSize = 3*oneRound + oneRound/2
+	// budget for the first three quorum rounds plus half of the fourth, so that
+	// exactly three fit. Rounds are not uniformly sized (the encoding omits
+	// zero-valued fields), so each one has to be measured separately.
+	roundSize := func(i int) int {
+		return (&common.VerifiedQuorumRound{
+			VerifiedBlock: seqs[i].VerifiedBlock,
+			Finalization:  &seqs[i].Finalization,
+		}).Size()
+	}
+	conf.MaxReplicationResponseSize = roundSize(0) + roundSize(1) + roundSize(2) + roundSize(3)/2
 
 	e, err := simplex.NewEpoch(conf)
 	require.NoError(t, err)
@@ -603,9 +636,10 @@ func TestReplicationRequestSizeLimitedBothLatest(t *testing.T) {
 		require.NoError(t, conf.Storage.Index(ctx, data.VerifiedBlock, data.Finalization))
 	}
 	notarizedBlock := blocks[4].VerifiedBlock
-	blockBytes, err := notarizedBlock.Bytes()
+	blockBytes := notarizedBlock.Bytes()
+	br, err := common.BlockRecord(notarizedBlock.BlockHeader(), blockBytes)
 	require.NoError(t, err)
-	require.NoError(t, wal.Append(common.BlockRecord(notarizedBlock.BlockHeader(), blockBytes)))
+	require.NoError(t, wal.Append(br))
 	notarization, err := testutil.NewNotarization(conf.Logger,
 		&testutil.TestSignatureAggregator{N: len(nodes)},
 		notarizedBlock, nodes[:common.Quorum(len(nodes))])

@@ -188,11 +188,12 @@ func TestSimplexMultiNodeBlacklist(t *testing.T) {
 	for _, n := range net.Instances[:3] {
 		block := n.Storage.WaitForBlockCommit(uint64(3))
 		blacklist := block.Blacklist()
-		require.Equal(t, common.Blacklist{
+		expectedBlacklist := common.Blacklist{
 			NodeCount:      4,
 			SuspectedNodes: common.SuspectedNodes{{NodeIndex: 3, SuspectingCount: 1, OrbitSuspected: 1}},
 			Updates:        []common.BlacklistUpdate{{NodeIndex: 3, Type: common.BlacklistOpType_NodeSuspected}},
-		}, blacklist)
+		}
+		require.True(t, expectedBlacklist.Equals(&blacklist))
 	}
 
 	// Reconnect the fourth node but don't let it un-blacklist itself prematurely.
@@ -204,21 +205,24 @@ func TestSimplexMultiNodeBlacklist(t *testing.T) {
 	for _, n := range net.Instances[:3] {
 		block := n.Storage.WaitForBlockCommit(uint64(4))
 		blacklist := block.Blacklist()
-		require.Equal(t, common.Blacklist{
+		expectedBlacklist := common.Blacklist{
 			NodeCount:      4,
 			SuspectedNodes: common.SuspectedNodes{{NodeIndex: 3, SuspectingCount: 2, OrbitSuspected: 1}},
 			Updates:        []common.BlacklistUpdate{{NodeIndex: 3, Type: common.BlacklistOpType_NodeSuspected}},
-		}, blacklist)
+		}
+		require.True(t, expectedBlacklist.Equals(&blacklist))
 	}
 
 	// Wait for the node to replicate the missing blocks.
 	net.Instances[3].TriggerNewBlock()
 	block := net.Instances[3].Storage.WaitForBlockCommit(4)
-	require.Equal(t, common.Blacklist{
+	blacklist := block.Blacklist()
+	expectedBlacklist := common.Blacklist{
 		NodeCount:      4,
 		SuspectedNodes: common.SuspectedNodes{{NodeIndex: 3, SuspectingCount: 2, OrbitSuspected: 1}},
 		Updates:        []common.BlacklistUpdate{{NodeIndex: 3, Type: common.BlacklistOpType_NodeSuspected}},
-	}, block.Blacklist())
+	}
+	require.True(t, expectedBlacklist.Equals(&blacklist))
 
 	// Make another block.
 	net.Instances[2].TriggerNewBlock()

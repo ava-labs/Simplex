@@ -1670,7 +1670,11 @@ func (e *Epoch) persistNotarization(notarization common.Notarization) error {
 	for _, signer := range notarization.QC.Signers() {
 		if signerIndex := e.validatorNodeIDs.IndexOf(signer); signerIndex != -1 {
 			e.Logger.Debug("Potentially redeeming node", zap.Stringer("signer", signer), zap.Uint64("round", round))
-			e.redeemedRounds[uint16(signerIndex)] = round
+			// Replication persists notarizations for past rounds, so only keep the latest round
+			// we have seen the node sign in.
+			if prev, seen := e.redeemedRounds[uint16(signerIndex)]; !seen || round > prev {
+				e.redeemedRounds[uint16(signerIndex)] = round
+			}
 		} else {
 			e.Logger.Error("Signer of notarization not found in eligible nodes", zap.Stringer("signer", signer))
 		}
@@ -2420,8 +2424,8 @@ func (e *Epoch) verifyProposalMetadataAndBlacklist(block common.Block) bool {
 
 	if !equals {
 		e.Logger.Debug("Received block with an incorrect header",
-			zap.Stringer("expected", expectedBH),
-			zap.Stringer("received", bh))
+			zap.Stringer("expected", &expectedBH),
+			zap.Stringer("received", &bh))
 	}
 
 	return equals
@@ -2602,11 +2606,7 @@ func (e *Epoch) proposeBlock(block common.VerifiedBlock) error {
 
 	// Write record to WAL before broadcasting it, so that
 	// if we crash during broadcasting, we know what we sent.
-	rawBlock, err := block.Bytes()
-	if err != nil {
-		e.Logger.Error("Failed serializing block", zap.Error(err))
-		return err
-	}
+	rawBlock := block.Bytes()
 
 	vote, err := e.voteOnBlock(block)
 	if err != nil {
@@ -3136,14 +3136,14 @@ func (e *Epoch) storeProposal(block common.VerifiedBlock) bool {
 		zap.Uint64("seq", md.Seq),
 		zap.Stringer("digest", md.Digest))
 
-	blockBytes, err := block.Bytes()
+	blockBytes := block.Bytes()
+
+	blockRecord, err := common.BlockRecord(md, blockBytes)
 	if err != nil {
 		e.haltedError = err
-		e.Logger.Error("Failed to serialize block", zap.Error(err))
+		e.Logger.Error("Failed to create block record for WAL", zap.Error(err))
 		return false
 	}
-
-	blockRecord := common.BlockRecord(md, blockBytes)
 	if err := e.WAL.Append(blockRecord); err != nil {
 		e.haltedError = err
 		e.Logger.Error("Failed to append block record to WAL", zap.Error(err))

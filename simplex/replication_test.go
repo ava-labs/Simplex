@@ -371,9 +371,10 @@ func TestReplicationStartsBeforeCurrentRound(t *testing.T) {
 	})
 
 	firstBlock := storageData[0].VerifiedBlock
-	fBytes, err := firstBlock.Bytes()
+
+	fBytes := firstBlock.Bytes()
+	record, err := common.BlockRecord(firstBlock.BlockHeader(), fBytes)
 	require.NoError(t, err)
-	record := common.BlockRecord(firstBlock.BlockHeader(), fBytes)
 	laggingNode.WAL.Append(record)
 
 	sigAggr := laggingNode.E.SignatureAggregatorCreator(laggingNode.E.Comm.Validators())
@@ -382,9 +383,9 @@ func TestReplicationStartsBeforeCurrentRound(t *testing.T) {
 	laggingNode.WAL.Append(firstNotarizationRecord)
 
 	secondBlock := storageData[1].VerifiedBlock
-	sBytes, err := secondBlock.Bytes()
+	sBytes := secondBlock.Bytes()
+	record, err = common.BlockRecord(secondBlock.BlockHeader(), sBytes)
 	require.NoError(t, err)
-	record = common.BlockRecord(secondBlock.BlockHeader(), sBytes)
 	laggingNode.WAL.Append(record)
 
 	secondNotarizationRecord, err := NewNotarizationRecord(laggingNode.E.Logger, sigAggr, secondBlock, nodes[0:quorum])
@@ -812,8 +813,7 @@ func assertEqualLedgers(t *testing.T, net *ControlledInMemoryNetwork) {
 	for seq := range net.Instances[0].Storage.NumBlocks() {
 		block, _, err := net.Instances[0].Storage.Retrieve(seq)
 		require.NoError(t, err)
-		bytes, err := block.Bytes()
-		require.NoError(t, err)
+		bytes := block.Bytes()
 		expectedLedger[seq] = bytes
 
 	}
@@ -824,8 +824,7 @@ func assertEqualLedgers(t *testing.T, net *ControlledInMemoryNetwork) {
 		for seq := range n.Storage.NumBlocks() {
 			block, _, err := n.Storage.Retrieve(seq)
 			require.NoError(t, err)
-			bytes, err := block.Bytes()
-			require.NoError(t, err)
+			bytes := block.Bytes()
 			actualLedger[seq] = bytes
 		}
 		require.Equal(t, expectedLedger, actualLedger)
