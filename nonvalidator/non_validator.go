@@ -156,8 +156,7 @@ func (n *NonValidator) HandleMessage(msg *common.Message, from common.NodeID) er
 	case msg.Finalization != nil:
 		return n.handleFinalization(msg.Finalization, from)
 	case msg.ReplicationResponse != nil:
-		n.handleReplicationResponse(msg.ReplicationResponse, from)
-		return nil
+		return n.handleReplicationResponse(msg.ReplicationResponse, from)
 	default:
 		n.Logger.Debug("Received unexpected message", zap.Any("Message", msg), zap.Stringer("from", from))
 		return nil
