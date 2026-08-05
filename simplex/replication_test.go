@@ -1965,7 +1965,7 @@ func setupFutureFinalization(t *testing.T, nodes []common.NodeID) (*simplex.Epoc
 	return e, storage, blocks
 }
 
-func replicateSeq(block common.VerifiedFinalizedBlock) *common.Message {
+func replicatedBlock(block common.VerifiedFinalizedBlock) *common.Message {
 	return &common.Message{ReplicationResponse: &common.ReplicationResponse{
 		Data: []common.QuorumRound{{
 			Block:        block.VerifiedBlock.(common.Block),
@@ -1981,7 +1981,7 @@ func TestReplicationIndexesFutureFinalization(t *testing.T) {
 	e, storage, blocks := setupFutureFinalization(t, nodes)
 
 	// filling the one real gap should commit seq 1 and then seq 2 from the rounds map
-	require.NoError(t, e.HandleMessage(replicateSeq(blocks[1]), nodes[1]))
+	require.NoError(t, e.HandleMessage(replicatedBlock(blocks[1]), nodes[1]))
 	storage.WaitForBlockCommit(1)
 	require.Eventually(t, func() bool { return storage.NumBlocks() == 3 },
 		5*time.Second, 10*time.Millisecond,
@@ -1994,9 +1994,9 @@ func TestReplicationRedeliversStoredFinalization(t *testing.T) {
 	nodes := []common.NodeID{{1}, {2}, {3}, {4}}
 	e, storage, blocks := setupFutureFinalization(t, nodes)
 
-	require.NoError(t, e.HandleMessage(replicateSeq(blocks[1]), nodes[1]))
+	require.NoError(t, e.HandleMessage(replicatedBlock(blocks[1]), nodes[1]))
 	storage.WaitForBlockCommit(1)
 
 	// a peer answering with seq 2, whose finalization round 2 already holds, must not fail
-	require.NoError(t, e.HandleMessage(replicateSeq(blocks[2]), nodes[1]))
+	require.NoError(t, e.HandleMessage(replicatedBlock(blocks[2]), nodes[1]))
 }
