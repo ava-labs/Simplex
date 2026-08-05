@@ -46,8 +46,8 @@ type InnerBlock struct {
 	bytes       []byte
 }
 
-func (i *InnerBlock) Bytes() ([]byte, error) {
-	return i.bytes, nil
+func (i *InnerBlock) Bytes() []byte {
+	return i.bytes
 }
 
 func (i *InnerBlock) Digest() [32]byte {
@@ -71,7 +71,7 @@ type fakeVMBlock struct {
 	height uint64
 }
 
-func (f *fakeVMBlock) Bytes() ([]byte, error) {
+func (f *fakeVMBlock) Bytes() []byte {
 	panic("implement me")
 }
 
