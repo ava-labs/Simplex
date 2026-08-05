@@ -141,15 +141,8 @@ func (mem *InMemStorage) Compare(other *InMemStorage) error {
 		}
 
 		// compare blocks
-		blockBytes, err := item.VerifiedBlock.Bytes()
-		if err != nil {
-			return fmt.Errorf("failed getting bytes for seq %d: %v", seq, err)
-		}
-
-		otherBlockBytes, err := otherItem.VerifiedBlock.Bytes()
-		if err != nil {
-			return fmt.Errorf("failed getting bytes for seq %d: %v", seq, err)
-		}
+		blockBytes := item.VerifiedBlock.Bytes()
+		otherBlockBytes := otherItem.VerifiedBlock.Bytes()
 
 		if !bytes.Equal(blockBytes, otherBlockBytes) {
 			return fmt.Errorf("blocks differ at seq %d", seq)

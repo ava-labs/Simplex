@@ -59,7 +59,7 @@ type VMBlock interface {
 	Verify(ctx context.Context, pChainHeight uint64) error
 
 	// Bytes returns the byte representation of this block.
-	Bytes() ([]byte, error)
+	Bytes() []byte
 }
 
 type Bitmask big.Int

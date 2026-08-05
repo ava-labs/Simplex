@@ -437,8 +437,7 @@ func TestReplicationRequestSeqsAndRoundsTruncated(t *testing.T) {
 	notarized := make([]common.VerifiedQuorumRound, 0, numNotarized)
 
 	for _, data := range blocks[numIndexed:] {
-		blockBytes, err := data.VerifiedBlock.Bytes()
-		require.NoError(t, err)
+		blockBytes := data.VerifiedBlock.Bytes()
 		br, err := common.BlockRecord(data.VerifiedBlock.BlockHeader(), blockBytes)
 		require.NoError(t, err)
 		require.NoError(t, wal.Append(br))
@@ -637,8 +636,7 @@ func TestReplicationRequestSizeLimitedBothLatest(t *testing.T) {
 		require.NoError(t, conf.Storage.Index(ctx, data.VerifiedBlock, data.Finalization))
 	}
 	notarizedBlock := blocks[4].VerifiedBlock
-	blockBytes, err := notarizedBlock.Bytes()
-	require.NoError(t, err)
+	blockBytes := notarizedBlock.Bytes()
 	br, err := common.BlockRecord(notarizedBlock.BlockHeader(), blockBytes)
 	require.NoError(t, err)
 	require.NoError(t, wal.Append(br))

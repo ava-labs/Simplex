@@ -117,7 +117,7 @@ type VerifiedBlock interface {
 	Blacklist() Blacklist
 
 	// Bytes returns a byte encoding of the block
-	Bytes() ([]byte, error)
+	Bytes() []byte
 
 	// Size returns the number of bytes in the encoding of the block
 	Size() int

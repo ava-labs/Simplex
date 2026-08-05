@@ -1271,3 +1271,107 @@ func (rc *recordingComm) Send(msg *Message, node NodeID) {
 }
 
 type epochExecution func(t *testing.T, e *Epoch, bb *testutil.TestBlockBuilder, storage *testutil.InMemStorage, wal *testutil.TestWAL)
+
+// TestNodeIsNotSuspectedAfterSigningALaterNotarization asserts that a node which timed out is not
+// accused once it has signed a notarization for a later round. persistNotarization records
+// redemption evidence with a plain assignment, so delivering the older notarization last
+// overwrites the fresher evidence and revives the accusation.
+func TestNodeIsNotSuspectedAfterSigningALaterNotarization(t *testing.T) {
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+
+	// We lead rounds 0 and 4. suspect leads round 1, times out there, and signs afterwards.
+	// Quorum(4) is 3, so the notarizations below are signed by nodes[0], nodes[1] and nodes[2].
+	const suspectIndex = 1
+	require.Equal(t, nodes[0], LeaderForRound(nodes, 4))
+	require.Equal(t, nodes[suspectIndex], LeaderForRound(nodes, 1))
+
+	bb := testutil.NewTestBlockBuilder()
+	comm := &recordingComm{
+		Communication:     testutil.NewNoopComm(nodes),
+		BroadcastMessages: make(chan *Message, 100),
+		SentMessages:      make(chan *Message, 100),
+	}
+
+	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], comm, bb)
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+
+	validators := e.Comm.Validators()
+	signers := validators.NodeIDs()[:Quorum(len(validators))]
+	require.Contains(t, signers, nodes[suspectIndex], "the node under test must sign the notarizations")
+
+	// storeProposalAndEmptyNotarize hands the epoch the round leader's proposal and then empty
+	// notarizes the round, so the block stays in the rounds map without a notarization.
+	storeProposalAndEmptyNotarize := func(round uint64) *testutil.TestBlock {
+		leader := LeaderForRound(nodes, round)
+		built, ok := bb.BuildBlock(context.Background(), e.Metadata(), Blacklist{NodeCount: uint16(len(validators))})
+		require.True(t, ok)
+
+		block := built.(*testutil.TestBlock)
+		require.Equal(t, round, block.BlockHeader().Round)
+
+		vote, err := testutil.NewTestVote(block, leader)
+		require.NoError(t, err)
+		require.NoError(t, e.HandleMessage(&Message{
+			BlockMessage: &BlockMessage{Vote: *vote, Block: block},
+		}, leader))
+
+		// Block verification is asynchronous, so wait for the proposal to be stored before
+		// leaving the round, otherwise its late notarization has no block to attach to.
+		wal.AssertBlockProposal(round)
+
+		advanceRoundFromEmpty(t, e)
+		return block
+	}
+
+	// Round 0 is notarized normally.
+	advanceRound(t, e, bb, true, false, nil)
+	require.Equal(t, uint64(1), e.Metadata().Round)
+
+	// Rounds 1 and 2 go empty, so nodes[1] is recorded as having timed out in round 1.
+	roundOneBlock := storeProposalAndEmptyNotarize(1)
+	roundTwoBlock := storeProposalAndEmptyNotarize(2)
+	require.Equal(t, uint64(3), e.Metadata().Round)
+
+	notarizationFor := func(block *testutil.TestBlock) Notarization {
+		notarization, err := testutil.NewNotarization(e.Logger, e.SignatureAggregatorCreator(validators), block, signers)
+		require.NoError(t, err)
+		return notarization
+	}
+
+	// Both notarizations arrive late, while we are in round 3, newest first. Neither advances the
+	// round, since they are both for rounds we have already left.
+	testutil.InjectTestNotarization(t, e, notarizationFor(roundTwoBlock), nodes[1])
+	testutil.InjectTestNotarization(t, e, notarizationFor(roundOneBlock), nodes[1])
+	require.Equal(t, uint64(3), e.Metadata().Round)
+
+	// Round 3 goes empty, which advances us into the round we lead.
+	advanceRoundFromEmpty(t, e)
+
+	// As leader of round 4 we propose, and the block carries the blacklist updates we computed.
+	var proposal VerifiedBlock
+	require.Eventually(t, func() bool {
+		for {
+			select {
+			case msg := <-comm.BroadcastMessages:
+				if msg.VerifiedBlockMessage == nil {
+					continue
+				}
+				if msg.VerifiedBlockMessage.VerifiedBlock.BlockHeader().Round == 4 {
+					proposal = msg.VerifiedBlockMessage.VerifiedBlock
+					return true
+				}
+			default:
+				return false
+			}
+		}
+	}, 5*time.Second, 10*time.Millisecond, "we never proposed a block for round 4")
+
+	for _, update := range proposal.Blacklist().Updates {
+		require.False(t, update.NodeIndex == suspectIndex && update.Type == BlacklistOpType_NodeSuspected,
+			"accused node %d of timing out in round 1, even though it signed the notarization for round 2",
+			suspectIndex)
+	}
+}
