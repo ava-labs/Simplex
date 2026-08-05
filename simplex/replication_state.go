@@ -6,6 +6,7 @@ package simplex
 import (
 	"math/rand/v2"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ava-labs/simplex/common"
@@ -30,7 +31,7 @@ type finalizedQuorumRound struct {
 }
 
 type ReplicationState struct {
-	enabled  bool
+	enabled  *atomic.Bool
 	logger   common.Logger
 	myNodeID common.NodeID
 	rand     *rand.Rand // Random number generator
@@ -61,16 +62,18 @@ type ReplicationState struct {
 }
 
 func NewReplicationState(logger common.Logger, comm Sender, myNodeID common.NodeID, maxRoundWindow uint64, enabled bool, start time.Time, lock *sync.Mutex, rng *rand.Rand) *ReplicationState {
+	isEnabled := &atomic.Bool{}
+	isEnabled.Store(enabled)
 	if !enabled {
 		return &ReplicationState{
-			enabled: enabled,
+			enabled: isEnabled,
 			logger:  logger,
 			rand:    rng,
 		}
 	}
 
 	r := &ReplicationState{
-		enabled:  enabled,
+		enabled:  isEnabled,
 		myNodeID: myNodeID,
 		logger:   logger,
 		rand:     rng,
@@ -94,7 +97,7 @@ func NewReplicationState(logger common.Logger, comm Sender, myNodeID common.Node
 }
 
 func (r *ReplicationState) AdvanceTime(now time.Time) {
-	if !r.enabled {
+	if !r.enabled.Load() {
 		return
 	}
 
@@ -161,7 +164,7 @@ func (r *ReplicationState) storeRound(qr *common.QuorumRound) {
 
 // StoreQuorumRound stores the quorum round into the replication state.
 func (r *ReplicationState) StoreQuorumRound(round *common.QuorumRound) {
-	if !r.enabled {
+	if !r.enabled.Load() {
 		return
 	}
 
@@ -193,7 +196,7 @@ func (r *ReplicationState) StoreQuorumRound(round *common.QuorumRound) {
 
 // receivedFutureFinalization notifies the replication state a finalization was created in a future round.
 func (r *ReplicationState) ReceivedFutureFinalization(finalization *common.Finalization, nextSeqToCommit uint64) {
-	if !r.enabled {
+	if !r.enabled.Load() {
 		return
 	}
 
@@ -209,7 +212,7 @@ func (r *ReplicationState) ReceivedFutureFinalization(finalization *common.Final
 
 // receivedFutureRound notifies the replication state of a future round.
 func (r *ReplicationState) ReceivedFutureRound(round, seq, currentRound uint64, signers []common.NodeID) {
-	if !r.enabled {
+	if !r.enabled.Load() {
 		return
 	}
 
@@ -224,7 +227,7 @@ func (r *ReplicationState) ReceivedFutureRound(round, seq, currentRound uint64, 
 
 // ResendFinalizationRequest notifies the replication state that `seq` should be re-requested.
 func (r *ReplicationState) ResendFinalizationRequest(seq uint64, signers []common.NodeID) {
-	if !r.enabled {
+	if !r.enabled.Load() {
 		return
 	}
 
@@ -253,7 +256,7 @@ func (r *ReplicationState) CreateDependencyTasks(parent *common.Digest, parentSe
 }
 
 func (r *ReplicationState) clearBlockDependencyTasks(digest common.Digest, seq uint64, finalizationPersisted bool) {
-	if !r.enabled {
+	if !r.enabled.Load() {
 		return
 	}
 
@@ -275,7 +278,7 @@ func (r *ReplicationState) clearBlockDependencyTasks(digest common.Digest, seq u
 // MaybeAdvanceState attempts to collect future sequences if
 // there are more to be collected and the round has caught up for us to send the request.
 func (r *ReplicationState) MaybeAdvanceState(nextSequenceToCommit uint64, currentRound uint64, lastCommittedRound uint64) {
-	if !r.enabled {
+	if !r.enabled.Load() {
 		return
 	}
 
@@ -398,7 +401,7 @@ func (r *ReplicationState) requestEmptyRounds(emptyRounds []uint64) {
 }
 
 func (r *ReplicationState) DeleteRound(round uint64) {
-	if !r.enabled {
+	if !r.enabled.Load() {
 		return
 	}
 
@@ -409,7 +412,7 @@ func (r *ReplicationState) DeleteRound(round uint64) {
 }
 
 func (r *ReplicationState) DeleteSeq(seq uint64) {
-	if !r.enabled {
+	if !r.enabled.Load() {
 		return
 	}
 
@@ -417,7 +420,7 @@ func (r *ReplicationState) DeleteSeq(seq uint64) {
 }
 
 func (r *ReplicationState) Close() {
-	if !r.enabled {
+	if !r.enabled.Load() {
 		return
 	}
 
@@ -425,4 +428,5 @@ func (r *ReplicationState) Close() {
 	r.emptyRoundTimeouts.Close()
 	r.roundRequestor.close()
 	r.finalizationRequestor.close()
+	r.enabled.Store(false)
 }
