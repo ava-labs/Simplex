@@ -223,7 +223,7 @@ func buildEpochChain(tb testing.TB, logger common.Logger) ([]*StateMachineBlock,
 			prevDigest = genesis.Digest()
 		}
 		md := common.ProtocolMetadata{Seq: seq, Round: round, Epoch: epoch, Prev: prevDigest}
-		block, err := sm.BuildBlock(ctx, md, nil)
+		block, err := sm.BuildBlock(ctx, md, emptyBlacklist)
 		require.NoError(tb, err)
 		return block
 	}
