@@ -38,7 +38,7 @@ type BasicNode struct {
 }
 
 func NewBasicNode(t *testing.T, epoch *simplex.Epoch, logger *TestLogger) *BasicNode {
-	currentTime := epoch.EpochConfig.StartTime.UnixMilli()
+	currentTime := epoch.StartTime.UnixMilli()
 	bn := BasicNode{
 		shouldStop: atomic.Bool{},
 		lock:       sync.RWMutex{},
@@ -97,7 +97,7 @@ func (b *BasicNode) handleMessages() {
 		if b.CustomHandler != nil {
 			err = b.CustomHandler(msg.msg, msg.from)
 		} else {
-			b.HandleMessage(msg.msg, msg.from)
+			err = b.HandleMessage(msg.msg, msg.from)
 		}
 		require.NoError(b.t, err)
 		if err != nil {
@@ -188,7 +188,10 @@ func (b *BasicNode) GetMessageTypesSent() map[string]uint64 {
 func UpdateEpochConfig(epochConfig *simplex.EpochConfig, testConfig *TestNodeConfig) {
 	// set the initial storage
 	for _, data := range testConfig.InitialStorage {
-		epochConfig.Storage.Index(context.Background(), data.VerifiedBlock, data.Finalization)
+		err := epochConfig.Storage.Index(context.Background(), data.VerifiedBlock, data.Finalization)
+		if err != nil {
+			testConfig.Logger.Panic("Failed to update epoch config", zap.Error(err))
+		}
 	}
 
 	// TODO: remove optional replication flag

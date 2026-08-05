@@ -84,7 +84,7 @@ func NewNode(t *testing.T, nodeID common.NodeID, net *testutil.BasicInMemoryNetw
 		isCrashed: atomic.Bool{},
 	}
 
-	n.BasicNode.CustomHandler = n.HandleMessage
+	n.CustomHandler = n.HandleMessage
 
 	return n
 }
