@@ -31,7 +31,7 @@ type finalizedQuorumRound struct {
 }
 
 type ReplicationState struct {
-	enabled  *atomic.Bool
+	enabled  atomic.Bool
 	logger   common.Logger
 	myNodeID common.NodeID
 	rand     *rand.Rand // Random number generator
@@ -62,18 +62,14 @@ type ReplicationState struct {
 }
 
 func NewReplicationState(logger common.Logger, comm Sender, myNodeID common.NodeID, maxRoundWindow uint64, enabled bool, start time.Time, lock *sync.Mutex, rng *rand.Rand) *ReplicationState {
-	isEnabled := &atomic.Bool{}
-	isEnabled.Store(enabled)
 	if !enabled {
 		return &ReplicationState{
-			enabled: isEnabled,
-			logger:  logger,
-			rand:    rng,
+			logger: logger,
+			rand:   rng,
 		}
 	}
 
 	r := &ReplicationState{
-		enabled:  isEnabled,
 		myNodeID: myNodeID,
 		logger:   logger,
 		rand:     rng,
@@ -89,6 +85,7 @@ func NewReplicationState(logger common.Logger, comm Sender, myNodeID common.Node
 		sender:    comm,
 		epochLock: lock,
 	}
+	r.enabled.Store(true)
 
 	r.digestTimeouts = common.NewTimeoutHandler(logger, "digest", start, DefaultReplicationRequestTimeout, r.requestDigests)
 	r.emptyRoundTimeouts = common.NewTimeoutHandler(logger, "empty round replication", start, DefaultReplicationRequestTimeout, r.requestEmptyRounds)
