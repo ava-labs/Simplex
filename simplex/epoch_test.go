@@ -1931,8 +1931,7 @@ func TestBlockDeserializer(t *testing.T) {
 
 	ctx := context.Background()
 	tb := testutil.NewTestBlock(ProtocolMetadata{Seq: 1, Round: 2, Epoch: 3}, emptyBlacklist)
-	tbBytes, err := tb.Bytes()
-	require.NoError(t, err)
+	tbBytes := tb.Bytes()
 	tb2, err := blockDeserializer.DeserializeBlock(ctx, tbBytes)
 	require.NoError(t, err)
 	require.Equal(t, tb.BlockHeader().Digest, tb2.BlockHeader().Digest)

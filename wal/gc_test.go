@@ -227,8 +227,7 @@ func TestGarbageCollectedWALAppendOutOfOrder(t *testing.T) {
 
 	blockRecord := func(round uint64) []byte {
 		b := walRecordBlock(round)
-		raw, err := b.Bytes()
-		require.NoError(t, err)
+		raw := b.Bytes()
 		bytes, err := common.BlockRecord(b.BlockHeader(), raw)
 		require.NoError(t, err)
 		return bytes

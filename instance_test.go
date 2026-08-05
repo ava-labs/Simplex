@@ -740,8 +740,7 @@ func TestParseBlockSizeMatchesBytes(t *testing.T) {
 			},
 		},
 	}
-	bytes, err := pb.Bytes()
-	require.NoError(t, err)
+	bytes := pb.Bytes()
 	require.Equal(t, len(bytes), pb.Size())
 
 	// Case 2: Size() first on a non serialized block. it will
@@ -771,8 +770,7 @@ func TestParseBlockSizeMatchesBytes(t *testing.T) {
 	}
 	size := pb2.Size()
 	require.NotZero(t, size)
-	bytes2, err := pb2.Bytes()
-	require.NoError(t, err)
+	bytes2 := pb2.Bytes()
 	require.Equal(t, len(bytes2), size)
 
 	// case 3: cincurrent Size() calls on a block that was never serialized.
@@ -812,8 +810,7 @@ func TestParseBlockSizeMatchesBytes(t *testing.T) {
 		}()
 	}
 	wg.Wait()
-	bytes3, err := pb3.Bytes()
-	require.NoError(t, err)
+	bytes3 := pb3.Bytes()
 	for _, size := range sizes {
 		require.Equal(t, len(bytes3), size)
 	}
@@ -1028,16 +1025,16 @@ type testInnerBlock struct {
 	Payload []byte
 }
 
-func (b *testInnerBlock) Bytes() ([]byte, error) {
+func (b *testInnerBlock) Bytes() []byte {
 	out := make([]byte, 16, 16+len(b.Payload))
 	binary.BigEndian.PutUint64(out[0:8], b.Height_)
 	binary.BigEndian.PutUint64(out[8:16], uint64(b.TS.UnixMilli()))
 	out = append(out, b.Payload...)
-	return out, nil
+	return out
 }
 
 func (b *testInnerBlock) Digest() [32]byte {
-	bytes, _ := b.Bytes()
+	bytes := b.Bytes()
 	return sha256.Sum256(bytes)
 }
 
@@ -1270,10 +1267,7 @@ func NewMockStorage(t *testing.T) *MockStorage {
 
 func (m *MockStorage) Index(ctx context.Context, block common.VerifiedBlock, certificate common.Finalization) error {
 	// We serialized the block so that the original reference isn't shared with other goroutines that may concurrently mutate it.
-	encoded, err := block.Bytes()
-	if err != nil {
-		return err
-	}
+	encoded := block.Bytes()
 	seq := m.InMemStorage.NumBlocks()
 	m.snapLock.Lock()
 	m.blocks[seq] = storedBlock{rawBlock: encoded, fin: certificate}
@@ -1445,8 +1439,7 @@ func (n *inMemNetwork) dispatch(inst *Instance, m netMsg) {
 // toRawBlock re-encodes a verified block into the wire RawBlock the receiving
 // instance parses in HandleBlockMessage.
 func toRawBlock(t *testing.T, vb common.VerifiedBlock) *metadata.RawBlock {
-	bytes, err := vb.Bytes()
-	require.NoError(t, err)
+	bytes := vb.Bytes()
 	raw := &metadata.RawBlock{}
 	require.NoError(t, raw.UnmarshalCanoto(bytes))
 	return raw

@@ -133,18 +133,14 @@ func (smb *StateMachineBlock) SealingBlockInfo() *common.SealingBlockInfo {
 	}
 }
 
-func (smb *StateMachineBlock) Bytes() ([]byte, error) {
+func (smb *StateMachineBlock) Bytes() []byte {
 	var innerBlockBytes []byte
 	if smb.InnerBlock != nil {
-		rawInnerBlock, err := smb.InnerBlock.Bytes()
-		if err != nil {
-			return nil, err
-		}
-		innerBlockBytes = rawInnerBlock
+		innerBlockBytes = smb.InnerBlock.Bytes()
 	}
 	rawBlock := &RawBlock{
 		Metadata:        smb.Metadata.Clone(),
 		InnerBlockBytes: innerBlockBytes,
 	}
-	return rawBlock.MarshalCanoto(), nil
+	return rawBlock.MarshalCanoto()
 }
