@@ -2585,11 +2585,10 @@ func (e *Epoch) createBlockBuildingTask(metadata common.ProtocolMetadata, blackl
 		e.lock.Lock()
 		defer e.lock.Unlock()
 
+		cancelled := context.Err() != nil
 		cancel()
 		if !ok {
-			select {
-			case <-context.Done():
-			default:
+			if !cancelled {
 				e.Logger.Warn("Failed building block")
 			}
 			return common.Digest{}

@@ -11,6 +11,7 @@ import (
 
 	"github.com/ava-labs/simplex/common"
 	metadata "github.com/ava-labs/simplex/msm"
+	"go.uber.org/zap"
 )
 
 type Communication struct {
@@ -191,6 +192,7 @@ type BlockBuilderWaiter struct {
 	cancel context.CancelFunc
 	msm    *metadata.StateMachine
 	vm     VM
+	logger common.Logger
 }
 
 func (bw *BlockBuilderWaiter) stop() {
@@ -217,6 +219,9 @@ func (bw *BlockBuilderWaiter) WaitForPendingBlock(ctx context.Context) {
 func (bw *BlockBuilderWaiter) BuildBlock(ctx context.Context, metadata common.ProtocolMetadata, blacklist common.Blacklist) (common.VerifiedBlock, bool) {
 	block, err := bw.msm.BuildBlock(ctx, metadata, blacklist)
 	if err != nil {
+		if ctx.Err() == nil {
+			bw.logger.Warn("Failed building block", zap.Error(err))
+		}
 		return nil, false
 	}
 
