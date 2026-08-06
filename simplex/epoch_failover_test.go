@@ -63,9 +63,9 @@ func TestEpochLeaderFailoverWithEmptyNotarization(t *testing.T) {
 	notarizeAndFinalizeRound(t, e, bb)
 
 	emptyNotarization := testutil.NewEmptyNotarization(nodes[:3], 2)
-	e.HandleMessage(&Message{
+	require.NoError(t, e.HandleMessage(&Message{
 		EmptyNotarization: emptyNotarization,
-	}, nodes[1])
+	}, nodes[1]))
 
 	notarizeAndFinalizeRoundWithMetadata(t, e, bb, &block1.Metadata)
 
@@ -156,12 +156,12 @@ func TestEpochLeaderFailoverReceivesEmptyVotesEarly(t *testing.T) {
 
 	emptyVoteFrom1 := createEmptyVote(emptyBlockMd, nodes[1])
 	emptyVoteFrom2 := createEmptyVote(emptyBlockMd, nodes[2])
-	e.HandleMessage(&Message{
+	require.NoError(t, e.HandleMessage(&Message{
 		EmptyVoteMessage: emptyVoteFrom1,
-	}, nodes[1])
-	e.HandleMessage(&Message{
+	}, nodes[1]))
+	require.NoError(t, e.HandleMessage(&Message{
 		EmptyVoteMessage: emptyVoteFrom2,
-	}, nodes[2])
+	}, nodes[2]))
 
 	bb.BlockShouldBeBuilt <- struct{}{}
 
@@ -221,9 +221,9 @@ func TestReceiveEmptyNotarizationWithNoQC(t *testing.T) {
 
 	emptyNotarization := testutil.NewEmptyNotarization(nodes[:3], 0)
 
-	e.HandleMessage(&Message{
+	require.NoError(t, e.HandleMessage(&Message{
 		EmptyNotarization: &EmptyNotarization{Vote: emptyNotarization.Vote},
-	}, nodes[0])
+	}, nodes[0]))
 }
 
 func TestEpochLeaderFailover(t *testing.T) {
@@ -259,12 +259,12 @@ func TestEpochLeaderFailover(t *testing.T) {
 		emptyVoteFrom1 := createEmptyVote(emptyBlockMd, nodes[1])
 		emptyVoteFrom2 := createEmptyVote(emptyBlockMd, nodes[2])
 
-		e.HandleMessage(&Message{
+		require.NoError(t, e.HandleMessage(&Message{
 			EmptyVoteMessage: emptyVoteFrom1,
-		}, nodes[1])
-		e.HandleMessage(&Message{
+		}, nodes[1]))
+		require.NoError(t, e.HandleMessage(&Message{
 			EmptyVoteMessage: emptyVoteFrom2,
-		}, nodes[2])
+		}, nodes[2]))
 
 		walContent, err := wal.ReadAll()
 		require.NoError(t, err)
@@ -449,7 +449,6 @@ func TestEpochLeaderFailoverInLeaderRound(t *testing.T) {
 		case msg := <-recordedMessages:
 			if msg.VerifiedBlockMessage != nil {
 				sentBlockMessage = true
-				break
 			}
 		}
 	}
@@ -463,12 +462,12 @@ func TestEpochLeaderFailoverInLeaderRound(t *testing.T) {
 	emptyVoteFrom1 := createEmptyVote(md, nodes[1])
 	emptyVoteFrom2 := createEmptyVote(md, nodes[2])
 
-	e.HandleMessage(&Message{
+	require.NoError(t, e.HandleMessage(&Message{
 		EmptyVoteMessage: emptyVoteFrom1,
-	}, nodes[1])
-	e.HandleMessage(&Message{
+	}, nodes[1]))
+	require.NoError(t, e.HandleMessage(&Message{
 		EmptyVoteMessage: emptyVoteFrom2,
-	}, nodes[2])
+	}, nodes[2]))
 
 	startTime := e.StartTime
 	testutil.WaitForBlockProposerTimeout(t, e, &startTime, md.Round)
@@ -611,12 +610,12 @@ func TestEpochLeaderFailoverAfterProposal(t *testing.T) {
 		emptyVoteFrom1 := createEmptyVote(md, nodes[1])
 		emptyVoteFrom2 := createEmptyVote(md, nodes[2])
 
-		e.HandleMessage(&Message{
+		require.NoError(t, e.HandleMessage(&Message{
 			EmptyVoteMessage: emptyVoteFrom1,
-		}, nodes[1])
-		e.HandleMessage(&Message{
+		}, nodes[1]))
+		require.NoError(t, e.HandleMessage(&Message{
 			EmptyVoteMessage: emptyVoteFrom2,
-		}, nodes[2])
+		}, nodes[2]))
 
 		// Ensure our node proposes block with sequence 3 for round 4
 		block, _ := notarizeAndFinalizeRound(t, e, bb)
@@ -672,12 +671,12 @@ func TestEpochLeaderFailoverTwice(t *testing.T) {
 		emptyVoteFrom2 := createEmptyVote(md, nodes[2])
 		emptyVoteFrom3 := createEmptyVote(md, nodes[3])
 
-		e.HandleMessage(&Message{
+		require.NoError(t, e.HandleMessage(&Message{
 			EmptyVoteMessage: emptyVoteFrom2,
-		}, nodes[2])
-		e.HandleMessage(&Message{
+		}, nodes[2]))
+		require.NoError(t, e.HandleMessage(&Message{
 			EmptyVoteMessage: emptyVoteFrom3,
-		}, nodes[3])
+		}, nodes[3]))
 
 		wal.AssertNotarization(2)
 
@@ -695,12 +694,12 @@ func TestEpochLeaderFailoverTwice(t *testing.T) {
 			emptyVoteFrom1 := createEmptyVote(md, nodes[1])
 			emptyVoteFrom3 = createEmptyVote(md, nodes[3])
 
-			e.HandleMessage(&Message{
+			require.NoError(t, e.HandleMessage(&Message{
 				EmptyVoteMessage: emptyVoteFrom1,
-			}, nodes[1])
-			e.HandleMessage(&Message{
+			}, nodes[1]))
+			require.NoError(t, e.HandleMessage(&Message{
 				EmptyVoteMessage: emptyVoteFrom3,
-			}, nodes[3])
+			}, nodes[3]))
 
 			wal.AssertNotarization(3)
 
@@ -748,9 +747,9 @@ func TestEpochLeaderFailoverGarbageCollectedEmptyVotes(t *testing.T) {
 	l.Intercept(func(entry zapcore.Entry) error {
 		if strings.Contains(entry.Message, "It is time to build a block") && e.Storage.NumBlocks() == 3 {
 			emptyNotarization := testutil.NewEmptyNotarization(nodes[1:], 3)
-			e.HandleMessage(&Message{
+			require.NoError(t, e.HandleMessage(&Message{
 				EmptyNotarization: emptyNotarization,
-			}, nodes[1])
+			}, nodes[1]))
 
 			waitForTimeoutOnce.Do(waitForTimeout.Done)
 		}
@@ -776,7 +775,7 @@ func TestEpochLeaderFailoverGarbageCollectedEmptyVotes(t *testing.T) {
 	waitForTimeout.Wait()
 
 	startTime := e.StartTime
-	startTime = startTime.Add(e.EpochConfig.MaxProposalWait)
+	startTime = startTime.Add(e.MaxProposalWait)
 	e.AdvanceTime(startTime)
 
 	// The empty notarization advanced us past round 3 while a
@@ -831,12 +830,12 @@ func TestEpochLeaderFailoverBecauseOfBadBlock(t *testing.T) {
 	emptyVoteFrom1 := createEmptyVote(emptyVoteMD, nodes[0])
 	emptyVoteFrom2 := createEmptyVote(emptyVoteMD, nodes[2])
 
-	e.HandleMessage(&Message{
+	require.NoError(t, e.HandleMessage(&Message{
 		EmptyVoteMessage: emptyVoteFrom1,
-	}, nodes[0])
-	e.HandleMessage(&Message{
+	}, nodes[0]))
+	require.NoError(t, e.HandleMessage(&Message{
 		EmptyVoteMessage: emptyVoteFrom2,
-	}, nodes[2])
+	}, nodes[2]))
 
 	testutil.WaitForBlockProposerTimeout(t, e, &e.StartTime, 1)
 
@@ -973,12 +972,12 @@ func TestEpochBlacklist(t *testing.T) {
 	emptyVoteFrom1 := createEmptyVote(emptyBlockMd, nodes[1])
 	emptyVoteFrom2 := createEmptyVote(emptyBlockMd, nodes[2])
 
-	e.HandleMessage(&Message{
+	require.NoError(t, e.HandleMessage(&Message{
 		EmptyVoteMessage: emptyVoteFrom1,
-	}, nodes[1])
-	e.HandleMessage(&Message{
+	}, nodes[1]))
+	require.NoError(t, e.HandleMessage(&Message{
 		EmptyVoteMessage: emptyVoteFrom2,
-	}, nodes[2])
+	}, nodes[2]))
 
 	wal.AssertNotarization(emptyBlockMd.Round)
 
@@ -1000,7 +999,7 @@ func TestEpochBlacklist(t *testing.T) {
 	blacklist.SuspectedNodes = []SuspectedNode{{NodeIndex: 3, SuspectingCount: 2, OrbitSuspected: 1}}
 
 	// Build the block and prime it to be proposed in the next round
-	block, _ = bb.BuildBlock(context.Background(), e.Metadata(), blacklist)
+	bb.BuildBlock(context.Background(), e.Metadata(), blacklist)
 
 	// Agree on the block
 	block, _ = notarizeAndFinalizeRound(t, e, bb)
@@ -1012,8 +1011,8 @@ func TestEpochBlacklist(t *testing.T) {
 	// Do it again but preserve the blacklist until we get to the round of the last node.
 	// This time, there are no updates to the blacklist, it just carries over.
 	blacklist.Updates = nil
-	block, _ = bb.BuildBlock(context.Background(), e.Metadata(), blacklist)
-	block, _ = notarizeAndFinalizeRound(t, e, bb)
+	bb.BuildBlock(context.Background(), e.Metadata(), blacklist)
+	notarizeAndFinalizeRound(t, e, bb)
 
 	// The next round is the fourth node's round, and since it is blacklisted,
 	// we should not time out but immediately vote on the empty block.
@@ -1032,12 +1031,12 @@ func TestEpochBlacklist(t *testing.T) {
 	emptyVoteFrom1 = createEmptyVote(emptyBlockMd, nodes[1])
 	emptyVoteFrom2 = createEmptyVote(emptyBlockMd, nodes[2])
 
-	e.HandleMessage(&Message{
+	require.NoError(t, e.HandleMessage(&Message{
 		EmptyVoteMessage: emptyVoteFrom1,
-	}, nodes[1])
-	e.HandleMessage(&Message{
+	}, nodes[1]))
+	require.NoError(t, e.HandleMessage(&Message{
 		EmptyVoteMessage: emptyVoteFrom2,
-	}, nodes[2])
+	}, nodes[2]))
 
 	wal.AssertNotarization(7)
 
@@ -1071,12 +1070,12 @@ func TestEpochBlacklist(t *testing.T) {
 	emptyVoteFrom1 = createEmptyVote(emptyBlockMd, nodes[1])
 	emptyVoteFrom2 = createEmptyVote(emptyBlockMd, nodes[2])
 
-	e.HandleMessage(&Message{
+	require.NoError(t, e.HandleMessage(&Message{
 		EmptyVoteMessage: emptyVoteFrom1,
-	}, nodes[1])
-	e.HandleMessage(&Message{
+	}, nodes[1]))
+	require.NoError(t, e.HandleMessage(&Message{
 		EmptyVoteMessage: emptyVoteFrom2,
-	}, nodes[2])
+	}, nodes[2]))
 
 	wal.AssertNotarization(11)
 
@@ -1104,7 +1103,7 @@ func TestEpochBlacklist(t *testing.T) {
 
 	require.Equal(t, conf.ID, LeaderForRound(nodes, block.BlockHeader().Round))
 	bb.SetBuiltBlock(block.(*testutil.TestBlock)) // Insert the block built by the block builder back into block builder so it will re-propose it
-	block, _ = notarizeAndFinalizeRound(t, e, bb)
+	notarizeAndFinalizeRound(t, e, bb)
 
 	// The next blacklist garbage collects node 3 from the blacklist.
 
@@ -1113,15 +1112,15 @@ func TestEpochBlacklist(t *testing.T) {
 		Updates:   []BlacklistUpdate{{Type: BlacklistOpType_NodeRedeemed, NodeIndex: 3}},
 	}
 
-	block, _ = bb.BuildBlock(context.Background(), e.Metadata(), blacklist)
-	block, _ = notarizeAndFinalizeRound(t, e, bb)
+	bb.BuildBlock(context.Background(), e.Metadata(), blacklist)
+	notarizeAndFinalizeRound(t, e, bb)
 
 	// Node 4 can now propose a block
 	blacklist = Blacklist{
 		NodeCount: 4,
 	}
 
-	block, _ = bb.BuildBlock(context.Background(), e.Metadata(), blacklist)
+	bb.BuildBlock(context.Background(), e.Metadata(), blacklist)
 	notarizeAndFinalizeRound(t, e, bb)
 }
 
@@ -1180,9 +1179,9 @@ func TestEpochRebroadcastsEmptyVote(t *testing.T) {
 	}
 
 	emptyNotarization := testutil.NewEmptyNotarization(nodes, 0)
-	e.HandleMessage(&Message{
+	require.NoError(t, e.HandleMessage(&Message{
 		EmptyNotarization: emptyNotarization,
-	}, nodes[2])
+	}, nodes[2]))
 
 	wal.AssertNotarization(0)
 

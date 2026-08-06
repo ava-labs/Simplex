@@ -594,7 +594,6 @@ func constructEpochAndValidatorSet(logger common.Logger, lastNonSimplexInnerBloc
 	switch {
 	// If all we have in the ledger is non-Simplex blocks, load the validator set from genesis
 	case lastNonSimplexInnerBlockHeight+1 == numBlocks:
-		validatorSet = genesisValidatorSet
 		nodes = validatorSetToNodes(genesisValidatorSet)
 		epochNum = lastNonSimplexInnerBlockHeight + 1
 		logger.Debug("Determined epoch and validator set from genesis (ledger holds only non-Simplex blocks)",
@@ -602,7 +601,6 @@ func constructEpochAndValidatorSet(logger common.Logger, lastNonSimplexInnerBloc
 	// If the last block persisted is a sealing block, then we are in the next epoch.
 	case lastBlock.SealingBlockInfo() != nil:
 		epochNum = lastBlock.BlockHeader().Seq
-		validatorSet = constructValidatorSetFromSealingBlock(lastBlock)
 		nodes = lastBlock.SealingBlockInfo().ValidatorSet
 		logger.Debug("Determined epoch and validator set from sealing block at tip",
 			zap.Uint64("epoch", epochNum))

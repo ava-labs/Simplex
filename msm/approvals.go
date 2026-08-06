@@ -70,13 +70,13 @@ func (as *ApprovalStore) Approvals() ValidatorSetApprovals {
 	return approvals
 }
 
-func (as *ApprovalStore) HandleApproval(approval *common.ValidatorSetApproval, timestamp uint64) error {
+func (as *ApprovalStore) HandleApproval(approval *common.ValidatorSetApproval, timestamp uint64) {
 	// First thing we check is if the node that sent this approval is a validator.
 	pk, exists := as.nodeIDToPK[avalanchego.NodeID(approval.NodeID)]
 	if !exists {
 		as.logger.Debug("Received an approval from a node that is not a validator", zap.String("nodeID",
 			fmt.Sprintf("%x", approval.NodeID)), zap.Uint64("pChainHeight", approval.PChainHeight))
-		return nil
+		return
 	}
 
 	// Second thing we check is if the signature of the approval is valid.
@@ -85,7 +85,7 @@ func (as *ApprovalStore) HandleApproval(approval *common.ValidatorSetApproval, t
 	if err := as.checkApprovalSignature(approval, pk); err != nil {
 		as.logger.Debug("Received an approval with an invalid signature", zap.String("nodeID",
 			fmt.Sprintf("%x", approval.NodeID)), zap.Uint64("pChainHeight", approval.PChainHeight))
-		return nil
+		return
 	}
 
 	as.lock.Lock()
@@ -95,7 +95,7 @@ func (as *ApprovalStore) HandleApproval(approval *common.ValidatorSetApproval, t
 	if as.approvalExistsAndUpToDate(approval, timestamp) {
 		as.logger.Debug("Already have an approval from the node", zap.String("nodeID",
 			fmt.Sprintf("%x", approval.NodeID)), zap.Uint64("pChainHeight", approval.PChainHeight))
-		return nil
+		return
 	}
 
 	key := approvalKey{
@@ -117,8 +117,6 @@ func (as *ApprovalStore) HandleApproval(approval *common.ValidatorSetApproval, t
 	// We only store the last |as.validators| of approvals for each node,
 	// so we need to delete old approvals if we have more than |as.validators| approvals stored for this node.
 	as.maybePruneOldApprovals(approval)
-
-	return nil
 }
 
 func (as *ApprovalStore) maybePruneOldApprovals(approval *common.ValidatorSetApproval) {

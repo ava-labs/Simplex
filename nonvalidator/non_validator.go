@@ -144,7 +144,7 @@ func (n *NonValidator) HandleMessage(msg *common.Message, from common.NodeID) er
 		return nil
 	}
 
-	n.Config.Logger.Debug("Received a message", zap.Any("Message", msg), zap.Stringer("from", from))
+	n.Logger.Debug("Received a message", zap.Any("Message", msg), zap.Stringer("from", from))
 
 	if n.haltedError != nil {
 		return n.haltedError
@@ -566,7 +566,7 @@ func (n *NonValidator) sendRequest(seq uint64, to common.NodeID) {
 
 	n.Logger.Debug("Sending sealing block request", zap.Uint64("Requesting Seq", seq))
 
-	n.Config.Comm.Send(&common.Message{
+	n.Comm.Send(&common.Message{
 		ReplicationRequest: &request,
 	}, to)
 }

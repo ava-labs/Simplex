@@ -118,7 +118,7 @@ func TestPoS(t *testing.T) {
 				continue
 			}
 			n.BlockShouldBeBuilt()
-			n.AdvanceTime(n.E.EpochConfig.MaxProposalWait / 4)
+			n.AdvanceTime(n.E.MaxProposalWait / 4)
 		}
 
 		time.Sleep(time.Millisecond * 100)
@@ -149,7 +149,7 @@ func TestPoS(t *testing.T) {
 				continue
 			}
 			n.BlockShouldBeBuilt()
-			n.AdvanceTime(n.E.EpochConfig.MaxProposalWait / 4)
+			n.AdvanceTime(n.E.MaxProposalWait / 4)
 			if n.WAL.ContainsEmptyVote(15) {
 				timedOut[i] = struct{}{}
 			}

@@ -145,7 +145,7 @@ func (tl *testLogger) Verbo(msg string, fields ...zap.Field) {
 }
 
 func (t *testLogger) intercept(hook func(entry zapcore.Entry) error) {
-	logger := t.Logger.WithOptions(zap.Hooks(hook))
+	logger := t.WithOptions(zap.Hooks(hook))
 	t.Logger = logger
 }
 

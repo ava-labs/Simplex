@@ -410,7 +410,7 @@ func TestNonValidator_Bootstrap(t *testing.T) {
 			setup: func(t *testing.T) *testChain {
 				tc := newSnowToSimplexChain(t, 10)
 				firstBlock := tc.appendFirstSimplexAfterGenesis(testNodes)
-				tc.Index(context.Background(), firstBlock, tc.newFinalization(firstBlock))
+				require.NoError(t, tc.Index(context.Background(), firstBlock, tc.newFinalization(firstBlock)))
 				return tc
 			},
 			maxSequenceWindow: 50,
@@ -423,7 +423,7 @@ func TestNonValidator_Bootstrap(t *testing.T) {
 			setup: func(t *testing.T) *testChain {
 				tc := newSnowToSimplexChain(t, 10)
 				firstBlock := tc.appendFirstSimplexAfterGenesis(testNodes)
-				tc.Index(context.Background(), firstBlock, tc.newFinalization(firstBlock))
+				require.NoError(t, tc.Index(context.Background(), firstBlock, tc.newFinalization(firstBlock)))
 				tc.indexEpochs(20, 30)
 				return tc
 			},

@@ -69,7 +69,7 @@ func (n *Network) StartInstances() {
 
 func (n *Network) Run() {
 	n.BasicInMemoryNetwork.StartInstances()
-	defer n.BasicInMemoryNetwork.StopInstances()
+	defer n.StopInstances()
 
 	targetHeight := uint64(n.config.NumFinalizedBlocks)
 
@@ -95,7 +95,9 @@ func (n *Network) Run() {
 	}
 
 	// if we have gotten this far, the test has succeeded so we can clear the log directory
-	clearLogDirectory(n.config.LogDirectory)
+	if err := clearLogDirectory(n.config.LogDirectory); err != nil {
+		n.t.Fatal(err)
+	}
 }
 
 func (n *Network) getMinHeightNodeID() common.NodeID {
@@ -134,7 +136,7 @@ func (n *Network) recoverToHeight(height uint64) {
 		}
 
 		n.lock.Lock()
-		n.BasicInMemoryNetwork.AdvanceTime(n.config.AdvanceTimeTickAmount)
+		n.AdvanceTime(n.config.AdvanceTimeTickAmount)
 		n.lock.Unlock()
 	}
 
@@ -187,7 +189,7 @@ func (n *Network) waitForTxAcceptance(txs []*TX) {
 
 		n.lock.Lock()
 		n.logger.Debug("Advancing network time to wait for tx acceptance", zap.Uint64("num crashed nodes", n.numCrashedNodes()))
-		n.BasicInMemoryNetwork.AdvanceTime(n.config.AdvanceTimeTickAmount)
+		n.AdvanceTime(n.config.AdvanceTimeTickAmount)
 		n.lock.Unlock()
 
 		time.Sleep(20 * time.Millisecond)
@@ -321,7 +323,7 @@ func (n *Network) startNode(idx int) {
 		logger:  instance.logger,
 	})
 	n.nodes[idx] = newNode
-	n.BasicInMemoryNetwork.ReplaceNode(newNode.BasicNode)
+	n.ReplaceNode(newNode.BasicNode)
 
 	newNode.Start()
 }

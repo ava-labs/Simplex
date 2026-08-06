@@ -80,7 +80,7 @@ var (
 	errSealingBlockSeqUnset           = errors.New("cannot build epoch sealed block: sealing block sequence is 0 or undefined")
 	errEmptyNextEpochApprovals        = errors.New("next epoch approvals are empty")
 	errPChainReferenceHeightMismatch  = errors.New("unexpected P-chain reference height")
-	errPChainReferenceHeightDecreased = errors.New("P-chain reference height is decreasing")
+	errPChainReferenceHeightDecreased = errors.New("p-chain reference height is decreasing")
 	errValidatorSetUnchanged          = errors.New("validator set unchanged; next P-chain reference height should not have advanced")
 	errPChainHeightNotReached         = errors.New("haven't reached referenced P-chain height yet")
 	errPChainHeightTooBig             = errors.New("invalid P-chain height: greater than current")
@@ -242,7 +242,7 @@ func NewStateMachine(config *Config) (*StateMachine, error) {
 	return &sm, nil
 }
 
-func (sm *StateMachine) HandleApproval(approval *common.ValidatorSetApproval, timestamp uint64) error {
+func (sm *StateMachine) HandleApproval(approval *common.ValidatorSetApproval, timestamp uint64) {
 	sm.lock.Lock()
 	approvalStore := sm.approvalStore
 	sm.lock.Unlock()
@@ -251,10 +251,10 @@ func (sm *StateMachine) HandleApproval(approval *common.ValidatorSetApproval, ti
 		sm.Logger.Debug("Approval store is not initialized, ignoring approval",
 			zap.String("nodeID", fmt.Sprintf("%x", approval.NodeID)),
 			zap.Uint64("pChainHeight", approval.PChainHeight))
-		return nil
+		return
 	}
 
-	return approvalStore.HandleApproval(approval, timestamp)
+	approvalStore.HandleApproval(approval, timestamp)
 }
 
 func (sm *StateMachine) maybeInitializeApprovalStore(validatorSet NodeBLSMappings) *ApprovalStore {
