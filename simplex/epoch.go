@@ -2585,8 +2585,6 @@ func (e *Epoch) createBlockBuildingTask(metadata common.ProtocolMetadata, blackl
 		e.lock.Lock()
 		defer e.lock.Unlock()
 
-		// Record cancellation before cancel() closes the context,
-		// otherwise a genuine build failure is indistinguishable from a cancelled one.
 		cancelled := context.Err() != nil
 		cancel()
 		if !ok {
