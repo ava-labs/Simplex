@@ -220,7 +220,7 @@ func (bw *BlockBuilderWaiter) BuildBlock(ctx context.Context, metadata common.Pr
 	block, err := bw.msm.BuildBlock(ctx, metadata, blacklist)
 	if err != nil {
 		if ctx.Err() == nil {
-			bw.logger.Warn("Failed building block", zap.Error(err))
+			bw.logger.Debug("Failed building block", zap.Error(err))
 		}
 		return nil, false
 	}
