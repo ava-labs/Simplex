@@ -115,8 +115,9 @@ func (cs *CachedStorage) Retrieve(seq uint64, digest common.Digest) (common.Veri
 	cs.lock.RLock()
 	item, exists := cs.cache[digest]
 	if !exists && digest == (common.Digest{}) {
-		// Seq-only lookups pass a zero digest, so scan the cache by seq.
-		// Otherwise a verified but not yet finalized block is invisible to them.
+		// A zero digest means the caller only knows the seq. The cache is keyed
+		// by digest, so scan it by seq to serve blocks that are verified but not
+		// yet indexed.
 		for i := range cs.cache {
 			cb := cs.cache[i].ParsedBlock
 			md := &cb.Metadata
