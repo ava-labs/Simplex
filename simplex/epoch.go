@@ -788,6 +788,7 @@ func (e *Epoch) Stop() {
 	e.buildBlockScheduler.Close()
 	e.timeoutHandler.Close()
 	e.replicationState.Close()
+	e.Logger.Info("Node shutdown complete")
 }
 
 func (e *Epoch) isEpochSealed() bool {

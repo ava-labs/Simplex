@@ -26,7 +26,7 @@ const (
 
 type Config struct {
 	// LastNonSimplexInnerBlock is the last non-simplex inner block that was persisted to storage.
-	// This is used to determine the current epoch and validator set.
+	// The genesis validator state from pchain is used to determine the current epoch and validator set. Can be the genesis block
 	LastNonSimplexInnerBlock avalanchego.VMBlock
 	// ParameterConfig is the configuration for the simplex instance.
 	ParameterConfig ParameterConfig
@@ -34,18 +34,22 @@ type Config struct {
 	PlatformChain PlatformChain
 	// Broadcaster is the interface to broadcast messages to other nodes in the network.
 	Broadcaster Broadcaster
+	// Sender is an interface to send messages to a specific node in the network
+	Sender Sender
 	// CryptoOps is the interface to the cryptographic operations needed by the simplex instance.
 	CryptoOps CryptoOps
 	// WalCreator is the interface to create new write-ahead logs for the simplex instance.
 	WalCreator wal.Creator
 	// Storage is the interface to the block storage layer for the simplex instance.
-	Storage Storage
-	Logger  common.Logger
-	Sender  Sender
-	WALs    []wal.DeletableWAL
-	VM      VM
-	ID      common.NodeID
+	Storage           Storage
+	Logger            common.Logger
+	WALs              []wal.DeletableWAL
+	VM                VM
+	ICMETransition    metadata.ICMEpochTransition
+	BlockDeserializer BlockDeserializer
+	ID                common.NodeID
 }
+
 type epochChange struct {
 	epoch      uint64
 	validators common.Nodes
@@ -364,7 +368,7 @@ func (i *Instance) processEpochChange(epochChange epochChange) {
 	}
 
 	var err error
-	isValidator, isNonValidator := i.isValidator(), i.isNonValidator()
+	isValidator, isNonValidator := i.IsValidator(), i.isNonValidator()
 
 	switch {
 	case isValidator && isNonValidator:
@@ -385,7 +389,7 @@ func (i *Instance) processEpochChange(epochChange epochChange) {
 	}
 }
 
-func (i *Instance) isValidator() bool {
+func (i *Instance) IsValidator() bool {
 	return i.e != nil
 }
 
@@ -454,7 +458,7 @@ func (i *Instance) createEpochConfig(epoch uint64, validators common.Nodes) (sim
 		GetPChainHeightForProposing:     i.Config.PlatformChain.GetMinimumHeight,
 		GetPChainHeightForVerifying:     i.Config.PlatformChain.GetCurrentHeight,
 		AuxiliaryInfoApp:                &NoopAuxiliaryInfoApp{},
-		ComputeICMEpoch:                 i.Config.VM.ComputeICMEpoch,
+		ComputeICMEpoch:                 i.Config.ICMETransition,
 		GetBlock:                        i.cs.RetrieveBlock,
 	})
 	if err != nil {
@@ -505,7 +509,7 @@ func (i *Instance) createEpochConfig(epoch uint64, validators common.Nodes) (sim
 		Storage:                    epochAwareStorage,
 		Comm:                       comm,
 		BlockBuilder:               blockBuilder,
-		BlockDeserializer:          &blockDeserializer{vm: i.Config.VM, msm: msm},
+		BlockDeserializer:          &blockDeserializer{deserializer: i.Config.BlockDeserializer, msm: msm},
 	}
 	return epochConfig, nil
 }
