@@ -117,9 +117,12 @@ func (cs *CachedStorage) Retrieve(seq uint64, digest common.Digest) (common.Veri
 	if !exists && digest == (common.Digest{}) {
 		// Seq-only lookups pass a zero digest, so scan the cache by seq.
 		// Otherwise a verified but not yet finalized block is invisible to them.
-		for _, cb := range cs.cache {
-			if cb.Metadata.SimplexProtocolMetadata.Seq == seq {
-				item, exists = cb, true
+		for i := range cs.cache {
+			cb := cs.cache[i].ParsedBlock
+			md := &cb.Metadata
+			protocolMD := &md.SimplexProtocolMetadata
+			if protocolMD.Seq == seq {
+				item, exists = cs.cache[i], true
 				break
 			}
 		}
