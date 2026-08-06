@@ -114,6 +114,20 @@ func (cs *CachedStorage) RetrieveBlock(seq uint64, digest common.Digest) (metada
 func (cs *CachedStorage) Retrieve(seq uint64, digest common.Digest) (common.VerifiedBlock, *common.Finalization, error) {
 	cs.lock.RLock()
 	item, exists := cs.cache[digest]
+	if !exists && digest == (common.Digest{}) {
+		// A zero digest means the caller only knows the seq. The cache is keyed
+		// by digest, so scan it by seq to serve blocks that are verified but not
+		// yet indexed.
+		for i := range cs.cache {
+			cb := cs.cache[i].ParsedBlock
+			md := &cb.Metadata
+			protocolMD := &md.SimplexProtocolMetadata
+			if protocolMD.Seq == seq {
+				item, exists = cs.cache[i], true
+				break
+			}
+		}
+	}
 	if exists {
 		cs.lock.RUnlock()
 		// If the block is cached, it means it's not finalized yet, because upon finalizing the block (indexing)
