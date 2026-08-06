@@ -226,6 +226,7 @@ func (bw *BlockBuilderWaiter) WaitForPendingBlock(ctx context.Context) {
 func (bw *BlockBuilderWaiter) BuildBlock(ctx context.Context, metadata common.ProtocolMetadata, blacklist common.Blacklist) (common.VerifiedBlock, bool) {
 	block, err := bw.msm.BuildBlock(ctx, metadata, blacklist)
 	if err != nil {
+		fmt.Println("what 22 ", err)
 		return nil, false
 	}
 

@@ -292,6 +292,7 @@ func (sm *StateMachine) BuildBlock(ctx context.Context, metadata common.Protocol
 
 	sm.Logger.Debug("Building block",
 		zap.Uint64("seq", metadata.Seq),
+		zap.Uint64("round", metadata.Round),
 		zap.Uint64("epoch", metadata.Epoch),
 		zap.Stringer("prevHash", metadata.Prev))
 
@@ -299,6 +300,7 @@ func (sm *StateMachine) BuildBlock(ctx context.Context, metadata common.Protocol
 		elapsed := time.Since(start)
 		sm.Logger.Debug("Built block",
 			zap.Uint64("seq", metadata.Seq),
+			zap.Uint64("round", metadata.Round),
 			zap.Uint64("epoch", metadata.Epoch),
 			zap.Stringer("prevHash", metadata.Prev),
 			zap.Duration("elapsed", elapsed),

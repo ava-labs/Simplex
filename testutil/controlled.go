@@ -4,6 +4,7 @@ package testutil
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -211,9 +212,12 @@ func (t *TestControlledBlockBuilder) TriggerNewBlock() {
 }
 
 func (t *TestControlledBlockBuilder) BuildBlock(ctx context.Context, metadata common.ProtocolMetadata, blacklist common.Blacklist) (common.VerifiedBlock, bool) {
+	fmt.Println("called")
 	select {
 	case <-t.control:
+		fmt.Println("ate up conterol")
 	case <-ctx.Done():
+		fmt.Println("cancelled bb")
 		return nil, false
 	}
 	return t.TestBlockBuilder.BuildBlock(ctx, metadata, blacklist)

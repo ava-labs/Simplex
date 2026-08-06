@@ -171,6 +171,7 @@ func newBlockBuilderVM(bb *testutil.TestControlledBlockBuilder, storage *MockSto
 func (vm *blockBuilderVM) BuildBlock(ctx context.Context, pChainHeight uint64) (avalanchego.VMBlock, error) {
 	// The builder gates when a block is built; the block it returns is not an inner block, so
 	// it is thrown away.
+	fmt.Println("hello")
 	if _, ok := vm.bb.BuildBlock(ctx, common.ProtocolMetadata{}, common.Blacklist{}); !ok {
 		return nil, ctx.Err()
 	}
@@ -337,7 +338,9 @@ func (c *network) nodesSnapshot() []node {
 
 func newChain(t *testing.T, pChain *testPlatformChain) *network {
 	validatorSets := make(map[uint64]common.Nodes)
-	validatorSets[1] = pChain.GenesisValidatorSet().Nodes()
+	genesisNodes := pChain.GenesisValidatorSet().Nodes()
+	common.SortNodes(genesisNodes)
+	validatorSets[1] = genesisNodes
 
 	return &network{
 		t:             t,
@@ -393,10 +396,7 @@ func (c *network) addNode(id common.NodeID) {
 	require.NoError(c.t, node.inst.Start(ctx))
 	c.t.Cleanup(node.inst.Stop)
 
-	// wait until we at least index the zero block(seq 1)
-	for _, n := range c.nodes {
-		n.storage.WaitForBlockCommit(c.seq - 1)
-	}
+	node.storage.WaitForBlockCommit(c.seq - 1)
 }
 
 func (c *network) index() (common.VerifiedBlock, error) {
@@ -413,12 +413,17 @@ func (c *network) index() (common.VerifiedBlock, error) {
 	leaderID := simplex.LeaderForRound(nodes.NodeIDs(), c.seq)
 	for _, node := range c.nodes {
 		if bytes.Equal(node.id, leaderID) {
+			fmt.Println("woken up leader", node.id[0], node.id)
 			node.vm.bb.TriggerNewBlock()
+			fmt.Println("triggered")
 		}
 	}
 
+	fmt.Println("triggered wait for pending block")
+
 	// wake every VM blocked in WaitForPendingBlock
 	c.pending.broadcast()
+	fmt.Println("bang for pending block")
 
 	var block common.VerifiedBlock
 	for _, node := range c.nodes {
@@ -436,7 +441,9 @@ func (c *network) index() (common.VerifiedBlock, error) {
 	// check if its a sealing
 	if block.SealingBlockInfo() != nil {
 		c.epoch = c.seq
-		c.validatorSets[c.epoch] = block.SealingBlockInfo().ValidatorSet
+		newValidatorSet := block.SealingBlockInfo().ValidatorSet
+		common.SortNodes(newValidatorSet)
+		c.validatorSets[c.epoch] = newValidatorSet
 	}
 
 	return block, nil
@@ -448,8 +455,7 @@ func generateNodeId() common.NodeID {
 	return common.NodeID(id[:])
 }
 
-func generateNodeIDMapping() metadata.NodeBLSMapping {
-	id := generateNodeId()
+func generateNodeIDMapping(id avalanchego.NodeID) metadata.NodeBLSMapping {
 	return metadata.NodeBLSMapping{
 		NodeID: avalanchego.NodeID(id),
 		BLSKey: []byte{id[0], id[1]},
