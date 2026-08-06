@@ -4,93 +4,96 @@
 package simplex
 
 import (
+	"fmt"
 	"sync"
 	"testing"
+	"time"
 
+	"github.com/ava-labs/simplex/common"
 	metadata "github.com/ava-labs/simplex/msm"
 	"github.com/stretchr/testify/require"
 )
 
-// func TestValidatorIndexes(t *testing.T) {
-// 	validatorID := generateNodeIDMapping()
+func TestValidatorIndexes(t *testing.T) {
+	validatorID := generateNodeIDMapping()
 
-// 	genesisSet := []metadata.NodeBLSMapping{validatorID}
+	genesisSet := []metadata.NodeBLSMapping{validatorID}
 
-// 	pChain := newTestPChain(genesisSet)
-// 	chain := newChain(t, pChain)
-// 	chain.addNode(validatorID.NodeID[:])
+	pChain := newTestPChain(genesisSet)
+	chain := newChain(t, pChain)
+	chain.addNode(validatorID.NodeID[:])
 
-// 	_, err := chain.index()
-// 	require.NoError(t, err)
-// }
+	_, err := chain.index()
+	require.NoError(t, err)
+}
 
-// func TestNonValidatorSyncs(t *testing.T) {
-// 	validatorID := generateNodeIDMapping()
-// 	nonValidatorID := generateNodeIDMapping()
+func TestNonValidatorSyncs(t *testing.T) {
+	validatorID := generateNodeIDMapping()
+	nonValidatorID := generateNodeIDMapping()
 
-// 	genesisSet := []metadata.NodeBLSMapping{validatorID}
+	genesisSet := []metadata.NodeBLSMapping{validatorID}
 
-// 	pChain := newTestPChain(genesisSet)
-// 	chain := newChain(t, pChain)
-// 	chain.addNode(validatorID.NodeID[:])
+	pChain := newTestPChain(genesisSet)
+	chain := newChain(t, pChain)
+	chain.addNode(validatorID.NodeID[:])
 
-// 	_, err := chain.index()
-// 	require.NoError(t, err)
-// 	_, err = chain.index()
-// 	require.NoError(t, err)
+	_, err := chain.index()
+	require.NoError(t, err)
+	_, err = chain.index()
+	require.NoError(t, err)
 
-// 	chain.addNode(nonValidatorID.NodeID[:])
-// }
+	chain.addNode(nonValidatorID.NodeID[:])
+}
 
-// func TestNonValidator_BecomesValidator(t *testing.T) {
-// 	validatorID := generateNodeIDMapping()
-// 	upcomingValidator := generateNodeIDMapping()
+func TestNonValidator_BecomesValidator(t *testing.T) {
+	validatorID := generateNodeIDMapping()
+	upcomingValidator := generateNodeIDMapping()
 
-// 	genesisSet := []metadata.NodeBLSMapping{validatorID}
+	genesisSet := []metadata.NodeBLSMapping{validatorID}
 
-// 	pChain := newTestPChain(genesisSet)
-// 	chain := newChain(t, pChain)
-// 	chain.addNode(validatorID.NodeID[:])
+	pChain := newTestPChain(genesisSet)
+	chain := newChain(t, pChain)
+	chain.addNode(validatorID.NodeID[:])
 
-// 	_, err := chain.index()
-// 	require.NoError(t, err)
-// 	_, err = chain.index()
-// 	require.NoError(t, err)
+	_, err := chain.index()
+	require.NoError(t, err)
+	_, err = chain.index()
+	require.NoError(t, err)
 
-// 	chain.addNode(upcomingValidator.NodeID[:])
+	chain.addNode(upcomingValidator.NodeID[:])
 
-// 	fmt.Println("advancing height")
-// 	// initiate an epoch change
-// 	pChain.setValidatorSetAt(10, []metadata.NodeBLSMapping{validatorID, upcomingValidator})
-// 	pChain.advanceHeight(10)
+	fmt.Println("advancing height")
+	// initiate an epoch change
+	pChain.setValidatorSetAt(10, []metadata.NodeBLSMapping{validatorID, upcomingValidator})
+	pChain.advanceHeight(10)
 
-// 	// now that we advanced the height the validator will keep building empty blocks until the upcoming validator sends an approval
-// 	time.Sleep(5 * time.Second)
-// }
+	// now that we advanced the height the validator will keep building empty blocks until the upcoming validator sends an approval
+	time.Sleep(5 * time.Second)
+}
 
-// func TestValidator_ValidatorSetNotChanged(t *testing.T) {
-// 	validatorID := generateNodeIDMapping()
+func TestValidator_ValidatorSetNotChanged(t *testing.T) {
+	validatorID := generateNodeIDMapping()
 
-// 	genesisSet := []metadata.NodeBLSMapping{validatorID}
+	genesisSet := []metadata.NodeBLSMapping{validatorID}
 
-// 	pChain := newTestPChain(genesisSet)
-// 	chain := newChain(t, pChain)
-// 	chain.addNode(validatorID.NodeID[:])
+	pChain := newTestPChain(genesisSet)
+	chain := newChain(t, pChain)
+	chain.addNode(validatorID.NodeID[:])
 
-// 	_, err := chain.index()
-// 	require.NoError(t, err)
+	_, err := chain.index()
+	require.NoError(t, err)
 
-// 	// initiate an epoch change
-// 	pChain.setValidatorSetAt(10, []metadata.NodeBLSMapping{validatorID})
-// 	pChain.advanceHeight(10)
+	// initiate an epoch change
+	pChain.setValidatorSetAt(10, []metadata.NodeBLSMapping{validatorID})
+	pChain.advanceHeight(10)
 
-// 	// potential time to propose blocks
-// 	time.Sleep(3 * time.Second)
+	// potential time to propose blocks
+	time.Sleep(3 * time.Second)
 
-// 	block, err := chain.index()
-// 	require.NoError(t, err)
-// 	require.Equal(t, uint64(1), block.BlockHeader().Epoch)
-// }
+	block, err := chain.index()
+	require.NoError(t, err)
+	require.Equal(t, uint64(1), block.BlockHeader().Epoch)
+}
 
 func TestValidator_ValidatorSetDecreased(t *testing.T) {
 	validatorID := generateNodeIDMapping([20]byte{1})
@@ -117,16 +120,13 @@ func TestValidator_ValidatorSetDecreased(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(2), block.BlockHeader().Round)
 
-	// // initiate an epoch change
-	// pChain.setValidatorSetAt(10, []metadata.NodeBLSMapping{validatorID})
-	// pChain.advanceHeight(10)
+	// initiate an epoch change
+	pChain.setValidatorSetAt(10, []metadata.NodeBLSMapping{validatorID})
+	pChain.advanceHeight(10)
 
-	// potential time to propose blocks
-	// time.Sleep(3 * time.Second)
-
-	// block, err := chain.index()
-	// require.NoError(t, err)
-	// require.Equal(t, uint64(1), block.BlockHeader().Epoch)
+	sealing := chain.waitUntilSealingBlock()
+	require.Contains(t, sealing.SealingBlockInfo().ValidatorSet.NodeIDs(), common.NodeID(validatorID.NodeID[:]))
+	require.NotContains(t, sealing.SealingBlockInfo().ValidatorSet.NodeIDs(), common.NodeID(leavingValidatorID.NodeID[:]))
 }
 
 // Tests a non-validator converts to a validator when the epoch admitting it is committed,

@@ -449,6 +449,36 @@ func (c *network) index() (common.VerifiedBlock, error) {
 	return block, nil
 }
 
+// waitUntilSealingBlock waits until every node commits the block at the current seq,
+// repeating until that block is a sealing block. It then advances the network into
+// the new epoch and returns the sealing block.
+func (c *network) waitUntilSealingBlock() common.VerifiedBlock {
+	for {
+		var block common.VerifiedBlock
+		for _, node := range c.nodes {
+			committedBlock := node.storage.WaitForBlockCommit(c.seq)
+			if block == nil {
+				block = committedBlock
+			} else {
+				require.Equal(c.t, block.Bytes(), committedBlock.Bytes())
+			}
+		}
+
+		require.Equal(c.t, block.BlockHeader().Seq, c.seq)
+		c.seq++
+
+		if block.SealingBlockInfo() == nil {
+			continue
+		}
+
+		c.epoch = c.seq
+		newValidatorSet := block.SealingBlockInfo().ValidatorSet
+		common.SortNodes(newValidatorSet)
+		c.validatorSets[c.epoch] = newValidatorSet
+		return block
+	}
+}
+
 func generateNodeId() common.NodeID {
 	var id [20]byte
 	rand.Read(id[:])
