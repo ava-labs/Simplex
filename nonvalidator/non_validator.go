@@ -558,6 +558,13 @@ func (n *NonValidator) broadcastLatestEpoch() {
 	})
 }
 
+func (n *NonValidator) HighestValidatedEpoch() (uint64, common.Nodes) {
+	n.lock.Lock()
+	defer n.lock.Unlock()
+
+	return n.epochs.highestEpoch()
+}
+
 // sendRequest sends a common.ReplicationRequest for a given sequence to a node.
 func (n *NonValidator) sendRequest(seq uint64, to common.NodeID) {
 	request := common.ReplicationRequest{

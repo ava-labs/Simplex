@@ -788,6 +788,7 @@ func (e *Epoch) Stop() {
 	e.buildBlockScheduler.Close()
 	e.timeoutHandler.Close()
 	e.replicationState.Close()
+	e.Logger.Info("Node shutdown complete")
 }
 
 func (e *Epoch) isEpochSealed() bool {
@@ -2570,8 +2571,9 @@ func (e *Epoch) createBlockBuildingTask(metadata common.ProtocolMetadata, blackl
 	e.blockBuilderCtx, e.blockBuilderCancelFunc = context.WithCancel(e.finishCtx)
 	context := e.blockBuilderCtx
 	cancel := e.blockBuilderCancelFunc
-
+	fmt.Println("created tasksss")
 	return func() common.Digest {
+		fmt.Println("inside task")
 		e.lock.Lock()
 		if e.isEpochSealed() {
 			e.lock.Unlock()
@@ -2580,11 +2582,15 @@ func (e *Epoch) createBlockBuildingTask(metadata common.ProtocolMetadata, blackl
 		}
 		e.lock.Unlock()
 
+		fmt.Println("calleind bb")
 		block, ok := e.BlockBuilder.BuildBlock(context, metadata, blacklist)
 
 		e.lock.Lock()
 		defer e.lock.Unlock()
 
+		if !ok {
+			fmt.Println("what ", context.Err())
+		}
 		cancel()
 		if !ok {
 			select {
@@ -2595,6 +2601,7 @@ func (e *Epoch) createBlockBuildingTask(metadata common.ProtocolMetadata, blackl
 			return common.Digest{}
 		}
 
+		e.Logger.Info("block is proposed")
 		e.proposeBlock(block)
 
 		return block.BlockHeader().Digest
