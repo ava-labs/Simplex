@@ -476,7 +476,7 @@ func (i *Instance) createEpochConfig() (simplex.EpochConfig, error) {
 		return simplex.EpochConfig{}, err
 	}
 
-	blockBuilder := &BlockBuilderWaiter{vm: i.Config.VM, msm: msm}
+	blockBuilder := &BlockBuilderWaiter{vm: i.Config.VM, msm: msm, log: i.Config.Logger}
 
 	comm := &Communication{Sender: i.Config.Sender, Broadcaster: i.Config.Broadcaster}
 	comm.SetValidators(nodes)

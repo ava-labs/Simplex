@@ -1148,3 +1148,24 @@ func verifiedQuorumRoundToQuorumRound(t *testing.T, vqr common.VerifiedQuorumRou
 	}
 	return qr
 }
+
+// TestBlockBuilderWaiterLogsBuildError asserts that BlockBuilderWaiter.BuildBlock
+// logs the error returned by the state machine. It used to discard it
+// (adapters.go), leaving only a generic warning at the epoch level.
+func TestBlockBuilderWaiterLogsBuildError(t *testing.T) {
+	logger := testutil.MakeLogger(t)
+	var logged bool
+	logger.Intercept(func(entry zapcore.Entry) error {
+		if entry.Level == zapcore.WarnLevel && strings.Contains(entry.Message, "Failed building block") {
+			logged = true
+		}
+		return nil
+	})
+
+	bw := &BlockBuilderWaiter{msm: &metadata.StateMachine{}, log: logger}
+
+	// Seq 0 is reserved for genesis, so the state machine fails to build.
+	_, ok := bw.BuildBlock(context.Background(), common.ProtocolMetadata{}, common.Blacklist{})
+	require.False(t, ok)
+	require.True(t, logged)
+}
