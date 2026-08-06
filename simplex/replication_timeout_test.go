@@ -416,10 +416,6 @@ func TestReplicationRequestWithoutFinalization(t *testing.T) {
 	testutil.NewControlledSimplexNode(t, nodes[2], net, testConfig(nodes[2]))
 	laggingNode := testutil.NewControlledSimplexNode(t, nodes[3], net, testConfig(nodes[3]))
 
-	epochTimes := make([]time.Time, 0, 4)
-	for _, n := range net.Instances {
-		epochTimes = append(epochTimes, n.E.StartTime)
-	}
 	// lagging node disconnects
 	net.Disconnect(nodes[3])
 	net.StartInstances()
@@ -626,9 +622,9 @@ func TestReplicationResendsFinalizedBlocksThatFailedVerification(t *testing.T) {
 	finalization, _ := testutil.NewFinalizationRecord(t, sigAggr, block, nodes[0:quorum])
 
 	// send the finalization to start the replication process
-	e.HandleMessage(&common.Message{
+	require.NoError(t, e.HandleMessage(&common.Message{
 		Finalization: &finalization,
-	}, nodes[0])
+	}, nodes[0]))
 	// wait for the replication request to be sent
 	for {
 		msg := <-sentMessages
@@ -644,9 +640,9 @@ func TestReplicationResendsFinalizedBlocksThatFailedVerification(t *testing.T) {
 			},
 		},
 	}
-	e.HandleMessage(&common.Message{
+	require.NoError(t, e.HandleMessage(&common.Message{
 		ReplicationResponse: replicationResponse,
-	}, nodes[0])
+	}, nodes[0]))
 	// wait for the replication request to be sent again
 	for {
 		msg := <-sentMessages
@@ -669,9 +665,9 @@ func TestReplicationResendsFinalizedBlocksThatFailedVerification(t *testing.T) {
 		},
 	}
 
-	e.HandleMessage(&common.Message{
+	require.NoError(t, e.HandleMessage(&common.Message{
 		ReplicationResponse: replicationResponse,
-	}, nodes[0])
+	}, nodes[0]))
 
 	storedBlock := storage.WaitForBlockCommit(0)
 	require.Equal(t, uint64(1), storage.NumBlocks())

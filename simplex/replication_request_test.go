@@ -172,9 +172,9 @@ func TestReplicationRequestMixed(t *testing.T) {
 		emptyBlock := !leaderForRound
 		if emptyBlock {
 			emptyNotarization := testutil.NewEmptyNotarization(nodes, uint64(i))
-			e.HandleMessage(&common.Message{
+			require.NoError(t, e.HandleMessage(&common.Message{
 				EmptyNotarization: emptyNotarization,
-			}, nodes[1])
+			}, nodes[1]))
 			wal.AssertNotarization(uint64(i))
 			rounds[i] = common.VerifiedQuorumRound{
 				EmptyNotarization: emptyNotarization,
@@ -237,9 +237,9 @@ func TestReplicationRequestTailingEmptyNotarizations(t *testing.T) {
 	// only produce a notarization for blocks we are the leader, otherwise produce an empty notarization
 	for i := range numBlocks {
 		emptyNotarization := testutil.NewEmptyNotarization(nodes, uint64(i))
-		e.HandleMessage(&common.Message{
+		require.NoError(t, e.HandleMessage(&common.Message{
 			EmptyNotarization: emptyNotarization,
-		}, nodes[1])
+		}, nodes[1]))
 		wal.AssertNotarization(uint64(i))
 		rounds[i] = common.VerifiedQuorumRound{
 			EmptyNotarization: emptyNotarization,
@@ -504,7 +504,7 @@ func requireEqualQuorumRounds(t *testing.T, expected, actual []common.VerifiedQu
 
 		if exp.Finalization != nil {
 			require.NotNil(t, act.Finalization)
-			require.True(t, exp.Finalization.Finalization.BlockHeader.Equals(&act.Finalization.Finalization.BlockHeader))
+			require.True(t, exp.Finalization.Finalization.Equals(&act.Finalization.Finalization.BlockHeader))
 			require.Equal(t, exp.Finalization.QC, act.Finalization.QC)
 		} else {
 			require.Nil(t, act.Finalization)
@@ -512,7 +512,7 @@ func requireEqualQuorumRounds(t *testing.T, expected, actual []common.VerifiedQu
 
 		if exp.Notarization != nil {
 			require.NotNil(t, act.Notarization)
-			require.True(t, exp.Notarization.Vote.BlockHeader.Equals(&act.Notarization.Vote.BlockHeader))
+			require.True(t, exp.Notarization.Vote.Equals(&act.Notarization.Vote.BlockHeader))
 			require.Equal(t, exp.Notarization.QC, act.Notarization.QC)
 		} else {
 			require.Nil(t, act.Notarization)

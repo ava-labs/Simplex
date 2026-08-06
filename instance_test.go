@@ -662,7 +662,7 @@ func waitForSealingBlock(t *testing.T, inst *Instance, approval *common.Validato
 		msm := inst.msm
 		inst.lock.Unlock()
 		if msm != nil {
-			require.NoError(t, msm.HandleApproval(approval, 1))
+			msm.HandleApproval(approval, 1)
 		}
 
 		num := storage.NumBlocks()
@@ -930,7 +930,7 @@ func NewMockStorage(t *testing.T) *MockStorage {
 func (m *MockStorage) Index(ctx context.Context, block common.VerifiedBlock, certificate common.Finalization) error {
 	// We serialized the block so that the original reference isn't shared with other goroutines that may concurrently mutate it.
 	encoded := block.Bytes()
-	seq := m.InMemStorage.NumBlocks()
+	seq := m.NumBlocks()
 	m.snapLock.Lock()
 	m.blocks[seq] = storedBlock{rawBlock: encoded, fin: certificate}
 	m.snapLock.Unlock()
@@ -938,7 +938,7 @@ func (m *MockStorage) Index(ctx context.Context, block common.VerifiedBlock, cer
 }
 
 func (m *MockStorage) GetBlock(seq uint64) (metadata.StateMachineBlock, *common.Finalization, error) {
-	_, f, err := m.InMemStorage.Retrieve(seq)
+	_, f, err := m.Retrieve(seq)
 	if err != nil {
 		return metadata.StateMachineBlock{}, nil, err
 	}

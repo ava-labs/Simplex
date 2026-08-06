@@ -152,7 +152,7 @@ func (block *oneTimeVerifiedBlock) Verify(ctx context.Context) (common.VerifiedB
 	block.otv.lock.Lock()
 	defer block.otv.lock.Unlock()
 
-	header := block.Block.BlockHeader()
+	header := block.BlockHeader()
 	digest := header.Digest
 	seq := header.Seq
 

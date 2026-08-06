@@ -64,6 +64,7 @@ func TestGarbageCollectedWAL(t *testing.T) {
 		newWALCreatedCount++
 		return testutil.NewTestWAL(t), nil
 	}, &mockWALReader{}, 100)
+	require.NoError(t, err)
 
 	walRecords, err := gcw.ReadAll()
 	require.NoError(t, err)
@@ -104,6 +105,7 @@ func TestGarbageCollectedWAL(t *testing.T) {
 	require.Equal(t, 1, newWALCreatedCount)
 	require.NoError(t, gcw.Append(buff))
 	walRecords, err = gcw.ReadAll()
+	require.NoError(t, err)
 	require.Equal(t, 2, newWALCreatedCount)
 	require.Equal(t, buffs, walRecords)
 }
