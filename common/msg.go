@@ -60,8 +60,8 @@ const emptyVoteLen = 1 + 8 + 8 // Version + Epoch + Round
 
 func (v *ToBeSignedEmptyVote) Bytes() []byte {
 	bytes := make([]byte, emptyVoteLen)
-	binary.BigEndian.PutUint64(bytes[1:9], v.EmptyVoteMetadata.Epoch)
-	binary.BigEndian.PutUint64(bytes[9:17], v.EmptyVoteMetadata.Round)
+	binary.BigEndian.PutUint64(bytes[1:9], v.Epoch)
+	binary.BigEndian.PutUint64(bytes[9:17], v.Round)
 	return bytes
 }
 

@@ -210,7 +210,8 @@ func TestInstanceNonValidatorBootstraps(t *testing.T) {
 
 	// Drive two more epoch transitions by changing the validator's weight. Each change seals
 	// an epoch (and produces a sealing block) without any other node, since the validator's
-	// own approval is a quorum of the single-node set.
+	// own approval is a quorum of the single-node set. The counts below include the zero block,
+	// which carries a block validation descriptor as well.
 	pChain.advanceTo(secondEpochP)
 	waitForSealingBlockCount(t, storage, 2)
 
@@ -232,10 +233,10 @@ func TestInstanceNonValidatorBootstraps(t *testing.T) {
 	bootstrapTarget := storage.NumBlocks()
 	waitForNumBlocks(t, storage2, bootstrapTarget)
 
-	// The "still a non-validator" message was printed several times (once per sealed epoch it
-	// replicated through) while it caught up.
+	// The "still a non-validator" message was printed once per sealed epoch it replicated
+	// through, so once for each of the two epochs the weight changes above sealed.
 	require.Eventually(t, func() bool {
-		return stillNonValidatorLogs.Load() >= 3
+		return stillNonValidatorLogs.Load() >= 2
 	}, 20*time.Second, 100*time.Millisecond)
 
 	// Now grow the validator set to include the peer at the P-chain tip.
@@ -282,15 +283,23 @@ func TestInstanceRestartAcrossEpochs(t *testing.T) {
 	//   - Restart when the tip is a sealing block                        -> "sealing block at tip" branch.
 	//   - Restart mid-epoch, when the tip is an ordinary Simplex block   -> "sealing block in storage" branch.
 	//
-	const basePChainHeight = uint64(1)
+	const (
+		basePChainHeight        = uint64(1)
+		epochChangePChainHeight = uint64(100)
+	)
 
 	var id [20]byte
 	rand.Read(id[:])
 	nodeID := common.NodeID(id[:])
 
+	// The lone validator's weight changes at epochChangePChainHeight, which seals the first
+	// epoch.
 	validatorSetsAtHeight := map[uint64]metadata.NodeBLSMappings{
 		basePChainHeight: {
 			{NodeID: id, BLSKey: []byte{0xaa}, Weight: 1},
+		},
+		epochChangePChainHeight: {
+			{NodeID: id, BLSKey: []byte{0xaa}, Weight: 2},
 		},
 	}
 
@@ -344,8 +353,10 @@ func TestInstanceRestartAcrossEpochs(t *testing.T) {
 	require.Equal(t, logEpochFromGenesis, *lastEpochBranch.Load())
 
 	// --- Case 2: restart when the tip is a sealing block. ---
-	// countSealingBlocks == 2: the zero block plus the sealing block of the initial
-	// epoch transition. With the VM paused, that sealing block stays the tip.
+	// Change the validator's weight to seal the first epoch.
+	// countSealingBlocks == 2: the zero block plus that epoch's sealing block. With the VM
+	// paused, the sealing block stays the tip because no ordinary block can be built on top.
+	pChain.advanceTo(epochChangePChainHeight)
 	waitForSealingBlockCount(t, storage, 2)
 	requireTipIsSealing(t, storage, true)
 
@@ -467,6 +478,44 @@ func TestParseBlockSizeMatchesBytes(t *testing.T) {
 	for _, size := range sizes {
 		require.Equal(t, len(bytes3), size)
 	}
+}
+
+// TestInstanceZeroBlockUsesLastNonSimplexPChainHeight asserts that the first ever Simplex block
+// references the P-chain height of the last non-Simplex block.
+func TestInstanceZeroBlockUsesLastNonSimplexPChainHeight(t *testing.T) {
+	const basePChainHeight = uint64(7)
+
+	var id [20]byte
+	rand.Read(id[:])
+	nodeID := common.NodeID(id[:])
+
+	validatorSetsAtHeight := map[uint64]metadata.NodeBLSMappings{
+		basePChainHeight: {
+			{NodeID: id, BLSKey: []byte{0xaa}, Weight: 1},
+		},
+	}
+
+	pChain := newTestPlatformChain(basePChainHeight, validatorSetsAtHeight)
+	cops := &testCryptoOps{}
+	genesisBlock := &testInnerBlock{Height_: 0, TS: time.Now(), Payload: []byte("genesis")}
+
+	net := newInMemNetwork(t)
+	t.Cleanup(net.stop)
+
+	storage := newStorageWithGenesis(t, genesisBlock)
+
+	inst := newInstance(t, nodeID, storage, net, pChain, cops, genesisBlock)
+	net.register(nodeID, inst)
+	require.NoError(t, inst.Start(t.Context()))
+	t.Cleanup(inst.Stop)
+
+	waitForNumBlocks(t, storage, 2) // genesis(0) + the zero block(1)
+
+	zeroBlock, ok := storage.blockAt(1)
+	require.True(t, ok)
+	require.Equal(t, metadata.BlockTypeZero, zeroBlock.Type())
+	require.Equal(t, basePChainHeight, zeroBlock.Metadata.PChainHeight)
+	require.Equal(t, basePChainHeight, zeroBlock.Metadata.SimplexEpochInfo.PChainReferenceHeight)
 }
 
 func TestInstanceDoubleStartFails(t *testing.T) {
@@ -613,7 +662,7 @@ func waitForSealingBlock(t *testing.T, inst *Instance, approval *common.Validato
 		msm := inst.msm
 		inst.lock.Unlock()
 		if msm != nil {
-			require.NoError(t, msm.HandleApproval(approval, 1))
+			msm.HandleApproval(approval, 1)
 		}
 
 		num := storage.NumBlocks()
@@ -881,7 +930,7 @@ func NewMockStorage(t *testing.T) *MockStorage {
 func (m *MockStorage) Index(ctx context.Context, block common.VerifiedBlock, certificate common.Finalization) error {
 	// We serialized the block so that the original reference isn't shared with other goroutines that may concurrently mutate it.
 	encoded := block.Bytes()
-	seq := m.InMemStorage.NumBlocks()
+	seq := m.NumBlocks()
 	m.snapLock.Lock()
 	m.blocks[seq] = storedBlock{rawBlock: encoded, fin: certificate}
 	m.snapLock.Unlock()
@@ -889,7 +938,7 @@ func (m *MockStorage) Index(ctx context.Context, block common.VerifiedBlock, cer
 }
 
 func (m *MockStorage) GetBlock(seq uint64) (metadata.StateMachineBlock, *common.Finalization, error) {
-	_, f, err := m.InMemStorage.Retrieve(seq)
+	_, f, err := m.Retrieve(seq)
 	if err != nil {
 		return metadata.StateMachineBlock{}, nil, err
 	}

@@ -65,14 +65,14 @@ func (bh *BlockHeader) Equals(other *BlockHeader) bool {
 
 func (bh *BlockHeader) Bytes() []byte {
 	clone := BlockHeader{
-		ProtocolMetadata: bh.ProtocolMetadata.Clone(),
+		ProtocolMetadata: bh.Clone(),
 		Digest:           bh.Digest,
 	}
 	return clone.MarshalCanoto()
 }
 func (bh *BlockHeader) Size() int {
 	clone := BlockHeader{
-		ProtocolMetadata: bh.ProtocolMetadata.Clone(),
+		ProtocolMetadata: bh.Clone(),
 		Digest:           bh.Digest,
 	}
 	return len(clone.Bytes())

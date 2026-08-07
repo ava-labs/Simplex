@@ -156,11 +156,7 @@ func (m *Mempool) isParentAcceptedOrVerified(block *Block) bool {
 	}
 
 	_, exists = m.verifiedButNotAcceptedBlocks[block.metadata.Prev]
-	if exists {
-		return true
-	}
-
-	return false
+	return exists
 }
 
 // verifyTx verifies a single transaction against the mempool state and the block's chain.

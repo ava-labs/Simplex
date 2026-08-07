@@ -68,7 +68,7 @@ func setupFileOutput(t *testing.T, logDir, filename string) (zapcore.WriteSyncer
 		return nil, fmt.Errorf("failed to open log file %s: %w", logPath, err)
 	}
 
-	t.Cleanup(func() { file.Close() })
+	t.Cleanup(func() { _ = file.Close() })
 
 	// Wrap with AddSync to make it safe for concurrent writes
 	return zapcore.AddSync(file), nil

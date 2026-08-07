@@ -149,7 +149,7 @@ func TestNotarizationRecord(t *testing.T) {
 	qc, vote2, err := ParseNotarizationRecord(record)
 	require.NoError(t, err)
 	require.Equal(t, []byte{1, 2, 3}, qc)
-	require.True(t, vote.BlockHeader.Equals(&vote2.BlockHeader))
+	require.True(t, vote.Equals(&vote2.BlockHeader))
 }
 
 func FuzzNotarizationRecord(f *testing.F) {
@@ -170,11 +170,6 @@ func FuzzNotarizationRecord(f *testing.F) {
 			},
 		}
 
-		var signers []NodeID
-		for _, signer := range [][]byte{signer1, signer2} {
-			signers = append(signers, signer)
-		}
-
 		record := NewQuorumRecord([]byte{1, 2, 3}, vote.Bytes(), NotarizationRecordType)
 		retentionTerm, err := toBeSignedVoteQuorumRecordRetentionTerm(record)
 		require.NoError(t, err)
@@ -183,7 +178,7 @@ func FuzzNotarizationRecord(f *testing.F) {
 		qc, vote2, err := ParseNotarizationRecord(record)
 		require.NoError(t, err)
 		require.Equal(t, []byte{1, 2, 3}, qc)
-		require.True(t, vote.BlockHeader.Equals(&vote2.BlockHeader))
+		require.True(t, vote.Equals(&vote2.BlockHeader))
 	})
 }
 
