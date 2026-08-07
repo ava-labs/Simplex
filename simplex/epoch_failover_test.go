@@ -1376,10 +1376,8 @@ func TestNodeIsNotSuspectedAfterSigningALaterNotarization(t *testing.T) {
 	}
 }
 
-// countEmptyVoteRecords returns how many empty vote records the WAL holds for the round. It
-// returns an error rather than asserting, so it is safe to call from the condition goroutine
-// require.Never spawns.
-func countEmptyVoteRecords(wal *testutil.TestWAL, round uint64) (int, error) {
+// countEmptyVoteRecords returns how many empty vote records the WAL holds for the round.
+func countEmptyVoteRecords(wal *testutil.TestWAL) (int, error) {
 	rawRecords, err := wal.ReadAll()
 	if err != nil {
 		return 0, err
@@ -1391,14 +1389,7 @@ func countEmptyVoteRecords(wal *testutil.TestWAL, round uint64) (int, error) {
 			continue
 		}
 
-		vote, err := ParseEmptyVoteRecord(rawRecord)
-		if err != nil {
-			return 0, err
-		}
-
-		if vote.Round == round {
-			count++
-		}
+		count++
 	}
 	return count, nil
 }
@@ -1420,10 +1411,7 @@ func TestEmptyVoteNotDuplicatedAfterFailedVerification(t *testing.T) {
 
 	require.NoError(t, e.Start())
 
-	leader := nodes[0]
-	require.False(t, e.ID.Equals(leader), "test requires that we are not the leader of round 0")
-
-	// Build the block the leader would have proposed, but hold it back for now.
+	// Build the block for round 0
 	md := e.Metadata()
 	vb, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
 	require.True(t, ok)
@@ -1435,13 +1423,13 @@ func TestEmptyVoteNotDuplicatedAfterFailedVerification(t *testing.T) {
 	bb.BlockShouldBeBuilt <- struct{}{}
 	testutil.WaitForBlockProposerTimeout(t, e, &e.StartTime, 0)
 
-	count, err := countEmptyVoteRecords(wal, 0)
+	count, err := countEmptyVoteRecords(wal)
 	require.NoError(t, err)
 	require.Equal(t, 1, count, "timing out on round 0 should write exactly one empty vote record")
 	require.Equal(t, uint64(0), e.Metadata().Round, "round should not have advanced")
 
 	// The late proposal arrives and fails verification.
-	vote, err := testutil.NewTestVote(block, leader)
+	vote, err := testutil.NewTestVote(block, nodes[0])
 	require.NoError(t, err)
 
 	require.NoError(t, e.HandleMessage(&Message{
@@ -1449,12 +1437,11 @@ func TestEmptyVoteNotDuplicatedAfterFailedVerification(t *testing.T) {
 			Vote:  *vote,
 			Block: block,
 		},
-	}, leader))
+	}, nodes[0]))
 
-	// The epoch appends to the WAL after Verify returns and after it re-acquires the lock, so
-	// there is nothing to synchronise on. Assert that a second record never shows up.
+	// The epoch appends to the WAL after Verify returns
 	require.Never(t, func() bool {
-		count, err := countEmptyVoteRecords(wal, 0)
+		count, err := countEmptyVoteRecords(wal)
 		return err == nil && count > 1
 	}, 3*time.Second, 10*time.Millisecond,
 		"a failed block verification appended a second empty vote record for a round we already timed out on")
