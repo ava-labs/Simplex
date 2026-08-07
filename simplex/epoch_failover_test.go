@@ -1374,3 +1374,54 @@ func TestNodeIsNotSuspectedAfterSigningALaterNotarization(t *testing.T) {
 			suspectIndex)
 	}
 }
+
+// TestEmptyVoteNotDuplicatedAfterFailedVerification asserts that a round contributes at most one
+// empty vote record to the WAL. triggerEmptyBlockNotarization sets emptyVotes.timedOut but never
+// checks it, so timing out on a round and then failing to verify its late proposal appends a
+// second record for that round.
+func TestEmptyVoteNotDuplicatedAfterFailedVerification(t *testing.T) {
+	bb := testutil.NewTestBlockBuilder()
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+
+	// nodes[0] leads round 0, so as nodes[1] we wait for a proposal.
+	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[1], testutil.NewNoopComm(nodes), bb)
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+
+	require.NoError(t, e.Start())
+
+	// Build the block for round 0
+	md := e.Metadata()
+	vb, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
+	require.True(t, ok)
+
+	block := vb.(*testutil.TestBlock)
+	block.VerificationError = fmt.Errorf("invalid block")
+
+	// The proposal never showed up in time, so we time out on round 0.
+	bb.BlockShouldBeBuilt <- struct{}{}
+	testutil.WaitForBlockProposerTimeout(t, e, &e.StartTime, 0)
+
+	wal.AssertEmptyVote(0)
+	wal.AssertHealthy(conf.BlockDeserializer, conf.QCDeserializer)
+	require.Equal(t, uint64(0), e.Metadata().Round, "round should not have advanced")
+
+	// The late proposal arrives and fails verification.
+	vote, err := testutil.NewTestVote(block, nodes[0])
+	require.NoError(t, err)
+
+	require.NoError(t, e.HandleMessage(&Message{
+		BlockMessage: &BlockMessage{
+			Vote:  *vote,
+			Block: block,
+		},
+	}, nodes[0]))
+
+	start := time.Now()
+	for time.Since(start) < 3*time.Second {
+		wal.AssertHealthy(conf.BlockDeserializer, conf.QCDeserializer)
+		time.Sleep(100 * time.Millisecond)
+	}
+}
