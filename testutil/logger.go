@@ -47,7 +47,7 @@ func (k keywordFilterCore) Check(ent zapcore.Entry, ce *zapcore.CheckedEntry) *z
 }
 
 func (tl *TestLogger) Intercept(hook func(entry zapcore.Entry) error) {
-	logger := tl.Logger.WithOptions(zap.Hooks(hook))
+	logger := tl.WithOptions(zap.Hooks(hook))
 	tl.Logger = logger
 }
 
@@ -58,7 +58,7 @@ func (tl *TestLogger) Silence() {
 // SilenceExceptKeywords silences all logs EXCEPT those whose message contains
 // at least one of the provided keywords.
 func (tl *TestLogger) SilenceExceptKeywords(keywords ...string) {
-	core := tl.Logger.Core()
+	core := tl.Core()
 	filteredCore := keywordFilterCore{
 		Core:     core,
 		keywords: keywords,

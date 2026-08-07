@@ -42,7 +42,7 @@ type EpochAwareStorage struct {
 }
 
 func (e *EpochAwareStorage) Retrieve(seq uint64) (common.VerifiedBlock, common.Finalization, error) {
-	block, finalization, err := e.Storage.GetBlock(seq)
+	block, finalization, err := e.GetBlock(seq)
 	if err != nil {
 		return nil, common.Finalization{}, err
 	}
@@ -108,7 +108,7 @@ func (cs *CachedStorage) RetrieveBlock(seq uint64, digest common.Digest) (metada
 		return metadata.StateMachineBlock{}, nil, err
 	}
 
-	return block.(*ParsedBlock).StateMachineBlock.Clone(), finalization, nil
+	return block.(*ParsedBlock).Clone(), finalization, nil
 }
 
 func (cs *CachedStorage) Retrieve(seq uint64, digest common.Digest) (common.VerifiedBlock, *common.Finalization, error) {
@@ -124,7 +124,7 @@ func (cs *CachedStorage) Retrieve(seq uint64, digest common.Digest) (common.Veri
 
 	// We don't populate the cache here because we populate it externally.
 
-	block, finalization, err := cs.Storage.GetBlock(seq)
+	block, finalization, err := cs.GetBlock(seq)
 	if err != nil {
 		return nil, nil, err
 	}

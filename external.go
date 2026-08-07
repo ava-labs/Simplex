@@ -36,7 +36,7 @@ func (p *ParsedBlock) Bytes() []byte {
 
 func (p *ParsedBlock) BlockHeader() common.BlockHeader {
 	md := p.Metadata.SimplexProtocolMetadata.Clone()
-	digest := p.StateMachineBlock.Digest()
+	digest := p.Digest()
 	return common.BlockHeader{
 		ProtocolMetadata: md,
 		Digest:           digest,

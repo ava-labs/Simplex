@@ -318,7 +318,6 @@ func makeNonSimplexBlock(t *testing.T, startHeight uint64, start time.Time, h ui
 type testConfig struct {
 	blockStore            blockStore
 	signatureVerifier     signatureVerifier
-	signatureAggregator   signatureAggregator
 	blockBuilder          bb
 	keyAggregator         keyAggregator
 	validatorSetRetriever validatorSetRetriever

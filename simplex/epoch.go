@@ -22,8 +22,8 @@ import (
 )
 
 var (
-	ErrAlreadyStarted         = errors.New("epoch already started")
-	notarizationBlockMismatch = errors.New("notarization block header mismatches stored round block header")
+	ErrAlreadyStarted            = errors.New("epoch already started")
+	errNotarizationBlockMismatch = errors.New("notarization block header mismatches stored round block header")
 )
 
 const (
@@ -380,7 +380,7 @@ func (e *Epoch) loadNotarizationRecord(r []byte) error {
 		return nil
 	}
 
-	if err := e.storeNotarization(&notarization); err != nil && !errors.Is(err, notarizationBlockMismatch) {
+	if err := e.storeNotarization(&notarization); err != nil && !errors.Is(err, errNotarizationBlockMismatch) {
 		e.Logger.Debug("Failed to store notarization from WAL", zap.Uint64("Round", notarization.Vote.Round), zap.Error(err))
 		return err
 	}
@@ -421,7 +421,7 @@ func (e *Epoch) storeNotarization(notarization *common.Notarization) error {
 		delete(e.rounds, roundNum)
 		// We need to request the correct block from the network, as we have received the wrong block for this round.
 		e.replicationState.ReceivedFutureRound(expectedBlockHeader.Round, expectedBlockHeader.Seq, e.round, notarization.QC.Signers())
-		return notarizationBlockMismatch
+		return errNotarizationBlockMismatch
 	}
 
 	round.notarization = notarization
@@ -580,7 +580,7 @@ func (e *Epoch) resumeFromWal(highestRoundRecord *walRound) error {
 
 		e.Logger.Debug("Broadcast finalization",
 			zap.Uint64("round", highestRoundRecord.finalization.Finalization.Round),
-			zap.Stringer("digest", highestRoundRecord.finalization.Finalization.BlockHeader.Digest))
+			zap.Stringer("digest", highestRoundRecord.finalization.Finalization.Digest))
 
 		return e.startRound()
 	}
@@ -686,7 +686,7 @@ func (e *Epoch) setMetadataFromRecords(records [][]byte) error {
 			}
 			if notarization.Vote.Round >= highestRound {
 				highestRound = notarization.Vote.Round
-				highestEpoch = notarization.Vote.BlockHeader.Epoch
+				highestEpoch = notarization.Vote.Epoch
 				found = true
 			}
 		case common.EmptyNotarizationRecordType:
@@ -1306,7 +1306,7 @@ func (e *Epoch) persistFinalization(finalization common.Finalization) error {
 			zap.Uint64("seq", finalization.Finalization.Seq),
 			zap.Uint64("height", nextSeqToCommit),
 			zap.Int("size", len(finalizationRecord)),
-			zap.Stringer("digest", finalization.Finalization.BlockHeader.Digest))
+			zap.Stringer("digest", finalization.Finalization.Digest))
 
 		// we receive a finalization for a future round
 		e.Logger.Debug("Received a finalization for a future sequence", zap.Uint64("seq", finalization.Finalization.Seq), zap.Uint64("nextSeqToCommit", nextSeqToCommit))
@@ -1331,7 +1331,7 @@ func (e *Epoch) persistFinalization(finalization common.Finalization) error {
 
 	e.Logger.Debug("Broadcast finalization",
 		zap.Uint64("round", finalization.Finalization.Round),
-		zap.Stringer("digest", finalization.Finalization.BlockHeader.Digest))
+		zap.Stringer("digest", finalization.Finalization.Digest))
 
 	// If we have progressed to a new round while we committed blocks,
 	// start the new round.
@@ -1472,7 +1472,7 @@ func (e *Epoch) indexFinalization(block common.VerifiedBlock, finalization commo
 	e.Logger.Info("Committed block",
 		zap.Uint64("round", finalization.Finalization.Round),
 		zap.Uint64("sequence", finalization.Finalization.Seq),
-		zap.Stringer("digest", finalization.Finalization.BlockHeader.Digest))
+		zap.Stringer("digest", finalization.Finalization.Digest))
 	e.lastBlock = &common.VerifiedFinalizedBlock{
 		VerifiedBlock: block,
 		Finalization:  finalization,
@@ -1484,7 +1484,7 @@ func (e *Epoch) indexFinalization(block common.VerifiedBlock, finalization commo
 		e.Logger.Info("Committed a sealing block, epoch is sealed",
 			zap.Uint64("round", finalization.Finalization.Round),
 			zap.Uint64("sequence", finalization.Finalization.Seq),
-			zap.Stringer("digest", finalization.Finalization.BlockHeader.Digest))
+			zap.Stringer("digest", finalization.Finalization.Digest))
 
 		finalizationMsg := &common.Message{Finalization: &finalization}
 		e.broadcast(finalizationMsg)
@@ -1653,7 +1653,7 @@ func (e *Epoch) writeNotarizationToWal(notarization common.Notarization) error {
 	e.Logger.Debug("Persisted notarization to WAL",
 		zap.Int("size", len(notarizationRecord)),
 		zap.Uint64("round", notarization.Vote.Round),
-		zap.Stringer("digest", notarization.Vote.BlockHeader.Digest))
+		zap.Stringer("digest", notarization.Vote.Digest))
 
 	return nil
 }
@@ -1664,7 +1664,7 @@ func (e *Epoch) persistNotarization(notarization common.Notarization) error {
 	}
 
 	e.blockVerificationScheduler.ExecuteBlockDependents(notarization.Vote.Digest)
-	e.replicationState.clearBlockDependencyTasks(notarization.Vote.Digest, notarization.Vote.BlockHeader.Seq, false)
+	e.replicationState.clearBlockDependencyTasks(notarization.Vote.Digest, notarization.Vote.Seq, false)
 
 	round := notarization.Vote.Round
 	for _, signer := range notarization.QC.Signers() {
@@ -1698,8 +1698,8 @@ func (e *Epoch) persistAndBroadcastNotarization(notarization common.Notarization
 
 	e.Logger.Debug("Broadcast notarization",
 		zap.Uint64("round", notarization.Vote.Round),
-		zap.Uint64("seq", notarization.Vote.BlockHeader.Seq),
-		zap.Stringer("digest", notarization.Vote.BlockHeader.Digest))
+		zap.Uint64("seq", notarization.Vote.Seq),
+		zap.Stringer("digest", notarization.Vote.Digest))
 
 	return e.doNotarized(notarization.Vote.Round)
 }
@@ -2002,7 +2002,7 @@ func (e *Epoch) processFinalizedBlock(block common.Block, finalization *common.F
 	// dont create a block verification task if the block is already in the rounds map
 	if exists {
 		roundDigest := round.block.BlockHeader().Digest
-		seqDigest := finalization.Finalization.BlockHeader.Digest
+		seqDigest := finalization.Finalization.Digest
 		if !bytes.Equal(roundDigest[:], seqDigest[:]) {
 			e.Logger.Debug("Received finalized block that is different from the one we have in the rounds map",
 				zap.Stringer("roundDigest", roundDigest), zap.Stringer("seqDigest", seqDigest))
@@ -2049,7 +2049,7 @@ func (e *Epoch) processFinalizedBlock(block common.Block, finalization *common.F
 			zap.Stringer("expected digest", blockDependency),
 			zap.Uint64s("missing rounds", missingRounds),
 		)
-		return errors.New("Received a finalization for nextSeqToCommit that breaks our chain")
+		return errors.New("received a finalization for nextSeqToCommit that breaks our chain")
 	}
 
 	// Create a task that will verify the block in the future, after its predecessors have also been verified.
@@ -2083,7 +2083,7 @@ func (e *Epoch) processNotarizedBlock(block common.Block, notarization *common.N
 		}
 
 		roundDigest := round.block.BlockHeader().Digest
-		notarizedDigest := notarization.Vote.BlockHeader.Digest
+		notarizedDigest := notarization.Vote.Digest
 		if !bytes.Equal(roundDigest[:], notarizedDigest[:]) {
 			e.Logger.Debug("Received notarized block that is different from the one we have in the rounds map",
 				zap.Stringer("roundDigest", roundDigest), zap.Stringer("notarizedDigest", notarizedDigest))
@@ -2594,12 +2594,16 @@ func (e *Epoch) createBlockBuildingTask(metadata common.ProtocolMetadata, blackl
 			select {
 			case <-context.Done():
 			default:
-				e.Logger.Warn("Failed building block")
+				e.Logger.Debug("Failed building block")
 			}
 			return common.Digest{}
 		}
 
-		e.proposeBlock(block)
+		if err := e.proposeBlock(block); err != nil {
+			e.Logger.Error("Failed proposing block", zap.Error(err))
+			e.haltedError = err
+			return common.Digest{}
+		}
 
 		return block.BlockHeader().Digest
 	}
@@ -2830,7 +2834,7 @@ func (e *Epoch) monitorProgress(round uint64) {
 
 		// Once it's time to build a new block, wait a grace period of 'e.maxProposalWait' time,
 		// and if the monitor isn't cancelled by then, invoke proposalWaitTimeExpired() above.
-		e.monitor.FutureTask(e.EpochConfig.MaxProposalWait, proposalWaitTimeExpired)
+		e.monitor.FutureTask(e.MaxProposalWait, proposalWaitTimeExpired)
 	}
 
 	// Registers a wait operation that:
@@ -2878,7 +2882,7 @@ func (e *Epoch) storeFinalization(finalization *common.Finalization) error {
 	if finalization == nil {
 		return errors.New("finalization is nil")
 	}
-	roundNum := finalization.Finalization.BlockHeader.Round
+	roundNum := finalization.Finalization.Round
 	round, exists := e.rounds[roundNum]
 	if !exists {
 		return fmt.Errorf("round %d not found", roundNum)
