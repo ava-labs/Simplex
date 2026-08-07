@@ -2688,6 +2688,14 @@ func (e *Epoch) triggerEmptyBlockNotarization(round uint64) {
 		return
 	}
 
+	// Several paths trigger the empty block agreement for the same round, so everything below,
+	// including the WAL append, must not run twice.
+	if e.haveWeAlreadyTimedOutOnThisRound(round) {
+		e.Logger.Debug("Not triggering empty block notarization because we already timed out on this round",
+			zap.Uint64("round", round))
+		return
+	}
+
 	emptyVote := common.ToBeSignedEmptyVote{EmptyVoteMetadata: common.EmptyVoteMetadata{
 		Round: round,
 		Epoch: e.Epoch,
