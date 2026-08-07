@@ -5,7 +5,6 @@ package simplex_test
 
 import (
 	"context"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"strings"
@@ -1376,24 +1375,6 @@ func TestNodeIsNotSuspectedAfterSigningALaterNotarization(t *testing.T) {
 	}
 }
 
-// countEmptyVoteRecords returns how many empty vote records the WAL holds for the round.
-func countEmptyVoteRecords(wal *testutil.TestWAL) (int, error) {
-	rawRecords, err := wal.ReadAll()
-	if err != nil {
-		return 0, err
-	}
-
-	var count int
-	for _, rawRecord := range rawRecords {
-		if binary.BigEndian.Uint16(rawRecord[:2]) != EmptyVoteRecordType {
-			continue
-		}
-
-		count++
-	}
-	return count, nil
-}
-
 // TestEmptyVoteNotDuplicatedAfterFailedVerification asserts that a round contributes at most one
 // empty vote record to the WAL. triggerEmptyBlockNotarization sets emptyVotes.timedOut but never
 // checks it, so timing out on a round and then failing to verify its late proposal appends a
@@ -1423,9 +1404,8 @@ func TestEmptyVoteNotDuplicatedAfterFailedVerification(t *testing.T) {
 	bb.BlockShouldBeBuilt <- struct{}{}
 	testutil.WaitForBlockProposerTimeout(t, e, &e.StartTime, 0)
 
-	count, err := countEmptyVoteRecords(wal)
-	require.NoError(t, err)
-	require.Equal(t, 1, count, "timing out on round 0 should write exactly one empty vote record")
+	wal.AssertEmptyVote(0)
+	wal.AssertHealthy(conf.BlockDeserializer, conf.QCDeserializer)
 	require.Equal(t, uint64(0), e.Metadata().Round, "round should not have advanced")
 
 	// The late proposal arrives and fails verification.
@@ -1439,10 +1419,9 @@ func TestEmptyVoteNotDuplicatedAfterFailedVerification(t *testing.T) {
 		},
 	}, nodes[0]))
 
-	// The epoch appends to the WAL after Verify returns
-	require.Never(t, func() bool {
-		count, err := countEmptyVoteRecords(wal)
-		return err == nil && count > 1
-	}, 3*time.Second, 10*time.Millisecond,
-		"a failed block verification appended a second empty vote record for a round we already timed out on")
+	start := time.Now()
+	for time.Since(start) < 3*time.Second {
+		wal.AssertHealthy(conf.BlockDeserializer, conf.QCDeserializer)
+		time.Sleep(100 * time.Millisecond)
+	}
 }
