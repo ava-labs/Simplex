@@ -2288,6 +2288,9 @@ func (e *Epoch) createNotarizedBlockVerificationTask(block common.Block, notariz
 		e.lock.Lock()
 		defer e.lock.Unlock()
 
+		// Capture the round before processing, so we can tell afterwards whether we advanced.
+		epochRound := e.round
+
 		// we started verifying the block when we didn't have a notarization, however its
 		// possible we received a notarization or empty notarization for this block in the meantime.
 		round, ok := e.rounds[md.Round]
@@ -2321,7 +2324,7 @@ func (e *Epoch) createNotarizedBlockVerificationTask(block common.Block, notariz
 		}
 
 		// If we have advanced a round, and the new round is beyond our replication state, start the new round.
-		if e.round > md.Round && e.round > e.replicationState.GetHighestRound() {
+		if e.round > epochRound && e.round > e.replicationState.GetHighestRound() {
 			if err := e.startRound(); err != nil {
 				e.haltedError = err
 				return md.Digest

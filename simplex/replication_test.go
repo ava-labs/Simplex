@@ -1933,3 +1933,110 @@ func TestLeaderStartsRoundAfterReplicatedQuorumRound(t *testing.T) {
 		})
 	}
 }
+
+// countingBlockBuilder records the round of every block building request.
+type countingBlockBuilder struct {
+	*testutil.TestBlockBuilder
+
+	lock   sync.Mutex
+	rounds []uint64
+}
+
+func (c *countingBlockBuilder) BuildBlock(ctx context.Context, metadata common.ProtocolMetadata, blacklist common.Blacklist) (common.VerifiedBlock, bool) {
+	c.lock.Lock()
+	c.rounds = append(c.rounds, metadata.Round)
+	c.lock.Unlock()
+
+	return c.TestBlockBuilder.BuildBlock(ctx, metadata, blacklist)
+}
+
+func (c *countingBlockBuilder) buildCountForRound(round uint64) int {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	var count int
+	for _, r := range c.rounds {
+		if r == round {
+			count++
+		}
+	}
+	return count
+}
+
+// TestReplicatedNotarizationDoesNotRestartCurrentRound asserts that verifying a replicated
+// notarized block for a past round does not restart the round we are already in.
+// createNotarizedBlockVerificationTask compares e.round against the replicated block's round
+// rather than against the round we held before processing it, which is permanently true while
+// catching up, so the leader builds a second block for a round it has already proposed in.
+func TestReplicatedNotarizationDoesNotRestartCurrentRound(t *testing.T) {
+	nodes := []common.NodeID{{1}, {2}, {3}, {4}}
+
+	// nodes[1] leads round 1 but not round 0, so round 0 can be skipped and replicated later.
+	require.NotEqual(t, nodes[1], simplex.LeaderForRound(nodes, 0))
+	require.Equal(t, nodes[1], simplex.LeaderForRound(nodes, 1))
+
+	comm := &recordingComm{
+		Communication:     testutil.NewNoopComm(nodes),
+		BroadcastMessages: make(chan *common.Message, 100),
+		SentMessages:      make(chan *common.Message, 100),
+	}
+
+	bb := &countingBlockBuilder{TestBlockBuilder: testutil.NewTestBlockBuilder().WithBuiltBuffer(4)}
+	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[1], comm, bb)
+	conf.ReplicationEnabled = true
+
+	e, err := simplex.NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+
+	// The block the round 0 leader proposed, which our node never received directly.
+	blockB := testutil.NewTestBlock(e.Metadata(), emptyBlacklist)
+	require.Equal(t, uint64(0), blockB.BlockHeader().Round)
+
+	validators := e.Comm.Validators()
+	quorum := common.Quorum(len(validators))
+	notarization, err := testutil.NewNotarization(e.Logger, e.SignatureAggregatorCreator(validators), blockB, validators.NodeIDs()[:quorum])
+	require.NoError(t, err)
+
+	// Round 0 is empty notarized, so we advance to round 1 without ever storing a block or a
+	// notarization for round 0.
+	require.NoError(t, e.HandleMessage(&common.Message{
+		EmptyNotarization: testutil.NewEmptyNotarization(nodes[:quorum], 0),
+	}, nodes[0]))
+
+	require.Eventually(t, func() bool {
+		return e.Metadata().Round == 1
+	}, 5*time.Second, 10*time.Millisecond, "node did not advance to round 1")
+
+	// As leader of round 1 the node proposes. Wait for the proposal so that the first build has
+	// finished and e.rounds[1] is populated.
+	require.Eventually(t, func() bool {
+		for {
+			select {
+			case msg := <-comm.BroadcastMessages:
+				if msg.VerifiedBlockMessage != nil {
+					return msg.VerifiedBlockMessage.VerifiedBlock.BlockHeader().Round == 1
+				}
+			default:
+				return false
+			}
+		}
+	}, 5*time.Second, 10*time.Millisecond, "leader never proposed a block for round 1")
+
+	require.Equal(t, 1, bb.buildCountForRound(1), "round 1 should have been built exactly once")
+
+	// A peer replicates the notarized block for round 0, the round we skipped.
+	require.NoError(t, e.HandleMessage(&common.Message{
+		ReplicationResponse: &common.ReplicationResponse{
+			Data: []common.QuorumRound{{Block: blockB, Notarization: &notarization}},
+		},
+	}, nodes[0]))
+
+	require.Never(t, func() bool {
+		return bb.buildCountForRound(1) > 1
+	}, 3*time.Second, 10*time.Millisecond,
+		"verifying a replicated notarized block for round 0 restarted round 1, so the leader built a second block for a round it had already proposed in")
+
+	require.Equal(t, uint64(1), e.Metadata().Round, "round should not have advanced")
+}
