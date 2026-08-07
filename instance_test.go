@@ -549,6 +549,83 @@ func TestInstanceDoubleStartFails(t *testing.T) {
 	require.ErrorContains(t, inst.Start(t.Context()), "instance already started")
 }
 
+// TestInstanceZeroBlockAfterPreSimplexBlocks brings up a network whose ledger already holds
+// pre-Simplex blocks (not just the genesis block), and asserts that the zero block the network
+// commits chains to the last non-Simplex block through the inner block's digest.
+func TestInstanceZeroBlockAfterPreSimplexBlocks(t *testing.T) {
+	const (
+		// The ledger holds pre-Simplex blocks from height 0 (genesis) to lastNonSimplexHeight.
+		lastNonSimplexHeight = uint64(3)
+		zeroBlockSeq         = lastNonSimplexHeight + 1
+		basePChainHeight     = 100
+	)
+
+	var firstID, secondID [20]byte
+	rand.Read(firstID[:])
+	rand.Read(secondID[:])
+	firstNodeID := common.NodeID(firstID[:])
+	secondNodeID := common.NodeID(secondID[:])
+
+	// Both nodes are validators from the start, so neither can commit a block alone: the zero
+	// block proposed by the leader only gets committed if the other node verifies and votes for it.
+	validatorSetsAtHeight := map[uint64]metadata.NodeBLSMappings{
+		basePChainHeight: {
+			{NodeID: firstID, BLSKey: []byte{0xaa}, Weight: 1},
+			{NodeID: secondID, BLSKey: []byte{0xbb}, Weight: 1},
+		},
+	}
+
+	pChain := newTestPlatformChain(basePChainHeight, validatorSetsAtHeight)
+	cops := &testCryptoOps{}
+
+	// The pre-Simplex chain. Timestamps are in the past because the zero block carries over the
+	// last non-Simplex block's timestamp, which may not lie in the future.
+	preSimplexBlocks := make([]*testInnerBlock, 0, lastNonSimplexHeight+1)
+	for h := uint64(0); h <= lastNonSimplexHeight; h++ {
+		preSimplexBlocks = append(preSimplexBlocks, &testInnerBlock{
+			Height_: h,
+			TS:      time.Now().Add(-time.Duration(lastNonSimplexHeight-h+1) * time.Second),
+			Payload: []byte(fmt.Sprintf("pre-simplex block %d", h)),
+		})
+	}
+	lastNonSimplexBlock := preSimplexBlocks[len(preSimplexBlocks)-1]
+
+	net := newInMemNetwork(t)
+	t.Cleanup(net.stop)
+
+	storage := newStorageWithBlocks(t, preSimplexBlocks...)
+	storage2 := newStorageWithBlocks(t, preSimplexBlocks...)
+
+	// The VMs continue the pre-Simplex chain, so the first inner block they build sits right on
+	// top of the last non-Simplex block.
+	firstInstance := newInstanceWithVM(t, firstNodeID, storage, net, pChain, cops, lastNonSimplexBlock, newTestVMAtHeight(lastNonSimplexHeight+1))
+	secondInstance := newInstanceWithVM(t, secondNodeID, storage2, net, pChain, cops, lastNonSimplexBlock, newTestVMAtHeight(lastNonSimplexHeight+1))
+	net.register(firstNodeID, firstInstance)
+	net.register(secondNodeID, secondInstance)
+
+	require.NoError(t, firstInstance.Start(t.Context()))
+	require.NoError(t, secondInstance.Start(t.Context()))
+	t.Cleanup(firstInstance.Stop)
+	t.Cleanup(secondInstance.Stop)
+
+	// Both nodes commit the zero block and a few ordinary Simplex blocks on top of it.
+	const simplexBlocks = uint64(3) // zero block + 2 ordinary blocks
+	waitForNumBlocks(t, storage, zeroBlockSeq+simplexBlocks)
+	waitForNumBlocks(t, storage2, zeroBlockSeq+simplexBlocks)
+
+	// Both nodes agree on a zero block that points to the last non-Simplex inner block.
+	for _, s := range []*MockStorage{storage, storage2} {
+		zeroBlock, ok := s.blockAt(zeroBlockSeq)
+		require.True(t, ok)
+		require.Equal(t, metadata.BlockTypeZero, zeroBlock.Type())
+		require.Nil(t, zeroBlock.InnerBlock)
+
+		md := zeroBlock.Metadata.SimplexProtocolMetadata
+		require.Equal(t, common.Digest(lastNonSimplexBlock.Digest()), md.Prev)
+		require.Equal(t, zeroBlockSeq, md.Seq)
+	}
+}
+
 // requireTipIsSealing asserts whether the last block in storage is a sealing block.
 func requireTipIsSealing(t *testing.T, storage *MockStorage, want bool) {
 	t.Helper()
@@ -589,9 +666,25 @@ func waitForSealingBlockCount(t *testing.T, storage *MockStorage, target int) {
 // here starts from.
 func newStorageWithGenesis(t *testing.T, genesisBlock *testInnerBlock) *MockStorage {
 	t.Helper()
+	return newStorageWithBlocks(t, genesisBlock)
+}
+
+// newStorageWithBlocks returns storage holding the given non-Simplex blocks (a genesis block, and
+// possibly further pre-Simplex blocks on top of it), indexed in order.
+// A non-Simplex block carries no Simplex metadata, save for the sequence number the test storage
+// indexes it by, which for these blocks equals its height.
+func newStorageWithBlocks(t *testing.T, blocks ...*testInnerBlock) *MockStorage {
+	t.Helper()
 	storage := NewMockStorage(t)
-	genesis := &ParsedBlock{StateMachineBlock: metadata.StateMachineBlock{InnerBlock: genesisBlock}}
-	require.NoError(t, storage.Index(context.Background(), genesis, common.Finalization{}))
+	for _, inner := range blocks {
+		block := &ParsedBlock{StateMachineBlock: metadata.StateMachineBlock{
+			InnerBlock: inner,
+			Metadata: metadata.StateMachineMetadata{
+				SimplexProtocolMetadata: common.ProtocolMetadata{Seq: inner.Height()},
+			},
+		}}
+		require.NoError(t, storage.Index(context.Background(), block, common.Finalization{}))
+	}
 	return storage
 }
 
@@ -726,6 +819,14 @@ type testVM struct {
 func newTestVM() *testVM {
 	vm := &testVM{}
 	vm.nextHeight.Store(1) // the genesis inner block is height 0
+	return vm
+}
+
+// newTestVMAtHeight returns a VM whose first built block has the given height, for a ledger that
+// already holds blocks above the genesis block.
+func newTestVMAtHeight(height uint64) *testVM {
+	vm := &testVM{}
+	vm.nextHeight.Store(height)
 	return vm
 }
 

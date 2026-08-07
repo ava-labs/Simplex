@@ -169,7 +169,7 @@ func TestMSMFirstSimplexBlockAfterPreSimplexBlocks(t *testing.T) {
 		Round: 0,
 		Seq:   43,
 		Epoch: 43,
-		Prev:  preSimplexParent.Digest(),
+		Prev:  preSimplexParent.InnerBlock.Digest(),
 	}
 
 	sm1, testConfig1 := newStateMachine(t)
@@ -218,6 +218,65 @@ func TestMSMFirstSimplexBlockAfterPreSimplexBlocks(t *testing.T) {
 	}, block)
 
 	require.NoError(t, sm2.VerifyBlock(context.Background(), block))
+}
+
+// TestMSMZeroBlockPrevIsLastNonSimplexInnerBlockDigest ensures the zero block anchors itself to the
+// last non-Simplex block via that block's inner digest, and not via the digest consensus hands us
+// in the protocol metadata.
+func TestMSMZeroBlockPrevIsLastNonSimplexInnerBlockDigest(t *testing.T) {
+	preSimplexParent := StateMachineBlock{
+		InnerBlock: &testutil.InnerBlock{
+			TS:          time.Now(),
+			BlockHeight: 42,
+			Content:     []byte{4, 5, 6},
+		},
+	}
+
+	innerDigest := common.Digest(preSimplexParent.InnerBlock.Digest())
+	outerDigest := common.Digest(preSimplexParent.Digest())
+	require.NotEqual(t, innerDigest, outerDigest)
+
+	newZeroBlockStateMachine := func(t *testing.T) *StateMachine {
+		sm, tc := newStateMachine(t)
+		tc.blockStore[42] = &outerBlock{block: preSimplexParent}
+		sm.LastNonSimplexInnerBlock = preSimplexParent.InnerBlock
+		return sm
+	}
+
+	t.Run("built zero block points to the inner digest", func(t *testing.T) {
+		sm := newZeroBlockStateMachine(t)
+
+		block, err := sm.BuildBlock(context.Background(), common.ProtocolMetadata{
+			Round: 0,
+			Seq:   43,
+			Epoch: 43,
+			Prev:  outerDigest,
+		}, emptyBlacklist)
+		require.NoError(t, err)
+
+		require.Equal(t, innerDigest, block.Metadata.SimplexProtocolMetadata.Prev)
+		require.Equal(t, preSimplexParent.InnerBlock.Height()+1, block.Metadata.SimplexProtocolMetadata.Seq)
+
+		// A different node, which only knows the last non-Simplex block, accepts it.
+		require.NoError(t, newZeroBlockStateMachine(t).VerifyBlock(context.Background(), block))
+	})
+
+	t.Run("zero block not pointing to the inner digest is rejected", func(t *testing.T) {
+		sm := newZeroBlockStateMachine(t)
+
+		block, err := sm.BuildBlock(context.Background(), common.ProtocolMetadata{
+			Round: 0,
+			Seq:   43,
+			Epoch: 43,
+			Prev:  innerDigest,
+		}, emptyBlacklist)
+		require.NoError(t, err)
+
+		block.Metadata.SimplexProtocolMetadata.Prev = outerDigest
+
+		err = newZeroBlockStateMachine(t).VerifyBlock(context.Background(), block)
+		require.ErrorIs(t, err, errZeroBlockPrevDigestMismatch)
+	})
 }
 
 func TestMSMBuildBlockRejectsZeroSeq(t *testing.T) {
@@ -454,24 +513,21 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 	}
 
 	// ----- Step 0: Building on top of genesis or upgrading to Simplex-----
-	genesis := StateMachineBlock{
-		InnerBlock: &testutil.InnerBlock{
-			BlockHeight: 0, // Genesis block has height 0
-			TS:          startTime,
-			Content:     []byte{0},
-		},
+	genesis := &testutil.InnerBlock{
+		BlockHeight: 0, // Genesis block has height 0
+		TS:          startTime,
+		Content:     []byte{0},
 	}
 
-	notGenesis := StateMachineBlock{
-		InnerBlock: &testutil.InnerBlock{
-			BlockHeight: 42,
-			TS:          startTime,
-			Content:     []byte{0},
-		},
+	notGenesis := &testutil.InnerBlock{
+		BlockHeight: 42,
+		TS:          startTime,
+		Content:     []byte{0},
 	}
+
 	for _, testCase := range []struct {
 		name                    string
-		firstBlockBeforeSimplex StateMachineBlock
+		firstBlockBeforeSimplex *testutil.InnerBlock
 		epochNum                uint64
 		// firstBlockICMEpochInfo is the ICM epoch of the pre-Simplex parent, which the zero block
 		// carries over. A genesis parent predates ICM, so its ICM epoch is empty and the first epoch
@@ -487,7 +543,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 		{
 			name:                    "upgrading to Simplex from pre-Simplex blocks",
 			firstBlockBeforeSimplex: notGenesis,
-			epochNum:                notGenesis.InnerBlock.Height() + 1,
+			epochNum:                notGenesis.Height() + 1,
 			firstBlockICMEpochInfo: ICMEpochInfo{
 				PChainEpochHeight: pChainHeight1,
 				EpochNumber:       1,
@@ -549,9 +605,6 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 				EpochStartTime:    uint64(startTime.Unix()) + 1,
 			}
 
-			// The zero block carries over the parent's ICM epoch.
-			testCase.firstBlockBeforeSimplex.Metadata.ICMEpochInfo = testCase.firstBlockICMEpochInfo
-
 			sm, tc := newStateMachine(t)
 			sm.GetValidatorSet = getValidatorSet
 
@@ -563,10 +616,10 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 			// behavior is covered by TestVerifyCollectingApprovalsNotReady and
 			// TestCollectAuxiliaryInfo.
 			sm.AuxiliaryInfoApp = &noopTestAuxInfoApp{}
-			tc.blockStore[0] = &outerBlock{block: genesis}
-			tc.blockStore[42] = &outerBlock{block: notGenesis}
+			tc.blockStore[0] = &outerBlock{block: StateMachineBlock{InnerBlock: genesis}}
+			tc.blockStore[42] = &outerBlock{block: StateMachineBlock{InnerBlock: notGenesis}}
 
-			sm.LastNonSimplexInnerBlock = testCase.firstBlockBeforeSimplex.InnerBlock
+			sm.LastNonSimplexInnerBlock = testCase.firstBlockBeforeSimplex
 			sm.GenesisValidatorSet = validatorSet1
 			sm.LastNonSimplexBlockPChainHeight = pChainHeight1
 
@@ -591,7 +644,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 
 			smVerify.GetTime = fixedTime
 
-			smVerify.LastNonSimplexInnerBlock = testCase.firstBlockBeforeSimplex.InnerBlock
+			smVerify.LastNonSimplexInnerBlock = testCase.firstBlockBeforeSimplex
 			smVerify.GenesisValidatorSet = validatorSet1
 			smVerify.LastNonSimplexBlockPChainHeight = pChainHeight1
 
@@ -601,8 +654,11 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 				tcVerify.blockStore[seq] = &outerBlock{block: block, finalization: fin}
 			}
 
-			baseSeq := testCase.firstBlockBeforeSimplex.InnerBlock.Height()
-			addBlock(baseSeq, testCase.firstBlockBeforeSimplex, nil)
+			baseSeq := testCase.firstBlockBeforeSimplex.Height()
+			addBlock(baseSeq, StateMachineBlock{InnerBlock: testCase.firstBlockBeforeSimplex, Metadata: StateMachineMetadata{
+				// The zero block carries over the parent's ICM epoch.
+				ICMEpochInfo: testCase.firstBlockICMEpochInfo,
+			}}, nil)
 
 			aggr := &signatureAggregator{}
 

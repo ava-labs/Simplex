@@ -73,7 +73,7 @@ var (
 	errNilBlock                       = errors.New("block is nil")
 	errInvalidPChainHeight            = errors.New("invalid P-chain height")
 	errZeroBlockHasInnerBlock         = errors.New("zero block must not have an inner block")
-	errZeroBlockInnerDigestMismatch   = errors.New("zero block inner block digest does not match last non-Simplex inner block digest")
+	errZeroBlockPrevDigestMismatch    = errors.New("zero block previous digest does not match last non-Simplex inner block digest")
 	errZeroBlockTimestampMismatch     = errors.New("zero block timestamp does not match last non-Simplex inner block timestamp")
 	errPrevSealingBlockNotFinalized   = errors.New("previous sealing block is not finalized")
 	errBlockDigestMismatch            = errors.New("does not match proposed block digest")
@@ -772,9 +772,8 @@ func (sm *StateMachine) buildBlockZero(parentBlock StateMachineBlock, simplexMet
 	timestamp := sm.LastNonSimplexInnerBlock.Timestamp().UnixMilli()
 	simplexEpochInfo := constructSimplexZeroBlockSimplexEpochInfo(pChainHeight, validatorSet, prevVMBlockSeq)
 
-	md := simplexMetadata
-	md.Prev = sm.LastNonSimplexInnerBlock.Digest()
-	md.Seq = sm.LastNonSimplexInnerBlock.Height()
+	simplexMetadata.Prev = sm.LastNonSimplexInnerBlock.Digest()
+	simplexMetadata.Seq = sm.LastNonSimplexInnerBlock.Height() + 1
 
 	// The zero block carries over the parent's ICM epoch unchanged, just as it carries over the
 	// timestamp. If the parent is a genesis block that predates ICM, the carried-over epoch is empty,
@@ -849,8 +848,10 @@ func (sm *StateMachine) verifyBlockZero(block *StateMachineBlock, prevBlock Stat
 	if block.InnerBlock != nil {
 		return errZeroBlockHasInnerBlock
 	}
-	if prevBlock.InnerBlock.Digest() != sm.LastNonSimplexInnerBlock.Digest() {
-		return errZeroBlockInnerDigestMismatch
+
+	// The zero block must build upon the last non-Simplex block
+	if block.Metadata.SimplexProtocolMetadata.Prev != sm.LastNonSimplexInnerBlock.Digest() {
+		return errZeroBlockPrevDigestMismatch
 	}
 
 	// The timestamp must equal the last non-Simplex inner block's timestamp.

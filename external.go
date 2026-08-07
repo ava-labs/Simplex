@@ -15,6 +15,8 @@ type ParsedBlock struct {
 	metadata.StateMachineBlock
 	msm *metadata.StateMachine
 
+	legacyBlock bool // true if this is not a simplex block, but a block pre-dating simplex.
+
 	// lock guards size, so Size() can be invoked concurrently
 	lock sync.Mutex
 	// size caches the length of the Bytes encoding, computed on first use
@@ -27,6 +29,11 @@ func (p *ParsedBlock) Bytes() []byte {
 		rawInnerBlock := p.InnerBlock.Bytes()
 		innerBlockBytes = rawInnerBlock
 	}
+
+	if p.legacyBlock {
+		return innerBlockBytes
+	}
+
 	rawBlock := &metadata.RawBlock{
 		Metadata:        p.Metadata.Clone(),
 		InnerBlockBytes: innerBlockBytes,
@@ -37,6 +44,11 @@ func (p *ParsedBlock) Bytes() []byte {
 func (p *ParsedBlock) BlockHeader() common.BlockHeader {
 	md := p.Metadata.SimplexProtocolMetadata.Clone()
 	digest := p.Digest()
+
+	if p.legacyBlock {
+		digest = p.InnerBlock.Digest()
+	}
+
 	return common.BlockHeader{
 		ProtocolMetadata: md,
 		Digest:           digest,

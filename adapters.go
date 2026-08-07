@@ -35,8 +35,9 @@ func (c *Communication) Validators() common.Nodes {
 // Upon an epoch change, it will ignore blocks from previous epochs
 // and will call the onEpochChange callback when a new epoch is detected.
 type EpochAwareStorage struct {
-	msm           *metadata.StateMachine
-	onEpochChange func(seq uint64, validators common.Nodes) error
+	lastNonSimplexHeight uint64
+	msm                  *metadata.StateMachine
+	onEpochChange        func(seq uint64, validators common.Nodes) error
 	Storage
 	epoch uint64
 }
@@ -49,6 +50,7 @@ func (e *EpochAwareStorage) Retrieve(seq uint64) (common.VerifiedBlock, common.F
 	parsedBlock := &ParsedBlock{
 		msm:               e.msm,
 		StateMachineBlock: block,
+		legacyBlock:       seq <= e.lastNonSimplexHeight,
 	}
 	return parsedBlock, *finalization, nil
 }
