@@ -1947,9 +1947,9 @@ func replicateSeq(block common.VerifiedFinalizedBlock) *common.Message {
 	}}
 }
 
-// TestReplicationRedeliversRestoredFinalization asserts that we can index a finalized block that already has
-// a finalization in the rounds map. This is possible if the WAL recovered the finalization or if it was sent via
-// a finalization message.
+// TestReplicationRedeliversRestoredFinalization asserts that a node commits a block when a replication
+// response redelivers a finalization the node already knows of. This is possible if the finalization was
+// recovered from the WAL or previously received in a finalization message.
 func TestReplicationRedeliversRestoredFinalization(t *testing.T) {
 	ctx := context.Background()
 	nodes := []common.NodeID{{1}, {2}, {3}, {4}}
