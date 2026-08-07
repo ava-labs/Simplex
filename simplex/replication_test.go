@@ -1933,3 +1933,41 @@ func TestLeaderStartsRoundAfterReplicatedQuorumRound(t *testing.T) {
 		})
 	}
 }
+
+func replicateSeq(block common.VerifiedFinalizedBlock) *common.Message {
+	return &common.Message{ReplicationResponse: &common.ReplicationResponse{
+		Data: []common.QuorumRound{{
+			Block:        block.VerifiedBlock.(common.Block),
+			Finalization: &block.Finalization,
+		}},
+	}}
+}
+
+// TestReplicationRedeliversRestoredFinalization asserts that a node commits a block when a replication
+// response redelivers a finalization the node already knows of. This is possible if the finalization was
+// recovered from the WAL or previously received in a finalization message.
+func TestReplicationRedeliversRestoredFinalization(t *testing.T) {
+	ctx := context.Background()
+	nodes := []common.NodeID{{1}, {2}, {3}, {4}}
+	blocks := createBlocks(t, nodes, 2)
+
+	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[3], testutil.NewNoopComm(nodes), testutil.NewTestBlockBuilder())
+	conf.ReplicationEnabled = true
+	require.NoError(t, storage.Index(ctx, blocks[0].VerifiedBlock, blocks[0].Finalization))
+
+	// the round is restored holding a finalization whose seq is the next one to commit
+	second := blocks[1].VerifiedBlock
+	blockRecord, err := common.BlockRecord(second.BlockHeader(), second.Bytes())
+	require.NoError(t, err)
+	require.NoError(t, wal.Append(blockRecord))
+	_, finalizationRecord := testutil.NewFinalizationRecord(t, &testutil.TestSignatureAggregator{N: len(nodes)}, second, nodes)
+	require.NoError(t, wal.Append(finalizationRecord))
+
+	e, err := simplex.NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+
+	require.NoError(t, e.HandleMessage(replicateSeq(blocks[1]), nodes[1]))
+	storage.WaitForBlockCommit(1)
+}
