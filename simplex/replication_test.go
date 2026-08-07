@@ -1951,7 +1951,7 @@ func TestReplicationRedeliversRestoredFinalization(t *testing.T) {
 	nodes := []common.NodeID{{1}, {2}, {3}, {4}}
 	blocks := createBlocks(t, nodes, 2)
 
-	conf, wal, storage := DefaultTestNodeEpochConfig(t, nodes[3], NewNoopComm(nodes), testutil.NewTestBlockBuilder())
+	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[3], testutil.NewNoopComm(nodes), testutil.NewTestBlockBuilder())
 	conf.ReplicationEnabled = true
 	require.NoError(t, storage.Index(ctx, blocks[0].VerifiedBlock, blocks[0].Finalization))
 
@@ -1960,7 +1960,7 @@ func TestReplicationRedeliversRestoredFinalization(t *testing.T) {
 	blockRecord, err := common.BlockRecord(second.BlockHeader(), second.Bytes())
 	require.NoError(t, err)
 	require.NoError(t, wal.Append(blockRecord))
-	_, finalizationRecord := NewFinalizationRecord(t, &TestSignatureAggregator{N: len(nodes)}, second, nodes)
+	_, finalizationRecord := testutil.NewFinalizationRecord(t, &testutil.TestSignatureAggregator{N: len(nodes)}, second, nodes)
 	require.NoError(t, wal.Append(finalizationRecord))
 
 	e, err := simplex.NewEpoch(conf)
