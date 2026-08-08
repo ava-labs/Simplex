@@ -41,7 +41,7 @@ func (tb *TestBlock) Blacklist() common.Blacklist {
 	return tb.blacklist
 }
 
-func (tb *TestBlock) Verify(context.Context) (common.VerifiedBlock, error) {
+func (tb *TestBlock) Verify(context.Context, ...common.VerifyOptions) (common.VerifiedBlock, error) {
 	defer func() {
 		if tb.OnVerify != nil {
 			tb.OnVerify()

@@ -241,7 +241,7 @@ func (n *NonValidator) newFinalizedBlockTask(block common.Block, finalization *c
 			n.Logger.Debug("Block verification ended", zap.Uint64("sequence", md.Seq), zap.Duration("elapsed", elapsed))
 		}()
 
-		verifiedBlock, err := block.Verify(n.ctx)
+		verifiedBlock, err := block.Verify(n.ctx, common.OnlyVMVerifyOpt)
 		n.lock.Lock()
 		defer n.lock.Unlock()
 

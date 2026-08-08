@@ -80,8 +80,8 @@ type cachedBlock struct {
 	*ParsedBlock
 }
 
-func (cb *cachedBlock) Verify(ctx context.Context) (common.VerifiedBlock, error) {
-	vb, err := cb.ParsedBlock.Verify(ctx)
+func (cb *cachedBlock) Verify(ctx context.Context, verifyOpts ...common.VerifyOptions) (common.VerifiedBlock, error) {
+	vb, err := cb.ParsedBlock.Verify(ctx, verifyOpts...)
 	if err == nil {
 		cb.cache.insertBlock(cb.ParsedBlock)
 	}

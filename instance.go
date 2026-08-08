@@ -176,11 +176,11 @@ func (i *Instance) createNonValidatorConfig(epochNum uint64, validators common.N
 		},
 	}
 
-	// Plant an artificial MSM that just skips verification.
+	// Plant an artificial MSM. A non-validator never verifies the state machine transition,
+	// it only verifies the inner block (see common.OnlyVMVerifyOpt), so this MSM is only
+	// used to wire blocks and is never asked to verify them.
 	i.msm = &metadata.StateMachine{
-		Config: &metadata.Config{
-			SkipMSMVerification: true,
-		},
+		Config: &metadata.Config{},
 	}
 	i.cs.msm = i.msm
 

@@ -339,7 +339,7 @@ func (e *Epoch) loadBlockRecord(block common.Block) error {
 
 	// we have not indexed this block so we need to verify before restoring
 	e.Logger.Debug("Verifying block from WAL", zap.Uint64("Round", block.BlockHeader().Round), zap.Uint64("Seq", block.BlockHeader().Seq))
-	verifiedBlock, err := block.Verify(e.finishCtx)
+	verifiedBlock, err := block.Verify(e.finishCtx, common.OnlyVMVerifyOpt)
 	if err != nil {
 		e.Logger.Error("Failed to verify block from WAL", zap.Uint64("Round", block.BlockHeader().Round), zap.Uint64("Seq", block.BlockHeader().Seq), zap.Error(err))
 		return fmt.Errorf("failed to verify block: %w. round %d", err, block.BlockHeader().Round)
@@ -2205,7 +2205,7 @@ func (e *Epoch) createFinalizedBlockVerificationTask(block common.Block, finaliz
 			return md.Digest
 		}
 
-		verifiedBlock, err := block.Verify(context.Background())
+		verifiedBlock, err := block.Verify(context.Background(), common.OnlyVMVerifyOpt)
 		if err != nil {
 			e.Logger.Debug("Failed verifying block", zap.Error(err))
 			// if we fail to verify the block, we re-add to request timeout
@@ -2282,7 +2282,7 @@ func (e *Epoch) createNotarizedBlockVerificationTask(block common.Block, notariz
 			return md.Digest
 		}
 
-		verifiedBlock, err := block.Verify(context.Background())
+		verifiedBlock, err := block.Verify(context.Background(), common.OnlyVMVerifyOpt)
 		if err != nil {
 			e.Logger.Debug("Failed verifying block", zap.Error(err))
 			// TODO: if we fail to verify the block, we should re-request it from the replication state
