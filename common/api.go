@@ -91,7 +91,7 @@ type Block interface {
 	Blacklist() Blacklist
 
 	// Verify verifies the block by speculatively executing it on top of its ancestor.
-	Verify(ctx context.Context) (VerifiedBlock, error)
+	Verify(context.Context, ...VerifyOptions) (VerifiedBlock, error)
 
 	// non nil only for sealing blocks & first ever simplex block
 	SealingBlockInfo() *SealingBlockInfo
@@ -212,3 +212,13 @@ func F(n int) int {
 
 // SignatureAggregatorCreator creates a SignatureAggregator from a list of nodes and their weights.
 type SignatureAggregatorCreator func([]Node) SignatureAggregator
+
+type VerifyOptions func(*VerifyOpts)
+
+func OnlyVMVerifyOpt(vo *VerifyOpts) {
+	vo.OnlyVerifyVM = true
+}
+
+type VerifyOpts struct {
+	OnlyVerifyVM bool
+}
