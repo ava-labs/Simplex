@@ -4,7 +4,6 @@
 package simplex
 
 import (
-	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -14,8 +13,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+var (
+	nodeID1 = [20]byte{1}
+	nodeID2 = [20]byte{2}
+)
+
+// TestValidatorIndexes tests that a validator indexes a new block sent by the network
 func TestValidatorIndexes(t *testing.T) {
-	validatorID := generateNodeIDMapping()
+	validatorID := generateNodeIDMapping(nodeID1)
 
 	genesisSet := []metadata.NodeBLSMapping{validatorID}
 
@@ -27,9 +32,10 @@ func TestValidatorIndexes(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// TestNonValidatorSyncs that a non-validator syncs the chain when added to the network.
 func TestNonValidatorSyncs(t *testing.T) {
-	validatorID := generateNodeIDMapping()
-	nonValidatorID := generateNodeIDMapping()
+	validatorID := generateNodeIDMapping(nodeID1)
+	nonValidatorID := generateNodeIDMapping(nodeID2)
 
 	genesisSet := []metadata.NodeBLSMapping{validatorID}
 
@@ -45,9 +51,12 @@ func TestNonValidatorSyncs(t *testing.T) {
 	chain.addNode(nonValidatorID.NodeID[:])
 }
 
+// TestNonValidator_BecomesValidator tests that an upcoming validator becomes a validator
+// when an epoch change they are following is sealed. It does so by checking they participated in signing
+// NOTE: This test will not pass until approval dissemination happens from non-validators.
 func TestNonValidator_BecomesValidator(t *testing.T) {
-	validatorID := generateNodeIDMapping()
-	upcomingValidator := generateNodeIDMapping()
+	validatorID := generateNodeIDMapping(nodeID1)
+	upcomingValidator := generateNodeIDMapping(nodeID2)
 
 	genesisSet := []metadata.NodeBLSMapping{validatorID}
 
@@ -62,17 +71,17 @@ func TestNonValidator_BecomesValidator(t *testing.T) {
 
 	chain.addNode(upcomingValidator.NodeID[:])
 
-	fmt.Println("advancing height")
 	// initiate an epoch change
 	pChain.setValidatorSetAt(10, []metadata.NodeBLSMapping{validatorID, upcomingValidator})
 	pChain.advanceHeight(10)
 
-	// now that we advanced the height the validator will keep building empty blocks until the upcoming validator sends an approval
-	time.Sleep(5 * time.Second)
+	chain.waitUntilSealingBlock()
 }
 
+// TestValidator_ValidatorSetNotChanged tests that a pchain height increase
+// that does not have a unique validator set, does not create a new epoch
 func TestValidator_ValidatorSetNotChanged(t *testing.T) {
-	validatorID := generateNodeIDMapping()
+	validatorID := generateNodeIDMapping(nodeID1)
 
 	genesisSet := []metadata.NodeBLSMapping{validatorID}
 
@@ -87,7 +96,7 @@ func TestValidator_ValidatorSetNotChanged(t *testing.T) {
 	pChain.setValidatorSetAt(10, []metadata.NodeBLSMapping{validatorID})
 	pChain.advanceHeight(10)
 
-	// potential time to propose blocks
+	// potential time to propose blocks (if any)
 	time.Sleep(3 * time.Second)
 
 	block, err := chain.index()
@@ -95,9 +104,11 @@ func TestValidator_ValidatorSetNotChanged(t *testing.T) {
 	require.Equal(t, uint64(1), block.BlockHeader().Epoch)
 }
 
+// TestValidator_ValidatorSetDecreased tests that an epoch with two validators
+// is reduced to one, when the pchain height notes a validator is leaving.
 func TestValidator_ValidatorSetDecreased(t *testing.T) {
-	validatorID := generateNodeIDMapping([20]byte{1})
-	leavingValidatorID := generateNodeIDMapping([20]byte{2})
+	validatorID := generateNodeIDMapping(nodeID1)
+	leavingValidatorID := generateNodeIDMapping(nodeID2)
 
 	genesisSet := []metadata.NodeBLSMapping{validatorID, leavingValidatorID}
 
@@ -107,15 +118,17 @@ func TestValidator_ValidatorSetDecreased(t *testing.T) {
 
 	wg.Add(1)
 	go func() {
+		// add node is a synchronous call.
 		chain.addNode(validatorID.NodeID[:])
 		wg.Done()
 	}()
 	chain.addNode(leavingValidatorID.NodeID[:])
 
 	// all nodes have synced the first every simplex block
+	// TODO: we should initialize our node so that it already stores the first ever simplex block
+	// otherwise, we rely on all nodes to be connected in order to finalize it.
 	wg.Wait()
 
-	// time.Sleep(1 * time.Second)
 	block, err := chain.index()
 	require.NoError(t, err)
 	require.Equal(t, uint64(2), block.BlockHeader().Round)
@@ -128,49 +141,3 @@ func TestValidator_ValidatorSetDecreased(t *testing.T) {
 	require.Contains(t, sealing.SealingBlockInfo().ValidatorSet.NodeIDs(), common.NodeID(validatorID.NodeID[:]))
 	require.NotContains(t, sealing.SealingBlockInfo().ValidatorSet.NodeIDs(), common.NodeID(leavingValidatorID.NodeID[:]))
 }
-
-// Tests a non-validator converts to a validator when the epoch admitting it is committed,
-// proven by the finalization of the next block carrying both nodes' signatures.
-// func TestNonValidatorJoins(t *testing.T) {
-// 	chain := newChain(t)
-
-// 	// The initial validator set is just currentValidator, so futureValidator comes up as a
-// 	// non-validator that tracks the chain.
-// 	currentValidator := chain.newNode(nodeConfig{Name: "current-validator", Validator: true})
-// 	futureValidator := chain.newNode(nodeConfig{Name: "future-validator"})
-
-// 	chain.AddNodes(currentValidator, futureValidator)
-
-// 	chain.IndexBlock()
-
-// 	// The new validator set is current + future.
-// 	chain.IndexSealing(currentValidator, futureValidator)
-
-// 	block := chain.IndexBlock()
-
-// 	// A quorum of the new epoch needs both nodes, so both signing the finalization proves the
-// 	// joined node takes part in consensus rather than merely tracking the chain.
-// 	chain.RequireFinalizedBy(block, currentValidator, futureValidator)
-// }
-
-// // Tests that a non-validator joining a chain that has already sealed an epoch syncs across
-// // every epoch up to the tip.
-// func TestNonValidatorSyncs(t *testing.T) {
-// 	chain := newChain(t, chainConfig{})
-
-// 	// The initial validator set is just currentValidator.
-// 	currentValidator := chain.newNode(nodeConfig{Name: "current-validator", Validator: true})
-// 	syncingNonValidator := chain.newNode(nodeConfig{Name: "syncing-non-validator"})
-
-// 	chain.AddNodes(currentValidator)
-
-// 	chain.IndexBlock()
-// 	chain.IndexBlock()
-// 	chain.IndexSealing(currentValidator)
-// 	latestBlock := chain.IndexBlock()
-
-// 	chain.AddNodes(syncingNonValidator)
-
-// 	syncingNonValidator.WaitForCommit(latestBlock)
-// 	syncingNonValidator.RequireNonValidator()
-// }

@@ -353,6 +353,7 @@ func newChain(t *testing.T, pChain *testPlatformChain) *network {
 	}
 }
 
+// addNode adds a node to the network and ensure
 func (c *network) addNode(id common.NodeID) {
 	comm := newInstanceComm(c, id)
 	bd := &testInnerBlockDeserializer{}
