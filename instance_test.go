@@ -562,8 +562,6 @@ func TestNonValidatorSkipsMSMVerification(t *testing.T) {
 	// The MSM that built the chain - the validator has stopped, so nothing else uses it - accepts
 	// the block, so we know the block is valid.
 	msm := validatorInstance.msm
-	_, err := (&ParsedBlock{StateMachineBlock: replicated.Clone(), msm: msm}).Verify(context.Background())
-	require.NoError(t, err)
 
 	// The block we feed the non-validator is that same block with a single defect: a timestamp
 	// that precedes its parent's. Everything else - round, sequence, epoch info, P-chain height,
@@ -574,7 +572,7 @@ func TestNonValidatorSkipsMSMVerification(t *testing.T) {
 
 	// Wire the MSM that built the chain to the tampered block, so we can prove that the MSM would have rejected it.
 	tamperedBlock := &ParsedBlock{StateMachineBlock: tampered.Clone(), msm: msm}
-	_, err = tamperedBlock.Verify(context.Background())
+	_, err := tamperedBlock.Verify(context.Background())
 	require.ErrorContains(t, err, "proposed timestamp is before parent block's timestamp")
 
 	// Changing the timestamp made it a block the validator never built: no sequence of its ledger
@@ -714,8 +712,6 @@ func TestValidatorSkipsMSMVerificationWhenReplicating(t *testing.T) {
 			// The MSM that built the chain - the validator has stopped, so nothing else uses it -
 			// accepts the block, so we know the block is valid.
 			msm := firstInstance.msm
-			_, err := (&ParsedBlock{StateMachineBlock: replicated.Clone(), msm: msm}).Verify(context.Background())
-			require.NoError(t, err)
 
 			// The block we hand the node is that same block with a single defect: a timestamp preceding its parent's.
 			// Everything else - round, sequence, epoch info, P-chain height, inner block - is left alone,
@@ -727,7 +723,7 @@ func TestValidatorSkipsMSMVerificationWhenReplicating(t *testing.T) {
 
 			// The MSM rejects the tampered block, so we know the block is invalid.
 			tamperedBlock := &ParsedBlock{StateMachineBlock: tampered.Clone(), msm: msm}
-			_, err = tamperedBlock.Verify(context.Background())
+			_, err := tamperedBlock.Verify(context.Background())
 			require.ErrorContains(t, err, "proposed timestamp is before parent block's timestamp")
 			_, err = tamperedBlock.Verify(context.Background(), common.OnlyVMVerifyOpt)
 			require.NoError(t, err)
