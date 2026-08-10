@@ -213,12 +213,12 @@ func F(n int) int {
 // SignatureAggregatorCreator creates a SignatureAggregator from a list of nodes and their weights.
 type SignatureAggregatorCreator func([]Node) SignatureAggregator
 
-type VerifyOptions func(*VerifyOpts)
+type VerifyOptions func(*VerifyConfig)
 
-func OnlyVMVerifyOpt(vo *VerifyOpts) {
-	vo.OnlyVerifyVM = true
+func OnlyVMVerifyOpt(vc *VerifyConfig) {
+	vc.OnlyVM = true
 }
 
-type VerifyOpts struct {
-	OnlyVerifyVM bool
+type VerifyConfig struct {
+	OnlyVM bool
 }

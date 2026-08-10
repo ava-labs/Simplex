@@ -48,14 +48,14 @@ func (p *ParsedBlock) Blacklist() common.Blacklist {
 }
 
 func (p *ParsedBlock) Verify(ctx context.Context, verifyOpts ...common.VerifyOptions) (common.VerifiedBlock, error) {
-	var verifyOptions common.VerifyOpts
+	var verifyOptions common.VerifyConfig
 	for _, opt := range verifyOpts {
 		opt(&verifyOptions)
 	}
 
 	// When replicating a block that carries a notarization or a finalization, the quorum certificate
 	// already attests to the state machine transition, so we only verify the inner block.
-	if verifyOptions.OnlyVerifyVM {
+	if verifyOptions.OnlyVM {
 		if p.InnerBlock == nil {
 			return p, nil
 		}
