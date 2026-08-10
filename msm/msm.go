@@ -172,9 +172,6 @@ type StateMachine struct {
 
 // Config contains the dependencies and configuration parameters needed to initialize the StateMachine.
 type Config struct {
-	// SkipMSMVerification indicates whether to skip the verification of the state machine transition when verifying blocks,
-	// and only verify the inner block. This is useful when replicating finalized blocks as a non-validator.
-	SkipMSMVerification bool
 	// LatestPersistedHeight is the height of the most recently persisted block.
 	LatestPersistedHeight uint64
 	// MaxBlockBuildingWaitTime is the maximum duration to wait for the VM to build a block
@@ -328,14 +325,6 @@ func (sm *StateMachine) BuildBlock(ctx context.Context, metadata common.Protocol
 func (sm *StateMachine) VerifyBlock(ctx context.Context, block *StateMachineBlock) error {
 	if block == nil {
 		return errNilBlock
-	}
-
-	if sm.SkipMSMVerification {
-		// If SkipMSMVerification is true, we only verify the inner block and skip the state machine verification.
-		if block.InnerBlock == nil {
-			return nil
-		}
-		return block.InnerBlock.Verify(ctx, block.Metadata.ICMEpochInfo.PChainEpochHeight)
 	}
 
 	pmd := block.Metadata.SimplexProtocolMetadata
@@ -515,11 +504,7 @@ func verifyAgainstExpected(
 	expectedIcmEpochInfo ICMEpochInfo,
 	auxInfo *AuxiliaryInfo,
 ) error {
-	if innerBlock != nil {
-		if err := innerBlock.Verify(ctx, expectedIcmEpochInfo.PChainEpochHeight); err != nil {
-			return err
-		}
-	}
+	// First verify the metadata matches the expected values, only afterwards verify the inner block, if any.
 	expectedBlock := wrapBlock(
 		innerBlock, expectedSimplexEpochInfo, expectedPChainHeight,
 		nextBlock.Metadata.SimplexProtocolMetadata, nextBlock.Metadata.SimplexBlacklist, timestamp, expectedIcmEpochInfo, auxInfo)
@@ -528,6 +513,12 @@ func verifyAgainstExpected(
 			expectedBlock.Digest(),
 			nextBlock.Digest(),
 			errBlockDigestMismatch)
+	}
+
+	if innerBlock != nil {
+		if err := innerBlock.Verify(ctx, expectedIcmEpochInfo.PChainEpochHeight); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -1255,7 +1246,7 @@ func (sm *StateMachine) computeSimplexEpochInfoForSealingBlock(simplexEpochInfo 
 
 // wrapBlock creates a new StateMachineBlock by wrapping the VM block (if applicable) and adding the appropriate metadata.
 func wrapBlock(
-	childBlock avalanchego.VMBlock,
+	innerBlock avalanchego.VMBlock,
 	newSimplexEpochInfo SimplexEpochInfo,
 	pChainHeight uint64,
 	simplexMetadata common.ProtocolMetadata,
@@ -1265,7 +1256,7 @@ func wrapBlock(
 	auxiliaryInfo *AuxiliaryInfo) *StateMachineBlock {
 
 	return &StateMachineBlock{
-		InnerBlock: childBlock,
+		InnerBlock: innerBlock,
 		Metadata: StateMachineMetadata{
 			Timestamp:               uint64(timestamp.UnixMilli()),
 			SimplexProtocolMetadata: simplexMetadata,

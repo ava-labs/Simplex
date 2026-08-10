@@ -23,7 +23,7 @@ func (b *sealingTestBlock) SealingBlockInfo() *common.SealingBlockInfo {
 	return b.sealingInfo
 }
 
-func (b *sealingTestBlock) Verify(_ context.Context) (common.VerifiedBlock, error) {
+func (b *sealingTestBlock) Verify(_ context.Context, _ ...common.VerifyOptions) (common.VerifiedBlock, error) {
 	return b, nil
 }
 
