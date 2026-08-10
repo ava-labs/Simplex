@@ -2010,9 +2010,13 @@ func (e *Epoch) processFinalizedBlock(block common.Block, finalization *common.F
 			delete(e.rounds, round.num)
 			return e.processFinalizedBlock(block, finalization)
 		}
-		if err := e.storeFinalization(finalization); err != nil {
-			e.Logger.Error("Failed storing finalization", zap.Error(err))
-			return err
+		// The round can already hold this finalization, restored from the WAL or received in a
+		// finalization message. Indexing it is all that remains.
+		if round.finalization == nil {
+			if err := e.storeFinalization(finalization); err != nil {
+				e.Logger.Error("Failed storing finalization", zap.Error(err))
+				return err
+			}
 		}
 		prevEpochRound := e.round
 		if err := e.indexFinalizations(round.num); err != nil {
@@ -2681,6 +2685,14 @@ func (e *Epoch) triggerEmptyBlockNotarization(round uint64) {
 	if e.round > round {
 		e.Logger.Debug("Not triggering empty block notarization because we advanced to a higher round",
 			zap.Uint64("round", round), zap.Uint64("currentRound", e.round))
+		return
+	}
+
+	// Several paths trigger the empty block agreement for the same round, so everything below,
+	// including the WAL append, must not run twice.
+	if e.haveWeAlreadyTimedOutOnThisRound(round) {
+		e.Logger.Debug("Not triggering empty block notarization because we already timed out on this round",
+			zap.Uint64("round", round))
 		return
 	}
 
