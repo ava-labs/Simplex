@@ -46,8 +46,8 @@ type InnerBlock struct {
 	bytes       []byte
 }
 
-func (i *InnerBlock) Bytes() ([]byte, error) {
-	return i.bytes, nil
+func (i *InnerBlock) Bytes() []byte {
+	return i.bytes
 }
 
 func (i *InnerBlock) Digest() [32]byte {
@@ -71,7 +71,7 @@ type fakeVMBlock struct {
 	height uint64
 }
 
-func (f *fakeVMBlock) Bytes() ([]byte, error) {
+func (f *fakeVMBlock) Bytes() []byte {
 	panic("implement me")
 }
 
@@ -285,12 +285,12 @@ func makeNormalSimplexBlock(t *testing.T, index int, blocks []StateMachineBlock,
 		},
 		Metadata: StateMachineMetadata{
 			PChainHeight: 100,
-			SimplexProtocolMetadata: (&common.ProtocolMetadata{
+			SimplexProtocolMetadata: common.ProtocolMetadata{
 				Round: round,
 				Seq:   seq,
 				Epoch: 1,
 				Prev:  prev,
-			}).Bytes(),
+			},
 			SimplexEpochInfo: SimplexEpochInfo{
 				PrevSealingBlockHash:  [32]byte{},
 				PChainReferenceHeight: 100,

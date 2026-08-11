@@ -21,10 +21,10 @@ type StateMachineMetadata struct {
 	// SimplexEpochInfo is the metadata that the StateMachine uses for its own epoching.
 	SimplexEpochInfo SimplexEpochInfo `canoto:"value,1"`
 	// SimplexProtocolMetadata is the metadata that Simplex uses for its protocol, such as sequence and round number.
-	SimplexProtocolMetadata []byte `canoto:"bytes,2"`
+	SimplexProtocolMetadata common.ProtocolMetadata `canoto:"value,2"`
 	// SimplexBlacklist is the metadata that Simplex uses to keep track of blacklisted nodes.
 	// Blacklisted nodes do not become leaders.
-	SimplexBlacklist []byte `canoto:"bytes,3"`
+	SimplexBlacklist common.Blacklist `canoto:"value,3"`
 	// PChainHeight is the P-Chain height that the StateMachine sampled at the time of building the block.
 	// It's used for ICM epoching, not for Simplex epoching.
 	// For Simplex epoching, the P-Chain height that matters is the PChainReferenceHeight in the SimplexEpochInfo.
@@ -45,8 +45,8 @@ type StateMachineMetadata struct {
 func (smm *StateMachineMetadata) Clone() StateMachineMetadata {
 	return StateMachineMetadata{
 		SimplexEpochInfo:        smm.SimplexEpochInfo.Clone(),
-		SimplexProtocolMetadata: smm.SimplexProtocolMetadata,
-		SimplexBlacklist:        smm.SimplexBlacklist,
+		SimplexProtocolMetadata: smm.SimplexProtocolMetadata.Clone(),
+		SimplexBlacklist:        smm.SimplexBlacklist.Clone(),
 		PChainHeight:            smm.PChainHeight,
 		Timestamp:               smm.Timestamp,
 		ICMEpochInfo:            smm.ICMEpochInfo.Clone(),
@@ -134,8 +134,8 @@ func (sei *SimplexEpochInfo) Clone() SimplexEpochInfo {
 		PrevSealingBlockHash:      sei.PrevSealingBlockHash,
 		NextPChainReferenceHeight: sei.NextPChainReferenceHeight,
 		PrevVMBlockSeq:            sei.PrevVMBlockSeq,
-		BlockValidationDescriptor: sei.BlockValidationDescriptor,
-		NextEpochApprovals:        sei.NextEpochApprovals,
+		BlockValidationDescriptor: sei.BlockValidationDescriptor.Clone(),
+		NextEpochApprovals:        sei.NextEpochApprovals.Clone(),
 		SealingBlockSeq:           sei.SealingBlockSeq,
 	}
 }
@@ -244,6 +244,21 @@ type BlockValidationDescriptor struct {
 	canotoData canotoData_BlockValidationDescriptor
 }
 
+func (bvd *BlockValidationDescriptor) Clone() *BlockValidationDescriptor {
+	if bvd == nil {
+		return nil
+	}
+	aggregatedMembership := make([]NodeBLSMapping, 0, len(bvd.AggregatedMembership.Members))
+	for i := range bvd.AggregatedMembership.Members {
+		aggregatedMembership = append(aggregatedMembership, bvd.AggregatedMembership.Members[i].Clone())
+	}
+	return &BlockValidationDescriptor{
+		AggregatedMembership: AggregatedMembership{
+			Members: aggregatedMembership,
+		},
+	}
+}
+
 func (bvd *BlockValidationDescriptor) Equals(other *BlockValidationDescriptor) bool {
 	if bvd == nil && other == nil {
 		return true
@@ -280,6 +295,19 @@ type NextEpochApprovals struct {
 	canotoData canotoData_NextEpochApprovals
 }
 
+func (nea *NextEpochApprovals) Clone() *NextEpochApprovals {
+	if nea == nil {
+		return nil
+	}
+	cloned := &NextEpochApprovals{
+		NodeIDs:   make([]byte, len(nea.NodeIDs)),
+		Signature: make([]byte, len(nea.Signature)),
+	}
+	copy(cloned.NodeIDs, nea.NodeIDs)
+	copy(cloned.Signature, nea.Signature)
+	return cloned
+}
+
 func (nea *NextEpochApprovals) Equals(other *NextEpochApprovals) bool {
 	if nea == nil && other == nil {
 		return true
@@ -300,7 +328,8 @@ type NodeBLSMappings []NodeBLSMapping
 
 func (nbms NodeBLSMappings) Nodes() common.Nodes {
 	nodeWeights := make(common.Nodes, len(nbms))
-	for i, nbm := range nbms {
+	for i := range nbms {
+		nbm := &nbms[i]
 		nodeWeights[i] = common.Node{
 			Id:     nbm.NodeID[:],
 			Weight: nbm.Weight,
@@ -314,19 +343,19 @@ func (nbms NodeBLSMappings) Nodes() common.Nodes {
 // which is the position used by approval bitmasks.
 func (nbms NodeBLSMappings) IndexByNodeID() map[avalanchego.NodeID]int {
 	result := make(map[avalanchego.NodeID]int, len(nbms))
-	for i, nbm := range nbms {
-		result[nbm.NodeID] = i
+	for i := range nbms {
+		result[nbms[i].NodeID] = i
 	}
 	return result
 }
 
 func (nbms NodeBLSMappings) SelectSubset(bitmask avalanchego.Bitmask) []common.NodeID {
 	nodeIDs := make([]common.NodeID, 0, len(nbms))
-	for i, nbm := range nbms {
+	for i := range nbms {
 		if !bitmask.Contains(i) {
 			continue
 		}
-		nodeIDs = append(nodeIDs, nbm.NodeID[:])
+		nodeIDs = append(nodeIDs, nbms[i].NodeID[:])
 	}
 
 	return nodeIDs
@@ -334,8 +363,8 @@ func (nbms NodeBLSMappings) SelectSubset(bitmask avalanchego.Bitmask) []common.N
 
 func (nbms NodeBLSMappings) Clone() NodeBLSMappings {
 	cloned := make(NodeBLSMappings, len(nbms))
-	for i, nbm := range nbms {
-		cloned[i] = nbm.Clone()
+	for i := range nbms {
+		cloned[i] = nbms[i].Clone()
 	}
 	return cloned
 }

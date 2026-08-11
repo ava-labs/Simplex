@@ -5,62 +5,46 @@ package simplex
 
 import (
 	"context"
+	"sync"
 
 	"github.com/ava-labs/simplex/common"
 	metadata "github.com/ava-labs/simplex/msm"
 )
 
-type RawBlock struct {
-	Metadata        metadata.StateMachineMetadata `canoto:"value,1"`
-	InnerBlockBytes []byte                        `canoto:"bytes,2"`
-
-	canotoData canotoData_RawBlock
-}
-
 type ParsedBlock struct {
 	metadata.StateMachineBlock
 	msm *metadata.StateMachine
+
+	// lock guards size, so Size() can be invoked concurrently
+	lock sync.Mutex
+	// size caches the length of the Bytes encoding, computed on first use
+	size int
 }
 
-func (p *ParsedBlock) Bytes() ([]byte, error) {
+func (p *ParsedBlock) Bytes() []byte {
 	var innerBlockBytes []byte
 	if p.InnerBlock != nil {
-		rawInnerBlock, err := p.InnerBlock.Bytes()
-		if err != nil {
-			return nil, err
-		}
+		rawInnerBlock := p.InnerBlock.Bytes()
 		innerBlockBytes = rawInnerBlock
 	}
-	rawBlock := &RawBlock{
-		Metadata:        p.Metadata,
+	rawBlock := &metadata.RawBlock{
+		Metadata:        p.Metadata.Clone(),
 		InnerBlockBytes: innerBlockBytes,
 	}
-	return rawBlock.MarshalCanoto(), nil
+	return rawBlock.MarshalCanoto()
 }
 
 func (p *ParsedBlock) BlockHeader() common.BlockHeader {
-	var md *common.ProtocolMetadata
-	var err error
-	if len(p.Metadata.SimplexProtocolMetadata) > 0 {
-		md, err = common.ProtocolMetadataFromBytes(p.Metadata.SimplexProtocolMetadata)
-		if err != nil {
-			panic(err) // TODO: handle error
-		}
-	} else {
-		md = &common.ProtocolMetadata{}
-	}
-
+	md := p.Metadata.SimplexProtocolMetadata.Clone()
 	digest := p.StateMachineBlock.Digest()
 	return common.BlockHeader{
-		ProtocolMetadata: *md,
+		ProtocolMetadata: md,
 		Digest:           digest,
 	}
 }
 
 func (p *ParsedBlock) Blacklist() common.Blacklist {
-	var blacklist common.Blacklist
-	_ = blacklist.FromBytes(p.Metadata.SimplexBlacklist) // TODO: encode blacklist with Canoto
-	return blacklist
+	return p.Metadata.SimplexBlacklist.Clone()
 }
 
 func (p *ParsedBlock) Verify(ctx context.Context) (common.VerifiedBlock, error) {
@@ -68,4 +52,13 @@ func (p *ParsedBlock) Verify(ctx context.Context) (common.VerifiedBlock, error) 
 		return nil, err
 	}
 	return p, nil
+}
+func (p *ParsedBlock) Size() int {
+	p.lock.Lock()
+	defer p.lock.Unlock()
+	if p.size == 0 {
+		bytes := p.Bytes()
+		p.size = len(bytes)
+	}
+	return p.size
 }

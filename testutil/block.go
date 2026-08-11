@@ -67,11 +67,7 @@ func (tb *TestBlock) SealingBlockInfo() *common.SealingBlockInfo {
 
 func (tb *TestBlock) ComputeDigest() {
 	var bb bytes.Buffer
-	tbBytes, err := tb.Bytes()
-	if err != nil {
-		panic(fmt.Sprintf("failed to serialize test block: %v", err))
-	}
-
+	tbBytes := tb.Bytes()
 	bb.Write(tbBytes)
 	tb.Digest = sha256.Sum256(bb.Bytes())
 }
@@ -83,7 +79,7 @@ func (t *TestBlock) BlockHeader() common.BlockHeader {
 	}
 }
 
-func (t *TestBlock) Bytes() ([]byte, error) {
+func (t *TestBlock) Bytes() []byte {
 	bh := common.BlockHeader{
 		ProtocolMetadata: t.Metadata,
 	}
@@ -102,10 +98,14 @@ func (t *TestBlock) Bytes() ([]byte, error) {
 		Blacklist: blBytes,
 	})
 	if err != nil {
-		return nil, err
+		panic(fmt.Sprintf("failed to serialize test block: %v", err))
 	}
 
-	return rawBytes, nil
+	return rawBytes
+}
+
+func (t *TestBlock) Size() int {
+	return len(t.Bytes())
 }
 
 type EncodedTestBlock struct {
@@ -157,8 +157,8 @@ type InnerBlock struct {
 	Content     []byte
 }
 
-func (i *InnerBlock) Bytes() ([]byte, error) {
-	return i.Content, nil
+func (i *InnerBlock) Bytes() []byte {
+	return i.Content
 }
 
 func (i *InnerBlock) Digest() [32]byte {

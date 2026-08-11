@@ -139,6 +139,16 @@ func (cs *CachedStorage) RetrieveBlock(seq uint64, digest common.Digest) (metada
 func (cs *CachedStorage) Retrieve(seq uint64, digest common.Digest) (common.VerifiedBlock, *common.Finalization, error) {
 	cs.lock.RLock()
 	item, exists := cs.cache[digest]
+	if !exists && digest == (common.Digest{}) {
+		// Seq-only lookups pass a zero digest, so scan the cache by seq.
+		// Otherwise a verified but not yet finalized block is invisible to them.
+		for _, cb := range cs.cache {
+			if cb.Metadata.SimplexProtocolMetadata.Seq == seq {
+				item, exists = cb, true
+				break
+			}
+		}
+	}
 	if exists {
 		cs.lock.RUnlock()
 		// If the block is cached, it means it's not finalized yet, because upon finalizing the block (indexing)
@@ -240,7 +250,7 @@ func (bw *BlockBuilderWaiter) WaitForPendingBlock(ctx context.Context) {
 }
 
 func (bw *BlockBuilderWaiter) BuildBlock(ctx context.Context, metadata common.ProtocolMetadata, blacklist common.Blacklist) (common.VerifiedBlock, bool) {
-	block, err := bw.msm.BuildBlock(ctx, metadata, &blacklist)
+	block, err := bw.msm.BuildBlock(ctx, metadata, blacklist)
 	if err != nil {
 		return nil, false
 	}
@@ -254,17 +264,17 @@ func (bw *BlockBuilderWaiter) BuildBlock(ctx context.Context, metadata common.Pr
 }
 
 type blockDeserializer struct {
-	vm  VM
-	msm *metadata.StateMachine
+	deserializer BlockDeserializer
+	msm          *metadata.StateMachine
 }
 
-func (bp *blockDeserializer) DeserializeBlock(ctx context.Context, bytes []byte) (common.Block, error) {
-	var rawBlock RawBlock
+func (bd *blockDeserializer) DeserializeBlock(ctx context.Context, bytes []byte) (common.Block, error) {
+	var rawBlock metadata.RawBlock
 	if err := rawBlock.UnmarshalCanoto(bytes); err != nil {
 		return nil, err
 	}
 
-	block, err := bp.vm.ParseBlock(ctx, rawBlock.InnerBlockBytes)
+	block, err := bd.deserializer.ParseBlock(ctx, rawBlock.InnerBlockBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -273,6 +283,6 @@ func (bp *blockDeserializer) DeserializeBlock(ctx context.Context, bytes []byte)
 			InnerBlock: block,
 			Metadata:   rawBlock.Metadata,
 		},
-		msm: bp.msm,
+		msm: bd.msm,
 	}, nil
 }

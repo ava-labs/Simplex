@@ -301,7 +301,7 @@ func (sm *StateMachine) maybeInitializeApprovalStore(validatorSet NodeBLSMapping
 }
 
 // BuildBlock constructs the next block on top of the given parent block, and passes in the provided simplex metadata and blacklist.
-func (sm *StateMachine) BuildBlock(ctx context.Context, metadata common.ProtocolMetadata, blacklist *common.Blacklist) (*StateMachineBlock, error) {
+func (sm *StateMachine) BuildBlock(ctx context.Context, metadata common.ProtocolMetadata, blacklist common.Blacklist) (*StateMachineBlock, error) {
 	// The zero sequence number is reserved for the genesis block, which should never be built.
 	if metadata.Seq == 0 {
 		return nil, fmt.Errorf("%w: got %d", errInvalidProtocolMetadataSeq, metadata.Seq)
@@ -318,6 +318,7 @@ func (sm *StateMachine) BuildBlock(ctx context.Context, metadata common.Protocol
 
 	sm.Logger.Debug("Building block",
 		zap.Uint64("seq", metadata.Seq),
+		zap.Uint64("round", metadata.Round),
 		zap.Uint64("epoch", metadata.Epoch),
 		zap.Stringer("prevHash", metadata.Prev))
 
@@ -325,32 +326,26 @@ func (sm *StateMachine) BuildBlock(ctx context.Context, metadata common.Protocol
 		elapsed := time.Since(start)
 		sm.Logger.Debug("Built block",
 			zap.Uint64("seq", metadata.Seq),
+			zap.Uint64("round", metadata.Round),
 			zap.Uint64("epoch", metadata.Epoch),
 			zap.Stringer("prevHash", metadata.Prev),
 			zap.Duration("elapsed", elapsed),
 		)
 	}()
 
-	var simplexBlacklistBytes []byte
-	if blacklist != nil {
-		simplexBlacklistBytes = blacklist.Bytes()
-	}
-
 	// In order to know where in the epoch change process we are,
 	// we identify the current state by looking at the parent block's epoch info.
 	currentState := parentBlock.Metadata.SimplexEpochInfo.NextState()
 
-	simplexMetadataBytes := metadata.Bytes()
-
 	switch currentState {
 	case stateFirstSimplexBlock:
-		return sm.buildBlockZero(parentBlock, simplexMetadataBytes, simplexBlacklistBytes)
+		return sm.buildBlockZero(parentBlock, metadata, blacklist)
 	case stateBuildBlockNormalOp:
-		return sm.buildBlockNormalOp(ctx, &parentBlock, simplexMetadataBytes, simplexBlacklistBytes, prevBlockSeq)
+		return sm.buildBlockNormalOp(ctx, &parentBlock, metadata, blacklist, prevBlockSeq)
 	case stateBuildCollectingApprovals:
-		return sm.buildBlockCollectingApprovals(ctx, &parentBlock, simplexMetadataBytes, simplexBlacklistBytes, prevBlockSeq)
+		return sm.buildBlockCollectingApprovals(ctx, &parentBlock, metadata, blacklist, prevBlockSeq)
 	case stateBuildBlockEpochSealed:
-		return sm.buildBlockEpochSealed(ctx, &parentBlock, simplexMetadataBytes, simplexBlacklistBytes, prevBlockSeq)
+		return sm.buildBlockEpochSealed(ctx, &parentBlock, metadata, blacklist, prevBlockSeq)
 	default:
 		return nil, fmt.Errorf("%w: %d", errUnknownState, currentState)
 	}
@@ -371,11 +366,7 @@ func (sm *StateMachine) VerifyBlock(ctx context.Context, block *StateMachineBloc
 		return block.InnerBlock.Verify(ctx, block.Metadata.ICMEpochInfo.PChainEpochHeight)
 	}
 
-	pmd, err := common.ProtocolMetadataFromBytes(block.Metadata.SimplexProtocolMetadata)
-	if err != nil {
-		return fmt.Errorf("failed to parse ProtocolMetadata: %w", err)
-	}
-
+	pmd := block.Metadata.SimplexProtocolMetadata
 	seq := pmd.Seq
 
 	if seq == 0 {
@@ -451,10 +442,7 @@ func verifyTimestamp(block *StateMachineBlock, prevBlock *StateMachineBlock, now
 }
 
 func (sm *StateMachine) verifyEpochNumber(block *StateMachineBlock) error {
-	md, err := common.ProtocolMetadataFromBytes(block.Metadata.SimplexProtocolMetadata)
-	if err != nil {
-		return fmt.Errorf("failed to parse ProtocolMetadata: %w", err)
-	}
+	md := block.Metadata.SimplexProtocolMetadata
 	if md.Epoch != block.Metadata.SimplexEpochInfo.EpochNumber {
 		return fmt.Errorf("%w: got %d, expected %d", errInvalidProtocolMetadataEpoch, md.Epoch, block.Metadata.SimplexEpochInfo.EpochNumber)
 	}
@@ -473,7 +461,7 @@ func (sm *StateMachine) verifyEpochNumber(block *StateMachineBlock) error {
 //	│ NPCH = 0        │          │ NPCH = 0        │        │ NPCH = p' (> 0) │
 //	└─────────────────┘          └─────────────────┘        └─────────────────┘
 //	                             → stays NormalOp           → CollectingApprovals
-func (sm *StateMachine) buildBlockNormalOp(ctx context.Context, parentBlock *StateMachineBlock, simplexMetadata, simplexBlacklist []byte, prevBlockSeq uint64) (*StateMachineBlock, error) {
+func (sm *StateMachine) buildBlockNormalOp(ctx context.Context, parentBlock *StateMachineBlock, simplexMetadata common.ProtocolMetadata, simplexBlacklist common.Blacklist, prevBlockSeq uint64) (*StateMachineBlock, error) {
 	// Since in the previous block, we were not transitioning to a new epoch,
 	// the P-chain reference height and epoch of the new block should remain the same.
 	newSimplexEpochInfo := SimplexEpochInfo{
@@ -486,7 +474,7 @@ func (sm *StateMachine) buildBlockNormalOp(ctx context.Context, parentBlock *Sta
 }
 
 // buildBlockOrTransitionEpoch builds a block and decides whether to transition to a new epoch based on the P-chain height and validator set changes.
-func (sm *StateMachine) buildBlockOrTransitionEpoch(ctx context.Context, parentBlock *StateMachineBlock, simplexMetadata, simplexBlacklist []byte, newSimplexEpochInfo SimplexEpochInfo) (*StateMachineBlock, error) {
+func (sm *StateMachine) buildBlockOrTransitionEpoch(ctx context.Context, parentBlock *StateMachineBlock, simplexMetadata common.ProtocolMetadata, simplexBlacklist common.Blacklist, newSimplexEpochInfo SimplexEpochInfo) (*StateMachineBlock, error) {
 	var isSealingBlockFinalized bool
 	sealingBlockSeq := parentBlock.Metadata.SimplexEpochInfo.EpochNumber
 	_, finalization, err := sm.GetBlock(sealingBlockSeq, [32]byte{})
@@ -783,7 +771,7 @@ func (sm *StateMachine) createBlockBuildingDecider(pChainReferenceHeight uint64)
 //		        otherwise it points to the previous epoch's sealing block.
 //		- SBS : 0 except on Telocks of a sealed-but-not-yet-finalized epoch, where
 //		        it equals the sequence number of that epoch's sealing block.
-func (sm *StateMachine) buildBlockZero(parentBlock StateMachineBlock, simplexMetadata, simplexBlacklist []byte) (*StateMachineBlock, error) {
+func (sm *StateMachine) buildBlockZero(parentBlock StateMachineBlock, simplexMetadata common.ProtocolMetadata, simplexBlacklist common.Blacklist) (*StateMachineBlock, error) {
 	pChainHeight := sm.LastNonSimplexBlockPChainHeight
 
 	var validatorSet NodeBLSMappings
@@ -812,10 +800,7 @@ func (sm *StateMachine) buildBlockZero(parentBlock StateMachineBlock, simplexMet
 	timestamp := sm.LastNonSimplexInnerBlock.Timestamp().UnixMilli()
 	simplexEpochInfo := constructSimplexZeroBlockSimplexEpochInfo(pChainHeight, validatorSet, prevVMBlockSeq)
 
-	md, err := common.ProtocolMetadataFromBytes(simplexMetadata)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse simplex metadata: %w", err)
-	}
+	md := simplexMetadata
 	md.Prev = sm.LastNonSimplexInnerBlock.Digest()
 	md.Seq = sm.LastNonSimplexInnerBlock.Height()
 
@@ -922,7 +907,7 @@ func (sm *StateMachine) verifyBlockZero(block *StateMachineBlock, prevBlock Stat
 //	│                  │             │                    │             │        sealing block)      │
 //	└──────────────────┘             └────────────────────┘             └────────────────────────────┘
 //	                                 → stays Collecting                 → BuildBlockEpochSealed
-func (sm *StateMachine) buildBlockCollectingApprovals(ctx context.Context, parentBlock *StateMachineBlock, simplexMetadata, simplexBlacklist []byte, prevBlockSeq uint64) (*StateMachineBlock, error) {
+func (sm *StateMachine) buildBlockCollectingApprovals(ctx context.Context, parentBlock *StateMachineBlock, simplexMetadata common.ProtocolMetadata, simplexBlacklist common.Blacklist, prevBlockSeq uint64) (*StateMachineBlock, error) {
 	// We prepare information that is needed to compute the approvals for the new epoch,
 	// such as the validator set for the next epoch, and the approvals from peers.
 	prevBlockNextPChainReferenceHeight := parentBlock.Metadata.SimplexEpochInfo.NextPChainReferenceHeight
@@ -1179,8 +1164,8 @@ func (sm *StateMachine) computeNewApprovals(parentBlock *StateMachineBlock, vali
 // so that we can continue making progress and not get stuck waiting for the VM.
 func (sm *StateMachine) buildBlockImpatiently(ctx context.Context,
 	timestamp time.Time,
-	simplexMetadata []byte,
-	simplexBlacklist []byte,
+	simplexMetadata common.ProtocolMetadata,
+	simplexBlacklist common.Blacklist,
 	simplexEpochInfo SimplexEpochInfo,
 	pChainHeight uint64,
 	icmEpochInfo ICMEpochInfo,
@@ -1206,8 +1191,8 @@ func (sm *StateMachine) buildBlockImpatiently(ctx context.Context,
 
 func (sm *StateMachine) createSealingBlock(ctx context.Context,
 	timestamp time.Time,
-	simplexMetadata []byte,
-	simplexBlacklist []byte,
+	simplexMetadata common.ProtocolMetadata,
+	simplexBlacklist common.Blacklist,
 	simplexEpochInfo SimplexEpochInfo,
 	pChainHeight uint64,
 	icmEpochInfo ICMEpochInfo,
@@ -1248,8 +1233,8 @@ func wrapBlock(
 	childBlock avalanchego.VMBlock,
 	newSimplexEpochInfo SimplexEpochInfo,
 	pChainHeight uint64,
-	simplexMetadata,
-	simplexBlacklist []byte,
+	simplexMetadata common.ProtocolMetadata,
+	simplexBlacklist common.Blacklist,
 	timestamp time.Time,
 	icmEpochInfo ICMEpochInfo,
 	auxiliaryInfo *AuxiliaryInfoBatch) *StateMachineBlock {
@@ -1304,7 +1289,7 @@ func (sm *StateMachine) areWeReadyToTransitionEpoch(parentBlock *StateMachineBlo
 //	│ BVD  = vset@p'   │          │ BVD  = nil       │             │ BVD  = nil               │
 //	└──────────────────┘          └──────────────────┘             └──────────────────────────┘
 //	                              → stays EpochSealed              → NormalOp (new epoch)
-func (sm *StateMachine) buildBlockEpochSealed(ctx context.Context, parentBlock *StateMachineBlock, simplexMetadata, simplexBlacklist []byte, prevBlockSeq uint64) (*StateMachineBlock, error) {
+func (sm *StateMachine) buildBlockEpochSealed(ctx context.Context, parentBlock *StateMachineBlock, simplexMetadata common.ProtocolMetadata, simplexBlacklist common.Blacklist, prevBlockSeq uint64) (*StateMachineBlock, error) {
 	// We check if the sealing block has already been finalized.
 	// If not, we build a Telock block.
 	readyToTransitionEpoch, sealingBlockSeq, sealingBlock, err := sm.areWeReadyToTransitionEpoch(parentBlock, prevBlockSeq)

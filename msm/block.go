@@ -11,6 +11,8 @@ import (
 	"github.com/ava-labs/simplex/common"
 )
 
+//go:generate go run github.com/StephenButtolph/canoto/canoto block.go
+
 type BlockType uint8
 
 // A StateMachineBlock is a representation of a parsed OuterBlock, containing the inner block and the metadata.
@@ -19,6 +21,14 @@ type StateMachineBlock struct {
 	InnerBlock avalanchego.VMBlock
 	// Metadata contains the state machine metadata associated with this block.
 	Metadata StateMachineMetadata
+}
+
+// RawBlock is the serialized form of a StateMachineBlock.
+type RawBlock struct {
+	Metadata        StateMachineMetadata `canoto:"value,1"`
+	InnerBlockBytes []byte               `canoto:"bytes,2"`
+
+	canotoData canotoData_RawBlock
 }
 
 // Clone returns a shallow copy of the block, skipping the canoto caches
@@ -38,7 +48,8 @@ func (smb *StateMachineBlock) Digest() [32]byte {
 	} else {
 		blockDigest = [32]byte{}
 	}
-	mdDigest := sha256.Sum256(smb.Metadata.MarshalCanoto())
+	md := smb.Metadata.Clone()
+	mdDigest := sha256.Sum256(md.MarshalCanoto())
 	combined := make([]byte, 64)
 	copy(combined[:32], blockDigest[:])
 	copy(combined[32:], mdDigest[:])
@@ -107,7 +118,8 @@ func (smb *StateMachineBlock) SealingBlockInfo() *common.SealingBlockInfo {
 	}
 
 	nodes := make(common.Nodes, 0, len(bvd.AggregatedMembership.Members))
-	for _, vdr := range bvd.AggregatedMembership.Members {
+	for i := range bvd.AggregatedMembership.Members {
+		vdr := &bvd.AggregatedMembership.Members[i]
 		nodes = append(nodes, common.Node{
 			Id:     vdr.NodeID[:],
 			Weight: vdr.Weight,
@@ -119,4 +131,16 @@ func (smb *StateMachineBlock) SealingBlockInfo() *common.SealingBlockInfo {
 		ValidatorSet:         nodes,
 		PrevSealingBlockHash: smb.Metadata.SimplexEpochInfo.PrevSealingBlockHash,
 	}
+}
+
+func (smb *StateMachineBlock) Bytes() []byte {
+	var innerBlockBytes []byte
+	if smb.InnerBlock != nil {
+		innerBlockBytes = smb.InnerBlock.Bytes()
+	}
+	rawBlock := &RawBlock{
+		Metadata:        smb.Metadata.Clone(),
+		InnerBlockBytes: innerBlockBytes,
+	}
+	return rawBlock.MarshalCanoto()
 }

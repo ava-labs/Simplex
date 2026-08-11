@@ -18,6 +18,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+var (
+	emptyBlacklist = common.Blacklist{}
+)
+
 func TestMSMBuildAndVerifyBlocksAfterGenesis(t *testing.T) {
 	validMD := common.ProtocolMetadata{
 		Round: 1,
@@ -41,10 +45,9 @@ func TestMSMBuildAndVerifyBlocksAfterGenesis(t *testing.T) {
 			name: "verifying a genesis block",
 			md:   validMD,
 			mutateBlock: func(block *StateMachineBlock) {
-				md, err := common.ProtocolMetadataFromBytes(block.Metadata.SimplexProtocolMetadata)
-				require.NoError(t, err)
+				md := block.Metadata.SimplexProtocolMetadata
 				md.Seq = 0
-				block.Metadata.SimplexProtocolMetadata = md.Bytes()
+				block.Metadata.SimplexProtocolMetadata = md
 			},
 			err: errBuiltGenesisInnerBlock,
 		},
@@ -125,7 +128,7 @@ func TestMSMBuildAndVerifyBlocksAfterGenesis(t *testing.T) {
 				testCase.configure(sm2, testConfig2)
 			}
 
-			block, err := sm1.BuildBlock(context.Background(), testCase.md, nil)
+			block, err := sm1.BuildBlock(context.Background(), testCase.md, emptyBlacklist)
 			require.NoError(t, err)
 			require.NotNil(t, block)
 
@@ -187,7 +190,7 @@ func TestMSMFirstSimplexBlockAfterPreSimplexBlocks(t *testing.T) {
 		Content:     []byte{7, 8, 9},
 	}
 
-	block, err := sm1.BuildBlock(context.Background(), md, nil)
+	block, err := sm1.BuildBlock(context.Background(), md, emptyBlacklist)
 	require.NoError(t, err)
 	require.NotNil(t, block)
 
@@ -195,7 +198,7 @@ func TestMSMFirstSimplexBlockAfterPreSimplexBlocks(t *testing.T) {
 		Metadata: StateMachineMetadata{
 			Timestamp:               uint64(preSimplexParent.InnerBlock.Timestamp().UnixMilli()),
 			PChainHeight:            100,
-			SimplexProtocolMetadata: md.Bytes(),
+			SimplexProtocolMetadata: md,
 			SimplexEpochInfo: SimplexEpochInfo{
 				PChainReferenceHeight: 100,
 				EpochNumber:           43,
@@ -220,7 +223,7 @@ func TestMSMBuildBlockRejectsZeroSeq(t *testing.T) {
 	// Seq 0 is reserved for the genesis block, which should never be built.
 	sm, _ := newStateMachine(t)
 
-	block, err := sm.BuildBlock(context.Background(), common.ProtocolMetadata{Seq: 0}, nil)
+	block, err := sm.BuildBlock(context.Background(), common.ProtocolMetadata{Seq: 0}, emptyBlacklist)
 	require.ErrorIs(t, err, errInvalidProtocolMetadataSeq)
 	require.Nil(t, block)
 }
@@ -248,20 +251,18 @@ func TestMSMNormalOp(t *testing.T) {
 		{
 			name: "trying to build a genesis block",
 			mutateBlock: func(block *StateMachineBlock) {
-				md, err := common.ProtocolMetadataFromBytes(block.Metadata.SimplexProtocolMetadata)
-				require.NoError(t, err)
+				md := block.Metadata.SimplexProtocolMetadata
 				md.Seq = 0
-				block.Metadata.SimplexProtocolMetadata = md.Bytes()
+				block.Metadata.SimplexProtocolMetadata = md
 			},
 			err: errBuiltGenesisInnerBlock,
 		},
 		{
 			name: "previous block not found",
 			mutateBlock: func(block *StateMachineBlock) {
-				md, err := common.ProtocolMetadataFromBytes(block.Metadata.SimplexProtocolMetadata)
-				require.NoError(t, err)
+				md := block.Metadata.SimplexProtocolMetadata
 				md.Seq = 999
-				block.Metadata.SimplexProtocolMetadata = md.Bytes()
+				block.Metadata.SimplexProtocolMetadata = md
 			},
 			err: common.ErrBlockNotFound,
 		},
@@ -346,8 +347,7 @@ func TestMSMNormalOp(t *testing.T) {
 			}
 
 			lastBlock := chain[len(chain)-1]
-			md, err := common.ProtocolMetadataFromBytes(lastBlock.Metadata.SimplexProtocolMetadata)
-			require.NoError(t, err)
+			md := lastBlock.Metadata.SimplexProtocolMetadata
 
 			md.Seq++
 			md.Round++
@@ -363,7 +363,7 @@ func TestMSMNormalOp(t *testing.T) {
 			sm2.GetTime = fixedTime
 
 			content := make([]byte, 10)
-			_, err = rand.Read(content)
+			_, err := rand.Read(content)
 			require.NoError(t, err)
 
 			testConfig1.blockBuilder.Block = &testutil.InnerBlock{
@@ -377,7 +377,7 @@ func TestMSMNormalOp(t *testing.T) {
 				testCase.setup(sm2, testConfig2)
 			}
 
-			block1, err := sm1.BuildBlock(context.Background(), *md, &blacklist)
+			block1, err := sm1.BuildBlock(context.Background(), md, blacklist)
 			require.NoError(t, err)
 			require.NotNil(t, block1)
 
@@ -399,10 +399,10 @@ func TestMSMNormalOp(t *testing.T) {
 					Content:     content,
 				},
 				Metadata: StateMachineMetadata{
-					SimplexBlacklist:        blacklist.Bytes(),
+					SimplexBlacklist:        blacklist,
 					Timestamp:               uint64(blockTime.UnixMilli()),
 					PChainHeight:            testCase.expectedPChainHeight,
-					SimplexProtocolMetadata: md.Bytes(),
+					SimplexProtocolMetadata: md,
 					SimplexEpochInfo: SimplexEpochInfo{
 						PChainReferenceHeight:     100,
 						EpochNumber:               1,
@@ -614,13 +614,13 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 				Prev:  testCase.firstBlockBeforeSimplex.Digest(),
 			}
 
-			block1, err := sm.BuildBlock(context.Background(), md, nil)
+			block1, err := sm.BuildBlock(context.Background(), md, emptyBlacklist)
 			require.NoError(t, err)
 			require.Equal(t, &StateMachineBlock{
 				Metadata: StateMachineMetadata{
 					Timestamp:               uint64(startTime.UnixMilli()),
 					PChainHeight:            pChainHeight1,
-					SimplexProtocolMetadata: md.Bytes(),
+					SimplexProtocolMetadata: md,
 					SimplexEpochInfo: SimplexEpochInfo{
 						PChainReferenceHeight: pChainHeight1,
 						EpochNumber:           testCase.epochNum,
@@ -648,14 +648,14 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 			currentTime = startTime.Add(2 * time.Millisecond)
 			tc.blockBuilder.Block = nextBlock(2)
 			md = common.ProtocolMetadata{Seq: baseSeq + 2, Round: 1, Epoch: testCase.epochNum, Prev: block1.Digest()}
-			block2, err := sm.BuildBlock(context.Background(), md, nil)
+			block2, err := sm.BuildBlock(context.Background(), md, emptyBlacklist)
 			require.NoError(t, err)
 			require.Equal(t, &StateMachineBlock{
 				InnerBlock: nextBlock(2),
 				Metadata: StateMachineMetadata{
 					Timestamp:               uint64(currentTime.UnixMilli()),
 					PChainHeight:            pChainHeight1,
-					SimplexProtocolMetadata: md.Bytes(),
+					SimplexProtocolMetadata: md,
 					SimplexEpochInfo: SimplexEpochInfo{
 						PChainReferenceHeight: pChainHeight1,
 						EpochNumber:           testCase.epochNum,
@@ -678,14 +678,14 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 			currentTime = startTime.Add(time.Second + 3*time.Millisecond)
 			tc.blockBuilder.Block = nextBlock(3)
 			md = common.ProtocolMetadata{Seq: baseSeq + 3, Round: 2, Epoch: testCase.epochNum, Prev: block2.Digest()}
-			block3, err := sm.BuildBlock(context.Background(), md, nil)
+			block3, err := sm.BuildBlock(context.Background(), md, emptyBlacklist)
 			require.NoError(t, err)
 			require.Equal(t, &StateMachineBlock{
 				InnerBlock: nextBlock(3),
 				Metadata: StateMachineMetadata{
 					Timestamp:               uint64(currentTime.UnixMilli()),
 					PChainHeight:            pChainHeight2,
-					SimplexProtocolMetadata: md.Bytes(),
+					SimplexProtocolMetadata: md,
 					SimplexEpochInfo: SimplexEpochInfo{
 						PChainReferenceHeight:     pChainHeight1,
 						EpochNumber:               testCase.epochNum,
@@ -717,14 +717,14 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 			currentTime = startTime.Add(time.Second + 4*time.Millisecond)
 			tc.blockBuilder.Block = nextBlock(4)
 			md = common.ProtocolMetadata{Seq: baseSeq + 4, Round: 3, Epoch: testCase.epochNum, Prev: block3.Digest()}
-			block4, err := sm.BuildBlock(context.Background(), md, nil)
+			block4, err := sm.BuildBlock(context.Background(), md, emptyBlacklist)
 			require.NoError(t, err)
 			require.Equal(t, &StateMachineBlock{
 				InnerBlock: nextBlock(4),
 				Metadata: StateMachineMetadata{
 					Timestamp:               uint64(currentTime.UnixMilli()),
 					PChainHeight:            pChainHeight2,
-					SimplexProtocolMetadata: md.Bytes(),
+					SimplexProtocolMetadata: md,
 					SimplexEpochInfo: SimplexEpochInfo{
 						PChainReferenceHeight:     pChainHeight1,
 						EpochNumber:               testCase.epochNum,
@@ -759,14 +759,14 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 			currentTime = startTime.Add(time.Second + 5*time.Millisecond)
 			tc.blockBuilder.Block = nextBlock(5)
 			md = common.ProtocolMetadata{Seq: baseSeq + 5, Round: 4, Epoch: testCase.epochNum, Prev: block4.Digest()}
-			block5, err := sm.BuildBlock(context.Background(), md, nil)
+			block5, err := sm.BuildBlock(context.Background(), md, emptyBlacklist)
 			require.NoError(t, err)
 			require.Equal(t, &StateMachineBlock{
 				InnerBlock: nextBlock(5),
 				Metadata: StateMachineMetadata{
 					Timestamp:               uint64(currentTime.UnixMilli()),
 					PChainHeight:            pChainHeight2,
-					SimplexProtocolMetadata: md.Bytes(),
+					SimplexProtocolMetadata: md,
 					SimplexEpochInfo: SimplexEpochInfo{
 						PChainReferenceHeight:     pChainHeight1,
 						EpochNumber:               testCase.epochNum,
@@ -801,14 +801,14 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 			currentTime = startTime.Add(time.Second + 6*time.Millisecond)
 			tc.blockBuilder.Block = nextBlock(6)
 			md = common.ProtocolMetadata{Seq: baseSeq + 6, Round: 5, Epoch: testCase.epochNum, Prev: block5.Digest()}
-			block6, err := sm.BuildBlock(context.Background(), md, nil)
+			block6, err := sm.BuildBlock(context.Background(), md, emptyBlacklist)
 			require.NoError(t, err)
 			require.Equal(t, &StateMachineBlock{
 				InnerBlock: nextBlock(6),
 				Metadata: StateMachineMetadata{
 					Timestamp:               uint64(currentTime.UnixMilli()),
 					PChainHeight:            pChainHeight2,
-					SimplexProtocolMetadata: md.Bytes(),
+					SimplexProtocolMetadata: md,
 					SimplexEpochInfo: SimplexEpochInfo{
 						PChainReferenceHeight:     pChainHeight1,
 						EpochNumber:               testCase.epochNum,
@@ -873,7 +873,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 					if tc.blockStore[sealingSeq].finalization == nil {
 						// Telock shares the sealing block's timestamp slot.
 						currentTime = startTime.Add(time.Second + 6*time.Millisecond)
-						telock, err := sm.BuildBlock(context.Background(), md, nil)
+						telock, err := sm.BuildBlock(context.Background(), md, emptyBlacklist)
 						require.NoError(t, err)
 
 						require.Equal(t, &StateMachineBlock{
@@ -881,7 +881,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 							Metadata: StateMachineMetadata{
 								Timestamp:               uint64(currentTime.UnixMilli()),
 								PChainHeight:            pChainHeight2,
-								SimplexProtocolMetadata: md.Bytes(),
+								SimplexProtocolMetadata: md,
 								SimplexEpochInfo: SimplexEpochInfo{
 									PChainReferenceHeight:     pChainHeight1,
 									EpochNumber:               testCase.epochNum,
@@ -905,14 +905,14 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 					md.Epoch = sealingSeq
 
 					currentTime = startTime.Add(time.Second + 7*time.Millisecond)
-					block7, err := sm.BuildBlock(context.Background(), md, nil)
+					block7, err := sm.BuildBlock(context.Background(), md, emptyBlacklist)
 					require.NoError(t, err)
 					require.Equal(t, &StateMachineBlock{
 						InnerBlock: nextBlock(7),
 						Metadata: StateMachineMetadata{
 							Timestamp:               uint64(currentTime.UnixMilli()),
 							PChainHeight:            pChainHeight2,
-							SimplexProtocolMetadata: md.Bytes(),
+							SimplexProtocolMetadata: md,
 							SimplexEpochInfo: SimplexEpochInfo{
 								PChainReferenceHeight: pChainHeight2,
 								EpochNumber:           sealingSeq,
@@ -1495,9 +1495,9 @@ func TestBuildBlockCollectingApprovalsDedupsOwnApprovalAcrossRounds(t *testing.T
 		InnerBlock: &testutil.InnerBlock{TS: time.Now(), BlockHeight: 1, Content: []byte{0xAA}},
 		Metadata: StateMachineMetadata{
 			PChainHeight: 200,
-			SimplexProtocolMetadata: (&common.ProtocolMetadata{
+			SimplexProtocolMetadata: common.ProtocolMetadata{
 				Seq: parentSeq, Round: 5, Epoch: 1,
-			}).Bytes(),
+			},
 			SimplexEpochInfo: SimplexEpochInfo{
 				PChainReferenceHeight:     100,
 				EpochNumber:               1,
@@ -1511,7 +1511,7 @@ func TestBuildBlockCollectingApprovalsDedupsOwnApprovalAcrossRounds(t *testing.T
 	// ----- Round 1: first collecting-approvals block -----
 	tc.blockBuilder.Block = &testutil.InnerBlock{TS: time.Now(), BlockHeight: 2, Content: []byte{0x01}}
 	md1 := common.ProtocolMetadata{Seq: parentSeq + 1, Round: 6, Epoch: 1, Prev: parent.Digest()}
-	block1, err := sm.BuildBlock(context.Background(), md1, nil)
+	block1, err := sm.BuildBlock(context.Background(), md1, emptyBlacklist)
 	require.NoError(t, err)
 	require.NotNil(t, block1.Metadata.SimplexEpochInfo.NextEpochApprovals,
 		"first block in collecting-approvals state must carry NextEpochApprovals")
@@ -1527,7 +1527,7 @@ func TestBuildBlockCollectingApprovalsDedupsOwnApprovalAcrossRounds(t *testing.T
 	// ----- Round 2: another collecting-approvals block, still no peer approvals -----
 	tc.blockBuilder.Block = &testutil.InnerBlock{TS: time.Now(), BlockHeight: 3, Content: []byte{0x02}}
 	md2 := common.ProtocolMetadata{Seq: md1.Seq + 1, Round: 7, Epoch: 1, Prev: block1.Digest()}
-	block2, err := sm.BuildBlock(context.Background(), md2, nil)
+	block2, err := sm.BuildBlock(context.Background(), md2, emptyBlacklist)
 	require.NoError(t, err)
 	require.NotNil(t, block2.Metadata.SimplexEpochInfo.NextEpochApprovals)
 
@@ -1567,9 +1567,9 @@ func TestVerifyCollectingApprovalsNotReady(t *testing.T) {
 			InnerBlock: &testutil.InnerBlock{TS: time.Now(), BlockHeight: 1, Content: []byte{0xAA}},
 			Metadata: StateMachineMetadata{
 				PChainHeight: nextPChainRefHeight,
-				SimplexProtocolMetadata: (&common.ProtocolMetadata{
+				SimplexProtocolMetadata: common.ProtocolMetadata{
 					Seq: parentSeq, Round: 5, Epoch: 1,
-				}).Bytes(),
+				},
 				SimplexEpochInfo: SimplexEpochInfo{
 					PChainReferenceHeight:     pChainRefHeight,
 					EpochNumber:               1,
@@ -1586,7 +1586,7 @@ func TestVerifyCollectingApprovalsNotReady(t *testing.T) {
 	build := func(t *testing.T, sm *StateMachine, tc *testConfig, parent StateMachineBlock) *StateMachineBlock {
 		tc.blockBuilder.Block = &testutil.InnerBlock{TS: time.Now(), BlockHeight: 2, Content: []byte{0x01}}
 		md := common.ProtocolMetadata{Seq: parentSeq + 1, Round: 6, Epoch: 1, Prev: parent.Digest()}
-		block, err := sm.BuildBlock(context.Background(), md, nil)
+		block, err := sm.BuildBlock(context.Background(), md, emptyBlacklist)
 		require.NoError(t, err)
 		return block
 	}
@@ -1672,9 +1672,9 @@ func TestCollectingApprovalsAuxInfoGating(t *testing.T) {
 		InnerBlock: &testutil.InnerBlock{TS: time.Now(), BlockHeight: 1, Content: []byte{0xAA}},
 		Metadata: StateMachineMetadata{
 			PChainHeight: nextPChainRefHeight,
-			SimplexProtocolMetadata: (&common.ProtocolMetadata{
+			SimplexProtocolMetadata: common.ProtocolMetadata{
 				Seq: parentSeq, Round: 5, Epoch: 1,
-			}).Bytes(),
+			},
 			SimplexEpochInfo: SimplexEpochInfo{
 				PChainReferenceHeight:     pChainRefHeight,
 				EpochNumber:               1,
@@ -1690,7 +1690,7 @@ func TestCollectingApprovalsAuxInfoGating(t *testing.T) {
 	buildAndVerify := func(seq uint64, prev StateMachineBlock) *StateMachineBlock {
 		tc.blockBuilder.Block = &testutil.InnerBlock{TS: time.Now(), BlockHeight: seq, Content: []byte{byte(seq)}}
 		md := common.ProtocolMetadata{Seq: seq, Round: seq, Epoch: 1, Prev: prev.Digest()}
-		block, err := sm.BuildBlock(context.Background(), md, nil)
+		block, err := sm.BuildBlock(context.Background(), md, emptyBlacklist)
 		require.NoError(t, err)
 		require.NoError(t, sm.VerifyBlock(context.Background(), block))
 		tc.blockStore[seq] = &outerBlock{block: *block}
@@ -1814,9 +1814,9 @@ func TestCollectingApprovalsAuxInfoVersionIDIsBackwardCompatible(t *testing.T) {
 		InnerBlock: &testutil.InnerBlock{TS: time.Now(), BlockHeight: 1, Content: []byte{0xAA}},
 		Metadata: StateMachineMetadata{
 			PChainHeight: nextPChainRefHeight,
-			SimplexProtocolMetadata: (&common.ProtocolMetadata{
+			SimplexProtocolMetadata: common.ProtocolMetadata{
 				Seq: parentSeq, Round: 5, Epoch: 1,
-			}).Bytes(),
+			},
 			SimplexEpochInfo: SimplexEpochInfo{
 				PChainReferenceHeight:     pChainRefHeight,
 				EpochNumber:               1,
@@ -1832,7 +1832,7 @@ func TestCollectingApprovalsAuxInfoVersionIDIsBackwardCompatible(t *testing.T) {
 	buildAndVerify := func(seq uint64, prev StateMachineBlock) *StateMachineBlock {
 		tc.blockBuilder.Block = &testutil.InnerBlock{TS: time.Now(), BlockHeight: seq, Content: []byte{byte(seq)}}
 		md := common.ProtocolMetadata{Seq: seq, Round: seq, Epoch: 1, Prev: prev.Digest()}
-		block, err := sm.BuildBlock(context.Background(), md, nil)
+		block, err := sm.BuildBlock(context.Background(), md, emptyBlacklist)
 		require.NoError(t, err)
 		require.NoError(t, sm.VerifyBlock(context.Background(), block))
 		tc.blockStore[seq] = &outerBlock{block: *block}

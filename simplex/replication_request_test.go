@@ -437,9 +437,10 @@ func TestReplicationRequestSeqsAndRoundsTruncated(t *testing.T) {
 	notarized := make([]common.VerifiedQuorumRound, 0, numNotarized)
 
 	for _, data := range blocks[numIndexed:] {
-		blockBytes, err := data.VerifiedBlock.Bytes()
+		blockBytes := data.VerifiedBlock.Bytes()
+		br, err := common.BlockRecord(data.VerifiedBlock.BlockHeader(), blockBytes)
 		require.NoError(t, err)
-		require.NoError(t, wal.Append(common.BlockRecord(data.VerifiedBlock.BlockHeader(), blockBytes)))
+		require.NoError(t, wal.Append(br))
 
 		notarization, err := testutil.NewNotarization(conf.Logger, &testutil.TestSignatureAggregator{N: len(nodes)}, data.VerifiedBlock, nodes[:quorom])
 		require.NoError(t, err)
@@ -489,6 +490,183 @@ func TestReplicationRequestSeqsAndRoundsTruncated(t *testing.T) {
 
 	msg := <-comm.in
 	resp := msg.VerifiedReplicationResponse
-	require.Equal(t, expected, resp.Data)
+	requireEqualQuorumRounds(t, expected, resp.Data)
 
+}
+
+// requireEqualQuorumRounds compares quorum rounds semantically, avoiding
+// reflect.DeepEqual on canoto-encoded values.
+func requireEqualQuorumRounds(t *testing.T, expected, actual []common.VerifiedQuorumRound) {
+	require.Equal(t, len(expected), len(actual))
+	for i := range expected {
+		exp, act := expected[i], actual[i]
+		require.Equal(t, exp.VerifiedBlock.BlockHeader().Digest, act.VerifiedBlock.BlockHeader().Digest)
+
+		if exp.Finalization != nil {
+			require.NotNil(t, act.Finalization)
+			require.True(t, exp.Finalization.Finalization.BlockHeader.Equals(&act.Finalization.Finalization.BlockHeader))
+			require.Equal(t, exp.Finalization.QC, act.Finalization.QC)
+		} else {
+			require.Nil(t, act.Finalization)
+		}
+
+		if exp.Notarization != nil {
+			require.NotNil(t, act.Notarization)
+			require.True(t, exp.Notarization.Vote.BlockHeader.Equals(&act.Notarization.Vote.BlockHeader))
+			require.Equal(t, exp.Notarization.QC, act.Notarization.QC)
+		} else {
+			require.Nil(t, act.Notarization)
+		}
+
+		require.Equal(t, exp.EmptyNotarization, act.EmptyNotarization)
+	}
+}
+
+// TestReplicationRequestSizeLimited ensures a replication response is capped
+// at MaxReplicationResponseSize estimated bytes, starting wit the lowest seqs first.
+// Sequences that do not fit are requested again by the requester
+// so a partial response is not lost.
+func TestReplicationRequestSizeLimited(t *testing.T) {
+	bb := testutil.NewTestBlockBuilder()
+	nodes := []common.NodeID{{1}, {2}, {3}, {4}}
+	comm := NewListenerComm(nodes)
+	ctx := context.Background()
+	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], comm, bb)
+	conf.ReplicationEnabled = true
+
+	numBlocks := uint64(8) // within MaxRoundWindow
+	seqs := createBlocks(t, nodes, numBlocks)
+	for _, data := range seqs {
+		require.NoError(t, conf.Storage.Index(ctx, data.VerifiedBlock, data.Finalization))
+	}
+
+	// budget for the first three quorum rounds plus half of the fourth, so that
+	// exactly three fit. Rounds are not uniformly sized (the encoding omits
+	// zero-valued fields), so each one has to be measured separately.
+	roundSize := func(i int) int {
+		return (&common.VerifiedQuorumRound{
+			VerifiedBlock: seqs[i].VerifiedBlock,
+			Finalization:  &seqs[i].Finalization,
+		}).Size()
+	}
+	conf.MaxReplicationResponseSize = roundSize(0) + roundSize(1) + roundSize(2) + roundSize(3)/2
+
+	e, err := simplex.NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+
+	requested := make([]uint64, numBlocks)
+	for i := range requested {
+		requested[i] = uint64(i)
+	}
+	require.NoError(t, e.HandleMessage(&common.Message{
+		ReplicationRequest: &common.ReplicationRequest{
+			Seqs: requested,
+		},
+	}, nodes[1]))
+
+	msg := <-comm.in
+	resp := msg.VerifiedReplicationResponse
+
+	// only the lowest seqs that fit under the budget are sent
+	require.Len(t, resp.Data, 3)
+	total := 0
+	for i, data := range resp.Data {
+		require.Equal(t, uint64(i), data.VerifiedBlock.BlockHeader().Seq)
+		size := data.Size()
+		require.NoError(t, err)
+		total += size
+	}
+	require.LessOrEqual(t, total, conf.MaxReplicationResponseSize)
+}
+
+// TestReplicationRequestSizeLimitedLatestFinalizedSeq ensures that when the latest
+// finalized block alone exceeds the response size limit, no response is sent at all.
+// An oversized message would be rejected by the network anyway.
+func TestReplicationRequestSizeLimitedLatestFinalizedSeq(t *testing.T) {
+	bb := testutil.NewTestBlockBuilder()
+	nodes := []common.NodeID{{1}, {2}, {3}, {4}}
+	comm := NewListenerComm(nodes)
+	ctx := context.Background()
+	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], comm, bb)
+	conf.ReplicationEnabled = true
+	// silencing the error logger in the test because it breaks github CI
+	conf.Logger.(*testutil.TestLogger).Silence()
+	conf.MaxReplicationResponseSize = 1
+
+	numBlocks := uint64(4)
+	seqs := createBlocks(t, nodes, numBlocks)
+	for _, data := range seqs {
+		require.NoError(t, conf.Storage.Index(ctx, data.VerifiedBlock, data.Finalization))
+	}
+
+	e, err := simplex.NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+
+	// ask for data and the latest finalized seq: the latest finalized seq must arrive, the data must not
+	require.NoError(t, e.HandleMessage(&common.Message{
+		ReplicationRequest: &common.ReplicationRequest{
+			Seqs:               []uint64{0, 1, 2},
+			LatestFinalizedSeq: 1,
+		},
+	}, nodes[1]))
+
+	require.Empty(t, comm.in)
+}
+
+// TestReplicationRequestSizeLimitedBothLatest ensures that when both latest fields are
+// requested but only one fits, the latest finalized seq is sent and the latest round
+// is omitted rather than pushing the response over the limit.
+func TestReplicationRequestSizeLimitedBothLatest(t *testing.T) {
+	bb := testutil.NewTestBlockBuilder()
+	nodes := []common.NodeID{{1}, {2}, {3}, {4}}
+	comm := NewListenerComm(nodes)
+	ctx := context.Background()
+	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], comm, bb)
+	conf.ReplicationEnabled = true
+	conf.MaxReplicationResponseSize = 1
+
+	// blocks 0..3 indexed to storage (provides lastBlock for LatestFinalizedSeq)
+	// block 4 notarized via a Wal record (provides a round for LatestRound)
+	blocks := createBlocks(t, nodes, 5)
+	for _, data := range blocks[:4] {
+		require.NoError(t, conf.Storage.Index(ctx, data.VerifiedBlock, data.Finalization))
+	}
+	notarizedBlock := blocks[4].VerifiedBlock
+	blockBytes := notarizedBlock.Bytes()
+	br, err := common.BlockRecord(notarizedBlock.BlockHeader(), blockBytes)
+	require.NoError(t, err)
+	require.NoError(t, wal.Append(br))
+	notarization, err := testutil.NewNotarization(conf.Logger,
+		&testutil.TestSignatureAggregator{N: len(nodes)},
+		notarizedBlock, nodes[:common.Quorum(len(nodes))])
+	require.NoError(t, err)
+	require.NoError(t, wal.Append(common.NewQuorumRecord(notarization.QC.Bytes(),
+		notarization.Vote.Bytes(), common.NotarizationRecordType)))
+
+	// budget exactly one fnalized quorom round, leaving no room for the latest round
+	conf.MaxReplicationResponseSize = (&common.VerifiedQuorumRound{
+		VerifiedBlock: blocks[3].VerifiedBlock,
+		Finalization:  &blocks[3].Finalization,
+	}).Size()
+
+	e, err := simplex.NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+
+	require.NoError(t, e.HandleMessage(&common.Message{
+		ReplicationRequest: &common.ReplicationRequest{
+			LatestRound:        1,
+			LatestFinalizedSeq: 1,
+		},
+	}, nodes[1]))
+	msg := <-comm.in
+	resp := msg.VerifiedReplicationResponse
+	require.NotNil(t, resp.LatestFinalizedSeq)
+	require.Nil(t, resp.LatestRound)
+	require.Empty(t, resp.Data)
 }

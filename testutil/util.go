@@ -176,6 +176,9 @@ func (t TestQC) Bytes() []byte {
 	}
 	return bytes
 }
+func (t TestQC) Size() int {
+	return len(t.Bytes())
+}
 
 type TestSigner struct {
 }

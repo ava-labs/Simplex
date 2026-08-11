@@ -65,7 +65,7 @@ type encodedBlock struct {
 	Blacklist        []byte
 }
 
-func (b *Block) Bytes() ([]byte, error) {
+func (b *Block) Bytes() []byte {
 	mdBytes := b.metadata.Bytes()
 
 	var asn1TXs []asn1TX
@@ -80,8 +80,15 @@ func (b *Block) Bytes() ([]byte, error) {
 		TXs:              asn1TXs,
 		Blacklist:        blacklistBytes,
 	}
+	raw, err := asn1.Marshal(encodedB)
+	if err != nil {
+		panic(fmt.Sprintf("failed to serialize block: %v", err))
+	}
+	return raw
+}
 
-	return asn1.Marshal(encodedB)
+func (b *Block) Size() int {
+	return len(b.Bytes())
 }
 
 func (b *Block) containsTX(txID txID) bool {
@@ -94,12 +101,7 @@ func (b *Block) containsTX(txID txID) bool {
 }
 
 func (b *Block) ComputeAndSetDigest() {
-	tbBytes, err := b.Bytes()
-	if err != nil {
-		panic(fmt.Sprintf("failed to serialize test block: %v", err))
-	}
-
-	b.digest = sha256.Sum256(tbBytes)
+	b.digest = sha256.Sum256(b.Bytes())
 }
 
 type BlockDeserializer struct {

@@ -16,6 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/ava-labs/simplex/avalanchego"
 	"github.com/ava-labs/simplex/common"
 	"go.uber.org/zap"
 )
@@ -34,6 +35,9 @@ const (
 	DefaultFinalizeVoteRebroadcastTimeout = 6 * time.Second
 	EmptyVoteTimeoutID                    = "rebroadcast_empty_vote"
 	maxItemCountPerRequest                = 10 // max number of rounds or sequences that fit in one replication request
+	// DefaultMaxReplicationResponseSize is the max size of a replication response. avalanchego rejects messages larger
+	// than 2 MiB. we cap at 80% (4/5) same as avalanchego (see utils/constants/networking.go)
+	DefaultMaxReplicationResponseSize = avalanchego.MaxContainersLen
 )
 
 type EmptyVoteSet struct {
@@ -64,6 +68,7 @@ func NewRound(block common.VerifiedBlock) *Round {
 type EpochConfig struct {
 	MaxProposalWait            time.Duration
 	MaxRoundWindow             uint64
+	MaxReplicationResponseSize int
 	MaxRebroadcastWait         time.Duration
 	FinalizeRebroadcastTimeout time.Duration
 	QCDeserializer             common.QCDeserializer
@@ -272,6 +277,9 @@ func (e *Epoch) maybeAssignDefaultConfig() error {
 	}
 	if e.MaxRebroadcastWait == 0 {
 		e.MaxRebroadcastWait = DefaultEmptyVoteRebroadcastTimeout
+	}
+	if e.MaxReplicationResponseSize == 0 {
+		e.MaxReplicationResponseSize = DefaultMaxReplicationResponseSize
 	}
 	if e.RandomSource == nil {
 		source, err := NewRandomSource()
@@ -781,6 +789,7 @@ func (e *Epoch) Stop() {
 	e.buildBlockScheduler.Close()
 	e.timeoutHandler.Close()
 	e.replicationState.Close()
+	e.Logger.Info("Node shutdown complete")
 }
 
 func (e *Epoch) isEpochSealed() bool {
@@ -1669,7 +1678,11 @@ func (e *Epoch) persistNotarization(notarization common.Notarization) error {
 	for _, signer := range notarization.QC.Signers() {
 		if signerIndex := e.validatorNodeIDs.IndexOf(signer); signerIndex != -1 {
 			e.Logger.Debug("Potentially redeeming node", zap.Stringer("signer", signer), zap.Uint64("round", round))
-			e.redeemedRounds[uint16(signerIndex)] = round
+			// Replication persists notarizations for past rounds, so only keep the latest round
+			// we have seen the node sign in.
+			if prev, seen := e.redeemedRounds[uint16(signerIndex)]; !seen || round > prev {
+				e.redeemedRounds[uint16(signerIndex)] = round
+			}
 		} else {
 			e.Logger.Error("Signer of notarization not found in eligible nodes", zap.Stringer("signer", signer))
 		}
@@ -2419,8 +2432,8 @@ func (e *Epoch) verifyProposalMetadataAndBlacklist(block common.Block) bool {
 
 	if !equals {
 		e.Logger.Debug("Received block with an incorrect header",
-			zap.Stringer("expected", expectedBH),
-			zap.Stringer("received", bh))
+			zap.Stringer("expected", &expectedBH),
+			zap.Stringer("received", &bh))
 	}
 
 	return equals
@@ -2565,7 +2578,6 @@ func (e *Epoch) createBlockBuildingTask(metadata common.ProtocolMetadata, blackl
 	e.blockBuilderCtx, e.blockBuilderCancelFunc = context.WithCancel(e.finishCtx)
 	context := e.blockBuilderCtx
 	cancel := e.blockBuilderCancelFunc
-
 	return func() common.Digest {
 		e.lock.Lock()
 		if e.isEpochSealed() {
@@ -2590,6 +2602,7 @@ func (e *Epoch) createBlockBuildingTask(metadata common.ProtocolMetadata, blackl
 			return common.Digest{}
 		}
 
+		e.Logger.Info("block is proposed")
 		e.proposeBlock(block)
 
 		return block.BlockHeader().Digest
@@ -2601,11 +2614,7 @@ func (e *Epoch) proposeBlock(block common.VerifiedBlock) error {
 
 	// Write record to WAL before broadcasting it, so that
 	// if we crash during broadcasting, we know what we sent.
-	rawBlock, err := block.Bytes()
-	if err != nil {
-		e.Logger.Error("Failed serializing block", zap.Error(err))
-		return err
-	}
+	rawBlock := block.Bytes()
 
 	vote, err := e.voteOnBlock(block)
 	if err != nil {
@@ -3135,14 +3144,14 @@ func (e *Epoch) storeProposal(block common.VerifiedBlock) bool {
 		zap.Uint64("seq", md.Seq),
 		zap.Stringer("digest", md.Digest))
 
-	blockBytes, err := block.Bytes()
+	blockBytes := block.Bytes()
+
+	blockRecord, err := common.BlockRecord(md, blockBytes)
 	if err != nil {
 		e.haltedError = err
-		e.Logger.Error("Failed to serialize block", zap.Error(err))
+		e.Logger.Error("Failed to create block record for WAL", zap.Error(err))
 		return false
 	}
-
-	blockRecord := common.BlockRecord(md, blockBytes)
 	if err := e.WAL.Append(blockRecord); err != nil {
 		e.haltedError = err
 		e.Logger.Error("Failed to append block record to WAL", zap.Error(err))
@@ -3183,18 +3192,34 @@ func (e *Epoch) handleReplicationRequest(req *common.ReplicationRequest, from co
 			zap.Uint64("max round window", e.MaxRoundWindow))
 		rounds = rounds[:e.MaxRoundWindow]
 	}
+	remainingBytes := e.MaxReplicationResponseSize
 
+	if req.LatestFinalizedSeq > 0 {
+		if e.lastBlock != nil && e.lastBlock.Finalization.Finalization.Seq > req.LatestFinalizedSeq {
+			latestFinalizedSeq := &common.VerifiedQuorumRound{
+				VerifiedBlock: e.lastBlock.VerifiedBlock,
+				Finalization:  &e.lastBlock.Finalization,
+			}
+			size := latestFinalizedSeq.Size()
+			if size > remainingBytes {
+				e.Logger.Error("Latest finalized block exceeds the maximum replication response size",
+					zap.Stringer("from", from),
+					zap.Uint64("seq", e.lastBlock.Finalization.Finalization.Seq),
+					zap.Int("size", size),
+					zap.Int("max size", e.MaxReplicationResponseSize))
+				return nil
+			}
+			response.LatestFinalizedSeq = latestFinalizedSeq
+			remainingBytes -= size
+		}
+	}
 	if req.LatestRound > 0 {
 		latestRound := e.getLatestVerifiedQuorumRound()
 		if latestRound != nil && latestRound.GetRound() > req.LatestRound {
-			response.LatestRound = latestRound
-		}
-	}
-	if req.LatestFinalizedSeq > 0 {
-		if e.lastBlock != nil && e.lastBlock.Finalization.Finalization.Seq > req.LatestFinalizedSeq {
-			response.LatestFinalizedSeq = &common.VerifiedQuorumRound{
-				VerifiedBlock: e.lastBlock.VerifiedBlock,
-				Finalization:  &e.lastBlock.Finalization,
+			size := latestRound.Size()
+			if size <= remainingBytes || response.LatestFinalizedSeq == nil {
+				response.LatestRound = latestRound
+				remainingBytes -= size
 			}
 		}
 	}
@@ -3207,6 +3232,16 @@ func (e *Epoch) handleReplicationRequest(req *common.ReplicationRequest, from co
 			seqData = seqData[:i]
 			break
 		}
+		size := quorumRound.Size()
+		if size > remainingBytes {
+			e.Logger.Debug("Replication response reached size limit",
+				zap.Stringer("from", from),
+				zap.Uint64("Stopped at Seq", seq),
+				zap.Int("max size", e.MaxReplicationResponseSize))
+			seqData = seqData[:i]
+			break
+		}
+		remainingBytes -= size
 
 		seqData[i] = *quorumRound
 	}
@@ -3218,6 +3253,16 @@ func (e *Epoch) handleReplicationRequest(req *common.ReplicationRequest, from co
 			// we cannot break early since empty votes may
 			continue
 		}
+		size := quorumRound.Size()
+		if size > remainingBytes {
+			e.Logger.Debug("Replication response reached size limit",
+				zap.Stringer("from", from),
+				zap.Uint64("Stopped at Round", roundNum),
+				zap.Int("max size", e.MaxReplicationResponseSize))
+			break
+		}
+		remainingBytes -= size
+
 		roundData = append(roundData, *quorumRound)
 	}
 
