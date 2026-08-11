@@ -312,7 +312,6 @@ func newBlockBuilderVM(bb *testutil.TestControlledBlockBuilder, storage *MockSto
 func (vm *blockBuilderVM) BuildBlock(ctx context.Context, pChainHeight uint64) (avalanchego.VMBlock, error) {
 	// The builder gates when a block is built; the block it returns is not an inner block, so
 	// it is thrown away.
-	fmt.Println("hello")
 	if _, ok := vm.bb.BuildBlock(ctx, common.ProtocolMetadata{}, common.Blacklist{}); !ok {
 		return nil, ctx.Err()
 	}
