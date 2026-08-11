@@ -5,6 +5,7 @@ package simplex
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"sync"
@@ -18,6 +19,8 @@ import (
 	"github.com/ava-labs/simplex/wal"
 	"go.uber.org/zap"
 )
+
+var errAlreadyStarted = errors.New("instance already started")
 
 const (
 	// tickInterval is the interval at which the instance will call AdvanceTime on the current epoch or non-validator.
@@ -89,7 +92,7 @@ func (i *Instance) Start(ctx context.Context) error {
 	defer i.lock.Unlock()
 
 	if i.started {
-		return fmt.Errorf("instance already started")
+		return errAlreadyStarted
 	}
 
 	i.started = true
