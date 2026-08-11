@@ -3203,7 +3203,7 @@ func (e *Epoch) handleReplicationRequest(req *common.ReplicationRequest, from co
 	remainingBytes := e.MaxReplicationResponseSize
 
 	if req.LatestFinalizedSeq > 0 {
-		if e.lastBlock != nil && e.lastBlock.Finalization.Finalization.Seq > req.LatestFinalizedSeq {
+		if e.lastBlock != nil && e.lastBlock.Finalization.Finalization.Seq >= req.LatestFinalizedSeq {
 			latestFinalizedSeq := &common.VerifiedQuorumRound{
 				VerifiedBlock: e.lastBlock.VerifiedBlock,
 				Finalization:  &e.lastBlock.Finalization,
