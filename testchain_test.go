@@ -191,11 +191,23 @@ func (vm *blockBuilderVM) WaitForPendingBlock(ctx context.Context) {
 }
 
 type node struct {
+	t       *testing.T
 	id      common.NodeID
 	vm      *blockBuilderVM
 	inst    *Instance
 	storage *MockStorage
 	comm    *instanceComm
+}
+
+// restart stops the node, and starts it again from a fresh instance
+// keeping same storage and id
+func (n *node) restart() {
+	n.inst.Stop()
+
+	prevConfig := n.inst.Config
+	instance := NewInstance(prevConfig)
+	n.inst = instance
+	require.NoError(n.t, n.inst.Start(n.t.Context()))
 }
 
 // noopICMTransition keeps every block in the same ICM epoch, so an epoch only ever changes
@@ -354,7 +366,7 @@ func newChain(t *testing.T, pChain *testPlatformChain) *network {
 }
 
 // addNode adds a node to the network and ensure
-func (c *network) addNode(id common.NodeID) {
+func (c *network) addNode(id common.NodeID) *node {
 	comm := newInstanceComm(c, id)
 	bd := &testInnerBlockDeserializer{}
 	storage := NewMockStorageWithGenesis(c.t, bd)
@@ -380,6 +392,7 @@ func (c *network) addNode(id common.NodeID) {
 	})
 
 	node := node{
+		t:       c.t,
 		id:      id,
 		storage: storage,
 		comm:    comm,
@@ -398,13 +411,14 @@ func (c *network) addNode(id common.NodeID) {
 	c.t.Cleanup(node.inst.Stop)
 
 	node.storage.WaitForBlockCommit(c.seq - 1)
+
+	return &node
 }
 
-func (c *network) index() (common.VerifiedBlock, error) {
+// acceptNewBlock
+func (c *network) acceptNewBlock() common.VerifiedBlock {
 	nodes, ok := c.validatorSets[c.epoch]
-	if !ok {
-		return nil, fmt.Errorf("epoch is not set epoch: %d. trying to index seq: %d", c.epoch, c.seq)
-	}
+	require.True(c.t, ok, fmt.Sprintf("epoch is not set epoch: %d. trying to index seq: %d", c.epoch, c.seq))
 
 	// no nodes have indexed this sequence yet
 	for _, node := range c.nodes {
@@ -414,17 +428,12 @@ func (c *network) index() (common.VerifiedBlock, error) {
 	leaderID := simplex.LeaderForRound(nodes.NodeIDs(), c.seq)
 	for _, node := range c.nodes {
 		if bytes.Equal(node.id, leaderID) {
-			fmt.Println("woken up leader", node.id[0], node.id)
 			node.vm.bb.TriggerNewBlock()
-			fmt.Println("triggered")
 		}
 	}
 
-	fmt.Println("triggered wait for pending block")
-
 	// wake every VM blocked in WaitForPendingBlock
 	c.pending.broadcast()
-	fmt.Println("bang for pending block")
 
 	var block common.VerifiedBlock
 	for _, node := range c.nodes {
@@ -447,7 +456,7 @@ func (c *network) index() (common.VerifiedBlock, error) {
 		c.validatorSets[c.epoch] = newValidatorSet
 	}
 
-	return block, nil
+	return block
 }
 
 // waitUntilSealingBlock waits until every node commits the block at the current seq,
