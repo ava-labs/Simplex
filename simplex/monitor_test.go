@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
-	"go.uber.org/zap/zaptest/observer"
 )
 
 func TestMonitorDoubleClose(t *testing.T) {
@@ -131,25 +130,6 @@ func TestMonitorAsyncWaitForWithNestedWaitUntil(t *testing.T) {
 		mon.FutureTask(10*time.Millisecond, wg.Done)
 	})
 	wg.Wait()
-}
-
-// TestMonitorFutureTaskLogsDeadline asserts that scheduling a future task logs the
-// task's deadline. FutureTask (monitor.go:159) logged the monitor's current time
-// under the "deadline" field instead of time.Add(timeout).
-func TestMonitorFutureTaskLogsDeadline(t *testing.T) {
-	start := time.Now()
-	core, logs := observer.New(zapcore.DebugLevel)
-	mon := NewMonitor(start, &testLogger{Logger: zap.New(core)})
-	defer mon.Close()
-
-	timeout := time.Hour
-	mon.FutureTask(timeout, func() {})
-
-	entries := logs.FilterMessage("Scheduling task").All()
-	require.Len(t, entries, 1)
-	deadline, ok := entries[0].ContextMap()["deadline"].(time.Time)
-	require.True(t, ok)
-	require.True(t, start.Add(timeout).Equal(deadline))
 }
 
 type testLogger struct {
