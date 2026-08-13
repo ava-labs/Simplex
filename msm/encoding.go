@@ -33,9 +33,9 @@ type StateMachineMetadata struct {
 	Timestamp uint64 `canoto:"uint,5"`
 	// ICMEpochInfo is the metadata that the StateMachine uses for ICM epoching.
 	ICMEpochInfo ICMEpochInfo `canoto:"value,6"`
-	// AuxiliaryInfo is application-specific information that the StateMachine doesn't need to understand,
+	// AuxiliaryInfoBatch is application-specific information that the StateMachine doesn't need to understand,
 	// but can be used by applications that care about epoch changes, such as threshold distributed public key generation.
-	AuxiliaryInfo *AuxiliaryInfo `canoto:"pointer,7"`
+	AuxiliaryInfoBatch *AuxiliaryInfoBatch `canoto:"pointer,7"`
 
 	canotoData canotoData_StateMachineMetadata
 }
@@ -50,7 +50,7 @@ func (smm *StateMachineMetadata) Clone() StateMachineMetadata {
 		PChainHeight:            smm.PChainHeight,
 		Timestamp:               smm.Timestamp,
 		ICMEpochInfo:            smm.ICMEpochInfo.Clone(),
-		AuxiliaryInfo:           smm.AuxiliaryInfo.Clone(),
+		AuxiliaryInfoBatch:      smm.AuxiliaryInfoBatch,
 	}
 }
 
@@ -86,48 +86,6 @@ func (ei *ICMEpochInfo) Equal(other *ICMEpochInfo) bool {
 		return ei == nil
 	}
 	return ei.EpochStartTime == other.EpochStartTime && ei.EpochNumber == other.EpochNumber && ei.PChainEpochHeight == other.PChainEpochHeight
-}
-
-// AuxiliaryInfo defines application-specific information for applications that might care about epoch change,
-// such as threshold distributed public key generation.
-type AuxiliaryInfo struct {
-	// Info is opaque bytes that can be used by applications to encode any information that describes
-	// the current state for the application.
-	Info []byte `canoto:"bytes,1"`
-	// PrevAuxInfoSeq is a sequence number that applications can use to find previous AuxiliaryInfo in the chain.
-	// It is zero if this is the first AuxiliaryInfo for this epoch.
-	PrevAuxInfoSeq uint64 `canoto:"uint,2"`
-	// VersionID is an identifier that identifies the application.
-	// Can be used for backward-compatibility and upgrade purposes.
-	VersionID common.VersionID `canoto:"uint,3"`
-
-	canotoData canotoData_AuxiliaryInfo
-}
-
-func (ai *AuxiliaryInfo) Clone() *AuxiliaryInfo {
-	if ai == nil {
-		return nil
-	}
-	return &AuxiliaryInfo{
-		Info:           ai.Info,
-		PrevAuxInfoSeq: ai.PrevAuxInfoSeq,
-		VersionID:      ai.VersionID,
-	}
-}
-
-func (ai *AuxiliaryInfo) IsZero() bool {
-	var zero AuxiliaryInfo
-	return ai.Equal(&zero)
-}
-
-func (ai *AuxiliaryInfo) Equal(a *AuxiliaryInfo) bool {
-	if ai == nil {
-		return a == nil
-	}
-	if a == nil {
-		return ai == nil
-	}
-	return bytes.Equal(ai.Info, a.Info) && ai.PrevAuxInfoSeq == a.PrevAuxInfoSeq && ai.VersionID == a.VersionID
 }
 
 // SimplexEpochInfo is metadata used by the StateMachine.
@@ -379,6 +337,15 @@ func (nbms NodeBLSMappings) Nodes() common.Nodes {
 		}
 	}
 	return nodeWeights
+}
+
+// NodeIDs returns the NodeIDs of the mappings.
+func (nbms NodeBLSMappings) NodeIDs() []common.NodeID {
+	nodeIDs := make([]common.NodeID, len(nbms))
+	for i := range nbms {
+		nodeIDs[i] = nbms[i].NodeID[:]
+	}
+	return nodeIDs
 }
 
 // IndexByNodeID returns a mapping from NodeID to the validator's index in the set,

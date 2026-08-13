@@ -86,6 +86,7 @@ type EpochConfig struct {
 	StartTime                  time.Time
 	ReplicationEnabled         bool
 	RandomSource               *rand.Rand
+	OnSealingBlockIndex        func(epoch uint64, validators common.Nodes)
 }
 
 type Epoch struct {
@@ -166,7 +167,7 @@ func (e *Epoch) HandleMessage(msg *common.Message, from common.NodeID) error {
 	}
 
 	_, known := e.validatorsToPKs[string(from)]
-	if !known {
+	if !known || e.isEpochSealed() {
 		e.Logger.Debug("Received message from a non-validator node", zap.Stringer("nodeID", from))
 		switch {
 		case msg.ReplicationRequest != nil && e.ReplicationEnabled:
@@ -788,6 +789,7 @@ func (e *Epoch) Stop() {
 	e.buildBlockScheduler.Close()
 	e.timeoutHandler.Close()
 	e.replicationState.Close()
+	e.Logger.Info("Node shutdown complete")
 }
 
 func (e *Epoch) isEpochSealed() bool {
@@ -1466,13 +1468,17 @@ func (e *Epoch) indexFinalizations(startRound uint64) error {
 }
 
 func (e *Epoch) indexFinalization(block common.VerifiedBlock, finalization common.Finalization) error {
-	if err := e.Storage.Index(e.finishCtx, block, finalization); err != nil {
-		return err
+	// index only if the epoch is not sealed
+	if !e.isEpochSealed() {
+		if err := e.Storage.Index(e.finishCtx, block, finalization); err != nil {
+			return err
+		}
+		e.Logger.Info("Committed block",
+			zap.Uint64("round", finalization.Finalization.Round),
+			zap.Uint64("sequence", finalization.Finalization.Seq),
+			zap.Stringer("digest", finalization.Finalization.Digest))
 	}
-	e.Logger.Info("Committed block",
-		zap.Uint64("round", finalization.Finalization.Round),
-		zap.Uint64("sequence", finalization.Finalization.Seq),
-		zap.Stringer("digest", finalization.Finalization.Digest))
+
 	e.lastBlock = &common.VerifiedFinalizedBlock{
 		VerifiedBlock: block,
 		Finalization:  finalization,
@@ -1490,6 +1496,7 @@ func (e *Epoch) indexFinalization(block common.VerifiedBlock, finalization commo
 		e.broadcast(finalizationMsg)
 
 		e.epochSealed.Store(true)
+		e.OnSealingBlockIndex(block.BlockHeader().Seq, block.SealingBlockInfo().ValidatorSet)
 	}
 
 	// We have committed because we have collected a finalization.
@@ -2589,11 +2596,10 @@ func (e *Epoch) createBlockBuildingTask(metadata common.ProtocolMetadata, blackl
 		e.lock.Lock()
 		defer e.lock.Unlock()
 
+		canceled := context.Err() != nil
 		cancel()
 		if !ok {
-			select {
-			case <-context.Done():
-			default:
+			if !canceled {
 				e.Logger.Debug("Failed building block")
 			}
 			return common.Digest{}
