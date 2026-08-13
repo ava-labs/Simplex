@@ -210,7 +210,8 @@ func TestInstanceNonValidatorBootstraps(t *testing.T) {
 
 	// Drive two more epoch transitions by changing the validator's weight. Each change seals
 	// an epoch (and produces a sealing block) without any other node, since the validator's
-	// own approval is a quorum of the single-node set.
+	// own approval is a quorum of the single-node set. The counts below include the zero block,
+	// which carries a block validation descriptor as well.
 	pChain.advanceTo(secondEpochP)
 	waitForSealingBlockCount(t, storage, 2)
 
@@ -232,10 +233,10 @@ func TestInstanceNonValidatorBootstraps(t *testing.T) {
 	bootstrapTarget := storage.NumBlocks()
 	waitForNumBlocks(t, storage2, bootstrapTarget)
 
-	// The "still a non-validator" message was printed several times (once per sealed epoch it
-	// replicated through) while it caught up.
+	// The "still a non-validator" message was printed once per sealed epoch it replicated
+	// through, so once for each of the two epochs the weight changes above sealed.
 	require.Eventually(t, func() bool {
-		return stillNonValidatorLogs.Load() >= 3
+		return stillNonValidatorLogs.Load() >= 2
 	}, 20*time.Second, 100*time.Millisecond)
 
 	// Now grow the validator set to include the peer at the P-chain tip.
@@ -282,15 +283,23 @@ func TestInstanceRestartAcrossEpochs(t *testing.T) {
 	//   - Restart when the tip is a sealing block                        -> "sealing block at tip" branch.
 	//   - Restart mid-epoch, when the tip is an ordinary Simplex block   -> "sealing block in storage" branch.
 	//
-	const basePChainHeight = uint64(1)
+	const (
+		basePChainHeight        = uint64(1)
+		epochChangePChainHeight = uint64(100)
+	)
 
 	var id [20]byte
 	rand.Read(id[:])
 	nodeID := common.NodeID(id[:])
 
+	// The lone validator's weight changes at epochChangePChainHeight, which seals the first
+	// epoch.
 	validatorSetsAtHeight := map[uint64]metadata.NodeBLSMappings{
 		basePChainHeight: {
 			{NodeID: id, BLSKey: []byte{0xaa}, Weight: 1},
+		},
+		epochChangePChainHeight: {
+			{NodeID: id, BLSKey: []byte{0xaa}, Weight: 2},
 		},
 	}
 
@@ -344,8 +353,10 @@ func TestInstanceRestartAcrossEpochs(t *testing.T) {
 	require.Equal(t, logEpochFromGenesis, *lastEpochBranch.Load())
 
 	// --- Case 2: restart when the tip is a sealing block. ---
-	// countSealingBlocks == 2: the zero block plus the sealing block of the initial
-	// epoch transition. With the VM paused, that sealing block stays the tip.
+	// Change the validator's weight to seal the first epoch.
+	// countSealingBlocks == 2: the zero block plus that epoch's sealing block. With the VM
+	// paused, the sealing block stays the tip because no ordinary block can be built on top.
+	pChain.advanceTo(epochChangePChainHeight)
 	waitForSealingBlockCount(t, storage, 2)
 	requireTipIsSealing(t, storage, true)
 
@@ -469,6 +480,44 @@ func TestParseBlockSizeMatchesBytes(t *testing.T) {
 	}
 }
 
+// TestInstanceZeroBlockUsesLastNonSimplexPChainHeight asserts that the first ever Simplex block
+// references the P-chain height of the last non-Simplex block.
+func TestInstanceZeroBlockUsesLastNonSimplexPChainHeight(t *testing.T) {
+	const basePChainHeight = uint64(7)
+
+	var id [20]byte
+	rand.Read(id[:])
+	nodeID := common.NodeID(id[:])
+
+	validatorSetsAtHeight := map[uint64]metadata.NodeBLSMappings{
+		basePChainHeight: {
+			{NodeID: id, BLSKey: []byte{0xaa}, Weight: 1},
+		},
+	}
+
+	pChain := newTestPlatformChain(basePChainHeight, validatorSetsAtHeight)
+	cops := &testCryptoOps{}
+	genesisBlock := &testInnerBlock{Height_: 0, TS: time.Now(), Payload: []byte("genesis")}
+
+	net := newInMemNetwork(t)
+	t.Cleanup(net.stop)
+
+	storage := newStorageWithGenesis(t, genesisBlock)
+
+	inst := newInstance(t, nodeID, storage, net, pChain, cops, genesisBlock)
+	net.register(nodeID, inst)
+	require.NoError(t, inst.Start(t.Context()))
+	t.Cleanup(inst.Stop)
+
+	waitForNumBlocks(t, storage, 2) // genesis(0) + the zero block(1)
+
+	zeroBlock, ok := storage.blockAt(1)
+	require.True(t, ok)
+	require.Equal(t, metadata.BlockTypeZero, zeroBlock.Type())
+	require.Equal(t, basePChainHeight, zeroBlock.Metadata.PChainHeight)
+	require.Equal(t, basePChainHeight, zeroBlock.Metadata.SimplexEpochInfo.PChainReferenceHeight)
+}
+
 func TestInstanceDoubleStartFails(t *testing.T) {
 	const basePChainHeight = uint64(1)
 
@@ -498,6 +547,276 @@ func TestInstanceDoubleStartFails(t *testing.T) {
 	t.Cleanup(inst.Stop)
 
 	require.ErrorContains(t, inst.Start(t.Context()), "instance already started")
+}
+
+func TestNonValidatorSkipsMSMVerification(t *testing.T) {
+	// This test proves that a non-validator doesn't use the MSM to verify blocks.
+	// It does so by forcing a non-validator ti commit a block whose MSM state machine
+	// transition is invalid.
+
+	const basePChainHeight = uint64(1)
+
+	var id [20]byte
+	rand.Read(id[:])
+	validatorNodeID := common.NodeID(id[:])
+
+	// The node under test. It is absent from the validator set, so it comes up as a non-validator.
+	var nv [20]byte
+	rand.Read(nv[:])
+	nonValidatorNodeID := common.NodeID(nv[:])
+
+	validatorSetsAtHeight := map[uint64]metadata.NodeBLSMappings{
+		basePChainHeight: {
+			{NodeID: id, BLSKey: []byte{0xaa}, Weight: 1},
+		},
+	}
+
+	pChain := newTestPlatformChain(basePChainHeight, validatorSetsAtHeight)
+	cops := &testCryptoOps{}
+	genesisBlock := &testInnerBlock{Height_: 0, TS: time.Now(), Payload: []byte("genesis")}
+
+	net := newInMemNetwork(t)
+	t.Cleanup(net.stop)
+
+	// The lone validator builds a chain on its own and then shuts down, so that from here on the
+	// only source of blocks is this test.
+	storage := newStorageWithGenesis(t, genesisBlock)
+	validatorInstance := newInstance(t, validatorNodeID, storage, net, pChain, cops, genesisBlock)
+	net.register(validatorNodeID, validatorInstance)
+	require.NoError(t, validatorInstance.Start(t.Context()))
+	t.Cleanup(validatorInstance.Stop)
+
+	waitForNumBlocks(t, storage, 7)
+	validatorInstance.Stop()
+	require.True(t, validatorInstance.isStopped())
+
+	replicatedSeq := storage.NumBlocks() - 1
+	replicated, ok := storage.blockAt(replicatedSeq)
+	require.True(t, ok)
+	parent, ok := storage.blockAt(replicatedSeq - 1)
+	require.True(t, ok)
+
+	// The non-validator holds the chain up to, but not including, that last block, and is wired to
+	// a network of its own where nobody answers: the replication response we hand it below is the
+	// only way it can ever learn about the block.
+	nonValidatorStorage := storage.cloneBelow(replicatedSeq)
+	require.Equal(t, replicatedSeq, nonValidatorStorage.NumBlocks())
+	_, ok = nonValidatorStorage.blockAt(replicatedSeq)
+	require.False(t, ok, "the non-validator already has the block it is meant to replicate")
+
+	nonValidatorInstance := newInstance(t, nonValidatorNodeID, nonValidatorStorage, newInMemNetwork(t), pChain, cops, genesisBlock)
+	require.NoError(t, nonValidatorInstance.Start(t.Context()))
+	t.Cleanup(nonValidatorInstance.Stop)
+
+	// The MSM that built the chain - the validator has stopped, so nothing else uses it - accepts
+	// the block, so we know the block is valid.
+	msm := validatorInstance.msm
+
+	// The block we feed the non-validator is that same block with a single defect: a timestamp
+	// that precedes its parent's. Everything else - round, sequence, epoch info, P-chain height,
+	// inner block - is left alone, so the only thing wrong with it is its state machine
+	// transition.
+	tampered := replicated.Clone()
+	tampered.Metadata.Timestamp = parent.Metadata.Timestamp - 1
+
+	// Wire the MSM that built the chain to the tampered block, so we can prove that the MSM would have rejected it.
+	tamperedBlock := &ParsedBlock{StateMachineBlock: tampered.Clone(), msm: msm}
+	_, err := tamperedBlock.Verify(context.Background())
+	require.ErrorContains(t, err, "proposed timestamp is before parent block's timestamp")
+
+	// Changing the timestamp made it a block the validator never built: no sequence of its ledger
+	// holds it.
+	for seq := uint64(0); seq < storage.NumBlocks(); seq++ {
+		stored, ok := storage.blockAt(seq)
+		require.True(t, ok)
+		require.NotEqual(t, tampered.Digest(), stored.Digest(), "the validator has the tampered block at seq %d", seq)
+	}
+
+	// Send precisely that block: the finalization we hand over is a quorum on its digest, not on
+	// the digest of the block the validator built.
+	block := &ParsedBlock{StateMachineBlock: tampered.Clone()}
+	finalization, _ := testutil.NewFinalizationRecord(t, &testutil.TestSignatureAggregator{N: 1}, block, []common.NodeID{validatorNodeID})
+	require.Equal(t, common.Digest(tampered.Digest()), finalization.Finalization.Digest)
+	require.NotEqual(t, common.Digest(replicated.Digest()), finalization.Finalization.Digest)
+
+	require.NoError(t, nonValidatorInstance.HandleMessage(&common.Message{
+		ReplicationResponse: &common.ReplicationResponse{
+			Data: []common.QuorumRound{{Block: block, Finalization: &finalization}},
+		},
+	}, validatorNodeID))
+
+	// It commits the block its state machine would have rejected...
+	waitForNumBlocks(t, nonValidatorStorage, replicatedSeq+1)
+	committed, ok := nonValidatorStorage.blockAt(replicatedSeq)
+	require.True(t, ok)
+	require.Equal(t, tampered.Digest(), committed.Digest())
+
+	// ... so the two ledgers are the same height but disagree on their last block: the
+	// non-validator committed a block that exists nowhere in the validator's storage.
+	require.Equal(t, storage.NumBlocks(), nonValidatorStorage.NumBlocks())
+	require.NotEqual(t, replicated.Digest(), committed.Digest())
+}
+
+func TestValidatorSkipsMSMVerificationWhenReplicating(t *testing.T) {
+	// This test ensures that validators that are lagging behind do not use the MSM
+	// to verify blocks they replicate through the replication path, as they have a QC.
+	// We check once for a notarized block and once for a finalized block.
+
+	for _, tt := range []struct {
+		name string
+		// quorumRound wraps the replicated block with a QC.
+		quorumRound func(t *testing.T, logger common.Logger, block *ParsedBlock, signers []common.NodeID) common.QuorumRound
+		// requireReplicated asserts the lagging node replicated the block.
+		requireReplicated func(t *testing.T, storage *MockStorage, block metadata.StateMachineBlock)
+	}{
+		{
+			name: "notarization",
+			quorumRound: func(t *testing.T, logger common.Logger, block *ParsedBlock, signers []common.NodeID) common.QuorumRound {
+				notarization, err := testutil.NewNotarization(logger, &testutil.TestSignatureAggregator{N: len(signers)}, block, signers)
+				require.NoError(t, err)
+				return common.QuorumRound{Block: block, Notarization: &notarization}
+			},
+			// A notarized block is not committed but notarized: the node persists the
+			// notarization to its WAL, which it only reaches after the block verified.
+			requireReplicated: func(t *testing.T, storage *MockStorage, block metadata.StateMachineBlock) {
+				round := block.Metadata.SimplexProtocolMetadata.Round
+				require.Eventually(t, func() bool {
+					return storage.containsNotarization(round)
+				}, 20*time.Second, 100*time.Millisecond, "no notarization for round %d was persisted to the WAL", round)
+				require.Equal(t, block.Metadata.SimplexProtocolMetadata.Seq, storage.NumBlocks(), "a notarized block should not have been committed")
+			},
+		},
+		{
+			name: "finalization",
+			quorumRound: func(t *testing.T, _ common.Logger, block *ParsedBlock, signers []common.NodeID) common.QuorumRound {
+				finalization, _ := testutil.NewFinalizationRecord(t, &testutil.TestSignatureAggregator{N: len(signers)}, block, signers)
+				return common.QuorumRound{Block: block, Finalization: &finalization}
+			},
+			// A finalized block is committed.
+			requireReplicated: func(t *testing.T, storage *MockStorage, block metadata.StateMachineBlock) {
+				seq := block.Metadata.SimplexProtocolMetadata.Seq
+				waitForNumBlocks(t, storage, seq+1)
+				committed, ok := storage.blockAt(seq)
+				require.True(t, ok)
+				require.Equal(t, block.Digest(), committed.Digest())
+			},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			const basePChainHeight = uint64(1)
+
+			var first, second [20]byte
+			rand.Read(first[:])
+			rand.Read(second[:])
+			firstNodeID := common.NodeID(first[:])
+			secondNodeID := common.NodeID(second[:])
+
+			// Two validators, so a quorum is both of them: once one of them is down, the other
+			// cannot commit a block, nor even empty notarize a round, on its own.
+			validatorSetsAtHeight := map[uint64]metadata.NodeBLSMappings{
+				basePChainHeight: {
+					{NodeID: first, BLSKey: []byte{0xaa}, Weight: 1},
+					{NodeID: second, BLSKey: []byte{0xbb}, Weight: 1},
+				},
+			}
+
+			pChain := newTestPlatformChain(basePChainHeight, validatorSetsAtHeight)
+			cops := &testCryptoOps{}
+			genesisBlock := &testInnerBlock{Height_: 0, TS: time.Now(), Payload: []byte("genesis")}
+
+			net := newInMemNetwork(t)
+			t.Cleanup(net.stop)
+
+			// The two validators build a chain together and then both shut down, so that from
+			// here on the only source of blocks is this test.
+			storage := newStorageWithGenesis(t, genesisBlock)
+			storage2 := newStorageWithGenesis(t, genesisBlock)
+			firstInstance := newInstance(t, firstNodeID, storage, net, pChain, cops, genesisBlock)
+			secondInstance := newInstance(t, secondNodeID, storage2, net, pChain, cops, genesisBlock)
+			net.register(firstNodeID, firstInstance)
+			net.register(secondNodeID, secondInstance)
+			require.NoError(t, firstInstance.Start(t.Context()))
+			require.NoError(t, secondInstance.Start(t.Context()))
+			t.Cleanup(firstInstance.Stop)
+			t.Cleanup(secondInstance.Stop)
+
+			waitForNumBlocks(t, storage, 7)
+			firstInstance.Stop()
+			secondInstance.Stop()
+			require.True(t, firstInstance.isStopped())
+			require.True(t, secondInstance.isStopped())
+
+			replicatedSeq := storage.NumBlocks() - 1
+			replicated, ok := storage.blockAt(replicatedSeq)
+			require.True(t, ok)
+			parent, ok := storage.blockAt(replicatedSeq - 1)
+			require.True(t, ok)
+
+			// The node restored at the parent below sits at the round following the parent's, and
+			// only processes a replicated round it has reached, so the block it is missing must be
+			// the one that directly follows its parent's round.
+			require.Equal(t, parent.Metadata.SimplexProtocolMetadata.Round+1, replicated.Metadata.SimplexProtocolMetadata.Round,
+				"the chain grew an empty round before its last block")
+
+			// The MSM that built the chain - the validator has stopped, so nothing else uses it -
+			// accepts the block, so we know the block is valid.
+			msm := firstInstance.msm
+
+			// The block we hand the node is that same block with a single defect: a timestamp preceding its parent's.
+			// Everything else - round, sequence, epoch info, P-chain height, inner block - is left alone,
+			// so the only thing wrong with it is its state machine transition, which is what the state
+			// machine rejects and what verifying only the inner block - what a node replicating a
+			// block does - accepts.
+			tampered := replicated.Clone()
+			tampered.Metadata.Timestamp = parent.Metadata.Timestamp - 1
+
+			// The MSM rejects the tampered block, so we know the block is invalid.
+			tamperedBlock := &ParsedBlock{StateMachineBlock: tampered.Clone(), msm: msm}
+			_, err := tamperedBlock.Verify(context.Background())
+			require.ErrorContains(t, err, "proposed timestamp is before parent block's timestamp")
+			_, err = tamperedBlock.Verify(context.Background(), common.OnlyVMVerifyOpt)
+			require.NoError(t, err)
+
+			// Changing the timestamp made it a block neither validator ever built: no sequence of
+			// either ledger holds it.
+			for seq := uint64(0); seq < storage.NumBlocks(); seq++ {
+				for _, ledger := range []*MockStorage{storage, storage2} {
+					stored, ok := ledger.blockAt(seq)
+					require.True(t, ok)
+					require.NotEqual(t, tampered.Digest(), stored.Digest(), "a validator has the tampered block at seq %d", seq)
+				}
+			}
+
+			// The first validator comes back up lagging the chain by that block, with a paused VM
+			// and on a network of its own where nobody answers. It can therefore neither build
+			// the block nor replicate it legitimately, and since its peer is down it cannot reach
+			// a quorum to empty notarize either: it sits at exactly the round of the block it is
+			// missing until we hand it one.
+			laggingStorage := storage.cloneBelow(replicatedSeq)
+			require.Equal(t, replicatedSeq, laggingStorage.NumBlocks())
+			_, ok = laggingStorage.blockAt(replicatedSeq)
+			require.False(t, ok, "the lagging validator already has the block it is meant to replicate")
+
+			vm := newTestVM()
+			vm.pause()
+			laggingInstance := newInstanceWithVM(t, firstNodeID, laggingStorage, newInMemNetwork(t), pChain, cops, genesisBlock, vm)
+			require.NoError(t, laggingInstance.Start(t.Context()))
+			t.Cleanup(laggingInstance.Stop)
+
+			// Send precisely that block: the quorum certificate we hand over is on its digest, not
+			// on the digest of the block the validators built.
+			block := &ParsedBlock{StateMachineBlock: tampered.Clone()}
+			quorumRound := tt.quorumRound(t, laggingInstance.Config.Logger, block, []common.NodeID{firstNodeID, secondNodeID})
+			require.Equal(t, common.Digest(tampered.Digest()), quorumRound.Block.BlockHeader().Digest)
+			require.NotEqual(t, common.Digest(replicated.Digest()), quorumRound.Block.BlockHeader().Digest)
+
+			require.NoError(t, laggingInstance.HandleMessage(&common.Message{
+				ReplicationResponse: &common.ReplicationResponse{Data: []common.QuorumRound{quorumRound}},
+			}, secondNodeID))
+
+			tt.requireReplicated(t, laggingStorage, tampered)
+		})
+	}
 }
 
 // requireTipIsSealing asserts whether the last block in storage is a sealing block.
@@ -598,7 +917,7 @@ func waitForNumBlocks(t *testing.T, storage *MockStorage, targetHeight uint64) {
 	t.Helper()
 	require.Eventually(t, func() bool {
 		return storage.NumBlocks() >= targetHeight
-	}, 20*time.Second, 100*time.Millisecond)
+	}, 20*time.Second, 100*time.Millisecond, "storage did not commit %d blocks in time", targetHeight)
 }
 
 // waitForSealingBlock waits until a sealing block (a block carrying a BlockValidationDescriptor with the new weight)
@@ -613,7 +932,7 @@ func waitForSealingBlock(t *testing.T, inst *Instance, approval *common.Validato
 		msm := inst.msm
 		inst.lock.Unlock()
 		if msm != nil {
-			require.NoError(t, msm.HandleApproval(approval, 1))
+			msm.HandleApproval(approval, 1)
 		}
 
 		num := storage.NumBlocks()
@@ -863,6 +1182,7 @@ type MockStorage struct {
 
 	snapLock sync.Mutex
 	blocks   map[uint64]storedBlock
+	wals     []*testutil.TestWAL
 }
 
 type storedBlock struct {
@@ -881,7 +1201,7 @@ func NewMockStorage(t *testing.T) *MockStorage {
 func (m *MockStorage) Index(ctx context.Context, block common.VerifiedBlock, certificate common.Finalization) error {
 	// We serialized the block so that the original reference isn't shared with other goroutines that may concurrently mutate it.
 	encoded := block.Bytes()
-	seq := m.InMemStorage.NumBlocks()
+	seq := m.NumBlocks()
 	m.snapLock.Lock()
 	m.blocks[seq] = storedBlock{rawBlock: encoded, fin: certificate}
 	m.snapLock.Unlock()
@@ -889,7 +1209,7 @@ func (m *MockStorage) Index(ctx context.Context, block common.VerifiedBlock, cer
 }
 
 func (m *MockStorage) GetBlock(seq uint64) (metadata.StateMachineBlock, *common.Finalization, error) {
-	_, f, err := m.InMemStorage.Retrieve(seq)
+	_, f, err := m.Retrieve(seq)
 	if err != nil {
 		return metadata.StateMachineBlock{}, nil, err
 	}
@@ -927,7 +1247,42 @@ func (m *MockStorage) parseStored(encoded []byte) metadata.StateMachineBlock {
 }
 
 func (m *MockStorage) CreateWAL() (wal.DeletableWAL, error) {
-	return testutil.NewTestWAL(m.t), nil
+	w := testutil.NewTestWAL(m.t)
+	m.snapLock.Lock()
+	m.wals = append(m.wals, w)
+	m.snapLock.Unlock()
+	return w, nil
+}
+
+// cloneBelow returns a storage holding every block of m below seq - the block at seq itself, and
+// anything after it, is left out - so that a test can bring up a node that lags the chain by them.
+func (m *MockStorage) cloneBelow(seq uint64) *MockStorage {
+	clone := NewMockStorage(m.t)
+	for cloned := uint64(0); cloned < seq; cloned++ {
+		m.snapLock.Lock()
+		stored, ok := m.blocks[cloned]
+		m.snapLock.Unlock()
+		require.True(m.t, ok)
+
+		block := &ParsedBlock{StateMachineBlock: m.parseStored(stored.rawBlock)}
+		require.NoError(m.t, clone.Index(context.Background(), block, stored.fin))
+	}
+	return clone
+}
+
+// containsNotarization reports whether any WAL this storage handed out holds a notarization for
+// the given round.
+func (m *MockStorage) containsNotarization(round uint64) bool {
+	m.snapLock.Lock()
+	wals := append([]*testutil.TestWAL(nil), m.wals...)
+	m.snapLock.Unlock()
+
+	for _, w := range wals {
+		if w.ContainsNotarization(round) {
+			return true
+		}
+	}
+	return false
 }
 
 // ---------------------------------------------------------------------------

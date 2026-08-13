@@ -80,7 +80,7 @@ var (
 	errSealingBlockSeqUnset           = errors.New("cannot build epoch sealed block: sealing block sequence is 0 or undefined")
 	errEmptyNextEpochApprovals        = errors.New("next epoch approvals are empty")
 	errPChainReferenceHeightMismatch  = errors.New("unexpected P-chain reference height")
-	errPChainReferenceHeightDecreased = errors.New("P-chain reference height is decreasing")
+	errPChainReferenceHeightDecreased = errors.New("p-chain reference height is decreasing")
 	errValidatorSetUnchanged          = errors.New("validator set unchanged; next P-chain reference height should not have advanced")
 	errPChainHeightNotReached         = errors.New("haven't reached referenced P-chain height yet")
 	errPChainHeightTooBig             = errors.New("invalid P-chain height: greater than current")
@@ -172,9 +172,6 @@ type StateMachine struct {
 
 // Config contains the dependencies and configuration parameters needed to initialize the StateMachine.
 type Config struct {
-	// SkipMSMVerification indicates whether to skip the verification of the state machine transition when verifying blocks,
-	// and only verify the inner block. This is useful when replicating finalized blocks as a non-validator.
-	SkipMSMVerification bool
 	// LatestPersistedHeight is the height of the most recently persisted block.
 	LatestPersistedHeight uint64
 	// MaxBlockBuildingWaitTime is the maximum duration to wait for the VM to build a block
@@ -242,7 +239,7 @@ func NewStateMachine(config *Config) (*StateMachine, error) {
 	return &sm, nil
 }
 
-func (sm *StateMachine) HandleApproval(approval *common.ValidatorSetApproval, timestamp uint64) error {
+func (sm *StateMachine) HandleApproval(approval *common.ValidatorSetApproval, timestamp uint64) {
 	sm.lock.Lock()
 	approvalStore := sm.approvalStore
 	sm.lock.Unlock()
@@ -251,10 +248,10 @@ func (sm *StateMachine) HandleApproval(approval *common.ValidatorSetApproval, ti
 		sm.Logger.Debug("Approval store is not initialized, ignoring approval",
 			zap.String("nodeID", fmt.Sprintf("%x", approval.NodeID)),
 			zap.Uint64("pChainHeight", approval.PChainHeight))
-		return nil
+		return
 	}
 
-	return approvalStore.HandleApproval(approval, timestamp)
+	approvalStore.HandleApproval(approval, timestamp)
 }
 
 func (sm *StateMachine) maybeInitializeApprovalStore(validatorSet NodeBLSMappings) *ApprovalStore {
@@ -328,14 +325,6 @@ func (sm *StateMachine) BuildBlock(ctx context.Context, metadata common.Protocol
 func (sm *StateMachine) VerifyBlock(ctx context.Context, block *StateMachineBlock) error {
 	if block == nil {
 		return errNilBlock
-	}
-
-	if sm.SkipMSMVerification {
-		// If SkipMSMVerification is true, we only verify the inner block and skip the state machine verification.
-		if block.InnerBlock == nil {
-			return nil
-		}
-		return block.InnerBlock.Verify(ctx, block.Metadata.ICMEpochInfo.PChainEpochHeight)
 	}
 
 	pmd := block.Metadata.SimplexProtocolMetadata
@@ -515,11 +504,7 @@ func verifyAgainstExpected(
 	expectedIcmEpochInfo ICMEpochInfo,
 	auxInfo *AuxiliaryInfo,
 ) error {
-	if innerBlock != nil {
-		if err := innerBlock.Verify(ctx, expectedIcmEpochInfo.PChainEpochHeight); err != nil {
-			return err
-		}
-	}
+	// First verify the metadata matches the expected values, only afterwards verify the inner block, if any.
 	expectedBlock := wrapBlock(
 		innerBlock, expectedSimplexEpochInfo, expectedPChainHeight,
 		nextBlock.Metadata.SimplexProtocolMetadata, nextBlock.Metadata.SimplexBlacklist, timestamp, expectedIcmEpochInfo, auxInfo)
@@ -528,6 +513,12 @@ func verifyAgainstExpected(
 			expectedBlock.Digest(),
 			nextBlock.Digest(),
 			errBlockDigestMismatch)
+	}
+
+	if innerBlock != nil {
+		if err := innerBlock.Verify(ctx, expectedIcmEpochInfo.PChainEpochHeight); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -1255,7 +1246,7 @@ func (sm *StateMachine) computeSimplexEpochInfoForSealingBlock(simplexEpochInfo 
 
 // wrapBlock creates a new StateMachineBlock by wrapping the VM block (if applicable) and adding the appropriate metadata.
 func wrapBlock(
-	childBlock avalanchego.VMBlock,
+	innerBlock avalanchego.VMBlock,
 	newSimplexEpochInfo SimplexEpochInfo,
 	pChainHeight uint64,
 	simplexMetadata common.ProtocolMetadata,
@@ -1265,7 +1256,7 @@ func wrapBlock(
 	auxiliaryInfo *AuxiliaryInfo) *StateMachineBlock {
 
 	return &StateMachineBlock{
-		InnerBlock: childBlock,
+		InnerBlock: innerBlock,
 		Metadata: StateMachineMetadata{
 			Timestamp:               uint64(timestamp.UnixMilli()),
 			SimplexProtocolMetadata: simplexMetadata,

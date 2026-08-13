@@ -201,7 +201,7 @@ func (r *ReplicationState) ReceivedFutureFinalization(finalization *common.Final
 
 	// maybe this finalization was for a round that we initially thought only had notarizations
 	// remove from the round replicator since we now have a finalization for this round
-	r.deleteOldRounds(finalization.Finalization.BlockHeader.Round)
+	r.deleteOldRounds(finalization.Finalization.Round)
 
 	// potentially send out requests for blocks/finalizations in between
 	r.finalizationRequestor.observedSignedQuorum(signedSequence, nextSeqToCommit)

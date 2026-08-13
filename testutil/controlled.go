@@ -52,7 +52,7 @@ func (n *ControlledInMemoryNetwork) TriggerLeaderBlockBuilder(round uint64) {
 }
 
 func (n *ControlledInMemoryNetwork) addNode(node *ControlledNode) {
-	n.BasicInMemoryNetwork.AddNode(node.BasicNode)
+	n.AddNode(node.BasicNode)
 	n.Instances = append(n.Instances, node)
 }
 

@@ -18,7 +18,6 @@ import (
 	"go.uber.org/zap/zapcore"
 
 	"github.com/ava-labs/simplex/testutil"
-	. "github.com/ava-labs/simplex/testutil"
 )
 
 // TestReplication tests the replication process of a node that
@@ -43,18 +42,18 @@ func TestBasicReplication(t *testing.T) {
 }
 
 func testReplication(t *testing.T, startSeq uint64, nodes []common.NodeID) {
-	net := NewControlledNetwork(t, nodes)
+	net := testutil.NewControlledNetwork(t, nodes)
 
 	// initiate a network with 4 nodes. one node is behind by startSeq blocks
 	storageData := createBlocks(t, nodes, startSeq)
-	testEpochConfig := &TestNodeConfig{
+	testEpochConfig := &testutil.TestNodeConfig{
 		InitialStorage:     storageData,
 		ReplicationEnabled: true,
 	}
-	normalNode1 := NewControlledSimplexNode(t, nodes[0], net, testEpochConfig)
-	normalNode2 := NewControlledSimplexNode(t, nodes[1], net, testEpochConfig)
-	normalNode3 := NewControlledSimplexNode(t, nodes[2], net, testEpochConfig)
-	laggingNode := NewControlledSimplexNode(t, nodes[3], net, &TestNodeConfig{
+	normalNode1 := testutil.NewControlledSimplexNode(t, nodes[0], net, testEpochConfig)
+	normalNode2 := testutil.NewControlledSimplexNode(t, nodes[1], net, testEpochConfig)
+	normalNode3 := testutil.NewControlledSimplexNode(t, nodes[2], net, testEpochConfig)
+	laggingNode := testutil.NewControlledSimplexNode(t, nodes[3], net, &testutil.TestNodeConfig{
 		ReplicationEnabled: true,
 	})
 
@@ -81,17 +80,17 @@ func testReplication(t *testing.T, startSeq uint64, nodes []common.NodeID) {
 func TestReplicationAdversarialNode(t *testing.T) {
 	nodes := []common.NodeID{{1}, {2}, {3}, []byte("lagging")}
 	quorum := common.Quorum(len(nodes))
-	net := NewControlledNetwork(t, nodes)
+	net := testutil.NewControlledNetwork(t, nodes)
 
-	testEpochConfig := &TestNodeConfig{
+	testEpochConfig := &testutil.TestNodeConfig{
 		ReplicationEnabled: true,
 	}
 
 	// doubleBlockProposalNode will propose two blocks for the same round
-	doubleBlockProposalNode := NewControlledSimplexNode(t, nodes[0], net, testEpochConfig)
-	normalNode2 := NewControlledSimplexNode(t, nodes[1], net, testEpochConfig)
-	normalNode3 := NewControlledSimplexNode(t, nodes[2], net, testEpochConfig)
-	laggingNode := NewControlledSimplexNode(t, nodes[3], net, &TestNodeConfig{
+	doubleBlockProposalNode := testutil.NewControlledSimplexNode(t, nodes[0], net, testEpochConfig)
+	normalNode2 := testutil.NewControlledSimplexNode(t, nodes[1], net, testEpochConfig)
+	normalNode3 := testutil.NewControlledSimplexNode(t, nodes[2], net, testEpochConfig)
+	laggingNode := testutil.NewControlledSimplexNode(t, nodes[3], net, &testutil.TestNodeConfig{
 		ReplicationEnabled: true,
 	})
 
@@ -102,8 +101,8 @@ func TestReplicationAdversarialNode(t *testing.T) {
 
 	net.StartInstances()
 	defer net.StopInstances()
-	doubleBlock := NewTestBlock(doubleBlockProposalNode.E.Metadata(), emptyBlacklist)
-	doubleBlockVote, err := NewTestVote(doubleBlock, doubleBlockProposalNode.E.ID)
+	doubleBlock := testutil.NewTestBlock(doubleBlockProposalNode.E.Metadata(), emptyBlacklist)
+	doubleBlockVote, err := testutil.NewTestVote(doubleBlock, doubleBlockProposalNode.E.ID)
 	require.NoError(t, err)
 	msg := &common.Message{
 		BlockMessage: &common.BlockMessage{
@@ -112,7 +111,7 @@ func TestReplicationAdversarialNode(t *testing.T) {
 		},
 	}
 
-	laggingNode.E.HandleMessage(msg, doubleBlockProposalNode.E.ID)
+	require.NoError(t, laggingNode.E.HandleMessage(msg, doubleBlockProposalNode.E.ID))
 	net.Disconnect(laggingNode.E.ID)
 
 	blocks := []common.VerifiedBlock{}
@@ -133,11 +132,11 @@ func TestReplicationAdversarialNode(t *testing.T) {
 	net.Connect(laggingNode.E.ID)
 
 	sigAggr := laggingNode.E.SignatureAggregatorCreator(laggingNode.E.Comm.Validators())
-	finalization, _ := NewFinalizationRecord(t, sigAggr, blocks[1], nodes[:quorum])
+	finalization, _ := testutil.NewFinalizationRecord(t, sigAggr, blocks[1], nodes[:quorum])
 	finalizationMsg := &common.Message{
 		Finalization: &finalization,
 	}
-	laggingNode.E.HandleMessage(finalizationMsg, doubleBlockProposalNode.E.ID)
+	require.NoError(t, laggingNode.E.HandleMessage(finalizationMsg, doubleBlockProposalNode.E.ID))
 
 	for i := range 2 {
 		lagBlock := laggingNode.Storage.WaitForBlockCommit(uint64(i))
@@ -150,21 +149,21 @@ func TestReplicationAdversarialNode(t *testing.T) {
 // finalizations and index all blocks.
 func TestRebroadcastingWithReplication(t *testing.T) {
 	nodes := []common.NodeID{{1}, {2}, {3}, {4}}
-	net := NewControlledNetwork(t, nodes)
+	net := testutil.NewControlledNetwork(t, nodes)
 
-	newNodeConfig := func(from common.NodeID) *TestNodeConfig {
-		comm := NewTestComm(from, net.BasicInMemoryNetwork, AllowAllMessages)
-		return &TestNodeConfig{
+	newNodeConfig := func(from common.NodeID) *testutil.TestNodeConfig {
+		comm := testutil.NewTestComm(from, net.BasicInMemoryNetwork, testutil.AllowAllMessages)
+		return &testutil.TestNodeConfig{
 			Comm:               comm,
 			ReplicationEnabled: true,
 		}
 	}
 
-	NewControlledSimplexNode(t, nodes[0], net, newNodeConfig(nodes[0]))
-	NewControlledSimplexNode(t, nodes[1], net, newNodeConfig(nodes[1]))
-	NewControlledSimplexNode(t, nodes[2], net, newNodeConfig(nodes[2]))
+	testutil.NewControlledSimplexNode(t, nodes[0], net, newNodeConfig(nodes[0]))
+	testutil.NewControlledSimplexNode(t, nodes[1], net, newNodeConfig(nodes[1]))
+	testutil.NewControlledSimplexNode(t, nodes[2], net, newNodeConfig(nodes[2]))
 	// we do not expect the lagging node to build any blocks
-	laggingNode := NewControlledSimplexNode(t, nodes[3], net, newNodeConfig(nodes[3]))
+	laggingNode := testutil.NewControlledSimplexNode(t, nodes[3], net, newNodeConfig(nodes[3]))
 
 	for _, n := range net.Instances {
 		require.Equal(t, uint64(0), n.Storage.NumBlocks())
@@ -220,7 +219,7 @@ func TestRebroadcastingWithReplication(t *testing.T) {
 	// the lagging node has been asleep, it should be notified blocks are available
 	laggingNode.BlockShouldBeBuilt()
 
-	net.SetAllNodesMessageFilter(AllowAllMessages)
+	net.SetAllNodesMessageFilter(testutil.AllowAllMessages)
 	net.Connect(laggingNode.E.ID)
 	net.TriggerLeaderBlockBuilder(numNotarizations)
 
@@ -274,21 +273,21 @@ func TestReplicationEmptyNotarizations(t *testing.T) {
 }
 
 func testReplicationEmptyNotarizations(t *testing.T, nodes []common.NodeID, endRound uint64) {
-	net := NewControlledNetwork(t, nodes)
-	newNodeConfig := func(from common.NodeID) *TestNodeConfig {
-		comm := NewTestComm(from, net.BasicInMemoryNetwork, AllowAllMessages)
-		return &TestNodeConfig{
+	net := testutil.NewControlledNetwork(t, nodes)
+	newNodeConfig := func(from common.NodeID) *testutil.TestNodeConfig {
+		comm := testutil.NewTestComm(from, net.BasicInMemoryNetwork, testutil.AllowAllMessages)
+		return &testutil.TestNodeConfig{
 			Comm:               comm,
 			ReplicationEnabled: true,
 		}
 	}
 
-	NewControlledSimplexNode(t, nodes[0], net, newNodeConfig(nodes[0]))
-	NewControlledSimplexNode(t, nodes[1], net, newNodeConfig(nodes[1]))
-	NewControlledSimplexNode(t, nodes[2], net, newNodeConfig(nodes[2]))
-	NewControlledSimplexNode(t, nodes[3], net, newNodeConfig(nodes[3]))
-	NewControlledSimplexNode(t, nodes[4], net, newNodeConfig(nodes[4]))
-	laggingNode := NewControlledSimplexNode(t, nodes[5], net, newNodeConfig(nodes[5]))
+	testutil.NewControlledSimplexNode(t, nodes[0], net, newNodeConfig(nodes[0]))
+	testutil.NewControlledSimplexNode(t, nodes[1], net, newNodeConfig(nodes[1]))
+	testutil.NewControlledSimplexNode(t, nodes[2], net, newNodeConfig(nodes[2]))
+	testutil.NewControlledSimplexNode(t, nodes[3], net, newNodeConfig(nodes[3]))
+	testutil.NewControlledSimplexNode(t, nodes[4], net, newNodeConfig(nodes[4]))
+	laggingNode := testutil.NewControlledSimplexNode(t, nodes[5], net, newNodeConfig(nodes[5]))
 
 	net.StartInstances()
 	defer net.StopInstances()
@@ -328,16 +327,13 @@ func testReplicationEmptyNotarizations(t *testing.T, nodes []common.NodeID, endR
 		require.Equal(t, uint64(1), n.E.Storage.NumBlocks())
 	}
 
-	net.SetAllNodesMessageFilter(AllowAllMessages)
+	net.SetAllNodesMessageFilter(testutil.AllowAllMessages)
 	net.Connect(laggingNode.E.ID)
 	net.TriggerLeaderBlockBuilder(endRound)
 	for _, n := range net.Instances {
 		if n.E.ID.Equals(laggingNode.E.ID) {
 			// maybe lagging node has requested finalizations to a node without it, we may need to resend the request
-			for {
-				if n.Storage.NumBlocks() == 2 {
-					break
-				}
+			for n.Storage.NumBlocks() != 2 {
 				time.Sleep(10 * time.Millisecond)
 				n.AdvanceTime(2 * simplex.DefaultMaxProposalWaitTime)
 			}
@@ -356,17 +352,17 @@ func testReplicationEmptyNotarizations(t *testing.T, nodes []common.NodeID, endR
 func TestReplicationStartsBeforeCurrentRound(t *testing.T) {
 	nodes := []common.NodeID{{1}, {2}, {3}, []byte("lagging")}
 	quorum := common.Quorum(len(nodes))
-	net := NewControlledNetwork(t, nodes)
+	net := testutil.NewControlledNetwork(t, nodes)
 	startSeq := uint64(simplex.DefaultMaxRoundWindow + 3)
 	storageData := createBlocks(t, nodes, startSeq)
-	testEpochConfig := &TestNodeConfig{
+	testEpochConfig := &testutil.TestNodeConfig{
 		InitialStorage:     storageData,
 		ReplicationEnabled: true,
 	}
-	normalNode1 := NewControlledSimplexNode(t, nodes[0], net, testEpochConfig)
-	normalNode2 := NewControlledSimplexNode(t, nodes[1], net, testEpochConfig)
-	normalNode3 := NewControlledSimplexNode(t, nodes[2], net, testEpochConfig)
-	laggingNode := NewControlledSimplexNode(t, nodes[3], net, &TestNodeConfig{
+	normalNode1 := testutil.NewControlledSimplexNode(t, nodes[0], net, testEpochConfig)
+	normalNode2 := testutil.NewControlledSimplexNode(t, nodes[1], net, testEpochConfig)
+	normalNode3 := testutil.NewControlledSimplexNode(t, nodes[2], net, testEpochConfig)
+	laggingNode := testutil.NewControlledSimplexNode(t, nodes[3], net, &testutil.TestNodeConfig{
 		ReplicationEnabled: true,
 	})
 
@@ -375,22 +371,22 @@ func TestReplicationStartsBeforeCurrentRound(t *testing.T) {
 	fBytes := firstBlock.Bytes()
 	record, err := common.BlockRecord(firstBlock.BlockHeader(), fBytes)
 	require.NoError(t, err)
-	laggingNode.WAL.Append(record)
+	require.NoError(t, laggingNode.WAL.Append(record))
 
 	sigAggr := laggingNode.E.SignatureAggregatorCreator(laggingNode.E.Comm.Validators())
-	firstNotarizationRecord, err := NewNotarizationRecord(laggingNode.E.Logger, sigAggr, firstBlock, nodes[0:quorum])
+	firstNotarizationRecord, err := testutil.NewNotarizationRecord(laggingNode.E.Logger, sigAggr, firstBlock, nodes[0:quorum])
 	require.NoError(t, err)
-	laggingNode.WAL.Append(firstNotarizationRecord)
+	require.NoError(t, laggingNode.WAL.Append(firstNotarizationRecord))
 
 	secondBlock := storageData[1].VerifiedBlock
 	sBytes := secondBlock.Bytes()
 	record, err = common.BlockRecord(secondBlock.BlockHeader(), sBytes)
 	require.NoError(t, err)
-	laggingNode.WAL.Append(record)
+	require.NoError(t, laggingNode.WAL.Append(record))
 
-	secondNotarizationRecord, err := NewNotarizationRecord(laggingNode.E.Logger, sigAggr, secondBlock, nodes[0:quorum])
+	secondNotarizationRecord, err := testutil.NewNotarizationRecord(laggingNode.E.Logger, sigAggr, secondBlock, nodes[0:quorum])
 	require.NoError(t, err)
-	laggingNode.WAL.Append(secondNotarizationRecord)
+	require.NoError(t, laggingNode.WAL.Append(secondNotarizationRecord))
 
 	require.Equal(t, startSeq, normalNode1.Storage.NumBlocks())
 	require.Equal(t, startSeq, normalNode2.Storage.NumBlocks())
@@ -417,7 +413,7 @@ func TestReplicationFutureFinalization(t *testing.T) {
 	nodes := []common.NodeID{{1}, {2}, {3}, {4}}
 	quorum := common.Quorum(len(nodes))
 
-	conf, _, storage := DefaultTestNodeEpochConfig(t, nodes[1], NewNoopComm(nodes), bb)
+	conf, _, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[1], testutil.NewNoopComm(nodes), bb)
 
 	e, err := simplex.NewEpoch(conf)
 	require.NoError(t, err)
@@ -433,7 +429,7 @@ func TestReplicationFutureFinalization(t *testing.T) {
 	block := bb.GetBuiltBlock()
 	block.VerificationDelay = make(chan struct{}) // add a delay to the block verification
 
-	vote, err := NewTestVote(block, nodes[0])
+	vote, err := testutil.NewTestVote(block, nodes[0])
 	require.NoError(t, err)
 
 	err = e.HandleMessage(&common.Message{
@@ -445,7 +441,7 @@ func TestReplicationFutureFinalization(t *testing.T) {
 	require.NoError(t, err)
 
 	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Validators())
-	finalization, _ := NewFinalizationRecord(t, sigAggr, block, nodes[0:quorum])
+	finalization, _ := testutil.NewFinalizationRecord(t, sigAggr, block, nodes[0:quorum])
 	// send finalization
 	err = e.HandleMessage(&common.Message{
 		Finalization: &finalization,
@@ -487,14 +483,14 @@ func TestReplicationAfterNodeDisconnects(t *testing.T) {
 }
 
 func testReplicationAfterNodeDisconnects(t *testing.T, nodes []common.NodeID, startDisconnect, endDisconnect uint64) {
-	net := NewControlledNetwork(t, nodes)
-	testConfig := &TestNodeConfig{
+	net := testutil.NewControlledNetwork(t, nodes)
+	testConfig := &testutil.TestNodeConfig{
 		ReplicationEnabled: true,
 	}
-	normalNode1 := NewControlledSimplexNode(t, nodes[0], net, testConfig)
-	normalNode2 := NewControlledSimplexNode(t, nodes[1], net, testConfig)
-	normalNode3 := NewControlledSimplexNode(t, nodes[2], net, testConfig)
-	laggingNode := NewControlledSimplexNode(t, nodes[3], net, testConfig)
+	normalNode1 := testutil.NewControlledSimplexNode(t, nodes[0], net, testConfig)
+	normalNode2 := testutil.NewControlledSimplexNode(t, nodes[1], net, testConfig)
+	normalNode3 := testutil.NewControlledSimplexNode(t, nodes[2], net, testConfig)
+	laggingNode := testutil.NewControlledSimplexNode(t, nodes[3], net, testConfig)
 
 	require.Equal(t, uint64(0), normalNode1.Storage.NumBlocks())
 	require.Equal(t, uint64(0), normalNode2.Storage.NumBlocks())
@@ -573,7 +569,7 @@ func testReplicationAfterNodeDisconnects(t *testing.T, nodes []common.NodeID, st
 // sendVotesToOneNode allows block messages to be sent to all nodes, and only
 // passes vote messages to one node. This will allows that node to notarize the block,
 // while the other blocks will timeout
-func sendVotesToOneNode(filteredInNode common.NodeID) MessageFilter {
+func sendVotesToOneNode(filteredInNode common.NodeID) testutil.MessageFilter {
 	return func(msg *common.Message, _, to common.NodeID) bool {
 		if msg.VerifiedBlockMessage != nil || msg.BlockMessage != nil {
 			return true
@@ -595,7 +591,7 @@ func TestReplicationStuckInProposingBlock(t *testing.T) {
 	aboutToBuildBlock.Add(2)
 
 	tbb := testutil.NewTestBlockBuilder()
-	bb := NewTestControlledBlockBuilder(t)
+	bb := testutil.NewTestControlledBlockBuilder(t)
 	bb.TestBlockBuilder = *tbb
 	nodes := []common.NodeID{{1}, {2}, {3}, {4}}
 	blocks := createBlocks(t, nodes, 5)
@@ -603,13 +599,13 @@ func TestReplicationStuckInProposingBlock(t *testing.T) {
 	quorum := common.Quorum(len(nodes))
 	sentMessages := make(chan *common.Message, 100)
 
-	conf, _, storage := DefaultTestNodeEpochConfig(t, nodes[0], &recordingComm{
-		Communication: NewNoopComm(nodes),
+	conf, _, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], &recordingComm{
+		Communication: testutil.NewNoopComm(nodes),
 		SentMessages:  sentMessages,
 	}, bb)
 
 	conf.ReplicationEnabled = true
-	l := conf.Logger.(*TestLogger)
+	l := conf.Logger.(*testutil.TestLogger)
 	l.Intercept(func(entry zapcore.Entry) error {
 		if strings.Contains(entry.Message, "Scheduling block building") {
 			aboutToBuildBlock.Done()
@@ -627,17 +623,17 @@ func TestReplicationStuckInProposingBlock(t *testing.T) {
 	notarizeAndFinalizeRoundWithMetadata(t, e, &bb.TestBlockBuilder, &blocks[0].Finalization.Finalization.ProtocolMetadata)
 
 	gb := storage.WaitForBlockCommit(0)
-	require.Equal(t, gb, blocks[0].VerifiedBlock.(*TestBlock))
+	require.Equal(t, gb, blocks[0].VerifiedBlock.(*testutil.TestBlock))
 
-	highBlock, _ := blocks[3].VerifiedBlock.(*TestBlock)
+	highBlock, _ := blocks[3].VerifiedBlock.(*testutil.TestBlock)
 
 	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Validators())
-	highFinalization, _ := NewFinalizationRecord(t, sigAggr, highBlock, nodes[0:quorum])
+	highFinalization, _ := testutil.NewFinalizationRecord(t, sigAggr, highBlock, nodes[0:quorum])
 
 	// Trigger the replication process to start by sending a finalization for a block we do not have
-	e.HandleMessage(&common.Message{
+	require.NoError(t, e.HandleMessage(&common.Message{
 		Finalization: &highFinalization,
-	}, nodes[1])
+	}, nodes[1]))
 
 	// Wait for the replication request to be sent
 	for {
@@ -648,9 +644,9 @@ func TestReplicationStuckInProposingBlock(t *testing.T) {
 	}
 
 	// Drain the block builder channels
-	for len(bb.TestBlockBuilder.BlockShouldBeBuilt) > 0 {
+	for len(bb.BlockShouldBeBuilt) > 0 {
 		select {
-		case <-bb.TestBlockBuilder.BlockShouldBeBuilt:
+		case <-bb.BlockShouldBeBuilt:
 		default:
 		}
 	}
@@ -658,7 +654,7 @@ func TestReplicationStuckInProposingBlock(t *testing.T) {
 	// Prepare the quorum round answer to be sent as a response to the replication request
 	quorumRounds := make([]common.QuorumRound, 0, 4)
 	for i := uint64(1); i <= 4; i++ {
-		tb := blocks[i].VerifiedBlock.(*TestBlock)
+		tb := blocks[i].VerifiedBlock.(*testutil.TestBlock)
 		finalization := blocks[i].Finalization
 		quorumRounds = append(quorumRounds, common.QuorumRound{
 			Block:        tb,
@@ -672,17 +668,17 @@ func TestReplicationStuckInProposingBlock(t *testing.T) {
 		Data:        quorumRounds[:3],
 	}
 
-	e.HandleMessage(&common.Message{
+	require.NoError(t, e.HandleMessage(&common.Message{
 		ReplicationResponse: replicationResponse,
-	}, nodes[1])
+	}, nodes[1]))
 
 	// Wait for the second block to be attempted to be built
 	aboutToBuildBlock.Wait()
 
 	// Trigger the replication process to start by sending a finalization for a block we do not have
-	e.HandleMessage(&common.Message{
+	require.NoError(t, e.HandleMessage(&common.Message{
 		Finalization: &blocks[4].Finalization,
-	}, nodes[1])
+	}, nodes[1]))
 
 	// Wait for the replication request to be sent
 	for {
@@ -697,9 +693,9 @@ func TestReplicationStuckInProposingBlock(t *testing.T) {
 		Data:        quorumRounds[3:],
 	}
 
-	e.HandleMessage(&common.Message{
+	require.NoError(t, e.HandleMessage(&common.Message{
 		ReplicationResponse: replicationResponse,
-	}, nodes[1])
+	}, nodes[1]))
 
 	storage.WaitForBlockCommit(4)
 }
@@ -713,24 +709,24 @@ func TestReplicationNodeDiverges(t *testing.T) {
 	nodes := []common.NodeID{{1}, {2}, {3}, {4}, {5}, {6}}
 	numBlocks := uint64(5)
 
-	net := NewControlledNetwork(t, nodes)
+	net := testutil.NewControlledNetwork(t, nodes)
 
-	nodeConfig := func(from common.NodeID) *TestNodeConfig {
-		comm := NewTestComm(from, net.BasicInMemoryNetwork, sendVotesToOneNode(nodes[3]))
-		return &TestNodeConfig{
+	nodeConfig := func(from common.NodeID) *testutil.TestNodeConfig {
+		comm := testutil.NewTestComm(from, net.BasicInMemoryNetwork, sendVotesToOneNode(nodes[3]))
+		return &testutil.TestNodeConfig{
 			Comm:               comm,
 			ReplicationEnabled: true,
 		}
 	}
 
-	NewControlledSimplexNode(t, nodes[0], net, nodeConfig(nodes[0]))
-	NewControlledSimplexNode(t, nodes[1], net, nodeConfig(nodes[1]))
-	NewControlledSimplexNode(t, nodes[2], net, nodeConfig(nodes[2]))
-	laggingNode := NewControlledSimplexNode(t, nodes[3], net, nodeConfig(nodes[3]))
+	testutil.NewControlledSimplexNode(t, nodes[0], net, nodeConfig(nodes[0]))
+	testutil.NewControlledSimplexNode(t, nodes[1], net, nodeConfig(nodes[1]))
+	testutil.NewControlledSimplexNode(t, nodes[2], net, nodeConfig(nodes[2]))
+	laggingNode := testutil.NewControlledSimplexNode(t, nodes[3], net, nodeConfig(nodes[3]))
 
 	// we need at least 6 nodes since the lagging node & leader will not timeout
-	NewControlledSimplexNode(t, nodes[4], net, nodeConfig(nodes[4]))
-	NewControlledSimplexNode(t, nodes[5], net, nodeConfig(nodes[5]))
+	testutil.NewControlledSimplexNode(t, nodes[4], net, nodeConfig(nodes[4]))
+	testutil.NewControlledSimplexNode(t, nodes[5], net, nodeConfig(nodes[5]))
 
 	net.StartInstances()
 	defer net.StopInstances()
@@ -750,7 +746,7 @@ func TestReplicationNodeDiverges(t *testing.T) {
 	net.SetAllNodesMessageFilter(
 		// block sending votes from round 0 to ensure all nodes will timeout
 		func(msg *common.Message, _, to common.NodeID) bool {
-			return !(msg.VoteMessage != nil && msg.VoteMessage.Vote.Round == 0)
+			return msg.VoteMessage == nil || msg.VoteMessage.Vote.Round != 0
 		},
 	)
 
@@ -794,7 +790,7 @@ func TestReplicationNodeDiverges(t *testing.T) {
 		if n.E.ID.Equals(laggingNode.E.ID) {
 			continue
 		}
-		WaitToEnterRound(t, n.E, numBlocks+1)
+		testutil.WaitToEnterRound(t, n.E, numBlocks+1)
 	}
 
 	// we are in round 6(which means node 1 should be leader(but it is blacklisted))
@@ -807,7 +803,7 @@ func TestReplicationNodeDiverges(t *testing.T) {
 	assertEqualLedgers(t, net)
 }
 
-func assertEqualLedgers(t *testing.T, net *ControlledInMemoryNetwork) {
+func assertEqualLedgers(t *testing.T, net *testutil.ControlledInMemoryNetwork) {
 	expectedLedger := map[uint64][]byte{}
 
 	for seq := range net.Instances[0].Storage.NumBlocks() {
@@ -853,7 +849,7 @@ func TestReplicationNotarizationWithoutFinalizations(t *testing.T) {
 // TestReplicationNotarizationWithoutFinalizations tests that a lagging node will replicate
 // blocks that have notarizations but no finalizations.
 func testReplicationNotarizationWithoutFinalizations(t *testing.T, numBlocks uint64, nodes []common.NodeID) {
-	net := NewControlledNetwork(t, nodes)
+	net := testutil.NewControlledNetwork(t, nodes)
 
 	onlyAllowBlockProposalsAndNotarizations := func(msg *common.Message, _, to common.NodeID) bool {
 		if to.Equals(nodes[3]) {
@@ -863,19 +859,19 @@ func testReplicationNotarizationWithoutFinalizations(t *testing.T, numBlocks uin
 		return true
 	}
 
-	nodeConfig := func(from common.NodeID) *TestNodeConfig {
-		comm := NewTestComm(from, net.BasicInMemoryNetwork, onlyAllowBlockProposalsAndNotarizations)
-		return &TestNodeConfig{
+	nodeConfig := func(from common.NodeID) *testutil.TestNodeConfig {
+		comm := testutil.NewTestComm(from, net.BasicInMemoryNetwork, onlyAllowBlockProposalsAndNotarizations)
+		return &testutil.TestNodeConfig{
 			Comm:               comm,
 			ReplicationEnabled: true,
 		}
 	}
 
-	NewControlledSimplexNode(t, nodes[0], net, nodeConfig(nodes[0]))
-	NewControlledSimplexNode(t, nodes[1], net, nodeConfig(nodes[1]))
-	NewControlledSimplexNode(t, nodes[2], net, nodeConfig(nodes[2]))
+	testutil.NewControlledSimplexNode(t, nodes[0], net, nodeConfig(nodes[0]))
+	testutil.NewControlledSimplexNode(t, nodes[1], net, nodeConfig(nodes[1]))
+	testutil.NewControlledSimplexNode(t, nodes[2], net, nodeConfig(nodes[2]))
 
-	laggingNode := NewControlledSimplexNode(t, nodes[3], net, nodeConfig(nodes[3]))
+	laggingNode := testutil.NewControlledSimplexNode(t, nodes[3], net, nodeConfig(nodes[3]))
 
 	for _, n := range net.Instances {
 		require.Equal(t, uint64(0), n.Storage.NumBlocks())
@@ -896,7 +892,7 @@ func testReplicationNotarizationWithoutFinalizations(t *testing.T, numBlocks uin
 	require.Equal(t, uint64(0), laggingNode.Storage.NumBlocks())
 	require.Equal(t, uint64(numBlocks), laggingNode.E.Metadata().Round)
 
-	net.SetAllNodesMessageFilter(AllowAllMessages)
+	net.SetAllNodesMessageFilter(testutil.AllowAllMessages)
 	net.TriggerLeaderBlockBuilder(numBlocks)
 	for _, n := range net.Instances {
 		n.Storage.WaitForBlockCommit(uint64(numBlocks))
@@ -904,7 +900,7 @@ func testReplicationNotarizationWithoutFinalizations(t *testing.T, numBlocks uin
 }
 
 func createBlocks(t *testing.T, nodes []common.NodeID, seqCount uint64) []common.VerifiedFinalizedBlock {
-	bb := NewTestBlockBuilder()
+	bb := testutil.NewTestBlockBuilder()
 	ctx := context.Background()
 	data := make([]common.VerifiedFinalizedBlock, 0, seqCount)
 	var prev common.Digest
@@ -918,7 +914,7 @@ func createBlocks(t *testing.T, nodes []common.NodeID, seqCount uint64) []common
 		block, ok := bb.BuildBlock(ctx, protocolMetadata, emptyBlacklist)
 		require.True(t, ok)
 		prev = block.BlockHeader().Digest
-		finalization, _ := NewFinalizationRecord(t, &TestSignatureAggregator{N: len(nodes)}, block, nodes)
+		finalization, _ := testutil.NewFinalizationRecord(t, &testutil.TestSignatureAggregator{N: len(nodes)}, block, nodes)
 		data = append(data, common.VerifiedFinalizedBlock{
 			VerifiedBlock: block,
 			Finalization:  finalization,
@@ -934,7 +930,7 @@ func TestReplicationVerifyNotarization(t *testing.T) {
 	// This function takes a QC and makes it that it is signed by only 2 out of 4 nodes,
 	// while still having a quorum of signatures.
 	corruptQC := func(qc common.QuorumCertificate) common.QuorumCertificate {
-		badQC := qc.(TestQC)
+		badQC := qc.(testutil.TestQC)
 		// Duplicate the last signature
 		badQC = append(badQC, badQC[len(badQC)-1])
 		// Remove the first signature
@@ -957,8 +953,8 @@ func TestReplicationVerifyNotarization(t *testing.T) {
 	quorum := common.Quorum(len(nodes))
 	sentMessages := make(chan *common.Message, 100)
 
-	conf, wal, _ := DefaultTestNodeEpochConfig(t, nodes[1], &recordingComm{
-		Communication: NewNoopComm(nodes),
+	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[1], &recordingComm{
+		Communication: testutil.NewNoopComm(nodes),
 		SentMessages:  sentMessages,
 	}, bb)
 	conf.ReplicationEnabled = true
@@ -976,12 +972,12 @@ func TestReplicationVerifyNotarization(t *testing.T) {
 	block := bb.GetBuiltBlock()
 
 	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Validators())
-	finalization, _ := NewFinalizationRecord(t, sigAggr, block, nodes[0:quorum])
+	finalization, _ := testutil.NewFinalizationRecord(t, sigAggr, block, nodes[0:quorum])
 
 	// Trigger the replication process to start by sending a finalization for a block we do not have
-	e.HandleMessage(&common.Message{
+	require.NoError(t, e.HandleMessage(&common.Message{
 		Finalization: &finalization,
-	}, nodes[0])
+	}, nodes[0]))
 
 	// Wait for the replication request to be sent
 	for {
@@ -991,7 +987,7 @@ func TestReplicationVerifyNotarization(t *testing.T) {
 		}
 	}
 
-	notarization, err := NewNotarization(e.Logger, sigAggr, block, nodes[0:quorum])
+	notarization, err := testutil.NewNotarization(e.Logger, sigAggr, block, nodes[0:quorum])
 	require.NoError(t, err)
 
 	// Corrupt the QC
@@ -1006,9 +1002,9 @@ func TestReplicationVerifyNotarization(t *testing.T) {
 			},
 		},
 	}
-	e.HandleMessage(&common.Message{
+	require.NoError(t, e.HandleMessage(&common.Message{
 		ReplicationResponse: replicationResponse,
-	}, nodes[0])
+	}, nodes[0]))
 
 	require.Never(t, func() bool {
 		return wal.ContainsNotarization(0)
@@ -1023,7 +1019,7 @@ func TestReplicationVerifyEmptyNotarization(t *testing.T) {
 	// This function takes a QC and makes it that it is signed by only 2 out of 4 nodes,
 	// while still having a quorum of signatures.
 	corruptQC := func(qc common.QuorumCertificate) common.QuorumCertificate {
-		badQC := qc.(TestQC)
+		badQC := qc.(testutil.TestQC)
 		// Duplicate the last signature
 		badQC = append(badQC, badQC[len(badQC)-1])
 		// Remove the first signature
@@ -1045,8 +1041,8 @@ func TestReplicationVerifyEmptyNotarization(t *testing.T) {
 
 	quorum := common.Quorum(len(nodes))
 	sentMessages := make(chan *common.Message, 100)
-	conf, wal, _ := DefaultTestNodeEpochConfig(t, nodes[1], &recordingComm{
-		Communication: NewNoopComm(nodes),
+	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[1], &recordingComm{
+		Communication: testutil.NewNoopComm(nodes),
 		SentMessages:  sentMessages,
 	}, bb)
 	conf.ReplicationEnabled = true
@@ -1064,12 +1060,12 @@ func TestReplicationVerifyEmptyNotarization(t *testing.T) {
 	block := bb.GetBuiltBlock()
 
 	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Validators())
-	finalization, _ := NewFinalizationRecord(t, sigAggr, block, nodes[0:quorum])
+	finalization, _ := testutil.NewFinalizationRecord(t, sigAggr, block, nodes[0:quorum])
 
 	// Trigger the replication process to start by sending a finalization for a block we do not have
-	e.HandleMessage(&common.Message{
+	require.NoError(t, e.HandleMessage(&common.Message{
 		Finalization: &finalization,
-	}, nodes[0])
+	}, nodes[0]))
 
 	// Wait for the replication request to be sent
 	for {
@@ -1079,7 +1075,7 @@ func TestReplicationVerifyEmptyNotarization(t *testing.T) {
 		}
 	}
 
-	emptyNotarization := NewEmptyNotarization(nodes[0:quorum], 0)
+	emptyNotarization := testutil.NewEmptyNotarization(nodes[0:quorum], 0)
 
 	// Corrupt the QC
 	emptyNotarization.QC = corruptQC(emptyNotarization.QC)
@@ -1092,9 +1088,9 @@ func TestReplicationVerifyEmptyNotarization(t *testing.T) {
 			},
 		},
 	}
-	e.HandleMessage(&common.Message{
+	require.NoError(t, e.HandleMessage(&common.Message{
 		ReplicationResponse: replicationResponse,
-	}, nodes[0])
+	}, nodes[0]))
 
 	require.Never(t, func() bool {
 		return wal.ContainsEmptyNotarization(0)
@@ -1110,7 +1106,7 @@ func TestReplicationVotesForNotarizations(t *testing.T) {
 	numFinalizedBlocks := uint64(5)
 	// number of notarized blocks after the finalized blocks
 	numNotarizedBlocks := uint64(11)
-	net := NewControlledNetwork(t, nodes)
+	net := testutil.NewControlledNetwork(t, nodes)
 
 	storageData := createBlocks(t, nodes, numFinalizedBlocks)
 
@@ -1125,19 +1121,19 @@ func TestReplicationVotesForNotarizations(t *testing.T) {
 		return true
 	}
 
-	nodeConfig := func(from common.NodeID) *TestNodeConfig {
-		comm := NewTestComm(from, net.BasicInMemoryNetwork, almostFinalizeBlocks)
-		return &TestNodeConfig{
+	nodeConfig := func(from common.NodeID) *testutil.TestNodeConfig {
+		comm := testutil.NewTestComm(from, net.BasicInMemoryNetwork, almostFinalizeBlocks)
+		return &testutil.TestNodeConfig{
 			InitialStorage:     storageData,
 			Comm:               comm,
 			ReplicationEnabled: true,
 		}
 	}
 
-	n1 := NewControlledSimplexNode(t, nodes[0], net, nodeConfig(nodes[0]))
-	n2 := NewControlledSimplexNode(t, nodes[1], net, nodeConfig(nodes[1]))
-	adversary := NewControlledSimplexNode(t, nodes[2], net, nodeConfig(nodes[2]))
-	laggingNode := NewControlledSimplexNode(t, nodes[3], net, &TestNodeConfig{
+	n1 := testutil.NewControlledSimplexNode(t, nodes[0], net, nodeConfig(nodes[0]))
+	n2 := testutil.NewControlledSimplexNode(t, nodes[1], net, nodeConfig(nodes[1]))
+	adversary := testutil.NewControlledSimplexNode(t, nodes[2], net, nodeConfig(nodes[2]))
+	laggingNode := testutil.NewControlledSimplexNode(t, nodes[3], net, &testutil.TestNodeConfig{
 		ReplicationEnabled: true,
 	})
 
@@ -1189,7 +1185,7 @@ func TestReplicationVotesForNotarizations(t *testing.T) {
 	// the lagging node will need to replicate the finalizations, and then send votes for notarizations
 	net.Disconnect(adversary.E.ID)
 	net.Connect(laggingNode.E.ID)
-	net.SetAllNodesMessageFilter(AllowAllMessages)
+	net.SetAllNodesMessageFilter(testutil.AllowAllMessages)
 
 	// the adversary should not be the leader(to simplify test)
 	isAdversaryLeader := bytes.Equal(simplex.LeaderForRound(nodes, numFinalizedBlocks+numNotarizedBlocks), adversary.E.ID)
@@ -1233,7 +1229,7 @@ func TestReplicationVotesForNotarizations(t *testing.T) {
 		if n.E.ID.Equals(adversary.E.ID) {
 			continue
 		}
-		WaitToEnterRound(t, n.E, numFinalizedBlocks+numNotarizedBlocks+1)
+		testutil.WaitToEnterRound(t, n.E, numFinalizedBlocks+numNotarizedBlocks+1)
 		require.True(t, n.WAL.ContainsEmptyNotarization(numFinalizedBlocks+numNotarizedBlocks))
 	}
 }
@@ -1258,21 +1254,21 @@ func TestReplicationEmptyNotarizationsTail(t *testing.T) {
 }
 
 func testReplicationEmptyNotarizationsTail(t *testing.T, nodes []common.NodeID, endRound uint64) {
-	net := NewControlledNetwork(t, nodes)
-	newNodeConfig := func(from common.NodeID) *TestNodeConfig {
-		comm := NewTestComm(from, net.BasicInMemoryNetwork, AllowAllMessages)
-		return &TestNodeConfig{
+	net := testutil.NewControlledNetwork(t, nodes)
+	newNodeConfig := func(from common.NodeID) *testutil.TestNodeConfig {
+		comm := testutil.NewTestComm(from, net.BasicInMemoryNetwork, testutil.AllowAllMessages)
+		return &testutil.TestNodeConfig{
 			Comm:               comm,
 			ReplicationEnabled: true,
 		}
 	}
 
-	NewControlledSimplexNode(t, nodes[0], net, newNodeConfig(nodes[0]))
-	NewControlledSimplexNode(t, nodes[1], net, newNodeConfig(nodes[1]))
-	NewControlledSimplexNode(t, nodes[2], net, newNodeConfig(nodes[2]))
-	NewControlledSimplexNode(t, nodes[3], net, newNodeConfig(nodes[3]))
-	NewControlledSimplexNode(t, nodes[4], net, newNodeConfig(nodes[4]))
-	laggingNode := NewControlledSimplexNode(t, nodes[5], net, newNodeConfig(nodes[5]))
+	testutil.NewControlledSimplexNode(t, nodes[0], net, newNodeConfig(nodes[0]))
+	testutil.NewControlledSimplexNode(t, nodes[1], net, newNodeConfig(nodes[1]))
+	testutil.NewControlledSimplexNode(t, nodes[2], net, newNodeConfig(nodes[2]))
+	testutil.NewControlledSimplexNode(t, nodes[3], net, newNodeConfig(nodes[3]))
+	testutil.NewControlledSimplexNode(t, nodes[4], net, newNodeConfig(nodes[4]))
+	laggingNode := testutil.NewControlledSimplexNode(t, nodes[5], net, newNodeConfig(nodes[5]))
 
 	net.StartInstances()
 	defer net.StopInstances()
@@ -1304,18 +1300,18 @@ func testReplicationEmptyNotarizationsTail(t *testing.T, nodes []common.NodeID, 
 	}
 
 	net.Connect(laggingNode.E.ID)
-	net.SetAllNodesMessageFilter(AllowAllMessages)
+	net.SetAllNodesMessageFilter(testutil.AllowAllMessages)
 
 	// have the lagging node timeout to trigger replication
 	laggingNode.E.AdvanceTime(time.Now().Add(laggingNode.E.MaxProposalWait))
 
 	for _, n := range net.Instances {
-		WaitToEnterRound(t, n.E, endRound)
+		testutil.WaitToEnterRound(t, n.E, endRound)
 		require.Equal(t, uint64(endRound), n.E.Metadata().Round)
 	}
 }
 
-func sendEmptyNotarizationQuorumRounds(emptyNotarizations map[uint64]*common.EmptyNotarization) MessageFilter {
+func sendEmptyNotarizationQuorumRounds(emptyNotarizations map[uint64]*common.EmptyNotarization) testutil.MessageFilter {
 	return func(msg *common.Message, from, to common.NodeID) bool {
 		if msg.VerifiedReplicationResponse != nil {
 			newData := make([]common.VerifiedQuorumRound, 0, len(msg.VerifiedReplicationResponse.Data))
@@ -1351,8 +1347,8 @@ func TestReplicationStoresFinalization(t *testing.T) {
 	nodes := []common.NodeID{{1}, {2}, {3}, {4}}
 	sentMessages := make(chan *common.Message, 100)
 
-	conf, _, storage := DefaultTestNodeEpochConfig(t, nodes[3], &recordingComm{
-		Communication: NewNoopComm(nodes),
+	conf, _, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[3], &recordingComm{
+		Communication: testutil.NewNoopComm(nodes),
 		SentMessages:  sentMessages,
 	}, bb)
 	conf.ReplicationEnabled = true
@@ -1364,21 +1360,21 @@ func TestReplicationStoresFinalization(t *testing.T) {
 
 	// createBlocks 2 blocks with finalizations
 	blocks := createBlocks(t, nodes, 2)
-	vote, err := NewTestVote(blocks[0].VerifiedBlock.(common.Block), nodes[0])
+	vote, err := testutil.NewTestVote(blocks[0].VerifiedBlock.(common.Block), nodes[0])
 	require.NoError(t, err)
 	// send block 1
-	e.HandleMessage(&common.Message{
+	require.NoError(t, e.HandleMessage(&common.Message{
 		BlockMessage: &common.BlockMessage{
 			Block: blocks[0].VerifiedBlock.(common.Block),
 			Vote:  *vote,
 		},
-	}, nodes[0])
+	}, nodes[0]))
 
 	// Send a finalization for block 2 to trigger replication
 	finalization := blocks[1].Finalization
-	e.HandleMessage(&common.Message{
+	require.NoError(t, e.HandleMessage(&common.Message{
 		Finalization: &finalization,
-	}, nodes[1])
+	}, nodes[1]))
 
 	// Wait for the replication request to be sent
 	for {
@@ -1404,9 +1400,9 @@ func TestReplicationStoresFinalization(t *testing.T) {
 		Data: quorumRounds,
 	}
 
-	e.HandleMessage(&common.Message{
+	require.NoError(t, e.HandleMessage(&common.Message{
 		ReplicationResponse: replicationResponse,
-	}, nodes[1])
+	}, nodes[1]))
 
 	// Verify both blocks are committed
 	for i := range 2 {
@@ -1421,27 +1417,27 @@ func TestReplicationStoresFinalization(t *testing.T) {
 func TestReplicationChain(t *testing.T) {
 	// Digest message requests are needed for this test
 	nodes := []common.NodeID{{1}, {2}, {3}, {4}}
-	net := NewControlledNetwork(t, nodes)
+	net := testutil.NewControlledNetwork(t, nodes)
 
-	newNodeConfig := func(from common.NodeID) *TestNodeConfig {
-		comm := NewTestComm(from, net.BasicInMemoryNetwork, allowFinalizeVotes)
-		return &TestNodeConfig{
+	newNodeConfig := func(from common.NodeID) *testutil.TestNodeConfig {
+		comm := testutil.NewTestComm(from, net.BasicInMemoryNetwork, allowFinalizeVotes)
+		return &testutil.TestNodeConfig{
 			Comm:               comm,
 			ReplicationEnabled: true,
 		}
 	}
 
 	// full nodes operate normally
-	fullNode1 := NewControlledSimplexNode(t, nodes[0], net, newNodeConfig(nodes[0]))
-	fullNode2 := NewControlledSimplexNode(t, nodes[1], net, newNodeConfig(nodes[1]))
+	fullNode1 := testutil.NewControlledSimplexNode(t, nodes[0], net, newNodeConfig(nodes[0]))
+	fullNode2 := testutil.NewControlledSimplexNode(t, nodes[1], net, newNodeConfig(nodes[1]))
 	fullNode1.Silence()
 	fullNode2.Silence()
 	// node 3 will not receive finalize votes & finalizations
-	blockFinalize3 := NewControlledSimplexNode(t, nodes[2], net, newNodeConfig(nodes[2]))
+	blockFinalize3 := testutil.NewControlledSimplexNode(t, nodes[2], net, newNodeConfig(nodes[2]))
 	blockFinalize3.Silence()
 	// lagging node is disconnected initially. It initially receives only empty notarizations
 	// but then later receives notarizations and must send finalize votes for them
-	laggingNode := NewControlledSimplexNode(t, nodes[3], net, newNodeConfig(nodes[3]))
+	laggingNode := testutil.NewControlledSimplexNode(t, nodes[3], net, newNodeConfig(nodes[3]))
 	net.StartInstances()
 	defer net.StopInstances()
 	net.Disconnect(laggingNode.E.ID)
@@ -1451,7 +1447,7 @@ func TestReplicationChain(t *testing.T) {
 	missedNotarizations := uint64(0)
 	for i := range numNotarizations {
 		// every round has an empty notarization(possible due to timeouts)
-		emptyNotarization := NewEmptyNotarization(nodes, i)
+		emptyNotarization := testutil.NewEmptyNotarization(nodes, i)
 		emptyNotarizations[i] = emptyNotarization
 
 		leader := simplex.LeaderForRound(nodes, i)
@@ -1516,7 +1512,7 @@ func TestReplicationChain(t *testing.T) {
 	}
 
 	// Sanity check that blockFinalize3 can also catch up once the filter is removed
-	net.SetAllNodesMessageFilter(AllowAllMessages)
+	net.SetAllNodesMessageFilter(testutil.AllowAllMessages)
 	for {
 		numBlocks := blockFinalize3.Storage.NumBlocks()
 
@@ -1536,8 +1532,8 @@ func TestReplicationStartsRoundFromFinalization(t *testing.T) {
 
 	sentMessages := make(chan *common.Message, 100)
 	broadcastMessages := make(chan *common.Message, 100)
-	conf, wal, storage := DefaultTestNodeEpochConfig(t, nodes[0], &recordingComm{
-		Communication:     NewNoopComm(nodes),
+	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], &recordingComm{
+		Communication:     testutil.NewNoopComm(nodes),
 		SentMessages:      sentMessages,
 		BroadcastMessages: broadcastMessages,
 	}, bb)
@@ -1553,9 +1549,9 @@ func TestReplicationStartsRoundFromFinalization(t *testing.T) {
 	// Send a finalization for a block we don't have to trigger replication
 	lastFinalization := blocks[len(blocks)-1].Finalization
 
-	e.HandleMessage(&common.Message{
+	require.NoError(t, e.HandleMessage(&common.Message{
 		Finalization: &lastFinalization,
-	}, nodes[1])
+	}, nodes[1]))
 
 	// Wait for the replication request to be sent
 	for {
@@ -1568,7 +1564,7 @@ func TestReplicationStartsRoundFromFinalization(t *testing.T) {
 	// Prepare replication response with all the blocks
 	quorumRounds := make([]common.QuorumRound, 0, len(blocks))
 	for _, vfb := range blocks {
-		tb := vfb.VerifiedBlock.(*TestBlock)
+		tb := vfb.VerifiedBlock.(*testutil.TestBlock)
 		quorumRounds = append(quorumRounds, common.QuorumRound{
 			Block:        tb,
 			Finalization: &vfb.Finalization,
@@ -1581,9 +1577,9 @@ func TestReplicationStartsRoundFromFinalization(t *testing.T) {
 		Data:        quorumRounds,
 	}
 
-	e.HandleMessage(&common.Message{
+	require.NoError(t, e.HandleMessage(&common.Message{
 		ReplicationResponse: replicationResponse,
-	}, nodes[1])
+	}, nodes[1]))
 
 	// Wait for all blocks to be committed
 	for i := range blocks {
@@ -1599,13 +1595,13 @@ func TestReplicationStartsRoundFromFinalization(t *testing.T) {
 	}
 
 	// the other two nodes send empty votes
-	e.HandleMessage(&common.Message{
+	require.NoError(t, e.HandleMessage(&common.Message{
 		EmptyVoteMessage: createEmptyVote(emptyBlockMd, nodes[1]),
-	}, nodes[1])
+	}, nodes[1]))
 
-	e.HandleMessage(&common.Message{
+	require.NoError(t, e.HandleMessage(&common.Message{
 		EmptyVoteMessage: createEmptyVote(emptyBlockMd, nodes[2]),
-	}, nodes[2])
+	}, nodes[2]))
 
 	// Verify the node sent an empty vote after timeout
 	var foundEmptyVote bool
@@ -1646,8 +1642,8 @@ func TestReplicationStartsRoundFromFinalizationWithBlock(t *testing.T) {
 
 	sentMessages := make(chan *common.Message, 100)
 	broadcastMessages := make(chan *common.Message, 100)
-	conf, wal, storage := DefaultTestNodeEpochConfig(t, nodes[0], &recordingComm{
-		Communication:     NewNoopComm(nodes),
+	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], &recordingComm{
+		Communication:     testutil.NewNoopComm(nodes),
 		SentMessages:      sentMessages,
 		BroadcastMessages: broadcastMessages,
 	}, bb)
@@ -1664,7 +1660,7 @@ func TestReplicationStartsRoundFromFinalizationWithBlock(t *testing.T) {
 	lastBlock := blocks[len(blocks)-1].VerifiedBlock
 
 	// send the block for the round before
-	vote, err := NewTestVote(lastBlock, simplex.LeaderForRound(nodes, lastBlock.BlockHeader().Round))
+	vote, err := testutil.NewTestVote(lastBlock, simplex.LeaderForRound(nodes, lastBlock.BlockHeader().Round))
 	require.NoError(t, err)
 	err = e.HandleMessage(&common.Message{
 		BlockMessage: &common.BlockMessage{
@@ -1677,7 +1673,7 @@ func TestReplicationStartsRoundFromFinalizationWithBlock(t *testing.T) {
 	// Prepare replication response with all the blocks
 	quorumRounds := make([]common.QuorumRound, 0, len(blocks))
 	for _, vfb := range blocks {
-		tb := vfb.VerifiedBlock.(*TestBlock)
+		tb := vfb.VerifiedBlock.(*testutil.TestBlock)
 		quorumRounds = append(quorumRounds, common.QuorumRound{
 			Block:        tb,
 			Finalization: &vfb.Finalization,
@@ -1689,9 +1685,9 @@ func TestReplicationStartsRoundFromFinalizationWithBlock(t *testing.T) {
 		Data: quorumRounds[0 : len(quorumRounds)-1],
 	}
 
-	e.HandleMessage(&common.Message{
+	require.NoError(t, e.HandleMessage(&common.Message{
 		ReplicationResponse: replicationResponse,
-	}, nodes[1])
+	}, nodes[1]))
 
 	// Wait for all blocks to be committed
 	for i := range blocks[:len(blocks)-1] {
@@ -1706,9 +1702,9 @@ func TestReplicationStartsRoundFromFinalizationWithBlock(t *testing.T) {
 		Data: []common.QuorumRound{quorumRounds[len(quorumRounds)-1]},
 	}
 
-	e.HandleMessage(&common.Message{
+	require.NoError(t, e.HandleMessage(&common.Message{
 		ReplicationResponse: replicationResponse,
-	}, nodes[1])
+	}, nodes[1]))
 
 	storage.WaitForBlockCommit(lastBlock.BlockHeader().Seq)
 
@@ -1721,13 +1717,13 @@ func TestReplicationStartsRoundFromFinalizationWithBlock(t *testing.T) {
 	}
 
 	// the other two nodes send empty votes
-	e.HandleMessage(&common.Message{
+	require.NoError(t, e.HandleMessage(&common.Message{
 		EmptyVoteMessage: createEmptyVote(emptyBlockMd, nodes[1]),
-	}, nodes[1])
+	}, nodes[1]))
 
-	e.HandleMessage(&common.Message{
+	require.NoError(t, e.HandleMessage(&common.Message{
 		EmptyVoteMessage: createEmptyVote(emptyBlockMd, nodes[2]),
-	}, nodes[2])
+	}, nodes[2]))
 
 	// Verify the node sent an empty vote after timeout
 	var foundEmptyVote bool
@@ -1936,4 +1932,42 @@ func TestLeaderStartsRoundAfterReplicatedQuorumRound(t *testing.T) {
 			}, 5*time.Second, 50*time.Millisecond, "leader never proposed a block for round 1 after advancing via a replicated quorum round")
 		})
 	}
+}
+
+func replicateSeq(block common.VerifiedFinalizedBlock) *common.Message {
+	return &common.Message{ReplicationResponse: &common.ReplicationResponse{
+		Data: []common.QuorumRound{{
+			Block:        block.VerifiedBlock.(common.Block),
+			Finalization: &block.Finalization,
+		}},
+	}}
+}
+
+// TestReplicationRedeliversRestoredFinalization asserts that a node commits a block when a replication
+// response redelivers a finalization the node already knows of. This is possible if the finalization was
+// recovered from the WAL or previously received in a finalization message.
+func TestReplicationRedeliversRestoredFinalization(t *testing.T) {
+	ctx := context.Background()
+	nodes := []common.NodeID{{1}, {2}, {3}, {4}}
+	blocks := createBlocks(t, nodes, 2)
+
+	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[3], testutil.NewNoopComm(nodes), testutil.NewTestBlockBuilder())
+	conf.ReplicationEnabled = true
+	require.NoError(t, storage.Index(ctx, blocks[0].VerifiedBlock, blocks[0].Finalization))
+
+	// the round is restored holding a finalization whose seq is the next one to commit
+	second := blocks[1].VerifiedBlock
+	blockRecord, err := common.BlockRecord(second.BlockHeader(), second.Bytes())
+	require.NoError(t, err)
+	require.NoError(t, wal.Append(blockRecord))
+	_, finalizationRecord := testutil.NewFinalizationRecord(t, &testutil.TestSignatureAggregator{N: len(nodes)}, second, nodes)
+	require.NoError(t, wal.Append(finalizationRecord))
+
+	e, err := simplex.NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+
+	require.NoError(t, e.HandleMessage(replicateSeq(blocks[1]), nodes[1]))
+	storage.WaitForBlockCommit(1)
 }

@@ -176,11 +176,11 @@ func (i *Instance) createNonValidatorConfig(epochNum uint64, validators common.N
 		},
 	}
 
-	// Plant an artificial MSM that just skips verification.
+	// Plant an artificial MSM. A non-validator never verifies the state machine transition,
+	// it only verifies the inner block (see common.OnlyVMVerifyOpt), so this MSM is only
+	// used to wire blocks and is never asked to verify them.
 	i.msm = &metadata.StateMachine{
-		Config: &metadata.Config{
-			SkipMSMVerification: true,
-		},
+		Config: &metadata.Config{},
 	}
 	i.cs.msm = i.msm
 
@@ -454,7 +454,7 @@ func (i *Instance) createEpochConfig() (simplex.EpochConfig, error) {
 		Logger:                          i.Config.Logger,
 		Signer:                          i.Config.CryptoOps,
 		GenesisValidatorSet:             genesisValidatorSet,
-		LastNonSimplexBlockPChainHeight: lastNonSimplexHeight,
+		LastNonSimplexBlockPChainHeight: i.Config.PlatformChain.LastNonSimplexBlockPChainHeight(),
 		SignatureAggregatorCreator:      i.Config.CryptoOps.CreateSignatureAggregator,
 		BlockBuilder:                    i.Config.VM,
 		LastNonSimplexInnerBlock:        i.Config.LastNonSimplexInnerBlock,
@@ -594,7 +594,6 @@ func constructEpochAndValidatorSet(logger common.Logger, lastNonSimplexInnerBloc
 	switch {
 	// If all we have in the ledger is non-Simplex blocks, load the validator set from genesis
 	case lastNonSimplexInnerBlockHeight+1 == numBlocks:
-		validatorSet = genesisValidatorSet
 		nodes = validatorSetToNodes(genesisValidatorSet)
 		epochNum = lastNonSimplexInnerBlockHeight + 1
 		logger.Debug("Determined epoch and validator set from genesis (ledger holds only non-Simplex blocks)",
@@ -602,7 +601,6 @@ func constructEpochAndValidatorSet(logger common.Logger, lastNonSimplexInnerBloc
 	// If the last block persisted is a sealing block, then we are in the next epoch.
 	case lastBlock.SealingBlockInfo() != nil:
 		epochNum = lastBlock.BlockHeader().Seq
-		validatorSet = constructValidatorSetFromSealingBlock(lastBlock)
 		nodes = lastBlock.SealingBlockInfo().ValidatorSet
 		logger.Debug("Determined epoch and validator set from sealing block at tip",
 			zap.Uint64("epoch", epochNum))

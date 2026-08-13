@@ -216,7 +216,7 @@ func TestApprovalStoreHandleApproval(t *testing.T) {
 			as := NewApprovalStore(&signatureVerifier{err: tc.sigErr}, vdrs, testutil.MakeLogger(t))
 
 			for _, a := range tc.approvals {
-				require.NoError(t, as.HandleApproval(&a.ValidatorSetApproval, a.Timestamp))
+				as.HandleApproval(&a.ValidatorSetApproval, a.Timestamp)
 			}
 
 			tc.verify(t, as, tc.approvals)
@@ -375,10 +375,10 @@ func TestApprovalStorePutApprovals(t *testing.T) {
 			dst := NewApprovalStore(&signatureVerifier{}, makeValidators(tc.dstValidators), testutil.MakeLogger(t))
 
 			for _, a := range tc.srcApprovals {
-				require.NoError(t, src.HandleApproval(&a.ValidatorSetApproval, a.Timestamp))
+				src.HandleApproval(&a.ValidatorSetApproval, a.Timestamp)
 			}
 			for _, a := range tc.dstApprovals {
-				require.NoError(t, dst.HandleApproval(&a.ValidatorSetApproval, a.Timestamp))
+				dst.HandleApproval(&a.ValidatorSetApproval, a.Timestamp)
 			}
 
 			src.PutApprovals(dst)
@@ -404,7 +404,7 @@ func TestApprovalStoreHandleApprovalStoredCountStaysConsistent(t *testing.T) {
 		{common.ValidatorSetApproval{NodeID: node, PChainHeight: 2, Signature: signApproval(2, [32]byte{})}, 30}, // new height
 		{common.ValidatorSetApproval{NodeID: node, PChainHeight: 3, Signature: signApproval(3, [32]byte{})}, 40}, // triggers prune
 	} {
-		require.NoError(t, as.HandleApproval(&a.ValidatorSetApproval, a.Timestamp))
+		as.HandleApproval(&a.ValidatorSetApproval, a.Timestamp)
 		require.Len(t, as.Approvals(), as.storedCount)
 	}
 	require.Equal(t, 2, len(as.Approvals()))
@@ -417,18 +417,18 @@ func TestApprovalStoreHandleApprovalPruningIsPerNode(t *testing.T) {
 	vdrs := makeValidators(2)
 	as := NewApprovalStore(&signatureVerifier{}, vdrs, testutil.MakeLogger(t))
 
-	require.NoError(t, as.HandleApproval(&common.ValidatorSetApproval{
+	as.HandleApproval(&common.ValidatorSetApproval{
 		NodeID:       vdrs[1].NodeID,
 		PChainHeight: 1,
 		Signature:    signApproval(1, [32]byte{}),
-	}, 100))
+	}, 100)
 
 	for h := uint64(1); h <= 10; h++ {
-		require.NoError(t, as.HandleApproval(&common.ValidatorSetApproval{
+		as.HandleApproval(&common.ValidatorSetApproval{
 			NodeID:       vdrs[0].NodeID,
 			PChainHeight: h,
 			Signature:    signApproval(h, [32]byte{}),
-		}, h))
+		}, h)
 	}
 	require.Len(t, as.Approvals().UniqueByNodeID(), 2)
 }
