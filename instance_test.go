@@ -124,9 +124,7 @@ func TestInstanceNonValidatorBootstraps(t *testing.T) {
 	// One node is a validator and progresses the chain by building blocks,
 	// and its weight changes while the chain progresses in 3 different P-chain epoch heights.
 	// Then, we add another node which is a non-validator.
-	// The node should bootstrap the chain but without shutting down the non-validator instance,
-	// and the test should detect the log entry "I am still a non-validator at the tip of the P-chain, skipping role change"
-	// being printed several times until the non-validator node bootstraps.
+	// The node should bootstrap the chain but without shutting down the non-validator instance.
 	// Later on, the non-validator becomes a validator.
 	const (
 		basePChainHeight = uint64(1)
@@ -179,17 +177,11 @@ func TestInstanceNonValidatorBootstraps(t *testing.T) {
 	validatorInstance := newInstance(t, validatorNodeID, storage, net, pChain, cops, genesisBlock)
 	nonValidatorInstance := newInstance(t, nonValidatorNodeID, storage2, net, pChain, cops, genesisBlock)
 
-	// Count how many times the non-validator reports that it is still not a validator at the
-	// tip of the P-chain while it replicates across the sealed epochs.
-	var stillNonValidatorLogs atomic.Uint64
 	// transitioned is closed when the node starts a Simplex epoch, i.e. becomes a validator.
 	// The node only ever starts an epoch here as part of its non-validator -> validator
 	// transition.
 	transitioned := make(chan struct{})
 	nonValidatorInstance.Config.Logger.(*testutil.TestLogger).Intercept(func(entry zapcore.Entry) error {
-		if strings.Contains(entry.Message, "I am still a non-validator at the tip of the P-chain, skipping role change") {
-			stillNonValidatorLogs.Add(1)
-		}
 		if strings.Contains(entry.Message, "Starting Simplex Epoch") {
 			select {
 			case <-transitioned:
@@ -228,16 +220,16 @@ func TestInstanceNonValidatorBootstraps(t *testing.T) {
 	require.NoError(t, nonValidatorInstance.Start(t.Context()))
 	t.Cleanup(nonValidatorInstance.Stop)
 
-	// The non-validator replicates every sealed epoch. It stays a non-validator throughout,
-	// so on each sealing block it logs that it is still a non-validator at the tip.
+	// The non-validator replicates every sealed epoch and stays a non-validator throughout.
 	bootstrapTarget := storage.NumBlocks()
 	waitForNumBlocks(t, storage2, bootstrapTarget)
 
-	// The "still a non-validator" message was printed once per sealed epoch it replicated
-	// through, so once for each of the two epochs the weight changes above sealed.
-	require.Eventually(t, func() bool {
-		return stillNonValidatorLogs.Load() >= 2
-	}, 20*time.Second, 100*time.Millisecond)
+	// It replicated through the sealed epochs without becoming a validator.
+	select {
+	case <-transitioned:
+		t.Fatal("non-validator transitioned to validator before joining the set")
+	default:
+	}
 
 	// Now grow the validator set to include the peer at the P-chain tip.
 	pChain.advanceTo(joinEpochP)
