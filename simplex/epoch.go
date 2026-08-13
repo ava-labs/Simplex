@@ -295,8 +295,7 @@ func (e *Epoch) Start() error {
 		return ErrAlreadyStarted
 	}
 
-	// Hold the lock while restoring, since restoring may schedule tasks
-	// that lock the epoch and mutate its state from other goroutines.
+	// Restoring may schedule tasks that mutate the epoch from other goroutines.
 	e.lock.Lock()
 	err := e.restoreFromWal()
 	if err != nil {
