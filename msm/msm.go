@@ -271,6 +271,103 @@ func (sm *StateMachine) maybeInitializeApprovalStore(validatorSet NodeBLSMapping
 	return sm.approvalStore
 }
 
+// WaitForPendingBlock waits for either the VM to signal that a block is ready to be built,
+// or for the state machine to determine that a block should be built immediately due to an epoch transition.
+// In the latter case, we only wait up to MaxBlockBuildingWaitTime before returning.
+func (sm *StateMachine) WaitForPendingBlock(ctx context.Context, currentRoundMetadata common.ProtocolMetadata) {
+	if currentRoundMetadata.Seq == 0 {
+		// This shouldn't happen because we never build the genesis block.
+		// Just call the VM's WaitForPendingBlock to avoid blocking the state machine.
+		sm.Logger.Debug("WaitForPendingBlock called with seq 0, which is invalid; forwarding to VM to avoid blocking")
+		sm.BlockBuilder.WaitForPendingBlock(ctx)
+		return
+	}
+
+	// In order to know whether we're transitioning to a new epoch, or should transition to one,
+	// we need to look at the previous block's metadata.
+
+	prevBlockSeq := currentRoundMetadata.Seq - 1
+
+	parentBlock, finalization, err := sm.GetBlock(prevBlockSeq, currentRoundMetadata.Prev)
+	if err != nil {
+		sm.Logger.Debug("WaitForPendingBlock failed to get block", zap.Uint64("seq", prevBlockSeq), zap.Error(err))
+		sm.BlockBuilder.WaitForPendingBlock(ctx)
+		return
+	}
+
+	// In case the parent block is a Telock, we want to look at the sealing block's metadata instead.
+	if parentBlock.Type() == BlockTypeTelock {
+		sealingBlockSeq := parentBlock.Metadata.SimplexEpochInfo.SealingBlockSeq
+		var sealingBlock StateMachineBlock
+		sealingBlock, finalization, err = sm.GetBlock(sealingBlockSeq, common.Digest{})
+		// The only two reasons why we would not be able to retrieve the sealing block are:
+		// (1) The sealing block is finalized and there is a storage failure, or
+		// (2) The sealing block is not finalized yet, in which case we are still transitioning to a new epoch.
+		// Either way and in case the sealing block isn't finalized, we shouldn't wait indefinitely for the VM to build a block.
+		if err != nil || sealingBlock.Type() != BlockTypeSealing || finalization == nil {
+			if err != nil {
+				sm.Logger.Debug("Failed retrieving sealing block for previous epoch", zap.Uint64("seq", sealingBlockSeq), zap.Error(err))
+				sm.BlockBuilder.WaitForPendingBlock(ctx)
+				return
+			}
+
+			ctx, cancel := context.WithTimeout(ctx, sm.MaxBlockBuildingWaitTime)
+			defer cancel()
+			sm.BlockBuilder.WaitForPendingBlock(ctx)
+			return
+		}
+		// Else, err is nil and the sealing block is finalized,
+		// so we can use the sealing block's metadata to determine whether we should build a block immediately or not.
+		parentBlock = sealingBlock
+	}
+
+	currentState := parentBlock.Metadata.SimplexEpochInfo.NextState()
+
+	// We first check if we have obvious signs that we need to build a block immediately:
+	var shouldObviouslyBuildBlockImmediately bool
+
+	switch currentState {
+	case stateFirstSimplexBlock, stateBuildCollectingApprovals:
+		// In case of the first simplex block we need to persist the validator set,
+		// and if we're collecting approvals then we're in the process of an epoch change already.
+		shouldObviouslyBuildBlockImmediately = true
+	case stateBuildBlockEpochSealed:
+		// The parent is a sealing block, whose finalization we already fetched above.
+		// If it isn't finalized we must build a Telock immediately to extend the epoch;
+		// if it is finalized, we fall through to the normal epoch-transition check below.
+		if finalization == nil {
+			shouldObviouslyBuildBlockImmediately = true
+		}
+	default: // Handles stateBuildBlockNormalOp or any unknown state, don't do anything and just exit the switch.
+	}
+
+	// If it's obvious that we should build a block immediately,
+	// we wait up to MaxBlockBuildingWaitTime and then return immediately.
+	if shouldObviouslyBuildBlockImmediately {
+		ctx, cancel := context.WithTimeout(ctx, sm.MaxBlockBuildingWaitTime)
+		defer cancel()
+		sm.BlockBuilder.WaitForPendingBlock(ctx)
+		return
+	}
+
+	// Otherwise, we might need to build a block if we detect that we should transition to a new epoch,
+	// so we initialize a blockBuildingDecider and listen while waiting for the VM.
+	// We return when either the VM signals that a block is ready to be built,
+	// or that the blockBuildingDecider detects that we should transition to a new epoch.
+	pChainReferenceHeight := parentBlock.Metadata.SimplexEpochInfo.PChainReferenceHeight
+	if parentBlock.Type() == BlockTypeSealing {
+		// We've moved to a new epoch, so we need to use the next P-chain reference height of the sealing block,
+		// because the P-chain reference height is of the next epoch is inherited from the P-chain reference height of the sealing block.
+		pChainReferenceHeight = parentBlock.Metadata.SimplexEpochInfo.NextPChainReferenceHeight
+	}
+	blockBuildingDecider := sm.createBlockBuildingDecider(pChainReferenceHeight)
+	_, err = blockBuildingDecider.shouldBuildBlock(ctx)
+	if err != nil {
+		sm.Logger.Debug("Error while deciding whether to build a block", zap.Error(err))
+		return
+	}
+}
+
 // BuildBlock constructs the next block on top of the given parent block, and passes in the provided simplex metadata and blacklist.
 func (sm *StateMachine) BuildBlock(ctx context.Context, metadata common.ProtocolMetadata, blacklist common.Blacklist) (*StateMachineBlock, error) {
 	// The zero sequence number is reserved for the genesis block, which should never be built.

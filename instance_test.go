@@ -21,6 +21,7 @@ import (
 	"github.com/ava-labs/simplex/avalanchego"
 	"github.com/ava-labs/simplex/common"
 	metadata "github.com/ava-labs/simplex/msm"
+	"github.com/ava-labs/simplex/simplex"
 	"github.com/ava-labs/simplex/testutil"
 	"github.com/ava-labs/simplex/wal"
 
@@ -118,6 +119,71 @@ func TestInstanceMixedNodeType(t *testing.T) {
 
 	// Confirm the second epoch has the second validator in the sealing block
 	require.Equal(t, secondInstance.Config.ID, latestValidatorID(t, storage))
+}
+
+// emptyVoteRecorder wraps a Broadcaster and signals the first time an empty vote is broadcast.
+type emptyVoteRecorder struct {
+	Broadcaster
+	got chan struct{}
+}
+
+func (r *emptyVoteRecorder) Broadcast(msg *common.Message) {
+	if msg.EmptyVoteMessage != nil {
+		select {
+		case r.got <- struct{}{}:
+		default:
+		}
+	}
+	r.Broadcaster.Broadcast(msg)
+}
+
+func TestEpochInvokesMSMWaitForPendingBlock(t *testing.T) {
+	const basePChainHeight = uint64(1)
+
+	// Two validators, but only one is instantiated. Our node has the smaller ID so it sorts to
+	// index 0 and is a non-leader for round 1 (LeaderForRound picks index 1%2). The other
+	// validator is the round leader but is never created, so no block is ever proposed.
+	var ourID, leaderID [20]byte
+	ourID[0], leaderID[0] = 0x01, 0x02
+	ourNode := common.NodeID(ourID[:])
+
+	require.NotEqual(t, ourNode, simplex.LeaderForRound([]common.NodeID{ourNode, leaderID[:]}, 1)) // ensure the leader is not our node
+
+	validatorSetsAtHeight := map[uint64]metadata.NodeBLSMappings{
+		basePChainHeight: {
+			{NodeID: ourID, BLSKey: []byte{0xaa}, Weight: 1},
+			{NodeID: leaderID, BLSKey: []byte{0xbb}, Weight: 1},
+		},
+	}
+
+	pChain := newTestPlatformChain(basePChainHeight, validatorSetsAtHeight)
+	cops := &testCryptoOps{}
+	genesisBlock := &testInnerBlock{Height_: 0, TS: time.Now(), Payload: []byte("genesis")}
+
+	net := newInMemNetwork(t)
+	t.Cleanup(net.stop)
+
+	storage := newStorageWithGenesis(t, genesisBlock)
+
+	// A paused VM never has a pending block, so its WaitForPendingBlock blocks until its context
+	// is cancelled: the MSM must decide to build on its own for the round to make progress.
+	vm := newTestVM()
+	vm.pause()
+
+	inst := newInstanceWithVM(t, ourNode, storage, net, pChain, cops, genesisBlock, vm)
+
+	// Capture the empty vote the node broadcasts once it gives up waiting for the leader.
+	recorder := &emptyVoteRecorder{Broadcaster: inst.Config.Broadcaster, got: make(chan struct{}, 1)}
+	inst.Config.Broadcaster = recorder
+
+	require.NoError(t, inst.Start(t.Context()))
+	t.Cleanup(inst.Stop)
+
+	select {
+	case <-recorder.got:
+	case <-time.After(10 * time.Second):
+		require.FailNow(t, "node never broadcast an empty vote, so the Epoch did not drive the MSM's WaitForPendingBlock")
+	}
 }
 
 func TestInstanceNonValidatorBootstraps(t *testing.T) {

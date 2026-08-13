@@ -11,6 +11,7 @@ import (
 
 	"github.com/ava-labs/simplex/common"
 	metadata "github.com/ava-labs/simplex/msm"
+	"github.com/ava-labs/simplex/simplex"
 )
 
 type Communication struct {
@@ -200,6 +201,7 @@ type BlockBuilderWaiter struct {
 	lock   sync.Mutex
 	cancel context.CancelFunc
 	msm    *metadata.StateMachine
+	e      *simplex.Epoch
 	vm     VM
 }
 
@@ -221,7 +223,9 @@ func (bw *BlockBuilderWaiter) WaitForPendingBlock(ctx context.Context) {
 	bw.cancel = cancel
 	bw.lock.Unlock()
 	defer cancel()
-	bw.vm.WaitForPendingBlock(ctx)
+
+	md := bw.e.Metadata()
+	bw.msm.WaitForPendingBlock(ctx, md)
 }
 
 func (bw *BlockBuilderWaiter) BuildBlock(ctx context.Context, metadata common.ProtocolMetadata, blacklist common.Blacklist) (common.VerifiedBlock, bool) {
