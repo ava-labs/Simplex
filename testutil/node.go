@@ -242,7 +242,7 @@ type TestNodeConfig struct {
 	Comm                 common.Communication
 	SigAggregatorCreator common.SignatureAggregatorCreator
 	ReplicationEnabled   bool
-	BlockBuilder         *TestControlledBlockBuilder
+	BlockBuilder         *testControlledBlockBuilder
 
 	// Long Running Tests
 	MaxRoundWindow uint64
