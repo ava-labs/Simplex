@@ -91,7 +91,7 @@ func (n *ControlledInMemoryNetwork) AdvanceWithoutLeader(round uint64, laggingNo
 
 type ControlledNode struct {
 	*BasicNode
-	bb      *testControlledBlockBuilder
+	bb      *TestControlledBlockBuilder
 	WAL     *TestWAL
 	Storage *InMemStorage
 }
@@ -185,9 +185,9 @@ func (t *ControlledNode) TickUntilRoundAdvanced(round uint64, tick time.Duration
 	}
 }
 
-// testControlledBlockBuilder is a BlockBuilder that only builds a block when
+// TestControlledBlockBuilder is a BlockBuilder that only builds a block when
 // a control signal is received.
-type testControlledBlockBuilder struct {
+type TestControlledBlockBuilder struct {
 	t       *testing.T
 	control chan struct{}
 	TestBlockBuilder
@@ -195,22 +195,22 @@ type testControlledBlockBuilder struct {
 
 // NewTestControlledBlockBuilder returns a BlockBuilder that only builds a block
 // when triggerNewBlock is called.
-func NewTestControlledBlockBuilder(t *testing.T) *testControlledBlockBuilder {
-	return &testControlledBlockBuilder{
+func NewTestControlledBlockBuilder(t *testing.T) *TestControlledBlockBuilder {
+	return &TestControlledBlockBuilder{
 		t:                t,
 		control:          make(chan struct{}, 1),
 		TestBlockBuilder: *NewTestBlockBuilder(),
 	}
 }
 
-func (t *testControlledBlockBuilder) TriggerNewBlock() {
+func (t *TestControlledBlockBuilder) TriggerNewBlock() {
 	select {
 	case t.control <- struct{}{}:
 	default:
 	}
 }
 
-func (t *testControlledBlockBuilder) BuildBlock(ctx context.Context, metadata common.ProtocolMetadata, blacklist common.Blacklist) (common.VerifiedBlock, bool) {
+func (t *TestControlledBlockBuilder) BuildBlock(ctx context.Context, metadata common.ProtocolMetadata, blacklist common.Blacklist) (common.VerifiedBlock, bool) {
 	select {
 	case <-t.control:
 	case <-ctx.Done():
