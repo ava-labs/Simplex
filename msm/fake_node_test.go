@@ -6,7 +6,6 @@ package metadata
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"fmt"
 	"sync/atomic"
 	"testing"
@@ -18,7 +17,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var emptyAuxInfoDigest = sha256.Sum256(nil)
+// emptyAuxInfoDigest is the candidate digest approvals commit to when the auxiliary info
+// history is empty: LastHistoryDigest returns the zero digest in that case.
+var emptyAuxInfoDigest [32]byte
 
 func TestFakeNodeEpochChangesDespiteEmptyMempool(t *testing.T) {
 	validatorSetRetriever := validatorSetRetriever{

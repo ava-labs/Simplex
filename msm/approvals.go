@@ -157,7 +157,7 @@ func (as *ApprovalStore) checkApprovalSignature(approval *common.ValidatorSetApp
 }
 
 func (as *ApprovalStore) approvalExistsAndUpToDate(approval *common.ValidatorSetApproval, timestamp uint64) bool {
-	if as.approvalsByNodes[avalanchego.NodeID(approval.NodeID)] == nil {
+	if as.approvalsByNodes[approval.NodeID] == nil {
 		return false
 	}
 
@@ -166,7 +166,7 @@ func (as *ApprovalStore) approvalExistsAndUpToDate(approval *common.ValidatorSet
 		auxInfoDigest: approval.AuxInfoDigest,
 	}
 
-	existingApproval := as.approvalsByNodes[avalanchego.NodeID(approval.NodeID)][key]
+	existingApproval := as.approvalsByNodes[approval.NodeID][key]
 	if existingApproval == nil {
 		return false
 	}
