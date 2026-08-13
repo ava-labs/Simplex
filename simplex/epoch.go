@@ -166,7 +166,7 @@ func (e *Epoch) HandleMessage(msg *common.Message, from common.NodeID) error {
 	}
 
 	_, known := e.validatorsToPKs[string(from)]
-	if !known {
+	if !known || e.isEpochSealed() {
 		e.Logger.Debug("Received message from a non-validator node", zap.Stringer("nodeID", from))
 		switch {
 		case msg.ReplicationRequest != nil && e.ReplicationEnabled:
@@ -1466,13 +1466,17 @@ func (e *Epoch) indexFinalizations(startRound uint64) error {
 }
 
 func (e *Epoch) indexFinalization(block common.VerifiedBlock, finalization common.Finalization) error {
-	if err := e.Storage.Index(e.finishCtx, block, finalization); err != nil {
-		return err
+	// index only if the epoch is not sealed
+	if !e.isEpochSealed() {
+		if err := e.Storage.Index(e.finishCtx, block, finalization); err != nil {
+			return err
+		}
+		e.Logger.Info("Committed block",
+			zap.Uint64("round", finalization.Finalization.Round),
+			zap.Uint64("sequence", finalization.Finalization.Seq),
+			zap.Stringer("digest", finalization.Finalization.Digest))
 	}
-	e.Logger.Info("Committed block",
-		zap.Uint64("round", finalization.Finalization.Round),
-		zap.Uint64("sequence", finalization.Finalization.Seq),
-		zap.Stringer("digest", finalization.Finalization.Digest))
+
 	e.lastBlock = &common.VerifiedFinalizedBlock{
 		VerifiedBlock: block,
 		Finalization:  finalization,
