@@ -53,12 +53,11 @@ type VM interface {
 	// WaitForPendingBlock returns when either the given context is cancelled,
 	// or when the VM signals that a block should be built.
 	WaitForPendingBlock(ctx context.Context)
+}
 
+type BlockDeserializer interface {
 	// ParseBlock parses the given block bytes into a VMBlock.
 	ParseBlock(context.Context, []byte) (avalanchego.VMBlock, error)
-
-	// ComputeICMEpoch computes the ICM epoch transition given the input parameters.
-	ComputeICMEpoch(input metadata.ICMEpochInput) metadata.ICMEpochInfo
 }
 
 type Storage interface {

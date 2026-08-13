@@ -229,17 +229,17 @@ func (bw *BlockBuilderWaiter) BuildBlock(ctx context.Context, metadata common.Pr
 }
 
 type blockDeserializer struct {
-	vm  VM
-	msm *metadata.StateMachine
+	deserializer BlockDeserializer
+	msm          *metadata.StateMachine
 }
 
-func (bp *blockDeserializer) DeserializeBlock(ctx context.Context, bytes []byte) (common.Block, error) {
+func (bd *blockDeserializer) DeserializeBlock(ctx context.Context, bytes []byte) (common.Block, error) {
 	var rawBlock metadata.RawBlock
 	if err := rawBlock.UnmarshalCanoto(bytes); err != nil {
 		return nil, err
 	}
 
-	block, err := bp.vm.ParseBlock(ctx, rawBlock.InnerBlockBytes)
+	block, err := bd.deserializer.ParseBlock(ctx, rawBlock.InnerBlockBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -248,6 +248,6 @@ func (bp *blockDeserializer) DeserializeBlock(ctx context.Context, bytes []byte)
 			InnerBlock: block,
 			Metadata:   rawBlock.Metadata,
 		},
-		msm: bp.msm,
+		msm: bd.msm,
 	}, nil
 }
