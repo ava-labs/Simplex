@@ -4,1572 +4,362 @@
 package simplex
 
 import (
-	"bytes"
-	"context"
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/asn1"
-	"encoding/binary"
-	"fmt"
-	"sort"
-	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/ava-labs/simplex/avalanchego"
 	"github.com/ava-labs/simplex/common"
 	metadata "github.com/ava-labs/simplex/msm"
 	"github.com/ava-labs/simplex/simplex"
 	"github.com/ava-labs/simplex/testutil"
-	"github.com/ava-labs/simplex/wal"
-
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap/zapcore"
 )
 
-func TestInstanceMixedNodeType(t *testing.T) {
-	t.Skip("skipping until test instance refactor")
+// TestValidatorIndexes tests that a validator indexes and accepts a new block sent by the network
+// It is the only validator, so it will build and finalize its own block.
+func TestValidatorIndexes(t *testing.T) {
+	validator := newBLSMapping(1)
 
-	// One node is a validator at genesis, the other is a non-validator.
-	// After some blocks, the second (non-validator) node also becomes a validator.
-	// The test ensures that the second node tracks the chain while the first node expands the chain
-	// in the first epoch, and that both nodes move to the second epoch and then both are used for consensus together.
-	const (
-		basePChainHeight        = uint64(1)
-		epochChangePChainHeight = uint64(100)
-	)
+	genesisSet := []metadata.NodeBLSMapping{validator}
 
-	var id [20]byte
-	rand.Read(id[:])
-	firstNodeID := common.NodeID(id[:])
+	pChain := newTestPChain(genesisSet)
+	chain := newNetwork(t, pChain)
+	chain.addNode(validator.NodeID[:])
 
-	// The peer that joins the validator set in the last epoch. Its ID is chosen
-	// to differ from the (random) node under test.
-	var peerID [20]byte
-	rand.Read(peerID[:])
-	secondNodeID := common.NodeID(peerID[:])
-
-	// Epoch 1 is single-validator
-	// The last epoch is expanded to two validators.
-	validatorSetsAtHeight := map[uint64]metadata.NodeBLSMappings{
-		basePChainHeight: {
-			{NodeID: id, BLSKey: []byte{0xaa}, Weight: 1},
-		},
-		epochChangePChainHeight: {
-			{NodeID: id, BLSKey: []byte{0xaa}, Weight: 2},
-			{NodeID: peerID, BLSKey: []byte{0xbb}, Weight: 2},
-		},
-	}
-
-	pChain := newTestPlatformChain(basePChainHeight, validatorSetsAtHeight)
-	cops := &testCryptoOps{}
-
-	genesisBlock := &testInnerBlock{Height_: 0, TS: time.Now(), Payload: []byte("genesis")}
-
-	net := newInMemNetwork(t)
-	t.Cleanup(net.stop)
-
-	// Create the storage for the instances and append the genesis block to each
-	storage := newStorageWithGenesis(t, genesisBlock)
-	storage2 := newStorageWithGenesis(t, genesisBlock)
-
-	// Create the instances and register them to the network
-	firstInstance := newInstance(t, firstNodeID, storage, net, pChain, cops, genesisBlock)
-	secondInstance := newInstance(t, secondNodeID, storage2, net, pChain, cops, genesisBlock)
-	net.register(firstNodeID, firstInstance)
-	net.register(secondNodeID, secondInstance)
-
-	/// Start the instances
-	require.NoError(t, firstInstance.Start(t.Context()))
-	require.NoError(t, secondInstance.Start(t.Context()))
-	t.Cleanup(firstInstance.Stop)
-	t.Cleanup(secondInstance.Stop)
-
-	// Epoch 1: wait until the node has committed a series of normal blocks on its own.
-	const epoch1Target = uint64(5) // genesis(0) + zero block(1) + 3 normal blocks
-	waitForNumBlocks(t, storage, epoch1Target)
-	waitForNumBlocks(t, storage2, epoch1Target)
-
-	// The validator set in force is the one introduced by the most recent block
-	// that carries a BlockValidationDescriptor (the zero block in epoch 1).
-	require.Equal(t, firstInstance.Config.ID, latestValidatorID(t, storage))
-	require.Equal(t, firstInstance.Config.ID, latestValidatorID(t, storage2))
-
-	// Trigger the epoch change: the validator set changes at epochChangePChainHeight,
-	// growing from one validator to two.
-	pChain.advanceTo(epochChangePChainHeight)
-	approval := &common.ValidatorSetApproval{
-		NodeID:        peerID,
-		PChainHeight:  epochChangePChainHeight,
-		AuxInfoDigest: sha256.Sum256(nil),
-		Signature:     []byte{1, 2, 3},
-	}
-
-	// The node seals the epoch once it has a quorum of approvals of the new
-	// (two-validator) set. With two validators the node's self-approval is no longer
-	// a quorum and the peer is not running yet, so waitForSealingBlock injects the
-	// peer's approval on each poll until the sealing block is committed.
-	// TODO: Implement this capability in production so we won't need to inject approvals in tests.
-	sealingBlockSeq := waitForSealingBlock(t, firstInstance, approval, storage.NumBlocks())
-	waitForNumBlocks(t, storage2, sealingBlockSeq) // Ensure the new validator has replicated the sealing block.
-
-	// With both validators live, the two-validator epoch commits more blocks.
-	const epoch2Extra = uint64(3)
-	waitForNumBlocks(t, storage, sealingBlockSeq+epoch2Extra)
-
-	// Confirm the second epoch has the second validator in the sealing block
-	require.Equal(t, secondInstance.Config.ID, latestValidatorID(t, storage))
+	chain.acceptNewBlock()
 }
 
-// emptyVoteRecorder wraps a Broadcaster and signals the first time an empty vote is broadcast.
-type emptyVoteRecorder struct {
-	Broadcaster
-	got chan struct{}
+// TestNonValidatorSyncs that a non-validator syncs the chain when added to the network.
+func TestNonValidatorSyncs(t *testing.T) {
+	validator := newBLSMapping(1)
+	genesisSet := []metadata.NodeBLSMapping{validator}
+
+	pChain := newTestPChain(genesisSet)
+	chain := newNetwork(t, pChain)
+	chain.addNode(validator.NodeID[:])
+
+	chain.acceptNewBlock()
+
+	nonValidator := newBLSMapping(2)
+	chain.addNode(nonValidator.NodeID[:])
 }
 
-func (r *emptyVoteRecorder) Broadcast(msg *common.Message) {
-	if msg.EmptyVoteMessage != nil {
-		select {
-		case r.got <- struct{}{}:
-		default:
-		}
-	}
-	r.Broadcaster.Broadcast(msg)
+// TestNonValidator_BecomesValidator tests that an upcoming validator becomes a validator
+// when an epoch change they are following is sealed. The non-validator must contribute it's apporval in
+// order to do so.
+// We then check  does so by checking they participated in signing
+// Equivalent test as the previous TestInstanceMixedNodeType.
+func TestNonValidator_BecomesValidator(t *testing.T) {
+	validator := newBLSMapping(1)
+
+	genesisSet := []metadata.NodeBLSMapping{validator}
+
+	pChain := newTestPChain(genesisSet)
+	chain := newNetwork(t, pChain)
+	chain.addNode(validator.NodeID[:])
+
+	chain.acceptNewBlock()
+
+	// The non-validator node syncs the accepted blocks and then contributes to the next blocks
+	upcomingValidator := newBLSMapping(2)
+	chain.addNode(upcomingValidator.NodeID[:])
+
+	// initiate an epoch change
+	newValidatorSet := metadata.NodeBLSMappings{validator, upcomingValidator}
+	pChain.setValidatorSetAt(10, newValidatorSet)
+	pChain.advanceHeight(10)
+
+	sealingBlock := chain.waitUntilSealingBlock()
+	assertExpectedNodeIds(t, sealingBlock.SealingBlockInfo().ValidatorSet.NodeIDs(), newValidatorSet.NodeIDs())
+
+	_, finalization := chain.acceptNewBlock()
+	assertExpectedNodeIds(t, finalization.QC.Signers(), newValidatorSet.NodeIDs())
 }
 
-func TestEpochInvokesMSMWaitForPendingBlock(t *testing.T) {
-	const basePChainHeight = uint64(1)
+// TestValidator_ValidatorSetNotChanged tests that a pchain height increase
+// that does not have a unique validator set, does not create a new epoch
+func TestValidator_ValidatorSetNotChanged(t *testing.T) {
+	validator := newBLSMapping(1)
 
-	// Two validators, but only one is instantiated. Our node has the smaller ID so it sorts to
-	// index 0 and is a non-leader for round 1 (LeaderForRound picks index 1%2). The other
-	// validator is the round leader but is never created, so no block is ever proposed.
-	var ourID, leaderID [20]byte
-	ourID[0], leaderID[0] = 0x01, 0x02
-	ourNode := common.NodeID(ourID[:])
+	genesisSet := []metadata.NodeBLSMapping{validator}
 
-	require.NotEqual(t, ourNode, simplex.LeaderForRound([]common.NodeID{ourNode, leaderID[:]}, 1)) // ensure the leader is not our node
+	pChain := newTestPChain(genesisSet)
+	chain := newNetwork(t, pChain)
+	chain.addNode(validator.NodeID[:])
 
-	validatorSetsAtHeight := map[uint64]metadata.NodeBLSMappings{
-		basePChainHeight: {
-			{NodeID: ourID, BLSKey: []byte{0xaa}, Weight: 1},
-			{NodeID: leaderID, BLSKey: []byte{0xbb}, Weight: 1},
-		},
-	}
+	firstBlock, _ := chain.acceptNewBlock()
 
-	pChain := newTestPlatformChain(basePChainHeight, validatorSetsAtHeight)
-	cops := &testCryptoOps{}
-	genesisBlock := &testInnerBlock{Height_: 0, TS: time.Now(), Payload: []byte("genesis")}
+	// initiate an epoch change
+	pChain.setValidatorSetAt(10, []metadata.NodeBLSMapping{validator})
+	pChain.advanceHeight(10)
 
-	net := newInMemNetwork(t)
-	t.Cleanup(net.stop)
+	// potential time to propose blocks (if any)
+	time.Sleep(3 * time.Second)
 
-	storage := newStorageWithGenesis(t, genesisBlock)
-
-	// A paused VM never has a pending block, so its WaitForPendingBlock blocks until its context
-	// is cancelled: the MSM must decide to build on its own for the round to make progress.
-	vm := newTestVM()
-	vm.pause()
-
-	inst := newInstanceWithVM(t, ourNode, storage, net, pChain, cops, genesisBlock, vm)
-
-	// Capture the empty vote the node broadcasts once it gives up waiting for the leader.
-	recorder := &emptyVoteRecorder{Broadcaster: inst.Config.Broadcaster, got: make(chan struct{}, 1)}
-	inst.Config.Broadcaster = recorder
-
-	require.NoError(t, inst.Start(t.Context()))
-	t.Cleanup(inst.Stop)
-
-	select {
-	case <-recorder.got:
-	case <-time.After(10 * time.Second):
-		require.FailNow(t, "node never broadcast an empty vote, so the Epoch did not drive the MSM's WaitForPendingBlock")
-	}
+	secondBlock, _ := chain.acceptNewBlock()
+	require.Equal(t, uint64(1), secondBlock.BlockHeader().Epoch)
+	require.Equal(t, firstBlock.BlockHeader().Seq+1, secondBlock.BlockHeader().Seq)
 }
 
-func TestInstanceNonValidatorBootstraps(t *testing.T) {
-	t.Skip("skipping until test instance refactor")
+// TestValidator_ValidatorSetDecreased tests that an epoch with two validators
+// is reduced to one, when the pchain height notes a validator is leaving.
+func TestValidator_ValidatorSetDecreased(t *testing.T) {
+	validator := newBLSMapping(1)
+	leavingValidator := newBLSMapping(2)
 
-	// One node is a validator and progresses the chain by building blocks,
-	// and its weight changes while the chain progresses in 3 different P-chain epoch heights.
-	// Then, we add another node which is a non-validator.
-	// The node should bootstrap the chain but without shutting down the non-validator instance.
-	// Later on, the non-validator becomes a validator.
-	const (
-		basePChainHeight = uint64(1)
-		secondEpochP     = uint64(100)
-		thirdEpochP      = uint64(200)
-		joinEpochP       = uint64(300)
-	)
+	genesisSet := []metadata.NodeBLSMapping{validator, leavingValidator}
 
-	var id [20]byte
-	rand.Read(id[:])
-	validatorNodeID := common.NodeID(id[:])
+	pChain := newTestPChain(genesisSet)
+	chain := newNetwork(t, pChain)
+	wg := sync.WaitGroup{}
 
-	// The node that joins later, first as a non-validator and eventually as a validator.
-	var nv [20]byte
-	rand.Read(nv[:])
-	nonValidatorNodeID := common.NodeID(nv[:])
-
-	// The lone validator's weight changes at three different P-chain heights, sealing an
-	// epoch on each change. Because it remains the sole validator throughout, its own
-	// approval is a quorum and every epoch seals without any other node's participation.
-	// The last checkpoint (joinEpochP) grows the set to two validators, admitting the peer.
-	validatorSetsAtHeight := map[uint64]metadata.NodeBLSMappings{
-		basePChainHeight: {
-			{NodeID: id, BLSKey: []byte{0xaa}, Weight: 1},
-		},
-		secondEpochP: {
-			{NodeID: id, BLSKey: []byte{0xaa}, Weight: 2},
-		},
-		thirdEpochP: {
-			{NodeID: id, BLSKey: []byte{0xaa}, Weight: 3},
-		},
-		joinEpochP: {
-			{NodeID: id, BLSKey: []byte{0xaa}, Weight: 3},
-			{NodeID: nv, BLSKey: []byte{0xbb}, Weight: 1},
-		},
-	}
-
-	pChain := newTestPlatformChain(basePChainHeight, validatorSetsAtHeight)
-	cops := &testCryptoOps{}
-
-	genesisBlock := &testInnerBlock{Height_: 0, TS: time.Now(), Payload: []byte("genesis")}
-
-	net := newInMemNetwork(t)
-	t.Cleanup(net.stop)
-
-	// Both storages start with only the genesis block.
-	storage := newStorageWithGenesis(t, genesisBlock)
-	storage2 := newStorageWithGenesis(t, genesisBlock)
-
-	validatorInstance := newInstance(t, validatorNodeID, storage, net, pChain, cops, genesisBlock)
-	nonValidatorInstance := newInstance(t, nonValidatorNodeID, storage2, net, pChain, cops, genesisBlock)
-
-	// transitioned is closed when the node starts a Simplex epoch, i.e. becomes a validator.
-	// The node only ever starts an epoch here as part of its non-validator -> validator
-	// transition.
-	transitioned := make(chan struct{})
-	nonValidatorInstance.Config.Logger.(*testutil.TestLogger).Intercept(func(entry zapcore.Entry) error {
-		if strings.Contains(entry.Message, "Starting Simplex Epoch") {
-			select {
-			case <-transitioned:
-			default:
-				close(transitioned)
-			}
-		}
-		return nil
+	wg.Go(func() {
+		// add node is a synchronous call.
+		chain.addNode(validator.NodeID[:])
 	})
 
-	// Only the validator is running at first; it builds and seals the chain on its own.
-	net.register(validatorNodeID, validatorInstance)
-	require.NoError(t, validatorInstance.Start(t.Context()))
-	t.Cleanup(validatorInstance.Stop)
+	chain.addNode(leavingValidator.NodeID[:])
 
-	// Epoch 1: wait until the validator has committed a series of blocks on its own.
-	waitForNumBlocks(t, storage, 5) // genesis(0) + zero block(1) + a few normal blocks
-
-	// Drive two more epoch transitions by changing the validator's weight. Each change seals
-	// an epoch (and produces a sealing block) without any other node, since the validator's
-	// own approval is a quorum of the single-node set. The counts below include the zero block,
-	// which carries a block validation descriptor as well.
-	pChain.advanceTo(secondEpochP)
-	waitForSealingBlockCount(t, storage, 2)
-
-	pChain.advanceTo(thirdEpochP)
-	waitForSealingBlockCount(t, storage, 3)
-
-	// Let the third epoch grow a few normal blocks before the non validator joins, so bootstrap has to
-	// replicate past the sealing blocks and into ordinary blocks.
-	waitForNumBlocks(t, storage, storage.NumBlocks()+3)
-
-	// The new node joins as a non-validator (it is absent from the validator set at the current
-	// P-chain tip) and bootstraps the chain from the validator.
-	net.register(nonValidatorNodeID, nonValidatorInstance)
-	require.NoError(t, nonValidatorInstance.Start(t.Context()))
-	t.Cleanup(nonValidatorInstance.Stop)
-
-	// The non-validator replicates every sealed epoch and stays a non-validator throughout.
-	bootstrapTarget := storage.NumBlocks()
-	waitForNumBlocks(t, storage2, bootstrapTarget)
-
-	// It replicated through the sealed epochs without becoming a validator.
-	select {
-	case <-transitioned:
-		t.Fatal("non-validator transitioned to validator before joining the set")
-	default:
-	}
-
-	// Now grow the validator set to include the peer at the P-chain tip.
-	pChain.advanceTo(joinEpochP)
-	approval := &common.ValidatorSetApproval{
-		NodeID:        nv,
-		PChainHeight:  joinEpochP,
-		AuxInfoDigest: sha256.Sum256(nil),
-		Signature:     []byte{1, 2, 3},
-	}
-
-	// With two validators the validator's self-approval is no longer a quorum and the peer is
-	// still a non-validator, so we inject the peer's approval until the sealing block commits.
-	// TODO: Implement this capability in production so we won't need to inject approvals in tests.
-	sealingBlockSeq := waitForSealingBlock(t, validatorInstance, approval, storage.NumBlocks())
-	waitForNumBlocks(t, storage2, sealingBlockSeq)
-
-	// Once the non-validator replicates the sealing block that admits it, it detects that it is
-	// now a validator at the tip and transitions from non-validator to validator.
-	select {
-	case <-transitioned:
-	case <-time.After(20 * time.Second):
-		t.Fatal("non-validator did not transition to validator")
-	}
-
-	// The newly promoted validator now participates in extending the chain.
-	require.Equal(t, nonValidatorInstance.Config.ID, latestValidatorID(t, storage))
-
-	// With both validators live, the two-validator epoch keeps committing blocks, and both
-	// nodes replicate them together. This confirms the promoted node contributes to consensus
-	// rather than merely tracking the chain.
-	const twoValidatorExtra = uint64(3)
-	extendedTarget := sealingBlockSeq + twoValidatorExtra
-	waitForNumBlocks(t, storage, extendedTarget)
-	waitForNumBlocks(t, storage2, extendedTarget)
-}
-
-func TestInstanceRestartAcrossEpochs(t *testing.T) {
-	t.Skip("skipping until test instance refactor")
-
-	// Restart a single validator at three different points in its lifecycle so that,
-	// on each (re)start, constructEpochAndValidatorSet takes a different branch of
-	// its switch:
-	//
-	//   - Cold boot, ledger holds only the genesis (non-Simplex) block  -> "genesis" branch.
-	//   - Restart when the tip is a sealing block                        -> "sealing block at tip" branch.
-	//   - Restart mid-epoch, when the tip is an ordinary Simplex block   -> "sealing block in storage" branch.
-	//
-	const (
-		basePChainHeight        = uint64(1)
-		epochChangePChainHeight = uint64(100)
-	)
-
-	var id [20]byte
-	rand.Read(id[:])
-	nodeID := common.NodeID(id[:])
-
-	// The lone validator's weight changes at epochChangePChainHeight, which seals the first
-	// epoch.
-	validatorSetsAtHeight := map[uint64]metadata.NodeBLSMappings{
-		basePChainHeight: {
-			{NodeID: id, BLSKey: []byte{0xaa}, Weight: 1},
-		},
-		epochChangePChainHeight: {
-			{NodeID: id, BLSKey: []byte{0xaa}, Weight: 2},
-		},
-	}
-
-	pChain := newTestPlatformChain(basePChainHeight, validatorSetsAtHeight)
-	cops := &testCryptoOps{}
-	genesisBlock := &testInnerBlock{Height_: 0, TS: time.Now(), Payload: []byte("genesis")}
-
-	net := newInMemNetwork(t)
-	t.Cleanup(net.stop)
-
-	storage := newStorageWithGenesis(t, genesisBlock)
-
-	vm := newTestVM()
-
-	const (
-		logEpochFromGenesis        = "Determined epoch and validator set from genesis (ledger holds only non-Simplex blocks)"
-		logEpochFromSealingTip     = "Determined epoch and validator set from sealing block at tip"
-		logEpochFromSealingStorage = "Determined epoch and validator set from sealing block in storage"
-	)
-
-	// lastEpochBranch holds the full debug message constructEpochAndValidatorSet
-	// logs, identifying which branch of its switch the latest (re)start took. It is
-	// written synchronously during Start, but also from the epoch-change goroutine,
-	// so an atomic guards it.
-	var lastEpochBranch atomic.Pointer[string]
-
-	// start (re)creates an instance over the same storage/network/VM. The log
-	// interceptor, installed before Start, records which branch startup took.
-	start := func() *Instance {
-		inst := newInstanceWithVM(t, nodeID, storage, net, pChain, cops, genesisBlock, vm)
-		inst.Config.Logger.(*testutil.TestLogger).Intercept(func(entry zapcore.Entry) error {
-			switch entry.Message {
-			case logEpochFromGenesis, logEpochFromSealingTip, logEpochFromSealingStorage:
-				msg := entry.Message
-				lastEpochBranch.Store(&msg)
-			}
-			return nil
-		})
-		net.register(nodeID, inst)
-		require.NoError(t, inst.Start(t.Context()))
-		return inst
-	}
-
-	// Pause block production before the node even starts: only protocol blocks (the
-	// zero block, the epoch transition and its sealing block) get built, and the
-	// chain stops at the sealing block since no ordinary block can be built on top.
-	vm.pause()
-
-	// --- Case 1: cold boot, ledger holds only the genesis block. ---
-	inst := start()
-	require.Equal(t, logEpochFromGenesis, *lastEpochBranch.Load())
-
-	// --- Case 2: restart when the tip is a sealing block. ---
-	// Change the validator's weight to seal the first epoch.
-	// countSealingBlocks == 2: the zero block plus that epoch's sealing block. With the VM
-	// paused, the sealing block stays the tip because no ordinary block can be built on top.
-	pChain.advanceTo(epochChangePChainHeight)
-	waitForSealingBlockCount(t, storage, 2)
-	requireTipIsSealing(t, storage, true)
-
-	inst.Stop()
-	inst = start()
-	require.Equal(t, logEpochFromSealingTip, *lastEpochBranch.Load())
-
-	// --- Case 3: restart mid-epoch, tip is an ordinary Simplex block. ---
-	// Resume production; the node extends the new epoch with ordinary blocks.
-	vm.resume()
-	waitForNumBlocks(t, storage, storage.NumBlocks()+3)
-	requireTipIsSealing(t, storage, false)
-
-	inst.Stop()
-	inst = start()
-	t.Cleanup(inst.Stop)
-	require.Equal(t, logEpochFromSealingStorage, *lastEpochBranch.Load())
-
-	// The restarted node keeps extending the chain.
-	waitForNumBlocks(t, storage, storage.NumBlocks()+2)
-}
-
-func TestParseBlockSizeMatchesBytes(t *testing.T) {
-	// Case 1: Bytes() first, Size() second, size returns the cached length.
-	pb := &ParsedBlock{
-		StateMachineBlock: metadata.StateMachineBlock{
-			Metadata: metadata.StateMachineMetadata{
-				SimplexProtocolMetadata: common.ProtocolMetadata{
-					Version: 1,
-					Prev:    common.Digest{},
-					Round:   1,
-					Epoch:   4,
-					Seq:     2,
-				},
-				SimplexBlacklist: common.Blacklist{
-					Updates:   common.BlacklistUpdates{{NodeIndex: 1, Type: 1}},
-					NodeCount: 2,
-				},
-				PChainHeight: 6,
-			},
-			InnerBlock: &testInnerBlock{
-				Height_: 7,
-				TS:      time.UnixMilli(8),
-				Payload: []byte("payload"),
-			},
-		},
-	}
-	bytes := pb.Bytes()
-	require.Equal(t, len(bytes), pb.Size())
-
-	// Case 2: Size() first on a non serialized block. it will
-	// compute the size and match a later Byte() call.
-	pb2 := &ParsedBlock{
-		StateMachineBlock: metadata.StateMachineBlock{
-			Metadata: metadata.StateMachineMetadata{
-				SimplexProtocolMetadata: common.ProtocolMetadata{
-					Version: 1,
-					Prev:    common.Digest{},
-					Round:   1,
-					Epoch:   4,
-					Seq:     2,
-				},
-				SimplexBlacklist: common.Blacklist{
-					Updates:   common.BlacklistUpdates{{NodeIndex: 1, Type: 1}},
-					NodeCount: 2,
-				},
-				PChainHeight: 6,
-			},
-			InnerBlock: &testInnerBlock{
-				Height_: 9,
-				TS:      time.UnixMilli(10),
-				Payload: []byte("other payload"),
-			},
-		},
-	}
-	size := pb2.Size()
-	require.NotZero(t, size)
-	bytes2 := pb2.Bytes()
-	require.Equal(t, len(bytes2), size)
-
-	// case 3: cincurrent Size() calls on a block that was never serialized.
-	// the goroutines rase to compute the size, the lock must make this
-	// safe and every call must return the correct value
-
-	pb3 := &ParsedBlock{
-		StateMachineBlock: metadata.StateMachineBlock{
-			Metadata: metadata.StateMachineMetadata{
-				SimplexProtocolMetadata: common.ProtocolMetadata{
-					Version: 1,
-					Prev:    common.Digest{},
-					Round:   1,
-					Epoch:   4,
-					Seq:     2,
-				},
-				SimplexBlacklist: common.Blacklist{
-					Updates:   common.BlacklistUpdates{{NodeIndex: 1, Type: 1}},
-					NodeCount: 2,
-				},
-				PChainHeight: 6,
-			},
-			InnerBlock: &testInnerBlock{
-				Height_: 11,
-				TS:      time.UnixMilli(12),
-				Payload: []byte("concurrent"),
-			},
-		},
-	}
-	var wg sync.WaitGroup
-	sizes := make([]int, 4)
-	for i := range sizes {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			sizes[i] = pb3.Size()
-		}()
-	}
+	// all nodes have synced the first every simplex block
 	wg.Wait()
-	bytes3 := pb3.Bytes()
-	for _, size := range sizes {
-		require.Equal(t, len(bytes3), size)
-	}
+
+	block, _ := chain.acceptNewBlock()
+	require.Equal(t, uint64(2), block.BlockHeader().Round)
+
+	// initiate an epoch change
+	newValidatorSet := metadata.NodeBLSMappings{validator}
+	pChain.setValidatorSetAt(10, newValidatorSet)
+	pChain.advanceHeight(10)
+
+	sealing := chain.waitUntilSealingBlock()
+	assertExpectedNodeIds(t, sealing.SealingBlockInfo().ValidatorSet.NodeIDs(), newValidatorSet.NodeIDs())
 }
 
-// TestInstanceZeroBlockUsesLastNonSimplexPChainHeight asserts that the first ever Simplex block
-// references the P-chain height of the last non-Simplex block.
-func TestInstanceZeroBlockUsesLastNonSimplexPChainHeight(t *testing.T) {
-	t.Skip("skipping until test instance refactor")
-	const basePChainHeight = uint64(7)
+// TestNonValidator_StaysNonValidator ensures that a non-validator does not restart when it is processing
+// previous epoch changes.
+// Equivalent to TestInstanceNonValidatorBootstraps
+func TestNonValidator_StaysNonValidator(t *testing.T) {
+	t.Skip("Skipping until we have timeouts for offline nodes during epoch transitioning")
+	targetNode := newBLSMapping(42)
 
-	var id [20]byte
-	rand.Read(id[:])
-	nodeID := common.NodeID(id[:])
+	// case 1: epoch change is not highest and we are NOT in the validator1 set
+	// case 1: epoch change is not highest, and we are in the validator1 set
+	// case 1: epoch change is highest, and we are in the validator1 set
+	// case 1: epoch change is highest, and we are NOT in the validator1 set
+	validator1 := newBLSMapping(1)
 
-	validatorSetsAtHeight := map[uint64]metadata.NodeBLSMappings{
-		basePChainHeight: {
-			{NodeID: id, BLSKey: []byte{0xaa}, Weight: 1},
-		},
-	}
+	genesisSet := []metadata.NodeBLSMapping{validator1}
+	pChain := newTestPChain(genesisSet)
+	chain := newNetwork(t, pChain)
+	chain.addNode(validator1.NodeID[:])
 
-	pChain := newTestPlatformChain(basePChainHeight, validatorSetsAtHeight)
-	cops := &testCryptoOps{}
-	genesisBlock := &testInnerBlock{Height_: 0, TS: time.Now(), Payload: []byte("genesis")}
+	validator2 := newBLSMapping(2)
+	validator3 := newBLSMapping(3)
+	validator4 := newBLSMapping(4)
+	chain.addNode(validator2.NodeID[:])
+	chain.addNode(validator3.NodeID[:])
+	chain.addNode(validator4.NodeID[:])
 
-	net := newInMemNetwork(t)
-	t.Cleanup(net.stop)
+	// we should have a quorum without the target node to create this epoch change
+	targetNodeNotInMiddleEpoch := metadata.NodeBLSMappings{validator1, validator2, validator3}
+	targetNodeInMiddleEpoch := metadata.NodeBLSMappings{validator1, validator2, validator3, targetNode}
+	targetNodeInHighestEpoch := metadata.NodeBLSMappings{validator1, validator2, validator3, validator4, targetNode}
 
-	storage := newStorageWithGenesis(t, genesisBlock)
+	// set the pchain heights
+	pChain.setValidatorSetAt(10, targetNodeNotInMiddleEpoch)
+	pChain.setValidatorSetAt(20, targetNodeInMiddleEpoch)
+	pChain.setValidatorSetAt(30, targetNodeInHighestEpoch)
 
-	inst := newInstance(t, nodeID, storage, net, pChain, cops, genesisBlock)
-	net.register(nodeID, inst)
-	require.NoError(t, inst.Start(t.Context()))
-	t.Cleanup(inst.Stop)
+	pChain.advanceHeight(10)
+	sealingBlock := chain.waitUntilSealingBlock()
+	assertExpectedNodeIds(t, sealingBlock.SealingBlockInfo().ValidatorSet.NodeIDs(), targetNodeNotInMiddleEpoch.NodeIDs())
 
-	waitForNumBlocks(t, storage, 2) // genesis(0) + the zero block(1)
+	pChain.advanceHeight(20)
+	sealingBlock = chain.waitUntilSealingBlock()
+	assertExpectedNodeIds(t, sealingBlock.SealingBlockInfo().ValidatorSet.NodeIDs(), targetNodeInMiddleEpoch.NodeIDs())
 
-	zeroBlock, ok := storage.blockAt(1)
-	require.True(t, ok)
-	require.Equal(t, metadata.BlockTypeZero, zeroBlock.Type())
-	require.Equal(t, basePChainHeight, zeroBlock.Metadata.PChainHeight)
-	require.Equal(t, basePChainHeight, zeroBlock.Metadata.SimplexEpochInfo.PChainReferenceHeight)
+	// ensure we can advance without the target node
+	chain.acceptNewBlock()
+
+	pChain.advanceHeight(30)
+	sealingBlock = chain.waitUntilSealingBlock()
+	assertExpectedNodeIds(t, sealingBlock.SealingBlockInfo().ValidatorSet.NodeIDs(), targetNodeInHighestEpoch.NodeIDs())
+
+	// the target node should join now
+	// TODO: implement when we have a timeout for sending blocks with no inner blocks
+	// add the target node and ensure it stays non-validator
+}
+
+// TestInstanceValidatorSkipsAnEpoch tests that a validator stops and starts being a validator
+// It boots up as a non-validator then syncs to the highest epoch where it is a validator,
+// then it is no longer a validator, and finally it is
+// Equivalent to: TestInstanceValidatorSkipsAnEpoch. This also starts a validator when the tip is a sealing block so it covers an edge
+// case previously caught from the logging test.
+func TestInstanceValidatorSkipsAnEpoch(t *testing.T) {
+	validator := newBLSMapping(1)
+
+	genesisSet := []metadata.NodeBLSMapping{validator}
+
+	pChain := newTestPChain(genesisSet)
+	chain := newNetwork(t, pChain)
+	chain.addNode(validator.NodeID[:])
+
+	// The non-validator node syncs the accepted blocks and then contributes to the next blocks
+	onOffValidator := newBLSMapping(2)
+	chain.addNode(onOffValidator.NodeID[:])
+
+	// initiate an epoch change
+	newValidatorSet := metadata.NodeBLSMappings{validator, onOffValidator}
+	pChain.setValidatorSetAt(10, newValidatorSet)
+	pChain.advanceHeight(10)
+
+	sealingBlock := chain.waitUntilSealingBlock()
+	assertExpectedNodeIds(t, sealingBlock.SealingBlockInfo().ValidatorSet.NodeIDs(), newValidatorSet.NodeIDs())
+
+	newValidatorSet = metadata.NodeBLSMappings{validator}
+	pChain.setValidatorSetAt(20, newValidatorSet)
+	pChain.advanceHeight(20)
+	sealingBlock = chain.waitUntilSealingBlock()
+	assertExpectedNodeIds(t, sealingBlock.SealingBlockInfo().ValidatorSet.NodeIDs(), newValidatorSet.NodeIDs())
+
+	// accept a new block to ensure both nodes are still syncing the chain
+	chain.acceptNewBlock()
+
+	// initiate the final epoch change
+	newValidatorSet = metadata.NodeBLSMappings{validator, onOffValidator}
+	pChain.setValidatorSetAt(30, newValidatorSet)
+	pChain.advanceHeight(30)
+
+	sealingBlock = chain.waitUntilSealingBlock()
+	assertExpectedNodeIds(t, sealingBlock.SealingBlockInfo().ValidatorSet.NodeIDs(), newValidatorSet.NodeIDs())
 }
 
 func TestInstanceDoubleStartFails(t *testing.T) {
-	const basePChainHeight = uint64(1)
+	validator := newBLSMapping(1)
+	genesisSet := []metadata.NodeBLSMapping{validator}
 
-	var id [20]byte
-	rand.Read(id[:])
-	nodeID := common.NodeID(id[:])
-
-	// Single-validator set including this node, so Start brings up a validator epoch.
-	validatorSetsAtHeight := map[uint64]metadata.NodeBLSMappings{
-		basePChainHeight: {
-			{NodeID: id, BLSKey: []byte{0xaa}, Weight: 1},
-		},
-	}
-
-	pChain := newTestPlatformChain(basePChainHeight, validatorSetsAtHeight)
-	cops := &testCryptoOps{}
-	genesisBlock := &testInnerBlock{Height_: 0, TS: time.Now(), Payload: []byte("genesis")}
-
-	net := newInMemNetwork(t)
-	t.Cleanup(net.stop)
-
-	storage := newStorageWithGenesis(t, genesisBlock)
-
-	inst := newInstance(t, nodeID, storage, net, pChain, cops, genesisBlock)
-
-	require.NoError(t, inst.Start(t.Context()))
-	t.Cleanup(inst.Stop)
-
-	require.ErrorIs(t, inst.Start(t.Context()), errAlreadyStarted)
+	pChain := newTestPChain(genesisSet)
+	chain := newNetwork(t, pChain)
+	node := chain.addNode(validator.NodeID[:])
+	require.ErrorIs(t, node.inst.Start(t.Context()), errAlreadyStarted)
 }
 
+// TestNonValidatorSkipsMSMVerification proves that a non-validator does not use the MSM to
+// verify blocks: it commits a finalized block whose state machine transition is invalid.
 func TestNonValidatorSkipsMSMVerification(t *testing.T) {
-	t.Skip("skipping until test instance refactor")
+	validator := newBLSMapping(1)
+	genesisValidatorSet := []metadata.NodeBLSMapping{validator}
+	pChain := newTestPChain(genesisValidatorSet)
 
-	// This test proves that a non-validator doesn't use the MSM to verify blocks.
-	// It does so by forcing a non-validator ti commit a block whose MSM state machine
-	// transition is invalid.
+	// The non-validator holds genesis plus epoch 1's defining block, and lives on a network
+	// of its own, so the replication response below is the only way it can learn a block.
+	storage, parent := newChainStorage(t, genesisValidatorSet)
+	nonValidator := newBLSMapping(2)
+	nonValidatorNode := newNetwork(t, pChain).addNodeWithStorage(nonValidator.NodeID[:], storage)
 
-	const basePChainHeight = uint64(1)
-
-	var id [20]byte
-	rand.Read(id[:])
-	validatorNodeID := common.NodeID(id[:])
-
-	// The node under test. It is absent from the validator set, so it comes up as a non-validator.
-	var nv [20]byte
-	rand.Read(nv[:])
-	nonValidatorNodeID := common.NodeID(nv[:])
-
-	validatorSetsAtHeight := map[uint64]metadata.NodeBLSMappings{
-		basePChainHeight: {
-			{NodeID: id, BLSKey: []byte{0xaa}, Weight: 1},
+	// A block whose only defect is its state machine transition: its timestamp precedes its
+	// parent's.
+	invalid := metadata.StateMachineBlock{
+		InnerBlock: &testInnerBlock{Height_: 2, TS: time.Now(), Payload: []byte("invalid")},
+		Metadata: metadata.StateMachineMetadata{
+			Timestamp:               parent.Metadata.Timestamp - 1,
+			SimplexProtocolMetadata: common.ProtocolMetadata{Epoch: 1, Round: 2, Seq: 2, Prev: common.Digest(parent.Digest())},
 		},
 	}
 
-	pChain := newTestPlatformChain(basePChainHeight, validatorSetsAtHeight)
-	cops := &testCryptoOps{}
-	genesisBlock := &testInnerBlock{Height_: 0, TS: time.Now(), Payload: []byte("genesis")}
-
-	net := newInMemNetwork(t)
-	t.Cleanup(net.stop)
-
-	// The lone validator builds a chain on its own and then shuts down, so that from here on the
-	// only source of blocks is this test.
-	storage := newStorageWithGenesis(t, genesisBlock)
-	validatorInstance := newInstance(t, validatorNodeID, storage, net, pChain, cops, genesisBlock)
-	net.register(validatorNodeID, validatorInstance)
-	require.NoError(t, validatorInstance.Start(t.Context()))
-	t.Cleanup(validatorInstance.Stop)
-
-	waitForNumBlocks(t, storage, 7)
-	validatorInstance.Stop()
-	require.True(t, validatorInstance.isStopped())
-
-	replicatedSeq := storage.NumBlocks() - 1
-	replicated, ok := storage.blockAt(replicatedSeq)
-	require.True(t, ok)
-	parent, ok := storage.blockAt(replicatedSeq - 1)
-	require.True(t, ok)
-
-	// The non-validator holds the chain up to, but not including, that last block, and is wired to
-	// a network of its own where nobody answers: the replication response we hand it below is the
-	// only way it can ever learn about the block.
-	nonValidatorStorage := storage.cloneBelow(replicatedSeq)
-	require.Equal(t, replicatedSeq, nonValidatorStorage.NumBlocks())
-	_, ok = nonValidatorStorage.blockAt(replicatedSeq)
-	require.False(t, ok, "the non-validator already has the block it is meant to replicate")
-
-	nonValidatorInstance := newInstance(t, nonValidatorNodeID, nonValidatorStorage, newInMemNetwork(t), pChain, cops, genesisBlock)
-	require.NoError(t, nonValidatorInstance.Start(t.Context()))
-	t.Cleanup(nonValidatorInstance.Stop)
-
-	// The MSM that built the chain - the validator has stopped, so nothing else uses it - accepts
-	// the block, so we know the block is valid.
-	msm := validatorInstance.msm
-
-	// The block we feed the non-validator is that same block with a single defect: a timestamp
-	// that precedes its parent's. Everything else - round, sequence, epoch info, P-chain height,
-	// inner block - is left alone, so the only thing wrong with it is its state machine
-	// transition.
-	tampered := replicated.Clone()
-	tampered.Metadata.Timestamp = parent.Metadata.Timestamp - 1
-
-	// Wire the MSM that built the chain to the tampered block, so we can prove that the MSM would have rejected it.
-	tamperedBlock := &ParsedBlock{StateMachineBlock: tampered.Clone(), msm: msm}
-	_, err := tamperedBlock.Verify(context.Background())
-	require.ErrorContains(t, err, "proposed timestamp is before parent block's timestamp")
-
-	// Changing the timestamp made it a block the validator never built: no sequence of its ledger
-	// holds it.
-	for seq := uint64(0); seq < storage.NumBlocks(); seq++ {
-		stored, ok := storage.blockAt(seq)
-		require.True(t, ok)
-		require.NotEqual(t, tampered.Digest(), stored.Digest(), "the validator has the tampered block at seq %d", seq)
-	}
-
-	// Send precisely that block: the finalization we hand over is a quorum on its digest, not on
-	// the digest of the block the validator built.
-	block := &ParsedBlock{StateMachineBlock: tampered.Clone()}
-	finalization, _ := testutil.NewFinalizationRecord(t, &testutil.TestSignatureAggregator{N: 1}, block, []common.NodeID{validatorNodeID})
-	require.Equal(t, common.Digest(tampered.Digest()), finalization.Finalization.Digest)
-	require.NotEqual(t, common.Digest(replicated.Digest()), finalization.Finalization.Digest)
-
-	require.NoError(t, nonValidatorInstance.HandleMessage(&common.Message{
+	// Hand the non-validator that block, finalized over its digest.
+	block := &ParsedBlock{StateMachineBlock: invalid.Clone()}
+	finalization, _ := testutil.NewFinalizationRecord(t, &testutil.TestSignatureAggregator{N: 1}, block, []common.NodeID{validator.NodeID[:]})
+	require.NoError(t, nonValidatorNode.inst.HandleMessage(&common.Message{
 		ReplicationResponse: &common.ReplicationResponse{
 			Data: []common.QuorumRound{{Block: block, Finalization: &finalization}},
 		},
-	}, validatorNodeID))
+	}, validator.NodeID[:]))
 
-	// It commits the block its state machine would have rejected...
-	waitForNumBlocks(t, nonValidatorStorage, replicatedSeq+1)
-	committed, ok := nonValidatorStorage.blockAt(replicatedSeq)
+	// It commits the block its state machine would have rejected.
+	storage.WaitForBlockCommit(2)
+	committed, ok := storage.blockAt(2)
 	require.True(t, ok)
-	require.Equal(t, tampered.Digest(), committed.Digest())
-
-	// ... so the two ledgers are the same height but disagree on their last block: the
-	// non-validator committed a block that exists nowhere in the validator's storage.
-	require.Equal(t, storage.NumBlocks(), nonValidatorStorage.NumBlocks())
-	require.NotEqual(t, replicated.Digest(), committed.Digest())
+	require.Equal(t, invalid.Digest(), committed.Digest())
 }
 
+// TestValidatorSkipsMSMVerificationWhenReplicating proves that a lagging validator does not
+// use the MSM to verify blocks it replicates, as they carry a QC. It checks a notarized and
+// a finalized block.
 func TestValidatorSkipsMSMVerificationWhenReplicating(t *testing.T) {
-	t.Skip("skipping until test instance refactor")
-
-	// This test ensures that validators that are lagging behind do not use the MSM
-	// to verify blocks they replicate through the replication path, as they have a QC.
-	// We check once for a notarized block and once for a finalized block.
-
 	for _, tt := range []struct {
 		name string
 		// quorumRound wraps the replicated block with a QC.
-		quorumRound func(t *testing.T, logger common.Logger, block *ParsedBlock, signers []common.NodeID) common.QuorumRound
+		quorumRound func(t *testing.T, block *ParsedBlock, signers []common.NodeID) common.QuorumRound
 		// requireReplicated asserts the lagging node replicated the block.
-		requireReplicated func(t *testing.T, storage *MockStorage, block metadata.StateMachineBlock)
+		requireReplicated func(t *testing.T, laggingNode *node, block metadata.StateMachineBlock)
 	}{
 		{
 			name: "notarization",
-			quorumRound: func(t *testing.T, logger common.Logger, block *ParsedBlock, signers []common.NodeID) common.QuorumRound {
-				notarization, err := testutil.NewNotarization(logger, &testutil.TestSignatureAggregator{N: len(signers)}, block, signers)
+			quorumRound: func(t *testing.T, block *ParsedBlock, signers []common.NodeID) common.QuorumRound {
+				notarization, err := testutil.NewNotarization(testutil.MakeLogger(t, 0), &testutil.TestSignatureAggregator{N: len(signers)}, block, signers)
 				require.NoError(t, err)
 				return common.QuorumRound{Block: block, Notarization: &notarization}
 			},
 			// A notarized block is not committed but notarized: the node persists the
 			// notarization to its WAL, which it only reaches after the block verified.
-			requireReplicated: func(t *testing.T, storage *MockStorage, block metadata.StateMachineBlock) {
+			requireReplicated: func(t *testing.T, laggingNode *node, block metadata.StateMachineBlock) {
 				round := block.Metadata.SimplexProtocolMetadata.Round
 				require.Eventually(t, func() bool {
-					return storage.containsNotarization(round)
-				}, 20*time.Second, 100*time.Millisecond, "no notarization for round %d was persisted to the WAL", round)
-				require.Equal(t, block.Metadata.SimplexProtocolMetadata.Seq, storage.NumBlocks(), "a notarized block should not have been committed")
+					return laggingNode.wals.containsNotarization(round)
+				}, 10*time.Second, 10*time.Millisecond, "no notarization for round %d was persisted to the WAL", round)
+				require.Equal(t, block.Metadata.SimplexProtocolMetadata.Seq, laggingNode.storage.NumBlocks(), "a notarized block should not have been committed")
 			},
 		},
 		{
 			name: "finalization",
-			quorumRound: func(t *testing.T, _ common.Logger, block *ParsedBlock, signers []common.NodeID) common.QuorumRound {
+			quorumRound: func(t *testing.T, block *ParsedBlock, signers []common.NodeID) common.QuorumRound {
 				finalization, _ := testutil.NewFinalizationRecord(t, &testutil.TestSignatureAggregator{N: len(signers)}, block, signers)
 				return common.QuorumRound{Block: block, Finalization: &finalization}
 			},
 			// A finalized block is committed.
-			requireReplicated: func(t *testing.T, storage *MockStorage, block metadata.StateMachineBlock) {
+			requireReplicated: func(t *testing.T, laggingNode *node, block metadata.StateMachineBlock) {
 				seq := block.Metadata.SimplexProtocolMetadata.Seq
-				waitForNumBlocks(t, storage, seq+1)
-				committed, ok := storage.blockAt(seq)
+				laggingNode.storage.WaitForBlockCommit(seq)
+				committed, ok := laggingNode.storage.blockAt(seq)
 				require.True(t, ok)
 				require.Equal(t, block.Digest(), committed.Digest())
 			},
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			const basePChainHeight = uint64(1)
+			// Two validators, so a quorum is both of them: with its peer absent, the lagging
+			// validator can neither build a block nor empty notarize a round on its own.
+			lagging := newBLSMapping(1)
+			peer := newBLSMapping(2)
+			validators := metadata.NodeBLSMappings{lagging, peer}
+			pChain := newTestPChain(validators)
 
-			var first, second [20]byte
-			rand.Read(first[:])
-			rand.Read(second[:])
-			firstNodeID := common.NodeID(first[:])
-			secondNodeID := common.NodeID(second[:])
+			// The lagging validator holds genesis plus epoch 1's defining block, and lives on
+			// a network of its own, so the replication response below is the only way it can
+			// learn the block at the round it sits on.
+			storage, parent := newChainStorage(t, validators)
+			laggingNode := newNetwork(t, pChain).addNodeWithStorage(lagging.NodeID[:], storage)
 
-			// Two validators, so a quorum is both of them: once one of them is down, the other
-			// cannot commit a block, nor even empty notarize a round, on its own.
-			validatorSetsAtHeight := map[uint64]metadata.NodeBLSMappings{
-				basePChainHeight: {
-					{NodeID: first, BLSKey: []byte{0xaa}, Weight: 1},
-					{NodeID: second, BLSKey: []byte{0xbb}, Weight: 1},
+			// A block whose only defect is its state machine transition: its timestamp
+			// precedes its parent's.
+			invalid := metadata.StateMachineBlock{
+				InnerBlock: &testInnerBlock{Height_: 2, TS: time.Now(), Payload: []byte("invalid")},
+				Metadata: metadata.StateMachineMetadata{
+					Timestamp:               parent.Metadata.Timestamp - 1,
+					SimplexProtocolMetadata: common.ProtocolMetadata{Epoch: 1, Round: 2, Seq: 2, Prev: common.Digest(parent.Digest())},
 				},
 			}
 
-			pChain := newTestPlatformChain(basePChainHeight, validatorSetsAtHeight)
-			cops := &testCryptoOps{}
-			genesisBlock := &testInnerBlock{Height_: 0, TS: time.Now(), Payload: []byte("genesis")}
-
-			net := newInMemNetwork(t)
-			t.Cleanup(net.stop)
-
-			// The two validators build a chain together and then both shut down, so that from
-			// here on the only source of blocks is this test.
-			storage := newStorageWithGenesis(t, genesisBlock)
-			storage2 := newStorageWithGenesis(t, genesisBlock)
-			firstInstance := newInstance(t, firstNodeID, storage, net, pChain, cops, genesisBlock)
-			secondInstance := newInstance(t, secondNodeID, storage2, net, pChain, cops, genesisBlock)
-			net.register(firstNodeID, firstInstance)
-			net.register(secondNodeID, secondInstance)
-			require.NoError(t, firstInstance.Start(t.Context()))
-			require.NoError(t, secondInstance.Start(t.Context()))
-			t.Cleanup(firstInstance.Stop)
-			t.Cleanup(secondInstance.Stop)
-
-			waitForNumBlocks(t, storage, 7)
-			firstInstance.Stop()
-			secondInstance.Stop()
-			require.True(t, firstInstance.isStopped())
-			require.True(t, secondInstance.isStopped())
-
-			replicatedSeq := storage.NumBlocks() - 1
-			replicated, ok := storage.blockAt(replicatedSeq)
-			require.True(t, ok)
-			parent, ok := storage.blockAt(replicatedSeq - 1)
-			require.True(t, ok)
-
-			// The node restored at the parent below sits at the round following the parent's, and
-			// only processes a replicated round it has reached, so the block it is missing must be
-			// the one that directly follows its parent's round.
-			require.Equal(t, parent.Metadata.SimplexProtocolMetadata.Round+1, replicated.Metadata.SimplexProtocolMetadata.Round,
-				"the chain grew an empty round before its last block")
-
-			// The MSM that built the chain - the validator has stopped, so nothing else uses it -
-			// accepts the block, so we know the block is valid.
-			msm := firstInstance.msm
-
-			// The block we hand the node is that same block with a single defect: a timestamp preceding its parent's.
-			// Everything else - round, sequence, epoch info, P-chain height, inner block - is left alone,
-			// so the only thing wrong with it is its state machine transition, which is what the state
-			// machine rejects and what verifying only the inner block - what a node replicating a
-			// block does - accepts.
-			tampered := replicated.Clone()
-			tampered.Metadata.Timestamp = parent.Metadata.Timestamp - 1
-
-			// The MSM rejects the tampered block, so we know the block is invalid.
-			tamperedBlock := &ParsedBlock{StateMachineBlock: tampered.Clone(), msm: msm}
-			_, err := tamperedBlock.Verify(context.Background())
-			require.ErrorContains(t, err, "proposed timestamp is before parent block's timestamp")
-			_, err = tamperedBlock.Verify(context.Background(), common.OnlyVMVerifyOpt)
-			require.NoError(t, err)
-
-			// Changing the timestamp made it a block neither validator ever built: no sequence of
-			// either ledger holds it.
-			for seq := uint64(0); seq < storage.NumBlocks(); seq++ {
-				for _, ledger := range []*MockStorage{storage, storage2} {
-					stored, ok := ledger.blockAt(seq)
-					require.True(t, ok)
-					require.NotEqual(t, tampered.Digest(), stored.Digest(), "a validator has the tampered block at seq %d", seq)
-				}
-			}
-
-			// The first validator comes back up lagging the chain by that block, with a paused VM
-			// and on a network of its own where nobody answers. It can therefore neither build
-			// the block nor replicate it legitimately, and since its peer is down it cannot reach
-			// a quorum to empty notarize either: it sits at exactly the round of the block it is
-			// missing until we hand it one.
-			laggingStorage := storage.cloneBelow(replicatedSeq)
-			require.Equal(t, replicatedSeq, laggingStorage.NumBlocks())
-			_, ok = laggingStorage.blockAt(replicatedSeq)
-			require.False(t, ok, "the lagging validator already has the block it is meant to replicate")
-
-			vm := newTestVM()
-			vm.pause()
-			laggingInstance := newInstanceWithVM(t, firstNodeID, laggingStorage, newInMemNetwork(t), pChain, cops, genesisBlock, vm)
-			require.NoError(t, laggingInstance.Start(t.Context()))
-			t.Cleanup(laggingInstance.Stop)
-
-			// Send precisely that block: the quorum certificate we hand over is on its digest, not
-			// on the digest of the block the validators built.
-			block := &ParsedBlock{StateMachineBlock: tampered.Clone()}
-			quorumRound := tt.quorumRound(t, laggingInstance.Config.Logger, block, []common.NodeID{firstNodeID, secondNodeID})
-			require.Equal(t, common.Digest(tampered.Digest()), quorumRound.Block.BlockHeader().Digest)
-			require.NotEqual(t, common.Digest(replicated.Digest()), quorumRound.Block.BlockHeader().Digest)
-
-			require.NoError(t, laggingInstance.HandleMessage(&common.Message{
+			// Hand the lagging validator that block wrapped in a QC.
+			block := &ParsedBlock{StateMachineBlock: invalid.Clone()}
+			quorumRound := tt.quorumRound(t, block, validators.NodeIDs())
+			require.NoError(t, laggingNode.inst.HandleMessage(&common.Message{
 				ReplicationResponse: &common.ReplicationResponse{Data: []common.QuorumRound{quorumRound}},
-			}, secondNodeID))
+			}, peer.NodeID[:]))
 
-			tt.requireReplicated(t, laggingStorage, tampered)
+			// It replicates the block its state machine would have rejected.
+			tt.requireReplicated(t, laggingNode, invalid)
 		})
 	}
-}
-
-// requireTipIsSealing asserts whether the last block in storage is a sealing block.
-func requireTipIsSealing(t *testing.T, storage *MockStorage, want bool) {
-	t.Helper()
-	num := storage.NumBlocks()
-	require.Positive(t, num)
-	block, ok := storage.blockAt(num - 1)
-	require.True(t, ok)
-	require.Equal(t, want, block.SealingBlockInfo() != nil)
-}
-
-// countSealingBlocks returns the number of sealing blocks (blocks carrying a
-// BlockValidationDescriptor) currently in storage.
-func countSealingBlocks(t *testing.T, storage *MockStorage) int {
-	t.Helper()
-	count := 0
-	num := storage.NumBlocks()
-	for seq := uint64(0); seq < num; seq++ {
-		block, ok := storage.blockAt(seq)
-		if !ok {
-			continue
-		}
-		if block.SealingBlockInfo() != nil {
-			count++
-		}
-	}
-	return count
-}
-
-// waitForSealingBlockCount waits until storage holds at least target sealing blocks.
-func waitForSealingBlockCount(t *testing.T, storage *MockStorage, target int) {
-	t.Helper()
-	require.Eventually(t, func() bool {
-		return countSealingBlocks(t, storage) >= target
-	}, 20*time.Second, 100*time.Millisecond)
-}
-
-// newStorageWithGenesis returns storage holding only the genesis block, the ledger every node
-// here starts from.
-func newStorageWithGenesis(t *testing.T, genesisBlock *testInnerBlock) *MockStorage {
-	t.Helper()
-	storage := NewMockStorage(t)
-	genesis := &ParsedBlock{StateMachineBlock: metadata.StateMachineBlock{InnerBlock: genesisBlock}}
-	require.NoError(t, storage.Index(context.Background(), genesis, common.Finalization{}))
-	return storage
-}
-
-// newInstance builds an Instance sharing the common test dependencies but with its own ID,
-// storage and VM.
-func newInstance(t *testing.T, nodeID common.NodeID, storage *MockStorage, net *inMemNetwork, pChain *testPlatformChain, cops *testCryptoOps, genesisBlock *testInnerBlock) *Instance {
-	return newInstanceWithVM(t, nodeID, storage, net, pChain, cops, genesisBlock, newTestVM())
-}
-
-// newInstanceWithVM is like newInstance but uses a caller-supplied VM, so a test
-// can share one controllable VM across restarts of the same node.
-func newInstanceWithVM(t *testing.T, nodeID common.NodeID, storage *MockStorage, net *inMemNetwork, pChain *testPlatformChain, cops *testCryptoOps, genesisBlock *testInnerBlock, vm *testVM) *Instance {
-	comm := &networkSender{net: net, self: nodeID}
-	config := Config{
-		Logger:                   testutil.MakeLogger(t, int(nodeID[0])),
-		ID:                       nodeID,
-		VM:                       vm,
-		Storage:                  storage,
-		ICMETransition:           vm.ComputeICMEpoch,
-		Sender:                   comm,
-		Broadcaster:              comm,
-		PlatformChain:            pChain,
-		CryptoOps:                cops,
-		LastNonSimplexInnerBlock: genesisBlock,
-		WalCreator:               storage.CreateWAL,
-		ParameterConfig: ParameterConfig{
-			MaxNetworkDelay: 500 * time.Millisecond,
-			MaxRoundWindow:  100,
-			WALMaxSizeBytes: 1024,
-		},
-	}
-	return NewInstance(config)
-}
-
-func latestValidatorID(t *testing.T, storage *MockStorage) common.NodeID {
-	t.Helper()
-	num := storage.NumBlocks()
-	// Iterate backwards and find the latest sealing block (a block with a block validation descriptor)
-	for seq := int64(num) - 1; seq >= 0; seq-- {
-		block, ok := storage.blockAt(uint64(seq))
-		if !ok {
-			continue
-		}
-		if info := block.SealingBlockInfo(); info != nil {
-			return info.ValidatorSet[len(info.ValidatorSet)-1].Id
-		}
-	}
-	t.Fatalf("no block with a BlockValidationDescriptor found in storage")
-	return nil
-}
-
-// waitForNumBlocks waits until the given storage has at least targetHeight blocks.
-func waitForNumBlocks(t *testing.T, storage *MockStorage, targetHeight uint64) {
-	t.Helper()
-	require.Eventually(t, func() bool {
-		return storage.NumBlocks() >= targetHeight
-	}, 20*time.Second, 100*time.Millisecond, "storage did not commit %d blocks in time", targetHeight)
-}
-
-// waitForSealingBlock waits until a sealing block (a block carrying a BlockValidationDescriptor with the new weight)
-// is committed at or after fromSeq. It periodically injects approvals into the given instance.
-// Returns the seq of the sealing block.
-func waitForSealingBlock(t *testing.T, inst *Instance, approval *common.ValidatorSetApproval, fromSeq uint64) uint64 {
-	t.Helper()
-	var result uint64
-	storage := inst.Config.Storage.(*MockStorage)
-	require.Eventually(t, func() bool {
-		inst.lock.Lock()
-		msm := inst.msm
-		inst.lock.Unlock()
-		if msm != nil {
-			msm.HandleApproval(approval, 1)
-		}
-
-		num := storage.NumBlocks()
-		for seq := fromSeq; seq < num; seq++ {
-			block, ok := storage.blockAt(seq)
-			if !ok {
-				continue
-			}
-			if block.SealingBlockInfo() != nil {
-				result = seq
-				return true
-			}
-		}
-		return false
-	}, 20*time.Second, 100*time.Millisecond)
-	return result
-}
-
-type testInnerBlock struct {
-	Height_ uint64
-	TS      time.Time
-	Payload []byte
-}
-
-func (b *testInnerBlock) Bytes() []byte {
-	out := make([]byte, 16, 16+len(b.Payload))
-	binary.BigEndian.PutUint64(out[0:8], b.Height_)
-	binary.BigEndian.PutUint64(out[8:16], uint64(b.TS.UnixMilli()))
-	out = append(out, b.Payload...)
-	return out
-}
-
-func (b *testInnerBlock) Digest() [32]byte {
-	bytes := b.Bytes()
-	return sha256.Sum256(bytes)
-}
-
-func (b *testInnerBlock) Height() uint64                       { return b.Height_ }
-func (b *testInnerBlock) Timestamp() time.Time                 { return b.TS }
-func (b *testInnerBlock) Verify(context.Context, uint64) error { return nil }
-
-func parseTestInnerBlock(buff []byte) (*testInnerBlock, error) {
-	b := &testInnerBlock{}
-	b.Height_ = binary.BigEndian.Uint64(buff[0:8])
-	b.TS = time.UnixMilli(int64(binary.BigEndian.Uint64(buff[8:16])))
-	b.Payload = append([]byte(nil), buff[16:]...)
-	return b, nil
-}
-
-type testVM struct {
-	nextHeight atomic.Uint64
-	// When paused, the VM behaves as a chain with no pending transactions:
-	// WaitForPendingBlock and BuildBlock block until their context expires, so the
-	// epoch stops producing ordinary blocks. The epoch-transition and sealing
-	// machinery, which builds its block once the inner build times out, still runs —
-	// so pausing before an epoch change leaves the sealing block at the tip with
-	// nothing built on top. Lets a test pin the chain tip without touching storage.
-	paused atomic.Bool
-}
-
-func newTestVM() *testVM {
-	vm := &testVM{}
-	vm.nextHeight.Store(1) // the genesis inner block is height 0
-	return vm
-}
-
-func (vm *testVM) pause()  { vm.paused.Store(true) }
-func (vm *testVM) resume() { vm.paused.Store(false) }
-
-func (vm *testVM) BuildBlock(ctx context.Context, _ uint64) (avalanchego.VMBlock, error) {
-	if vm.paused.Load() {
-		<-ctx.Done() // let the caller's impatient build time out
-		return nil, ctx.Err()
-	}
-	h := vm.nextHeight.Add(1) - 1
-	payload := make([]byte, 8)
-	binary.BigEndian.PutUint64(payload, h)
-	return &testInnerBlock{Height_: h, TS: time.Now(), Payload: payload}, nil
-}
-
-func (vm *testVM) WaitForPendingBlock(ctx context.Context) {
-	if vm.paused.Load() {
-		<-ctx.Done() // no pending block while paused
-		return
-	}
-	select {
-	case <-ctx.Done():
-	case <-time.After(100 * time.Millisecond):
-	}
-}
-
-func (vm *testVM) ParseBlock(_ context.Context, b []byte) (avalanchego.VMBlock, error) {
-	return parseTestInnerBlock(b)
-}
-
-func (vm *testVM) ComputeICMEpoch(input metadata.ICMEpochInput) metadata.ICMEpochInfo {
-	// ACP-181-style transition (mirrors the msm test helper).
-	var zero metadata.ICMEpochInfo
-	if input.ParentEpoch == zero {
-		return metadata.ICMEpochInfo{
-			PChainEpochHeight: input.ParentPChainHeight,
-			EpochNumber:       1,
-			EpochStartTime:    uint64(input.ParentTimestamp.Unix()),
-		}
-	}
-	endTime := time.Unix(int64(input.ParentEpoch.EpochStartTime), 0).Add(time.Second)
-	if input.ParentTimestamp.Before(endTime) {
-		return input.ParentEpoch
-	}
-	return metadata.ICMEpochInfo{
-		PChainEpochHeight: input.ParentPChainHeight,
-		EpochNumber:       input.ParentEpoch.EpochNumber + 1,
-		EpochStartTime:    uint64(input.ParentTimestamp.Unix()),
-	}
-}
-
-type testPlatformChain struct {
-	baseHeight           uint64
-	validatorSetAtHeight map[uint64]metadata.NodeBLSMappings // height --> validator set
-	lock                 sync.Mutex
-	cond                 *sync.Cond
-	height               uint64
-}
-
-func newTestPlatformChain(baseHeight uint64, validatorSetsAtHeight map[uint64]metadata.NodeBLSMappings) *testPlatformChain {
-	pc := &testPlatformChain{
-		baseHeight:           baseHeight,
-		validatorSetAtHeight: validatorSetsAtHeight,
-		height:               baseHeight,
-	}
-	pc.cond = sync.NewCond(&pc.lock)
-	return pc
-}
-
-func (pc *testPlatformChain) advanceTo(h uint64) {
-	pc.lock.Lock()
-	defer pc.lock.Unlock()
-	pc.height = h
-	pc.cond.Broadcast() // wake any WaitForProgress waiters
-}
-
-func (pc *testPlatformChain) currentHeight() uint64 {
-	pc.lock.Lock()
-	defer pc.lock.Unlock()
-	return pc.height
-}
-
-func (pc *testPlatformChain) validatorSet(height uint64) metadata.NodeBLSMappings {
-	heights := make([]uint64, 0, len(pc.validatorSetAtHeight))
-	for h := range pc.validatorSetAtHeight {
-		heights = append(heights, h)
-	}
-	sort.Slice(heights, func(i, j int) bool { return heights[i] < heights[j] })
-
-	var lastCheckpoint uint64
-	for _, h := range heights {
-		if h > height {
-			break
-		}
-		lastCheckpoint = h
-	}
-	// Return a copy instead of the original slice so the reference won't be used in other goroutines concurrently.
-	// Since we allocate a nil slice, a new underlying array is allocated and the copy is safe to use concurrently.
-	src := pc.validatorSetAtHeight[lastCheckpoint]
-	return append(metadata.NodeBLSMappings(nil), src...)
-}
-
-func (pc *testPlatformChain) GetValidatorSet(height uint64) (metadata.NodeBLSMappings, error) {
-	return pc.validatorSet(height), nil
-}
-
-func (pc *testPlatformChain) GenesisValidatorSet() metadata.NodeBLSMappings {
-	return pc.validatorSet(pc.baseHeight)
-}
-
-func (pc *testPlatformChain) GetMinimumHeight() uint64 {
-	return pc.currentHeight()
-}
-
-func (pc *testPlatformChain) GetCurrentHeight() uint64 {
-	return pc.currentHeight()
-}
-
-func (pc *testPlatformChain) WaitForProgress(ctx context.Context, pChainHeight uint64) error {
-	stop := pc.signalWhenContextFinished(ctx)
-	defer stop()
-
-	pc.lock.Lock()
-	defer pc.lock.Unlock()
-	for pc.height == pChainHeight {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		pc.cond.Wait()
-	}
-	return nil
-}
-
-func (pc *testPlatformChain) signalWhenContextFinished(ctx context.Context) func() bool {
-	stop := context.AfterFunc(ctx, func() {
-		pc.lock.Lock()
-		defer pc.lock.Unlock()
-		pc.cond.Broadcast()
-	})
-	return stop
-}
-
-func (pc *testPlatformChain) LastNonSimplexBlockPChainHeight() uint64 {
-	return pc.baseHeight
-}
-
-type testCryptoOps struct{}
-
-func (c *testCryptoOps) Sign(message []byte) ([]byte, error) {
-	// A deterministic, non-empty placeholder signature.
-	d := sha256.Sum256(message)
-	return d[:], nil
-}
-
-func (c *testCryptoOps) AggregateKeys(keys ...[]byte) ([]byte, error) {
-	var out []byte
-	for _, k := range keys {
-		out = append(out, k...)
-	}
-	return out, nil
-}
-
-func (c *testCryptoOps) VerifySignature(_ []byte, _ []byte, _ []byte) error {
-	return nil
-}
-
-func (c *testCryptoOps) CreateSignatureAggregator(nodes []common.Node) common.SignatureAggregator {
-	return &testutil.TestSignatureAggregator{N: len(nodes)}
-}
-
-func (c *testCryptoOps) DeserializeQuorumCertificate(bytes []byte) (common.QuorumCertificate, error) {
-	var qc []common.Signature
-	if _, err := asn1.Unmarshal(bytes, &qc); err != nil {
-		return nil, err
-	}
-	return testutil.TestQC(qc), nil
-}
-
-type MockStorage struct {
-	t *testing.T
-	*testutil.InMemStorage
-
-	snapLock sync.Mutex
-	blocks   map[uint64]storedBlock
-	wals     []*testutil.TestWAL
-}
-
-type storedBlock struct {
-	rawBlock []byte
-	fin      common.Finalization
-}
-
-func NewMockStorage(t *testing.T) *MockStorage {
-	return &MockStorage{
-		t:            t,
-		InMemStorage: testutil.NewInMemStorage(),
-		blocks:       make(map[uint64]storedBlock),
-	}
-}
-
-func (m *MockStorage) Index(ctx context.Context, block common.VerifiedBlock, certificate common.Finalization) error {
-	// We serialized the block so that the original reference isn't shared with other goroutines that may concurrently mutate it.
-	encoded := block.Bytes()
-	seq := m.NumBlocks()
-	m.snapLock.Lock()
-	m.blocks[seq] = storedBlock{rawBlock: encoded, fin: certificate}
-	m.snapLock.Unlock()
-	return m.InMemStorage.Index(ctx, block, certificate)
-}
-
-func (m *MockStorage) GetBlock(seq uint64) (metadata.StateMachineBlock, *common.Finalization, error) {
-	_, f, err := m.Retrieve(seq)
-	if err != nil {
-		return metadata.StateMachineBlock{}, nil, err
-	}
-	sb, ok := m.blockAt(seq)
-	if !ok {
-		return metadata.StateMachineBlock{}, nil, fmt.Errorf("no snapshot for seq %d", seq)
-	}
-	return sb, &f, nil
-}
-
-// blockAt reconstructs an independent copy of the block at seq from its
-// stored bytes. Test-only readers use it instead of GetBlock so they never touch
-// the instance's live block objects (whose canoto digest cache the instance keeps
-// mutating).
-func (m *MockStorage) blockAt(seq uint64) (metadata.StateMachineBlock, bool) {
-	m.snapLock.Lock()
-	sb, ok := m.blocks[seq]
-	m.snapLock.Unlock()
-	if !ok {
-		return metadata.StateMachineBlock{}, false
-	}
-	return m.parseStored(sb.rawBlock), true
-}
-
-func (m *MockStorage) parseStored(encoded []byte) metadata.StateMachineBlock {
-	raw := &metadata.RawBlock{}
-	require.NoError(m.t, raw.UnmarshalCanoto(encoded))
-	var inner avalanchego.VMBlock
-	if len(raw.InnerBlockBytes) > 0 {
-		parsed, err := parseTestInnerBlock(raw.InnerBlockBytes)
-		require.NoError(m.t, err)
-		inner = parsed
-	}
-	return metadata.StateMachineBlock{InnerBlock: inner, Metadata: raw.Metadata}
-}
-
-func (m *MockStorage) CreateWAL() (wal.DeletableWAL, error) {
-	w := testutil.NewTestWAL(m.t)
-	m.snapLock.Lock()
-	m.wals = append(m.wals, w)
-	m.snapLock.Unlock()
-	return w, nil
-}
-
-// cloneBelow returns a storage holding every block of m below seq - the block at seq itself, and
-// anything after it, is left out - so that a test can bring up a node that lags the chain by them.
-func (m *MockStorage) cloneBelow(seq uint64) *MockStorage {
-	clone := NewMockStorage(m.t)
-	for cloned := uint64(0); cloned < seq; cloned++ {
-		m.snapLock.Lock()
-		stored, ok := m.blocks[cloned]
-		m.snapLock.Unlock()
-		require.True(m.t, ok)
-
-		block := &ParsedBlock{StateMachineBlock: m.parseStored(stored.rawBlock)}
-		require.NoError(m.t, clone.Index(context.Background(), block, stored.fin))
-	}
-	return clone
-}
-
-// containsNotarization reports whether any WAL this storage handed out holds a notarization for
-// the given round.
-func (m *MockStorage) containsNotarization(round uint64) bool {
-	m.snapLock.Lock()
-	wals := append([]*testutil.TestWAL(nil), m.wals...)
-	m.snapLock.Unlock()
-
-	for _, w := range wals {
-		if w.ContainsNotarization(round) {
-			return true
-		}
-	}
-	return false
-}
-
-// ---------------------------------------------------------------------------
-// inMemNetwork: Routes messages between Instances.
-// Delivery happens on a per-node goroutine rather than inline in Send,
-// due to locking.
-// ---------------------------------------------------------------------------
-
-type netMsg struct {
-	from common.NodeID
-	msg  *common.Message
-}
-
-type netNode struct {
-	inst *Instance
-	// in is a buffered inbox drained by the delivery goroutine. The channel itself
-	// signals that work is available, so no separate wake signal is needed. Sends
-	// never block (see enqueue); on the rare chance the buffer fills, a dropped
-	// message costs at most an empty round the epoch recovers from.
-	in      chan netMsg
-	done    chan struct{}
-	stopped chan struct{}
-}
-
-type inMemNetwork struct {
-	t     *testing.T
-	lock  sync.Mutex
-	nodes map[string]*netNode
-}
-
-func newInMemNetwork(t *testing.T) *inMemNetwork {
-	return &inMemNetwork{t: t, nodes: make(map[string]*netNode)}
-}
-
-// register wires inst into the network and starts delivering messages to it.
-// Messages that arrive before the epoch exists are dropped by the instance's
-// nil-epoch guard, which at worst costs a few empty rounds the epoch recovers from.
-func (n *inMemNetwork) register(id common.NodeID, inst *Instance) {
-	node := &netNode{
-		inst:    inst,
-		in:      make(chan netMsg, 1024),
-		done:    make(chan struct{}),
-		stopped: make(chan struct{}),
-	}
-	n.lock.Lock()
-	defer n.lock.Unlock()
-
-	// If an instance was previously registered under this id (e.g. a restart replacing
-	// the node), stop its delivery goroutine before swapping in the new one.
-	old := n.nodes[string(id)]
-	if old != nil {
-		close(old.done)
-		<-old.stopped
-	}
-
-	n.nodes[string(id)] = node
-
-	go n.deliver(node)
-}
-
-func (n *inMemNetwork) stop() {
-	n.lock.Lock()
-	nodes := make([]*netNode, 0, len(n.nodes))
-	for _, node := range n.nodes {
-		nodes = append(nodes, node)
-	}
-	n.nodes = make(map[string]*netNode)
-	n.lock.Unlock()
-	for _, node := range nodes {
-		close(node.done)
-		<-node.stopped
-	}
-}
-
-// registeredIDs returns the nodes currently wired into the network. Broadcasters go through it
-// rather than reading the map directly, since nodes register while others are already running.
-func (n *inMemNetwork) registeredIDs() []common.NodeID {
-	n.lock.Lock()
-	defer n.lock.Unlock()
-	ids := make([]common.NodeID, 0, len(n.nodes))
-	for _, node := range n.nodes {
-		ids = append(ids, node.inst.Config.ID)
-	}
-	return ids
-}
-
-func (n *inMemNetwork) enqueue(dest common.NodeID, m netMsg) {
-	n.lock.Lock()
-	node := n.nodes[string(dest)]
-	n.lock.Unlock()
-	if node == nil {
-		// Destination not registered; drop. This only happens before an instance
-		// is registered, never mid-run.
-		return
-	}
-	select {
-	case node.in <- m:
-	default:
-		// Never block the sender (Send runs under the epoch lock). A dropped message
-		// costs at most an empty round the epoch recovers from.
-	}
-}
-
-func (n *inMemNetwork) deliver(node *netNode) {
-	defer close(node.stopped)
-	for {
-		select {
-		case <-node.done:
-			return
-		case m := <-node.in:
-			n.dispatch(node.inst, m)
-		}
-	}
-}
-
-func (n *inMemNetwork) dispatch(inst *Instance, m netMsg) {
-	if err := inst.HandleMessage(m.msg, m.from); err != nil {
-		n.t.Logf("HandleMessage from %x failed: %v", m.from, err)
-	}
-}
-
-// toRawBlock re-encodes a verified block into the wire RawBlock the receiving
-// instance parses in HandleBlockMessage.
-func toRawBlock(t *testing.T, vb common.VerifiedBlock) *metadata.RawBlock {
-	bytes := vb.Bytes()
-	raw := &metadata.RawBlock{}
-	require.NoError(t, raw.UnmarshalCanoto(bytes))
-	return raw
-}
-
-// reparseBlock reconstructs an independent *ParsedBlock from a verified block's
-// wire bytes. Each call yields a fresh object sharing no pointers with the
-// sender's live block, so that remaining references to the sender's block don't race with the receiver.
-func reparseBlock(t *testing.T, vb common.VerifiedBlock) *ParsedBlock {
-	raw := toRawBlock(t, vb)
-	var inner avalanchego.VMBlock
-	if len(raw.InnerBlockBytes) > 0 {
-		parsed, err := parseTestInnerBlock(raw.InnerBlockBytes)
-		require.NoError(t, err)
-		inner = parsed
-	}
-	return &ParsedBlock{
-		StateMachineBlock: metadata.StateMachineBlock{InnerBlock: inner, Metadata: raw.Metadata},
-	}
-}
-
-type networkSender struct {
-	net  *inMemNetwork
-	self common.NodeID
-}
-
-func (s *networkSender) Broadcast(msg *common.Message) {
-	for _, dest := range s.net.registeredIDs() {
-		s.Send(msg, dest)
-	}
-}
-
-func (s *networkSender) Send(msg *common.Message, dest common.NodeID) {
-	if bytes.Equal(s.self, dest) {
-		// Do not send to myself
-		return
-	}
-	m := s.createIngressMessage(msg)
-	s.net.enqueue(dest, m)
-}
-
-// CreateIngressMessage translates a message into the form the receiving instance expects on the wire.
-// For example, a VerifiedBlockMessage is re-encoded as a BlockMessage with a RawBlock.
-// A VerifiedReplicationResponse is re-encoded as a ReplicationResponse with independent copies of the carried blocks.
-func (s *networkSender) createIngressMessage(msg *common.Message) netMsg {
-	m := netMsg{from: s.self}
-	switch {
-	case msg.VerifiedBlockMessage != nil:
-		m.msg = &common.Message{
-			BlockMessage: &common.BlockMessage{
-				Vote:  msg.VerifiedBlockMessage.Vote,
-				Block: reparseBlock(s.net.t, msg.VerifiedBlockMessage.VerifiedBlock),
-			},
-		}
-	case msg.VerifiedReplicationResponse != nil:
-		m.msg = &common.Message{ReplicationResponse: toReplicationResponse(s.net.t, msg.VerifiedReplicationResponse)}
-	default:
-		m.msg = msg
-	}
-	return m
-}
-
-// toReplicationResponse translates a VerifiedReplicationResponse (the sender's
-// internal form) into the ReplicationResponse a receiver handles on the wire,
-// mirroring testutil.TestComm. Each carried block is reconstructed as an
-// independent copy so the delivery goroutine never touches the sender's live
-// block object (whose canoto digest cache the sender keeps mutating).
-func toReplicationResponse(t *testing.T, vrr *common.VerifiedReplicationResponse) *common.ReplicationResponse {
-	data := make([]common.QuorumRound, 0, len(vrr.Data))
-	for _, vqr := range vrr.Data {
-		data = append(data, verifiedQuorumRoundToQuorumRound(t, vqr))
-	}
-	resp := &common.ReplicationResponse{Data: data}
-	if vrr.LatestRound != nil {
-		qr := verifiedQuorumRoundToQuorumRound(t, *vrr.LatestRound)
-		resp.LatestRound = &qr
-	}
-	if vrr.LatestFinalizedSeq != nil {
-		qr := verifiedQuorumRoundToQuorumRound(t, *vrr.LatestFinalizedSeq)
-		resp.LatestSeq = &qr
-	}
-	return resp
-}
-
-func verifiedQuorumRoundToQuorumRound(t *testing.T, vqr common.VerifiedQuorumRound) common.QuorumRound {
-	qr := common.QuorumRound{
-		Notarization:      vqr.Notarization,
-		Finalization:      vqr.Finalization,
-		EmptyNotarization: vqr.EmptyNotarization,
-	}
-	if vqr.VerifiedBlock != nil {
-		qr.Block = reparseBlock(t, vqr.VerifiedBlock)
-	}
-	return qr
 }
