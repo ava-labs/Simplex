@@ -171,7 +171,6 @@ func (cs *CachedStorage) Index(ctx context.Context, block common.VerifiedBlock, 
 		}
 	}
 
-	// remove previous epochs from map
 	if block.SealingBlockInfo() != nil && block.SealingBlockInfo().PrevSealingBlockHash != [32]byte{} {
 		cs.lastSealedEpoch = block.BlockHeader().Epoch
 	}
