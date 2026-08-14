@@ -108,7 +108,8 @@ type CachedStorage struct {
 	msm  *metadata.StateMachine
 	lock sync.RWMutex
 	Storage
-	cache map[common.Digest]cachedBlock
+	cache           map[common.Digest]cachedBlock
+	lastSealedEpoch uint64
 }
 
 func NewCachedStorage(storage Storage) *CachedStorage {
@@ -153,23 +154,29 @@ func (cs *CachedStorage) Retrieve(seq uint64, digest common.Digest) (common.Veri
 
 func (cs *CachedStorage) Index(ctx context.Context, block common.VerifiedBlock, certificate common.Finalization) error {
 	err := cs.Storage.Index(ctx, block, certificate)
+	if err != nil {
+		return err
+	}
 
-	if err == nil {
-		// We delete the block from the cache after it has been indexed because now that it is persisted,
-		// we can just lookup by sequence number instead of digest.
-		cs.lock.Lock()
-		defer cs.lock.Unlock()
-		delete(cs.cache, block.BlockHeader().Digest)
+	// We delete the block from the cache after it has been indexed because now that it is persisted,
+	// we can just lookup by sequence number instead of digest.
+	cs.lock.Lock()
+	defer cs.lock.Unlock()
+	delete(cs.cache, block.BlockHeader().Digest)
 
-		// We also delete all blocks that are older than the indexed block, because they are now finalized and persisted.
-		for digest, cachedBlock := range cs.cache {
-			if cachedBlock.BlockHeader().Seq < block.BlockHeader().Seq {
-				delete(cs.cache, digest)
-			}
+	// We also delete all blocks that are older than the indexed block, because they are now finalized and persisted.
+	for digest, cachedBlock := range cs.cache {
+		if cachedBlock.BlockHeader().Seq < block.BlockHeader().Seq {
+			delete(cs.cache, digest)
 		}
 	}
 
-	return err
+	// remove previous epochs from map
+	if block.SealingBlockInfo() != nil && block.SealingBlockInfo().PrevSealingBlockHash != [32]byte{} {
+		cs.lastSealedEpoch = block.BlockHeader().Epoch
+	}
+
+	return nil
 }
 
 func (cs *CachedStorage) insertBlock(block *ParsedBlock) {
