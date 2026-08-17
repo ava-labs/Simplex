@@ -35,6 +35,7 @@ func (c *Communication) Validators() common.Nodes {
 // Upon an epoch change, it will ignore blocks from previous epochs
 // and will call the onEpochChange callback when a new epoch is detected.
 type EpochAwareStorage struct {
+	// CachedStorage is used to ensure onIndex we prune the cache
 	*CachedStorage
 
 	msm           *metadata.StateMachine
