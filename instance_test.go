@@ -873,13 +873,14 @@ func newInstance(t *testing.T, nodeID common.NodeID, storage *MockStorage, net *
 
 // newInstanceWithVM is like newInstance but uses a caller-supplied VM, so a test
 // can share one controllable VM across restarts of the same node.
-func newInstanceWithVM(t *testing.T, nodeID common.NodeID, storage *MockStorage, net *inMemNetwork, pChain *testPlatformChain, cops *testCryptoOps, genesisBlock *testInnerBlock, vm VM) *Instance {
+func newInstanceWithVM(t *testing.T, nodeID common.NodeID, storage *MockStorage, net *inMemNetwork, pChain *testPlatformChain, cops *testCryptoOps, genesisBlock *testInnerBlock, vm *testVM) *Instance {
 	comm := &networkSender{net: net, self: nodeID}
 	config := Config{
 		Logger:                   testutil.MakeLogger(t, int(nodeID[0])),
 		ID:                       nodeID,
 		VM:                       vm,
 		Storage:                  storage,
+		ICMETransition:           vm.ComputeICMEpoch,
 		Sender:                   comm,
 		Broadcaster:              comm,
 		PlatformChain:            pChain,
