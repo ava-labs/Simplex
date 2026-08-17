@@ -39,12 +39,13 @@ type Config struct {
 	// WalCreator is the interface to create new write-ahead logs for the simplex instance.
 	WalCreator wal.Creator
 	// Storage is the interface to the block storage layer for the simplex instance.
-	Storage Storage
-	Logger  common.Logger
-	Sender  Sender
-	WALs    []wal.DeletableWAL
-	VM      VM
-	ID      common.NodeID
+	Storage        Storage
+	Logger         common.Logger
+	Sender         Sender
+	WALs           []wal.DeletableWAL
+	VM             VM
+	ICMETransition metadata.ICMEpochTransition
+	ID             common.NodeID
 }
 
 type nodeRole byte
@@ -461,7 +462,7 @@ func (i *Instance) createEpochConfig() (simplex.EpochConfig, error) {
 		GetPChainHeightForProposing:     i.Config.PlatformChain.GetMinimumHeight,
 		GetPChainHeightForVerifying:     i.Config.PlatformChain.GetCurrentHeight,
 		AuxiliaryInfoApp:                &NoopAuxiliaryInfoApp{},
-		ComputeICMEpoch:                 i.Config.VM.ComputeICMEpoch,
+		ComputeICMEpoch:                 i.Config.ICMETransition,
 		GetBlock:                        i.cs.RetrieveBlock,
 	})
 	if err != nil {
