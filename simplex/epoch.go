@@ -295,14 +295,19 @@ func (e *Epoch) Start() error {
 		return ErrAlreadyStarted
 	}
 
+	// Restoring may schedule tasks that mutate the epoch from other goroutines.
+	e.lock.Lock()
 	err := e.restoreFromWal()
 	if err != nil {
+		e.lock.Unlock()
 		return err
 	}
 
 	// Only init receiving messages once you have initialized the data structures required for it.
 	e.Logger.Debug("Epoch is ready to receive messages", zap.Uint64("epoch", e.Epoch))
 	e.canReceiveMessages.Store(true)
+	e.lock.Unlock()
+
 	e.broadcastReplicationSync()
 
 	return nil
