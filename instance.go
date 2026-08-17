@@ -156,9 +156,8 @@ func (i *Instance) createNonValidatorConfig(epochNum uint64, validators common.N
 	comm.SetValidators(validators)
 
 	epochAwareStorage := &EpochAwareStorage{
-		epoch: epochNum,
-		// Index through the cache so blocks inserted upon verification are evicted once finalized.
-		Storage: i.cs,
+		CachedStorage: i.cs,
+		epoch:         epochNum,
 		onEpochChange: func(epoch uint64, validators common.Nodes) error {
 			height := i.Config.PlatformChain.GetCurrentHeight()
 			vdrs, err := i.Config.PlatformChain.GetValidatorSet(height)
@@ -483,9 +482,9 @@ func (i *Instance) createEpochConfig() (simplex.EpochConfig, error) {
 	comm.SetValidators(nodes)
 
 	epochAwareStorage := &EpochAwareStorage{
-		msm:     msm,
-		epoch:   epochNum,
-		Storage: i.cs,
+		CachedStorage: i.cs,
+		msm:           msm,
+		epoch:         epochNum,
 		onEpochChange: func(epoch uint64, validators common.Nodes) error {
 			blockBuilder.stop()
 			comm.SetValidators(validators)
