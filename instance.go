@@ -514,7 +514,7 @@ func (i *Instance) createEpochConfig() (simplex.EpochConfig, error) {
 		Storage:                    epochAwareStorage,
 		Comm:                       comm,
 		BlockBuilder:               blockBuilder,
-		BlockDeserializer:          &blockDeserializer{vm: i.Config.VM, msm: msm},
+		BlockDeserializer:          &blockDeserializer{vm: i.Config.VM, cs: i.cs},
 	}
 	return epochConfig, nil
 }

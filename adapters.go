@@ -236,8 +236,8 @@ func (bw *BlockBuilderWaiter) BuildBlock(ctx context.Context, metadata common.Pr
 }
 
 type blockDeserializer struct {
-	vm  VM
-	msm *metadata.StateMachine
+	vm VM
+	cs *CachedStorage
 }
 
 func (bd *blockDeserializer) DeserializeBlock(ctx context.Context, bytes []byte) (common.Block, error) {
@@ -250,11 +250,14 @@ func (bd *blockDeserializer) DeserializeBlock(ctx context.Context, bytes []byte)
 	if err != nil {
 		return nil, err
 	}
-	return &ParsedBlock{
-		StateMachineBlock: metadata.StateMachineBlock{
-			InnerBlock: block,
-			Metadata:   rawBlock.Metadata,
+	return &cachedBlock{
+		ParsedBlock: &ParsedBlock{
+			StateMachineBlock: metadata.StateMachineBlock{
+				InnerBlock: block,
+				Metadata:   rawBlock.Metadata,
+			},
+			msm: bd.cs.msm,
 		},
-		msm: bd.msm,
+		cache: bd.cs,
 	}, nil
 }

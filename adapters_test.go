@@ -7,8 +7,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ava-labs/simplex/avalanchego"
 	"github.com/ava-labs/simplex/common"
 	metadata "github.com/ava-labs/simplex/msm"
+	"github.com/ava-labs/simplex/testutil"
+	"github.com/ava-labs/simplex/wal"
 
 	"github.com/stretchr/testify/require"
 )
@@ -68,4 +71,81 @@ func TestCachedStorageRetrieveBySeq(t *testing.T) {
 	// Not in storage should error
 	_, _, err = cs.Retrieve(7, common.Digest{})
 	require.ErrorIs(t, err, common.ErrBlockNotFound)
+}
+
+// TestCachedStoragePopulatedByWal asserts that a block restored from the WAL on
+// startup ends up in the instance's CachedStorage, retrievable by seq before it
+// is finalized and indexed.
+func TestCachedStoragePopulatedByWal(t *testing.T) {
+	const basePChainHeight = uint64(1)
+
+	// Four equal-weight validators; the node under test is the first.
+	numNodes := 4
+	validatorSet := make(metadata.NodeBLSMappings, numNodes)
+	for i := range numNodes {
+		validatorSet[i] = metadata.NodeBLSMapping{NodeID: avalanchego.NodeID{byte(i + 1)}, BLSKey: []byte{byte(i + 1)}, Weight: 1}
+	}
+	pChain := newTestPlatformChain(basePChainHeight, map[uint64]metadata.NodeBLSMappings{
+		basePChainHeight: validatorSet,
+	})
+
+	vm := newTestVM()
+	vm.pause()
+	cops := &testCryptoOps{}
+	genesisBlock := &testInnerBlock{Height_: 0, TS: time.Now(), Payload: []byte("genesis")}
+	storage := newStorageWithGenesis(t, genesisBlock)
+	nodeIDs := validatorSet.Nodes().NodeIDs()
+	comm := testutil.NewNoopComm(nodeIDs)
+	logger := testutil.MakeLogger(t, 1)
+	testWAL := testutil.NewTestWAL(t)
+
+	// The first Simplex block on top of the genesis block.
+	genesis := &ParsedBlock{StateMachineBlock: metadata.StateMachineBlock{InnerBlock: genesisBlock}}
+	block := newTestParsedBlock(1, "wal block")
+	block.Metadata.SimplexProtocolMetadata.Epoch = 1
+	block.Metadata.SimplexProtocolMetadata.Prev = genesis.BlockHeader().Digest
+
+	blockRecord, err := common.BlockRecord(block.BlockHeader(), block.Bytes())
+	require.NoError(t, err)
+
+	// write block record to wal
+	require.NoError(t, testWAL.Append(blockRecord))
+
+	// notarize the block so restoring the WAL keeps it as the round in progress
+	quorum := common.Quorum(len(nodeIDs))
+	notarizationRecord, err := testutil.NewNotarizationRecord(logger, cops.CreateSignatureAggregator(validatorSet.Nodes()), block, nodeIDs[:quorum])
+	require.NoError(t, err)
+	require.NoError(t, testWAL.Append(notarizationRecord))
+
+	config := Config{
+		Logger:                   logger,
+		ID:                       nodeIDs[0],
+		VM:                       vm,
+		Storage:                  storage,
+		Sender:                   comm,
+		Broadcaster:              comm,
+		PlatformChain:            pChain,
+		CryptoOps:                cops,
+		LastNonSimplexInnerBlock: genesisBlock,
+		WalCreator:               storage.CreateWAL,
+		ParameterConfig: ParameterConfig{
+			MaxNetworkDelay:  500 * time.Millisecond,
+			MaxRoundWindow:   100,
+			WALMaxEntryCount: 1024,
+		},
+		WALs: []wal.DeletableWAL{testWAL},
+	}
+	instance := NewInstance(config)
+	require.NoError(t, instance.Start(t.Context()))
+	t.Cleanup(instance.Stop)
+
+	// The restored block is verified asynchronously and not indexed, so poll until
+	// a seq-only lookup serves it from the cache.
+	require.Eventually(t, func() bool {
+		got, fin, err := instance.cs.Retrieve(1, common.Digest{})
+		if err != nil || fin != nil {
+			return false
+		}
+		return got.BlockHeader().Digest == block.BlockHeader().Digest
+	}, 20*time.Second, 100*time.Millisecond)
 }
