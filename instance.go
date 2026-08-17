@@ -309,20 +309,37 @@ func (i *Instance) HandleMessage(msg *common.Message, from common.NodeID) error 
 	}
 
 	if i.e != nil {
-		switch {
-		case msg.AuxiliaryInfo != nil:
-			i.msm.HandleAuxiliaryInfo(*msg.AuxiliaryInfo, avalanchego.NodeID(from))
-		case msg.EpochTransitionApproval != nil:
-			// TODO: pass in time.Now() rather than uint64
-			i.msm.HandleApproval(msg.EpochTransitionApproval, uint64(time.Now().Unix()))
-		}
-		return i.e.HandleMessage(msg, from)
+		return i.handleValidatorMessage(msg, from)
 	}
 
 	if i.nv != nil {
 		return i.nv.HandleMessage(msg, from)
 	}
 	return nil
+}
+
+func (i *Instance) handleValidatorMessage(msg *common.Message, from common.NodeID) error {
+	// we only want to process replication requests if the epoch is sealed
+	if i.cs.lastSealedEpoch == i.e.Metadata().Epoch {
+		if msg.ReplicationRequest != nil && i.e.ReplicationEnabled {
+			return i.e.HandleMessage(msg, from)
+		}
+
+		i.Config.Logger.Debug("Receive a message for an epoch that was sealed", zap.Uint64("epoch", i.cs.lastSealedEpoch), zap.Any("Message", msg))
+		return nil
+	}
+
+	switch {
+	case msg.AuxiliaryInfo != nil:
+		i.msm.HandleAuxiliaryInfo(*msg.AuxiliaryInfo, avalanchego.NodeID(from))
+		return nil
+	case msg.EpochTransitionApproval != nil:
+		// TODO: pass in time.Now() rather than uint64
+		i.msm.HandleApproval(msg.EpochTransitionApproval, uint64(time.Now().Unix()))
+		return nil
+	}
+
+	return i.e.HandleMessage(msg, from)
 }
 
 func (i *Instance) wireReplicationResponse(msg *common.Message) error {
