@@ -332,9 +332,11 @@ func (i *Instance) handleValidatorMessage(msg *common.Message, from common.NodeI
 	switch {
 	case msg.AuxiliaryInfo != nil:
 		i.msm.HandleAuxiliaryInfo(*msg.AuxiliaryInfo, avalanchego.NodeID(from))
+		return nil
 	case msg.EpochTransitionApproval != nil:
 		// TODO: pass in time.Now() rather than uint64
 		i.msm.HandleApproval(msg.EpochTransitionApproval, uint64(time.Now().Unix()))
+		return nil
 	}
 
 	return i.e.HandleMessage(msg, from)
