@@ -35,42 +35,79 @@ func newTestParsedBlock(num uint64, payload string) *ParsedBlock {
 	}
 }
 
-// TestCachedStorageRetrieveBySeq asserts that Retrieve serves a verified but
-// not yet indexed block when the caller passes a zero digest or a digest that
-// misses the cache, by matching on seq alone.
-func TestCachedStorageRetrieveBySeq(t *testing.T) {
+// TestCachedStorageRetrieve asserts Retrieve against an indexed block at seq 0
+// and a verified but not yet indexed block at seq 5. A zero digest matches on
+// seq alone, a non-zero digest must match the block's digest exactly.
+func TestCachedStorageRetrieve(t *testing.T) {
 	cs := NewCachedStorage(NewMockStorage(t))
 	indexedBlock := newTestParsedBlock(0, "indexed")
-
 	require.NoError(t, cs.Index(t.Context(), indexedBlock, common.Finalization{}))
 
-	block := newTestParsedBlock(5, "cached")
-	cachedBlock := &cachedBlock{
-		ParsedBlock: block,
+	verifiedBlockSeq := uint64(5)
+	verifiedBlock := newTestParsedBlock(verifiedBlockSeq, "cached")
+	cached := &cachedBlock{
+		ParsedBlock: verifiedBlock,
 		cache:       cs,
 	}
-
-	_, err := cachedBlock.Verify(t.Context(), common.OnlyVMVerifyOpt)
+	_, err := cached.Verify(t.Context(), common.OnlyVMVerifyOpt)
 	require.NoError(t, err)
 
-	// Seq-only lookup with a zero digest.
-	got, fin, err := cs.Retrieve(5, common.Digest{})
-	require.NoError(t, err)
-	require.Nil(t, fin)
-	require.Equal(t, cachedBlock.ParsedBlock, got)
+	tests := []struct {
+		name      string
+		seq       uint64
+		digest    common.Digest
+		wantBlock *ParsedBlock
+		wantErr   error
+	}{
+		{
+			name:      "cached block by seq with zero digest",
+			seq:       verifiedBlockSeq,
+			wantBlock: verifiedBlock,
+		},
+		{
+			name:      "cached block with matching digest",
+			seq:       verifiedBlockSeq,
+			digest:    cached.Digest(),
+			wantBlock: verifiedBlock,
+		},
+		{
+			name:    "cached block with mismatched digest",
+			seq:     verifiedBlockSeq,
+			digest:  common.Digest{1, 2, 3},
+			wantErr: common.ErrBlockNotFound,
+		},
+		{
+			name:      "uncached seq falls through to storage",
+			seq:       0,
+			wantBlock: indexedBlock,
+		},
+		{
+			name:    "indexed block with mismatched digest",
+			seq:     0,
+			digest:  common.Digest{1, 2, 3},
+			wantErr: common.ErrBlockNotFound,
+		},
+		{
+			name:    "seq not cached or in storage",
+			seq:     7,
+			wantErr: common.ErrBlockNotFound,
+		},
+	}
 
-	// Requesting a different digest for that sequence, returns error not found
-	_, _, err = cs.Retrieve(5, common.Digest{1})
-	require.ErrorIs(t, err, common.ErrBlockNotFound)
-
-	// A seq that is not cached falls through to storage.
-	indexed, _, err := cs.Retrieve(0, common.Digest{})
-	require.NoError(t, err, common.ErrBlockNotFound)
-	require.Equal(t, indexedBlock, indexed)
-
-	// Not in storage should error
-	_, _, err = cs.Retrieve(7, common.Digest{})
-	require.ErrorIs(t, err, common.ErrBlockNotFound)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, fin, err := cs.Retrieve(tt.seq, tt.digest)
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.wantBlock, got)
+			if tt.wantBlock == verifiedBlock {
+				require.Nil(t, fin)
+			}
+		})
+	}
 }
 
 // TestCachedStoragePopulatedByWal asserts that a block restored from the WAL on
