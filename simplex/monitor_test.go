@@ -125,9 +125,11 @@ func TestMonitorAsyncWaitForWithNestedWaitUntil(t *testing.T) {
 
 	var wg sync.WaitGroup
 	wg.Add(1)
+	// FutureTask must be scheduled before AdvanceTime, otherwise the deadline
+	// is computed from the advanced clock and the tick never satisfies it.
 	mon.RunTask(func() {
-		go mon.AdvanceTime(start.Add(10 * time.Millisecond))
 		mon.FutureTask(10*time.Millisecond, wg.Done)
+		mon.AdvanceTime(start.Add(10 * time.Millisecond))
 	})
 	wg.Wait()
 }
