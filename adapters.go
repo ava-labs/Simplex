@@ -113,26 +113,33 @@ func (cs *CachedStorage) RetrieveBlock(seq uint64, digest common.Digest) (metada
 
 func (cs *CachedStorage) Retrieve(seq uint64, digest common.Digest) (common.VerifiedBlock, *common.Finalization, error) {
 	cs.lock.RLock()
+
+	// A cached block is not finalized yet, since indexing removes it from the cache.
 	item, exists := cs.cache[digest]
 	if exists {
 		cs.lock.RUnlock()
-		// If the block is cached, it means it's not finalized yet, because upon finalizing the block (indexing)
-		// we also remove it from the cache. Therefore, we return nil for the finalization.
 		return item.ParsedBlock, nil, nil
+	}
+
+	if digest != (common.Digest{}) {
+		cs.lock.RUnlock()
+		return nil, nil, common.ErrBlockNotFound
+	}
+
+	for _, cb := range cs.cache {
+		if cb.BlockHeader().Seq == seq {
+			cs.lock.RUnlock()
+			return cb.ParsedBlock, nil, nil
+		}
 	}
 	cs.lock.RUnlock()
 
 	// We don't populate the cache here because we populate it externally.
-
 	block, finalization, err := cs.GetBlock(seq)
-	if err != nil {
-		return nil, nil, err
-	}
-
 	return &ParsedBlock{
 		StateMachineBlock: block,
 		msm:               cs.msm,
-	}, finalization, nil
+	}, finalization, err
 }
 
 func (cs *CachedStorage) Index(ctx context.Context, block common.VerifiedBlock, certificate common.Finalization) error {
