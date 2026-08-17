@@ -114,28 +114,28 @@ func (cs *CachedStorage) RetrieveBlock(seq uint64, digest common.Digest) (metada
 func (cs *CachedStorage) Retrieve(seq uint64, digest common.Digest) (common.VerifiedBlock, *common.Finalization, error) {
 	cs.lock.RLock()
 
-	// A cached block is not finalized yet, since indexing removes it from the cache.
 	item, exists := cs.cache[digest]
 	if exists {
 		cs.lock.RUnlock()
 		return item.ParsedBlock, nil, nil
 	}
 
-	if digest != (common.Digest{}) {
-		cs.lock.RUnlock()
-		return nil, nil, common.ErrBlockNotFound
-	}
-
 	for _, cb := range cs.cache {
 		if cb.BlockHeader().Seq == seq {
-			cs.lock.RUnlock()
-			return cb.ParsedBlock, nil, nil
+			if cb.Digest() == digest || digest == (common.Digest{}) {
+				cs.lock.RUnlock()
+				return cb.ParsedBlock, nil, nil
+			}
 		}
 	}
 	cs.lock.RUnlock()
 
 	// We don't populate the cache here because we populate it externally.
 	block, finalization, err := cs.GetBlock(seq)
+	if digest != (common.Digest{}) && block.Digest() != digest {
+		return nil, nil, common.ErrBlockNotFound
+	}
+
 	return &ParsedBlock{
 		StateMachineBlock: block,
 		msm:               cs.msm,
