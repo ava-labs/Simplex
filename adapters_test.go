@@ -112,25 +112,24 @@ func TestCachedStorageRetrieve(t *testing.T) {
 
 // TestCachedStorageIndexEvictsSameSeqFork asserts that once a seq is indexed,
 // a zero-digest Retrieve of that seq returns the finalized block with its
-// finalization, even when a verified fork at the same seq was cached. A prune
-// of only lower seqs would serve the stale fork with nil finalization.
+// finalization, even when a verified fork at the same seq was cached.
 func TestCachedStorageIndexEvictsSameSeqFork(t *testing.T) {
 	cs := NewCachedStorage(NewMockStorage(t))
 	require.NoError(t, cs.Index(t.Context(), newTestParsedBlock(0, "genesis"), common.Finalization{}))
 
-	fork := &cachedBlock{
+	equivocatedBlock := &cachedBlock{
 		ParsedBlock: newTestParsedBlock(1, "fork"),
 		cache:       cs,
 	}
-	_, err := fork.Verify(t.Context(), common.OnlyVMVerifyOpt)
+	_, err := equivocatedBlock.Verify(t.Context(), common.OnlyVMVerifyOpt)
 	require.NoError(t, err)
 
 	finalized := newTestParsedBlock(1, "finalized")
 	require.NoError(t, cs.Index(t.Context(), finalized, common.Finalization{}))
 
-	got, fin, err := cs.Retrieve(1, common.Digest{})
+	retrievedBlock, fin, err := cs.Retrieve(1, common.Digest{})
 	require.NoError(t, err)
-	require.Equal(t, finalized.BlockHeader().Digest, got.BlockHeader().Digest)
+	require.Equal(t, finalized.BlockHeader().Digest, retrievedBlock.BlockHeader().Digest)
 	require.NotNil(t, fin)
 }
 
