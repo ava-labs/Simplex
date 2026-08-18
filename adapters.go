@@ -60,8 +60,7 @@ func (e *EpochAwareStorage) Index(ctx context.Context, block common.VerifiedBloc
 		// This is a Telock from a previous epoch, so we ignore it and do not index it.
 		return nil
 	}
-	// e.Storage would resolve to the raw storage promoted through CachedStorage,
-	// skipping the cache eviction in CachedStorage.Index.
+
 	if err := e.CachedStorage.Index(ctx, block, certificate); err != nil {
 		return err
 	}
@@ -136,8 +135,8 @@ func (cs *CachedStorage) Retrieve(seq uint64, digest common.Digest) (common.Veri
 
 	// We don't populate the cache here because we populate it externally.
 	block, finalization, err := cs.GetBlock(seq)
-	if err != nil {
-		return nil, nil, err
+	if digest != (common.Digest{}) && block.Digest() != digest {
+		return nil, nil, common.ErrBlockNotFound
 	}
 	if digest != (common.Digest{}) && block.Digest() != digest {
 		return nil, nil, common.ErrBlockNotFound
@@ -146,7 +145,7 @@ func (cs *CachedStorage) Retrieve(seq uint64, digest common.Digest) (common.Veri
 	return &ParsedBlock{
 		StateMachineBlock: block,
 		msm:               cs.msm,
-	}, finalization, nil
+	}, finalization, err
 }
 
 func (cs *CachedStorage) Index(ctx context.Context, block common.VerifiedBlock, certificate common.Finalization) error {
