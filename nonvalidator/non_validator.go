@@ -274,7 +274,9 @@ func (n *NonValidator) newFinalizedBlockTask(block common.Block, finalization *c
 			// are we the highest validator
 			highestEpoch, highestValidatorSet := n.epochs.highestEpoch()
 			if highestValidatorSet.Contains(n.ID) && highestEpoch == md.Seq {
-				n.TransitionToValidator(block.BlockHeader().Seq, block.SealingBlockInfo().ValidatorSet)
+				if n.TransitionToValidator != nil {
+					n.TransitionToValidator(block.BlockHeader().Seq, block.SealingBlockInfo().ValidatorSet)
+				}
 			}
 		}
 

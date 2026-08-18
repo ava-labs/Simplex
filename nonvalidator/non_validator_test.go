@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -317,6 +318,154 @@ func TestHandleMessages_DuplicateBlock(t *testing.T) {
 	// Storage will panic if we try indexing the same block twice
 	require.NoError(t, nv.HandleMessage(block.msg, block.from))
 	require.NoError(t, nv.HandleMessage(fin.msg, fin.from))
+}
+
+// transitionCall records one TransitionToValidator invocation.
+type transitionCall struct {
+	epoch      uint64
+	validators common.Nodes
+}
+
+// TestNonValidator_CallsTransition asserts TransitionToValidator fires exactly when
+// an indexed sealing block opens the highest known epoch and our ID is in its new
+// validator set.
+func TestNonValidator_CallsTransition(t *testing.T) {
+	newValidatorID := common.NodeID{5}
+	joinedSet := append(slices.Clone(testNodes), common.Node{Id: newValidatorID, Weight: 1})
+	otherSet := append(slices.Clone(testNodes), common.Node{Id: common.NodeID{6}, Weight: 1})
+
+	tests := []struct {
+		name          string
+		setup         func(t *testing.T) (*testChain, []*messageInfo)
+		expectedCalls []transitionCall
+	}{
+		{
+			name: "joins the new validator set",
+			setup: func(t *testing.T) (*testChain, []*messageInfo) {
+				tc := newSeededChain(t, testNodes, 2)
+				b3 := tc.appendSealing(joinedSet)
+				b4 := tc.appendBlock()
+				return tc, []*messageInfo{
+					blockMsg(t, b3, testNodes),
+					finalizationMsg(t, b3, testNodes),
+					blockMsg(t, b4, joinedSet),
+					finalizationMsg(t, b4, joinedSet),
+				}
+			},
+			expectedCalls: []transitionCall{{epoch: 3, validators: joinedSet}},
+		},
+		{
+			name: "not in the new validator set",
+			setup: func(t *testing.T) (*testChain, []*messageInfo) {
+				tc := newSeededChain(t, testNodes, 2)
+				b3 := tc.appendSealing(testNodes)
+				b4 := tc.appendBlock()
+				return tc, []*messageInfo{
+					blockMsg(t, b3, testNodes),
+					finalizationMsg(t, b3, testNodes),
+					blockMsg(t, b4, testNodes),
+					finalizationMsg(t, b4, testNodes),
+				}
+			},
+		},
+		{
+			// b3 seals an epoch we are not part of, b4 seals the one we join.
+			// b3 never triggers: either epoch 4 is already known, or epoch 3's
+			// set does not contain us.
+			name: "only the highest known epoch triggers",
+			setup: func(t *testing.T) (*testChain, []*messageInfo) {
+				tc := newSeededChain(t, testNodes, 2)
+				b3 := tc.appendSealing(otherSet)
+				b4 := tc.appendSealing(joinedSet)
+				b5 := tc.appendBlock()
+				return tc, []*messageInfo{
+					blockMsg(t, b3, testNodes),
+					finalizationMsg(t, b3, testNodes),
+					blockMsg(t, b4, otherSet),
+					finalizationMsg(t, b4, otherSet),
+					blockMsg(t, b5, joinedSet),
+					finalizationMsg(t, b5, joinedSet),
+				}
+			},
+			expectedCalls: []transitionCall{{epoch: 4, validators: joinedSet}},
+		},
+		{
+			// A threshold of quorum rounds for b5, the highest sealing block,
+			// validates epoch 5 before anything indexes. b3 then indexes while a
+			// higher epoch is already known, so even though we are in b3's set
+			// only b5 triggers the transition.
+			name: "highest epoch validated up front",
+			setup: func(t *testing.T) (*testChain, []*messageInfo) {
+				tc := newSeededChain(t, testNodes, 2)
+				b3 := tc.appendSealing(joinedSet)
+				b4 := tc.appendSealing(otherSet)
+				b5 := tc.appendSealing(joinedSet)
+				b6 := tc.appendBlock()
+
+				f5 := tc.newFinalization(b5)
+				qrMsg := &common.Message{
+					ReplicationResponse: &common.ReplicationResponse{
+						Data: []common.QuorumRound{{Block: b5, Finalization: &f5}},
+					},
+				}
+
+				threshold := common.F(len(joinedSet)) + 1
+				msgs := make([]*messageInfo, 0, threshold+8)
+				for i := 0; i < threshold; i++ {
+					msgs = append(msgs, &messageInfo{msg: qrMsg, from: joinedSet.NodeIDs()[i]})
+				}
+				return tc, append(msgs,
+					blockMsg(t, b3, testNodes),
+					finalizationMsg(t, b3, testNodes),
+					blockMsg(t, b4, joinedSet),
+					finalizationMsg(t, b4, joinedSet),
+					blockMsg(t, b5, otherSet),
+					finalizationMsg(t, b5, otherSet),
+					blockMsg(t, b6, joinedSet),
+					finalizationMsg(t, b6, joinedSet),
+				)
+			},
+			expectedCalls: []transitionCall{{epoch: 5, validators: joinedSet}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tc, msgs := tt.setup(t)
+			lastSeq := tc.seq
+
+			var lock sync.Mutex
+			var calls []transitionCall
+
+			nv, err := NewNonValidator(
+				Config{
+					Storage:                    tc,
+					Comm:                       testutil.NewNoopComm(tc.nodes().NodeIDs()),
+					Logger:                     testutil.MakeLogger(t, 1),
+					SignatureAggregatorCreator: tc.signatureAggregatorCreator,
+					MaxSequenceWindow:          simplex.DefaultMaxRoundWindow,
+					ID:                         newValidatorID,
+					TransitionToValidator: func(epoch uint64, validators common.Nodes) {
+						lock.Lock()
+						defer lock.Unlock()
+						calls = append(calls, transitionCall{epoch: epoch, validators: validators})
+					},
+				},
+			)
+			require.NoError(t, err)
+			defer nv.Stop()
+
+			for _, m := range msgs {
+				require.NoError(t, nv.HandleMessage(m.msg, m.from))
+			}
+
+			tc.WaitForBlockCommit(lastSeq)
+
+			lock.Lock()
+			defer lock.Unlock()
+			require.Equal(t, tt.expectedCalls, calls)
+		})
+	}
 }
 
 // TestNonValidator_RequestHighestEpochOnStart verifies that a non-validator
