@@ -7,7 +7,6 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
-	"errors"
 	"fmt"
 	"math"
 	"testing"
@@ -1596,8 +1595,9 @@ func TestVerifyCollectingApprovalsNotReady(t *testing.T) {
 		sm, tc, parent := newSM(t)
 		block := build(t, sm, tc, parent)
 
-		// The builder generated auxiliary info but collected no approvals.
-		require.NotNil(t, block.Metadata.AuxiliaryInfo)
+		// No auxiliary info was received and the history isn't ready, so the builder collects
+		// neither auxiliary info (nil batch) nor approvals.
+		require.Nil(t, block.Metadata.AuxiliaryInfoBatch)
 		require.Empty(t, block.Metadata.SimplexEpochInfo.NextEpochApprovals.NodeIDs)
 		require.Empty(t, block.Metadata.SimplexEpochInfo.NextEpochApprovals.Signature)
 
@@ -1650,7 +1650,7 @@ func TestCollectingApprovalsAuxInfoGating(t *testing.T) {
 	vote1 := []byte("vote-1")
 	vote2 := []byte("vote-2")
 	votes := [][]byte{vote1, vote2}
-	sm.AuxiliaryInfoApp = &voteCountingAuxInfoApp{
+	auxiliaryApp := &voteCountingAuxInfoApp{
 		threshold: 2,
 		randomTape: func() []byte {
 			next := votes[0]
@@ -1658,10 +1658,9 @@ func TestCollectingApprovalsAuxInfoGating(t *testing.T) {
 			return next
 		},
 	}
+	sm.AuxiliaryInfoApp = auxiliaryApp
 
-	// A 3-node validator set including MyNodeID at index 0, so the optimistic self-approval
-	// is retained once approvals are collected, but a single approval is below quorum (the
-	// block stays in the collecting state rather than sealing).
+	// A 3-node validator set including MyNodeID at index 0
 	validators := NodeBLSMappings{
 		{NodeID: avalanchego.NodeID(sm.MyNodeID), BLSKey: []byte{1}, Weight: 1},
 		{NodeID: avalanchego.NodeID{0xBB}, BLSKey: []byte{2}, Weight: 1},
@@ -1686,9 +1685,9 @@ func TestCollectingApprovalsAuxInfoGating(t *testing.T) {
 	}
 	tc.blockStore[parentSeq] = &outerBlock{block: parent}
 
-	// build constructs the next collecting block on top of prev, stores it so it can serve
+	// buildAndVerify constructs the next collecting block on top of prev, stores it so it can serve
 	// as a parent (and as a back-pointer target for the aux info history), and verifies it.
-	build := func(seq uint64, prev StateMachineBlock) *StateMachineBlock {
+	buildAndVerify := func(seq uint64, prev StateMachineBlock) *StateMachineBlock {
 		tc.blockBuilder.Block = &testutil.InnerBlock{TS: time.Now(), BlockHeight: seq, Content: []byte{byte(seq)}}
 		md := common.ProtocolMetadata{Seq: seq, Round: seq, Epoch: 1, Prev: prev.Digest()}
 		block, err := sm.BuildBlock(context.Background(), md, emptyBlacklist)
@@ -1702,29 +1701,45 @@ func TestCollectingApprovalsAuxInfoGating(t *testing.T) {
 		return b.Metadata.SimplexEpochInfo.NextEpochApprovals
 	}
 	// requireAuxInfo compares the meaningful fields, ignoring the cached canoto size.
-	requireAuxInfo := func(want, got *AuxiliaryInfo) {
+	requireAuxInfo := func(want, got *AuxiliaryInfoBatch) {
 		require.True(t, want.Equal(got), "expected aux info %+v, got %+v", want, got)
 	}
 
+	auxVersionId := auxiliaryApp.DefaultVersionID()
+	firstAuxInfoBytes, err := auxiliaryApp.Generate(auxVersionId, validators, [][]byte{})
+	require.NoError(t, err)
+	firstAuxInfo := common.AuxiliaryInfo{
+		Version: auxVersionId,
+		Data:    firstAuxInfoBytes,
+	}
+	sm.HandleAuxiliaryInfo(firstAuxInfo, validators[0].NodeID)
+
 	// block1: history empty, not final -> generates vote1, collects no approvals.
-	block1 := build(parentSeq+1, parent)
-	requireAuxInfo(&AuxiliaryInfo{Info: vote1, VersionID: 1}, block1.Metadata.AuxiliaryInfo)
+	block1 := buildAndVerify(parentSeq+1, parent)
+	requireAuxInfo(&AuxiliaryInfoBatch{data: []common.AuxiliaryInfo{firstAuxInfo}}, block1.Metadata.AuxiliaryInfoBatch)
 	require.Empty(t, approvals(block1).NodeIDs)
 
+	// we get another auxiliary info sent
+	auxInfoHistory, err := GetAuxiliaryHistory(block1, parentSeq+1, sm.GetBlock, auxVersionId)
+	require.NoError(t, err)
+	secondAuxInfoBytes, err := auxiliaryApp.Generate(auxVersionId, validators, auxInfoHistory.Data)
+	require.NoError(t, err)
+	secondAuxInfo := common.AuxiliaryInfo{
+		Version: auxVersionId,
+		Data:    secondAuxInfoBytes,
+	}
+	sm.HandleAuxiliaryInfo(secondAuxInfo, validators[1].NodeID)
+
 	// block2: history [vote1], still not final -> generates vote2, collects no approvals.
-	block2 := build(parentSeq+2, *block1)
-	requireAuxInfo(&AuxiliaryInfo{Info: vote2, PrevAuxInfoSeq: parentSeq + 1, VersionID: 1}, block2.Metadata.AuxiliaryInfo)
+	block2 := buildAndVerify(parentSeq+2, *block1)
+	requireAuxInfo(&AuxiliaryInfoBatch{data: []common.AuxiliaryInfo{secondAuxInfo}, PrevAuxInfoSeq: parentSeq + 1}, block2.Metadata.AuxiliaryInfoBatch)
 	require.Empty(t, approvals(block2).NodeIDs)
 
-	// block3: history [vote1, vote2] is now final -> no new vote, and approvals are
-	// collected (the optimistic self-approval sets MyNodeID's bit). block3 is the first
-	// empty-Info block; it points at block2, the last non-empty Info block.
-	block3 := build(parentSeq+3, *block2)
-	requireAuxInfo(&AuxiliaryInfo{PrevAuxInfoSeq: parentSeq + 2, VersionID: 1}, block3.Metadata.AuxiliaryInfo)
-	require.Equal(t, []byte{1}, approvals(block3).NodeIDs, "self-approval bit should be set once aux info is ready")
+	block3 := buildAndVerify(parentSeq+3, *block2)
+	requireAuxInfo(&AuxiliaryInfoBatch{PrevAuxInfoSeq: parentSeq + 2}, block3.Metadata.AuxiliaryInfoBatch)
 
 	// The collected approval must be signed over the epoch-transition payload for the
-	//mnext epoch's P-chain reference height (200) and the digest
+	//next epoch's P-chain reference height (200) and the digest
 	// of the final auxiliary info history, which is sha256 of the last vote (vote2).
 	wantSigned, err := assembleApprovalToBeSigned(nextPChainRefHeight, sha256.Sum256(vote2))
 	require.NoError(t, err)
@@ -1735,16 +1750,16 @@ func TestCollectingApprovalsAuxInfoGating(t *testing.T) {
 	// quorum). Its PrevAuxInfoSeq must SKIP the empty block3 and point at block2 (parentSeq+2),
 	// the most recent non-empty Info block -- not at its immediate parent block3 (parentSeq+3).
 	// This is the case the rest of the chain never reaches and where "skip" differs from "successive".
-	block4 := build(parentSeq+4, *block3)
-	require.NotEqual(t, parentSeq+3, block4.Metadata.AuxiliaryInfo.PrevAuxInfoSeq,
+	block4 := buildAndVerify(parentSeq+4, *block3)
+	require.NotEqual(t, parentSeq+3, block4.Metadata.AuxiliaryInfoBatch.PrevAuxInfoSeq,
 		"PrevAuxInfoSeq must not point at the empty-Info parent block3")
-	requireAuxInfo(&AuxiliaryInfo{PrevAuxInfoSeq: parentSeq + 2, VersionID: 1}, block4.Metadata.AuxiliaryInfo)
+	requireAuxInfo(&AuxiliaryInfoBatch{PrevAuxInfoSeq: parentSeq + 2}, block4.Metadata.AuxiliaryInfoBatch)
 
 	// block5: another empty-Info block on top of the empty block4. The back-pointer still skips
 	// the whole empty run and points at block2, confirming the skip persists across consecutive
 	// empty-Info blocks (collectAuxiliaryInfo finds the same most-recent non-empty block each time).
-	block5 := build(parentSeq+5, *block4)
-	requireAuxInfo(&AuxiliaryInfo{PrevAuxInfoSeq: parentSeq + 2, VersionID: 1}, block5.Metadata.AuxiliaryInfo)
+	block5 := buildAndVerify(parentSeq+5, *block4)
+	requireAuxInfo(&AuxiliaryInfoBatch{PrevAuxInfoSeq: parentSeq + 2}, block5.Metadata.AuxiliaryInfoBatch)
 }
 
 func TestCollectingApprovalsAuxInfoVersionIDIsBackwardCompatible(t *testing.T) {
@@ -1752,14 +1767,16 @@ func TestCollectingApprovalsAuxInfoVersionIDIsBackwardCompatible(t *testing.T) {
 	// VersionID must be reused for the rest of the epoch -- for both building AND verifying
 	// subsequent blocks -- even if the application's DefaultVersionID() later changes.
 	//
-	// collectAuxiliaryInfo only consults DefaultVersionID() when the auxiliary info history is
-	// empty; once a block carries a VersionID, every later buildAndVerify and verify reads that VersionID
-	// back from the chain instead. So we seed the epoch's parent with auxiliary info stamped with
-	// VersionID 1, then flip DefaultVersionID() to 2 right after the first Generate(). Because the
-	// epoch already has a VersionID on-chain, every Generate()/IsLegalAppend()/IsSufficient()
-	// invocation -- on the buildAndVerify path and the verify path -- must keep using VersionID 1, never 2.
-	// The app asserts that internally: it requires the VersionID it receives to equal
-	// expectedVersionID, which we hold at 1 throughout.
+	// GetAuxiliaryHistory only consults DefaultVersionID() when the auxiliary info history is
+	// empty; once a block carries a VersionID, every later build and verify reads that VersionID
+	// back from the chain instead. Auxiliary info is no longer generated inside the block: it
+	// arrives from peers via HandleAuxiliaryInfo and is collected into the block being built. So the
+	// first collecting block establishes the epoch's VersionID (1) from the received vote while the
+	// default is still 1, then we flip DefaultVersionID() to 2. Because the epoch already carries a
+	// VersionID on-chain, every Generate()/IsLegalAppend()/IsSufficient() invocation -- on both the
+	// build and verify paths -- must keep using VersionID 1, never 2. The app asserts that
+	// internally: it requires the VersionID it receives to equal expectedVersionID, which we hold at
+	// 1 throughout.
 
 	const (
 		pChainRefHeight     = uint64(100)
@@ -1771,10 +1788,11 @@ func TestCollectingApprovalsAuxInfoVersionIDIsBackwardCompatible(t *testing.T) {
 	sm.GetPChainHeightForVerifying = func() uint64 { return nextPChainRefHeight }
 	sm.GetPChainHeightForProposing = func() uint64 { return nextPChainRefHeight }
 
-	// threshold 4 so Generate() runs for the first three collecting blocks built on top of the
-	// pre-seeded parent (history not yet sufficient), giving us one "first" and several "later"
-	// Generate() invocations. defaultVersionID starts at 1 (the original default); expectedVersionID
-	// stays 1 for the whole test -- the app asserts every invocation uses it.
+	// threshold 4 so the history never becomes sufficient across the three collecting blocks we
+	// build: every block collects a freshly received auxiliary vote (never approvals), giving one
+	// "first" build under the original default and two "later" builds after the default changes.
+	// defaultVersionID starts at 1 (the original default); expectedVersionID stays 1 for the whole
+	// test -- the app asserts every invocation uses it.
 	app := &versionRecordingAuxInfoApp{
 		t:                 t,
 		threshold:         4,
@@ -1791,8 +1809,8 @@ func TestCollectingApprovalsAuxInfoVersionIDIsBackwardCompatible(t *testing.T) {
 	}
 	tc.validatorSetRetriever.result = validators
 
-	// The parent already carries auxiliary info for this epoch, stamped with VersionID 1.
-	// This is the backward-compatibility precondition: the epoch's VersionID is already set.
+	// A plain parent with no auxiliary info yet: the epoch's VersionID is established by the first
+	// received auxiliary vote rather than pre-seeded into the block.
 	parent := StateMachineBlock{
 		InnerBlock: &testutil.InnerBlock{TS: time.Now(), BlockHeight: 1, Content: []byte{0xAA}},
 		Metadata: StateMachineMetadata{
@@ -1805,11 +1823,6 @@ func TestCollectingApprovalsAuxInfoVersionIDIsBackwardCompatible(t *testing.T) {
 				EpochNumber:               1,
 				NextPChainReferenceHeight: nextPChainRefHeight,
 				PrevVMBlockSeq:            parentSeq - 1,
-			},
-			AuxiliaryInfo: &AuxiliaryInfo{
-				VersionID:      1,
-				Info:           []byte("vote-0"),
-				PrevAuxInfoSeq: 0,
 			},
 		},
 	}
@@ -1827,135 +1840,111 @@ func TestCollectingApprovalsAuxInfoVersionIDIsBackwardCompatible(t *testing.T) {
 		return block
 	}
 
-	// block1: the epoch already has VersionID 1 (from the parent), so the buildAndVerify reads 1 from the
-	// chain and generates vote-1 under VersionID 1. Being the first Generate(), we now flip the
-	// application's default to 2. Verifying block1 also reads VersionID 1 from the parent's aux
-	// info, so it passes despite the changed default.
+	// receiveAuxVote generates the next vote under VersionID 1 and delivers it as if received from
+	// the given validator, so the next built block collects it into its auxiliary info.
+	receiveAuxVote := func(from avalanchego.NodeID) {
+		data, err := app.Generate(app.expectedVersionID, validators, nil)
+		require.NoError(t, err)
+		sm.HandleAuxiliaryInfo(common.AuxiliaryInfo{Version: app.expectedVersionID, Data: data}, from)
+	}
+
+	// block1: default is still 1 and the history is empty, so the received vote (VersionID 1) sets
+	// the epoch's VersionID. Building and verifying block1 both read 1 from the default. We then flip
+	// the default to 2; every later build/verify must keep reading 1 back from the chain.
+	receiveAuxVote(validators[0].NodeID)
 	block1 := buildAndVerify(parentSeq+1, parent)
-	require.Equal(t, common.VersionID(1), block1.Metadata.AuxiliaryInfo.VersionID)
+	require.Equal(t, common.VersionID(1), block1.Metadata.AuxiliaryInfoBatch.data[0].Version)
 	app.defaultVersionID = 2
 
-	// block2, block3: the default is now 2, but each block's buildAndVerify and verify still read VersionID
-	// 1 back from the chain and ignore the changed default.
+	// block2, block3: the default is now 2, but each block's build and verify still read VersionID 1
+	// back from the chain and ignore the changed default.
+	receiveAuxVote(validators[1].NodeID)
 	block2 := buildAndVerify(parentSeq+2, *block1)
-	require.Equal(t, common.VersionID(1), block2.Metadata.AuxiliaryInfo.VersionID)
+	require.Equal(t, common.VersionID(1), block2.Metadata.AuxiliaryInfoBatch.data[0].Version)
 
+	receiveAuxVote(validators[2].NodeID)
 	block3 := buildAndVerify(parentSeq+3, *block2)
-	require.Equal(t, common.VersionID(1), block3.Metadata.AuxiliaryInfo.VersionID)
-
-	// block4: history [vote-0, vote-1, vote-2, vote-3] is now sufficient, so no further vote is
-	// generated and approvals are collected -- still under VersionID 1.
-	block4 := buildAndVerify(parentSeq+4, *block3)
-	require.Equal(t, common.VersionID(1), block4.Metadata.AuxiliaryInfo.VersionID)
+	require.Equal(t, common.VersionID(1), block3.Metadata.AuxiliaryInfoBatch.data[0].Version)
 }
 
-func TestCollectAuxiliaryInfo(t *testing.T) {
-	const versionID = common.VersionID(7)
+func TestCollectingApprovalsIncludesMultipleAuxInfoMessages(t *testing.T) {
+	// Multiple auxiliary info messages received from distinct validators are all collected into a
+	// single built block's AuxiliaryInfoBatch.
 
-	blockWithAuxInfo := func(info []byte, prevAuxInfoSeq uint64) StateMachineBlock {
-		return StateMachineBlock{
-			Metadata: StateMachineMetadata{
-				AuxiliaryInfo: &AuxiliaryInfo{
-					Info:           info,
-					PrevAuxInfoSeq: prevAuxInfoSeq,
-					VersionID:      versionID,
-				},
+	const (
+		pChainRefHeight     = uint64(100)
+		nextPChainRefHeight = uint64(200)
+		parentSeq           = uint64(10)
+	)
+
+	sm, tc := newStateMachine(t)
+	sm.GetPChainHeightForProposing = func() uint64 { return nextPChainRefHeight }
+	sm.GetPChainHeightForVerifying = func() uint64 { return nextPChainRefHeight }
+
+	// A high threshold keeps the history from ever becoming sufficient, so the block stays in the
+	// collecting-approvals state and carries the received auxiliary info instead of sealing.
+	sm.AuxiliaryInfoApp = &voteCountingAuxInfoApp{threshold: 10}
+
+	validators := NodeBLSMappings{
+		{NodeID: avalanchego.NodeID(sm.MyNodeID), BLSKey: []byte{1}, Weight: 1},
+		{NodeID: avalanchego.NodeID{0xBB}, BLSKey: []byte{2}, Weight: 1},
+		{NodeID: avalanchego.NodeID{0xCC}, BLSKey: []byte{3}, Weight: 1},
+	}
+	tc.validatorSetRetriever.result = validators
+
+	parent := StateMachineBlock{
+		InnerBlock: &testutil.InnerBlock{TS: time.Now(), BlockHeight: 1, Content: []byte{0xAA}},
+		Metadata: StateMachineMetadata{
+			PChainHeight: nextPChainRefHeight,
+			SimplexProtocolMetadata: common.ProtocolMetadata{
+				Seq: parentSeq, Round: 5, Epoch: 1,
 			},
+			SimplexEpochInfo: SimplexEpochInfo{
+				PChainReferenceHeight:     pChainRefHeight,
+				EpochNumber:               1,
+				NextPChainReferenceHeight: nextPChainRefHeight,
+				PrevVMBlockSeq:            parentSeq - 1,
+			},
+		},
+	}
+	tc.blockStore[parentSeq] = &outerBlock{block: parent}
+
+	version := sm.AuxiliaryInfoApp.DefaultVersionID()
+
+	// buildWithAuxMessages delivers one distinct auxiliary message per validator, builds a block on
+	// top of prev, verifies and stores it, and asserts the block collected exactly those messages.
+	// collectAuxInfo orders entries by NodeID, so the payloads are compared as a set.
+	buildWithAuxMessages := func(seq uint64, prev StateMachineBlock, payloads [][]byte) *StateMachineBlock {
+		require.Len(t, payloads, len(validators))
+		for i, payload := range payloads {
+			sm.HandleAuxiliaryInfo(common.AuxiliaryInfo{Version: version, Data: payload}, validators[i].NodeID)
 		}
+
+		tc.blockBuilder.Block = &testutil.InnerBlock{TS: time.Now(), BlockHeight: seq, Content: []byte{byte(seq)}}
+		md := common.ProtocolMetadata{Seq: seq, Round: seq, Epoch: 1, Prev: prev.Digest()}
+		block, err := sm.BuildBlock(context.Background(), md, emptyBlacklist)
+		require.NoError(t, err)
+		require.NoError(t, sm.VerifyBlock(context.Background(), block))
+		tc.blockStore[seq] = &outerBlock{block: *block}
+
+		require.NotNil(t, block.Metadata.AuxiliaryInfoBatch)
+		gotPayloads := make([][]byte, 0, len(payloads))
+		for _, info := range block.Metadata.AuxiliaryInfoBatch.data {
+			require.Equal(t, version, info.Version)
+			gotPayloads = append(gotPayloads, info.Data)
+		}
+		require.ElementsMatch(t, payloads, gotPayloads)
+		return block
 	}
 
-	errRetrieval := errors.New("retrieval failed")
+	// First batch of three messages lands in block1.
+	block1 := buildWithAuxMessages(parentSeq+1, parent, [][]byte{[]byte("aux-a"), []byte("aux-b"), []byte("aux-c")})
 
-	// startSeq is the sequence of tt.block itself (the block collectAuxiliaryInfo starts from).
-	const startSeq = uint64(10)
+	// A second batch of three messages lands in block2, built on top of block1.
+	block2 := buildWithAuxMessages(parentSeq+2, *block1, [][]byte{[]byte("aux-d"), []byte("aux-e"), []byte("aux-f")})
 
-	tests := []struct {
-		name              string
-		block             StateMachineBlock
-		blocks            map[uint64]StateMachineBlock
-		getBlockErr       error
-		expectedHistory   [][]byte
-		expectedLastSeq   uint64
-		expectedversionID common.VersionID
-		expectedErr       error
-	}{
-		{
-			name:  "block without auxiliary info",
-			block: StateMachineBlock{},
-		},
-		{
-			name:  "empty info, first of epoch",
-			block: blockWithAuxInfo(nil, 0),
-		},
-		{
-			name:              "non-empty info, first of epoch",
-			block:             blockWithAuxInfo([]byte{1}, 0),
-			expectedHistory:   [][]byte{{1}},
-			expectedLastSeq:   startSeq,
-			expectedversionID: versionID,
-		},
-		{
-			name:  "empty info pointing back to non-empty info",
-			block: blockWithAuxInfo(nil, 3),
-			blocks: map[uint64]StateMachineBlock{
-				3: blockWithAuxInfo([]byte{1}, 0),
-			},
-			expectedHistory:   [][]byte{{1}},
-			expectedLastSeq:   3,
-			expectedversionID: versionID,
-		},
-		{
-			name:  "history is ordered from oldest to newest",
-			block: blockWithAuxInfo([]byte{3}, 5),
-			blocks: map[uint64]StateMachineBlock{
-				5: blockWithAuxInfo([]byte{2}, 2),
-				2: blockWithAuxInfo([]byte{1}, 0),
-			},
-			expectedHistory:   [][]byte{{1}, {2}, {3}},
-			expectedLastSeq:   startSeq,
-			expectedversionID: versionID,
-		},
-		{
-			name:  "traversal stops at a block without auxiliary info",
-			block: blockWithAuxInfo([]byte{2}, 4),
-			blocks: map[uint64]StateMachineBlock{
-				4: {},
-			},
-			expectedHistory:   [][]byte{{2}},
-			expectedLastSeq:   startSeq,
-			expectedversionID: versionID,
-		},
-		{
-			name:        "block retrieval failure",
-			block:       blockWithAuxInfo([]byte{2}, 4),
-			getBlockErr: errRetrieval,
-			expectedErr: errRetrieval,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			getBlock := func(seq uint64, _ common.Digest) (StateMachineBlock, *common.Finalization, error) {
-				if tt.getBlockErr != nil {
-					return StateMachineBlock{}, nil, tt.getBlockErr
-				}
-				block, ok := tt.blocks[seq]
-				require.True(t, ok, "unexpected retrieval of block at sequence %d", seq)
-				return block, nil, nil
-			}
-
-			history, gotversionID, err := collectAuxiliaryInfo(&tt.block, startSeq, getBlock, 0)
-			if tt.expectedErr != nil {
-				require.ErrorIs(t, err, tt.expectedErr)
-				require.ErrorIs(t, err, errAuxInfoBlockRetrieval)
-				return
-			}
-			require.NoError(t, err)
-			require.Equal(t, tt.expectedHistory, history.data)
-			require.Equal(t, tt.expectedLastSeq, history.lastSeq)
-			require.Equal(t, tt.expectedversionID, gotversionID)
-		})
-	}
+	// block2 links back to block1, the most recent block carrying non-empty auxiliary info.
+	require.Equal(t, parentSeq+1, block2.Metadata.AuxiliaryInfoBatch.PrevAuxInfoSeq)
 }
 
 // blockingBlockBuilder waits in WaitForPendingBlock until it is handed a pending block, the way a

@@ -6,7 +6,6 @@ package metadata
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"testing"
 	"time"
 
@@ -72,7 +71,7 @@ const numBuiltBlocks = 8
 // inputs (selected by index). For each input, a freshly instantiated verifier MSM first
 // verifies the unfuzzed block (which must succeed), then verifies a copy whose
 // consensus-authoritative metadata has been mutated (which must fail).
-//
+
 // The mutation is applied at the field level (rather than by flipping serialized bytes)
 // so the fuzzed block is always well-formed: byte-level mutations of the Canoto encoding
 // overwhelmingly corrupt the structure and merely exercise the decoder. Each fuzzed field
@@ -116,8 +115,10 @@ func FuzzVerifyBlock(f *testing.F) {
 		fuzzedMD := block.Metadata
 		field.set(&fuzzedMD, value)
 
-		if fieldIdx%2 == 1 && block.Metadata.AuxiliaryInfo == nil {
-			fuzzedMD.AuxiliaryInfo = &AuxiliaryInfo{PrevAuxInfoSeq: value}
+		if fieldIdx%2 == 1 && block.Metadata.AuxiliaryInfoBatch == nil {
+			// value|1 forces a non-zero PrevAuxInfoSeq: collecting-approvals blocks reconstruct it
+			// as 0 (parent has no aux info), so value 0 would match and slip through unrejected.
+			fuzzedMD.AuxiliaryInfoBatch = &AuxiliaryInfoBatch{PrevAuxInfoSeq: value | 1}
 		}
 
 		if bytes.Equal(fuzzedMD.MarshalCanoto(), block.Metadata.MarshalCanoto()) {
@@ -251,10 +252,11 @@ func buildEpochChain(tb testing.TB, logger common.Logger) ([]*StateMachineBlock,
 	block3 := build(3, 2, 1, block2)
 	addBlock(3, block3, nil)
 
-	// The noopTestAuxInfoApp is always "ready" with an empty aux info history, so the candidate
-	// aux info digest the builder signs over is sha256 of the empty history. Peer approvals must
-	// carry the same digest to survive sanitizeApprovals' digest filter.
-	auxInfoDigest := sha256.Sum256(nil)
+	// The noopTestAuxInfoApp is always "ready" with an empty aux info history, and
+	// LastHistoryDigest returns the zero digest for an empty history. That zero value is the
+	// candidate digest the builder signs over, so peer approvals must carry it to survive
+	// sanitizeApprovals' digest filter.
+	var auxInfoDigest [32]byte
 
 	// block4 & block5: collecting-approvals blocks (1/3 then 2/3, not enough to seal).
 	sm.HandleApproval(&common.ValidatorSetApproval{NodeID: node1, PChainHeight: pChainHeight2, AuxInfoDigest: auxInfoDigest, Signature: signApproval(pChainHeight2, auxInfoDigest)}, 1)
