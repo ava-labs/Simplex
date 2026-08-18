@@ -4,6 +4,7 @@
 package simplex
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -108,6 +109,32 @@ func TestCachedStorageRetrieve(t *testing.T) {
 			}
 		})
 	}
+}
+
+// failingStorage returns getBlockErr from every GetBlock call.
+type failingStorage struct {
+	*MockStorage
+	getBlockErr error
+}
+
+func (f *failingStorage) GetBlock(uint64) (metadata.StateMachineBlock, *common.Finalization, error) {
+	return metadata.StateMachineBlock{}, nil, f.getBlockErr
+}
+
+// TestCachedStorageRetrieveStorageError asserts that Retrieve surfaces the
+// underlying storage error on a cache miss. Retrieve compares digests before
+// checking the GetBlock error (adapters.go:139), so a non-zero digest turns
+// any storage failure into ErrBlockNotFound.
+func TestCachedStorageRetrieveStorageError(t *testing.T) {
+	storageErr := errors.New("disk failure")
+	cs := NewCachedStorage(&failingStorage{MockStorage: NewMockStorage(t), getBlockErr: storageErr})
+
+	_, _, err := cs.Retrieve(0, common.Digest{1, 2, 3})
+	require.ErrorIs(t, err, storageErr)
+
+	block, _, err := cs.Retrieve(0, common.Digest{})
+	require.ErrorIs(t, err, storageErr)
+	require.Nil(t, block)
 }
 
 // TestCachedStoragePopulatedByWal asserts that a block restored from the WAL on

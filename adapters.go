@@ -136,6 +136,9 @@ func (cs *CachedStorage) Retrieve(seq uint64, digest common.Digest) (common.Veri
 
 	// We don't populate the cache here because we populate it externally.
 	block, finalization, err := cs.GetBlock(seq)
+	if err != nil {
+		return nil, nil, err
+	}
 	if digest != (common.Digest{}) && block.Digest() != digest {
 		return nil, nil, common.ErrBlockNotFound
 	}
@@ -143,7 +146,7 @@ func (cs *CachedStorage) Retrieve(seq uint64, digest common.Digest) (common.Veri
 	return &ParsedBlock{
 		StateMachineBlock: block,
 		msm:               cs.msm,
-	}, finalization, err
+	}, finalization, nil
 }
 
 func (cs *CachedStorage) Index(ctx context.Context, block common.VerifiedBlock, certificate common.Finalization) error {
