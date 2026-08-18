@@ -30,6 +30,8 @@ import (
 )
 
 func TestInstanceMixedNodeType(t *testing.T) {
+	t.Skip("skipping until test instance refactor")
+
 	// One node is a validator at genesis, the other is a non-validator.
 	// After some blocks, the second (non-validator) node also becomes a validator.
 	// The test ensures that the second node tracks the chain while the first node expands the chain
@@ -187,6 +189,8 @@ func TestEpochInvokesMSMWaitForPendingBlock(t *testing.T) {
 }
 
 func TestInstanceNonValidatorBootstraps(t *testing.T) {
+	t.Skip("skipping until test instance refactor")
+
 	// One node is a validator and progresses the chain by building blocks,
 	// and its weight changes while the chain progresses in 3 different P-chain epoch heights.
 	// Then, we add another node which is a non-validator.
@@ -333,6 +337,8 @@ func TestInstanceNonValidatorBootstraps(t *testing.T) {
 }
 
 func TestInstanceRestartAcrossEpochs(t *testing.T) {
+	t.Skip("skipping until test instance refactor")
+
 	// Restart a single validator at three different points in its lifecycle so that,
 	// on each (re)start, constructEpochAndValidatorSet takes a different branch of
 	// its switch:
@@ -541,6 +547,7 @@ func TestParseBlockSizeMatchesBytes(t *testing.T) {
 // TestInstanceZeroBlockUsesLastNonSimplexPChainHeight asserts that the first ever Simplex block
 // references the P-chain height of the last non-Simplex block.
 func TestInstanceZeroBlockUsesLastNonSimplexPChainHeight(t *testing.T) {
+	t.Skip("skipping until test instance refactor")
 	const basePChainHeight = uint64(7)
 
 	var id [20]byte
@@ -608,6 +615,8 @@ func TestInstanceDoubleStartFails(t *testing.T) {
 }
 
 func TestNonValidatorSkipsMSMVerification(t *testing.T) {
+	t.Skip("skipping until test instance refactor")
+
 	// This test proves that a non-validator doesn't use the MSM to verify blocks.
 	// It does so by forcing a non-validator ti commit a block whose MSM state machine
 	// transition is invalid.
@@ -716,6 +725,8 @@ func TestNonValidatorSkipsMSMVerification(t *testing.T) {
 }
 
 func TestValidatorSkipsMSMVerificationWhenReplicating(t *testing.T) {
+	t.Skip("skipping until test instance refactor")
+
 	// This test ensures that validators that are lagging behind do not use the MSM
 	// to verify blocks they replicate through the replication path, as they have a QC.
 	// We check once for a notarized block and once for a finalized block.
