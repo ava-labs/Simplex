@@ -60,7 +60,9 @@ func (e *EpochAwareStorage) Index(ctx context.Context, block common.VerifiedBloc
 		// This is a Telock from a previous epoch, so we ignore it and do not index it.
 		return nil
 	}
-	if err := e.Storage.Index(ctx, block, certificate); err != nil {
+	// e.Storage would resolve to the raw storage promoted through CachedStorage,
+	// skipping the cache eviction in CachedStorage.Index.
+	if err := e.CachedStorage.Index(ctx, block, certificate); err != nil {
 		return err
 	}
 	// This is a sealing block, and it is not the zero block
