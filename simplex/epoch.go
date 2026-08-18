@@ -296,14 +296,19 @@ func (e *Epoch) Start() error {
 		return ErrAlreadyStarted
 	}
 
+	// Restoring may schedule tasks that mutate the epoch from other goroutines.
+	e.lock.Lock()
 	err := e.restoreFromWal()
 	if err != nil {
+		e.lock.Unlock()
 		return err
 	}
 
 	// Only init receiving messages once you have initialized the data structures required for it.
 	e.Logger.Debug("Epoch is ready to receive messages", zap.Uint64("epoch", e.Epoch))
 	e.canReceiveMessages.Store(true)
+	e.lock.Unlock()
+
 	e.broadcastReplicationSync()
 
 	return nil
@@ -2594,11 +2599,10 @@ func (e *Epoch) createBlockBuildingTask(metadata common.ProtocolMetadata, blackl
 		e.lock.Lock()
 		defer e.lock.Unlock()
 
+		canceled := context.Err() != nil
 		cancel()
 		if !ok {
-			select {
-			case <-context.Done():
-			default:
+			if !canceled {
 				e.Logger.Debug("Failed building block")
 			}
 			return common.Digest{}

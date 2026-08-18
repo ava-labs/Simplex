@@ -255,7 +255,7 @@ func (bd *blockDeserializer) DeserializeBlock(ctx context.Context, bytes []byte)
 		return nil, err
 	}
 
-	block, err := bd.deserializer.ParseBlock(ctx, rawBlock.InnerBlockBytes)
+	block, err := bd.vm.ParseBlock(ctx, rawBlock.InnerBlockBytes)
 	if err != nil {
 		return nil, err
 	}
