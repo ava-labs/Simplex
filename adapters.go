@@ -156,9 +156,10 @@ func (cs *CachedStorage) Index(ctx context.Context, block common.VerifiedBlock, 
 		defer cs.lock.Unlock()
 		delete(cs.cache, block.BlockHeader().Digest)
 
-		// We also delete all blocks that are older than the indexed block, because they are now finalized and persisted.
+		// We also delete all blocks at or below the indexed sequence, because that sequence
+		// is now persisted, so any remaining block at it is a fork that can never be finalized.
 		for digest, cachedBlock := range cs.cache {
-			if cachedBlock.BlockHeader().Seq < block.BlockHeader().Seq {
+			if cachedBlock.BlockHeader().Seq <= block.BlockHeader().Seq {
 				delete(cs.cache, digest)
 			}
 		}
