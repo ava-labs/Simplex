@@ -32,7 +32,7 @@ func LastBlock(storage Storage) (metadata.StateMachineBlock, uint64, error) {
 	return lastBlock, numBlocks, nil
 }
 
-// getLastAcceptedEpoch determines the epoch the instance should start at based on
+// getLastAcceptedEpochAndValidatorSet determines the epoch the instance should start at based on
 // the last block in storage. If the ledger only contains non-Simplex blocks, the
 // epoch is the first Simplex height. If the last block is a sealing block, the
 // epoch it seals has ended, so the next epoch is returned. Otherwise, the epoch
