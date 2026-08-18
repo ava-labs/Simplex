@@ -56,10 +56,6 @@ type epochChange struct {
 	epoch      uint64
 	validators common.Nodes
 }
-
-// TODO: replace noop-index with a function that checks whether we need to send approvals or auxiliary information
-func noopOnIndex(*ParsedBlock) error { return nil }
-
 type timeAdvancer interface {
 	AdvanceTime(t time.Time)
 }
@@ -67,24 +63,40 @@ type timeAdvancer interface {
 type Instance struct {
 	Config Config
 
-	lock         sync.Mutex
-	started      bool
-	cs           *CachedStorage
-	wal          *wal.GarbageCollectedWAL
-	msm          *metadata.StateMachine
-	e            *simplex.Epoch
-	nv           *nonvalidator.NonValidator
-	epochOrNV    timeAdvancer
-	epochChanges chan epochChange
-	stopCh       chan struct{}
+	lock               sync.Mutex
+	started            bool
+	cs                 *CachedStorage
+	transitionListener *epochTransitionListener
+	wal                *wal.GarbageCollectedWAL
+	msm                *metadata.StateMachine
+	e                  *simplex.Epoch
+	nv                 *nonvalidator.NonValidator
+	epochOrNV          timeAdvancer
+	epochChanges       chan epochChange
+	stopCh             chan struct{}
 }
 
 func NewInstance(config Config) *Instance {
+	cs := NewCachedStorage(config.Storage)
+	// Non-validators have no block builder, so they pass a nil approval handler:
+	// they broadcast approvals but do not need to record their own locally.
+	transitionListener := newEpochTransitionListener(
+		config.Logger,
+		config.Broadcaster,
+		avalanchego.NodeID(config.ID),
+		config.PlatformChain.GetValidatorSet,
+		cs.RetrieveBlock,
+		config.CryptoOps,
+		&NoopAuxiliaryInfoApp{}, // TODO: set this in the config
+		nil,
+	)
+
 	return &Instance{
-		Config:       config,
-		stopCh:       make(chan struct{}),
-		epochChanges: make(chan epochChange, 1),
-		cs:           NewCachedStorage(config.Storage),
+		Config:             config,
+		stopCh:             make(chan struct{}),
+		epochChanges:       make(chan epochChange, 1),
+		cs:                 cs,
+		transitionListener: transitionListener,
 	}
 }
 
@@ -172,7 +184,7 @@ func (i *Instance) createNonValidatorConfig() (nonvalidator.Config, error) {
 		Config: &metadata.Config{},
 	}
 	i.cs.msm = i.msm
-	instanceStorage := NewCallbackStorage(i.cs, i.msm, noopOnIndex)
+	instanceStorage := NewCallbackStorage(i.cs, i.msm, i.transitionListener.onIndex)
 
 	config := nonvalidator.Config{
 		ID:                         i.Config.ID,
@@ -299,6 +311,13 @@ func (i *Instance) HandleMessage(msg *common.Message, from common.NodeID) error 
 	}
 
 	if i.e != nil {
+		switch {
+		case msg.AuxiliaryInfo != nil:
+			i.msm.HandleAuxiliaryInfo(*msg.AuxiliaryInfo, avalanchego.NodeID(from))
+		case msg.EpochTransitionApproval != nil:
+			// TODO: pass in time.Now() rather than uint64
+			i.msm.HandleApproval(msg.EpochTransitionApproval, uint64(time.Now().Unix()))
+		}
 		return i.e.HandleMessage(msg, from)
 	}
 
@@ -463,6 +482,9 @@ func (i *Instance) createEpochConfig(epoch uint64, validators common.Nodes) (*ep
 	comm := newCommunication(i.Config.Sender, i.Config.Broadcaster, validators)
 
 	instanceStorage := NewCallbackStorage(i.cs, msm, func(block *ParsedBlock) error {
+		if err := i.transitionListener.onIndex(block); err != nil {
+			return err
+		}
 		if block.Type() == metadata.BlockTypeSealing {
 			blockBuilder.stop()
 			i.notifyEpochChange(block.BlockHeader().Seq, block.SealingBlockInfo().ValidatorSet)
