@@ -60,7 +60,8 @@ func (e *EpochAwareStorage) Index(ctx context.Context, block common.VerifiedBloc
 		// This is a Telock from a previous epoch, so we ignore it and do not index it.
 		return nil
 	}
-	if err := e.Storage.Index(ctx, block, certificate); err != nil {
+
+	if err := e.CachedStorage.Index(ctx, block, certificate); err != nil {
 		return err
 	}
 	// This is a sealing block, and it is not the zero block
@@ -115,26 +116,33 @@ func (cs *CachedStorage) RetrieveBlock(seq uint64, digest common.Digest) (metada
 
 func (cs *CachedStorage) Retrieve(seq uint64, digest common.Digest) (common.VerifiedBlock, *common.Finalization, error) {
 	cs.lock.RLock()
+
 	item, exists := cs.cache[digest]
 	if exists {
 		cs.lock.RUnlock()
-		// If the block is cached, it means it's not finalized yet, because upon finalizing the block (indexing)
-		// we also remove it from the cache. Therefore, we return nil for the finalization.
 		return item.ParsedBlock, nil, nil
+	}
+
+	for _, cb := range cs.cache {
+		if cb.BlockHeader().Seq == seq {
+			if cb.Digest() == digest || digest == (common.Digest{}) {
+				cs.lock.RUnlock()
+				return cb.ParsedBlock, nil, nil
+			}
+		}
 	}
 	cs.lock.RUnlock()
 
 	// We don't populate the cache here because we populate it externally.
-
 	block, finalization, err := cs.GetBlock(seq)
-	if err != nil {
-		return nil, nil, err
+	if digest != (common.Digest{}) && block.Digest() != digest {
+		return nil, nil, common.ErrBlockNotFound
 	}
 
 	return &ParsedBlock{
 		StateMachineBlock: block,
 		msm:               cs.msm,
-	}, finalization, nil
+	}, finalization, err
 }
 
 func (cs *CachedStorage) Index(ctx context.Context, block common.VerifiedBlock, certificate common.Finalization) error {
@@ -231,8 +239,8 @@ func (bw *BlockBuilderWaiter) BuildBlock(ctx context.Context, metadata common.Pr
 }
 
 type blockDeserializer struct {
-	vm  VM
-	msm *metadata.StateMachine
+	vm VM
+	cs *CachedStorage
 }
 
 func (bd *blockDeserializer) DeserializeBlock(ctx context.Context, bytes []byte) (common.Block, error) {
@@ -245,11 +253,14 @@ func (bd *blockDeserializer) DeserializeBlock(ctx context.Context, bytes []byte)
 	if err != nil {
 		return nil, err
 	}
-	return &ParsedBlock{
-		StateMachineBlock: metadata.StateMachineBlock{
-			InnerBlock: block,
-			Metadata:   rawBlock.Metadata,
+	return &cachedBlock{
+		ParsedBlock: &ParsedBlock{
+			StateMachineBlock: metadata.StateMachineBlock{
+				InnerBlock: block,
+				Metadata:   rawBlock.Metadata,
+			},
+			msm: bd.cs.msm,
 		},
-		msm: bd.msm,
+		cache: bd.cs,
 	}, nil
 }
