@@ -86,6 +86,7 @@ type EpochConfig struct {
 	StartTime                  time.Time
 	ReplicationEnabled         bool
 	RandomSource               *rand.Rand
+	OnSealingBlockIndex        func(epoch uint64, validators common.Nodes)
 }
 
 type Epoch struct {
@@ -793,6 +794,7 @@ func (e *Epoch) Stop() {
 	e.buildBlockScheduler.Close()
 	e.timeoutHandler.Close()
 	e.replicationState.Close()
+	e.Logger.Info("Node shutdown complete")
 }
 
 func (e *Epoch) isEpochSealed() bool {
@@ -1500,6 +1502,9 @@ func (e *Epoch) indexFinalization(block common.VerifiedBlock, finalization commo
 		e.broadcast(finalizationMsg)
 
 		e.epochSealed.Store(true)
+		if e.OnSealingBlockIndex != nil {
+			e.OnSealingBlockIndex(block.BlockHeader().Seq, block.SealingBlockInfo().ValidatorSet)
+		}
 	}
 
 	// We have committed because we have collected a finalization.
