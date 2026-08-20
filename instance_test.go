@@ -10,7 +10,6 @@ import (
 
 	"github.com/ava-labs/simplex/common"
 	metadata "github.com/ava-labs/simplex/msm"
-	"github.com/ava-labs/simplex/simplex"
 	"github.com/ava-labs/simplex/testutil"
 	"github.com/stretchr/testify/require"
 )
@@ -45,10 +44,8 @@ func TestNonValidatorSyncs(t *testing.T) {
 }
 
 // TestNonValidator_BecomesValidator tests that an upcoming validator becomes a validator
-// when an epoch change they are following is sealed. The non-validator must contribute it's apporval in
+// when an epoch change they are following is sealed. The non-validator must contribute it's approval in
 // order to do so.
-// We then check  does so by checking they participated in signing
-// Equivalent test as the previous TestInstanceMixedNodeType.
 func TestNonValidator_BecomesValidator(t *testing.T) {
 	validator := newBLSMapping(1)
 
@@ -76,7 +73,7 @@ func TestNonValidator_BecomesValidator(t *testing.T) {
 	assertExpectedNodeIds(t, finalization.QC.Signers(), newValidatorSet.NodeIDs())
 }
 
-// TestValidator_ValidatorSetNotChanged tests that a pchain height increase
+// TestValidator_ValidatorSetNotChanged tests that a P-chain height increase
 // that does not have a unique validator set, does not create a new epoch
 func TestValidator_ValidatorSetNotChanged(t *testing.T) {
 	validator := newBLSMapping(1)
@@ -137,9 +134,7 @@ func TestValidator_ValidatorSetDecreased(t *testing.T) {
 
 // TestNonValidator_StaysNonValidator ensures that a non-validator does not restart when it is processing
 // previous epoch changes.
-// Equivalent to TestInstanceNonValidatorBootstraps
 func TestNonValidator_StaysNonValidator(t *testing.T) {
-	t.Skip("Skipping until we have timeouts for offline nodes during epoch transitioning")
 	targetNode := newBLSMapping(42)
 
 	// case 1: epoch change is not highest and we are NOT in the validator1 set
@@ -178,23 +173,22 @@ func TestNonValidator_StaysNonValidator(t *testing.T) {
 	sealingBlock = chain.waitUntilSealingBlock()
 	assertExpectedNodeIds(t, sealingBlock.SealingBlockInfo().ValidatorSet.NodeIDs(), targetNodeInMiddleEpoch.NodeIDs())
 
-	// ensure we can advance without the target node
-	chain.acceptNewBlock()
+	// TODO: since the target validator is part of the validator set, yet is offline(not added to network)
+	// it can be the leader. By adding the call to acceptNewBlock, it makes the target validator the leader for the
+	// round needed to batch approvals. It is offline, and we have no mechanism for triggering this block to be built yet.
+	// chain.acceptNewBlock()
 
 	pChain.advanceHeight(30)
 	sealingBlock = chain.waitUntilSealingBlock()
 	assertExpectedNodeIds(t, sealingBlock.SealingBlockInfo().ValidatorSet.NodeIDs(), targetNodeInHighestEpoch.NodeIDs())
 
 	// the target node should join now
-	// TODO: implement when we have a timeout for sending blocks with no inner blocks
-	// add the target node and ensure it stays non-validator
+	chain.addNode(targetNode.NodeID[:])
 }
 
 // TestInstanceValidatorSkipsAnEpoch tests that a validator stops and starts being a validator
 // It boots up as a non-validator then syncs to the highest epoch where it is a validator,
 // then it is no longer a validator, and finally it is
-// Equivalent to: TestInstanceValidatorSkipsAnEpoch. This also starts a validator when the tip is a sealing block so it covers an edge
-// case previously caught from the logging test.
 func TestInstanceValidatorSkipsAnEpoch(t *testing.T) {
 	validator := newBLSMapping(1)
 
