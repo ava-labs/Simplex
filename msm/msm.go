@@ -300,17 +300,15 @@ func (sm *StateMachine) WaitForPendingBlock(ctx context.Context, currentRoundMet
 		sealingBlockSeq := parentBlock.Metadata.SimplexEpochInfo.SealingBlockSeq
 		var sealingBlock StateMachineBlock
 		sealingBlock, finalization, err = sm.GetBlock(sealingBlockSeq, common.Digest{})
-		// The only two reasons why we would not be able to retrieve the sealing block are:
-		// (1) The sealing block is finalized and there is a storage failure, or
-		// (2) The sealing block is not finalized yet, in which case we are still transitioning to a new epoch.
-		// Either way and in case the sealing block isn't finalized, we shouldn't wait indefinitely for the VM to build a block.
-		if err != nil || sealingBlock.Type() != BlockTypeSealing || finalization == nil {
-			if err != nil {
-				sm.Logger.Debug("Failed retrieving sealing block for previous epoch", zap.Uint64("seq", sealingBlockSeq), zap.Error(err))
-				sm.BlockBuilder.WaitForPendingBlock(ctx)
-				return
-			}
+		if err != nil {
+			sm.Logger.Debug("Failed retrieving sealing block for previous epoch", zap.Uint64("seq", sealingBlockSeq), zap.Error(err))
+			sm.BlockBuilder.WaitForPendingBlock(ctx)
+			return
+		}
 
+		// If the sealing block isn't finalized, we need to build a Telock immediately to extend the epoch,
+		// so we wait up to MaxBlockBuildingWaitTime and then return.
+		if finalization == nil {
 			ctx, cancel := context.WithTimeout(ctx, sm.MaxBlockBuildingWaitTime)
 			defer cancel()
 			sm.BlockBuilder.WaitForPendingBlock(ctx)
