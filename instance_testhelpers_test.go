@@ -382,17 +382,6 @@ type node struct {
 	wals    *walCreator
 }
 
-// restart stops the node, and starts it again from a fresh instance
-// keeping same storage and id
-func (n *node) restart() {
-	n.inst.Stop()
-
-	prevConfig := n.inst.Config
-	instance := NewInstance(prevConfig)
-	n.inst = instance
-	require.NoError(n.t, n.inst.Start(n.t.Context()))
-}
-
 // noopICMTransition keeps every block in the same ICM epoch, so an epoch only ever changes
 // because the validator set did.
 func noopICMTransition(_ metadata.ICMEpochInput) metadata.ICMEpochInfo {
