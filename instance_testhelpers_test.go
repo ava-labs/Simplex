@@ -569,8 +569,8 @@ func (n *network) addNodeWithConfig(id common.NodeID, cfg nodeConfig) *node {
 		storage = NewMockStorageWithGenesis(n.t, &testInnerBlockDeserializer{})
 	}
 
-	// ensure a unique id
-	for _, node := range n.nodes {
+	// ensure a unique id; snapshot because nodes may be added concurrently
+	for _, node := range n.nodesSnapshot() {
 		require.NotEqual(n.t, node.id, id)
 	}
 
