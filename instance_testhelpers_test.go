@@ -70,6 +70,15 @@ type storedBlock struct {
 	fin      common.Finalization
 }
 
+func NewMockStorage(t *testing.T, bd *testInnerBlockDeserializer) *MockStorage {
+	return &MockStorage{
+		t:            t,
+		InMemStorage: testutil.NewInMemStorage(),
+		blocks:       make(map[uint64]storedBlock),
+		bd:           bd,
+	}
+}
+
 func NewMockStorageWithGenesis(t *testing.T, bd *testInnerBlockDeserializer) *MockStorage {
 	s := &MockStorage{
 		t:            t,
@@ -353,6 +362,10 @@ func (vm *blockBuilderVM) BuildBlock(ctx context.Context, pChainHeight uint64) (
 	return &testInnerBlock{Height_: height, TS: time.Now(), Payload: payload}, nil
 }
 
+func (vm *blockBuilderVM) ParseBlock(ctx context.Context, bytes []byte) (avalanchego.VMBlock, error) {
+	return vm.storage.bd.ParseBlock(ctx, bytes)
+}
+
 // WaitForPendingBlock returns when index broadcasts that a block is being created,
 // or when ctx is cancelled.
 func (vm *blockBuilderVM) WaitForPendingBlock(ctx context.Context) {
@@ -540,22 +553,39 @@ func newNetwork(t *testing.T, pChain *testPlatformChain) *network {
 	}
 }
 
+// nodeConfig holds optional overrides for a node added to the network.
+type nodeConfig struct {
+	// storage the node starts from; defaults to a fresh storage holding only genesis.
+	storage *MockStorage
+	// wals are pre-existing WALs the instance restores on start.
+	wals []wal.DeletableWAL
+}
+
 // addNode adds a node to the network and blocks until it catches up with the latest tip
 func (n *network) addNode(id common.NodeID) *node {
-	node := n.addNodeWithStorage(id, NewMockStorageWithGenesis(n.t, &testInnerBlockDeserializer{}))
+	node := n.addNodeWithConfig(id, nodeConfig{})
 	node.storage.WaitForBlockCommit(n.seq - 1)
 	return node
 }
 
 // addNodeWithStorage adds a node that starts from the given storage.
 func (n *network) addNodeWithStorage(id common.NodeID, storage *MockStorage) *node {
+	return n.addNodeWithConfig(id, nodeConfig{storage: storage})
+}
+
+// addNodeWithConfig adds a node built from the given config.
+func (n *network) addNodeWithConfig(id common.NodeID, cfg nodeConfig) *node {
+	storage := cfg.storage
+	if storage == nil {
+		storage = NewMockStorageWithGenesis(n.t, &testInnerBlockDeserializer{})
+	}
+
 	// ensure a unique id
 	for _, node := range n.nodes {
 		require.NotEqual(n.t, node.id, id)
 	}
 
 	comm := newInstanceComm(n, id)
-	bd := storage.bd
 
 	vm := newBlockBuilderVM(testutil.NewTestControlledBlockBuilder(n.t), storage, n.pending)
 	wc := &walCreator{t: n.t}
@@ -569,12 +599,11 @@ func (n *network) addNodeWithStorage(id common.NodeID, storage *MockStorage) *no
 		WalCreator:               wc.createWAL,
 		Storage:                  storage,
 		// the first byte of the node id labels the node's log records
-		Logger:            testutil.MakeLogger(n.t, int(id[0])),
-		WALs:              nil,
-		VM:                vm,
-		ICMETransition:    noopICMTransition,
-		BlockDeserializer: bd,
-		ID:                id,
+		Logger:         testutil.MakeLogger(n.t, int(id[0])),
+		WALs:           cfg.wals,
+		VM:             vm,
+		ICMETransition: noopICMTransition,
+		ID:             id,
 	})
 
 	node := node{
