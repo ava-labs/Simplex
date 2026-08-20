@@ -1976,7 +1976,7 @@ func (b *blockingBlockBuilder) WaitForPendingBlock(ctx context.Context) {
 }
 
 // TestMSMWaitForPendingBlock checks when WaitForPendingBlock stops waiting for the VM. It must
-// return on its if BuildBlock would have produced a block.
+// return on its own if BuildBlock would have produced a block.
 // In cases like the first Simplex block, an epoch transition in progress, or a Telock extending a
 // sealed epoch, blocks are produced regardless of the VM.
 // In other cases, the decision to produce a block is delegated to the VM.

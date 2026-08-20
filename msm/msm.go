@@ -306,12 +306,8 @@ func (sm *StateMachine) WaitForPendingBlock(ctx context.Context, currentRoundMet
 			return
 		}
 
-		// If the sealing block isn't finalized, we need to build a Telock immediately to extend the epoch,
-		// so we wait up to MaxBlockBuildingWaitTime and then return.
+		// If the sealing block isn't finalized, we need to build a Telock immediately to extend the epoch.
 		if finalization == nil {
-			ctx, cancel := context.WithTimeout(ctx, sm.MaxBlockBuildingWaitTime)
-			defer cancel()
-			sm.BlockBuilder.WaitForPendingBlock(ctx)
 			return
 		}
 		// Else, err is nil and the sealing block is finalized,
@@ -355,7 +351,7 @@ func (sm *StateMachine) WaitForPendingBlock(ctx context.Context, currentRoundMet
 	pChainReferenceHeight := parentBlock.Metadata.SimplexEpochInfo.PChainReferenceHeight
 	if parentBlock.Type() == BlockTypeSealing {
 		// We've moved to a new epoch, so we need to use the next P-chain reference height of the sealing block,
-		// because the P-chain reference height is of the next epoch is inherited from the P-chain reference height of the sealing block.
+		// because the P-chain reference height of the next epoch is inherited from the P-chain reference height of the sealing block.
 		pChainReferenceHeight = parentBlock.Metadata.SimplexEpochInfo.NextPChainReferenceHeight
 	}
 	blockBuildingDecider := sm.createBlockBuildingDecider(pChainReferenceHeight)
