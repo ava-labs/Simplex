@@ -382,15 +382,15 @@ func (i *Instance) processEpochChange(epochChange epochChange) {
 
 // startEpoch starts a new epoch with the given configuration.
 // Must be called under the lock, and assumes that the previous epoch has been stopped (if any).
-func (i *Instance) startEpoch(epochConfig simplex.EpochConfig) error {
-	epoch, err := simplex.NewEpoch(epochConfig)
+func (i *Instance) startEpoch(epochConfig *epochConfig) error {
+	epoch, err := simplex.NewEpoch(epochConfig.EpochConfig)
 	if err != nil {
 		return fmt.Errorf("error creating simplex epoch: %w", err)
 	}
 	epoch.Epoch = epochConfig.Epoch
 	i.e = epoch
 	i.epochOrNV = epoch
-
+	epochConfig.bbw.e = epoch
 	return epoch.Start()
 }
 
@@ -417,22 +417,22 @@ func (i *Instance) iAmValidator(nodes common.Nodes) bool {
 	return false
 }
 
-func (i *Instance) createEpochConfig() (simplex.EpochConfig, error) {
+func (i *Instance) createEpochConfig() (*epochConfig, error) {
 	lastBlock, numBlocks, err := i.lastBlock()
 	if err != nil {
-		return simplex.EpochConfig{}, err
+		return nil, err
 	}
 
 	lastNonSimplexHeight := i.Config.LastNonSimplexInnerBlock.Height()
 	genesisValidatorSet := i.Config.PlatformChain.GenesisValidatorSet()
 	nodes, epochNum, err := constructEpochAndValidatorSet(i.Config.Logger, lastNonSimplexHeight, genesisValidatorSet, numBlocks, &ParsedBlock{StateMachineBlock: lastBlock}, i.Config.Storage)
 	if err != nil {
-		return simplex.EpochConfig{}, err
+		return nil, err
 	}
 
 	wal, err := wal.NewGarbageCollectedWAL(i.Config.WALs, i.Config.WalCreator, &common.WALRetentionReader{}, i.Config.ParameterConfig.WALMaxEntryCount)
 	if err != nil {
-		return simplex.EpochConfig{}, fmt.Errorf("error creating garbage collected wal: %w", err)
+		return nil, fmt.Errorf("error creating garbage collected wal: %w", err)
 	}
 	i.wal = wal
 
@@ -440,7 +440,7 @@ func (i *Instance) createEpochConfig() (simplex.EpochConfig, error) {
 	// but before the WAL was garbage collected.
 	// In that case, we need to garbage collect the WAL to remove all entries from previous epochs.
 	if err := i.maybeGarbageCollectWAL(lastBlock); err != nil {
-		return simplex.EpochConfig{}, err
+		return nil, err
 	}
 
 	msm, err := metadata.NewStateMachine(&metadata.Config{
@@ -466,7 +466,7 @@ func (i *Instance) createEpochConfig() (simplex.EpochConfig, error) {
 		GetBlock:                        i.cs.RetrieveBlock,
 	})
 	if err != nil {
-		return simplex.EpochConfig{}, fmt.Errorf("error creating metadata state machine: %w", err)
+		return nil, fmt.Errorf("error creating metadata state machine: %w", err)
 	}
 
 	i.msm = msm
@@ -474,7 +474,7 @@ func (i *Instance) createEpochConfig() (simplex.EpochConfig, error) {
 
 	source, err := simplex.NewRandomSource()
 	if err != nil {
-		return simplex.EpochConfig{}, err
+		return nil, err
 	}
 
 	blockBuilder := &BlockBuilderWaiter{vm: i.Config.VM, msm: msm}
@@ -494,7 +494,7 @@ func (i *Instance) createEpochConfig() (simplex.EpochConfig, error) {
 		},
 	}
 
-	epochConfig := simplex.EpochConfig{
+	ec := simplex.EpochConfig{
 		Epoch:              epochNum,
 		ReplicationEnabled: true,
 		StartTime:          time.Now(),
@@ -516,7 +516,10 @@ func (i *Instance) createEpochConfig() (simplex.EpochConfig, error) {
 		BlockBuilder:               blockBuilder,
 		BlockDeserializer:          &blockDeserializer{vm: i.Config.VM, cs: i.cs},
 	}
-	return epochConfig, nil
+	return &epochConfig{
+		EpochConfig: ec,
+		bbw:         blockBuilder,
+	}, nil
 }
 
 func (i *Instance) maybeGarbageCollectWAL(lastBlock metadata.StateMachineBlock) error {
@@ -649,4 +652,9 @@ func constructValidatorSetFromSealingBlock(lastBlock *ParsedBlock) metadata.Node
 		})
 	}
 	return validatorSet
+}
+
+type epochConfig struct {
+	simplex.EpochConfig
+	bbw *BlockBuilderWaiter
 }

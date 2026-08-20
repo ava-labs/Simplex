@@ -1957,3 +1957,196 @@ func TestCollectAuxiliaryInfo(t *testing.T) {
 		})
 	}
 }
+
+// blockingBlockBuilder waits in WaitForPendingBlock until it is handed a pending block, the way a
+// real VM waits on its mempool. The notification is consumed by a single waiter.
+type blockingBlockBuilder struct {
+	pending chan struct{}
+}
+
+func (b *blockingBlockBuilder) BuildBlock(context.Context, uint64) (avalanchego.VMBlock, error) {
+	return nil, nil
+}
+
+func (b *blockingBlockBuilder) WaitForPendingBlock(ctx context.Context) {
+	select {
+	case <-b.pending:
+	case <-ctx.Done():
+	}
+}
+
+// TestMSMWaitForPendingBlock checks when WaitForPendingBlock stops waiting for the VM. It must
+// return on its own if BuildBlock would have produced a block.
+// In cases like the first Simplex block, an epoch transition in progress, or a Telock extending a
+// sealed epoch, blocks are produced regardless of the VM.
+// In other cases, the decision to produce a block is delegated to the VM.
+func TestMSMWaitForPendingBlock(t *testing.T) {
+	const waitTime = 500 * time.Millisecond
+
+	var (
+		normal     = SimplexEpochInfo{EpochNumber: 1, PChainReferenceHeight: 100}
+		collecting = SimplexEpochInfo{EpochNumber: 1, PChainReferenceHeight: 100, NextPChainReferenceHeight: 200}
+		telock     = SimplexEpochInfo{EpochNumber: 1, PChainReferenceHeight: 100, NextPChainReferenceHeight: 200, SealingBlockSeq: 5}
+		sealing    = SimplexEpochInfo{EpochNumber: 1, PChainReferenceHeight: 100, NextPChainReferenceHeight: 200,
+			BlockValidationDescriptor: &BlockValidationDescriptor{}, PrevSealingBlockHash: [32]byte{0xaa}}
+	)
+
+	block := func(sei SimplexEpochInfo, finalized bool) *outerBlock {
+		ob := &outerBlock{block: StateMachineBlock{Metadata: StateMachineMetadata{SimplexEpochInfo: sei}}}
+		if finalized {
+			ob.finalization = &common.Finalization{}
+		}
+		return ob
+	}
+
+	for _, tt := range []struct {
+		name string
+		// blocks seeds the block store with parent blocks, keyed by their sequence.
+		blocks blockStore
+		// seq is the sequence of the block we are asking to build (ProtocolMetadata.Seq).
+		seq uint64
+		// validatorSets seeds the validator set retriever, keyed by P-chain reference height.
+		validatorSets map[uint64]NodeBLSMappings
+		// vmHasBlock indicates the underlying VM has a pending block ready to build.
+		vmHasBlock bool
+		// returnsOnItsOwn is true when WaitForPendingBlock is expected to return without
+		// needing external cancellation, i.e. the state machine itself has a block to emit.
+		returnsOnItsOwn bool
+	}{
+		{
+			// Never happens, we don't build the genesis block. Delegate to the VM as is.
+			name: "genesis sequence",
+		},
+		{
+			// The parent is the pre-Simplex genesis block, so the zero block is next.
+			name:            "first simplex block",
+			seq:             1,
+			returnsOnItsOwn: true,
+		},
+		{
+			// The state is unknown, so keep waiting rather than force a block.
+			name: "parent block cannot be retrieved",
+			seq:  2,
+		},
+		{
+			name:            "collecting approvals for the next epoch",
+			seq:             2,
+			blocks:          blockStore{1: block(collecting, false)},
+			returnsOnItsOwn: true,
+		},
+		{
+			// A Telock has to be emitted to extend the epoch, and it never carries an inner block.
+			name:            "sealing block parent, not finalized",
+			seq:             2,
+			blocks:          blockStore{1: block(sealing, false)},
+			returnsOnItsOwn: true,
+		},
+		{
+			// The new epoch is open, so this is an ordinary block again.
+			name:   "sealing block parent, finalized",
+			seq:    2,
+			blocks: blockStore{1: block(sealing, true)},
+		},
+		{
+			// The new epoch inherits its P-chain reference height from the sealing block's
+			// NextPChainReferenceHeight, so that is the height whose validator set we compare
+			// against. Comparing against the sealed epoch's height would miss this change.
+			name:            "sealing block parent, finalized, validator set changed again",
+			seq:             2,
+			blocks:          blockStore{1: block(sealing, true)},
+			validatorSets:   map[uint64]NodeBLSMappings{200: {{BLSKey: []byte{9}, Weight: 1}}},
+			returnsOnItsOwn: true,
+		},
+		{
+			name:            "Telock parent, sealing block not finalized",
+			seq:             8,
+			blocks:          blockStore{7: block(telock, false), 5: block(sealing, false)},
+			returnsOnItsOwn: true,
+		},
+		{
+			// The Telock we build on is not finalized, but the sealing block it points at is, so
+			// the epoch is over. Reading the Telock's own finalization would conclude otherwise.
+			name:   "Telock parent, sealing block finalized",
+			seq:    8,
+			blocks: blockStore{7: block(telock, false), 5: block(sealing, true)},
+		},
+		{
+			// The sealing block cannot be read, so we cannot tell whether the epoch was sealed.
+			// Rather than force a Telock on incomplete information, we defer to the VM and only
+			// return once it has a block (or the round is cancelled).
+			name:   "Telock parent, sealing block cannot be retrieved",
+			seq:    8,
+			blocks: blockStore{7: block(telock, false)},
+		},
+		{
+			name:   "normal operation, VM has nothing to build",
+			seq:    2,
+			blocks: blockStore{1: block(normal, false)},
+		},
+		{
+			name:            "normal operation, VM has a pending block",
+			seq:             2,
+			blocks:          blockStore{1: block(normal, false)},
+			vmHasBlock:      true,
+			returnsOnItsOwn: true,
+		},
+		{
+			// The validator set changed, so a block must record the new P-chain reference height
+			// even if the VM has nothing to put in it.
+			name:            "normal operation, validator set changed",
+			seq:             2,
+			blocks:          blockStore{1: block(SimplexEpochInfo{EpochNumber: 1, PChainReferenceHeight: 50}, false)},
+			validatorSets:   map[uint64]NodeBLSMappings{50: {{BLSKey: []byte{9}, Weight: 1}}},
+			returnsOnItsOwn: true,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			bb := &blockingBlockBuilder{pending: make(chan struct{}, 1)}
+			if tt.vmHasBlock {
+				bb.pending <- struct{}{}
+			}
+
+			sm, cfg := newStateMachine(t)
+			sm.BlockBuilder = bb
+			sm.MaxBlockBuildingWaitTime = waitTime
+			cfg.validatorSetRetriever.resultMap = tt.validatorSets
+			for seq, blk := range tt.blocks {
+				cfg.blockStore[seq] = blk
+			}
+
+			md := common.ProtocolMetadata{Seq: tt.seq}
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				sm.WaitForPendingBlock(ctx, md)
+			}()
+
+			if tt.returnsOnItsOwn {
+				select {
+				case <-done:
+				case <-time.After(time.Minute):
+					require.FailNow(t, "WaitForPendingBlock should have returned on its own")
+				}
+				return
+			}
+
+			select {
+			case <-done:
+				require.FailNow(t, "WaitForPendingBlock returned with nothing to build")
+			case <-time.After(waitTime * 5):
+			}
+
+			cancel()
+			select {
+			case <-done:
+			case <-time.After(time.Second * 5):
+				require.FailNow(t, "WaitForPendingBlock ignored cancellation")
+			}
+		})
+	}
+}
