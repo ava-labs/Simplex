@@ -79,6 +79,7 @@ var (
 	errBlockDigestMismatch            = errors.New("does not match proposed block digest")
 	errSealingBlockSeqUnset           = errors.New("cannot build epoch sealed block: sealing block sequence is 0 or undefined")
 	errEmptyNextEpochApprovals        = errors.New("next epoch approvals are empty")
+	errApprovalsBitmaskTooWide        = errors.New("approvals bitmask is wider than the validator set")
 	errPChainReferenceHeightMismatch  = errors.New("unexpected P-chain reference height")
 	errPChainReferenceHeightDecreased = errors.New("p-chain reference height is decreasing")
 	errValidatorSetUnchanged          = errors.New("validator set unchanged; next P-chain reference height should not have advanced")
@@ -1114,6 +1115,12 @@ func assembleApprovalToBeSigned(pChainHeight uint64, auxInfoDigest [32]byte) ([]
 
 func (sm *StateMachine) aggregatePubKeysForBitmask(nodeIDsBitmask []byte, validators NodeBLSMappings) ([]byte, error) {
 	approvingNodes := avalanchego.BitmaskFromBytes(nodeIDsBitmask)
+
+	// Check that the bitmask is not wider than the number of validators, otherwise it would imply that some approving nodes are not in the validator set.
+	if bitLen := approvingNodes.BitLen(); bitLen > len(validators) {
+		return nil, fmt.Errorf("%w: highest set bit implies %d nodes, but there are %d validators",
+			errApprovalsBitmaskTooWide, bitLen, len(validators))
+	}
 
 	publicKeys := make([][]byte, 0, len(validators))
 	for i := range validators {
