@@ -87,7 +87,7 @@ func validateLastRecordFile(lastRecordFilePath string) ([]byte, error) {
 		return nil, nil
 	}
 
-	payload, _, err := readRecord(lastRecordFile, uint32(stat.Size()))
+	payload, _, err := readRecord(lastRecordFile, stat.Size())
 	if err != nil && stat.Size() > 0 {
 		return nil, fmt.Errorf("could not read record index file %s: %w", lastRecordFilePath, err)
 	}
