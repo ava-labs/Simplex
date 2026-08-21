@@ -2062,3 +2062,73 @@ func TestQuorum(t *testing.T) {
 		})
 	}
 }
+
+// rejectingVerifier accepts every signature except rejected.
+type rejectingVerifier struct {
+	rejected []byte
+}
+
+func (v *rejectingVerifier) VerifySignature(_ []byte, signature []byte, _ []byte) error {
+	if string(signature) == string(v.rejected) {
+		return fmt.Errorf("invalid signature")
+	}
+	return nil
+}
+
+// TestEpochVoteSentTwiceKeepsVerifiedVote ensures a node that has already voted in a round
+// cannot displace the vote we verified by sending a second one. Otherwise a signature that
+// fails verification ends up in the notarization we assemble and broadcast.
+func TestEpochVoteSentTwiceKeepsVerifiedVote(t *testing.T) {
+	bb := testutil.NewTestBlockBuilder()
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+
+	forged := []byte("forged signature")
+
+	comm := &recordingComm{Communication: testutil.NewNoopComm(nodes), BroadcastMessages: make(chan *Message, 100)}
+	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], comm, bb)
+	conf.Verifier = &rejectingVerifier{rejected: forged}
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+
+	// nodes[0] leads round 0, so it proposes the block and votes for it itself.
+	block := bb.GetBuiltBlock()
+
+	// nodes[1] casts a legitimate vote.
+	vote, err := testutil.NewTestVote(block, nodes[1])
+	require.NoError(t, err)
+	require.NoError(t, e.HandleMessage(&Message{VoteMessage: vote}, nodes[1]))
+
+	// nodes[1] votes a second time for the same round, with a signature that does not
+	// verify. It must be dropped rather than take the place of the vote above.
+	require.NoError(t, e.HandleMessage(&Message{VoteMessage: &Vote{
+		Vote:      vote.Vote,
+		Signature: Signature{Signer: nodes[1], Value: forged},
+	}}, nodes[1]))
+
+	// nodes[2] votes, bringing the round to a quorum so a notarization is assembled.
+	vote2, err := testutil.NewTestVote(block, nodes[2])
+	require.NoError(t, err)
+	require.NoError(t, e.HandleMessage(&Message{VoteMessage: vote2}, nodes[2]))
+
+	timeout := time.After(time.Minute)
+	for {
+		select {
+		case msg := <-comm.BroadcastMessages:
+			if msg.Notarization == nil {
+				continue
+			}
+			qc, ok := msg.Notarization.QC.(testutil.TestQC)
+			require.True(t, ok)
+			for _, sig := range qc {
+				require.NotEqual(t, forged, sig.Value,
+					"notarization QC contains a signature that failed verification, signer %x", sig.Signer)
+			}
+			return
+		case <-timeout:
+			t.Fatal("timed out waiting for a notarization to be broadcast")
+		}
+	}
+}
