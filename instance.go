@@ -5,6 +5,7 @@ package simplex
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"sync"
@@ -18,6 +19,8 @@ import (
 	"github.com/ava-labs/simplex/wal"
 	"go.uber.org/zap"
 )
+
+var errAlreadyStarted = errors.New("instance already started")
 
 const (
 	// tickInterval is the interval at which the instance will call AdvanceTime on the current epoch or non-validator.
@@ -34,6 +37,8 @@ type Config struct {
 	PlatformChain PlatformChain
 	// Broadcaster is the interface to broadcast messages to other nodes in the network.
 	Broadcaster Broadcaster
+	// Sender is an interface to send messages to a specific node in the network
+	Sender Sender
 	// CryptoOps is the interface to the cryptographic operations needed by the simplex instance.
 	CryptoOps CryptoOps
 	// WalCreator is the interface to create new write-ahead logs for the simplex instance.
@@ -41,7 +46,6 @@ type Config struct {
 	// Storage is the interface to the block storage layer for the simplex instance.
 	Storage        Storage
 	Logger         common.Logger
-	Sender         Sender
 	WALs           []wal.DeletableWAL
 	VM             VM
 	ICMETransition metadata.ICMEpochTransition
@@ -94,21 +98,14 @@ func (i *Instance) Start(ctx context.Context) error {
 	defer i.lock.Unlock()
 
 	if i.started {
-		return fmt.Errorf("instance already started")
+		return errAlreadyStarted
 	}
 
 	i.started = true
 
 	context.AfterFunc(ctx, i.Stop)
 
-	lastBlock, numBlocks, err := i.lastBlock()
-	if err != nil {
-		return fmt.Errorf("error retrieving last block: %w", err)
-	}
-
-	lastNonSimplexHeight := i.Config.LastNonSimplexInnerBlock.Height()
-	genesisValidatorSet := i.Config.PlatformChain.GenesisValidatorSet()
-	nodes, epochNum, err := constructEpochAndValidatorSet(i.Config.Logger, lastNonSimplexHeight, genesisValidatorSet, numBlocks, &ParsedBlock{StateMachineBlock: lastBlock}, i.Config.Storage)
+	nodes, epochNum, err := getLastAcceptedEpochAndValidatorSet(&i.Config)
 	if err != nil {
 		return fmt.Errorf("error determining latest epoch and validator set: %w", err)
 	}
@@ -418,14 +415,13 @@ func (i *Instance) iAmValidator(nodes common.Nodes) bool {
 }
 
 func (i *Instance) createEpochConfig() (*epochConfig, error) {
-	lastBlock, numBlocks, err := i.lastBlock()
+	lastBlock, _, err := i.lastBlock()
 	if err != nil {
 		return nil, err
 	}
 
-	lastNonSimplexHeight := i.Config.LastNonSimplexInnerBlock.Height()
 	genesisValidatorSet := i.Config.PlatformChain.GenesisValidatorSet()
-	nodes, epochNum, err := constructEpochAndValidatorSet(i.Config.Logger, lastNonSimplexHeight, genesisValidatorSet, numBlocks, &ParsedBlock{StateMachineBlock: lastBlock}, i.Config.Storage)
+	nodes, epochNum, err := getLastAcceptedEpochAndValidatorSet(&i.Config)
 	if err != nil {
 		return nil, err
 	}
@@ -587,71 +583,6 @@ func (i *Instance) transitionEpochValidator(epochChange epochChange) error {
 	}
 
 	return i.startAtEpoch(epochChange.validators, epochChange.epochNum)
-}
-
-func constructEpochAndValidatorSet(logger common.Logger, lastNonSimplexInnerBlockHeight uint64, genesisValidatorSet metadata.NodeBLSMappings, numBlocks uint64, lastBlock *ParsedBlock, storage Storage) (common.Nodes, uint64, error) {
-	epochNum := lastBlock.BlockHeader().Epoch
-
-	var validatorSet metadata.NodeBLSMappings
-	var nodes common.Nodes
-
-	switch {
-	// If all we have in the ledger is non-Simplex blocks, load the validator set from genesis
-	case lastNonSimplexInnerBlockHeight+1 == numBlocks:
-		nodes = validatorSetToNodes(genesisValidatorSet)
-		epochNum = lastNonSimplexInnerBlockHeight + 1
-		logger.Debug("Determined epoch and validator set from genesis (ledger holds only non-Simplex blocks)",
-			zap.Uint64("epoch", epochNum))
-	// If the last block persisted is a sealing block, then we are in the next epoch.
-	case lastBlock.SealingBlockInfo() != nil:
-		epochNum = lastBlock.BlockHeader().Seq
-		nodes = lastBlock.SealingBlockInfo().ValidatorSet
-		logger.Debug("Determined epoch and validator set from sealing block at tip",
-			zap.Uint64("epoch", epochNum))
-	// Else, we have at least one Simplex block in the ledger, and it's not a sealing block.
-	default:
-		// Therefore, the sequence of the sealing block is the epoch number.
-		sealingBlockSeq := lastBlock.BlockHeader().Epoch
-		sealingBlock, _, err := storage.GetBlock(sealingBlockSeq)
-		if err != nil {
-			return nil, 0, fmt.Errorf("error retrieving sealing block from storage: %w", err)
-		}
-		if sealingBlock.Metadata.SimplexEpochInfo.BlockValidationDescriptor == nil {
-			return nil, 0, fmt.Errorf("expected sealing block at seq %d, but got a non-sealing block", sealingBlockSeq)
-		}
-		validatorSet = constructValidatorSetFromSealingBlock(&ParsedBlock{StateMachineBlock: sealingBlock})
-		nodes = validatorSetToNodes(validatorSet)
-		logger.Debug("Determined epoch and validator set from sealing block in storage",
-			zap.Uint64("epoch", epochNum), zap.Uint64("sealingBlockSeq", sealingBlockSeq))
-	}
-	return nodes, epochNum, nil
-}
-
-func validatorSetToNodes(validatorSet metadata.NodeBLSMappings) common.Nodes {
-	var nodes common.Nodes
-	for i := range validatorSet {
-		vdr := &validatorSet[i]
-		nodes = append(nodes, common.Node{
-			Id:     vdr.NodeID[:],
-			Weight: vdr.Weight,
-			PK:     vdr.BLSKey,
-		})
-	}
-	return nodes
-}
-
-func constructValidatorSetFromSealingBlock(lastBlock *ParsedBlock) metadata.NodeBLSMappings {
-	var validatorSet metadata.NodeBLSMappings
-	vdrs := lastBlock.Metadata.SimplexEpochInfo.BlockValidationDescriptor.AggregatedMembership.Members
-	for i := range vdrs {
-		vdr := &vdrs[i]
-		validatorSet = append(validatorSet, metadata.NodeBLSMapping{
-			NodeID: vdr.NodeID,
-			BLSKey: vdr.BLSKey,
-			Weight: vdr.Weight,
-		})
-	}
-	return validatorSet
 }
 
 type epochConfig struct {

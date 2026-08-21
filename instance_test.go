@@ -612,7 +612,7 @@ func TestInstanceDoubleStartFails(t *testing.T) {
 	require.NoError(t, inst.Start(t.Context()))
 	t.Cleanup(inst.Stop)
 
-	require.ErrorContains(t, inst.Start(t.Context()), "instance already started")
+	require.ErrorIs(t, inst.Start(t.Context()), errAlreadyStarted)
 }
 
 func TestNonValidatorSkipsMSMVerification(t *testing.T) {
