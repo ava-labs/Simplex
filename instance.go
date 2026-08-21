@@ -5,6 +5,7 @@ package simplex
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"sync"
@@ -18,6 +19,8 @@ import (
 	"github.com/ava-labs/simplex/wal"
 	"go.uber.org/zap"
 )
+
+var errAlreadyStarted = errors.New("instance already started")
 
 const (
 	// tickInterval is the interval at which the instance will call AdvanceTime on the current epoch or non-validator.
@@ -34,6 +37,8 @@ type Config struct {
 	PlatformChain PlatformChain
 	// Broadcaster is the interface to broadcast messages to other nodes in the network.
 	Broadcaster Broadcaster
+	// Sender is an interface to send messages to a specific node in the network
+	Sender Sender
 	// CryptoOps is the interface to the cryptographic operations needed by the simplex instance.
 	CryptoOps CryptoOps
 	// WalCreator is the interface to create new write-ahead logs for the simplex instance.
@@ -41,7 +46,6 @@ type Config struct {
 	// Storage is the interface to the block storage layer for the simplex instance.
 	Storage        Storage
 	Logger         common.Logger
-	Sender         Sender
 	WALs           []wal.DeletableWAL
 	VM             VM
 	ICMETransition metadata.ICMEpochTransition
@@ -94,7 +98,7 @@ func (i *Instance) Start(ctx context.Context) error {
 	defer i.lock.Unlock()
 
 	if i.started {
-		return fmt.Errorf("instance already started")
+		return errAlreadyStarted
 	}
 
 	i.started = true
