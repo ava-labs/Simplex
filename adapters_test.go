@@ -189,9 +189,9 @@ func TestCachedStoragePopulatedByWal(t *testing.T) {
 		LastNonSimplexInnerBlock: genesisBlock,
 		WalCreator:               storage.CreateWAL,
 		ParameterConfig: ParameterConfig{
-			MaxNetworkDelay:  500 * time.Millisecond,
-			MaxRoundWindow:   100,
-			WALMaxEntryCount: 1024,
+			MaxNetworkDelay: 500 * time.Millisecond,
+			MaxRoundWindow:  100,
+			WALMaxSizeBytes: 1024,
 		},
 		WALs: []wal.DeletableWAL{testWAL},
 	}
