@@ -38,7 +38,7 @@ func writeRecord(w io.Writer, payload []byte) error {
 
 // readRecord reads a length-prefixed and check-summed record from the reader.
 // If the record is read correctly, the number of bytes read is returned.
-func readRecord(r io.Reader, maxSize uint32) ([]byte, uint32, error) {
+func readRecord(r io.Reader, maxSize int64) ([]byte, int64, error) {
 	const tempSpace = max(recordSizeLen, recordChecksumLen)
 	buff := make([]byte, tempSpace)
 	crc := crc64.New(crc64.MakeTable(crc64.ECMA))
@@ -52,11 +52,14 @@ func readRecord(r io.Reader, maxSize uint32) ([]byte, uint32, error) {
 	}
 
 	payloadLen := binary.BigEndian.Uint32(sizeBuff)
-	if payloadLen > maxSize {
-		return nil, 0, fmt.Errorf("record indicates payload is %d bytes long", payloadLen)
+	// Widened to 64 bits so that a payload length near MaxUint32 cannot wrap around
+	// and understate the size of the record or of the allocation below.
+	recordLen := int64(recordSizeLen) + int64(payloadLen) + int64(recordChecksumLen)
+	if recordLen > maxSize {
+		return nil, 0, fmt.Errorf("record indicates payload is %d bytes long, but only %d bytes remain", payloadLen, maxSize)
 	}
 
-	payloadAndChecksum := make([]byte, payloadLen+recordChecksumLen)
+	payloadAndChecksum := make([]byte, int64(payloadLen)+int64(recordChecksumLen))
 	if _, err := io.ReadFull(r, payloadAndChecksum); err != nil {
 		return nil, 0, err
 	}
@@ -70,5 +73,5 @@ func readRecord(r io.Reader, maxSize uint32) ([]byte, uint32, error) {
 	if !bytes.Equal(checksum, expectedChecksum) {
 		return nil, 0, ErrInvalidCRC
 	}
-	return payload, recordSizeLen + payloadLen + recordChecksumLen, nil
+	return payload, recordLen, nil
 }

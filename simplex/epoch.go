@@ -1133,7 +1133,6 @@ func (e *Epoch) handleVoteMessage(message *common.Vote, from common.NodeID) erro
 		return nil
 	}
 
-	// Only verify the vote if we haven't verified it in the past.
 	signature := message.Signature
 
 	pk, exists := e.validatorsToPKs[string(signature.Signer)]
@@ -1142,11 +1141,17 @@ func (e *Epoch) handleVoteMessage(message *common.Vote, from common.NodeID) erro
 		return nil
 	}
 
-	if _, exists := round.votes[string(signature.Signer)]; !exists {
-		if err := vote.Verify(signature.Value, e.Verifier, pk); err != nil {
-			e.Logger.Debug("ToBeSignedVote verification failed", zap.Stringer("NodeID", signature.Signer), zap.Error(err))
-			return nil
-		}
+	// A node only gets to vote once per round. Keeping the origional vote
+	if _, exists := round.votes[string(signature.Signer)]; exists {
+		e.Logger.Debug("Already received a vote from this node for the round",
+			zap.Stringer("NodeID", signature.Signer), zap.Uint64("round", vote.Round))
+		e.deleteFutureVote(from, vote.Round)
+		return nil
+	}
+
+	if err := vote.Verify(signature.Value, e.Verifier, pk); err != nil {
+		e.Logger.Debug("ToBeSignedVote verification failed", zap.Stringer("NodeID", signature.Signer), zap.Error(err))
+		return nil
 	}
 
 	e.rounds[vote.Round].votes[string(signature.Signer)] = message

@@ -612,7 +612,7 @@ func TestInstanceDoubleStartFails(t *testing.T) {
 	require.NoError(t, inst.Start(t.Context()))
 	t.Cleanup(inst.Stop)
 
-	require.ErrorContains(t, inst.Start(t.Context()), "instance already started")
+	require.ErrorIs(t, inst.Start(t.Context()), errAlreadyStarted)
 }
 
 func TestNonValidatorSkipsMSMVerification(t *testing.T) {
@@ -954,9 +954,9 @@ func newInstanceWithVM(t *testing.T, nodeID common.NodeID, storage *MockStorage,
 		LastNonSimplexInnerBlock: genesisBlock,
 		WalCreator:               storage.CreateWAL,
 		ParameterConfig: ParameterConfig{
-			MaxNetworkDelay:  500 * time.Millisecond,
-			MaxRoundWindow:   100,
-			WALMaxEntryCount: 1024,
+			MaxNetworkDelay: 500 * time.Millisecond,
+			MaxRoundWindow:  100,
+			WALMaxSizeBytes: 1024,
 		},
 	}
 	return NewInstance(config)
