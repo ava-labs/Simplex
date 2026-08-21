@@ -25,7 +25,7 @@ type approvalAndTimestamp struct {
 }
 
 type ApprovalStore struct {
-	signatureVerifier SignatureVerifier
+	signatureVerifier common.SignatureVerifier
 	validators        NodeBLSMappings
 	logger            common.Logger
 	nodeIDToPK        map[avalanchego.NodeID][]byte
@@ -37,7 +37,7 @@ type ApprovalStore struct {
 	storedCount      int
 }
 
-func NewApprovalStore(signatureVerifier SignatureVerifier, validators NodeBLSMappings, logger common.Logger) *ApprovalStore {
+func NewApprovalStore(signatureVerifier common.SignatureVerifier, validators NodeBLSMappings, logger common.Logger) *ApprovalStore {
 	pkByNodeID := make(map[avalanchego.NodeID][]byte)
 	for _, vdr := range validators {
 		pkByNodeID[vdr.NodeID] = vdr.BLSKey
@@ -153,7 +153,7 @@ func (as *ApprovalStore) checkApprovalSignature(approval *common.ValidatorSetApp
 	}
 
 	// We check if the signature is valid before we store the approval.
-	return as.signatureVerifier.VerifySignature(approval.Signature, toBeSigned, pk)
+	return as.signatureVerifier.VerifySignature(toBeSigned, approval.Signature, pk)
 }
 
 func (as *ApprovalStore) approvalExistsAndUpToDate(approval *common.ValidatorSetApproval, timestamp uint64) bool {

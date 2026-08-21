@@ -1728,7 +1728,7 @@ func TestCollectingApprovalsAuxInfoGating(t *testing.T) {
 	// of the final auxiliary info history, which is sha256 of the last vote (vote2).
 	wantSigned, err := assembleApprovalToBeSigned(nextPChainRefHeight, sha256.Sum256(vote2))
 	require.NoError(t, err)
-	require.NoError(t, (&signatureVerifier{}).VerifySignature(approvals(block3).Signature, wantSigned, nil),
+	require.NoError(t, (&signatureVerifier{}).VerifySignature(wantSigned, approvals(block3).Signature, nil),
 		"NextEpochApprovals signature must verify against P-chain height 200 and the digest of vote2")
 
 	// block4: built on the empty-Info block3 while still collecting approvals (1/3 is below

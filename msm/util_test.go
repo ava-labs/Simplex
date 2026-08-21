@@ -128,7 +128,7 @@ type signatureVerifier struct {
 	err error
 }
 
-func (sv *signatureVerifier) VerifySignature(signature []byte, message []byte, _ []byte) error {
+func (sv *signatureVerifier) VerifySignature(message []byte, signature []byte, _ []byte) error {
 	if sv.err != nil {
 		return sv.err
 	}
