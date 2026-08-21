@@ -10,6 +10,7 @@ import (
 
 	"github.com/ava-labs/simplex/common"
 	metadata "github.com/ava-labs/simplex/msm"
+	"github.com/ava-labs/simplex/simplex"
 	"github.com/ava-labs/simplex/testutil"
 	"github.com/stretchr/testify/require"
 )
@@ -27,6 +28,66 @@ func TestValidatorIndexes(t *testing.T) {
 
 	chain.acceptNewBlock()
 }
+
+// TestEpochInvokesMSMWaitForPendingBlock verifies the epoch drives the MSM's WaitForPendingBlock:
+// a non-leader whose VM never has a pending block must still broadcast an empty vote.
+// The round leader is never instantiated, so no proposal ever arrives.
+func TestEpochInvokesMSMWaitForPendingBlock(t *testing.T) {
+	ourValidator := newBLSMapping(1)
+	leader := newBLSMapping(2)
+	genesisSet := []metadata.NodeBLSMapping{ourValidator, leader}
+
+	pChain := newTestPChain(genesisSet)
+	nodes := pChain.GenesisValidatorSet().Nodes()
+	common.SortNodes(nodes)
+	require.NotEqual(t, common.NodeID(ourValidator.NodeID[:]), simplex.LeaderForRound(nodes.NodeIDs(), 1))
+
+	storage := NewMockStorageWithGenesis(t, &testInnerBlockDeserializer{})
+	// the VM blocks in WaitForPendingBlock until a block is indexed, which never happens here
+	vm := newBlockBuilderVM(testutil.NewTestControlledBlockBuilder(t), storage, newPendingBlockSignal())
+	recorder := &emptyVoteRecorder{got: make(chan struct{}, 1)}
+	wc := &walCreator{t: t}
+
+	inst := NewInstance(Config{
+		LastNonSimplexInnerBlock: genesisBlock,
+		ParameterConfig:          paramConfig,
+		PlatformChain:            pChain,
+		Broadcaster:              recorder,
+		Sender:                   recorder,
+		CryptoOps:                &testCryptoOps{},
+		WalCreator:               wc.createWAL,
+		Storage:                  storage,
+		Logger:                   testutil.MakeLogger(t, 1),
+		VM:                       vm,
+		ICMETransition:           noopICMTransition,
+		ID:                       ourValidator.NodeID[:],
+	})
+
+	require.NoError(t, inst.Start(t.Context()))
+	t.Cleanup(inst.Stop)
+
+	select {
+	case <-recorder.got:
+	case <-time.After(10 * time.Second):
+		require.FailNow(t, "node never broadcast an empty vote, so the Epoch did not drive the MSM's WaitForPendingBlock")
+	}
+}
+
+// emptyVoteRecorder signals the first empty vote broadcast and drops all other traffic.
+type emptyVoteRecorder struct {
+	got chan struct{}
+}
+
+func (r *emptyVoteRecorder) Broadcast(msg *common.Message) {
+	if msg.EmptyVoteMessage != nil {
+		select {
+		case r.got <- struct{}{}:
+		default:
+		}
+	}
+}
+
+func (r *emptyVoteRecorder) Send(*common.Message, common.NodeID) {}
 
 // TestNonValidatorSyncs that a non-validator syncs the chain when added to the network.
 func TestNonValidatorSyncs(t *testing.T) {
