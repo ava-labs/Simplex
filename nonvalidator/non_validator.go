@@ -270,9 +270,13 @@ func (n *NonValidator) newFinalizedBlockTask(block common.Block, finalization *c
 			return md.Digest
 		}
 
+		// If we are indexing a sealing block, we may need to transition to become a validator
 		if block.SealingBlockInfo() != nil {
-			// are we the highest validator
 			highestEpoch, highestValidatorSet := n.epochs.highestEpoch()
+
+			// We should only transition to become a validator, if the sealing block is creating the highest
+			// epoch we have validated. Since we are fetching from the epochs map, we know this epoch has been validated
+			// either by a threshold of responses, or backwards hash chain validation.
 			if highestValidatorSet.Contains(n.ID) && highestEpoch == md.Seq {
 				if n.TransitionToValidator != nil {
 					n.TransitionToValidator(block.BlockHeader().Seq, block.SealingBlockInfo().ValidatorSet)
