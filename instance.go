@@ -430,7 +430,7 @@ func (i *Instance) createEpochConfig() (*epochConfig, error) {
 		return nil, err
 	}
 
-	wal, err := wal.NewGarbageCollectedWAL(i.Config.WALs, i.Config.WalCreator, &common.WALRetentionReader{}, i.Config.ParameterConfig.WALMaxEntryCount)
+	wal, err := wal.NewGarbageCollectedWAL(i.Config.WALs, i.Config.WalCreator, &common.WALRetentionReader{}, i.Config.ParameterConfig.WALMaxSizeBytes)
 	if err != nil {
 		return nil, fmt.Errorf("error creating garbage collected wal: %w", err)
 	}
