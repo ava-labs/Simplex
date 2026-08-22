@@ -250,6 +250,17 @@ func (i *Instance) Stop() {
 	i.stopNonValidator()
 }
 
+// closeWAL closes the WAL currently in use, if any.
+// Must be called under the lock, and only once the epoch or non-validator using it has been stopped.
+func (i *Instance) closeWAL() error {
+	if i.wal == nil {
+		return nil
+	}
+	err := i.wal.Close()
+	i.wal = nil
+	return err
+}
+
 func (i *Instance) stopNonValidator() {
 	if i.nv != nil {
 		i.nv.Stop()
@@ -263,6 +274,10 @@ func (i *Instance) stopValidator() {
 		i.e.Stop()
 		i.e = nil
 		i.epochOrNV = nil
+	}
+
+	if err := i.closeWAL(); err != nil {
+		i.Config.Logger.Error("Error closing the WAL of the previous epoch", zap.Error(err))
 	}
 }
 
@@ -573,14 +588,16 @@ func (i *Instance) transitionEpochValidator(epochChange epochChange) error {
 	i.lock.Lock()
 	defer i.lock.Unlock()
 
-	// Stop the epoch before doing anything else, so that we don't process any more messages while we are changing epochs.
-	i.stopValidator()
-	// Wipe out the WALs from the config so we won't try to load them again
-	i.Config.WALs = nil
 	// On epoch change, garbage collect the WAL to remove all entries from previous epochs.
 	if err := i.wal.GarbageCollect(math.MaxUint64); err != nil {
 		i.Config.Logger.Error("Error garbage collecting epoch config on epoch change", zap.Error(err))
 	}
+
+	// Stop the epoch before doing anything else, so that we don't process any more messages while we are changing epochs.
+	i.stopValidator()
+
+	// Wipe out the WALs from the config so we won't try to load them again
+	i.Config.WALs = nil
 
 	return i.startAtEpoch(epochChange.validators, epochChange.epochNum)
 }
