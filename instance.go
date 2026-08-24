@@ -382,14 +382,20 @@ func (i *Instance) processEpochChange(epochChange epochChange) {
 
 	var err error
 
+	runningNonValidator := i.nv != nil
+	runningValidator := i.e != nil
+
 	switch {
-	case i.nv != nil:
+	case runningNonValidator && runningValidator:
+		i.lock.Unlock()
+		i.Config.Logger.Fatal("We are running both a validator or non-validator")
+		return
+	case runningNonValidator:
 		// Stop the non-validator before doing anything else, so that we don't process any more messages while we are changing epochs.
 		i.stopNonValidator()
 		err = i.startAtEpoch(epochChange.validators, epochChange.epoch)
-	case i.e != nil:
+	case runningValidator:
 		i.stopValidator(true)
-
 		err = i.startAtEpoch(epochChange.validators, epochChange.epoch)
 	default: // This should never happen, but we log it just in case.
 		i.lock.Unlock()
