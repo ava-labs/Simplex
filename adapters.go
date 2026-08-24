@@ -41,9 +41,9 @@ func (c *Communication) Validators() common.Nodes {
 	return nodes
 }
 
-// InstanceStorage is a wrapper around Storage that skips indexing Telocks
+// CallbackStorage is a wrapper around Storage that skips indexing Telocks
 // and delegates post-index handling to a caller-provided onIndex hook.
-type InstanceStorage struct {
+type CallbackStorage struct {
 	// CachedStorage is used to ensure that we prune the cache on Index.
 	*CachedStorage
 
@@ -52,15 +52,15 @@ type InstanceStorage struct {
 	onIndex func(block *ParsedBlock) error
 }
 
-func NewInstanceStorage(storage *CachedStorage, msm *metadata.StateMachine, onIndex func(block *ParsedBlock) error) *InstanceStorage {
-	return &InstanceStorage{
+func NewCallbackStorage(storage *CachedStorage, msm *metadata.StateMachine, onIndex func(block *ParsedBlock) error) *CallbackStorage {
+	return &CallbackStorage{
 		CachedStorage: storage,
 		msm:           msm,
 		onIndex:       onIndex,
 	}
 }
 
-func (s *InstanceStorage) Retrieve(seq uint64) (common.VerifiedBlock, common.Finalization, error) {
+func (s *CallbackStorage) Retrieve(seq uint64) (common.VerifiedBlock, common.Finalization, error) {
 	block, finalization, err := s.GetBlock(seq)
 	if err != nil {
 		return nil, common.Finalization{}, err
@@ -72,7 +72,7 @@ func (s *InstanceStorage) Retrieve(seq uint64) (common.VerifiedBlock, common.Fin
 	return parsedBlock, *finalization, nil
 }
 
-func (s *InstanceStorage) Index(ctx context.Context, block common.VerifiedBlock, certificate common.Finalization) error {
+func (s *CallbackStorage) Index(ctx context.Context, block common.VerifiedBlock, certificate common.Finalization) error {
 	pb, ok := block.(*ParsedBlock)
 	if !ok {
 		return fmt.Errorf("expected ParsedBlock, got %T", block)

@@ -170,7 +170,7 @@ func (i *Instance) createNonValidatorConfig() (nonvalidator.Config, error) {
 		Config: &metadata.Config{},
 	}
 	i.cs.msm = i.msm
-	instanceStorage := NewInstanceStorage(i.cs, i.msm, noopOnIndex)
+	instanceStorage := NewCallbackStorage(i.cs, i.msm, noopOnIndex)
 
 	config := nonvalidator.Config{
 		ID:                         i.Config.ID,
@@ -459,7 +459,7 @@ func (i *Instance) createEpochConfig(epoch uint64, validators common.Nodes) (*ep
 
 	comm := newCommunication(i.Config.Sender, i.Config.Broadcaster, validators)
 
-	instanceStorage := NewInstanceStorage(i.cs, msm, noopOnIndex)
+	instanceStorage := NewCallbackStorage(i.cs, msm, noopOnIndex)
 
 	onEpochChange := func(epoch uint64, validators common.Nodes) {
 		blockBuilder.stop()
