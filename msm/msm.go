@@ -323,6 +323,7 @@ func (sm *StateMachine) WaitForPendingBlock(ctx context.Context, currentRoundMet
 		// Else, err is nil and the sealing block is finalized,
 		// so we can use the sealing block's metadata to determine whether we should build a block immediately or not.
 		parentBlock = sealingBlock
+		prevBlockSeq = sealingBlockSeq
 	}
 
 	currentState := parentBlock.Metadata.SimplexEpochInfo.NextState()
@@ -358,13 +359,27 @@ func (sm *StateMachine) WaitForPendingBlock(ctx context.Context, currentRoundMet
 	// so we initialize a blockBuildingDecider and listen while waiting for the VM.
 	// We return when either the VM signals that a block is ready to be built,
 	// or that the blockBuildingDecider detects that we should transition to a new epoch.
-	pChainReferenceHeight := parentBlock.Metadata.SimplexEpochInfo.PChainReferenceHeight
+	var currentValidatorSet NodeBLSMappings
 	if parentBlock.Type() == BlockTypeSealing {
-		// We've moved to a new epoch, so we need to use the next P-chain reference height of the sealing block,
-		// because the P-chain reference height of the next epoch is inherited from the P-chain reference height of the sealing block.
-		pChainReferenceHeight = parentBlock.Metadata.SimplexEpochInfo.NextPChainReferenceHeight
+		// We've moved to a new epoch, so the current validator set is the one the sealing block
+		// itself carries; getCurrentValidatorSet would instead look up the sealed (previous) epoch.
+		bvd := parentBlock.Metadata.SimplexEpochInfo.BlockValidationDescriptor
+		if bvd == nil || len(bvd.AggregatedMembership.Members) == 0 {
+			sm.Logger.Debug("Sealing block has no validator set, cannot determine current validator set for next epoch", zap.Uint64("seq", prevBlockSeq))
+			sm.BlockBuilder.WaitForPendingBlock(ctx)
+			return
+		}
+		currentValidatorSet = bvd.AggregatedMembership.Members
+	} else {
+		currentValidatorSet, err = sm.getCurrentValidatorSet(&parentBlock)
+		if err != nil {
+			sm.Logger.Debug("WaitForPendingBlock failed to get current validator set", zap.Uint64("seq", prevBlockSeq), zap.Error(err))
+			sm.BlockBuilder.WaitForPendingBlock(ctx)
+			return
+		}
 	}
-	blockBuildingDecider := sm.createBlockBuildingDecider(pChainReferenceHeight)
+
+	blockBuildingDecider := sm.createBlockBuildingDecider(currentValidatorSet)
 	_, err = blockBuildingDecider.shouldBuildBlock(ctx)
 	if err != nil {
 		sm.Logger.Debug("Error while deciding whether to build a block", zap.Error(err))
@@ -549,7 +564,21 @@ func (sm *StateMachine) buildBlockOrTransitionEpoch(ctx context.Context, parentB
 		isSealingBlockFinalized = true
 	}
 
-	blockBuildingDecider := sm.createBlockBuildingDecider(newSimplexEpochInfo.PChainReferenceHeight)
+	var currentValidatorSet NodeBLSMappings
+	if parentBlock.Type() != BlockTypeSealing {
+		currentValidatorSet, err = sm.getCurrentValidatorSet(parentBlock)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get current validator set: %w", err)
+		}
+	} else {
+		bvd := parentBlock.Metadata.SimplexEpochInfo.BlockValidationDescriptor
+		if bvd == nil || len(bvd.AggregatedMembership.Members) == 0 {
+			return nil, fmt.Errorf("sealing block has no validator set, cannot determine current validator set for next epoch")
+		}
+		currentValidatorSet = bvd.AggregatedMembership.Members
+	}
+
+	blockBuildingDecider := sm.createBlockBuildingDecider(currentValidatorSet)
 	decisionToBuildBlock, err := blockBuildingDecider.shouldBuildBlock(ctx)
 	if err != nil {
 		return nil, err
@@ -639,7 +668,7 @@ func (sm *StateMachine) verifyNormalBlock(ctx context.Context, parentBlock *Stat
 
 	icmEpochInfo := computeICMEpochInfo(parentBlock, sm.ComputeICMEpoch, timestamp)
 
-	if err := sm.verifyNextPChainRefHeightNormal(ctx, parentBlock.Metadata, nextBlock.Metadata.SimplexEpochInfo); err != nil {
+	if err := sm.verifyNextPChainRefHeightNormal(parentBlock, nextBlock.Metadata.SimplexEpochInfo); err != nil {
 		return fmt.Errorf("failed to verify next P-chain reference height for normal block: %w", err)
 	}
 	newSimplexEpochInfo.NextPChainReferenceHeight = nextBlock.Metadata.SimplexEpochInfo.NextPChainReferenceHeight
@@ -660,7 +689,8 @@ func verifyPChainHeight(proposedPChainHeight uint64, currentPChainHeight uint64,
 	return nil
 }
 
-func (sm *StateMachine) verifyNextPChainRefHeightNormal(ctx context.Context, prevMD StateMachineMetadata, next SimplexEpochInfo) error {
+func (sm *StateMachine) verifyNextPChainRefHeightNormal(parentBlock *StateMachineBlock, next SimplexEpochInfo) error {
+	prevMD := parentBlock.Metadata
 	prev := prevMD.SimplexEpochInfo
 	// Next P-chain height can only increase, not decrease.
 	if next.NextPChainReferenceHeight > 0 && prev.PChainReferenceHeight > next.NextPChainReferenceHeight {
@@ -700,9 +730,9 @@ func (sm *StateMachine) verifyNextPChainRefHeightNormal(ctx context.Context, pre
 	// It might be that this block is the first block that has set the next P-chain reference height for the epoch,
 	// so check if it has done so correctly by observing whether the validator set has indeed changed.
 
-	currentValidatorSet, err := sm.GetValidatorSet(prevMD.SimplexEpochInfo.PChainReferenceHeight)
+	currentValidatorSet, err := sm.getCurrentValidatorSet(parentBlock)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to get current validator set: %w", err)
 	}
 
 	newValidatorSet, err := sm.GetValidatorSet(next.NextPChainReferenceHeight)
@@ -734,7 +764,7 @@ func (sm *StateMachine) verifyNextPChainRefHeightNormal(ctx context.Context, pre
 // We cannot reuse verifyNextPChainRefHeightNormal here — the baseline
 // for the validator-set change check is the new epoch's PChainReferenceHeight, not the parent's,
 // as in verifyNextPChainRefHeightNormal.
-func (sm *StateMachine) verifyNextPChainRefHeightForNewEpoch(ctx context.Context, expectedEpochInfo SimplexEpochInfo, next SimplexEpochInfo) error {
+func (sm *StateMachine) verifyNextPChainRefHeightForNewEpoch(expectedEpochInfo SimplexEpochInfo, next SimplexEpochInfo, currentValidatorSet NodeBLSMappings) error {
 	// The first block of the epoch doesn't trigger an epoch change, we're all set.
 	if next.NextPChainReferenceHeight == 0 {
 		return nil
@@ -755,11 +785,6 @@ func (sm *StateMachine) verifyNextPChainRefHeightForNewEpoch(ctx context.Context
 		return fmt.Errorf("%w: target %d, current %d", errPChainHeightNotReached, next.NextPChainReferenceHeight, pChainHeight)
 	}
 
-	currentValidatorSet, err := sm.GetValidatorSet(expectedEpochInfo.PChainReferenceHeight)
-	if err != nil {
-		return err
-	}
-
 	newValidatorSet, err := sm.GetValidatorSet(next.NextPChainReferenceHeight)
 	if err != nil {
 		return err
@@ -775,7 +800,7 @@ func (sm *StateMachine) verifyNextPChainRefHeightForNewEpoch(ctx context.Context
 	return nil
 }
 
-func (sm *StateMachine) createBlockBuildingDecider(pChainReferenceHeight uint64) blockBuildingDecider {
+func (sm *StateMachine) createBlockBuildingDecider(currentValidatorSet NodeBLSMappings) blockBuildingDecider {
 	blockBuildingDecider := blockBuildingDecider{
 		logger:                   sm.Logger,
 		maxBlockBuildingWaitTime: sm.MaxBlockBuildingWaitTime,
@@ -788,11 +813,6 @@ func (sm *StateMachine) createBlockBuildingDecider(pChainReferenceHeight uint64)
 			// and the new validator set defined by the given pChainHeight.
 			// If they are different, then we should transition to a new epoch.
 
-			currentValidatorSet, err := sm.GetValidatorSet(pChainReferenceHeight)
-			if err != nil {
-				return false, nil, err
-			}
-
 			newValidatorSet, err := sm.GetValidatorSet(pChainHeight)
 			if err != nil {
 				return false, nil, err
@@ -802,7 +822,6 @@ func (sm *StateMachine) createBlockBuildingDecider(pChainReferenceHeight uint64)
 				sm.Logger.Debug("Validator set has changed, should transition epoch",
 					zap.String("currentValidatorSet", fmt.Sprintf("%v", currentValidatorSet.Nodes())),
 					zap.String("newValidatorSet", fmt.Sprintf("%v", newValidatorSet.Nodes())),
-					zap.Uint64("currentPChainRefHeight", pChainReferenceHeight),
 					zap.Uint64("newPChainHeight", pChainHeight))
 				return true, newValidatorSet, nil
 			}
@@ -1301,6 +1320,33 @@ func (sm *StateMachine) computeSimplexEpochInfoForSealingBlock(simplexEpochInfo 
 	return simplexEpochInfo, nil
 }
 
+// getCurrentValidatorSet retrieves the validator set for the current epoch by looking up the sealing block of the current epoch.
+// If the given block is a sealing block, it will return the validator set of the sealing block, so special care needs to be taken
+// when calling this method.
+func (sm *StateMachine) getCurrentValidatorSet(parentBlock *StateMachineBlock) (NodeBLSMappings, error) {
+	epoch := parentBlock.Metadata.SimplexEpochInfo.EpochNumber
+	block, finalization, err := sm.GetBlock(epoch, [32]byte{}) // The sealing block of the current epoch should be finalized.
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve sealing block %d: %w", epoch, err)
+	}
+
+	var bvd *BlockValidationDescriptor
+	if block.Type() == BlockTypeZero {
+		bvd = block.Metadata.SimplexEpochInfo.BlockValidationDescriptor
+	} else {
+		if finalization == nil {
+			return nil, fmt.Errorf("sealing block %d is not finalized", epoch)
+		}
+		bvd = block.Metadata.SimplexEpochInfo.BlockValidationDescriptor
+	}
+
+	if bvd == nil || len(bvd.AggregatedMembership.Members) == 0 {
+		return nil, fmt.Errorf("block %d has no validators", epoch)
+	}
+
+	return bvd.AggregatedMembership.Members, nil
+}
+
 // wrapBlock creates a new StateMachineBlock by wrapping the VM block (if applicable) and adding the appropriate metadata.
 func wrapBlock(
 	innerBlock avalanchego.VMBlock,
@@ -1408,7 +1454,7 @@ func computeSimplexEpochInfoForTelock(parentBlock *StateMachineBlock, sealingBlo
 }
 
 func (sm *StateMachine) verifyBlockEpochSealed(ctx context.Context, parentBlock *StateMachineBlock, nextBlock *StateMachineBlock, prevBlockSeq uint64) error {
-	isSealingBlockFinalized, sealingBlockSeq, _, err := sm.areWeReadyToTransitionEpoch(parentBlock, prevBlockSeq)
+	isSealingBlockFinalized, sealingBlockSeq, sealingBlock, err := sm.areWeReadyToTransitionEpoch(parentBlock, prevBlockSeq)
 	if err != nil {
 		return err
 	}
@@ -1423,6 +1469,13 @@ func (sm *StateMachine) verifyBlockEpochSealed(ctx context.Context, parentBlock 
 		return verifyAgainstExpected(ctx, nil, newSimplexEpochInfo, nextBlock.Metadata.PChainHeight, nextBlock, timestamp, icmEpochInfo, nil)
 	}
 
+	bvd := sealingBlock.Metadata.SimplexEpochInfo.BlockValidationDescriptor
+	if bvd == nil || len(bvd.AggregatedMembership.Members) == 0 {
+		return fmt.Errorf("sealing block %d has no BlockValidationDescriptor", sealingBlockSeq)
+	}
+
+	currentValidatorSet := bvd.AggregatedMembership.Members
+
 	// Else, it's a new epoch.
 	newSimplexEpochInfo = computeSimplexEpochInfoForNewEpoch(parentBlock, sealingBlockSeq, prevBlockSeq)
 
@@ -1436,7 +1489,7 @@ func (sm *StateMachine) verifyBlockEpochSealed(ctx context.Context, parentBlock 
 		return fmt.Errorf("failed to verify P-chain height: %w", err)
 	}
 
-	if err := sm.verifyNextPChainRefHeightForNewEpoch(ctx, newSimplexEpochInfo, nextBlock.Metadata.SimplexEpochInfo); err != nil {
+	if err := sm.verifyNextPChainRefHeightForNewEpoch(newSimplexEpochInfo, nextBlock.Metadata.SimplexEpochInfo, currentValidatorSet); err != nil {
 		return fmt.Errorf("failed to verify next P-chain reference height for new epoch block: %w", err)
 	}
 	newSimplexEpochInfo.NextPChainReferenceHeight = nextBlock.Metadata.SimplexEpochInfo.NextPChainReferenceHeight
