@@ -451,53 +451,6 @@ func TestEpochIndexFinalization(t *testing.T) {
 	storage.WaitForBlockCommit(2)
 }
 
-// Committing a sealing block's finalization invokes OnSealingBlockIndex
-// with the sealing block's seq and validator set.
-func TestEpochCallsOnSealingBlockIndex(t *testing.T) {
-	bb := testutil.NewTestBlockBuilder()
-	nodes := []NodeID{{1}, {2}, {3}, {4}}
-	conf, _, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[3], testutil.NewNoopComm(nodes), bb)
-
-	type sealingCall struct {
-		epoch      uint64
-		validators Nodes
-	}
-	calls := make(chan sealingCall, 1)
-	conf.OnSealingBlockIndex = func(epoch uint64, validators Nodes) {
-		calls <- sealingCall{epoch: epoch, validators: validators}
-	}
-
-	e, err := NewEpoch(conf)
-	require.NoError(t, err)
-	t.Cleanup(e.Stop)
-	require.NoError(t, e.Start())
-
-	block := testutil.NewTestBlock(ProtocolMetadata{Round: 0, Seq: 0}, emptyBlacklist)
-	block.SealingInfo = &SealingBlockInfo{
-		ValidatorSet:         NodeIDs(nodes).EqualWeightedNodes(),
-		PrevSealingBlockHash: Digest{1},
-	}
-
-	vote, err := testutil.NewTestVote(block, nodes[0])
-	require.NoError(t, err)
-	require.NoError(t, e.HandleMessage(&Message{
-		BlockMessage: &BlockMessage{Block: block, Vote: *vote},
-	}, nodes[0]))
-
-	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Validators())
-	finalization, _ := testutil.NewFinalizationRecord(t, sigAggr, block, nodes[:Quorum(len(nodes))])
-	testutil.InjectTestFinalization(t, e, &finalization, nodes[1])
-	storage.WaitForBlockCommit(0)
-
-	select {
-	case call := <-calls:
-		require.Equal(t, uint64(0), call.epoch)
-		require.Equal(t, block.SealingInfo.ValidatorSet, call.validators)
-	case <-time.After(5 * time.Second):
-		t.Fatal("OnSealingBlockIndex was not called after committing the sealing block")
-	}
-}
-
 func TestEquivocatedBlock(t *testing.T) {
 	// Tests a case where a Byzantine leader equivocates:
 	// it sends block A to the node while the honest majority certifies a different

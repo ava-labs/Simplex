@@ -467,12 +467,13 @@ func (i *Instance) createEpochConfig(epoch uint64, validators common.Nodes) (*ep
 
 	comm := newCommunication(i.Config.Sender, i.Config.Broadcaster, validators)
 
-	instanceStorage := NewCallbackStorage(i.cs, msm, noopOnIndex)
-
-	onEpochChange := func(epoch uint64, validators common.Nodes) {
-		blockBuilder.stop()
-		i.notifyEpochChange(epoch, validators)
-	}
+	instanceStorage := NewCallbackStorage(i.cs, msm, func(block *ParsedBlock) error {
+		if block.Type() == metadata.BlockTypeSealing {
+			blockBuilder.stop()
+			i.notifyEpochChange(block.BlockHeader().Seq, block.SealingBlockInfo().ValidatorSet)
+		}
+		return nil
+	})
 
 	ec := simplex.EpochConfig{
 		Epoch:              epoch,
@@ -495,7 +496,6 @@ func (i *Instance) createEpochConfig(epoch uint64, validators common.Nodes) (*ep
 		Comm:                       comm,
 		BlockBuilder:               blockBuilder,
 		BlockDeserializer:          &blockDeserializer{vm: i.Config.VM, cs: i.cs},
-		OnSealingBlockIndex:        onEpochChange,
 	}
 	return &epochConfig{
 		EpochConfig: ec,
