@@ -157,11 +157,13 @@ func (i *Instance) createNonValidatorConfig() (nonvalidator.Config, error) {
 		return nonvalidator.Config{}, err
 	}
 
-	nodes, err := GetHighestValidatorSet(i.Config.PlatformChain)
+	height := i.Config.PlatformChain.GetCurrentHeight()
+	mappings, err := i.Config.PlatformChain.GetValidatorSet(height)
 	if err != nil {
 		return nonvalidator.Config{}, err
 	}
-	comm := newCommunication(i.Config.Sender, i.Config.Broadcaster, nodes)
+
+	comm := newCommunication(i.Config.Sender, i.Config.Broadcaster, mappings.Nodes())
 
 	// Plant an artificial MSM. A non-validator never verifies the state machine transition,
 	// it only verifies the inner block (see common.OnlyVMVerifyOpt), so this MSM is only
@@ -517,16 +519,6 @@ func (i *Instance) startAtEpoch(validators common.Nodes, epoch uint64) error {
 	}
 
 	return i.startNonValidator()
-}
-
-func GetHighestValidatorSet(platform PlatformChain) (common.Nodes, error) {
-	height := platform.GetCurrentHeight()
-	mappings, err := platform.GetValidatorSet(height)
-	if err != nil {
-		return nil, err
-	}
-
-	return mappings.Nodes(), nil
 }
 
 type epochConfig struct {
