@@ -425,3 +425,37 @@ func (vsa ValidatorSetApprovals) UniqueByNodeID() ValidatorSetApprovals {
 	}
 	return result
 }
+
+// AuxiliaryInfoBatch is a batch of AuxiliaryInfos to be included in a block
+type AuxiliaryInfoBatch struct {
+	// data represents the to-be appended auxiliary information
+	data []common.AuxiliaryInfo `canoto:"repeated value,1"`
+	// PrevAuxInfoSeq is a sequence number that applications can use to find previous AuxiliaryInfo in the chain.
+	// It is zero if this is the first AuxiliaryInfoBatch for this epoch.
+	PrevAuxInfoSeq uint64 `canoto:"uint,2"`
+
+	canotoData canotoData_AuxiliaryInfoBatch
+}
+
+func (ai *AuxiliaryInfoBatch) IsZero() bool {
+	var zero AuxiliaryInfoBatch
+	return ai.Equal(&zero)
+}
+
+func (ai *AuxiliaryInfoBatch) Equal(a *AuxiliaryInfoBatch) bool {
+	if ai == nil {
+		return a == nil
+	}
+	if a == nil {
+		return false
+	}
+	if ai.PrevAuxInfoSeq != a.PrevAuxInfoSeq || len(ai.data) != len(a.data) {
+		return false
+	}
+	for i := range ai.data {
+		if ai.data[i].Version != a.data[i].Version || !bytes.Equal(ai.data[i].Data, a.data[i].Data) {
+			return false
+		}
+	}
+	return true
+}
