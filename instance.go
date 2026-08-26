@@ -319,6 +319,10 @@ func (i *Instance) HandleMessage(msg *common.Message, from common.NodeID) error 
 		}
 	}
 
+	if i.nv != nil {
+		return i.nv.HandleMessage(msg, from)
+	}
+
 	if i.e != nil {
 		switch {
 		case msg.AuxiliaryInfo != nil:
@@ -339,9 +343,6 @@ func (i *Instance) HandleMessage(msg *common.Message, from common.NodeID) error 
 		return i.e.HandleMessage(msg, from)
 	}
 
-	if i.nv != nil {
-		return i.nv.HandleMessage(msg, from)
-	}
 	return nil
 }
 
