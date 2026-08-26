@@ -29,6 +29,22 @@ func TestValidatorIndexes(t *testing.T) {
 	chain.acceptNewBlock()
 }
 
+// emptyVoteRecorder signals the first empty vote broadcast and drops all other traffic.
+type emptyVoteRecorder struct {
+	got chan struct{}
+}
+
+func (r *emptyVoteRecorder) Broadcast(msg *common.Message) {
+	if msg.EmptyVoteMessage != nil {
+		select {
+		case r.got <- struct{}{}:
+		default:
+		}
+	}
+}
+
+func (r *emptyVoteRecorder) Send(*common.Message, common.NodeID) {}
+
 // TestEpochInvokesMSMWaitForPendingBlock verifies the epoch drives the MSM's WaitForPendingBlock:
 // a non-leader whose VM never has a pending block must still broadcast an empty vote.
 // The round leader is never instantiated, so no proposal ever arrives.
@@ -72,22 +88,6 @@ func TestEpochInvokesMSMWaitForPendingBlock(t *testing.T) {
 		require.FailNow(t, "node never broadcast an empty vote, so the Epoch did not drive the MSM's WaitForPendingBlock")
 	}
 }
-
-// emptyVoteRecorder signals the first empty vote broadcast and drops all other traffic.
-type emptyVoteRecorder struct {
-	got chan struct{}
-}
-
-func (r *emptyVoteRecorder) Broadcast(msg *common.Message) {
-	if msg.EmptyVoteMessage != nil {
-		select {
-		case r.got <- struct{}{}:
-		default:
-		}
-	}
-}
-
-func (r *emptyVoteRecorder) Send(*common.Message, common.NodeID) {}
 
 // TestNonValidatorSyncs that a non-validator syncs the chain when added to the network.
 func TestNonValidatorSyncs(t *testing.T) {
