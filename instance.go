@@ -411,11 +411,6 @@ func (i *Instance) processEpochChange(epochChange epochChange) {
 }
 
 func (i *Instance) createEpochConfig(epoch uint64, validators common.Nodes) (*epochConfig, error) {
-	lastBlock, _, err := LastBlock(i.Config.Storage)
-	if err != nil {
-		return nil, err
-	}
-
 	wal, err := wal.NewGarbageCollectedWAL(i.Config.WALs, i.Config.WalCreator, &common.WALRetentionReader{}, i.Config.ParameterConfig.WALMaxSizeBytes)
 	if err != nil {
 		return nil, fmt.Errorf("error creating garbage collected wal: %w", err)
@@ -425,7 +420,7 @@ func (i *Instance) createEpochConfig(epoch uint64, validators common.Nodes) (*ep
 	// We might have crashed right after a sealing block was persisted to storage,
 	// but before the WAL was garbage collected.
 	// In that case, we need to garbage collect the WAL to remove all entries from previous epochs.
-	if err := i.maybeGarbageCollectWAL(lastBlock); err != nil {
+	if err := i.maybeGarbageCollectWAL(); err != nil {
 		return nil, err
 	}
 
@@ -503,7 +498,12 @@ func (i *Instance) createEpochConfig(epoch uint64, validators common.Nodes) (*ep
 	}, nil
 }
 
-func (i *Instance) maybeGarbageCollectWAL(lastBlock metadata.StateMachineBlock) error {
+func (i *Instance) maybeGarbageCollectWAL() error {
+	lastBlock, _, err := LastBlock(i.Config.Storage)
+	if err != nil {
+		return fmt.Errorf("error retrieving last block: %w", err)
+	}
+
 	if lastBlock.Metadata.SimplexEpochInfo.BlockValidationDescriptor != nil {
 		i.Config.Logger.Info("Last block is a sealing block, garbage collecting all WALs preceding it to start a new epoch")
 		// We figure out the round number of the latest block and garbage collect all WALs preceding it.
