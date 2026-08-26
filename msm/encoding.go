@@ -34,7 +34,7 @@ type StateMachineMetadata struct {
 	// ICMEpochInfo is the metadata that the StateMachine uses for ICM epoching.
 	ICMEpochInfo ICMEpochInfo `canoto:"value,6"`
 	// AuxiliaryInfoBatch is application-specific information that the StateMachine doesn't need to understand,
-	// but can be used by applications that care about epoch changes, such as threshold distributed public key generation.
+	// but can be used by applications that care about epoch changes, such as distributed key generation.
 	AuxiliaryInfoBatch *AuxiliaryInfoBatch `canoto:"pointer,7"`
 
 	canotoData canotoData_StateMachineMetadata

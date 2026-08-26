@@ -439,13 +439,13 @@ type VersionID uint32
 //go:generate go run github.com/StephenButtolph/canoto/canoto msg.go
 
 // AuxiliaryInfo defines application-specific information for applications that might care about epoch change,
-// such as threshold distributed public key generation.
+// such as distributed key generation.
 type AuxiliaryInfo struct {
-	// VersionID is an identifier that identifies the application.
+	// Version is an identifier that identifies the application.
 	// Can be used for backward-compatibility and upgrade purposes.
 	Version VersionID `canoto:"uint,1"`
 
-	// Info is opaque bytes that can be used by applications to encode any information that describes
+	// Data is opaque bytes that can be used by applications to encode any information that describes
 	// the current state for the application.
 	Data []byte `canoto:"bytes,2"`
 

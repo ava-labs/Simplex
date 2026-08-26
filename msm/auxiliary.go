@@ -1,3 +1,6 @@
+// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// See the file LICENSE for licensing terms.
+
 package metadata
 
 import (
@@ -15,7 +18,7 @@ import (
 
 // AuxiliaryInfoBatch is a batch of AuxiliaryInfos to be included in a block
 type AuxiliaryInfoBatch struct {
-	// data is how we expect the order being appended. 0 index is appended first, then data[len()-1] is last
+	// data represents the to-be appended auxiliary information
 	data []common.AuxiliaryInfo `canoto:"repeated value,1"`
 	// PrevAuxInfoSeq is a sequence number that applications can use to find previous AuxiliaryInfo in the chain.
 	// It is zero if this is the first AuxiliaryInfoBatch for this epoch.
