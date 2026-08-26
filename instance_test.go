@@ -95,13 +95,13 @@ func TestNonValidatorSyncs(t *testing.T) {
 	genesisSet := []metadata.NodeBLSMapping{validator}
 
 	pChain := newTestPChain(genesisSet)
-	chain := newNetwork(t, pChain)
-	chain.addNode(validator.NodeID[:])
+	network := newNetwork(t, pChain)
+	network.addNode(validator.NodeID[:])
 
-	chain.acceptNewBlock()
+	network.acceptNewBlock()
 
 	nonValidator := newBLSMapping(2)
-	chain.addNode(nonValidator.NodeID[:])
+	network.addNode(nonValidator.NodeID[:])
 }
 
 // TestNonValidator_BecomesValidator tests that an upcoming validator becomes a validator
@@ -130,6 +130,7 @@ func TestNonValidator_BecomesValidator(t *testing.T) {
 	sealingBlock := chain.waitUntilSealingBlock()
 	assertExpectedNodeIds(t, sealingBlock.SealingBlockInfo().ValidatorSet.NodeIDs(), newValidatorSet.NodeIDs())
 
+	// a normal block should be signed by both the validators now
 	_, finalization := chain.acceptNewBlock()
 	assertExpectedNodeIds(t, finalization.QC.Signers(), newValidatorSet.NodeIDs())
 }
@@ -193,6 +194,45 @@ func TestValidator_ValidatorSetDecreased(t *testing.T) {
 	assertExpectedNodeIds(t, sealing.SealingBlockInfo().ValidatorSet.NodeIDs(), newValidatorSet.NodeIDs())
 }
 
+// TestInstance_OfflineDuringTransition asserts an epoch transition completes while a
+// current validator is offline. The online quorum batches approvals and finalizes the
+// sealing block, and the new epoch finalizes blocks without the offline node.
+func TestInstance_OfflineDuringTransition(t *testing.T) {
+	v1 := newBLSMapping(1)
+	v2 := newBLSMapping(2)
+	v3 := newBLSMapping(3)
+	offline := newBLSMapping(4)
+
+	genesisSet := []metadata.NodeBLSMapping{v1, v2, v3, offline}
+	nodeIDs := metadata.NodeBLSMappings(genesisSet).NodeIDs()
+	pChain := newTestPChain(genesisSet)
+	chain := newNetwork(t, pChain)
+
+	v1Storage, _ := newChainStorage(t, genesisSet)
+	v2Storage, _ := newChainStorage(t, genesisSet)
+	v3Storage, _ := newChainStorage(t, genesisSet)
+
+	// addNode blocks until the node syncs, which needs a quorum online,
+	// so the first nodes are added concurrently
+	chain.addNodeWithStorage(v1.NodeID[:], v1Storage)
+	chain.addNodeWithStorage(v2.NodeID[:], v2Storage)
+	chain.addNodeWithStorage(v3.NodeID[:], v3Storage)
+
+	// using seq should be fine since we have no empty blocks
+	leader := simplex.LeaderForRound(pChain.GenesisValidatorSet().NodeIDs(), chain.seq)
+	for !leader.Equals(offline.NodeID[:]) {
+		chain.acceptNewBlock()
+		leader = simplex.LeaderForRound(nodeIDs, chain.seq)
+	}
+
+	// initiate an epoch change when the offline node is the leader
+	newValidatorSet := []metadata.NodeBLSMapping{v1, v2, v3}
+	pChain.setValidatorSetAt(10, newValidatorSet)
+	pChain.advanceHeight(10)
+
+	chain.waitUntilSealingBlock()
+}
+
 // TestNonValidator_StaysNonValidator ensures that a non-validator does not restart when it is processing
 // previous epoch changes.
 func TestNonValidator_StaysNonValidator(t *testing.T) {
@@ -234,10 +274,9 @@ func TestNonValidator_StaysNonValidator(t *testing.T) {
 	sealingBlock = chain.waitUntilSealingBlock()
 	assertExpectedNodeIds(t, sealingBlock.SealingBlockInfo().ValidatorSet.NodeIDs(), targetNodeInMiddleEpoch.NodeIDs())
 
-	// TODO: since the target validator is part of the validator set, yet is offline(not added to network)
-	// it can be the leader. By adding the call to acceptNewBlock, it makes the target validator the leader for the
-	// round needed to batch approvals. It is offline, and we have no mechanism for triggering this block to be built yet.
-	// chain.acceptNewBlock()
+	// Occasionally, this will offset the proposer of the transition block to be the offline target node
+	// Therefore, if we don't have a mechanism to skip offline leaders during the transition phase, this test will hang
+	chain.acceptNewBlock()
 
 	pChain.advanceHeight(30)
 	sealingBlock = chain.waitUntilSealingBlock()
