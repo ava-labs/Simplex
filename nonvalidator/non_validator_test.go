@@ -320,12 +320,6 @@ func TestHandleMessages_DuplicateBlock(t *testing.T) {
 	require.NoError(t, nv.HandleMessage(fin.msg, fin.from))
 }
 
-// transitionCall records one TransitionToValidator invocation.
-type transitionCall struct {
-	epoch      uint64
-	validators common.Nodes
-}
-
 // TestNonValidator_CallsTransition asserts TransitionToValidator fires exactly when
 // an indexed sealing block opens the highest known epoch and our ID is in its new
 // validator set.
@@ -334,10 +328,16 @@ func TestNonValidator_CallsTransition(t *testing.T) {
 	joinedSet := append(slices.Clone(testNodes), common.Node{Id: newValidatorID, Weight: 1})
 	otherSet := append(slices.Clone(testNodes), common.Node{Id: common.NodeID{6}, Weight: 1})
 
+	// transitionCall records one TransitionToValidator invocation.
+	type transitionCall struct {
+		epoch      uint64
+		validators common.Nodes
+	}
+
 	tests := []struct {
-		name          string
-		setup         func(t *testing.T) (*testChain, []*messageInfo)
-		expectedCalls []transitionCall
+		name         string
+		setup        func(t *testing.T) (*testChain, []*messageInfo)
+		expectedCall *transitionCall
 	}{
 		{
 			name: "joins the new validator set",
@@ -352,7 +352,7 @@ func TestNonValidator_CallsTransition(t *testing.T) {
 					finalizationMsg(t, b4, joinedSet),
 				}
 			},
-			expectedCalls: []transitionCall{{epoch: 3, validators: joinedSet}},
+			expectedCall: &transitionCall{epoch: 3, validators: joinedSet},
 		},
 		{
 			name: "not in the new validator set",
@@ -387,7 +387,7 @@ func TestNonValidator_CallsTransition(t *testing.T) {
 					finalizationMsg(t, b5, joinedSet),
 				}
 			},
-			expectedCalls: []transitionCall{{epoch: 4, validators: joinedSet}},
+			expectedCall: &transitionCall{epoch: 4, validators: joinedSet},
 		},
 		{
 			// A threshold of quorum rounds for b5, the highest sealing block,
@@ -425,7 +425,7 @@ func TestNonValidator_CallsTransition(t *testing.T) {
 					finalizationMsg(t, b6, joinedSet),
 				)
 			},
-			expectedCalls: []transitionCall{{epoch: 5, validators: joinedSet}},
+			expectedCall: &transitionCall{epoch: 5, validators: joinedSet},
 		},
 	}
 
@@ -435,7 +435,7 @@ func TestNonValidator_CallsTransition(t *testing.T) {
 			lastSeq := tc.seq
 
 			var lock sync.Mutex
-			var calls []transitionCall
+			calls := []transitionCall{}
 
 			nv, err := NewNonValidator(
 				Config{
@@ -463,7 +463,12 @@ func TestNonValidator_CallsTransition(t *testing.T) {
 
 			lock.Lock()
 			defer lock.Unlock()
-			require.Equal(t, tt.expectedCalls, calls)
+
+			if tt.expectedCall == nil {
+				require.Empty(t, calls)
+				return
+			}
+			require.Equal(t, []transitionCall{*tt.expectedCall}, calls)
 		})
 	}
 }
