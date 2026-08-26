@@ -54,6 +54,10 @@ type Config struct {
 	// RandomSource is used by the replication state to pick which nodes to
 	// request sequences from. If nil, a cryptographically secure source is used.
 	RandomSource *rand.Rand
+
+	// TransitionToValidator is called when our non-validator indexes the highest known epoch
+	// and it is in the validator set
+	TransitionToValidator func(epoch uint64, validators common.Nodes)
 }
 
 type NonValidator struct {
@@ -264,6 +268,20 @@ func (n *NonValidator) newFinalizedBlockTask(block common.Block, finalization *c
 			n.haltedError = err
 			n.Logger.Info("Failed indexing a block and finalization", zap.Uint64("Block Seq", md.Seq), zap.Stringer("Block Digest", md.Digest), zap.Error(err))
 			return md.Digest
+		}
+
+		// If we are indexing a sealing block, we may need to transition to become a validator
+		if block.SealingBlockInfo() != nil {
+			highestEpoch, highestValidatorSet := n.epochs.highestEpoch()
+
+			// We should only transition to become a validator, if the sealing block is creating the highest
+			// epoch we have validated. Since we are fetching from the epochs map, we know this epoch has been validated
+			// either by a threshold of responses, or backwards hash chain validation.
+			if highestValidatorSet.Contains(n.ID) && highestEpoch == md.Seq {
+				if n.TransitionToValidator != nil {
+					n.TransitionToValidator(block.BlockHeader().Seq, block.SealingBlockInfo().ValidatorSet)
+				}
+			}
 		}
 
 		n.Logger.Info("Verified and Indexed Block", zap.Uint64("Block Seq", md.Seq), zap.Stringer("Block Digest", md.Digest))
