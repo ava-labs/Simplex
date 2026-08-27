@@ -313,6 +313,14 @@ func (i *Instance) HandleMessage(msg *common.Message, from common.NodeID) error 
 	if i.e != nil {
 		switch {
 		case msg.AuxiliaryInfo != nil:
+			if msg.AuxiliaryInfo.Epoch != i.e.Epoch {
+				i.Config.Logger.Debug(
+					"Received an auxiliary info from an old epoch",
+					zap.Uint64("Aux Info Epoch", msg.AuxiliaryInfo.Epoch),
+					zap.Uint64("Our Epoch", i.e.Epoch),
+					zap.Stringer("From", from))
+				return nil
+			}
 			i.msm.HandleAuxiliaryInfo(*msg.AuxiliaryInfo, avalanchego.NodeID(from))
 		case msg.EpochTransitionApproval != nil:
 			// TODO: pass in time.Now() rather than uint64

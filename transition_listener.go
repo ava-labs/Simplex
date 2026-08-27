@@ -110,6 +110,7 @@ func (a *epochTransitionListener) handleTransitionBlock(block *ParsedBlock) erro
 
 	auxInfoMessage := &common.Message{
 		AuxiliaryInfo: &common.AuxiliaryInfo{
+			Epoch:   block.BlockHeader().Epoch,
 			Version: auxInfoHistory.OldestVersionID,
 			Data:    generatedAuxInfo,
 		},
