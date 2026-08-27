@@ -1817,21 +1817,22 @@ func TestVerifyCollectingApprovalsRejectsIllegalAuxInfoBatch(t *testing.T) {
 	require.ErrorIs(t, err, errAuxInfoIllegalAppend)
 }
 
-// Backward compatibility: once an epoch has a VersionID set on its auxiliary info, that
-// VersionID must be reused for the rest of the epoch -- for both building AND verifying
-// subsequent blocks -- even if the application's DefaultVersionID() later changes.
-//
-// GetAuxiliaryHistory only consults DefaultVersionID() when the auxiliary info history is
-// empty; once a block carries a VersionID, every later build and verify reads that VersionID
-// back from the chain instead. Auxiliary info is no longer generated inside the block: it
-// arrives from peers via HandleAuxiliaryInfo and is collected into the block being built. So the
-// first collecting block establishes the epoch's VersionID (1) from the received vote while the
-// default is still 1, then we flip DefaultVersionID() to 2. Because the epoch already carries a
-// VersionID on-chain, every Generate()/IsLegalAppend()/IsSufficient() invocation -- on both the
-// build and verify paths -- must keep using VersionID 1, never 2. The app asserts that
-// internally: it requires the VersionID it receives to equal expectedVersionID, which we hold at
-// 1 throughout.
 func TestCollectingApprovalsAuxInfoVersionIDIsBackwardCompatible(t *testing.T) {
+	// Backward compatibility: once an epoch has a VersionID set on its auxiliary info, that
+	// VersionID must be reused for the rest of the epoch -- for both building AND verifying
+	// subsequent blocks -- even if the application's DefaultVersionID() later changes.
+	//
+	// GetAuxiliaryHistory only consults DefaultVersionID() when the auxiliary info history is
+	// empty; once a block carries a VersionID, every later build and verify reads that VersionID
+	// back from the chain instead. Auxiliary info is no longer generated inside the block: it
+	// arrives from peers via HandleAuxiliaryInfo and is collected into the block being built. So the
+	// first collecting block establishes the epoch's VersionID (1) from the received vote while the
+	// default is still 1, then we flip DefaultVersionID() to 2. Because the epoch already carries a
+	// VersionID on-chain, every Generate()/IsLegalAppend()/IsSufficient() invocation -- on both the
+	// build and verify paths -- must keep using VersionID 1, never 2. The app asserts that
+	// internally: it requires the VersionID it receives to equal expectedVersionID, which we hold at
+	// 1 throughout.
+
 	const (
 		pChainRefHeight     = uint64(100)
 		nextPChainRefHeight = uint64(200)
