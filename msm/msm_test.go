@@ -1762,67 +1762,6 @@ func TestCollectingApprovalsAuxInfoGating(t *testing.T) {
 	requireAuxInfo(&AuxiliaryInfoBatch{PrevAuxInfoSeq: parentSeq + 2}, block5.Metadata.AuxiliaryInfoBatch)
 }
 
-// TestVerifyCollectingApprovalsCountsProposedAuxInfo tests the verifier must count proposed datums towards the aux info
-// history. The proposed vote completes the threshold of 2, so a block carrying an approval signed over the digest of that vote must verify.
-func TestVerifyCollectingApprovalsCountsProposedAuxInfo(t *testing.T) {
-	const (
-		pChainRefHeight     = uint64(100)
-		nextPChainRefHeight = uint64(200)
-		parentSeq           = uint64(10)
-	)
-
-	sm, tc := newStateMachine(t)
-	sm.GetPChainHeightForProposing = func() uint64 { return nextPChainRefHeight }
-	sm.GetPChainHeightForVerifying = func() uint64 { return nextPChainRefHeight }
-
-	validators := NodeBLSMappings{
-		{NodeID: avalanchego.NodeID(sm.MyNodeID), BLSKey: []byte{1}, Weight: 1},
-		{NodeID: avalanchego.NodeID{0xBB}, BLSKey: []byte{2}, Weight: 1},
-		{NodeID: avalanchego.NodeID{0xCC}, BLSKey: []byte{3}, Weight: 1},
-	}
-	tc.validatorSetRetriever.result = validators
-
-	vote1 := []byte("vote-1")
-	vote2 := []byte("vote-2")
-
-	// Parent in collecting-approvals state, carrying vote1: one vote short of the threshold.
-	parent := StateMachineBlock{
-		InnerBlock: &testutil.InnerBlock{TS: time.Now(), BlockHeight: 1, Content: []byte{0xAA}},
-		Metadata: StateMachineMetadata{
-			PChainHeight: nextPChainRefHeight,
-			SimplexProtocolMetadata: common.ProtocolMetadata{
-				Seq: parentSeq, Round: 5, Epoch: 1,
-			},
-			SimplexEpochInfo: SimplexEpochInfo{
-				PChainReferenceHeight:     pChainRefHeight,
-				EpochNumber:               1,
-				NextPChainReferenceHeight: nextPChainRefHeight,
-				PrevVMBlockSeq:            parentSeq - 1,
-			},
-			AuxiliaryInfoBatch: &AuxiliaryInfoBatch{data: []common.AuxiliaryInfo{{Version: 1, Data: vote1}}},
-		},
-	}
-	tc.blockStore[parentSeq] = &outerBlock{block: parent}
-
-	sm.HandleAuxiliaryInfo(common.AuxiliaryInfo{Version: 1, Data: vote2}, validators[1].NodeID)
-
-	tc.blockBuilder.Block = &testutil.InnerBlock{TS: time.Now(), BlockHeight: 2, Content: []byte{0x01}}
-	md := common.ProtocolMetadata{Seq: parentSeq + 1, Round: 6, Epoch: 1, Prev: parent.Digest()}
-	block, err := sm.BuildBlock(context.Background(), md, emptyBlacklist)
-	require.NoError(t, err)
-	wantBatch := &AuxiliaryInfoBatch{data: []common.AuxiliaryInfo{{Version: 1, Data: vote2}}, PrevAuxInfoSeq: parentSeq}
-	require.True(t, wantBatch.Equal(block.Metadata.AuxiliaryInfoBatch))
-
-	// The block completes the threshold, so it may carry an approval signed over the
-	// digest of the updated history, whose last datum is vote2.
-	block.Metadata.SimplexEpochInfo.NextEpochApprovals = &NextEpochApprovals{
-		NodeIDs:   []byte{1},
-		Signature: signApproval(nextPChainRefHeight, sha256.Sum256(vote2)),
-	}
-
-	require.NoError(t, sm.VerifyBlock(context.Background(), block))
-}
-
 // TestVerifyCollectingApprovalsRejectsIllegalAuxInfoBatch ensures the verifier must validate
 // each proposed datum against the history including the datums before it in the batch.
 // Each duplicate vote is a legal append on its own, but the second becomes illegal once the first is appended.

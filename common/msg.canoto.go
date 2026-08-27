@@ -23,11 +23,13 @@ const (
 var _ = io.ErrUnexpectedEOF
 
 const (
-	canotoNumber_AuxiliaryInfo__Version = 1
-	canotoNumber_AuxiliaryInfo__Data    = 2
+	canotoNumber_AuxiliaryInfo__Epoch   = 1
+	canotoNumber_AuxiliaryInfo__Version = 2
+	canotoNumber_AuxiliaryInfo__Data    = 3
 
-	canotoTag_AuxiliaryInfo__Version = "\x08" // canoto.Tag(canotoNumber_AuxiliaryInfo__Version, canoto.Varint)
-	canotoTag_AuxiliaryInfo__Data    = "\x12" // canoto.Tag(canotoNumber_AuxiliaryInfo__Data, canoto.Len)
+	canotoTag_AuxiliaryInfo__Epoch   = "\x08" // canoto.Tag(canotoNumber_AuxiliaryInfo__Epoch, canoto.Varint)
+	canotoTag_AuxiliaryInfo__Version = "\x10" // canoto.Tag(canotoNumber_AuxiliaryInfo__Version, canoto.Varint)
+	canotoTag_AuxiliaryInfo__Data    = "\x1a" // canoto.Tag(canotoNumber_AuxiliaryInfo__Data, canoto.Len)
 )
 
 type canotoData_AuxiliaryInfo struct {
@@ -40,6 +42,12 @@ func (*AuxiliaryInfo) CanotoSpec(...reflect.Type) *canoto.Spec {
 	s := &canoto.Spec{
 		Name: "AuxiliaryInfo",
 		Fields: []canoto.FieldType{
+			{
+				FieldNumber: canotoNumber_AuxiliaryInfo__Epoch,
+				Name:        "Epoch",
+				OneOf:       "",
+				TypeUint:    canoto.SizeOf(zero.Epoch),
+			},
 			{
 				FieldNumber: canotoNumber_AuxiliaryInfo__Version,
 				Name:        "Version",
@@ -90,6 +98,17 @@ func (c *AuxiliaryInfo) UnmarshalCanotoFrom(r canoto.Reader) error {
 		}
 
 		switch field {
+		case canotoNumber_AuxiliaryInfo__Epoch:
+			if wireType != canoto.Varint {
+				return canoto.ErrUnexpectedWireType
+			}
+
+			if err := canoto.ReadUint(&r, &c.Epoch); err != nil {
+				return err
+			}
+			if canoto.IsZero(c.Epoch) {
+				return canoto.ErrZeroValue
+			}
 		case canotoNumber_AuxiliaryInfo__Version:
 			if wireType != canoto.Varint {
 				return canoto.ErrUnexpectedWireType
@@ -138,6 +157,9 @@ func (c *AuxiliaryInfo) ValidCanoto() bool {
 // It is not safe to copy this struct concurrently.
 func (c *AuxiliaryInfo) CalculateCanotoCache() {
 	var size uint64
+	if !canoto.IsZero(c.Epoch) {
+		size += uint64(len(canotoTag_AuxiliaryInfo__Epoch)) + canoto.SizeUint(c.Epoch)
+	}
 	if !canoto.IsZero(c.Version) {
 		size += uint64(len(canotoTag_AuxiliaryInfo__Version)) + canoto.SizeUint(c.Version)
 	}
@@ -182,6 +204,10 @@ func (c *AuxiliaryInfo) MarshalCanoto() []byte {
 //
 // It is not safe to copy this struct concurrently.
 func (c *AuxiliaryInfo) MarshalCanotoInto(w canoto.Writer) canoto.Writer {
+	if !canoto.IsZero(c.Epoch) {
+		canoto.Append(&w, canotoTag_AuxiliaryInfo__Epoch)
+		canoto.AppendUint(&w, c.Epoch)
+	}
 	if !canoto.IsZero(c.Version) {
 		canoto.Append(&w, canotoTag_AuxiliaryInfo__Version)
 		canoto.AppendUint(&w, c.Version)

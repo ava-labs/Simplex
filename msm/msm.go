@@ -1479,18 +1479,22 @@ func (sm *StateMachine) computeExpectedAuxInfoForApprovalCollection(parentBlock 
 		}
 	}
 
-	// go through all the collected data and return whether proposed datum are legal
+	// go through all the collected data and return whether proposed datum are legal,
+	// checking each datum against the history including the datums before it in the batch
+	legalHistory := auxInfoHistory.Data
 	for _, info := range proposedAuxInfos {
 		if auxInfoHistory.OldestVersionID != info.Version {
 			return nil, [32]byte{}, false, fmt.Errorf("proposed auxiliary info does not have the proper version %d", auxInfoHistory.OldestVersionID)
 		}
-		if err := sm.AuxiliaryInfoApp.IsLegalAppend(auxInfoHistory.OldestVersionID, validators, auxInfoHistory.Data, info.Data); err != nil {
+		if err := sm.AuxiliaryInfoApp.IsLegalAppend(auxInfoHistory.OldestVersionID, validators, legalHistory, info.Data); err != nil {
 			return nil, [32]byte{}, false, fmt.Errorf("%w for application %d: %w", errAuxInfoIllegalAppend, auxInfoHistory.OldestVersionID, err)
 		}
 
-		auxInfoHistory.Data = append(auxInfoHistory.Data, info.Data)
+		legalHistory = append(legalHistory, info.Data)
 	}
 
+	// We check sufficiency on the on-chain history rather than legalHistory to match
+	// the builder, which checks sufficiency before collecting new info.
 	auxInfoReady, err := sm.AuxiliaryInfoApp.IsSufficient(auxInfoHistory.OldestVersionID, validators, auxInfoHistory.Data)
 	if err != nil {
 		return nil, [32]byte{}, false, fmt.Errorf("failed to check if auxiliary info history is final for application %d: %w", auxInfoHistory.OldestVersionID, err)

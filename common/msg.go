@@ -446,11 +446,11 @@ type AuxiliaryInfo struct {
 
 	// Version is an identifier that identifies the application.
 	// Can be used for backward-compatibility and upgrade purposes.
-	Version VersionID `canoto:"uint,1"`
+	Version VersionID `canoto:"uint,2"`
 
 	// Data is opaque bytes that can be used by applications to encode any information that describes
 	// the current state for the application.
-	Data []byte `canoto:"bytes,2"`
+	Data []byte `canoto:"bytes,3"`
 
 	canotoData canotoData_AuxiliaryInfo
 }
