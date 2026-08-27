@@ -455,6 +455,15 @@ type AuxiliaryInfo struct {
 	canotoData canotoData_AuxiliaryInfo
 }
 
+// Clone returns a copy of the AuxiliaryInfo.
+func (ai *AuxiliaryInfo) Clone() AuxiliaryInfo {
+	return AuxiliaryInfo{
+		Epoch:   ai.Epoch,
+		Version: ai.Version,
+		Data:    ai.Data,
+	}
+}
+
 // ValidatorSetApproval is an approval from a validator
 type ValidatorSetApproval struct {
 	NodeID        avalanchego.NodeID

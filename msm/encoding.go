@@ -437,7 +437,7 @@ type AuxiliaryInfoBatch struct {
 	canotoData canotoData_AuxiliaryInfoBatch
 }
 
-// Clone returns a deep copy of the batch, skipping the canoto cache
+// Clone returns a copy of the batch.
 func (ai *AuxiliaryInfoBatch) Clone() *AuxiliaryInfoBatch {
 	if ai == nil {
 		return nil
@@ -447,9 +447,8 @@ func (ai *AuxiliaryInfoBatch) Clone() *AuxiliaryInfoBatch {
 	}
 	if ai.data != nil {
 		cloned.data = make([]common.AuxiliaryInfo, len(ai.data))
-		for i, entry := range ai.data {
-			entry.Data = slices.Clone(entry.Data)
-			cloned.data[i] = entry
+		for i := range ai.data {
+			cloned.data[i] = ai.data[i].Clone()
 		}
 	}
 	return cloned
