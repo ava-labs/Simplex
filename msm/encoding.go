@@ -50,7 +50,7 @@ func (smm *StateMachineMetadata) Clone() StateMachineMetadata {
 		PChainHeight:            smm.PChainHeight,
 		Timestamp:               smm.Timestamp,
 		ICMEpochInfo:            smm.ICMEpochInfo.Clone(),
-		AuxiliaryInfoBatch:      smm.AuxiliaryInfoBatch,
+		AuxiliaryInfoBatch:      smm.AuxiliaryInfoBatch.Clone(),
 	}
 }
 
@@ -435,6 +435,24 @@ type AuxiliaryInfoBatch struct {
 	PrevAuxInfoSeq uint64 `canoto:"uint,2"`
 
 	canotoData canotoData_AuxiliaryInfoBatch
+}
+
+// Clone returns a deep copy of the batch, skipping the canoto cache
+func (ai *AuxiliaryInfoBatch) Clone() *AuxiliaryInfoBatch {
+	if ai == nil {
+		return nil
+	}
+	cloned := &AuxiliaryInfoBatch{
+		PrevAuxInfoSeq: ai.PrevAuxInfoSeq,
+	}
+	if ai.data != nil {
+		cloned.data = make([]common.AuxiliaryInfo, len(ai.data))
+		for i, entry := range ai.data {
+			entry.Data = slices.Clone(entry.Data)
+			cloned.data[i] = entry
+		}
+	}
+	return cloned
 }
 
 func (ai *AuxiliaryInfoBatch) IsZero() bool {

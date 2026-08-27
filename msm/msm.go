@@ -90,6 +90,7 @@ var (
 	errTimestampDecreasing            = errors.New("invalid timestamp: proposed timestamp is before parent block's timestamp")
 	errTimestampTooFarInFuture        = errors.New("invalid timestamp: proposed timestamp is too far in the future compared to current time")
 	errAuxInfoBlockRetrieval          = errors.New("failed to retrieve block while collecting auxiliary info")
+	errAuxInfoIllegalAppend           = errors.New("proposed auxiliary info is not a legal append to the history")
 
 	signatureContext = "MSM approval"
 )
@@ -236,7 +237,7 @@ func NewStateMachine(config *Config) (*StateMachine, error) {
 	if config.TimeSkewLimit == 0 {
 		config.TimeSkewLimit = maxSkew
 	}
-	sm := StateMachine{Config: config, auxInfoStore: newAuxInfoStore(config.AuxiliaryInfoApp)}
+	sm := StateMachine{Config: config, auxInfoStore: newAuxInfoStore(config.AuxiliaryInfoApp, config.Logger)}
 	return &sm, nil
 }
 
@@ -1479,14 +1480,15 @@ func (sm *StateMachine) computeExpectedAuxInfoForApprovalCollection(parentBlock 
 	}
 
 	// go through all the collected data and return whether proposed datum are legal
-
 	for _, info := range proposedAuxInfos {
 		if auxInfoHistory.OldestVersionID != info.Version {
-			return nil, [32]byte{}, false, fmt.Errorf("proposed auxiliary info does not have the proper version %d: %w", auxInfoHistory.OldestVersionID, err)
+			return nil, [32]byte{}, false, fmt.Errorf("proposed auxiliary info does not have the proper version %d", auxInfoHistory.OldestVersionID)
 		}
 		if err := sm.AuxiliaryInfoApp.IsLegalAppend(auxInfoHistory.OldestVersionID, validators, auxInfoHistory.Data, info.Data); err != nil {
-			return nil, [32]byte{}, false, fmt.Errorf("proposed auxiliary info is not a legal append to the history for application %d: %w", auxInfoHistory.OldestVersionID, err)
+			return nil, [32]byte{}, false, fmt.Errorf("%w for application %d: %w", errAuxInfoIllegalAppend, auxInfoHistory.OldestVersionID, err)
 		}
+
+		auxInfoHistory.Data = append(auxInfoHistory.Data, info.Data)
 	}
 
 	auxInfoReady, err := sm.AuxiliaryInfoApp.IsSufficient(auxInfoHistory.OldestVersionID, validators, auxInfoHistory.Data)

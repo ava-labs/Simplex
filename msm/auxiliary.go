@@ -12,6 +12,7 @@ import (
 
 	"github.com/ava-labs/simplex/avalanchego"
 	"github.com/ava-labs/simplex/common"
+	"go.uber.org/zap"
 )
 
 type AuxInfoHistory struct {
@@ -87,16 +88,18 @@ func GetAuxiliaryHistory(block *StateMachineBlock, blockSeq uint64, getBlock Blo
 
 // auxInfoStore stores auxiliary info that has been received but not yet included in blocks
 type auxInfoStore struct {
-	app AuxiliaryInfoGenVerifier
+	app    AuxiliaryInfoGenVerifier
+	logger common.Logger
 
 	lock     sync.Mutex
 	sentInfo map[avalanchego.NodeID]common.AuxiliaryInfo
 }
 
-func newAuxInfoStore(app AuxiliaryInfoGenVerifier) *auxInfoStore {
+func newAuxInfoStore(app AuxiliaryInfoGenVerifier, logger common.Logger) *auxInfoStore {
 	return &auxInfoStore{
 		app:      app,
 		sentInfo: make(map[avalanchego.NodeID]common.AuxiliaryInfo),
+		logger:   logger,
 	}
 }
 
@@ -133,6 +136,7 @@ func (a *auxInfoStore) collectAuxInfo(history AuxInfoHistory, validators NodeBLS
 
 		if err := a.app.IsLegalAppend(info.Version, validators, legalHistory, info.Data); err != nil {
 			// we don't remove this info from the mempool. maybe it can be added in a different block
+			a.logger.Debug("Could not append auxiliary info when collecting", zap.Uint32("Version", uint32(info.Version)))
 			continue
 		}
 

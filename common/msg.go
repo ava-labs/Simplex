@@ -442,7 +442,7 @@ type VersionID uint32
 // such as distributed key generation.
 type AuxiliaryInfo struct {
 	// The epoch this Auxiliary info is associated with
-	Epoch uint64
+	Epoch uint64 `canoto:"uint,1"`
 
 	// Version is an identifier that identifies the application.
 	// Can be used for backward-compatibility and upgrade purposes.

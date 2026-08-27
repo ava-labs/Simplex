@@ -398,7 +398,7 @@ func TestCollectAuxInfo(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			store := newAuxInfoStore(&voteCountingAuxInfoApp{})
+			store := newAuxInfoStore(&voteCountingAuxInfoApp{}, noopLogger{})
 			for _, send := range tt.sends {
 				store.HandleAuxiliaryMessage(send.info, send.from)
 			}
@@ -409,7 +409,7 @@ func TestCollectAuxInfo(t *testing.T) {
 }
 
 func TestCollectAuxInfoKeepsRejectedEntries(t *testing.T) {
-	store := newAuxInfoStore(&voteCountingAuxInfoApp{})
+	store := newAuxInfoStore(&voteCountingAuxInfoApp{}, noopLogger{})
 	info := common.AuxiliaryInfo{Version: 1, Data: []byte("a")}
 	store.HandleAuxiliaryMessage(info, avalanchego.NodeID{1})
 
