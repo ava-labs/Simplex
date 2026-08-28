@@ -32,7 +32,7 @@ type epochTransitionListener struct {
 	// handleApproval records our own broadcast approval in the local approval store.
 	// It is set for validators (whose MSM builds the next blocks and must include the
 	// approval) and nil for non-validators, which have no block builder to feed.
-	handleApproval func(approval *common.ValidatorSetApproval, timestamp uint64) error
+	handleApproval func(approval *common.ValidatorSetApproval, timestamp uint64)
 
 	logger common.Logger
 }
@@ -45,7 +45,7 @@ func newEpochTransitionListener(
 	getBlock metadata.BlockRetriever,
 	signer common.Signer,
 	auxInfoApp metadata.AuxiliaryInfoGenVerifier,
-	handleApproval func(approval *common.ValidatorSetApproval, timestamp uint64) error,
+	handleApproval func(approval *common.ValidatorSetApproval, timestamp uint64),
 ) *epochTransitionListener {
 	return &epochTransitionListener{
 		broadcaster:     broadcaster,
@@ -57,15 +57,6 @@ func newEpochTransitionListener(
 		handleApproval:  handleApproval,
 		logger:          logger,
 	}
-}
-
-func (a *epochTransitionListener) onIndex(block *ParsedBlock) error {
-	switch block.Type() {
-	case metadata.BlockTypeTransitioning:
-		return a.handleTransitionBlock(block)
-	}
-
-	return nil
 }
 
 func (a *epochTransitionListener) handleTransitionBlock(block *ParsedBlock) error {
@@ -148,5 +139,7 @@ func (a *epochTransitionListener) maybeSendApprovals(block *ParsedBlock, auxInfo
 		return nil
 	}
 	timestamp := uint64(time.Now().UnixMilli())
-	return a.handleApproval(&approval, timestamp)
+
+	a.handleApproval(&approval, timestamp)
+	return nil
 }

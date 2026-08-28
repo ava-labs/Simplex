@@ -69,9 +69,8 @@ func newListenerTestEnv(t *testing.T, nextEpochValidatorSet metadata.NodeBLSMapp
 		return metadata.StateMachineBlock{}, nil, nil
 	}
 
-	handleApproval := func(approval *common.ValidatorSetApproval, _ uint64) error {
+	handleApproval := func(approval *common.ValidatorSetApproval, _ uint64) {
 		env.approvals = append(env.approvals, *approval)
-		return nil
 	}
 
 	env.listener = newEpochTransitionListener(
@@ -105,33 +104,6 @@ func newTransitionBlock(t *testing.T, nextPChainRef uint64) *ParsedBlock {
 	return block
 }
 
-func TestListenerIgnoresSealingBlock(t *testing.T) {
-	const sealingSeq = uint64(42)
-
-	env := newListenerTestEnv(t, nil, nil)
-
-	validatorSet := metadata.NodeBLSMappings{{NodeID: testNodeID, BLSKey: []byte("bls-key"), Weight: 5}}
-	block := &ParsedBlock{
-		StateMachineBlock: metadata.StateMachineBlock{
-			Metadata: metadata.StateMachineMetadata{
-				SimplexProtocolMetadata: (common.ProtocolMetadata{Seq: sealingSeq}),
-				SimplexEpochInfo: metadata.SimplexEpochInfo{
-					// a non-empty PrevSealingBlockHash distinguishes a sealing block from the zero block
-					PrevSealingBlockHash: [32]byte{1},
-					BlockValidationDescriptor: &metadata.BlockValidationDescriptor{
-						AggregatedMembership: metadata.AggregatedMembership{Members: validatorSet},
-					},
-				},
-			},
-		},
-	}
-	require.Equal(t, metadata.BlockTypeSealing, block.Type())
-
-	// the listener only reacts to transitioning blocks, a sealing block is ignored
-	require.NoError(t, env.listener.onIndex(block))
-	require.Empty(t, env.broadcaster.messages)
-}
-
 func TestTransitionNotInValidatorSet(t *testing.T) {
 	// the next validator set does not contain our node
 	otherValidator := metadata.NodeBLSMappings{{NodeID: avalanchego.NodeID{2}, Weight: 1}}
@@ -140,7 +112,7 @@ func TestTransitionNotInValidatorSet(t *testing.T) {
 
 	block := newTransitionBlock(t, 100)
 
-	require.NoError(t, env.listener.onIndex(block))
+	require.NoError(t, env.listener.handleTransitionBlock(block))
 	require.Empty(t, env.broadcaster.messages)
 	require.Empty(t, env.approvals)
 }
@@ -152,7 +124,7 @@ func TestTransitionNotEnoughAuxiliary(t *testing.T) {
 
 	block := newTransitionBlock(t, 100)
 
-	require.NoError(t, env.listener.onIndex(block))
+	require.NoError(t, env.listener.handleTransitionBlock(block))
 
 	// the generated auxiliary info should be broadcast instead of an approval
 	require.Len(t, env.broadcaster.messages, 1)
@@ -172,7 +144,7 @@ func TestTransitionBroadcastsApproval(t *testing.T) {
 
 	block := newTransitionBlock(t, nextPChainRef)
 
-	require.NoError(t, env.listener.onIndex(block))
+	require.NoError(t, env.listener.handleTransitionBlock(block))
 
 	require.Len(t, env.broadcaster.messages, 1)
 	msg := env.broadcaster.messages[0]
@@ -200,7 +172,7 @@ func TestNonValidatorContributesAuxiliaryInfo(t *testing.T) {
 
 	block := newTransitionBlock(t, 100)
 
-	require.NoError(t, env.listener.onIndex(block))
+	require.NoError(t, env.listener.handleTransitionBlock(block))
 
 	require.Len(t, env.broadcaster.messages, 1)
 	msg := env.broadcaster.messages[0]
@@ -222,7 +194,7 @@ func TestNonValidatorContributesApproval(t *testing.T) {
 
 	block := newTransitionBlock(t, nextPChainRef)
 
-	require.NoError(t, env.listener.onIndex(block))
+	require.NoError(t, env.listener.handleTransitionBlock(block))
 
 	require.Len(t, env.broadcaster.messages, 1)
 	msg := env.broadcaster.messages[0]

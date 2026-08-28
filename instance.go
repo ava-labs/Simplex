@@ -184,7 +184,15 @@ func (i *Instance) createNonValidatorConfig() (nonvalidator.Config, error) {
 		Config: &metadata.Config{},
 	}
 	i.cs.msm = i.msm
-	instanceStorage := NewCallbackStorage(i.cs, i.msm, i.transitionListener.onIndex)
+	instanceStorage := NewCallbackStorage(i.cs, i.msm, func(block *ParsedBlock) error {
+		switch {
+		case block.Type() == metadata.BlockTypeTransitioning:
+			if err := i.transitionListener.handleTransitionBlock(block); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 
 	config := nonvalidator.Config{
 		ID:                         i.Config.ID,
@@ -489,12 +497,18 @@ func (i *Instance) createEpochConfig(epoch uint64, validators common.Nodes) (*ep
 
 	comm := newCommunication(i.Config.Sender, i.Config.Broadcaster, validators)
 
+	// set the handle approval method so that the MSM can receive self approvals
+	i.transitionListener.handleApproval = msm.HandleApproval
 	instanceStorage := NewCallbackStorage(i.cs, msm, func(block *ParsedBlock) error {
-		if err := i.transitionListener.onIndex(block); err != nil {
-			return err
-		}
-		if block.Type() == metadata.BlockTypeSealing {
+		switch {
+		case block.Type() == metadata.BlockTypeTransitioning:
+			if err := i.transitionListener.handleTransitionBlock(block); err != nil {
+				return err
+			}
+		case block.Type() == metadata.BlockTypeSealing:
 			blockBuilder.stop()
+
+			i.transitionListener.handleApproval = nil
 			i.notifyEpochChange(block.BlockHeader().Seq, block.SealingBlockInfo().ValidatorSet)
 		}
 		return nil
