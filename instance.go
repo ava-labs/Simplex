@@ -332,7 +332,7 @@ func (i *Instance) HandleMessage(msg *common.Message, from common.NodeID) error 
 			i.msm.HandleAuxiliaryInfo(*msg.AuxiliaryInfo, avalanchego.NodeID(from))
 		case msg.EpochTransitionApproval != nil:
 			// TODO: pass in time.Now() rather than uint64
-			i.msm.HandleApproval(msg.EpochTransitionApproval, uint64(time.Now().Unix()))
+			i.msm.HandleApproval(msg.EpochTransitionApproval, uint64(time.Now().UnixMilli()))
 		}
 		return i.e.HandleMessage(msg, from)
 	}
