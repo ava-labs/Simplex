@@ -198,8 +198,7 @@ func TestNonValidatorContributesAuxiliaryInfo(t *testing.T) {
 
 // TestNonValidatorContributesApproval asserts that once the auxiliary info history is
 // sufficient, a non-validator that belongs to the next validator set sends its
-// epoch transition approval. It does not record the approval locally (nil handleApproval),
-// since it has no block builder to include it.
+// epoch transition approval.
 func TestNonValidatorContributesApproval(t *testing.T) {
 	const nextPChainRef = uint64(100)
 
