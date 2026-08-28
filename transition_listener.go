@@ -110,12 +110,12 @@ func (a *epochTransitionListener) handleTransitionBlock(block *ParsedBlock) erro
 		},
 	}
 
-	a.bulkSend(nextEpochValidatorSet, auxInfoMessage)
+	a.sendToValidators(nextEpochValidatorSet, auxInfoMessage)
 	return nil
 }
 
-// bulkSend sends the message individually to every validator in the set except ourselves.
-func (a *epochTransitionListener) bulkSend(validators metadata.NodeBLSMappings, msg *common.Message) {
+// sendToValidators sends the message individually to every validator in the set except ourselves.
+func (a *epochTransitionListener) sendToValidators(validators metadata.NodeBLSMappings, msg *common.Message) {
 	for _, validator := range validators {
 		if validator.NodeID == a.myNodeID {
 			continue
@@ -144,7 +144,7 @@ func (a *epochTransitionListener) maybeSendApprovals(block *ParsedBlock, nextEpo
 		EpochTransitionApproval: &approval,
 	}
 
-	a.bulkSend(nextEpochValidatorSet, &approvalMessage)
+	a.sendToValidators(nextEpochValidatorSet, &approvalMessage)
 
 	// Validators also record their own approval locally so the next block they build
 	// includes it. Non-validators have no block builder, so handleApproval is nil.
