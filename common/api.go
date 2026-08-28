@@ -6,6 +6,7 @@ package common
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 
@@ -36,11 +37,17 @@ type Logger interface {
 	Verbo(msg string, fields ...zap.Field)
 }
 
+var (
+	ErrShouldBuildEmptyBlock = errors.New("should build empty block")
+)
+
 type BlockBuilder interface {
 	// BuildBlock blocks until some transactions are available to be batched into a block,
-	// in which case a block and true are returned.
-	// When the given context is cancelled by the caller, returns false.
-	// The given metadata and blacklist are encoded into the built block.
+	// and the given metadata and blacklist are encoded into the built block.
+	// Returns a block and true unless the given context is cancelled by the caller.
+	// When the given context is cancelled by the caller:
+	// returns an empty block and true, if the context was cancelled with ErrShouldBuildEmptyBlock
+	// returns nil, false otherwise.
 	BuildBlock(ctx context.Context, metadata ProtocolMetadata, blacklist Blacklist) (VerifiedBlock, bool)
 
 	// WaitForPendingBlock returns when either the given context is cancelled,

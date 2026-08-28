@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"math"
 	"testing"
@@ -2193,4 +2194,114 @@ func TestMSMWaitForPendingBlock(t *testing.T) {
 			}
 		})
 	}
+}
+
+// buildFirstSimplexBlock builds and stores the first simplex ("zero") block on top of
+// genesis, so that a follow-up normal-op block can be built on it.
+func buildFirstSimplexBlock(t *testing.T, sm *StateMachine, tc *testConfig) *StateMachineBlock {
+	md := common.ProtocolMetadata{Round: 1, Seq: 1, Epoch: 1, Prev: genesisBlock.Digest()}
+	block, err := sm.BuildBlock(context.Background(), md, emptyBlacklist)
+	require.NoError(t, err)
+	require.NotNil(t, block)
+	tc.blockStore[1] = &outerBlock{block: *block}
+	return block
+}
+
+// emptyBlockRequestingBuilder is a BlockBuilder that models the VM's inner block builder
+// being cancelled: BuildBlock optionally cancels the build context with a given cause and
+// then returns an error. WaitForPendingBlock is a no-op so the block-building decider
+// proceeds to decide that an inner block should be built.
+type emptyBlockRequestingBuilder struct {
+	cancel      context.CancelCauseFunc
+	cancelCause error // if non-nil, BuildBlock cancels the context with this cause before failing
+	err         error // error returned by BuildBlock
+}
+
+func (b *emptyBlockRequestingBuilder) BuildBlock(context.Context, uint64) (avalanchego.VMBlock, error) {
+	if b.cancelCause != nil {
+		b.cancel(b.cancelCause)
+	}
+	return nil, b.err
+}
+
+func (b *emptyBlockRequestingBuilder) WaitForPendingBlock(context.Context) {}
+
+// TestMSMBuildBlockBuildsEmptyBlockWhenBlockBuildingCancelled covers the branch in
+// buildBlockOrTransitionEpoch where the block-building decider returns an error: when the
+// context was cancelled with ErrShouldBuildEmptyBlock, an empty block is returned instead
+// of propagating the error.
+func TestMSMBuildBlockBuildsEmptyBlockWhenBlockBuildingCancelled(t *testing.T) {
+	t.Run("empty-block cause yields an empty block", func(t *testing.T) {
+		sm, tc := newStateMachine(t)
+		block1 := buildFirstSimplexBlock(t, sm, tc)
+
+		md := common.ProtocolMetadata{Round: 2, Seq: 2, Epoch: 1, Prev: block1.Digest()}
+		ctx, cancel := context.WithCancelCause(context.Background())
+		cancel(common.ErrShouldBuildEmptyBlock)
+
+		block, err := sm.BuildBlock(ctx, md, emptyBlacklist)
+		require.NoError(t, err)
+		require.NotNil(t, block)
+		require.Nil(t, block.InnerBlock)
+		require.Nil(t, block.Metadata.AuxiliaryInfoBatch)
+		require.Equal(t, md, block.Metadata.SimplexProtocolMetadata)
+		// The empty block carries the current P-chain height for proposing (100 in this config).
+		require.Equal(t, uint64(100), block.Metadata.PChainHeight)
+	})
+
+	t.Run("other cancellation propagates the error", func(t *testing.T) {
+		sm, tc := newStateMachine(t)
+		block1 := buildFirstSimplexBlock(t, sm, tc)
+
+		md := common.ProtocolMetadata{Round: 2, Seq: 2, Epoch: 1, Prev: block1.Digest()}
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		block, err := sm.BuildBlock(ctx, md, emptyBlacklist)
+		require.ErrorIs(t, err, context.Canceled)
+		require.Nil(t, block)
+	})
+}
+
+// TestMSMBuildBlockBuildsEmptyBlockWhenInnerBlockBuildingCancelled covers the branch in
+// buildBlockOrTransitionEpoch where the inner (VM) block builder fails: when the context
+// was cancelled with ErrShouldBuildEmptyBlock, an empty block is returned instead of
+// propagating the error.
+func TestMSMBuildBlockBuildsEmptyBlockWhenInnerBlockBuildingCancelled(t *testing.T) {
+	errVMBuildFailed := errors.New("vm failed to build inner block")
+
+	t.Run("empty-block cause yields an empty block", func(t *testing.T) {
+		sm, tc := newStateMachine(t)
+		block1 := buildFirstSimplexBlock(t, sm, tc)
+
+		// The decider runs first with a live context and decides to build an inner block;
+		// the inner builder then cancels the context with the empty-block cause and fails.
+		ctx, cancel := context.WithCancelCause(context.Background())
+		sm.BlockBuilder = &emptyBlockRequestingBuilder{
+			cancel:      cancel,
+			cancelCause: common.ErrShouldBuildEmptyBlock,
+			err:         errVMBuildFailed,
+		}
+
+		md := common.ProtocolMetadata{Round: 2, Seq: 2, Epoch: 1, Prev: block1.Digest()}
+		block, err := sm.BuildBlock(ctx, md, emptyBlacklist)
+		require.NoError(t, err)
+		require.NotNil(t, block)
+		require.Nil(t, block.InnerBlock)
+		require.Equal(t, md, block.Metadata.SimplexProtocolMetadata)
+		// The empty block carries the decided P-chain height (100 in this config).
+		require.Equal(t, uint64(100), block.Metadata.PChainHeight)
+	})
+
+	t.Run("inner build failure without empty-block cause propagates the error", func(t *testing.T) {
+		sm, tc := newStateMachine(t)
+		block1 := buildFirstSimplexBlock(t, sm, tc)
+
+		sm.BlockBuilder = &emptyBlockRequestingBuilder{err: errVMBuildFailed}
+
+		md := common.ProtocolMetadata{Round: 2, Seq: 2, Epoch: 1, Prev: block1.Digest()}
+		block, err := sm.BuildBlock(context.Background(), md, emptyBlacklist)
+		require.ErrorIs(t, err, errVMBuildFailed)
+		require.Nil(t, block)
+	})
 }
