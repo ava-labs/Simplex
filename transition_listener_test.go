@@ -1,3 +1,6 @@
+// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// See the file LICENSE for licensing terms.
+
 package simplex
 
 import (
@@ -13,12 +16,14 @@ import (
 
 var testNodeID = avalanchego.NodeID{1}
 
-type recordingBroadcaster struct {
-	messages []*common.Message
+type recordingSender struct {
+	messages     []*common.Message
+	destinations []common.NodeID
 }
 
-func (rb *recordingBroadcaster) Broadcast(msg *common.Message) {
-	rb.messages = append(rb.messages, msg)
+func (rs *recordingSender) Send(msg *common.Message, destination common.NodeID) {
+	rs.messages = append(rs.messages, msg)
+	rs.destinations = append(rs.destinations, destination)
 }
 
 type stubSigner struct {
@@ -51,7 +56,7 @@ func (s *stubAuxInfoApp) DefaultVersionID() common.VersionID {
 }
 
 type listenerTestEnv struct {
-	broadcaster *recordingBroadcaster
+	sender *recordingSender
 	// approvals records the approvals fed via the handleApproval callback.
 	approvals []common.ValidatorSetApproval
 	listener  *epochTransitionListener
@@ -59,7 +64,7 @@ type listenerTestEnv struct {
 
 // newListenerTestEnv builds a listener wired to the given next-epoch validator set and auxApp.
 func newListenerTestEnv(t *testing.T, nextEpochValidatorSet metadata.NodeBLSMappings, auxApp metadata.AuxiliaryInfoGenVerifier) *listenerTestEnv {
-	env := &listenerTestEnv{broadcaster: &recordingBroadcaster{}}
+	env := &listenerTestEnv{sender: &recordingSender{}}
 
 	getValidatorSet := func(uint64) (metadata.NodeBLSMappings, error) {
 		return nextEpochValidatorSet, nil
@@ -75,7 +80,7 @@ func newListenerTestEnv(t *testing.T, nextEpochValidatorSet metadata.NodeBLSMapp
 
 	env.listener = newEpochTransitionListener(
 		testutil.MakeLogger(t, 1),
-		env.broadcaster,
+		env.sender,
 		testNodeID,
 		getValidatorSet,
 		getBlock,
@@ -113,12 +118,14 @@ func TestTransitionNotInValidatorSet(t *testing.T) {
 	block := newTransitionBlock(t, 100)
 
 	require.NoError(t, env.listener.handleTransitionBlock(block))
-	require.Empty(t, env.broadcaster.messages)
+	require.Empty(t, env.sender.messages)
 	require.Empty(t, env.approvals)
 }
 
 func TestTransitionNotEnoughAuxiliary(t *testing.T) {
-	validatorSet := metadata.NodeBLSMappings{{NodeID: testNodeID, Weight: 1}, {NodeID: avalanchego.NodeID{2}, Weight: 1}}
+	peer1 := avalanchego.NodeID{2}
+	peer2 := avalanchego.NodeID{3}
+	validatorSet := metadata.NodeBLSMappings{{NodeID: testNodeID, Weight: 1}, {NodeID: peer1, Weight: 1}, {NodeID: peer2, Weight: 1}}
 	auxApp := &stubAuxInfoApp{sufficient: false, generated: []byte("more aux info")}
 	env := newListenerTestEnv(t, validatorSet, auxApp)
 
@@ -126,28 +133,33 @@ func TestTransitionNotEnoughAuxiliary(t *testing.T) {
 
 	require.NoError(t, env.listener.handleTransitionBlock(block))
 
-	// the generated auxiliary info should be broadcast instead of an approval
-	require.Len(t, env.broadcaster.messages, 1)
-	msg := env.broadcaster.messages[0]
-	require.Nil(t, msg.EpochTransitionApproval)
-	require.NotNil(t, msg.AuxiliaryInfo)
-	require.Equal(t, auxApp.DefaultVersionID(), msg.AuxiliaryInfo.Version)
-	require.Equal(t, auxApp.generated, msg.AuxiliaryInfo.Data)
+	// the generated auxiliary info is sent to every other validator instead of an approval
+	require.Len(t, env.sender.messages, 2)
+	require.Equal(t, []common.NodeID{common.NodeID(peer1[:]), common.NodeID(peer2[:])}, env.sender.destinations)
+	for _, msg := range env.sender.messages {
+		require.Nil(t, msg.EpochTransitionApproval)
+		require.NotNil(t, msg.AuxiliaryInfo)
+		require.Equal(t, auxApp.DefaultVersionID(), msg.AuxiliaryInfo.Version)
+		require.Equal(t, auxApp.generated, msg.AuxiliaryInfo.Data)
+	}
 	require.Empty(t, env.approvals)
 }
 
-func TestTransitionBroadcastsApproval(t *testing.T) {
+func TestTransitionSendsApproval(t *testing.T) {
 	const nextPChainRef = uint64(100)
 
-	validatorSet := metadata.NodeBLSMappings{{NodeID: testNodeID, Weight: 1}}
+	peer := avalanchego.NodeID{2}
+	validatorSet := metadata.NodeBLSMappings{{NodeID: testNodeID, Weight: 1}, {NodeID: peer, Weight: 1}}
 	env := newListenerTestEnv(t, validatorSet, &stubAuxInfoApp{sufficient: true})
 
 	block := newTransitionBlock(t, nextPChainRef)
 
 	require.NoError(t, env.listener.handleTransitionBlock(block))
 
-	require.Len(t, env.broadcaster.messages, 1)
-	msg := env.broadcaster.messages[0]
+	// the approval is sent to the other validator, not to ourselves
+	require.Len(t, env.sender.messages, 1)
+	require.Equal(t, []common.NodeID{common.NodeID(peer[:])}, env.sender.destinations)
+	msg := env.sender.messages[0]
 	require.Nil(t, msg.AuxiliaryInfo)
 	require.NotNil(t, msg.EpochTransitionApproval)
 
@@ -164,7 +176,7 @@ func TestTransitionBroadcastsApproval(t *testing.T) {
 // TestNonValidatorContributesAuxiliaryInfo asserts that a node still on the outside of the
 // current validator set but present in the NEXT one contributes auxiliary info during the
 // transition, exactly like a validator does. Non-validators pass a nil handleApproval, so
-// nothing is recorded locally, but the auxiliary info is still broadcast.
+// nothing is recorded locally, but the auxiliary info is still sent.
 func TestNonValidatorContributesAuxiliaryInfo(t *testing.T) {
 	validatorSet := metadata.NodeBLSMappings{{NodeID: testNodeID, Weight: 1}, {NodeID: avalanchego.NodeID{2}, Weight: 1}}
 	auxApp := &stubAuxInfoApp{sufficient: false, generated: []byte("non-validator aux")}
@@ -174,8 +186,8 @@ func TestNonValidatorContributesAuxiliaryInfo(t *testing.T) {
 
 	require.NoError(t, env.listener.handleTransitionBlock(block))
 
-	require.Len(t, env.broadcaster.messages, 1)
-	msg := env.broadcaster.messages[0]
+	require.Len(t, env.sender.messages, 1)
+	msg := env.sender.messages[0]
 	require.Nil(t, msg.EpochTransitionApproval)
 	require.NotNil(t, msg.AuxiliaryInfo)
 	require.Equal(t, auxApp.DefaultVersionID(), msg.AuxiliaryInfo.Version)
@@ -183,21 +195,21 @@ func TestNonValidatorContributesAuxiliaryInfo(t *testing.T) {
 }
 
 // TestNonValidatorContributesApproval asserts that once the auxiliary info history is
-// sufficient, a non-validator that belongs to the next validator set broadcasts its
+// sufficient, a non-validator that belongs to the next validator set sends its
 // epoch transition approval. It does not record the approval locally (nil handleApproval),
 // since it has no block builder to include it.
 func TestNonValidatorContributesApproval(t *testing.T) {
 	const nextPChainRef = uint64(100)
 
-	validatorSet := metadata.NodeBLSMappings{{NodeID: testNodeID, Weight: 1}}
+	validatorSet := metadata.NodeBLSMappings{{NodeID: testNodeID, Weight: 1}, {NodeID: avalanchego.NodeID{2}, Weight: 1}}
 	env := newListenerTestEnv(t, validatorSet, &stubAuxInfoApp{sufficient: true})
 
 	block := newTransitionBlock(t, nextPChainRef)
 
 	require.NoError(t, env.listener.handleTransitionBlock(block))
 
-	require.Len(t, env.broadcaster.messages, 1)
-	msg := env.broadcaster.messages[0]
+	require.Len(t, env.sender.messages, 1)
+	msg := env.sender.messages[0]
 	require.Nil(t, msg.AuxiliaryInfo)
 	require.NotNil(t, msg.EpochTransitionApproval)
 

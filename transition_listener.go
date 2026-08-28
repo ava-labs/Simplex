@@ -1,3 +1,6 @@
+// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// See the file LICENSE for licensing terms.
+
 package simplex
 
 import (
@@ -15,9 +18,9 @@ import (
 // Non-validators should also use this listener, since they may become
 // validators after the transition.
 type epochTransitionListener struct {
-	// broadcaster is used for broadcasting potential approvals and auxiliary information.
-	// It should be broadcast to the validators of the current epoch.
-	broadcaster Broadcaster
+	// sender is used for sending potential approvals and auxiliary information
+	// individually to the validators of the next epoch.
+	sender Sender
 
 	myNodeID avalanchego.NodeID
 
@@ -39,7 +42,7 @@ type epochTransitionListener struct {
 
 func newEpochTransitionListener(
 	logger common.Logger,
-	broadcaster Broadcaster,
+	sender Sender,
 	myNodeID avalanchego.NodeID,
 	getValidatorSet metadata.ValidatorSetRetriever,
 	getBlock metadata.BlockRetriever,
@@ -48,7 +51,7 @@ func newEpochTransitionListener(
 	handleApproval func(approval *common.ValidatorSetApproval, timestamp uint64),
 ) *epochTransitionListener {
 	return &epochTransitionListener{
-		broadcaster:     broadcaster,
+		sender:          sender,
 		myNodeID:        myNodeID,
 		getValidatorSet: getValidatorSet,
 		getBlock:        getBlock,
@@ -86,7 +89,7 @@ func (a *epochTransitionListener) handleTransitionBlock(block *ParsedBlock) erro
 	if isSufficient {
 		// no more auxiliary info to send, maybe send our approval
 		lastAuxInfoDigest := auxInfoHistory.LastHistoryDigest()
-		return a.maybeSendApprovals(block, lastAuxInfoDigest)
+		return a.maybeSendApprovals(block, nextEpochValidatorSet, lastAuxInfoDigest)
 	}
 
 	// we need more auxiliary information, attempt to generate
@@ -107,12 +110,22 @@ func (a *epochTransitionListener) handleTransitionBlock(block *ParsedBlock) erro
 		},
 	}
 
-	a.broadcaster.Broadcast(auxInfoMessage)
+	a.bulkSend(nextEpochValidatorSet, auxInfoMessage)
 	return nil
 }
 
+// bulkSend sends the message individually to every validator in the set except ourselves.
+func (a *epochTransitionListener) bulkSend(validators metadata.NodeBLSMappings, msg *common.Message) {
+	for _, validator := range validators {
+		if validator.NodeID == a.myNodeID {
+			continue
+		}
+		a.sender.Send(msg, common.NodeID(validator.NodeID[:]))
+	}
+}
+
 // TODO: use common.Digest
-func (a *epochTransitionListener) maybeSendApprovals(block *ParsedBlock, auxInfoDigest [32]byte) error {
+func (a *epochTransitionListener) maybeSendApprovals(block *ParsedBlock, nextEpochValidatorSet metadata.NodeBLSMappings, auxInfoDigest [32]byte) error {
 	nextEpochPChainReference := block.Metadata.SimplexEpochInfo.NextPChainReferenceHeight
 
 	sig, err := metadata.SignApproval(a.signer, nextEpochPChainReference, auxInfoDigest)
@@ -131,7 +144,7 @@ func (a *epochTransitionListener) maybeSendApprovals(block *ParsedBlock, auxInfo
 		EpochTransitionApproval: &approval,
 	}
 
-	a.broadcaster.Broadcast(&approvalMessage)
+	a.bulkSend(nextEpochValidatorSet, &approvalMessage)
 
 	// Validators also record their own approval locally so the next block they build
 	// includes it. Non-validators have no block builder, so handleApproval is nil.

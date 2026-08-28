@@ -82,7 +82,7 @@ func NewInstance(config Config) *Instance {
 	// they broadcast approvals but do not need to record their own locally.
 	transitionListener := newEpochTransitionListener(
 		config.Logger,
-		config.Broadcaster,
+		config.Sender,
 		avalanchego.NodeID(config.ID),
 		config.PlatformChain.GetValidatorSet,
 		cs.RetrieveBlock,
