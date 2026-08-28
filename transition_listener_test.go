@@ -14,7 +14,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var testNodeID = avalanchego.NodeID{1}
+var (
+	testNodeID    = avalanchego.NodeID{1}
+	stubSignature = []byte("signature")
+)
 
 type recordingSender struct {
 	messages     []*common.Message
@@ -84,7 +87,7 @@ func newListenerTestEnv(t *testing.T, nextEpochValidatorSet metadata.NodeBLSMapp
 		testNodeID,
 		getValidatorSet,
 		getBlock,
-		stubSigner{sig: []byte("signature")},
+		stubSigner{sig: stubSignature},
 		auxApp,
 		handleApproval,
 	)
@@ -217,5 +220,5 @@ func TestNonValidatorContributesApproval(t *testing.T) {
 	approval := msg.EpochTransitionApproval
 	require.Equal(t, testNodeID, approval.NodeID)
 	require.Equal(t, nextPChainRef, approval.PChainHeight)
-	require.Equal(t, []byte("signature"), approval.Signature)
+	require.Equal(t, stubSignature, approval.Signature)
 }
