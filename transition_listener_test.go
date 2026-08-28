@@ -122,6 +122,8 @@ func TestTransitionNotInValidatorSet(t *testing.T) {
 	require.Empty(t, env.approvals)
 }
 
+// TestTransitionNotEnoughAuxiliary tests that if we do not have a sufficient amount of auxiliary information
+// we will broadcast our own before sending any approvals.
 func TestTransitionNotEnoughAuxiliary(t *testing.T) {
 	peer1 := avalanchego.NodeID{2}
 	peer2 := avalanchego.NodeID{3}
