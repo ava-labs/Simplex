@@ -50,11 +50,21 @@ type BlockBuilder interface {
 
 var ErrBlockNotFound = fmt.Errorf("block not found")
 
+// ErrBlockNotIndexed is returned by Storage.Index when the implementation deliberately
+// declined to persist the block. It is not a failure, but it is also not a commit:
+// the block is not durable and NumBlocks() has not advanced, so the caller must not
+// treat it as committed.
+var ErrBlockNotIndexed = fmt.Errorf("block was not indexed")
+
 type Storage interface {
 	NumBlocks() uint64
 	// Retrieve returns the block and finalization at [seq].
 	// If [seq] the block cannot be found, returns ErrBlockNotFound.
 	Retrieve(seq uint64) (VerifiedBlock, Finalization, error)
+	// Index durably persists [block] and [certificate].
+	// A nil error means the block is stored at its sequence, hence NumBlocks() has advanced past it.
+	// An implementation that intentionally does not persist a block must return
+	// ErrBlockNotIndexed, never nil, otherwise the caller would wrongly consider it committed.
 	Index(ctx context.Context, block VerifiedBlock, certificate Finalization) error
 }
 

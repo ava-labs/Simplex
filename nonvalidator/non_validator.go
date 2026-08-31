@@ -6,6 +6,7 @@ package nonvalidator
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"math/rand/v2"
 	"sync"
@@ -265,6 +266,13 @@ func (n *NonValidator) newFinalizedBlockTask(block common.Block, finalization *c
 		}
 
 		if err := n.Storage.Index(n.ctx, verifiedBlock, *finalization); err != nil {
+			// The storage may deliberately decline to persist a block. That is not a failure,
+			// but the block is not committed either: nextSeqToCommit has not advanced, so we
+			// must not act as if this sequence is now accepted.
+			if errors.Is(err, common.ErrBlockNotIndexed) {
+				n.Logger.Info("Storage declined to index block, not committing it", zap.Uint64("Block Seq", md.Seq), zap.Stringer("Block Digest", md.Digest), zap.Error(err))
+				return md.Digest
+			}
 			n.haltedError = err
 			n.Logger.Info("Failed indexing a block and finalization", zap.Uint64("Block Seq", md.Seq), zap.Stringer("Block Digest", md.Digest), zap.Error(err))
 			return md.Digest

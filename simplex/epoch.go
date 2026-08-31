@@ -804,6 +804,25 @@ func (e *Epoch) handleFinalizationMessage(message *common.Finalization, from com
 	e.Logger.Verbo("Received finalization message",
 		zap.Stringer("from", from), zap.Uint64("round", message.Finalization.Round), zap.Uint64("seq", message.Finalization.Seq))
 
+	// Once our epoch is sealed nothing beyond the sealing block belongs to it,
+	// so a finalization for a higher sequence can only be for a block of this epoch
+	// that will never be committed (it is superseded by the next epoch).
+	if e.isEpochSealed() {
+		e.Logger.Debug("Epoch is sealed, ignoring finalization message",
+			zap.Stringer("from", from), zap.Uint64("round", message.Finalization.Round), zap.Uint64("seq", message.Finalization.Seq))
+		return nil
+	}
+
+	// A finalization for a block of an earlier epoch cannot be committed by this epoch:
+	// every sequence we still have to commit belongs to our epoch or to a later one.
+	// Without this check, a stale epoch transition artifact - a block of a sealed epoch that
+	// was never persisted - could be replayed to us and be mistaken for a finalized block.
+	if message.Finalization.Epoch < e.Epoch {
+		e.Logger.Debug("Received a finalization from a previous epoch",
+			zap.Stringer("from", from), zap.Uint64("finalization epoch", message.Finalization.Epoch), zap.Uint64("our epoch", e.Epoch))
+		return nil
+	}
+
 	nextSeqToCommit := e.nextSeqToCommit()
 	// Ignore finalizations for sequences we have already committed
 	if nextSeqToCommit > message.Finalization.Seq {
@@ -1458,8 +1477,17 @@ func (e *Epoch) indexFinalizations(startRound uint64) error {
 
 		finalization := *round.finalization
 		block := round.block
-		if err := e.indexFinalization(block, finalization); err != nil {
+		committed, err := e.indexFinalization(block, finalization)
+		if err != nil {
 			return err
+		}
+		if !committed {
+			// The block was not persisted, so nextSeqToCommit did not advance and neither this
+			// sequence nor any sequence after it can be committed now. Stop, and leave the round
+			// in place so that the block that does belong at this sequence can still be committed.
+			e.Logger.Debug("Stopped indexing finalizations because the block was not committed",
+				zap.Uint64("round", round.num), zap.Uint64("seq", finalization.Finalization.Seq))
+			return nil
 		}
 
 		e.deleteRounds(round.num)
@@ -1476,10 +1504,39 @@ func (e *Epoch) indexFinalizations(startRound uint64) error {
 	return nil
 }
 
-func (e *Epoch) indexFinalization(block common.VerifiedBlock, finalization common.Finalization) error {
+// indexFinalization commits [block] and [finalization] to storage.
+// It returns whether the block was actually committed: a Storage may deliberately decline to
+// persist a block (signalled with common.ErrBlockNotIndexed), and in that case the epoch must
+// not advance its commit state. e.lastBlock and e.round would otherwise permanently diverge
+// from nextSeqToCommit(), which is derived from the storage itself, leaving the epoch building
+// on and advertising a block that is not in storage and can never be committed.
+func (e *Epoch) indexFinalization(block common.VerifiedBlock, finalization common.Finalization) (bool, error) {
+	seq := finalization.Finalization.Seq
+
 	if err := e.Storage.Index(e.finishCtx, block, finalization); err != nil {
-		return err
+		if errors.Is(err, common.ErrBlockNotIndexed) {
+			e.Logger.Info("Storage declined to index block, not committing it",
+				zap.Uint64("round", finalization.Finalization.Round),
+				zap.Uint64("sequence", seq),
+				zap.Stringer("digest", finalization.Finalization.Digest),
+				zap.Error(err))
+			return false, nil
+		}
+		return false, err
 	}
+
+	// A nil error from Index means the block is durable at [seq]. Enforce that invariant
+	// instead of trusting it, as committing in-memory state for a block the storage did not
+	// persist cannot be undone by any later message.
+	if numBlocks := e.Storage.NumBlocks(); numBlocks <= seq {
+		e.Logger.Warn("Storage reported a successful index but the block is not stored, not committing it",
+			zap.Uint64("round", finalization.Finalization.Round),
+			zap.Uint64("sequence", seq),
+			zap.Uint64("numBlocks", numBlocks),
+			zap.Stringer("digest", finalization.Finalization.Digest))
+		return false, nil
+	}
+
 	e.Logger.Info("Committed block",
 		zap.Uint64("round", finalization.Finalization.Round),
 		zap.Uint64("sequence", finalization.Finalization.Seq),
@@ -1507,7 +1564,7 @@ func (e *Epoch) indexFinalization(block common.VerifiedBlock, finalization commo
 	// However, we may have not witnessed a notarization.
 	// Regardless of that, we can safely progress to the round succeeding the finalization.
 	e.progressRoundsDueToCommit(finalization.Finalization.Round + 1)
-	return nil
+	return true, nil
 }
 
 func (e *Epoch) maybeAssembleEmptyNotarization() error {
@@ -2241,6 +2298,7 @@ func (e *Epoch) createFinalizedBlockVerificationTask(block common.Block, finaliz
 		}
 
 		// Store the verified block in rounds map so subsequent blocks can find it as a dependency
+		previousRoundEntry, hadRoundEntry := e.rounds[md.Round]
 		roundEntry := NewRound(verifiedBlock)
 		e.rounds[md.Round] = roundEntry
 		if err := e.storeFinalization(finalization); err != nil {
@@ -2251,9 +2309,26 @@ func (e *Epoch) createFinalizedBlockVerificationTask(block common.Block, finaliz
 			zap.Uint64("seq", md.Seq),
 			zap.Stringer("digest", md.Digest))
 
-		if err := e.indexFinalization(verifiedBlock, *finalization); err != nil {
+		committed, err := e.indexFinalization(verifiedBlock, *finalization)
+		if err != nil {
 			e.haltedError = err
 			e.Logger.Error("Failed to index finalization", zap.Error(err))
+			return md.Digest
+		}
+		if !committed {
+			// The storage declined to persist this replicated block, so it is not committed.
+			// Restore the rounds map to what it was before: keeping the block and its finalization
+			// there would both misrepresent it as finalized to replicating peers and prevent the
+			// block that does belong at this round from ever having its finalization stored.
+			if hadRoundEntry {
+				e.rounds[md.Round] = previousRoundEntry
+			} else {
+				delete(e.rounds, md.Round)
+			}
+			e.Logger.Info("Replicated finalized block was not indexed, discarding it",
+				zap.Uint64("round", md.Round),
+				zap.Uint64("seq", md.Seq),
+				zap.Stringer("digest", md.Digest))
 			return md.Digest
 		}
 		err = e.processReplicationState()
@@ -3473,7 +3548,24 @@ func (e *Epoch) verifyQuorumRound(q common.QuorumRound) error {
 		return err
 	}
 
+	// A block of an earlier epoch is not part of the chain this epoch commits: every sequence we
+	// still have to commit belongs to our epoch or to a later one. The quorum certificates below
+	// only attest that the signers form a quorum of our validator set, which a quorum of a
+	// previous epoch may still satisfy, so without this check a replicating peer could feed us a
+	// block of a sealed epoch that was never persisted - a Telock, which chains onto the last
+	// block of that epoch and hence claims the round and sequence the first block of our epoch
+	// belongs to - and we would mistake it for part of our chain.
+	if q.Block != nil && q.Block.BlockHeader().Epoch < e.Epoch {
+		return fmt.Errorf("received a quorum round for a block of the previous epoch %d, our epoch is %d",
+			q.Block.BlockHeader().Epoch, e.Epoch)
+	}
+
 	if q.Finalization != nil {
+		if q.Finalization.Finalization.Epoch < e.Epoch {
+			return fmt.Errorf("received a finalization from a previous epoch %d, our epoch is %d",
+				q.Finalization.Finalization.Epoch, e.Epoch)
+		}
+
 		// extra check needed if we have a finalized block
 		if err := VerifyQC(q.Finalization.QC, e.signatureAggregator.IsQuorum, e.validatorsToPKs, q.Finalization, e.validators); err != nil {
 			return fmt.Errorf("invalid finalization: %w", err)
