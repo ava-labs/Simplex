@@ -62,7 +62,9 @@ type Storage interface {
 	// If [seq] the block cannot be found, returns ErrBlockNotFound.
 	Retrieve(seq uint64) (VerifiedBlock, Finalization, error)
 	// Index durably persists [block] and [certificate].
-	// A nil error means the block is stored at its sequence, hence NumBlocks() has advanced past it.
+	// A nil error means the block is stored at its sequence, hence NumBlocks() has advanced
+	// past it by the time Index returns; callers rely on NumBlocks() reflecting Index
+	// synchronously to know which sequence to commit next.
 	// An implementation that intentionally does not persist a block must return
 	// ErrBlockNotIndexed, never nil, otherwise the caller would wrongly consider it committed.
 	Index(ctx context.Context, block VerifiedBlock, certificate Finalization) error

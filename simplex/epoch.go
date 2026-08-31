@@ -814,9 +814,10 @@ func (e *Epoch) handleFinalizationMessage(message *common.Finalization, from com
 	}
 
 	// A finalization for a block of an earlier epoch cannot be committed by this epoch:
-	// every sequence we still have to commit belongs to our epoch or to a later one.
-	// Without this check, a stale epoch transition artifact - a block of a sealed epoch that
-	// was never persisted - could be replayed to us and be mistaken for a finalized block.
+	// every sequence we still have to commit belongs to our epoch or to a later one. This keeps
+	// a stale epoch transition artifact - a block of a sealed epoch that was never persisted -
+	// from claiming a round of ours; it is a layer on top of, not a substitute for, the storage
+	// refusing to index such a block, since e.Epoch is only as trustworthy as what we restored.
 	if message.Finalization.Epoch < e.Epoch {
 		e.Logger.Debug("Received a finalization from a previous epoch",
 			zap.Stringer("from", from), zap.Uint64("finalization epoch", message.Finalization.Epoch), zap.Uint64("our epoch", e.Epoch))
@@ -1483,8 +1484,14 @@ func (e *Epoch) indexFinalizations(startRound uint64) error {
 		}
 		if !committed {
 			// The block was not persisted, so nextSeqToCommit did not advance and neither this
-			// sequence nor any sequence after it can be committed now. Stop, and leave the round
-			// in place so that the block that does belong at this sequence can still be committed.
+			// sequence nor any sequence after it can be committed now.
+			//
+			// Drop the round: a block the storage will not persist can never be committed, so
+			// keeping it would only let us serve it to replicating peers as a finalized quorum
+			// round for this sequence (locateQuorumRecord), build our next proposal on top of it
+			// (metadata, via getHighestRound), and refuse the block that does belong at this
+			// round (storeProposal refuses a round that already has an entry).
+			delete(e.rounds, round.num)
 			e.Logger.Debug("Stopped indexing finalizations because the block was not committed",
 				zap.Uint64("round", round.num), zap.Uint64("seq", finalization.Finalization.Seq))
 			return nil
@@ -2320,11 +2327,16 @@ func (e *Epoch) createFinalizedBlockVerificationTask(block common.Block, finaliz
 			// Restore the rounds map to what it was before: keeping the block and its finalization
 			// there would both misrepresent it as finalized to replicating peers and prevent the
 			// block that does belong at this round from ever having its finalization stored.
+			// storeFinalization succeeded above, which means it matched the round's block header,
+			// so the entry we are undoing is keyed by md.Round.
 			if hadRoundEntry {
 				e.rounds[md.Round] = previousRoundEntry
 			} else {
 				delete(e.rounds, md.Round)
 			}
+			// The caller took this sequence out of the replication state before handing it to us,
+			// so ask for it again - we still need whichever block does belong at this sequence.
+			e.replicationState.ResendFinalizationRequest(md.Seq, finalization.QC.Signers())
 			e.Logger.Info("Replicated finalized block was not indexed, discarding it",
 				zap.Uint64("round", md.Round),
 				zap.Uint64("seq", md.Seq),
@@ -3554,7 +3566,10 @@ func (e *Epoch) verifyQuorumRound(q common.QuorumRound) error {
 	// previous epoch may still satisfy, so without this check a replicating peer could feed us a
 	// block of a sealed epoch that was never persisted - a Telock, which chains onto the last
 	// block of that epoch and hence claims the round and sequence the first block of our epoch
-	// belongs to - and we would mistake it for part of our chain.
+	// belongs to - and we would mistake it for part of our chain. Both the notarized and the
+	// finalized replication paths verify with OnlyVM, so neither of them would catch it.
+	// A quorum round rejected here may carry an empty notarization we do want; replication asks
+	// again, so we drop the whole round rather than rebuild the caller's message.
 	if q.Block != nil && q.Block.BlockHeader().Epoch < e.Epoch {
 		return fmt.Errorf("received a quorum round for a block of the previous epoch %d, our epoch is %d",
 			q.Block.BlockHeader().Epoch, e.Epoch)

@@ -137,14 +137,25 @@ func TestEpochDoesNotCommitBlockTheStorageDeclinedToIndex(t *testing.T) {
 			require.Equal(t, declinedSeq, e.Metadata().Round, "the round must not advance past a block that was not committed")
 
 			// A replicating peer must be told about the last block that is actually committed,
-			// never about the block that was not persisted.
+			// never about the block that was not persisted - neither as our latest finalized
+			// sequence nor as a finalized quorum round for the sequence it claimed.
 			require.NoError(t, e.HandleMessage(&Message{
-				ReplicationRequest: &ReplicationRequest{LatestFinalizedSeq: 1},
+				ReplicationRequest: &ReplicationRequest{LatestFinalizedSeq: 1, Seqs: []uint64{declinedSeq}},
 			}, nodes[1]))
-			latestFinalized := awaitLatestFinalizedSeq(t, comm)
-			require.Equal(t, declinedSeq-1, latestFinalized.Finalization.Finalization.Seq,
+			response := awaitReplicationResponse(t, comm)
+
+			require.NotNil(t, response.LatestFinalizedSeq)
+			require.Equal(t, declinedSeq-1, response.LatestFinalizedSeq.Finalization.Finalization.Seq,
 				"the epoch must advertise the last committed block as its latest finalized sequence")
-			require.Equal(t, blocks[declinedSeq-1].BlockHeader().Digest, latestFinalized.VerifiedBlock.BlockHeader().Digest)
+			require.Equal(t, blocks[declinedSeq-1].BlockHeader().Digest, response.LatestFinalizedSeq.VerifiedBlock.BlockHeader().Digest)
+
+			for _, qr := range append(response.Data, orEmpty(response.LatestRound)...) {
+				if qr.Finalization == nil {
+					continue
+				}
+				require.NotEqual(t, blocks[declinedSeq].BlockHeader().Digest, qr.VerifiedBlock.BlockHeader().Digest,
+					"the epoch must never serve a block it did not persist as finalized")
+			}
 		})
 	}
 }
@@ -238,21 +249,27 @@ func mustVote(t *testing.T, block testutil.AnyBlock, from NodeID) Vote {
 	return *vote
 }
 
-// awaitLatestFinalizedSeq returns the LatestFinalizedSeq of the first replication response
-// the epoch sends.
-func awaitLatestFinalizedSeq(t *testing.T, comm *recordingComm) *VerifiedQuorumRound {
+// awaitReplicationResponse returns the first replication response the epoch sends.
+func awaitReplicationResponse(t *testing.T, comm *recordingComm) *VerifiedReplicationResponse {
 	t.Helper()
 
 	timeout := time.After(30 * time.Second)
 	for {
 		select {
 		case msg := <-comm.SentMessages:
-			if msg.VerifiedReplicationResponse != nil && msg.VerifiedReplicationResponse.LatestFinalizedSeq != nil {
-				return msg.VerifiedReplicationResponse.LatestFinalizedSeq
+			if msg.VerifiedReplicationResponse != nil {
+				return msg.VerifiedReplicationResponse
 			}
 		case <-timeout:
-			require.FailNow(t, "timed out waiting for a replication response with a latest finalized sequence")
+			require.FailNow(t, "timed out waiting for a replication response")
 			return nil
 		}
 	}
+}
+
+func orEmpty(qr *VerifiedQuorumRound) []VerifiedQuorumRound {
+	if qr == nil {
+		return nil
+	}
+	return []VerifiedQuorumRound{*qr}
 }
