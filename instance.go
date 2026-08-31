@@ -74,6 +74,8 @@ type Instance struct {
 	epochOrNV          timeAdvancer
 	epochChanges       chan epochChange
 	stopCh             chan struct{}
+
+	bootstrapped bool
 }
 
 func NewInstance(config Config) *Instance {
@@ -113,19 +115,45 @@ func (i *Instance) Start(ctx context.Context) error {
 
 	context.AfterFunc(ctx, i.Stop)
 
-	nodes, epochNum, err := getLastAcceptedEpochAndValidatorSet(&i.Config)
-	if err != nil {
-		return fmt.Errorf("error determining latest epoch and validator set: %w", err)
-	}
-
-	if err := i.startAtEpoch(nodes, epochNum); err != nil {
-		return fmt.Errorf("error starting instance at epoch %d: %w", epochNum, err)
-	}
+	i.bootstrap()
 
 	go i.tick()
 	go i.listenForEpochChanges()
 
 	return nil
+}
+
+func (i *Instance) bootstrap() error {
+	latestValidatorSet, err := getLatestPlatformChainValidatorSet(i.Config.PlatformChain)
+	if err != nil {
+		return err
+	}
+
+	latestIndexedEpochValidators, epochNum, err := getLastAcceptedEpochAndValidatorSet(&i.Config)
+	if err != nil {
+		return err
+	}
+
+	if latestIndexedEpochValidators.Equal(latestValidatorSet.Nodes()) {
+		// start validator
+		// edge case: we have indexed epoch 1, but are currently on epoch 3. (epoch 2 was in between).
+		// epoch 3 is the same validator set as epoch 1, we will start up as a validator even though its not the latest validator set.
+		// this is fine because our message intercepting will realize the validator is offline and catch up anyways.
+		i.startAtEpoch(latestIndexedEpochValidators, epochNum)
+	}
+
+	// we are not in the highest epoch or are a non-validator
+	return i.startNonValidator()
+}
+
+func (i *Instance) onBootstrapFinish(highestKnownEpoch uint64, highestKnownValidators common.Nodes) {
+	if highestKnownValidators.Contains(i.Config.ID) {
+		i.notifyEpochChange(highestKnownEpoch, highestKnownValidators)
+	}
+
+	// we have reached a threshold of votes for epoch and validators, but our ID is not a validator for this set
+	// continue normally
+	return
 }
 
 func (i *Instance) startValidator(epochNum uint64, validators common.Nodes) error {
@@ -169,13 +197,12 @@ func (i *Instance) createNonValidatorConfig() (nonvalidator.Config, error) {
 		return nonvalidator.Config{}, err
 	}
 
-	height := i.Config.PlatformChain.GetCurrentHeight()
-	mappings, err := i.Config.PlatformChain.GetValidatorSet(height)
+	latestValidatorSet, err := getLatestPlatformChainValidatorSet(i.Config.PlatformChain)
 	if err != nil {
 		return nonvalidator.Config{}, err
 	}
 
-	comm := newCommunication(i.Config.Sender, i.Config.Broadcaster, mappings.Nodes())
+	comm := newCommunication(i.Config.Sender, i.Config.Broadcaster, latestValidatorSet.Nodes())
 
 	// Plant an artificial MSM. A non-validator never verifies the state machine transition,
 	// it only verifies the inner block (see common.OnlyVMVerifyOpt), so this MSM is only
@@ -204,6 +231,8 @@ func (i *Instance) createNonValidatorConfig() (nonvalidator.Config, error) {
 		SignatureAggregatorCreator: i.Config.CryptoOps.CreateSignatureAggregator,
 		MaxSequenceWindow:          simplex.DefaultMaxRoundWindow,
 		TransitionToValidator:      i.notifyEpochChange,
+		OnFinishBootstrapping:      i.onBootstrapFinish,
+		Bootstrapped:               i.bootstrapped,
 	}
 	return config, nil
 }
@@ -324,26 +353,33 @@ func (i *Instance) HandleMessage(msg *common.Message, from common.NodeID) error 
 	}
 
 	if i.e != nil {
-		switch {
-		case msg.AuxiliaryInfo != nil:
-			if msg.AuxiliaryInfo.Epoch != i.e.Epoch {
-				i.Config.Logger.Debug(
-					"Received an auxiliary info from an old epoch",
-					zap.Uint64("Aux Info Epoch", msg.AuxiliaryInfo.Epoch),
-					zap.Uint64("Our Epoch", i.e.Epoch),
-					zap.Stringer("From", from))
-				return nil
-			}
-			i.msm.HandleAuxiliaryInfo(*msg.AuxiliaryInfo, avalanchego.NodeID(from))
-		case msg.EpochTransitionApproval != nil:
-			// TODO: pass in time.Now() rather than uint64
-			i.msm.HandleApproval(msg.EpochTransitionApproval, uint64(time.Now().UnixMilli()))
-			return nil
-		}
-		return i.e.HandleMessage(msg, from)
+		i.handleMessageForEpoch(msg, from)
 	}
 
 	return nil
+}
+
+func (i *Instance) handleMessageForEpoch(msg *common.Message, from common.NodeID) error {
+	i.futureEpochListener(msg, from)
+
+	switch {
+	case msg.AuxiliaryInfo != nil:
+		i.msm.HandleAuxiliaryInfo(*msg.AuxiliaryInfo, avalanchego.NodeID(from))
+	case msg.EpochTransitionApproval != nil:
+		// TODO: pass in time.Now() rather than uint64
+		i.msm.HandleApproval(msg.EpochTransitionApproval, uint64(time.Now().UnixMilli()))
+		return nil
+	}
+	return i.e.HandleMessage(msg, from)
+}
+
+func (i *Instance) futureEpochListener(msg *common.Message, from common.NodeID) {
+	// grab epoch value from replication responses
+	// listen for finalizations or blocks from higher epochs,
+	// request those sealing blocks
+	// sends to a threshold collector
+	// if threshold collector returns, handle the sealing block
+
 }
 
 func (i *Instance) wireReplicationResponse(msg *common.Message) error {

@@ -58,14 +58,16 @@ type Config struct {
 	// TransitionToValidator is called when our non-validator indexes the highest known epoch
 	// and it is in the validator set
 	TransitionToValidator func(epoch uint64, validators common.Nodes)
+
+	OnFinishBootstrapping func(epoch uint64, validators common.Nodes)
+
+	// a non-validator is considered bootstrapped when it has received a threshold of votes
+	// from the latest validator set. Until then, it cannot verify or index any blocks.
+	Bootstrapped bool
 }
 
 type NonValidator struct {
 	Config
-
-	// a non-validator is considered bootstrapped when it has received a threshold of votes
-	// from the latest validator set. Until then, it cannot verify or index any blocks.
-	bootstrapped bool
 
 	lock        *sync.Mutex
 	ctx         context.Context
@@ -158,7 +160,7 @@ func (n *NonValidator) HandleMessage(msg *common.Message, from common.NodeID) er
 		return n.haltedError
 	}
 
-	if !n.bootstrapped {
+	if !n.Bootstrapped {
 		return n.handleBootstrap(msg, from)
 	}
 
@@ -194,7 +196,7 @@ func (n *NonValidator) handleBootstrap(msg *common.Message, from common.NodeID) 
 		n.Logger.Debug("Failed processing latest seq while bootstrapping", zap.Stringer("QR", resp.LatestSeq), zap.Error(err))
 	}
 
-	if !n.bootstrapped {
+	if !n.Bootstrapped {
 		return nil
 	}
 
@@ -229,14 +231,17 @@ func (n *NonValidator) maybeBootstrapFromQuorumRound(qr *common.QuorumRound, fro
 		return nil
 	}
 
-	n.bootstrapped = true
 	n.Logger.Info("Bootstrapped, received a threshold of sealing block info for an epoch", zap.Stringer("Info", qr.Block.SealingBlockInfo()))
-	n.maybeValidateNextEpoch(qr.Block)
 
+	n.Bootstrapped = true
+
+	n.maybeValidateNextEpoch(qr.Block)
 	// We are storing a quorum round with a finalization we have not yet verified.
 	// We do this to tell the replicator a valid sequence exists and to begin replication if necessary.
 	// We will check the validity when we process this round.
 	n.sequenceReplicator.StoreQuorumRound(qr)
+
+	n.OnFinishBootstrapping(qr.Block.BlockHeader().Seq, qr.Block.SealingBlockInfo().ValidatorSet)
 	return nil
 }
 
@@ -401,7 +406,7 @@ func (n *NonValidator) removeOldSequencesAndEpochs(lastCommittedSeq, minEpochToK
 // handleFinalization process a finalization message. If its for a future epoch, it will forward the finalization
 // to the replication handler.
 func (n *NonValidator) handleFinalization(finalization *common.Finalization, from common.NodeID) error {
-	if !n.bootstrapped {
+	if !n.Bootstrapped {
 		return nil
 	}
 

@@ -185,6 +185,31 @@ func (nws Nodes) Contains(nodeID NodeID) bool {
 	return false
 }
 
+// Equal returns whether both hold the same nodes, ignoring order.
+func (nws Nodes) Equal(other Nodes) bool {
+	if len(nws) != len(other) {
+		return false
+	}
+
+	nwsClone := slices.Clone(nws)
+	otherClone := slices.Clone(other)
+	SortNodes(nwsClone)
+	SortNodes(otherClone)
+
+	for i := range nwsClone {
+		if !bytes.Equal(nwsClone[i].Id, otherClone[i].Id) {
+			return false
+		}
+		if !bytes.Equal(nwsClone[i].PK, otherClone[i].PK) {
+			return false
+		}
+		if nwsClone[i].Weight != otherClone[i].Weight {
+			return false
+		}
+	}
+	return true
+}
+
 // Node is a struct that pairs a node ID with its weight and public key.
 type Node struct {
 	Id     NodeID
