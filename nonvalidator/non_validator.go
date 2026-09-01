@@ -591,7 +591,7 @@ func (n *NonValidator) processQuorumRound(qr *common.QuorumRound, from common.No
 // verifyQuorumRound verifies a qr can be processed by the non-validator.
 func verifyQuorumRound(qr *common.QuorumRound) error {
 	if qr == nil {
-		return nil
+		return errors.New("nil quorum round")
 	}
 
 	if err := qr.VerifyQCConsistentWithBlock(); err != nil {

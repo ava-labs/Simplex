@@ -141,7 +141,7 @@ func (i *Instance) bootstrap() error {
 
 	// We have indexed the latest validator set, therefore we can skip bootstrapping and start as a validator.
 	// Note: this may not be the latest epoch, but our futureEpochCollector will eventually notice we are behind and transition properly.
-	if latestIndexedEpochValidators.Equal(latestValidatorSet.Nodes()) {
+	if latestIndexedEpochValidators.Equal(latestValidatorSet.Nodes()) && latestValidatorSet.Nodes().Contains(i.Config.ID) {
 		i.bootstrapped = true
 		return i.startValidator(epochNum, latestIndexedEpochValidators)
 	}
