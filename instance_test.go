@@ -239,9 +239,9 @@ func TestNonValidator_StaysNonValidator(t *testing.T) {
 	targetNode := newBLSMapping(42)
 
 	// case 1: epoch change is not highest and we are NOT in the validator1 set
-	// case 1: epoch change is not highest, and we are in the validator1 set
-	// case 1: epoch change is highest, and we are in the validator1 set
-	// case 1: epoch change is highest, and we are NOT in the validator1 set
+	// case 2: epoch change is not highest, and we are in the validator1 set
+	// case 3: epoch change is highest, and we are in the validator1 set
+	// case 4: epoch change is highest, and we are NOT in the validator1 set
 	validator1 := newBLSMapping(1)
 
 	genesisSet := []metadata.NodeBLSMapping{validator1}
