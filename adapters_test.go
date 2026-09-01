@@ -180,22 +180,21 @@ func TestCachedStoragePopulatedByWal(t *testing.T) {
 // own proposal is inserted into the CachedStorage, retrievable by seq and digest before
 // it is finalized and indexed.
 func TestCachedStoragePopulatedBySelfBuiltBlock(t *testing.T) {
-	genesisBlock := &testInnerBlock{Height_: 0, TS: time.Now(), Payload: []byte("genesis")}
-	cs := NewCachedStorage(newStorageWithGenesis(t, genesisBlock))
+	storage := NewMockStorageWithGenesis(t, &testInnerBlockDeserializer{})
+	cs := NewCachedStorage(storage)
 
 	msm, err := metadata.NewStateMachine(&metadata.Config{
 		Logger:                   testutil.MakeLogger(t, 1),
 		GetBlock:                 cs.RetrieveBlock,
 		LastNonSimplexInnerBlock: genesisBlock,
-		GenesisValidatorSet: metadata.NodeBLSMappings{
-			{NodeID: avalanchego.NodeID{1}, BLSKey: []byte{1}, Weight: 1},
-		},
-		AuxiliaryInfoApp: &NoopAuxiliaryInfoApp{},
+		GenesisValidatorSet:      metadata.NodeBLSMappings{newBLSMapping(1)},
+		AuxiliaryInfoApp:         &NoopAuxiliaryInfoApp{},
 	})
 	require.NoError(t, err)
 	cs.msm = msm
 
-	bw := newBlockBuilderWaiter(msm, cs, newTestVM())
+	vm := newBlockBuilderVM(testutil.NewTestControlledBlockBuilder(t), storage, newPendingBlockSignal())
+	bw := newBlockBuilderWaiter(msm, cs, vm)
 
 	// Build a block on top of genesis
 	genesis := &ParsedBlock{StateMachineBlock: metadata.StateMachineBlock{InnerBlock: genesisBlock}}
