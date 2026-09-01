@@ -4,6 +4,7 @@
 package simplex
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/asn1"
@@ -16,9 +17,11 @@ import (
 	"github.com/ava-labs/simplex/avalanchego"
 	"github.com/ava-labs/simplex/common"
 	metadata "github.com/ava-labs/simplex/msm"
+	"github.com/ava-labs/simplex/simplex"
 	"github.com/ava-labs/simplex/testutil"
 	"github.com/ava-labs/simplex/wal"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 )
 
 type testInnerBlock struct {
@@ -52,6 +55,15 @@ func (ibd *testInnerBlockDeserializer) ParseBlock(_ context.Context, buff []byte
 	b.TS = time.UnixMilli(int64(binary.BigEndian.Uint64(buff[8:16])))
 	b.Payload = append([]byte(nil), buff[16:]...)
 	return b, nil
+}
+
+const genesisPChainHeight uint64 = 0
+
+var genesisBlock = &testInnerBlock{Height_: genesisPChainHeight, TS: time.Now(), Payload: []byte("genesis")}
+var paramConfig = ParameterConfig{
+	MaxNetworkDelay: 500 * time.Millisecond,
+	MaxRoundWindow:  100,
+	WALMaxSizeBytes: 1024,
 }
 
 type testPlatformChain struct {
@@ -212,6 +224,19 @@ func NewMockStorage(t *testing.T, bd *testInnerBlockDeserializer) *MockStorage {
 	}
 }
 
+func NewMockStorageWithGenesis(t *testing.T, bd *testInnerBlockDeserializer) *MockStorage {
+	s := &MockStorage{
+		t:            t,
+		InMemStorage: testutil.NewInMemStorage(),
+		blocks:       make(map[uint64]storedBlock),
+		bd:           bd,
+	}
+
+	genesis := &ParsedBlock{StateMachineBlock: metadata.StateMachineBlock{InnerBlock: genesisBlock}}
+	require.NoError(t, s.Index(context.Background(), genesis, common.Finalization{}))
+	return s
+}
+
 func (m *MockStorage) Index(ctx context.Context, block common.VerifiedBlock, certificate common.Finalization) error {
 	// We serialized the block so that the original reference isn't shared with other goroutines that may concurrently mutate it.
 	encoded := block.Bytes()
@@ -258,6 +283,34 @@ func (m *MockStorage) parseStored(encoded []byte) metadata.StateMachineBlock {
 		inner = parsed
 	}
 	return metadata.StateMachineBlock{InnerBlock: inner, Metadata: raw.Metadata}
+}
+
+// newChainStorage builds and indexes the minimum chain a node can start from: genesis plus
+// epoch 1's defining block, which carries the descriptor naming the epoch's validator set.
+// It returns the storage and the epoch-defining block at its tip.
+func newChainStorage(t *testing.T, validators metadata.NodeBLSMappings) (*MockStorage, metadata.StateMachineBlock) {
+	storage := NewMockStorageWithGenesis(t, &testInnerBlockDeserializer{})
+	genesis, ok := storage.blockAt(0)
+	require.True(t, ok)
+
+	epochBlock := metadata.StateMachineBlock{
+		InnerBlock: &testInnerBlock{Height_: 1, TS: time.Now(), Payload: []byte("epoch")},
+		Metadata: metadata.StateMachineMetadata{
+			Timestamp:               uint64(time.Now().UnixMilli()),
+			SimplexProtocolMetadata: common.ProtocolMetadata{Epoch: 1, Round: 1, Seq: 1, Prev: common.Digest(genesis.Digest())},
+			SimplexEpochInfo: metadata.SimplexEpochInfo{
+				EpochNumber: 1,
+				BlockValidationDescriptor: &metadata.BlockValidationDescriptor{
+					AggregatedMembership: metadata.AggregatedMembership{Members: validators},
+				},
+			},
+		},
+	}
+
+	block := &ParsedBlock{StateMachineBlock: epochBlock.Clone()}
+	finalization, _ := testutil.NewFinalizationRecord(t, &testutil.TestSignatureAggregator{N: len(validators)}, block, validators.NodeIDs())
+	require.NoError(t, storage.Index(context.Background(), block, finalization))
+	return storage, epochBlock
 }
 
 type walCreator struct {
@@ -317,4 +370,378 @@ func verifiedQuorumRoundToQuorumRound(t *testing.T, vqr common.VerifiedQuorumRou
 		qr.Block = reparseBlock(t, vqr.VerifiedBlock)
 	}
 	return qr
+}
+
+type instanceComm struct {
+	c *network
+	// id is the node this comm belongs to, reported as the sender of every message it sends.
+	id common.NodeID
+}
+
+func newInstanceComm(c *network, id common.NodeID) *instanceComm {
+	return &instanceComm{c: c, id: id}
+}
+
+func (c *instanceComm) Send(msg *common.Message, destination common.NodeID) {
+	// loop through all nodes in chain directly send to handle message directly via but do it in a separate go routine
+	for _, n := range c.c.nodesSnapshot() {
+		if !bytes.Equal(n.id, destination) {
+			continue
+		}
+
+		go func(dst *Instance) {
+			require.NotNil(c.c.t, dst, "node %x was sent a message before it was created", destination)
+			require.NoError(c.c.t, dst.HandleMessage(translateOutgoingToIncomingMessage(c.c.t, msg), c.id))
+		}(n.inst)
+		return
+	}
+}
+
+func (c *instanceComm) Broadcast(msg *common.Message) {
+	// send to every node in the chain but ourselves, each on its own go routine
+	for _, n := range c.c.nodesSnapshot() {
+		if bytes.Equal(n.id, c.id) {
+			continue
+		}
+
+		go func(dst *Instance) {
+			require.NotNil(c.c.t, dst, "node %x was sent a message before it was created", n.id)
+			require.NoError(c.c.t, dst.HandleMessage(translateOutgoingToIncomingMessage(c.c.t, msg), c.id))
+		}(n.inst)
+	}
+}
+
+// translateOutgoingToIncomingMessage converts the verified message types an instance
+// sends into the wire types a receiver handles, like testutil.TestComm. Each carried
+// block is re-parsed into a fresh ParsedBlock because HandleMessage mutates the block
+// it receives, so recipients cannot share the sender's live block.
+func translateOutgoingToIncomingMessage(t *testing.T, msg *common.Message) *common.Message {
+	switch {
+	case msg.VerifiedBlockMessage != nil:
+		return &common.Message{
+			BlockMessage: &common.BlockMessage{
+				Vote:  msg.VerifiedBlockMessage.Vote,
+				Block: reparseBlock(t, msg.VerifiedBlockMessage.VerifiedBlock),
+			},
+		}
+	case msg.VerifiedReplicationResponse != nil:
+		vrr := msg.VerifiedReplicationResponse
+		data := make([]common.QuorumRound, 0, len(vrr.Data))
+		for _, vqr := range vrr.Data {
+			data = append(data, verifiedQuorumRoundToQuorumRound(t, vqr))
+		}
+		resp := &common.ReplicationResponse{Data: data}
+		if vrr.LatestRound != nil {
+			qr := verifiedQuorumRoundToQuorumRound(t, *vrr.LatestRound)
+			resp.LatestRound = &qr
+		}
+		if vrr.LatestFinalizedSeq != nil {
+			qr := verifiedQuorumRoundToQuorumRound(t, *vrr.LatestFinalizedSeq)
+			resp.LatestSeq = &qr
+		}
+		return &common.Message{ReplicationResponse: resp}
+	default:
+		return msg
+	}
+}
+
+// pendingBlockSignal broadcasts to every waiter by closing the current channel and
+// replacing it with a fresh one for the next generation of waiters.
+type pendingBlockSignal struct {
+	lock sync.Mutex
+	ch   chan struct{}
+}
+
+func newPendingBlockSignal() *pendingBlockSignal {
+	return &pendingBlockSignal{ch: make(chan struct{})}
+}
+
+// wait returns when the signal is broadcast or ctx is cancelled.
+func (s *pendingBlockSignal) wait(ctx context.Context) {
+	s.lock.Lock()
+	ch := s.ch
+	s.lock.Unlock()
+
+	select {
+	case <-ch:
+	case <-ctx.Done():
+	}
+}
+
+// broadcast wakes every current waiter.
+func (s *pendingBlockSignal) broadcast() {
+	s.lock.Lock()
+	close(s.ch)
+	s.ch = make(chan struct{})
+	s.lock.Unlock()
+}
+
+// blockBuilderVM builds an inner block only when the test triggers one on the block builder, so
+// the chain grows one block per index call.
+type blockBuilderVM struct {
+	bb      *testutil.TestControlledBlockBuilder
+	storage *MockStorage
+	pending *pendingBlockSignal
+}
+
+func newBlockBuilderVM(bb *testutil.TestControlledBlockBuilder, storage *MockStorage, pending *pendingBlockSignal) *blockBuilderVM {
+	return &blockBuilderVM{bb: bb, storage: storage, pending: pending}
+}
+
+func (vm *blockBuilderVM) BuildBlock(ctx context.Context, pChainHeight uint64) (avalanchego.VMBlock, error) {
+	// The builder gates when a block is built; the block it returns is not an inner block, so
+	// it is thrown away.
+	if _, ok := vm.bb.BuildBlock(ctx, common.ProtocolMetadata{}, common.Blacklist{}); !ok {
+		return nil, ctx.Err()
+	}
+
+	// the inner height is the seq of the block being built, which is how many blocks the node
+	// has committed so far
+	height := vm.storage.NumBlocks()
+	payload := make([]byte, 8)
+	binary.BigEndian.PutUint64(payload, height)
+	return &testInnerBlock{Height_: height, TS: time.Now(), Payload: payload}, nil
+}
+
+func (vm *blockBuilderVM) ParseBlock(ctx context.Context, bytes []byte) (avalanchego.VMBlock, error) {
+	return vm.storage.bd.ParseBlock(ctx, bytes)
+}
+
+// WaitForPendingBlock returns when index broadcasts that a block is being created,
+// or when ctx is cancelled.
+func (vm *blockBuilderVM) WaitForPendingBlock(ctx context.Context) {
+	vm.pending.wait(ctx)
+}
+
+// noopICMTransition keeps every block in the same ICM epoch, so an epoch only ever changes
+// because the validator set did.
+func noopICMTransition(_ metadata.ICMEpochInput) metadata.ICMEpochInfo {
+	return metadata.ICMEpochInfo{}
+}
+
+type node struct {
+	t       *testing.T
+	id      common.NodeID
+	vm      *blockBuilderVM
+	inst    *Instance
+	storage *MockStorage
+	comm    *instanceComm
+	wals    *walCreator
+}
+
+type network struct {
+	t *testing.T
+
+	pChain *testPlatformChain
+	seq    uint64
+	epoch  uint64
+
+	// pending wakes every VM blocked in WaitForPendingBlock when index creates a block.
+	pending *pendingBlockSignal
+
+	validatorSets map[uint64]common.Nodes // epoch -> sorted validators
+
+	// lock guards nodes, which comm goroutines read while addNode appends.
+	lock  sync.Mutex
+	nodes []node
+}
+
+func (n *network) nodesSnapshot() []node {
+	n.lock.Lock()
+	defer n.lock.Unlock()
+	return append([]node(nil), n.nodes...)
+}
+
+func newNetwork(t *testing.T, pChain *testPlatformChain) *network {
+	validatorSets := make(map[uint64]common.Nodes)
+	genesisNodes := pChain.GenesisValidatorSet().Nodes()
+	common.SortNodes(genesisNodes)
+	validatorSets[1] = genesisNodes
+
+	return &network{
+		t:             t,
+		pChain:        pChain,
+		pending:       newPendingBlockSignal(),
+		validatorSets: validatorSets,
+
+		// Genesis at seq 0. Then first simplex block is built automatically
+		// without a build block notification
+		seq:   2,
+		epoch: 1,
+	}
+}
+
+// nodeConfig holds optional overrides for a node added to the network.
+type nodeConfig struct {
+	// storage the node starts from; defaults to a fresh storage holding only genesis.
+	storage *MockStorage
+	// wals are pre-existing WALs the instance restores on start.
+	wals []wal.DeletableWAL
+}
+
+// addNode adds a node to the network and blocks until it catches up with the latest tip
+func (n *network) addNode(id common.NodeID) *node {
+	node := n.addNodeWithConfig(id, nodeConfig{})
+	node.storage.WaitForBlockCommit(n.seq - 1)
+	return node
+}
+
+// addNodeWithStorage adds a node that starts from the given storage.
+func (n *network) addNodeWithStorage(id common.NodeID, storage *MockStorage) *node {
+	return n.addNodeWithConfig(id, nodeConfig{storage: storage})
+}
+
+// addNodeWithConfig adds a node built from the given config.
+func (n *network) addNodeWithConfig(id common.NodeID, cfg nodeConfig) *node {
+	storage := cfg.storage
+	if storage == nil {
+		storage = NewMockStorageWithGenesis(n.t, &testInnerBlockDeserializer{})
+	}
+
+	// ensure a unique id; snapshot because nodes may be added concurrently
+	for _, node := range n.nodesSnapshot() {
+		require.NotEqual(n.t, node.id, id)
+	}
+
+	comm := newInstanceComm(n, id)
+
+	vm := newBlockBuilderVM(testutil.NewTestControlledBlockBuilder(n.t), storage, n.pending)
+	wc := &walCreator{t: n.t}
+	instance := NewInstance(Config{
+		LastNonSimplexInnerBlock: genesisBlock,
+		ParameterConfig:          paramConfig,
+		PlatformChain:            n.pChain,
+		Broadcaster:              comm,
+		Sender:                   comm,
+		CryptoOps:                &testCryptoOps{},
+		WalCreator:               wc.createWAL,
+		Storage:                  storage,
+		// the first byte of the node id labels the node's log records
+		Logger:         testutil.MakeLogger(n.t, int(id[0])),
+		WALs:           cfg.wals,
+		VM:             vm,
+		ICMETransition: noopICMTransition,
+		ID:             id,
+	})
+
+	node := node{
+		t:       n.t,
+		id:      id,
+		storage: storage,
+		comm:    comm,
+		vm:      vm,
+		inst:    instance,
+		wals:    wc,
+	}
+
+	n.lock.Lock()
+	n.nodes = append(n.nodes, node)
+	n.lock.Unlock()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	n.t.Cleanup(cancel)
+
+	require.NoError(n.t, node.inst.Start(ctx))
+	n.t.Cleanup(node.inst.Stop)
+
+	instance.Config.Logger.Debug("Added a node to the test network", zap.Uint64("Seq", n.seq), zap.Uint64("num block", node.storage.NumBlocks()))
+	return &node
+}
+
+// acceptNewBlock blocks until every node has accepted a newly indexed block.
+func (n *network) acceptNewBlock() (common.VerifiedBlock, common.Finalization) {
+	nodes, ok := n.validatorSets[n.epoch]
+	require.True(n.t, ok, fmt.Sprintf("epoch is not set epoch: %d. trying to index seq: %d", n.epoch, n.seq))
+
+	// no nodes have indexed this sequence yet
+	for _, node := range n.nodes {
+		node.storage.EnsureNoBlockCommit(n.t, n.seq)
+	}
+
+	leaderID := simplex.LeaderForRound(nodes.NodeIDs(), n.seq)
+	for _, node := range n.nodes {
+		if bytes.Equal(node.id, leaderID) {
+			node.vm.bb.TriggerNewBlock()
+		}
+	}
+
+	// wake every VM blocked in WaitForPendingBlock
+	n.pending.broadcast()
+
+	var block common.VerifiedBlock
+	var finalization common.Finalization
+	for _, node := range n.nodes {
+		committedBlock := node.storage.WaitForBlockCommit(n.seq)
+		if block == nil {
+			_, fin, err := node.storage.Retrieve(n.seq)
+			require.NoError(n.t, err)
+			finalization = fin
+			block = committedBlock
+		} else {
+			require.Equal(n.t, block.Bytes(), committedBlock.Bytes())
+		}
+	}
+
+	require.Equal(n.t, block.BlockHeader().Seq, n.seq)
+	n.seq++
+
+	// check if its a sealing
+	if block.SealingBlockInfo() != nil {
+		n.epoch = n.seq
+		newValidatorSet := block.SealingBlockInfo().ValidatorSet
+		common.SortNodes(newValidatorSet)
+		n.validatorSets[n.epoch] = newValidatorSet
+	}
+
+	return block, finalization
+}
+
+// waitUntilSealingBlock waits until every node commits the block at the current seq,
+// repeating until that block is a sealing block. It then advances the network into
+// the new epoch and returns the sealing block.
+// This is useful for when we are transitioning epochs because blocks will be built impatiently
+// without a notification from the mempool.
+func (n *network) waitUntilSealingBlock() common.VerifiedBlock {
+	for {
+		var block common.VerifiedBlock
+		for _, node := range n.nodes {
+			committedBlock := node.storage.WaitForBlockCommit(n.seq)
+			if block == nil {
+				block = committedBlock
+			} else {
+				require.Equal(n.t, block.Bytes(), committedBlock.Bytes())
+			}
+		}
+
+		require.Equal(n.t, block.BlockHeader().Seq, n.seq)
+		n.seq++
+
+		if block.SealingBlockInfo() == nil {
+			continue
+		}
+
+		// add the validator set to the networks memory for block building
+		n.epoch = n.seq
+		newValidatorSet := block.SealingBlockInfo().ValidatorSet
+		common.SortNodes(newValidatorSet)
+		n.validatorSets[n.epoch] = newValidatorSet
+		return block
+	}
+}
+
+// newBLSMapping creates a mapping with a nodeID, BLSKey and Weight with a given [id].
+// id is passed as an int for consistent logs between runs.
+func newBLSMapping(id int) metadata.NodeBLSMapping {
+	avaID := [20]byte{byte(id)}
+
+	return metadata.NodeBLSMapping{
+		NodeID: avalanchego.NodeID(avaID),
+		BLSKey: []byte{avaID[0], byte(id + 1)},
+		Weight: 1,
+	}
+}
+
+// assertExpectedNodeIds asserts the validator set contains exactly the expected node IDs.
+func assertExpectedNodeIds(t *testing.T, validatorSet []common.NodeID, expected []common.NodeID) {
+	require.ElementsMatch(t, expected, validatorSet)
 }
