@@ -355,6 +355,19 @@ func TestNonValidatorSkipsMSMVerification(t *testing.T) {
 	parent, _, err := nonValidatorNode.storage.GetBlock(1)
 	require.NoError(t, err)
 
+	// The non-validator drops every message until it bootstraps. One peer reporting the block
+	// sealing epoch 1 meets the threshold of F(1)+1.
+	sealing := &ParsedBlock{StateMachineBlock: parent.Clone()}
+	sealingFinalization, _ := testutil.NewFinalizationRecord(t, &testutil.TestSignatureAggregator{N: 1}, sealing, []common.NodeID{validator.NodeID[:]})
+	require.NoError(t, nonValidatorNode.inst.HandleMessage(&common.Message{
+		ReplicationResponse: &common.ReplicationResponse{
+			LatestSeq: &common.QuorumRound{Block: sealing, Finalization: &sealingFinalization},
+		},
+	}, validator.NodeID[:]))
+
+	_, bootstrapped := nonValidatorNode.role()
+	require.True(t, bootstrapped)
+
 	// A block whose only defect is its state machine transition: its timestamp precedes its
 	// parent's.
 	invalid := metadata.StateMachineBlock{
