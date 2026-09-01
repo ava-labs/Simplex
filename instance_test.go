@@ -459,11 +459,6 @@ func TestValidatorSkipsMSMVerificationWhenReplicating(t *testing.T) {
 }
 
 func TestBootstrap(t *testing.T) {
-
-	// Non-Validator bootstraps and stays non-validator
-
-	// Bootstrapper converts non-validator to validator
-
 	// Bootstrap scenarios
 	// 1. Node is a validator, but we are transitioning so p-chain height is different than current epoch validator set(we are a validator in this set)
 	// 2. Node is a validator, and latest epoch says its a validator
