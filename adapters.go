@@ -211,15 +211,24 @@ func (n *NoopAuxiliaryInfoApp) DefaultVersionID() common.VersionID {
 	return 0
 }
 
-type BlockBuilderWaiter struct {
+type blockBuilderWaiter struct {
 	lock   sync.Mutex
 	cancel context.CancelFunc
 	msm    *metadata.StateMachine
+	cs     *CachedStorage
 	e      *simplex.Epoch
 	vm     VM
 }
 
-func (bw *BlockBuilderWaiter) stop() {
+func newBlockBuilderWaiter(msm *metadata.StateMachine, cs *CachedStorage, vm VM) *blockBuilderWaiter {
+	return &blockBuilderWaiter{
+		msm: msm,
+		cs:  cs,
+		vm:  vm,
+	}
+}
+
+func (bw *blockBuilderWaiter) stop() {
 	bw.lock.Lock()
 	defer bw.lock.Unlock()
 	if bw.cancel != nil {
@@ -228,7 +237,7 @@ func (bw *BlockBuilderWaiter) stop() {
 	}
 }
 
-func (bw *BlockBuilderWaiter) WaitForPendingBlock(ctx context.Context) {
+func (bw *blockBuilderWaiter) WaitForPendingBlock(ctx context.Context) {
 	bw.lock.Lock()
 	if bw.cancel != nil {
 		bw.cancel()
@@ -242,18 +251,21 @@ func (bw *BlockBuilderWaiter) WaitForPendingBlock(ctx context.Context) {
 	bw.msm.WaitForPendingBlock(ctx, md)
 }
 
-func (bw *BlockBuilderWaiter) BuildBlock(ctx context.Context, metadata common.ProtocolMetadata, blacklist common.Blacklist) (common.VerifiedBlock, bool) {
+func (bw *blockBuilderWaiter) BuildBlock(ctx context.Context, metadata common.ProtocolMetadata, blacklist common.Blacklist) (common.VerifiedBlock, bool) {
 	block, err := bw.msm.BuildBlock(ctx, metadata, blacklist)
 	if err != nil {
 		return nil, false
 	}
 
-	pb := ParsedBlock{
+	pb := &ParsedBlock{
 		StateMachineBlock: *block,
 		msm:               bw.msm,
 	}
 
-	return &pb, true
+	// Ensure the builders block is in the cache after verification
+	bw.cs.insertBlock(pb)
+
+	return pb, true
 }
 
 type blockDeserializer struct {

@@ -209,3 +209,37 @@ func TestCachedStoragePopulatedByWal(t *testing.T) {
 		return got.BlockHeader().Digest == block.BlockHeader().Digest
 	}, 20*time.Second, 100*time.Millisecond)
 }
+
+// TestCachedStoragePopulatedBySelfBuiltBlock asserts that a block a node builds for its
+// own proposal is inserted into the CachedStorage, retrievable by seq and digest before
+// it is finalized and indexed.
+func TestCachedStoragePopulatedBySelfBuiltBlock(t *testing.T) {
+	genesisBlock := &testInnerBlock{Height_: 0, TS: time.Now(), Payload: []byte("genesis")}
+	cs := NewCachedStorage(newStorageWithGenesis(t, genesisBlock))
+
+	msm, err := metadata.NewStateMachine(&metadata.Config{
+		Logger:                   testutil.MakeLogger(t, 1),
+		GetBlock:                 cs.RetrieveBlock,
+		LastNonSimplexInnerBlock: genesisBlock,
+		GenesisValidatorSet: metadata.NodeBLSMappings{
+			{NodeID: avalanchego.NodeID{1}, BLSKey: []byte{1}, Weight: 1},
+		},
+		AuxiliaryInfoApp: &NoopAuxiliaryInfoApp{},
+	})
+	require.NoError(t, err)
+	cs.msm = msm
+
+	bw := newBlockBuilderWaiter(msm, cs, newTestVM())
+
+	// Build a block on top of genesis
+	genesis := &ParsedBlock{StateMachineBlock: metadata.StateMachineBlock{InnerBlock: genesisBlock}}
+	md := common.ProtocolMetadata{Seq: 1, Prev: genesis.BlockHeader().Digest}
+	vb, built := bw.BuildBlock(t.Context(), md, common.Blacklist{})
+	require.True(t, built)
+	require.Equal(t, md.Seq, vb.BlockHeader().Seq)
+
+	cached, fin, err := cs.Retrieve(md.Seq, vb.BlockHeader().Digest)
+	require.NoError(t, err)
+	require.Nil(t, fin)
+	require.Same(t, vb, cached)
+}
