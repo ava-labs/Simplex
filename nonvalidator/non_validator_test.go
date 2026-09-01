@@ -241,6 +241,7 @@ func TestHandleMessages(t *testing.T) {
 					SignatureAggregatorCreator: tc.signatureAggregatorCreator,
 					MaxSequenceWindow:          simplex.DefaultMaxRoundWindow,
 					ID:                         testNodes[0].Id,
+					Bootstrapped:               true,
 				},
 			)
 			require.NoError(t, err)
@@ -266,6 +267,7 @@ func TestNonValidator_StopsGracefully(t *testing.T) {
 			SignatureAggregatorCreator: tc.signatureAggregatorCreator,
 			MaxSequenceWindow:          simplex.DefaultMaxRoundWindow,
 			ID:                         testNodes[0].Id,
+			Bootstrapped:               true,
 		},
 	)
 	require.NoError(t, err)
@@ -299,6 +301,7 @@ func TestHandleMessages_DuplicateBlock(t *testing.T) {
 			SignatureAggregatorCreator: tc.signatureAggregatorCreator,
 			MaxSequenceWindow:          simplex.DefaultMaxRoundWindow,
 			ID:                         testNodes[0].Id,
+			Bootstrapped:               true,
 		},
 	)
 	require.NoError(t, err)
@@ -450,6 +453,7 @@ func TestNonValidator_CallsTransition(t *testing.T) {
 						defer lock.Unlock()
 						calls = append(calls, transitionCall{epoch: epoch, validators: validators})
 					},
+					Bootstrapped: true,
 				},
 			)
 			require.NoError(t, err)
@@ -614,6 +618,7 @@ func TestNonValidator_Bootstrap(t *testing.T) {
 					MaxSequenceWindow:          tt.maxSequenceWindow,
 					ID:                         myNodeID,
 					StartTime:                  time.Now(),
+					Bootstrapped:               false,
 				},
 			)
 			require.NoError(t, err)
@@ -655,6 +660,7 @@ func TestNonValidator_ReplicationRequests(t *testing.T) {
 			MaxSequenceWindow:          maxSeqWindow,
 			ID:                         myNodeID,
 			StartTime:                  startTime,
+			Bootstrapped:               true,
 		},
 	)
 	require.NoError(t, err)
@@ -736,6 +742,7 @@ func TestNonValidator_VerifiesFinalizationDuringReplication(t *testing.T) {
 			MaxSequenceWindow:          5, // significantly lower the max round window
 			ID:                         testNodes.NodeIDs()[0],
 			StartTime:                  startTime,
+			Bootstrapped:               true,
 		},
 	)
 
@@ -874,6 +881,7 @@ func TestNonValidatorRejectsQuorumRoundFromNonValidator(t *testing.T) {
 					MaxSequenceWindow:          10,
 					ID:                         validators.NodeIDs()[0],
 					StartTime:                  time.Now(),
+					Bootstrapped:               true,
 				},
 			)
 			require.NoError(t, err)
@@ -906,6 +914,163 @@ func TestNonValidatorRejectsQuorumRoundFromNonValidator(t *testing.T) {
 			)
 		})
 	}
+}
+
+// TestNonValidator_BootstrapGatesMessages asserts that blocks and finalizations are dropped
+// until a threshold of replication responses vouch for the same sealing block,
+// after which the stored round is committed and messages are processed normally.
+func TestNonValidator_BootstrapGatesMessages(t *testing.T) {
+	tc := newSeededChain(t, testNodes, 2)
+	var bootstrappedHighestValidators common.Nodes
+	var bootstrappedHighestEpoch uint64
+
+	nv, err := NewNonValidator(
+		Config{
+			Storage:                    tc,
+			Comm:                       testutil.NewNoopComm(testNodes.NodeIDs()),
+			Logger:                     testutil.MakeLogger(t, 1),
+			SignatureAggregatorCreator: tc.signatureAggregatorCreator,
+			MaxSequenceWindow:          simplex.DefaultMaxRoundWindow,
+			ID:                         common.NodeID{100},
+			OnFinishBootstrapping: func(epoch uint64, validators common.Nodes) error {
+				bootstrappedHighestEpoch = epoch
+				bootstrappedHighestValidators = validators
+				return nil
+			},
+		},
+	)
+	require.NoError(t, err)
+	defer nv.Stop()
+
+	b3 := tc.appendSealing(testNodes)
+	f3 := tc.newFinalization(b3)
+
+	block := blockMsg(t, b3, testNodes)
+	require.NoError(t, nv.HandleMessage(block.msg, block.from))
+	fin := finalizationMsg(t, b3, testNodes)
+	require.NoError(t, nv.HandleMessage(fin.msg, fin.from))
+
+	require.Never(t,
+		func() bool { return tc.NumBlocks() > 3 },
+		2*time.Second, 50*time.Millisecond,
+		"indexed a block before bootstrapping",
+	)
+
+	qrMsg := &common.Message{
+		ReplicationResponse: &common.ReplicationResponse{
+			Data: []common.QuorumRound{{Block: b3, Finalization: &f3}},
+		},
+	}
+	threshold := common.F(len(testNodes)) + 1
+	for i := 0; i < threshold; i++ {
+		require.NoError(t, nv.HandleMessage(qrMsg, testNodes.NodeIDs()[i]))
+	}
+
+	// bootstrapping commits the collected sealing block
+	tc.WaitForBlockCommit(3)
+
+	// messages flow normally after bootstrapping
+	b4 := tc.appendBlock()
+	block = blockMsg(t, b4, testNodes)
+	require.NoError(t, nv.HandleMessage(block.msg, block.from))
+	fin = finalizationMsg(t, b4, testNodes)
+	require.NoError(t, nv.HandleMessage(fin.msg, fin.from))
+	tc.WaitForBlockCommit(4)
+
+	require.Equal(t, b3.BlockHeader().Seq, bootstrappedHighestEpoch)
+	require.Equal(t, testNodes, bootstrappedHighestValidators)
+}
+
+// TestNonValidator_BootstrapRequestsSealingBlock asserts that a replication response
+// carrying a non-sealing block while bootstrapping triggers a replication request
+// for the block's epoch, whose seq is the sealing block that opened it.
+func TestNonValidator_BootstrapRequestsSealingBlock(t *testing.T) {
+	tc := newSeededChain(t, testNodes, 2)
+	myNodeID := common.NodeID{100}
+	msgQueue := &messageQueue{}
+	nv, err := NewNonValidator(
+		Config{
+			Storage: tc,
+			Comm: &routerComm{
+				nodes:        testNodes,
+				t:            t,
+				ID:           myNodeID,
+				messageQueue: msgQueue,
+			},
+			Logger:                     testutil.MakeLogger(t, 1),
+			SignatureAggregatorCreator: tc.signatureAggregatorCreator,
+			MaxSequenceWindow:          simplex.DefaultMaxRoundWindow,
+			ID:                         myNodeID,
+		},
+	)
+	require.NoError(t, err)
+	defer nv.Stop()
+
+	b3 := tc.appendBlock()
+	f3 := tc.newFinalization(b3)
+	sender := testNodes.NodeIDs()[2]
+
+	require.NoError(t, nv.HandleMessage(&common.Message{
+		ReplicationResponse: &common.ReplicationResponse{
+			Data: []common.QuorumRound{{Block: b3, Finalization: &f3}},
+		},
+	}, sender))
+
+	msg, ok := msgQueue.popResponse()
+	require.True(t, ok)
+	require.NotNil(t, msg.msg.ReplicationRequest)
+	require.Equal(t, []uint64{b3.BlockHeader().Epoch}, msg.msg.ReplicationRequest.Seqs)
+	require.Equal(t, sender, msg.to)
+
+	// the non-sealing block must not bootstrap the node
+	require.False(t, nv.Bootstrapped)
+	_, ok = msgQueue.popResponse()
+	require.False(t, ok)
+}
+
+// TestNonValidator_BootstrapLatestKnownEpoch asserts a node caught up to the network
+// bootstraps from responses vouching for the sealing block of the latest epoch it
+// already has indexed, without re-indexing it.
+func TestNonValidator_BootstrapLatestKnownEpoch(t *testing.T) {
+	tc := newSeededChain(t, testNodes, 2)
+	nv, err := NewNonValidator(
+		Config{
+			Storage:                    tc,
+			Comm:                       testutil.NewNoopComm(testNodes.NodeIDs()),
+			Logger:                     testutil.MakeLogger(t, 1),
+			SignatureAggregatorCreator: tc.signatureAggregatorCreator,
+			MaxSequenceWindow:          simplex.DefaultMaxRoundWindow,
+			ID:                         common.NodeID{100},
+		},
+	)
+	require.NoError(t, err)
+	defer nv.Stop()
+
+	// the sealing block of epoch 1, indexed at seq 1
+	sealing, fin, err := tc.Retrieve(1)
+	require.NoError(t, err)
+
+	qrMsg := &common.Message{
+		ReplicationResponse: &common.ReplicationResponse{
+			LatestSeq: &common.QuorumRound{Block: sealing.(common.Block), Finalization: &fin},
+		},
+	}
+
+	threshold := common.F(len(testNodes)) + 1
+	for i := 0; i < threshold; i++ {
+		require.NoError(t, nv.HandleMessage(qrMsg, testNodes.NodeIDs()[i]))
+	}
+
+	require.True(t, nv.Bootstrapped)
+	require.Equal(t, uint64(3), tc.NumBlocks())
+
+	// messages flow normally after bootstrapping
+	b3 := tc.appendBlock()
+	block := blockMsg(t, b3, testNodes)
+	require.NoError(t, nv.HandleMessage(block.msg, block.from))
+	fin3 := finalizationMsg(t, b3, testNodes)
+	require.NoError(t, nv.HandleMessage(fin3.msg, fin3.from))
+	tc.WaitForBlockCommit(3)
 }
 
 func advanceUntil(nv *NonValidator, epochs *testEpochs, msgQueue *messageQueue, seq uint64) {
@@ -993,6 +1158,7 @@ func TestNonValidatorAcceptsProposalFromUnsortedValidatorSet(t *testing.T) {
 			SignatureAggregatorCreator: tc.signatureAggregatorCreator,
 			MaxSequenceWindow:          simplex.DefaultMaxRoundWindow,
 			ID:                         common.NodeID{100},
+			Bootstrapped:               true,
 		},
 	)
 	require.NoError(t, err)

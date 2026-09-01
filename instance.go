@@ -74,6 +74,11 @@ type Instance struct {
 	epochOrNV          timeAdvancer
 	epochChanges       chan epochChange
 	stopCh             chan struct{}
+
+	// bootstrapped represents whether the instance has completed bootstrapping.
+	// This is false on Start, and also set to false when our notices it's validator
+	// has fallen behind by many epochs.
+	bootstrapped bool
 }
 
 func NewInstance(config Config) *Instance {
@@ -113,18 +118,64 @@ func (i *Instance) Start(ctx context.Context) error {
 
 	context.AfterFunc(ctx, i.Stop)
 
-	nodes, epochNum, err := getLastAcceptedEpochAndValidatorSet(&i.Config)
-	if err != nil {
-		return fmt.Errorf("error determining latest epoch and validator set: %w", err)
-	}
-
-	if err := i.startAtEpoch(nodes, epochNum); err != nil {
-		return fmt.Errorf("error starting instance at epoch %d: %w", epochNum, err)
+	if err := i.bootstrap(); err != nil {
+		return err
 	}
 
 	go i.tick()
 	go i.listenForEpochChanges()
 
+	return nil
+}
+
+func (i *Instance) bootstrap() error {
+	latestValidatorSet, err := getLatestPlatformChainValidatorSet(i.Config.PlatformChain)
+	if err != nil {
+		return err
+	}
+
+	latestIndexedEpochValidators, epochNum, err := getLastAcceptedEpochAndValidatorSet(&i.Config)
+	if err != nil {
+		return err
+	}
+
+	// We have indexed the latest validator set, therefore we can skip bootstrapping and start as a validator.
+	// Note: this may not be the latest epoch, but our futureEpochCollector will eventually notice we are behind and transition properly.
+	if latestIndexedEpochValidators.Equal(latestValidatorSet.Nodes()) {
+		i.bootstrapped = true
+		return i.startValidator(epochNum, latestIndexedEpochValidators)
+	}
+
+	// Start as non-validator if our last indexed validator set does not equal, the latest p-chain validator set
+	// Note: the epoch may be transitioning, so the latest p-chain validator set actually points to a future epoch.
+	// The non-validator should finish bootstrapping and convert our non-validator to a validator in this case.
+	return i.startNonValidator()
+}
+
+func (i *Instance) onBootstrapFinish(highestKnownEpoch uint64, highestKnownValidators common.Nodes) error {
+	i.bootstrapped = true
+	i.Config.Logger.Debug(
+		"Node finished bootstrapping",
+		zap.Stringers("Highest Validators",
+			highestKnownValidators.NodeIDs()),
+		zap.Uint64("Highest Epoch", highestKnownEpoch),
+	)
+
+	_, lastAcceptedEpoch, err := getLastAcceptedEpochAndValidatorSet(&i.Config)
+	if err != nil {
+		return err
+	}
+
+	// the latest epoch contains our node, we should asynchronously notify the listener
+	// which will convert our node to a validator for this epoch.
+	if highestKnownValidators.Contains(i.Config.ID) && lastAcceptedEpoch == highestKnownEpoch {
+		i.Config.Logger.Debug("Our node completed bootstrapping and it is a validator")
+		i.notifyEpochChange(highestKnownEpoch, highestKnownValidators)
+		return nil
+	}
+
+	// we have completed bootstrapping, but our node is still a non-validator
+	i.Config.Logger.Debug("Our node completed bootstrapping but it is not a validator")
 	return nil
 }
 
@@ -169,13 +220,12 @@ func (i *Instance) createNonValidatorConfig() (nonvalidator.Config, error) {
 		return nonvalidator.Config{}, err
 	}
 
-	height := i.Config.PlatformChain.GetCurrentHeight()
-	mappings, err := i.Config.PlatformChain.GetValidatorSet(height)
+	latestValidatorSet, err := getLatestPlatformChainValidatorSet(i.Config.PlatformChain)
 	if err != nil {
 		return nonvalidator.Config{}, err
 	}
 
-	comm := newCommunication(i.Config.Sender, i.Config.Broadcaster, mappings.Nodes())
+	comm := newCommunication(i.Config.Sender, i.Config.Broadcaster, latestValidatorSet.Nodes())
 
 	// Plant an artificial MSM. A non-validator never verifies the state machine transition,
 	// it only verifies the inner block (see common.OnlyVMVerifyOpt), so this MSM is only
@@ -204,6 +254,8 @@ func (i *Instance) createNonValidatorConfig() (nonvalidator.Config, error) {
 		SignatureAggregatorCreator: i.Config.CryptoOps.CreateSignatureAggregator,
 		MaxSequenceWindow:          simplex.DefaultMaxRoundWindow,
 		TransitionToValidator:      i.notifyEpochChange,
+		OnFinishBootstrapping:      i.onBootstrapFinish,
+		Bootstrapped:               i.bootstrapped,
 	}
 	return config, nil
 }
@@ -326,30 +378,36 @@ func (i *Instance) HandleMessage(msg *common.Message, from common.NodeID) error 
 		}
 	}
 
-	if i.e != nil {
-		switch {
-		case msg.AuxiliaryInfo != nil:
-			if msg.AuxiliaryInfo.Epoch != i.e.Epoch {
-				i.Config.Logger.Debug(
-					"Received an auxiliary info from an old epoch",
-					zap.Uint64("Aux Info Epoch", msg.AuxiliaryInfo.Epoch),
-					zap.Uint64("Our Epoch", i.e.Epoch),
-					zap.Stringer("From", from))
-				return nil
-			}
-			i.msm.HandleAuxiliaryInfo(*msg.AuxiliaryInfo, avalanchego.NodeID(from))
-		case msg.EpochTransitionApproval != nil:
-			// TODO: pass in time.Now() rather than uint64
-			i.msm.HandleApproval(msg.EpochTransitionApproval, uint64(time.Now().UnixMilli()))
-			return nil
-		}
-		return i.e.HandleMessage(msg, from)
-	}
-
 	if i.nv != nil {
 		return i.nv.HandleMessage(msg, from)
 	}
+
+	if i.e != nil {
+		i.handleMessageForEpoch(msg, from)
+	}
+
 	return nil
+}
+
+func (i *Instance) handleMessageForEpoch(msg *common.Message, from common.NodeID) error {
+
+	switch {
+	case msg.AuxiliaryInfo != nil:
+		if msg.AuxiliaryInfo.Epoch != i.e.Epoch {
+			i.Config.Logger.Debug(
+				"Received an auxiliary info from an old epoch",
+				zap.Uint64("Aux Info Epoch", msg.AuxiliaryInfo.Epoch),
+				zap.Uint64("Our Epoch", i.e.Epoch),
+				zap.Stringer("From", from))
+			return nil
+		}
+		i.msm.HandleAuxiliaryInfo(*msg.AuxiliaryInfo, avalanchego.NodeID(from))
+	case msg.EpochTransitionApproval != nil:
+		// TODO: pass in time.Now() rather than uint64
+		i.msm.HandleApproval(msg.EpochTransitionApproval, uint64(time.Now().UnixMilli()))
+		return nil
+	}
+	return i.e.HandleMessage(msg, from)
 }
 
 func (i *Instance) wireReplicationResponse(msg *common.Message) error {
