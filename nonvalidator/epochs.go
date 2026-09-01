@@ -133,9 +133,9 @@ func (e epochs) canValidate(block common.Block) bool {
 	return false
 }
 
-// LatestValidatorSetRetriever is an allows the epoch replicator to get the latest validator set.
+// latestValidatorSetRetriever is an allows the epoch replicator to get the latest validator set.
 // This is used to calculate the threshold of votes needed to validate an epoch.
-type LatestValidatorSetRetriever func() common.Nodes
+type latestValidatorSetRetriever func() common.Nodes
 
 // epochDigestCounter counts sealing block responses from validators for each epoch.
 // It uses LatestValidatorSetRetriever to determine when the required response threshold
@@ -149,10 +149,10 @@ type epochDigestCounter struct {
 	sealingBlockResponses map[uint64]map[string]common.Digest
 
 	// latestValidatorSetRetriever is used to calculate the threshold of votes needed to validate an epoch
-	latestValidatorSetRetriever LatestValidatorSetRetriever
+	latestValidatorSetRetriever latestValidatorSetRetriever
 }
 
-func newEpochReplicator(logger common.Logger, validatorSetRetriever LatestValidatorSetRetriever) *epochDigestCounter {
+func newEpochReplicator(logger common.Logger, validatorSetRetriever latestValidatorSetRetriever) *epochDigestCounter {
 	return &epochDigestCounter{
 		sealingBlockResponses:       make(map[uint64]map[string]common.Digest),
 		logger:                      logger,
