@@ -177,6 +177,15 @@ func (e *Epoch) HandleMessage(msg *common.Message, from common.NodeID) error {
 			return nil
 		}
 	}
+
+	// Preliminary epoch check: a consensus message must belong to our epoch.
+	// Replication responses are exempt, as they are handled internally.
+	if epoch, ok := msg.Epoch(); ok && epoch != e.Epoch {
+		e.Logger.Debug("Dropping consensus message from a different epoch",
+			zap.Uint64("messageEpoch", epoch), zap.Uint64("ourEpoch", e.Epoch))
+		return nil
+	}
+
 	switch {
 	case msg.BlockMessage != nil:
 		return e.handleBlockMessage(msg.BlockMessage, from)
@@ -3541,6 +3550,13 @@ func (e *Epoch) processQuorumRound(round *common.QuorumRound, from common.NodeID
 	// make sure the round is well formed
 	if err := round.IsWellFormed(); err != nil {
 		return fmt.Errorf("received malformed latest round: %w", err)
+	}
+
+	epochOfQR := round.GetEpoch()
+	if e.Epoch != epochOfQR {
+		// Skip processing the quorum round if it belongs to a different epoch.
+		e.Logger.Debug("Received quorum round for a different epoch, ignoring", zap.Uint64("our epoch", e.Epoch), zap.Uint64("received epoch", epochOfQR))
+		return nil
 	}
 
 	if round.Finalization == nil && e.isVoteForFinalizedRound(round.GetRound()) {
