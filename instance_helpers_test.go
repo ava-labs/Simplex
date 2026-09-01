@@ -820,3 +820,12 @@ func newBLSMapping(id int) metadata.NodeBLSMapping {
 func assertExpectedNodeIds(t *testing.T, validatorSet []common.NodeID, expected []common.NodeID) {
 	require.ElementsMatch(t, expected, validatorSet)
 }
+
+// role reports whether the instance currently runs a validator epoch rather than a
+// non-validator, and whether it has finished bootstrapping.
+func (n *node) role() (isValidator bool, bootstrapped bool) {
+	n.inst.lock.Lock()
+	defer n.inst.lock.Unlock()
+
+	return n.inst.e != nil, n.inst.bootstrapped
+}

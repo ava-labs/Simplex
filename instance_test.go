@@ -89,7 +89,8 @@ func TestEpochInvokesMSMWaitForPendingBlock(t *testing.T) {
 	}
 }
 
-// TestNonValidatorSyncs that a non-validator syncs the chain when added to the network.
+// TestNonValidatorSyncs asserts a node outside the validator set syncs the chain when added
+// to the network, and stays a non-validator once it has bootstrapped.
 func TestNonValidatorSyncs(t *testing.T) {
 	validator := newBLSMapping(1)
 	genesisSet := []metadata.NodeBLSMapping{validator}
@@ -100,8 +101,14 @@ func TestNonValidatorSyncs(t *testing.T) {
 
 	network.acceptNewBlock()
 
+	// addNode blocks until the node syncs.
 	nonValidator := newBLSMapping(2)
-	network.addNode(nonValidator.NodeID[:])
+	node := network.addNode(nonValidator.NodeID[:])
+
+	// ensure we bootstrap and are not a validator
+	isValidator, bootstrapped := node.role()
+	require.True(t, bootstrapped)
+	require.False(t, isValidator)
 }
 
 // TestNonValidator_BecomesValidator tests that an upcoming validator becomes a validator
@@ -458,10 +465,55 @@ func TestValidatorSkipsMSMVerificationWhenReplicating(t *testing.T) {
 	}
 }
 
-func TestBootstrap(t *testing.T) {
-	// Bootstrap scenarios
-	// 1. Node is a validator, but we are transitioning so p-chain height is different than current epoch validator set(we are a validator in this set)
-	// 2. Node is a validator, and latest epoch says its a validator
-	// 3. Node is not a validator and stays a non validator
-	// 4. Node is a validator, but bootstrapping returns a higher epoch than the one we have indexed
+// TestBootstrap_ValidatorInLatestEpoch asserts a node whose indexed epoch names exactly the
+// latest P-chain validator set skips bootstrapping and starts as a validator of that epoch.
+func TestBootstrap_ValidatorInLatestEpoch(t *testing.T) {
+	v1 := newBLSMapping(1)
+	v2 := newBLSMapping(2)
+	genesisValidatorSet := metadata.NodeBLSMappings{v1, v2}
+
+	pChain := newTestPChain(genesisValidatorSet)
+	storage, _ := newChainStorage(t, genesisValidatorSet)
+	node := newNetwork(t, pChain).addNodeWithStorage(v1.NodeID[:], storage)
+
+	isValidator, bootstrapped := node.role()
+	require.True(t, bootstrapped, "a node already at the latest validator set has nothing to bootstrap")
+	require.True(t, isValidator)
+}
+
+// TestBootstrap_ValidatorDuringTransition asserts a validator whose epoch is mid-transition,
+// so its indexed set disagrees with the latest P-chain set, starts as a non-validator and
+// converts back to a validator once bootstrapping confirms its indexed epoch.
+func TestBootstrap_ValidatorDuringTransition(t *testing.T) {
+	ourNodeMapping := newBLSMapping(1)
+	v2 := newBLSMapping(2)
+	futureValidator := newBLSMapping(3)
+	genesisValidatorSet := metadata.NodeBLSMappings{ourNodeMapping, v2}
+
+	pChain := newTestPChain(genesisValidatorSet)
+	// The P-chain moved on to a set that contains ourNode, but no sealing block for it has
+	// been indexed, so our indexed set and the latest set disagree.
+	pChain.setValidatorSetAt(10, metadata.NodeBLSMappings{ourNodeMapping, v2, futureValidator})
+	pChain.advanceHeight(10)
+
+	storage, sealing := newChainStorage(t, genesisValidatorSet)
+	node := newNetwork(t, pChain).addNodeWithStorage(ourNodeMapping.NodeID[:], storage)
+
+	isValidator, bootstrapped := node.role()
+	require.False(t, bootstrapped)
+	require.False(t, isValidator, "a node whose indexed set is not the latest must bootstrap first") // even though we are a validator
+
+	// One peer reporting the latest sealing block meets the threshold of F(3)+1.
+	block := &ParsedBlock{StateMachineBlock: sealing.Clone()}
+	finalization, _ := testutil.NewFinalizationRecord(t, &testutil.TestSignatureAggregator{N: len(genesisValidatorSet)}, block, genesisValidatorSet.NodeIDs())
+	require.NoError(t, node.inst.HandleMessage(&common.Message{
+		ReplicationResponse: &common.ReplicationResponse{
+			LatestSeq: &common.QuorumRound{Block: block, Finalization: &finalization},
+		},
+	}, v2.NodeID[:]))
+
+	require.Eventually(t, func() bool {
+		isValidator, bootstrapped := node.role()
+		return isValidator && bootstrapped
+	}, 10*time.Second, 10*time.Millisecond, "the node never converted back to a validator of its indexed epoch")
 }
