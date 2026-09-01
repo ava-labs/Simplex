@@ -494,7 +494,7 @@ func (i *Instance) createEpochConfig(epoch uint64, validators common.Nodes) (*ep
 		return nil, err
 	}
 
-	blockBuilder := &BlockBuilderWaiter{vm: i.Config.VM, msm: msm}
+	blockBuilder := newBlockBuilderWaiter(msm, i.cs, i.Config.VM)
 
 	comm := newCommunication(i.Config.Sender, i.Config.Broadcaster, validators)
 
@@ -574,5 +574,5 @@ func (i *Instance) startAtEpoch(validators common.Nodes, epoch uint64) error {
 
 type epochConfig struct {
 	simplex.EpochConfig
-	bbw *BlockBuilderWaiter
+	bbw *blockBuilderWaiter
 }
