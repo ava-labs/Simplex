@@ -209,6 +209,7 @@ func (i *Instance) createNonValidatorConfig() (nonvalidator.Config, error) {
 }
 
 func (i *Instance) notifyEpochChange(epoch uint64, validators common.Nodes) {
+	i.Config.Logger.Debug("Notifying the instance of an epoch change", zap.Uint64("Epoch", epoch), zap.Stringers("Validators", validators.NodeIDs()))
 	ec := epochChange{
 		epoch:      epoch,
 		validators: validators,
