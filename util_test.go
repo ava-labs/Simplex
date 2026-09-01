@@ -78,7 +78,7 @@ func epochTestConfig(t *testing.T, storage *stubStorage, genesisSet metadata.Nod
 	}
 	return &Config{
 		Storage:                  storage,
-		PlatformChain:            newTestPlatformChain(0, map[uint64]metadata.NodeBLSMappings{0: genesisSet}),
+		PlatformChain:            newTestPChain(genesisSet),
 		LastNonSimplexInnerBlock: &testInnerBlock{Height_: lastNonSimplexHeight},
 		Logger:                   testutil.MakeLogger(t, 1),
 	}
