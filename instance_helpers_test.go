@@ -9,7 +9,6 @@ import (
 	"encoding/asn1"
 	"encoding/binary"
 	"fmt"
-	"sort"
 	"sync"
 	"testing"
 	"time"
@@ -19,7 +18,6 @@ import (
 	metadata "github.com/ava-labs/simplex/msm"
 	"github.com/ava-labs/simplex/testutil"
 	"github.com/ava-labs/simplex/wal"
-
 	"github.com/stretchr/testify/require"
 )
 
@@ -46,7 +44,9 @@ func (b *testInnerBlock) Height() uint64                       { return b.Height
 func (b *testInnerBlock) Timestamp() time.Time                 { return b.TS }
 func (b *testInnerBlock) Verify(context.Context, uint64) error { return nil }
 
-func parseTestInnerBlock(buff []byte) (*testInnerBlock, error) {
+type testInnerBlockDeserializer struct{}
+
+func (ibd *testInnerBlockDeserializer) ParseBlock(_ context.Context, buff []byte) (avalanchego.VMBlock, error) {
 	b := &testInnerBlock{}
 	b.Height_ = binary.BigEndian.Uint64(buff[0:8])
 	b.TS = time.UnixMilli(int64(binary.BigEndian.Uint64(buff[8:16])))
@@ -55,28 +55,30 @@ func parseTestInnerBlock(buff []byte) (*testInnerBlock, error) {
 }
 
 type testPlatformChain struct {
-	baseHeight           uint64
-	validatorSetAtHeight map[uint64]metadata.NodeBLSMappings // height --> validator set
-	lock                 sync.Mutex
-	cond                 *sync.Cond
-	height               uint64
+	genesisHeight uint64 // genesis height is the height of the pchain the genesis validator set lives
+
+	// lock guards the sets, which the running instances read while a test installs new ones.
+	lock sync.Mutex
+	// validatorSetAtHeight maps a P-chain height to the validator set in force from it on.
+	validatorSetAtHeight map[uint64]metadata.NodeBLSMappings
+
+	height uint64
+	// heightChanged is closed and replaced on every advanceHeight, waking waiters
+	// so they re-check the height.
+	heightChanged chan struct{}
 }
 
-func newTestPlatformChain(baseHeight uint64, validatorSetsAtHeight map[uint64]metadata.NodeBLSMappings) *testPlatformChain {
-	pc := &testPlatformChain{
-		baseHeight:           baseHeight,
-		validatorSetAtHeight: validatorSetsAtHeight,
-		height:               baseHeight,
+// newTestPChain returns a P-chain holding only the genesis validator set, in force from
+// genesisPChainHeight on.
+func newTestPChain(genesisSet metadata.NodeBLSMappings) *testPlatformChain {
+	return &testPlatformChain{
+		genesisHeight: genesisPChainHeight,
+		validatorSetAtHeight: map[uint64]metadata.NodeBLSMappings{
+			genesisPChainHeight: genesisSet,
+		},
+		height:        genesisPChainHeight,
+		heightChanged: make(chan struct{}),
 	}
-	pc.cond = sync.NewCond(&pc.lock)
-	return pc
-}
-
-func (pc *testPlatformChain) advanceTo(h uint64) {
-	pc.lock.Lock()
-	defer pc.lock.Unlock()
-	pc.height = h
-	pc.cond.Broadcast() // wake any WaitForProgress waiters
 }
 
 func (pc *testPlatformChain) currentHeight() uint64 {
@@ -85,32 +87,22 @@ func (pc *testPlatformChain) currentHeight() uint64 {
 	return pc.height
 }
 
-func (pc *testPlatformChain) validatorSet(height uint64) metadata.NodeBLSMappings {
-	heights := make([]uint64, 0, len(pc.validatorSetAtHeight))
-	for h := range pc.validatorSetAtHeight {
-		heights = append(heights, h)
-	}
-	sort.Slice(heights, func(i, j int) bool { return heights[i] < heights[j] })
-
-	var lastCheckpoint uint64
-	for _, h := range heights {
-		if h > height {
-			break
-		}
-		lastCheckpoint = h
-	}
-	// Return a copy instead of the original slice so the reference won't be used in other goroutines concurrently.
-	// Since we allocate a nil slice, a new underlying array is allocated and the copy is safe to use concurrently.
-	src := pc.validatorSetAtHeight[lastCheckpoint]
-	return append(metadata.NodeBLSMappings(nil), src...)
-}
-
 func (pc *testPlatformChain) GetValidatorSet(height uint64) (metadata.NodeBLSMappings, error) {
-	return pc.validatorSet(height), nil
+	pc.lock.Lock()
+	defer pc.lock.Unlock()
+
+	set, ok := pc.validatorSetAtHeight[height]
+	if !ok {
+		return nil, fmt.Errorf("no validator set at %d", height)
+	}
+	return set, nil
 }
 
 func (pc *testPlatformChain) GenesisValidatorSet() metadata.NodeBLSMappings {
-	return pc.validatorSet(pc.baseHeight)
+	pc.lock.Lock()
+	defer pc.lock.Unlock()
+
+	return pc.validatorSetAtHeight[pc.genesisHeight]
 }
 
 func (pc *testPlatformChain) GetMinimumHeight() uint64 {
@@ -121,32 +113,48 @@ func (pc *testPlatformChain) GetCurrentHeight() uint64 {
 	return pc.currentHeight()
 }
 
+// WaitForProgress blocks until the context is cancelled or the P-chain height
+// has increased past pChainHeight.
 func (pc *testPlatformChain) WaitForProgress(ctx context.Context, pChainHeight uint64) error {
-	stop := pc.signalWhenContextFinished(ctx)
-	defer stop()
-
-	pc.lock.Lock()
-	defer pc.lock.Unlock()
-	for pc.height == pChainHeight {
-		if err := ctx.Err(); err != nil {
-			return err
+	for {
+		pc.lock.Lock()
+		if pc.height > pChainHeight {
+			pc.lock.Unlock()
+			return nil
 		}
-		pc.cond.Wait()
+		ch := pc.heightChanged
+		pc.lock.Unlock()
+
+		select {
+		case <-ch:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
-	return nil
 }
 
-func (pc *testPlatformChain) signalWhenContextFinished(ctx context.Context) func() bool {
-	stop := context.AfterFunc(ctx, func() {
-		pc.lock.Lock()
-		defer pc.lock.Unlock()
-		pc.cond.Broadcast()
-	})
-	return stop
+func (pc *testPlatformChain) setValidatorSetAt(height uint64, validatorSet metadata.NodeBLSMappings) {
+	pc.lock.Lock()
+	defer pc.lock.Unlock()
+
+	pc.validatorSetAtHeight[height] = validatorSet
+}
+
+// advanceHeight bumps the P-chain height and wakes every WaitForProgress waiter.
+func (pc *testPlatformChain) advanceHeight(height uint64) {
+	pc.lock.Lock()
+	defer pc.lock.Unlock()
+
+	if height <= pc.height {
+		panic("smaller height")
+	}
+	pc.height = height
+	close(pc.heightChanged)
+	pc.heightChanged = make(chan struct{})
 }
 
 func (pc *testPlatformChain) LastNonSimplexBlockPChainHeight() uint64 {
-	return pc.baseHeight
+	return pc.genesisHeight
 }
 
 type testCryptoOps struct{}
@@ -184,10 +192,10 @@ func (c *testCryptoOps) DeserializeQuorumCertificate(bytes []byte) (common.Quoru
 type MockStorage struct {
 	t *testing.T
 	*testutil.InMemStorage
+	bd *testInnerBlockDeserializer
 
-	snapLock sync.Mutex
-	blocks   map[uint64]storedBlock
-	wals     []*testutil.TestWAL
+	blocksLock sync.Mutex
+	blocks     map[uint64]storedBlock
 }
 
 type storedBlock struct {
@@ -195,11 +203,12 @@ type storedBlock struct {
 	fin      common.Finalization
 }
 
-func NewMockStorage(t *testing.T) *MockStorage {
+func NewMockStorage(t *testing.T, bd *testInnerBlockDeserializer) *MockStorage {
 	return &MockStorage{
 		t:            t,
 		InMemStorage: testutil.NewInMemStorage(),
 		blocks:       make(map[uint64]storedBlock),
+		bd:           bd,
 	}
 }
 
@@ -207,9 +216,9 @@ func (m *MockStorage) Index(ctx context.Context, block common.VerifiedBlock, cer
 	// We serialized the block so that the original reference isn't shared with other goroutines that may concurrently mutate it.
 	encoded := block.Bytes()
 	seq := m.NumBlocks()
-	m.snapLock.Lock()
+	m.blocksLock.Lock()
 	m.blocks[seq] = storedBlock{rawBlock: encoded, fin: certificate}
-	m.snapLock.Unlock()
+	m.blocksLock.Unlock()
 	return m.InMemStorage.Index(ctx, block, certificate)
 }
 
@@ -230,9 +239,9 @@ func (m *MockStorage) GetBlock(seq uint64) (metadata.StateMachineBlock, *common.
 // the instance's live block objects (whose canoto digest cache the instance keeps
 // mutating).
 func (m *MockStorage) blockAt(seq uint64) (metadata.StateMachineBlock, bool) {
-	m.snapLock.Lock()
+	m.blocksLock.Lock()
 	sb, ok := m.blocks[seq]
-	m.snapLock.Unlock()
+	m.blocksLock.Unlock()
 	if !ok {
 		return metadata.StateMachineBlock{}, false
 	}
@@ -244,58 +253,57 @@ func (m *MockStorage) parseStored(encoded []byte) metadata.StateMachineBlock {
 	require.NoError(m.t, raw.UnmarshalCanoto(encoded))
 	var inner avalanchego.VMBlock
 	if len(raw.InnerBlockBytes) > 0 {
-		parsed, err := parseTestInnerBlock(raw.InnerBlockBytes)
+		parsed, err := m.bd.ParseBlock(context.Background(), raw.InnerBlockBytes)
 		require.NoError(m.t, err)
 		inner = parsed
 	}
 	return metadata.StateMachineBlock{InnerBlock: inner, Metadata: raw.Metadata}
 }
 
-func (m *MockStorage) CreateWAL() (wal.DeletableWAL, error) {
-	w := testutil.NewTestWAL(m.t)
-	m.snapLock.Lock()
-	m.wals = append(m.wals, w)
-	m.snapLock.Unlock()
-	return w, nil
+type walCreator struct {
+	t *testing.T
+
+	lock sync.Mutex
+	wals []*testutil.TestWAL
 }
 
-// containsNotarization reports whether any WAL this storage handed out holds a notarization for
-// the given round.
-func (m *MockStorage) containsNotarization(round uint64) bool {
-	m.snapLock.Lock()
-	wals := append([]*testutil.TestWAL(nil), m.wals...)
-	m.snapLock.Unlock()
+func (w *walCreator) createWAL() (wal.DeletableWAL, error) {
+	tw := testutil.NewTestWAL(w.t)
+	w.lock.Lock()
+	w.wals = append(w.wals, tw)
+	w.lock.Unlock()
+	return tw, nil
+}
 
-	for _, w := range wals {
-		if w.ContainsNotarization(round) {
+// containsNotarization reports whether any WAL this creator handed out holds a
+// notarization for the given round.
+func (w *walCreator) containsNotarization(round uint64) bool {
+	w.lock.Lock()
+	defer w.lock.Unlock()
+
+	for _, tw := range w.wals {
+		if tw.ContainsNotarization(round) {
 			return true
 		}
 	}
 	return false
 }
 
-// toRawBlock re-encodes a verified block into the wire RawBlock the receiving
-// instance parses in HandleBlockMessage.
-func toRawBlock(t *testing.T, vb common.VerifiedBlock) *metadata.RawBlock {
-	bytes := vb.Bytes()
-	raw := &metadata.RawBlock{}
-	require.NoError(t, raw.UnmarshalCanoto(bytes))
-	return raw
-}
-
-// reparseBlock reconstructs an independent *ParsedBlock from a verified block's
-// wire bytes. Each call yields a fresh object sharing no pointers with the
-// sender's live block, so that remaining references to the sender's block don't race with the receiver.
+// reparseBlock rebuilds an independent ParsedBlock from a verified block's wire bytes.
+// The zero block has no inner block, so its inner bytes stay empty.
 func reparseBlock(t *testing.T, vb common.VerifiedBlock) *ParsedBlock {
-	raw := toRawBlock(t, vb)
+	var rawBlock metadata.RawBlock
+	require.NoError(t, rawBlock.UnmarshalCanoto(vb.Bytes()))
+
 	var inner avalanchego.VMBlock
-	if len(raw.InnerBlockBytes) > 0 {
-		parsed, err := parseTestInnerBlock(raw.InnerBlockBytes)
+	if len(rawBlock.InnerBlockBytes) > 0 {
+		bd := &testInnerBlockDeserializer{}
+		parsed, err := bd.ParseBlock(context.Background(), rawBlock.InnerBlockBytes)
 		require.NoError(t, err)
 		inner = parsed
 	}
 	return &ParsedBlock{
-		StateMachineBlock: metadata.StateMachineBlock{InnerBlock: inner, Metadata: raw.Metadata},
+		StateMachineBlock: metadata.StateMachineBlock{InnerBlock: inner, Metadata: rawBlock.Metadata},
 	}
 }
 
