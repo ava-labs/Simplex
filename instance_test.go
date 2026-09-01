@@ -459,7 +459,9 @@ func TestValidatorSkipsMSMVerificationWhenReplicating(t *testing.T) {
 }
 
 func TestBootstrap(t *testing.T) {
+
 	// Non-Validator bootstraps and stays non-validator
+
 	// Bootstrapper converts non-validator to validator
 
 	// Bootstrap scenarios

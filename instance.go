@@ -71,6 +71,7 @@ type Instance struct {
 	msm                *metadata.StateMachine
 	e                  *simplex.Epoch
 	nv                 *nonvalidator.NonValidator
+	futureEpochs       *nonvalidator.FutureEpochListener
 	epochOrNV          timeAdvancer
 	epochChanges       chan epochChange
 	stopCh             chan struct{}
@@ -360,7 +361,7 @@ func (i *Instance) HandleMessage(msg *common.Message, from common.NodeID) error 
 }
 
 func (i *Instance) handleMessageForEpoch(msg *common.Message, from common.NodeID) error {
-	i.futureEpochListener(msg, from)
+	i.futureEpochs.HandleMessage(msg, from, i.e.Epoch)
 
 	switch {
 	case msg.AuxiliaryInfo != nil:
@@ -373,13 +374,22 @@ func (i *Instance) handleMessageForEpoch(msg *common.Message, from common.NodeID
 	return i.e.HandleMessage(msg, from)
 }
 
-func (i *Instance) futureEpochListener(msg *common.Message, from common.NodeID) {
-	// grab epoch value from replication responses
-	// listen for finalizations or blocks from higher epochs,
-	// request those sealing blocks
-	// sends to a threshold collector
-	// if threshold collector returns, handle the sealing block
+// latestValidators returns the latest validator set known to the P-chain, which may be
+// ahead of the validator set of the epoch we are running.
+func (i *Instance) latestValidators() common.Nodes {
+	validators, err := getLatestPlatformChainValidatorSet(i.Config.PlatformChain)
+	if err != nil {
+		i.Config.Logger.Error("Error retrieving the latest validator set", zap.Error(err))
+		return nil
+	}
+	return validators.Nodes()
+}
 
+func (i *Instance) newerSealingBlockValidated(qr *common.QuorumRound) {
+	if qr.Block.BlockHeader().Seq > i.e.Epoch {
+		// shutdown epoch and start as non-validator
+		i.bootstrapped = false
+	}
 }
 
 func (i *Instance) wireReplicationResponse(msg *common.Message) error {
@@ -535,6 +545,8 @@ func (i *Instance) createEpochConfig(epoch uint64, validators common.Nodes) (*ep
 	blockBuilder := &BlockBuilderWaiter{vm: i.Config.VM, msm: msm}
 
 	comm := newCommunication(i.Config.Sender, i.Config.Broadcaster, validators)
+
+	i.futureEpochs = nonvalidator.NewFutureEpochListener(i.Config.Logger, i.Config.Sender, i.latestValidators, i.newerSealingBlockValidated)
 
 	// set the handle approval method so that the MSM can receive self approvals
 	i.transitionListener.handleApproval = msm.HandleApproval
