@@ -60,7 +60,7 @@ func TestEpochInvokesMSMWaitForPendingBlock(t *testing.T) {
 
 	storage := NewMockStorageWithGenesis(t, &testInnerBlockDeserializer{})
 	// the VM blocks in WaitForPendingBlock until a block is indexed, which never happens here
-	vm := newBlockBuilderVM(testutil.NewTestControlledBlockBuilder(t), storage, newPendingBlockSignal())
+	vm := newBlockBuilderVM(storage, newPendingBlockSignal())
 	recorder := &emptyVoteRecorder{got: make(chan struct{}, 1)}
 	wc := &walCreator{t: t}
 

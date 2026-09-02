@@ -17,7 +17,6 @@ import (
 	"github.com/ava-labs/simplex/avalanchego"
 	"github.com/ava-labs/simplex/common"
 	metadata "github.com/ava-labs/simplex/msm"
-	"github.com/ava-labs/simplex/simplex"
 	"github.com/ava-labs/simplex/testutil"
 	"github.com/ava-labs/simplex/wal"
 	"github.com/stretchr/testify/require"
@@ -65,7 +64,7 @@ var genesisBlock = &testInnerBlock{Height_: genesisPChainHeight, TS: time.Now(),
 // this ensures a consistent block digest
 var epochBlockTime = genesisBlock.TS.Add(time.Millisecond)
 var paramConfig = ParameterConfig{
-	MaxNetworkDelay: 500 * time.Millisecond,
+	MaxNetworkDelay: 200 * time.Millisecond,
 	MaxRoundWindow:  100,
 	WALMaxSizeBytes: 1024,
 }
@@ -449,53 +448,85 @@ func translateOutgoingToIncomingMessage(t *testing.T, msg *common.Message) *comm
 	}
 }
 
-// pendingBlockSignal broadcasts to every waiter by closing the current channel and
-// replacing it with a fresh one for the next generation of waiters.
+// pendingBlockSignal is the network's shared mempool. It stays pending until a block builder consumes it,
+// so an offline leader only delays the block: rounds are empty notarized until an online leader claims it.
 type pendingBlockSignal struct {
-	lock sync.Mutex
-	ch   chan struct{}
+	lock    sync.Mutex
+	pending bool
+	ch      chan struct{}
 }
 
 func newPendingBlockSignal() *pendingBlockSignal {
 	return &pendingBlockSignal{ch: make(chan struct{})}
 }
 
-// wait returns when the signal is broadcast or ctx is cancelled.
-func (s *pendingBlockSignal) wait(ctx context.Context) {
+// pendingBlockSignal is the network's shared mempool. It stays pending until a block builder consumes it,
+// so calling addPendingBlock will always produce a block.
+// If the current leader is offline, rounds are empty notarized until an online leader claims it.
+func (s *pendingBlockSignal) addPendingBlock() {
 	s.lock.Lock()
-	ch := s.ch
-	s.lock.Unlock()
+	defer s.lock.Unlock()
 
-	select {
-	case <-ch:
-	case <-ctx.Done():
+	s.pending = true
+	close(s.ch)
+	s.ch = make(chan struct{})
+}
+
+// wait returns once a block is pending or ctx is cancelled. It does not
+// consume the block for block building.
+func (s *pendingBlockSignal) wait(ctx context.Context) {
+	for {
+		s.lock.Lock()
+		pending, ch := s.pending, s.ch
+		s.lock.Unlock()
+
+		if pending {
+			return
+		}
+
+		select {
+		case <-ch:
+		case <-ctx.Done():
+			return
+		}
 	}
 }
 
-// broadcast wakes every current waiter.
-func (s *pendingBlockSignal) broadcast() {
-	s.lock.Lock()
-	close(s.ch)
-	s.ch = make(chan struct{})
-	s.lock.Unlock()
+// consume waits for a pending block and claims it, reporting false if ctx is cancelled first.
+// called from the block builder.
+func (s *pendingBlockSignal) consume(ctx context.Context) bool {
+	for {
+		s.lock.Lock()
+		ch := s.ch
+		if s.pending {
+			s.pending = false
+			s.lock.Unlock()
+			return true
+		}
+		s.lock.Unlock()
+
+		select {
+		case <-ch:
+		case <-ctx.Done():
+			return false
+		}
+	}
 }
 
-// blockBuilderVM builds an inner block only when the test triggers one on the block builder, so
-// the chain grows one block per index call.
+// blockBuilderVM builds an inner block only when the test arms a pending block, so the
+// chain grows one block per index call.
 type blockBuilderVM struct {
-	bb      *testutil.TestControlledBlockBuilder
 	storage *MockStorage
 	pending *pendingBlockSignal
 }
 
-func newBlockBuilderVM(bb *testutil.TestControlledBlockBuilder, storage *MockStorage, pending *pendingBlockSignal) *blockBuilderVM {
-	return &blockBuilderVM{bb: bb, storage: storage, pending: pending}
+func newBlockBuilderVM(storage *MockStorage, pending *pendingBlockSignal) *blockBuilderVM {
+	return &blockBuilderVM{storage: storage, pending: pending}
 }
 
 func (vm *blockBuilderVM) BuildBlock(ctx context.Context, pChainHeight uint64) (avalanchego.VMBlock, error) {
-	// The builder gates when a block is built; the block it returns is not an inner block, so
-	// it is thrown away.
-	if _, ok := vm.bb.BuildBlock(ctx, common.ProtocolMetadata{}, common.Blacklist{}); !ok {
+	// Claiming the pending block is what gates block building.
+	if !vm.pending.consume(ctx) {
 		return nil, ctx.Err()
 	}
 
@@ -511,8 +542,7 @@ func (vm *blockBuilderVM) ParseBlock(ctx context.Context, bytes []byte) (avalanc
 	return vm.storage.bd.ParseBlock(ctx, bytes)
 }
 
-// WaitForPendingBlock returns when index broadcasts that a block is being created,
-// or when ctx is cancelled.
+// WaitForPendingBlock returns while a block is pending, or when ctx is cancelled.
 func (vm *blockBuilderVM) WaitForPendingBlock(ctx context.Context) {
 	vm.pending.wait(ctx)
 }
@@ -540,7 +570,7 @@ type network struct {
 	seq    uint64
 	epoch  uint64
 
-	// pending wakes every VM blocked in WaitForPendingBlock when index creates a block.
+	// pending holds the block the network has been asked to build, claimable by any leader.
 	pending *pendingBlockSignal
 
 	validatorSets map[uint64]common.Nodes // epoch -> sorted validators
@@ -609,7 +639,7 @@ func (n *network) addNodeWithConfig(id common.NodeID, cfg nodeConfig) *node {
 
 	comm := newInstanceComm(n, id)
 
-	vm := newBlockBuilderVM(testutil.NewTestControlledBlockBuilder(n.t), storage, n.pending)
+	vm := newBlockBuilderVM(storage, n.pending)
 	wc := &walCreator{t: n.t}
 	instance := NewInstance(Config{
 		LastNonSimplexInnerBlock: genesisBlock,
@@ -654,23 +684,17 @@ func (n *network) addNodeWithConfig(id common.NodeID, cfg nodeConfig) *node {
 
 // acceptNewBlock blocks until every node has accepted a newly indexed block.
 func (n *network) acceptNewBlock() (common.VerifiedBlock, common.Finalization) {
-	nodes, ok := n.validatorSets[n.epoch]
+	_, ok := n.validatorSets[n.epoch]
 	require.True(n.t, ok, fmt.Sprintf("epoch is not set epoch: %d. trying to index seq: %d", n.epoch, n.seq))
 
 	// no nodes have indexed this sequence yet
 	for _, node := range n.nodes {
-		node.storage.EnsureNoBlockCommit(n.t, n.seq)
+		_, _, err := node.storage.Retrieve(n.seq)
+		require.ErrorIs(n.t, err, common.ErrBlockNotFound)
 	}
 
-	leaderID := simplex.LeaderForRound(nodes.NodeIDs(), n.seq)
-	for _, node := range n.nodes {
-		if bytes.Equal(node.id, leaderID) {
-			node.vm.bb.TriggerNewBlock()
-		}
-	}
-
-	// wake every VM blocked in WaitForPendingBlock
-	n.pending.broadcast()
+	// Adds a pending block to the network, to be built by the next online node.
+	n.pending.addPendingBlock()
 
 	var block common.VerifiedBlock
 	var finalization common.Finalization
