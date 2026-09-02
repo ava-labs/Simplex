@@ -115,7 +115,7 @@ func (pc *testPlatformChain) GetValidatorSet(height uint64) (metadata.NodeBLSMap
 	}
 
 	var nextLargestHeight uint64
-	for h, _ := range pc.validatorSetAtHeight {
+	for h := range pc.validatorSetAtHeight {
 		if h >= height {
 			continue
 		}
