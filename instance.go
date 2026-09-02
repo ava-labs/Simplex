@@ -301,6 +301,13 @@ func (i *Instance) HandleMessage(msg *common.Message, from common.NodeID) error 
 	i.lock.Lock()
 	defer i.lock.Unlock()
 
+	select {
+	case <-i.stopCh:
+		i.Config.Logger.Debug("Instance is stopped, dropping message")
+		return nil
+	default:
+	}
+
 	// We need to artificially wire the MSM and the cache to the block,
 	// in order to intercept the Verify() call.
 	switch {
