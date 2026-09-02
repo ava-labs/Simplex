@@ -189,7 +189,10 @@ func TestValidatorValidatorSetDecreased(t *testing.T) {
 	pChain.setValidatorSetAt(10, newValidatorSet)
 	pChain.advanceHeight(10)
 
-	network.waitUntilSealingBlock(newValidatorSet.Nodes())
+	sealing := network.waitUntilSealingBlock(newValidatorSet.Nodes())
+
+	block, _ = network.acceptNewBlock()
+	require.Equal(t, sealing.BlockHeader().Seq+1, block.BlockHeader().Seq)
 }
 
 // TestInstanceOfflineDuringTransition asserts an epoch transition completes while a
