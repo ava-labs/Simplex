@@ -118,7 +118,7 @@ func (i *Instance) Start(ctx context.Context) error {
 		return fmt.Errorf("error determining latest epoch and validator set: %w", err)
 	}
 
-	if err := i.startAtEpoch(nodes, epochNum); err != nil {
+	if err := i.startAtEpoch(nodes); err != nil {
 		return fmt.Errorf("error starting instance at epoch %d: %w", epochNum, err)
 	}
 
@@ -128,8 +128,8 @@ func (i *Instance) Start(ctx context.Context) error {
 	return nil
 }
 
-func (i *Instance) startValidator(epochNum uint64, validators common.Nodes) error {
-	epochConfig, err := i.createEpochConfig(epochNum, validators)
+func (i *Instance) startValidator(validators common.Nodes) error {
+	epochConfig, err := i.createEpochConfig(validators)
 	if err != nil {
 		return err
 	}
@@ -139,7 +139,6 @@ func (i *Instance) startValidator(epochNum uint64, validators common.Nodes) erro
 		return fmt.Errorf("error creating simplex epoch: %w", err)
 	}
 
-	epoch.Epoch = epochConfig.Epoch
 	i.e = epoch
 	i.epochOrNV = epoch
 	epochConfig.bbw.e = epoch
@@ -436,10 +435,10 @@ func (i *Instance) processEpochChange(epochChange epochChange) {
 	case runningNonValidator:
 		// Stop the non-validator before doing anything else, so that we don't process any more messages while we are changing epochs.
 		i.stopNonValidator()
-		err = i.startAtEpoch(epochChange.validators, epochChange.epoch)
+		err = i.startAtEpoch(epochChange.validators)
 	case runningValidator:
 		i.stopValidator(true)
-		err = i.startAtEpoch(epochChange.validators, epochChange.epoch)
+		err = i.startAtEpoch(epochChange.validators)
 	default: // This should never happen, but we log it just in case.
 		i.lock.Unlock()
 		i.Config.Logger.Fatal("We are not running either a validator or non-validator")
@@ -453,7 +452,7 @@ func (i *Instance) processEpochChange(epochChange epochChange) {
 	}
 }
 
-func (i *Instance) createEpochConfig(epoch uint64, validators common.Nodes) (*epochConfig, error) {
+func (i *Instance) createEpochConfig(validators common.Nodes) (*epochConfig, error) {
 	wal, err := wal.NewGarbageCollectedWAL(i.Config.WALs, i.Config.WalCreator, &common.WALRetentionReader{}, i.Config.ParameterConfig.WALMaxSizeBytes)
 	if err != nil {
 		return nil, fmt.Errorf("error creating garbage collected wal: %w", err)
@@ -523,7 +522,6 @@ func (i *Instance) createEpochConfig(epoch uint64, validators common.Nodes) (*ep
 	})
 
 	ec := simplex.EpochConfig{
-		Epoch:              epoch,
 		ReplicationEnabled: true,
 		StartTime:          time.Now(),
 		// TODO: For simplicity, we use the same value for all timeouts. If needed we can expand the config.
@@ -571,9 +569,9 @@ func (i *Instance) maybeGarbageCollectWAL() error {
 }
 
 // startAtEpoch starts either a validator or non-validator at `epoch“.
-func (i *Instance) startAtEpoch(validators common.Nodes, epoch uint64) error {
+func (i *Instance) startAtEpoch(validators common.Nodes) error {
 	if validators.Contains(i.Config.ID) {
-		return i.startValidator(epoch, validators)
+		return i.startValidator(validators)
 	}
 
 	return i.startNonValidator()

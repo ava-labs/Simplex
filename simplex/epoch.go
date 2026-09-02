@@ -82,7 +82,6 @@ type EpochConfig struct {
 	Storage                    common.Storage
 	WAL                        common.WriteAheadLog
 	BlockBuilder               common.BlockBuilder
-	Epoch                      uint64
 	StartTime                  time.Time
 	ReplicationEnabled         bool
 	RandomSource               *rand.Rand
@@ -90,6 +89,8 @@ type EpochConfig struct {
 
 type Epoch struct {
 	EpochConfig
+
+	Epoch uint64
 	// Runtime
 	epochSealed                    atomic.Bool
 	signatureAggregator            common.SignatureAggregator
@@ -671,6 +672,13 @@ func (e *Epoch) setMetadataFromStorage() error {
 	}
 
 	e.round = e.lastBlock.VerifiedBlock.BlockHeader().Round + 1
+
+	// The last block we indexed was a sealing block, therefore the epoch number is that blocks sequence
+	if e.lastBlock.VerifiedBlock.SealingBlockInfo() != nil {
+		e.Epoch = e.lastBlock.VerifiedBlock.BlockHeader().Seq
+		return nil
+	}
+
 	e.Epoch = e.lastBlock.VerifiedBlock.BlockHeader().Epoch
 	return nil
 }
@@ -711,6 +719,9 @@ func (e *Epoch) setMetadataFromRecords(records [][]byte) error {
 			}
 			if finalization.Finalization.Round >= highestRound {
 				highestRound = finalization.Finalization.Round
+				// We do not need to check if this finalization is associated for a sealing block, because it is impossible for a finalization
+				// for another epoch to exist in our wal, yet the original epoch remains un-sealed.
+				// This is because we issue te-locks after sealing blocks, and never move onto the next epoch until the original sealing block was indexed.
 				highestEpoch = finalization.Finalization.Epoch
 				found = true
 			}

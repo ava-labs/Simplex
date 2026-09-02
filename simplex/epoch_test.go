@@ -933,25 +933,32 @@ func TestEpochSimpleFlow(t *testing.T) {
 }
 
 func TestEpochResizesBlacklistOnEpochChange(t *testing.T) {
-	epoch1Block := testutil.NewTestBlock(ProtocolMetadata{Epoch: 1, Round: 0, Seq: 0}, NewBlacklist(1))
 	nodes := []NodeID{{1}, {2}}
 	bb := testutil.NewTestBlockBuilder()
-	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, NodeID{2}, testutil.NewNoopComm(nodes), bb)
-	conf.Epoch = 2
-	require.NoError(t, conf.Storage.Index(context.Background(), epoch1Block, Finalization{}))
-	require.Equal(t, uint16(1), epoch1Block.Blacklist().NodeCount,
+
+	// The epoch number is the sequence of the last indexed sealing block, so both nodes
+	// below start in epoch 1 while their last indexed block belongs to epoch 0.
+	epoch0Block := testutil.NewTestBlock(ProtocolMetadata{Epoch: 0, Round: 0, Seq: 0}, NewBlacklist(1))
+	sealingBlock := testutil.NewTestBlock(ProtocolMetadata{Epoch: 0, Round: 1, Seq: 1, Prev: epoch0Block.Digest}, NewBlacklist(1))
+	sealingBlock.SealingInfo = &SealingBlockInfo{
+		ValidatorSet:         NodeIDs(nodes).EqualWeightedNodes(),
+		PrevSealingBlockHash: epoch0Block.Digest,
+	}
+	require.Equal(t, uint16(1), sealingBlock.Blacklist().NodeCount,
 		"blacklist must contain exactly one node")
+
+	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
+	require.NoError(t, conf.Storage.Index(context.Background(), epoch0Block, Finalization{}))
+	require.NoError(t, conf.Storage.Index(context.Background(), sealingBlock, Finalization{}))
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
-	e.Epoch = conf.Epoch
 	require.NoError(t, e.Start())
-	require.Equal(t, uint64(2), e.Metadata().Epoch)
+	require.Equal(t, uint64(1), e.Metadata().Epoch)
 
-	// The node (leader) builds the next block on top of the epoch-1 block. Its
+	// The node (leader of round 2) builds the next block on top of the sealing block. Its
 	// blacklist must be sized for the new validator set (2), not inherited from the
-	// parent (1) — otherwise its blacklist is malformed and the block cannot be
-	// notarized.
+	// parent (1), otherwise its blacklist is malformed and the block cannot be notarized.
 	bb.BlockShouldBeBuilt <- struct{}{}
 	block := bb.GetBuiltBlock()
 	require.Equal(t, uint16(2), block.Blacklist().NodeCount,
@@ -959,21 +966,17 @@ func TestEpochResizesBlacklistOnEpochChange(t *testing.T) {
 	e.Stop()
 
 	// Next, create the other node (follower) and ensure it can verify the block.
-	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, NodeID{1}, testutil.NewNoopComm(nodes), bb)
-	conf.Epoch = 2
-
-	require.NoError(t, conf.Storage.Index(context.Background(), epoch1Block, Finalization{}))
-	require.Equal(t, uint16(1), epoch1Block.Blacklist().NodeCount,
-		"blacklist must contain exactly one node")
+	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[1], testutil.NewNoopComm(nodes), bb)
+	require.NoError(t, conf.Storage.Index(context.Background(), epoch0Block, Finalization{}))
+	require.NoError(t, conf.Storage.Index(context.Background(), sealingBlock, Finalization{}))
 
 	e, err = NewEpoch(conf)
 	require.NoError(t, err)
-	e.Epoch = conf.Epoch
 	require.NoError(t, e.Start())
 	t.Cleanup(e.Stop)
-	require.Equal(t, uint64(2), e.Metadata().Epoch)
+	require.Equal(t, uint64(1), e.Metadata().Epoch)
 
-	vote, err := testutil.NewTestVote(block, nodes[1])
+	vote, err := testutil.NewTestVote(block, nodes[0])
 	require.NoError(t, err)
 
 	err = e.HandleMessage(&Message{
@@ -981,10 +984,9 @@ func TestEpochResizesBlacklistOnEpochChange(t *testing.T) {
 			Vote:  *vote,
 			Block: block,
 		},
-	}, nodes[1])
+	}, nodes[0])
 	require.NoError(t, err)
-	wal.AssertNotarization(1)
-
+	wal.AssertNotarization(2)
 }
 
 func TestEpochStartedTwice(t *testing.T) {
