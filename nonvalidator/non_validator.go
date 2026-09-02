@@ -599,7 +599,7 @@ func verifyQuorumRound(qr *common.QuorumRound) error {
 	}
 
 	if qr.Block == nil || qr.Finalization == nil {
-		return errors.New("Ignoring quorum round without a block and finalization")
+		return errors.New("ignoring quorum round without a block and finalization")
 	}
 
 	return nil
