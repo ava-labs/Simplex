@@ -4,7 +4,6 @@
 package simplex
 
 import (
-	"sync"
 	"testing"
 	"time"
 
@@ -18,7 +17,7 @@ import (
 // TestValidatorIndexes tests that a validator indexes and accepts a new block sent by the network
 // It is the only validator, so it will build and finalize its own block.
 func TestValidatorIndexes(t *testing.T) {
-	validator := newBLSMapping(1)
+	validator := newNodeMapping(1)
 
 	genesisSet := []metadata.NodeBLSMapping{validator}
 
@@ -45,12 +44,12 @@ func (r *emptyVoteRecorder) Broadcast(msg *common.Message) {
 
 func (r *emptyVoteRecorder) Send(*common.Message, common.NodeID) {}
 
-// TestEpochInvokesMSMWaitForPendingBlock verifies the epoch drives the MSM's WaitForPendingBlock:
-// a non-leader whose VM never has a pending block must still broadcast an empty vote.
-// The round leader is never instantiated, so no proposal ever arrives.
 func TestEpochInvokesMSMWaitForPendingBlock(t *testing.T) {
-	ourValidator := newBLSMapping(1)
-	leader := newBLSMapping(2)
+	// Two validators, but only one is instantiated. Our node has the smaller ID so it sorts to
+	// index 0 and is a non-leader for round 1 (LeaderForRound picks index 1%2). The other
+	// validator is the round leader but is never created, so no block is ever proposed.
+	ourValidator := newNodeMapping(1)
+	leader := newNodeMapping(2)
 	genesisSet := []metadata.NodeBLSMapping{ourValidator, leader}
 
 	pChain := newTestPChain(genesisSet)
@@ -59,7 +58,7 @@ func TestEpochInvokesMSMWaitForPendingBlock(t *testing.T) {
 	require.NotEqual(t, common.NodeID(ourValidator.NodeID[:]), simplex.LeaderForRound(nodes.NodeIDs(), 1))
 
 	storage := NewMockStorageWithGenesis(t, &testInnerBlockDeserializer{})
-	// the VM blocks in WaitForPendingBlock until a block is indexed, which never happens here
+
 	vm := newBlockBuilderVM(storage, newPendingBlockSignal())
 	recorder := &emptyVoteRecorder{got: make(chan struct{}, 1)}
 	wc := &walCreator{t: t}
@@ -91,7 +90,7 @@ func TestEpochInvokesMSMWaitForPendingBlock(t *testing.T) {
 
 // TestNonValidatorSyncs that a non-validator syncs the chain when added to the network.
 func TestNonValidatorSyncs(t *testing.T) {
-	validator := newBLSMapping(1)
+	validator := newNodeMapping(1)
 	genesisSet := []metadata.NodeBLSMapping{validator}
 
 	pChain := newTestPChain(genesisSet)
@@ -100,15 +99,16 @@ func TestNonValidatorSyncs(t *testing.T) {
 
 	network.acceptNewBlock()
 
-	nonValidator := newBLSMapping(2)
+	nonValidator := newNodeMapping(2)
 	network.addNode(nonValidator.NodeID[:])
+	network.acceptNewBlock()
 }
 
-// TestNonValidator_BecomesValidator tests that an upcoming validator becomes a validator
+// TestNonValidatorBecomesValidator tests that an upcoming validator becomes a validator
 // when an epoch change they are following is sealed. The non-validator must contribute it's approval in
 // order to do so.
-func TestNonValidator_BecomesValidator(t *testing.T) {
-	validator := newBLSMapping(1)
+func TestNonValidatorBecomesValidator(t *testing.T) {
+	validator := newNodeMapping(1)
 
 	genesisSet := []metadata.NodeBLSMapping{validator}
 
@@ -119,7 +119,7 @@ func TestNonValidator_BecomesValidator(t *testing.T) {
 	network.acceptNewBlock()
 
 	// The non-validator node syncs the accepted blocks and then contributes to the next blocks
-	upcomingValidator := newBLSMapping(2)
+	upcomingValidator := newNodeMapping(2)
 	network.addNode(upcomingValidator.NodeID[:])
 
 	// initiate an epoch change
@@ -127,8 +127,7 @@ func TestNonValidator_BecomesValidator(t *testing.T) {
 	pChain.setValidatorSetAt(10, newValidatorSet)
 	pChain.advanceHeight(10)
 
-	sealingBlock := network.waitUntilSealingBlock()
-	assertExpectedNodeIds(t, sealingBlock.SealingBlockInfo().ValidatorSet.NodeIDs(), newValidatorSet.NodeIDs())
+	network.waitUntilSealingBlock(newValidatorSet.Nodes())
 
 	// a normal block should be signed by both the validators now
 	_, finalization := network.acceptNewBlock()
@@ -138,13 +137,13 @@ func TestNonValidator_BecomesValidator(t *testing.T) {
 // TestValidator_ValidatorSetNotChanged tests that a P-chain height increase
 // that does not have a unique validator set, does not create a new epoch
 func TestValidator_ValidatorSetNotChanged(t *testing.T) {
-	validator := newBLSMapping(1)
+	validator := newNodeMapping(1)
 
 	genesisSet := []metadata.NodeBLSMapping{validator}
 
 	pChain := newTestPChain(genesisSet)
 	network := newNetwork(t, pChain)
-	network.addNode(validator.NodeID[:])
+	node := network.addNode(validator.NodeID[:])
 
 	firstBlock, _ := network.acceptNewBlock()
 
@@ -152,35 +151,35 @@ func TestValidator_ValidatorSetNotChanged(t *testing.T) {
 	pChain.setValidatorSetAt(10, []metadata.NodeBLSMapping{validator})
 	pChain.advanceHeight(10)
 
+	blockCount := node.storage.NumBlocks()
 	// potential time to propose blocks (if any)
-	time.Sleep(3 * time.Second)
+	require.Never(t, func() bool {
+		return node.storage.NumBlocks() != blockCount
+	}, time.Second, 100*time.Millisecond, "no new block should have been proposed")
 
 	secondBlock, _ := network.acceptNewBlock()
 	require.Equal(t, uint64(1), secondBlock.BlockHeader().Epoch)
 	require.Equal(t, firstBlock.BlockHeader().Seq+1, secondBlock.BlockHeader().Seq)
 }
 
-// TestValidator_ValidatorSetDecreased tests that an epoch with two validators
+// TestValidatorValidatorSetDecreased tests that an epoch with two validators
 // is reduced to one, when the pchain height notes a validator is leaving.
-func TestValidator_ValidatorSetDecreased(t *testing.T) {
-	validator := newBLSMapping(1)
-	leavingValidator := newBLSMapping(2)
+func TestValidatorValidatorSetDecreased(t *testing.T) {
+	validator := newNodeMapping(1)
+	leavingValidator := newNodeMapping(2)
 
 	genesisSet := []metadata.NodeBLSMapping{validator, leavingValidator}
 
 	pChain := newTestPChain(genesisSet)
 	network := newNetwork(t, pChain)
-	wg := sync.WaitGroup{}
 
-	wg.Go(func() {
-		// add node is a synchronous call.
-		network.addNode(validator.NodeID[:])
-	})
+	validatorStorage, _ := newChainStorage(t, genesisSet)
+	leavingValidatorStorage, _ := newChainStorage(t, genesisSet)
 
-	network.addNode(leavingValidator.NodeID[:])
-
-	// all nodes have synced the first every simplex block
-	wg.Wait()
+	// starting from storage holding the first simplex block avoids
+	// blocking on a sync that needs a quorum online
+	network.addNodeWithStorage(validator.NodeID[:], validatorStorage)
+	network.addNodeWithStorage(leavingValidator.NodeID[:], leavingValidatorStorage)
 
 	block, _ := network.acceptNewBlock()
 	require.Equal(t, uint64(2), block.BlockHeader().Round)
@@ -190,18 +189,17 @@ func TestValidator_ValidatorSetDecreased(t *testing.T) {
 	pChain.setValidatorSetAt(10, newValidatorSet)
 	pChain.advanceHeight(10)
 
-	sealing := network.waitUntilSealingBlock()
-	assertExpectedNodeIds(t, sealing.SealingBlockInfo().ValidatorSet.NodeIDs(), newValidatorSet.NodeIDs())
+	network.waitUntilSealingBlock(newValidatorSet.Nodes())
 }
 
-// TestInstance_OfflineDuringTransition asserts an epoch transition completes while a
+// TestInstanceOfflineDuringTransition asserts an epoch transition completes while a
 // current validator is offline. The online quorum batches approvals and finalizes the
 // sealing block, and the new epoch finalizes blocks without the offline node.
-func TestInstance_OfflineDuringTransition(t *testing.T) {
-	v1 := newBLSMapping(1)
-	v2 := newBLSMapping(2)
-	v3 := newBLSMapping(3)
-	offline := newBLSMapping(4)
+func TestInstanceOfflineDuringTransition(t *testing.T) {
+	v1 := newNodeMapping(1)
+	v2 := newNodeMapping(2)
+	v3 := newNodeMapping(3)
+	offline := newNodeMapping(4)
 
 	genesisSet := []metadata.NodeBLSMapping{v1, v2, v3, offline}
 	nodeIDs := metadata.NodeBLSMappings(genesisSet).NodeIDs()
@@ -212,9 +210,7 @@ func TestInstance_OfflineDuringTransition(t *testing.T) {
 	v2Storage, _ := newChainStorage(t, genesisSet)
 	v3Storage, _ := newChainStorage(t, genesisSet)
 
-	// addNode blocks until the node syncs, which needs a quorum online,
-	// so the first nodes are added concurrently
-	network.addNodeWithStorage(v1.NodeID[:], v1Storage)
+	node1 := network.addNodeWithStorage(v1.NodeID[:], v1Storage)
 	network.addNodeWithStorage(v2.NodeID[:], v2Storage)
 	network.addNodeWithStorage(v3.NodeID[:], v3Storage)
 
@@ -222,7 +218,7 @@ func TestInstance_OfflineDuringTransition(t *testing.T) {
 	leader := simplex.LeaderForRound(pChain.GenesisValidatorSet().NodeIDs(), network.seq)
 	for !leader.Equals(offline.NodeID[:]) {
 		network.acceptNewBlock()
-		leader = simplex.LeaderForRound(nodeIDs, network.seq)
+		leader = simplex.LeaderForRound(nodeIDs, node1.inst.e.Metadata().Round)
 	}
 
 	// initiate an epoch change when the offline node is the leader
@@ -230,28 +226,27 @@ func TestInstance_OfflineDuringTransition(t *testing.T) {
 	pChain.setValidatorSetAt(10, newValidatorSet)
 	pChain.advanceHeight(10)
 
-	network.waitUntilSealingBlock()
+	network.waitUntilSealingBlock(metadata.NodeBLSMappings(newValidatorSet).Nodes())
 }
 
-// TestNonValidator_StaysNonValidator ensures that a non-validator does not restart when it is processing
-// previous epoch changes.
-func TestNonValidator_StaysNonValidator(t *testing.T) {
-	targetNode := newBLSMapping(42)
+// TestNonValidatorStaysNonValidator ensures that a non-validator advances through different epoch changes.
+func TestNonValidatorStaysNonValidator(t *testing.T) {
+	targetNode := newNodeMapping(42)
 
 	// case 1: epoch change is not highest and we are NOT in the validator1 set
 	// case 2: epoch change is not highest, and we are in the validator1 set
 	// case 3: epoch change is highest, and we are in the validator1 set
 	// case 4: epoch change is highest, and we are NOT in the validator1 set
-	validator1 := newBLSMapping(1)
+	validator1 := newNodeMapping(1)
 
 	genesisSet := []metadata.NodeBLSMapping{validator1}
 	pChain := newTestPChain(genesisSet)
 	network := newNetwork(t, pChain)
 	network.addNode(validator1.NodeID[:])
 
-	validator2 := newBLSMapping(2)
-	validator3 := newBLSMapping(3)
-	validator4 := newBLSMapping(4)
+	validator2 := newNodeMapping(2)
+	validator3 := newNodeMapping(3)
+	validator4 := newNodeMapping(4)
 	network.addNode(validator2.NodeID[:])
 	network.addNode(validator3.NodeID[:])
 	network.addNode(validator4.NodeID[:])
@@ -267,30 +262,36 @@ func TestNonValidator_StaysNonValidator(t *testing.T) {
 	pChain.setValidatorSetAt(30, targetNodeInHighestEpoch)
 
 	pChain.advanceHeight(10)
-	sealingBlock := network.waitUntilSealingBlock()
-	assertExpectedNodeIds(t, sealingBlock.SealingBlockInfo().ValidatorSet.NodeIDs(), targetNodeNotInMiddleEpoch.NodeIDs())
+	network.waitUntilSealingBlock(targetNodeNotInMiddleEpoch.Nodes())
 
 	pChain.advanceHeight(20)
-	sealingBlock = network.waitUntilSealingBlock()
-	assertExpectedNodeIds(t, sealingBlock.SealingBlockInfo().ValidatorSet.NodeIDs(), targetNodeInMiddleEpoch.NodeIDs())
+	network.waitUntilSealingBlock(targetNodeInMiddleEpoch.Nodes())
 
 	// Occasionally, this will offset the proposer of the transition block to be the offline target node
 	// Therefore, if we don't have a mechanism to skip offline leaders during the transition phase, this test will hang
 	network.acceptNewBlock()
 
 	pChain.advanceHeight(30)
-	sealingBlock = network.waitUntilSealingBlock()
-	assertExpectedNodeIds(t, sealingBlock.SealingBlockInfo().ValidatorSet.NodeIDs(), targetNodeInHighestEpoch.NodeIDs())
+	network.waitUntilSealingBlock(targetNodeInHighestEpoch.Nodes())
 
 	// the target node should join now
 	network.addNode(targetNode.NodeID[:])
+
+	// the target node must sign within a bounded number of blocks, otherwise it never rejoined
+	const maxBlocksUntilTargetSigns = 10
+	var signed bool
+	for i := 0; i < maxBlocksUntilTargetSigns && !signed; i++ {
+		_, finalization := network.acceptNewBlock()
+		signed = common.NodeIDs(finalization.QC.Signers()).IndexOf(targetNode.NodeID[:]) != -1
+	}
+	require.True(t, signed, "target node never signed a finalization within %d blocks", maxBlocksUntilTargetSigns)
 }
 
 // TestInstanceValidatorSkipsAnEpoch tests that a validator stops and starts being a validator
 // It boots up as a non-validator then syncs to the highest epoch where it is a validator,
 // then it is no longer a validator, and finally it is
 func TestInstanceValidatorSkipsAnEpoch(t *testing.T) {
-	validator := newBLSMapping(1)
+	validator := newNodeMapping(1)
 
 	genesisSet := []metadata.NodeBLSMapping{validator}
 
@@ -299,7 +300,7 @@ func TestInstanceValidatorSkipsAnEpoch(t *testing.T) {
 	network.addNode(validator.NodeID[:])
 
 	// The non-validator node syncs the accepted blocks and then contributes to the next blocks
-	onOffValidator := newBLSMapping(2)
+	onOffValidator := newNodeMapping(2)
 	network.addNode(onOffValidator.NodeID[:])
 
 	// initiate an epoch change
@@ -307,14 +308,12 @@ func TestInstanceValidatorSkipsAnEpoch(t *testing.T) {
 	pChain.setValidatorSetAt(10, newValidatorSet)
 	pChain.advanceHeight(10)
 
-	sealingBlock := network.waitUntilSealingBlock()
-	assertExpectedNodeIds(t, sealingBlock.SealingBlockInfo().ValidatorSet.NodeIDs(), newValidatorSet.NodeIDs())
+	network.waitUntilSealingBlock(newValidatorSet.Nodes())
 
 	newValidatorSet = metadata.NodeBLSMappings{validator}
 	pChain.setValidatorSetAt(20, newValidatorSet)
 	pChain.advanceHeight(20)
-	sealingBlock = network.waitUntilSealingBlock()
-	assertExpectedNodeIds(t, sealingBlock.SealingBlockInfo().ValidatorSet.NodeIDs(), newValidatorSet.NodeIDs())
+	network.waitUntilSealingBlock(newValidatorSet.Nodes())
 
 	// accept a new block to ensure both nodes are still syncing the chain
 	network.acceptNewBlock()
@@ -324,12 +323,11 @@ func TestInstanceValidatorSkipsAnEpoch(t *testing.T) {
 	pChain.setValidatorSetAt(30, newValidatorSet)
 	pChain.advanceHeight(30)
 
-	sealingBlock = network.waitUntilSealingBlock()
-	assertExpectedNodeIds(t, sealingBlock.SealingBlockInfo().ValidatorSet.NodeIDs(), newValidatorSet.NodeIDs())
+	network.waitUntilSealingBlock(newValidatorSet.Nodes())
 }
 
 func TestInstanceDoubleStartFails(t *testing.T) {
-	validator := newBLSMapping(1)
+	validator := newNodeMapping(1)
 	genesisSet := []metadata.NodeBLSMapping{validator}
 
 	pChain := newTestPChain(genesisSet)
@@ -341,14 +339,14 @@ func TestInstanceDoubleStartFails(t *testing.T) {
 // TestNonValidatorSkipsMSMVerification proves that a non-validator does not use the MSM to
 // verify blocks: it commits a finalized block whose state machine transition is invalid.
 func TestNonValidatorSkipsMSMVerification(t *testing.T) {
-	validator := newBLSMapping(1)
+	validator := newNodeMapping(1)
 	genesisValidatorSet := []metadata.NodeBLSMapping{validator}
 	pChain := newTestPChain(genesisValidatorSet)
 
 	// The non-validator holds genesis plus epoch 1's defining block, and lives on a network
 	// of its own, so the replication response below is the only way it can learn a block.
 	storage, parent := newChainStorage(t, genesisValidatorSet)
-	nonValidator := newBLSMapping(2)
+	nonValidator := newNodeMapping(2)
 	nonValidatorNode := newNetwork(t, pChain).addNodeWithStorage(nonValidator.NodeID[:], storage)
 
 	// A block whose only defect is its state machine transition: its timestamp precedes its
@@ -424,8 +422,8 @@ func TestValidatorSkipsMSMVerificationWhenReplicating(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Two validators, so a quorum is both of them: with its peer absent, the lagging
 			// validator can neither build a block nor empty notarize a round on its own.
-			lagging := newBLSMapping(1)
-			peer := newBLSMapping(2)
+			lagging := newNodeMapping(1)
+			peer := newNodeMapping(2)
 			validators := metadata.NodeBLSMappings{lagging, peer}
 			pChain := newTestPChain(validators)
 

@@ -140,7 +140,7 @@ func TestCachedStoragePopulatedByWal(t *testing.T) {
 	// and the restored block stays unfinalized.
 	validatorSet := make(metadata.NodeBLSMappings, 4)
 	for i := range validatorSet {
-		validatorSet[i] = newBLSMapping(i + 1)
+		validatorSet[i] = newNodeMapping(i + 1)
 	}
 	nodeIDs := validatorSet.Nodes().NodeIDs()
 
@@ -187,7 +187,7 @@ func TestCachedStoragePopulatedBySelfBuiltBlock(t *testing.T) {
 		Logger:                   testutil.MakeLogger(t, 1),
 		GetBlock:                 cs.RetrieveBlock,
 		LastNonSimplexInnerBlock: genesisBlock,
-		GenesisValidatorSet:      metadata.NodeBLSMappings{newBLSMapping(1)},
+		GenesisValidatorSet:      metadata.NodeBLSMappings{newNodeMapping(1)},
 		AuxiliaryInfoApp:         &NoopAuxiliaryInfoApp{},
 	})
 	require.NoError(t, err)

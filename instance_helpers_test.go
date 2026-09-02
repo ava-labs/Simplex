@@ -776,7 +776,7 @@ func (n *network) acceptNewBlock() (common.VerifiedBlock, common.Finalization) {
 // the new epoch and returns the sealing block.
 // This is useful for when we are transitioning epochs because blocks will be built impatiently
 // without a notification from the mempool.
-func (n *network) waitUntilSealingBlock() common.VerifiedBlock {
+func (n *network) waitUntilSealingBlock(expectedValidatorSet common.Nodes) common.VerifiedBlock {
 	for {
 		var block common.VerifiedBlock
 		for _, node := range n.nodes {
@@ -798,15 +798,16 @@ func (n *network) waitUntilSealingBlock() common.VerifiedBlock {
 		// add the validator set to the networks memory for block building
 		n.epoch = n.seq
 		newValidatorSet := block.SealingBlockInfo().ValidatorSet
+		assertExpectedNodeIds(n.t, expectedValidatorSet.NodeIDs(), newValidatorSet.NodeIDs())
 		common.SortNodes(newValidatorSet)
 		n.validatorSets[n.epoch] = newValidatorSet
 		return block
 	}
 }
 
-// newBLSMapping creates a mapping with a nodeID, BLSKey and Weight with a given [id].
+// newNodeMapping creates a mapping with a nodeID, BLSKey and Weight with a given [id].
 // id is passed as an int for consistent logs between runs.
-func newBLSMapping(id int) metadata.NodeBLSMapping {
+func newNodeMapping(id int) metadata.NodeBLSMapping {
 	avaID := [20]byte{byte(id)}
 
 	return metadata.NodeBLSMapping{
@@ -817,6 +818,6 @@ func newBLSMapping(id int) metadata.NodeBLSMapping {
 }
 
 // assertExpectedNodeIds asserts the validator set contains exactly the expected node IDs.
-func assertExpectedNodeIds(t *testing.T, validatorSet []common.NodeID, expected []common.NodeID) {
+func assertExpectedNodeIds(t *testing.T, validatorSet common.NodeIDs, expected common.NodeIDs) {
 	require.ElementsMatch(t, expected, validatorSet)
 }
