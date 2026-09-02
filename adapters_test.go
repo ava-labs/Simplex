@@ -193,7 +193,7 @@ func TestCachedStoragePopulatedBySelfBuiltBlock(t *testing.T) {
 	require.NoError(t, err)
 	cs.msm = msm
 
-	vm := newBlockBuilderVM(testutil.NewTestControlledBlockBuilder(t), storage, newPendingBlockSignal())
+	vm := newBlockBuilderVM(storage, newPendingBlockSignal())
 	bw := newBlockBuilderWaiter(msm, cs, vm)
 
 	// Build a block on top of genesis
