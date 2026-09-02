@@ -594,6 +594,15 @@ func (n *node) stop() {
 	n.comm.stop()
 }
 
+// role reports whether the instance currently runs a validator epoch rather than a
+// non-validator, and whether it has finished bootstrapping.
+func (n *node) role() (isValidator bool, bootstrapped bool) {
+	n.inst.lock.Lock()
+	defer n.inst.lock.Unlock()
+
+	return n.inst.e != nil, n.inst.bootstrapped
+}
+
 // sync syncs a node by waiting for the commit of the latest sequence.
 func (n *node) sync() *node {
 	n.storage.WaitForBlockCommit(n.net.seq - 1)
@@ -726,8 +735,7 @@ func (n *network) waitUntilValidatorsReady() {
 		require.Eventually(n.t, func() bool {
 			isValidator, _ := node.role()
 			return isValidator
-		}, time.Minute, time.Millisecond,
-			"node %x never started running a validator", node.id)
+		}, time.Minute, time.Millisecond, "node %x never started running a validator", node.id)
 	}
 }
 
@@ -840,13 +848,4 @@ func newNodeMapping(id int) metadata.NodeBLSMapping {
 // assertExpectedNodeIds asserts the validator set contains exactly the expected node IDs.
 func assertExpectedNodeIds(t *testing.T, validatorSet common.NodeIDs, expected common.NodeIDs) {
 	require.ElementsMatch(t, expected, validatorSet)
-}
-
-// role reports whether the instance currently runs a validator epoch rather than a
-// non-validator, and whether it has finished bootstrapping.
-func (n *node) role() (isValidator bool, bootstrapped bool) {
-	n.inst.lock.Lock()
-	defer n.inst.lock.Unlock()
-
-	return n.inst.e != nil, n.inst.bootstrapped
 }
