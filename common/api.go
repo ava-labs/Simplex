@@ -38,6 +38,8 @@ type Logger interface {
 }
 
 var (
+	// ErrShouldBuildEmptyBlock is returned when a block needs to be built even though the VM has no transactions to include in the block.
+	// This is used to advance the chain when the tip is notarized but not finalized.
 	ErrShouldBuildEmptyBlock = errors.New("should build empty block")
 )
 
