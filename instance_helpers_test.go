@@ -60,6 +60,10 @@ func (ibd *testInnerBlockDeserializer) ParseBlock(_ context.Context, buff []byte
 const genesisPChainHeight uint64 = 0
 
 var genesisBlock = &testInnerBlock{Height_: genesisPChainHeight, TS: time.Now(), Payload: []byte("genesis")}
+
+// epochBlockTime fixes the timestamp of the epoch-defining block
+// this ensures a consistent block digest
+var epochBlockTime = genesisBlock.TS.Add(time.Millisecond)
 var paramConfig = ParameterConfig{
 	MaxNetworkDelay: 500 * time.Millisecond,
 	MaxRoundWindow:  100,
@@ -294,9 +298,9 @@ func newChainStorage(t *testing.T, validators metadata.NodeBLSMappings) (*MockSt
 	require.True(t, ok)
 
 	epochBlock := metadata.StateMachineBlock{
-		InnerBlock: &testInnerBlock{Height_: 1, TS: time.Now(), Payload: []byte("epoch")},
+		InnerBlock: &testInnerBlock{Height_: 1, TS: epochBlockTime, Payload: []byte("epoch")},
 		Metadata: metadata.StateMachineMetadata{
-			Timestamp:               uint64(time.Now().UnixMilli()),
+			Timestamp:               uint64(epochBlockTime.UnixMilli()),
 			SimplexProtocolMetadata: common.ProtocolMetadata{Epoch: 1, Round: 1, Seq: 1, Prev: common.Digest(genesis.Digest())},
 			SimplexEpochInfo: metadata.SimplexEpochInfo{
 				EpochNumber: 1,
