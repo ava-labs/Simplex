@@ -383,10 +383,10 @@ func (i *Instance) HandleMessage(msg *common.Message, from common.NodeID) error 
 	}
 
 	if i.e != nil {
-		i.handleMessageForEpoch(msg, from)
+		return i.handleMessageForEpoch(msg, from)
 	}
 
-	return nil
+	return errors.New("we are not running as a validator or not validator")
 }
 
 func (i *Instance) handleMessageForEpoch(msg *common.Message, from common.NodeID) error {
