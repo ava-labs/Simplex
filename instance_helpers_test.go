@@ -583,6 +583,14 @@ type node struct {
 	wals    *walCreator
 }
 
+// role reports whether the node is running a validator rather than a non-validator.
+func (n *node) role() (isValidator bool) {
+	n.inst.lock.Lock()
+	defer n.inst.lock.Unlock()
+
+	return n.inst.e != nil
+}
+
 type network struct {
 	t *testing.T
 
@@ -702,6 +710,23 @@ func (n *network) addNodeWithConfig(id common.NodeID, cfg nodeConfig) *node {
 	return &node
 }
 
+// waitUntilValidatorsRunning blocks until every node that should be validator in the current epoch
+// is actually a validator. This ensures that acceptNewBlock, waits for any nodes that may be transitioning from
+// a non-validator actually here about the new proposal.
+func (n *network) waitUntilValidatorsReady() {
+	validators, ok := n.validatorSets[n.epoch]
+	require.True(n.t, ok, fmt.Sprintf("epoch is not set. epoch: %d", n.epoch))
+
+	for _, node := range n.nodesSnapshot() {
+		if common.NodeIDs(validators.NodeIDs()).IndexOf(node.id) < 0 {
+			continue
+		}
+
+		require.Eventually(n.t, node.role, time.Minute, time.Millisecond,
+			"node %x never started running a validator", node.id)
+	}
+}
+
 // acceptNewBlock blocks until every node has accepted a newly indexed block.
 func (n *network) acceptNewBlock() (common.VerifiedBlock, common.Finalization) {
 	_, ok := n.validatorSets[n.epoch]
@@ -712,6 +737,8 @@ func (n *network) acceptNewBlock() (common.VerifiedBlock, common.Finalization) {
 		_, _, err := node.storage.Retrieve(n.seq)
 		require.ErrorIs(n.t, err, common.ErrBlockNotFound)
 	}
+
+	n.waitUntilValidatorsReady()
 
 	// Adds a pending block to the network, to be built by the next online node.
 	n.pending.addPendingBlock()
