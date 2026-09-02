@@ -7,38 +7,49 @@ import (
 	"context"
 	"fmt"
 	"sync"
-	"sync/atomic"
 
 	"github.com/ava-labs/simplex/common"
 	metadata "github.com/ava-labs/simplex/msm"
+	"github.com/ava-labs/simplex/nonvalidator"
 	"github.com/ava-labs/simplex/simplex"
 )
 
 type Communication struct {
-	nodes atomic.Value // common.Nodes
+	nodes common.Nodes
 	Sender
 	Broadcaster
 }
 
 func newCommunication(sender Sender, broadcaster Broadcaster, validators common.Nodes) *Communication {
-	c := &Communication{
+	return &Communication{
 		Sender:      sender,
 		Broadcaster: broadcaster,
 	}
-	c.SetValidators(validators)
-	return c
-}
-
-func (c *Communication) SetValidators(nodes common.Nodes) {
-	c.nodes.Store(nodes)
 }
 
 func (c *Communication) Validators() common.Nodes {
-	nodes, ok := c.nodes.Load().(common.Nodes)
-	if !ok {
-		return nil
+	return c.nodes
+}
+
+// NonValidatorCommunication implements the communication interface for non-validators.
+// It does not use a hardcoded validator set, since non-validators should only be interacting with the
+// latest validator set which can change throughout a non-validators lifecycle.
+type NonValidatorCommunication struct {
+	validators nonvalidator.LatestValidatorSetRetriever
+	Sender
+	Broadcaster
+}
+
+func newNonValidatorCommunication(sender Sender, broadcaster Broadcaster, validators nonvalidator.LatestValidatorSetRetriever) *NonValidatorCommunication {
+	return &NonValidatorCommunication{
+		Sender:      sender,
+		Broadcaster: broadcaster,
+		validators:  validators,
 	}
-	return nodes
+}
+
+func (c *NonValidatorCommunication) Validators() common.Nodes {
+	return c.validators()
 }
 
 // CallbackStorage is a wrapper around Storage that skips indexing Telocks

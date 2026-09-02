@@ -63,17 +63,18 @@ type timeAdvancer interface {
 type Instance struct {
 	Config Config
 
-	lock               sync.Mutex
-	started            bool
-	cs                 *CachedStorage
-	transitionListener *epochTransitionListener
-	wal                *wal.GarbageCollectedWAL
-	msm                *metadata.StateMachine
-	e                  *simplex.Epoch
-	nv                 *nonvalidator.NonValidator
-	epochOrNV          timeAdvancer
-	epochChanges       chan epochChange
-	stopCh             chan struct{}
+	lock                       sync.Mutex
+	started                    bool
+	cs                         *CachedStorage
+	transitionListener         *epochTransitionListener
+	futureEpochMessageListener *nonvalidator.FutureEpochListener
+	wal                        *wal.GarbageCollectedWAL
+	msm                        *metadata.StateMachine
+	e                          *simplex.Epoch
+	nv                         *nonvalidator.NonValidator
+	epochOrNV                  timeAdvancer
+	epochChanges               chan epochChange
+	stopCh                     chan struct{}
 
 	// bootstrapped represents whether the instance has completed bootstrapping.
 	// This is false on Start, and also set to false when our notices it's validator
@@ -134,6 +135,13 @@ func (i *Instance) bootstrap() error {
 		return err
 	}
 
+	latestValidatorSetRetriever := func() common.Nodes {
+		return latestValidatorSet.Nodes()
+	}
+
+	// initialize the future epoch listener
+	i.futureEpochMessageListener = nonvalidator.NewFutureEpochListener(i.Config.Logger, i.Config.Sender, latestValidatorSetRetriever, i.onSealingBlock)
+
 	latestIndexedEpochValidators, epochNum, err := getLastAcceptedEpochAndValidatorSet(&i.Config)
 	if err != nil {
 		return err
@@ -150,6 +158,16 @@ func (i *Instance) bootstrap() error {
 	// Note: the epoch may be transitioning, so the latest p-chain validator set actually points to a future epoch.
 	// The non-validator should finish bootstrapping and convert our non-validator to a validator in this case.
 	return i.startNonValidator()
+}
+
+func (i *Instance) onHigherSealingBlock(sealingBlock *common.QuorumRound) {
+	// this should only be called if we are running a validator
+	if i.e != nil {
+		i.Config.Logger.Warn("Our future epoch message listener triggered a higher epoch while not running a validator")
+		return
+	}
+
+	i.notifyEpochChange(sealingBlock.Block.SealingBlockInfo().ValidatorSet, epoch should be removed)
 }
 
 func (i *Instance) onBootstrapFinish(highestKnownEpoch uint64, highestKnownValidators common.Nodes) error {
@@ -225,7 +243,10 @@ func (i *Instance) createNonValidatorConfig() (nonvalidator.Config, error) {
 		return nonvalidator.Config{}, err
 	}
 
-	comm := newCommunication(i.Config.Sender, i.Config.Broadcaster, latestValidatorSet.Nodes())
+	latestValidatorSetRetriever := func() common.Nodes {
+		return latestValidatorSet.Nodes()
+	}
+	comm := newNonValidatorCommunication(i.Config.Sender, i.Config.Broadcaster, latestValidatorSetRetriever)
 
 	// Plant an artificial MSM. A non-validator never verifies the state machine transition,
 	// it only verifies the inner block (see common.OnlyVMVerifyOpt), so this MSM is only
@@ -390,6 +411,7 @@ func (i *Instance) HandleMessage(msg *common.Message, from common.NodeID) error 
 }
 
 func (i *Instance) handleMessageForEpoch(msg *common.Message, from common.NodeID) error {
+	i.futureEpochMessageListener.HandleMessage(msg, from, i.e.Epoch)
 
 	switch {
 	case msg.AuxiliaryInfo != nil:
@@ -407,6 +429,7 @@ func (i *Instance) handleMessageForEpoch(msg *common.Message, from common.NodeID
 		i.msm.HandleApproval(msg.EpochTransitionApproval, uint64(time.Now().UnixMilli()))
 		return nil
 	}
+
 	return i.e.HandleMessage(msg, from)
 }
 
@@ -629,7 +652,7 @@ func (i *Instance) maybeGarbageCollectWAL() error {
 	return nil
 }
 
-// startAtEpoch starts either a validator or non-validator at `epoch“.
+// startAtEpoch starts either a validator or non-validator at `epoch`.
 func (i *Instance) startAtEpoch(validators common.Nodes, epoch uint64) error {
 	if validators.Contains(i.Config.ID) {
 		return i.startValidator(epoch, validators)
