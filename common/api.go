@@ -48,6 +48,7 @@ type BlockBuilder interface {
 	// When the given context is cancelled by the caller:
 	// returns an empty block and true, if the context was cancelled with ErrShouldBuildEmptyBlock
 	// returns nil, false otherwise.
+	// The returned boolean indicates whether the block is nil or not.
 	BuildBlock(ctx context.Context, metadata ProtocolMetadata, blacklist Blacklist) (VerifiedBlock, bool)
 
 	// WaitForPendingBlock returns when either the given context is cancelled,
