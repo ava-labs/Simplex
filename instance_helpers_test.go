@@ -102,14 +102,33 @@ func (pc *testPlatformChain) currentHeight() uint64 {
 	return pc.height
 }
 
+// GetValidatorSet grabs the validator set at `height`. If one does not directly exist at that height,
+// it returns validator set at the first height less than `height`.
 func (pc *testPlatformChain) GetValidatorSet(height uint64) (metadata.NodeBLSMappings, error) {
 	pc.lock.Lock()
 	defer pc.lock.Unlock()
 
 	set, ok := pc.validatorSetAtHeight[height]
+	if ok {
+		return set, nil
+	}
+
+	var nextLargestHeight uint64
+	for h, _ := range pc.validatorSetAtHeight {
+		if h >= height {
+			continue
+		}
+
+		if h > nextLargestHeight {
+			nextLargestHeight = h
+		}
+	}
+
+	set, ok = pc.validatorSetAtHeight[nextLargestHeight]
 	if !ok {
 		return nil, fmt.Errorf("no validator set at %d", height)
 	}
+
 	return set, nil
 }
 
