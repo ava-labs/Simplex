@@ -56,9 +56,10 @@ func (ibd *testInnerBlockDeserializer) ParseBlock(_ context.Context, buff []byte
 	return b, nil
 }
 
-const genesisPChainHeight uint64 = 0
-
-var genesisBlock = &testInnerBlock{Height_: genesisPChainHeight, TS: time.Now(), Payload: []byte("genesis")}
+var (
+	genesisPChainHeight uint64 = 0
+	genesisBlock               = &testInnerBlock{Height_: genesisPChainHeight, TS: time.Now(), Payload: []byte("genesis")}
+)
 
 // epochBlockTime fixes the timestamp of the epoch-defining block
 // this ensures a consistent block digest
