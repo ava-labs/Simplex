@@ -30,6 +30,10 @@ type Message struct {
 	// Verified Messages
 	VerifiedBlockMessage        *VerifiedBlockMessage
 	VerifiedReplicationResponse *VerifiedReplicationResponse
+
+	// Epoch Transition Messages
+	AuxiliaryInfo           *AuxiliaryInfo
+	EpochTransitionApproval *ValidatorSetApproval
 }
 
 func (m *Message) IsReplicationMessage() bool {
@@ -432,6 +436,35 @@ type BlockDigestRequest struct {
 // VersionID is an identifier for applications that care about epoch changes.
 type VersionID uint32
 
+//go:generate go run github.com/StephenButtolph/canoto/canoto msg.go
+
+// AuxiliaryInfo defines application-specific information for applications that might care about epoch change,
+// such as distributed key generation.
+type AuxiliaryInfo struct {
+	// The epoch this Auxiliary info is associated with
+	Epoch uint64 `canoto:"uint,1"`
+
+	// Version is an identifier that identifies the application.
+	// Can be used for backward-compatibility and upgrade purposes.
+	Version VersionID `canoto:"uint,2"`
+
+	// Data is opaque bytes that can be used by applications to encode any information that describes
+	// the current state for the application.
+	Data []byte `canoto:"bytes,3"`
+
+	canotoData canotoData_AuxiliaryInfo
+}
+
+// Clone returns a copy of the AuxiliaryInfo.
+func (ai *AuxiliaryInfo) Clone() AuxiliaryInfo {
+	return AuxiliaryInfo{
+		Epoch:   ai.Epoch,
+		Version: ai.Version,
+		Data:    ai.Data,
+	}
+}
+
+// ValidatorSetApproval is an approval from a validator
 type ValidatorSetApproval struct {
 	NodeID        avalanchego.NodeID
 	AuxInfoDigest [32]byte
