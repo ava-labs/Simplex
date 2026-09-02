@@ -583,12 +583,13 @@ type node struct {
 	wals    *walCreator
 }
 
-// role reports whether the node is running a validator rather than a non-validator.
-func (n *node) role() (isValidator bool) {
+// role reports whether the instance currently runs a validator epoch rather than a
+// non-validator, and whether it has finished bootstrapping.
+func (n *node) role() (isValidator bool, bootstrapped bool) {
 	n.inst.lock.Lock()
 	defer n.inst.lock.Unlock()
 
-	return n.inst.e != nil
+	return n.inst.e != nil, n.inst.bootstrapped
 }
 
 type network struct {
@@ -722,8 +723,10 @@ func (n *network) waitUntilValidatorsReady() {
 			continue
 		}
 
-		require.Eventually(n.t, node.role, time.Minute, time.Millisecond,
-			"node %x never started running a validator", node.id)
+		require.Eventually(n.t, func() bool {
+			isValidator, _ := node.role()
+			return isValidator
+		}, time.Minute, time.Millisecond, "node %x never started running a validator", node.id)
 	}
 }
 
@@ -819,13 +822,4 @@ func newBLSMapping(id int) metadata.NodeBLSMapping {
 // assertExpectedNodeIds asserts the validator set contains exactly the expected node IDs.
 func assertExpectedNodeIds(t *testing.T, validatorSet []common.NodeID, expected []common.NodeID) {
 	require.ElementsMatch(t, expected, validatorSet)
-}
-
-// role reports whether the instance currently runs a validator epoch rather than a
-// non-validator, and whether it has finished bootstrapping.
-func (n *node) role() (isValidator bool, bootstrapped bool) {
-	n.inst.lock.Lock()
-	defer n.inst.lock.Unlock()
-
-	return n.inst.e != nil, n.inst.bootstrapped
 }
