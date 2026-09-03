@@ -2209,7 +2209,11 @@ func TestNotarizedNotFinalizedTipCausesEmptyBlockProposal(t *testing.T) {
 
 				// Send finalize votes to the node for the notarized-but-not-finalized rounds,
 				// so that it can finalize them and advance to the next round.
+				// A message from the epoch node itself is dropped with a warning, so skip it.
 				for _, signer := range nodes {
+					if signer.Equals(nodeID) {
+						continue
+					}
 					testutil.InjectTestFinalizeVote(t, e, blocks[uint64(r)], signer)
 				}
 			}
