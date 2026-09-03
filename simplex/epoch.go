@@ -2622,10 +2622,13 @@ func (e *Epoch) createBlockBuildingTask(metadata common.ProtocolMetadata, blackl
 
 		canceled := context.Err() != nil
 		cancel()
-		if !ok || canceled {
-			if !ok && !canceled {
-				e.Logger.Debug("Failed building block")
-			}
+
+		if canceled {
+			return common.Digest{}
+		}
+
+		if !ok {
+			e.Logger.Debug("Failed building block")
 			return common.Digest{}
 		}
 
