@@ -2653,3 +2653,120 @@ func TestEpochIgnoresReplicatedQuorumRoundsFromOtherEpochs(t *testing.T) {
 	testutil.WaitToEnterRound(t, e, md.Round+2)
 	require.Equal(t, int32(3), ignored.Load(), "quorum rounds from our own epoch must not be ignored")
 }
+
+func TestFutureProposalDispatchedOnceAfterReentrantCommit(t *testing.T) {
+	// Two proposals for rounds 0 and 1 arrive one after the other.
+	// A finalization for round 0 arrives while the proposal for round 0 is still being verified. The
+	// finalization is parked in the future messages map and is consumed by the verification task
+	// itself once it stores the proposal, so the commit (and the round change) happen inside the
+	// verification task's call to maybeLoadFutureMessages.
+	//
+	// That commit calls startRound, which calls maybeLoadFutureMessages again (nested) and dispatches
+	// the parked proposal for round 1. When the nested call returns, the outer maybeLoadFutureMessages
+	// notices the round changed and iterates again, but the parked proposal is still in the map,
+	// because it is only removed from the map by the verification task, so it
+	// dispatches the task to verify the very same proposal a second time.
+	// The result is two verification tasks for one block: the second one re-verifies an already
+	// verified block and fails to store the proposal because the round already exists.
+	nodes := make([]NodeID, 10)
+	for i := range nodes {
+		nodes[i] = NodeID{byte(i + 1)}
+	}
+	// The epoch node leads only round 9, so it never proposes any of the blocks used here.
+	epochNode := LeaderForRound(nodes, 9)
+	quorum := Quorum(len(nodes))
+	blacklist := Blacklist{NodeCount: uint16(len(nodes)), SuspectedNodes: SuspectedNodes{}, Updates: []BlacklistUpdate{}}
+
+	bb := testutil.NewTestBlockBuilder()
+	comm := &recordingComm{
+		Communication:     testutil.NewNoopComm(NodeIDs(nodes)),
+		SentMessages:      make(chan *Message, 1000),
+		BroadcastMessages: make(chan *Message, 1000),
+	}
+	conf, _, storage := testutil.DefaultTestNodeEpochConfig(t, epochNode, comm, bb)
+	conf.ReplicationEnabled = true
+
+	// Count, by log message, how the proposals are dispatched and verified.
+	var scheduledVerifications, repeatedVerifications, rejectedProposals, finalizationsToReplication atomic.Int32
+	l := conf.Logger.(*testutil.TestLogger)
+	l.Intercept(func(entry zapcore.Entry) error {
+		switch {
+		case entry.Message == "Scheduling block verification":
+			scheduledVerifications.Add(1)
+		case strings.Contains(entry.Message, "Attempted to verify an already verified block"):
+			repeatedVerifications.Add(1)
+		case strings.Contains(entry.Message, "Already received block for round"):
+			rejectedProposals.Add(1)
+		case strings.Contains(entry.Message, "Received finalization for a pending or future round"):
+			finalizationsToReplication.Add(1)
+		}
+		return nil
+	})
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	e.ReplicationEnabled = true
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+
+	// Two blocks: block 0 (round 0, led by node 1) and block 1 (round 1, led by node 2).
+	blocks := make([]*testutil.TestBlock, 2)
+	var prev Digest
+	for i := uint64(0); i < 2; i++ {
+		blocks[i] = testutil.NewTestBlock(ProtocolMetadata{Round: i, Seq: i, Prev: prev}, blacklist)
+		prev = blocks[i].BlockHeader().Digest
+	}
+	// Hold block 0 inside Verify so the finalization for it arrives while it is still being verified.
+	block0Verifying := make(chan struct{})
+	blocks[0].VerificationDelay = block0Verifying
+
+	for i := uint64(0); i < 2; i++ {
+		leader := LeaderForRound(nodes, i)
+		vote, err := testutil.NewTestVote(blocks[i], leader)
+		require.NoError(t, err)
+		require.NoError(t, e.HandleMessage(&Message{
+			BlockMessage: &BlockMessage{Block: blocks[i], Vote: *vote},
+		}, leader))
+	}
+
+	// Block 0 cannot be stored before its Verify returns, so this finalization is guaranteed to find
+	// no round object and to be parked in the future messages map for the verification task to consume.
+	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Validators())
+	finalization0, _ := testutil.NewFinalizationRecord(t, sigAggr, blocks[0], nodes[:quorum])
+	require.NoError(t, e.HandleMessage(&Message{Finalization: &finalization0}, nodes[0]))
+	require.Zero(t, finalizationsToReplication.Load(), "the finalization should have been parked, not handed to replication")
+
+	// Release block 0. Its verification task stores the proposal, consumes the parked finalization,
+	// commits block 0 and starts round 1 - all inside the same task.
+	close(block0Verifying)
+	storage.WaitForBlockCommit(0)
+
+	// Wait for the round 1 proposal to be verified and voted on, which is the end of its verification task.
+	require.Eventually(t, func() bool {
+		for {
+			select {
+			case msg := <-comm.BroadcastMessages:
+				if msg.VoteMessage != nil && msg.VoteMessage.Vote.Round == 1 {
+					return true
+				}
+			default:
+				return false
+			}
+		}
+	}, 5*time.Second, 10*time.Millisecond, "the epoch should vote on the round 1 proposal")
+
+	// Give any extra, spurious verification task a chance to run before checking the counters.
+	require.Never(t, func() bool {
+		return repeatedVerifications.Load() > 0 || rejectedProposals.Load() > 0
+	}, 500*time.Millisecond, 50*time.Millisecond,
+		"the round 1 proposal was dispatched for verification more than once: "+
+			"re-verified an already verified block, then failed to store it because the round already exists")
+
+	// One verification per block: block 0 and block 1.
+	require.EqualValues(t, 2, scheduledVerifications.Load(), "each proposal should be scheduled for verification exactly once")
+
+	// Sanity: the parked-and-consumed path still commits when the finalization for round 1 arrives.
+	finalization1, _ := testutil.NewFinalizationRecord(t, sigAggr, blocks[1], nodes[:quorum])
+	require.NoError(t, e.HandleMessage(&Message{Finalization: &finalization1}, nodes[0]))
+	storage.WaitForBlockCommit(1)
+}
