@@ -253,34 +253,6 @@ func (m *testStorage) GetBlock(seq uint64) (metadata.StateMachineBlock, *common.
 	return parsed.Clone(), &fin, nil
 }
 
-// newChainStorage builds and indexes the minimum chain a node can start from: genesis plus
-// epoch 1's defining block, which carries the descriptor naming the epoch's validator set.
-// It returns the storage and the epoch-defining block at its tip.
-func newChainStorage(t *testing.T, validators metadata.NodeBLSMappings) (*testStorage, metadata.StateMachineBlock) {
-	storage := newTestStorageWithGenesis(t)
-	genesis, _, err := storage.GetBlock(0)
-	require.NoError(t, err)
-
-	epochBlock := metadata.StateMachineBlock{
-		InnerBlock: &testInnerBlock{Height_: 1, TS: epochBlockTime, Payload: []byte("epoch")},
-		Metadata: metadata.StateMachineMetadata{
-			Timestamp:               uint64(epochBlockTime.UnixMilli()),
-			SimplexProtocolMetadata: common.ProtocolMetadata{Epoch: 1, Round: 1, Seq: 1, Prev: common.Digest(genesis.Digest())},
-			SimplexEpochInfo: metadata.SimplexEpochInfo{
-				EpochNumber: 1,
-				BlockValidationDescriptor: &metadata.BlockValidationDescriptor{
-					AggregatedMembership: metadata.AggregatedMembership{Members: validators},
-				},
-			},
-		},
-	}
-
-	block := &ParsedBlock{StateMachineBlock: epochBlock.Clone()}
-	finalization, _ := testutil.NewFinalizationRecord(t, &testutil.TestSignatureAggregator{N: len(validators)}, block, validators.NodeIDs())
-	require.NoError(t, storage.Index(context.Background(), block, finalization))
-	return storage, epochBlock
-}
-
 type walCreator struct {
 	t *testing.T
 
@@ -347,7 +319,7 @@ type inflightMessage struct {
 }
 
 type instanceComm struct {
-	c *network
+	n *network
 	// id is the node this comm belongs to, reported as the sender of every message it sends.
 	id common.NodeID
 
@@ -361,16 +333,16 @@ type instanceComm struct {
 
 const maxInFlightMessages = 10000
 
-func newInstanceComm(c *network, id common.NodeID) *instanceComm {
+func newInstanceComm(n *network, id common.NodeID) *instanceComm {
 	return &instanceComm{
-		c:      c,
+		n:      n,
 		id:     id,
 		queue:  make(chan inflightMessage, maxInFlightMessages),
 		closed: make(chan struct{}),
 	}
 }
 
-// start launches the delivery loop. It must be called before the comm sends anything.
+// start allows messages to be processed
 func (i *instanceComm) start() {
 	i.wg.Add(1)
 	i.wg.Go(func() {
@@ -386,7 +358,7 @@ func (i *instanceComm) run() {
 		case <-i.closed:
 			return
 		case m := <-i.queue:
-			require.NoError(i.c.t, m.to.HandleMessage(m.msg, m.from))
+			require.NoError(i.n.t, m.to.HandleMessage(m.msg, m.from))
 		}
 	}
 }
@@ -402,21 +374,21 @@ func (i *instanceComm) enqueue(m inflightMessage) {
 	select {
 	case i.queue <- m:
 	default:
-		i.c.t.Errorf("node %x dropped a message, queue is full at %d", i.id, maxInFlightMessages)
+		i.n.t.Errorf("node %x dropped a message, queue is full at %d", i.id, maxInFlightMessages)
 	}
 }
 
 func (c *instanceComm) Send(msg *common.Message, destination common.NodeID) {
-	for _, n := range c.c.nodesSnapshot() {
+	for _, n := range c.n.nodesSnapshot() {
 		if !bytes.Equal(n.id, destination) {
 			continue
 		}
 
-		require.NotNil(c.c.t, n.inst, "node %x was sent a message before it was created", destination)
+		require.NotNil(c.n.t, n.inst, "node %x was sent a message before it was created", destination)
 		c.enqueue(inflightMessage{
 			to:   n.inst,
 			from: c.id,
-			msg:  translateOutgoingToIncomingMessage(c.c.t, msg),
+			msg:  translateOutgoingToIncomingMessage(c.n.t, msg),
 		})
 		return
 	}
@@ -424,16 +396,16 @@ func (c *instanceComm) Send(msg *common.Message, destination common.NodeID) {
 
 func (c *instanceComm) Broadcast(msg *common.Message) {
 	// every node in the network but ourselves, each with its own re-parsed copy
-	for _, n := range c.c.nodesSnapshot() {
+	for _, n := range c.n.nodesSnapshot() {
 		if bytes.Equal(n.id, c.id) {
 			continue
 		}
 
-		require.NotNil(c.c.t, n.inst, "node %x was sent a message before it was created", n.id)
+		require.NotNil(c.n.t, n.inst, "node %x was sent a message before it was created", n.id)
 		c.enqueue(inflightMessage{
 			to:   n.inst,
 			from: c.id,
-			msg:  translateOutgoingToIncomingMessage(c.c.t, msg),
+			msg:  translateOutgoingToIncomingMessage(c.n.t, msg),
 		})
 	}
 }
@@ -580,12 +552,37 @@ func noopICMTransition(_ metadata.ICMEpochInput) metadata.ICMEpochInfo {
 
 type node struct {
 	t       *testing.T
+	net     *network
 	id      common.NodeID
 	vm      *blockBuilderVM
 	inst    *Instance
 	storage *testStorage
 	comm    *instanceComm
 	wals    *walCreator
+}
+
+// start starts the node's instance and blocks until it commits the network's latest tip.
+func (n *node) start() *node {
+	ctx, cancel := context.WithCancel(context.Background())
+	n.t.Cleanup(cancel)
+
+	n.comm.start()
+	require.NoError(n.t, n.inst.Start(ctx))
+	n.t.Cleanup(n.stop)
+
+	return n
+}
+
+// stop stops the instance, then drains the messages the node was sending.
+func (n *node) stop() {
+	n.inst.Stop()
+	n.comm.stop()
+}
+
+// sync syncs a node by waiting for the commit of the latest sequence.
+func (n *node) sync() *node {
+	n.storage.WaitForBlockCommit(n.net.seq - 1)
+	return n
 }
 
 // role reports whether the node is running a validator rather than a non-validator.
@@ -595,6 +592,8 @@ func (n *node) role() (isValidator bool) {
 
 	return n.inst.e != nil
 }
+
+const firstEverEpoch uint64 = 1
 
 type network struct {
 	t *testing.T
@@ -623,7 +622,7 @@ func newNetwork(t *testing.T, pChain *testPlatformChain) *network {
 	validatorSets := make(map[uint64]common.Nodes)
 	genesisNodes := pChain.GenesisValidatorSet().Nodes()
 	common.SortNodes(genesisNodes)
-	validatorSets[1] = genesisNodes
+	validatorSets[firstEverEpoch] = genesisNodes
 
 	return &network{
 		t:             t,
@@ -634,7 +633,7 @@ func newNetwork(t *testing.T, pChain *testPlatformChain) *network {
 		// Genesis at seq 0. Then first simplex block is built automatically
 		// without a build block notification
 		seq:   2,
-		epoch: 1,
+		epoch: firstEverEpoch,
 	}
 }
 
@@ -646,19 +645,12 @@ type nodeConfig struct {
 	wals []wal.DeletableWAL
 }
 
-// addNode adds a node to the network and blocks until it catches up with the latest tip
+// addNode creates a node in the network without starting its instance. Call node.start to run it.
 func (n *network) addNode(id common.NodeID) *node {
-	node := n.addNodeWithConfig(id, nodeConfig{})
-	node.storage.WaitForBlockCommit(n.seq - 1)
-	return node
+	return n.addNodeWithConfig(id, nodeConfig{})
 }
 
-// addNodeWithStorage adds a node that starts from the given storage.
-func (n *network) addNodeWithStorage(id common.NodeID, storage *testStorage) *node {
-	return n.addNodeWithConfig(id, nodeConfig{storage: storage})
-}
-
-// addNodeWithConfig adds a node built from the given config.
+// addNodeWithConfig creates a node built from the given config, leaving it stopped.
 func (n *network) addNodeWithConfig(id common.NodeID, cfg nodeConfig) *node {
 	storage := cfg.storage
 	if storage == nil {
@@ -693,6 +685,7 @@ func (n *network) addNodeWithConfig(id common.NodeID, cfg nodeConfig) *node {
 
 	node := node{
 		t:       n.t,
+		net:     n,
 		id:      id,
 		storage: storage,
 		comm:    comm,
@@ -705,16 +698,7 @@ func (n *network) addNodeWithConfig(id common.NodeID, cfg nodeConfig) *node {
 	n.nodes = append(n.nodes, node)
 	n.lock.Unlock()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	n.t.Cleanup(cancel)
-
-	comm.start()
-	n.t.Cleanup(comm.stop)
-
-	require.NoError(n.t, node.inst.Start(ctx))
-	n.t.Cleanup(node.inst.Stop)
-
-	instance.Config.Logger.Debug("Added a node to the test network", zap.Uint64("Seq", n.seq), zap.Uint64("num block", node.storage.NumBlocks()))
+	instance.Config.Logger.Debug("Created a node in the test network", zap.Uint64("Seq", n.seq), zap.Uint64("num block", node.storage.NumBlocks()))
 	return &node
 }
 
@@ -733,6 +717,25 @@ func (n *network) waitUntilValidatorsReady() {
 		require.Eventually(n.t, node.role, time.Minute, time.Millisecond,
 			"node %x never started running a validator", node.id)
 	}
+}
+
+// sync blocks until every node has committed the block at the network's tip, requiring
+// that they all committed the same block and that it sits at n.seq - 1.
+func (n *network) sync() {
+	tip := n.seq - 1
+
+	var block common.VerifiedBlock
+	for _, node := range n.nodesSnapshot() {
+		committedBlock := node.storage.WaitForBlockCommit(tip)
+		if block == nil {
+			block = committedBlock
+			continue
+		}
+
+		require.Equal(n.t, block.Bytes(), committedBlock.Bytes())
+	}
+
+	require.Equal(n.t, tip, block.BlockHeader().Seq)
 }
 
 // acceptNewBlock blocks until every node has accepted a newly indexed block.

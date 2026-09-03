@@ -95,12 +95,12 @@ func TestNonValidatorSyncs(t *testing.T) {
 
 	pChain := newTestPChain(genesisSet)
 	network := newNetwork(t, pChain)
-	network.addNode(validator.NodeID[:])
+	network.addNode(validator.NodeID[:]).start()
 
 	network.acceptNewBlock()
 
 	nonValidator := newNodeMapping(2)
-	network.addNode(nonValidator.NodeID[:])
+	network.addNode(nonValidator.NodeID[:]).start()
 	network.acceptNewBlock()
 }
 
@@ -165,27 +165,24 @@ func TestValidator_ValidatorSetNotChanged(t *testing.T) {
 // TestValidatorValidatorSetDecreased tests that an epoch with two validators
 // is reduced to one, when the pchain height notes a validator is leaving.
 func TestValidatorValidatorSetDecreased(t *testing.T) {
-	validator := newNodeMapping(1)
-	leavingValidator := newNodeMapping(2)
+	validatorMapping := newNodeMapping(1)
+	leavingValidatorMapping := newNodeMapping(2)
 
-	genesisSet := []metadata.NodeBLSMapping{validator, leavingValidator}
+	genesisSet := []metadata.NodeBLSMapping{validatorMapping, leavingValidatorMapping}
 
 	pChain := newTestPChain(genesisSet)
 	network := newNetwork(t, pChain)
 
-	validatorStorage, _ := newChainStorage(t, genesisSet)
-	leavingValidatorStorage, _ := newChainStorage(t, genesisSet)
-
 	// starting from storage holding the first simplex block avoids
 	// blocking on a sync that needs a quorum online
-	network.addNodeWithStorage(validator.NodeID[:], validatorStorage)
-	network.addNodeWithStorage(leavingValidator.NodeID[:], leavingValidatorStorage)
+	network.addNode(validatorMapping.NodeID[:]).start()
+	network.addNode(leavingValidatorMapping.NodeID[:]).start().sync()
 
 	block, _ := network.acceptNewBlock()
-	require.Equal(t, uint64(2), block.BlockHeader().Round)
+	require.Equal(t, uint64(2), block.BlockHeader().Seq)
 
 	// initiate an epoch change
-	newValidatorSet := metadata.NodeBLSMappings{validator}
+	newValidatorSet := metadata.NodeBLSMappings{validatorMapping}
 	pChain.setValidatorSetAt(10, newValidatorSet)
 	pChain.advanceHeight(10)
 
@@ -209,13 +206,10 @@ func TestInstanceOfflineDuringTransition(t *testing.T) {
 	pChain := newTestPChain(genesisSet)
 	network := newNetwork(t, pChain)
 
-	v1Storage, _ := newChainStorage(t, genesisSet)
-	v2Storage, _ := newChainStorage(t, genesisSet)
-	v3Storage, _ := newChainStorage(t, genesisSet)
-
-	node1 := network.addNodeWithStorage(v1.NodeID[:], v1Storage)
-	network.addNodeWithStorage(v2.NodeID[:], v2Storage)
-	network.addNodeWithStorage(v3.NodeID[:], v3Storage)
+	node1 := network.addNode(v1.NodeID[:]).start()
+	network.addNode(v2.NodeID[:]).start()
+	network.addNode(v3.NodeID[:]).start()
+	network.sync()
 
 	// using seq should be fine since we have no empty blocks
 	leader := simplex.LeaderForRound(pChain.GenesisValidatorSet().NodeIDs(), network.seq)
@@ -245,14 +239,14 @@ func TestNonValidatorStaysNonValidator(t *testing.T) {
 	genesisSet := []metadata.NodeBLSMapping{validator1}
 	pChain := newTestPChain(genesisSet)
 	network := newNetwork(t, pChain)
-	network.addNode(validator1.NodeID[:])
+	network.addNode(validator1.NodeID[:]).start()
 
 	validator2 := newNodeMapping(2)
 	validator3 := newNodeMapping(3)
 	validator4 := newNodeMapping(4)
-	network.addNode(validator2.NodeID[:])
-	network.addNode(validator3.NodeID[:])
-	network.addNode(validator4.NodeID[:])
+	network.addNode(validator2.NodeID[:]).start().sync()
+	network.addNode(validator3.NodeID[:]).start().sync()
+	network.addNode(validator4.NodeID[:]).start().sync()
 
 	// we should have a quorum without the target node to create this epoch change
 	targetNodeNotInMiddleEpoch := metadata.NodeBLSMappings{validator1, validator2, validator3}
@@ -278,7 +272,7 @@ func TestNonValidatorStaysNonValidator(t *testing.T) {
 	network.waitUntilSealingBlock(targetNodeInHighestEpoch.Nodes())
 
 	// the target node should join now
-	network.addNode(targetNode.NodeID[:])
+	network.addNode(targetNode.NodeID[:]).start().sync()
 
 	// the target node must sign within a bounded number of blocks, otherwise it never rejoined
 	const maxBlocksUntilTargetSigns = 10
@@ -300,11 +294,11 @@ func TestInstanceValidatorSkipsAnEpoch(t *testing.T) {
 
 	pChain := newTestPChain(genesisSet)
 	network := newNetwork(t, pChain)
-	network.addNode(validator.NodeID[:])
+	network.addNode(validator.NodeID[:]).start().sync()
 
 	// The non-validator node syncs the accepted blocks and then contributes to the next blocks
 	onOffValidator := newNodeMapping(2)
-	network.addNode(onOffValidator.NodeID[:])
+	network.addNode(onOffValidator.NodeID[:]).start().sync()
 
 	// initiate an epoch change
 	newValidatorSet := metadata.NodeBLSMappings{validator, onOffValidator}
@@ -335,7 +329,7 @@ func TestInstanceDoubleStartFails(t *testing.T) {
 
 	pChain := newTestPChain(genesisSet)
 	network := newNetwork(t, pChain)
-	node := network.addNode(validator.NodeID[:])
+	node := network.addNode(validator.NodeID[:]).start()
 	require.ErrorIs(t, node.inst.Start(t.Context()), errAlreadyStarted)
 }
 
@@ -346,11 +340,13 @@ func TestNonValidatorSkipsMSMVerification(t *testing.T) {
 	genesisValidatorSet := []metadata.NodeBLSMapping{validator}
 	pChain := newTestPChain(genesisValidatorSet)
 
-	// The non-validator holds genesis plus epoch 1's defining block, and lives on a network
-	// of its own, so the replication response below is the only way it can learn a block.
-	storage, parent := newChainStorage(t, genesisValidatorSet)
 	nonValidator := newNodeMapping(2)
-	nonValidatorNode := newNetwork(t, pChain).addNodeWithStorage(nonValidator.NodeID[:], storage)
+	network := newNetwork(t, pChain)
+	network.addNode(validator.NodeID[:]).start().sync()
+	nonValidatorNode := network.addNode(nonValidator.NodeID[:]).start().sync()
+
+	parent, _, err := nonValidatorNode.storage.GetBlock(1)
+	require.NoError(t, err)
 
 	// A block whose only defect is its state machine transition: its timestamp precedes its
 	// parent's.
@@ -372,8 +368,8 @@ func TestNonValidatorSkipsMSMVerification(t *testing.T) {
 	}, validator.NodeID[:]))
 
 	// It commits the block its state machine would have rejected.
-	storage.WaitForBlockCommit(2)
-	committed, _, err := storage.GetBlock(2)
+	nonValidatorNode.storage.WaitForBlockCommit(2)
+	committed, _, err := nonValidatorNode.storage.GetBlock(2)
 	require.NoError(t, err)
 	require.Equal(t, invalid.Digest(), committed.Digest())
 }
@@ -433,9 +429,14 @@ func TestValidatorSkipsMSMVerificationWhenReplicating(t *testing.T) {
 			// The lagging validator holds genesis plus epoch 1's defining block, and lives on
 			// a network of its own, so the replication response below is the only way it can
 			// learn the block at the round it sits on.
-			storage, parent := newChainStorage(t, validators)
-			laggingNode := newNetwork(t, pChain).addNodeWithStorage(lagging.NodeID[:], storage)
 
+			network := newNetwork(t, pChain)
+			network.addNode(peer.NodeID[:]).start()
+			laggingNode := network.addNode(lagging.NodeID[:]).start()
+			network.sync()
+
+			parent, _, err := laggingNode.storage.GetBlock(1)
+			require.NoError(t, err)
 			// A block whose only defect is its state machine transition: its timestamp
 			// precedes its parent's.
 			invalid := metadata.StateMachineBlock{
