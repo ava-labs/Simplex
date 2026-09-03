@@ -106,7 +106,6 @@ type Epoch struct {
 	validatorNodeIDs               common.NodeIDs
 	validators                     common.Nodes
 	validatorsToPKs                map[string][]byte
-	pendingRounds                  map[uint64]struct{} // block messages that are verified and may create a new round object soon
 	rounds                         map[uint64]*Round
 	emptyVotes                     map[uint64]*EmptyVoteSet
 	oldestNotFinalizedNotarization NotarizationTime
@@ -224,7 +223,6 @@ func (e *Epoch) init() error {
 	e.timedOutRounds = make(map[uint16]uint64, len(e.validatorNodeIDs))
 	e.redeemedRounds = make(map[uint16]uint64, len(e.validatorNodeIDs))
 	e.rounds = make(map[uint64]*Round)
-	e.pendingRounds = make(map[uint64]struct{})
 	e.emptyVotes = make(map[uint64]*EmptyVoteSet)
 	e.futureMessages = make(messagesFromNode, len(e.validatorNodeIDs))
 	e.replicationState = NewReplicationState(e.Logger, e.Comm, e.ID, e.MaxRoundWindow, e.ReplicationEnabled, e.StartTime, &e.lock, e.RandomSource)
@@ -1915,15 +1913,14 @@ func (e *Epoch) handleBlockMessage(message *common.BlockMessage, from common.Nod
 		return nil
 	}
 
-	if e.isRoundPending(md.Round) {
-		e.Logger.Debug("Got block for a round that is pending", zap.Uint64("round", md.Round))
+	// If we are already processing a block for this round, reject the block while it is being processed.
+	if msgForRound, exists := e.futureMessages[string(from)][md.Round]; exists && msgForRound.proposalBeingProcessed {
+		e.Logger.Debug("Got block for a round that is being processed", zap.Uint64("round", md.Round))
 		return nil
 	}
 
 	// Create a task that will verify the block in the future, after its predecessors have also been verified.
-	blockVerificationTask := e.createBlockVerificationTask(e.oneTimeVerifier.Wrap(block), from, vote)
-	// Mark the round as pending and wrap the task with a task that will cleanup the pending round after the block verification task is executed.
-	task := e.markPendingRoundAndCleanupAfter(md.Round, blockVerificationTask)
+	task := e.createBlockVerificationTask(e.oneTimeVerifier.Wrap(block), from, vote)
 
 	prevBlockDependency, missingRounds := e.blockDependencies(md)
 
@@ -1956,24 +1953,6 @@ func (e *Epoch) handleBlockMessage(message *common.BlockMessage, from common.Nod
 	}
 
 	return nil
-}
-
-func (e *Epoch) isRoundPending(round uint64) bool {
-	_, exists := e.pendingRounds[round]
-	return exists
-}
-
-// markPendingRoundAndCleanupAfter marks a round as pending and returns a function that will clean up the pending round after the task is executed.
-func (e *Epoch) markPendingRoundAndCleanupAfter(round uint64, task common.Task) common.Task {
-	e.pendingRounds[round] = struct{}{}
-	return func() common.Digest {
-		defer func() {
-			e.lock.Lock()
-			defer e.lock.Unlock()
-			delete(e.pendingRounds, round)
-		}()
-		return task()
-	}
 }
 
 func (e *Epoch) sendMissingRoundsRequest(to common.NodeID, missingRounds []uint64) {
@@ -2173,6 +2152,8 @@ func (e *Epoch) createBlockVerificationTask(block common.Block, from common.Node
 		e.lock.Lock()
 		defer e.lock.Unlock()
 
+		e.deleteFutureProposal(from, md.Round)
+
 		if err != nil {
 			leader := LeaderForRound(e.validatorNodeIDs, md.Round)
 			e.Logger.Info("Triggering empty block agreement",
@@ -2183,8 +2164,6 @@ func (e *Epoch) createBlockVerificationTask(block common.Block, from common.Node
 			e.triggerEmptyBlockNotarization(md.Round)
 			return md.Digest
 		}
-
-		e.deleteFutureProposal(from, md.Round)
 
 		if !e.storeProposal(verifiedBlock) {
 			e.Logger.Debug("Unable to store proposed block for the round", zap.Stringer("NodeID", from), zap.Uint64("round", md.Round))
