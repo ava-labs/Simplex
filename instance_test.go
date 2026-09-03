@@ -22,10 +22,10 @@ func TestValidatorIndexes(t *testing.T) {
 	genesisSet := []metadata.NodeBLSMapping{validator}
 
 	pChain := newTestPChain(genesisSet)
-	chain := newNetwork(t, pChain)
-	chain.addNode(validator.NodeID[:])
+	network := newNetwork(t, pChain)
+	network.addNode(validator.NodeID[:]).start().sync()
 
-	chain.acceptNewBlock()
+	network.acceptNewBlock()
 }
 
 // emptyVoteRecorder signals the first empty vote broadcast and drops all other traffic.
