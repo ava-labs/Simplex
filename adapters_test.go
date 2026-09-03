@@ -110,6 +110,47 @@ func TestCachedStorageRetrieve(t *testing.T) {
 	}
 }
 
+// TestCallbackStorageReportsTelockSkip asserts that CallbackStorage reports the skip when it
+// declines to persist a Telock, rather than returning a nil error.
+//
+// A nil error from Index means the block is durable at its sequence, and the consensus engine
+// commits its in-memory state (its last committed block and its round) on that basis. Reporting
+// success for a Telock, which is never persisted, would leave that state pointing at a block
+// absent from storage, permanently out of step with NumBlocks(), while the block that does
+// belong at the sequence can no longer be committed.
+func TestCallbackStorageReportsTelockSkip(t *testing.T) {
+	var indexed []uint64
+	cs := NewCachedStorage(NewMockStorage(t))
+	storage := NewCallbackStorage(cs, nil, func(block *ParsedBlock) error {
+		indexed = append(indexed, block.BlockHeader().Seq)
+		return nil
+	})
+
+	// A normal block is persisted and the callback runs.
+	require.NoError(t, storage.Index(t.Context(), newTestParsedBlock(0, "normal"), common.Finalization{}))
+	require.Equal(t, uint64(1), storage.NumBlocks())
+	require.Equal(t, []uint64{0}, indexed)
+
+	// A Telock only extends its epoch until the sealing block finalizes, so it is never persisted.
+	telock := newTestParsedBlock(1, "telock")
+	telock.Metadata.SimplexEpochInfo.SealingBlockSeq = 1
+	require.Equal(t, metadata.BlockTypeTelock, telock.Type())
+
+	err := storage.Index(t.Context(), telock, common.Finalization{})
+	require.ErrorIs(t, err, common.ErrBlockNotIndexed, "declining to persist a Telock must be reported, not hidden behind a nil error")
+	require.Equal(t, uint64(1), storage.NumBlocks(), "the Telock must not be persisted")
+	require.Equal(t, []uint64{0}, indexed, "the post-index callback must not run for a block that was not indexed")
+
+	// The Telock stays retrievable by digest: its epoch is still being extended.
+	cachedTelock := &cachedBlock{ParsedBlock: telock, cache: cs}
+	_, err = cachedTelock.Verify(t.Context(), common.OnlyVMVerifyOpt)
+	require.NoError(t, err)
+	require.ErrorIs(t, storage.Index(t.Context(), telock, common.Finalization{}), common.ErrBlockNotIndexed)
+	got, _, err := cs.Retrieve(1, telock.Digest())
+	require.NoError(t, err)
+	require.Equal(t, telock.BlockHeader().Digest, got.BlockHeader().Digest)
+}
+
 // TestCachedStorageIndexEvictsSameSeqFork asserts that once a seq is indexed,
 // a zero-digest Retrieve of that seq returns the finalized block with its
 // finalization, even when a verified fork at the same seq was cached.

@@ -6,6 +6,7 @@ package nonvalidator
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"math/rand/v2"
 	"sync"
@@ -265,6 +266,19 @@ func (n *NonValidator) newFinalizedBlockTask(block common.Block, finalization *c
 		}
 
 		if err := n.Storage.Index(n.ctx, verifiedBlock, *finalization); err != nil {
+			// The storage may deliberately decline to persist a block. That is not a failure,
+			// but the block is not committed either: nextSeqToCommit has not advanced, so we
+			// must not act as if this sequence is now accepted.
+			if errors.Is(err, common.ErrBlockNotIndexed) {
+				n.Logger.Info("Storage declined to index block, not committing it", zap.Uint64("Block Seq", md.Seq), zap.Stringer("Block Digest", md.Digest), zap.Error(err))
+				// This block will never be persisted, so drop what we hold for its sequence and
+				// ask for that sequence again. Keeping it would make us reject the block that does
+				// belong there as a duplicate, and treat its finalization as conflicting with the
+				// one we hold - which halts us.
+				delete(n.incompleteSequences, md.Seq)
+				n.sequenceReplicator.ResendFinalizationRequest(md.Seq, finalization.QC.Signers())
+				return md.Digest
+			}
 			n.haltedError = err
 			n.Logger.Info("Failed indexing a block and finalization", zap.Uint64("Block Seq", md.Seq), zap.Stringer("Block Digest", md.Digest), zap.Error(err))
 			return md.Digest

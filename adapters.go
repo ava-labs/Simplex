@@ -79,8 +79,15 @@ func (s *CallbackStorage) Index(ctx context.Context, block common.VerifiedBlock,
 	}
 
 	// A Telock only extends time until the epoch transition finalizes, so we never index it.
+	// Report the skip instead of a nil error: a nil error means the block is durable at its
+	// sequence, and the consensus engine advances its commit state (lastBlock, round) on it.
+	// Returning nil here would leave that state pointing at a block that is not, and never
+	// will be, in storage, permanently desynchronizing it from NumBlocks().
+	// The block is deliberately left in the CachedStorage cache, since a Telock must remain
+	// retrievable by digest for as long as its epoch is being extended.
 	if pb.Type() == metadata.BlockTypeTelock {
-		return nil
+		return fmt.Errorf("%w: Telocks are never persisted (seq %d, round %d)",
+			common.ErrBlockNotIndexed, block.BlockHeader().Seq, block.BlockHeader().Round)
 	}
 
 	if err := s.CachedStorage.Index(ctx, block, certificate); err != nil {
