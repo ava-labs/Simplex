@@ -395,42 +395,101 @@ func verifiedQuorumRoundToQuorumRound(t *testing.T, vqr common.VerifiedQuorumRou
 	return qr
 }
 
+type inflightMessage struct {
+	to   *Instance
+	from common.NodeID
+	msg  *common.Message
+}
+
 type instanceComm struct {
 	c *network
 	// id is the node this comm belongs to, reported as the sender of every message it sends.
 	id common.NodeID
+
+	queue chan inflightMessage
+
+	// closed is shut by stop, releasing run and any pending enqueue.
+	closed    chan struct{}
+	closeOnce sync.Once
+	wg        sync.WaitGroup
 }
 
+const maxInFlightMessages = 10000
+
 func newInstanceComm(c *network, id common.NodeID) *instanceComm {
-	return &instanceComm{c: c, id: id}
+	return &instanceComm{
+		c:      c,
+		id:     id,
+		queue:  make(chan inflightMessage, maxInFlightMessages),
+		closed: make(chan struct{}),
+	}
+}
+
+// start launches the delivery loop. It must be called before the comm sends anything.
+func (i *instanceComm) start() {
+	i.wg.Add(1)
+	i.wg.Go(func() {
+		defer i.wg.Done()
+		i.run()
+	})
+}
+
+// run sends queued messages one at a time until stop is called.
+func (i *instanceComm) run() {
+	for {
+		select {
+		case <-i.closed:
+			return
+		case m := <-i.queue:
+			require.NoError(i.c.t, m.to.HandleMessage(m.msg, m.from))
+		}
+	}
+}
+
+// stop stops message sending and waits for the in-flight message to finish.
+func (i *instanceComm) stop() {
+	i.closeOnce.Do(func() { close(i.closed) })
+	i.wg.Wait()
+}
+
+// enqueue adds a message to be sent
+func (i *instanceComm) enqueue(m inflightMessage) {
+	select {
+	case i.queue <- m:
+	default:
+		i.c.t.Errorf("node %x dropped a message, queue is full at %d", i.id, maxInFlightMessages)
+	}
 }
 
 func (c *instanceComm) Send(msg *common.Message, destination common.NodeID) {
-	// loop through all nodes in chain directly send to handle message directly via but do it in a separate go routine
 	for _, n := range c.c.nodesSnapshot() {
 		if !bytes.Equal(n.id, destination) {
 			continue
 		}
 
-		go func(dst *Instance) {
-			require.NotNil(c.c.t, dst, "node %x was sent a message before it was created", destination)
-			require.NoError(c.c.t, dst.HandleMessage(translateOutgoingToIncomingMessage(c.c.t, msg), c.id))
-		}(n.inst)
+		require.NotNil(c.c.t, n.inst, "node %x was sent a message before it was created", destination)
+		c.enqueue(inflightMessage{
+			to:   n.inst,
+			from: c.id,
+			msg:  translateOutgoingToIncomingMessage(c.c.t, msg),
+		})
 		return
 	}
 }
 
 func (c *instanceComm) Broadcast(msg *common.Message) {
-	// send to every node in the chain but ourselves, each on its own go routine
+	// every node in the network but ourselves, each with its own re-parsed copy
 	for _, n := range c.c.nodesSnapshot() {
 		if bytes.Equal(n.id, c.id) {
 			continue
 		}
 
-		go func(dst *Instance) {
-			require.NotNil(c.c.t, dst, "node %x was sent a message before it was created", n.id)
-			require.NoError(c.c.t, dst.HandleMessage(translateOutgoingToIncomingMessage(c.c.t, msg), c.id))
-		}(n.inst)
+		require.NotNil(c.c.t, n.inst, "node %x was sent a message before it was created", n.id)
+		c.enqueue(inflightMessage{
+			to:   n.inst,
+			from: c.id,
+			msg:  translateOutgoingToIncomingMessage(c.c.t, msg),
+		})
 	}
 }
 
@@ -702,6 +761,9 @@ func (n *network) addNodeWithConfig(id common.NodeID, cfg nodeConfig) *node {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	n.t.Cleanup(cancel)
+
+	comm.start()
+	n.t.Cleanup(comm.stop)
 
 	require.NoError(n.t, node.inst.Start(ctx))
 	n.t.Cleanup(node.inst.Stop)
