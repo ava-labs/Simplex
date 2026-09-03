@@ -300,7 +300,13 @@ func (sm *StateMachine) WaitForPendingBlock(ctx context.Context, currentRoundMet
 
 	parentBlock, finalization, err := sm.GetBlock(prevBlockSeq, currentRoundMetadata.Prev)
 	if err != nil {
-		sm.Logger.Debug("WaitForPendingBlock failed to get block", zap.Uint64("seq", prevBlockSeq), zap.Error(err))
+		sm.Logger.Debug(
+			"WaitForPendingBlock failed to get block",
+			zap.Uint64("Current Seq", currentRoundMetadata.Seq),
+			zap.Uint64("Current Round", currentRoundMetadata.Round),
+			zap.Uint64("seq", prevBlockSeq),
+			zap.Error(err),
+		)
 		sm.BlockBuilder.WaitForPendingBlock(ctx)
 		return
 	}
@@ -367,7 +373,13 @@ func (sm *StateMachine) WaitForPendingBlock(ctx context.Context, currentRoundMet
 	blockBuildingDecider := sm.createBlockBuildingDecider(pChainReferenceHeight)
 	_, err = blockBuildingDecider.shouldBuildBlock(ctx)
 	if err != nil {
-		sm.Logger.Debug("Error while deciding whether to build a block", zap.Error(err))
+		sm.Logger.Debug(
+			"Error while deciding whether to build a block",
+			zap.Uint64("Current Round", currentRoundMetadata.Round),
+			zap.Uint64("Current Seq", currentRoundMetadata.Seq),
+			zap.Stringer("Prev Digest", currentRoundMetadata.Prev),
+			zap.Error(err),
+		)
 		return
 	}
 }
