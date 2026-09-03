@@ -267,3 +267,119 @@ func TestSizeMatchesBytes(t *testing.T) {
 	require.Equal(t, len(emptyNotarization.Vote.Bytes())+len(emptyNotarization.QC.Bytes()), emptyNotarization.Size())
 
 }
+
+func TestVerifyQCConsistentWithBlock(t *testing.T) {
+	block := testutil.NewTestBlock(common.ProtocolMetadata{
+		Version: 1,
+		Epoch:   2,
+		Round:   5,
+		Seq:     4,
+		Prev:    common.Digest{7},
+	}, common.Blacklist{})
+	bh := block.BlockHeader()
+
+	finalization := func(bh common.BlockHeader) *common.Finalization {
+		return &common.Finalization{Finalization: common.ToBeSignedFinalization{BlockHeader: bh}}
+	}
+	notarization := func(bh common.BlockHeader) *common.Notarization {
+		return &common.Notarization{Vote: common.ToBeSignedVote{BlockHeader: bh}}
+	}
+	emptyNotarization := func(round uint64) *common.EmptyNotarization {
+		return &common.EmptyNotarization{Vote: common.ToBeSignedEmptyVote{EmptyVoteMetadata: common.EmptyVoteMetadata{Round: round, Epoch: bh.Epoch}}}
+	}
+	// mutateHeader returns the block's header with one field changed, so the digest still matches the block.
+	mutateHeader := func(mutate func(*common.BlockHeader)) common.BlockHeader {
+		mutated := bh
+		mutate(&mutated)
+		return mutated
+	}
+
+	tests := []struct {
+		name        string
+		qr          common.QuorumRound
+		expectedErr bool
+	}{
+		{
+			name: "finalization matches block",
+			qr:   common.QuorumRound{Block: block, Finalization: finalization(bh)},
+		},
+		{
+			name: "notarization matches block",
+			qr:   common.QuorumRound{Block: block, Notarization: notarization(bh)},
+		},
+		{
+			name: "notarization and empty notarization of the block's round",
+			qr:   common.QuorumRound{Block: block, Notarization: notarization(bh), EmptyNotarization: emptyNotarization(bh.Round)},
+		},
+		{
+			name: "empty notarization without block",
+			qr:   common.QuorumRound{EmptyNotarization: emptyNotarization(bh.Round)},
+		},
+		{
+			name:        "malformed: finalization without block",
+			qr:          common.QuorumRound{Finalization: finalization(bh)},
+			expectedErr: true,
+		},
+		{
+			name:        "finalization digest mismatch",
+			qr:          common.QuorumRound{Block: block, Finalization: finalization(mutateHeader(func(h *common.BlockHeader) { h.Digest = common.Digest{9} }))},
+			expectedErr: true,
+		},
+		{
+			name:        "finalization round mismatch",
+			qr:          common.QuorumRound{Block: block, Finalization: finalization(mutateHeader(func(h *common.BlockHeader) { h.Round++ }))},
+			expectedErr: true,
+		},
+		{
+			name:        "finalization seq mismatch",
+			qr:          common.QuorumRound{Block: block, Finalization: finalization(mutateHeader(func(h *common.BlockHeader) { h.Seq++ }))},
+			expectedErr: true,
+		},
+		{
+			name:        "finalization epoch mismatch",
+			qr:          common.QuorumRound{Block: block, Finalization: finalization(mutateHeader(func(h *common.BlockHeader) { h.Epoch++ }))},
+			expectedErr: true,
+		},
+		{
+			name:        "finalization prev mismatch",
+			qr:          common.QuorumRound{Block: block, Finalization: finalization(mutateHeader(func(h *common.BlockHeader) { h.Prev = common.Digest{8} }))},
+			expectedErr: true,
+		},
+		{
+			name:        "finalization version mismatch",
+			qr:          common.QuorumRound{Block: block, Finalization: finalization(mutateHeader(func(h *common.BlockHeader) { h.Version++ }))},
+			expectedErr: true,
+		},
+		{
+			name:        "notarization digest mismatch",
+			qr:          common.QuorumRound{Block: block, Notarization: notarization(mutateHeader(func(h *common.BlockHeader) { h.Digest = common.Digest{9} }))},
+			expectedErr: true,
+		},
+		{
+			name:        "notarization round mismatch",
+			qr:          common.QuorumRound{Block: block, Notarization: notarization(mutateHeader(func(h *common.BlockHeader) { h.Round++ }))},
+			expectedErr: true,
+		},
+		{
+			name:        "notarization seq mismatch",
+			qr:          common.QuorumRound{Block: block, Notarization: notarization(mutateHeader(func(h *common.BlockHeader) { h.Seq++ }))},
+			expectedErr: true,
+		},
+		{
+			name:        "empty notarization round mismatch",
+			qr:          common.QuorumRound{Block: block, Notarization: notarization(bh), EmptyNotarization: emptyNotarization(bh.Round + 1)},
+			expectedErr: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := test.qr.VerifyQCConsistentWithBlock()
+			if test.expectedErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
