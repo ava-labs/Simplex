@@ -91,6 +91,7 @@ type EpochConfig struct {
 type Epoch struct {
 	EpochConfig
 	// Runtime
+	blockBuilder                   common.BlockBuilder
 	epochSealed                    atomic.Bool
 	signatureAggregator            common.SignatureAggregator
 	oneTimeVerifier                *OneTimeVerifier
@@ -235,6 +236,11 @@ func (e *Epoch) init() error {
 	for _, node := range e.validatorNodeIDs {
 		e.futureMessages[string(node)] = make(map[uint64]*messagesForRound)
 	}
+	e.blockBuilder = &EmptyBlockBuilder{
+		ShouldBuildEmptyBlock: e.haveUnFinalizedButNotarizedSuffix,
+		Timeout:               e.MaxProposalWait,
+		BB:                    e.BlockBuilder,
+	}
 	err := e.loadLastBlock()
 	if err != nil {
 		return err
@@ -311,6 +317,20 @@ func (e *Epoch) Start() error {
 	e.broadcastReplicationSync()
 
 	return nil
+}
+
+func (e *Epoch) haveUnFinalizedButNotarizedSuffix(ctx context.Context) bool {
+	<-ctx.Done()
+
+	if errors.Is(context.Cause(ctx), common.ErrShouldBuildEmptyBlock) {
+		e.lock.Lock()
+		defer e.lock.Unlock()
+
+		r := e.getHighestRound()
+		return r != nil && r.finalization == nil
+	}
+
+	return false
 }
 
 func (e *Epoch) sequenceAlreadyIndexed(seq uint64) bool {
@@ -2595,17 +2615,20 @@ func (e *Epoch) createBlockBuildingTask(metadata common.ProtocolMetadata, blackl
 		}
 		e.lock.Unlock()
 
-		block, ok := e.BlockBuilder.BuildBlock(context, metadata, blacklist)
+		block, ok := e.blockBuilder.BuildBlock(context, metadata, blacklist)
 
 		e.lock.Lock()
 		defer e.lock.Unlock()
 
 		canceled := context.Err() != nil
 		cancel()
+
+		if canceled {
+			return common.Digest{}
+		}
+
 		if !ok {
-			if !canceled {
-				e.Logger.Debug("Failed building block")
-			}
+			e.Logger.Debug("Failed building block")
 			return common.Digest{}
 		}
 
@@ -2840,7 +2863,7 @@ func (e *Epoch) monitorProgress(round uint64) {
 		}
 
 		// This invocation blocks until the block builder tells us it's time to build a new block.
-		e.BlockBuilder.WaitForPendingBlock(ctx)
+		e.blockBuilder.WaitForPendingBlock(ctx)
 		// While we waited, a block might have been notarized.
 		// If so, then don't start monitoring for it being notarized.
 		if cancelled.Load() {
