@@ -61,9 +61,6 @@ var (
 	genesisBlock               = &testInnerBlock{Height_: genesisPChainHeight, TS: time.Now(), Payload: []byte("genesis")}
 )
 
-// epochBlockTime fixes the timestamp of the epoch-defining block
-// this ensures a consistent block digest
-var epochBlockTime = genesisBlock.TS.Add(time.Millisecond)
 var paramConfig = ParameterConfig{
 	MaxNetworkDelay: 200 * time.Millisecond,
 	MaxRoundWindow:  100,
