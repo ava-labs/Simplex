@@ -1910,6 +1910,11 @@ func (e *Epoch) handleBlockMessage(message *common.BlockMessage, from common.Nod
 		return nil
 	}
 
+	if !e.verifyProposalMetadataAndBlacklist(block) {
+		e.Logger.Debug("Got invalid block in a BlockMessage")
+		return nil
+	}
+
 	if e.isRoundPending(md.Round) {
 		e.Logger.Debug("Got block for a round that is pending", zap.Uint64("round", md.Round))
 		return nil
@@ -1919,11 +1924,6 @@ func (e *Epoch) handleBlockMessage(message *common.BlockMessage, from common.Nod
 	blockVerificationTask := e.createBlockVerificationTask(e.oneTimeVerifier.Wrap(block), from, vote)
 	// Mark the round as pending and wrap the task with a task that will cleanup the pending round after the block verification task is executed.
 	task := e.markPendingRoundAndCleanupAfter(md.Round, blockVerificationTask)
-
-	if !e.verifyProposalMetadataAndBlacklist(block) {
-		e.Logger.Debug("Got invalid block in a BlockMessage")
-		return nil
-	}
 
 	prevBlockDependency, missingRounds := e.blockDependencies(md)
 
