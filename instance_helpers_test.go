@@ -558,18 +558,6 @@ type node struct {
 	wals    *walCreator
 }
 
-// start starts the node's instance and blocks until it commits the network's latest tip.
-func (n *node) start() *node {
-	ctx, cancel := context.WithCancel(context.Background())
-	n.t.Cleanup(cancel)
-
-	n.comm.start()
-	require.NoError(n.t, n.inst.Start(ctx))
-	n.t.Cleanup(n.stop)
-
-	return n
-}
-
 // stop stops the instance, then drains the messages the node was sending.
 func (n *node) stop() {
 	n.inst.Stop()
@@ -642,12 +630,12 @@ type nodeConfig struct {
 	wals []wal.DeletableWAL
 }
 
-// addNode creates a node in the network without starting its instance. Call node.start to run it.
+// addNode creates and starts a node in the network.
 func (n *network) addNode(id common.NodeID) *node {
 	return n.addNodeWithConfig(id, nodeConfig{})
 }
 
-// addNodeWithConfig creates a node built from the given config, leaving it stopped.
+// addNodeWithConfig creates and starts a node built from the given config.
 func (n *network) addNodeWithConfig(id common.NodeID, cfg nodeConfig) *node {
 	storage := cfg.storage
 	if storage == nil {
@@ -696,6 +684,14 @@ func (n *network) addNodeWithConfig(id common.NodeID, cfg nodeConfig) *node {
 	n.lock.Unlock()
 
 	instance.Config.Logger.Debug("Created a node in the test network", zap.Uint64("Seq", n.seq), zap.Uint64("num block", node.storage.NumBlocks()))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	n.t.Cleanup(cancel)
+
+	comm.start()
+	require.NoError(n.t, instance.Start(ctx))
+	n.t.Cleanup(node.stop)
+
 	return &node
 }
 
