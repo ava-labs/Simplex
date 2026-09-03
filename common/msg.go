@@ -51,6 +51,29 @@ func (m *Message) IsReplicationMessage() bool {
 	}
 }
 
+// Epoch returns the epoch a consensus message declares and true. Messages that are
+// handled across epochs (replication and requests) return (0, false).
+func (m *Message) Epoch() (uint64, bool) {
+	switch {
+	case m.BlockMessage != nil:
+		return m.BlockMessage.Vote.Vote.Epoch, true
+	case m.VoteMessage != nil:
+		return m.VoteMessage.Vote.Epoch, true
+	case m.EmptyVoteMessage != nil:
+		return m.EmptyVoteMessage.Vote.Epoch, true
+	case m.Notarization != nil:
+		return m.Notarization.Vote.Epoch, true
+	case m.EmptyNotarization != nil:
+		return m.EmptyNotarization.Vote.Epoch, true
+	case m.FinalizeVote != nil:
+		return m.FinalizeVote.Finalization.Epoch, true
+	case m.Finalization != nil:
+		return m.Finalization.Finalization.Epoch, true
+	default:
+		return 0, false
+	}
+}
+
 type EmptyVoteMetadata struct {
 	Round uint64
 	Epoch uint64
@@ -317,6 +340,18 @@ func (q *QuorumRound) IsWellFormed() error {
 	}
 
 	return nil
+}
+
+func (q *QuorumRound) GetEpoch() uint64 {
+	if q.EmptyNotarization != nil {
+		return q.EmptyNotarization.Vote.Epoch
+	}
+
+	if q.Block != nil {
+		return q.Block.BlockHeader().Epoch
+	}
+
+	return 0
 }
 
 func (q *QuorumRound) GetRound() uint64 {
