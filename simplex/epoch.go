@@ -322,10 +322,12 @@ func (e *Epoch) Start() error {
 func (e *Epoch) haveUnFinalizedButNotarizedSuffix(ctx context.Context) bool {
 	<-ctx.Done()
 
-	_, ok := e.haveNotFinalizedNotarizedRound()
-
 	if errors.Is(context.Cause(ctx), common.ErrShouldBuildEmptyBlock) {
-		return ok
+		e.lock.Lock()
+		defer e.lock.Unlock()
+
+		r := e.getHighestRound()
+		return r != nil && r.finalization == nil
 	}
 
 	return false

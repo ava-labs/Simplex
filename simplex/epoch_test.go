@@ -2137,44 +2137,87 @@ func TestEpochVoteSentTwiceKeepsVerifiedVote(t *testing.T) {
 // has a notarized-but-not-finalized tip and no transactions are available, it proposes
 // an empty block instead of stalling.
 func TestNotarizedNotFinalizedTipCausesEmptyBlockProposal(t *testing.T) {
-	nodes := []NodeID{{1}, {2}, {3}, {4}}
-	// nodes[1] leads round 1, so once round 0 is notarized-but-not-finalized it must
-	// build the round-1 block itself.
-	require.Equal(t, nodes[1], LeaderForRound(nodes, 1))
+	for _, testCase := range []struct {
+		name            string
+		finalizedRounds []bool
+	}{
+		{
+			name:            "round 0 finalized, round 1 only notarized",
+			finalizedRounds: []bool{true, false},
+		},
+		{
+			name:            "round 0 finalized, round 1 only notarized, round 2 only notarized",
+			finalizedRounds: []bool{true, false, false},
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			nodes := []NodeID{{1}, {2}, {3}, {4}}
+			// Pick the node's ID such that it will be the leader in the next round.
+			nodeID := nodes[len(testCase.finalizedRounds)]
 
-	bb := testutil.NewTestControlledBlockBuilder(t)
-	recordingComm := &recordingComm{
-		Communication:     testutil.NewNoopComm(nodes),
-		BroadcastMessages: make(chan *Message, 100),
-		SentMessages:      make(chan *Message, 100),
-	}
-	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[1], recordingComm, bb)
-	conf.MaxProposalWait = 50 * time.Millisecond
-
-	e, err := NewEpoch(conf)
-	require.NoError(t, err)
-	t.Cleanup(e.Stop)
-	require.NoError(t, e.Start())
-
-	// Round 0 becomes notarized but is never finalized: a notarized-but-not-finalized tip.
-	notarizeRoundNotFinalized(t, e, nodes, 0)
-
-	// The node is now the leader of round 1, but we never trigger a real block. Because
-	// there is a notarized-but-not-finalized tip, after MaxProposalWait the empty-block
-	// builder makes it propose an empty block for round 1.
-	timeout := time.After(30 * time.Second)
-	var proposal *VerifiedBlockMessage
-	for proposal == nil {
-		select {
-		case msg := <-recordingComm.BroadcastMessages:
-			if msg.VerifiedBlockMessage != nil {
-				proposal = msg.VerifiedBlockMessage
+			bb := testutil.NewTestBlockBuilder()
+			recordingComm := &recordingComm{
+				Communication:     testutil.NewNoopComm(nodes),
+				BroadcastMessages: make(chan *Message, 100),
+				SentMessages:      make(chan *Message, 100),
 			}
-		case <-timeout:
-			require.FailNow(t, "timed out waiting for a block proposal")
-		}
+			conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodeID, recordingComm, bb)
+			conf.MaxProposalWait = 50 * time.Millisecond
+
+			e, err := NewEpoch(conf)
+			require.NoError(t, err)
+			t.Cleanup(e.Stop)
+			require.NoError(t, e.Start())
+
+			blocks := make(map[uint64]VerifiedBlock)
+
+			var proposedBlockSeq uint64
+
+			for r, finalized := range testCase.finalizedRounds {
+				if finalized {
+					notarizeAndFinalizeRound(t, e, bb)
+					continue
+				}
+				block := notarizeRoundNotFinalized(t, e, nodes, uint64(r))
+				blocks[uint64(r)] = block
+			}
+
+			// Because there is a notarized-but-not-finalized tip, after MaxProposalWait the empty-block
+			// builder makes it propose an empty block.
+			timeout := time.After(30 * time.Second)
+			var proposal *VerifiedBlockMessage
+			for proposal == nil {
+				select {
+				case msg := <-recordingComm.BroadcastMessages:
+					if msg.VerifiedBlockMessage != nil {
+						proposal = msg.VerifiedBlockMessage
+						proposedBlockSeq = proposal.VerifiedBlock.BlockHeader().Seq
+					}
+				case <-timeout:
+					require.FailNow(t, "timed out waiting for a block proposal")
+				}
+			}
+			require.Equal(t, uint64(len(testCase.finalizedRounds)), proposal.VerifiedBlock.BlockHeader().Round)
+			blocks[proposal.VerifiedBlock.BlockHeader().Round] = proposal.VerifiedBlock
+
+			testCase.finalizedRounds = append(testCase.finalizedRounds, false)
+
+			for r, finalized := range testCase.finalizedRounds {
+				if finalized {
+					continue
+				}
+
+				// Send finalize votes to the node for the notarized-but-not-finalized rounds,
+				// so that it can finalize them and advance to the next round.
+				for _, signer := range nodes {
+					testutil.InjectTestFinalizeVote(t, e, blocks[uint64(r)], signer)
+				}
+			}
+
+			// Make sure the empty block proposal is committed to storage
+			conf.Storage.(*testutil.InMemStorage).WaitForBlockCommit(proposedBlockSeq)
+		})
 	}
-	require.Equal(t, uint64(1), proposal.VerifiedBlock.BlockHeader().Round)
 }
 
 // TestNotarizedNotFinalizedTipStuckLeaderCausesEmptyNotarization verifies that
@@ -2182,40 +2225,60 @@ func TestNotarizedNotFinalizedTipCausesEmptyBlockProposal(t *testing.T) {
 // and no pending transactions, the node still times out and casts an empty vote for the
 // round.
 func TestNotarizedNotFinalizedTipStuckLeaderCausesEmptyNotarization(t *testing.T) {
-	nodes := []NodeID{{1}, {2}, {3}, {4}}
-	// nodes[2] is a follower for rounds 0 and 1; nodes[1] leads round 1 and stays stuck.
-	require.False(t, nodes[2].Equals(LeaderForRound(nodes, 0)))
-	require.False(t, nodes[2].Equals(LeaderForRound(nodes, 1)))
+	for _, testCase := range []struct {
+		name            string
+		finalizedRounds []bool
+	}{
+		{
+			name:            "round 0 finalized, round 1 only notarized",
+			finalizedRounds: []bool{true, false},
+		},
+		{
+			name:            "round 0 finalized, round 1 only notarized, round 2 only notarized",
+			finalizedRounds: []bool{true, false, false},
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			nodes := []NodeID{{1}, {2}, {3}, {4}}
 
-	bb := testutil.NewTestControlledBlockBuilder(t)
-	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[2], testutil.NewNoopComm(nodes), bb)
-	conf.MaxProposalWait = 50 * time.Millisecond
-	startTime := conf.StartTime
+			bb := testutil.NewTestBlockBuilder()
+			conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
+			conf.MaxProposalWait = 50 * time.Millisecond
+			startTime := conf.StartTime
 
-	e, err := NewEpoch(conf)
-	require.NoError(t, err)
-	t.Cleanup(e.Stop)
-	require.NoError(t, e.Start())
+			e, err := NewEpoch(conf)
+			require.NoError(t, err)
+			t.Cleanup(e.Stop)
+			require.NoError(t, e.Start())
 
-	// Round 0 becomes notarized but is never finalized: a notarized-but-not-finalized tip.
-	notarizeRoundNotFinalized(t, e, nodes, 0)
+			for r, finalized := range testCase.finalizedRounds {
+				if finalized {
+					notarizeAndFinalizeRound(t, e, bb)
+					continue
+				}
+				notarizeRoundNotFinalized(t, e, nodes, uint64(r))
+			}
 
-	// The node is now a follower in round 1 whose leader is stuck, with no pending
-	// transactions. The notarized-but-not-finalized tip must still make it time out and
-	// cast an empty vote for round 1.
-	testutil.WaitForBlockProposerTimeout(t, e, &startTime, 1)
-	wal.AssertEmptyVote(1)
+			nextRound := uint64(len(testCase.finalizedRounds))
 
-	// Its empty vote plus a quorum of others assembles an empty notarization for round 1.
-	for _, from := range []NodeID{nodes[0], nodes[1]} {
-		vote := ToBeSignedEmptyVote{EmptyVoteMetadata: EmptyVoteMetadata{Round: 1, Epoch: e.Epoch}}
-		sig, err := vote.Sign(&testutil.TestSigner{})
-		require.NoError(t, err)
-		ev := &EmptyVote{Vote: vote, Signature: Signature{Signer: from, Value: sig}}
-		require.NoError(t, e.HandleMessage(&Message{EmptyVoteMessage: ev}, from))
+			// The node is now a follower whose leader is stuck, with no pending
+			// transactions. The notarized-but-not-finalized tip must still make it time out and
+			// cast an empty vote for round 1.
+			testutil.WaitForBlockProposerTimeout(t, e, &startTime, nextRound)
+			wal.AssertEmptyVote(nextRound)
+
+			// Its empty vote plus a quorum of others assembles an empty notarization.
+			for _, from := range []NodeID{nodes[1], nodes[2]} {
+				vote := ToBeSignedEmptyVote{EmptyVoteMetadata: EmptyVoteMetadata{Round: nextRound, Epoch: e.Epoch}}
+				sig, err := vote.Sign(&testutil.TestSigner{})
+				require.NoError(t, err)
+				ev := &EmptyVote{Vote: vote, Signature: Signature{Signer: from, Value: sig}}
+				require.NoError(t, e.HandleMessage(&Message{EmptyVoteMessage: ev}, from))
+			}
+
+			require.Equal(t, EmptyNotarizationRecordType, wal.AssertNotarization(nextRound))
+		})
 	}
-
-	require.Equal(t, EmptyNotarizationRecordType, wal.AssertNotarization(1))
 }
 
 // notarizeRoundNotFinalized drives the epoch node (which must be a follower for the given
