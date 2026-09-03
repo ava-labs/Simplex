@@ -2314,3 +2314,78 @@ func notarizeRoundNotFinalized(t *testing.T, e *Epoch, nodes []NodeID, round uin
 	e.WAL.(*testutil.TestWAL).AssertNotarization(round)
 	return block
 }
+
+// TestEpochRejectsReplicatedQuorumRoundWithMismatchedHeader asserts that a replicated quorum round whose
+// notarization or finalization matches the block's digest but not the rest of its header is rejected before
+// anything is persisted: no block record and no notarization is written to the WAL, and no block is committed.
+// The genuine quorum round for the same block is then accepted.
+func TestEpochRejectsReplicatedQuorumRoundWithMismatchedHeader(t *testing.T) {
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	blacklist := Blacklist{NodeCount: uint16(len(nodes)), SuspectedNodes: SuspectedNodes{}, Updates: []BlacklistUpdate{}}
+
+	mutations := []struct {
+		name   string
+		mutate func(*BlockHeader)
+	}{
+		{name: "round", mutate: func(h *BlockHeader) { h.Round++ }},
+		{name: "seq", mutate: func(h *BlockHeader) { h.Seq++ }},
+		{name: "epoch", mutate: func(h *BlockHeader) { h.Epoch++ }},
+	}
+
+	for _, quorumType := range []string{"notarization", "finalization"} {
+		for _, m := range mutations {
+			t.Run(quorumType+" with mismatched "+m.name, func(t *testing.T) {
+				// Our node leads round 3 only, so it neither proposes the block below nor builds one after it.
+				conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[3], testutil.NewNoopComm(nodes), testutil.NewTestBlockBuilder())
+				conf.ReplicationEnabled = true
+				e, err := NewEpoch(conf)
+				require.NoError(t, err)
+				require.NoError(t, e.Start())
+				t.Cleanup(e.Stop)
+
+				block := testutil.NewTestBlock(ProtocolMetadata{Round: 0, Seq: 0}, blacklist)
+				sigAggr := e.SignatureAggregatorCreator(conf.Comm.Validators())
+				notarization, err := testutil.NewNotarization(e.Logger, sigAggr, block, nodes)
+				require.NoError(t, err)
+				finalization, _ := testutil.NewFinalizationRecord(t, sigAggr, block, nodes)
+
+				// The quorum certificate refers to the block's digest, but one header field disagrees with the block.
+				mismatched := QuorumRound{Block: block}
+				genuine := QuorumRound{Block: block}
+				if quorumType == "notarization" {
+					bad := notarization
+					m.mutate(&bad.Vote.BlockHeader)
+					mismatched.Notarization = &bad
+					genuine.Notarization = &notarization
+				} else {
+					bad := finalization
+					m.mutate(&bad.Finalization.BlockHeader)
+					mismatched.Finalization = &bad
+					genuine.Finalization = &finalization
+				}
+
+				replicate := func(qr QuorumRound) {
+					require.NoError(t, e.HandleMessage(&Message{
+						ReplicationResponse: &ReplicationResponse{Data: []QuorumRound{qr}},
+					}, nodes[0]))
+				}
+
+				replicate(mismatched)
+				require.Never(t, func() bool {
+					records, err := wal.ReadAll()
+					require.NoError(t, err)
+					return len(records) > 0 || storage.NumBlocks() > 0
+				}, 500*time.Millisecond, 50*time.Millisecond,
+					"a %s whose %s does not match the block was persisted", quorumType, m.name)
+
+				// The same block with its genuine quorum certificate is accepted.
+				replicate(genuine)
+				if quorumType == "notarization" {
+					wal.AssertNotarization(block.Metadata.Round)
+				} else {
+					storage.WaitForBlockCommit(block.Metadata.Seq)
+				}
+			})
+		}
+	}
+}

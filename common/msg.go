@@ -349,22 +349,30 @@ func (q *QuorumRound) VerifyQCConsistentWithBlock() error {
 	}
 
 	// if an empty notarization is included, ensure the round is equal to the block round
-	if q.EmptyNotarization != nil && q.EmptyNotarization.Vote.Round != q.Block.BlockHeader().Round {
+	header := q.Block.BlockHeader()
+
+	if q.EmptyNotarization != nil && q.EmptyNotarization.Vote.Round != header.Round {
 		return fmt.Errorf("empty round does not match block round")
 	}
 
 	// ensure the finalization or notarization we get relates to the block
-	blockDigest := q.Block.BlockHeader().Digest
+	blockDigest := header.Digest
 
 	if q.Finalization != nil {
 		if !bytes.Equal(blockDigest[:], q.Finalization.Finalization.Digest[:]) {
-			return fmt.Errorf("finalization does not match the block")
+			return fmt.Errorf("finalization does not match the block digest")
+		}
+		if !q.Finalization.Finalization.Equals(&header) {
+			return fmt.Errorf("finalization does not match the block header")
 		}
 	}
 
 	if q.Notarization != nil {
 		if !bytes.Equal(blockDigest[:], q.Notarization.Vote.Digest[:]) {
-			return fmt.Errorf("notarization does not match the block")
+			return fmt.Errorf("notarization does not match the block digest")
+		}
+		if !q.Notarization.Vote.Equals(&header) {
+			return fmt.Errorf("notarization does not match the block header")
 		}
 	}
 
