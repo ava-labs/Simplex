@@ -267,6 +267,16 @@ func (fn *fakeNode) WaitForPendingBlock(ctx context.Context) {
 func newFakeNode(t *testing.T) *fakeNode {
 	sm, _ := newStateMachine(t)
 
+	// The zero block records this validator set in its BlockValidationDescriptor, and epoch
+	// transitions are now decided by comparing that recorded set against GetValidatorSet. The
+	// fake node's GetValidatorSet returns validators carrying NodeIDs, so the genesis set must
+	// carry the matching NodeIDs, otherwise the two never compare equal and the node spuriously
+	// tries to transition on every block.
+	sm.GenesisValidatorSet = NodeBLSMappings{
+		{BLSKey: []byte{1}, Weight: 1, NodeID: [20]byte{1}},
+		{BLSKey: []byte{2}, Weight: 1, NodeID: [20]byte{2}},
+	}
+
 	fn := &fakeNode{
 		t:     t,
 		sm:    sm,

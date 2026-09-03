@@ -346,6 +346,20 @@ func TestMSMNormalOp(t *testing.T) {
 				testConfig2.blockStore[uint64(i)] = &outerBlock{block: block, finalization: &common.Finalization{}}
 			}
 
+			// The chain's simplex blocks carry EpochNumber 1, so the current validator set is read
+			// from the block at seq 1. Seed it as a finalized anchor holding the current set, which
+			// matches the retriever's default set so no spurious transition is detected.
+			currentSet := NodeBLSMappings{{BLSKey: []byte{1}, Weight: 1}, {BLSKey: []byte{2}, Weight: 1}}
+			epochAnchor := &outerBlock{
+				finalization: &common.Finalization{},
+				block: StateMachineBlock{Metadata: StateMachineMetadata{SimplexEpochInfo: SimplexEpochInfo{
+					EpochNumber:               1,
+					BlockValidationDescriptor: &BlockValidationDescriptor{AggregatedMembership: AggregatedMembership{Members: currentSet}},
+				}}},
+			}
+			testConfig1.blockStore[1] = epochAnchor
+			testConfig2.blockStore[1] = epochAnchor
+
 			lastBlock := chain[len(chain)-1]
 			md := lastBlock.Metadata.SimplexProtocolMetadata
 
@@ -1040,6 +1054,23 @@ func TestVerifyNextPChainRefHeightNormal(t *testing.T) {
 		}
 	}
 
+	// The current validator set is now read from the parent epoch's sealing block, stored at
+	// the parent's EpochNumber. It must carry a validator descriptor and be finalized.
+	currentEpochSealingBlock := func(finalized bool) *outerBlock {
+		ob := &outerBlock{block: StateMachineBlock{Metadata: StateMachineMetadata{
+			SimplexEpochInfo: SimplexEpochInfo{
+				BlockValidationDescriptor: &BlockValidationDescriptor{
+					AggregatedMembership: AggregatedMembership{Members: setA},
+				},
+				PrevSealingBlockHash: [32]byte{0xaa},
+			},
+		}}}
+		if finalized {
+			ob.finalization = &common.Finalization{}
+		}
+		return ob
+	}
+
 	tests := []struct {
 		name  string
 		next  SimplexEpochInfo
@@ -1049,13 +1080,16 @@ func TestVerifyNextPChainRefHeightNormal(t *testing.T) {
 		{
 			name: "next height zero returns nil",
 			next: SimplexEpochInfo{NextPChainReferenceHeight: 0},
+			setup: func(tc *testConfig) {
+				tc.blockStore[sealingBlockSeq] = currentEpochSealingBlock(true)
+			},
 		},
 		{
 			name: "next height set, sealing block finalized",
 			next: SimplexEpochInfo{NextPChainReferenceHeight: nextPChainRefHeight},
 			setup: func(tc *testConfig) {
 				withChangedValidatorSet(tc)
-				tc.blockStore[sealingBlockSeq] = &outerBlock{finalization: &common.Finalization{}}
+				tc.blockStore[sealingBlockSeq] = currentEpochSealingBlock(true)
 			},
 		},
 		{
@@ -1085,7 +1119,7 @@ func TestVerifyNextPChainRefHeightNormal(t *testing.T) {
 				tt.setup(tc)
 			}
 
-			err := sm.verifyNextPChainRefHeightNormal(t.Context(), prevMD, tt.next)
+			err := sm.verifyNextPChainRefHeightNormal(&StateMachineBlock{Metadata: prevMD}, tt.next)
 			if tt.err == nil {
 				require.NoError(t, err)
 				return
@@ -2027,12 +2061,16 @@ func (b *blockingBlockBuilder) WaitForPendingBlock(ctx context.Context) {
 func TestMSMWaitForPendingBlock(t *testing.T) {
 	const waitTime = 500 * time.Millisecond
 
+	// The current validator set is now read from a block's BlockValidationDescriptor rather than
+	// from GetValidatorSet(refHeight), so every block whose set we consult must carry one.
+	defaultSet := NodeBLSMappings{{BLSKey: []byte{1}, Weight: 1}, {BLSKey: []byte{2}, Weight: 1}}
+
 	var (
 		normal     = SimplexEpochInfo{EpochNumber: 1, PChainReferenceHeight: 100}
 		collecting = SimplexEpochInfo{EpochNumber: 1, PChainReferenceHeight: 100, NextPChainReferenceHeight: 200}
 		telock     = SimplexEpochInfo{EpochNumber: 1, PChainReferenceHeight: 100, NextPChainReferenceHeight: 200, SealingBlockSeq: 5}
 		sealing    = SimplexEpochInfo{EpochNumber: 1, PChainReferenceHeight: 100, NextPChainReferenceHeight: 200,
-			BlockValidationDescriptor: &BlockValidationDescriptor{}, PrevSealingBlockHash: [32]byte{0xaa}}
+			BlockValidationDescriptor: &BlockValidationDescriptor{AggregatedMembership: AggregatedMembership{Members: defaultSet}}, PrevSealingBlockHash: [32]byte{0xaa}}
 	)
 
 	block := func(sei SimplexEpochInfo, finalized bool) *outerBlock {
@@ -2043,6 +2081,18 @@ func TestMSMWaitForPendingBlock(t *testing.T) {
 		return ob
 	}
 
+	// anchorBlock is the finalized zero block that opens epoch 1 and records its validator set.
+	// getCurrentValidatorSet reads it via a normal parent's EpochNumber to learn the current set.
+	anchorBlock := func(set NodeBLSMappings) *outerBlock {
+		return &outerBlock{
+			finalization: &common.Finalization{},
+			block: StateMachineBlock{Metadata: StateMachineMetadata{SimplexEpochInfo: SimplexEpochInfo{
+				EpochNumber:               1,
+				BlockValidationDescriptor: &BlockValidationDescriptor{AggregatedMembership: AggregatedMembership{Members: set}},
+			}}},
+		}
+	}
+
 	for _, tt := range []struct {
 		name string
 		// blocks seeds the block store with parent blocks, keyed by their sequence.
@@ -2051,6 +2101,9 @@ func TestMSMWaitForPendingBlock(t *testing.T) {
 		seq uint64
 		// validatorSets seeds the validator set retriever, keyed by P-chain reference height.
 		validatorSets map[uint64]NodeBLSMappings
+		// pChainHeight, when non-zero, overrides the P-chain height used for proposing/verifying,
+		// i.e. the height whose validator set is compared against the current epoch's set.
+		pChainHeight uint64
 		// vmHasBlock indicates the underlying VM has a pending block ready to build.
 		vmHasBlock bool
 		// returnsOnItsOwn is true when WaitForPendingBlock is expected to return without
@@ -2092,12 +2145,13 @@ func TestMSMWaitForPendingBlock(t *testing.T) {
 			blocks: blockStore{1: block(sealing, true)},
 		},
 		{
-			// The new epoch inherits its P-chain reference height from the sealing block's
-			// NextPChainReferenceHeight, so that is the height whose validator set we compare
-			// against. Comparing against the sealed epoch's height would miss this change.
+			// We just moved to the new epoch, whose validator set is the one the sealing block
+			// carries. If the set at the latest P-chain height differs from it, another transition
+			// is due, so WaitForPendingBlock returns on its own.
 			name:            "sealing block parent, finalized, validator set changed again",
 			seq:             2,
 			blocks:          blockStore{1: block(sealing, true)},
+			pChainHeight:    200,
 			validatorSets:   map[uint64]NodeBLSMappings{200: {{BLSKey: []byte{9}, Weight: 1}}},
 			returnsOnItsOwn: true,
 		},
@@ -2136,11 +2190,13 @@ func TestMSMWaitForPendingBlock(t *testing.T) {
 		},
 		{
 			// The validator set changed, so a block must record the new P-chain reference height
-			// even if the VM has nothing to put in it.
+			// even if the VM has nothing to put in it. The current set is read from the epoch's
+			// anchor block (seq 1); the set at the latest P-chain height differs from it.
 			name:            "normal operation, validator set changed",
-			seq:             2,
-			blocks:          blockStore{1: block(SimplexEpochInfo{EpochNumber: 1, PChainReferenceHeight: 50}, false)},
-			validatorSets:   map[uint64]NodeBLSMappings{50: {{BLSKey: []byte{9}, Weight: 1}}},
+			seq:             3,
+			blocks:          blockStore{1: anchorBlock(defaultSet), 2: block(SimplexEpochInfo{EpochNumber: 1, PChainReferenceHeight: 100}, false)},
+			pChainHeight:    200,
+			validatorSets:   map[uint64]NodeBLSMappings{200: {{BLSKey: []byte{9}, Weight: 1}}},
 			returnsOnItsOwn: true,
 		},
 	} {
@@ -2154,6 +2210,10 @@ func TestMSMWaitForPendingBlock(t *testing.T) {
 			sm, cfg := newStateMachine(t)
 			sm.BlockBuilder = bb
 			sm.MaxBlockBuildingWaitTime = waitTime
+			if tt.pChainHeight != 0 {
+				sm.GetPChainHeightForProposing = func() uint64 { return tt.pChainHeight }
+				sm.GetPChainHeightForVerifying = func() uint64 { return tt.pChainHeight }
+			}
 			cfg.validatorSetRetriever.resultMap = tt.validatorSets
 			for seq, blk := range tt.blocks {
 				cfg.blockStore[seq] = blk
