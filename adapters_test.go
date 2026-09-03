@@ -38,7 +38,7 @@ func newTestParsedBlock(num uint64, payload string) *ParsedBlock {
 // and a verified but not yet indexed block at seq 5. A zero digest matches on
 // seq alone, a non-zero digest must match the block's digest exactly.
 func TestCachedStorageRetrieve(t *testing.T) {
-	cs := NewCachedStorage(NewMockStorage(t, &testInnerBlockDeserializer{}))
+	cs := NewCachedStorage(newTestStorage())
 	indexedBlock := newTestParsedBlock(0, "indexed")
 	require.NoError(t, cs.Index(t.Context(), indexedBlock, common.Finalization{}))
 
@@ -101,7 +101,7 @@ func TestCachedStorageRetrieve(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			require.Equal(t, tt.wantBlock, got)
+			require.Equal(t, common.Digest(tt.wantBlock.Digest()), got.BlockHeader().Digest)
 			if tt.wantBlock == verifiedBlock {
 				require.Nil(t, fin)
 			}
@@ -113,7 +113,7 @@ func TestCachedStorageRetrieve(t *testing.T) {
 // a zero-digest Retrieve of that seq returns the finalized block with its
 // finalization, even when a verified fork at the same seq was cached.
 func TestCachedStorageIndexEvictsSameSeqFork(t *testing.T) {
-	cs := NewCachedStorage(NewMockStorage(t, &testInnerBlockDeserializer{}))
+	cs := NewCachedStorage(newTestStorage())
 	require.NoError(t, cs.Index(t.Context(), newTestParsedBlock(0, "genesis"), common.Finalization{}))
 
 	equivocatedBlock := &cachedBlock{
@@ -180,7 +180,7 @@ func TestCachedStoragePopulatedByWal(t *testing.T) {
 // own proposal is inserted into the CachedStorage, retrievable by seq and digest before
 // it is finalized and indexed.
 func TestCachedStoragePopulatedBySelfBuiltBlock(t *testing.T) {
-	storage := NewMockStorageWithGenesis(t, &testInnerBlockDeserializer{})
+	storage := newTestStorageWithGenesis(t)
 	cs := NewCachedStorage(storage)
 
 	msm, err := metadata.NewStateMachine(&metadata.Config{

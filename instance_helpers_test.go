@@ -224,97 +224,42 @@ func (c *testCryptoOps) DeserializeQuorumCertificate(bytes []byte) (common.Quoru
 	return testutil.TestQC(qc), nil
 }
 
-type MockStorage struct {
-	t *testing.T
+// testStorage serves reads as independent StateMachineBlock copies, so tests never touch
+// the instance's live block objects, whose canoto caches the instance keeps mutating.
+type testStorage struct {
 	*testutil.InMemStorage
-	bd *testInnerBlockDeserializer
-
-	blocksLock sync.Mutex
-	blocks     map[uint64]storedBlock
 }
 
-type storedBlock struct {
-	rawBlock []byte
-	fin      common.Finalization
+func newTestStorage() *testStorage {
+	return &testStorage{InMemStorage: testutil.NewInMemStorage()}
 }
 
-func NewMockStorage(t *testing.T, bd *testInnerBlockDeserializer) *MockStorage {
-	return &MockStorage{
-		t:            t,
-		InMemStorage: testutil.NewInMemStorage(),
-		blocks:       make(map[uint64]storedBlock),
-		bd:           bd,
-	}
-}
-
-func NewMockStorageWithGenesis(t *testing.T, bd *testInnerBlockDeserializer) *MockStorage {
-	s := &MockStorage{
-		t:            t,
-		InMemStorage: testutil.NewInMemStorage(),
-		blocks:       make(map[uint64]storedBlock),
-		bd:           bd,
-	}
-
+func newTestStorageWithGenesis(t *testing.T) *testStorage {
+	s := newTestStorage()
 	genesis := &ParsedBlock{StateMachineBlock: metadata.StateMachineBlock{InnerBlock: genesisBlock}}
 	require.NoError(t, s.Index(context.Background(), genesis, common.Finalization{}))
 	return s
 }
 
-func (m *MockStorage) Index(ctx context.Context, block common.VerifiedBlock, certificate common.Finalization) error {
-	// We serialized the block so that the original reference isn't shared with other goroutines that may concurrently mutate it.
-	encoded := block.Bytes()
-	seq := m.NumBlocks()
-	m.blocksLock.Lock()
-	m.blocks[seq] = storedBlock{rawBlock: encoded, fin: certificate}
-	m.blocksLock.Unlock()
-	return m.InMemStorage.Index(ctx, block, certificate)
-}
-
-func (m *MockStorage) GetBlock(seq uint64) (metadata.StateMachineBlock, *common.Finalization, error) {
-	_, f, err := m.Retrieve(seq)
+func (m *testStorage) GetBlock(seq uint64) (metadata.StateMachineBlock, *common.Finalization, error) {
+	block, fin, err := m.Retrieve(seq)
 	if err != nil {
 		return metadata.StateMachineBlock{}, nil, err
 	}
-	sb, ok := m.blockAt(seq)
+	parsed, ok := block.(*ParsedBlock)
 	if !ok {
-		return metadata.StateMachineBlock{}, nil, fmt.Errorf("no snapshot for seq %d", seq)
+		return metadata.StateMachineBlock{}, nil, fmt.Errorf("expected *ParsedBlock at seq %d, got %T", seq, block)
 	}
-	return sb, &f, nil
-}
-
-// blockAt reconstructs an independent copy of the block at seq from its
-// stored bytes. Test-only readers use it instead of GetBlock so they never touch
-// the instance's live block objects (whose canoto digest cache the instance keeps
-// mutating).
-func (m *MockStorage) blockAt(seq uint64) (metadata.StateMachineBlock, bool) {
-	m.blocksLock.Lock()
-	sb, ok := m.blocks[seq]
-	m.blocksLock.Unlock()
-	if !ok {
-		return metadata.StateMachineBlock{}, false
-	}
-	return m.parseStored(sb.rawBlock), true
-}
-
-func (m *MockStorage) parseStored(encoded []byte) metadata.StateMachineBlock {
-	raw := &metadata.RawBlock{}
-	require.NoError(m.t, raw.UnmarshalCanoto(encoded))
-	var inner avalanchego.VMBlock
-	if len(raw.InnerBlockBytes) > 0 {
-		parsed, err := m.bd.ParseBlock(context.Background(), raw.InnerBlockBytes)
-		require.NoError(m.t, err)
-		inner = parsed
-	}
-	return metadata.StateMachineBlock{InnerBlock: inner, Metadata: raw.Metadata}
+	return parsed.Clone(), &fin, nil
 }
 
 // newChainStorage builds and indexes the minimum chain a node can start from: genesis plus
 // epoch 1's defining block, which carries the descriptor naming the epoch's validator set.
 // It returns the storage and the epoch-defining block at its tip.
-func newChainStorage(t *testing.T, validators metadata.NodeBLSMappings) (*MockStorage, metadata.StateMachineBlock) {
-	storage := NewMockStorageWithGenesis(t, &testInnerBlockDeserializer{})
-	genesis, ok := storage.blockAt(0)
-	require.True(t, ok)
+func newChainStorage(t *testing.T, validators metadata.NodeBLSMappings) (*testStorage, metadata.StateMachineBlock) {
+	storage := newTestStorageWithGenesis(t)
+	genesis, _, err := storage.GetBlock(0)
+	require.NoError(t, err)
 
 	epochBlock := metadata.StateMachineBlock{
 		InnerBlock: &testInnerBlock{Height_: 1, TS: epochBlockTime, Payload: []byte("epoch")},
@@ -595,11 +540,12 @@ func (s *pendingBlockSignal) consume(ctx context.Context) bool {
 // blockBuilderVM builds an inner block only when the test arms a pending block, so the
 // chain grows one block per index call.
 type blockBuilderVM struct {
-	storage *MockStorage
+	storage *testStorage
 	pending *pendingBlockSignal
+	bd      testInnerBlockDeserializer
 }
 
-func newBlockBuilderVM(storage *MockStorage, pending *pendingBlockSignal) *blockBuilderVM {
+func newBlockBuilderVM(storage *testStorage, pending *pendingBlockSignal) *blockBuilderVM {
 	return &blockBuilderVM{storage: storage, pending: pending}
 }
 
@@ -618,7 +564,7 @@ func (vm *blockBuilderVM) BuildBlock(ctx context.Context, pChainHeight uint64) (
 }
 
 func (vm *blockBuilderVM) ParseBlock(ctx context.Context, bytes []byte) (avalanchego.VMBlock, error) {
-	return vm.storage.bd.ParseBlock(ctx, bytes)
+	return vm.bd.ParseBlock(ctx, bytes)
 }
 
 // WaitForPendingBlock returns while a block is pending, or when ctx is cancelled.
@@ -637,7 +583,7 @@ type node struct {
 	id      common.NodeID
 	vm      *blockBuilderVM
 	inst    *Instance
-	storage *MockStorage
+	storage *testStorage
 	comm    *instanceComm
 	wals    *walCreator
 }
@@ -695,7 +641,7 @@ func newNetwork(t *testing.T, pChain *testPlatformChain) *network {
 // nodeConfig holds optional overrides for a node added to the network.
 type nodeConfig struct {
 	// storage the node starts from; defaults to a fresh storage holding only genesis.
-	storage *MockStorage
+	storage *testStorage
 	// wals are pre-existing WALs the instance restores on start.
 	wals []wal.DeletableWAL
 }
@@ -708,7 +654,7 @@ func (n *network) addNode(id common.NodeID) *node {
 }
 
 // addNodeWithStorage adds a node that starts from the given storage.
-func (n *network) addNodeWithStorage(id common.NodeID, storage *MockStorage) *node {
+func (n *network) addNodeWithStorage(id common.NodeID, storage *testStorage) *node {
 	return n.addNodeWithConfig(id, nodeConfig{storage: storage})
 }
 
@@ -716,7 +662,7 @@ func (n *network) addNodeWithStorage(id common.NodeID, storage *MockStorage) *no
 func (n *network) addNodeWithConfig(id common.NodeID, cfg nodeConfig) *node {
 	storage := cfg.storage
 	if storage == nil {
-		storage = NewMockStorageWithGenesis(n.t, &testInnerBlockDeserializer{})
+		storage = newTestStorageWithGenesis(n.t)
 	}
 
 	// ensure a unique id; snapshot because nodes may be added concurrently

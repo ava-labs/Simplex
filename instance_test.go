@@ -57,7 +57,7 @@ func TestEpochInvokesMSMWaitForPendingBlock(t *testing.T) {
 	common.SortNodes(nodes)
 	require.NotEqual(t, common.NodeID(ourValidator.NodeID[:]), simplex.LeaderForRound(nodes.NodeIDs(), 1))
 
-	storage := NewMockStorageWithGenesis(t, &testInnerBlockDeserializer{})
+	storage := newTestStorageWithGenesis(t)
 
 	vm := newBlockBuilderVM(storage, newPendingBlockSignal())
 	recorder := &emptyVoteRecorder{got: make(chan struct{}, 1)}
@@ -373,8 +373,8 @@ func TestNonValidatorSkipsMSMVerification(t *testing.T) {
 
 	// It commits the block its state machine would have rejected.
 	storage.WaitForBlockCommit(2)
-	committed, ok := storage.blockAt(2)
-	require.True(t, ok)
+	committed, _, err := storage.GetBlock(2)
+	require.NoError(t, err)
 	require.Equal(t, invalid.Digest(), committed.Digest())
 }
 
@@ -416,8 +416,8 @@ func TestValidatorSkipsMSMVerificationWhenReplicating(t *testing.T) {
 			requireReplicated: func(t *testing.T, laggingNode *node, block metadata.StateMachineBlock) {
 				seq := block.Metadata.SimplexProtocolMetadata.Seq
 				laggingNode.storage.WaitForBlockCommit(seq)
-				committed, ok := laggingNode.storage.blockAt(seq)
-				require.True(t, ok)
+				committed, _, err := laggingNode.storage.GetBlock(seq)
+				require.NoError(t, err)
 				require.Equal(t, block.Digest(), committed.Digest())
 			},
 		},
