@@ -301,6 +301,13 @@ func (i *Instance) HandleMessage(msg *common.Message, from common.NodeID) error 
 	i.lock.Lock()
 	defer i.lock.Unlock()
 
+	select {
+	case <-i.stopCh:
+		i.Config.Logger.Debug("Instance is stopped, dropping message")
+		return nil
+	default:
+	}
+
 	// We need to artificially wire the MSM and the cache to the block,
 	// in order to intercept the Verify() call.
 	switch {
@@ -494,7 +501,7 @@ func (i *Instance) createEpochConfig(epoch uint64, validators common.Nodes) (*ep
 		return nil, err
 	}
 
-	blockBuilder := &BlockBuilderWaiter{vm: i.Config.VM, msm: msm}
+	blockBuilder := newBlockBuilderWaiter(msm, i.cs, i.Config.VM)
 
 	comm := newCommunication(i.Config.Sender, i.Config.Broadcaster, validators)
 
@@ -574,5 +581,5 @@ func (i *Instance) startAtEpoch(validators common.Nodes, epoch uint64) error {
 
 type epochConfig struct {
 	simplex.EpochConfig
-	bbw *BlockBuilderWaiter
+	bbw *blockBuilderWaiter
 }

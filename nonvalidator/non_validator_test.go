@@ -1017,3 +1017,50 @@ func TestNonValidatorAcceptsProposalFromUnsortedValidatorSet(t *testing.T) {
 	}, 5*time.Second, 10*time.Millisecond,
 		"non-validator never committed the block, having dropped the proposal because it ordered the validator set differently than the validators")
 }
+
+func TestNonValidatorRejectsQuorumRoundWithMismatchedHeader(t *testing.T) {
+	tc := newSeededChain(t, testNodes, 4)
+
+	storage := tc.CloneUntil(3)
+	logger := testutil.MakeLogger(t, 1)
+
+	nv, err := NewNonValidator(
+		Config{
+			Storage:                    storage,
+			Comm:                       testutil.NewNoopComm(testNodes.NodeIDs()),
+			Logger:                     logger,
+			SignatureAggregatorCreator: tc.signatureAggregatorCreator,
+			MaxSequenceWindow:          10,
+			ID:                         common.NodeID{16},
+			StartTime:                  time.Now(),
+		},
+	)
+	require.NoError(t, err)
+	nv.Start()
+	defer nv.Stop()
+
+	b4, finalization, err := tc.Retrieve(3)
+	require.NoError(t, err)
+	b3 := b4.(common.Block)
+
+	// Same digest and seq as the b4, but a round the b4 was not finalized in.
+	mismatched := finalization
+	mismatched.Finalization.Round++
+	require.NoError(t, nv.HandleMessage(&common.Message{
+		ReplicationResponse: &common.ReplicationResponse{
+			Data: []common.QuorumRound{{Block: b3, Finalization: &mismatched}},
+		},
+	}, testNodes.NodeIDs()[0]))
+
+	require.NoError(t, nv.HandleMessage(&common.Message{
+		ReplicationResponse: &common.ReplicationResponse{
+			Data: []common.QuorumRound{{Block: b3, Finalization: &finalization}},
+		},
+	}, testNodes.NodeIDs()[1]))
+
+	storage.WaitForBlockCommit(3)
+	_, finalization, err = storage.Retrieve(3)
+	require.NoError(t, err)
+	bh := b3.BlockHeader()
+	require.True(t, finalization.Finalization.Equals(&bh), "b4 was indexed with a finalization that does not match its header")
+}
