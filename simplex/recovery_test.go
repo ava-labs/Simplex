@@ -547,24 +547,58 @@ func TestRecoveryBlocksIndexed(t *testing.T) {
 	require.Equal(t, thirdBlock.BlockHeader().Digest, e.Metadata().Prev)
 }
 
+// TestEpochCorrectlyInitializesMetadataFromStorage asserts the next block's metadata is
+// derived from the last indexed block.
 func TestEpochCorrectlyInitializesMetadataFromStorage(t *testing.T) {
+	tests := []struct {
+		name          string
+		sealing       bool
+		expectedEpoch uint64
+	}{
+		{
+			name:          "normal block",
+			expectedEpoch: 3,
+		},
+		{
+			name:          "sealing block",
+			sealing:       true,
+			expectedEpoch: 1,
+		},
+	}
+
 	ctx := context.Background()
-	bb := testutil.NewTestBlockBuilder()
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
-	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
 
-	block := testutil.NewTestBlock(ProtocolMetadata{Seq: 0, Round: 0, Epoch: 0}, emptyBlacklist)
-	require.NoError(t, conf.Storage.Index(ctx, block, Finalization{}))
-	e, err := NewEpoch(conf)
-	require.NoError(t, err)
-	t.Cleanup(e.Stop)
-	require.Equal(t, uint64(1), e.Storage.NumBlocks())
-	require.NoError(t, e.Start())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bb := testutil.NewTestBlockBuilder()
+			conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
 
-	// ensure the round is properly set
-	require.Equal(t, uint64(1), e.Metadata().Round)
-	require.Equal(t, uint64(1), e.Metadata().Seq)
-	require.Equal(t, block.BlockHeader().Digest, e.Metadata().Prev)
+			firstBlock := testutil.NewTestBlock(ProtocolMetadata{Seq: 0, Round: 0, Epoch: 3}, emptyBlacklist)
+			lastBlock := testutil.NewTestBlock(ProtocolMetadata{Seq: 1, Round: 1, Epoch: 3, Prev: firstBlock.Digest}, emptyBlacklist)
+			if tt.sealing {
+				lastBlock.SealingInfo = &SealingBlockInfo{
+					ValidatorSet:         NodeIDs(nodes).EqualWeightedNodes(),
+					PrevSealingBlockHash: firstBlock.Digest,
+				}
+			}
+
+			require.NoError(t, conf.Storage.Index(ctx, firstBlock, Finalization{}))
+			require.NoError(t, conf.Storage.Index(ctx, lastBlock, Finalization{}))
+
+			e, err := NewEpoch(conf)
+			require.NoError(t, err)
+			t.Cleanup(e.Stop)
+			require.Equal(t, uint64(2), e.Storage.NumBlocks())
+			require.NoError(t, e.Start())
+
+			md := e.Metadata()
+			require.Equal(t, tt.expectedEpoch, md.Epoch)
+			require.Equal(t, uint64(2), md.Round)
+			require.Equal(t, uint64(2), md.Seq)
+			require.Equal(t, lastBlock.BlockHeader().Digest, md.Prev)
+		})
+	}
 }
 
 func TestRecoveryAsLeader(t *testing.T) {

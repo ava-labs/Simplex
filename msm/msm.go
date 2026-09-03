@@ -564,6 +564,12 @@ func (sm *StateMachine) buildBlockOrTransitionEpoch(ctx context.Context, parentB
 	blockBuildingDecider := sm.createBlockBuildingDecider(newSimplexEpochInfo.PChainReferenceHeight)
 	decisionToBuildBlock, err := blockBuildingDecider.shouldBuildBlock(ctx)
 	if err != nil {
+		if errors.Is(context.Cause(ctx), common.ErrShouldBuildEmptyBlock) {
+			now := sm.GetTime()
+			icmEpochInfo := computeICMEpochInfo(parentBlock, sm.ComputeICMEpoch, now)
+			pChainHeight := sm.GetPChainHeightForProposing()
+			return wrapBlock(nil, newSimplexEpochInfo, pChainHeight, simplexMetadata, simplexBlacklist, now, icmEpochInfo, nil), nil
+		}
 		return nil, err
 	}
 
@@ -586,6 +592,9 @@ func (sm *StateMachine) buildBlockOrTransitionEpoch(ctx context.Context, parentB
 	if decisionToBuildBlock.buildInnerBlock {
 		innerBlock, err = sm.BlockBuilder.BuildBlock(ctx, icmEpochInfo.PChainEpochHeight)
 		if err != nil {
+			if errors.Is(context.Cause(ctx), common.ErrShouldBuildEmptyBlock) {
+				return wrapBlock(nil, newSimplexEpochInfo, decisionToBuildBlock.pChainHeight, simplexMetadata, simplexBlacklist, now, icmEpochInfo, nil), nil
+			}
 			return nil, err
 		}
 	}

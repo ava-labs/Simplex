@@ -82,7 +82,6 @@ type EpochConfig struct {
 	Storage                    common.Storage
 	WAL                        common.WriteAheadLog
 	BlockBuilder               common.BlockBuilder
-	Epoch                      uint64
 	StartTime                  time.Time
 	ReplicationEnabled         bool
 	RandomSource               *rand.Rand
@@ -90,7 +89,10 @@ type EpochConfig struct {
 
 type Epoch struct {
 	EpochConfig
+
+	Epoch uint64
 	// Runtime
+	blockBuilder                   common.BlockBuilder
 	epochSealed                    atomic.Bool
 	signatureAggregator            common.SignatureAggregator
 	oneTimeVerifier                *OneTimeVerifier
@@ -176,6 +178,15 @@ func (e *Epoch) HandleMessage(msg *common.Message, from common.NodeID) error {
 			return nil
 		}
 	}
+
+	// Preliminary epoch check: a consensus message must belong to our epoch.
+	// Replication responses are exempt, as they are handled internally.
+	if epoch, ok := msg.Epoch(); ok && epoch != e.Epoch {
+		e.Logger.Debug("Dropping consensus message from a different epoch",
+			zap.Uint64("messageEpoch", epoch), zap.Uint64("ourEpoch", e.Epoch))
+		return nil
+	}
+
 	switch {
 	case msg.BlockMessage != nil:
 		return e.handleBlockMessage(msg.BlockMessage, from)
@@ -234,6 +245,11 @@ func (e *Epoch) init() error {
 	}
 	for _, node := range e.validatorNodeIDs {
 		e.futureMessages[string(node)] = make(map[uint64]*messagesForRound)
+	}
+	e.blockBuilder = &EmptyBlockBuilder{
+		ShouldBuildEmptyBlock: e.haveUnFinalizedButNotarizedSuffix,
+		Timeout:               e.MaxProposalWait,
+		BB:                    e.BlockBuilder,
 	}
 	err := e.loadLastBlock()
 	if err != nil {
@@ -311,6 +327,20 @@ func (e *Epoch) Start() error {
 	e.broadcastReplicationSync()
 
 	return nil
+}
+
+func (e *Epoch) haveUnFinalizedButNotarizedSuffix(ctx context.Context) bool {
+	<-ctx.Done()
+
+	if errors.Is(context.Cause(ctx), common.ErrShouldBuildEmptyBlock) {
+		e.lock.Lock()
+		defer e.lock.Unlock()
+
+		r := e.getHighestRound()
+		return r != nil && r.finalization == nil
+	}
+
+	return false
 }
 
 func (e *Epoch) sequenceAlreadyIndexed(seq uint64) bool {
@@ -671,6 +701,13 @@ func (e *Epoch) setMetadataFromStorage() error {
 	}
 
 	e.round = e.lastBlock.VerifiedBlock.BlockHeader().Round + 1
+
+	// The last block we indexed was a sealing block, therefore the epoch number is that blocks sequence
+	if e.lastBlock.VerifiedBlock.SealingBlockInfo() != nil {
+		e.Epoch = e.lastBlock.VerifiedBlock.BlockHeader().Seq
+		return nil
+	}
+
 	e.Epoch = e.lastBlock.VerifiedBlock.BlockHeader().Epoch
 	return nil
 }
@@ -711,6 +748,9 @@ func (e *Epoch) setMetadataFromRecords(records [][]byte) error {
 			}
 			if finalization.Finalization.Round >= highestRound {
 				highestRound = finalization.Finalization.Round
+				// We do not need to check if this finalization is associated for a sealing block, because it is impossible for a finalization
+				// for another epoch to exist in our wal, yet the original epoch remains un-sealed.
+				// This is because we issue te-locks after sealing blocks, and never move onto the next epoch until the original sealing block was indexed.
 				highestEpoch = finalization.Finalization.Epoch
 				found = true
 			}
@@ -2595,17 +2635,20 @@ func (e *Epoch) createBlockBuildingTask(metadata common.ProtocolMetadata, blackl
 		}
 		e.lock.Unlock()
 
-		block, ok := e.BlockBuilder.BuildBlock(context, metadata, blacklist)
+		block, ok := e.blockBuilder.BuildBlock(context, metadata, blacklist)
 
 		e.lock.Lock()
 		defer e.lock.Unlock()
 
 		canceled := context.Err() != nil
 		cancel()
+
+		if canceled {
+			return common.Digest{}
+		}
+
 		if !ok {
-			if !canceled {
-				e.Logger.Debug("Failed building block")
-			}
+			e.Logger.Debug("Failed building block")
 			return common.Digest{}
 		}
 
@@ -2840,7 +2883,7 @@ func (e *Epoch) monitorProgress(round uint64) {
 		}
 
 		// This invocation blocks until the block builder tells us it's time to build a new block.
-		e.BlockBuilder.WaitForPendingBlock(ctx)
+		e.blockBuilder.WaitForPendingBlock(ctx)
 		// While we waited, a block might have been notarized.
 		// If so, then don't start monitoring for it being notarized.
 		if cancelled.Load() {
@@ -3518,6 +3561,13 @@ func (e *Epoch) processQuorumRound(round *common.QuorumRound, from common.NodeID
 	// make sure the round is well formed
 	if err := round.IsWellFormed(); err != nil {
 		return fmt.Errorf("received malformed latest round: %w", err)
+	}
+
+	epochOfQR := round.GetEpoch()
+	if e.Epoch != epochOfQR {
+		// Skip processing the quorum round if it belongs to a different epoch.
+		e.Logger.Debug("Received quorum round for a different epoch, ignoring", zap.Uint64("our epoch", e.Epoch), zap.Uint64("received epoch", epochOfQR))
+		return nil
 	}
 
 	if round.Finalization == nil && e.isVoteForFinalizedRound(round.GetRound()) {

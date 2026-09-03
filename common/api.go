@@ -6,6 +6,7 @@ package common
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 
@@ -36,19 +37,29 @@ type Logger interface {
 	Verbo(msg string, fields ...zap.Field)
 }
 
+var (
+	// ErrShouldBuildEmptyBlock is returned when a block needs to be built even though the VM has no transactions to include in the block.
+	// This is used to advance the chain when the tip is notarized but not finalized.
+	ErrShouldBuildEmptyBlock = errors.New("should build empty block")
+
+	// ErrBlockNotFound is returned when a block cannot be found in storage.
+	ErrBlockNotFound = fmt.Errorf("block not found")
+)
+
 type BlockBuilder interface {
 	// BuildBlock blocks until some transactions are available to be batched into a block,
-	// in which case a block and true are returned.
-	// When the given context is cancelled by the caller, returns false.
-	// The given metadata and blacklist are encoded into the built block.
+	// and the given metadata and blacklist are encoded into the built block.
+	// Returns a block and true unless the given context is cancelled by the caller.
+	// When the given context is cancelled by the caller:
+	// returns an empty block and true, if the context was cancelled with ErrShouldBuildEmptyBlock
+	// returns nil, false otherwise.
+	// The returned boolean indicates whether the block is nil or not.
 	BuildBlock(ctx context.Context, metadata ProtocolMetadata, blacklist Blacklist) (VerifiedBlock, bool)
 
 	// WaitForPendingBlock returns when either the given context is cancelled,
 	// or when the application signals that a block should be built.
 	WaitForPendingBlock(ctx context.Context)
 }
-
-var ErrBlockNotFound = fmt.Errorf("block not found")
 
 type Storage interface {
 	NumBlocks() uint64
