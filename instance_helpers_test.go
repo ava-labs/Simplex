@@ -341,9 +341,7 @@ func newInstanceComm(n *network, id common.NodeID) *instanceComm {
 
 // start allows messages to be processed
 func (i *instanceComm) start() {
-	i.wg.Add(1)
 	i.wg.Go(func() {
-		defer i.wg.Done()
 		i.run()
 	})
 }
@@ -355,7 +353,9 @@ func (i *instanceComm) run() {
 		case <-i.closed:
 			return
 		case m := <-i.queue:
-			require.NoError(i.n.t, m.to.HandleMessage(m.msg, m.from))
+			if err := m.to.HandleMessage(m.msg, m.from); err != nil {
+				panic(err)
+			}
 		}
 	}
 }
@@ -583,14 +583,13 @@ const firstEverEpoch uint64 = 1
 type network struct {
 	t *testing.T
 
-	pChain *testPlatformChain
-	seq    uint64
-	epoch  uint64
+	pChain            *testPlatformChain
+	seq               uint64
+	epoch             uint64
+	epochValidatorSet common.Nodes
 
 	// pending holds the block the network has been asked to build, claimable by any leader.
 	pending *pendingBlockSignal
-
-	validatorSets map[uint64]common.Nodes // epoch -> sorted validators
 
 	// lock guards nodes, which comm goroutines read while addNode appends.
 	lock  sync.Mutex
@@ -604,16 +603,14 @@ func (n *network) nodesSnapshot() []node {
 }
 
 func newNetwork(t *testing.T, pChain *testPlatformChain) *network {
-	validatorSets := make(map[uint64]common.Nodes)
 	genesisNodes := pChain.GenesisValidatorSet().Nodes()
 	common.SortNodes(genesisNodes)
-	validatorSets[firstEverEpoch] = genesisNodes
 
 	return &network{
-		t:             t,
-		pChain:        pChain,
-		pending:       newPendingBlockSignal(),
-		validatorSets: validatorSets,
+		t:                 t,
+		pChain:            pChain,
+		pending:           newPendingBlockSignal(),
+		epochValidatorSet: genesisNodes,
 
 		// Genesis at seq 0. Then first simplex block is built automatically
 		// without a build block notification
@@ -699,11 +696,8 @@ func (n *network) addNodeWithConfig(id common.NodeID, cfg nodeConfig) *node {
 // is actually a validator. This ensures that acceptNewBlock, waits for any nodes that may be transitioning from
 // a non-validator actually here about the new proposal.
 func (n *network) waitUntilValidatorsReady() {
-	validators, ok := n.validatorSets[n.epoch]
-	require.True(n.t, ok, fmt.Sprintf("epoch is not set. epoch: %d", n.epoch))
-
 	for _, node := range n.nodesSnapshot() {
-		if common.NodeIDs(validators.NodeIDs()).IndexOf(node.id) < 0 {
+		if common.NodeIDs(n.epochValidatorSet.NodeIDs()).IndexOf(node.id) < 0 {
 			continue
 		}
 
@@ -733,9 +727,6 @@ func (n *network) sync() {
 
 // acceptNewBlock blocks until every node has accepted a newly indexed block.
 func (n *network) acceptNewBlock() (common.VerifiedBlock, common.Finalization) {
-	_, ok := n.validatorSets[n.epoch]
-	require.True(n.t, ok, fmt.Sprintf("epoch is not set epoch: %d. trying to index seq: %d", n.epoch, n.seq))
-
 	// no nodes have indexed this sequence yet
 	for _, node := range n.nodes {
 		_, _, err := node.storage.Retrieve(n.seq)
@@ -769,7 +760,7 @@ func (n *network) acceptNewBlock() (common.VerifiedBlock, common.Finalization) {
 		n.epoch = n.seq
 		newValidatorSet := block.SealingBlockInfo().ValidatorSet
 		common.SortNodes(newValidatorSet)
-		n.validatorSets[n.epoch] = newValidatorSet
+		n.epochValidatorSet = newValidatorSet
 	}
 
 	return block, finalization
@@ -804,7 +795,7 @@ func (n *network) waitUntilSealingBlock(expectedValidatorSet common.Nodes) commo
 		newValidatorSet := block.SealingBlockInfo().ValidatorSet
 		assertExpectedNodeIds(n.t, expectedValidatorSet.NodeIDs(), newValidatorSet.NodeIDs())
 		common.SortNodes(newValidatorSet)
-		n.validatorSets[n.epoch] = newValidatorSet
+		n.epochValidatorSet = newValidatorSet
 		return block
 	}
 }
