@@ -2175,6 +2175,8 @@ func (e *Epoch) createBlockVerificationTask(block common.Block, from common.Node
 		e.lock.Lock()
 		defer e.lock.Unlock()
 
+		e.deleteFutureProposal(from, md.Round)
+
 		if err != nil {
 			leader := LeaderForRound(e.validatorNodeIDs, md.Round)
 			e.Logger.Info("Triggering empty block agreement",
@@ -2185,8 +2187,6 @@ func (e *Epoch) createBlockVerificationTask(block common.Block, from common.Node
 			e.triggerEmptyBlockNotarization(md.Round)
 			return md.Digest
 		}
-
-		e.deleteFutureProposal(from, md.Round)
 
 		if !e.storeProposal(verifiedBlock) {
 			e.Logger.Debug("Unable to store proposed block for the round", zap.Stringer("NodeID", from), zap.Uint64("round", md.Round))
@@ -3118,7 +3118,7 @@ func (e *Epoch) maybeLoadFutureMessages() error {
 
 		for from, messagesFromNode := range e.futureMessages {
 			if msgs, exists := messagesFromNode[round]; exists {
-				if msgs.proposal != nil {
+				if msgs.proposal != nil && !msgs.proposalBeingProcessed {
 					if err := e.handleBlockMessage(msgs.proposal, common.NodeID(from)); err != nil {
 						return err
 					}
