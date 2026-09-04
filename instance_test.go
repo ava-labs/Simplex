@@ -88,7 +88,8 @@ func TestEpochInvokesMSMWaitForPendingBlock(t *testing.T) {
 	}
 }
 
-// TestNonValidatorSyncs that a non-validator syncs the chain when added to the network.
+// TestNonValidatorSyncs asserts a node outside the validator set syncs the chain when added
+// to the network, and stays a non-validator once it has bootstrapped.
 func TestNonValidatorSyncs(t *testing.T) {
 	validator := newNodeMapping(1)
 	genesisSet := []metadata.NodeBLSMapping{validator}
@@ -100,8 +101,14 @@ func TestNonValidatorSyncs(t *testing.T) {
 	network.acceptNewBlock()
 
 	nonValidator := newNodeMapping(2)
-	network.addNode(nonValidator.NodeID[:])
+	node := network.addNode(nonValidator.NodeID[:])
 	network.acceptNewBlock()
+	node.sync()
+
+	// ensure we bootstrap and are not a validator
+	isValidator, bootstrapped := node.role()
+	require.True(t, bootstrapped)
+	require.False(t, isValidator)
 }
 
 // TestNonValidatorBecomesValidator tests that an upcoming validator becomes a validator
@@ -348,6 +355,19 @@ func TestNonValidatorSkipsMSMVerification(t *testing.T) {
 	parent, _, err := nonValidatorNode.storage.GetBlock(1)
 	require.NoError(t, err)
 
+	// The non-validator drops every message until it bootstraps. One peer reporting the block
+	// sealing epoch 1 meets the threshold of F(1)+1.
+	sealing := &ParsedBlock{StateMachineBlock: parent.Clone()}
+	sealingFinalization, _ := testutil.NewFinalizationRecord(t, &testutil.TestSignatureAggregator{N: 1}, sealing, []common.NodeID{validator.NodeID[:]})
+	require.NoError(t, nonValidatorNode.inst.HandleMessage(&common.Message{
+		ReplicationResponse: &common.ReplicationResponse{
+			LatestSeq: &common.QuorumRound{Block: sealing, Finalization: &sealingFinalization},
+		},
+	}, validator.NodeID[:]))
+
+	_, bootstrapped := nonValidatorNode.role()
+	require.True(t, bootstrapped)
+
 	// A block whose only defect is its state machine transition: its timestamp precedes its
 	// parent's.
 	invalid := metadata.StateMachineBlock{
@@ -458,4 +478,57 @@ func TestValidatorSkipsMSMVerificationWhenReplicating(t *testing.T) {
 			tt.requireReplicated(t, laggingNode, invalid)
 		})
 	}
+}
+
+// TestBootstrap_ValidatorInLatestEpoch asserts a node whose indexed epoch names exactly the
+// latest P-chain validator set skips bootstrapping and starts as a validator of that epoch.
+func TestBootstrap_ValidatorInLatestEpoch(t *testing.T) {
+	v1 := newNodeMapping(1)
+	v2 := newNodeMapping(2)
+	genesisValidatorSet := metadata.NodeBLSMappings{v1, v2}
+
+	pChain := newTestPChain(genesisValidatorSet)
+	storage, _ := newChainStorage(t, genesisValidatorSet)
+	node := newNetwork(t, pChain).addNodeWithConfig(v1.NodeID[:], nodeConfig{storage: storage})
+
+	isValidator, bootstrapped := node.role()
+	require.True(t, bootstrapped, "a node already at the latest validator set has nothing to bootstrap")
+	require.True(t, isValidator)
+}
+
+// TestBootstrap_ValidatorDuringTransition asserts a validator whose epoch is mid-transition,
+// so its indexed set disagrees with the latest P-chain set, starts as a non-validator and
+// converts back to a validator once bootstrapping confirms its indexed epoch.
+func TestBootstrap_ValidatorDuringTransition(t *testing.T) {
+	ourNodeMapping := newNodeMapping(1)
+	v2 := newNodeMapping(2)
+	futureValidator := newNodeMapping(3)
+	genesisValidatorSet := metadata.NodeBLSMappings{ourNodeMapping, v2}
+
+	pChain := newTestPChain(genesisValidatorSet)
+	// The P-chain moved on to a set that contains ourNode, but no sealing block for it has
+	// been indexed, so our indexed set and the latest set disagree.
+	pChain.setValidatorSetAt(10, metadata.NodeBLSMappings{ourNodeMapping, v2, futureValidator})
+	pChain.advanceHeight(10)
+
+	storage, sealing := newChainStorage(t, genesisValidatorSet)
+	node := newNetwork(t, pChain).addNodeWithConfig(ourNodeMapping.NodeID[:], nodeConfig{storage: storage})
+
+	isValidator, bootstrapped := node.role()
+	require.False(t, bootstrapped)
+	require.False(t, isValidator, "a node whose indexed set is not the latest must bootstrap first") // even though we are a validator
+
+	// One peer reporting the latest sealing block meets the threshold of F(3)+1.
+	block := &ParsedBlock{StateMachineBlock: sealing.Clone()}
+	finalization, _ := testutil.NewFinalizationRecord(t, &testutil.TestSignatureAggregator{N: len(genesisValidatorSet)}, block, genesisValidatorSet.NodeIDs())
+	require.NoError(t, node.inst.HandleMessage(&common.Message{
+		ReplicationResponse: &common.ReplicationResponse{
+			LatestSeq: &common.QuorumRound{Block: block, Finalization: &finalization},
+		},
+	}, v2.NodeID[:]))
+
+	require.Eventually(t, func() bool {
+		isValidator, bootstrapped := node.role()
+		return isValidator && bootstrapped
+	}, 10*time.Second, 10*time.Millisecond, "the node never converted back to a validator of its indexed epoch")
 }

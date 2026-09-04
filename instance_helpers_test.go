@@ -59,6 +59,8 @@ func (ibd *testInnerBlockDeserializer) ParseBlock(_ context.Context, buff []byte
 var (
 	genesisPChainHeight uint64 = 0
 	genesisBlock               = &testInnerBlock{Height_: genesisPChainHeight, TS: time.Now(), Payload: []byte("genesis")}
+	// epochBlockTime fixes the timestamp of the epoch-defining block
+	epochBlockTime = genesisBlock.TS.Add(time.Millisecond)
 )
 
 var paramConfig = ParameterConfig{
@@ -236,6 +238,34 @@ func newTestStorageWithGenesis(t *testing.T) *testStorage {
 	genesis := &ParsedBlock{StateMachineBlock: metadata.StateMachineBlock{InnerBlock: genesisBlock}}
 	require.NoError(t, s.Index(context.Background(), genesis, common.Finalization{}))
 	return s
+}
+
+// newChainStorage builds and indexes the minimum chain a node can start from: genesis plus
+// epoch 1's defining block, which carries the descriptor naming the epoch's validator set.
+// It returns the storage and the epoch-defining block at its tip.
+func newChainStorage(t *testing.T, validators metadata.NodeBLSMappings) (*testStorage, metadata.StateMachineBlock) {
+	storage := newTestStorageWithGenesis(t)
+	genesis, _, err := storage.GetBlock(0)
+	require.NoError(t, err)
+
+	epochBlock := metadata.StateMachineBlock{
+		InnerBlock: &testInnerBlock{Height_: 1, TS: epochBlockTime, Payload: []byte("epoch")},
+		Metadata: metadata.StateMachineMetadata{
+			Timestamp:               uint64(epochBlockTime.UnixMilli()),
+			SimplexProtocolMetadata: common.ProtocolMetadata{Epoch: 1, Round: 1, Seq: 1, Prev: common.Digest(genesis.Digest())},
+			SimplexEpochInfo: metadata.SimplexEpochInfo{
+				EpochNumber: 1,
+				BlockValidationDescriptor: &metadata.BlockValidationDescriptor{
+					AggregatedMembership: metadata.AggregatedMembership{Members: validators},
+				},
+			},
+		},
+	}
+
+	block := &ParsedBlock{StateMachineBlock: epochBlock.Clone()}
+	finalization, _ := testutil.NewFinalizationRecord(t, &testutil.TestSignatureAggregator{N: len(validators)}, block, validators.NodeIDs())
+	require.NoError(t, storage.Index(context.Background(), block, finalization))
+	return storage, epochBlock
 }
 
 func (m *testStorage) GetBlock(seq uint64) (metadata.StateMachineBlock, *common.Finalization, error) {
@@ -564,18 +594,19 @@ func (n *node) stop() {
 	n.comm.stop()
 }
 
+// role reports whether the instance currently runs a validator epoch rather than a
+// non-validator, and whether it has finished bootstrapping.
+func (n *node) role() (isValidator bool, bootstrapped bool) {
+	n.inst.lock.Lock()
+	defer n.inst.lock.Unlock()
+
+	return n.inst.e != nil, n.inst.bootstrapped
+}
+
 // sync syncs a node by waiting for the commit of the latest sequence.
 func (n *node) sync() *node {
 	n.storage.WaitForBlockCommit(n.net.seq - 1)
 	return n
-}
-
-// role reports whether the node is running a validator rather than a non-validator.
-func (n *node) role() (isValidator bool) {
-	n.inst.lock.Lock()
-	defer n.inst.lock.Unlock()
-
-	return n.inst.e != nil
 }
 
 const firstEverEpoch uint64 = 1
@@ -701,8 +732,10 @@ func (n *network) waitUntilValidatorsReady() {
 			continue
 		}
 
-		require.Eventually(n.t, node.role, time.Minute, time.Millisecond,
-			"node %x never started running a validator", node.id)
+		require.Eventually(n.t, func() bool {
+			isValidator, _ := node.role()
+			return isValidator
+		}, time.Minute, time.Millisecond, "node %x never started running a validator", node.id)
 	}
 }
 

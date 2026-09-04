@@ -6,6 +6,7 @@ package nonvalidator
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"math/rand/v2"
 	"sync"
@@ -58,6 +59,12 @@ type Config struct {
 	// TransitionToValidator is called when our non-validator indexes the highest known epoch
 	// and it is in the validator set
 	TransitionToValidator func(epoch uint64, validators common.Nodes)
+
+	OnFinishBootstrapping func(epoch uint64, validators common.Nodes) error
+
+	// a non-validator is considered bootstrapped when it has received a threshold of votes
+	// from the latest validator set. Until then, it cannot verify or index any blocks.
+	Bootstrapped bool
 }
 
 type NonValidator struct {
@@ -117,7 +124,7 @@ func NewNonValidator(config Config) (*NonValidator, error) {
 		epochs:                epochs,
 		verifier:              common.NewBlockVerificationScheduler(config.Logger, simplex.DefaultProcessingBlocks, scheduler),
 		lock:                  lock,
-		highestEpochCollector: newEpochReplicator(config.Logger, config.Comm),
+		highestEpochCollector: newEpochReplicator(config.Logger, config.Comm.Validators),
 		oneTimeVerifier:       simplex.NewOneTimeVerifier(config.Logger),
 		sequenceReplicator:    replicator,
 	}, nil
@@ -154,6 +161,10 @@ func (n *NonValidator) HandleMessage(msg *common.Message, from common.NodeID) er
 		return n.haltedError
 	}
 
+	if !n.Bootstrapped {
+		return n.handleBootstrap(msg, from)
+	}
+
 	switch {
 	case msg.BlockMessage != nil && msg.BlockMessage.Block != nil:
 		return n.handleBlock(msg.BlockMessage.Block, from)
@@ -165,7 +176,68 @@ func (n *NonValidator) HandleMessage(msg *common.Message, from common.NodeID) er
 		n.Logger.Debug("Received unexpected message", zap.Any("Message", msg), zap.Stringer("from", from))
 		return nil
 	}
+}
 
+// handleBootstrap handles messages received before we are bootstrapped.
+// Only replication responses are processed, all other messages are dropped.
+func (n *NonValidator) handleBootstrap(msg *common.Message, from common.NodeID) error {
+	resp := msg.ReplicationResponse
+	if resp == nil {
+		n.Logger.Debug("Dropping message received while bootstrapping, we only accept replication responses", zap.Any("Message", msg), zap.Stringer("From", from))
+		return nil
+	}
+
+	for _, qr := range resp.Data {
+		if err := n.maybeBootstrapFromQuorumRound(&qr, from); err != nil {
+			n.Logger.Debug("Failed processing quorum round while bootstrapping", zap.Stringer("QR", &qr), zap.Error(err))
+		}
+	}
+
+	if err := n.maybeBootstrapFromQuorumRound(resp.LatestSeq, from); err != nil {
+		n.Logger.Debug("Failed processing latest seq while bootstrapping", zap.Stringer("QR", resp.LatestSeq), zap.Error(err))
+	}
+
+	if !n.Bootstrapped {
+		return nil
+	}
+
+	// Begin processing the quorum rounds stored if bootstrapping has finished.
+	return n.processReplicationState()
+}
+
+// maybeBootstrapFromQuorumRound records the sealing block info of qr with the highest epoch collector.
+// Once a threshold of nodes report the same sealing block, we consider ourselves bootstrapped,
+// validate the epoch it seals, and store the quorum round for replication.
+func (n *NonValidator) maybeBootstrapFromQuorumRound(qr *common.QuorumRound, from common.NodeID) error {
+	if err := verifyQuorumRound(qr); err != nil {
+		return err
+	}
+
+	// We can only bootstrap from a sealing block, request the one sealing this block's epoch.
+	if qr.Block.SealingBlockInfo() == nil {
+		n.sendRequest(qr.Block.BlockHeader().Epoch, from)
+		return nil
+	}
+
+	if !n.highestEpochCollector.collectedSealingBlockInfo(qr.Block.SealingBlockInfo(), qr.Block.BlockHeader(), from) {
+		return nil
+	}
+
+	n.Logger.Info("Bootstrapped, received a threshold of sealing block info for an epoch", zap.Stringer("Info", qr.Block.SealingBlockInfo()))
+	n.Bootstrapped = true
+
+	n.maybeValidateNextEpoch(qr.Block)
+	// We are storing a quorum round with a finalization we have not yet verified.
+	// We do this to tell the replicator a valid sequence exists and to begin replication if necessary.
+	// We will check the validity when we process this round.
+	n.sequenceReplicator.StoreQuorumRound(qr)
+
+	if n.OnFinishBootstrapping == nil {
+		n.Logger.Debug("OnFinishBootstrapping not set for the non-validator")
+		return nil
+	}
+
+	return n.OnFinishBootstrapping(qr.Block.BlockHeader().Seq, qr.Block.SealingBlockInfo().ValidatorSet)
 }
 
 // handleBlock handles a block message. BlockMessages are sent when the leader proposes a block for its round.
@@ -329,6 +401,10 @@ func (n *NonValidator) removeOldSequencesAndEpochs(lastCommittedSeq, minEpochToK
 // handleFinalization process a finalization message. If its for a future epoch, it will forward the finalization
 // to the replication handler.
 func (n *NonValidator) handleFinalization(finalization *common.Finalization, from common.NodeID) error {
+	if !n.Bootstrapped {
+		return nil
+	}
+
 	bh := finalization.Finalization.BlockHeader
 
 	n.Logger.Debug("Received a finalization", zap.Uint64("Seq", bh.Seq), zap.Stringer("From", from))
@@ -485,25 +561,11 @@ func (n *NonValidator) processReplicationState() error {
 // epochs when qr has a sealing block, either by checking that we have received a threshold, or by backwards hash chain validation.
 // Returns an error if the qr could not be processed.
 func (n *NonValidator) processQuorumRound(qr *common.QuorumRound, from common.NodeID) error {
-	if qr == nil {
-		return nil
-	}
-
-	if err := qr.VerifyQCConsistentWithBlock(); err != nil {
+	if err := verifyQuorumRound(qr); err != nil {
 		return err
 	}
 
 	block := qr.Block
-	finalization := qr.Finalization
-
-	// Non validators only process quorum rounds with finalizations
-	if finalization == nil {
-		return nil
-	}
-
-	if block == nil {
-		return fmt.Errorf("received a quorum round with a finalization but no block")
-	}
 
 	if n.isAccepted(block.BlockHeader().Seq) {
 		return fmt.Errorf("processing quorum round for a block we already indexed")
@@ -523,6 +585,23 @@ func (n *NonValidator) processQuorumRound(qr *common.QuorumRound, from common.No
 	// This block could be a sealing block, validate the next epoch if so.
 	n.maybeValidateNextEpoch(block)
 	n.sequenceReplicator.StoreQuorumRound(qr)
+	return nil
+}
+
+// verifyQuorumRound verifies a qr can be processed by the non-validator.
+func verifyQuorumRound(qr *common.QuorumRound) error {
+	if qr == nil {
+		return errors.New("nil quorum round")
+	}
+
+	if err := qr.VerifyQCConsistentWithBlock(); err != nil {
+		return err
+	}
+
+	if qr.Block == nil || qr.Finalization == nil {
+		return errors.New("ignoring quorum round without a block and finalization")
+	}
+
 	return nil
 }
 
