@@ -11,6 +11,7 @@ import (
 	metadata "github.com/ava-labs/simplex/msm"
 	"github.com/ava-labs/simplex/simplex"
 	"github.com/ava-labs/simplex/testutil"
+	"github.com/ava-labs/simplex/wal"
 	"github.com/stretchr/testify/require"
 )
 
@@ -321,6 +322,61 @@ func TestInstanceValidatorSkipsAnEpoch(t *testing.T) {
 	pChain.advanceHeight(30)
 
 	network.waitUntilSealingBlock(newValidatorSet.Nodes())
+}
+
+func TestInstanceRestartsAfterZeroBlock(t *testing.T) {
+	validator := newNodeMapping(1)
+	pChain := newTestPChain([]metadata.NodeBLSMapping{validator})
+	network := newNetwork(t, pChain)
+
+	// The lone validator builds and commits the zero block on its own.
+	node := network.addNode(validator.NodeID[:]).sync()
+
+	zeroBlock, _, err := node.storage.GetBlock(1)
+	require.NoError(t, err)
+	require.Equal(t, metadata.BlockTypeZero, zeroBlock.Type())
+	require.Nil(t, zeroBlock.InnerBlock)
+
+	// Export the WAL records before the node goes down.
+	var records [][]byte
+	node.wals.lock.Lock()
+	for _, w := range node.wals.wals {
+		walRecords, err := w.ReadAll()
+		require.NoError(t, err)
+		records = append(records, walRecords...)
+	}
+	node.wals.lock.Unlock()
+
+	// Crash the node
+	node.inst.Stop()
+
+	// Come back up over the same storage, restoring a WAL rebuilt from the exported records.
+	restoredWAL := testutil.NewTestWAL(t)
+	for _, record := range records {
+		require.NoError(t, restoredWAL.Append(record))
+	}
+	wc := &walCreator{t: t}
+	restarted := NewInstance(Config{
+		LastNonSimplexInnerBlock: genesisBlock,
+		ParameterConfig:          paramConfig,
+		PlatformChain:            pChain,
+		Broadcaster:              node.comm,
+		Sender:                   node.comm,
+		CryptoOps:                &testCryptoOps{},
+		WalCreator:               wc.createWAL,
+		Storage:                  node.storage,
+		Logger:                   testutil.MakeLogger(t, 1),
+		WALs:                     []wal.DeletableWAL{restoredWAL},
+		VM:                       node.vm,
+		ICMETransition:           noopICMTransition,
+		ID:                       validator.NodeID[:],
+	})
+	t.Cleanup(restarted.Stop)
+	require.NoError(t, restarted.Start(t.Context()), "a node that built the zero block cannot restart")
+
+	// The restarted node keeps the chain going.
+	network.pending.addPendingBlock()
+	node.storage.WaitForBlockCommit(2)
 }
 
 func TestInstanceDoubleStartFails(t *testing.T) {
