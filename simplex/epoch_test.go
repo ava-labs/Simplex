@@ -2068,7 +2068,7 @@ type rejectingVerifier struct {
 	rejected []byte
 }
 
-func (v *rejectingVerifier) VerifySignature(_ []byte, signature []byte, _ []byte) error {
+func (v *rejectingVerifier) VerifySignature(_ []byte, signature SignatureBytes, _ PublicKeyBytes) error {
 	if string(signature) == string(v.rejected) {
 		return fmt.Errorf("invalid signature")
 	}

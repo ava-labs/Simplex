@@ -82,11 +82,18 @@ type Communication interface {
 }
 
 type Signer interface {
-	Sign(message []byte) ([]byte, error)
+	Sign(message []byte) (SignatureBytes, error)
 }
 
+// SignatureBytes is the byte representation of a signature, or of an aggregate of signatures.
+type SignatureBytes []byte
+
+// PublicKeyBytes is the byte representation of a public key, or of an aggregate of public keys.
+type PublicKeyBytes []byte
+
+// SignatureVerifier verifies that signature is a valid signature over message by the holder of publicKey.
 type SignatureVerifier interface {
-	VerifySignature(message []byte, signature []byte, publicKey []byte) error
+	VerifySignature(message []byte, signature SignatureBytes, publicKey PublicKeyBytes) error
 }
 
 type WriteAheadLog interface {
@@ -150,7 +157,7 @@ type Signature struct {
 	// Signer is the NodeID of the creator of the signature.
 	Signer NodeID
 	// Value is the byte representation of the signature.
-	Value []byte
+	Value SignatureBytes
 }
 
 // QCDeserializer deserializes QuorumCertificates according to formatting
@@ -167,7 +174,7 @@ type SignatureAggregator interface {
 
 	// AppendSignatures appends signatures to an existing signature.
 	// If the existing signature is empty, it just aggregates the given signatures.
-	AppendSignatures([]byte, ...[]byte) ([]byte, error)
+	AppendSignatures(SignatureBytes, ...SignatureBytes) (SignatureBytes, error)
 
 	// IsQuorum returns true if the given signers constitute a quorum.
 	// In the case of PoA, this means at least a quorum of the nodes are given.
@@ -200,7 +207,7 @@ func (nws Nodes) Contains(nodeID NodeID) bool {
 type Node struct {
 	Id     NodeID
 	Weight uint64
-	PK     []byte
+	PK     PublicKeyBytes
 }
 
 // SortNodes sorts the nodes in place by their byte representations.
