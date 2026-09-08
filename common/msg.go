@@ -232,7 +232,13 @@ func (f *Finalization) Verify(nodes Nodes) error {
 }
 
 func (f *Finalization) Size() int {
-	return f.Finalization.Size() + f.QC.Size()
+	size := f.Finalization.Size()
+	// genesis block has an empty finalization and no QC
+	if f.QC != nil {
+		size += f.QC.Size()
+	}
+
+	return size
 }
 
 // Notarization represents a block that has reached a quorum of votes.
