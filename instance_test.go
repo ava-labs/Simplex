@@ -504,7 +504,7 @@ func TestValidatorSetsMetadataFromSnowman(t *testing.T) {
 		pb := &ParsedBlock{StateMachineBlock: metadata.StateMachineBlock{InnerBlock: innerBlock, Metadata: metadata.StateMachineMetadata{
 			SimplexProtocolMetadata: md,
 		}}}
-		storage.Index(t.Context(), pb, common.Finalization{})
+		require.NoError(t, storage.Index(t.Context(), pb, common.Finalization{}))
 		lastBlock = innerBlock
 	}
 
