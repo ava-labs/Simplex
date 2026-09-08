@@ -421,18 +421,29 @@ func (sm *StateMachine) BuildBlock(ctx context.Context, metadata common.Protocol
 	// we identify the current state by looking at the parent block's epoch info.
 	currentState := parentBlock.Metadata.SimplexEpochInfo.NextState()
 
+	var block *StateMachineBlock
 	switch currentState {
 	case stateFirstSimplexBlock:
-		return sm.buildBlockZero(parentBlock, metadata, blacklist)
+		block, err = sm.buildBlockZero(parentBlock, metadata, blacklist)
 	case stateBuildBlockNormalOp:
-		return sm.buildBlockNormalOp(ctx, &parentBlock, metadata, blacklist, prevBlockSeq)
+		block, err = sm.buildBlockNormalOp(ctx, &parentBlock, metadata, blacklist, prevBlockSeq)
 	case stateBuildCollectingApprovals:
-		return sm.buildBlockCollectingApprovals(ctx, &parentBlock, metadata, blacklist, prevBlockSeq)
+		block, err = sm.buildBlockCollectingApprovals(ctx, &parentBlock, metadata, blacklist, prevBlockSeq)
 	case stateBuildBlockEpochSealed:
-		return sm.buildBlockEpochSealed(ctx, &parentBlock, metadata, blacklist, prevBlockSeq)
+		block, err = sm.buildBlockEpochSealed(ctx, &parentBlock, metadata, blacklist, prevBlockSeq)
 	default:
 		return nil, fmt.Errorf("%w: %d", errUnknownState, currentState)
 	}
+	if err != nil {
+		return nil, err
+	}
+
+	// Ensure the epoch number of the built block matches the parent
+	if err := sm.verifyEpochNumber(block); err != nil {
+		return nil, err
+	}
+
+	return block, nil
 }
 
 // VerifyBlock validates a proposed block by checking its metadata, epoch info,

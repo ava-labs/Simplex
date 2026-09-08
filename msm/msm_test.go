@@ -229,6 +229,34 @@ func TestMSMBuildBlockRejectsZeroSeq(t *testing.T) {
 	require.Nil(t, block)
 }
 
+// TestMSMBuildBlockRejectsMismatchingEpoch asserts that a node refuses to build a block
+// whose ProtocolMetadata epoch disagrees with the epoch derived from its parent.
+func TestMSMBuildBlockRejectsMismatchingEpoch(t *testing.T) {
+	preSimplexParent := StateMachineBlock{
+		InnerBlock: &testutil.InnerBlock{
+			TS:          time.Now(),
+			BlockHeight: 42,
+			Content:     []byte{4, 5, 6},
+		},
+	}
+
+	sm, testConfig := newStateMachine(t)
+	testConfig.blockStore[42] = &outerBlock{block: preSimplexParent}
+	sm.LastNonSimplexInnerBlock = preSimplexParent.InnerBlock
+
+	// The parent sits at height 42, so the epoch derived from the chain is 43.
+	md := common.ProtocolMetadata{
+		Round: 0,
+		Seq:   43,
+		Epoch: 1,
+		Prev:  preSimplexParent.Digest(),
+	}
+
+	block, err := sm.BuildBlock(context.Background(), md, emptyBlacklist)
+	require.ErrorIs(t, err, errInvalidProtocolMetadataEpoch)
+	require.Nil(t, block)
+}
+
 func TestMSMNormalOp(t *testing.T) {
 	newPChainHeight := uint64(200)
 	newValidatorSet := NodeBLSMappings{
