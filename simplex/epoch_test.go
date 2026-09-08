@@ -2743,8 +2743,6 @@ func TestEpochIgnoresReplicatedQuorumRoundsFromOtherEpochs(t *testing.T) {
 
 // TestEpochFinalizeVoteSentTwiceKeepsBufferedVote asserts that a node which finalize
 // voted before we had the round cannot displace that vote by sending a second one.
-// A held finalize vote is only verified once the round exists, so a second one that
-// fails verification costs the round a vote and finalization stalls.
 func TestEpochFinalizeVoteSentTwiceKeepsBufferedVote(t *testing.T) {
 	bb := testutil.NewTestBlockBuilder()
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
