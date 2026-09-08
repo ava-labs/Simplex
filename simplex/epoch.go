@@ -953,6 +953,15 @@ func (e *Epoch) storeFutureFinalizeVote(message *common.FinalizeVote, from commo
 		msgsForRound = &messagesForRound{}
 		e.futureMessages[string(from)][round] = msgsForRound
 	}
+
+	// A node only gets to finalize vote once per round. The vote is only verified once
+	// the round exists, so a second one must not displace the one we stored.
+	if msgsForRound.finalizeVote != nil {
+		e.Logger.Debug("Already received a finalize vote from this node for the round",
+			zap.Stringer("NodeID", from), zap.Uint64("round", round))
+		return
+	}
+
 	msgsForRound.finalizeVote = message
 }
 
