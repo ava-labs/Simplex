@@ -4,7 +4,6 @@
 package metadata
 
 import (
-	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -104,7 +103,7 @@ func (bs blockStore) getBlock(seq uint64, _ common.Digest) (StateMachineBlock, *
 type signer struct {
 }
 
-func (s *signer) Sign(digest []byte) ([]byte, error) {
+func (s *signer) Sign(digest []byte) (common.SignatureBytes, error) {
 	return testSK.Sign(rand.Reader, digest, nil)
 }
 
@@ -128,7 +127,7 @@ type signatureVerifier struct {
 	err error
 }
 
-func (sv *signatureVerifier) VerifySignature(signature []byte, message []byte, _ []byte) error {
+func (sv *signatureVerifier) VerifySignature(message []byte, signature common.SignatureBytes, _ common.PublicKeyBytes) error {
 	if sv.err != nil {
 		return sv.err
 	}
@@ -165,9 +164,11 @@ func (sv *signatureAggregator) Aggregate([]common.Signature) (common.QuorumCerti
 	panic("unused in tests")
 }
 
-func (sv *signatureAggregator) AppendSignatures(existing []byte, sigs ...[]byte) ([]byte, error) {
+func (sv *signatureAggregator) AppendSignatures(existing common.SignatureBytes, sigs ...common.SignatureBytes) (common.SignatureBytes, error) {
 	all := make([][]byte, 0, len(sigs)+1)
-	all = append(all, sigs...)
+	for _, sig := range sigs {
+		all = append(all, sig)
+	}
 	if len(existing) > 0 {
 		// existing is itself a marshaled aggregate from a previous round. Flatten it into the
 		// component signatures instead of nesting the blob, so the aggregate stays a single level
@@ -224,8 +225,8 @@ func (vsr *validatorSetRetriever) getValidatorSet(height uint64) (NodeBLSMapping
 
 type keyAggregator struct{}
 
-func (ka *keyAggregator) AggregateKeys(keys ...[]byte) ([]byte, error) {
-	aggregated := make([]byte, 0)
+func (ka *keyAggregator) AggregateKeys(keys ...common.PublicKeyBytes) (common.PublicKeyBytes, error) {
+	aggregated := make(common.PublicKeyBytes, 0)
 	for _, key := range keys {
 		aggregated = append(aggregated, key...)
 	}
@@ -412,8 +413,11 @@ func (concatAggregator) Aggregate([]common.Signature) (common.QuorumCertificate,
 	panic("unused in tests")
 }
 
-func (concatAggregator) AppendSignatures(existing []byte, sigs ...[]byte) ([]byte, error) {
-	result := bytes.Join(sigs, nil)
+func (concatAggregator) AppendSignatures(existing common.SignatureBytes, sigs ...common.SignatureBytes) (common.SignatureBytes, error) {
+	var result common.SignatureBytes
+	for _, sig := range sigs {
+		result = append(result, sig...)
+	}
 	return append(result, existing...), nil
 }
 
@@ -429,7 +433,7 @@ func (failingAggregator) Aggregate([]common.Signature) (common.QuorumCertificate
 
 var errTestAggregationFailed = errors.New("aggregation failed")
 
-func (failingAggregator) AppendSignatures([]byte, ...[]byte) ([]byte, error) {
+func (failingAggregator) AppendSignatures(common.SignatureBytes, ...common.SignatureBytes) (common.SignatureBytes, error) {
 	return nil, errTestAggregationFailed
 }
 
