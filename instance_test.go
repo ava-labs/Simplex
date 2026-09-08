@@ -459,3 +459,25 @@ func TestValidatorSkipsMSMVerificationWhenReplicating(t *testing.T) {
 		})
 	}
 }
+
+// TestValidatorIndexes tests that a validator indexes and accepts a new block sent by the network
+// It is the only validator, so it will build and finalize its own block.
+func TestValidatorRequestsGenesis(t *testing.T) {
+	validatorID := newNodeMapping(1)
+	nonValidatorID := newNodeMapping(2)
+
+	genesisSet := []metadata.NodeBLSMapping{validatorID}
+
+	pChain := newTestPChain(genesisSet)
+	network := newNetwork(t, pChain)
+	validator := network.addNode(validatorID.NodeID[:]).sync()
+
+	// replication request for seq 0 (genesis)
+	msg := &common.Message{
+		ReplicationRequest: &common.ReplicationRequest{
+			Seqs: []uint64{0},
+		},
+	}
+
+	require.NoError(t, validator.inst.HandleMessage(msg, nonValidatorID.NodeID[:]))
+}
