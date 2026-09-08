@@ -112,13 +112,7 @@ type ICMEpochTransition func(ICMEpochInput) ICMEpochInfo
 
 // KeyAggregator combines multiple public keys into a single aggregated public key.
 type KeyAggregator interface {
-	AggregateKeys(keys ...[]byte) ([]byte, error)
-}
-
-// SignatureVerifier verifies a cryptographic signature against a message and public key.
-// Used to verify Approvals from validators for epoch transitions.
-type SignatureVerifier interface {
-	VerifySignature(signature []byte, message []byte, publicKey []byte) error
+	AggregateKeys(keys ...common.PublicKeyBytes) (common.PublicKeyBytes, error)
 }
 
 // ValidatorSetRetriever retrieves the validator set at a given P-chain height.
@@ -199,8 +193,8 @@ type Config struct {
 	SignatureAggregatorCreator common.SignatureAggregatorCreator
 	// KeyAggregator aggregates public keys from validators.
 	KeyAggregator KeyAggregator
-	// SignatureVerifier verifies signatures from validators.
-	SignatureVerifier SignatureVerifier
+	// SignatureVerifier verifies signatures from validators, such as their approvals for epoch transitions.
+	SignatureVerifier common.SignatureVerifier
 	// PChainProgressListener listens for changes in the P-chain height to trigger block building or epoch transitions.
 	PChainProgressListener PChainProgressListener
 	// LastNonSimplexBlockPChainHeight is the P-chain height of the last block built by a non-Simplex proposer.
@@ -1174,7 +1168,7 @@ func (sm *StateMachine) verifyNextEpochApprovalsSignature(prevMD StateMachineMet
 		return err
 	}
 
-	if err := sm.SignatureVerifier.VerifySignature(next.NextEpochApprovals.Signature, toBeSigned, aggPK); err != nil {
+	if err := sm.SignatureVerifier.VerifySignature(toBeSigned, next.NextEpochApprovals.Signature, aggPK); err != nil {
 		return fmt.Errorf("failed to verify signature: %w", err)
 	}
 	return nil
@@ -1213,7 +1207,7 @@ func (sm *StateMachine) aggregatePubKeysForBitmask(nodeIDsBitmask []byte, valida
 			errApprovalsBitmaskTooWide, bitLen, len(validators))
 	}
 
-	publicKeys := make([][]byte, 0, len(validators))
+	publicKeys := make([]common.PublicKeyBytes, 0, len(validators))
 	for i := range validators {
 		if !approvingNodes.Contains(i) {
 			continue
@@ -1702,7 +1696,7 @@ func computeNewApproverSignaturesAndSigners(
 		return nil, avalanchego.Bitmask{}, errEmptyNextEpochApprovals
 	}
 	// Prepare the new signatures from the new approvals that haven't approved yet and that agree with our candidate auxiliary info digest and P-Chain height.
-	newSignatures := make([][]byte, 0, len(approvalsFromPeers)+1)
+	newSignatures := make([]common.SignatureBytes, 0, len(approvalsFromPeers)+1)
 
 	// We will overwrite the old approving nodes with the new approving nodes, by turning on the bits for the new approvers.
 	newApprovingNodes := oldApprovingNodes.Clone()
