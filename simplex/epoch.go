@@ -1201,6 +1201,15 @@ func (e *Epoch) storeFutureVote(message *common.Vote, from common.NodeID, round 
 		msgsForRound = &messagesForRound{}
 		e.futureMessages[string(from)][round] = msgsForRound
 	}
+
+	// A node only gets to vote once per round. The vote is only verified once the round
+	// exists, so a second one must not displace the one we stored.
+	if msgsForRound.vote != nil {
+		e.Logger.Debug("Already received a vote from this node for the round",
+			zap.Stringer("NodeID", from), zap.Uint64("round", round))
+		return
+	}
+
 	msgsForRound.vote = message
 }
 
