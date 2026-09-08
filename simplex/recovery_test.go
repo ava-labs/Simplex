@@ -336,6 +336,10 @@ func TestWalWritesFinalization(t *testing.T) {
 	for i := 1; i < quorum; i++ {
 		testutil.InjectTestVote(t, e, firstBlock, nodes[i])
 	}
+
+	// the block record is appended by the block building task, not by Start
+	wal.AssertWALSize(2)
+
 	records, err := e.WAL.ReadAll()
 	require.NoError(t, err)
 	require.Len(t, records, 2)
