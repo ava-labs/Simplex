@@ -1942,14 +1942,20 @@ func (e *Epoch) handleBlockMessage(message *common.BlockMessage, from common.Nod
 		return nil
 	}
 
+	// If we are already processing a block for this round, reject the block while it is being processed.
+	if msgForRound, exists := e.futureMessages[string(from)][md.Round]; exists && msgForRound.proposalBeingProcessed {
+		e.Logger.Debug("Got block for a round that is being processed", zap.Uint64("round", md.Round))
+		return nil
+	}
+
+	// Create a task that will verify the block in the future, after its predecessors have also been verified.
+	task := e.createBlockVerificationTask(e.oneTimeVerifier.Wrap(block), from, vote)
+
 	prevBlockDependency, missingRounds := e.blockDependencies(md)
 
 	if len(missingRounds) > 0 {
 		e.sendMissingRoundsRequest(from, missingRounds)
 	}
-
-	// Create a task that will verify the block in the future, after its predecessors have also been verified.
-	task := e.createBlockVerificationTask(e.oneTimeVerifier.Wrap(block), from, vote)
 
 	if err := e.blockVerificationScheduler.ScheduleTaskWithDependencies(task, md.Seq, prevBlockDependency, missingRounds); err != nil {
 		return nil
@@ -2175,6 +2181,8 @@ func (e *Epoch) createBlockVerificationTask(block common.Block, from common.Node
 		e.lock.Lock()
 		defer e.lock.Unlock()
 
+		e.deleteFutureProposal(from, md.Round)
+
 		if err != nil {
 			leader := LeaderForRound(e.validatorNodeIDs, md.Round)
 			e.Logger.Info("Triggering empty block agreement",
@@ -2185,8 +2193,6 @@ func (e *Epoch) createBlockVerificationTask(block common.Block, from common.Node
 			e.triggerEmptyBlockNotarization(md.Round)
 			return md.Digest
 		}
-
-		e.deleteFutureProposal(from, md.Round)
 
 		if !e.storeProposal(verifiedBlock) {
 			e.Logger.Debug("Unable to store proposed block for the round", zap.Stringer("NodeID", from), zap.Uint64("round", md.Round))
