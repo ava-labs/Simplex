@@ -549,6 +549,7 @@ func noopICMTransition(_ metadata.ICMEpochInput) metadata.ICMEpochInfo {
 
 type node struct {
 	t       *testing.T
+	stopped bool
 	net     *network
 	id      common.NodeID
 	vm      *blockBuilderVM
@@ -560,8 +561,36 @@ type node struct {
 
 // stop stops the instance, then drains the messages the node was sending.
 func (n *node) stop() {
+	if n.stopped {
+		return
+	}
 	n.inst.Stop()
 	n.comm.stop()
+	n.stopped = true
+}
+
+func (n *node) restart() *node {
+	n.stop()
+
+	var records [][]byte
+	n.wals.lock.Lock()
+	for _, w := range n.wals.wals {
+		walRecords, err := w.ReadAll()
+		require.NoError(n.t, err)
+		records = append(records, walRecords...)
+	}
+	n.wals.lock.Unlock()
+
+	// Come back up over the same storage, restoring a WAL rebuilt from the exported records.
+	restoredWAL := testutil.NewTestWAL(n.t)
+	for _, record := range records {
+		require.NoError(n.t, restoredWAL.Append(record))
+	}
+
+	newNode := n.net.addNodeWithConfig(n.id, nodeConfig{
+		wals: []wal.DeletableWAL{restoredWAL}, storage: n.storage, existingNode: true,
+	})
+	return newNode
 }
 
 // sync syncs a node by waiting for the commit of the latest sequence.
@@ -625,6 +654,8 @@ type nodeConfig struct {
 	storage *testStorage
 	// wals are pre-existing WALs the instance restores on start.
 	wals []wal.DeletableWAL
+	// existingNode indicates whether the node is being added to the network for the first time (false) or is a restart of an existing node (true).
+	existingNode bool
 }
 
 // addNode creates and starts a node in the network.
@@ -637,11 +668,6 @@ func (n *network) addNodeWithConfig(id common.NodeID, cfg nodeConfig) *node {
 	storage := cfg.storage
 	if storage == nil {
 		storage = newTestStorageWithGenesis(n.t)
-	}
-
-	// ensure a unique id; snapshot because nodes may be added concurrently
-	for _, node := range n.nodesSnapshot() {
-		require.NotEqual(n.t, node.id, id)
 	}
 
 	comm := newInstanceComm(n, id)
@@ -677,7 +703,20 @@ func (n *network) addNodeWithConfig(id common.NodeID, cfg nodeConfig) *node {
 	}
 
 	n.lock.Lock()
-	n.nodes = append(n.nodes, node)
+	if cfg.existingNode {
+		for i, existingNode := range n.nodes {
+			if existingNode.id.Equals(id) {
+				n.nodes[i] = node
+				break
+			}
+		}
+	} else {
+		// ensure a unique id; snapshot because nodes may be added concurrently
+		for _, node := range n.nodes {
+			require.NotEqual(n.t, node.id, id)
+		}
+		n.nodes = append(n.nodes, node)
+	}
 	n.lock.Unlock()
 
 	instance.Config.Logger.Debug("Created a node in the test network", zap.Uint64("Seq", n.seq), zap.Uint64("num block", node.storage.NumBlocks()))

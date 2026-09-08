@@ -11,7 +11,6 @@ import (
 	metadata "github.com/ava-labs/simplex/msm"
 	"github.com/ava-labs/simplex/simplex"
 	"github.com/ava-labs/simplex/testutil"
-	"github.com/ava-labs/simplex/wal"
 	"github.com/stretchr/testify/require"
 )
 
@@ -337,46 +336,10 @@ func TestInstanceRestartsAfterZeroBlock(t *testing.T) {
 	require.Equal(t, metadata.BlockTypeZero, zeroBlock.Type())
 	require.Nil(t, zeroBlock.InnerBlock)
 
-	// Export the WAL records before the node goes down.
-	var records [][]byte
-	node.wals.lock.Lock()
-	for _, w := range node.wals.wals {
-		walRecords, err := w.ReadAll()
-		require.NoError(t, err)
-		records = append(records, walRecords...)
-	}
-	node.wals.lock.Unlock()
-
-	// Crash the node
-	node.inst.Stop()
-
-	// Come back up over the same storage, restoring a WAL rebuilt from the exported records.
-	restoredWAL := testutil.NewTestWAL(t)
-	for _, record := range records {
-		require.NoError(t, restoredWAL.Append(record))
-	}
-	wc := &walCreator{t: t}
-	restarted := NewInstance(Config{
-		LastNonSimplexInnerBlock: genesisBlock,
-		ParameterConfig:          paramConfig,
-		PlatformChain:            pChain,
-		Broadcaster:              node.comm,
-		Sender:                   node.comm,
-		CryptoOps:                &testCryptoOps{},
-		WalCreator:               wc.createWAL,
-		Storage:                  node.storage,
-		Logger:                   testutil.MakeLogger(t, 1),
-		WALs:                     []wal.DeletableWAL{restoredWAL},
-		VM:                       node.vm,
-		ICMETransition:           noopICMTransition,
-		ID:                       validator.NodeID[:],
-	})
-	t.Cleanup(restarted.Stop)
-	require.NoError(t, restarted.Start(t.Context()), "a node that built the zero block cannot restart")
+	node.restart()
 
 	// The restarted node keeps the chain going.
-	network.pending.addPendingBlock()
-	node.storage.WaitForBlockCommit(2)
+	network.acceptNewBlock()
 }
 
 func TestInstanceDoubleStartFails(t *testing.T) {
