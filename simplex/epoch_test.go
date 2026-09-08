@@ -651,15 +651,18 @@ func TestEpochConsecutiveProposalsDoNotGetVerified(t *testing.T) {
 		name                      string
 		err                       error
 		expectedVerificationCount int
+		capacity                  int
 	}{
 		{
 			name:                      "valid block",
 			expectedVerificationCount: 1,
+			capacity:                  10,
 		},
 		{
 			name:                      "invalid block",
 			err:                       fmt.Errorf("invalid block"),
-			expectedVerificationCount: DefaultProcessingBlocks,
+			expectedVerificationCount: 10,
+			capacity:                  1,
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -671,6 +674,15 @@ func TestEpochConsecutiveProposalsDoNotGetVerified(t *testing.T) {
 			e, err := NewEpoch(conf)
 			require.NoError(t, err)
 			t.Cleanup(e.Stop)
+
+			semaphore := make(chan struct{}, test.capacity) // poor man's semaphore to limit the number of concurrent verifications
+
+			e.Logger.(*testutil.TestLogger).Intercept(func(entry zapcore.Entry) error {
+				if strings.Contains(entry.Message, "Block verification ended") {
+					<-semaphore // release a resource in the semaphore when a block verification ends
+				}
+				return nil
+			})
 
 			require.NoError(t, e.Start())
 
@@ -696,28 +708,103 @@ func TestEpochConsecutiveProposalsDoNotGetVerified(t *testing.T) {
 			vote, err := testutil.NewTestVote(block, leader)
 			require.NoError(t, err)
 
-			var wg sync.WaitGroup
-			wg.Add(DefaultProcessingBlocks)
-
-			for i := 0; i < DefaultProcessingBlocks; i++ {
-				go func() {
-					defer wg.Done()
-
-					err := e.HandleMessage(&Message{
-						BlockMessage: &BlockMessage{
-							Vote:  *vote,
-							Block: block,
-						},
-					}, leader)
-					require.NoError(t, err)
-				}()
+			for i := 0; i < 10; i++ {
+				semaphore <- struct{}{} // acquire a resource in the semaphore before scheduling a block verification
+				err := e.HandleMessage(&Message{
+					BlockMessage: &BlockMessage{
+						Vote:  *vote,
+						Block: block,
+					},
+				}, leader)
+				require.NoError(t, err)
 			}
-			wg.Wait()
 			scheduledWG.Wait()
 
 			require.Equal(t, uint32(test.expectedVerificationCount), timesVerified.Load())
 		})
 	}
+}
+
+// TestEpochLeaderEquivocationDoesNotFloodBlockVerification tests that
+// a leader flooding distinct valid blocks for the same round must get at most
+// one verified and must not overwhelm the bounded verification queue.
+func TestEpochLeaderEquivocationDoesNotFloodBlockVerification(t *testing.T) {
+	bb := testutil.NewTestBlockBuilder()
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+
+	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[1], testutil.NewNoopComm(nodes), bb)
+
+	// Count the scheduler's "queue full" warnings. Installed before NewEpoch (and
+	// thus before the scheduler goroutine is started) so there is no race on the logger.
+	var queueFullWarnings atomic.Uint32
+	logger := conf.Logger.(*testutil.TestLogger)
+	logger.Intercept(func(entry zapcore.Entry) error {
+		if strings.Contains(entry.Message, "Too many blocks being verified") {
+			queueFullWarnings.Add(1)
+		}
+		return nil
+	})
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+
+	leader := LeaderForRound(nodes, 0)
+	require.NotEqual(t, conf.ID, leader) // the local node must not be the leader of the round
+
+	// Hold every verification until the flood is fully submitted, so exactly one
+	// proposal stays in-flight (pendingRounds only blocks an in-flight verification).
+	gate := make(chan struct{})
+	var releaseGate sync.Once
+	openGate := func() { releaseGate.Do(func() { close(gate) }) }
+	t.Cleanup(e.Stop)
+	t.Cleanup(openGate)
+
+	require.NoError(t, e.Start())
+
+	md := e.Metadata()
+	require.Equal(t, uint64(0), md.Round)
+
+	var timesVerified atomic.Uint32
+
+	// More distinct, valid proposals than the 500-slot queue can hold.
+	const floodSize = DefaultProcessingBlocks + 50
+	digests := make(map[Digest]struct{}, floodSize)
+	for i := 0; i < floodSize; i++ {
+		// Distinct payload -> distinct digest, but identical, valid metadata.
+		block := testutil.NewTestBlock(md, emptyBlacklist)
+		block.Data = []byte(fmt.Sprintf("equivocated-proposal-%d", i))
+		block.ComputeDigest()
+		block.VerificationDelay = gate
+		block.OnVerify = func() { timesVerified.Add(1) }
+
+		d := block.BlockHeader().Digest
+		_, dup := digests[d]
+		require.False(t, dup, "the leader's equivocated blocks must be distinct")
+		digests[d] = struct{}{}
+
+		vote, err := testutil.NewTestVote(block, leader)
+		require.NoError(t, err)
+
+		require.NoError(t, e.HandleMessage(&Message{
+			BlockMessage: &BlockMessage{Vote: *vote, Block: block},
+		}, leader))
+	}
+
+	// Scheduling is synchronous within HandleMessage, so any queue-full warnings
+	// have already been emitted by the time the flood loop returns.
+	require.Zero(t, queueFullWarnings.Load(),
+		"leader equivocation flood must not overrun the shared verification queue")
+
+	// Let the scheduled verification(s) run to completion.
+	openGate()
+
+	// The leader's proposal is verified at least once...
+	require.Eventually(t, func() bool { return timesVerified.Load() >= 1 },
+		time.Second, 10*time.Millisecond, "the leader's proposal should be verified")
+	// ...but no more than one proposal per (leader, round) is verified.
+	require.Never(t, func() bool { return timesVerified.Load() > 1 },
+		500*time.Millisecond, 10*time.Millisecond,
+		"a leader must not get more than one proposal verified for the same round")
 }
 
 // TestEpochIncreasesRoundAfterFinalization ensures that the epochs round is incremented
