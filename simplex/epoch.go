@@ -700,15 +700,22 @@ func (e *Epoch) setMetadataFromStorage() error {
 		return nil
 	}
 
-	e.round = e.lastBlock.VerifiedBlock.BlockHeader().Round + 1
+	bh := e.lastBlock.VerifiedBlock.BlockHeader()
+	e.round = bh.Round + 1
 
 	// The last block we indexed was a sealing block, therefore the epoch number is that blocks sequence
 	if e.lastBlock.VerifiedBlock.SealingBlockInfo() != nil {
-		e.Epoch = e.lastBlock.VerifiedBlock.BlockHeader().Seq
+		e.Epoch = bh.Seq
 		return nil
 	}
 
-	e.Epoch = e.lastBlock.VerifiedBlock.BlockHeader().Epoch
+	// a zero epoch represents genesis or a non-simplex block
+	if bh.Epoch == 0 {
+		e.Epoch = bh.Seq + 1
+		return nil
+	}
+
+	e.Epoch = bh.Epoch
 	return nil
 }
 
