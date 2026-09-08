@@ -1034,9 +1034,13 @@ func TestEpochResizesBlacklistOnEpochChange(t *testing.T) {
 	require.Equal(t, uint16(1), sealingBlock.Blacklist().NodeCount,
 		"blacklist must contain exactly one node")
 
+	sigAggregator := &testutil.TestSignatureAggregator{N: len(nodes)}
+	epoch0Finalization, _ := testutil.NewFinalizationRecord(t, sigAggregator, epoch0Block, nodes)
+	sealingFinalization, _ := testutil.NewFinalizationRecord(t, sigAggregator, sealingBlock, nodes)
+
 	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
-	require.NoError(t, conf.Storage.Index(context.Background(), epoch0Block, Finalization{}))
-	require.NoError(t, conf.Storage.Index(context.Background(), sealingBlock, Finalization{}))
+	require.NoError(t, conf.Storage.Index(context.Background(), epoch0Block, epoch0Finalization))
+	require.NoError(t, conf.Storage.Index(context.Background(), sealingBlock, sealingFinalization))
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
@@ -1054,8 +1058,8 @@ func TestEpochResizesBlacklistOnEpochChange(t *testing.T) {
 
 	// Next, create the other node (follower) and ensure it can verify the block.
 	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[1], testutil.NewNoopComm(nodes), bb)
-	require.NoError(t, conf.Storage.Index(context.Background(), epoch0Block, Finalization{}))
-	require.NoError(t, conf.Storage.Index(context.Background(), sealingBlock, Finalization{}))
+	require.NoError(t, conf.Storage.Index(context.Background(), epoch0Block, epoch0Finalization))
+	require.NoError(t, conf.Storage.Index(context.Background(), sealingBlock, sealingFinalization))
 
 	e, err = NewEpoch(conf)
 	require.NoError(t, err)
@@ -2741,4 +2745,51 @@ func TestEpochIgnoresReplicatedQuorumRoundsFromOtherEpochs(t *testing.T) {
 	}}, nodes[2]))
 	testutil.WaitToEnterRound(t, e, md.Round+2)
 	require.Equal(t, int32(3), ignored.Load(), "quorum rounds from our own epoch must not be ignored")
+}
+
+// nonSimplexLedger holds blocks indexed by a previous consensus engine. They sit at
+// successive ledger heights but carry no Simplex metadata and no finalization.
+type nonSimplexLedger struct {
+	blocks []VerifiedBlock
+}
+
+func (l *nonSimplexLedger) NumBlocks() uint64 {
+	return uint64(len(l.blocks))
+}
+
+func (l *nonSimplexLedger) Retrieve(seq uint64) (VerifiedBlock, Finalization, error) {
+	if seq >= uint64(len(l.blocks)) {
+		return nil, Finalization{}, ErrBlockNotFound
+	}
+	return l.blocks[seq], Finalization{}, nil
+}
+
+func (l *nonSimplexLedger) Index(context.Context, VerifiedBlock, Finalization) error {
+	return nil
+}
+
+// TestEpochStartsAfterNonSimplexBlocks asserts the epoch a node starts on when every
+// indexed block predates Simplex. Such blocks carry no Simplex metadata, so their tip
+// names no epoch, and the first Simplex epoch is the sequence the first Simplex block
+// will occupy.
+func TestEpochStartsAfterNonSimplexBlocks(t *testing.T) {
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	bb := testutil.NewTestBlockBuilder()
+	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
+
+	ledger := &nonSimplexLedger{}
+	for i := range 3 {
+		block := testutil.NewTestBlock(ProtocolMetadata{}, emptyBlacklist)
+		block.Data = []byte{byte(i)}
+		block.ComputeDigest()
+		ledger.blocks = append(ledger.blocks, block)
+	}
+	conf.Storage = ledger
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+
+	require.Equal(t, uint64(3), e.Metadata().Epoch)
 }

@@ -625,6 +625,8 @@ type nodeConfig struct {
 	storage *testStorage
 	// wals are pre-existing WALs the instance restores on start.
 	wals []wal.DeletableWAL
+
+	lastNonSimplexBlock avalanchego.VMBlock
 }
 
 // addNode creates and starts a node in the network.
@@ -648,8 +650,13 @@ func (n *network) addNodeWithConfig(id common.NodeID, cfg nodeConfig) *node {
 
 	vm := newBlockBuilderVM(storage, n.pending)
 	wc := &walCreator{t: n.t}
+	var lastNonSimplex avalanchego.VMBlock = genesisBlock
+	if cfg.lastNonSimplexBlock != nil {
+		lastNonSimplex = cfg.lastNonSimplexBlock
+	}
+
 	instance := NewInstance(Config{
-		LastNonSimplexInnerBlock: genesisBlock,
+		LastNonSimplexInnerBlock: lastNonSimplex,
 		ParameterConfig:          paramConfig,
 		PlatformChain:            n.pChain,
 		Broadcaster:              comm,

@@ -709,9 +709,11 @@ func (e *Epoch) setMetadataFromStorage() error {
 		return nil
 	}
 
-	// a zero epoch represents genesis or a non-simplex block
-	if bh.Epoch == 0 {
-		e.Epoch = bh.Seq + 1
+	// An indexed block without a finalization predates Simplex, so no Simplex block has
+	// been indexed and the first Simplex epoch is the sequence the first one will occupy.
+	if e.lastBlock.Finalization.QC == nil {
+		e.Epoch = e.Storage.NumBlocks()
+		e.round = e.Storage.NumBlocks()
 		return nil
 	}
 

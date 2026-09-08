@@ -550,6 +550,14 @@ func (i *Instance) createEpochConfig(validators common.Nodes) (*epochConfig, err
 }
 
 func (i *Instance) maybeGarbageCollectWAL() error {
+	lastNonSimplexHeight := i.Config.LastNonSimplexInnerBlock.Height()
+	numBlocks := i.Config.Storage.NumBlocks()
+
+	// Only fetch the last block if it is a simplex block
+	if lastNonSimplexHeight+1 == numBlocks {
+		return nil
+	}
+
 	lastBlock, _, err := LastBlock(i.Config.Storage)
 	if err != nil {
 		return fmt.Errorf("error retrieving last block: %w", err)
