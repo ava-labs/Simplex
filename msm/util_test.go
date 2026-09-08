@@ -243,7 +243,10 @@ var (
 	}
 )
 
-func makeChain(t *testing.T, simplexStartHeight uint64, endHeight uint64) []StateMachineBlock {
+// makeChain builds a chain of endHeight+1 blocks whose heights double as sequence numbers: genesis at
+// height 0, non-Simplex blocks below simplexStartHeight, the zero block at simplexStartHeight that opens
+// the first epoch with the given validator set, and normal Simplex blocks of that epoch above it.
+func makeChain(t *testing.T, simplexStartHeight uint64, endHeight uint64, validatorSet NodeBLSMappings) []StateMachineBlock {
 	startTime := time.Now().Add(-time.Duration(endHeight+2) * time.Second)
 	blocks := make([]StateMachineBlock, 0, endHeight+1)
 	var round, seq uint64
@@ -262,21 +265,46 @@ func makeChain(t *testing.T, simplexStartHeight uint64, endHeight uint64) []Stat
 
 		seq = uint64(index)
 
-		blocks = append(blocks, makeNormalSimplexBlock(t, index, blocks, startTime, h, round, seq))
+		if h == simplexStartHeight {
+			blocks = append(blocks, makeZeroBlock(blocks, validatorSet, round, seq))
+		} else {
+			blocks = append(blocks, makeNormalSimplexBlock(t, index, blocks, startTime, h, round, seq))
+		}
 		round++
 	}
 	return blocks
 }
 
+// makeZeroBlock builds the first Simplex block on top of the last block in blocks the way buildBlockZero
+// does: it has no inner block, carries its parent's timestamp, and opens the first epoch, numbered by
+// its own sequence, with the given validator set as its block validation descriptor.
+func makeZeroBlock(blocks []StateMachineBlock, validatorSet NodeBLSMappings, round uint64, seq uint64) StateMachineBlock {
+	parent := blocks[len(blocks)-1]
+	epochInfo := constructSimplexZeroBlockSimplexEpochInfo(100, validatorSet, parent.InnerBlock.Height())
+
+	return StateMachineBlock{
+		Metadata: StateMachineMetadata{
+			Timestamp:    uint64(parent.InnerBlock.Timestamp().UnixMilli()),
+			PChainHeight: 100,
+			SimplexProtocolMetadata: common.ProtocolMetadata{
+				Round: round,
+				Seq:   seq,
+				Epoch: epochInfo.EpochNumber,
+				Prev:  parent.Digest(),
+			},
+			SimplexEpochInfo: epochInfo,
+		},
+	}
+}
+
+// makeNormalSimplexBlock builds a normal block of the epoch its parent, the last block in blocks, belongs to.
 func makeNormalSimplexBlock(t *testing.T, index int, blocks []StateMachineBlock, start time.Time, h uint64, round uint64, seq uint64) StateMachineBlock {
 	content := make([]byte, 10)
 	_, err := rand.Read(content)
 	require.NoError(t, err)
 
-	prev := genesisBlock.Digest()
-	if index > 0 {
-		prev = blocks[index-1].Digest()
-	}
+	parent := blocks[index-1]
+	epoch := parent.Metadata.SimplexEpochInfo.EpochNumber
 
 	return StateMachineBlock{
 		InnerBlock: &InnerBlock{
@@ -289,14 +317,14 @@ func makeNormalSimplexBlock(t *testing.T, index int, blocks []StateMachineBlock,
 			SimplexProtocolMetadata: common.ProtocolMetadata{
 				Round: round,
 				Seq:   seq,
-				Epoch: 1,
-				Prev:  prev,
+				Epoch: epoch,
+				Prev:  parent.Digest(),
 			},
 			SimplexEpochInfo: SimplexEpochInfo{
 				PrevSealingBlockHash:  [32]byte{},
 				PChainReferenceHeight: 100,
-				EpochNumber:           1,
-				PrevVMBlockSeq:        uint64(index),
+				EpochNumber:           epoch,
+				PrevVMBlockSeq:        computePrevVMBlockSeq(&parent, uint64(index-1)),
 			},
 		},
 	}
@@ -353,7 +381,10 @@ func newStateMachineWithLogger(tb testing.TB, logger common.Logger) (*StateMachi
 	}
 
 	smConfig := Config{
-		GenesisValidatorSet:             NodeBLSMappings{{BLSKey: []byte{1}, Weight: 1}, {BLSKey: []byte{2}, Weight: 1}},
+		GenesisValidatorSet: NodeBLSMappings{
+			{BLSKey: []byte{1}, Weight: 1, NodeID: [20]byte{1}},
+			{BLSKey: []byte{2}, Weight: 1, NodeID: [20]byte{2}},
+		},
 		LastNonSimplexBlockPChainHeight: 100,
 		GetTime:                         time.Now,
 		TimeSkewLimit:                   time.Second * 5,
