@@ -2740,3 +2740,48 @@ func TestEpochIgnoresReplicatedQuorumRoundsFromOtherEpochs(t *testing.T) {
 	testutil.WaitToEnterRound(t, e, md.Round+2)
 	require.Equal(t, int32(3), ignored.Load(), "quorum rounds from our own epoch must not be ignored")
 }
+
+// TestEpochFinalizeVoteSentTwiceKeepsBufferedVote asserts that a node which finalize
+// voted before we had the round cannot displace that vote by sending a second one.
+func TestEpochFinalizeVoteSentTwiceKeepsBufferedVote(t *testing.T) {
+	bb := testutil.NewTestBlockBuilder()
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+
+	forged := []byte("forged signature")
+
+	// nodes[0] leads round 0, so we hold messages for that round until its proposal lands.
+	conf, _, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[1], testutil.NewNoopComm(nodes), bb)
+	conf.Verifier = &rejectingVerifier{rejected: forged}
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+
+	b, ok := bb.BuildBlock(context.Background(), e.Metadata(), emptyBlacklist)
+	require.True(t, ok)
+	block := b.(Block)
+
+	// We have no round for these votes yet, so they are held without being verified.
+	testutil.InjectTestFinalizeVote(t, e, b, nodes[2])
+	require.NoError(t, e.HandleMessage(&Message{FinalizeVote: &FinalizeVote{
+		Finalization: ToBeSignedFinalization{BlockHeader: b.BlockHeader()},
+		Signature:    Signature{Signer: nodes[2], Value: forged},
+	}}, nodes[2]))
+	testutil.InjectTestFinalizeVote(t, e, b, nodes[3])
+
+	// The leader's proposal gives us the round, and the held votes are processed.
+	vote, err := testutil.NewTestVote(block, nodes[0])
+	require.NoError(t, err)
+	require.NoError(t, e.HandleMessage(&Message{BlockMessage: &BlockMessage{
+		Vote:  *vote,
+		Block: block,
+	}}, nodes[0]))
+
+	// A third vote notarizes the round, which makes us cast our own finalize vote.
+	testutil.InjectTestVote(t, e, b, nodes[2])
+
+	require.Eventually(t, func() bool {
+		return storage.NumBlocks() == 1
+	}, 10*time.Second, 10*time.Millisecond, "round was never finalized")
+}
