@@ -1218,6 +1218,13 @@ func (e *Epoch) storeFutureVote(message *common.Vote, from common.NodeID, round 
 		msgsForRound = &messagesForRound{}
 		e.futureMessages[string(from)][round] = msgsForRound
 	}
+
+	if msgsForRound.vote != nil {
+		e.Logger.Debug("Already received a vote from this node for the round",
+			zap.Stringer("NodeID", from), zap.Uint64("round", round))
+		return
+	}
+
 	msgsForRound.vote = message
 }
 

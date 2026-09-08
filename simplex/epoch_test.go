@@ -2746,3 +2746,57 @@ func TestEpochIgnoresReplicatedQuorumRoundsFromOtherEpochs(t *testing.T) {
 	testutil.WaitToEnterRound(t, e, md.Round+2)
 	require.Equal(t, int32(3), ignored.Load(), "quorum rounds from our own epoch must not be ignored")
 }
+
+// TestEpochVoteSentTwiceKeepsBufferedVote asserts that a node which voted before we had
+// the round cannot displace that vote by sending a second one.
+func TestEpochVoteSentTwiceKeepsBufferedVote(t *testing.T) {
+	bb := testutil.NewTestBlockBuilder()
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+
+	forged := []byte("forged signature")
+
+	// nodes[0] leads round 0, so we hold messages for that round until its proposal lands.
+	comm := &recordingComm{Communication: testutil.NewNoopComm(nodes), BroadcastMessages: make(chan *Message, 100)}
+	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[1], comm, bb)
+	conf.Verifier = &rejectingVerifier{rejected: forged}
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+
+	b, ok := bb.BuildBlock(context.Background(), e.Metadata(), emptyBlacklist)
+	require.True(t, ok)
+	block := b.(Block)
+
+	// We have no round for these votes yet, so they are held without being verified.
+	vote, err := testutil.NewTestVote(block, nodes[2])
+	require.NoError(t, err)
+	require.NoError(t, e.HandleMessage(&Message{VoteMessage: vote}, nodes[2]))
+	require.NoError(t, e.HandleMessage(&Message{VoteMessage: &Vote{
+		Vote:      vote.Vote,
+		Signature: Signature{Signer: nodes[2], Value: forged},
+	}}, nodes[2]))
+
+	// The leader's proposal gives us the round along with its own vote, and the held vote
+	// is processed. Together with our own vote that is a quorum.
+	leaderVote, err := testutil.NewTestVote(block, nodes[0])
+	require.NoError(t, err)
+	require.NoError(t, e.HandleMessage(&Message{BlockMessage: &BlockMessage{
+		Vote:  *leaderVote,
+		Block: block,
+	}}, nodes[0]))
+
+	timeout := time.After(10 * time.Second)
+	for {
+		select {
+		case msg := <-comm.BroadcastMessages:
+			if msg.Notarization == nil {
+				continue
+			}
+			return
+		case <-timeout:
+			t.Fatal("timed out waiting for a notarization to be broadcast")
+		}
+	}
+}
