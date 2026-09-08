@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ava-labs/simplex/avalanchego"
 	"github.com/ava-labs/simplex/common"
 	metadata "github.com/ava-labs/simplex/msm"
 	"github.com/ava-labs/simplex/testutil"
@@ -39,7 +38,7 @@ func newTestParsedBlock(num uint64, payload string) *ParsedBlock {
 // and a verified but not yet indexed block at seq 5. A zero digest matches on
 // seq alone, a non-zero digest must match the block's digest exactly.
 func TestCachedStorageRetrieve(t *testing.T) {
-	cs := NewCachedStorage(NewMockStorage(t))
+	cs := NewCachedStorage(newTestStorage())
 	indexedBlock := newTestParsedBlock(0, "indexed")
 	require.NoError(t, cs.Index(t.Context(), indexedBlock, common.Finalization{}))
 
@@ -102,7 +101,7 @@ func TestCachedStorageRetrieve(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			require.Equal(t, tt.wantBlock, got)
+			require.Equal(t, common.Digest(tt.wantBlock.Digest()), got.BlockHeader().Digest)
 			if tt.wantBlock == verifiedBlock {
 				require.Nil(t, fin)
 			}
@@ -114,7 +113,7 @@ func TestCachedStorageRetrieve(t *testing.T) {
 // a zero-digest Retrieve of that seq returns the finalized block with its
 // finalization, even when a verified fork at the same seq was cached.
 func TestCachedStorageIndexEvictsSameSeqFork(t *testing.T) {
-	cs := NewCachedStorage(NewMockStorage(t))
+	cs := NewCachedStorage(newTestStorage())
 	require.NoError(t, cs.Index(t.Context(), newTestParsedBlock(0, "genesis"), common.Finalization{}))
 
 	equivocatedBlock := &cachedBlock{
@@ -137,27 +136,13 @@ func TestCachedStorageIndexEvictsSameSeqFork(t *testing.T) {
 // startup ends up in the instance's CachedStorage, retrievable by seq before it
 // is finalized and indexed.
 func TestCachedStoragePopulatedByWal(t *testing.T) {
-	const basePChainHeight = uint64(1)
-
-	// Four equal-weight validators; the node under test is the first.
-	numNodes := 4
-	validatorSet := make(metadata.NodeBLSMappings, numNodes)
-	for i := range numNodes {
-		validatorSet[i] = metadata.NodeBLSMapping{NodeID: avalanchego.NodeID{byte(i + 1)}, BLSKey: []byte{byte(i + 1)}, Weight: 1}
+	// Four equal-weight validators; only the first runs, so no quorum forms
+	// and the restored block stays unfinalized.
+	validatorSet := make(metadata.NodeBLSMappings, 4)
+	for i := range validatorSet {
+		validatorSet[i] = newNodeMapping(i + 1)
 	}
-	pChain := newTestPlatformChain(basePChainHeight, map[uint64]metadata.NodeBLSMappings{
-		basePChainHeight: validatorSet,
-	})
-
-	vm := newTestVM()
-	vm.pause()
-	cops := &testCryptoOps{}
-	genesisBlock := &testInnerBlock{Height_: 0, TS: time.Now(), Payload: []byte("genesis")}
-	storage := newStorageWithGenesis(t, genesisBlock)
 	nodeIDs := validatorSet.Nodes().NodeIDs()
-	comm := testutil.NewNoopComm(nodeIDs)
-	logger := testutil.MakeLogger(t, 1)
-	testWAL := testutil.NewTestWAL(t)
 
 	// The first Simplex block on top of the genesis block.
 	genesis := &ParsedBlock{StateMachineBlock: metadata.StateMachineBlock{InnerBlock: genesisBlock}}
@@ -165,44 +150,25 @@ func TestCachedStoragePopulatedByWal(t *testing.T) {
 	block.Metadata.SimplexProtocolMetadata.Epoch = 1
 	block.Metadata.SimplexProtocolMetadata.Prev = genesis.BlockHeader().Digest
 
+	testWAL := testutil.NewTestWAL(t)
 	blockRecord, err := common.BlockRecord(block.BlockHeader(), block.Bytes())
 	require.NoError(t, err)
-
-	// write block record to wal
 	require.NoError(t, testWAL.Append(blockRecord))
 
 	// notarize the block so restoring the WAL keeps it as the round in progress
+	cops := &testCryptoOps{}
 	quorum := common.Quorum(len(nodeIDs))
-	notarizationRecord, err := testutil.NewNotarizationRecord(logger, cops.CreateSignatureAggregator(validatorSet.Nodes()), block, nodeIDs[:quorum])
+	notarizationRecord, err := testutil.NewNotarizationRecord(testutil.MakeLogger(t, 1), cops.CreateSignatureAggregator(validatorSet.Nodes()), block, nodeIDs[:quorum])
 	require.NoError(t, err)
 	require.NoError(t, testWAL.Append(notarizationRecord))
 
-	config := Config{
-		Logger:                   logger,
-		ID:                       nodeIDs[0],
-		VM:                       vm,
-		Storage:                  storage,
-		Sender:                   comm,
-		Broadcaster:              comm,
-		PlatformChain:            pChain,
-		CryptoOps:                cops,
-		LastNonSimplexInnerBlock: genesisBlock,
-		WalCreator:               storage.CreateWAL,
-		ParameterConfig: ParameterConfig{
-			MaxNetworkDelay: 500 * time.Millisecond,
-			MaxRoundWindow:  100,
-			WALMaxSizeBytes: 1024,
-		},
-		WALs: []wal.DeletableWAL{testWAL},
-	}
-	instance := NewInstance(config)
-	require.NoError(t, instance.Start(t.Context()))
-	t.Cleanup(instance.Stop)
+	chain := newNetwork(t, newTestPChain(validatorSet))
+	node := chain.addNodeWithConfig(nodeIDs[0], nodeConfig{wals: []wal.DeletableWAL{testWAL}})
 
 	// The restored block is verified asynchronously and not indexed, so poll until
 	// a seq-only lookup serves it from the cache.
 	require.Eventually(t, func() bool {
-		got, fin, err := instance.cs.Retrieve(1, common.Digest{})
+		got, fin, err := node.inst.cs.Retrieve(1, common.Digest{})
 		if err != nil || fin != nil {
 			return false
 		}
@@ -214,22 +180,21 @@ func TestCachedStoragePopulatedByWal(t *testing.T) {
 // own proposal is inserted into the CachedStorage, retrievable by seq and digest before
 // it is finalized and indexed.
 func TestCachedStoragePopulatedBySelfBuiltBlock(t *testing.T) {
-	genesisBlock := &testInnerBlock{Height_: 0, TS: time.Now(), Payload: []byte("genesis")}
-	cs := NewCachedStorage(newStorageWithGenesis(t, genesisBlock))
+	storage := newTestStorageWithGenesis(t)
+	cs := NewCachedStorage(storage)
 
 	msm, err := metadata.NewStateMachine(&metadata.Config{
 		Logger:                   testutil.MakeLogger(t, 1),
 		GetBlock:                 cs.RetrieveBlock,
 		LastNonSimplexInnerBlock: genesisBlock,
-		GenesisValidatorSet: metadata.NodeBLSMappings{
-			{NodeID: avalanchego.NodeID{1}, BLSKey: []byte{1}, Weight: 1},
-		},
-		AuxiliaryInfoApp: &NoopAuxiliaryInfoApp{},
+		GenesisValidatorSet:      metadata.NodeBLSMappings{newNodeMapping(1)},
+		AuxiliaryInfoApp:         &NoopAuxiliaryInfoApp{},
 	})
 	require.NoError(t, err)
 	cs.msm = msm
 
-	bw := newBlockBuilderWaiter(msm, cs, newTestVM())
+	vm := newBlockBuilderVM(storage, newPendingBlockSignal())
+	bw := newBlockBuilderWaiter(msm, cs, vm)
 
 	// Build a block on top of genesis
 	genesis := &ParsedBlock{StateMachineBlock: metadata.StateMachineBlock{InnerBlock: genesisBlock}}
