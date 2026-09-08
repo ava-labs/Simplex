@@ -479,5 +479,5 @@ func TestValidatorRequestsGenesis(t *testing.T) {
 		},
 	}
 
-	validator.inst.HandleMessage(msg, nonValidatorID.NodeID[:])
+	require.NoError(t, validator.inst.HandleMessage(msg, nonValidatorID.NodeID[:]))
 }
