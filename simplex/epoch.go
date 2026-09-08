@@ -748,9 +748,6 @@ func (e *Epoch) setMetadataFromRecords(records [][]byte) error {
 			}
 			if finalization.Finalization.Round >= highestRound {
 				highestRound = finalization.Finalization.Round
-				// We do not need to check if this finalization is associated for a sealing block, because it is impossible for a finalization
-				// for another epoch to exist in our wal, yet the original epoch remains un-sealed.
-				// This is because we issue te-locks after sealing blocks, and never move onto the next epoch until the original sealing block was indexed.
 				highestEpoch = finalization.Finalization.Epoch
 				found = true
 			}
