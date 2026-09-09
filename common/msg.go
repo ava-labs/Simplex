@@ -111,14 +111,14 @@ func (v *ToBeSignedEmptyVote) Size() int {
 	return emptyVoteLen
 }
 
-func (v *ToBeSignedEmptyVote) Sign(signer Signer) ([]byte, error) {
+func (v *ToBeSignedEmptyVote) Sign(signer Signer) (SignatureBytes, error) {
 	context := "ToBeSignedEmptyVote"
 	msg := v.Bytes()
 
 	return signContext(signer, msg, context)
 }
 
-func (v *ToBeSignedEmptyVote) Verify(signature []byte, verifier SignatureVerifier, pk []byte) error {
+func (v *ToBeSignedEmptyVote) Verify(signature SignatureBytes, verifier SignatureVerifier, pk PublicKeyBytes) error {
 	context := "ToBeSignedEmptyVote"
 	msg := v.Bytes()
 
@@ -129,14 +129,14 @@ type ToBeSignedVote struct {
 	BlockHeader
 }
 
-func (v *ToBeSignedVote) Sign(signer Signer) ([]byte, error) {
+func (v *ToBeSignedVote) Sign(signer Signer) (SignatureBytes, error) {
 	context := "ToBeSignedVote"
 	msg := v.Bytes()
 
 	return signContext(signer, msg, context)
 }
 
-func (v *ToBeSignedVote) Verify(signature []byte, verifier SignatureVerifier, pk []byte) error {
+func (v *ToBeSignedVote) Verify(signature SignatureBytes, verifier SignatureVerifier, pk PublicKeyBytes) error {
 	context := "ToBeSignedVote"
 	msg := v.Bytes()
 
@@ -147,21 +147,21 @@ type ToBeSignedFinalization struct {
 	BlockHeader
 }
 
-func (f *ToBeSignedFinalization) Sign(signer Signer) ([]byte, error) {
+func (f *ToBeSignedFinalization) Sign(signer Signer) (SignatureBytes, error) {
 	context := "ToBeSignedFinalization"
 	msg := f.Bytes()
 
 	return signContext(signer, msg, context)
 }
 
-func (f *ToBeSignedFinalization) Verify(signature []byte, verifier SignatureVerifier, pk []byte) error {
+func (f *ToBeSignedFinalization) Verify(signature SignatureBytes, verifier SignatureVerifier, pk PublicKeyBytes) error {
 	context := "ToBeSignedFinalization"
 	msg := f.Bytes()
 
 	return verifyContext(signature, verifier, msg, context, pk)
 }
 
-func signContext(signer Signer, msg []byte, context string) ([]byte, error) {
+func signContext(signer Signer, msg []byte, context string) (SignatureBytes, error) {
 	sm := SignedMessage{Payload: msg, Context: context}
 	toBeSigned, err := asn1.Marshal(sm)
 	if err != nil {
@@ -170,7 +170,7 @@ func signContext(signer Signer, msg []byte, context string) ([]byte, error) {
 	return signer.Sign(toBeSigned)
 }
 
-func verifyContext(signature []byte, verifier SignatureVerifier, msg []byte, context string, pk []byte) error {
+func verifyContext(signature SignatureBytes, verifier SignatureVerifier, msg []byte, context string, pk PublicKeyBytes) error {
 	sm := SignedMessage{Payload: msg, Context: context}
 	toBeSigned, err := asn1.Marshal(sm)
 	if err != nil {
@@ -232,7 +232,13 @@ func (f *Finalization) Verify(nodes Nodes) error {
 }
 
 func (f *Finalization) Size() int {
-	return f.Finalization.Size() + f.QC.Size()
+	size := f.Finalization.Size()
+	// genesis block has an empty finalization and no QC
+	if f.QC != nil {
+		size += f.QC.Size()
+	}
+
+	return size
 }
 
 // Notarization represents a block that has reached a quorum of votes.
@@ -512,5 +518,5 @@ type ValidatorSetApproval struct {
 	NodeID        avalanchego.NodeID
 	AuxInfoDigest [32]byte
 	PChainHeight  uint64
-	Signature     []byte
+	Signature     SignatureBytes
 }

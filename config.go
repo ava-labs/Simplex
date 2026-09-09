@@ -73,9 +73,14 @@ type Storage interface {
 }
 
 type CryptoOps interface {
-	Sign(message []byte) ([]byte, error)
-	AggregateKeys(keys ...[]byte) ([]byte, error)
-	VerifySignature(message []byte, signature []byte, publicKey []byte) error
+	// Sign signs the given message.
+	Sign(message []byte) (common.SignatureBytes, error)
+	// AggregateKeys combines the given public keys into a single aggregated public key.
+	AggregateKeys(keys ...common.PublicKeyBytes) (common.PublicKeyBytes, error)
+	// VerifySignature verifies that signature is a valid signature over message by the holder of publicKey.
+	VerifySignature(message []byte, signature common.SignatureBytes, publicKey common.PublicKeyBytes) error
+	// CreateSignatureAggregator creates a new signature aggregator for the given nodes.
 	CreateSignatureAggregator([]common.Node) common.SignatureAggregator
+	// DeserializeQuorumCertificate deserializes the given bytes into a QuorumCertificate.
 	DeserializeQuorumCertificate(bytes []byte) (common.QuorumCertificate, error)
 }

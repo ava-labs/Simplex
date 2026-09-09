@@ -191,21 +191,29 @@ func (pc *testPlatformChain) LastNonSimplexBlockPChainHeight() uint64 {
 
 type testCryptoOps struct{}
 
-func (c *testCryptoOps) Sign(message []byte) ([]byte, error) {
-	// A deterministic, non-empty placeholder signature.
+func (c *testCryptoOps) Sign(message []byte) (common.SignatureBytes, error) {
 	d := sha256.Sum256(message)
 	return d[:], nil
 }
 
-func (c *testCryptoOps) AggregateKeys(keys ...[]byte) ([]byte, error) {
-	var out []byte
+func (c *testCryptoOps) AggregateKeys(keys ...common.PublicKeyBytes) (common.PublicKeyBytes, error) {
+	var out common.PublicKeyBytes
 	for _, k := range keys {
 		out = append(out, k...)
 	}
 	return out, nil
 }
 
-func (c *testCryptoOps) VerifySignature(_ []byte, _ []byte, _ []byte) error {
+func (c *testCryptoOps) VerifySignature(message []byte, signature common.SignatureBytes, _ common.PublicKeyBytes) error {
+	if len(signature) == 0 || len(signature)%sha256.Size != 0 {
+		return fmt.Errorf("signature of %d bytes is not a whole number of digests", len(signature))
+	}
+	expected := sha256.Sum256(message)
+	for i := 0; i < len(signature); i += sha256.Size {
+		if !bytes.Equal(signature[i:i+sha256.Size], expected[:]) {
+			return fmt.Errorf("signature does not match the message")
+		}
+	}
 	return nil
 }
 
