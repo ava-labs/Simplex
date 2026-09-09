@@ -109,3 +109,9 @@ func constructValidatorSetFromSealingBlock(lastBlock *ParsedBlock) metadata.Node
 	}
 	return validatorSet
 }
+
+func getLatestPlatformChainValidatorSet(platformChain PlatformChain) (metadata.NodeBLSMappings, error) {
+	height := platformChain.GetCurrentHeight()
+	mappings, err := platformChain.GetValidatorSet(height)
+	return mappings, err
+}
