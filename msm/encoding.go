@@ -98,25 +98,25 @@ type SimplexEpochInfo struct {
 	// the hash of the sealing block of the previous epoch.
 	// This is used to be able to quickly fetch and verify the sealing blocks without having to retrieve the interleaving blocks,
 	// which allows to bootstrap the BLS keys of the validator set for each epoch before fully syncing the interleaving blocks.
-	PrevSealingBlockHash [32]byte `canoto:"fixed bytes,3"`
+	PrevSealingBlockHash [32]byte `canoto:"fixed bytes,2"`
 	// NextPChainReferenceHeight is the P-Chain height that the StateMachine uses as a reference for the next epoch.
 	// When the NextPChainReferenceHeight is > 0, it means the StateMachine is on its way to transition to a new epoch
 	// in which the validator set will be based on the given P-chain height.
 	// It sets the PChainReferenceHeight for the next epoch.
-	NextPChainReferenceHeight uint64 `canoto:"uint,4"`
+	NextPChainReferenceHeight uint64 `canoto:"uint,3"`
 	// PrevVMBlockSeq is the block sequence of the previous block that has a VM block (inner block).
 	// This is used to know on which VM block to build the next block.
-	PrevVMBlockSeq uint64 `canoto:"uint,5"`
+	PrevVMBlockSeq uint64 `canoto:"uint,4"`
 	// BlockValidationDescriptor is the metadata that describes the validator set of the next epoch.
 	// It is only set in the sealing block and zero block, and nil in all other blocks.
-	BlockValidationDescriptor *BlockValidationDescriptor `canoto:"pointer,6"`
+	BlockValidationDescriptor *BlockValidationDescriptor `canoto:"pointer,5"`
 	// NextEpochApprovals is the metadata that contains the approvals from validators for the next epoch.
 	// It is set only in the sealing block and the blocks preceding it starting from a block that has a NextPChainReferenceHeight set.
-	NextEpochApprovals *NextEpochApprovals `canoto:"pointer,7"`
+	NextEpochApprovals *NextEpochApprovals `canoto:"pointer,6"`
 	// SealingBlockSeq is the block sequence of the sealing block of the current epoch.
 	// It defines the validator set of the next epoch.
 	// It is set once the first Telock is built and is copied over to subsequent Telocks.
-	SealingBlockSeq uint64 `canoto:"uint,8"`
+	SealingBlockSeq uint64 `canoto:"uint,7"`
 
 	canotoData canotoData_SimplexEpochInfo
 }

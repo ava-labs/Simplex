@@ -633,20 +633,20 @@ func (c *ICMEpochInfo) MarshalCanotoInto(w canoto.Writer) canoto.Writer {
 
 const (
 	canotoNumber_SimplexEpochInfo__PChainReferenceHeight     = 1
-	canotoNumber_SimplexEpochInfo__PrevSealingBlockHash      = 3
-	canotoNumber_SimplexEpochInfo__NextPChainReferenceHeight = 4
-	canotoNumber_SimplexEpochInfo__PrevVMBlockSeq            = 5
-	canotoNumber_SimplexEpochInfo__BlockValidationDescriptor = 6
-	canotoNumber_SimplexEpochInfo__NextEpochApprovals        = 7
-	canotoNumber_SimplexEpochInfo__SealingBlockSeq           = 8
+	canotoNumber_SimplexEpochInfo__PrevSealingBlockHash      = 2
+	canotoNumber_SimplexEpochInfo__NextPChainReferenceHeight = 3
+	canotoNumber_SimplexEpochInfo__PrevVMBlockSeq            = 4
+	canotoNumber_SimplexEpochInfo__BlockValidationDescriptor = 5
+	canotoNumber_SimplexEpochInfo__NextEpochApprovals        = 6
+	canotoNumber_SimplexEpochInfo__SealingBlockSeq           = 7
 
 	canotoTag_SimplexEpochInfo__PChainReferenceHeight     = "\x08" // canoto.Tag(canotoNumber_SimplexEpochInfo__PChainReferenceHeight, canoto.Varint)
-	canotoTag_SimplexEpochInfo__PrevSealingBlockHash      = "\x1a" // canoto.Tag(canotoNumber_SimplexEpochInfo__PrevSealingBlockHash, canoto.Len)
-	canotoTag_SimplexEpochInfo__NextPChainReferenceHeight = "\x20" // canoto.Tag(canotoNumber_SimplexEpochInfo__NextPChainReferenceHeight, canoto.Varint)
-	canotoTag_SimplexEpochInfo__PrevVMBlockSeq            = "\x28" // canoto.Tag(canotoNumber_SimplexEpochInfo__PrevVMBlockSeq, canoto.Varint)
-	canotoTag_SimplexEpochInfo__BlockValidationDescriptor = "\x32" // canoto.Tag(canotoNumber_SimplexEpochInfo__BlockValidationDescriptor, canoto.Len)
-	canotoTag_SimplexEpochInfo__NextEpochApprovals        = "\x3a" // canoto.Tag(canotoNumber_SimplexEpochInfo__NextEpochApprovals, canoto.Len)
-	canotoTag_SimplexEpochInfo__SealingBlockSeq           = "\x40" // canoto.Tag(canotoNumber_SimplexEpochInfo__SealingBlockSeq, canoto.Varint)
+	canotoTag_SimplexEpochInfo__PrevSealingBlockHash      = "\x12" // canoto.Tag(canotoNumber_SimplexEpochInfo__PrevSealingBlockHash, canoto.Len)
+	canotoTag_SimplexEpochInfo__NextPChainReferenceHeight = "\x18" // canoto.Tag(canotoNumber_SimplexEpochInfo__NextPChainReferenceHeight, canoto.Varint)
+	canotoTag_SimplexEpochInfo__PrevVMBlockSeq            = "\x20" // canoto.Tag(canotoNumber_SimplexEpochInfo__PrevVMBlockSeq, canoto.Varint)
+	canotoTag_SimplexEpochInfo__BlockValidationDescriptor = "\x2a" // canoto.Tag(canotoNumber_SimplexEpochInfo__BlockValidationDescriptor, canoto.Len)
+	canotoTag_SimplexEpochInfo__NextEpochApprovals        = "\x32" // canoto.Tag(canotoNumber_SimplexEpochInfo__NextEpochApprovals, canoto.Len)
+	canotoTag_SimplexEpochInfo__SealingBlockSeq           = "\x38" // canoto.Tag(canotoNumber_SimplexEpochInfo__SealingBlockSeq, canoto.Varint)
 )
 
 type canotoData_SimplexEpochInfo struct {
