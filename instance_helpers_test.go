@@ -661,7 +661,7 @@ type nodeConfig struct {
 	// storage the node starts from; defaults to a fresh storage holding only genesis.
 	storage *testStorage
 	// wals are pre-existing WALs the instance restores on start.
-	wals []wal.DeletableWAL
+	wals                []wal.DeletableWAL
 	lastNonSimplexBlock avalanchego.VMBlock
 	// existingNode indicates whether the node is being added to the network for the first time (false) or is a restart of an existing node (true).
 	existingNode bool
