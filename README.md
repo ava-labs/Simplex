@@ -458,16 +458,9 @@ type BlockDigester interface {
 In order for signatures on notarizations or finalizations to be verified, we define the following verification object:
 
 ```go
-type Verifier interface {
-
-    // VerifySignature verifies the signature of the given signer on the given digest.
-    VerifySignature(signer bytes, digest bytes, signature bytes) error
-
-    // SetEpochChange sets the epoch to correspond with the epoch
-    // that is the result of committing this block.
-    // If the block doesn't cause an epoch change, this is a no-op.
-    SetEpochChange(Block) error
-
+type SignatureVerifier interface {
+    // VerifySignature verifies that signature is a valid signature over message by the holder of publicKey.
+    VerifySignature(message []byte, signature SignatureBytes, publicKey PublicKeyBytes) error
 }
 ```
 
