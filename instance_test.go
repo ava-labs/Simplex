@@ -323,6 +323,25 @@ func TestInstanceValidatorSkipsAnEpoch(t *testing.T) {
 	network.waitUntilSealingBlock(newValidatorSet.Nodes())
 }
 
+func TestInstanceRestartsAfterZeroBlock(t *testing.T) {
+	validator := newNodeMapping(1)
+	pChain := newTestPChain([]metadata.NodeBLSMapping{validator})
+	network := newNetwork(t, pChain)
+
+	// The lone validator builds and commits the zero block on its own.
+	node := network.addNode(validator.NodeID[:]).sync()
+
+	zeroBlock, _, err := node.storage.GetBlock(1)
+	require.NoError(t, err)
+	require.Equal(t, metadata.BlockTypeZero, zeroBlock.Type())
+	require.Nil(t, zeroBlock.InnerBlock)
+
+	node.restart()
+
+	// The restarted node keeps the chain going.
+	network.acceptNewBlock()
+}
+
 func TestInstanceDoubleStartFails(t *testing.T) {
 	validator := newNodeMapping(1)
 	genesisSet := []metadata.NodeBLSMapping{validator}
