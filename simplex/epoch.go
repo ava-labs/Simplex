@@ -713,7 +713,6 @@ func (e *Epoch) setMetadataFromStorage() error {
 	// been indexed and the first Simplex epoch is the sequence the first one will occupy.
 	if e.lastBlock.Finalization.QC == nil {
 		e.Epoch = e.Storage.NumBlocks()
-		e.round = e.Storage.NumBlocks()
 		return nil
 	}
 

@@ -536,6 +536,6 @@ func TestValidatorSetsMetadataFromSnowman(t *testing.T) {
 
 	block, _ := network.acceptNewBlock()
 	require.Equal(t, numNonSimplexBlocks, block.BlockHeader().Epoch)
-	require.Equal(t, numNonSimplexBlocks, block.BlockHeader().Round)
+	require.Equal(t, uint64(1), block.BlockHeader().Round)
 	require.Equal(t, numNonSimplexBlocks, block.BlockHeader().Seq)
 }

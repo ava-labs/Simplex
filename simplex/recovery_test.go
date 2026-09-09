@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ava-labs/simplex/common"
 	. "github.com/ava-labs/simplex/common"
 	. "github.com/ava-labs/simplex/simplex"
 	"github.com/ava-labs/simplex/testutil"
@@ -601,13 +602,16 @@ func TestEpochCorrectlyInitializesMetadataFromStorage(t *testing.T) {
 			name: "non simplex blocks",
 			storage: func(t *testing.T) Storage {
 				storage := testutil.NewInMemStorage()
-				for _, block := range createBlocks(t, nodes, 2) {
+				for i, block := range createBlocks(t, nodes, 2) {
+					block.VerifiedBlock.(*testutil.TestBlock).Metadata = common.ProtocolMetadata{
+						Seq: uint64(i), // set the sequence so we can index without error
+					}
 					require.NoError(t, storage.Index(ctx, block.VerifiedBlock, Finalization{}))
 				}
 
 				return storage
 			},
-			expectedRound: 2,
+			expectedRound: 1,
 			expectedSeq:   2,
 			expectedEpoch: 2,
 		},
