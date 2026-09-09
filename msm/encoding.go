@@ -83,7 +83,7 @@ func (ei *ICMEpochInfo) Equal(other *ICMEpochInfo) bool {
 		return other == nil
 	}
 	if other == nil {
-		return ei == nil
+		return false
 	}
 	return ei.EpochStartTime == other.EpochStartTime && ei.EpochNumber == other.EpochNumber && ei.PChainEpochHeight == other.PChainEpochHeight
 }
@@ -93,10 +93,6 @@ type SimplexEpochInfo struct {
 	// PChainReferenceHeight is the P-Chain height that the StateMachine uses as a reference for the current epoch.
 	// The validator set is determined based on the validators on the P-Chain at the PChainReferenceHeight.
 	PChainReferenceHeight uint64 `canoto:"uint,1"`
-	// EpochNumber is the current epoch number.
-	// The first epoch is numbered 1, and each successive epoch is numbered according to the block sequence
-	// of the sealing block of the previous epoch.
-	EpochNumber uint64 `canoto:"uint,2"`
 	// PrevSealingBlockHash is the hash of the sealing block of the previous epoch.
 	// It is set to the hash of the zero block in the first epoch, and in subsequent epochs it is set to be
 	// the hash of the sealing block of the previous epoch.
@@ -130,7 +126,6 @@ type SimplexEpochInfo struct {
 func (sei *SimplexEpochInfo) Clone() SimplexEpochInfo {
 	return SimplexEpochInfo{
 		PChainReferenceHeight:     sei.PChainReferenceHeight,
-		EpochNumber:               sei.EpochNumber,
 		PrevSealingBlockHash:      sei.PrevSealingBlockHash,
 		NextPChainReferenceHeight: sei.NextPChainReferenceHeight,
 		PrevVMBlockSeq:            sei.PrevVMBlockSeq,
@@ -165,7 +160,7 @@ func (sei *SimplexEpochInfo) Equal(other *SimplexEpochInfo) bool {
 		return false
 	}
 
-	if sei.PChainReferenceHeight != other.PChainReferenceHeight || sei.EpochNumber != other.EpochNumber ||
+	if sei.PChainReferenceHeight != other.PChainReferenceHeight ||
 		sei.NextPChainReferenceHeight != other.NextPChainReferenceHeight ||
 		sei.PrevVMBlockSeq != other.PrevVMBlockSeq || sei.SealingBlockSeq != other.SealingBlockSeq {
 		return false
@@ -183,10 +178,12 @@ func (sei *SimplexEpochInfo) Equal(other *SimplexEpochInfo) bool {
 }
 
 // NextState returns the state used to build (or verify) the block that follows the one
-// described by the SimplexEpochInfo.
-func (sei *SimplexEpochInfo) NextState() state {
+// described by the metadata.
+func (smm *StateMachineMetadata) NextState() state {
+	sei := &smm.SimplexEpochInfo
+
 	// No Simplex epoch has started yet: the next block is the first one built by Simplex.
-	if sei.EpochNumber == 0 {
+	if smm.SimplexProtocolMetadata.Epoch == 0 {
 		return stateFirstSimplexBlock
 	}
 

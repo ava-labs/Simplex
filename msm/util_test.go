@@ -289,7 +289,7 @@ func makeZeroBlock(blocks []StateMachineBlock, validatorSet NodeBLSMappings, rou
 			SimplexProtocolMetadata: common.ProtocolMetadata{
 				Round: round,
 				Seq:   seq,
-				Epoch: epochInfo.EpochNumber,
+				Epoch: seq,
 				Prev:  parent.Digest(),
 			},
 			SimplexEpochInfo: epochInfo,
@@ -304,7 +304,7 @@ func makeNormalSimplexBlock(t *testing.T, index int, blocks []StateMachineBlock,
 	require.NoError(t, err)
 
 	parent := blocks[index-1]
-	epoch := parent.Metadata.SimplexEpochInfo.EpochNumber
+	epoch := parent.Metadata.SimplexProtocolMetadata.Epoch
 
 	return StateMachineBlock{
 		InnerBlock: &InnerBlock{
@@ -323,7 +323,6 @@ func makeNormalSimplexBlock(t *testing.T, index int, blocks []StateMachineBlock,
 			SimplexEpochInfo: SimplexEpochInfo{
 				PrevSealingBlockHash:  [32]byte{},
 				PChainReferenceHeight: 100,
-				EpochNumber:           epoch,
 				PrevVMBlockSeq:        computePrevVMBlockSeq(&parent, uint64(index-1)),
 			},
 		},

@@ -324,7 +324,7 @@ func (fn *fakeNode) Height() uint64 {
 }
 
 func (fn *fakeNode) Epoch() uint64 {
-	return fn.blocks[len(fn.blocks)-1].block.Metadata.SimplexEpochInfo.EpochNumber
+	return fn.blocks[len(fn.blocks)-1].block.Metadata.SimplexProtocolMetadata.Epoch
 }
 
 func (fn *fakeNode) act() {
@@ -366,7 +366,7 @@ func (fn *fakeNode) tryFinalizeNextBlock() {
 	md := block.Metadata.SimplexProtocolMetadata
 
 	fn.sm.LatestPersistedHeight = md.Seq
-	fn.t.Logf("Finalized block at height %d with epoch %d", md.Seq, block.Metadata.SimplexEpochInfo.EpochNumber)
+	fn.t.Logf("Finalized block at height %d with epoch %d", md.Seq, md.Epoch)
 
 	// If we just finalized a sealing block, trim trailing Telock blocks.
 	if block.Metadata.SimplexEpochInfo.BlockValidationDescriptor != nil {
@@ -413,7 +413,7 @@ func (fn *fakeNode) buildBlock() (avalanchego.VMBlock, *StateMachineBlock) {
 		finalizedString = "finalized"
 	}
 
-	fn.t.Logf("Building a block on top of %s parent with epoch %d", finalizedString, parentBlock.Metadata.SimplexEpochInfo.EpochNumber)
+	fn.t.Logf("Building a block on top of %s parent with epoch %d", finalizedString, parentBlock.Metadata.SimplexProtocolMetadata.Epoch)
 
 	block, err := fn.sm.BuildBlock(context.Background(), common.ProtocolMetadata{
 		Seq:   lastMD.Seq + 1,
