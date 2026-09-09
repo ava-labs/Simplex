@@ -251,14 +251,6 @@ func newSealingQuorumRound(epoch uint64, numValidators int) *common.QuorumRound 
 	}
 }
 
-type testValidatorSetRetriever struct {
-	nodes common.Nodes
-}
-
-func (v *testValidatorSetRetriever) Validators() common.Nodes {
-	return v.nodes
-}
-
 // TestCollectedQuorumRound feeds an epochReplicator a sealing-block quorum round
 // for an unknown epoch and asserts collectedQuorumRound only confirms the epoch
 // once a threshold of distinct validators have voted for the same digest.
@@ -283,8 +275,8 @@ func TestCollectedQuorumRound(t *testing.T) {
 			// votes required to confirm the epoch.
 			threshold := common.F(len(voters)) + 1
 			require.GreaterOrEqual(t, len(voters), threshold, "need at least threshold validators to vote with")
-			e := newEpochReplicator(testutil.MakeLogger(t, 1), &testValidatorSetRetriever{
-				nodes: voters,
+			e := newEpochReplicator(testutil.MakeLogger(t, 1), func() common.Nodes {
+				return voters
 			})
 
 			// Each distinct vote below the threshold leaves the epoch unconfirmed.
@@ -305,8 +297,8 @@ func TestCollectedSealingBlockInfoOneResponsePerValidator(t *testing.T) {
 	qr := newSealingQuorumRound(1, 4)
 	info := qr.Block.SealingBlockInfo()
 	validators := info.ValidatorSet
-	e := newEpochReplicator(testutil.MakeLogger(t, 1), &testValidatorSetRetriever{
-		nodes: validators,
+	e := newEpochReplicator(testutil.MakeLogger(t, 1), func() common.Nodes {
+		return validators
 	})
 
 	seq5 := newSealingTestBlock(5, 1, common.Digest{}, info).BlockHeader()
