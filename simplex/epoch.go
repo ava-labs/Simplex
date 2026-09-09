@@ -3131,7 +3131,7 @@ func (e *Epoch) maybeLoadFutureMessages() error {
 
 		for from, messagesFromNode := range e.futureMessages {
 			if msgs, exists := messagesFromNode[round]; exists {
-				if msgs.proposal != nil {
+				if msgs.proposal != nil && !msgs.proposalBeingProcessed {
 					if err := e.handleBlockMessage(msgs.proposal, common.NodeID(from)); err != nil {
 						return err
 					}
