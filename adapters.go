@@ -9,6 +9,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/ava-labs/simplex/avalanchego"
 	"github.com/ava-labs/simplex/common"
 	metadata "github.com/ava-labs/simplex/msm"
 	"github.com/ava-labs/simplex/simplex"
@@ -279,14 +280,19 @@ func (bd *blockDeserializer) DeserializeBlock(ctx context.Context, bytes []byte)
 		return nil, err
 	}
 
-	block, err := bd.vm.ParseBlock(ctx, rawBlock.InnerBlockBytes)
-	if err != nil {
-		return nil, err
+	var innerBlock avalanchego.VMBlock
+	if len(rawBlock.InnerBlockBytes) > 0 {
+		block, err := bd.vm.ParseBlock(ctx, rawBlock.InnerBlockBytes)
+		if err != nil {
+			return nil, err
+		}
+		innerBlock = block
 	}
+
 	return &cachedBlock{
 		ParsedBlock: &ParsedBlock{
 			StateMachineBlock: metadata.StateMachineBlock{
-				InnerBlock: block,
+				InnerBlock: innerBlock,
 				Metadata:   rawBlock.Metadata,
 			},
 			msm: bd.cs.msm,

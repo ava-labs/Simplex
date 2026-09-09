@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ava-labs/simplex/avalanchego"
 	"github.com/ava-labs/simplex/common"
 	metadata "github.com/ava-labs/simplex/msm"
 	"github.com/ava-labs/simplex/simplex"
@@ -323,6 +324,25 @@ func TestInstanceValidatorSkipsAnEpoch(t *testing.T) {
 	network.waitUntilSealingBlock(newValidatorSet.Nodes())
 }
 
+func TestInstanceRestartsAfterZeroBlock(t *testing.T) {
+	validator := newNodeMapping(1)
+	pChain := newTestPChain([]metadata.NodeBLSMapping{validator})
+	network := newNetwork(t, pChain)
+
+	// The lone validator builds and commits the zero block on its own.
+	node := network.addNode(validator.NodeID[:]).sync()
+
+	zeroBlock, _, err := node.storage.GetBlock(1)
+	require.NoError(t, err)
+	require.Equal(t, metadata.BlockTypeZero, zeroBlock.Type())
+	require.Nil(t, zeroBlock.InnerBlock)
+
+	node.restart()
+
+	// The restarted node keeps the chain going.
+	network.acceptNewBlock()
+}
+
 func TestInstanceDoubleStartFails(t *testing.T) {
 	validator := newNodeMapping(1)
 	genesisSet := []metadata.NodeBLSMapping{validator}
@@ -480,4 +500,42 @@ func TestValidatorRequestsGenesis(t *testing.T) {
 	}
 
 	require.NoError(t, validator.inst.HandleMessage(msg, nonValidatorID.NodeID[:]))
+}
+
+func TestValidatorSetsMetadataFromSnowman(t *testing.T) {
+	validatorID := newNodeMapping(1)
+	numNonSimplexBlocks := uint64(10)
+	genesisSet := []metadata.NodeBLSMapping{validatorID}
+
+	pChain := newTestPChain(genesisSet)
+	network := newNetwork(t, pChain)
+	network.seq = numNonSimplexBlocks
+	storage := newTestStorage()
+
+	var lastBlock avalanchego.VMBlock
+	for i := range numNonSimplexBlocks {
+		md := common.ProtocolMetadata{
+			Epoch: 0, // non-simplex don't have an epoch
+			Round: 0, // non-simplex blocks don't have rounds
+			Seq:   uint64(i),
+		}
+		innerBlock := &testInnerBlock{Height_: uint64(i), TS: time.Now(), Payload: []byte{byte(i)}}
+		pb := &ParsedBlock{StateMachineBlock: metadata.StateMachineBlock{InnerBlock: innerBlock, Metadata: metadata.StateMachineMetadata{
+			SimplexProtocolMetadata: md,
+		}}}
+		require.NoError(t, storage.Index(t.Context(), pb, common.Finalization{}))
+		lastBlock = innerBlock
+	}
+
+	config := nodeConfig{
+		storage:             storage,
+		lastNonSimplexBlock: lastBlock,
+	}
+
+	network.addNodeWithConfig(validatorID.NodeID[:], config).sync()
+
+	block, _ := network.acceptNewBlock()
+	require.Equal(t, numNonSimplexBlocks, block.BlockHeader().Epoch)
+	require.Equal(t, uint64(1), block.BlockHeader().Round)
+	require.Equal(t, numNonSimplexBlocks, block.BlockHeader().Seq)
 }
