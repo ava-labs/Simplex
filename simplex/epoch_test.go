@@ -2251,7 +2251,7 @@ func TestEpochBlockSentTwiceKeepsVerifiedVote(t *testing.T) {
 	t.Cleanup(e.Stop)
 	require.NoError(t, e.Start())
 
-	// nodes[2] leads round 2 and sends its proposal early, so it is buffered as a future message.
+	// nodes[2] leads round 2 and sends its proposal early, so it is stored as a future message.
 	md := e.Metadata()
 	md.Round = 2
 	b, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
@@ -2265,8 +2265,7 @@ func TestEpochBlockSentTwiceKeepsVerifiedVote(t *testing.T) {
 	}, nodes[2]))
 	require.False(t, verificationFailed)
 
-	// The same block with a vote that does not verify must be rejected by signature
-	// verification, not waved through because a proposal with this header is buffered.
+	// The same block with a vote that does not verify must be rejected by signature verification
 	forgedVote := Vote{Vote: vote.Vote, Signature: Signature{Signer: nodes[2], Value: forged}}
 	require.NoError(t, e.HandleMessage(&Message{
 		BlockMessage: &BlockMessage{Vote: forgedVote, Block: block},
