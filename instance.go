@@ -129,13 +129,13 @@ func (i *Instance) bootstrap() error {
 		return err
 	}
 
-	latestIndexedEpochValidators, _, err := getLastAcceptedEpochAndValidatorSet(&i.Config)
+	latestIndexedEpochValidators, err := getLastAcceptedValidatorSet(&i.Config)
 	if err != nil {
 		return err
 	}
 
 	// We have indexed the latest validator set, therefore we can skip bootstrapping and start as a validator.
-	// Note: this may not be the latest epoch, but our futureEpochCollector will eventually notice we are behind and transition properly.
+	// Note: this may not be the latest epoch, but a future PR will eventually notice we are behind and transition properly.
 	if latestIndexedEpochValidators.Equal(latestValidatorSet.Nodes()) && latestValidatorSet.Nodes().Contains(i.Config.ID) {
 		return i.startValidator(latestIndexedEpochValidators)
 	}
@@ -345,35 +345,32 @@ func (i *Instance) HandleMessage(msg *common.Message, from common.NodeID) error 
 		}
 	}
 
-	if i.nv != nil {
-		return i.nv.HandleMessage(msg, from)
-	}
-
 	if i.e != nil {
-		return i.handleMessageForEpoch(msg, from)
+		switch {
+		case msg.AuxiliaryInfo != nil:
+			if msg.AuxiliaryInfo.Epoch != i.e.Epoch {
+				i.Config.Logger.Debug(
+					"Received an auxiliary info from an old epoch",
+					zap.Uint64("Aux Info Epoch", msg.AuxiliaryInfo.Epoch),
+					zap.Uint64("Our Epoch", i.e.Epoch),
+					zap.Stringer("From", from))
+				return nil
+			}
+			i.msm.HandleAuxiliaryInfo(*msg.AuxiliaryInfo, avalanchego.NodeID(from))
+		case msg.EpochTransitionApproval != nil:
+			// TODO: pass in time.Now() rather than uint64
+			i.msm.HandleApproval(msg.EpochTransitionApproval, uint64(time.Now().UnixMilli()))
+			return nil
+		}
+
+		if i.nv != nil {
+			return i.nv.HandleMessage(msg, from)
+		}
+
+		return i.e.HandleMessage(msg, from)
 	}
 
 	return errors.New("we are not running as a validator or not validator")
-}
-
-func (i *Instance) handleMessageForEpoch(msg *common.Message, from common.NodeID) error {
-	switch {
-	case msg.AuxiliaryInfo != nil:
-		if msg.AuxiliaryInfo.Epoch != i.e.Epoch {
-			i.Config.Logger.Debug(
-				"Received an auxiliary info from an old epoch",
-				zap.Uint64("Aux Info Epoch", msg.AuxiliaryInfo.Epoch),
-				zap.Uint64("Our Epoch", i.e.Epoch),
-				zap.Stringer("From", from))
-			return nil
-		}
-		i.msm.HandleAuxiliaryInfo(*msg.AuxiliaryInfo, avalanchego.NodeID(from))
-	case msg.EpochTransitionApproval != nil:
-		// TODO: pass in time.Now() rather than uint64
-		i.msm.HandleApproval(msg.EpochTransitionApproval, uint64(time.Now().UnixMilli()))
-		return nil
-	}
-	return i.e.HandleMessage(msg, from)
 }
 
 func (i *Instance) wireReplicationResponse(msg *common.Message) error {

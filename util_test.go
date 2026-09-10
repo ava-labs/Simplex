@@ -124,14 +124,12 @@ func TestGetLastAcceptedEpochAndValidatorSet(t *testing.T) {
 	tests := []struct {
 		name          string
 		blocks        []metadata.StateMachineBlock
-		expectedEpoch uint64
 		expectedNodes common.Nodes
 		expectedErr   error
 	}{
 		{
 			name:          "only non-Simplex blocks starts at first Simplex height with genesis set",
 			blocks:        []metadata.StateMachineBlock{nonSimplexBlock(0)},
-			expectedEpoch: 1,
 			expectedNodes: vdrSet.Nodes(),
 		},
 		{
@@ -141,7 +139,6 @@ func TestGetLastAcceptedEpochAndValidatorSet(t *testing.T) {
 				nonSimplexBlock(1),
 				nonSimplexBlock(2),
 			},
-			expectedEpoch: 3,
 			expectedNodes: vdrSet.Nodes(),
 		},
 		{
@@ -150,7 +147,6 @@ func TestGetLastAcceptedEpochAndValidatorSet(t *testing.T) {
 				simplexBlock(1, 1),
 				sealingBlock(1, 2, vdrSet),
 			},
-			expectedEpoch: 2,
 			expectedNodes: vdrSet.Nodes(),
 		},
 		{
@@ -161,7 +157,6 @@ func TestGetLastAcceptedEpochAndValidatorSet(t *testing.T) {
 				sealingBlock(1, 2, vdrSet),
 				simplexBlock(2, 3),
 			},
-			expectedEpoch: 2,
 			expectedNodes: vdrSet.Nodes(),
 		},
 		{
@@ -185,13 +180,12 @@ func TestGetLastAcceptedEpochAndValidatorSet(t *testing.T) {
 			storage := &stubStorage{blocks: tt.blocks}
 			config := epochTestConfig(t, storage, vdrSet)
 
-			nodes, epoch, err := getLastAcceptedEpochAndValidatorSet(config)
+			nodes, err := getLastAcceptedValidatorSet(config)
 			if tt.expectedErr != nil {
 				require.ErrorIs(t, err, tt.expectedErr)
 				return
 			}
 			require.NoError(t, err)
-			require.Equal(t, tt.expectedEpoch, epoch)
 			require.Equal(t, tt.expectedNodes, nodes)
 		})
 	}
