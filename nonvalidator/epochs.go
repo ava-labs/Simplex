@@ -140,7 +140,7 @@ func (e epochs) canValidate(block common.Block) bool {
 type latestValidatorSetRetriever func() common.Nodes
 
 // epochDigestCounter counts sealing block responses from validators for each epoch.
-// It uses LatestValidatorSetRetriever to determine when the required response threshold
+// It uses latestValidatorSetRetriever to determine when the required response threshold
 // has been reached.
 type epochDigestCounter struct {
 	logger common.Logger
