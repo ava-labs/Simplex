@@ -363,11 +363,11 @@ func (i *Instance) HandleMessage(msg *common.Message, from common.NodeID) error 
 			return nil
 		}
 
-		if i.nv != nil {
-			return i.nv.HandleMessage(msg, from)
-		}
-
 		return i.e.HandleMessage(msg, from)
+	}
+
+	if i.nv != nil {
+		return i.nv.HandleMessage(msg, from)
 	}
 
 	return errors.New("we are not running as a validator or not validator")
