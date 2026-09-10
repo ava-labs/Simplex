@@ -111,6 +111,8 @@ func (e epochs) removeOldEpochs(minEpochToKeep uint64) {
 	}
 }
 
+// canValidate returns true if `block` is valid sealing block in the chain. It can
+// be valid if `block` is a backwards pointer to any sealing block already validated (backwards hash chain validation).
 func (e epochs) canValidate(block common.Block) bool {
 	if block.SealingBlockInfo() == nil {
 		return false
