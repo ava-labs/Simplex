@@ -129,7 +129,7 @@ type TestSignatureAggregator struct {
 	IsQuorumFunc func(signatures []common.NodeID) bool
 }
 
-func (t *TestSignatureAggregator) AppendSignatures(existing []byte, sigs ...[]byte) ([]byte, error) {
+func (t *TestSignatureAggregator) AppendSignatures(existing common.SignatureBytes, sigs ...common.SignatureBytes) (common.SignatureBytes, error) {
 	if t.Err != nil {
 		return nil, t.Err
 	}
@@ -183,8 +183,8 @@ func (t TestQC) Size() int {
 type TestSigner struct {
 }
 
-func (t *TestSigner) Sign([]byte) ([]byte, error) {
-	return []byte{1, 2, 3}, nil
+func (t *TestSigner) Sign([]byte) (common.SignatureBytes, error) {
+	return common.SignatureBytes{1, 2, 3}, nil
 }
 
 type TestVerifier struct {
@@ -194,7 +194,7 @@ func (t *TestVerifier) VerifyBlock(common.VerifiedBlock) error {
 	return nil
 }
 
-func (t *TestVerifier) VerifySignature(_ []byte, _ []byte, pk []byte) error {
+func (t *TestVerifier) VerifySignature(_ []byte, _ common.SignatureBytes, _ common.PublicKeyBytes) error {
 	return nil
 }
 

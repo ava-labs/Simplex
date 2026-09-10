@@ -633,22 +633,20 @@ func (c *ICMEpochInfo) MarshalCanotoInto(w canoto.Writer) canoto.Writer {
 
 const (
 	canotoNumber_SimplexEpochInfo__PChainReferenceHeight     = 1
-	canotoNumber_SimplexEpochInfo__EpochNumber               = 2
-	canotoNumber_SimplexEpochInfo__PrevSealingBlockHash      = 3
-	canotoNumber_SimplexEpochInfo__NextPChainReferenceHeight = 4
-	canotoNumber_SimplexEpochInfo__PrevVMBlockSeq            = 5
-	canotoNumber_SimplexEpochInfo__BlockValidationDescriptor = 6
-	canotoNumber_SimplexEpochInfo__NextEpochApprovals        = 7
-	canotoNumber_SimplexEpochInfo__SealingBlockSeq           = 8
+	canotoNumber_SimplexEpochInfo__PrevSealingBlockHash      = 2
+	canotoNumber_SimplexEpochInfo__NextPChainReferenceHeight = 3
+	canotoNumber_SimplexEpochInfo__PrevVMBlockSeq            = 4
+	canotoNumber_SimplexEpochInfo__BlockValidationDescriptor = 5
+	canotoNumber_SimplexEpochInfo__NextEpochApprovals        = 6
+	canotoNumber_SimplexEpochInfo__SealingBlockSeq           = 7
 
 	canotoTag_SimplexEpochInfo__PChainReferenceHeight     = "\x08" // canoto.Tag(canotoNumber_SimplexEpochInfo__PChainReferenceHeight, canoto.Varint)
-	canotoTag_SimplexEpochInfo__EpochNumber               = "\x10" // canoto.Tag(canotoNumber_SimplexEpochInfo__EpochNumber, canoto.Varint)
-	canotoTag_SimplexEpochInfo__PrevSealingBlockHash      = "\x1a" // canoto.Tag(canotoNumber_SimplexEpochInfo__PrevSealingBlockHash, canoto.Len)
-	canotoTag_SimplexEpochInfo__NextPChainReferenceHeight = "\x20" // canoto.Tag(canotoNumber_SimplexEpochInfo__NextPChainReferenceHeight, canoto.Varint)
-	canotoTag_SimplexEpochInfo__PrevVMBlockSeq            = "\x28" // canoto.Tag(canotoNumber_SimplexEpochInfo__PrevVMBlockSeq, canoto.Varint)
-	canotoTag_SimplexEpochInfo__BlockValidationDescriptor = "\x32" // canoto.Tag(canotoNumber_SimplexEpochInfo__BlockValidationDescriptor, canoto.Len)
-	canotoTag_SimplexEpochInfo__NextEpochApprovals        = "\x3a" // canoto.Tag(canotoNumber_SimplexEpochInfo__NextEpochApprovals, canoto.Len)
-	canotoTag_SimplexEpochInfo__SealingBlockSeq           = "\x40" // canoto.Tag(canotoNumber_SimplexEpochInfo__SealingBlockSeq, canoto.Varint)
+	canotoTag_SimplexEpochInfo__PrevSealingBlockHash      = "\x12" // canoto.Tag(canotoNumber_SimplexEpochInfo__PrevSealingBlockHash, canoto.Len)
+	canotoTag_SimplexEpochInfo__NextPChainReferenceHeight = "\x18" // canoto.Tag(canotoNumber_SimplexEpochInfo__NextPChainReferenceHeight, canoto.Varint)
+	canotoTag_SimplexEpochInfo__PrevVMBlockSeq            = "\x20" // canoto.Tag(canotoNumber_SimplexEpochInfo__PrevVMBlockSeq, canoto.Varint)
+	canotoTag_SimplexEpochInfo__BlockValidationDescriptor = "\x2a" // canoto.Tag(canotoNumber_SimplexEpochInfo__BlockValidationDescriptor, canoto.Len)
+	canotoTag_SimplexEpochInfo__NextEpochApprovals        = "\x32" // canoto.Tag(canotoNumber_SimplexEpochInfo__NextEpochApprovals, canoto.Len)
+	canotoTag_SimplexEpochInfo__SealingBlockSeq           = "\x38" // canoto.Tag(canotoNumber_SimplexEpochInfo__SealingBlockSeq, canoto.Varint)
 )
 
 type canotoData_SimplexEpochInfo struct {
@@ -667,12 +665,6 @@ func (*SimplexEpochInfo) CanotoSpec(types ...reflect.Type) *canoto.Spec {
 				Name:        "PChainReferenceHeight",
 				OneOf:       "",
 				TypeUint:    canoto.SizeOf(zero.PChainReferenceHeight),
-			},
-			{
-				FieldNumber: canotoNumber_SimplexEpochInfo__EpochNumber,
-				Name:        "EpochNumber",
-				OneOf:       "",
-				TypeUint:    canoto.SizeOf(zero.EpochNumber),
 			},
 			{
 				FieldNumber:    canotoNumber_SimplexEpochInfo__PrevSealingBlockHash,
@@ -765,17 +757,6 @@ func (c *SimplexEpochInfo) UnmarshalCanotoFrom(r canoto.Reader) error {
 				return err
 			}
 			if canoto.IsZero(c.PChainReferenceHeight) {
-				return canoto.ErrZeroValue
-			}
-		case canotoNumber_SimplexEpochInfo__EpochNumber:
-			if wireType != canoto.Varint {
-				return canoto.ErrUnexpectedWireType
-			}
-
-			if err := canoto.ReadUint(&r, &c.EpochNumber); err != nil {
-				return err
-			}
-			if canoto.IsZero(c.EpochNumber) {
 				return canoto.ErrZeroValue
 			}
 		case canotoNumber_SimplexEpochInfo__PrevSealingBlockHash:
@@ -915,9 +896,6 @@ func (c *SimplexEpochInfo) CalculateCanotoCache() {
 	if !canoto.IsZero(c.PChainReferenceHeight) {
 		size += uint64(len(canotoTag_SimplexEpochInfo__PChainReferenceHeight)) + canoto.SizeUint(c.PChainReferenceHeight)
 	}
-	if !canoto.IsZero(c.EpochNumber) {
-		size += uint64(len(canotoTag_SimplexEpochInfo__EpochNumber)) + canoto.SizeUint(c.EpochNumber)
-	}
 	if !canoto.IsZero(c.PrevSealingBlockHash) {
 		size += uint64(len(canotoTag_SimplexEpochInfo__PrevSealingBlockHash)) + canoto.SizeBytes((&c.PrevSealingBlockHash)[:])
 	}
@@ -981,10 +959,6 @@ func (c *SimplexEpochInfo) MarshalCanotoInto(w canoto.Writer) canoto.Writer {
 	if !canoto.IsZero(c.PChainReferenceHeight) {
 		canoto.Append(&w, canotoTag_SimplexEpochInfo__PChainReferenceHeight)
 		canoto.AppendUint(&w, c.PChainReferenceHeight)
-	}
-	if !canoto.IsZero(c.EpochNumber) {
-		canoto.Append(&w, canotoTag_SimplexEpochInfo__EpochNumber)
-		canoto.AppendUint(&w, c.EpochNumber)
 	}
 	if !canoto.IsZero(c.PrevSealingBlockHash) {
 		canoto.Append(&w, canotoTag_SimplexEpochInfo__PrevSealingBlockHash)

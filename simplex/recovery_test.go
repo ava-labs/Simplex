@@ -157,8 +157,9 @@ func TestRecoverFromWalWithStorage(t *testing.T) {
 	sigAggregrator := &testutil.TestSignatureAggregator{N: 4}
 	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
 
-	err := storage.Index(ctx, testutil.NewTestBlock(ProtocolMetadata{Seq: 0, Round: 0, Epoch: 0}, emptyBlacklist), Finalization{})
-	require.NoError(t, err)
+	indexedBlock := testutil.NewTestBlock(ProtocolMetadata{Seq: 0, Round: 0, Epoch: 0}, emptyBlacklist)
+	indexedFinalization, _ := testutil.NewFinalizationRecord(t, sigAggregrator, indexedBlock, nodes[0:quorum])
+	require.NoError(t, storage.Index(ctx, indexedBlock, indexedFinalization))
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
@@ -550,24 +551,95 @@ func TestRecoveryBlocksIndexed(t *testing.T) {
 	require.Equal(t, thirdBlock.BlockHeader().Digest, e.Metadata().Prev)
 }
 
+// TestEpochCorrectlyInitializesMetadataFromStorage asserts the next block's metadata is
+// derived from the last indexed block.
 func TestEpochCorrectlyInitializesMetadataFromStorage(t *testing.T) {
 	ctx := context.Background()
-	bb := testutil.NewTestBlockBuilder()
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
-	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
 
-	block := testutil.NewTestBlock(ProtocolMetadata{Seq: 0, Round: 0, Epoch: 0}, emptyBlacklist)
-	require.NoError(t, conf.Storage.Index(ctx, block, Finalization{}))
-	e, err := NewEpoch(conf)
-	require.NoError(t, err)
-	t.Cleanup(e.Stop)
-	require.Equal(t, uint64(1), e.Storage.NumBlocks())
-	require.NoError(t, e.Start())
+	tests := []struct {
+		name          string
+		storage       func(t *testing.T) Storage
+		expectedRound uint64
+		expectedSeq   uint64
+		expectedEpoch uint64
+	}{
+		{
+			name: "normal block",
+			storage: func(t *testing.T) Storage {
+				storage := testutil.NewInMemStorage()
+				for _, block := range createBlocks(t, nodes, 2) {
+					require.NoError(t, storage.Index(ctx, block.VerifiedBlock, block.Finalization))
+				}
 
-	// ensure the round is properly set
-	require.Equal(t, uint64(1), e.Metadata().Round)
-	require.Equal(t, uint64(1), e.Metadata().Seq)
-	require.Equal(t, block.BlockHeader().Digest, e.Metadata().Prev)
+				return storage
+			},
+			expectedRound: 2,
+			expectedSeq:   2,
+			expectedEpoch: 0,
+		},
+		{
+			name: "sealing block",
+			storage: func(t *testing.T) Storage {
+				storage := testutil.NewInMemStorage()
+				blocks := createBlocks(t, nodes, 8)
+				blocks[7].VerifiedBlock.(*testutil.TestBlock).SealingInfo = &SealingBlockInfo{
+					ValidatorSet:         NodeIDs(nodes).EqualWeightedNodes(),
+					PrevSealingBlockHash: blocks[0].VerifiedBlock.BlockHeader().Digest,
+				}
+				for _, block := range blocks {
+					require.NoError(t, storage.Index(ctx, block.VerifiedBlock, block.Finalization))
+				}
+
+				return storage
+			},
+			expectedRound: 8,
+			expectedSeq:   8,
+			// The epoch is the sequence of the last indexed sealing block.
+			expectedEpoch: 7,
+		},
+		{
+			// Blocks predating Simplex carry no finalization, so the round and epoch
+			// come from the number of indexed blocks.
+			name: "non simplex blocks",
+			storage: func(t *testing.T) Storage {
+				storage := testutil.NewInMemStorage()
+				for i, block := range createBlocks(t, nodes, 2) {
+					block.VerifiedBlock.(*testutil.TestBlock).Metadata = ProtocolMetadata{
+						Seq: uint64(i), // set the sequence so we can index without error
+					}
+					require.NoError(t, storage.Index(ctx, block.VerifiedBlock, Finalization{}))
+				}
+
+				return storage
+			},
+			expectedRound: 1,
+			expectedSeq:   2,
+			expectedEpoch: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bb := testutil.NewTestBlockBuilder()
+			conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
+			conf.Storage = tt.storage(t)
+
+			e, err := NewEpoch(conf)
+			require.NoError(t, err)
+			t.Cleanup(e.Stop)
+			require.NoError(t, e.Start())
+
+			tip, err := RetrieveLastIndexFromStorage(e.Storage)
+			require.NoError(t, err)
+
+			md := e.Metadata()
+			require.Equal(t, tt.expectedEpoch, md.Epoch)
+			require.Equal(t, tt.expectedRound, md.Round)
+			require.Equal(t, tt.expectedSeq, md.Seq)
+			require.Equal(t, tip.VerifiedBlock.BlockHeader().Digest, md.Prev)
+		})
+	}
 }
 
 func TestRecoveryAsLeader(t *testing.T) {

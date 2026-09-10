@@ -4,7 +4,6 @@
 package metadata
 
 import (
-	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -104,7 +103,7 @@ func (bs blockStore) getBlock(seq uint64, _ common.Digest) (StateMachineBlock, *
 type signer struct {
 }
 
-func (s *signer) Sign(digest []byte) ([]byte, error) {
+func (s *signer) Sign(digest []byte) (common.SignatureBytes, error) {
 	return testSK.Sign(rand.Reader, digest, nil)
 }
 
@@ -128,7 +127,7 @@ type signatureVerifier struct {
 	err error
 }
 
-func (sv *signatureVerifier) VerifySignature(signature []byte, message []byte, _ []byte) error {
+func (sv *signatureVerifier) VerifySignature(message []byte, signature common.SignatureBytes, _ common.PublicKeyBytes) error {
 	if sv.err != nil {
 		return sv.err
 	}
@@ -165,9 +164,11 @@ func (sv *signatureAggregator) Aggregate([]common.Signature) (common.QuorumCerti
 	panic("unused in tests")
 }
 
-func (sv *signatureAggregator) AppendSignatures(existing []byte, sigs ...[]byte) ([]byte, error) {
+func (sv *signatureAggregator) AppendSignatures(existing common.SignatureBytes, sigs ...common.SignatureBytes) (common.SignatureBytes, error) {
 	all := make([][]byte, 0, len(sigs)+1)
-	all = append(all, sigs...)
+	for _, sig := range sigs {
+		all = append(all, sig)
+	}
 	if len(existing) > 0 {
 		// existing is itself a marshaled aggregate from a previous round. Flatten it into the
 		// component signatures instead of nesting the blob, so the aggregate stays a single level
@@ -224,8 +225,8 @@ func (vsr *validatorSetRetriever) getValidatorSet(height uint64) (NodeBLSMapping
 
 type keyAggregator struct{}
 
-func (ka *keyAggregator) AggregateKeys(keys ...[]byte) ([]byte, error) {
-	aggregated := make([]byte, 0)
+func (ka *keyAggregator) AggregateKeys(keys ...common.PublicKeyBytes) (common.PublicKeyBytes, error) {
+	aggregated := make(common.PublicKeyBytes, 0)
 	for _, key := range keys {
 		aggregated = append(aggregated, key...)
 	}
@@ -242,7 +243,10 @@ var (
 	}
 )
 
-func makeChain(t *testing.T, simplexStartHeight uint64, endHeight uint64) []StateMachineBlock {
+// makeChain builds a chain of endHeight+1 blocks whose heights double as sequence numbers: genesis at
+// height 0, non-Simplex blocks below simplexStartHeight, the zero block at simplexStartHeight that opens
+// the first epoch with the given validator set, and normal Simplex blocks of that epoch above it.
+func makeChain(t *testing.T, simplexStartHeight uint64, endHeight uint64, validatorSet NodeBLSMappings) []StateMachineBlock {
 	startTime := time.Now().Add(-time.Duration(endHeight+2) * time.Second)
 	blocks := make([]StateMachineBlock, 0, endHeight+1)
 	var round, seq uint64
@@ -261,21 +265,46 @@ func makeChain(t *testing.T, simplexStartHeight uint64, endHeight uint64) []Stat
 
 		seq = uint64(index)
 
-		blocks = append(blocks, makeNormalSimplexBlock(t, index, blocks, startTime, h, round, seq))
+		if h == simplexStartHeight {
+			blocks = append(blocks, makeZeroBlock(blocks, validatorSet, round, seq))
+		} else {
+			blocks = append(blocks, makeNormalSimplexBlock(t, index, blocks, startTime, h, round, seq))
+		}
 		round++
 	}
 	return blocks
 }
 
+// makeZeroBlock builds the first Simplex block on top of the last block in blocks the way buildBlockZero
+// does: it has no inner block, carries its parent's timestamp, and opens the first epoch, numbered by
+// its own sequence, with the given validator set as its block validation descriptor.
+func makeZeroBlock(blocks []StateMachineBlock, validatorSet NodeBLSMappings, round uint64, seq uint64) StateMachineBlock {
+	parent := blocks[len(blocks)-1]
+	epochInfo := constructSimplexZeroBlockSimplexEpochInfo(100, validatorSet, parent.InnerBlock.Height())
+
+	return StateMachineBlock{
+		Metadata: StateMachineMetadata{
+			Timestamp:    uint64(parent.InnerBlock.Timestamp().UnixMilli()),
+			PChainHeight: 100,
+			SimplexProtocolMetadata: common.ProtocolMetadata{
+				Round: round,
+				Seq:   seq,
+				Epoch: seq,
+				Prev:  parent.Digest(),
+			},
+			SimplexEpochInfo: epochInfo,
+		},
+	}
+}
+
+// makeNormalSimplexBlock builds a normal block of the epoch its parent, the last block in blocks, belongs to.
 func makeNormalSimplexBlock(t *testing.T, index int, blocks []StateMachineBlock, start time.Time, h uint64, round uint64, seq uint64) StateMachineBlock {
 	content := make([]byte, 10)
 	_, err := rand.Read(content)
 	require.NoError(t, err)
 
-	prev := genesisBlock.Digest()
-	if index > 0 {
-		prev = blocks[index-1].Digest()
-	}
+	parent := blocks[index-1]
+	epoch := parent.Metadata.SimplexProtocolMetadata.Epoch
 
 	return StateMachineBlock{
 		InnerBlock: &InnerBlock{
@@ -288,14 +317,13 @@ func makeNormalSimplexBlock(t *testing.T, index int, blocks []StateMachineBlock,
 			SimplexProtocolMetadata: common.ProtocolMetadata{
 				Round: round,
 				Seq:   seq,
-				Epoch: 1,
-				Prev:  prev,
+				Epoch: epoch,
+				Prev:  parent.Digest(),
 			},
 			SimplexEpochInfo: SimplexEpochInfo{
 				PrevSealingBlockHash:  [32]byte{},
 				PChainReferenceHeight: 100,
-				EpochNumber:           1,
-				PrevVMBlockSeq:        uint64(index),
+				PrevVMBlockSeq:        computePrevVMBlockSeq(&parent, uint64(index-1)),
 			},
 		},
 	}
@@ -352,7 +380,10 @@ func newStateMachineWithLogger(tb testing.TB, logger common.Logger) (*StateMachi
 	}
 
 	smConfig := Config{
-		GenesisValidatorSet:             NodeBLSMappings{{BLSKey: []byte{1}, Weight: 1}, {BLSKey: []byte{2}, Weight: 1}},
+		GenesisValidatorSet: NodeBLSMappings{
+			{BLSKey: []byte{1}, Weight: 1, NodeID: [20]byte{1}},
+			{BLSKey: []byte{2}, Weight: 1, NodeID: [20]byte{2}},
+		},
 		LastNonSimplexBlockPChainHeight: 100,
 		GetTime:                         time.Now,
 		TimeSkewLimit:                   time.Second * 5,
@@ -412,8 +443,11 @@ func (concatAggregator) Aggregate([]common.Signature) (common.QuorumCertificate,
 	panic("unused in tests")
 }
 
-func (concatAggregator) AppendSignatures(existing []byte, sigs ...[]byte) ([]byte, error) {
-	result := bytes.Join(sigs, nil)
+func (concatAggregator) AppendSignatures(existing common.SignatureBytes, sigs ...common.SignatureBytes) (common.SignatureBytes, error) {
+	var result common.SignatureBytes
+	for _, sig := range sigs {
+		result = append(result, sig...)
+	}
 	return append(result, existing...), nil
 }
 
@@ -429,7 +463,7 @@ func (failingAggregator) Aggregate([]common.Signature) (common.QuorumCertificate
 
 var errTestAggregationFailed = errors.New("aggregation failed")
 
-func (failingAggregator) AppendSignatures([]byte, ...[]byte) ([]byte, error) {
+func (failingAggregator) AppendSignatures(common.SignatureBytes, ...common.SignatureBytes) (common.SignatureBytes, error) {
 	return nil, errTestAggregationFailed
 }
 

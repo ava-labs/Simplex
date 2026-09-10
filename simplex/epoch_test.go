@@ -1020,25 +1020,36 @@ func TestEpochSimpleFlow(t *testing.T) {
 }
 
 func TestEpochResizesBlacklistOnEpochChange(t *testing.T) {
-	epoch1Block := testutil.NewTestBlock(ProtocolMetadata{Epoch: 1, Round: 0, Seq: 0}, NewBlacklist(1))
 	nodes := []NodeID{{1}, {2}}
 	bb := testutil.NewTestBlockBuilder()
-	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, NodeID{2}, testutil.NewNoopComm(nodes), bb)
-	conf.Epoch = 2
-	require.NoError(t, conf.Storage.Index(context.Background(), epoch1Block, Finalization{}))
-	require.Equal(t, uint16(1), epoch1Block.Blacklist().NodeCount,
+
+	// The epoch number is the sequence of the last indexed sealing block, so both nodes
+	// below start in epoch 1 while their last indexed block belongs to epoch 0.
+	epoch0Block := testutil.NewTestBlock(ProtocolMetadata{Epoch: 0, Round: 0, Seq: 0}, NewBlacklist(1))
+	sealingBlock := testutil.NewTestBlock(ProtocolMetadata{Epoch: 0, Round: 1, Seq: 1, Prev: epoch0Block.Digest}, NewBlacklist(1))
+	sealingBlock.SealingInfo = &SealingBlockInfo{
+		ValidatorSet:         NodeIDs(nodes).EqualWeightedNodes(),
+		PrevSealingBlockHash: epoch0Block.Digest,
+	}
+	require.Equal(t, uint16(1), sealingBlock.Blacklist().NodeCount,
 		"blacklist must contain exactly one node")
+
+	sigAggregator := &testutil.TestSignatureAggregator{N: len(nodes)}
+	epoch0Finalization, _ := testutil.NewFinalizationRecord(t, sigAggregator, epoch0Block, nodes)
+	sealingFinalization, _ := testutil.NewFinalizationRecord(t, sigAggregator, sealingBlock, nodes)
+
+	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
+	require.NoError(t, conf.Storage.Index(context.Background(), epoch0Block, epoch0Finalization))
+	require.NoError(t, conf.Storage.Index(context.Background(), sealingBlock, sealingFinalization))
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
-	e.Epoch = conf.Epoch
 	require.NoError(t, e.Start())
-	require.Equal(t, uint64(2), e.Metadata().Epoch)
+	require.Equal(t, uint64(1), e.Metadata().Epoch)
 
-	// The node (leader) builds the next block on top of the epoch-1 block. Its
+	// The node (leader of round 2) builds the next block on top of the sealing block. Its
 	// blacklist must be sized for the new validator set (2), not inherited from the
-	// parent (1) — otherwise its blacklist is malformed and the block cannot be
-	// notarized.
+	// parent (1), otherwise its blacklist is malformed and the block cannot be notarized.
 	bb.BlockShouldBeBuilt <- struct{}{}
 	block := bb.GetBuiltBlock()
 	require.Equal(t, uint16(2), block.Blacklist().NodeCount,
@@ -1046,21 +1057,17 @@ func TestEpochResizesBlacklistOnEpochChange(t *testing.T) {
 	e.Stop()
 
 	// Next, create the other node (follower) and ensure it can verify the block.
-	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, NodeID{1}, testutil.NewNoopComm(nodes), bb)
-	conf.Epoch = 2
-
-	require.NoError(t, conf.Storage.Index(context.Background(), epoch1Block, Finalization{}))
-	require.Equal(t, uint16(1), epoch1Block.Blacklist().NodeCount,
-		"blacklist must contain exactly one node")
+	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[1], testutil.NewNoopComm(nodes), bb)
+	require.NoError(t, conf.Storage.Index(context.Background(), epoch0Block, epoch0Finalization))
+	require.NoError(t, conf.Storage.Index(context.Background(), sealingBlock, sealingFinalization))
 
 	e, err = NewEpoch(conf)
 	require.NoError(t, err)
-	e.Epoch = conf.Epoch
 	require.NoError(t, e.Start())
 	t.Cleanup(e.Stop)
-	require.Equal(t, uint64(2), e.Metadata().Epoch)
+	require.Equal(t, uint64(1), e.Metadata().Epoch)
 
-	vote, err := testutil.NewTestVote(block, nodes[1])
+	vote, err := testutil.NewTestVote(block, nodes[0])
 	require.NoError(t, err)
 
 	err = e.HandleMessage(&Message{
@@ -1068,10 +1075,9 @@ func TestEpochResizesBlacklistOnEpochChange(t *testing.T) {
 			Vote:  *vote,
 			Block: block,
 		},
-	}, nodes[1])
+	}, nodes[0])
 	require.NoError(t, err)
-	wal.AssertNotarization(1)
-
+	wal.AssertNotarization(2)
 }
 
 func TestEpochStartedTwice(t *testing.T) {
@@ -2155,7 +2161,7 @@ type rejectingVerifier struct {
 	rejected []byte
 }
 
-func (v *rejectingVerifier) VerifySignature(_ []byte, signature []byte, _ []byte) error {
+func (v *rejectingVerifier) VerifySignature(_ []byte, signature SignatureBytes, _ PublicKeyBytes) error {
 	if string(signature) == string(v.rejected) {
 		return fmt.Errorf("invalid signature")
 	}
@@ -2793,4 +2799,121 @@ func TestEpochVoteSentTwiceKeepsBufferedVote(t *testing.T) {
 			t.Fatal("timed out waiting for a notarization to be broadcast")
 		}
 	}
+}
+
+func TestFutureProposalDispatchedOnceAfterReentrantCommit(t *testing.T) {
+	// Two proposals for rounds 0 and 1 arrive one after the other.
+	// A finalization for round 0 arrives while the proposal for round 0 is still being verified. The
+	// finalization is parked in the future messages map and is consumed by the verification task
+	// itself once it stores the proposal, so the commit (and the round change) happen inside the
+	// verification task's call to maybeLoadFutureMessages.
+	//
+	// That commit calls startRound, which calls maybeLoadFutureMessages again (nested) and dispatches
+	// the parked proposal for round 1. When the nested call returns, the outer maybeLoadFutureMessages
+	// notices the round changed and iterates again, but the parked proposal is still in the map,
+	// because it is only removed from the map by the verification task, so it
+	// dispatches the task to verify the very same proposal a second time.
+	// The result is two verification tasks for one block: the second one re-verifies an already
+	// verified block and fails to store the proposal because the round already exists.
+	nodes := make([]NodeID, 10)
+	for i := range nodes {
+		nodes[i] = NodeID{byte(i + 1)}
+	}
+	// The epoch node leads only round 9, so it never proposes any of the blocks used here.
+	epochNode := LeaderForRound(nodes, 9)
+	quorum := Quorum(len(nodes))
+	blacklist := Blacklist{NodeCount: uint16(len(nodes)), SuspectedNodes: SuspectedNodes{}, Updates: []BlacklistUpdate{}}
+
+	bb := testutil.NewTestBlockBuilder()
+	comm := &recordingComm{
+		Communication:     testutil.NewNoopComm(NodeIDs(nodes)),
+		SentMessages:      make(chan *Message, 1000),
+		BroadcastMessages: make(chan *Message, 1000),
+	}
+	conf, _, storage := testutil.DefaultTestNodeEpochConfig(t, epochNode, comm, bb)
+	conf.ReplicationEnabled = true
+
+	// Count, by log message, how the proposals are dispatched and verified.
+	var scheduledVerifications, repeatedVerifications, rejectedProposals, finalizationsToReplication atomic.Int32
+	l := conf.Logger.(*testutil.TestLogger)
+	l.Intercept(func(entry zapcore.Entry) error {
+		switch {
+		case entry.Message == "Scheduling block verification":
+			scheduledVerifications.Add(1)
+		case strings.Contains(entry.Message, "Attempted to verify an already verified block"):
+			repeatedVerifications.Add(1)
+		case strings.Contains(entry.Message, "Already received block for round"):
+			rejectedProposals.Add(1)
+		case strings.Contains(entry.Message, "Received finalization for a pending or future round"):
+			finalizationsToReplication.Add(1)
+		}
+		return nil
+	})
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	e.ReplicationEnabled = true
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+
+	// Two blocks: block 0 (round 0, led by node 1) and block 1 (round 1, led by node 2).
+	blocks := make([]*testutil.TestBlock, 2)
+	var prev Digest
+	for i := uint64(0); i < 2; i++ {
+		blocks[i] = testutil.NewTestBlock(ProtocolMetadata{Round: i, Seq: i, Prev: prev}, blacklist)
+		prev = blocks[i].BlockHeader().Digest
+	}
+	// Hold block 0 inside Verify so the finalization for it arrives while it is still being verified.
+	block0Verifying := make(chan struct{})
+	blocks[0].VerificationDelay = block0Verifying
+
+	for i := uint64(0); i < 2; i++ {
+		leader := LeaderForRound(nodes, i)
+		vote, err := testutil.NewTestVote(blocks[i], leader)
+		require.NoError(t, err)
+		require.NoError(t, e.HandleMessage(&Message{
+			BlockMessage: &BlockMessage{Block: blocks[i], Vote: *vote},
+		}, leader))
+	}
+
+	// Block 0 cannot be stored before its Verify returns, so this finalization is guaranteed to find
+	// no round object and to be parked in the future messages map for the verification task to consume.
+	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Validators())
+	finalization0, _ := testutil.NewFinalizationRecord(t, sigAggr, blocks[0], nodes[:quorum])
+	require.NoError(t, e.HandleMessage(&Message{Finalization: &finalization0}, nodes[0]))
+	require.Zero(t, finalizationsToReplication.Load(), "the finalization should have been parked, not handed to replication")
+
+	// Release block 0. Its verification task stores the proposal, consumes the parked finalization,
+	// commits block 0 and starts round 1 - all inside the same task.
+	close(block0Verifying)
+	storage.WaitForBlockCommit(0)
+
+	// Wait for the round 1 proposal to be verified and voted on, which is the end of its verification task.
+	require.Eventually(t, func() bool {
+		for {
+			select {
+			case msg := <-comm.BroadcastMessages:
+				if msg.VoteMessage != nil && msg.VoteMessage.Vote.Round == 1 {
+					return true
+				}
+			default:
+				return false
+			}
+		}
+	}, 5*time.Second, 10*time.Millisecond, "the epoch should vote on the round 1 proposal")
+
+	// Give any extra, spurious verification task a chance to run before checking the counters.
+	require.Never(t, func() bool {
+		return repeatedVerifications.Load() > 0 || rejectedProposals.Load() > 0
+	}, 500*time.Millisecond, 50*time.Millisecond,
+		"the round 1 proposal was dispatched for verification more than once: "+
+			"re-verified an already verified block, then failed to store it because the round already exists")
+
+	// One verification per block: block 0 and block 1.
+	require.EqualValues(t, 2, scheduledVerifications.Load(), "each proposal should be scheduled for verification exactly once")
+
+	// Sanity: the parked-and-consumed path still commits when the finalization for round 1 arrives.
+	finalization1, _ := testutil.NewFinalizationRecord(t, sigAggr, blocks[1], nodes[:quorum])
+	require.NoError(t, e.HandleMessage(&Message{Finalization: &finalization1}, nodes[0]))
+	storage.WaitForBlockCommit(1)
 }
