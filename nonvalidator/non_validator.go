@@ -60,10 +60,8 @@ type Config struct {
 	// and it is in the validator set
 	TransitionToValidator func(epoch uint64, validators common.Nodes)
 
-	OnFinishBootstrapping func(epoch uint64, validators common.Nodes) error
-
-	// a non-validator is considered bootstrapped when it has received a threshold of votes
-	// from the latest validator set. Until then, it cannot verify or index any blocks.
+	// Bootstrapped is set once every epoch from our tip up to the one a threshold of the latest
+	// validator set reported has been validated. Until then only replication responses are handled.
 	Bootstrapped bool
 }
 
@@ -92,6 +90,11 @@ type NonValidator struct {
 	epochs epochs
 
 	verifier *common.BlockDependencyManager
+
+	// sealingBlockTimeouts re-requests the sealing blocks between the highest validated epoch and
+	// our tip that have not been validated yet. It holds exactly the missing ones, so no tasks
+	// means every sealing block down to our tip is validated.
+	sealingBlockTimeouts *common.TimeoutHandler[uint64]
 }
 
 // NewNonValidator creates a NonValidator with the given `config`.
@@ -116,7 +119,7 @@ func NewNonValidator(config Config) (*NonValidator, error) {
 
 	replicator := simplex.NewReplicationState(config.Logger, config.Comm, config.ID, config.MaxSequenceWindow, true, config.StartTime, lock, randomSource)
 
-	return &NonValidator{
+	nv := &NonValidator{
 		Config:                config,
 		incompleteSequences:   make(map[uint64]*finalizedSeq),
 		ctx:                   ctx,
@@ -127,7 +130,13 @@ func NewNonValidator(config Config) (*NonValidator, error) {
 		highestEpochCollector: newEpochReplicator(config.Logger, config.Comm.Validators),
 		oneTimeVerifier:       simplex.NewOneTimeVerifier(config.Logger),
 		sequenceReplicator:    replicator,
-	}, nil
+	}
+	nv.sealingBlockTimeouts = common.NewTimeoutHandler(config.Logger, "sealing block replication", config.StartTime, simplex.DefaultReplicationRequestTimeout, nv.requestMissingSealingBlocks)
+	if !config.Bootstrapped {
+		nv.sealingBlockTimeouts.AddTask(startBroadcastTask)
+	}
+
+	return nv, nil
 }
 
 func (n *NonValidator) Start() {
@@ -139,11 +148,22 @@ func (n *NonValidator) Stop() {
 	n.Logger.Info("Shutting down non-validator", zap.Stringer("ID", n.ID))
 	n.cancelCtx()
 	n.sequenceReplicator.Close()
+	n.sealingBlockTimeouts.Close()
 	n.verifier.Close()
 }
 
 func (n *NonValidator) AdvanceTime(t time.Time) {
 	n.sequenceReplicator.AdvanceTime(t)
+	n.sealingBlockTimeouts.Tick(t)
+}
+
+// IsBootstrapped reports whether bootstrapping has finished.
+// Bootstrapping finishes when every sealing block down to our tip is validated.
+func (n *NonValidator) IsBootstrapped() bool {
+	n.lock.Lock()
+	defer n.lock.Unlock()
+
+	return n.Bootstrapped
 }
 
 func (n *NonValidator) HandleMessage(msg *common.Message, from common.NodeID) error {
@@ -161,8 +181,9 @@ func (n *NonValidator) HandleMessage(msg *common.Message, from common.NodeID) er
 		return n.haltedError
 	}
 
-	if !n.Bootstrapped {
-		return n.handleBootstrap(msg, from)
+	if !n.Bootstrapped && msg.ReplicationResponse == nil {
+		n.Logger.Debug("Dropping message received while bootstrapping, we only accept replication responses", zap.Any("Message", msg), zap.Stringer("From", from))
+		return nil
 	}
 
 	switch {
@@ -178,66 +199,93 @@ func (n *NonValidator) HandleMessage(msg *common.Message, from common.NodeID) er
 	}
 }
 
-// handleBootstrap handles messages received before we are bootstrapped.
-// Only replication responses are processed, all other messages are dropped.
-func (n *NonValidator) handleBootstrap(msg *common.Message, from common.NodeID) error {
-	resp := msg.ReplicationResponse
-	if resp == nil {
-		n.Logger.Debug("Dropping message received while bootstrapping, we only accept replication responses", zap.Any("Message", msg), zap.Stringer("From", from))
+// processBootstrapQuorumRound handles quorum rounds until bootstrapping finishes.
+// Once a threshold validates an epoch, only sealing blocks are validated
+// and stored(in a backwards manner).
+func (n *NonValidator) processBootstrapQuorumRound(qr *common.QuorumRound, from common.NodeID) error {
+	block := qr.Block
+	bh := block.BlockHeader()
+	sealingInfo := block.SealingBlockInfo()
+
+	if sealingInfo == nil {
+		n.sendRequest(bh.Epoch, from)
 		return nil
 	}
 
-	for _, qr := range resp.Data {
-		if err := n.maybeBootstrapFromQuorumRound(&qr, from); err != nil {
-			n.Logger.Debug("Failed processing quorum round while bootstrapping", zap.Stringer("QR", &qr), zap.Error(err))
+	switch {
+	case n.epochs.canValidate(block):
+		// The sealing block in the backwards hash chain
+		n.validateSealingBlock(qr, from)
+	case n.highestEpochCollector.collectedSealingBlockInfo(sealingInfo, bh, from):
+		n.Logger.Info("A threshold of validators reported a sealing block", zap.Uint64("Seq", bh.Seq), zap.Stringer("Info", sealingInfo))
+		n.sealingBlockTimeouts.RemoveTask(startBroadcastTask)
+		if !n.isIndexed(bh.Seq) {
+			n.validateSealingBlock(qr, from)
 		}
-	}
-
-	if err := n.maybeBootstrapFromQuorumRound(resp.LatestSeq, from); err != nil {
-		n.Logger.Debug("Failed processing latest seq while bootstrapping", zap.Stringer("QR", resp.LatestSeq), zap.Error(err))
-	}
-
-	if !n.Bootstrapped {
+	default:
 		return nil
 	}
 
-	// Begin processing the quorum rounds stored if bootstrapping has finished.
-	return n.processReplicationState()
+	// No sealing block is missing, so every epoch from our tip to the highest is validated.
+	if !n.sealingBlockTimeouts.HasTasks() {
+		n.finishBootstrap()
+		// If the highest epoch is already indexed, nothing more gets indexed to trigger the transition.
+		highestEpoch, validators := n.epochs.highestEpoch()
+		n.maybeTransitionToValidator(highestEpoch, validators)
+	}
+	return nil
 }
 
-// maybeBootstrapFromQuorumRound records the sealing block info of qr with the highest epoch collector.
-// Once a threshold of nodes report the same sealing block, we consider ourselves bootstrapped,
-// validate the epoch it seals, and store the quorum round for replication.
-func (n *NonValidator) maybeBootstrapFromQuorumRound(qr *common.QuorumRound, from common.NodeID) error {
-	if err := verifyQuorumRound(qr); err != nil {
-		return err
-	}
-
-	// We can only bootstrap from a sealing block, request the one sealing this block's epoch.
-	if qr.Block.SealingBlockInfo() == nil {
-		n.sendRequest(qr.Block.BlockHeader().Epoch, from)
-		return nil
-	}
-
-	if !n.highestEpochCollector.collectedSealingBlockInfo(qr.Block.SealingBlockInfo(), qr.Block.BlockHeader(), from) {
-		return nil
-	}
-
-	n.Logger.Info("Bootstrapped, received a threshold of sealing block info for an epoch", zap.Stringer("Info", qr.Block.SealingBlockInfo()))
-	n.Bootstrapped = true
-
-	n.maybeValidateNextEpoch(qr.Block)
-	// We are storing a quorum round with a finalization we have not yet verified.
-	// We do this to tell the replicator a valid sequence exists and to begin replication if necessary.
-	// We will check the validity when we process this round.
+// validateSealingBlock validates the epoch a sealing block opens and stores its quorum round.
+// The finalization has not been verified yet. Storing tells the replicator a valid sequence exists
+// and its validity is checked when the round is processed.
+func (n *NonValidator) validateSealingBlock(qr *common.QuorumRound, from common.NodeID) {
+	n.maybeValidateNextEpoch(qr.Block, from)
 	n.sequenceReplicator.StoreQuorumRound(qr)
+}
 
-	if n.OnFinishBootstrapping == nil {
-		n.Logger.Debug("OnFinishBootstrapping not set for the non-validator")
-		return nil
+// finishBootstrap marks bootstrapping done. Every epoch from our tip to the highest one a
+// threshold of validators reported is validated, so replication and live messages can be handled.
+func (n *NonValidator) finishBootstrap() {
+	n.Bootstrapped = true
+	highestEpoch, _ := n.epochs.highestEpoch()
+	n.Logger.Info("Finished bootstrapping", zap.Uint64("Highest Epoch", highestEpoch))
+}
+
+// maybeTransitionToValidator calls TransitionToValidator when epoch is the highest validated epoch,
+// its sealing block is indexed and its validator set contains us.
+func (n *NonValidator) maybeTransitionToValidator(epoch uint64, validators common.Nodes) {
+	highestEpoch, highestValidatorSet := n.epochs.highestEpoch()
+	if highestEpoch != epoch || !n.isIndexed(epoch) || !highestValidatorSet.Contains(n.ID) || n.TransitionToValidator == nil {
+		return
+	}
+	n.TransitionToValidator(epoch, validators)
+}
+
+// startBroadcastTask is the sealingBlockTimeouts task that repeats the start broadcast until a
+// threshold of responses validates an epoch above our tip. Seq 0 is genesis, never a sealing block we request.
+const startBroadcastTask uint64 = 0
+
+// requestMissingSealingBlocks re-requests sealing blocks of the hash chain that timed out
+// from every validator. Runs on the timeout handler's goroutine.
+func (n *NonValidator) requestMissingSealingBlocks(seqs []uint64) {
+	n.lock.Lock()
+	defer n.lock.Unlock()
+
+	if n.ctx.Err() != nil {
+		return
 	}
 
-	return n.OnFinishBootstrapping(qr.Block.BlockHeader().Seq, qr.Block.SealingBlockInfo().ValidatorSet)
+	for _, seq := range seqs {
+		if seq == startBroadcastTask {
+			n.broadcastLatestEpoch()
+			continue
+		}
+		n.Logger.Debug("Re-requesting a sealing block", zap.Uint64("Seq", seq))
+		n.Comm.Broadcast(&common.Message{
+			ReplicationRequest: &common.ReplicationRequest{Seqs: []uint64{seq}},
+		})
+	}
 }
 
 // handleBlock handles a block message. BlockMessages are sent when the leader proposes a block for its round.
@@ -264,7 +312,7 @@ func (n *NonValidator) handleBlock(block common.Block, from common.NodeID) error
 	}
 
 	// If we have already verified the block discard it
-	if n.isAccepted(bh.Seq) {
+	if n.isIndexed(bh.Seq) {
 		n.Logger.Debug("Already accepted a block from this round")
 		return nil
 	}
@@ -297,11 +345,11 @@ func (n *NonValidator) handleBlock(block common.Block, from common.NodeID) error
 
 	incomplete.block = block
 
-	n.maybeValidateNextEpoch(block)
+	n.maybeValidateNextEpoch(block, from)
 	return n.scheduleNewFinalizedBlockTask(block, incomplete.finalization)
 }
 
-func (n *NonValidator) isAccepted(seq uint64) bool {
+func (n *NonValidator) isIndexed(seq uint64) bool {
 	return n.nextSeqToCommit() > seq
 }
 
@@ -342,18 +390,9 @@ func (n *NonValidator) newFinalizedBlockTask(block common.Block, finalization *c
 			return md.Digest
 		}
 
-		// If we are indexing a sealing block, we may need to transition to become a validator
+		// Indexing a sealing block may make us a validator of the epoch it opens.
 		if block.SealingBlockInfo() != nil {
-			highestEpoch, highestValidatorSet := n.epochs.highestEpoch()
-
-			// We should only transition to become a validator, if the sealing block is creating the highest
-			// epoch we have validated. Since we are fetching from the epochs map, we know this epoch has been validated
-			// either by a threshold of responses, or backwards hash chain validation.
-			if highestValidatorSet.Contains(n.ID) && highestEpoch == md.Seq {
-				if n.TransitionToValidator != nil {
-					n.TransitionToValidator(block.BlockHeader().Seq, block.SealingBlockInfo().ValidatorSet)
-				}
-			}
+			n.maybeTransitionToValidator(md.Seq, block.SealingBlockInfo().ValidatorSet)
 		}
 
 		n.Logger.Info("Verified and Indexed Block", zap.Uint64("Block Seq", md.Seq), zap.Stringer("Block Digest", md.Digest))
@@ -371,8 +410,12 @@ func (n *NonValidator) newFinalizedBlockTask(block common.Block, finalization *c
 	}
 }
 
-func (n *NonValidator) maybeValidateNextEpoch(block common.Block) {
-	nextEpoch := block.BlockHeader().Seq
+// maybeValidateNextEpoch validates the epoch block opens when block is a sealing block. While
+// bootstrapping it also requests the sealing block that opened block's own epoch, following the
+// hash chain back until every sealing block down to an epoch we have indexed is validated.
+func (n *NonValidator) maybeValidateNextEpoch(block common.Block, from common.NodeID) {
+	bh := block.BlockHeader()
+	nextEpoch := bh.Seq
 	sealingInfo := block.SealingBlockInfo()
 	if sealingInfo == nil {
 		return
@@ -385,6 +428,22 @@ func (n *NonValidator) maybeValidateNextEpoch(block common.Block) {
 
 	n.Logger.Info("We have a valid sealing block, messages for that epoch can be processed.", zap.Uint64("Epoch", nextEpoch))
 	n.epochs[nextEpoch] = newEpochMetadata(nextEpoch, sealingInfo, n.SignatureAggregatorCreator)
+
+	if n.Bootstrapped {
+		return
+	}
+
+	n.sealingBlockTimeouts.RemoveTask(nextEpoch)
+
+	// The first simplex block opens its own epoch, so there is no earlier sealing block.
+	prevSealingSeq := bh.Epoch
+	_, known := n.epochs[prevSealingSeq]
+	if prevSealingSeq == nextEpoch || n.isIndexed(prevSealingSeq) || known {
+		return
+	}
+
+	n.sendRequest(prevSealingSeq, from)
+	n.sealingBlockTimeouts.AddTask(prevSealingSeq)
 }
 
 func (n *NonValidator) removeOldSequencesAndEpochs(lastCommittedSeq, minEpochToKeep uint64) {
@@ -401,15 +460,11 @@ func (n *NonValidator) removeOldSequencesAndEpochs(lastCommittedSeq, minEpochToK
 // handleFinalization process a finalization message. If its for a future epoch, it will forward the finalization
 // to the replication handler.
 func (n *NonValidator) handleFinalization(finalization *common.Finalization, from common.NodeID) error {
-	if !n.Bootstrapped {
-		return nil
-	}
-
 	bh := finalization.Finalization.BlockHeader
 
 	n.Logger.Debug("Received a finalization", zap.Uint64("Seq", bh.Seq), zap.Stringer("From", from))
 
-	if n.isAccepted(bh.Seq) {
+	if n.isIndexed(bh.Seq) {
 		n.Logger.Debug("Received a stale finalization", zap.Uint64("Seq", bh.Seq), zap.Stringer("From", from))
 		return nil
 	}
@@ -489,7 +544,7 @@ func (n *NonValidator) handleFinalization(finalization *common.Finalization, fro
 		return nil
 	}
 
-	n.maybeValidateNextEpoch(incomplete.block)
+	n.maybeValidateNextEpoch(incomplete.block, from)
 	return n.scheduleNewFinalizedBlockTask(incomplete.block, incomplete.finalization)
 }
 
@@ -504,7 +559,7 @@ func (n *NonValidator) scheduleNewFinalizedBlockTask(block common.Block, finaliz
 	finalizedBlockTask := n.newFinalizedBlockTask(n.oneTimeVerifier.Wrap(block), finalization)
 
 	var prev *common.Digest
-	if bh.Seq > 0 && !n.isAccepted(bh.Seq-1) {
+	if bh.Seq > 0 && !n.isIndexed(bh.Seq-1) {
 		prev = &bh.Prev
 	}
 	return n.verifier.ScheduleTaskWithDependencies(finalizedBlockTask, bh.Seq, prev, []uint64{})
@@ -527,6 +582,10 @@ func (n *NonValidator) handleReplicationResponse(resp *common.ReplicationRespons
 }
 
 func (n *NonValidator) processReplicationState() error {
+	if !n.Bootstrapped {
+		return nil
+	}
+
 	nextSeqToCommit := n.nextSeqToCommit()
 	n.sequenceReplicator.MaybeAdvanceState(nextSeqToCommit, 0, 0)
 
@@ -565,9 +624,14 @@ func (n *NonValidator) processQuorumRound(qr *common.QuorumRound, from common.No
 		return err
 	}
 
+	// Runs before rejecting indexed blocks, an indexed sealing block is still a vote while bootstrapping.
+	if !n.Bootstrapped {
+		return n.processBootstrapQuorumRound(qr, from)
+	}
+
 	block := qr.Block
 
-	if n.isAccepted(block.BlockHeader().Seq) {
+	if n.isIndexed(block.BlockHeader().Seq) {
 		return fmt.Errorf("processing quorum round for a block we already indexed")
 	}
 
@@ -583,7 +647,7 @@ func (n *NonValidator) processQuorumRound(qr *common.QuorumRound, from common.No
 	}
 
 	// This block could be a sealing block, validate the next epoch if so.
-	n.maybeValidateNextEpoch(block)
+	n.maybeValidateNextEpoch(block, from)
 	n.sequenceReplicator.StoreQuorumRound(qr)
 	return nil
 }
@@ -607,47 +671,37 @@ func verifyQuorumRound(qr *common.QuorumRound) error {
 
 func (n *NonValidator) handleQrFromUnknownEpoch(qr *common.QuorumRound, from common.NodeID) {
 	block := qr.Block
+	bh := block.BlockHeader()
 	n.Logger.Debug("Received a QR from an Epoch that we have not validated",
-		zap.Uint64("Epoch", block.BlockHeader().Epoch),
-		zap.Uint64("Block Seq", block.BlockHeader().Seq),
-		zap.Stringer("Block digest", block.BlockHeader().Digest))
-	n.sendRequest(block.BlockHeader().Epoch, from)
+		zap.Uint64("Epoch", bh.Epoch),
+		zap.Uint64("Block Seq", bh.Seq),
+		zap.Stringer("Block digest", bh.Digest))
+
+	n.sendRequest(bh.Epoch, from)
 
 	// This block is in an epoch that we do not have. Therefore, we cannot verify its finalization.
 	// However, if it is a sealing block we may be able to validate the epoch if its part of the sealing block hash-chain.
 	if n.epochs.canValidate(block) {
 		n.Logger.Debug("We can validate an epoch block as we have validated the one after it.", zap.Stringer("Info", block.SealingBlockInfo()))
-		n.maybeValidateNextEpoch(block)
-
-		// We are storing a quorum round with a finalization we have not yet verified.
-		// We do this to tell the replicator a valid sequence exists and to begin replication if necessary.
-		// We will check the validity when we process this round.
-		n.sequenceReplicator.StoreQuorumRound(qr)
+		n.validateSealingBlock(qr, from)
 		return
 	}
 
-	if n.highestEpochCollector.collectedSealingBlockInfo(qr.Block.SealingBlockInfo(), qr.Block.BlockHeader(), from) {
+	if n.highestEpochCollector.collectedSealingBlockInfo(block.SealingBlockInfo(), bh, from) {
 		n.Logger.Debug("We can validate an epoch because we have received a threshold of messages of it.", zap.Stringer("Info", block.SealingBlockInfo()))
-		n.maybeValidateNextEpoch(block)
-
-		// We are storing a quorum round with a finalization we have not yet verified.
-		// We do this to tell the replicator a valid sequence exists and to begin replication if necessary.
-		// We will check the validity when we process this round.
-		n.sequenceReplicator.StoreQuorumRound(qr)
+		n.validateSealingBlock(qr, from)
 	}
 }
 
-// TODO: add a re-broadcast timeout task until we have validated an epoch.
 func (n *NonValidator) broadcastLatestEpoch() {
 	highestEpoch, _ := n.epochs.highestEpoch()
+	request := &common.ReplicationRequest{
+		LatestFinalizedSeq: highestEpoch,
+	}
 
 	// Sending a LatestFinalizedSeq of 0 gets ignored by validators.
 	if highestEpoch == 0 {
-		highestEpoch = 1
-	}
-
-	request := &common.ReplicationRequest{
-		LatestFinalizedSeq: highestEpoch,
+		request.LatestFinalizedSeq = 1
 	}
 
 	n.Comm.Broadcast(&common.Message{

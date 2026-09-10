@@ -637,7 +637,10 @@ func (n *node) role() (isValidator bool, bootstrapped bool) {
 	n.inst.lock.Lock()
 	defer n.inst.lock.Unlock()
 
-	return n.inst.e != nil, n.inst.bootstrapped
+	if n.inst.e != nil {
+		return true, true
+	}
+	return false, n.inst.nv != nil && n.inst.nv.IsBootstrapped()
 }
 
 // sync syncs a node by waiting for the commit of the latest sequence.

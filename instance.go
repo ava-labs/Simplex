@@ -74,11 +74,6 @@ type Instance struct {
 	epochOrNV          timeAdvancer
 	epochChanges       chan epochChange
 	stopCh             chan struct{}
-
-	// bootstrapped represents whether the instance has completed bootstrapping.
-	// This is false on Start, and also set to false when our notices it's validator
-	// has fallen behind by many epochs.
-	bootstrapped bool
 }
 
 func NewInstance(config Config) *Instance {
@@ -142,41 +137,13 @@ func (i *Instance) bootstrap() error {
 	// We have indexed the latest validator set, therefore we can skip bootstrapping and start as a validator.
 	// Note: this may not be the latest epoch, but our futureEpochCollector will eventually notice we are behind and transition properly.
 	if latestIndexedEpochValidators.Equal(latestValidatorSet.Nodes()) && latestValidatorSet.Nodes().Contains(i.Config.ID) {
-		i.bootstrapped = true
 		return i.startValidator(latestIndexedEpochValidators)
 	}
 
 	// Start as non-validator if our last indexed validator set does not equal, the latest p-chain validator set
 	// Note: the epoch may be transitioning, so the latest p-chain validator set actually points to a future epoch.
 	// The non-validator should finish bootstrapping and convert our non-validator to a validator in this case.
-	return i.startNonValidator()
-}
-
-func (i *Instance) onBootstrapFinish(highestKnownEpoch uint64, highestKnownValidators common.Nodes) error {
-	i.bootstrapped = true
-	i.Config.Logger.Debug(
-		"Node finished bootstrapping",
-		zap.Stringers("Highest Validators",
-			highestKnownValidators.NodeIDs()),
-		zap.Uint64("Highest Epoch", highestKnownEpoch),
-	)
-
-	_, lastAcceptedEpoch, err := getLastAcceptedEpochAndValidatorSet(&i.Config)
-	if err != nil {
-		return err
-	}
-
-	// the latest epoch contains our node, we should asynchronously notify the listener
-	// which will convert our node to a validator for this epoch.
-	if highestKnownValidators.Contains(i.Config.ID) && lastAcceptedEpoch == highestKnownEpoch {
-		i.Config.Logger.Debug("Our node completed bootstrapping and it is a validator")
-		i.notifyEpochChange(highestKnownEpoch, highestKnownValidators)
-		return nil
-	}
-
-	// we have completed bootstrapping, but our node is still a non-validator
-	i.Config.Logger.Debug("Our node completed bootstrapping but it is not a validator")
-	return nil
+	return i.startNonValidator(false)
 }
 
 func (i *Instance) startValidator(validators common.Nodes) error {
@@ -197,8 +164,10 @@ func (i *Instance) startValidator(validators common.Nodes) error {
 	return epoch.Start()
 }
 
-func (i *Instance) startNonValidator() error {
-	config, err := i.createNonValidatorConfig()
+// startNonValidator runs a non-validator. bootstrapped is true when we already hold the
+// newest sealing block, such as when a validator leaves the validator set.
+func (i *Instance) startNonValidator(bootstrapped bool) error {
+	config, err := i.createNonValidatorConfig(bootstrapped)
 	if err != nil {
 		return err
 	}
@@ -213,7 +182,7 @@ func (i *Instance) startNonValidator() error {
 	return nil
 }
 
-func (i *Instance) createNonValidatorConfig() (nonvalidator.Config, error) {
+func (i *Instance) createNonValidatorConfig(bootstrapped bool) (nonvalidator.Config, error) {
 	source, err := simplex.NewRandomSource()
 	if err != nil {
 		return nonvalidator.Config{}, err
@@ -253,8 +222,7 @@ func (i *Instance) createNonValidatorConfig() (nonvalidator.Config, error) {
 		SignatureAggregatorCreator: i.Config.CryptoOps.CreateSignatureAggregator,
 		MaxSequenceWindow:          simplex.DefaultMaxRoundWindow,
 		TransitionToValidator:      i.notifyEpochChange,
-		OnFinishBootstrapping:      i.onBootstrapFinish,
-		Bootstrapped:               i.bootstrapped,
+		Bootstrapped:               bootstrapped,
 	}
 	return config, nil
 }
@@ -389,7 +357,6 @@ func (i *Instance) HandleMessage(msg *common.Message, from common.NodeID) error 
 }
 
 func (i *Instance) handleMessageForEpoch(msg *common.Message, from common.NodeID) error {
-
 	switch {
 	case msg.AuxiliaryInfo != nil:
 		if msg.AuxiliaryInfo.Epoch != i.e.Epoch {
@@ -641,7 +608,7 @@ func (i *Instance) startAtEpoch(validators common.Nodes) error {
 		return i.startValidator(validators)
 	}
 
-	return i.startNonValidator()
+	return i.startNonValidator(true)
 }
 
 type epochConfig struct {

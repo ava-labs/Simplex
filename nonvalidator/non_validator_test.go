@@ -512,6 +512,7 @@ func TestNonValidator_RequestHighestEpochOnStart(t *testing.T) {
 	require.True(t, ok)
 	require.NotNil(t, msg.msg.ReplicationRequest)
 	require.Equal(t, uint64(1), msg.msg.ReplicationRequest.LatestFinalizedSeq)
+	require.Empty(t, msg.msg.ReplicationRequest.Seqs)
 }
 
 // TestNonValidator_Bootstrap ensures a non-validator can replicate sequences given different states of the chain.
@@ -627,6 +628,7 @@ func TestNonValidator_Bootstrap(t *testing.T) {
 			defer nv.Stop()
 
 			advanceUntil(nv, epochs, msgQueue, tt.lastSeq)
+			require.Eventually(t, nv.IsBootstrapped, 5*time.Second, 10*time.Millisecond)
 		})
 	}
 }
@@ -917,12 +919,10 @@ func TestNonValidatorRejectsQuorumRoundFromNonValidator(t *testing.T) {
 }
 
 // TestNonValidator_BootstrapGatesMessages asserts that blocks and finalizations are dropped
-// until a threshold of replication responses vouch for the same sealing block,
-// after which the stored round is committed and messages are processed normally.
+// until a threshold of replication responses vote for the same sealing block, after which
+// the stored round is committed and messages are processed normally.
 func TestNonValidator_BootstrapGatesMessages(t *testing.T) {
 	tc := newSeededChain(t, testNodes, 2)
-	var bootstrappedHighestValidators common.Nodes
-	var bootstrappedHighestEpoch uint64
 
 	nv, err := NewNonValidator(
 		Config{
@@ -932,11 +932,6 @@ func TestNonValidator_BootstrapGatesMessages(t *testing.T) {
 			SignatureAggregatorCreator: tc.signatureAggregatorCreator,
 			MaxSequenceWindow:          simplex.DefaultMaxRoundWindow,
 			ID:                         common.NodeID{100},
-			OnFinishBootstrapping: func(epoch uint64, validators common.Nodes) error {
-				bootstrappedHighestEpoch = epoch
-				bootstrappedHighestValidators = validators
-				return nil
-			},
 		},
 	)
 	require.NoError(t, err)
@@ -962,11 +957,14 @@ func TestNonValidator_BootstrapGatesMessages(t *testing.T) {
 		},
 	}
 	threshold := common.F(len(testNodes)) + 1
-	for i := 0; i < threshold; i++ {
+	for i := 0; i < threshold-1; i++ {
 		require.NoError(t, nv.HandleMessage(qrMsg, testNodes.NodeIDs()[i]))
 	}
+	require.False(t, nv.IsBootstrapped(), "bootstrapped below the threshold")
 
-	// bootstrapping commits the collected sealing block
+	// the sealing block's epoch was opened by the indexed epoch 1, so the threshold vote finishes bootstrapping
+	require.NoError(t, nv.HandleMessage(qrMsg, testNodes.NodeIDs()[threshold-1]))
+	require.True(t, nv.IsBootstrapped())
 	tc.WaitForBlockCommit(3)
 
 	// messages flow normally after bootstrapping
@@ -976,27 +974,151 @@ func TestNonValidator_BootstrapGatesMessages(t *testing.T) {
 	fin = finalizationMsg(t, b4, testNodes)
 	require.NoError(t, nv.HandleMessage(fin.msg, fin.from))
 	tc.WaitForBlockCommit(4)
-
-	require.Equal(t, b3.BlockHeader().Seq, bootstrappedHighestEpoch)
-	require.Equal(t, testNodes, bootstrappedHighestValidators)
 }
 
-// TestNonValidator_BootstrapRequestsSealingBlock asserts that a replication response
-// carrying a non-sealing block while bootstrapping triggers a replication request
-// for the block's epoch, whose seq is the sealing block that opened it.
-func TestNonValidator_BootstrapRequestsSealingBlock(t *testing.T) {
+// sealingResponse wraps the block and finalization indexed at seq on tc in a replication response.
+func sealingResponse(tc *testChain, seq uint64) *common.Message {
+	block, fin, err := tc.Retrieve(seq)
+	require.NoError(tc.t, err)
+	return &common.Message{ReplicationResponse: &common.ReplicationResponse{
+		Data: []common.QuorumRound{{Block: block.(common.Block), Finalization: &fin}},
+	}}
+}
+
+// popRequestedSeqs drains the message queue and returns every seq requested.
+func popRequestedSeqs(t *testing.T, msgQueue *messageQueue) []uint64 {
+	seqs := []uint64{}
+	for msg, ok := msgQueue.popResponse(); ok; msg, ok = msgQueue.popResponse() {
+		require.NotNil(t, msg.msg.ReplicationRequest, "unexpected message %v", msg.msg)
+		seqs = append(seqs, msg.msg.ReplicationRequest.Seqs...)
+	}
+	return seqs
+}
+
+// TestNonValidator_BootstrapWalksHashChain asserts a non-validator several epochs behind requests
+// sealing blocks one hop back at a time once a threshold reports the highest one, and finishes
+// bootstrapping when the chain reaches an epoch it has indexed.
+func TestNonValidator_BootstrapWalksHashChain(t *testing.T) {
+	tc := newSeededChain(t, testNodes, 2)
+	tc.indexEpochs(5, 10, 20)
+	myNodeID := common.NodeID{100}
+	msgQueue := &messageQueue{}
+	nv, err := NewNonValidator(
+		Config{
+			Storage:                    tc.CloneUntil(3),
+			Comm:                       &routerComm{nodes: tc.nodes(), t: t, ID: myNodeID, messageQueue: msgQueue},
+			Logger:                     testutil.MakeLogger(t, 1),
+			SignatureAggregatorCreator: tc.signatureAggregatorCreator,
+			MaxSequenceWindow:          simplex.DefaultMaxRoundWindow,
+			ID:                         myNodeID,
+			StartTime:                  time.Now(),
+		},
+	)
+	require.NoError(t, err)
+	defer nv.Stop()
+
+	threshold := common.F(len(tc.nodes())) + 1
+	for i := 0; i < threshold; i++ {
+		require.NoError(t, nv.HandleMessage(sealingResponse(tc, 20), tc.nodes().NodeIDs()[i]))
+	}
+	require.False(t, nv.IsBootstrapped())
+
+	// each sealing block validates by hash and requests the one that opened its epoch
+	for _, seq := range []uint64{10, 5} {
+		require.Equal(t, []uint64{seq}, popRequestedSeqs(t, msgQueue))
+		require.False(t, nv.IsBootstrapped())
+		require.NoError(t, nv.HandleMessage(sealingResponse(tc, seq), tc.nodes().NodeIDs()[0]))
+	}
+
+	// seq 5 was opened by the indexed epoch 1, so every sealing block is validated
+	require.True(t, nv.IsBootstrapped())
+	require.NotEmpty(t, popRequestedSeqs(t, msgQueue), "replication of the sequences behind the tip never started")
+}
+
+// TestNonValidator_BootstrapIgnoresSealingBlockOffChain asserts that while following the hash chain
+// a sealing block further down it is dropped until the epoch pointing back to it has been validated.
+func TestNonValidator_BootstrapIgnoresSealingBlockOffChain(t *testing.T) {
+	tc := newSeededChain(t, testNodes, 2)
+	tc.indexEpochs(5, 10, 20)
+	myNodeID := common.NodeID{100}
+	msgQueue := &messageQueue{}
+	nv, err := NewNonValidator(
+		Config{
+			Storage:                    tc.CloneUntil(3),
+			Comm:                       &routerComm{nodes: tc.nodes(), t: t, ID: myNodeID, messageQueue: msgQueue},
+			Logger:                     testutil.MakeLogger(t, 1),
+			SignatureAggregatorCreator: tc.signatureAggregatorCreator,
+			MaxSequenceWindow:          simplex.DefaultMaxRoundWindow,
+			ID:                         myNodeID,
+			StartTime:                  time.Now(),
+		},
+	)
+	require.NoError(t, err)
+	defer nv.Stop()
+
+	threshold := common.F(len(tc.nodes())) + 1
+	for i := 0; i < threshold; i++ {
+		require.NoError(t, nv.HandleMessage(sealingResponse(tc, 20), tc.nodes().NodeIDs()[i]))
+	}
+	require.Equal(t, []uint64{10}, popRequestedSeqs(t, msgQueue))
+
+	// seq 5 opened the epoch seq 10 was produced in, but seq 10 has not been validated yet
+	require.NoError(t, nv.HandleMessage(sealingResponse(tc, 5), tc.nodes().NodeIDs()[0]))
+	require.Empty(t, popRequestedSeqs(t, msgQueue))
+	require.False(t, nv.IsBootstrapped())
+
+	// once seq 10 validates, seq 5 is still requested, so it was dropped, and is accepted on resend
+	require.NoError(t, nv.HandleMessage(sealingResponse(tc, 10), tc.nodes().NodeIDs()[0]))
+	require.Equal(t, []uint64{5}, popRequestedSeqs(t, msgQueue))
+	require.NoError(t, nv.HandleMessage(sealingResponse(tc, 5), tc.nodes().NodeIDs()[0]))
+	require.True(t, nv.IsBootstrapped())
+}
+
+// TestNonValidator_BootstrapRetriesSealingBlock asserts an unanswered request for a sealing block
+// of the hash chain is re-requested once the replication timeout passes.
+func TestNonValidatorBootstrapRetriesSealingBlock(t *testing.T) {
+	tc := newSeededChain(t, testNodes, 2)
+	tc.indexEpochs(5, 10, 20)
+	myNodeID := common.NodeID{100}
+	msgQueue := &messageQueue{}
+	nv, err := NewNonValidator(
+		Config{
+			Storage:                    tc.CloneUntil(3),
+			Comm:                       &routerComm{nodes: tc.nodes(), t: t, ID: myNodeID, messageQueue: msgQueue},
+			Logger:                     testutil.MakeLogger(t, 1),
+			SignatureAggregatorCreator: tc.signatureAggregatorCreator,
+			MaxSequenceWindow:          simplex.DefaultMaxRoundWindow,
+			ID:                         myNodeID,
+			StartTime:                  time.Now(),
+		},
+	)
+	require.NoError(t, err)
+	defer nv.Stop()
+
+	threshold := common.F(len(tc.nodes())) + 1
+	for i := 0; i < threshold; i++ {
+		require.NoError(t, nv.HandleMessage(sealingResponse(tc, 20), tc.nodes().NodeIDs()[i]))
+	}
+	require.Equal(t, []uint64{10}, popRequestedSeqs(t, msgQueue))
+
+	nv.AdvanceTime(nv.StartTime.Add(simplex.DefaultReplicationRequestTimeout))
+	require.Eventually(t, func() bool {
+		msg, ok := msgQueue.popResponse()
+		return ok && slices.Equal(msg.msg.ReplicationRequest.Seqs, []uint64{10})
+	}, 5*time.Second, 10*time.Millisecond, "the sealing block was never re-requested")
+}
+
+// TestNonValidator_BootstrapRequestsSealingBlock asserts that a replication response carrying a
+// non-sealing block while bootstrapping triggers a request to its sender for the sealing block that
+// opened its epoch, whether that epoch is ours or unknown.
+func TestNonValidatorBootstrapRequestsSealingBlock(t *testing.T) {
 	tc := newSeededChain(t, testNodes, 2)
 	myNodeID := common.NodeID{100}
 	msgQueue := &messageQueue{}
 	nv, err := NewNonValidator(
 		Config{
-			Storage: tc,
-			Comm: &routerComm{
-				nodes:        testNodes,
-				t:            t,
-				ID:           myNodeID,
-				messageQueue: msgQueue,
-			},
+			Storage:                    tc.CloneUntil(3),
+			Comm:                       &routerComm{nodes: testNodes, t: t, ID: myNodeID, messageQueue: msgQueue},
 			Logger:                     testutil.MakeLogger(t, 1),
 			SignatureAggregatorCreator: tc.signatureAggregatorCreator,
 			MaxSequenceWindow:          simplex.DefaultMaxRoundWindow,
@@ -1006,25 +1128,32 @@ func TestNonValidator_BootstrapRequestsSealingBlock(t *testing.T) {
 	require.NoError(t, err)
 	defer nv.Stop()
 
-	b3 := tc.appendBlock()
-	f3 := tc.newFinalization(b3)
+	inOurEpoch := tc.appendBlock()
+	require.NoError(t, tc.Index(context.Background(), inOurEpoch, tc.newFinalization(inOurEpoch)))
+	sealing := tc.appendSealing(testNodes)
+	require.NoError(t, tc.Index(context.Background(), sealing, tc.newFinalization(sealing)))
+	inUnknownEpoch := tc.appendBlock()
+	require.NoError(t, tc.Index(context.Background(), inUnknownEpoch, tc.newFinalization(inUnknownEpoch)))
 	sender := testNodes.NodeIDs()[2]
 
-	require.NoError(t, nv.HandleMessage(&common.Message{
-		ReplicationResponse: &common.ReplicationResponse{
-			Data: []common.QuorumRound{{Block: b3, Finalization: &f3}},
-		},
-	}, sender))
+	for _, tt := range []struct {
+		seq        uint64
+		sealingSeq uint64
+	}{
+		{seq: inOurEpoch.BlockHeader().Seq, sealingSeq: 1},
+		{seq: inUnknownEpoch.BlockHeader().Seq, sealingSeq: sealing.BlockHeader().Seq},
+	} {
+		require.NoError(t, nv.HandleMessage(sealingResponse(tc, tt.seq), sender))
+		msg, ok := msgQueue.popResponse()
+		require.True(t, ok)
+		require.NotNil(t, msg.msg.ReplicationRequest)
+		require.Equal(t, []uint64{tt.sealingSeq}, msg.msg.ReplicationRequest.Seqs)
+		require.Equal(t, sender, msg.to)
+	}
 
-	msg, ok := msgQueue.popResponse()
-	require.True(t, ok)
-	require.NotNil(t, msg.msg.ReplicationRequest)
-	require.Equal(t, []uint64{b3.BlockHeader().Epoch}, msg.msg.ReplicationRequest.Seqs)
-	require.Equal(t, sender, msg.to)
-
-	// the non-sealing block must not bootstrap the node
+	// non-sealing blocks never bootstrap the node
 	require.False(t, nv.Bootstrapped)
-	_, ok = msgQueue.popResponse()
+	_, ok := msgQueue.popResponse()
 	require.False(t, ok)
 }
 
