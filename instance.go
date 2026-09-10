@@ -124,6 +124,7 @@ func (i *Instance) Start(ctx context.Context) error {
 }
 
 func (i *Instance) bootstrap() error {
+	i.Config.Logger.Debug("Node started bootstrapping")
 	latestValidatorSet, err := getLatestPlatformChainValidatorSet(i.Config.PlatformChain)
 	if err != nil {
 		return err
@@ -137,12 +138,14 @@ func (i *Instance) bootstrap() error {
 	// We have indexed the latest validator set, therefore we can skip bootstrapping and start as a validator.
 	// Note: this may not be the latest epoch, but a future PR will eventually notice we are behind and transition properly.
 	if latestIndexedEpochValidators.Equal(latestValidatorSet.Nodes()) && latestValidatorSet.Nodes().Contains(i.Config.ID) {
+		i.Config.Logger.Debug("Node finished bootstrapping, its latest epoch is up to date with the Platform Chain")
 		return i.startValidator(latestIndexedEpochValidators)
 	}
 
 	// Start as non-validator if our last indexed validator set does not equal, the latest p-chain validator set
 	// Note: the epoch may be transitioning, so the latest p-chain validator set actually points to a future epoch.
 	// The non-validator should finish bootstrapping and convert our non-validator to a validator in this case.
+	i.Config.Logger.Debug("Node starting bootstrapping as a non-validator")
 	return i.startNonValidator(false)
 }
 
