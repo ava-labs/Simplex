@@ -113,19 +113,40 @@ func (i *Instance) Start(ctx context.Context) error {
 
 	context.AfterFunc(ctx, i.Stop)
 
-	nodes, epochNum, err := getLastAcceptedEpochAndValidatorSet(&i.Config)
-	if err != nil {
-		return fmt.Errorf("error determining latest epoch and validator set: %w", err)
-	}
-
-	if err := i.startAtEpoch(nodes); err != nil {
-		return fmt.Errorf("error starting instance at epoch %d: %w", epochNum, err)
+	if err := i.bootstrap(); err != nil {
+		return err
 	}
 
 	go i.tick()
 	go i.listenForEpochChanges()
 
 	return nil
+}
+
+func (i *Instance) bootstrap() error {
+	i.Config.Logger.Debug("Node started bootstrapping")
+	latestValidatorSet, err := getLatestPlatformChainValidatorSet(i.Config.PlatformChain)
+	if err != nil {
+		return err
+	}
+
+	latestIndexedEpochValidators, err := getLastAcceptedValidatorSet(&i.Config)
+	if err != nil {
+		return err
+	}
+
+	// We have indexed the latest validator set, therefore we can skip bootstrapping and start as a validator.
+	// Note: this may not be the latest epoch, but a future PR will eventually notice we are behind and transition properly.
+	if latestIndexedEpochValidators.Equal(latestValidatorSet.Nodes()) && latestValidatorSet.Nodes().Contains(i.Config.ID) {
+		i.Config.Logger.Debug("Node finished bootstrapping, its latest epoch is up to date with the Platform Chain")
+		return i.startValidator(latestIndexedEpochValidators)
+	}
+
+	// Start as non-validator if our last indexed validator set does not equal, the latest p-chain validator set
+	// Note: the epoch may be transitioning, so the latest p-chain validator set actually points to a future epoch.
+	// The non-validator should finish bootstrapping and convert our non-validator to a validator in this case.
+	i.Config.Logger.Debug("Node starting bootstrapping as a non-validator")
+	return i.startNonValidator(false)
 }
 
 func (i *Instance) startValidator(validators common.Nodes) error {
@@ -146,8 +167,10 @@ func (i *Instance) startValidator(validators common.Nodes) error {
 	return epoch.Start()
 }
 
-func (i *Instance) startNonValidator() error {
-	config, err := i.createNonValidatorConfig()
+// startNonValidator runs a non-validator. bootstrapped is true when we already hold the
+// newest sealing block, such as when a validator leaves the validator set.
+func (i *Instance) startNonValidator(bootstrapped bool) error {
+	config, err := i.createNonValidatorConfig(bootstrapped)
 	if err != nil {
 		return err
 	}
@@ -162,19 +185,18 @@ func (i *Instance) startNonValidator() error {
 	return nil
 }
 
-func (i *Instance) createNonValidatorConfig() (nonvalidator.Config, error) {
+func (i *Instance) createNonValidatorConfig(bootstrapped bool) (nonvalidator.Config, error) {
 	source, err := simplex.NewRandomSource()
 	if err != nil {
 		return nonvalidator.Config{}, err
 	}
 
-	height := i.Config.PlatformChain.GetCurrentHeight()
-	mappings, err := i.Config.PlatformChain.GetValidatorSet(height)
+	latestValidatorSet, err := getLatestPlatformChainValidatorSet(i.Config.PlatformChain)
 	if err != nil {
 		return nonvalidator.Config{}, err
 	}
 
-	comm := newCommunication(i.Config.Sender, i.Config.Broadcaster, mappings.Nodes())
+	comm := newCommunication(i.Config.Sender, i.Config.Broadcaster, latestValidatorSet.Nodes())
 
 	// Plant an artificial MSM. A non-validator never verifies the state machine transition,
 	// it only verifies the inner block (see common.OnlyVMVerifyOpt), so this MSM is only
@@ -203,6 +225,7 @@ func (i *Instance) createNonValidatorConfig() (nonvalidator.Config, error) {
 		SignatureAggregatorCreator: i.Config.CryptoOps.CreateSignatureAggregator,
 		MaxSequenceWindow:          simplex.DefaultMaxRoundWindow,
 		TransitionToValidator:      i.notifyEpochChange,
+		Bootstrapped:               bootstrapped,
 	}
 	return config, nil
 }
@@ -342,13 +365,15 @@ func (i *Instance) HandleMessage(msg *common.Message, from common.NodeID) error 
 			i.msm.HandleApproval(msg.EpochTransitionApproval, uint64(time.Now().UnixMilli()))
 			return nil
 		}
+
 		return i.e.HandleMessage(msg, from)
 	}
 
 	if i.nv != nil {
 		return i.nv.HandleMessage(msg, from)
 	}
-	return nil
+
+	return errors.New("we are not running as a validator or not validator")
 }
 
 func (i *Instance) wireReplicationResponse(msg *common.Message) error {
@@ -583,7 +608,7 @@ func (i *Instance) startAtEpoch(validators common.Nodes) error {
 		return i.startValidator(validators)
 	}
 
-	return i.startNonValidator()
+	return i.startNonValidator(true)
 }
 
 type epochConfig struct {

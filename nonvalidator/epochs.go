@@ -111,6 +111,8 @@ func (e epochs) removeOldEpochs(minEpochToKeep uint64) {
 	}
 }
 
+// canValidate returns true if `block` is valid sealing block in the chain. It can
+// be valid if `block` is a backwards pointer to any sealing block already validated (backwards hash chain validation).
 func (e epochs) canValidate(block common.Block) bool {
 	if block.SealingBlockInfo() == nil {
 		return false
@@ -135,9 +137,7 @@ func (e epochs) canValidate(block common.Block) bool {
 
 // latestValidatorSetRetriever is an allows the epoch replicator to get the latest validator set.
 // This is used to calculate the threshold of votes needed to validate an epoch.
-type latestValidatorSetRetriever interface {
-	Validators() common.Nodes
-}
+type latestValidatorSetRetriever func() common.Nodes
 
 // epochDigestCounter counts sealing block responses from validators for each epoch.
 // It uses latestValidatorSetRetriever to determine when the required response threshold
@@ -170,7 +170,7 @@ func (e *epochDigestCounter) collectedSealingBlockInfo(sealingBlockInfo *common.
 		return false
 	}
 
-	validators := e.latestValidatorSetRetriever.Validators()
+	validators := e.latestValidatorSetRetriever()
 
 	if !validators.Contains(from) {
 		e.logger.Debug("Received a quorum round from a node that is not a validator", zap.Stringer("from", from))
@@ -179,7 +179,7 @@ func (e *epochDigestCounter) collectedSealingBlockInfo(sealingBlockInfo *common.
 
 	e.logger.Debug("Collected a sealing block", zap.Stringer("QR", sealingBlockInfo), zap.Stringer("From", from))
 
-	threshold := common.F(len(e.latestValidatorSetRetriever.Validators())) + 1
+	threshold := common.F(len(validators)) + 1
 	newEpoch := bh.Seq
 	epochResponses, ok := e.sealingBlockResponses[newEpoch]
 	digest := bh.Digest
