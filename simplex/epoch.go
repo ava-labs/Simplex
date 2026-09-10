@@ -2123,7 +2123,16 @@ func (e *Epoch) processFinalizedBlock(block common.Block, finalization *common.F
 
 	// Create a task that will verify the block in the future, after its predecessors have also been verified.
 	task := e.createFinalizedBlockVerificationTask(e.oneTimeVerifier.Wrap(block), finalization)
-	return e.blockVerificationScheduler.ScheduleTaskWithDependencies(task, block.BlockHeader().Seq, blockDependency, []uint64{})
+	err := e.blockVerificationScheduler.ScheduleTaskWithDependencies(task, block.BlockHeader().Seq, blockDependency, []uint64{})
+	if errors.Is(err, common.ErrTooManyPendingVerifications) {
+		// The sequence was already removed from the replication state, so re-request it.
+		// This shouldn't happen since processing a finalized block means its the next sequence to commit
+		// so we should be able to schedule it.
+		e.Logger.Warn("Verification queue is full, re-requesting finalized block", zap.Uint64("seq", block.BlockHeader().Seq))
+		e.replicationState.ResendFinalizationRequest(block.BlockHeader().Seq, finalization.QC.Signers())
+		return nil
+	}
+	return err
 }
 
 // processNotarizedBlock processes a block that has a notarization.
@@ -2179,9 +2188,18 @@ func (e *Epoch) processNotarizedBlock(block common.Block, notarization *common.N
 	task := e.createNotarizedBlockVerificationTask(e.oneTimeVerifier.Wrap(block), *notarization)
 	blockDependency, missingRounds := e.blockDependencies(md)
 
-	e.replicationState.CreateDependencyTasks(blockDependency, md.Seq-1, missingRounds)
+	err := e.blockVerificationScheduler.ScheduleTaskWithDependencies(task, md.Seq, blockDependency, missingRounds)
+	if errors.Is(err, common.ErrTooManyPendingVerifications) {
+		e.Logger.Debug("Verification queue is full, re-requesting notarized block", zap.Uint64("round", md.Round))
+		e.replicationState.ResendRoundRequest(md.Round, notarization.QC.Signers())
+		return nil
+	}
+	if err != nil {
+		return err
+	}
 
-	return e.blockVerificationScheduler.ScheduleTaskWithDependencies(task, md.Seq, blockDependency, missingRounds)
+	e.replicationState.CreateDependencyTasks(blockDependency, md.Seq-1, missingRounds)
+	return nil
 }
 
 func (e *Epoch) createBlockVerificationTask(block common.Block, from common.NodeID, vote common.Vote) func() common.Digest {

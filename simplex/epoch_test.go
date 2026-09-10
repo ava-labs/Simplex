@@ -807,6 +807,48 @@ func TestEpochLeaderEquivocationDoesNotFloodBlockVerification(t *testing.T) {
 		"a leader must not get more than one proposal verified for the same round")
 }
 
+// TestReplicationRerequestsRoundWhenVerificationQueueIsFull asserts that a replicated notarized block whose
+// verification cannot be scheduled is re-requested rather than dropped, mirroring the finalized case.
+func TestReplicationRerequestsRoundWhenVerificationQueueIsFull(t *testing.T) {
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	comm := &recordingComm{Communication: testutil.NewNoopComm(nodes), SentMessages: make(chan *Message, 100)}
+	conf, _, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[2], comm, testutil.NewTestBlockBuilder())
+	conf.ReplicationEnabled = true
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+
+	// Hold the verification of the notarized block so every redelivery queues another task behind it.
+	blocks := createBlocks(t, nodes, 1)
+	block := blocks[0].VerifiedBlock.(*testutil.TestBlock)
+	gate := make(chan struct{})
+	openGate := sync.OnceFunc(func() { close(gate) })
+	t.Cleanup(openGate)
+	block.VerificationDelay = gate
+	notarization, err := testutil.NewNotarization(conf.Logger, &testutil.TestSignatureAggregator{N: len(nodes)}, block, nodes)
+	require.NoError(t, err)
+	notarizedRound := &Message{ReplicationResponse: &ReplicationResponse{
+		Data: []QuorumRound{{Block: block, Notarization: &notarization}},
+	}}
+
+	// Redeliver until the queue is full and the node re-requests the round instead of scheduling it.
+	for i := 0; len(comm.SentMessages) == 0; i++ {
+		require.Less(t, i, DefaultProcessingBlocks+2)
+		require.NoError(t, e.HandleMessage(notarizedRound, nodes[0]))
+	}
+	request := (<-comm.SentMessages).ReplicationRequest
+	require.NotNil(t, request)
+	require.Contains(t, request.Rounds, uint64(0))
+
+	// Once the queue drains the node advances past the notarized round and still commits it.
+	openGate()
+	require.Eventually(t, func() bool { return e.Metadata().Round == 1 }, 5*time.Second, 10*time.Millisecond)
+	require.NoError(t, e.HandleMessage(replicateSeq(blocks[0]), nodes[0]))
+	storage.WaitForBlockCommit(0)
+}
+
 // TestEpochIncreasesRoundAfterFinalization ensures that the epochs round is incremented
 // if we receive a finalization for the current round(even if it is not the next seq to commit)
 func TestEpochIncreasesRoundAfterFinalization(t *testing.T) {
