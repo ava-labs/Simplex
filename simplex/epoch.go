@@ -1933,7 +1933,7 @@ func (e *Epoch) handleBlockMessage(message *common.BlockMessage, from common.Nod
 	}
 
 	// Check if we have verified this message in the past:
-	if err := e.VerifyBlockMessageVote(from, md, vote); err != nil {
+	if err := e.verifyBlockMessageVote(from, md, vote); err != nil {
 		return nil
 	}
 
@@ -2405,18 +2405,8 @@ func (e *Epoch) createNotarizedBlockVerificationTask(block common.Block, notariz
 	}
 }
 
-// VerifyBlockMessageVote checks if we have the block in the future messages map.
-// If so, it means we have already verified the vote associated with this proposal.
-// If not, it verifies that the vote corresponds to the block proposed, and that the vote is properly signed.
-func (e *Epoch) VerifyBlockMessageVote(from common.NodeID, md common.BlockHeader, vote common.Vote) error {
-	msgsForRound, exists := e.futureMessages[string(from)][md.Round]
-	if exists && msgsForRound.proposal != nil {
-		bh := msgsForRound.proposal.Block.BlockHeader()
-		if bh.Equals(&md) {
-			return nil
-		}
-	}
-
+// verifyBlockMessageVote verifies that the vote corresponds to the block proposed, and that the vote is properly signed.
+func (e *Epoch) verifyBlockMessageVote(from common.NodeID, md common.BlockHeader, vote common.Vote) error {
 	pk, exists := e.validatorsToPKs[string(vote.Signature.Signer)]
 	if !exists {
 		e.Logger.Debug("Received a finalization from an unknown node", zap.Stringer("NodeID", from))
