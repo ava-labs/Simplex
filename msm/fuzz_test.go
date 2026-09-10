@@ -40,8 +40,8 @@ var authoritativeFields = []authoritativeField{
 	{"SimplexEpochInfo.PChainReferenceHeight", func(m *StateMachineMetadata, v uint64) {
 		m.SimplexEpochInfo.PChainReferenceHeight = v
 	}},
-	{"SimplexEpochInfo.EpochNumber", func(m *StateMachineMetadata, v uint64) {
-		m.SimplexEpochInfo.EpochNumber = v
+	{"SimplexProtocolMetadata.Epoch", func(m *StateMachineMetadata, v uint64) {
+		m.SimplexProtocolMetadata.Epoch = v
 	}},
 	{"SimplexEpochInfo.PrevVMBlockSeq", func(m *StateMachineMetadata, v uint64) {
 		m.SimplexEpochInfo.PrevVMBlockSeq = v
@@ -276,7 +276,7 @@ func buildEpochChain(tb testing.TB, logger common.Logger) ([]*StateMachineBlock,
 	currentTime = startTime.Add(time.Second + 6*time.Millisecond)
 	tc.blockBuilder.Block = nextInner(6)
 	block6 := build(6, 5, 1, block5)
-	require.Equal(tb, stateBuildBlockEpochSealed, block6.Metadata.SimplexEpochInfo.NextState())
+	require.Equal(tb, stateBuildBlockEpochSealed, block6.Metadata.NextState())
 	// Finalize the sealing block so the epoch transition can proceed.
 	addBlock(6, block6, &common.Finalization{})
 

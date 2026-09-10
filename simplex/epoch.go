@@ -82,7 +82,6 @@ type EpochConfig struct {
 	Storage                    common.Storage
 	WAL                        common.WriteAheadLog
 	BlockBuilder               common.BlockBuilder
-	Epoch                      uint64
 	StartTime                  time.Time
 	ReplicationEnabled         bool
 	RandomSource               *rand.Rand
@@ -90,6 +89,8 @@ type EpochConfig struct {
 
 type Epoch struct {
 	EpochConfig
+
+	Epoch uint64
 	// Runtime
 	blockBuilder                   common.BlockBuilder
 	epochSealed                    atomic.Bool
@@ -699,8 +700,23 @@ func (e *Epoch) setMetadataFromStorage() error {
 		return nil
 	}
 
-	e.round = e.lastBlock.VerifiedBlock.BlockHeader().Round + 1
-	e.Epoch = e.lastBlock.VerifiedBlock.BlockHeader().Epoch
+	bh := e.lastBlock.VerifiedBlock.BlockHeader()
+	e.round = bh.Round + 1
+
+	// The last block we indexed was a sealing block, therefore the epoch number is that blocks sequence
+	if e.lastBlock.VerifiedBlock.SealingBlockInfo() != nil {
+		e.Epoch = bh.Seq
+		return nil
+	}
+
+	// An indexed block without a finalization predates Simplex, so no Simplex block has
+	// been indexed and the first Simplex epoch is the sequence the first one will occupy.
+	if e.lastBlock.Finalization.QC == nil {
+		e.Epoch = e.Storage.NumBlocks()
+		return nil
+	}
+
+	e.Epoch = bh.Epoch
 	return nil
 }
 

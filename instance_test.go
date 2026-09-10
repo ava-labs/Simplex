@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ava-labs/simplex/avalanchego"
 	"github.com/ava-labs/simplex/common"
 	metadata "github.com/ava-labs/simplex/msm"
 	"github.com/ava-labs/simplex/simplex"
@@ -499,4 +500,42 @@ func TestValidatorRequestsGenesis(t *testing.T) {
 	}
 
 	require.NoError(t, validator.inst.HandleMessage(msg, nonValidatorID.NodeID[:]))
+}
+
+func TestValidatorSetsMetadataFromSnowman(t *testing.T) {
+	validatorID := newNodeMapping(1)
+	numNonSimplexBlocks := uint64(10)
+	genesisSet := []metadata.NodeBLSMapping{validatorID}
+
+	pChain := newTestPChain(genesisSet)
+	network := newNetwork(t, pChain)
+	network.seq = numNonSimplexBlocks
+	storage := newTestStorage()
+
+	var lastBlock avalanchego.VMBlock
+	for i := range numNonSimplexBlocks {
+		md := common.ProtocolMetadata{
+			Epoch: 0, // non-simplex don't have an epoch
+			Round: 0, // non-simplex blocks don't have rounds
+			Seq:   uint64(i),
+		}
+		innerBlock := &testInnerBlock{Height_: uint64(i), TS: time.Now(), Payload: []byte{byte(i)}}
+		pb := &ParsedBlock{StateMachineBlock: metadata.StateMachineBlock{InnerBlock: innerBlock, Metadata: metadata.StateMachineMetadata{
+			SimplexProtocolMetadata: md,
+		}}}
+		require.NoError(t, storage.Index(t.Context(), pb, common.Finalization{}))
+		lastBlock = innerBlock
+	}
+
+	config := nodeConfig{
+		storage:             storage,
+		lastNonSimplexBlock: lastBlock,
+	}
+
+	network.addNodeWithConfig(validatorID.NodeID[:], config).sync()
+
+	block, _ := network.acceptNewBlock()
+	require.Equal(t, numNonSimplexBlocks, block.BlockHeader().Epoch)
+	require.Equal(t, uint64(1), block.BlockHeader().Round)
+	require.Equal(t, numNonSimplexBlocks, block.BlockHeader().Seq)
 }

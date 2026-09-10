@@ -83,7 +83,7 @@ func (ei *ICMEpochInfo) Equal(other *ICMEpochInfo) bool {
 		return other == nil
 	}
 	if other == nil {
-		return ei == nil
+		return false
 	}
 	return ei.EpochStartTime == other.EpochStartTime && ei.EpochNumber == other.EpochNumber && ei.PChainEpochHeight == other.PChainEpochHeight
 }
@@ -93,34 +93,30 @@ type SimplexEpochInfo struct {
 	// PChainReferenceHeight is the P-Chain height that the StateMachine uses as a reference for the current epoch.
 	// The validator set is determined based on the validators on the P-Chain at the PChainReferenceHeight.
 	PChainReferenceHeight uint64 `canoto:"uint,1"`
-	// EpochNumber is the current epoch number.
-	// The first epoch is numbered 1, and each successive epoch is numbered according to the block sequence
-	// of the sealing block of the previous epoch.
-	EpochNumber uint64 `canoto:"uint,2"`
 	// PrevSealingBlockHash is the hash of the sealing block of the previous epoch.
 	// It is set to the hash of the zero block in the first epoch, and in subsequent epochs it is set to be
 	// the hash of the sealing block of the previous epoch.
 	// This is used to be able to quickly fetch and verify the sealing blocks without having to retrieve the interleaving blocks,
 	// which allows to bootstrap the BLS keys of the validator set for each epoch before fully syncing the interleaving blocks.
-	PrevSealingBlockHash [32]byte `canoto:"fixed bytes,3"`
+	PrevSealingBlockHash [32]byte `canoto:"fixed bytes,2"`
 	// NextPChainReferenceHeight is the P-Chain height that the StateMachine uses as a reference for the next epoch.
 	// When the NextPChainReferenceHeight is > 0, it means the StateMachine is on its way to transition to a new epoch
 	// in which the validator set will be based on the given P-chain height.
 	// It sets the PChainReferenceHeight for the next epoch.
-	NextPChainReferenceHeight uint64 `canoto:"uint,4"`
+	NextPChainReferenceHeight uint64 `canoto:"uint,3"`
 	// PrevVMBlockSeq is the block sequence of the previous block that has a VM block (inner block).
 	// This is used to know on which VM block to build the next block.
-	PrevVMBlockSeq uint64 `canoto:"uint,5"`
+	PrevVMBlockSeq uint64 `canoto:"uint,4"`
 	// BlockValidationDescriptor is the metadata that describes the validator set of the next epoch.
 	// It is only set in the sealing block and zero block, and nil in all other blocks.
-	BlockValidationDescriptor *BlockValidationDescriptor `canoto:"pointer,6"`
+	BlockValidationDescriptor *BlockValidationDescriptor `canoto:"pointer,5"`
 	// NextEpochApprovals is the metadata that contains the approvals from validators for the next epoch.
 	// It is set only in the sealing block and the blocks preceding it starting from a block that has a NextPChainReferenceHeight set.
-	NextEpochApprovals *NextEpochApprovals `canoto:"pointer,7"`
+	NextEpochApprovals *NextEpochApprovals `canoto:"pointer,6"`
 	// SealingBlockSeq is the block sequence of the sealing block of the current epoch.
 	// It defines the validator set of the next epoch.
 	// It is set once the first Telock is built and is copied over to subsequent Telocks.
-	SealingBlockSeq uint64 `canoto:"uint,8"`
+	SealingBlockSeq uint64 `canoto:"uint,7"`
 
 	canotoData canotoData_SimplexEpochInfo
 }
@@ -130,7 +126,6 @@ type SimplexEpochInfo struct {
 func (sei *SimplexEpochInfo) Clone() SimplexEpochInfo {
 	return SimplexEpochInfo{
 		PChainReferenceHeight:     sei.PChainReferenceHeight,
-		EpochNumber:               sei.EpochNumber,
 		PrevSealingBlockHash:      sei.PrevSealingBlockHash,
 		NextPChainReferenceHeight: sei.NextPChainReferenceHeight,
 		PrevVMBlockSeq:            sei.PrevVMBlockSeq,
@@ -165,7 +160,7 @@ func (sei *SimplexEpochInfo) Equal(other *SimplexEpochInfo) bool {
 		return false
 	}
 
-	if sei.PChainReferenceHeight != other.PChainReferenceHeight || sei.EpochNumber != other.EpochNumber ||
+	if sei.PChainReferenceHeight != other.PChainReferenceHeight ||
 		sei.NextPChainReferenceHeight != other.NextPChainReferenceHeight ||
 		sei.PrevVMBlockSeq != other.PrevVMBlockSeq || sei.SealingBlockSeq != other.SealingBlockSeq {
 		return false
@@ -183,10 +178,12 @@ func (sei *SimplexEpochInfo) Equal(other *SimplexEpochInfo) bool {
 }
 
 // NextState returns the state used to build (or verify) the block that follows the one
-// described by the SimplexEpochInfo.
-func (sei *SimplexEpochInfo) NextState() state {
+// described by the metadata.
+func (smm *StateMachineMetadata) NextState() state {
+	sei := &smm.SimplexEpochInfo
+
 	// No Simplex epoch has started yet: the next block is the first one built by Simplex.
-	if sei.EpochNumber == 0 {
+	if smm.SimplexProtocolMetadata.Epoch == 0 {
 		return stateFirstSimplexBlock
 	}
 

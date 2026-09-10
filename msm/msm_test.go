@@ -74,9 +74,9 @@ func TestMSMBuildAndVerifyBlocksAfterGenesis(t *testing.T) {
 			name: "wrong epoch number",
 			md:   validMD,
 			mutateBlock: func(block *StateMachineBlock) {
-				block.Metadata.SimplexEpochInfo.EpochNumber = 2
+				block.Metadata.SimplexProtocolMetadata.Epoch = 2
 			},
-			err: errBlockDigestMismatch,
+			err: errInvalidProtocolMetadataEpoch,
 		},
 		{
 			name: "P-chain height too big",
@@ -202,7 +202,6 @@ func TestMSMFirstSimplexBlockAfterPreSimplexBlocks(t *testing.T) {
 			SimplexProtocolMetadata: md,
 			SimplexEpochInfo: SimplexEpochInfo{
 				PChainReferenceHeight: 100,
-				EpochNumber:           43,
 				PrevVMBlockSeq:        42,
 				BlockValidationDescriptor: &BlockValidationDescriptor{
 					AggregatedMembership: AggregatedMembership{
@@ -290,7 +289,7 @@ func TestMSMNormalOp(t *testing.T) {
 		{
 			name: "wrong epoch number",
 			mutateBlock: func(block *StateMachineBlock) {
-				block.Metadata.SimplexEpochInfo.EpochNumber = 2
+				block.Metadata.SimplexProtocolMetadata.Epoch = 2
 			},
 			err: errInvalidProtocolMetadataEpoch,
 		},
@@ -435,7 +434,6 @@ func TestMSMNormalOp(t *testing.T) {
 					SimplexProtocolMetadata: md,
 					SimplexEpochInfo: SimplexEpochInfo{
 						PChainReferenceHeight:     100,
-						EpochNumber:               lastBlock.Metadata.SimplexEpochInfo.EpochNumber,
 						PrevVMBlockSeq:            lastBlock.InnerBlock.Height(),
 						NextPChainReferenceHeight: testCase.expectedNextPChainRefHeight,
 					},
@@ -653,7 +651,6 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 					SimplexProtocolMetadata: md,
 					SimplexEpochInfo: SimplexEpochInfo{
 						PChainReferenceHeight: pChainHeight1,
-						EpochNumber:           testCase.epochNum,
 						PrevVMBlockSeq:        baseSeq,
 						BlockValidationDescriptor: &BlockValidationDescriptor{
 							AggregatedMembership: AggregatedMembership{
@@ -688,7 +685,6 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 					SimplexProtocolMetadata: md,
 					SimplexEpochInfo: SimplexEpochInfo{
 						PChainReferenceHeight: pChainHeight1,
-						EpochNumber:           testCase.epochNum,
 						PrevVMBlockSeq:        baseSeq,
 					},
 					ICMEpochInfo: icmEpoch1,
@@ -718,7 +714,6 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 					SimplexProtocolMetadata: md,
 					SimplexEpochInfo: SimplexEpochInfo{
 						PChainReferenceHeight:     pChainHeight1,
-						EpochNumber:               testCase.epochNum,
 						PrevVMBlockSeq:            baseSeq + 2,
 						NextPChainReferenceHeight: pChainHeight2,
 					},
@@ -757,7 +752,6 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 					SimplexProtocolMetadata: md,
 					SimplexEpochInfo: SimplexEpochInfo{
 						PChainReferenceHeight:     pChainHeight1,
-						EpochNumber:               testCase.epochNum,
 						PrevVMBlockSeq:            baseSeq + 3,
 						NextPChainReferenceHeight: pChainHeight2,
 						NextEpochApprovals: &NextEpochApprovals{
@@ -799,7 +793,6 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 					SimplexProtocolMetadata: md,
 					SimplexEpochInfo: SimplexEpochInfo{
 						PChainReferenceHeight:     pChainHeight1,
-						EpochNumber:               testCase.epochNum,
 						PrevVMBlockSeq:            baseSeq + 4,
 						NextPChainReferenceHeight: pChainHeight2,
 						NextEpochApprovals: &NextEpochApprovals{
@@ -841,7 +834,6 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 					SimplexProtocolMetadata: md,
 					SimplexEpochInfo: SimplexEpochInfo{
 						PChainReferenceHeight:     pChainHeight1,
-						EpochNumber:               testCase.epochNum,
 						PrevVMBlockSeq:            baseSeq + 5,
 						NextPChainReferenceHeight: pChainHeight2,
 						SealingBlockSeq:           0,
@@ -914,7 +906,6 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 								SimplexProtocolMetadata: md,
 								SimplexEpochInfo: SimplexEpochInfo{
 									PChainReferenceHeight:     pChainHeight1,
-									EpochNumber:               testCase.epochNum,
 									NextPChainReferenceHeight: pChainHeight2,
 									PrevVMBlockSeq:            baseSeq + 6,
 									SealingBlockSeq:           sealingSeq,
@@ -929,9 +920,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 
 					// ----- Step 7: Build a new epoch block (sealing block is finalized) -----
 
-					// The first block of the new epoch carries the new EpochNumber
-					// (= sealing block's sequence) in both SimplexEpochInfo.EpochNumber
-					// and the protocol metadata's Epoch field.
+					// The first block of the new epoch is numbered after the sealing block's sequence.
 					md.Epoch = sealingSeq
 
 					currentTime = startTime.Add(time.Second + 7*time.Millisecond)
@@ -945,7 +934,6 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 							SimplexProtocolMetadata: md,
 							SimplexEpochInfo: SimplexEpochInfo{
 								PChainReferenceHeight: pChainHeight2,
-								EpochNumber:           sealingSeq,
 								PrevVMBlockSeq:        baseSeq + 6,
 							},
 							ICMEpochInfo: icmEpoch2,
@@ -964,38 +952,46 @@ func TestIdentifyCurrentState(t *testing.T) {
 	bvd := &BlockValidationDescriptor{}
 	for _, tc := range []struct {
 		name     string
+		epoch    uint64
 		input    SimplexEpochInfo
 		expected state
 	}{
 		{
 			name:     "epoch 0 is first simplex block",
-			input:    SimplexEpochInfo{EpochNumber: 0},
+			epoch:    0,
 			expected: stateFirstSimplexBlock,
 		},
 		{
 			name:     "no next p-chain ref height means normal op",
-			input:    SimplexEpochInfo{EpochNumber: 1, NextPChainReferenceHeight: 0},
+			epoch:    1,
+			input:    SimplexEpochInfo{NextPChainReferenceHeight: 0},
 			expected: stateBuildBlockNormalOp,
 		},
 		{
 			name:     "has sealing block seq means epoch sealed",
-			input:    SimplexEpochInfo{EpochNumber: 1, NextPChainReferenceHeight: 100, SealingBlockSeq: 5},
+			epoch:    1,
+			input:    SimplexEpochInfo{NextPChainReferenceHeight: 100, SealingBlockSeq: 5},
 			expected: stateBuildBlockEpochSealed,
 		},
 		{
 			name:     "has block validation descriptor means epoch sealed",
-			input:    SimplexEpochInfo{EpochNumber: 1, NextPChainReferenceHeight: 100, BlockValidationDescriptor: bvd},
+			epoch:    1,
+			input:    SimplexEpochInfo{NextPChainReferenceHeight: 100, BlockValidationDescriptor: bvd},
 			expected: stateBuildBlockEpochSealed,
 		},
 		{
 			name:     "next p-chain ref height > 0 without sealing means collecting approvals",
-			input:    SimplexEpochInfo{EpochNumber: 1, NextPChainReferenceHeight: 100},
+			epoch:    1,
+			input:    SimplexEpochInfo{NextPChainReferenceHeight: 100},
 			expected: stateBuildCollectingApprovals,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			result := tc.input.NextState()
-			require.Equal(t, tc.expected, result)
+			md := StateMachineMetadata{
+				SimplexProtocolMetadata: common.ProtocolMetadata{Epoch: tc.epoch},
+				SimplexEpochInfo:        tc.input,
+			}
+			require.Equal(t, tc.expected, md.NextState())
 		})
 	}
 }
@@ -1057,9 +1053,9 @@ func TestVerifyNextPChainRefHeightNormal(t *testing.T) {
 	setB := NodeBLSMappings{{BLSKey: []byte{2}, Weight: 1}}
 
 	prevMD := StateMachineMetadata{
+		SimplexProtocolMetadata: common.ProtocolMetadata{Epoch: sealingBlockSeq},
 		SimplexEpochInfo: SimplexEpochInfo{
 			PChainReferenceHeight: prevPChainRefHeight,
-			EpochNumber:           sealingBlockSeq,
 		},
 	}
 
@@ -1071,7 +1067,7 @@ func TestVerifyNextPChainRefHeightNormal(t *testing.T) {
 	}
 
 	// The current validator set is now read from the parent epoch's sealing block, stored at
-	// the parent's EpochNumber. It must carry a validator descriptor and be finalized.
+	// the parent's epoch. It must carry a validator descriptor and be finalized.
 	currentEpochSealingBlock := func(finalized bool) *outerBlock {
 		ob := &outerBlock{block: StateMachineBlock{Metadata: StateMachineMetadata{
 			SimplexEpochInfo: SimplexEpochInfo{
@@ -1550,7 +1546,6 @@ func TestBuildBlockCollectingApprovalsDedupsOwnApprovalAcrossRounds(t *testing.T
 			},
 			SimplexEpochInfo: SimplexEpochInfo{
 				PChainReferenceHeight:     100,
-				EpochNumber:               1,
 				NextPChainReferenceHeight: 200,
 				PrevVMBlockSeq:            parentSeq - 1,
 			},
@@ -1622,14 +1617,13 @@ func TestVerifyCollectingApprovalsNotReady(t *testing.T) {
 				},
 				SimplexEpochInfo: SimplexEpochInfo{
 					PChainReferenceHeight:     pChainRefHeight,
-					EpochNumber:               1,
 					NextPChainReferenceHeight: nextPChainRefHeight,
 					PrevVMBlockSeq:            parentSeq - 1,
 				},
 			},
 		}
 		tc.blockStore[parentSeq] = &outerBlock{block: parent}
-		require.Equal(t, stateBuildCollectingApprovals, parent.Metadata.SimplexEpochInfo.NextState())
+		require.Equal(t, stateBuildCollectingApprovals, parent.Metadata.NextState())
 		return sm, tc, parent
 	}
 
@@ -1727,7 +1721,6 @@ func TestCollectingApprovalsAuxInfoGating(t *testing.T) {
 			},
 			SimplexEpochInfo: SimplexEpochInfo{
 				PChainReferenceHeight:     pChainRefHeight,
-				EpochNumber:               1,
 				NextPChainReferenceHeight: nextPChainRefHeight,
 				PrevVMBlockSeq:            parentSeq - 1,
 			},
@@ -1842,7 +1835,6 @@ func TestVerifyCollectingApprovalsRejectsIllegalAuxInfoBatch(t *testing.T) {
 			},
 			SimplexEpochInfo: SimplexEpochInfo{
 				PChainReferenceHeight:     pChainRefHeight,
-				EpochNumber:               1,
 				NextPChainReferenceHeight: nextPChainRefHeight,
 				PrevVMBlockSeq:            parentSeq - 1,
 			},
@@ -1925,7 +1917,6 @@ func TestCollectingApprovalsAuxInfoVersionIDIsBackwardCompatible(t *testing.T) {
 			},
 			SimplexEpochInfo: SimplexEpochInfo{
 				PChainReferenceHeight:     pChainRefHeight,
-				EpochNumber:               1,
 				NextPChainReferenceHeight: nextPChainRefHeight,
 				PrevVMBlockSeq:            parentSeq - 1,
 			},
@@ -2006,7 +1997,6 @@ func TestCollectingApprovalsIncludesMultipleAuxInfoMessages(t *testing.T) {
 			},
 			SimplexEpochInfo: SimplexEpochInfo{
 				PChainReferenceHeight:     pChainRefHeight,
-				EpochNumber:               1,
 				NextPChainReferenceHeight: nextPChainRefHeight,
 				PrevVMBlockSeq:            parentSeq - 1,
 			},
@@ -2082,15 +2072,19 @@ func TestMSMWaitForPendingBlock(t *testing.T) {
 	defaultSet := NodeBLSMappings{{BLSKey: []byte{1}, Weight: 1}, {BLSKey: []byte{2}, Weight: 1}}
 
 	var (
-		normal     = SimplexEpochInfo{EpochNumber: 1, PChainReferenceHeight: 100}
-		collecting = SimplexEpochInfo{EpochNumber: 1, PChainReferenceHeight: 100, NextPChainReferenceHeight: 200}
-		telock     = SimplexEpochInfo{EpochNumber: 1, PChainReferenceHeight: 100, NextPChainReferenceHeight: 200, SealingBlockSeq: 5}
-		sealing    = SimplexEpochInfo{EpochNumber: 1, PChainReferenceHeight: 100, NextPChainReferenceHeight: 200,
+		normal     = SimplexEpochInfo{PChainReferenceHeight: 100}
+		collecting = SimplexEpochInfo{PChainReferenceHeight: 100, NextPChainReferenceHeight: 200}
+		telock     = SimplexEpochInfo{PChainReferenceHeight: 100, NextPChainReferenceHeight: 200, SealingBlockSeq: 5}
+		sealing    = SimplexEpochInfo{PChainReferenceHeight: 100, NextPChainReferenceHeight: 200,
 			BlockValidationDescriptor: &BlockValidationDescriptor{AggregatedMembership: AggregatedMembership{Members: defaultSet}}, PrevSealingBlockHash: [32]byte{0xaa}}
 	)
 
+	// Every parent below belongs to epoch 1.
 	block := func(sei SimplexEpochInfo, finalized bool) *outerBlock {
-		ob := &outerBlock{block: StateMachineBlock{Metadata: StateMachineMetadata{SimplexEpochInfo: sei}}}
+		ob := &outerBlock{block: StateMachineBlock{Metadata: StateMachineMetadata{
+			SimplexProtocolMetadata: common.ProtocolMetadata{Epoch: 1},
+			SimplexEpochInfo:        sei,
+		}}}
 		if finalized {
 			ob.finalization = &common.Finalization{}
 		}
@@ -2101,10 +2095,12 @@ func TestMSMWaitForPendingBlock(t *testing.T) {
 	zeroBlock := func(set NodeBLSMappings) *outerBlock {
 		return &outerBlock{
 			finalization: &common.Finalization{},
-			block: StateMachineBlock{Metadata: StateMachineMetadata{SimplexEpochInfo: SimplexEpochInfo{
-				EpochNumber:               1,
-				BlockValidationDescriptor: &BlockValidationDescriptor{AggregatedMembership: AggregatedMembership{Members: set}},
-			}}},
+			block: StateMachineBlock{Metadata: StateMachineMetadata{
+				SimplexProtocolMetadata: common.ProtocolMetadata{Epoch: 1},
+				SimplexEpochInfo: SimplexEpochInfo{
+					BlockValidationDescriptor: &BlockValidationDescriptor{AggregatedMembership: AggregatedMembership{Members: set}},
+				},
+			}},
 		}
 	}
 
@@ -2209,7 +2205,7 @@ func TestMSMWaitForPendingBlock(t *testing.T) {
 			// zero block (seq 1); the set at the latest P-chain height differs from it.
 			name:            "normal operation, validator set changed",
 			seq:             3,
-			blocks:          blockStore{1: zeroBlock(defaultSet), 2: block(SimplexEpochInfo{EpochNumber: 1, PChainReferenceHeight: 100}, false)},
+			blocks:          blockStore{1: zeroBlock(defaultSet), 2: block(SimplexEpochInfo{PChainReferenceHeight: 100}, false)},
 			pChainHeight:    200,
 			validatorSets:   map[uint64]NodeBLSMappings{200: {{BLSKey: []byte{9}, Weight: 1}}},
 			returnsOnItsOwn: true,
@@ -2393,7 +2389,7 @@ func TestGetCurrentValidatorSet(t *testing.T) {
 		return &outerBlock{
 			finalization: finalization,
 			block: StateMachineBlock{Metadata: StateMachineMetadata{
-				SimplexEpochInfo: SimplexEpochInfo{EpochNumber: 1, BlockValidationDescriptor: bvd},
+				SimplexEpochInfo: SimplexEpochInfo{BlockValidationDescriptor: bvd},
 			}},
 		}
 	}
@@ -2414,14 +2410,15 @@ func TestGetCurrentValidatorSet(t *testing.T) {
 		return &outerBlock{
 			finalization: finalized,
 			block: StateMachineBlock{Metadata: StateMachineMetadata{
-				SimplexProtocolMetadata: common.ProtocolMetadata{Seq: seq},
-				SimplexEpochInfo:        SimplexEpochInfo{EpochNumber: epoch},
+				SimplexProtocolMetadata: common.ProtocolMetadata{Seq: seq, Epoch: epoch},
 			}},
 		}
 	}
 
 	for _, testCase := range []struct {
 		name string
+		// epoch is the epoch of the block whose validator set is looked up.
+		epoch uint64
 		// parent is the epoch info of the block whose epoch's validator set is looked up.
 		parent SimplexEpochInfo
 		blocks blockStore
@@ -2434,68 +2431,71 @@ func TestGetCurrentValidatorSet(t *testing.T) {
 	}{
 		{
 			name:     "normal block in the first epoch reads the zero block",
-			parent:   SimplexEpochInfo{EpochNumber: 1},
+			epoch:    1,
 			blocks:   blockStore{1: zeroBlock(descriptor(validators), finalized)},
 			expected: validators,
 		},
 		{
 			name:     "the zero block is read even before it is finalized",
-			parent:   SimplexEpochInfo{EpochNumber: 1},
+			epoch:    1,
 			blocks:   blockStore{1: zeroBlock(descriptor(validators), nil)},
 			expected: validators,
 		},
 		{
 			name:     "normal block in a later epoch reads the finalized sealing block",
-			parent:   SimplexEpochInfo{EpochNumber: 10},
+			epoch:    10,
 			blocks:   blockStore{10: sealingBlock(10, descriptor(validators), finalized)},
 			expected: validators,
 		},
 		{
 			name:     "transitioning block reads the sealing block of its epoch",
-			parent:   SimplexEpochInfo{EpochNumber: 10, NextPChainReferenceHeight: 300},
+			epoch:    10,
+			parent:   SimplexEpochInfo{NextPChainReferenceHeight: 300},
 			blocks:   blockStore{10: sealingBlock(10, descriptor(validators), finalized)},
 			expected: validators,
 		},
 		{
 			name:        "sealing block that is not finalized is rejected",
-			parent:      SimplexEpochInfo{EpochNumber: 10},
+			epoch:       10,
 			blocks:      blockStore{10: sealingBlock(10, descriptor(validators), nil)},
 			expectedErr: "sealing block 10 is not finalized",
 		},
 		{
 			name:          "missing epoch block",
-			parent:        SimplexEpochInfo{EpochNumber: 10},
+			epoch:         10,
 			blocks:        blockStore{},
 			expectedErrIs: common.ErrBlockNotFound,
 		},
 		{
 			name:        "sealing block without validators",
-			parent:      SimplexEpochInfo{EpochNumber: 10},
+			epoch:       10,
 			blocks:      blockStore{10: sealingBlock(10, descriptor(nil), finalized)},
 			expectedErr: "block 10 has no validators",
 		},
 		{
 			name:        "epoch block that carries no descriptor",
-			parent:      SimplexEpochInfo{EpochNumber: 10},
+			epoch:       10,
 			blocks:      blockStore{10: normalBlock(10, 1)},
 			expectedErr: "block 10 has no validators",
 		},
 		{
 			name:        "sealing block as parent is rejected",
-			parent:      SimplexEpochInfo{EpochNumber: 1, PrevSealingBlockHash: [32]byte{1}, BlockValidationDescriptor: descriptor(validators)},
+			epoch:       1,
+			parent:      SimplexEpochInfo{PrevSealingBlockHash: [32]byte{1}, BlockValidationDescriptor: descriptor(validators)},
 			blocks:      blockStore{1: zeroBlock(descriptor(validators), finalized)},
 			expectedErr: "did not expect block 20 to be a sealing block or a Telock",
 		},
 		{
 			name:        "Telock as parent is rejected",
-			parent:      SimplexEpochInfo{EpochNumber: 1, SealingBlockSeq: 15},
+			epoch:       1,
+			parent:      SimplexEpochInfo{SealingBlockSeq: 15},
 			blocks:      blockStore{1: zeroBlock(descriptor(validators), finalized)},
 			expectedErr: "did not expect block 20 to be a sealing block or a Telock",
 		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			parent := &StateMachineBlock{Metadata: StateMachineMetadata{
-				SimplexProtocolMetadata: common.ProtocolMetadata{Seq: 20},
+				SimplexProtocolMetadata: common.ProtocolMetadata{Seq: 20, Epoch: testCase.epoch},
 				SimplexEpochInfo:        testCase.parent,
 			}}
 
