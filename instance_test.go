@@ -24,7 +24,11 @@ func TestValidatorIndexes(t *testing.T) {
 
 	pChain := newTestPChain(genesisSet)
 	network := newNetwork(t, pChain)
-	network.addNode(validator.NodeID[:]).sync()
+	node := network.addNode(validator.NodeID[:]).sync()
+
+	isValidator, bootstrapped := node.role()
+	require.True(t, bootstrapped, "a node already at the latest validator set has nothing to bootstrap")
+	require.True(t, isValidator)
 
 	network.acceptNewBlock()
 }
@@ -560,55 +564,51 @@ func TestValidatorSetsMetadataFromSnowman(t *testing.T) {
 	require.Equal(t, numNonSimplexBlocks, block.BlockHeader().Seq)
 }
 
-// TestBootstrap_ValidatorInLatestEpoch asserts a node whose indexed epoch names exactly the
-// latest P-chain validator set skips bootstrapping and starts as a validator of that epoch.
-func TestBootstrap_ValidatorInLatestEpoch(t *testing.T) {
-	v1 := newNodeMapping(1)
-	v2 := newNodeMapping(2)
-	genesisValidatorSet := metadata.NodeBLSMappings{v1, v2}
-
-	pChain := newTestPChain(genesisValidatorSet)
-	storage, _ := newChainStorage(t, genesisValidatorSet)
-	node := newNetwork(t, pChain).addNodeWithConfig(v1.NodeID[:], nodeConfig{storage: storage})
-
-	isValidator, bootstrapped := node.role()
-	require.True(t, bootstrapped, "a node already at the latest validator set has nothing to bootstrap")
-	require.True(t, isValidator)
-}
-
-// TestBootstrap_ValidatorDuringTransition asserts a validator whose epoch is mid-transition,
-// so its indexed set disagrees with the latest P-chain set, starts as a non-validator and
-// converts back to a validator once bootstrapping confirms its indexed epoch.
-func TestBootstrap_ValidatorDuringTransition(t *testing.T) {
+// TestBootstrapValidatorDuringTransition asserts a validator bootstraps when
+// its latest epoch is mid-transition. i.e. the latest pchain validator set disagrees
+// with the validators latest index validator set.
+func TestBootstrapValidatorDuringTransition(t *testing.T) {
 	ourNodeMapping := newNodeMapping(1)
 	v2 := newNodeMapping(2)
-	futureValidator := newNodeMapping(3)
-	genesisValidatorSet := metadata.NodeBLSMappings{ourNodeMapping, v2}
+	v3 := newNodeMapping(3)
+	v4 := newNodeMapping(4)
+	futureValidator := newNodeMapping(5)
+	genesisValidatorSet := metadata.NodeBLSMappings{ourNodeMapping, v2, v3, v4}
+	futureValidatorSet := metadata.NodeBLSMappings{ourNodeMapping, v2, v3, v4, futureValidator}
 
-	pChain := newTestPChain(genesisValidatorSet)
 	// The P-chain moved on to a set that contains ourNode, but no sealing block for it has
 	// been indexed, so our indexed set and the latest set disagree.
-	pChain.setValidatorSetAt(10, metadata.NodeBLSMappings{ourNodeMapping, v2, futureValidator})
+	pChain := newTestPChain(genesisValidatorSet)
+
+	network := newNetwork(t, pChain)
+	network.addNode(futureValidator.NodeID[:])
+	network.addNode(v2.NodeID[:])
+	network.addNode(v3.NodeID[:])
+	network.addNode(v4.NodeID[:])
+	network.sync()
+
+	// all validators are offline
+	network.setOffline(v4.NodeID[:])
+	network.setOffline(v3.NodeID[:])
+	network.setOffline(v2.NodeID[:])
+
+	// the future validator set is different than the current validator set ourNodeIsIn
+	pChain.setValidatorSetAt(10, futureValidatorSet)
 	pChain.advanceHeight(10)
 
-	storage, sealing := newChainStorage(t, genesisValidatorSet)
-	node := newNetwork(t, pChain).addNodeWithConfig(ourNodeMapping.NodeID[:], nodeConfig{storage: storage})
-
+	// the node joins, but because the pchain validator set is different than our epoch we will sync as a non-validator
+	node := network.addNode(ourNodeMapping.NodeID[:])
 	isValidator, bootstrapped := node.role()
 	require.False(t, bootstrapped)
 	require.False(t, isValidator, "a node whose indexed set is not the latest must bootstrap first") // even though we are a validator
 
-	// One peer reporting the latest sealing block meets the threshold of F(3)+1.
-	block := &ParsedBlock{StateMachineBlock: sealing.Clone()}
-	finalization, _ := testutil.NewFinalizationRecord(t, &testutil.TestSignatureAggregator{N: len(genesisValidatorSet)}, block, genesisValidatorSet.NodeIDs())
-	require.NoError(t, node.inst.HandleMessage(&common.Message{
-		ReplicationResponse: &common.ReplicationResponse{
-			LatestSeq: &common.QuorumRound{Block: block, Finalization: &finalization},
-		},
-	}, v2.NodeID[:]))
+	// bring 2 node back online. The threshold for non-validators to complete bootstrapping is 2 votes,
+	// but to make a quorum is 3. This means the pchain transition will not occur, however the node should now sync as a validator
+	network.setOnline(v2.NodeID[:])
+	network.setOnline(v3.NodeID[:])
+	node.sync()
 
-	require.Eventually(t, func() bool {
-		isValidator, bootstrapped := node.role()
-		return isValidator && bootstrapped
-	}, 10*time.Second, 10*time.Millisecond, "the node never converted back to a validator of its indexed epoch")
+	// The only way for the epoch transition to finish is if ourNode becomes a validator
+	// and produces an approval & participates in the finalization.
+	network.waitUntilSealingBlock(futureValidatorSet.Nodes())
 }
