@@ -808,7 +808,7 @@ func TestEpochLeaderEquivocationDoesNotFloodBlockVerification(t *testing.T) {
 }
 
 // TestReplicationRerequestsRoundWhenVerificationQueueIsFull asserts that a replicated notarized block whose
-// verification cannot be scheduled is re-requested rather than dropped, mirroring the finalized case.
+// verification cannot be scheduled is re-requested rather than dropped.
 func TestReplicationRerequestsRoundWhenVerificationQueueIsFull(t *testing.T) {
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	comm := &recordingComm{Communication: testutil.NewNoopComm(nodes), SentMessages: make(chan *Message, 100)}
@@ -823,10 +823,10 @@ func TestReplicationRerequestsRoundWhenVerificationQueueIsFull(t *testing.T) {
 	// Hold the verification of the notarized block so every redelivery queues another task behind it.
 	blocks := createBlocks(t, nodes, 1)
 	block := blocks[0].VerifiedBlock.(*testutil.TestBlock)
-	gate := make(chan struct{})
-	openGate := sync.OnceFunc(func() { close(gate) })
-	t.Cleanup(openGate)
-	block.VerificationDelay = gate
+	blockVerification := make(chan struct{})
+	allowVerification := sync.OnceFunc(func() { close(blockVerification) })
+	t.Cleanup(allowVerification)
+	block.VerificationDelay = blockVerification
 	notarization, err := testutil.NewNotarization(conf.Logger, &testutil.TestSignatureAggregator{N: len(nodes)}, block, nodes)
 	require.NoError(t, err)
 	notarizedRound := &Message{ReplicationResponse: &ReplicationResponse{
@@ -843,7 +843,7 @@ func TestReplicationRerequestsRoundWhenVerificationQueueIsFull(t *testing.T) {
 	require.Contains(t, request.Rounds, uint64(0))
 
 	// Once the queue drains the node advances past the notarized round and still commits it.
-	openGate()
+	allowVerification()
 	require.Eventually(t, func() bool { return e.Metadata().Round == 1 }, 5*time.Second, 10*time.Millisecond)
 	require.NoError(t, e.HandleMessage(replicateSeq(blocks[0]), nodes[0]))
 	storage.WaitForBlockCommit(0)
