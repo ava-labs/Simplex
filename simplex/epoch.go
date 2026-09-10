@@ -2413,8 +2413,11 @@ func (e *Epoch) verifyBlockMessageVote(from common.NodeID, md common.BlockHeader
 		return fmt.Errorf("received a finalization from an unknown node %s", from)
 	}
 
-	// Ensure the block was voted on by its block producer:
+	if !md.Equals(&vote.Vote.BlockHeader) {
+		return errors.New("vote block header does not match block header")
+	}
 
+	// Ensure the block was voted on by its block producer:
 	// 1) Verify block digest corresponds to the digest voted on
 	if !bytes.Equal(vote.Vote.Digest[:], md.Digest[:]) {
 		e.Logger.Debug("ToBeSignedVote digest mismatches block digest", zap.Stringer("voteDigest", vote.Vote.Digest),
