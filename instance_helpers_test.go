@@ -262,7 +262,6 @@ func newChainStorage(t *testing.T, validators metadata.NodeBLSMappings) (*testSt
 			Timestamp:               uint64(epochBlockTime.UnixMilli()),
 			SimplexProtocolMetadata: common.ProtocolMetadata{Epoch: 1, Round: 1, Seq: 1, Prev: common.Digest(genesis.Digest())},
 			SimplexEpochInfo: metadata.SimplexEpochInfo{
-				EpochNumber: 1,
 				BlockValidationDescriptor: &metadata.BlockValidationDescriptor{
 					AggregatedMembership: metadata.AggregatedMembership{Members: validators},
 				},
