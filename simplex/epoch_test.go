@@ -2307,7 +2307,7 @@ func TestEpochBlockVoteHeaderMismatch(t *testing.T) {
 	require.NoError(t, err)
 
 	mismatched := *vote
-	mismatched.Vote.BlockHeader.Round++
+	mismatched.Vote.Round++
 	require.NoError(t, e.HandleMessage(&Message{
 		BlockMessage: &BlockMessage{Vote: mismatched, Block: block},
 	}, nodes[2]))
