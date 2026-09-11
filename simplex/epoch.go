@@ -2123,7 +2123,15 @@ func (e *Epoch) processFinalizedBlock(block common.Block, finalization *common.F
 
 	// Create a task that will verify the block in the future, after its predecessors have also been verified.
 	task := e.createFinalizedBlockVerificationTask(e.oneTimeVerifier.Wrap(block), finalization)
-	return e.blockVerificationScheduler.ScheduleTaskWithDependencies(task, block.BlockHeader().Seq, blockDependency, []uint64{})
+	err := e.blockVerificationScheduler.ScheduleTaskWithDependencies(task, block.BlockHeader().Seq, blockDependency, []uint64{})
+	if errors.Is(err, common.ErrTooManyPendingVerifications) {
+		// A full scheduler shouldn't fatal
+		e.Logger.Debug("Dropping finalized block, too many pending verifications",
+			zap.Uint64("seq", block.BlockHeader().Seq), zap.Error(err))
+		return nil
+	}
+
+	return err
 }
 
 // processNotarizedBlock processes a block that has a notarization.
@@ -2181,7 +2189,15 @@ func (e *Epoch) processNotarizedBlock(block common.Block, notarization *common.N
 
 	e.replicationState.CreateDependencyTasks(blockDependency, md.Seq-1, missingRounds)
 
-	return e.blockVerificationScheduler.ScheduleTaskWithDependencies(task, md.Seq, blockDependency, missingRounds)
+	err := e.blockVerificationScheduler.ScheduleTaskWithDependencies(task, md.Seq, blockDependency, missingRounds)
+	if errors.Is(err, common.ErrTooManyPendingVerifications) {
+		// A full scheduler shouldn't fatal
+		e.Logger.Debug("Dropping notarized block, too many pending verifications",
+			zap.Uint64("round", md.Round), zap.Uint64("seq", md.Seq), zap.Error(err))
+		return nil
+	}
+
+	return err
 }
 
 func (e *Epoch) createBlockVerificationTask(block common.Block, from common.NodeID, vote common.Vote) func() common.Digest {
