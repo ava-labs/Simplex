@@ -2188,18 +2188,16 @@ func (e *Epoch) processNotarizedBlock(block common.Block, notarization *common.N
 	task := e.createNotarizedBlockVerificationTask(e.oneTimeVerifier.Wrap(block), *notarization)
 	blockDependency, missingRounds := e.blockDependencies(md)
 
+	e.replicationState.CreateDependencyTasks(blockDependency, md.Seq-1, missingRounds)
+
 	err := e.blockVerificationScheduler.ScheduleTaskWithDependencies(task, md.Seq, blockDependency, missingRounds)
 	if errors.Is(err, common.ErrTooManyPendingVerifications) {
 		e.Logger.Debug("Verification queue is full, re-requesting notarized block", zap.Uint64("round", md.Round))
 		e.replicationState.ResendRoundRequest(md.Round, notarization.QC.Signers())
 		return nil
 	}
-	if err != nil {
-		return err
-	}
 
-	e.replicationState.CreateDependencyTasks(blockDependency, md.Seq-1, missingRounds)
-	return nil
+	return err
 }
 
 func (e *Epoch) createBlockVerificationTask(block common.Block, from common.NodeID, vote common.Vote) func() common.Digest {
