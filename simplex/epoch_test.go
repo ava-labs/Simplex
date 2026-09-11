@@ -3041,3 +3041,34 @@ func TestReplicationStatePrunesCommittedSequences(t *testing.T) {
 	_, _, exists := replicationState.GetFinalizedBlockForSequence(3)
 	require.True(t, exists, "the next sequence to commit must not be pruned")
 }
+
+// TestReplicationRequestsKeepHighestObservedRound asserts a replayed notarization
+// for a lower round does not lower the LatestRound sent in replication requests.
+func TestReplicationRequestsKeepHighestObservedRound(t *testing.T) {
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	comm := &recordingComm{Communication: testutil.NewNoopComm(nodes)}
+	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], comm, testutil.NewTestBlockBuilder())
+	conf.ReplicationEnabled = true
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+
+	// an empty notarization for round 1000 arrives while we are at round 0
+	require.NoError(t, e.HandleMessage(&Message{
+		EmptyNotarization: testutil.NewEmptyNotarization(nodes[1:], 1000),
+	}, nodes[1]))
+
+	// only record the request sent after the replayed notarization
+	comm.SentMessages = make(chan *Message, 1)
+
+	// a replayed notarization for round 500 must not lower the advertised round
+	block := testutil.NewTestBlock(ProtocolMetadata{Round: 500, Seq: 450}, emptyBlacklist)
+	notarization, err := testutil.NewNotarization(conf.Logger, e.SignatureAggregatorCreator(conf.Comm.Validators()), block, nodes[1:])
+	require.NoError(t, err)
+	require.NoError(t, e.HandleMessage(&Message{Notarization: &notarization}, nodes[1]))
+
+	msg := <-comm.SentMessages
+	require.Equal(t, uint64(1000), msg.ReplicationRequest.LatestRound)
+}
