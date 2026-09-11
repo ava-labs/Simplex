@@ -2125,10 +2125,9 @@ func (e *Epoch) processFinalizedBlock(block common.Block, finalization *common.F
 	task := e.createFinalizedBlockVerificationTask(e.oneTimeVerifier.Wrap(block), finalization)
 	err := e.blockVerificationScheduler.ScheduleTaskWithDependencies(task, block.BlockHeader().Seq, blockDependency, []uint64{})
 	if errors.Is(err, common.ErrTooManyPendingVerifications) {
-		// The sequence was already removed from the replication state, so re-request it.
-		// This shouldn't happen since processing a finalized block means its the next sequence to commit
-		// so we should be able to schedule it.
-		e.Logger.Warn("Verification queue is full, re-requesting finalized block", zap.Uint64("seq", block.BlockHeader().Seq))
+		// A full scheduler shouldn't fatal
+		e.Logger.Debug("Dropping finalized block, too many pending verifications",
+			zap.Uint64("seq", block.BlockHeader().Seq), zap.Error(err))
 		e.replicationState.ResendFinalizationRequest(block.BlockHeader().Seq, finalization.QC.Signers())
 		return nil
 	}

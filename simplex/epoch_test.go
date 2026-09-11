@@ -814,8 +814,6 @@ func TestReplicationRerequestsRoundWhenVerificationQueueIsFull(t *testing.T) {
 	comm := &recordingComm{Communication: testutil.NewNoopComm(nodes), SentMessages: make(chan *Message, 100)}
 	conf, _, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[2], comm, testutil.NewTestBlockBuilder())
 	conf.ReplicationEnabled = true
-	// Filling the verification queue logs a WARN, which CI treats as a failure.
-	conf.Logger.(*testutil.TestLogger).Silence()
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
