@@ -250,6 +250,20 @@ func (r *ReplicationState) ResendFinalizationRequest(seq uint64, signers []commo
 	r.finalizationRequestor.sendRequestToNode([]uint64{seq}, signers[index])
 }
 
+// ResendRoundRequest notifies the replication state that `round` should be re-requested.
+func (r *ReplicationState) ResendRoundRequest(round uint64, signers []common.NodeID) {
+	if !r.enabled {
+		return
+	}
+
+	signers = common.NodeIDs(signers).Remove(r.myNodeID)
+	numSigners := int64(len(signers))
+	index := r.rand.Int64N(numSigners)
+
+	r.DeleteRound(round)
+	r.roundRequestor.sendRequestToNode([]uint64{round}, signers[index])
+}
+
 // CreateDependencyTasks creates tasks to refetch the given parent digest and empty rounds. If there are no
 // dependencies, no tasks are created.
 func (r *ReplicationState) CreateDependencyTasks(parent *common.Digest, parentSeq uint64, emptyRounds []uint64) {

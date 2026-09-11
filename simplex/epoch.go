@@ -2128,9 +2128,9 @@ func (e *Epoch) processFinalizedBlock(block common.Block, finalization *common.F
 		// A full scheduler shouldn't fatal
 		e.Logger.Debug("Dropping finalized block, too many pending verifications",
 			zap.Uint64("seq", block.BlockHeader().Seq), zap.Error(err))
+		e.replicationState.ResendFinalizationRequest(block.BlockHeader().Seq, finalization.QC.Signers())
 		return nil
 	}
-
 	return err
 }
 
@@ -2191,9 +2191,8 @@ func (e *Epoch) processNotarizedBlock(block common.Block, notarization *common.N
 
 	err := e.blockVerificationScheduler.ScheduleTaskWithDependencies(task, md.Seq, blockDependency, missingRounds)
 	if errors.Is(err, common.ErrTooManyPendingVerifications) {
-		// A full scheduler shouldn't fatal
-		e.Logger.Debug("Dropping notarized block, too many pending verifications",
-			zap.Uint64("round", md.Round), zap.Uint64("seq", md.Seq), zap.Error(err))
+		e.Logger.Debug("Verification queue is full, re-requesting notarized block", zap.Uint64("round", md.Round))
+		e.replicationState.ResendRoundRequest(md.Round, notarization.QC.Signers())
 		return nil
 	}
 
