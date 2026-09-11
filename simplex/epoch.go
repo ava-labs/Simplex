@@ -1933,7 +1933,7 @@ func (e *Epoch) handleBlockMessage(message *common.BlockMessage, from common.Nod
 	}
 
 	// Check if we have verified this message in the past:
-	if err := e.VerifyBlockMessageVote(from, md, vote); err != nil {
+	if err := e.verifyBlockMessageVote(from, md, vote); err != nil {
 		return nil
 	}
 
@@ -2421,18 +2421,8 @@ func (e *Epoch) createNotarizedBlockVerificationTask(block common.Block, notariz
 	}
 }
 
-// VerifyBlockMessageVote checks if we have the block in the future messages map.
-// If so, it means we have already verified the vote associated with this proposal.
-// If not, it verifies that the vote corresponds to the block proposed, and that the vote is properly signed.
-func (e *Epoch) VerifyBlockMessageVote(from common.NodeID, md common.BlockHeader, vote common.Vote) error {
-	msgsForRound, exists := e.futureMessages[string(from)][md.Round]
-	if exists && msgsForRound.proposal != nil {
-		bh := msgsForRound.proposal.Block.BlockHeader()
-		if bh.Equals(&md) {
-			return nil
-		}
-	}
-
+// verifyBlockMessageVote verifies that the vote corresponds to the block proposed, and that the vote is properly signed.
+func (e *Epoch) verifyBlockMessageVote(from common.NodeID, md common.BlockHeader, vote common.Vote) error {
 	pk, exists := e.validatorsToPKs[string(vote.Signature.Signer)]
 	if !exists {
 		e.Logger.Debug("Received a finalization from an unknown node", zap.Stringer("NodeID", from))
@@ -2440,13 +2430,11 @@ func (e *Epoch) VerifyBlockMessageVote(from common.NodeID, md common.BlockHeader
 	}
 
 	// Ensure the block was voted on by its block producer:
-
-	// 1) Verify block digest corresponds to the digest voted on
-	if !bytes.Equal(vote.Vote.Digest[:], md.Digest[:]) {
-		e.Logger.Debug("ToBeSignedVote digest mismatches block digest", zap.Stringer("voteDigest", vote.Vote.Digest),
-			zap.Stringer("blockDigest", md.Digest))
-		return errors.New("vote digest mismatches block digest")
+	// 1) Verify block header corresponds to the block header voted on
+	if !md.Equals(&vote.Vote.BlockHeader) {
+		return errors.New("vote block header does not match block header")
 	}
+
 	// 2) Verify the vote is properly signed
 	if err := vote.Vote.Verify(vote.Signature.Value, e.Verifier, pk); err != nil {
 		e.Logger.Debug("ToBeSignedVote verification failed", zap.Stringer("NodeID", vote.Signature.Signer), zap.Error(err))

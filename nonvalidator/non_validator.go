@@ -522,8 +522,22 @@ func (n *NonValidator) processQuorumRound(qr *common.QuorumRound, from common.No
 
 	// This block could be a sealing block, validate the next epoch if so.
 	n.maybeValidateNextEpoch(block)
-	n.sequenceReplicator.StoreQuorumRound(qr)
+	n.storeQuorumRound(qr)
 	return nil
+}
+
+// storeQuorumRound updates replication state, and stores qr if its within MaxSequenceWindow.
+func (n *NonValidator) storeQuorumRound(qr *common.QuorumRound) {
+	seq := qr.Block.BlockHeader().Seq
+	nextSeqToCommit := n.nextSeqToCommit()
+
+	if seq > n.MaxSequenceWindow+nextSeqToCommit {
+		n.Logger.Debug("Received a quorum round from a sequence too far ahead", zap.Uint64("Next Seq To Commit", nextSeqToCommit), zap.Uint64("Block Sequence", seq))
+		n.sequenceReplicator.ReceivedFutureFinalization(qr.Finalization, nextSeqToCommit)
+		return
+	}
+
+	n.sequenceReplicator.StoreQuorumRound(qr)
 }
 
 func (n *NonValidator) handleQrFromUnknownEpoch(qr *common.QuorumRound, from common.NodeID) {
@@ -539,14 +553,9 @@ func (n *NonValidator) handleQrFromUnknownEpoch(qr *common.QuorumRound, from com
 	if n.epochs.canValidate(block) {
 		n.Logger.Debug("We can validate an epoch block as we have validated the one after it.", zap.Stringer("Info", block.SealingBlockInfo()))
 		n.maybeValidateNextEpoch(block)
-
-		// We are storing a quorum round with a finalization we have not yet verified.
-		// We do this to tell the replicator a valid sequence exists and to begin replication if necessary.
-		// We will check the validity when we process this round.
-		n.sequenceReplicator.StoreQuorumRound(qr)
+		n.storeQuorumRound(qr)
 		return
 	}
-
 	if n.highestEpochCollector.collectedSealingBlockInfo(qr.Block.SealingBlockInfo(), qr.Block.BlockHeader(), from) {
 		n.Logger.Debug("We can validate an epoch because we have received a threshold of messages of it.", zap.Stringer("Info", block.SealingBlockInfo()))
 		n.maybeValidateNextEpoch(block)
@@ -554,7 +563,7 @@ func (n *NonValidator) handleQrFromUnknownEpoch(qr *common.QuorumRound, from com
 		// We are storing a quorum round with a finalization we have not yet verified.
 		// We do this to tell the replicator a valid sequence exists and to begin replication if necessary.
 		// We will check the validity when we process this round.
-		n.sequenceReplicator.StoreQuorumRound(qr)
+		n.storeQuorumRound(qr)
 	}
 }
 
