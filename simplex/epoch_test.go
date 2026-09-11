@@ -2270,6 +2270,100 @@ func TestEpochVoteSentTwiceKeepsVerifiedVote(t *testing.T) {
 	}
 }
 
+// TestEpochBlockSentTwiceKeepsVerifiedVote ensures a leader re-sending a buffered proposal
+// with different vote signature bytes has that vote verified rather than accepted on the
+// strength of the earlier, identical block header.
+func TestEpochBlockSentTwiceKeepsVerifiedVote(t *testing.T) {
+	bb := testutil.NewTestBlockBuilder()
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+
+	forged := []byte("forged signature")
+
+	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[1], testutil.NewNoopComm(nodes), bb)
+	conf.Verifier = &rejectingVerifier{rejected: forged}
+
+	var verificationFailed bool
+	conf.Logger.(*testutil.TestLogger).Intercept(func(entry zapcore.Entry) error {
+		if entry.Message == "ToBeSignedVote verification failed" {
+			verificationFailed = true
+		}
+		return nil
+	})
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+
+	// nodes[2] leads round 2 and sends its proposal early, so it is stored as a future message.
+	md := e.Metadata()
+	md.Round = 2
+	b, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
+	require.True(t, ok)
+	block := b.(Block)
+
+	vote, err := testutil.NewTestVote(block, nodes[2])
+	require.NoError(t, err)
+	require.NoError(t, e.HandleMessage(&Message{
+		BlockMessage: &BlockMessage{Vote: *vote, Block: block},
+	}, nodes[2]))
+	require.False(t, verificationFailed)
+
+	// The same block with a vote that does not verify must be rejected by signature verification
+	forgedVote := Vote{Vote: vote.Vote, Signature: Signature{Signer: nodes[2], Value: forged}}
+	require.NoError(t, e.HandleMessage(&Message{
+		BlockMessage: &BlockMessage{Vote: forgedVote, Block: block},
+	}, nodes[2]))
+	require.True(t, verificationFailed)
+}
+
+// TestEpochBlockVoteHeaderMismatch ensures a block message whose vote is for a
+// different block header is dropped, so a later matching proposal is still accepted.
+func TestEpochBlockVoteHeaderMismatch(t *testing.T) {
+	bb := testutil.NewTestBlockBuilder()
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[1], testutil.NewNoopComm(nodes), bb)
+
+	var storedFutureBlock, alreadyReceived bool
+	conf.Logger.(*testutil.TestLogger).Intercept(func(entry zapcore.Entry) error {
+		switch entry.Message {
+		case "Got block of a future round":
+			storedFutureBlock = true
+		case "Already received a proposal from this node for the round":
+			alreadyReceived = true
+		}
+		return nil
+	})
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+
+	// nodes[2] leads round 2, so its proposal is stored as a future message.
+	md := e.Metadata()
+	md.Round = 2
+	b, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
+	require.True(t, ok)
+	block := b.(Block)
+
+	vote, err := testutil.NewTestVote(block, nodes[2])
+	require.NoError(t, err)
+
+	mismatched := *vote
+	mismatched.Vote.Round++
+	require.NoError(t, e.HandleMessage(&Message{
+		BlockMessage: &BlockMessage{Vote: mismatched, Block: block},
+	}, nodes[2]))
+	require.False(t, storedFutureBlock)
+
+	require.NoError(t, e.HandleMessage(&Message{
+		BlockMessage: &BlockMessage{Vote: *vote, Block: block},
+	}, nodes[2]))
+	require.True(t, storedFutureBlock)
+	require.False(t, alreadyReceived)
+}
+
 // TestNotarizedNotFinalizedTipCausesEmptyBlockProposal verifies that when the leader
 // has a notarized-but-not-finalized tip and no transactions are available, it proposes
 // an empty block instead of stalling.
