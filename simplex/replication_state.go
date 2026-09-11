@@ -119,6 +119,18 @@ func (r *ReplicationState) deleteOldRounds(finalizedRound uint64) {
 	})
 }
 
+// deleteOldSeqs cleans up sequences that have already been committed.
+// Committing a sequence only deletes its exact entry, so sequences superseded by
+// a different block digest would otherwise never be released.
+func (r *ReplicationState) deleteOldSeqs(nextSequenceToCommit uint64) {
+	for seq := range r.seqs {
+		if seq < nextSequenceToCommit {
+			r.logger.Debug("Replication State Deleting Old Sequence", zap.Uint64("seq", seq))
+			delete(r.seqs, seq)
+		}
+	}
+}
+
 // storeSequence stores a block and finalization into the replication state
 func (r *ReplicationState) storeSequence(block common.Block, finalization *common.Finalization) bool {
 	if _, exists := r.seqs[finalization.Finalization.Seq]; exists {
@@ -300,6 +312,8 @@ func (r *ReplicationState) MaybeAdvanceState(nextSequenceToCommit uint64, curren
 	if nextSequenceToCommit > 0 {
 		r.finalizationRequestor.removeOldTasks(nextSequenceToCommit - 1)
 	}
+
+	r.deleteOldSeqs(nextSequenceToCommit)
 
 	// update the requestors in case they need to send more requests
 	r.finalizationRequestor.updateState(nextSequenceToCommit)

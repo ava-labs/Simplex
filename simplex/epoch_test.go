@@ -3055,3 +3055,33 @@ func TestFutureProposalDispatchedOnceAfterReentrantCommit(t *testing.T) {
 	require.NoError(t, e.HandleMessage(&Message{Finalization: &finalization1}, nodes[0]))
 	storage.WaitForBlockCommit(1)
 }
+
+// TestReplicationStatePrunesCommittedSequences tests we prune old sequences from replication state.
+func TestReplicationStatePrunesCommittedSequences(t *testing.T) {
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	sigAggr := &testutil.TestSignatureAggregator{N: len(nodes)}
+	rng, err := NewRandomSource()
+	require.NoError(t, err)
+
+	replicationState := NewReplicationState(testutil.MakeLogger(t, 1), testutil.NewNoopComm(nodes), nodes[0], 10, true, time.Now(), &sync.Mutex{}, rng)
+	defer replicationState.Close()
+
+	for seq := uint64(1); seq <= 3; seq++ {
+		block := testutil.NewTestBlock(ProtocolMetadata{Seq: seq, Round: seq}, emptyBlacklist)
+		finalization, _ := testutil.NewFinalizationRecord(t, sigAggr, block, nodes)
+		replicationState.StoreQuorumRound(&QuorumRound{Block: block, Finalization: &finalization})
+
+		_, _, exists := replicationState.GetFinalizedBlockForSequence(seq)
+		require.True(t, exists)
+	}
+
+	replicationState.MaybeAdvanceState(3, 3, 2)
+
+	for seq := uint64(1); seq <= 2; seq++ {
+		_, _, exists := replicationState.GetFinalizedBlockForSequence(seq)
+		require.Falsef(t, exists, "seq %d was committed but is still stored", seq)
+	}
+
+	_, _, exists := replicationState.GetFinalizedBlockForSequence(3)
+	require.True(t, exists, "the next sequence to commit must not be pruned")
+}
