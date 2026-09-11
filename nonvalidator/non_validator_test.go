@@ -1064,3 +1064,52 @@ func TestNonValidatorRejectsQuorumRoundWithMismatchedHeader(t *testing.T) {
 	bh := b3.BlockHeader()
 	require.True(t, finalization.Finalization.Equals(&bh), "b4 was indexed with a finalization that does not match its header")
 }
+
+// TestNonValidatorDropsQuorumRoundPastSequenceWindow ensures non-validators dont store quorum rounds past MaxSequenceWindow.
+// Asserts the non-validator commits the sequences within the window and then stalls on the one past it, rather than
+// indexing a block it was streamed while too far behind.
+func TestNonValidatorDropsQuorumRoundPastSequenceWindow(t *testing.T) {
+	maxSequenceWindow := uint64(5)
+	initialHeight := uint64(2)
+	maxSequenceToStore := initialHeight + maxSequenceWindow
+	maxSequenceToSend := maxSequenceToStore + 2
+
+	tc := newSeededChain(t, testNodes, maxSequenceToSend)
+	storage := tc.CloneUntil(initialHeight)
+	require.Equal(t, initialHeight, storage.NumBlocks(), "the next sequence to commit sets where the window starts")
+
+	nv, err := NewNonValidator(
+		Config{
+			Storage:                    storage,
+			Comm:                       testutil.NewNoopComm(testNodes.NodeIDs()),
+			Logger:                     testutil.MakeLogger(t, 1),
+			SignatureAggregatorCreator: tc.signatureAggregatorCreator,
+			MaxSequenceWindow:          maxSequenceWindow,
+			ID:                         common.NodeID{16},
+			StartTime:                  time.Now(),
+		},
+	)
+	require.NoError(t, err)
+	nv.Start()
+	defer nv.Stop()
+
+	data := make([]common.QuorumRound, 0, maxSequenceToSend-initialHeight+1)
+	for seq := initialHeight; seq <= maxSequenceToSend; seq++ {
+		block, finalization, err := tc.Retrieve(seq)
+		require.NoError(t, err)
+		data = append(data, common.QuorumRound{Block: block.(common.Block), Finalization: &finalization})
+	}
+
+	require.NoError(t, nv.HandleMessage(&common.Message{
+		ReplicationResponse: &common.ReplicationResponse{Data: data},
+	}, testNodes.NodeIDs()[0]))
+
+	// NumBlocks counts blocks, so committing maxSequenceToStore leaves maxSequenceToStore+1 of
+	// them. Any more means a sequence past the window was stored and indexed.
+	storage.WaitForBlockCommit(maxSequenceToStore)
+	require.Never(t,
+		func() bool { return storage.NumBlocks() > maxSequenceToStore+1 },
+		time.Second, 50*time.Millisecond,
+		"indexed a block that was past the sequence window when it was received",
+	)
+}
