@@ -378,19 +378,32 @@ func (n *NonValidator) handleFinalization(finalization *common.Finalization, fro
 
 	// Duplicate finalization received.
 	if incomplete.finalization != nil {
+		stored := incomplete.finalization.Finalization
+		// We can have two different finalizations for the same sequence.
+		// A telock for a lower epoch, and a finalization in the next epoch.
+		switch {
+		// finalizations are the same
+		case bytes.Equal(stored.Bytes(), finalization.Finalization.Bytes()):
+			return nil
 		// sanity check: should never happen.
-		if !bytes.Equal(incomplete.finalization.Finalization.Bytes(), finalization.Finalization.Bytes()) {
+		case stored.Epoch == bh.Epoch:
 			n.Logger.Warn(
 				"Mismatching finalizations",
 				zap.Uint64("Incoming Sequence", finalization.Finalization.Seq),
-				zap.Uint64("Stored sequence", incomplete.finalization.Finalization.Seq),
+				zap.Uint64("Stored sequence", stored.Seq),
 			)
 			errConflictingFinalizations := fmt.Errorf("conflicting finalizations. seq: %d", bh.Seq)
 			n.haltedError = errConflictingFinalizations
 			return errConflictingFinalizations
+		// the finalization we received was for a telock
+		case bh.Epoch < stored.Epoch:
+			n.Logger.Debug("Received a Telock finalization", zap.Uint64("Epoch", bh.Epoch), zap.Uint64("Seq", bh.Seq), zap.Stringer("From", from))
+			return nil
 		}
-
-		return nil
+		// The current finalization in incompleteSequences belongs to a Telock
+		n.Logger.Debug("Dropping stored Telock sequence", zap.Stringer("Sequence", incomplete))
+		incomplete.block = nil
+		n.sequenceReplicator.ReceivedFutureFinalization(finalization, n.nextSeqToCommit())
 	}
 
 	incomplete.finalization = finalization
@@ -409,6 +422,7 @@ func (n *NonValidator) handleFinalization(finalization *common.Finalization, fro
 			zap.Stringer("From", from),
 		)
 
+		incomplete.block = nil
 		n.sequenceReplicator.ReceivedFutureFinalization(finalization, n.nextSeqToCommit())
 		return nil
 	}
@@ -535,6 +549,20 @@ func (n *NonValidator) storeQuorumRound(qr *common.QuorumRound) {
 		n.Logger.Debug("Received a quorum round from a sequence too far ahead", zap.Uint64("Next Seq To Commit", nextSeqToCommit), zap.Uint64("Block Sequence", seq))
 		n.sequenceReplicator.ReceivedFutureFinalization(qr.Finalization, nextSeqToCommit)
 		return
+	}
+
+	// A Telock and the first block of the next epoch share a seq. The lower epoch is the Telock.
+	if _, stored, exists := n.sequenceReplicator.GetFinalizedBlockForSequence(seq); exists {
+		storedEpoch := stored.Finalization.Epoch
+		epoch := qr.Finalization.Finalization.Epoch
+		if epoch < storedEpoch {
+			n.Logger.Debug("Received a Telock quorum round", zap.Uint64("Epoch", epoch), zap.Uint64("Seq", seq))
+			return
+		}
+		if epoch > storedEpoch {
+			n.Logger.Debug("Dropping stored Telock quorum round", zap.Uint64("Epoch", storedEpoch), zap.Uint64("Seq", seq))
+			n.sequenceReplicator.DeleteSeq(seq)
+		}
 	}
 
 	n.sequenceReplicator.StoreQuorumRound(qr)
