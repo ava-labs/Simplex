@@ -133,8 +133,7 @@ func (t *TimeoutHandler[T]) RemoveTask(ID T) {
 	delete(t.tasks, ID)
 }
 
-// HasTasks reports whether any task is still outstanding.
-func (t *TimeoutHandler[T]) HasTasks() bool {
+func (t *TimeoutHandler[T]) Empty() bool {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 
