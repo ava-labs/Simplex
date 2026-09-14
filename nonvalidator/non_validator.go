@@ -399,11 +399,13 @@ func (n *NonValidator) handleFinalization(finalization *common.Finalization, fro
 		case bh.Epoch < stored.Epoch:
 			n.Logger.Debug("Received a Telock finalization", zap.Uint64("Epoch", bh.Epoch), zap.Uint64("Seq", bh.Seq), zap.Stringer("From", from))
 			return nil
+		default:
+			// The current finalization in incompleteSequences belongs to a Telock
+			// because stored.Epoch < bh.Epoch
+			n.Logger.Debug("Dropping stored Telock sequence", zap.Stringer("Sequence", incomplete))
+			incomplete.block = nil
+			n.sequenceReplicator.ReceivedFutureFinalization(finalization, n.nextSeqToCommit())
 		}
-		// The current finalization in incompleteSequences belongs to a Telock
-		n.Logger.Debug("Dropping stored Telock sequence", zap.Stringer("Sequence", incomplete))
-		incomplete.block = nil
-		n.sequenceReplicator.ReceivedFutureFinalization(finalization, n.nextSeqToCommit())
 	}
 
 	incomplete.finalization = finalization
