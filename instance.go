@@ -191,12 +191,10 @@ func (i *Instance) createNonValidatorConfig(bootstrapped bool) (nonvalidator.Con
 		return nonvalidator.Config{}, err
 	}
 
-	latestValidatorSet, err := getLatestPlatformChainValidatorSet(i.Config.PlatformChain)
+	comm, err := newNonValidatorCommunication(i.Config.Sender, i.Config.Broadcaster, i.Config.PlatformChain, i.Config.Logger)
 	if err != nil {
 		return nonvalidator.Config{}, err
 	}
-
-	comm := newCommunication(i.Config.Sender, i.Config.Broadcaster, latestValidatorSet.Nodes())
 
 	// Plant an artificial MSM. A non-validator never verifies the state machine transition,
 	// it only verifies the inner block (see common.OnlyVMVerifyOpt), so this MSM is only
