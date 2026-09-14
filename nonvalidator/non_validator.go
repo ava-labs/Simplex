@@ -227,7 +227,7 @@ func (n *NonValidator) processBootstrapQuorumRound(qr *common.QuorumRound, from 
 	}
 
 	// No sealing block is missing, so every epoch from our tip to the highest is validated.
-	if !n.sealingBlockTimeouts.HasTasks() {
+	if !n.sealingBlockTimeouts.Empty() {
 		n.finishBootstrap()
 		// If the highest epoch is already indexed, nothing more gets indexed to trigger the transition.
 		highestEpoch, validators := n.epochs.highestEpoch()
