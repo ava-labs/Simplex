@@ -227,6 +227,87 @@ func TestHandleMessages(t *testing.T) {
 			},
 			expectedHeight: 8,
 		},
+		{
+			name: "telock finalization after the sealing block is dropped",
+			setup: func(t *testing.T) (*testChain, []*messageInfo) {
+				tc := newSeededChain(t, testNodes, 2)
+				epoch3Nodes := common.Nodes{
+					{Id: common.NodeID{1}, Weight: 1},
+					{Id: common.NodeID{2}, Weight: 1},
+					{Id: common.NodeID{3}, Weight: 1},
+					{Id: common.NodeID{4}, Weight: 1},
+					{Id: common.NodeID{5}, Weight: 1},
+				}
+
+				b3 := tc.appendSealing(epoch3Nodes)
+				// The Telock extends epoch 1 past the sealing block and shares seq 4 with the first block of epoch 3.
+				telock := newBlock(4, 1, b3.Digest)
+				b4 := tc.appendBlock()
+
+				return tc, []*messageInfo{
+					blockMsg(t, b3, testNodes),
+					finalizationMsg(t, b3, testNodes),
+					finalizationMsg(t, telock, testNodes),
+					finalizationMsg(t, b4, epoch3Nodes),
+					blockMsg(t, b4, epoch3Nodes),
+				}
+			},
+			expectedHeight: 5,
+		},
+		{
+			name: "telock finalization before the sealing block is dropped",
+			setup: func(t *testing.T) (*testChain, []*messageInfo) {
+				tc := newSeededChain(t, testNodes, 2)
+				epoch3Nodes := common.Nodes{
+					{Id: common.NodeID{1}, Weight: 1},
+					{Id: common.NodeID{2}, Weight: 1},
+					{Id: common.NodeID{3}, Weight: 1},
+					{Id: common.NodeID{4}, Weight: 1},
+					{Id: common.NodeID{5}, Weight: 1},
+				}
+
+				b3 := tc.appendSealing(epoch3Nodes)
+				telock := newBlock(4, 1, b3.Digest)
+				b4 := tc.appendBlock()
+
+				// The Telock finalization is stored before epoch 3 is known and must be purged once it is.
+				return tc, []*messageInfo{
+					finalizationMsg(t, telock, testNodes),
+					blockMsg(t, b3, testNodes),
+					finalizationMsg(t, b3, testNodes),
+					finalizationMsg(t, b4, epoch3Nodes),
+					blockMsg(t, b4, epoch3Nodes),
+				}
+			},
+			expectedHeight: 5,
+		},
+		{
+			name: "telock block before the sealing block is dropped",
+			setup: func(t *testing.T) (*testChain, []*messageInfo) {
+				tc := newSeededChain(t, testNodes, 2)
+				epoch3Nodes := common.Nodes{
+					{Id: common.NodeID{1}, Weight: 1},
+					{Id: common.NodeID{2}, Weight: 1},
+					{Id: common.NodeID{3}, Weight: 1},
+					{Id: common.NodeID{4}, Weight: 1},
+					{Id: common.NodeID{5}, Weight: 1},
+				}
+
+				b3 := tc.appendSealing(epoch3Nodes)
+				telock := newBlock(4, 1, b3.Digest)
+				b4 := tc.appendBlock()
+
+				// A stored Telock block would otherwise make the epoch 3 block at seq 4 look like a duplicate.
+				return tc, []*messageInfo{
+					blockMsg(t, telock, testNodes),
+					blockMsg(t, b3, testNodes),
+					finalizationMsg(t, b3, testNodes),
+					finalizationMsg(t, b4, epoch3Nodes),
+					blockMsg(t, b4, epoch3Nodes),
+				}
+			},
+			expectedHeight: 5,
+		},
 	}
 
 	for _, tt := range tests {
@@ -252,6 +333,63 @@ func TestHandleMessages(t *testing.T) {
 
 			tc.WaitForBlockCommit(tt.expectedHeight - 1)
 			require.Equal(t, tt.expectedHeight, nv.Storage.NumBlocks())
+		})
+	}
+}
+
+// TestNonValidatorDropsTelockQuorumRound replicates a Telock and the next epoch's block
+// for the same seq in both orders and asserts the next epoch's block is the one indexed.
+func TestNonValidatorDropsTelockQuorumRound(t *testing.T) {
+	tests := []struct {
+		name        string
+		telockFirst bool
+	}{
+		{name: "telock quorum round first", telockFirst: true},
+		{name: "telock quorum round last", telockFirst: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tc := newSeededChain(t, testNodes, 2)
+			epoch3Nodes := common.Nodes{
+				{Id: common.NodeID{1}, Weight: 1},
+				{Id: common.NodeID{2}, Weight: 1},
+				{Id: common.NodeID{3}, Weight: 1},
+				{Id: common.NodeID{4}, Weight: 1},
+				{Id: common.NodeID{5}, Weight: 1},
+			}
+
+			b3 := tc.appendSealing(epoch3Nodes)
+			telock := newBlock(4, 1, b3.Digest)
+			b4 := tc.appendBlock()
+			f3, fTelock, f4 := tc.newFinalization(b3), tc.newFinalization(telock), tc.newFinalization(b4)
+
+			nv, err := NewNonValidator(Config{
+				Storage:                    tc,
+				Comm:                       testutil.NewNoopComm(tc.nodes().NodeIDs()),
+				Logger:                     testutil.MakeLogger(t, 1),
+				SignatureAggregatorCreator: tc.signatureAggregatorCreator,
+				MaxSequenceWindow:          simplex.DefaultMaxRoundWindow,
+				ID:                         testNodes[0].Id,
+			})
+			require.NoError(t, err)
+			defer nv.Stop()
+
+			telockQR := common.QuorumRound{Block: telock, Finalization: &fTelock}
+			b4QR := common.QuorumRound{Block: b4, Finalization: &f4}
+			data := []common.QuorumRound{{Block: b3, Finalization: &f3}, telockQR, b4QR}
+			if !tt.telockFirst {
+				data = []common.QuorumRound{{Block: b3, Finalization: &f3}, b4QR, telockQR}
+			}
+
+			require.NoError(t, nv.HandleMessage(
+				&common.Message{ReplicationResponse: &common.ReplicationResponse{Data: data}},
+				testNodes.NodeIDs()[1],
+			))
+
+			indexed := tc.WaitForBlockCommit(4)
+			require.Equal(t, b4.BlockHeader().Digest, indexed.BlockHeader().Digest)
+			require.Equal(t, uint64(5), tc.NumBlocks())
 		})
 	}
 }
