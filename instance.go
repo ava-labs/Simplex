@@ -308,6 +308,11 @@ func (i *Instance) HandleMessage(msg *common.Message, from common.NodeID) error 
 	default:
 	}
 
+	if !i.started {
+		i.Config.Logger.Debug("Instance has not started, dropping message")
+		return nil
+	}
+
 	// We need to artificially wire the MSM and the cache to the block,
 	// in order to intercept the Verify() call.
 	switch {
