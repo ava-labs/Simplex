@@ -135,6 +135,23 @@ func TestNonValidatorBecomesValidator(t *testing.T) {
 	assertExpectedNodeIds(t, finalization.QC.Signers(), newValidatorSet.NodeIDs())
 }
 
+// TestInstanceDropsMessagesBeforeStart asserts that a message delivered before Start
+// is dropped without error. A validator broadcasts the finalization only after
+// indexing the block, so a node created on that commit can receive it before starting.
+func TestInstanceDropsMessagesBeforeStart(t *testing.T) {
+	validator := newNodeMapping(1)
+	pChain := newTestPChain([]metadata.NodeBLSMapping{validator})
+	instance := NewInstance(Config{
+		PlatformChain: pChain,
+		Storage:       newTestStorageWithGenesis(t),
+		Logger:        testutil.MakeLogger(t, 1),
+		ID:            validator.NodeID[:],
+	})
+
+	msg := &common.Message{Finalization: &common.Finalization{}}
+	require.NoError(t, instance.HandleMessage(msg, validator.NodeID[:]))
+}
+
 // TestValidator_ValidatorSetNotChanged tests that a P-chain height increase
 // that does not have a unique validator set, does not create a new epoch
 func TestValidator_ValidatorSetNotChanged(t *testing.T) {
