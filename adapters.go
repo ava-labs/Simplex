@@ -13,32 +13,60 @@ import (
 	"github.com/ava-labs/simplex/common"
 	metadata "github.com/ava-labs/simplex/msm"
 	"github.com/ava-labs/simplex/simplex"
+	"go.uber.org/zap"
 )
 
-type Communication struct {
-	nodes atomic.Value // common.Nodes
+type communication struct {
+	nodes common.Nodes
 	Sender
 	Broadcaster
 }
 
-func newCommunication(sender Sender, broadcaster Broadcaster, validators common.Nodes) *Communication {
-	c := &Communication{
+func newCommunication(sender Sender, broadcaster Broadcaster, validators common.Nodes) *communication {
+	return &communication{
+		nodes:       validators,
 		Sender:      sender,
 		Broadcaster: broadcaster,
 	}
-	c.SetValidators(validators)
-	return c
 }
 
-func (c *Communication) SetValidators(nodes common.Nodes) {
-	c.nodes.Store(nodes)
+func (c *communication) Validators() common.Nodes {
+	return c.nodes
 }
 
-func (c *Communication) Validators() common.Nodes {
-	nodes, ok := c.nodes.Load().(common.Nodes)
-	if !ok {
-		return nil
+// nonValidatorCommunication has no fixed validator set, so it fetches the latest one on every call.
+type nonValidatorCommunication struct {
+	platformChain  PlatformChain
+	logger         common.Logger
+	lastValidators atomic.Pointer[common.Nodes]
+	Sender
+	Broadcaster
+}
+
+func newNonValidatorCommunication(sender Sender, broadcaster Broadcaster, platformChain PlatformChain, logger common.Logger) (*nonValidatorCommunication, error) {
+	validatorSet, err := getLatestPlatformChainValidatorSet(platformChain)
+	if err != nil {
+		return nil, err
 	}
+	c := &nonValidatorCommunication{
+		platformChain: platformChain,
+		logger:        logger,
+		Sender:        sender,
+		Broadcaster:   broadcaster,
+	}
+	nodes := validatorSet.Nodes()
+	c.lastValidators.Store(&nodes)
+	return c, nil
+}
+
+func (c *nonValidatorCommunication) Validators() common.Nodes {
+	validatorSet, err := getLatestPlatformChainValidatorSet(c.platformChain)
+	if err != nil {
+		c.logger.Warn("Failed fetching latest validator set, using last known set", zap.Error(err))
+		return *c.lastValidators.Load()
+	}
+	nodes := validatorSet.Nodes()
+	c.lastValidators.Store(&nodes)
 	return nodes
 }
 
