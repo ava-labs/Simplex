@@ -4,6 +4,7 @@
 package wal
 
 import (
+	"encoding/binary"
 	"os"
 	"path/filepath"
 	"testing"
@@ -123,6 +124,54 @@ func TestCorruptedFile(t *testing.T) {
 	readRecords, err := wal.ReadAll()
 	require.NoError(err)
 	require.Equal(records[:n-1], readRecords)
+}
+
+// TestPartiallyWrittenRecord covers a crash in the middle of an Append: the record's
+// length prefix made it to disk but its payload and checksum did not. ReadAll must return
+// the records that were written in full and truncate the torn tail away.
+func TestPartiallyWrittenRecord(t *testing.T) {
+	require := require.New(t)
+
+	fileName := filepath.Join(t.TempDir(), "simplex.wal")
+	wal := New(fileName)
+	defer func() {
+		require.NoError(wal.Close())
+	}()
+
+	const n = 3
+	records := make([][]byte, n)
+	for i := range records {
+		records[i] = []byte{byte(i), byte(i), byte(i)}
+		require.NoError(wal.Append(records[i]))
+	}
+
+	recordSize := recordSizeLen + len(records[0]) + recordChecksumLen
+
+	// Append a torn record: a prefix declaring a 3 byte payload, followed by only 2 of
+	// the 11 bytes that should follow it.
+	torn := make([]byte, recordSizeLen)
+	binary.BigEndian.PutUint32(torn, 3)
+	torn = append(torn, 0xAA, 0xBB)
+
+	file, err := os.OpenFile(fileName, os.O_APPEND|os.O_WRONLY, 0666)
+	require.NoError(err)
+	_, err = file.Write(torn)
+	require.NoError(err)
+	require.NoError(file.Close())
+
+	readRecords, err := wal.ReadAll()
+	require.NoError(err)
+	require.Equal(records, readRecords)
+
+	// The torn tail must be gone, so the next Append starts from a clean boundary.
+	info, err := os.Stat(fileName)
+	require.NoError(err)
+	require.Equal(int64(n*recordSize), info.Size())
+
+	require.NoError(wal.Append([]byte{9, 9, 9}))
+	readRecords, err = wal.ReadAll()
+	require.NoError(err)
+	require.Equal(append(records, []byte{9, 9, 9}), readRecords)
 }
 
 func TestDelete(t *testing.T) {

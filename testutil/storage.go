@@ -58,7 +58,9 @@ func (mem *InMemStorage) CloneUntil(stopSeq uint64) *InMemStorage {
 		if err != nil {
 			panic(fmt.Sprintf("failed retrieving block %d: %v", seq, err))
 		}
-		clone.Index(context.Background(), block, finalization)
+		if err := clone.Index(context.Background(), block, finalization); err != nil {
+			panic(fmt.Sprintf("failed indexing block %d: %v", seq, err))
+		}
 	}
 	return clone
 }
@@ -141,8 +143,8 @@ func (mem *InMemStorage) Compare(other *InMemStorage) error {
 		}
 
 		// compare blocks
-		blockBytes := item.VerifiedBlock.Bytes()
-		otherBlockBytes := otherItem.VerifiedBlock.Bytes()
+		blockBytes := item.Bytes()
+		otherBlockBytes := otherItem.Bytes()
 
 		if !bytes.Equal(blockBytes, otherBlockBytes) {
 			return fmt.Errorf("blocks differ at seq %d", seq)

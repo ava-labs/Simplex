@@ -6,7 +6,6 @@ package metadata
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"fmt"
 	"sync/atomic"
 	"testing"
@@ -18,7 +17,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var emptyAuxInfoDigest = sha256.Sum256(nil)
+// emptyAuxInfoDigest is the candidate digest approvals commit to when the auxiliary info
+// history is empty: LastHistoryDigest returns the zero digest in that case.
+var emptyAuxInfoDigest [32]byte
 
 func TestFakeNodeEpochChangesDespiteEmptyMempool(t *testing.T) {
 	validatorSetRetriever := validatorSetRetriever{
@@ -64,9 +65,9 @@ func TestFakeNodeEpochChangesDespiteEmptyMempool(t *testing.T) {
 			node.tryFinalizeNextBlock()
 		}
 		if flipCoin() {
-			require.NoError(t, node.sm.HandleApproval(&common.ValidatorSetApproval{NodeID: [20]byte{1}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1))
+			node.sm.HandleApproval(&common.ValidatorSetApproval{NodeID: [20]byte{1}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1)
 		} else {
-			require.NoError(t, node.sm.HandleApproval(&common.ValidatorSetApproval{NodeID: [20]byte{2}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1))
+			node.sm.HandleApproval(&common.ValidatorSetApproval{NodeID: [20]byte{2}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1)
 		}
 
 		if node.isLastBlockSealing() {
@@ -113,9 +114,9 @@ func TestFakeNode(t *testing.T) {
 	for node.Epoch() == epoch {
 		node.act()
 		if flipCoin() {
-			require.NoError(t, node.sm.HandleApproval(&common.ValidatorSetApproval{NodeID: [20]byte{1}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1))
+			node.sm.HandleApproval(&common.ValidatorSetApproval{NodeID: [20]byte{1}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1)
 		} else {
-			require.NoError(t, node.sm.HandleApproval(&common.ValidatorSetApproval{NodeID: [20]byte{2}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1))
+			node.sm.HandleApproval(&common.ValidatorSetApproval{NodeID: [20]byte{2}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1)
 		}
 	}
 
@@ -130,9 +131,9 @@ func TestFakeNode(t *testing.T) {
 	for node.Epoch() == epoch {
 		node.act()
 		if flipCoin() {
-			require.NoError(t, node.sm.HandleApproval(&common.ValidatorSetApproval{NodeID: [20]byte{2}, PChainHeight: 300, Signature: signApproval(300, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1))
+			node.sm.HandleApproval(&common.ValidatorSetApproval{NodeID: [20]byte{2}, PChainHeight: 300, Signature: signApproval(300, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1)
 		} else {
-			require.NoError(t, node.sm.HandleApproval(&common.ValidatorSetApproval{NodeID: [20]byte{3}, PChainHeight: 300, Signature: signApproval(300, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1))
+			node.sm.HandleApproval(&common.ValidatorSetApproval{NodeID: [20]byte{3}, PChainHeight: 300, Signature: signApproval(300, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1)
 		}
 	}
 
@@ -181,9 +182,9 @@ func TestFakeNodeEmptyMempool(t *testing.T) {
 	for node.lastFinalizedBlock().Metadata.SimplexEpochInfo.BlockValidationDescriptor == nil {
 		node.act()
 		if flipCoin() {
-			require.NoError(t, node.sm.HandleApproval(&common.ValidatorSetApproval{NodeID: [20]byte{1}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1))
+			node.sm.HandleApproval(&common.ValidatorSetApproval{NodeID: [20]byte{1}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1)
 		} else {
-			require.NoError(t, node.sm.HandleApproval(&common.ValidatorSetApproval{NodeID: [20]byte{2}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1))
+			node.sm.HandleApproval(&common.ValidatorSetApproval{NodeID: [20]byte{2}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1)
 		}
 	}
 
@@ -210,9 +211,9 @@ func TestFakeNodeEmptyMempool(t *testing.T) {
 	for node.Height() < 30 {
 		node.act()
 		if flipCoin() {
-			require.NoError(t, node.sm.HandleApproval(&common.ValidatorSetApproval{NodeID: [20]byte{2}, PChainHeight: 300, Signature: signApproval(300, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1))
+			node.sm.HandleApproval(&common.ValidatorSetApproval{NodeID: [20]byte{2}, PChainHeight: 300, Signature: signApproval(300, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1)
 		} else {
-			require.NoError(t, node.sm.HandleApproval(&common.ValidatorSetApproval{NodeID: [20]byte{3}, PChainHeight: 300, Signature: signApproval(300, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1))
+			node.sm.HandleApproval(&common.ValidatorSetApproval{NodeID: [20]byte{3}, PChainHeight: 300, Signature: signApproval(300, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1)
 		}
 	}
 
@@ -323,7 +324,7 @@ func (fn *fakeNode) Height() uint64 {
 }
 
 func (fn *fakeNode) Epoch() uint64 {
-	return fn.blocks[len(fn.blocks)-1].block.Metadata.SimplexEpochInfo.EpochNumber
+	return fn.blocks[len(fn.blocks)-1].block.Metadata.SimplexProtocolMetadata.Epoch
 }
 
 func (fn *fakeNode) act() {
@@ -365,7 +366,7 @@ func (fn *fakeNode) tryFinalizeNextBlock() {
 	md := block.Metadata.SimplexProtocolMetadata
 
 	fn.sm.LatestPersistedHeight = md.Seq
-	fn.t.Logf("Finalized block at height %d with epoch %d", md.Seq, block.Metadata.SimplexEpochInfo.EpochNumber)
+	fn.t.Logf("Finalized block at height %d with epoch %d", md.Seq, md.Epoch)
 
 	// If we just finalized a sealing block, trim trailing Telock blocks.
 	if block.Metadata.SimplexEpochInfo.BlockValidationDescriptor != nil {
@@ -412,7 +413,7 @@ func (fn *fakeNode) buildBlock() (avalanchego.VMBlock, *StateMachineBlock) {
 		finalizedString = "finalized"
 	}
 
-	fn.t.Logf("Building a block on top of %s parent with epoch %d", finalizedString, parentBlock.Metadata.SimplexEpochInfo.EpochNumber)
+	fn.t.Logf("Building a block on top of %s parent with epoch %d", finalizedString, parentBlock.Metadata.SimplexProtocolMetadata.Epoch)
 
 	block, err := fn.sm.BuildBlock(context.Background(), common.ProtocolMetadata{
 		Seq:   lastMD.Seq + 1,

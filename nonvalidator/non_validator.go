@@ -54,6 +54,10 @@ type Config struct {
 	// RandomSource is used by the replication state to pick which nodes to
 	// request sequences from. If nil, a cryptographically secure source is used.
 	RandomSource *rand.Rand
+
+	// TransitionToValidator is called when our non-validator indexes the highest known epoch
+	// and it is in the validator set
+	TransitionToValidator func(epoch uint64, validators common.Nodes)
 }
 
 type NonValidator struct {
@@ -144,7 +148,7 @@ func (n *NonValidator) HandleMessage(msg *common.Message, from common.NodeID) er
 		return nil
 	}
 
-	n.Config.Logger.Debug("Received a message", zap.Any("Message", msg), zap.Stringer("from", from))
+	n.Logger.Debug("Received a message", zap.Any("Message", msg), zap.Stringer("from", from))
 
 	if n.haltedError != nil {
 		return n.haltedError
@@ -156,8 +160,7 @@ func (n *NonValidator) HandleMessage(msg *common.Message, from common.NodeID) er
 	case msg.Finalization != nil:
 		return n.handleFinalization(msg.Finalization, from)
 	case msg.ReplicationResponse != nil:
-		n.handleReplicationResponse(msg.ReplicationResponse, from)
-		return nil
+		return n.handleReplicationResponse(msg.ReplicationResponse, from)
 	default:
 		n.Logger.Debug("Received unexpected message", zap.Any("Message", msg), zap.Stringer("from", from))
 		return nil
@@ -242,7 +245,7 @@ func (n *NonValidator) newFinalizedBlockTask(block common.Block, finalization *c
 			n.Logger.Debug("Block verification ended", zap.Uint64("sequence", md.Seq), zap.Duration("elapsed", elapsed))
 		}()
 
-		verifiedBlock, err := block.Verify(n.ctx)
+		verifiedBlock, err := block.Verify(n.ctx, common.OnlyVMVerifyOpt)
 		n.lock.Lock()
 		defer n.lock.Unlock()
 
@@ -265,6 +268,20 @@ func (n *NonValidator) newFinalizedBlockTask(block common.Block, finalization *c
 			n.haltedError = err
 			n.Logger.Info("Failed indexing a block and finalization", zap.Uint64("Block Seq", md.Seq), zap.Stringer("Block Digest", md.Digest), zap.Error(err))
 			return md.Digest
+		}
+
+		// If we are indexing a sealing block, we may need to transition to become a validator
+		if block.SealingBlockInfo() != nil {
+			highestEpoch, highestValidatorSet := n.epochs.highestEpoch()
+
+			// We should only transition to become a validator, if the sealing block is creating the highest
+			// epoch we have validated. Since we are fetching from the epochs map, we know this epoch has been validated
+			// either by a threshold of responses, or backwards hash chain validation.
+			if highestValidatorSet.Contains(n.ID) && highestEpoch == md.Seq {
+				if n.TransitionToValidator != nil {
+					n.TransitionToValidator(block.BlockHeader().Seq, block.SealingBlockInfo().ValidatorSet)
+				}
+			}
 		}
 
 		n.Logger.Info("Verified and Indexed Block", zap.Uint64("Block Seq", md.Seq), zap.Stringer("Block Digest", md.Digest))
@@ -361,19 +378,34 @@ func (n *NonValidator) handleFinalization(finalization *common.Finalization, fro
 
 	// Duplicate finalization received.
 	if incomplete.finalization != nil {
+		stored := incomplete.finalization.Finalization
+		// We can have two different finalizations for the same sequence.
+		// A telock for a lower epoch, and a finalization in the next epoch.
+		switch {
+		// finalizations are the same
+		case bytes.Equal(stored.Bytes(), finalization.Finalization.Bytes()):
+			return nil
 		// sanity check: should never happen.
-		if !bytes.Equal(incomplete.finalization.Finalization.Bytes(), finalization.Finalization.Bytes()) {
+		case stored.Epoch == bh.Epoch:
 			n.Logger.Warn(
 				"Mismatching finalizations",
 				zap.Uint64("Incoming Sequence", finalization.Finalization.Seq),
-				zap.Uint64("Stored sequence", incomplete.finalization.Finalization.Seq),
+				zap.Uint64("Stored sequence", stored.Seq),
 			)
 			errConflictingFinalizations := fmt.Errorf("conflicting finalizations. seq: %d", bh.Seq)
 			n.haltedError = errConflictingFinalizations
 			return errConflictingFinalizations
+		// the finalization we received was for a telock
+		case bh.Epoch < stored.Epoch:
+			n.Logger.Debug("Received a Telock finalization", zap.Uint64("Epoch", bh.Epoch), zap.Uint64("Seq", bh.Seq), zap.Stringer("From", from))
+			return nil
+		default:
+			// The current finalization in incompleteSequences belongs to a Telock
+			// because stored.Epoch < bh.Epoch
+			n.Logger.Debug("Dropping stored Telock sequence", zap.Stringer("Sequence", incomplete))
+			incomplete.block = nil
+			n.sequenceReplicator.ReceivedFutureFinalization(finalization, n.nextSeqToCommit())
 		}
-
-		return nil
 	}
 
 	incomplete.finalization = finalization
@@ -392,6 +424,7 @@ func (n *NonValidator) handleFinalization(finalization *common.Finalization, fro
 			zap.Stringer("From", from),
 		)
 
+		incomplete.block = nil
 		n.sequenceReplicator.ReceivedFutureFinalization(finalization, n.nextSeqToCommit())
 		return nil
 	}
@@ -505,8 +538,36 @@ func (n *NonValidator) processQuorumRound(qr *common.QuorumRound, from common.No
 
 	// This block could be a sealing block, validate the next epoch if so.
 	n.maybeValidateNextEpoch(block)
-	n.sequenceReplicator.StoreQuorumRound(qr)
+	n.storeQuorumRound(qr)
 	return nil
+}
+
+// storeQuorumRound updates replication state, and stores qr if its within MaxSequenceWindow.
+func (n *NonValidator) storeQuorumRound(qr *common.QuorumRound) {
+	seq := qr.Block.BlockHeader().Seq
+	nextSeqToCommit := n.nextSeqToCommit()
+
+	if seq > n.MaxSequenceWindow+nextSeqToCommit {
+		n.Logger.Debug("Received a quorum round from a sequence too far ahead", zap.Uint64("Next Seq To Commit", nextSeqToCommit), zap.Uint64("Block Sequence", seq))
+		n.sequenceReplicator.ReceivedFutureFinalization(qr.Finalization, nextSeqToCommit)
+		return
+	}
+
+	// A Telock and the first block of the next epoch share a seq. The lower epoch is the Telock.
+	if _, stored, exists := n.sequenceReplicator.GetFinalizedBlockForSequence(seq); exists {
+		storedEpoch := stored.Finalization.Epoch
+		epoch := qr.Finalization.Finalization.Epoch
+		if epoch < storedEpoch {
+			n.Logger.Debug("Received a Telock quorum round", zap.Uint64("Epoch", epoch), zap.Uint64("Seq", seq))
+			return
+		}
+		if epoch > storedEpoch {
+			n.Logger.Debug("Dropping stored Telock quorum round", zap.Uint64("Epoch", storedEpoch), zap.Uint64("Seq", seq))
+			n.sequenceReplicator.DeleteSeq(seq)
+		}
+	}
+
+	n.sequenceReplicator.StoreQuorumRound(qr)
 }
 
 func (n *NonValidator) handleQrFromUnknownEpoch(qr *common.QuorumRound, from common.NodeID) {
@@ -522,14 +583,9 @@ func (n *NonValidator) handleQrFromUnknownEpoch(qr *common.QuorumRound, from com
 	if n.epochs.canValidate(block) {
 		n.Logger.Debug("We can validate an epoch block as we have validated the one after it.", zap.Stringer("Info", block.SealingBlockInfo()))
 		n.maybeValidateNextEpoch(block)
-
-		// We are storing a quorum round with a finalization we have not yet verified.
-		// We do this to tell the replicator a valid sequence exists and to begin replication if necessary.
-		// We will check the validity when we process this round.
-		n.sequenceReplicator.StoreQuorumRound(qr)
+		n.storeQuorumRound(qr)
 		return
 	}
-
 	if n.highestEpochCollector.collectedSealingBlockInfo(qr.Block.SealingBlockInfo(), qr.Block.BlockHeader(), from) {
 		n.Logger.Debug("We can validate an epoch because we have received a threshold of messages of it.", zap.Stringer("Info", block.SealingBlockInfo()))
 		n.maybeValidateNextEpoch(block)
@@ -537,7 +593,7 @@ func (n *NonValidator) handleQrFromUnknownEpoch(qr *common.QuorumRound, from com
 		// We are storing a quorum round with a finalization we have not yet verified.
 		// We do this to tell the replicator a valid sequence exists and to begin replication if necessary.
 		// We will check the validity when we process this round.
-		n.sequenceReplicator.StoreQuorumRound(qr)
+		n.storeQuorumRound(qr)
 	}
 }
 
@@ -567,7 +623,7 @@ func (n *NonValidator) sendRequest(seq uint64, to common.NodeID) {
 
 	n.Logger.Debug("Sending sealing block request", zap.Uint64("Requesting Seq", seq))
 
-	n.Config.Comm.Send(&common.Message{
+	n.Comm.Send(&common.Message{
 		ReplicationRequest: &request,
 	}, to)
 }

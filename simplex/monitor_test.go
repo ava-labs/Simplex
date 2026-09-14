@@ -68,6 +68,17 @@ func TestMonitorPrematureCancelTask(t *testing.T) {
 	})
 
 	t.Run("Cancelled task does not fire", func(t *testing.T) {
+		// Occupy the monitor goroutine, otherwise it can dequeue and start the task below
+		// before we cancel it, and cancelling cannot stop a task that already started.
+		busy := make(chan struct{})
+		released := make(chan struct{})
+
+		mon.RunTask(func() {
+			close(busy)
+			<-released
+		})
+		<-busy
+
 		finish := make(chan struct{})
 
 		mon.RunTask(func() {
@@ -76,6 +87,7 @@ func TestMonitorPrematureCancelTask(t *testing.T) {
 		})
 
 		mon.CancelTask()
+		close(released)
 
 		close(finish)
 	})
@@ -113,9 +125,11 @@ func TestMonitorAsyncWaitForWithNestedWaitUntil(t *testing.T) {
 
 	var wg sync.WaitGroup
 	wg.Add(1)
+	// FutureTask must be scheduled before AdvanceTime, otherwise the deadline
+	// is computed from the advanced clock and the tick never satisfies it.
 	mon.RunTask(func() {
-		go mon.AdvanceTime(start.Add(10 * time.Millisecond))
 		mon.FutureTask(10*time.Millisecond, wg.Done)
+		mon.AdvanceTime(start.Add(10 * time.Millisecond))
 	})
 	wg.Wait()
 }
@@ -133,7 +147,7 @@ func (tl *testLogger) Verbo(msg string, fields ...zap.Field) {
 }
 
 func (t *testLogger) intercept(hook func(entry zapcore.Entry) error) {
-	logger := t.Logger.WithOptions(zap.Hooks(hook))
+	logger := t.WithOptions(zap.Hooks(hook))
 	t.Logger = logger
 }
 

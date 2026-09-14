@@ -157,8 +157,9 @@ func TestRecoverFromWalWithStorage(t *testing.T) {
 	sigAggregrator := &testutil.TestSignatureAggregator{N: 4}
 	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
 
-	err := storage.Index(ctx, testutil.NewTestBlock(ProtocolMetadata{Seq: 0, Round: 0, Epoch: 0}, emptyBlacklist), Finalization{})
-	require.NoError(t, err)
+	indexedBlock := testutil.NewTestBlock(ProtocolMetadata{Seq: 0, Round: 0, Epoch: 0}, emptyBlacklist)
+	indexedFinalization, _ := testutil.NewFinalizationRecord(t, sigAggregrator, indexedBlock, nodes[0:quorum])
+	require.NoError(t, storage.Index(ctx, indexedBlock, indexedFinalization))
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
@@ -336,6 +337,9 @@ func TestWalWritesFinalization(t *testing.T) {
 	for i := 1; i < quorum; i++ {
 		testutil.InjectTestVote(t, e, firstBlock, nodes[i])
 	}
+
+	wal.AssertWALSize(2)
+
 	records, err := e.WAL.ReadAll()
 	require.NoError(t, err)
 	require.Len(t, records, 2)
@@ -429,11 +433,11 @@ func TestRecoverFromMultipleNotarizations(t *testing.T) {
 	record, err := BlockRecord(firstBlock.BlockHeader(), fBytes)
 	require.NoError(t, err)
 
-	wal.Append(record)
+	require.NoError(t, wal.Append(record))
 
 	firstNotarizationRecord, err := testutil.NewNotarizationRecord(conf.Logger, sigAggr, firstBlock, nodes[0:quorum])
 	require.NoError(t, err)
-	wal.Append(firstNotarizationRecord)
+	require.NoError(t, wal.Append(firstNotarizationRecord))
 
 	protocolMetadata.Round = 1
 	protocolMetadata.Seq = 1
@@ -443,16 +447,16 @@ func TestRecoverFromMultipleNotarizations(t *testing.T) {
 	record, err = BlockRecord(secondBlock.BlockHeader(), sBytes)
 	require.NoError(t, err)
 
-	wal.Append(record)
+	require.NoError(t, wal.Append(record))
 
 	// Add notarization for second block
 	secondNotarizationRecord, err := testutil.NewNotarizationRecord(conf.Logger, sigAggr, secondBlock, nodes[0:quorum])
 	require.NoError(t, err)
-	wal.Append(secondNotarizationRecord)
+	require.NoError(t, wal.Append(secondNotarizationRecord))
 
 	// Create finalization record for second block
 	finalization2, finalizationRecord := testutil.NewFinalizationRecord(t, sigAggr, secondBlock, nodes[0:quorum])
-	wal.Append(finalizationRecord)
+	require.NoError(t, wal.Append(finalizationRecord))
 
 	err = e.Start()
 	require.NoError(t, err)
@@ -477,9 +481,9 @@ func TestRecoverFromMultipleNotarizations(t *testing.T) {
 	require.NoError(t, err)
 	storageBytes = secondBlockRetrieved.Bytes()
 	require.Equal(t, sBytes, storageBytes)
-	require.True(t, finalization1.Finalization.BlockHeader.Equals(&finalizationRetrieved1.Finalization.BlockHeader))
+	require.True(t, finalization1.Finalization.Equals(&finalizationRetrieved1.Finalization.BlockHeader))
 	require.Equal(t, finalization1.QC, finalizationRetrieved1.QC)
-	require.True(t, finalization2.Finalization.BlockHeader.Equals(&finalizationRetrieved2.Finalization.BlockHeader))
+	require.True(t, finalization2.Finalization.Equals(&finalizationRetrieved2.Finalization.BlockHeader))
 	require.Equal(t, finalization2.QC, finalizationRetrieved2.QC)
 }
 
@@ -498,15 +502,15 @@ func TestRecoveryBlocksIndexed(t *testing.T) {
 	require.True(t, ok)
 	record, err := BlockRecord(firstBlock.BlockHeader(), fBytes)
 	require.NoError(t, err)
-	wal.Append(record)
+	require.NoError(t, wal.Append(record))
 
 	sigAggr := conf.SignatureAggregatorCreator(conf.Comm.Validators())
 	firstNotarizationRecord, err := testutil.NewNotarizationRecord(conf.Logger, sigAggr, firstBlock, nodes[0:quorum])
 	require.NoError(t, err)
-	wal.Append(firstNotarizationRecord)
+	require.NoError(t, wal.Append(firstNotarizationRecord))
 
 	_, finalizationBytes := testutil.NewFinalizationRecord(t, sigAggr, firstBlock, nodes[0:quorum])
-	wal.Append(finalizationBytes)
+	require.NoError(t, wal.Append(finalizationBytes))
 
 	protocolMetadata.Round = 1
 	protocolMetadata.Seq = 1
@@ -515,7 +519,7 @@ func TestRecoveryBlocksIndexed(t *testing.T) {
 	sBytes := secondBlock.Bytes()
 	record, err = BlockRecord(secondBlock.BlockHeader(), sBytes)
 	require.NoError(t, err)
-	wal.Append(record)
+	require.NoError(t, wal.Append(record))
 
 	protocolMetadata.Round = 2
 	protocolMetadata.Seq = 2
@@ -525,15 +529,15 @@ func TestRecoveryBlocksIndexed(t *testing.T) {
 	record, err = BlockRecord(thirdBlock.BlockHeader(), tBytes)
 	require.NoError(t, err)
 
-	wal.Append(record)
+	require.NoError(t, wal.Append(record))
 
 	finalization1, _ := testutil.NewFinalizationRecord(t, sigAggr, firstBlock, nodes[0:quorum])
 	finalization2, _ := testutil.NewFinalizationRecord(t, sigAggr, secondBlock, nodes[0:quorum])
 	fCer3, _ := testutil.NewFinalizationRecord(t, sigAggr, thirdBlock, nodes[0:quorum])
 
-	conf.Storage.Index(ctx, firstBlock, finalization1)
-	conf.Storage.Index(ctx, secondBlock, finalization2)
-	conf.Storage.Index(ctx, thirdBlock, fCer3)
+	require.NoError(t, conf.Storage.Index(ctx, firstBlock, finalization1))
+	require.NoError(t, conf.Storage.Index(ctx, secondBlock, finalization2))
+	require.NoError(t, conf.Storage.Index(ctx, thirdBlock, fCer3))
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
@@ -547,24 +551,95 @@ func TestRecoveryBlocksIndexed(t *testing.T) {
 	require.Equal(t, thirdBlock.BlockHeader().Digest, e.Metadata().Prev)
 }
 
+// TestEpochCorrectlyInitializesMetadataFromStorage asserts the next block's metadata is
+// derived from the last indexed block.
 func TestEpochCorrectlyInitializesMetadataFromStorage(t *testing.T) {
 	ctx := context.Background()
-	bb := testutil.NewTestBlockBuilder()
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
-	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
 
-	block := testutil.NewTestBlock(ProtocolMetadata{Seq: 0, Round: 0, Epoch: 0}, emptyBlacklist)
-	conf.Storage.Index(ctx, block, Finalization{})
-	e, err := NewEpoch(conf)
-	require.NoError(t, err)
-	t.Cleanup(e.Stop)
-	require.Equal(t, uint64(1), e.Storage.NumBlocks())
-	require.NoError(t, e.Start())
+	tests := []struct {
+		name          string
+		storage       func(t *testing.T) Storage
+		expectedRound uint64
+		expectedSeq   uint64
+		expectedEpoch uint64
+	}{
+		{
+			name: "normal block",
+			storage: func(t *testing.T) Storage {
+				storage := testutil.NewInMemStorage()
+				for _, block := range createBlocks(t, nodes, 2) {
+					require.NoError(t, storage.Index(ctx, block.VerifiedBlock, block.Finalization))
+				}
 
-	// ensure the round is properly set
-	require.Equal(t, uint64(1), e.Metadata().Round)
-	require.Equal(t, uint64(1), e.Metadata().Seq)
-	require.Equal(t, block.BlockHeader().Digest, e.Metadata().Prev)
+				return storage
+			},
+			expectedRound: 2,
+			expectedSeq:   2,
+			expectedEpoch: 0,
+		},
+		{
+			name: "sealing block",
+			storage: func(t *testing.T) Storage {
+				storage := testutil.NewInMemStorage()
+				blocks := createBlocks(t, nodes, 8)
+				blocks[7].VerifiedBlock.(*testutil.TestBlock).SealingInfo = &SealingBlockInfo{
+					ValidatorSet:         NodeIDs(nodes).EqualWeightedNodes(),
+					PrevSealingBlockHash: blocks[0].VerifiedBlock.BlockHeader().Digest,
+				}
+				for _, block := range blocks {
+					require.NoError(t, storage.Index(ctx, block.VerifiedBlock, block.Finalization))
+				}
+
+				return storage
+			},
+			expectedRound: 8,
+			expectedSeq:   8,
+			// The epoch is the sequence of the last indexed sealing block.
+			expectedEpoch: 7,
+		},
+		{
+			// Blocks predating Simplex carry no finalization, so the round and epoch
+			// come from the number of indexed blocks.
+			name: "non simplex blocks",
+			storage: func(t *testing.T) Storage {
+				storage := testutil.NewInMemStorage()
+				for i, block := range createBlocks(t, nodes, 2) {
+					block.VerifiedBlock.(*testutil.TestBlock).Metadata = ProtocolMetadata{
+						Seq: uint64(i), // set the sequence so we can index without error
+					}
+					require.NoError(t, storage.Index(ctx, block.VerifiedBlock, Finalization{}))
+				}
+
+				return storage
+			},
+			expectedRound: 1,
+			expectedSeq:   2,
+			expectedEpoch: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bb := testutil.NewTestBlockBuilder()
+			conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
+			conf.Storage = tt.storage(t)
+
+			e, err := NewEpoch(conf)
+			require.NoError(t, err)
+			t.Cleanup(e.Stop)
+			require.NoError(t, e.Start())
+
+			tip, err := RetrieveLastIndexFromStorage(e.Storage)
+			require.NoError(t, err)
+
+			md := e.Metadata()
+			require.Equal(t, tt.expectedEpoch, md.Epoch)
+			require.Equal(t, tt.expectedRound, md.Round)
+			require.Equal(t, tt.expectedSeq, md.Seq)
+			require.Equal(t, tip.VerifiedBlock.BlockHeader().Digest, md.Prev)
+		})
+	}
 }
 
 func TestRecoveryAsLeader(t *testing.T) {
@@ -623,7 +698,7 @@ func TestRecoveryReVerifiesBlocks(t *testing.T) {
 	record, err := BlockRecord(firstBlock.BlockHeader(), fBytes)
 	require.NoError(t, err)
 
-	wal.Append(record)
+	require.NoError(t, wal.Append(record))
 
 	deserializer.DelayedVerification <- struct{}{}
 	require.NoError(t, e.Start())
@@ -642,7 +717,7 @@ func TestWalRecoveryTriggersEmptyVoteTimeout(t *testing.T) {
 	initialBlock := createBlocks(t, nodes, 1)[0]
 	recordingComm := &recordingComm{Communication: testutil.NewNoopComm(nodes), BroadcastMessages: make(chan *Message, 100), SentMessages: make(chan *Message, 100)}
 	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], recordingComm, bb)
-	storage.Index(ctx, initialBlock.VerifiedBlock, initialBlock.Finalization)
+	require.NoError(t, storage.Index(ctx, initialBlock.VerifiedBlock, initialBlock.Finalization))
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
@@ -707,7 +782,7 @@ func TestWalRecoveryMonitorsProgress(t *testing.T) {
 	initialBlock := createBlocks(t, nodes, 1)[0]
 	recordingComm := &recordingComm{Communication: testutil.NewNoopComm(nodes), BroadcastMessages: make(chan *Message, 100), SentMessages: make(chan *Message, 100)}
 	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], recordingComm, bb)
-	storage.Index(ctx, initialBlock.VerifiedBlock, initialBlock.Finalization)
+	require.NoError(t, storage.Index(ctx, initialBlock.VerifiedBlock, initialBlock.Finalization))
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)

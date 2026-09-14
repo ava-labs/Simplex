@@ -73,7 +73,7 @@ func TestSimplexRebroadcastFinalizationVotes(t *testing.T) {
 	allowFinalizeVotes.Store(true)
 
 	require.Eventually(t, func() bool {
-		var allHaveFinalized bool = true
+		allHaveFinalized := true
 		for _, n := range net.Instances {
 			if n.Storage.NumBlocks() < lastSeq+1 {
 				allHaveFinalized = false
@@ -355,10 +355,10 @@ func TestSplitVotes(t *testing.T) {
 	time3 := splitNode3.E.StartTime
 
 	for {
-		time2 = time2.Add(splitNode2.E.EpochConfig.MaxRebroadcastWait / 3)
+		time2 = time2.Add(splitNode2.E.MaxRebroadcastWait / 3)
 		splitNode2.E.AdvanceTime(time2)
 
-		time3 = time3.Add(splitNode3.E.EpochConfig.MaxRebroadcastWait / 3)
+		time3 = time3.Add(splitNode3.E.MaxRebroadcastWait / 3)
 		splitNode3.E.AdvanceTime(time3)
 		if splitNode2.WAL.ContainsNotarization(0) && splitNode3.WAL.ContainsNotarization(0) {
 			break

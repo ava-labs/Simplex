@@ -36,7 +36,7 @@ func (tw *TestWAL) Clone() *TestWAL {
 	wal := NewTestWAL(tw.t)
 
 	for _, entry := range rawWAL {
-		wal.Append(entry)
+		require.NoError(tw.t, wal.Append(entry))
 	}
 
 	return wal

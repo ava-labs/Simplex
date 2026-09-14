@@ -17,12 +17,9 @@ import (
 )
 
 func TestRetrieveFromStorage(t *testing.T) {
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	block := testutil.NewTestBlock(ProtocolMetadata{Seq: 0}, emptyBlacklist)
-	finalization := Finalization{
-		Finalization: ToBeSignedFinalization{
-			BlockHeader: block.BlockHeader(),
-		},
-	}
+	finalization, _ := testutil.NewFinalizationRecord(t, &testutil.TestSignatureAggregator{N: len(nodes)}, block, nodes[:Quorum(len(nodes))])
 	normalStorage := testutil.NewInMemStorage()
 	err := normalStorage.Index(context.Background(), block, finalization)
 	require.NoError(t, err)

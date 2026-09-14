@@ -149,12 +149,13 @@ func (m *Monitor) CancelFutureTask() {
 
 func (m *Monitor) FutureTask(timeout time.Duration, f func()) {
 	t := m.time.Load()
-	time := t.(time.Time)
+	now := t.(time.Time)
+	deadline := now.Add(timeout)
 
 	m.futureTask.Store(&futureTask{
 		f:        f,
-		deadline: time.Add(timeout),
+		deadline: deadline,
 	})
 
-	m.logger.Verbo("Scheduling task", zap.Duration("timeout", timeout), zap.Time("deadline", time))
+	m.logger.Verbo("Scheduling task", zap.Duration("timeout", timeout), zap.Time("deadline", deadline))
 }

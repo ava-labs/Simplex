@@ -40,7 +40,7 @@ func NewBlock(metadata common.ProtocolMetadata, blacklist common.Blacklist, memp
 	return b
 }
 
-func (b *Block) Verify(ctx context.Context) (common.VerifiedBlock, error) {
+func (b *Block) Verify(ctx context.Context, _ ...common.VerifyOptions) (common.VerifiedBlock, error) {
 	return b, b.mempool.VerifyBlock(ctx, b)
 }
 

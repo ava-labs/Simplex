@@ -62,7 +62,7 @@ func (n *LongRunningInMemoryNetwork) StartInstances() {
 
 func (n *LongRunningInMemoryNetwork) UpdateTime(frequency time.Duration, increment time.Duration) {
 	for !n.stopped.Load() {
-		n.BasicInMemoryNetwork.AdvanceTime(increment)
+		n.AdvanceTime(increment)
 		time.Sleep(frequency)
 	}
 }
@@ -93,7 +93,7 @@ func (n *LongRunningInMemoryNetwork) StartNodes(nodeIndexes ...uint64) {
 		newNode := NewLongRunningNode(n.t, nodeID, n.BasicInMemoryNetwork, config)
 
 		n.instances[idx] = newNode
-		n.BasicInMemoryNetwork.ReplaceNode(newNode.BasicNode)
+		n.ReplaceNode(newNode.BasicNode)
 
 		n.lock.Unlock()
 		newNode.Start()

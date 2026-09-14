@@ -33,9 +33,9 @@ type StateMachineMetadata struct {
 	Timestamp uint64 `canoto:"uint,5"`
 	// ICMEpochInfo is the metadata that the StateMachine uses for ICM epoching.
 	ICMEpochInfo ICMEpochInfo `canoto:"value,6"`
-	// AuxiliaryInfo is application-specific information that the StateMachine doesn't need to understand,
-	// but can be used by applications that care about epoch changes, such as threshold distributed public key generation.
-	AuxiliaryInfo *AuxiliaryInfo `canoto:"pointer,7"`
+	// AuxiliaryInfoBatch is application-specific information that the StateMachine doesn't need to understand,
+	// but can be used by applications that care about epoch changes, such as distributed key generation.
+	AuxiliaryInfoBatch *AuxiliaryInfoBatch `canoto:"pointer,7"`
 
 	canotoData canotoData_StateMachineMetadata
 }
@@ -50,7 +50,7 @@ func (smm *StateMachineMetadata) Clone() StateMachineMetadata {
 		PChainHeight:            smm.PChainHeight,
 		Timestamp:               smm.Timestamp,
 		ICMEpochInfo:            smm.ICMEpochInfo.Clone(),
-		AuxiliaryInfo:           smm.AuxiliaryInfo.Clone(),
+		AuxiliaryInfoBatch:      smm.AuxiliaryInfoBatch.Clone(),
 	}
 }
 
@@ -83,51 +83,9 @@ func (ei *ICMEpochInfo) Equal(other *ICMEpochInfo) bool {
 		return other == nil
 	}
 	if other == nil {
-		return ei == nil
+		return false
 	}
 	return ei.EpochStartTime == other.EpochStartTime && ei.EpochNumber == other.EpochNumber && ei.PChainEpochHeight == other.PChainEpochHeight
-}
-
-// AuxiliaryInfo defines application-specific information for applications that might care about epoch change,
-// such as threshold distributed public key generation.
-type AuxiliaryInfo struct {
-	// Info is opaque bytes that can be used by applications to encode any information that describes
-	// the current state for the application.
-	Info []byte `canoto:"bytes,1"`
-	// PrevAuxInfoSeq is a sequence number that applications can use to find previous AuxiliaryInfo in the chain.
-	// It is zero if this is the first AuxiliaryInfo for this epoch.
-	PrevAuxInfoSeq uint64 `canoto:"uint,2"`
-	// VersionID is an identifier that identifies the application.
-	// Can be used for backward-compatibility and upgrade purposes.
-	VersionID common.VersionID `canoto:"uint,3"`
-
-	canotoData canotoData_AuxiliaryInfo
-}
-
-func (ai *AuxiliaryInfo) Clone() *AuxiliaryInfo {
-	if ai == nil {
-		return nil
-	}
-	return &AuxiliaryInfo{
-		Info:           ai.Info,
-		PrevAuxInfoSeq: ai.PrevAuxInfoSeq,
-		VersionID:      ai.VersionID,
-	}
-}
-
-func (ai *AuxiliaryInfo) IsZero() bool {
-	var zero AuxiliaryInfo
-	return ai.Equal(&zero)
-}
-
-func (ai *AuxiliaryInfo) Equal(a *AuxiliaryInfo) bool {
-	if ai == nil {
-		return a == nil
-	}
-	if a == nil {
-		return ai == nil
-	}
-	return bytes.Equal(ai.Info, a.Info) && ai.PrevAuxInfoSeq == a.PrevAuxInfoSeq && ai.VersionID == a.VersionID
 }
 
 // SimplexEpochInfo is metadata used by the StateMachine.
@@ -135,34 +93,30 @@ type SimplexEpochInfo struct {
 	// PChainReferenceHeight is the P-Chain height that the StateMachine uses as a reference for the current epoch.
 	// The validator set is determined based on the validators on the P-Chain at the PChainReferenceHeight.
 	PChainReferenceHeight uint64 `canoto:"uint,1"`
-	// EpochNumber is the current epoch number.
-	// The first epoch is numbered 1, and each successive epoch is numbered according to the block sequence
-	// of the sealing block of the previous epoch.
-	EpochNumber uint64 `canoto:"uint,2"`
 	// PrevSealingBlockHash is the hash of the sealing block of the previous epoch.
 	// It is set to the hash of the zero block in the first epoch, and in subsequent epochs it is set to be
 	// the hash of the sealing block of the previous epoch.
 	// This is used to be able to quickly fetch and verify the sealing blocks without having to retrieve the interleaving blocks,
 	// which allows to bootstrap the BLS keys of the validator set for each epoch before fully syncing the interleaving blocks.
-	PrevSealingBlockHash [32]byte `canoto:"fixed bytes,3"`
+	PrevSealingBlockHash [32]byte `canoto:"fixed bytes,2"`
 	// NextPChainReferenceHeight is the P-Chain height that the StateMachine uses as a reference for the next epoch.
 	// When the NextPChainReferenceHeight is > 0, it means the StateMachine is on its way to transition to a new epoch
 	// in which the validator set will be based on the given P-chain height.
 	// It sets the PChainReferenceHeight for the next epoch.
-	NextPChainReferenceHeight uint64 `canoto:"uint,4"`
+	NextPChainReferenceHeight uint64 `canoto:"uint,3"`
 	// PrevVMBlockSeq is the block sequence of the previous block that has a VM block (inner block).
 	// This is used to know on which VM block to build the next block.
-	PrevVMBlockSeq uint64 `canoto:"uint,5"`
+	PrevVMBlockSeq uint64 `canoto:"uint,4"`
 	// BlockValidationDescriptor is the metadata that describes the validator set of the next epoch.
 	// It is only set in the sealing block and zero block, and nil in all other blocks.
-	BlockValidationDescriptor *BlockValidationDescriptor `canoto:"pointer,6"`
+	BlockValidationDescriptor *BlockValidationDescriptor `canoto:"pointer,5"`
 	// NextEpochApprovals is the metadata that contains the approvals from validators for the next epoch.
 	// It is set only in the sealing block and the blocks preceding it starting from a block that has a NextPChainReferenceHeight set.
-	NextEpochApprovals *NextEpochApprovals `canoto:"pointer,7"`
+	NextEpochApprovals *NextEpochApprovals `canoto:"pointer,6"`
 	// SealingBlockSeq is the block sequence of the sealing block of the current epoch.
 	// It defines the validator set of the next epoch.
 	// It is set once the first Telock is built and is copied over to subsequent Telocks.
-	SealingBlockSeq uint64 `canoto:"uint,8"`
+	SealingBlockSeq uint64 `canoto:"uint,7"`
 
 	canotoData canotoData_SimplexEpochInfo
 }
@@ -172,7 +126,6 @@ type SimplexEpochInfo struct {
 func (sei *SimplexEpochInfo) Clone() SimplexEpochInfo {
 	return SimplexEpochInfo{
 		PChainReferenceHeight:     sei.PChainReferenceHeight,
-		EpochNumber:               sei.EpochNumber,
 		PrevSealingBlockHash:      sei.PrevSealingBlockHash,
 		NextPChainReferenceHeight: sei.NextPChainReferenceHeight,
 		PrevVMBlockSeq:            sei.PrevVMBlockSeq,
@@ -207,7 +160,7 @@ func (sei *SimplexEpochInfo) Equal(other *SimplexEpochInfo) bool {
 		return false
 	}
 
-	if sei.PChainReferenceHeight != other.PChainReferenceHeight || sei.EpochNumber != other.EpochNumber ||
+	if sei.PChainReferenceHeight != other.PChainReferenceHeight ||
 		sei.NextPChainReferenceHeight != other.NextPChainReferenceHeight ||
 		sei.PrevVMBlockSeq != other.PrevVMBlockSeq || sei.SealingBlockSeq != other.SealingBlockSeq {
 		return false
@@ -225,10 +178,12 @@ func (sei *SimplexEpochInfo) Equal(other *SimplexEpochInfo) bool {
 }
 
 // NextState returns the state used to build (or verify) the block that follows the one
-// described by the SimplexEpochInfo.
-func (sei *SimplexEpochInfo) NextState() state {
+// described by the metadata.
+func (smm *StateMachineMetadata) NextState() state {
+	sei := &smm.SimplexEpochInfo
+
 	// No Simplex epoch has started yet: the next block is the first one built by Simplex.
-	if sei.EpochNumber == 0 {
+	if smm.SimplexProtocolMetadata.Epoch == 0 {
 		return stateFirstSimplexBlock
 	}
 
@@ -381,6 +336,15 @@ func (nbms NodeBLSMappings) Nodes() common.Nodes {
 	return nodeWeights
 }
 
+// NodeIDs returns the NodeIDs of the mappings.
+func (nbms NodeBLSMappings) NodeIDs() []common.NodeID {
+	nodeIDs := make([]common.NodeID, len(nbms))
+	for i := range nbms {
+		nodeIDs[i] = nbms[i].NodeID[:]
+	}
+	return nodeIDs
+}
+
 // IndexByNodeID returns a mapping from NodeID to the validator's index in the set,
 // which is the position used by approval bitmasks.
 func (nbms NodeBLSMappings) IndexByNodeID() map[avalanchego.NodeID]int {
@@ -457,4 +421,55 @@ func (vsa ValidatorSetApprovals) UniqueByNodeID() ValidatorSetApprovals {
 		}
 	}
 	return result
+}
+
+// AuxiliaryInfoBatch is a batch of AuxiliaryInfos to be included in a block
+type AuxiliaryInfoBatch struct {
+	// data represents the to-be appended auxiliary information
+	data []common.AuxiliaryInfo `canoto:"repeated value,1"`
+	// PrevAuxInfoSeq is a sequence number that applications can use to find previous AuxiliaryInfo in the chain.
+	// It is zero if this is the first AuxiliaryInfoBatch for this epoch.
+	PrevAuxInfoSeq uint64 `canoto:"uint,2"`
+
+	canotoData canotoData_AuxiliaryInfoBatch
+}
+
+// Clone returns a copy of the batch.
+func (ai *AuxiliaryInfoBatch) Clone() *AuxiliaryInfoBatch {
+	if ai == nil {
+		return nil
+	}
+	cloned := &AuxiliaryInfoBatch{
+		PrevAuxInfoSeq: ai.PrevAuxInfoSeq,
+	}
+	if ai.data != nil {
+		cloned.data = make([]common.AuxiliaryInfo, len(ai.data))
+		for i := range ai.data {
+			cloned.data[i] = ai.data[i].Clone()
+		}
+	}
+	return cloned
+}
+
+func (ai *AuxiliaryInfoBatch) IsZero() bool {
+	var zero AuxiliaryInfoBatch
+	return ai.Equal(&zero)
+}
+
+func (ai *AuxiliaryInfoBatch) Equal(a *AuxiliaryInfoBatch) bool {
+	if ai == nil {
+		return a == nil
+	}
+	if a == nil {
+		return false
+	}
+	if ai.PrevAuxInfoSeq != a.PrevAuxInfoSeq || len(ai.data) != len(a.data) {
+		return false
+	}
+	for i := range ai.data {
+		if ai.data[i].Version != a.data[i].Version || !bytes.Equal(ai.data[i].Data, a.data[i].Data) {
+			return false
+		}
+	}
+	return true
 }

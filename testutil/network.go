@@ -91,7 +91,9 @@ func (b *BasicInMemoryNetwork) Disconnect(node common.NodeID) {
 }
 
 func (b *BasicInMemoryNetwork) AdvanceTime(increment time.Duration) {
-	for _, instance := range b.instances {
+	// iterate a snapshot instead of holding the lock, since advancing time can
+	// send messages, which acquires the lock again
+	for _, instance := range b.GetInstances() {
 		instance.AdvanceTime(increment)
 	}
 }

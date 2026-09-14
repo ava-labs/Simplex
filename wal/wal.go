@@ -83,13 +83,13 @@ func (w *WriteAheadLog) ReadAll() ([][]byte, error) {
 
 	var payloads [][]byte
 	for bytesToRead > 0 {
-		payload, bytesRead, err := readRecord(w.file, uint32(bytesToRead))
+		payload, bytesRead, err := readRecord(w.file, bytesToRead)
 		// record was corrupted in wal
 		if err != nil {
 			return payloads, w.truncateAt(fileInfo.Size() - bytesToRead)
 		}
 
-		bytesToRead -= int64(bytesRead)
+		bytesToRead -= bytesRead
 		payloads = append(payloads, payload)
 	}
 

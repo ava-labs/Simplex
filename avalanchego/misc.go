@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"math/bits"
 	"time"
 )
 
@@ -90,19 +91,20 @@ func (bm *Bitmask) Difference(bm2 *Bitmask) {
 }
 
 func (bm *Bitmask) Len() int {
-	bmAsBigInt := (*big.Int)(bm)
-	bits := new(big.Int).Set(bmAsBigInt)
+	// Previous version also returned 0 for negative numbers, so we keep that behavior here.
+	if (*big.Int)(bm).Sign() < 0 {
+		return 0
+	}
 
-	result := 0
-	var zero big.Int
-	for bits.Cmp(&zero) > 0 {
-		lsb := bits.Bit(0)
-		if lsb == 1 {
-			result++
-		}
-		bits.Rsh(bits, 1)
+	var result int
+	for _, b := range (*big.Int)(bm).Bytes() {
+		result += bits.OnesCount8(b)
 	}
 	return result
+}
+
+func (bm *Bitmask) BitLen() int {
+	return (*big.Int)(bm).BitLen()
 }
 
 func BitmaskFromBytes(bytes []byte) Bitmask {

@@ -5,6 +5,7 @@ package simplex
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"sync"
@@ -18,6 +19,8 @@ import (
 	"github.com/ava-labs/simplex/wal"
 	"go.uber.org/zap"
 )
+
+var errAlreadyStarted = errors.New("instance already started")
 
 const (
 	// tickInterval is the interval at which the instance will call AdvanceTime on the current epoch or non-validator.
@@ -34,56 +37,66 @@ type Config struct {
 	PlatformChain PlatformChain
 	// Broadcaster is the interface to broadcast messages to other nodes in the network.
 	Broadcaster Broadcaster
+	// Sender is an interface to send messages to a specific node in the network
+	Sender Sender
 	// CryptoOps is the interface to the cryptographic operations needed by the simplex instance.
 	CryptoOps CryptoOps
 	// WalCreator is the interface to create new write-ahead logs for the simplex instance.
 	WalCreator wal.Creator
 	// Storage is the interface to the block storage layer for the simplex instance.
-	Storage Storage
-	Logger  common.Logger
-	Sender  Sender
-	WALs    []wal.DeletableWAL
-	VM      VM
-	ID      common.NodeID
+	Storage        Storage
+	Logger         common.Logger
+	WALs           []wal.DeletableWAL
+	VM             VM
+	ICMETransition metadata.ICMEpochTransition
+	ID             common.NodeID
 }
-
-type nodeRole byte
-
-const (
-	nonValidator nodeRole = iota
-	validator
-)
 
 type epochChange struct {
-	epochNum   uint64
+	epoch      uint64
 	validators common.Nodes
-	nodeRole   nodeRole
 }
-
 type timeAdvancer interface {
 	AdvanceTime(t time.Time)
 }
 
 type Instance struct {
-	Config       Config
-	lock         sync.Mutex
-	started      bool
-	cs           *CachedStorage
-	wal          *wal.GarbageCollectedWAL
-	msm          *metadata.StateMachine
-	e            *simplex.Epoch
-	nv           *nonvalidator.NonValidator
-	epochOrNV    timeAdvancer
-	epochChanges chan epochChange
-	stopCh       chan struct{}
+	Config Config
+
+	lock               sync.Mutex
+	started            bool
+	cs                 *CachedStorage
+	transitionListener *epochTransitionListener
+	wal                *wal.GarbageCollectedWAL
+	msm                *metadata.StateMachine
+	e                  *simplex.Epoch
+	nv                 *nonvalidator.NonValidator
+	epochOrNV          timeAdvancer
+	epochChanges       chan epochChange
+	stopCh             chan struct{}
 }
 
 func NewInstance(config Config) *Instance {
+	cs := NewCachedStorage(config.Storage)
+	// Non-validators have no block builder, so they pass a nil approval handler:
+	// they broadcast approvals but do not need to record their own locally.
+	transitionListener := newEpochTransitionListener(
+		config.Logger,
+		config.Sender,
+		avalanchego.NodeID(config.ID),
+		config.PlatformChain.GetValidatorSet,
+		cs.RetrieveBlock,
+		config.CryptoOps,
+		&NoopAuxiliaryInfoApp{}, // TODO: set this in the config
+		nil,
+	)
+
 	return &Instance{
-		Config:       config,
-		stopCh:       make(chan struct{}),
-		cs:           NewCachedStorage(config.Storage),
-		epochChanges: make(chan epochChange, 1),
+		Config:             config,
+		stopCh:             make(chan struct{}),
+		epochChanges:       make(chan epochChange, 1),
+		cs:                 cs,
+		transitionListener: transitionListener,
 	}
 }
 
@@ -93,26 +106,19 @@ func (i *Instance) Start(ctx context.Context) error {
 	defer i.lock.Unlock()
 
 	if i.started {
-		return fmt.Errorf("instance already started")
+		return errAlreadyStarted
 	}
 
 	i.started = true
 
 	context.AfterFunc(ctx, i.Stop)
 
-	lastBlock, numBlocks, err := i.lastBlock()
-	if err != nil {
-		return fmt.Errorf("error retrieving last block: %w", err)
-	}
-
-	lastNonSimplexHeight := i.Config.LastNonSimplexInnerBlock.Height()
-	genesisValidatorSet := i.Config.PlatformChain.GenesisValidatorSet()
-	nodes, epochNum, err := constructEpochAndValidatorSet(i.Config.Logger, lastNonSimplexHeight, genesisValidatorSet, numBlocks, &ParsedBlock{StateMachineBlock: lastBlock}, i.Config.Storage)
+	nodes, epochNum, err := getLastAcceptedEpochAndValidatorSet(&i.Config)
 	if err != nil {
 		return fmt.Errorf("error determining latest epoch and validator set: %w", err)
 	}
 
-	if err := i.startAtEpoch(nodes, epochNum); err != nil {
+	if err := i.startAtEpoch(nodes); err != nil {
 		return fmt.Errorf("error starting instance at epoch %d: %w", epochNum, err)
 	}
 
@@ -122,16 +128,26 @@ func (i *Instance) Start(ctx context.Context) error {
 	return nil
 }
 
-func (i *Instance) startValidator() error {
-	epochConfig, err := i.createEpochConfig()
+func (i *Instance) startValidator(validators common.Nodes) error {
+	epochConfig, err := i.createEpochConfig(validators)
 	if err != nil {
 		return err
 	}
-	return i.startEpoch(epochConfig)
+
+	epoch, err := simplex.NewEpoch(epochConfig.EpochConfig)
+	if err != nil {
+		return fmt.Errorf("error creating simplex epoch: %w", err)
+	}
+
+	i.e = epoch
+	i.epochOrNV = epoch
+	epochConfig.bbw.e = epoch
+
+	return epoch.Start()
 }
 
-func (i *Instance) startNonValidator(epochNum uint64, validators common.Nodes) error {
-	config, err := i.createNonValidatorConfig(epochNum, validators)
+func (i *Instance) startNonValidator() error {
+	config, err := i.createNonValidatorConfig()
 	if err != nil {
 		return err
 	}
@@ -146,67 +162,71 @@ func (i *Instance) startNonValidator(epochNum uint64, validators common.Nodes) e
 	return nil
 }
 
-func (i *Instance) createNonValidatorConfig(epochNum uint64, validators common.Nodes) (nonvalidator.Config, error) {
+func (i *Instance) createNonValidatorConfig() (nonvalidator.Config, error) {
 	source, err := simplex.NewRandomSource()
 	if err != nil {
 		return nonvalidator.Config{}, err
 	}
 
-	comm := &Communication{Sender: i.Config.Sender, Broadcaster: i.Config.Broadcaster}
-	comm.SetValidators(validators)
-
-	epochAwareStorage := &EpochAwareStorage{
-		epoch:   epochNum,
-		Storage: i.Config.Storage,
-		onEpochChange: func(epoch uint64, validators common.Nodes) error {
-			height := i.Config.PlatformChain.GetCurrentHeight()
-			vdrs, err := i.Config.PlatformChain.GetValidatorSet(height)
-			if err != nil {
-				i.Config.Logger.Error("error getting validator set", zap.Error(err))
-				return fmt.Errorf("error getting validator set from platform chain: %w", err)
-			}
-			comm.SetValidators(validators)
-			if i.iAmValidator(vdrs.Nodes()) {
-				i.notifyEpochChange(epoch, validators, nonValidator)
-			} else {
-				i.Config.Logger.Debug("I am still a non-validator at the tip of the P-chain, skipping role change",
-					zap.Uint64("height", height))
-			}
-			return nil
-		},
+	height := i.Config.PlatformChain.GetCurrentHeight()
+	mappings, err := i.Config.PlatformChain.GetValidatorSet(height)
+	if err != nil {
+		return nonvalidator.Config{}, err
 	}
 
-	// Plant an artificial MSM that just skips verification.
+	comm := newCommunication(i.Config.Sender, i.Config.Broadcaster, mappings.Nodes())
+
+	// Plant an artificial MSM. A non-validator never verifies the state machine transition,
+	// it only verifies the inner block (see common.OnlyVMVerifyOpt), so this MSM is only
+	// used to wire blocks and is never asked to verify them.
 	i.msm = &metadata.StateMachine{
-		Config: &metadata.Config{
-			SkipMSMVerification: true,
-		},
+		Config: &metadata.Config{},
 	}
 	i.cs.msm = i.msm
+	instanceStorage := NewCallbackStorage(i.cs, i.msm, func(block *ParsedBlock) error {
+		switch {
+		case block.Type() == metadata.BlockTypeTransitioning:
+			if err := i.transitionListener.handleTransitionBlock(block); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 
 	config := nonvalidator.Config{
 		ID:                         i.Config.ID,
 		RandomSource:               source,
-		Storage:                    epochAwareStorage,
+		Storage:                    instanceStorage,
 		Comm:                       comm,
 		Logger:                     i.Config.Logger,
 		StartTime:                  time.Now(),
 		SignatureAggregatorCreator: i.Config.CryptoOps.CreateSignatureAggregator,
 		MaxSequenceWindow:          simplex.DefaultMaxRoundWindow,
+		TransitionToValidator:      i.notifyEpochChange,
 	}
 	return config, nil
 }
 
-func (i *Instance) notifyEpochChange(epoch uint64, validators common.Nodes, role nodeRole) {
-	select {
-	case i.epochChanges <- epochChange{
-		epochNum:   epoch,
+func (i *Instance) notifyEpochChange(epoch uint64, validators common.Nodes) {
+	i.Config.Logger.Debug("Notifying the instance of an epoch change", zap.Uint64("Epoch", epoch), zap.Stringers("Validators", validators.NodeIDs()))
+	ec := epochChange{
+		epoch:      epoch,
 		validators: validators,
-		nodeRole:   role,
-	}:
-	case <-i.stopCh:
-		// If the instance is stopped, we don't need to notify about epoch changes.
-		return
+	}
+
+	for {
+		select {
+		case i.epochChanges <- ec:
+			return
+		// The slot holds a stale epoch change: take it, keep the newer of the two and retry.
+		case pending := <-i.epochChanges:
+			if pending.epoch > ec.epoch {
+				ec = pending
+			}
+		case <-i.stopCh:
+			// If the instance is stopped, we don't need to notify about epoch changes.
+			return
+		}
 	}
 }
 
@@ -248,7 +268,7 @@ func (i *Instance) Stop() {
 		close(i.stopCh)
 	}
 
-	i.stopValidator()
+	i.stopValidator(false)
 	i.stopNonValidator()
 }
 
@@ -260,9 +280,18 @@ func (i *Instance) stopNonValidator() {
 	}
 }
 
-func (i *Instance) stopValidator() {
+func (i *Instance) stopValidator(garbageCollectWAL bool) {
 	if i.e != nil {
 		i.e.Stop()
+		// Wipe out the WALs from the config so we won't try to load them again
+		if garbageCollectWAL {
+			i.Config.WALs = nil
+			// On epoch change, garbage collect the WAL to remove all entries from previous epochs.
+			if err := i.wal.GarbageCollect(math.MaxUint64); err != nil {
+				i.Config.Logger.Error("Error garbage collecting epoch config on epoch change", zap.Error(err))
+			}
+		}
+
 		i.e = nil
 		i.epochOrNV = nil
 	}
@@ -271,6 +300,13 @@ func (i *Instance) stopValidator() {
 func (i *Instance) HandleMessage(msg *common.Message, from common.NodeID) error {
 	i.lock.Lock()
 	defer i.lock.Unlock()
+
+	select {
+	case <-i.stopCh:
+		i.Config.Logger.Debug("Instance is stopped, dropping message")
+		return nil
+	default:
+	}
 
 	// We need to artificially wire the MSM and the cache to the block,
 	// in order to intercept the Verify() call.
@@ -290,6 +326,22 @@ func (i *Instance) HandleMessage(msg *common.Message, from common.NodeID) error 
 	}
 
 	if i.e != nil {
+		switch {
+		case msg.AuxiliaryInfo != nil:
+			if msg.AuxiliaryInfo.Epoch != i.e.Epoch {
+				i.Config.Logger.Debug(
+					"Received an auxiliary info from an old epoch",
+					zap.Uint64("Aux Info Epoch", msg.AuxiliaryInfo.Epoch),
+					zap.Uint64("Our Epoch", i.e.Epoch),
+					zap.Stringer("From", from))
+				return nil
+			}
+			i.msm.HandleAuxiliaryInfo(*msg.AuxiliaryInfo, avalanchego.NodeID(from))
+		case msg.EpochTransitionApproval != nil:
+			// TODO: pass in time.Now() rather than uint64
+			i.msm.HandleApproval(msg.EpochTransitionApproval, uint64(time.Now().UnixMilli()))
+			return nil
+		}
 		return i.e.HandleMessage(msg, from)
 	}
 
@@ -362,84 +414,57 @@ func (i *Instance) listenForEpochChanges() {
 }
 
 func (i *Instance) processEpochChange(epochChange epochChange) {
-	var err error
-	switch epochChange.nodeRole {
-	case nonValidator:
-		err = i.transitionEpochNonValidator(epochChange)
-	case validator:
-		err = i.transitionEpochValidator(epochChange)
-	default: // This should never happen, but we log it just in case.
-		i.Config.Logger.Fatal("Unknown node role on epoch change",
-			zap.String("role", fmt.Sprintf("%v", epochChange.nodeRole)))
+	// Hold the lock so the transition cannot interleave with Stop or HandleMessage.
+	i.lock.Lock()
+
+	if i.isStopped() {
+		i.lock.Unlock()
+		i.Config.Logger.Info("instance is already stopped, skipping epoch change")
 		return
 	}
+
+	var err error
+
+	runningNonValidator := i.nv != nil
+	runningValidator := i.e != nil
+
+	switch {
+	case runningNonValidator && runningValidator:
+		i.lock.Unlock()
+		i.Config.Logger.Fatal("We are running both a validator or non-validator")
+		return
+	case runningNonValidator:
+		// Stop the non-validator before doing anything else, so that we don't process any more messages while we are changing epochs.
+		i.stopNonValidator()
+		err = i.startAtEpoch(epochChange.validators)
+	case runningValidator:
+		i.stopValidator(true)
+		err = i.startAtEpoch(epochChange.validators)
+	default: // This should never happen, but we log it just in case.
+		i.lock.Unlock()
+		i.Config.Logger.Fatal("We are not running either a validator or non-validator")
+		return
+	}
+	i.lock.Unlock()
+
 	if err != nil {
-		i.Config.Logger.Error("Error transitioning epoch", zap.Uint8("role", uint8(epochChange.nodeRole)), zap.Error(err))
+		i.Config.Logger.Error("Error transitioning epoch", zap.Error(err))
 		i.Stop()
 	}
 }
 
-// startEpoch starts a new epoch with the given configuration.
-// Must be called under the lock, and assumes that the previous epoch has been stopped (if any).
-func (i *Instance) startEpoch(epochConfig simplex.EpochConfig) error {
-	epoch, err := simplex.NewEpoch(epochConfig)
+func (i *Instance) createEpochConfig(validators common.Nodes) (*epochConfig, error) {
+	wal, err := wal.NewGarbageCollectedWAL(i.Config.WALs, i.Config.WalCreator, &common.WALRetentionReader{}, i.Config.ParameterConfig.WALMaxSizeBytes)
 	if err != nil {
-		return fmt.Errorf("error creating simplex epoch: %w", err)
-	}
-	epoch.Epoch = epochConfig.Epoch
-	i.e = epoch
-	i.epochOrNV = epoch
-
-	return epoch.Start()
-}
-
-func (i *Instance) lastBlock() (metadata.StateMachineBlock, uint64, error) {
-	numBlocks := i.Config.Storage.NumBlocks()
-	if numBlocks == 0 {
-		return metadata.StateMachineBlock{}, 0, fmt.Errorf("no genesis block found in storage")
-	}
-
-	lastBlock, _, err := i.Config.Storage.GetBlock(numBlocks - 1)
-	if err != nil {
-		return metadata.StateMachineBlock{}, 0, fmt.Errorf("error retrieving last block from storage: %w", err)
-	}
-
-	return lastBlock, numBlocks, nil
-}
-
-func (i *Instance) iAmValidator(nodes common.Nodes) bool {
-	for _, node := range nodes {
-		if i.Config.ID.Equals(node.Id) {
-			return true
-		}
-	}
-	return false
-}
-
-func (i *Instance) createEpochConfig() (simplex.EpochConfig, error) {
-	lastBlock, numBlocks, err := i.lastBlock()
-	if err != nil {
-		return simplex.EpochConfig{}, err
-	}
-
-	lastNonSimplexHeight := i.Config.LastNonSimplexInnerBlock.Height()
-	genesisValidatorSet := i.Config.PlatformChain.GenesisValidatorSet()
-	nodes, epochNum, err := constructEpochAndValidatorSet(i.Config.Logger, lastNonSimplexHeight, genesisValidatorSet, numBlocks, &ParsedBlock{StateMachineBlock: lastBlock}, i.Config.Storage)
-	if err != nil {
-		return simplex.EpochConfig{}, err
-	}
-
-	wal, err := wal.NewGarbageCollectedWAL(i.Config.WALs, i.Config.WalCreator, &common.WALRetentionReader{}, i.Config.ParameterConfig.WALMaxEntryCount)
-	if err != nil {
-		return simplex.EpochConfig{}, fmt.Errorf("error creating garbage collected wal: %w", err)
+		return nil, fmt.Errorf("error creating garbage collected wal: %w", err)
 	}
 	i.wal = wal
 
 	// We might have crashed right after a sealing block was persisted to storage,
 	// but before the WAL was garbage collected.
 	// In that case, we need to garbage collect the WAL to remove all entries from previous epochs.
-	if err := i.maybeGarbageCollectWAL(lastBlock); err != nil {
-		return simplex.EpochConfig{}, err
+	if err := i.maybeGarbageCollectWAL(); err != nil {
+		return nil, err
 	}
 
 	msm, err := metadata.NewStateMachine(&metadata.Config{
@@ -453,19 +478,19 @@ func (i *Instance) createEpochConfig() (simplex.EpochConfig, error) {
 		MaxBlockBuildingWaitTime:        i.Config.ParameterConfig.MaxNetworkDelay,
 		Logger:                          i.Config.Logger,
 		Signer:                          i.Config.CryptoOps,
-		GenesisValidatorSet:             genesisValidatorSet,
-		LastNonSimplexBlockPChainHeight: lastNonSimplexHeight,
+		GenesisValidatorSet:             i.Config.PlatformChain.GenesisValidatorSet(),
+		LastNonSimplexBlockPChainHeight: i.Config.PlatformChain.LastNonSimplexBlockPChainHeight(),
 		SignatureAggregatorCreator:      i.Config.CryptoOps.CreateSignatureAggregator,
 		BlockBuilder:                    i.Config.VM,
 		LastNonSimplexInnerBlock:        i.Config.LastNonSimplexInnerBlock,
 		GetPChainHeightForProposing:     i.Config.PlatformChain.GetMinimumHeight,
 		GetPChainHeightForVerifying:     i.Config.PlatformChain.GetCurrentHeight,
 		AuxiliaryInfoApp:                &NoopAuxiliaryInfoApp{},
-		ComputeICMEpoch:                 i.Config.VM.ComputeICMEpoch,
+		ComputeICMEpoch:                 i.Config.ICMETransition,
 		GetBlock:                        i.cs.RetrieveBlock,
 	})
 	if err != nil {
-		return simplex.EpochConfig{}, fmt.Errorf("error creating metadata state machine: %w", err)
+		return nil, fmt.Errorf("error creating metadata state machine: %w", err)
 	}
 
 	i.msm = msm
@@ -473,31 +498,34 @@ func (i *Instance) createEpochConfig() (simplex.EpochConfig, error) {
 
 	source, err := simplex.NewRandomSource()
 	if err != nil {
-		return simplex.EpochConfig{}, err
+		return nil, err
 	}
 
-	blockBuilder := &BlockBuilderWaiter{vm: i.Config.VM, msm: msm}
+	blockBuilder := newBlockBuilderWaiter(msm, i.cs, i.Config.VM)
 
-	comm := &Communication{Sender: i.Config.Sender, Broadcaster: i.Config.Broadcaster}
-	comm.SetValidators(nodes)
+	comm := newCommunication(i.Config.Sender, i.Config.Broadcaster, validators)
 
-	epochAwareStorage := &EpochAwareStorage{
-		msm:     msm,
-		epoch:   epochNum,
-		Storage: i.cs,
-		onEpochChange: func(epoch uint64, validators common.Nodes) error {
+	// set the handle approval method so that the MSM can receive self approvals
+	i.transitionListener.handleApproval = msm.HandleApproval
+	instanceStorage := NewCallbackStorage(i.cs, msm, func(block *ParsedBlock) error {
+		switch {
+		case block.Type() == metadata.BlockTypeTransitioning:
+			if err := i.transitionListener.handleTransitionBlock(block); err != nil {
+				return err
+			}
+		case block.Type() == metadata.BlockTypeSealing:
 			blockBuilder.stop()
-			comm.SetValidators(validators)
-			i.notifyEpochChange(epoch, validators, validator)
-			return nil
-		},
-	}
 
-	epochConfig := simplex.EpochConfig{
-		Epoch:              epochNum,
+			i.transitionListener.handleApproval = nil
+			i.notifyEpochChange(block.BlockHeader().Seq, block.SealingBlockInfo().ValidatorSet)
+		}
+		return nil
+	})
+
+	ec := simplex.EpochConfig{
 		ReplicationEnabled: true,
 		StartTime:          time.Now(),
-		// TODO: For simpicity, we use the same value for all timeouts. If needed we can expand the config.
+		// TODO: For simplicity, we use the same value for all timeouts. If needed we can expand the config.
 		MaxProposalWait:            i.Config.ParameterConfig.MaxNetworkDelay * 2, // 1 proposal + 1 vote
 		MaxRebroadcastWait:         i.Config.ParameterConfig.MaxNetworkDelay * 2,
 		FinalizeRebroadcastTimeout: i.Config.ParameterConfig.MaxNetworkDelay * 2,
@@ -510,15 +538,31 @@ func (i *Instance) createEpochConfig() (simplex.EpochConfig, error) {
 		QCDeserializer:             i.Config.CryptoOps,
 		Signer:                     i.Config.CryptoOps,
 		Verifier:                   i.Config.CryptoOps,
-		Storage:                    epochAwareStorage,
+		Storage:                    instanceStorage,
 		Comm:                       comm,
 		BlockBuilder:               blockBuilder,
-		BlockDeserializer:          &blockDeserializer{vm: i.Config.VM, msm: msm},
+		BlockDeserializer:          &blockDeserializer{vm: i.Config.VM, cs: i.cs},
 	}
-	return epochConfig, nil
+	return &epochConfig{
+		EpochConfig: ec,
+		bbw:         blockBuilder,
+	}, nil
 }
 
-func (i *Instance) maybeGarbageCollectWAL(lastBlock metadata.StateMachineBlock) error {
+func (i *Instance) maybeGarbageCollectWAL() error {
+	lastNonSimplexHeight := i.Config.LastNonSimplexInnerBlock.Height()
+	numBlocks := i.Config.Storage.NumBlocks()
+
+	// Only fetch the last block if it is a simplex block
+	if lastNonSimplexHeight+1 == numBlocks {
+		return nil
+	}
+
+	lastBlock, _, err := LastBlock(i.Config.Storage)
+	if err != nil {
+		return fmt.Errorf("error retrieving last block: %w", err)
+	}
+
 	if lastBlock.Metadata.SimplexEpochInfo.BlockValidationDescriptor != nil {
 		i.Config.Logger.Info("Last block is a sealing block, garbage collecting all WALs preceding it to start a new epoch")
 		// We figure out the round number of the latest block and garbage collect all WALs preceding it.
@@ -533,121 +577,16 @@ func (i *Instance) maybeGarbageCollectWAL(lastBlock metadata.StateMachineBlock) 
 	return nil
 }
 
-func (i *Instance) transitionEpochNonValidator(epochChange epochChange) error {
-	i.lock.Lock()
-	defer i.lock.Unlock()
-
-	if i.isStopped() {
-		i.Config.Logger.Info("instance is already stopped, skipping epoch change")
-		return nil
+// startAtEpoch starts either a validator or non-validator at `epoch“.
+func (i *Instance) startAtEpoch(validators common.Nodes) error {
+	if validators.Contains(i.Config.ID) {
+		return i.startValidator(validators)
 	}
 
-	if !i.iAmValidator(epochChange.validators) {
-		i.Config.Logger.Debug("Skipping restarting a non-validator because I am not a validator yet")
-		return nil
-	}
-
-	// Stop the non-validator before doing anything else, so that we don't process any more messages while we are changing epochs.
-	i.stopNonValidator()
-
-	return i.startAtEpoch(epochChange.validators, epochChange.epochNum)
+	return i.startNonValidator()
 }
 
-func (i *Instance) startAtEpoch(validators common.Nodes, epoch uint64) error {
-	if i.iAmValidator(validators) {
-		if err := i.startValidator(); err != nil {
-			i.Config.Logger.Error("Error starting validator on epoch change", zap.Error(err))
-			return err
-		}
-		return nil
-	}
-
-	if err := i.startNonValidator(epoch, validators); err != nil {
-		i.Config.Logger.Error("Error starting non-validator on epoch change", zap.Error(err))
-		return err
-	}
-	return nil
-}
-
-func (i *Instance) transitionEpochValidator(epochChange epochChange) error {
-	i.lock.Lock()
-	defer i.lock.Unlock()
-
-	// Stop the epoch before doing anything else, so that we don't process any more messages while we are changing epochs.
-	i.stopValidator()
-	// Wipe out the WALs from the config so we won't try to load them again
-	i.Config.WALs = nil
-	// On epoch change, garbage collect the WAL to remove all entries from previous epochs.
-	if err := i.wal.GarbageCollect(math.MaxUint64); err != nil {
-		i.Config.Logger.Error("Error garbage collecting epoch config on epoch change", zap.Error(err))
-	}
-
-	return i.startAtEpoch(epochChange.validators, epochChange.epochNum)
-}
-
-func constructEpochAndValidatorSet(logger common.Logger, lastNonSimplexInnerBlockHeight uint64, genesisValidatorSet metadata.NodeBLSMappings, numBlocks uint64, lastBlock *ParsedBlock, storage Storage) (common.Nodes, uint64, error) {
-	epochNum := lastBlock.BlockHeader().Epoch
-
-	var validatorSet metadata.NodeBLSMappings
-	var nodes common.Nodes
-
-	switch {
-	// If all we have in the ledger is non-Simplex blocks, load the validator set from genesis
-	case lastNonSimplexInnerBlockHeight+1 == numBlocks:
-		validatorSet = genesisValidatorSet
-		nodes = validatorSetToNodes(genesisValidatorSet)
-		epochNum = lastNonSimplexInnerBlockHeight + 1
-		logger.Debug("Determined epoch and validator set from genesis (ledger holds only non-Simplex blocks)",
-			zap.Uint64("epoch", epochNum))
-	// If the last block persisted is a sealing block, then we are in the next epoch.
-	case lastBlock.SealingBlockInfo() != nil:
-		epochNum = lastBlock.BlockHeader().Seq
-		validatorSet = constructValidatorSetFromSealingBlock(lastBlock)
-		nodes = lastBlock.SealingBlockInfo().ValidatorSet
-		logger.Debug("Determined epoch and validator set from sealing block at tip",
-			zap.Uint64("epoch", epochNum))
-	// Else, we have at least one Simplex block in the ledger, and it's not a sealing block.
-	default:
-		// Therefore, the sequence of the sealing block is the epoch number.
-		sealingBlockSeq := lastBlock.BlockHeader().Epoch
-		sealingBlock, _, err := storage.GetBlock(sealingBlockSeq)
-		if err != nil {
-			return nil, 0, fmt.Errorf("error retrieving sealing block from storage: %w", err)
-		}
-		if sealingBlock.Metadata.SimplexEpochInfo.BlockValidationDescriptor == nil {
-			return nil, 0, fmt.Errorf("expected sealing block at seq %d, but got a non-sealing block", sealingBlockSeq)
-		}
-		validatorSet = constructValidatorSetFromSealingBlock(&ParsedBlock{StateMachineBlock: sealingBlock})
-		nodes = validatorSetToNodes(validatorSet)
-		logger.Debug("Determined epoch and validator set from sealing block in storage",
-			zap.Uint64("epoch", epochNum), zap.Uint64("sealingBlockSeq", sealingBlockSeq))
-	}
-	return nodes, epochNum, nil
-}
-
-func validatorSetToNodes(validatorSet metadata.NodeBLSMappings) common.Nodes {
-	var nodes common.Nodes
-	for i := range validatorSet {
-		vdr := &validatorSet[i]
-		nodes = append(nodes, common.Node{
-			Id:     vdr.NodeID[:],
-			Weight: vdr.Weight,
-			PK:     vdr.BLSKey,
-		})
-	}
-	return nodes
-}
-
-func constructValidatorSetFromSealingBlock(lastBlock *ParsedBlock) metadata.NodeBLSMappings {
-	var validatorSet metadata.NodeBLSMappings
-	vdrs := lastBlock.Metadata.SimplexEpochInfo.BlockValidationDescriptor.AggregatedMembership.Members
-	for i := range vdrs {
-		vdr := &vdrs[i]
-		validatorSet = append(validatorSet, metadata.NodeBLSMapping{
-			NodeID: vdr.NodeID,
-			BLSKey: vdr.BLSKey,
-			Weight: vdr.Weight,
-		})
-	}
-	return validatorSet
+type epochConfig struct {
+	simplex.EpochConfig
+	bbw *blockBuilderWaiter
 }

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -226,6 +227,87 @@ func TestHandleMessages(t *testing.T) {
 			},
 			expectedHeight: 8,
 		},
+		{
+			name: "telock finalization after the sealing block is dropped",
+			setup: func(t *testing.T) (*testChain, []*messageInfo) {
+				tc := newSeededChain(t, testNodes, 2)
+				epoch3Nodes := common.Nodes{
+					{Id: common.NodeID{1}, Weight: 1},
+					{Id: common.NodeID{2}, Weight: 1},
+					{Id: common.NodeID{3}, Weight: 1},
+					{Id: common.NodeID{4}, Weight: 1},
+					{Id: common.NodeID{5}, Weight: 1},
+				}
+
+				b3 := tc.appendSealing(epoch3Nodes)
+				// The Telock extends epoch 1 past the sealing block and shares seq 4 with the first block of epoch 3.
+				telock := newBlock(4, 1, b3.Digest)
+				b4 := tc.appendBlock()
+
+				return tc, []*messageInfo{
+					blockMsg(t, b3, testNodes),
+					finalizationMsg(t, b3, testNodes),
+					finalizationMsg(t, telock, testNodes),
+					finalizationMsg(t, b4, epoch3Nodes),
+					blockMsg(t, b4, epoch3Nodes),
+				}
+			},
+			expectedHeight: 5,
+		},
+		{
+			name: "telock finalization before the sealing block is dropped",
+			setup: func(t *testing.T) (*testChain, []*messageInfo) {
+				tc := newSeededChain(t, testNodes, 2)
+				epoch3Nodes := common.Nodes{
+					{Id: common.NodeID{1}, Weight: 1},
+					{Id: common.NodeID{2}, Weight: 1},
+					{Id: common.NodeID{3}, Weight: 1},
+					{Id: common.NodeID{4}, Weight: 1},
+					{Id: common.NodeID{5}, Weight: 1},
+				}
+
+				b3 := tc.appendSealing(epoch3Nodes)
+				telock := newBlock(4, 1, b3.Digest)
+				b4 := tc.appendBlock()
+
+				// The Telock finalization is stored before epoch 3 is known and must be purged once it is.
+				return tc, []*messageInfo{
+					finalizationMsg(t, telock, testNodes),
+					blockMsg(t, b3, testNodes),
+					finalizationMsg(t, b3, testNodes),
+					finalizationMsg(t, b4, epoch3Nodes),
+					blockMsg(t, b4, epoch3Nodes),
+				}
+			},
+			expectedHeight: 5,
+		},
+		{
+			name: "telock block before the sealing block is dropped",
+			setup: func(t *testing.T) (*testChain, []*messageInfo) {
+				tc := newSeededChain(t, testNodes, 2)
+				epoch3Nodes := common.Nodes{
+					{Id: common.NodeID{1}, Weight: 1},
+					{Id: common.NodeID{2}, Weight: 1},
+					{Id: common.NodeID{3}, Weight: 1},
+					{Id: common.NodeID{4}, Weight: 1},
+					{Id: common.NodeID{5}, Weight: 1},
+				}
+
+				b3 := tc.appendSealing(epoch3Nodes)
+				telock := newBlock(4, 1, b3.Digest)
+				b4 := tc.appendBlock()
+
+				// A stored Telock block would otherwise make the epoch 3 block at seq 4 look like a duplicate.
+				return tc, []*messageInfo{
+					blockMsg(t, telock, testNodes),
+					blockMsg(t, b3, testNodes),
+					finalizationMsg(t, b3, testNodes),
+					finalizationMsg(t, b4, epoch3Nodes),
+					blockMsg(t, b4, epoch3Nodes),
+				}
+			},
+			expectedHeight: 5,
+		},
 	}
 
 	for _, tt := range tests {
@@ -251,6 +333,63 @@ func TestHandleMessages(t *testing.T) {
 
 			tc.WaitForBlockCommit(tt.expectedHeight - 1)
 			require.Equal(t, tt.expectedHeight, nv.Storage.NumBlocks())
+		})
+	}
+}
+
+// TestNonValidatorDropsTelockQuorumRound replicates a Telock and the next epoch's block
+// for the same seq in both orders and asserts the next epoch's block is the one indexed.
+func TestNonValidatorDropsTelockQuorumRound(t *testing.T) {
+	tests := []struct {
+		name        string
+		telockFirst bool
+	}{
+		{name: "telock quorum round first", telockFirst: true},
+		{name: "telock quorum round last", telockFirst: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tc := newSeededChain(t, testNodes, 2)
+			epoch3Nodes := common.Nodes{
+				{Id: common.NodeID{1}, Weight: 1},
+				{Id: common.NodeID{2}, Weight: 1},
+				{Id: common.NodeID{3}, Weight: 1},
+				{Id: common.NodeID{4}, Weight: 1},
+				{Id: common.NodeID{5}, Weight: 1},
+			}
+
+			b3 := tc.appendSealing(epoch3Nodes)
+			telock := newBlock(4, 1, b3.Digest)
+			b4 := tc.appendBlock()
+			f3, fTelock, f4 := tc.newFinalization(b3), tc.newFinalization(telock), tc.newFinalization(b4)
+
+			nv, err := NewNonValidator(Config{
+				Storage:                    tc,
+				Comm:                       testutil.NewNoopComm(tc.nodes().NodeIDs()),
+				Logger:                     testutil.MakeLogger(t, 1),
+				SignatureAggregatorCreator: tc.signatureAggregatorCreator,
+				MaxSequenceWindow:          simplex.DefaultMaxRoundWindow,
+				ID:                         testNodes[0].Id,
+			})
+			require.NoError(t, err)
+			defer nv.Stop()
+
+			telockQR := common.QuorumRound{Block: telock, Finalization: &fTelock}
+			b4QR := common.QuorumRound{Block: b4, Finalization: &f4}
+			data := []common.QuorumRound{{Block: b3, Finalization: &f3}, telockQR, b4QR}
+			if !tt.telockFirst {
+				data = []common.QuorumRound{{Block: b3, Finalization: &f3}, b4QR, telockQR}
+			}
+
+			require.NoError(t, nv.HandleMessage(
+				&common.Message{ReplicationResponse: &common.ReplicationResponse{Data: data}},
+				testNodes.NodeIDs()[1],
+			))
+
+			indexed := tc.WaitForBlockCommit(4)
+			require.Equal(t, b4.BlockHeader().Digest, indexed.BlockHeader().Digest)
+			require.Equal(t, uint64(5), tc.NumBlocks())
 		})
 	}
 }
@@ -317,6 +456,159 @@ func TestHandleMessages_DuplicateBlock(t *testing.T) {
 	// Storage will panic if we try indexing the same block twice
 	require.NoError(t, nv.HandleMessage(block.msg, block.from))
 	require.NoError(t, nv.HandleMessage(fin.msg, fin.from))
+}
+
+// TestNonValidator_CallsTransition asserts TransitionToValidator fires exactly when
+// an indexed sealing block opens the highest known epoch and our ID is in its new
+// validator set.
+func TestNonValidator_CallsTransition(t *testing.T) {
+	newValidatorID := common.NodeID{5}
+	joinedSet := append(slices.Clone(testNodes), common.Node{Id: newValidatorID, Weight: 1})
+	otherSet := append(slices.Clone(testNodes), common.Node{Id: common.NodeID{6}, Weight: 1})
+
+	// transitionCall records one TransitionToValidator invocation.
+	type transitionCall struct {
+		epoch      uint64
+		validators common.Nodes
+	}
+
+	tests := []struct {
+		name         string
+		setup        func(t *testing.T) (*testChain, []*messageInfo)
+		expectedCall *transitionCall
+	}{
+		{
+			name: "joins the new validator set",
+			setup: func(t *testing.T) (*testChain, []*messageInfo) {
+				tc := newSeededChain(t, testNodes, 2)
+				b3 := tc.appendSealing(joinedSet)
+				b4 := tc.appendBlock()
+				return tc, []*messageInfo{
+					blockMsg(t, b3, testNodes),
+					finalizationMsg(t, b3, testNodes),
+					blockMsg(t, b4, joinedSet),
+					finalizationMsg(t, b4, joinedSet),
+				}
+			},
+			expectedCall: &transitionCall{epoch: 3, validators: joinedSet},
+		},
+		{
+			name: "not in the new validator set",
+			setup: func(t *testing.T) (*testChain, []*messageInfo) {
+				tc := newSeededChain(t, testNodes, 2)
+				b3 := tc.appendSealing(testNodes)
+				b4 := tc.appendBlock()
+				return tc, []*messageInfo{
+					blockMsg(t, b3, testNodes),
+					finalizationMsg(t, b3, testNodes),
+					blockMsg(t, b4, testNodes),
+					finalizationMsg(t, b4, testNodes),
+				}
+			},
+		},
+		{
+			// b3 seals an epoch we are not part of, b4 seals the one we join.
+			// b3 never triggers: either epoch 4 is already known, or epoch 3's
+			// set does not contain us.
+			name: "only the highest known epoch triggers",
+			setup: func(t *testing.T) (*testChain, []*messageInfo) {
+				tc := newSeededChain(t, testNodes, 2)
+				b3 := tc.appendSealing(otherSet)
+				b4 := tc.appendSealing(joinedSet)
+				b5 := tc.appendBlock()
+				return tc, []*messageInfo{
+					blockMsg(t, b3, testNodes),
+					finalizationMsg(t, b3, testNodes),
+					blockMsg(t, b4, otherSet),
+					finalizationMsg(t, b4, otherSet),
+					blockMsg(t, b5, joinedSet),
+					finalizationMsg(t, b5, joinedSet),
+				}
+			},
+			expectedCall: &transitionCall{epoch: 4, validators: joinedSet},
+		},
+		{
+			// A threshold of quorum rounds for b5, the highest sealing block,
+			// validates epoch 5 before anything indexes. b3 then indexes while a
+			// higher epoch is already known, so even though we are in b3's set
+			// only b5 triggers the transition.
+			name: "highest epoch validated up front",
+			setup: func(t *testing.T) (*testChain, []*messageInfo) {
+				tc := newSeededChain(t, testNodes, 2)
+				b3 := tc.appendSealing(joinedSet)
+				b4 := tc.appendSealing(otherSet)
+				b5 := tc.appendSealing(joinedSet)
+				b6 := tc.appendBlock()
+
+				f5 := tc.newFinalization(b5)
+				qrMsg := &common.Message{
+					ReplicationResponse: &common.ReplicationResponse{
+						Data: []common.QuorumRound{{Block: b5, Finalization: &f5}},
+					},
+				}
+
+				threshold := common.F(len(joinedSet)) + 1
+				msgs := make([]*messageInfo, 0, threshold+8)
+				for i := 0; i < threshold; i++ {
+					msgs = append(msgs, &messageInfo{msg: qrMsg, from: joinedSet.NodeIDs()[i]})
+				}
+				return tc, append(msgs,
+					blockMsg(t, b3, testNodes),
+					finalizationMsg(t, b3, testNodes),
+					blockMsg(t, b4, joinedSet),
+					finalizationMsg(t, b4, joinedSet),
+					blockMsg(t, b5, otherSet),
+					finalizationMsg(t, b5, otherSet),
+					blockMsg(t, b6, joinedSet),
+					finalizationMsg(t, b6, joinedSet),
+				)
+			},
+			expectedCall: &transitionCall{epoch: 5, validators: joinedSet},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tc, msgs := tt.setup(t)
+			lastSeq := tc.seq
+
+			var lock sync.Mutex
+			calls := []transitionCall{}
+
+			nv, err := NewNonValidator(
+				Config{
+					Storage:                    tc,
+					Comm:                       testutil.NewNoopComm(tc.nodes().NodeIDs()),
+					Logger:                     testutil.MakeLogger(t, 1),
+					SignatureAggregatorCreator: tc.signatureAggregatorCreator,
+					MaxSequenceWindow:          simplex.DefaultMaxRoundWindow,
+					ID:                         newValidatorID,
+					TransitionToValidator: func(epoch uint64, validators common.Nodes) {
+						lock.Lock()
+						defer lock.Unlock()
+						calls = append(calls, transitionCall{epoch: epoch, validators: validators})
+					},
+				},
+			)
+			require.NoError(t, err)
+			defer nv.Stop()
+
+			for _, m := range msgs {
+				require.NoError(t, nv.HandleMessage(m.msg, m.from))
+			}
+
+			tc.WaitForBlockCommit(lastSeq)
+
+			lock.Lock()
+			defer lock.Unlock()
+
+			if tt.expectedCall == nil {
+				require.Empty(t, calls)
+				return
+			}
+			require.Equal(t, []transitionCall{*tt.expectedCall}, calls)
+		})
+	}
 }
 
 // TestNonValidator_RequestHighestEpochOnStart verifies that a non-validator
@@ -410,7 +702,7 @@ func TestNonValidator_Bootstrap(t *testing.T) {
 			setup: func(t *testing.T) *testChain {
 				tc := newSnowToSimplexChain(t, 10)
 				firstBlock := tc.appendFirstSimplexAfterGenesis(testNodes)
-				tc.Index(context.Background(), firstBlock, tc.newFinalization(firstBlock))
+				require.NoError(t, tc.Index(context.Background(), firstBlock, tc.newFinalization(firstBlock)))
 				return tc
 			},
 			maxSequenceWindow: 50,
@@ -423,7 +715,7 @@ func TestNonValidator_Bootstrap(t *testing.T) {
 			setup: func(t *testing.T) *testChain {
 				tc := newSnowToSimplexChain(t, 10)
 				firstBlock := tc.appendFirstSimplexAfterGenesis(testNodes)
-				tc.Index(context.Background(), firstBlock, tc.newFinalization(firstBlock))
+				require.NoError(t, tc.Index(context.Background(), firstBlock, tc.newFinalization(firstBlock)))
 				tc.indexEpochs(20, 30)
 				return tc
 			},
@@ -862,4 +1154,100 @@ func TestNonValidatorAcceptsProposalFromUnsortedValidatorSet(t *testing.T) {
 		return tc.NumBlocks() == b.BlockHeader().Seq+1
 	}, 5*time.Second, 10*time.Millisecond,
 		"non-validator never committed the block, having dropped the proposal because it ordered the validator set differently than the validators")
+}
+
+func TestNonValidatorRejectsQuorumRoundWithMismatchedHeader(t *testing.T) {
+	tc := newSeededChain(t, testNodes, 4)
+
+	storage := tc.CloneUntil(3)
+	logger := testutil.MakeLogger(t, 1)
+
+	nv, err := NewNonValidator(
+		Config{
+			Storage:                    storage,
+			Comm:                       testutil.NewNoopComm(testNodes.NodeIDs()),
+			Logger:                     logger,
+			SignatureAggregatorCreator: tc.signatureAggregatorCreator,
+			MaxSequenceWindow:          10,
+			ID:                         common.NodeID{16},
+			StartTime:                  time.Now(),
+		},
+	)
+	require.NoError(t, err)
+	nv.Start()
+	defer nv.Stop()
+
+	b4, finalization, err := tc.Retrieve(3)
+	require.NoError(t, err)
+	b3 := b4.(common.Block)
+
+	// Same digest and seq as the b4, but a round the b4 was not finalized in.
+	mismatched := finalization
+	mismatched.Finalization.Round++
+	require.NoError(t, nv.HandleMessage(&common.Message{
+		ReplicationResponse: &common.ReplicationResponse{
+			Data: []common.QuorumRound{{Block: b3, Finalization: &mismatched}},
+		},
+	}, testNodes.NodeIDs()[0]))
+
+	require.NoError(t, nv.HandleMessage(&common.Message{
+		ReplicationResponse: &common.ReplicationResponse{
+			Data: []common.QuorumRound{{Block: b3, Finalization: &finalization}},
+		},
+	}, testNodes.NodeIDs()[1]))
+
+	storage.WaitForBlockCommit(3)
+	_, finalization, err = storage.Retrieve(3)
+	require.NoError(t, err)
+	bh := b3.BlockHeader()
+	require.True(t, finalization.Finalization.Equals(&bh), "b4 was indexed with a finalization that does not match its header")
+}
+
+// TestNonValidatorDropsQuorumRoundPastSequenceWindow ensures non-validators dont store quorum rounds past MaxSequenceWindow.
+// Asserts the non-validator commits the sequences within the window and then stalls on the one past it, rather than
+// indexing a block it was streamed while too far behind.
+func TestNonValidatorDropsQuorumRoundPastSequenceWindow(t *testing.T) {
+	maxSequenceWindow := uint64(5)
+	initialHeight := uint64(2)
+	maxSequenceToStore := initialHeight + maxSequenceWindow
+	maxSequenceToSend := maxSequenceToStore + 2
+
+	tc := newSeededChain(t, testNodes, maxSequenceToSend)
+	storage := tc.CloneUntil(initialHeight)
+	require.Equal(t, initialHeight, storage.NumBlocks(), "the next sequence to commit sets where the window starts")
+
+	nv, err := NewNonValidator(
+		Config{
+			Storage:                    storage,
+			Comm:                       testutil.NewNoopComm(testNodes.NodeIDs()),
+			Logger:                     testutil.MakeLogger(t, 1),
+			SignatureAggregatorCreator: tc.signatureAggregatorCreator,
+			MaxSequenceWindow:          maxSequenceWindow,
+			ID:                         common.NodeID{16},
+			StartTime:                  time.Now(),
+		},
+	)
+	require.NoError(t, err)
+	nv.Start()
+	defer nv.Stop()
+
+	data := make([]common.QuorumRound, 0, maxSequenceToSend-initialHeight+1)
+	for seq := initialHeight; seq <= maxSequenceToSend; seq++ {
+		block, finalization, err := tc.Retrieve(seq)
+		require.NoError(t, err)
+		data = append(data, common.QuorumRound{Block: block.(common.Block), Finalization: &finalization})
+	}
+
+	require.NoError(t, nv.HandleMessage(&common.Message{
+		ReplicationResponse: &common.ReplicationResponse{Data: data},
+	}, testNodes.NodeIDs()[0]))
+
+	// NumBlocks counts blocks, so committing maxSequenceToStore leaves maxSequenceToStore+1 of
+	// them. Any more means a sequence past the window was stored and indexed.
+	storage.WaitForBlockCommit(maxSequenceToStore)
+	require.Never(t,
+		func() bool { return storage.NumBlocks() > maxSequenceToStore+1 },
+		time.Second, 50*time.Millisecond,
+		"indexed a block that was past the sequence window when it was received",
+	)
 }

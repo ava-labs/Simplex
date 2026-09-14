@@ -13,8 +13,9 @@ import (
 )
 
 type ParameterConfig struct {
-	// WalMaxEntryCount is the maximum number of entries in the write-ahead log before it is closed.
-	WALMaxEntryCount int
+	// WALMaxSizeBytes is the maximum size, in bytes, that a write-ahead log may reach
+	// before it is closed and a new one is started. Zero selects the default.
+	WALMaxSizeBytes int
 	// MaxNetworkDelay is the assumed upper bound on the network delay for messages to be delivered.
 	MaxNetworkDelay time.Duration
 	// MaxRoundWindow is the maximum number of rounds that can be stored in memory.
@@ -56,9 +57,6 @@ type VM interface {
 
 	// ParseBlock parses the given block bytes into a VMBlock.
 	ParseBlock(context.Context, []byte) (avalanchego.VMBlock, error)
-
-	// ComputeICMEpoch computes the ICM epoch transition given the input parameters.
-	ComputeICMEpoch(input metadata.ICMEpochInput) metadata.ICMEpochInfo
 }
 
 type Storage interface {
@@ -75,9 +73,14 @@ type Storage interface {
 }
 
 type CryptoOps interface {
-	Sign(message []byte) ([]byte, error)
-	AggregateKeys(keys ...[]byte) ([]byte, error)
-	VerifySignature(message []byte, signature []byte, publicKey []byte) error
+	// Sign signs the given message.
+	Sign(message []byte) (common.SignatureBytes, error)
+	// AggregateKeys combines the given public keys into a single aggregated public key.
+	AggregateKeys(keys ...common.PublicKeyBytes) (common.PublicKeyBytes, error)
+	// VerifySignature verifies that signature is a valid signature over message by the holder of publicKey.
+	VerifySignature(message []byte, signature common.SignatureBytes, publicKey common.PublicKeyBytes) error
+	// CreateSignatureAggregator creates a new signature aggregator for the given nodes.
 	CreateSignatureAggregator([]common.Node) common.SignatureAggregator
+	// DeserializeQuorumCertificate deserializes the given bytes into a QuorumCertificate.
 	DeserializeQuorumCertificate(bytes []byte) (common.QuorumCertificate, error)
 }

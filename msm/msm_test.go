@@ -74,9 +74,9 @@ func TestMSMBuildAndVerifyBlocksAfterGenesis(t *testing.T) {
 			name: "wrong epoch number",
 			md:   validMD,
 			mutateBlock: func(block *StateMachineBlock) {
-				block.Metadata.SimplexEpochInfo.EpochNumber = 2
+				block.Metadata.SimplexProtocolMetadata.Epoch = 2
 			},
-			err: errBlockDigestMismatch,
+			err: errInvalidProtocolMetadataEpoch,
 		},
 		{
 			name: "P-chain height too big",
@@ -202,7 +202,6 @@ func TestMSMFirstSimplexBlockAfterPreSimplexBlocks(t *testing.T) {
 			SimplexProtocolMetadata: md,
 			SimplexEpochInfo: SimplexEpochInfo{
 				PChainReferenceHeight: 100,
-				EpochNumber:           43,
 				PrevVMBlockSeq:        42,
 				BlockValidationDescriptor: &BlockValidationDescriptor{
 					AggregatedMembership: AggregatedMembership{
@@ -230,6 +229,9 @@ func TestMSMBuildBlockRejectsZeroSeq(t *testing.T) {
 }
 
 func TestMSMNormalOp(t *testing.T) {
+	// The chain's zero block sits at simplexStartHeight and opens the epoch every later block belongs to.
+	const simplexStartHeight, chainEndHeight = 5, 10
+
 	newPChainHeight := uint64(200)
 	newValidatorSet := NodeBLSMappings{
 		{BLSKey: []byte{5}, Weight: 1}, {BLSKey: []byte{6}, Weight: 1}, {BLSKey: []byte{7}, Weight: 1},
@@ -243,6 +245,9 @@ func TestMSMNormalOp(t *testing.T) {
 		expectedPChainHeight        uint64
 		expectedNextPChainRefHeight uint64
 		expectedICMEpochInfo        ICMEpochInfo
+		// expectApprovalStore is whether building the block initialized the approval store,
+		// which only happens when the block starts an epoch transition.
+		expectApprovalStore bool
 	}{
 		{
 			name:                 "correct information",
@@ -284,7 +289,7 @@ func TestMSMNormalOp(t *testing.T) {
 		{
 			name: "wrong epoch number",
 			mutateBlock: func(block *StateMachineBlock) {
-				block.Metadata.SimplexEpochInfo.EpochNumber = 2
+				block.Metadata.SimplexProtocolMetadata.Epoch = 2
 			},
 			err: errInvalidProtocolMetadataEpoch,
 		},
@@ -335,12 +340,33 @@ func TestMSMNormalOp(t *testing.T) {
 			expectedPChainHeight:        newPChainHeight,
 			expectedNextPChainRefHeight: newPChainHeight,
 			expectedICMEpochInfo:        ICMEpochInfo{PChainEpochHeight: 100, EpochNumber: 1},
+			expectApprovalStore:         true,
+		},
+		{
+			// The validator set changed, but the block that opened the epoch is not finalized yet,
+			// so the builder must not start the transition: a verifier would reject a block that
+			// does, since it requires that block to be finalized. The block is still built, at
+			// the new P-chain height, and the transition waits for a later block.
+			// This is needed when building blocks on top of the first ever simplex block.
+			name: "validator set change not acted upon while the epoch's opening block is not finalized",
+			setup: func(sm *StateMachine, tc *testConfig) {
+				tc.validatorSetRetriever.resultMap = map[uint64]NodeBLSMappings{
+					newPChainHeight: newValidatorSet,
+				}
+				sm.GetPChainHeightForProposing = func() uint64 { return newPChainHeight }
+				sm.GetPChainHeightForVerifying = func() uint64 { return newPChainHeight }
+				tc.blockStore[simplexStartHeight].finalization = nil
+			},
+			expectedPChainHeight:        newPChainHeight,
+			expectedNextPChainRefHeight: 0,
+			expectedICMEpochInfo:        ICMEpochInfo{PChainEpochHeight: 100, EpochNumber: 1},
 		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			chain := makeChain(t, 5, 10)
 			sm1, testConfig1 := newStateMachine(t)
 			sm2, testConfig2 := newStateMachine(t)
+
+			chain := makeChain(t, simplexStartHeight, chainEndHeight, testConfig1.validatorSetRetriever.result)
 
 			for i, block := range chain {
 				testConfig1.blockStore[uint64(i)] = &outerBlock{block: block, finalization: &common.Finalization{}}
@@ -381,6 +407,8 @@ func TestMSMNormalOp(t *testing.T) {
 			block1, err := sm1.BuildBlock(context.Background(), md, blacklist)
 			require.NoError(t, err)
 			require.NotNil(t, block1)
+			require.Equal(t, testCase.expectApprovalStore, sm1.approvalStore != nil,
+				"the approval store is initialized exactly when the built block starts an epoch transition")
 
 			if testCase.mutateBlock != nil {
 				testCase.mutateBlock(block1)
@@ -406,7 +434,6 @@ func TestMSMNormalOp(t *testing.T) {
 					SimplexProtocolMetadata: md,
 					SimplexEpochInfo: SimplexEpochInfo{
 						PChainReferenceHeight:     100,
-						EpochNumber:               1,
 						PrevVMBlockSeq:            lastBlock.InnerBlock.Height(),
 						NextPChainReferenceHeight: testCase.expectedNextPChainRefHeight,
 					},
@@ -624,7 +651,6 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 					SimplexProtocolMetadata: md,
 					SimplexEpochInfo: SimplexEpochInfo{
 						PChainReferenceHeight: pChainHeight1,
-						EpochNumber:           testCase.epochNum,
 						PrevVMBlockSeq:        baseSeq,
 						BlockValidationDescriptor: &BlockValidationDescriptor{
 							AggregatedMembership: AggregatedMembership{
@@ -659,7 +685,6 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 					SimplexProtocolMetadata: md,
 					SimplexEpochInfo: SimplexEpochInfo{
 						PChainReferenceHeight: pChainHeight1,
-						EpochNumber:           testCase.epochNum,
 						PrevVMBlockSeq:        baseSeq,
 					},
 					ICMEpochInfo: icmEpoch1,
@@ -689,7 +714,6 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 					SimplexProtocolMetadata: md,
 					SimplexEpochInfo: SimplexEpochInfo{
 						PChainReferenceHeight:     pChainHeight1,
-						EpochNumber:               testCase.epochNum,
 						PrevVMBlockSeq:            baseSeq + 2,
 						NextPChainReferenceHeight: pChainHeight2,
 					},
@@ -703,12 +727,12 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 			// ----- Step 4: First collecting block (1/3 approvals, not enough to seal) -----
 
 			sig1 := signApproval(pChainHeight2, emptyAuxInfoDigest)
-			require.NoError(t, sm.HandleApproval(&common.ValidatorSetApproval{
+			sm.HandleApproval(&common.ValidatorSetApproval{
 				NodeID:        node1,
 				PChainHeight:  pChainHeight2,
 				AuxInfoDigest: emptyAuxInfoDigest,
 				Signature:     sig1,
-			}, 1))
+			}, 1)
 
 			// node1 is at index 0 in validatorSet2 → bitmask bit 0 → {1}
 			bitmask := []byte{1}
@@ -728,7 +752,6 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 					SimplexProtocolMetadata: md,
 					SimplexEpochInfo: SimplexEpochInfo{
 						PChainReferenceHeight:     pChainHeight1,
-						EpochNumber:               testCase.epochNum,
 						PrevVMBlockSeq:            baseSeq + 3,
 						NextPChainReferenceHeight: pChainHeight2,
 						NextEpochApprovals: &NextEpochApprovals{
@@ -745,12 +768,12 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 
 			// ----- Step 5: Second collecting block (2/3 approvals, still not enough since threshold is strictly > 2/3) -----
 			sig2 := signApproval(pChainHeight2, emptyAuxInfoDigest)
-			require.NoError(t, sm.HandleApproval(&common.ValidatorSetApproval{
+			sm.HandleApproval(&common.ValidatorSetApproval{
 				NodeID:        node2,
 				PChainHeight:  pChainHeight2,
 				AuxInfoDigest: emptyAuxInfoDigest,
 				Signature:     sig2,
-			}, 2))
+			}, 2)
 
 			// node2 is at index 1 → bitmask bits 0,1 → {3}
 			sig, err = aggr.AppendSignatures(sig, sig2)
@@ -770,7 +793,6 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 					SimplexProtocolMetadata: md,
 					SimplexEpochInfo: SimplexEpochInfo{
 						PChainReferenceHeight:     pChainHeight1,
-						EpochNumber:               testCase.epochNum,
 						PrevVMBlockSeq:            baseSeq + 4,
 						NextPChainReferenceHeight: pChainHeight2,
 						NextEpochApprovals: &NextEpochApprovals{
@@ -787,12 +809,12 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 
 			// ----- Step 6: Sealing block (3/3 approvals, enough to seal) -----
 			sig3 := signApproval(pChainHeight2, emptyAuxInfoDigest)
-			require.NoError(t, sm.HandleApproval(&common.ValidatorSetApproval{
+			sm.HandleApproval(&common.ValidatorSetApproval{
 				NodeID:        node3,
 				PChainHeight:  pChainHeight2,
 				AuxInfoDigest: emptyAuxInfoDigest,
 				Signature:     sig3,
-			}, 3))
+			}, 3)
 
 			// node3 is at index 2 → bitmask bits 0,1,2 → {7}
 			sig6, err := aggr.AppendSignatures(sig, sig3)
@@ -812,7 +834,6 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 					SimplexProtocolMetadata: md,
 					SimplexEpochInfo: SimplexEpochInfo{
 						PChainReferenceHeight:     pChainHeight1,
-						EpochNumber:               testCase.epochNum,
 						PrevVMBlockSeq:            baseSeq + 5,
 						NextPChainReferenceHeight: pChainHeight2,
 						SealingBlockSeq:           0,
@@ -885,7 +906,6 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 								SimplexProtocolMetadata: md,
 								SimplexEpochInfo: SimplexEpochInfo{
 									PChainReferenceHeight:     pChainHeight1,
-									EpochNumber:               testCase.epochNum,
 									NextPChainReferenceHeight: pChainHeight2,
 									PrevVMBlockSeq:            baseSeq + 6,
 									SealingBlockSeq:           sealingSeq,
@@ -900,9 +920,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 
 					// ----- Step 7: Build a new epoch block (sealing block is finalized) -----
 
-					// The first block of the new epoch carries the new EpochNumber
-					// (= sealing block's sequence) in both SimplexEpochInfo.EpochNumber
-					// and the protocol metadata's Epoch field.
+					// The first block of the new epoch is numbered after the sealing block's sequence.
 					md.Epoch = sealingSeq
 
 					currentTime = startTime.Add(time.Second + 7*time.Millisecond)
@@ -916,7 +934,6 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 							SimplexProtocolMetadata: md,
 							SimplexEpochInfo: SimplexEpochInfo{
 								PChainReferenceHeight: pChainHeight2,
-								EpochNumber:           sealingSeq,
 								PrevVMBlockSeq:        baseSeq + 6,
 							},
 							ICMEpochInfo: icmEpoch2,
@@ -935,38 +952,46 @@ func TestIdentifyCurrentState(t *testing.T) {
 	bvd := &BlockValidationDescriptor{}
 	for _, tc := range []struct {
 		name     string
+		epoch    uint64
 		input    SimplexEpochInfo
 		expected state
 	}{
 		{
 			name:     "epoch 0 is first simplex block",
-			input:    SimplexEpochInfo{EpochNumber: 0},
+			epoch:    0,
 			expected: stateFirstSimplexBlock,
 		},
 		{
 			name:     "no next p-chain ref height means normal op",
-			input:    SimplexEpochInfo{EpochNumber: 1, NextPChainReferenceHeight: 0},
+			epoch:    1,
+			input:    SimplexEpochInfo{NextPChainReferenceHeight: 0},
 			expected: stateBuildBlockNormalOp,
 		},
 		{
 			name:     "has sealing block seq means epoch sealed",
-			input:    SimplexEpochInfo{EpochNumber: 1, NextPChainReferenceHeight: 100, SealingBlockSeq: 5},
+			epoch:    1,
+			input:    SimplexEpochInfo{NextPChainReferenceHeight: 100, SealingBlockSeq: 5},
 			expected: stateBuildBlockEpochSealed,
 		},
 		{
 			name:     "has block validation descriptor means epoch sealed",
-			input:    SimplexEpochInfo{EpochNumber: 1, NextPChainReferenceHeight: 100, BlockValidationDescriptor: bvd},
+			epoch:    1,
+			input:    SimplexEpochInfo{NextPChainReferenceHeight: 100, BlockValidationDescriptor: bvd},
 			expected: stateBuildBlockEpochSealed,
 		},
 		{
 			name:     "next p-chain ref height > 0 without sealing means collecting approvals",
-			input:    SimplexEpochInfo{EpochNumber: 1, NextPChainReferenceHeight: 100},
+			epoch:    1,
+			input:    SimplexEpochInfo{NextPChainReferenceHeight: 100},
 			expected: stateBuildCollectingApprovals,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			result := tc.input.NextState()
-			require.Equal(t, tc.expected, result)
+			md := StateMachineMetadata{
+				SimplexProtocolMetadata: common.ProtocolMetadata{Epoch: tc.epoch},
+				SimplexEpochInfo:        tc.input,
+			}
+			require.Equal(t, tc.expected, md.NextState())
 		})
 	}
 }
@@ -1028,9 +1053,9 @@ func TestVerifyNextPChainRefHeightNormal(t *testing.T) {
 	setB := NodeBLSMappings{{BLSKey: []byte{2}, Weight: 1}}
 
 	prevMD := StateMachineMetadata{
+		SimplexProtocolMetadata: common.ProtocolMetadata{Epoch: sealingBlockSeq},
 		SimplexEpochInfo: SimplexEpochInfo{
 			PChainReferenceHeight: prevPChainRefHeight,
-			EpochNumber:           sealingBlockSeq,
 		},
 	}
 
@@ -1039,6 +1064,23 @@ func TestVerifyNextPChainRefHeightNormal(t *testing.T) {
 			prevPChainRefHeight: setA,
 			nextPChainRefHeight: setB,
 		}
+	}
+
+	// The current validator set is now read from the parent epoch's sealing block, stored at
+	// the parent's epoch. It must carry a validator descriptor and be finalized.
+	currentEpochSealingBlock := func(finalized bool) *outerBlock {
+		ob := &outerBlock{block: StateMachineBlock{Metadata: StateMachineMetadata{
+			SimplexEpochInfo: SimplexEpochInfo{
+				BlockValidationDescriptor: &BlockValidationDescriptor{
+					AggregatedMembership: AggregatedMembership{Members: setA},
+				},
+				PrevSealingBlockHash: [32]byte{0xaa},
+			},
+		}}}
+		if finalized {
+			ob.finalization = &common.Finalization{}
+		}
+		return ob
 	}
 
 	tests := []struct {
@@ -1050,13 +1092,16 @@ func TestVerifyNextPChainRefHeightNormal(t *testing.T) {
 		{
 			name: "next height zero returns nil",
 			next: SimplexEpochInfo{NextPChainReferenceHeight: 0},
+			setup: func(tc *testConfig) {
+				tc.blockStore[sealingBlockSeq] = currentEpochSealingBlock(true)
+			},
 		},
 		{
 			name: "next height set, sealing block finalized",
 			next: SimplexEpochInfo{NextPChainReferenceHeight: nextPChainRefHeight},
 			setup: func(tc *testConfig) {
 				withChangedValidatorSet(tc)
-				tc.blockStore[sealingBlockSeq] = &outerBlock{finalization: &common.Finalization{}}
+				tc.blockStore[sealingBlockSeq] = currentEpochSealingBlock(true)
 			},
 		},
 		{
@@ -1086,7 +1131,7 @@ func TestVerifyNextPChainRefHeightNormal(t *testing.T) {
 				tt.setup(tc)
 			}
 
-			err := sm.verifyNextPChainRefHeightNormal(t.Context(), prevMD, tt.next)
+			err := sm.verifyNextPChainRefHeightNormal(&StateMachineBlock{Metadata: prevMD}, tt.next)
 			if tt.err == nil {
 				require.NoError(t, err)
 				return
@@ -1501,7 +1546,6 @@ func TestBuildBlockCollectingApprovalsDedupsOwnApprovalAcrossRounds(t *testing.T
 			},
 			SimplexEpochInfo: SimplexEpochInfo{
 				PChainReferenceHeight:     100,
-				EpochNumber:               1,
 				NextPChainReferenceHeight: 200,
 				PrevVMBlockSeq:            parentSeq - 1,
 			},
@@ -1573,14 +1617,13 @@ func TestVerifyCollectingApprovalsNotReady(t *testing.T) {
 				},
 				SimplexEpochInfo: SimplexEpochInfo{
 					PChainReferenceHeight:     pChainRefHeight,
-					EpochNumber:               1,
 					NextPChainReferenceHeight: nextPChainRefHeight,
 					PrevVMBlockSeq:            parentSeq - 1,
 				},
 			},
 		}
 		tc.blockStore[parentSeq] = &outerBlock{block: parent}
-		require.Equal(t, stateBuildCollectingApprovals, parent.Metadata.SimplexEpochInfo.NextState())
+		require.Equal(t, stateBuildCollectingApprovals, parent.Metadata.NextState())
 		return sm, tc, parent
 	}
 
@@ -1596,8 +1639,9 @@ func TestVerifyCollectingApprovalsNotReady(t *testing.T) {
 		sm, tc, parent := newSM(t)
 		block := build(t, sm, tc, parent)
 
-		// The builder generated auxiliary info but collected no approvals.
-		require.NotNil(t, block.Metadata.AuxiliaryInfo)
+		// No auxiliary info was received and the history isn't ready, so the builder collects
+		// neither auxiliary info (nil batch) nor approvals.
+		require.Nil(t, block.Metadata.AuxiliaryInfoBatch)
 		require.Empty(t, block.Metadata.SimplexEpochInfo.NextEpochApprovals.NodeIDs)
 		require.Empty(t, block.Metadata.SimplexEpochInfo.NextEpochApprovals.Signature)
 
@@ -1650,7 +1694,7 @@ func TestCollectingApprovalsAuxInfoGating(t *testing.T) {
 	vote1 := []byte("vote-1")
 	vote2 := []byte("vote-2")
 	votes := [][]byte{vote1, vote2}
-	sm.AuxiliaryInfoApp = &voteCountingAuxInfoApp{
+	auxiliaryApp := &voteCountingAuxInfoApp{
 		threshold: 2,
 		randomTape: func() []byte {
 			next := votes[0]
@@ -1658,10 +1702,9 @@ func TestCollectingApprovalsAuxInfoGating(t *testing.T) {
 			return next
 		},
 	}
+	sm.AuxiliaryInfoApp = auxiliaryApp
 
-	// A 3-node validator set including MyNodeID at index 0, so the optimistic self-approval
-	// is retained once approvals are collected, but a single approval is below quorum (the
-	// block stays in the collecting state rather than sealing).
+	// A 3-node validator set including MyNodeID at index 0
 	validators := NodeBLSMappings{
 		{NodeID: avalanchego.NodeID(sm.MyNodeID), BLSKey: []byte{1}, Weight: 1},
 		{NodeID: avalanchego.NodeID{0xBB}, BLSKey: []byte{2}, Weight: 1},
@@ -1678,7 +1721,6 @@ func TestCollectingApprovalsAuxInfoGating(t *testing.T) {
 			},
 			SimplexEpochInfo: SimplexEpochInfo{
 				PChainReferenceHeight:     pChainRefHeight,
-				EpochNumber:               1,
 				NextPChainReferenceHeight: nextPChainRefHeight,
 				PrevVMBlockSeq:            parentSeq - 1,
 			},
@@ -1686,9 +1728,9 @@ func TestCollectingApprovalsAuxInfoGating(t *testing.T) {
 	}
 	tc.blockStore[parentSeq] = &outerBlock{block: parent}
 
-	// build constructs the next collecting block on top of prev, stores it so it can serve
+	// buildAndVerify constructs the next collecting block on top of prev, stores it so it can serve
 	// as a parent (and as a back-pointer target for the aux info history), and verifies it.
-	build := func(seq uint64, prev StateMachineBlock) *StateMachineBlock {
+	buildAndVerify := func(seq uint64, prev StateMachineBlock) *StateMachineBlock {
 		tc.blockBuilder.Block = &testutil.InnerBlock{TS: time.Now(), BlockHeight: seq, Content: []byte{byte(seq)}}
 		md := common.ProtocolMetadata{Seq: seq, Round: seq, Epoch: 1, Prev: prev.Digest()}
 		block, err := sm.BuildBlock(context.Background(), md, emptyBlacklist)
@@ -1702,49 +1744,119 @@ func TestCollectingApprovalsAuxInfoGating(t *testing.T) {
 		return b.Metadata.SimplexEpochInfo.NextEpochApprovals
 	}
 	// requireAuxInfo compares the meaningful fields, ignoring the cached canoto size.
-	requireAuxInfo := func(want, got *AuxiliaryInfo) {
+	requireAuxInfo := func(want, got *AuxiliaryInfoBatch) {
 		require.True(t, want.Equal(got), "expected aux info %+v, got %+v", want, got)
 	}
 
+	auxVersionId := auxiliaryApp.DefaultVersionID()
+	firstAuxInfoBytes, err := auxiliaryApp.Generate(auxVersionId, validators, [][]byte{})
+	require.NoError(t, err)
+	firstAuxInfo := common.AuxiliaryInfo{
+		Version: auxVersionId,
+		Data:    firstAuxInfoBytes,
+	}
+	sm.HandleAuxiliaryInfo(firstAuxInfo, validators[0].NodeID)
+
 	// block1: history empty, not final -> generates vote1, collects no approvals.
-	block1 := build(parentSeq+1, parent)
-	requireAuxInfo(&AuxiliaryInfo{Info: vote1, VersionID: 1}, block1.Metadata.AuxiliaryInfo)
+	block1 := buildAndVerify(parentSeq+1, parent)
+	requireAuxInfo(&AuxiliaryInfoBatch{data: []common.AuxiliaryInfo{firstAuxInfo}}, block1.Metadata.AuxiliaryInfoBatch)
 	require.Empty(t, approvals(block1).NodeIDs)
 
+	// we get another auxiliary info sent
+	auxInfoHistory, err := GetAuxiliaryHistory(block1, parentSeq+1, sm.GetBlock, auxVersionId)
+	require.NoError(t, err)
+	secondAuxInfoBytes, err := auxiliaryApp.Generate(auxVersionId, validators, auxInfoHistory.Data)
+	require.NoError(t, err)
+	secondAuxInfo := common.AuxiliaryInfo{
+		Version: auxVersionId,
+		Data:    secondAuxInfoBytes,
+	}
+	sm.HandleAuxiliaryInfo(secondAuxInfo, validators[1].NodeID)
+
 	// block2: history [vote1], still not final -> generates vote2, collects no approvals.
-	block2 := build(parentSeq+2, *block1)
-	requireAuxInfo(&AuxiliaryInfo{Info: vote2, PrevAuxInfoSeq: parentSeq + 1, VersionID: 1}, block2.Metadata.AuxiliaryInfo)
+	block2 := buildAndVerify(parentSeq+2, *block1)
+	requireAuxInfo(&AuxiliaryInfoBatch{data: []common.AuxiliaryInfo{secondAuxInfo}, PrevAuxInfoSeq: parentSeq + 1}, block2.Metadata.AuxiliaryInfoBatch)
 	require.Empty(t, approvals(block2).NodeIDs)
 
-	// block3: history [vote1, vote2] is now final -> no new vote, and approvals are
-	// collected (the optimistic self-approval sets MyNodeID's bit). block3 is the first
-	// empty-Info block; it points at block2, the last non-empty Info block.
-	block3 := build(parentSeq+3, *block2)
-	requireAuxInfo(&AuxiliaryInfo{PrevAuxInfoSeq: parentSeq + 2, VersionID: 1}, block3.Metadata.AuxiliaryInfo)
-	require.Equal(t, []byte{1}, approvals(block3).NodeIDs, "self-approval bit should be set once aux info is ready")
+	block3 := buildAndVerify(parentSeq+3, *block2)
+	requireAuxInfo(&AuxiliaryInfoBatch{PrevAuxInfoSeq: parentSeq + 2}, block3.Metadata.AuxiliaryInfoBatch)
 
 	// The collected approval must be signed over the epoch-transition payload for the
-	//mnext epoch's P-chain reference height (200) and the digest
+	//next epoch's P-chain reference height (200) and the digest
 	// of the final auxiliary info history, which is sha256 of the last vote (vote2).
 	wantSigned, err := assembleApprovalToBeSigned(nextPChainRefHeight, sha256.Sum256(vote2))
 	require.NoError(t, err)
-	require.NoError(t, (&signatureVerifier{}).VerifySignature(approvals(block3).Signature, wantSigned, nil),
+	require.NoError(t, (&signatureVerifier{}).VerifySignature(wantSigned, approvals(block3).Signature, nil),
 		"NextEpochApprovals signature must verify against P-chain height 200 and the digest of vote2")
 
 	// block4: built on the empty-Info block3 while still collecting approvals (1/3 is below
 	// quorum). Its PrevAuxInfoSeq must SKIP the empty block3 and point at block2 (parentSeq+2),
 	// the most recent non-empty Info block -- not at its immediate parent block3 (parentSeq+3).
 	// This is the case the rest of the chain never reaches and where "skip" differs from "successive".
-	block4 := build(parentSeq+4, *block3)
-	require.NotEqual(t, parentSeq+3, block4.Metadata.AuxiliaryInfo.PrevAuxInfoSeq,
+	block4 := buildAndVerify(parentSeq+4, *block3)
+	require.NotEqual(t, parentSeq+3, block4.Metadata.AuxiliaryInfoBatch.PrevAuxInfoSeq,
 		"PrevAuxInfoSeq must not point at the empty-Info parent block3")
-	requireAuxInfo(&AuxiliaryInfo{PrevAuxInfoSeq: parentSeq + 2, VersionID: 1}, block4.Metadata.AuxiliaryInfo)
+	requireAuxInfo(&AuxiliaryInfoBatch{PrevAuxInfoSeq: parentSeq + 2}, block4.Metadata.AuxiliaryInfoBatch)
 
 	// block5: another empty-Info block on top of the empty block4. The back-pointer still skips
 	// the whole empty run and points at block2, confirming the skip persists across consecutive
 	// empty-Info blocks (collectAuxiliaryInfo finds the same most-recent non-empty block each time).
-	block5 := build(parentSeq+5, *block4)
-	requireAuxInfo(&AuxiliaryInfo{PrevAuxInfoSeq: parentSeq + 2, VersionID: 1}, block5.Metadata.AuxiliaryInfo)
+	block5 := buildAndVerify(parentSeq+5, *block4)
+	requireAuxInfo(&AuxiliaryInfoBatch{PrevAuxInfoSeq: parentSeq + 2}, block5.Metadata.AuxiliaryInfoBatch)
+}
+
+// TestVerifyCollectingApprovalsRejectsIllegalAuxInfoBatch ensures the verifier must validate
+// each proposed datum against the history including the datums before it in the batch.
+// Each duplicate vote is a legal append on its own, but the second becomes illegal once the first is appended.
+func TestVerifyCollectingApprovalsRejectsIllegalAuxInfoBatch(t *testing.T) {
+	const (
+		pChainRefHeight     = uint64(100)
+		nextPChainRefHeight = uint64(200)
+		parentSeq           = uint64(10)
+	)
+
+	sm, tc := newStateMachine(t)
+	sm.GetPChainHeightForProposing = func() uint64 { return nextPChainRefHeight }
+	sm.GetPChainHeightForVerifying = func() uint64 { return nextPChainRefHeight }
+
+	validators := NodeBLSMappings{
+		{NodeID: avalanchego.NodeID(sm.MyNodeID), BLSKey: []byte{1}, Weight: 1},
+		{NodeID: avalanchego.NodeID{0xBB}, BLSKey: []byte{2}, Weight: 1},
+		{NodeID: avalanchego.NodeID{0xCC}, BLSKey: []byte{3}, Weight: 1},
+	}
+	tc.validatorSetRetriever.result = validators
+
+	parent := StateMachineBlock{
+		InnerBlock: &testutil.InnerBlock{TS: time.Now(), BlockHeight: 1, Content: []byte{0xAA}},
+		Metadata: StateMachineMetadata{
+			PChainHeight: nextPChainRefHeight,
+			SimplexProtocolMetadata: common.ProtocolMetadata{
+				Seq: parentSeq, Round: 5, Epoch: 1,
+			},
+			SimplexEpochInfo: SimplexEpochInfo{
+				PChainReferenceHeight:     pChainRefHeight,
+				NextPChainReferenceHeight: nextPChainRefHeight,
+				PrevVMBlockSeq:            parentSeq - 1,
+			},
+		},
+	}
+	tc.blockStore[parentSeq] = &outerBlock{block: parent}
+
+	vote := common.AuxiliaryInfo{Version: 1, Data: []byte("vote-1")}
+	sm.HandleAuxiliaryInfo(vote, validators[1].NodeID)
+
+	tc.blockBuilder.Block = &testutil.InnerBlock{TS: time.Now(), BlockHeight: 2, Content: []byte{0x01}}
+	md := common.ProtocolMetadata{Seq: parentSeq + 1, Round: 6, Epoch: 1, Prev: parent.Digest()}
+	block, err := sm.BuildBlock(context.Background(), md, emptyBlacklist)
+	require.NoError(t, err)
+	wantBatch := &AuxiliaryInfoBatch{data: []common.AuxiliaryInfo{vote}}
+	require.True(t, wantBatch.Equal(block.Metadata.AuxiliaryInfoBatch))
+
+	// A malicious proposer includes the same vote twice.
+	block.Metadata.AuxiliaryInfoBatch = &AuxiliaryInfoBatch{data: []common.AuxiliaryInfo{vote, vote}}
+
+	err = sm.VerifyBlock(context.Background(), block)
+	require.ErrorIs(t, err, errAuxInfoIllegalAppend)
 }
 
 func TestCollectingApprovalsAuxInfoVersionIDIsBackwardCompatible(t *testing.T) {
@@ -1752,14 +1864,16 @@ func TestCollectingApprovalsAuxInfoVersionIDIsBackwardCompatible(t *testing.T) {
 	// VersionID must be reused for the rest of the epoch -- for both building AND verifying
 	// subsequent blocks -- even if the application's DefaultVersionID() later changes.
 	//
-	// collectAuxiliaryInfo only consults DefaultVersionID() when the auxiliary info history is
-	// empty; once a block carries a VersionID, every later buildAndVerify and verify reads that VersionID
-	// back from the chain instead. So we seed the epoch's parent with auxiliary info stamped with
-	// VersionID 1, then flip DefaultVersionID() to 2 right after the first Generate(). Because the
-	// epoch already has a VersionID on-chain, every Generate()/IsLegalAppend()/IsSufficient()
-	// invocation -- on the buildAndVerify path and the verify path -- must keep using VersionID 1, never 2.
-	// The app asserts that internally: it requires the VersionID it receives to equal
-	// expectedVersionID, which we hold at 1 throughout.
+	// GetAuxiliaryHistory only consults DefaultVersionID() when the auxiliary info history is
+	// empty; once a block carries a VersionID, every later build and verify reads that VersionID
+	// back from the chain instead. Auxiliary info is no longer generated inside the block: it
+	// arrives from peers via HandleAuxiliaryInfo and is collected into the block being built. So the
+	// first collecting block establishes the epoch's VersionID (1) from the received vote while the
+	// default is still 1, then we flip DefaultVersionID() to 2. Because the epoch already carries a
+	// VersionID on-chain, every Generate()/IsLegalAppend()/IsSufficient() invocation -- on both the
+	// build and verify paths -- must keep using VersionID 1, never 2. The app asserts that
+	// internally: it requires the VersionID it receives to equal expectedVersionID, which we hold at
+	// 1 throughout.
 
 	const (
 		pChainRefHeight     = uint64(100)
@@ -1771,10 +1885,11 @@ func TestCollectingApprovalsAuxInfoVersionIDIsBackwardCompatible(t *testing.T) {
 	sm.GetPChainHeightForVerifying = func() uint64 { return nextPChainRefHeight }
 	sm.GetPChainHeightForProposing = func() uint64 { return nextPChainRefHeight }
 
-	// threshold 4 so Generate() runs for the first three collecting blocks built on top of the
-	// pre-seeded parent (history not yet sufficient), giving us one "first" and several "later"
-	// Generate() invocations. defaultVersionID starts at 1 (the original default); expectedVersionID
-	// stays 1 for the whole test -- the app asserts every invocation uses it.
+	// threshold 4 so the history never becomes sufficient across the three collecting blocks we
+	// build: every block collects a freshly received auxiliary vote (never approvals), giving one
+	// "first" build under the original default and two "later" builds after the default changes.
+	// defaultVersionID starts at 1 (the original default); expectedVersionID stays 1 for the whole
+	// test -- the app asserts every invocation uses it.
 	app := &versionRecordingAuxInfoApp{
 		t:                 t,
 		threshold:         4,
@@ -1791,8 +1906,8 @@ func TestCollectingApprovalsAuxInfoVersionIDIsBackwardCompatible(t *testing.T) {
 	}
 	tc.validatorSetRetriever.result = validators
 
-	// The parent already carries auxiliary info for this epoch, stamped with VersionID 1.
-	// This is the backward-compatibility precondition: the epoch's VersionID is already set.
+	// A plain parent with no auxiliary info yet: the epoch's VersionID is established by the first
+	// received auxiliary vote rather than pre-seeded into the block.
 	parent := StateMachineBlock{
 		InnerBlock: &testutil.InnerBlock{TS: time.Now(), BlockHeight: 1, Content: []byte{0xAA}},
 		Metadata: StateMachineMetadata{
@@ -1802,14 +1917,8 @@ func TestCollectingApprovalsAuxInfoVersionIDIsBackwardCompatible(t *testing.T) {
 			},
 			SimplexEpochInfo: SimplexEpochInfo{
 				PChainReferenceHeight:     pChainRefHeight,
-				EpochNumber:               1,
 				NextPChainReferenceHeight: nextPChainRefHeight,
 				PrevVMBlockSeq:            parentSeq - 1,
-			},
-			AuxiliaryInfo: &AuxiliaryInfo{
-				VersionID:      1,
-				Info:           []byte("vote-0"),
-				PrevAuxInfoSeq: 0,
 			},
 		},
 	}
@@ -1827,133 +1936,583 @@ func TestCollectingApprovalsAuxInfoVersionIDIsBackwardCompatible(t *testing.T) {
 		return block
 	}
 
-	// block1: the epoch already has VersionID 1 (from the parent), so the buildAndVerify reads 1 from the
-	// chain and generates vote-1 under VersionID 1. Being the first Generate(), we now flip the
-	// application's default to 2. Verifying block1 also reads VersionID 1 from the parent's aux
-	// info, so it passes despite the changed default.
+	// receiveAuxVote generates the next vote under VersionID 1 and delivers it as if received from
+	// the given validator, so the next built block collects it into its auxiliary info.
+	receiveAuxVote := func(from avalanchego.NodeID) {
+		data, err := app.Generate(app.expectedVersionID, validators, nil)
+		require.NoError(t, err)
+		sm.HandleAuxiliaryInfo(common.AuxiliaryInfo{Version: app.expectedVersionID, Data: data}, from)
+	}
+
+	// block1: default is still 1 and the history is empty, so the received vote (VersionID 1) sets
+	// the epoch's VersionID. Building and verifying block1 both read 1 from the default. We then flip
+	// the default to 2; every later build/verify must keep reading 1 back from the chain.
+	receiveAuxVote(validators[0].NodeID)
 	block1 := buildAndVerify(parentSeq+1, parent)
-	require.Equal(t, common.VersionID(1), block1.Metadata.AuxiliaryInfo.VersionID)
+	require.Equal(t, common.VersionID(1), block1.Metadata.AuxiliaryInfoBatch.data[0].Version)
 	app.defaultVersionID = 2
 
-	// block2, block3: the default is now 2, but each block's buildAndVerify and verify still read VersionID
-	// 1 back from the chain and ignore the changed default.
+	// block2, block3: the default is now 2, but each block's build and verify still read VersionID 1
+	// back from the chain and ignore the changed default.
+	receiveAuxVote(validators[1].NodeID)
 	block2 := buildAndVerify(parentSeq+2, *block1)
-	require.Equal(t, common.VersionID(1), block2.Metadata.AuxiliaryInfo.VersionID)
+	require.Equal(t, common.VersionID(1), block2.Metadata.AuxiliaryInfoBatch.data[0].Version)
 
+	receiveAuxVote(validators[2].NodeID)
 	block3 := buildAndVerify(parentSeq+3, *block2)
-	require.Equal(t, common.VersionID(1), block3.Metadata.AuxiliaryInfo.VersionID)
-
-	// block4: history [vote-0, vote-1, vote-2, vote-3] is now sufficient, so no further vote is
-	// generated and approvals are collected -- still under VersionID 1.
-	block4 := buildAndVerify(parentSeq+4, *block3)
-	require.Equal(t, common.VersionID(1), block4.Metadata.AuxiliaryInfo.VersionID)
+	require.Equal(t, common.VersionID(1), block3.Metadata.AuxiliaryInfoBatch.data[0].Version)
 }
 
-func TestCollectAuxiliaryInfo(t *testing.T) {
-	const versionID = common.VersionID(7)
+func TestCollectingApprovalsIncludesMultipleAuxInfoMessages(t *testing.T) {
+	// Multiple auxiliary info messages received from distinct validators are all collected into a
+	// single built block's AuxiliaryInfoBatch.
 
-	blockWithAuxInfo := func(info []byte, prevAuxInfoSeq uint64) StateMachineBlock {
-		return StateMachineBlock{
-			Metadata: StateMachineMetadata{
-				AuxiliaryInfo: &AuxiliaryInfo{
-					Info:           info,
-					PrevAuxInfoSeq: prevAuxInfoSeq,
-					VersionID:      versionID,
-				},
+	const (
+		pChainRefHeight     = uint64(100)
+		nextPChainRefHeight = uint64(200)
+		parentSeq           = uint64(10)
+	)
+
+	sm, tc := newStateMachine(t)
+	sm.GetPChainHeightForProposing = func() uint64 { return nextPChainRefHeight }
+	sm.GetPChainHeightForVerifying = func() uint64 { return nextPChainRefHeight }
+
+	// A high threshold keeps the history from ever becoming sufficient, so the block stays in the
+	// collecting-approvals state and carries the received auxiliary info instead of sealing.
+	sm.AuxiliaryInfoApp = &voteCountingAuxInfoApp{threshold: 10}
+
+	validators := NodeBLSMappings{
+		{NodeID: avalanchego.NodeID(sm.MyNodeID), BLSKey: []byte{1}, Weight: 1},
+		{NodeID: avalanchego.NodeID{0xBB}, BLSKey: []byte{2}, Weight: 1},
+		{NodeID: avalanchego.NodeID{0xCC}, BLSKey: []byte{3}, Weight: 1},
+	}
+	tc.validatorSetRetriever.result = validators
+
+	parent := StateMachineBlock{
+		InnerBlock: &testutil.InnerBlock{TS: time.Now(), BlockHeight: 1, Content: []byte{0xAA}},
+		Metadata: StateMachineMetadata{
+			PChainHeight: nextPChainRefHeight,
+			SimplexProtocolMetadata: common.ProtocolMetadata{
+				Seq: parentSeq, Round: 5, Epoch: 1,
 			},
+			SimplexEpochInfo: SimplexEpochInfo{
+				PChainReferenceHeight:     pChainRefHeight,
+				NextPChainReferenceHeight: nextPChainRefHeight,
+				PrevVMBlockSeq:            parentSeq - 1,
+			},
+		},
+	}
+	tc.blockStore[parentSeq] = &outerBlock{block: parent}
+
+	version := sm.AuxiliaryInfoApp.DefaultVersionID()
+
+	// buildWithAuxMessages delivers one distinct auxiliary message per validator, builds a block on
+	// top of prev, verifies and stores it, and asserts the block collected exactly those messages.
+	// collectAuxInfo orders entries by NodeID, so the payloads are compared as a set.
+	buildWithAuxMessages := func(seq uint64, prev StateMachineBlock, payloads [][]byte) *StateMachineBlock {
+		require.Len(t, payloads, len(validators))
+		for i, payload := range payloads {
+			sm.HandleAuxiliaryInfo(common.AuxiliaryInfo{Version: version, Data: payload}, validators[i].NodeID)
+		}
+
+		tc.blockBuilder.Block = &testutil.InnerBlock{TS: time.Now(), BlockHeight: seq, Content: []byte{byte(seq)}}
+		md := common.ProtocolMetadata{Seq: seq, Round: seq, Epoch: 1, Prev: prev.Digest()}
+		block, err := sm.BuildBlock(context.Background(), md, emptyBlacklist)
+		require.NoError(t, err)
+		require.NoError(t, sm.VerifyBlock(context.Background(), block))
+		tc.blockStore[seq] = &outerBlock{block: *block}
+
+		require.NotNil(t, block.Metadata.AuxiliaryInfoBatch)
+		gotPayloads := make([][]byte, 0, len(payloads))
+		for _, info := range block.Metadata.AuxiliaryInfoBatch.data {
+			require.Equal(t, version, info.Version)
+			gotPayloads = append(gotPayloads, info.Data)
+		}
+		require.ElementsMatch(t, payloads, gotPayloads)
+		return block
+	}
+
+	// First batch of three messages lands in block1.
+	block1 := buildWithAuxMessages(parentSeq+1, parent, [][]byte{[]byte("aux-a"), []byte("aux-b"), []byte("aux-c")})
+
+	// A second batch of three messages lands in block2, built on top of block1.
+	block2 := buildWithAuxMessages(parentSeq+2, *block1, [][]byte{[]byte("aux-d"), []byte("aux-e"), []byte("aux-f")})
+
+	// block2 links back to block1, the most recent block carrying non-empty auxiliary info.
+	require.Equal(t, parentSeq+1, block2.Metadata.AuxiliaryInfoBatch.PrevAuxInfoSeq)
+}
+
+// blockingBlockBuilder waits in WaitForPendingBlock until it is handed a pending block, the way a
+// real VM waits on its mempool. The notification is consumed by a single waiter.
+type blockingBlockBuilder struct {
+	pending chan struct{}
+}
+
+func (b *blockingBlockBuilder) BuildBlock(context.Context, uint64) (avalanchego.VMBlock, error) {
+	return nil, nil
+}
+
+func (b *blockingBlockBuilder) WaitForPendingBlock(ctx context.Context) {
+	select {
+	case <-b.pending:
+	case <-ctx.Done():
+	}
+}
+
+// TestMSMWaitForPendingBlock checks when WaitForPendingBlock stops waiting for the VM. It must
+// return on its own if BuildBlock would have produced a block.
+// In cases like the first Simplex block, an epoch transition in progress, or a Telock extending a
+// sealed epoch, blocks are produced regardless of the VM.
+// In other cases, the decision to produce a block is delegated to the VM.
+func TestMSMWaitForPendingBlock(t *testing.T) {
+	const waitTime = 500 * time.Millisecond
+
+	// The current validator set is now read from a block's BlockValidationDescriptor rather than
+	// from GetValidatorSet(refHeight), so every block whose set we consult must carry one.
+	defaultSet := NodeBLSMappings{{BLSKey: []byte{1}, Weight: 1}, {BLSKey: []byte{2}, Weight: 1}}
+
+	var (
+		normal     = SimplexEpochInfo{PChainReferenceHeight: 100}
+		collecting = SimplexEpochInfo{PChainReferenceHeight: 100, NextPChainReferenceHeight: 200}
+		telock     = SimplexEpochInfo{PChainReferenceHeight: 100, NextPChainReferenceHeight: 200, SealingBlockSeq: 5}
+		sealing    = SimplexEpochInfo{PChainReferenceHeight: 100, NextPChainReferenceHeight: 200,
+			BlockValidationDescriptor: &BlockValidationDescriptor{AggregatedMembership: AggregatedMembership{Members: defaultSet}}, PrevSealingBlockHash: [32]byte{0xaa}}
+	)
+
+	// Every parent below belongs to epoch 1.
+	block := func(sei SimplexEpochInfo, finalized bool) *outerBlock {
+		ob := &outerBlock{block: StateMachineBlock{Metadata: StateMachineMetadata{
+			SimplexProtocolMetadata: common.ProtocolMetadata{Epoch: 1},
+			SimplexEpochInfo:        sei,
+		}}}
+		if finalized {
+			ob.finalization = &common.Finalization{}
+		}
+		return ob
+	}
+
+	// zeroBlock is the finalized first simplex block that opens epoch 1 and records its validator set.
+	zeroBlock := func(set NodeBLSMappings) *outerBlock {
+		return &outerBlock{
+			finalization: &common.Finalization{},
+			block: StateMachineBlock{Metadata: StateMachineMetadata{
+				SimplexProtocolMetadata: common.ProtocolMetadata{Epoch: 1},
+				SimplexEpochInfo: SimplexEpochInfo{
+					BlockValidationDescriptor: &BlockValidationDescriptor{AggregatedMembership: AggregatedMembership{Members: set}},
+				},
+			}},
 		}
 	}
 
-	errRetrieval := errors.New("retrieval failed")
-
-	// startSeq is the sequence of tt.block itself (the block collectAuxiliaryInfo starts from).
-	const startSeq = uint64(10)
-
-	tests := []struct {
-		name              string
-		block             StateMachineBlock
-		blocks            map[uint64]StateMachineBlock
-		getBlockErr       error
-		expectedHistory   [][]byte
-		expectedLastSeq   uint64
-		expectedversionID common.VersionID
-		expectedErr       error
+	for _, tt := range []struct {
+		name string
+		// blocks seeds the block store with parent blocks, keyed by their sequence.
+		blocks blockStore
+		// seq is the sequence of the block we are asking to build (ProtocolMetadata.Seq).
+		seq uint64
+		// validatorSets seeds the validator set retriever, keyed by P-chain reference height.
+		validatorSets map[uint64]NodeBLSMappings
+		// pChainHeight, when non-zero, overrides the P-chain height used for proposing/verifying,
+		// i.e. the height whose validator set is compared against the current epoch's set.
+		pChainHeight uint64
+		// vmHasBlock indicates the underlying VM has a pending block ready to build.
+		vmHasBlock bool
+		// returnsOnItsOwn is true when WaitForPendingBlock is expected to return without
+		// needing external cancellation, i.e. the state machine itself has a block to emit.
+		returnsOnItsOwn bool
 	}{
 		{
-			name:  "block without auxiliary info",
-			block: StateMachineBlock{},
+			// Never happens, we don't build the genesis block. Delegate to the VM as is.
+			name: "genesis sequence",
 		},
 		{
-			name:  "empty info, first of epoch",
-			block: blockWithAuxInfo(nil, 0),
+			// The parent is the pre-Simplex genesis block, so the zero block is next.
+			name:            "first simplex block",
+			seq:             1,
+			returnsOnItsOwn: true,
 		},
 		{
-			name:              "non-empty info, first of epoch",
-			block:             blockWithAuxInfo([]byte{1}, 0),
-			expectedHistory:   [][]byte{{1}},
-			expectedLastSeq:   startSeq,
-			expectedversionID: versionID,
+			// The state is unknown, so keep waiting rather than force a block.
+			name: "parent block cannot be retrieved",
+			seq:  2,
 		},
 		{
-			name:  "empty info pointing back to non-empty info",
-			block: blockWithAuxInfo(nil, 3),
-			blocks: map[uint64]StateMachineBlock{
-				3: blockWithAuxInfo([]byte{1}, 0),
-			},
-			expectedHistory:   [][]byte{{1}},
-			expectedLastSeq:   3,
-			expectedversionID: versionID,
+			name:            "collecting approvals for the next epoch",
+			seq:             2,
+			blocks:          blockStore{1: block(collecting, false)},
+			returnsOnItsOwn: true,
 		},
 		{
-			name:  "history is ordered from oldest to newest",
-			block: blockWithAuxInfo([]byte{3}, 5),
-			blocks: map[uint64]StateMachineBlock{
-				5: blockWithAuxInfo([]byte{2}, 2),
-				2: blockWithAuxInfo([]byte{1}, 0),
-			},
-			expectedHistory:   [][]byte{{1}, {2}, {3}},
-			expectedLastSeq:   startSeq,
-			expectedversionID: versionID,
+			// A Telock has to be emitted to extend the epoch, and it never carries an inner block.
+			name:            "sealing block parent, not finalized",
+			seq:             2,
+			blocks:          blockStore{1: block(sealing, false)},
+			returnsOnItsOwn: true,
 		},
 		{
-			name:  "traversal stops at a block without auxiliary info",
-			block: blockWithAuxInfo([]byte{2}, 4),
-			blocks: map[uint64]StateMachineBlock{
-				4: {},
-			},
-			expectedHistory:   [][]byte{{2}},
-			expectedLastSeq:   startSeq,
-			expectedversionID: versionID,
+			// The new epoch is open, so this is an ordinary block again.
+			name:   "sealing block parent, finalized",
+			seq:    2,
+			blocks: blockStore{1: block(sealing, true)},
 		},
 		{
-			name:        "block retrieval failure",
-			block:       blockWithAuxInfo([]byte{2}, 4),
-			getBlockErr: errRetrieval,
-			expectedErr: errRetrieval,
+			// We just moved to the new epoch, whose validator set is the one the sealing block
+			// carries. If the set at the latest P-chain height differs from it, another transition
+			// is due, so WaitForPendingBlock returns on its own.
+			name:            "sealing block parent, finalized, validator set changed again",
+			seq:             2,
+			blocks:          blockStore{1: block(sealing, true)},
+			pChainHeight:    200,
+			validatorSets:   map[uint64]NodeBLSMappings{200: {{BLSKey: []byte{9}, Weight: 1}}},
+			returnsOnItsOwn: true,
 		},
-	}
-
-	for _, tt := range tests {
+		{
+			name:            "Telock parent, sealing block not finalized",
+			seq:             8,
+			blocks:          blockStore{7: block(telock, false), 5: block(sealing, false)},
+			returnsOnItsOwn: true,
+		},
+		{
+			// The Telock we build on is not finalized, but the sealing block it points at is, so
+			// the epoch is over. Reading the Telock's own finalization would conclude otherwise.
+			name:   "Telock parent, sealing block finalized",
+			seq:    8,
+			blocks: blockStore{7: block(telock, false), 5: block(sealing, true)},
+		},
+		{
+			// The sealing block cannot be read, so we cannot tell whether the epoch was sealed.
+			// Rather than force a Telock on incomplete information, we defer to the VM and only
+			// return once it has a block (or the round is cancelled).
+			name:   "Telock parent, sealing block cannot be retrieved",
+			seq:    8,
+			blocks: blockStore{7: block(telock, false)},
+		},
+		{
+			name:   "normal operation, VM has nothing to build",
+			seq:    2,
+			blocks: blockStore{1: block(normal, false)},
+		},
+		{
+			name:            "normal operation, VM has a pending block",
+			seq:             2,
+			blocks:          blockStore{1: block(normal, false)},
+			vmHasBlock:      true,
+			returnsOnItsOwn: true,
+		},
+		{
+			// The validator set changed, so a block must record the new P-chain reference height
+			// even if the VM has nothing to put in it. The current set is read from the epoch's
+			// zero block (seq 1); the set at the latest P-chain height differs from it.
+			name:            "normal operation, validator set changed",
+			seq:             3,
+			blocks:          blockStore{1: zeroBlock(defaultSet), 2: block(SimplexEpochInfo{PChainReferenceHeight: 100}, false)},
+			pChainHeight:    200,
+			validatorSets:   map[uint64]NodeBLSMappings{200: {{BLSKey: []byte{9}, Weight: 1}}},
+			returnsOnItsOwn: true,
+		},
+	} {
 		t.Run(tt.name, func(t *testing.T) {
-			getBlock := func(seq uint64, _ common.Digest) (StateMachineBlock, *common.Finalization, error) {
-				if tt.getBlockErr != nil {
-					return StateMachineBlock{}, nil, tt.getBlockErr
-				}
-				block, ok := tt.blocks[seq]
-				require.True(t, ok, "unexpected retrieval of block at sequence %d", seq)
-				return block, nil, nil
+			t.Parallel()
+			bb := &blockingBlockBuilder{pending: make(chan struct{}, 1)}
+			if tt.vmHasBlock {
+				bb.pending <- struct{}{}
 			}
 
-			history, gotversionID, err := collectAuxiliaryInfo(&tt.block, startSeq, getBlock, 0)
-			if tt.expectedErr != nil {
-				require.ErrorIs(t, err, tt.expectedErr)
-				require.ErrorIs(t, err, errAuxInfoBlockRetrieval)
+			sm, cfg := newStateMachine(t)
+			sm.BlockBuilder = bb
+			sm.MaxBlockBuildingWaitTime = waitTime
+			if tt.pChainHeight != 0 {
+				sm.GetPChainHeightForProposing = func() uint64 { return tt.pChainHeight }
+				sm.GetPChainHeightForVerifying = func() uint64 { return tt.pChainHeight }
+			}
+			cfg.validatorSetRetriever.resultMap = tt.validatorSets
+			for seq, blk := range tt.blocks {
+				cfg.blockStore[seq] = blk
+			}
+
+			md := common.ProtocolMetadata{Seq: tt.seq}
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				sm.WaitForPendingBlock(ctx, md)
+			}()
+
+			if tt.returnsOnItsOwn {
+				select {
+				case <-done:
+				case <-time.After(time.Minute):
+					require.FailNow(t, "WaitForPendingBlock should have returned on its own")
+				}
+				return
+			}
+
+			select {
+			case <-done:
+				require.FailNow(t, "WaitForPendingBlock returned with nothing to build")
+			case <-time.After(waitTime * 5):
+			}
+
+			cancel()
+			select {
+			case <-done:
+			case <-time.After(time.Second * 5):
+				require.FailNow(t, "WaitForPendingBlock ignored cancellation")
+			}
+		})
+	}
+}
+
+// buildFirstSimplexBlock builds and stores the first simplex ("zero") block on top of
+// genesis, so that a follow-up normal-op block can be built on it.
+func buildFirstSimplexBlock(t *testing.T, sm *StateMachine, tc *testConfig) *StateMachineBlock {
+	md := common.ProtocolMetadata{Round: 1, Seq: 1, Epoch: 1, Prev: genesisBlock.Digest()}
+	block, err := sm.BuildBlock(context.Background(), md, emptyBlacklist)
+	require.NoError(t, err)
+	require.NotNil(t, block)
+	tc.blockStore[1] = &outerBlock{block: *block}
+	return block
+}
+
+// emptyBlockRequestingBuilder is a BlockBuilder that models the VM's inner block builder
+// being cancelled: BuildBlock optionally cancels the build context with a given cause and
+// then returns an error. WaitForPendingBlock is a no-op so the block-building decider
+// proceeds to decide that an inner block should be built.
+type emptyBlockRequestingBuilder struct {
+	cancel      context.CancelCauseFunc
+	cancelCause error // if non-nil, BuildBlock cancels the context with this cause before failing
+	err         error // error returned by BuildBlock
+}
+
+func (b *emptyBlockRequestingBuilder) BuildBlock(context.Context, uint64) (avalanchego.VMBlock, error) {
+	if b.cancelCause != nil {
+		b.cancel(b.cancelCause)
+	}
+	return nil, b.err
+}
+
+func (b *emptyBlockRequestingBuilder) WaitForPendingBlock(context.Context) {}
+
+// TestMSMBuildBlockBuildsEmptyBlockWhenBlockBuildingCancelled covers the branch in
+// buildBlockOrTransitionEpoch where the block-building decider returns an error: when the
+// context was cancelled with ErrShouldBuildEmptyBlock, an empty block is returned instead
+// of propagating the error.
+func TestMSMBuildBlockBuildsEmptyBlockWhenBlockBuildingCancelled(t *testing.T) {
+	t.Run("empty-block cause yields an empty block", func(t *testing.T) {
+		sm, tc := newStateMachine(t)
+		block1 := buildFirstSimplexBlock(t, sm, tc)
+
+		md := common.ProtocolMetadata{Round: 2, Seq: 2, Epoch: 1, Prev: block1.Digest()}
+		ctx, cancel := context.WithCancelCause(context.Background())
+		cancel(common.ErrShouldBuildEmptyBlock)
+
+		block, err := sm.BuildBlock(ctx, md, emptyBlacklist)
+		require.NoError(t, err)
+		require.NotNil(t, block)
+		require.Nil(t, block.InnerBlock)
+		require.Nil(t, block.Metadata.AuxiliaryInfoBatch)
+		require.Equal(t, md, block.Metadata.SimplexProtocolMetadata)
+		// The empty block carries the current P-chain height for proposing (100 in this config).
+		require.Equal(t, uint64(100), block.Metadata.PChainHeight)
+	})
+
+	t.Run("other cancellation propagates the error", func(t *testing.T) {
+		sm, tc := newStateMachine(t)
+		block1 := buildFirstSimplexBlock(t, sm, tc)
+
+		md := common.ProtocolMetadata{Round: 2, Seq: 2, Epoch: 1, Prev: block1.Digest()}
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		block, err := sm.BuildBlock(ctx, md, emptyBlacklist)
+		require.ErrorIs(t, err, context.Canceled)
+		require.Nil(t, block)
+	})
+}
+
+// TestMSMBuildBlockBuildsEmptyBlockWhenInnerBlockBuildingCancelled covers the branch in
+// buildBlockOrTransitionEpoch where the inner (VM) block builder fails: when the context
+// was cancelled with ErrShouldBuildEmptyBlock, an empty block is returned instead of
+// propagating the error.
+func TestMSMBuildBlockBuildsEmptyBlockWhenInnerBlockBuildingCancelled(t *testing.T) {
+	errVMBuildFailed := errors.New("vm failed to build inner block")
+
+	t.Run("empty-block cause yields an empty block", func(t *testing.T) {
+		sm, tc := newStateMachine(t)
+		block1 := buildFirstSimplexBlock(t, sm, tc)
+
+		// The decider runs first with a live context and decides to build an inner block;
+		// the inner builder then cancels the context with the empty-block cause and fails.
+		ctx, cancel := context.WithCancelCause(context.Background())
+		sm.BlockBuilder = &emptyBlockRequestingBuilder{
+			cancel:      cancel,
+			cancelCause: common.ErrShouldBuildEmptyBlock,
+			err:         errVMBuildFailed,
+		}
+
+		md := common.ProtocolMetadata{Round: 2, Seq: 2, Epoch: 1, Prev: block1.Digest()}
+		block, err := sm.BuildBlock(ctx, md, emptyBlacklist)
+		require.NoError(t, err)
+		require.NotNil(t, block)
+		require.Nil(t, block.InnerBlock)
+		require.Equal(t, md, block.Metadata.SimplexProtocolMetadata)
+		// The empty block carries the decided P-chain height (100 in this config).
+		require.Equal(t, uint64(100), block.Metadata.PChainHeight)
+	})
+
+	t.Run("inner build failure without empty-block cause propagates the error", func(t *testing.T) {
+		sm, tc := newStateMachine(t)
+		block1 := buildFirstSimplexBlock(t, sm, tc)
+
+		sm.BlockBuilder = &emptyBlockRequestingBuilder{err: errVMBuildFailed}
+
+		md := common.ProtocolMetadata{Round: 2, Seq: 2, Epoch: 1, Prev: block1.Digest()}
+		block, err := sm.BuildBlock(context.Background(), md, emptyBlacklist)
+		require.ErrorIs(t, err, errVMBuildFailed)
+		require.Nil(t, block)
+	})
+}
+
+func TestGetCurrentValidatorSet(t *testing.T) {
+	validators := NodeBLSMappings{{BLSKey: []byte{1}, Weight: 1}, {BLSKey: []byte{2}, Weight: 1}}
+	finalized := &common.Finalization{}
+
+	descriptor := func(members NodeBLSMappings) *BlockValidationDescriptor {
+		return &BlockValidationDescriptor{AggregatedMembership: AggregatedMembership{Members: members}}
+	}
+
+	// zeroBlock opens the first epoch: it carries a descriptor and points to no previous sealing block.
+	zeroBlock := func(bvd *BlockValidationDescriptor, finalization *common.Finalization) *outerBlock {
+		return &outerBlock{
+			finalization: finalization,
+			block: StateMachineBlock{Metadata: StateMachineMetadata{
+				SimplexEpochInfo: SimplexEpochInfo{BlockValidationDescriptor: bvd},
+			}},
+		}
+	}
+
+	// sealingBlock at seq opens the epoch numbered seq: it carries a descriptor and points to the previous sealing block.
+	sealingBlock := func(seq uint64, bvd *BlockValidationDescriptor, finalization *common.Finalization) *outerBlock {
+		return &outerBlock{
+			finalization: finalization,
+			block: StateMachineBlock{Metadata: StateMachineMetadata{
+				SimplexProtocolMetadata: common.ProtocolMetadata{Seq: seq},
+				SimplexEpochInfo:        SimplexEpochInfo{PrevSealingBlockHash: [32]byte{1}, BlockValidationDescriptor: bvd},
+			}},
+		}
+	}
+
+	// normalBlock is a block in the epoch that neither opens nor seals it.
+	normalBlock := func(seq, epoch uint64) *outerBlock {
+		return &outerBlock{
+			finalization: finalized,
+			block: StateMachineBlock{Metadata: StateMachineMetadata{
+				SimplexProtocolMetadata: common.ProtocolMetadata{Seq: seq, Epoch: epoch},
+			}},
+		}
+	}
+
+	for _, testCase := range []struct {
+		name string
+		// epoch is the epoch of the block whose validator set is looked up.
+		epoch uint64
+		// parent is the epoch info of the block whose epoch's validator set is looked up.
+		parent SimplexEpochInfo
+		blocks blockStore
+
+		expected NodeBLSMappings
+		// expectedErr is a substring of the expected error message.
+		expectedErr string
+		// expectedErrIs is a sentinel the expected error must wrap.
+		expectedErrIs error
+	}{
+		{
+			name:     "normal block in the first epoch reads the zero block",
+			epoch:    1,
+			blocks:   blockStore{1: zeroBlock(descriptor(validators), finalized)},
+			expected: validators,
+		},
+		{
+			name:     "the zero block is read even before it is finalized",
+			epoch:    1,
+			blocks:   blockStore{1: zeroBlock(descriptor(validators), nil)},
+			expected: validators,
+		},
+		{
+			name:     "normal block in a later epoch reads the finalized sealing block",
+			epoch:    10,
+			blocks:   blockStore{10: sealingBlock(10, descriptor(validators), finalized)},
+			expected: validators,
+		},
+		{
+			name:     "transitioning block reads the sealing block of its epoch",
+			epoch:    10,
+			parent:   SimplexEpochInfo{NextPChainReferenceHeight: 300},
+			blocks:   blockStore{10: sealingBlock(10, descriptor(validators), finalized)},
+			expected: validators,
+		},
+		{
+			name:        "sealing block that is not finalized is rejected",
+			epoch:       10,
+			blocks:      blockStore{10: sealingBlock(10, descriptor(validators), nil)},
+			expectedErr: "sealing block 10 is not finalized",
+		},
+		{
+			name:          "missing epoch block",
+			epoch:         10,
+			blocks:        blockStore{},
+			expectedErrIs: common.ErrBlockNotFound,
+		},
+		{
+			name:        "sealing block without validators",
+			epoch:       10,
+			blocks:      blockStore{10: sealingBlock(10, descriptor(nil), finalized)},
+			expectedErr: "block 10 has no validators",
+		},
+		{
+			name:        "epoch block that carries no descriptor",
+			epoch:       10,
+			blocks:      blockStore{10: normalBlock(10, 1)},
+			expectedErr: "block 10 has no validators",
+		},
+		{
+			name:        "sealing block as parent is rejected",
+			epoch:       1,
+			parent:      SimplexEpochInfo{PrevSealingBlockHash: [32]byte{1}, BlockValidationDescriptor: descriptor(validators)},
+			blocks:      blockStore{1: zeroBlock(descriptor(validators), finalized)},
+			expectedErr: "did not expect block 20 to be a sealing block or a Telock",
+		},
+		{
+			name:        "Telock as parent is rejected",
+			epoch:       1,
+			parent:      SimplexEpochInfo{SealingBlockSeq: 15},
+			blocks:      blockStore{1: zeroBlock(descriptor(validators), finalized)},
+			expectedErr: "did not expect block 20 to be a sealing block or a Telock",
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			parent := &StateMachineBlock{Metadata: StateMachineMetadata{
+				SimplexProtocolMetadata: common.ProtocolMetadata{Seq: 20, Epoch: testCase.epoch},
+				SimplexEpochInfo:        testCase.parent,
+			}}
+
+			got, err := getCurrentValidatorSet(parent, testCase.blocks.getBlock)
+
+			if testCase.expectedErrIs != nil {
+				require.ErrorIs(t, err, testCase.expectedErrIs)
+				require.Nil(t, got)
+				return
+			}
+			if testCase.expectedErr != "" {
+				require.ErrorContains(t, err, testCase.expectedErr)
+				require.Nil(t, got)
 				return
 			}
 			require.NoError(t, err)
-			require.Equal(t, tt.expectedHistory, history.data)
-			require.Equal(t, tt.expectedLastSeq, history.lastSeq)
-			require.Equal(t, tt.expectedversionID, gotversionID)
+			require.Equal(t, testCase.expected, got)
 		})
 	}
 }

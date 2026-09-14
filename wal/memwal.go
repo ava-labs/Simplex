@@ -37,7 +37,7 @@ func (wal *InMemWAL) ReadAll() ([][]byte, error) {
 	r := bytes.NewBuffer(wal.bb.Bytes())
 	var res [][]byte
 	for r.Len() > 0 {
-		payload, _, err := readRecord(r, uint32(r.Len()))
+		payload, _, err := readRecord(r, int64(r.Len()))
 		if err != nil {
 			return nil, fmt.Errorf("failed reading in-memory record: %w", err)
 		}

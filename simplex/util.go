@@ -148,11 +148,11 @@ type oneTimeVerifiedBlock struct {
 	common.Block
 }
 
-func (block *oneTimeVerifiedBlock) Verify(ctx context.Context) (common.VerifiedBlock, error) {
+func (block *oneTimeVerifiedBlock) Verify(ctx context.Context, verifyOpts ...common.VerifyOptions) (common.VerifiedBlock, error) {
 	block.otv.lock.Lock()
 	defer block.otv.lock.Unlock()
 
-	header := block.Block.BlockHeader()
+	header := block.BlockHeader()
 	digest := header.Digest
 	seq := header.Seq
 
@@ -161,7 +161,7 @@ func (block *oneTimeVerifiedBlock) Verify(ctx context.Context) (common.VerifiedB
 		return result.vb, result.err
 	}
 
-	vb, err := block.Block.Verify(ctx)
+	vb, err := block.Block.Verify(ctx, verifyOpts...)
 	if err != nil {
 		block.otv.logger.Debug("Block verification failed", zap.Uint64("round", header.Round), zap.Error(err))
 		return nil, err

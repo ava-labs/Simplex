@@ -119,6 +119,18 @@ func (r *ReplicationState) deleteOldRounds(finalizedRound uint64) {
 	})
 }
 
+// deleteOldSeqs cleans up sequences that have already been committed.
+// Committing a sequence only deletes its exact entry, so sequences superseded by
+// a different block digest would otherwise never be released.
+func (r *ReplicationState) deleteOldSeqs(nextSequenceToCommit uint64) {
+	for seq := range r.seqs {
+		if seq < nextSequenceToCommit {
+			r.logger.Debug("Replication State Deleting Old Sequence", zap.Uint64("seq", seq))
+			delete(r.seqs, seq)
+		}
+	}
+}
+
 // storeSequence stores a block and finalization into the replication state
 func (r *ReplicationState) storeSequence(block common.Block, finalization *common.Finalization) bool {
 	if _, exists := r.seqs[finalization.Finalization.Seq]; exists {
@@ -201,7 +213,7 @@ func (r *ReplicationState) ReceivedFutureFinalization(finalization *common.Final
 
 	// maybe this finalization was for a round that we initially thought only had notarizations
 	// remove from the round replicator since we now have a finalization for this round
-	r.deleteOldRounds(finalization.Finalization.BlockHeader.Round)
+	r.deleteOldRounds(finalization.Finalization.Round)
 
 	// potentially send out requests for blocks/finalizations in between
 	r.finalizationRequestor.observedSignedQuorum(signedSequence, nextSeqToCommit)
@@ -236,6 +248,20 @@ func (r *ReplicationState) ResendFinalizationRequest(seq uint64, signers []commo
 	// so that we can try to get a new block & finalization
 	r.DeleteSeq(seq)
 	r.finalizationRequestor.sendRequestToNode([]uint64{seq}, signers[index])
+}
+
+// ResendRoundRequest notifies the replication state that `round` should be re-requested.
+func (r *ReplicationState) ResendRoundRequest(round uint64, signers []common.NodeID) {
+	if !r.enabled {
+		return
+	}
+
+	signers = common.NodeIDs(signers).Remove(r.myNodeID)
+	numSigners := int64(len(signers))
+	index := r.rand.Int64N(numSigners)
+
+	r.DeleteRound(round)
+	r.roundRequestor.sendRequestToNode([]uint64{round}, signers[index])
 }
 
 // CreateDependencyTasks creates tasks to refetch the given parent digest and empty rounds. If there are no
@@ -286,6 +312,8 @@ func (r *ReplicationState) MaybeAdvanceState(nextSequenceToCommit uint64, curren
 	if nextSequenceToCommit > 0 {
 		r.finalizationRequestor.removeOldTasks(nextSequenceToCommit - 1)
 	}
+
+	r.deleteOldSeqs(nextSequenceToCommit)
 
 	// update the requestors in case they need to send more requests
 	r.finalizationRequestor.updateState(nextSequenceToCommit)

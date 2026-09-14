@@ -6,6 +6,7 @@ package common
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 
@@ -36,19 +37,29 @@ type Logger interface {
 	Verbo(msg string, fields ...zap.Field)
 }
 
+var (
+	// ErrShouldBuildEmptyBlock is returned when a block needs to be built even though the VM has no transactions to include in the block.
+	// This is used to advance the chain when the tip is notarized but not finalized.
+	ErrShouldBuildEmptyBlock = errors.New("should build empty block")
+
+	// ErrBlockNotFound is returned when a block cannot be found in storage.
+	ErrBlockNotFound = fmt.Errorf("block not found")
+)
+
 type BlockBuilder interface {
 	// BuildBlock blocks until some transactions are available to be batched into a block,
-	// in which case a block and true are returned.
-	// When the given context is cancelled by the caller, returns false.
-	// The given metadata and blacklist are encoded into the built block.
+	// and the given metadata and blacklist are encoded into the built block.
+	// Returns a block and true unless the given context is cancelled by the caller.
+	// When the given context is cancelled by the caller:
+	// returns an empty block and true, if the context was cancelled with ErrShouldBuildEmptyBlock
+	// returns nil, false otherwise.
+	// The returned boolean indicates whether the block is nil or not.
 	BuildBlock(ctx context.Context, metadata ProtocolMetadata, blacklist Blacklist) (VerifiedBlock, bool)
 
 	// WaitForPendingBlock returns when either the given context is cancelled,
 	// or when the application signals that a block should be built.
 	WaitForPendingBlock(ctx context.Context)
 }
-
-var ErrBlockNotFound = fmt.Errorf("block not found")
 
 type Storage interface {
 	NumBlocks() uint64
@@ -71,11 +82,18 @@ type Communication interface {
 }
 
 type Signer interface {
-	Sign(message []byte) ([]byte, error)
+	Sign(message []byte) (SignatureBytes, error)
 }
 
+// SignatureBytes is the byte representation of a signature, or of an aggregate of signatures.
+type SignatureBytes []byte
+
+// PublicKeyBytes is the byte representation of a public key, or of an aggregate of public keys.
+type PublicKeyBytes []byte
+
+// SignatureVerifier verifies that signature is a valid signature over message by the holder of publicKey.
 type SignatureVerifier interface {
-	VerifySignature(message []byte, signature []byte, publicKey []byte) error
+	VerifySignature(message []byte, signature SignatureBytes, publicKey PublicKeyBytes) error
 }
 
 type WriteAheadLog interface {
@@ -91,7 +109,7 @@ type Block interface {
 	Blacklist() Blacklist
 
 	// Verify verifies the block by speculatively executing it on top of its ancestor.
-	Verify(ctx context.Context) (VerifiedBlock, error)
+	Verify(context.Context, ...VerifyOptions) (VerifiedBlock, error)
 
 	// non nil only for sealing blocks & first ever simplex block
 	SealingBlockInfo() *SealingBlockInfo
@@ -139,7 +157,7 @@ type Signature struct {
 	// Signer is the NodeID of the creator of the signature.
 	Signer NodeID
 	// Value is the byte representation of the signature.
-	Value []byte
+	Value SignatureBytes
 }
 
 // QCDeserializer deserializes QuorumCertificates according to formatting
@@ -156,7 +174,7 @@ type SignatureAggregator interface {
 
 	// AppendSignatures appends signatures to an existing signature.
 	// If the existing signature is empty, it just aggregates the given signatures.
-	AppendSignatures([]byte, ...[]byte) ([]byte, error)
+	AppendSignatures(SignatureBytes, ...SignatureBytes) (SignatureBytes, error)
 
 	// IsQuorum returns true if the given signers constitute a quorum.
 	// In the case of PoA, this means at least a quorum of the nodes are given.
@@ -189,7 +207,7 @@ func (nws Nodes) Contains(nodeID NodeID) bool {
 type Node struct {
 	Id     NodeID
 	Weight uint64
-	PK     []byte
+	PK     PublicKeyBytes
 }
 
 // SortNodes sorts the nodes in place by their byte representations.
@@ -212,3 +230,13 @@ func F(n int) int {
 
 // SignatureAggregatorCreator creates a SignatureAggregator from a list of nodes and their weights.
 type SignatureAggregatorCreator func([]Node) SignatureAggregator
+
+type VerifyOptions func(*VerifyConfig)
+
+func OnlyVMVerifyOpt(vc *VerifyConfig) {
+	vc.OnlyVM = true
+}
+
+type VerifyConfig struct {
+	OnlyVM bool
+}

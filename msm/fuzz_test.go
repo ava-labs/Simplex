@@ -6,7 +6,6 @@ package metadata
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"testing"
 	"time"
 
@@ -41,8 +40,8 @@ var authoritativeFields = []authoritativeField{
 	{"SimplexEpochInfo.PChainReferenceHeight", func(m *StateMachineMetadata, v uint64) {
 		m.SimplexEpochInfo.PChainReferenceHeight = v
 	}},
-	{"SimplexEpochInfo.EpochNumber", func(m *StateMachineMetadata, v uint64) {
-		m.SimplexEpochInfo.EpochNumber = v
+	{"SimplexProtocolMetadata.Epoch", func(m *StateMachineMetadata, v uint64) {
+		m.SimplexProtocolMetadata.Epoch = v
 	}},
 	{"SimplexEpochInfo.PrevVMBlockSeq", func(m *StateMachineMetadata, v uint64) {
 		m.SimplexEpochInfo.PrevVMBlockSeq = v
@@ -72,7 +71,7 @@ const numBuiltBlocks = 8
 // inputs (selected by index). For each input, a freshly instantiated verifier MSM first
 // verifies the unfuzzed block (which must succeed), then verifies a copy whose
 // consensus-authoritative metadata has been mutated (which must fail).
-//
+
 // The mutation is applied at the field level (rather than by flipping serialized bytes)
 // so the fuzzed block is always well-formed: byte-level mutations of the Canoto encoding
 // overwhelmingly corrupt the structure and merely exercise the decoder. Each fuzzed field
@@ -116,8 +115,10 @@ func FuzzVerifyBlock(f *testing.F) {
 		fuzzedMD := block.Metadata
 		field.set(&fuzzedMD, value)
 
-		if fieldIdx%2 == 1 && block.Metadata.AuxiliaryInfo == nil {
-			fuzzedMD.AuxiliaryInfo = &AuxiliaryInfo{PrevAuxInfoSeq: value}
+		if fieldIdx%2 == 1 && block.Metadata.AuxiliaryInfoBatch == nil {
+			// value|1 forces a non-zero PrevAuxInfoSeq: collecting-approvals blocks reconstruct it
+			// as 0 (parent has no aux info), so value 0 would match and slip through unrejected.
+			fuzzedMD.AuxiliaryInfoBatch = &AuxiliaryInfoBatch{PrevAuxInfoSeq: value | 1}
 		}
 
 		if bytes.Equal(fuzzedMD.MarshalCanoto(), block.Metadata.MarshalCanoto()) {
@@ -251,30 +252,31 @@ func buildEpochChain(tb testing.TB, logger common.Logger) ([]*StateMachineBlock,
 	block3 := build(3, 2, 1, block2)
 	addBlock(3, block3, nil)
 
-	// The noopTestAuxInfoApp is always "ready" with an empty aux info history, so the candidate
-	// aux info digest the builder signs over is sha256 of the empty history. Peer approvals must
-	// carry the same digest to survive sanitizeApprovals' digest filter.
-	auxInfoDigest := sha256.Sum256(nil)
+	// The noopTestAuxInfoApp is always "ready" with an empty aux info history, and
+	// LastHistoryDigest returns the zero digest for an empty history. That zero value is the
+	// candidate digest the builder signs over, so peer approvals must carry it to survive
+	// sanitizeApprovals' digest filter.
+	var auxInfoDigest [32]byte
 
 	// block4 & block5: collecting-approvals blocks (1/3 then 2/3, not enough to seal).
-	require.NoError(tb, sm.HandleApproval(&common.ValidatorSetApproval{NodeID: node1, PChainHeight: pChainHeight2, AuxInfoDigest: auxInfoDigest, Signature: signApproval(pChainHeight2, auxInfoDigest)}, 1))
+	sm.HandleApproval(&common.ValidatorSetApproval{NodeID: node1, PChainHeight: pChainHeight2, AuxInfoDigest: auxInfoDigest, Signature: signApproval(pChainHeight2, auxInfoDigest)}, 1)
 	currentTime = startTime.Add(time.Second + 4*time.Millisecond)
 	tc.blockBuilder.Block = nextInner(4)
 	block4 := build(4, 3, 1, block3)
 	addBlock(4, block4, nil)
 
-	require.NoError(tb, sm.HandleApproval(&common.ValidatorSetApproval{NodeID: node2, PChainHeight: pChainHeight2, AuxInfoDigest: auxInfoDigest, Signature: signApproval(pChainHeight2, auxInfoDigest)}, 2))
+	sm.HandleApproval(&common.ValidatorSetApproval{NodeID: node2, PChainHeight: pChainHeight2, AuxInfoDigest: auxInfoDigest, Signature: signApproval(pChainHeight2, auxInfoDigest)}, 2)
 	currentTime = startTime.Add(time.Second + 5*time.Millisecond)
 	tc.blockBuilder.Block = nextInner(5)
 	block5 := build(5, 4, 1, block4)
 	addBlock(5, block5, nil)
 
 	// block6: the sealing block (3/3 approvals). Its successor is in stateBuildBlockEpochSealed.
-	require.NoError(tb, sm.HandleApproval(&common.ValidatorSetApproval{NodeID: node3, PChainHeight: pChainHeight2, AuxInfoDigest: auxInfoDigest, Signature: signApproval(pChainHeight2, auxInfoDigest)}, 3))
+	sm.HandleApproval(&common.ValidatorSetApproval{NodeID: node3, PChainHeight: pChainHeight2, AuxInfoDigest: auxInfoDigest, Signature: signApproval(pChainHeight2, auxInfoDigest)}, 3)
 	currentTime = startTime.Add(time.Second + 6*time.Millisecond)
 	tc.blockBuilder.Block = nextInner(6)
 	block6 := build(6, 5, 1, block5)
-	require.Equal(tb, stateBuildBlockEpochSealed, block6.Metadata.SimplexEpochInfo.NextState())
+	require.Equal(tb, stateBuildBlockEpochSealed, block6.Metadata.NextState())
 	// Finalize the sealing block so the epoch transition can proceed.
 	addBlock(6, block6, &common.Finalization{})
 
