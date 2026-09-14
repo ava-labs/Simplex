@@ -113,7 +113,7 @@ func (i *Instance) Start(ctx context.Context) error {
 
 	context.AfterFunc(ctx, i.Stop)
 
-	if err := i.bootstrap(); err != nil {
+	if err := i.maybeBootstrap(); err != nil {
 		return err
 	}
 
@@ -123,8 +123,8 @@ func (i *Instance) Start(ctx context.Context) error {
 	return nil
 }
 
-func (i *Instance) bootstrap() error {
-	i.Config.Logger.Debug("Node started bootstrapping")
+func (i *Instance) maybeBootstrap() error {
+	i.Config.Logger.Debug("Checking if bootstrapping is required")
 	latestValidatorSet, err := getLatestPlatformChainValidatorSet(i.Config.PlatformChain)
 	if err != nil {
 		return err
@@ -138,7 +138,7 @@ func (i *Instance) bootstrap() error {
 	// We have indexed the latest validator set, therefore we can skip bootstrapping and start as a validator.
 	// Note: this may not be the latest epoch, but a future PR will eventually notice we are behind and transition properly.
 	if latestIndexedEpochValidators.Equal(latestValidatorSet.Nodes()) && latestValidatorSet.Nodes().Contains(i.Config.ID) {
-		i.Config.Logger.Debug("Node finished bootstrapping, its latest epoch is up to date with the Platform Chain")
+		i.Config.Logger.Debug("Node skipping bootstrapping because its latest epoch is up to date with the Platform Chain")
 		return i.startValidator(latestIndexedEpochValidators)
 	}
 
