@@ -3116,3 +3116,75 @@ func TestReplicationRequestsKeepHighestObservedRound(t *testing.T) {
 	msg := <-comm.SentMessages
 	require.Equal(t, uint64(1000), msg.ReplicationRequest.LatestRound)
 }
+
+// TestEpochFinalizeVoteSentTwiceKeepsBufferedVote asserts that the first finalize vote
+// a node sends before we have the round is the one kept, so a second one cannot displace it.
+// Whether the round finalizes depends only on which of the two arrived first.
+func TestEpochFinalizeVoteSentTwiceKeepsBufferedVote(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		invalidFirst bool
+		expectCommit bool
+	}{
+		{name: "valid vote first is kept", invalidFirst: false, expectCommit: true},
+		{name: "invalid vote first is kept", invalidFirst: true, expectCommit: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			bb := testutil.NewTestBlockBuilder()
+			nodes := []NodeID{{1}, {2}, {3}, {4}}
+
+			invalidSig := []byte("invalid signature")
+
+			// nodes[0] leads round 0, so we hold messages for that round until its proposal lands.
+			conf, _, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[1], testutil.NewNoopComm(nodes), bb)
+			conf.Verifier = &rejectingVerifier{rejected: invalidSig}
+
+			e, err := NewEpoch(conf)
+			require.NoError(t, err)
+			t.Cleanup(e.Stop)
+			require.NoError(t, e.Start())
+
+			b, ok := bb.BuildBlock(context.Background(), e.Metadata(), emptyBlacklist)
+			require.True(t, ok)
+			block := b.(Block)
+
+			sendInvalid := func() {
+				require.NoError(t, e.HandleMessage(&Message{FinalizeVote: &FinalizeVote{
+					Finalization: ToBeSignedFinalization{BlockHeader: b.BlockHeader()},
+					Signature:    Signature{Signer: nodes[2], Value: invalidSig},
+				}}, nodes[2]))
+			}
+
+			if tc.invalidFirst {
+				sendInvalid()
+				testutil.InjectTestFinalizeVote(t, e, b, nodes[2])
+			} else {
+				testutil.InjectTestFinalizeVote(t, e, b, nodes[2])
+				sendInvalid()
+			}
+			testutil.InjectTestFinalizeVote(t, e, b, nodes[3])
+
+			vote, err := testutil.NewTestVote(block, nodes[0])
+			require.NoError(t, err)
+			require.NoError(t, e.HandleMessage(&Message{BlockMessage: &BlockMessage{
+				Vote:  *vote,
+				Block: block,
+			}}, nodes[0]))
+
+			// A third vote notarizes the round, which makes us cast our own finalize vote.
+			testutil.InjectTestVote(t, e, b, nodes[2])
+
+			if tc.expectCommit {
+				require.Eventually(t, func() bool {
+					return storage.NumBlocks() == 1
+				}, 10*time.Second, 10*time.Millisecond, "round was never finalized")
+				return
+			}
+
+			// Only nodes[3] and our own vote are valid, one short of a quorum.
+			require.Never(t, func() bool {
+				return storage.NumBlocks() > 0
+			}, 500*time.Millisecond, 50*time.Millisecond, "round finalized with an invalid vote")
+		})
+	}
+}
