@@ -1296,10 +1296,10 @@ func TestNonValidatorBootstrapRequestsSealingBlock(t *testing.T) {
 	require.False(t, ok)
 }
 
-// TestNonValidator_BootstrapLatestKnownEpoch asserts a node caught up to the network
+// TestNonValidatorBootstrapLatestKnownEpoch asserts a node caught up to the network
 // bootstraps from responses vouching for the sealing block of the latest epoch it
 // already has indexed, without re-indexing it.
-func TestNonValidator_BootstrapLatestKnownEpoch(t *testing.T) {
+func TestNonValidatorBootstrapLatestKnownEpoch(t *testing.T) {
 	tc := newSeededChain(t, testNodes, 2)
 	nv, err := NewNonValidator(
 		Config{
@@ -1312,6 +1312,7 @@ func TestNonValidator_BootstrapLatestKnownEpoch(t *testing.T) {
 		},
 	)
 	require.NoError(t, err)
+	require.False(t, nv.Bootstrapped)
 	defer nv.Stop()
 
 	// the sealing block of epoch 1, indexed at seq 1

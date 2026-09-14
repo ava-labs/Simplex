@@ -396,8 +396,8 @@ func TestNonValidatorSkipsMSMVerification(t *testing.T) {
 	parent, _, err := nonValidatorNode.storage.GetBlock(1)
 	require.NoError(t, err)
 
-	// The non-validator drops every message until it bootstraps. One peer reporting the block
-	// sealing epoch 1 meets the threshold of F(1)+1.
+	// The non-validator requires a  threshold of F(1)+1 responses for the first sealing block.
+	// Otherwise it will block non-replication messages.
 	sealing := &ParsedBlock{StateMachineBlock: parent.Clone()}
 	sealingFinalization, _ := testutil.NewFinalizationRecord(t, &testutil.TestSignatureAggregator{N: 1}, sealing, []common.NodeID{validator.NodeID[:]})
 	require.NoError(t, nonValidatorNode.inst.HandleMessage(&common.Message{
