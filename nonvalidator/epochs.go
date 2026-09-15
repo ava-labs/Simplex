@@ -186,6 +186,10 @@ func (e *epochDigestCounter) collectedSealingBlockInfo(sealingBlockInfo *common.
 	threshold := common.F(len(validators)) + 1
 	// the sequence number is the epoch the sealing block creates
 	response := sealingBlockResponse{epoch: bh.Seq, digest: bh.Digest}
+	if stored, ok := e.sealingBlockResponses[string(from)]; ok && stored.epoch > response.epoch {
+		e.logger.Debug("Ignoring sealing block for a lower epoch than already collected from this node", zap.Stringer("From", from), zap.Uint64("Stored Epoch", stored.epoch), zap.Uint64("Epoch", response.epoch))
+		return false
+	}
 	e.sealingBlockResponses[string(from)] = response
 
 	// check if we have a threshold of responses
