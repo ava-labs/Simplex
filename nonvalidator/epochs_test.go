@@ -297,3 +297,26 @@ func TestCollectedQuorumRound(t *testing.T) {
 		})
 	}
 }
+
+// TestCollectedSealingBlockInfoOneResponsePerValidator asserts a validator's newest
+// response replaces its earlier one, so a single validator can never reach the
+// threshold alone and only its latest response counts toward it.
+func TestCollectedSealingBlockInfoOneResponsePerValidator(t *testing.T) {
+	qr := newSealingQuorumRound(1, 4)
+	info := qr.Block.SealingBlockInfo()
+	validators := info.ValidatorSet
+	e := newEpochReplicator(testutil.MakeLogger(t, 1), &testValidatorSetRetriever{
+		nodes: validators,
+	})
+
+	seq5 := newSealingTestBlock(5, 1, common.Digest{}, info).BlockHeader()
+	seq6 := newSealingTestBlock(6, 1, common.Digest{}, info).BlockHeader()
+
+	// threshold is 2, one validator sending distinct sequences never reaches it
+	require.False(t, e.collectedSealingBlockInfo(info, seq5, validators[0].Id))
+	require.False(t, e.collectedSealingBlockInfo(info, seq6, validators[0].Id))
+
+	// voters[0] moved on to seq 6, so seq 5 has one response
+	require.False(t, e.collectedSealingBlockInfo(info, seq5, validators[1].Id))
+	require.True(t, e.collectedSealingBlockInfo(info, seq6, validators[1].Id))
+}
