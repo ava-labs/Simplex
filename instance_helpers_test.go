@@ -384,6 +384,10 @@ func (i *instanceComm) enqueue(m inflightMessage) {
 }
 
 func (c *instanceComm) Send(msg *common.Message, destination common.NodeID) {
+	if c.n.isOffline(c.id) || c.n.isOffline(destination) {
+		return
+	}
+
 	for _, n := range c.n.nodesSnapshot() {
 		if !bytes.Equal(n.id, destination) {
 			continue
@@ -400,9 +404,13 @@ func (c *instanceComm) Send(msg *common.Message, destination common.NodeID) {
 }
 
 func (c *instanceComm) Broadcast(msg *common.Message) {
+	if c.n.isOffline(c.id) {
+		return
+	}
+
 	// every node in the network but ourselves, each with its own re-parsed copy
 	for _, n := range c.n.nodesSnapshot() {
-		if bytes.Equal(n.id, c.id) {
+		if bytes.Equal(n.id, c.id) || c.n.isOffline(n.id) {
 			continue
 		}
 
@@ -601,18 +609,22 @@ func (n *node) restart() *node {
 	return newNode
 }
 
+// role reports whether the instance currently runs a validator epoch rather than a
+// non-validator, and whether it has finished bootstrapping.
+func (n *node) role() (isValidator bool, bootstrapped bool) {
+	n.inst.lock.Lock()
+	defer n.inst.lock.Unlock()
+
+	if n.inst.e != nil {
+		return true, true
+	}
+	return false, n.inst.nv != nil && n.inst.nv.IsBootstrapped()
+}
+
 // sync syncs a node by waiting for the commit of the latest sequence.
 func (n *node) sync() *node {
 	n.storage.WaitForBlockCommit(n.net.seq - 1)
 	return n
-}
-
-// role reports whether the node is running a validator rather than a non-validator.
-func (n *node) role() (isValidator bool) {
-	n.inst.lock.Lock()
-	defer n.inst.lock.Unlock()
-
-	return n.inst.e != nil
 }
 
 const firstEverEpoch uint64 = 1
@@ -628,15 +640,36 @@ type network struct {
 	// pending holds the block the network has been asked to build, claimable by any leader.
 	pending *pendingBlockSignal
 
-	// lock guards nodes, which comm goroutines read while addNode appends.
+	// lock guards nodes and offline, which comm goroutines read while tests mutate them.
 	lock  sync.Mutex
 	nodes []node
+	// offline nodes stay in the network but neither send nor receive messages.
+	offline map[string]struct{}
 }
 
 func (n *network) nodesSnapshot() []node {
 	n.lock.Lock()
 	defer n.lock.Unlock()
 	return append([]node(nil), n.nodes...)
+}
+
+func (n *network) setOffline(id common.NodeID) {
+	n.lock.Lock()
+	defer n.lock.Unlock()
+	n.offline[string(id)] = struct{}{}
+}
+
+func (n *network) setOnline(id common.NodeID) {
+	n.lock.Lock()
+	defer n.lock.Unlock()
+	delete(n.offline, string(id))
+}
+
+func (n *network) isOffline(id common.NodeID) bool {
+	n.lock.Lock()
+	defer n.lock.Unlock()
+	_, offline := n.offline[string(id)]
+	return offline
 }
 
 func newNetwork(t *testing.T, pChain *testPlatformChain) *network {
@@ -647,6 +680,7 @@ func newNetwork(t *testing.T, pChain *testPlatformChain) *network {
 		t:                 t,
 		pChain:            pChain,
 		pending:           newPendingBlockSignal(),
+		offline:           make(map[string]struct{}),
 		epochValidatorSet: genesisNodes,
 
 		// Genesis at seq 0. Then first simplex block is built automatically
@@ -754,8 +788,10 @@ func (n *network) waitUntilValidatorsReady() {
 			continue
 		}
 
-		require.Eventually(n.t, node.role, time.Minute, time.Millisecond,
-			"node %x never started running a validator", node.id)
+		require.Eventually(n.t, func() bool {
+			isValidator, _ := node.role()
+			return isValidator
+		}, time.Minute, time.Millisecond, "node %x never started running a validator", node.id)
 	}
 }
 
@@ -828,6 +864,9 @@ func (n *network) waitUntilSealingBlock(expectedValidatorSet common.Nodes) commo
 	for {
 		var block common.VerifiedBlock
 		for _, node := range n.nodes {
+			if n.isOffline(node.id) {
+				continue
+			}
 			committedBlock := node.storage.WaitForBlockCommit(n.seq)
 			if block == nil {
 				block = committedBlock
