@@ -343,6 +343,12 @@ func (i *Instance) HandleMessage(msg *common.Message, from common.NodeID) error 
 			}
 			i.msm.HandleAuxiliaryInfo(*msg.AuxiliaryInfo, avalanchego.NodeID(from))
 		case msg.EpochTransitionApproval != nil:
+			if !from.Equals(msg.EpochTransitionApproval.NodeID[:]) {
+				i.Config.Logger.Debug("Dropping approval not sent by its signer",
+					zap.Stringer("from", from),
+					zap.Stringer("signer", common.NodeID(msg.EpochTransitionApproval.NodeID[:])))
+				return nil
+			}
 			// TODO: pass in time.Now() rather than uint64
 			i.msm.HandleApproval(msg.EpochTransitionApproval, uint64(time.Now().UnixMilli()))
 			return nil
