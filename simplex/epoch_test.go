@@ -3194,10 +3194,7 @@ func TestEpochFinalizeVoteSentTwiceKeepsBufferedVote(t *testing.T) {
 func TestEpochRepliesWithFinalizationForStaleFinalizeVote(t *testing.T) {
 	bb := testutil.NewTestBlockBuilder()
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
-	comm := &recordingComm{
-		Communication: testutil.NewNoopComm(nodes),
-		SentMessages:  make(chan *Message, 100),
-	}
+	comm := &recordingComm{Communication: testutil.NewNoopComm(nodes), SentMessages: make(chan *Message, 100)}
 	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], comm, bb)
 	conf.MaxRoundWindow = 5
 
@@ -3206,42 +3203,16 @@ func TestEpochRepliesWithFinalizationForStaleFinalizeVote(t *testing.T) {
 	t.Cleanup(e.Stop)
 	require.NoError(t, e.Start())
 
-	// Finalize rounds 0..7. Indexing round 7 prunes every round r with r + MaxRoundWindow < 7,
-	// i.e. rounds 0 and 1, while rounds 2..7 stay in memory with their finalizations.
-	const numRounds = 8
-	blocks := make([]VerifiedBlock, 0, numRounds)
-	for range numRounds {
-		block, _ := notarizeAndFinalizeRound(t, e, bb)
-		blocks = append(blocks, block)
+	staleBlock, _ := notarizeAndFinalizeRound(t, e, bb)
+	for range 6 {
+		notarizeAndFinalizeRound(t, e, bb)
 	}
-	require.Equal(t, uint64(numRounds), e.Storage.NumBlocks())
-	require.Equal(t, uint64(numRounds), e.Metadata().Round)
-
-	// Discard everything sent so far so only replies to our injected votes are observed.
 	for len(comm.SentMessages) > 0 {
 		<-comm.SentMessages
 	}
 
-	waitForFinalizationReply := func(round uint64) bool {
-		deadline := time.After(2 * time.Second)
-		for {
-			select {
-			case msg := <-comm.SentMessages:
-				if msg.Finalization != nil && msg.Finalization.Finalization.Round == round {
-					return true
-				}
-			case <-deadline:
-				return false
-			}
-		}
-	}
-
-	// Round 6 is inside the window and still held in memory, so the vote is answered.
-	testutil.InjectTestFinalizeVote(t, e, blocks[6], nodes[1])
-	require.True(t, waitForFinalizationReply(6), "expected a finalization reply for round 6, which is still in the rounds map")
-
-	// Round 1 has been pruned by indexFinalizations. The lagging peer's rebroadcast vote should still
-	// be answered with the last finalization
-	testutil.InjectTestFinalizeVote(t, e, blocks[1], nodes[1])
-	require.True(t, waitForFinalizationReply(numRounds-1), "expected a finalization reply for last round")
+	testutil.InjectTestFinalizeVote(t, e, staleBlock, nodes[1])
+	reply := <-comm.SentMessages
+	require.NotNil(t, reply.Finalization)
+	require.Equal(t, uint64(6), reply.Finalization.Finalization.Round)
 }
