@@ -3188,3 +3188,31 @@ func TestEpochFinalizeVoteSentTwiceKeepsBufferedVote(t *testing.T) {
 		})
 	}
 }
+
+// TestEpochRepliesWithFinalizationForStaleFinalizeVote asserts that a node which already indexed a
+// round answers a late finalize vote for that round with the latest finalization, even if the round has been pruned from memory.
+func TestEpochRepliesWithFinalizationForStaleFinalizeVote(t *testing.T) {
+	bb := testutil.NewTestBlockBuilder()
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	comm := &recordingComm{Communication: testutil.NewNoopComm(nodes), SentMessages: make(chan *Message, 100)}
+	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], comm, bb)
+	conf.MaxRoundWindow = 5
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+
+	staleBlock, _ := notarizeAndFinalizeRound(t, e, bb)
+	for range 6 {
+		notarizeAndFinalizeRound(t, e, bb)
+	}
+	for len(comm.SentMessages) > 0 {
+		<-comm.SentMessages
+	}
+
+	testutil.InjectTestFinalizeVote(t, e, staleBlock, nodes[1])
+	reply := <-comm.SentMessages
+	require.NotNil(t, reply.Finalization)
+	require.Equal(t, uint64(6), reply.Finalization.Finalization.Round)
+}

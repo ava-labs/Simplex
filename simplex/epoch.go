@@ -934,6 +934,13 @@ func (e *Epoch) handleFinalizeVoteMessage(message *common.FinalizeVote, from com
 		return nil
 	}
 
+	if !exists && e.lastBlock != nil && e.lastBlock.Finalization.Finalization.Seq > vote.Seq {
+		// This is a finalization for a past round, the node that sent it to us is behind,
+		// so we send it the latest finalization to help it catch up and initiate the replication process
+		e.sendLatestFinalization(from)
+		return nil
+	}
+
 	// Finalization for a future round that is too far in the future
 	if !exists {
 		e.Logger.Debug("Received finalize vote for an unknown round", zap.Uint64("ourRound", e.round), zap.Uint64("round", vote.Round))
