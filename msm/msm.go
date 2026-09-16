@@ -772,9 +772,6 @@ func (sm *StateMachine) verifyNextPChainRefHeightNormal(parentBlock *StateMachin
 			errValidatorSetUnchanged, next.NextPChainReferenceHeight, prev.PChainReferenceHeight)
 	}
 
-	// we should initialize the approval store for the new validator set.
-	sm.maybeInitializeApprovalStore(newValidatorSet)
-
 	return nil
 }
 
@@ -814,8 +811,6 @@ func (sm *StateMachine) verifyNextPChainRefHeightForNewEpoch(expectedEpochInfo S
 		return fmt.Errorf("%w: validator set at proposed next P-chain reference height %d matches new epoch's P-chain reference height %d",
 			errValidatorSetUnchanged, next.NextPChainReferenceHeight, expectedEpochInfo.PChainReferenceHeight)
 	}
-
-	sm.maybeInitializeApprovalStore(newValidatorSet)
 
 	return nil
 }

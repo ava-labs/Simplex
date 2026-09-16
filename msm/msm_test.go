@@ -420,6 +420,7 @@ func TestMSMNormalOp(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
+			require.Nil(t, sm2.approvalStore, "verifying a proposal must not initialize the approval store")
 
 			expected := &StateMachineBlock{
 				InnerBlock: &testutil.InnerBlock{
@@ -1139,6 +1140,59 @@ func TestVerifyNextPChainRefHeightNormal(t *testing.T) {
 			require.ErrorIs(t, err, tt.err)
 		})
 	}
+}
+
+// TestVerifyNextPChainRefHeightKeepsApprovalStore ensures verifying a proposal that starts an
+// epoch transition leaves the approval store untouched, so approvals collected for another
+// validator set survive proposals that are never accepted.
+func TestVerifyNextPChainRefHeightKeepsApprovalStore(t *testing.T) {
+	const (
+		prevPChainRefHeight = uint64(50)
+		nextPChainRefHeight = uint64(80)
+		sealingBlockSeq     = uint64(5)
+	)
+
+	setA := NodeBLSMappings{{BLSKey: []byte{1}, Weight: 1, NodeID: [20]byte{1}}}
+	setB := NodeBLSMappings{{BLSKey: []byte{2}, Weight: 1, NodeID: [20]byte{2}}}
+
+	sm, tc := newStateMachine(t)
+	tc.validatorSetRetriever.resultMap = map[uint64]NodeBLSMappings{
+		prevPChainRefHeight: setA,
+		nextPChainRefHeight: setB,
+	}
+	tc.blockStore[sealingBlockSeq] = &outerBlock{
+		block: StateMachineBlock{Metadata: StateMachineMetadata{
+			SimplexEpochInfo: SimplexEpochInfo{
+				BlockValidationDescriptor: &BlockValidationDescriptor{
+					AggregatedMembership: AggregatedMembership{Members: setA},
+				},
+				PrevSealingBlockHash: [32]byte{0xaa},
+			},
+		}},
+		finalization: &common.Finalization{},
+	}
+
+	// An approval already collected for setA, whose only member is absent from setB.
+	store := sm.maybeInitializeApprovalStore(setA)
+	store.HandleApproval(&common.ValidatorSetApproval{
+		NodeID:       setA[0].NodeID,
+		PChainHeight: prevPChainRefHeight,
+		Signature:    signApproval(prevPChainRefHeight, [32]byte{}),
+	}, 1)
+	require.Len(t, store.Approvals(), 1)
+
+	parent := &StateMachineBlock{Metadata: StateMachineMetadata{
+		SimplexProtocolMetadata: common.ProtocolMetadata{Epoch: sealingBlockSeq},
+		SimplexEpochInfo:        SimplexEpochInfo{PChainReferenceHeight: prevPChainRefHeight},
+	}}
+	next := SimplexEpochInfo{NextPChainReferenceHeight: nextPChainRefHeight}
+
+	require.NoError(t, sm.verifyNextPChainRefHeightNormal(parent, next))
+	require.Same(t, store, sm.approvalStore)
+
+	require.NoError(t, sm.verifyNextPChainRefHeightForNewEpoch(parent.Metadata.SimplexEpochInfo, next, setA))
+	require.Same(t, store, sm.approvalStore)
+	require.Len(t, sm.approvalStore.Approvals(), 1)
 }
 
 func TestVerifyPChainHeight(t *testing.T) {
