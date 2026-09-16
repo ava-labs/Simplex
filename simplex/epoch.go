@@ -1674,6 +1674,9 @@ func (e *Epoch) maybeMarkLeaderAsTimedOutForFutureBlacklisting(emptyNotarization
 			return fmt.Errorf("last block is nil")
 		}
 		blacklist = e.lastBlock.VerifiedBlock.Blacklist()
+		if e.lastBlock.Finalization.Finalization.Epoch < e.Epoch {
+			blacklist = common.NewBlacklist(uint16(len(e.validatorNodeIDs)))
+		}
 	}
 	round := emptyNotarization.Vote.Round
 	leaderIndex := round % uint64(len(e.validatorNodeIDs))
@@ -2971,6 +2974,9 @@ func (e *Epoch) retrieveLastPersistedBlacklist() (common.Blacklist, bool) {
 		}
 
 		blacklist = e.lastBlock.VerifiedBlock.Blacklist()
+		if e.lastBlock.Finalization.Finalization.Epoch < e.Epoch {
+			blacklist = common.NewBlacklist(uint16(len(e.validatorNodeIDs)))
+		}
 	}
 	return blacklist, true
 }
