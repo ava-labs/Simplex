@@ -248,7 +248,7 @@ func (e *Epoch) init() error {
 	}
 	e.blockBuilder = &EmptyBlockBuilder{
 		ShouldBuildEmptyBlock: e.haveUnFinalizedButNotarizedSuffix,
-		Timeout:               e.MaxProposalWait,
+		Timeout:               e.MaxProposalWait * 4,
 		BB:                    e.BlockBuilder,
 	}
 	err := e.loadLastBlock()
