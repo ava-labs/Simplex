@@ -1124,6 +1124,66 @@ func TestEpochResizesBlacklistOnEpochChange(t *testing.T) {
 	wal.AssertNotarization(2)
 }
 
+// TestEpochBlacklistCapBypassedByPendingSuspects shows that the blacklist can end up with more
+// than f blacklisted nodes. The cap of f is only enforced when a node is first added to the
+// suspected list; incrementing nodes that are already pending never re-checks it.
+// With 4 nodes (f=1), two leaders accuse nodes 0 and 1 in the same orbit, so both cross the
+// f+1 threshold and both are blacklisted. Node 0 (the node under test) then refuses to
+// propose in its own round.
+func TestEpochBlacklistCapBypassedByPendingSuspects(t *testing.T) {
+	bb := testutil.NewTestBlockBuilder()
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	f := (len(nodes) - 1) / 3
+
+	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+
+	// Rounds 0 and 1: ordinary blocks proposed by nodes 0 and 1.
+	notarizeAndFinalizeRound(t, e, bb)
+	block, _ := notarizeAndFinalizeRound(t, e, bb)
+
+	accuseNodes0And1 := []BlacklistUpdate{
+		{Type: BlacklistOpType_NodeSuspected, NodeIndex: 0},
+		{Type: BlacklistOpType_NodeSuspected, NodeIndex: 1},
+	}
+
+	// Round 2: node 2 proposes a block accusing nodes 0 and 1.
+	// Nothing is blacklisted yet, so both are added as pending with a single accusation each.
+	prevBlacklist := block.Blacklist()
+	blacklist := prevBlacklist.ApplyUpdates(accuseNodes0And1, e.Metadata().Round)
+	bb.BuildBlock(context.Background(), e.Metadata(), blacklist)
+	block, _ = notarizeAndFinalizeRound(t, e, bb)
+	require.Equal(t, nodes[2], LeaderForRound(nodes, block.BlockHeader().Round))
+
+	actual := block.Blacklist()
+	require.False(t, actual.IsNodeSuspected(0))
+	require.False(t, actual.IsNodeSuspected(1))
+	require.Len(t, actual.SuspectedNodes, 2)
+
+	// Round 3: node 3 accuses nodes 0 and 1 again, still within the same orbit.
+	// Each pending entry is incremented to f+1 without re-checking the cap.
+	prevBlacklist = block.Blacklist()
+	blacklist = prevBlacklist.ApplyUpdates(accuseNodes0And1, e.Metadata().Round)
+	bb.BuildBlock(context.Background(), e.Metadata(), blacklist)
+	block, _ = notarizeAndFinalizeRound(t, e, bb)
+	require.Equal(t, nodes[3], LeaderForRound(nodes, block.BlockHeader().Round))
+
+	actual = block.Blacklist()
+	blacklisted := 0
+	for i := range nodes {
+		if actual.IsNodeSuspected(uint16(i)) {
+			blacklisted++
+		}
+	}
+
+	require.LessOrEqual(t, blacklisted, f,
+		"at most f=%d nodes may be blacklisted, but %d are: %s", f, blacklisted, actual.String())
+}
+
 func TestEpochStartedTwice(t *testing.T) {
 	bb := testutil.NewTestBlockBuilder()
 
