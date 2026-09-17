@@ -330,6 +330,9 @@ type instanceComm struct {
 
 	queue chan inflightMessage
 
+	// messageFilter, when set, decides which outgoing messages are delivered.
+	messageFilter testutil.MessageFilter
+
 	// closed is shut by stop, releasing run and any pending enqueue.
 	closed    chan struct{}
 	closeOnce sync.Once
@@ -390,7 +393,7 @@ func (c *instanceComm) Send(msg *common.Message, destination common.NodeID) {
 		}
 
 		require.NotNil(c.n.t, n.inst, "node %x was sent a message before it was created", destination)
-		if !c.n.deliverable(c.id, destination, msg) {
+		if c.messageFilter != nil && !c.messageFilter(msg, c.id, destination) {
 			return
 		}
 		c.enqueue(inflightMessage{
@@ -410,7 +413,7 @@ func (c *instanceComm) Broadcast(msg *common.Message) {
 		}
 
 		require.NotNil(c.n.t, n.inst, "node %x was sent a message before it was created", n.id)
-		if !c.n.deliverable(c.id, n.id, msg) {
+		if c.messageFilter != nil && !c.messageFilter(msg, c.id, n.id) {
 			continue
 		}
 		c.enqueue(inflightMessage{
@@ -634,36 +637,15 @@ type network struct {
 	// pending holds the block the network has been asked to build, claimable by any leader.
 	pending *pendingBlockSignal
 
-	// lock guards nodes, which comm goroutines read while addNode appends, and intercept.
+	// lock guards nodes, which comm goroutines read while addNode appends.
 	lock  sync.Mutex
 	nodes []node
-
-	// intercept, when set, is consulted for every message delivery from one node to another,
-	// with the outgoing message as the sender produced it. Returning false drops the delivery.
-	// It lets a test partition traffic between specific nodes and observe what a node sends.
-	intercept func(from, to common.NodeID, msg *common.Message) bool
 }
 
 func (n *network) nodesSnapshot() []node {
 	n.lock.Lock()
 	defer n.lock.Unlock()
 	return append([]node(nil), n.nodes...)
-}
-
-// setInterceptor installs the delivery interceptor; pass nil to remove it.
-func (n *network) setInterceptor(intercept func(from, to common.NodeID, msg *common.Message) bool) {
-	n.lock.Lock()
-	defer n.lock.Unlock()
-	n.intercept = intercept
-}
-
-// deliverable reports whether a message from one node to another should be delivered.
-func (n *network) deliverable(from, to common.NodeID, msg *common.Message) bool {
-	n.lock.Lock()
-	intercept := n.intercept
-	n.lock.Unlock()
-
-	return intercept == nil || intercept(from, to, msg)
 }
 
 func newNetwork(t *testing.T, pChain *testPlatformChain) *network {
@@ -692,6 +674,8 @@ type nodeConfig struct {
 	lastNonSimplexBlock avalanchego.VMBlock
 	// existingNode indicates whether the node is being added to the network for the first time (false) or is a restart of an existing node (true).
 	existingNode bool
+	// messageFilter, when set, decides which outgoing messages are delivered; nil delivers everything.
+	messageFilter testutil.MessageFilter
 }
 
 // addNode creates and starts a node in the network.
@@ -707,6 +691,7 @@ func (n *network) addNodeWithConfig(id common.NodeID, cfg nodeConfig) *node {
 	}
 
 	comm := newInstanceComm(n, id)
+	comm.messageFilter = cfg.messageFilter
 
 	vm := newBlockBuilderVM(storage, n.pending)
 	wc := &walCreator{t: n.t}
