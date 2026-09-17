@@ -77,7 +77,7 @@ type Instance struct {
 }
 
 func NewInstance(config Config) *Instance {
-	cs := NewCachedStorage(config.Storage)
+	cs := NewCachedStorage(config.Storage, config.LastNonSimplexInnerBlock.Height())
 	// Non-validators have no block builder, so they pass a nil approval handler:
 	// they broadcast approvals but do not need to record their own locally.
 	transitionListener := newEpochTransitionListener(
