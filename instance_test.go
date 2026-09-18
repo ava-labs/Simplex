@@ -556,3 +556,87 @@ func TestValidatorSetsMetadataFromSnowman(t *testing.T) {
 	require.Equal(t, uint64(1), block.BlockHeader().Round)
 	require.Equal(t, numNonSimplexBlocks, block.BlockHeader().Seq)
 }
+
+// TestFinalizeVoteRebroadcastPrecedesEmptyBlockProposal asserts that a leader whose tip is notarized
+// but not finalized rebroadcasts its finalize vote for the tip (using NotarizationTime) before it proposes an
+// empty block on top of it (empty-block timeout), so peers get a chance to send the finalization first.
+//
+// Node A leads round 2, node B leads round 3. Finalize votes and finalizations from A to B are dropped,
+// so A finalizes block 2 while B only notarizes it. B then enters round 3 as leader with no pending
+// transactions. Among the messages B sends after entering round 3, the finalize vote for round 2 must
+// appear before the (empty) block proposal for round 3.
+func TestFinalizeVoteRebroadcastPrecedesEmptyBlockProposal(t *testing.T) {
+	nodeA := newNodeMapping(1)
+	nodeB := newNodeMapping(2)
+	pChain := newTestPChain(metadata.NodeBLSMappings{nodeA, nodeB})
+	validators := pChain.GenesisValidatorSet().Nodes()
+	common.SortNodes(validators)
+	nodeAID := common.NodeID(nodeA.NodeID[:])
+	nodeBID := common.NodeID(nodeB.NodeID[:])
+
+	network := newNetwork(t, pChain)
+	a := network.addNode(nodeAID)
+	b := network.addNode(nodeBID)
+	network.sync()
+	network.waitUntilValidatorsReady()
+
+	b.inst.lock.Lock()
+	epochB := b.inst.e
+	b.inst.lock.Unlock()
+
+	notarizedRound := epochB.Metadata().Round
+	emptyBlockRound := notarizedRound + 1
+	require.Equal(t, nodeAID, simplex.LeaderForRound(validators.NodeIDs(), notarizedRound), "node A must lead the round whose block stays unfinalized on node B")
+	require.Equal(t, nodeBID, simplex.LeaderForRound(validators.NodeIDs(), emptyBlockRound), "node B must lead the round in which it proposes the empty block")
+
+	// Drop finalize votes and finalizations from node A to node B. Record what node B sends, in order.
+	sentByB := make(chan *common.Message, 1000)
+	network.setInterceptor(func(from, to common.NodeID, msg *common.Message) bool {
+		if from.Equals(nodeBID) {
+			sentByB <- msg
+		}
+		if from.Equals(nodeAID) && to.Equals(nodeBID) && (msg.FinalizeVote != nil || msg.Finalization != nil) {
+			return false
+		}
+		return true
+	})
+	t.Cleanup(func() { network.setInterceptor(nil) })
+
+	// Node A builds the block for notarizedRound. Both nodes notarize it; only node A finalizes it.
+	network.pending.addPendingBlock()
+	a.storage.WaitForBlockCommit(network.seq)
+
+	// Node B enters emptyBlockRound as leader with a notarized-but-not-finalized tip.
+	require.Eventually(t, func() bool {
+		return epochB.Metadata().Round >= emptyBlockRound
+	}, 10*time.Second, time.Millisecond, "node B never entered round %d", emptyBlockRound)
+
+	// Drain the channel of messages sent by node B before inspecting it.
+	for len(sentByB) > 0 {
+		<-sentByB
+	}
+
+	timeout := time.After(15 * time.Second)
+	var rebroadcastAt time.Time
+	for {
+		select {
+		case msg := <-sentByB:
+			if msg.FinalizeVote != nil && msg.FinalizeVote.Finalization.Round == notarizedRound && rebroadcastAt.IsZero() {
+				rebroadcastAt = time.Now()
+			}
+			if msg.VerifiedBlockMessage != nil && msg.VerifiedBlockMessage.VerifiedBlock.BlockHeader().Round == emptyBlockRound {
+				require.False(t, rebroadcastAt.IsZero(),
+					"node B proposed the empty block for round %d before rebroadcasting its finalize vote for round %d", emptyBlockRound, notarizedRound)
+				// The rebroadcast is only useful if a peer holding the finalization can answer before the
+				// empty block is proposed: the vote has to reach the peer and the finalization has to come
+				// back, up to two network delays in total. The configured timeouts guarantee that round trip
+				// only in the worst case, so require at least one network delay to stay clear of jitter.
+				require.GreaterOrEqual(t, time.Since(rebroadcastAt), paramConfig.MaxNetworkDelay,
+					"node B proposed the empty block for round %d too soon after rebroadcasting its finalize vote for peers to answer", emptyBlockRound)
+				return
+			}
+		case <-timeout:
+			require.FailNow(t, "timed out waiting for node B to propose the empty block")
+		}
+	}
+}

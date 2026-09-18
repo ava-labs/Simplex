@@ -390,6 +390,9 @@ func (c *instanceComm) Send(msg *common.Message, destination common.NodeID) {
 		}
 
 		require.NotNil(c.n.t, n.inst, "node %x was sent a message before it was created", destination)
+		if !c.n.deliverable(c.id, destination, msg) {
+			return
+		}
 		c.enqueue(inflightMessage{
 			to:   n.inst,
 			from: c.id,
@@ -407,6 +410,9 @@ func (c *instanceComm) Broadcast(msg *common.Message) {
 		}
 
 		require.NotNil(c.n.t, n.inst, "node %x was sent a message before it was created", n.id)
+		if !c.n.deliverable(c.id, n.id, msg) {
+			continue
+		}
 		c.enqueue(inflightMessage{
 			to:   n.inst,
 			from: c.id,
@@ -628,15 +634,36 @@ type network struct {
 	// pending holds the block the network has been asked to build, claimable by any leader.
 	pending *pendingBlockSignal
 
-	// lock guards nodes, which comm goroutines read while addNode appends.
+	// lock guards nodes, which comm goroutines read while addNode appends, and intercept.
 	lock  sync.Mutex
 	nodes []node
+
+	// intercept, when set, is consulted for every message delivery from one node to another,
+	// with the outgoing message as the sender produced it. Returning false drops the delivery.
+	// It lets a test partition traffic between specific nodes and observe what a node sends.
+	intercept func(from, to common.NodeID, msg *common.Message) bool
 }
 
 func (n *network) nodesSnapshot() []node {
 	n.lock.Lock()
 	defer n.lock.Unlock()
 	return append([]node(nil), n.nodes...)
+}
+
+// setInterceptor installs the delivery interceptor; pass nil to remove it.
+func (n *network) setInterceptor(intercept func(from, to common.NodeID, msg *common.Message) bool) {
+	n.lock.Lock()
+	defer n.lock.Unlock()
+	n.intercept = intercept
+}
+
+// deliverable reports whether a message from one node to another should be delivered.
+func (n *network) deliverable(from, to common.NodeID, msg *common.Message) bool {
+	n.lock.Lock()
+	intercept := n.intercept
+	n.lock.Unlock()
+
+	return intercept == nil || intercept(from, to, msg)
 }
 
 func newNetwork(t *testing.T, pChain *testPlatformChain) *network {
