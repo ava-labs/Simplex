@@ -202,40 +202,39 @@ func (n *NonValidator) HandleMessage(msg *common.Message, from common.NodeID) er
 // processBootstrapQuorumRound handles quorum rounds until bootstrapping finishes.
 // Once a threshold validates an epoch, only sealing blocks are validated
 // and stored(in a backwards manner).
-func (n *NonValidator) processBootstrapQuorumRound(qr *common.QuorumRound, from common.NodeID) error {
+func (n *NonValidator) processBootstrapQuorumRound(qr *common.QuorumRound, from common.NodeID) {
 	block := qr.Block
 	bh := block.BlockHeader()
 	sealingInfo := block.SealingBlockInfo()
 
 	if sealingInfo == nil {
 		n.sendRequest(bh.Epoch, from)
-		return nil
+		return
 	}
 
 	switch {
 	case n.epochs.canValidate(block):
-		// The sealing block in the backwards hash chain
+		// The sealing block is in the backwards hash chain, try to validate it
 		if !n.isIndexed(bh.Seq) {
 			n.validateSealingBlock(qr, from)
 		}
 	case n.highestEpochCollector.collectedSealingBlockInfo(sealingInfo, bh, from):
+		// The sealing block is from an unknown epoch and we have collected enough votes to validate it
 		n.Logger.Info("A threshold of validators reported a sealing block", zap.Uint64("Seq", bh.Seq), zap.Stringer("Info", sealingInfo))
 		n.sealingBlockTimeouts.RemoveTask(initialBootstrapTask)
+
 		if !n.isIndexed(bh.Seq) {
 			n.validateSealingBlock(qr, from)
 		}
 	default:
-		return nil
+		// The sealing block cannot be validated, or there is not enough votes for it.
+		return
 	}
 
 	// No sealing block is missing, so every epoch from our tip to the highest is validated.
-	if !n.sealingBlockTimeouts.Empty() {
+	if n.sealingBlockTimeouts.Empty() {
 		n.finishBootstrap()
-		// If the highest epoch is already indexed, nothing more gets indexed to trigger the transition.
-		highestEpoch, validators := n.epochs.highestEpoch()
-		n.maybeTransitionToValidator(highestEpoch, validators)
 	}
-	return nil
 }
 
 // validateSealingBlock validates the epoch a sealing block opens and stores its quorum round.
@@ -250,8 +249,9 @@ func (n *NonValidator) validateSealingBlock(qr *common.QuorumRound, from common.
 // threshold of validators reported is validated, so replication and live messages can be handled.
 func (n *NonValidator) finishBootstrap() {
 	n.Bootstrapped = true
-	highestEpoch, _ := n.epochs.highestEpoch()
+	highestEpoch, validators := n.epochs.highestEpoch()
 	n.Logger.Info("Finished bootstrapping", zap.Uint64("Highest Epoch", highestEpoch))
+	n.maybeTransitionToValidator(highestEpoch, validators)
 }
 
 // maybeTransitionToValidator calls TransitionToValidator when epoch is the highest validated epoch,
@@ -640,7 +640,8 @@ func (n *NonValidator) processQuorumRound(qr *common.QuorumRound, from common.No
 
 	// Runs before rejecting indexed blocks, an indexed sealing block is still a vote while bootstrapping.
 	if !n.Bootstrapped {
-		return n.processBootstrapQuorumRound(qr, from)
+		n.processBootstrapQuorumRound(qr, from)
+		return nil
 	}
 
 	block := qr.Block
