@@ -285,6 +285,63 @@ func TestBlacklistSimpleFlow(t *testing.T) {
 	require.False(t, bl.IsNodeSuspected(2))
 }
 
+// TestBlacklistCapAppliesToPendingSuspects asserts that at most f nodes can be blacklisted.
+func TestBlacklistCapAppliesToPendingSuspects(t *testing.T) {
+	const nodeCount = 4
+	f := (nodeCount - 1) / 3
+	require.Equal(t, 1, f)
+
+	countBlacklisted := func(bl Blacklist) int {
+		blacklisted := 0
+		for node := uint16(0); node < nodeCount; node++ {
+			if bl.IsNodeSuspected(node) {
+				blacklisted++
+			}
+		}
+		return blacklisted
+	}
+
+	t.Run("setNodeSuspected", func(t *testing.T) {
+		bl := Blacklist{NodeCount: nodeCount}
+
+		// One accusation each: both nodes are pending, neither is blacklisted.
+		bl.setNodeSuspected(1, 2)
+		bl.setNodeSuspected(1, 3)
+		require.Len(t, bl.SuspectedNodes, 2)
+		require.Zero(t, countBlacklisted(bl))
+
+		// A second accusation blacklists node 2 and fills the cap.
+		bl.setNodeSuspected(1, 2)
+		require.True(t, bl.IsNodeSuspected(2))
+
+		// A second accusation of the pending node 3 must not blacklist it: f nodes are already blacklisted.
+		bl.setNodeSuspected(1, 3)
+		require.False(t, bl.IsNodeSuspected(3))
+		require.LessOrEqual(t, countBlacklisted(bl), f, "%s", bl.String())
+	})
+
+	t.Run("ApplyUpdates", func(t *testing.T) {
+		// Two consecutive rounds within one orbit for both accused nodes, as two successive leaders
+		// would produce when accusing the same pair.
+		const firstRound, secondRound = 2, 3
+		for _, node := range []uint16{0, 1} {
+			require.Equal(t, Orbit(firstRound, node, nodeCount), Orbit(secondRound, node, nodeCount))
+		}
+		accuse := []BlacklistUpdate{
+			{Type: BlacklistOpType_NodeSuspected, NodeIndex: 0},
+			{Type: BlacklistOpType_NodeSuspected, NodeIndex: 1},
+		}
+
+		bl := Blacklist{NodeCount: nodeCount}
+		bl = bl.ApplyUpdates(accuse, firstRound)
+		require.Len(t, bl.SuspectedNodes, 2)
+		require.Zero(t, countBlacklisted(bl))
+
+		bl = bl.ApplyUpdates(accuse, secondRound)
+		require.LessOrEqual(t, countBlacklisted(bl), f, "%s", bl.String())
+	})
+}
+
 func FuzzBlacklistFromBytes(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		var blacklist Blacklist
