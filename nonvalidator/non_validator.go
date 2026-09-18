@@ -243,7 +243,7 @@ func (n *NonValidator) processBootstrapQuorumRound(qr *common.QuorumRound, from 
 // and its validity is checked when the round is processed.
 func (n *NonValidator) validateSealingBlock(qr *common.QuorumRound, from common.NodeID) {
 	n.maybeValidateNextEpoch(qr.Block, from)
-	n.sequenceReplicator.StoreQuorumRound(qr)
+	n.storeQuorumRound(qr)
 }
 
 // finishBootstrap marks bootstrapping done. Every epoch from our tip to the highest one a
@@ -684,9 +684,16 @@ func verifyQuorumRound(qr *common.QuorumRound) error {
 }
 
 // storeQuorumRound updates replication state, and stores qr if its within MaxSequenceWindow.
+// Sealing blocks are always stored, the replicator needs them to know a valid sequence exists.
 func (n *NonValidator) storeQuorumRound(qr *common.QuorumRound) {
 	seq := qr.Block.BlockHeader().Seq
 	nextSeqToCommit := n.nextSeqToCommit()
+
+	// Store sealing blocks regardless of MaxSequenceWindow, since .
+	if qr.Block.SealingBlockInfo() != nil {
+		n.sequenceReplicator.StoreQuorumRound(qr)
+		return
+	}
 
 	if seq > n.MaxSequenceWindow+nextSeqToCommit {
 		n.Logger.Debug("Received a quorum round from a sequence too far ahead", zap.Uint64("Next Seq To Commit", nextSeqToCommit), zap.Uint64("Block Sequence", seq))
