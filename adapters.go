@@ -109,6 +109,8 @@ func (cb *cachedBlock) Verify(ctx context.Context, verifyOpts ...common.VerifyOp
 }
 
 type CachedStorage struct {
+	// lastNonSimplexHeight is the height of the last block that is not a Simplex block.
+	// Blocks with height <= this are called legacy blocks.
 	lastNonSimplexHeight uint64
 	msm                  *metadata.StateMachine
 	lock                 sync.RWMutex
