@@ -113,7 +113,7 @@ func (i *Instance) Start(ctx context.Context) error {
 
 	context.AfterFunc(ctx, i.Stop)
 
-	if err := i.maybeBootstrap(); err != nil {
+	if err := i.maybeReplicateEpochs(); err != nil {
 		return err
 	}
 
@@ -123,8 +123,8 @@ func (i *Instance) Start(ctx context.Context) error {
 	return nil
 }
 
-func (i *Instance) maybeBootstrap() error {
-	i.Config.Logger.Debug("Checking if bootstrapping is required")
+func (i *Instance) maybeReplicateEpochs() error {
+	i.Config.Logger.Debug("Checking if epoch replication is required")
 	latestValidatorSet, err := getLatestPlatformChainValidatorSet(i.Config.PlatformChain)
 	if err != nil {
 		return err
@@ -135,17 +135,17 @@ func (i *Instance) maybeBootstrap() error {
 		return err
 	}
 
-	// We have indexed the latest validator set, therefore we can skip bootstrapping and start as a validator.
+	// We have indexed the latest validator set, therefore we can skip epoch replication and start as a validator.
 	// Note: this may not be the latest epoch, but a future PR will eventually notice we are behind and transition properly.
 	if latestIndexedEpochValidators.Equal(latestValidatorSet.Nodes()) && latestValidatorSet.Nodes().Contains(i.Config.ID) {
-		i.Config.Logger.Debug("Node skipping bootstrapping because its latest epoch is up to date with the Platform Chain")
+		i.Config.Logger.Debug("Node skipping epoch replication because its latest epoch is up to date with the Platform Chain")
 		return i.startValidator(latestIndexedEpochValidators)
 	}
 
 	// Start as non-validator if our last indexed validator set does not equal, the latest p-chain validator set
 	// Note: the epoch may be transitioning, so the latest p-chain validator set actually points to a future epoch.
-	// The non-validator should finish bootstrapping and convert our non-validator to a validator in this case.
-	i.Config.Logger.Debug("Node starting bootstrapping as a non-validator")
+	// The non-validator should finish replicating epochs and convert our non-validator to a validator in this case.
+	i.Config.Logger.Debug("Node starting epoch replication as a non-validator")
 	return i.startNonValidator(false)
 }
 
@@ -167,10 +167,10 @@ func (i *Instance) startValidator(validators common.Nodes) error {
 	return epoch.Start()
 }
 
-// startNonValidator runs a non-validator. bootstrapped is true when we already hold the
+// startNonValidator runs a non-validator. epochsReplicated is true when we already hold the
 // newest sealing block, such as when a validator leaves the validator set.
-func (i *Instance) startNonValidator(bootstrapped bool) error {
-	config, err := i.createNonValidatorConfig(bootstrapped)
+func (i *Instance) startNonValidator(epochsReplicated bool) error {
+	config, err := i.createNonValidatorConfig(epochsReplicated)
 	if err != nil {
 		return err
 	}
@@ -185,7 +185,7 @@ func (i *Instance) startNonValidator(bootstrapped bool) error {
 	return nil
 }
 
-func (i *Instance) createNonValidatorConfig(bootstrapped bool) (nonvalidator.Config, error) {
+func (i *Instance) createNonValidatorConfig(epochsReplicated bool) (nonvalidator.Config, error) {
 	source, err := simplex.NewRandomSource()
 	if err != nil {
 		return nonvalidator.Config{}, err
@@ -225,7 +225,7 @@ func (i *Instance) createNonValidatorConfig(bootstrapped bool) (nonvalidator.Con
 		SignatureAggregatorCreator: i.Config.CryptoOps.CreateSignatureAggregator,
 		MaxSequenceWindow:          simplex.DefaultMaxRoundWindow,
 		TransitionToValidator:      i.notifyEpochChange,
-		Bootstrapped:               bootstrapped,
+		EpochsReplicated:           epochsReplicated,
 	}
 	return config, nil
 }

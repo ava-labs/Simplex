@@ -610,15 +610,15 @@ func (n *node) restart() *node {
 }
 
 // role reports whether the instance currently runs a validator epoch rather than a
-// non-validator, and whether it has finished bootstrapping.
-func (n *node) role() (isValidator bool, bootstrapped bool) {
+// non-validator, and whether it has finished replicating epochs.
+func (n *node) role() (isValidator bool, epochsReplicated bool) {
 	n.inst.lock.Lock()
 	defer n.inst.lock.Unlock()
 
 	if n.inst.e != nil {
 		return true, true
 	}
-	return false, n.inst.nv != nil && n.inst.nv.IsBootstrapped()
+	return false, n.inst.nv != nil && n.inst.nv.HasReplicatedEpochs()
 }
 
 // sync syncs a node by waiting for the commit of the latest sequence.

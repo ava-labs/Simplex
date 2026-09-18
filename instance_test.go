@@ -26,8 +26,8 @@ func TestValidatorIndexes(t *testing.T) {
 	network := newNetwork(t, pChain)
 	node := network.addNode(validator.NodeID[:]).sync()
 
-	isValidator, bootstrapped := node.role()
-	require.True(t, bootstrapped, "a node already at the latest validator set has nothing to bootstrap")
+	isValidator, epochsReplicated := node.role()
+	require.True(t, epochsReplicated, "a node already at the latest validator set has no epochs to replicate")
 	require.True(t, isValidator)
 
 	network.acceptNewBlock()
@@ -94,7 +94,7 @@ func TestEpochInvokesMSMWaitForPendingBlock(t *testing.T) {
 }
 
 // TestNonValidatorSyncs asserts a node outside the validator set syncs the chain when added
-// to the network, and stays a non-validator once it has bootstrapped.
+// to the network, and stays a non-validator once it has epochsReplicated.
 func TestNonValidatorSyncs(t *testing.T) {
 	validator := newNodeMapping(1)
 	genesisSet := []metadata.NodeBLSMapping{validator}
@@ -110,9 +110,9 @@ func TestNonValidatorSyncs(t *testing.T) {
 	network.acceptNewBlock()
 	node.sync()
 
-	// ensure we bootstrap and are not a validator
-	isValidator, bootstrapped := node.role()
-	require.True(t, bootstrapped)
+	// ensure we replicated epochs and are not a validator
+	isValidator, epochsReplicated := node.role()
+	require.True(t, epochsReplicated)
 	require.False(t, isValidator)
 }
 
@@ -406,8 +406,8 @@ func TestNonValidatorSkipsMSMVerification(t *testing.T) {
 		},
 	}, validator.NodeID[:]))
 
-	_, bootstrapped := nonValidatorNode.role()
-	require.True(t, bootstrapped)
+	_, epochsReplicated := nonValidatorNode.role()
+	require.True(t, epochsReplicated)
 
 	// A block whose only defect is its state machine transition: its timestamp precedes its
 	// parent's.
@@ -581,10 +581,10 @@ func TestValidatorSetsMetadataFromSnowman(t *testing.T) {
 	require.Equal(t, numNonSimplexBlocks, block.BlockHeader().Seq)
 }
 
-// TestBootstrapValidatorDuringTransition asserts a validator bootstraps when
+// TestValidatorReplicatesEpochsDuringTransition asserts a validator replicates epochs when
 // its latest epoch is mid-transition. i.e. the latest pchain validator set disagrees
 // with the validators latest index validator set.
-func TestBootstrapValidatorDuringTransition(t *testing.T) {
+func TestValidatorReplicatesEpochsDuringTransition(t *testing.T) {
 	ourNodeMapping := newNodeMapping(1)
 	v2 := newNodeMapping(2)
 	v3 := newNodeMapping(3)
@@ -615,11 +615,11 @@ func TestBootstrapValidatorDuringTransition(t *testing.T) {
 
 	// the node joins, but because the pchain validator set is different than our epoch we will sync as a non-validator
 	node := network.addNode(ourNodeMapping.NodeID[:])
-	isValidator, bootstrapped := node.role()
-	require.False(t, bootstrapped)
-	require.False(t, isValidator, "a node whose indexed set is not the latest must bootstrap first") // even though we are a validator
+	isValidator, epochsReplicated := node.role()
+	require.False(t, epochsReplicated)
+	require.False(t, isValidator, "a node whose indexed set is not the latest must replicate epochs first") // even though we are a validator
 
-	// bring 2 node back online. The threshold for non-validators to complete bootstrapping is 2 votes,
+	// bring 2 node back online. The threshold for non-validators to complete epoch replication is 2 votes,
 	// but to make a quorum is 3. This means the pchain transition will not occur, however the node should now sync as a validator
 	network.setOnline(v2.NodeID[:])
 	network.setOnline(v3.NodeID[:])
