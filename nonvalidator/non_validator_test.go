@@ -176,6 +176,66 @@ func TestHandleMessages(t *testing.T) {
 			expectedHeight: 3,
 		},
 		{
+			name: "adversary sends block for same sequence as real block",
+			setup: func(t *testing.T) (*testChain, []*messageInfo) {
+				tc := newSeededChain(t, testNodes, 2)
+				b3 := tc.appendBlock()
+				junk := testutil.NewTestBlock(common.ProtocolMetadata{
+					Round: b3.Metadata.Round + 1,
+					Seq:   b3.Metadata.Seq,
+					Epoch: b3.Metadata.Epoch,
+					Prev:  b3.Metadata.Prev,
+				}, common.Blacklist{})
+
+				return tc, []*messageInfo{
+					blockMsg(t, junk, testNodes),
+					blockMsg(t, b3, testNodes),
+					finalizationMsg(t, b3, testNodes),
+				}
+			},
+			expectedHeight: 4,
+		},
+		{
+			name: "junk block then finalization then real block",
+			setup: func(t *testing.T) (*testChain, []*messageInfo) {
+				tc := newSeededChain(t, testNodes, 2)
+				b3 := tc.appendBlock()
+				junk := testutil.NewTestBlock(common.ProtocolMetadata{
+					Round: b3.Metadata.Round + 1,
+					Seq:   b3.Metadata.Seq,
+					Epoch: b3.Metadata.Epoch,
+					Prev:  b3.Metadata.Prev,
+				}, common.Blacklist{})
+
+				return tc, []*messageInfo{
+					blockMsg(t, junk, testNodes),
+					finalizationMsg(t, b3, testNodes),
+					blockMsg(t, b3, testNodes),
+				}
+			},
+			expectedHeight: 4,
+		},
+		{
+			name: "real block then junk block then finalization",
+			setup: func(t *testing.T) (*testChain, []*messageInfo) {
+				tc := newSeededChain(t, testNodes, 2)
+				b3 := tc.appendBlock()
+				junk := testutil.NewTestBlock(common.ProtocolMetadata{
+					Round: b3.Metadata.Round + 1,
+					Seq:   b3.Metadata.Seq,
+					Epoch: b3.Metadata.Epoch,
+					Prev:  b3.Metadata.Prev,
+				}, common.Blacklist{})
+
+				return tc, []*messageInfo{
+					blockMsg(t, b3, testNodes),
+					blockMsg(t, junk, testNodes),
+					finalizationMsg(t, b3, testNodes),
+				}
+			},
+			expectedHeight: 4,
+		},
+		{
 			name: "qc does not verify",
 			setup: func(t *testing.T) (*testChain, []*messageInfo) {
 				tc := newSeededChain(t, testNodes, 2)
