@@ -17,23 +17,24 @@ import (
 )
 
 type finalizedSeq struct {
-	block        common.Block
+	// blocks holds one block per leader that proposed for this sequence.
+	// Rounds that share a sequence can have different leaders, so several blocks may be stored.
+	blocks       map[string]common.Block
 	finalization *common.Finalization
 }
 
 func (f *finalizedSeq) String() string {
 	seq := uint64(0)
 	digest := common.Digest{}
-	if f.block != nil {
-		seq = f.block.BlockHeader().Seq
-		digest = f.block.BlockHeader().Digest
+	for _, block := range f.blocks {
+		seq = block.BlockHeader().Seq
 	}
 	if f.finalization != nil {
 		seq = f.finalization.Finalization.Seq
 		digest = f.finalization.Finalization.Digest
 	}
 
-	return fmt.Sprintf("FinalizedSeq {BlockDigest: %s, Seq: %d, BlockExists %t, FinalizationExists %t}", digest, seq, f.block != nil, f.finalization != nil)
+	return fmt.Sprintf("FinalizedSeq {FinalizationDigest: %s, Seq: %d, NumBlocks %d, FinalizationExists %t}", digest, seq, len(f.blocks), f.finalization != nil)
 }
 
 type Config struct {
@@ -198,18 +199,15 @@ func (n *NonValidator) handleBlock(block common.Block, from common.NodeID) error
 	}
 
 	incomplete, ok := n.incompleteSequences[bh.Seq]
-	// we have not received any blocks or finalizations for this sequence
 	if !ok {
-		incompleteSeq := &finalizedSeq{
-			block: block,
-		}
-		n.incompleteSequences[bh.Seq] = incompleteSeq
-		n.Logger.Debug("Stored incomplete sequence", zap.Stringer("Sequence", incompleteSeq))
-		return nil
+		incomplete = &finalizedSeq{blocks: make(map[string]common.Block)}
+		n.incompleteSequences[bh.Seq] = incomplete
 	}
 
-	// Duplicate block, or finalization not yet received.
-	if incomplete.block != nil || incomplete.finalization == nil {
+	// Without a finalization we cannot tell which block is the right one, so keep one per node.
+	if incomplete.finalization == nil {
+		incomplete.blocks[string(from)] = block
+		n.Logger.Debug("Stored incomplete sequence", zap.Stringer("Sequence", incomplete))
 		return nil
 	}
 
@@ -222,8 +220,6 @@ func (n *NonValidator) handleBlock(block common.Block, from common.NodeID) error
 		)
 		return nil
 	}
-
-	incomplete.block = block
 
 	n.maybeValidateNextEpoch(block)
 	return n.scheduleNewFinalizedBlockTask(block, incomplete.finalization)
@@ -362,18 +358,9 @@ func (n *NonValidator) handleFinalization(finalization *common.Finalization, fro
 	}
 
 	incomplete, ok := n.incompleteSequences[bh.Seq]
-	if !ok || (incomplete.finalization == nil || incomplete.block == nil) {
-		n.sequenceReplicator.ReceivedFutureFinalization(finalization, n.nextSeqToCommit())
-	}
-
 	if !ok {
-		// we have not received anything for this sequence
-		incompleteSeq := &finalizedSeq{
-			finalization: finalization,
-		}
-		n.incompleteSequences[bh.Seq] = incompleteSeq
-		n.Logger.Debug("Stored incomplete sequence", zap.Stringer("Sequence", incompleteSeq))
-		return nil
+		incomplete = &finalizedSeq{blocks: make(map[string]common.Block)}
+		n.incompleteSequences[bh.Seq] = incomplete
 	}
 
 	// Duplicate finalization received.
@@ -402,35 +389,27 @@ func (n *NonValidator) handleFinalization(finalization *common.Finalization, fro
 		default:
 			// The current finalization in incompleteSequences belongs to a Telock
 			// because stored.Epoch < bh.Epoch
-			n.Logger.Debug("Dropping stored Telock sequence", zap.Stringer("Sequence", incomplete))
-			incomplete.block = nil
-			n.sequenceReplicator.ReceivedFutureFinalization(finalization, n.nextSeqToCommit())
+			n.Logger.Debug("Dropping stored Telock finalization", zap.Stringer("Sequence", incomplete))
 		}
 	}
 
 	incomplete.finalization = finalization
+	// Let the replicator know this sequence is finalized in case no stored block matches it.
+	n.sequenceReplicator.ReceivedFutureFinalization(finalization, n.nextSeqToCommit())
 
-	// No block received yet for this sequence.
-	if incomplete.block == nil {
-		return nil
+	// Blocks arriving from now on are checked against the finalization directly, so the stored ones can be released.
+	blocks := incomplete.blocks
+	incomplete.blocks = nil
+
+	for _, block := range blocks {
+		if block.BlockHeader().Digest == bh.Digest {
+			n.maybeValidateNextEpoch(block)
+			return n.scheduleNewFinalizedBlockTask(block, finalization)
+		}
 	}
 
-	digest := incomplete.block.BlockHeader().Digest
-	if !bytes.Equal(bh.Digest[:], digest[:]) {
-		n.Logger.Debug(
-			"Received a block from the leader of a round whose digest mismatches the finalization",
-			zap.Stringer("Finalization Digest", bh.Digest),
-			zap.Stringer("Block digest", digest),
-			zap.Stringer("From", from),
-		)
-
-		incomplete.block = nil
-		n.sequenceReplicator.ReceivedFutureFinalization(finalization, n.nextSeqToCommit())
-		return nil
-	}
-
-	n.maybeValidateNextEpoch(incomplete.block)
-	return n.scheduleNewFinalizedBlockTask(incomplete.block, incomplete.finalization)
+	n.Logger.Debug("No stored block matches the finalization", zap.Stringer("Sequence", incomplete), zap.Int("Stored Blocks", len(blocks)))
+	return nil
 }
 
 func (n *NonValidator) scheduleNewFinalizedBlockTask(block common.Block, finalization *common.Finalization) error {
