@@ -132,9 +132,6 @@ func NewNonValidator(config Config) (*NonValidator, error) {
 		sequenceReplicator:    replicator,
 	}
 	nv.sealingBlockTimeouts = common.NewTimeoutHandler(config.Logger, "sealing block replication", config.StartTime, simplex.DefaultReplicationRequestTimeout, nv.requestMissingSealingBlocks)
-	if !config.Bootstrapped {
-		nv.sealingBlockTimeouts.AddTask(startBroadcastTask)
-	}
 
 	return nv, nil
 }
@@ -142,6 +139,9 @@ func NewNonValidator(config Config) (*NonValidator, error) {
 func (n *NonValidator) Start() {
 	n.Logger.Info("Starting non-validator", zap.Stringer("ID", n.ID))
 	n.broadcastLatestEpoch()
+	if !n.Bootstrapped {
+		n.sealingBlockTimeouts.AddTask(initialBootstrapTask)
+	}
 }
 
 func (n *NonValidator) Stop() {
@@ -215,10 +215,12 @@ func (n *NonValidator) processBootstrapQuorumRound(qr *common.QuorumRound, from 
 	switch {
 	case n.epochs.canValidate(block):
 		// The sealing block in the backwards hash chain
-		n.validateSealingBlock(qr, from)
+		if !n.isIndexed(bh.Seq) {
+			n.validateSealingBlock(qr, from)
+		}
 	case n.highestEpochCollector.collectedSealingBlockInfo(sealingInfo, bh, from):
 		n.Logger.Info("A threshold of validators reported a sealing block", zap.Uint64("Seq", bh.Seq), zap.Stringer("Info", sealingInfo))
-		n.sealingBlockTimeouts.RemoveTask(startBroadcastTask)
+		n.sealingBlockTimeouts.RemoveTask(initialBootstrapTask)
 		if !n.isIndexed(bh.Seq) {
 			n.validateSealingBlock(qr, from)
 		}
@@ -262,9 +264,9 @@ func (n *NonValidator) maybeTransitionToValidator(epoch uint64, validators commo
 	n.TransitionToValidator(epoch, validators)
 }
 
-// startBroadcastTask is the sealingBlockTimeouts task that repeats the start broadcast until a
-// threshold of responses validates an epoch above our tip. Seq 0 is genesis, never a sealing block we request.
-const startBroadcastTask uint64 = 0
+// initialBootstrapTask is the sealingBlockTimeouts task that continuously asks for sealing blocks until a
+// threshold of responses validates an epoch. We use Seq 1, since requests with Seq 0 are dropped.
+const initialBootstrapTask uint64 = 1
 
 // requestMissingSealingBlocks re-requests sealing blocks of the hash chain that timed out
 // from every validator. Runs on the timeout handler's goroutine.
@@ -277,10 +279,6 @@ func (n *NonValidator) requestMissingSealingBlocks(seqs []uint64) {
 	}
 
 	for _, seq := range seqs {
-		if seq == startBroadcastTask {
-			n.broadcastLatestEpoch()
-			continue
-		}
 		n.Logger.Debug("Re-requesting a sealing block", zap.Uint64("Seq", seq))
 		n.Comm.Broadcast(&common.Message{
 			ReplicationRequest: &common.ReplicationRequest{Seqs: []uint64{seq}},
