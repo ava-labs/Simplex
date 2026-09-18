@@ -142,10 +142,11 @@ func TestInstanceDropsMessagesBeforeStart(t *testing.T) {
 	validator := newNodeMapping(1)
 	pChain := newTestPChain([]metadata.NodeBLSMapping{validator})
 	instance := NewInstance(Config{
-		PlatformChain: pChain,
-		Storage:       newTestStorageWithGenesis(t),
-		Logger:        testutil.MakeLogger(t, 1),
-		ID:            validator.NodeID[:],
+		LastNonSimplexInnerBlock: genesisBlock,
+		PlatformChain:            pChain,
+		Storage:                  newTestStorageWithGenesis(t),
+		Logger:                   testutil.MakeLogger(t, 1),
+		ID:                       validator.NodeID[:],
 	})
 
 	msg := &common.Message{Finalization: &common.Finalization{}}
@@ -555,4 +556,58 @@ func TestValidatorSetsMetadataFromSnowman(t *testing.T) {
 	require.Equal(t, numNonSimplexBlocks, block.BlockHeader().Epoch)
 	require.Equal(t, uint64(1), block.BlockHeader().Round)
 	require.Equal(t, numNonSimplexBlocks, block.BlockHeader().Seq)
+}
+
+// TestInstanceZeroBlockAfterPreSimplexBlocks brings up a network whose ledger already holds pre-Simplex
+// blocks beyond the genesis block, and asserts that the zero block the network commits chains to the
+// last non-Simplex block through that block's inner digest, at the sequence right above it.
+func TestInstanceZeroBlockAfterPreSimplexBlocks(t *testing.T) {
+	// The ledger holds pre-Simplex blocks from height 0 (genesis) to lastNonSimplexHeight.
+	const lastNonSimplexHeight = uint64(3)
+	zeroBlockSeq := lastNonSimplexHeight + 1
+
+	// Timestamps lie in the past because the zero block carries over the last non-Simplex block's timestamp.
+	preSimplexBlocks := make([]*testInnerBlock, 0, lastNonSimplexHeight+1)
+	for h := uint64(0); h <= lastNonSimplexHeight; h++ {
+		preSimplexBlocks = append(preSimplexBlocks, &testInnerBlock{
+			Height_: h,
+			TS:      time.Now().Add(-time.Duration(lastNonSimplexHeight-h+1) * time.Second),
+			Payload: append([]byte("pre-simplex block "), byte('0'+h)),
+		})
+	}
+	lastNonSimplexBlock := preSimplexBlocks[lastNonSimplexHeight]
+
+	// Two validators, so neither can commit the zero block alone: the leader's proposal is only
+	// committed once the other node has verified it against its own copy of the pre-Simplex chain.
+	nodeA := newNodeMapping(1)
+	nodeB := newNodeMapping(2)
+	pChain := newTestPChain(metadata.NodeBLSMappings{nodeA, nodeB})
+
+	network := newNetwork(t, pChain)
+	// The zero block is built automatically at zeroBlockSeq; the first block the network asks for follows it.
+	network.seq = zeroBlockSeq + 1
+
+	for _, id := range []common.NodeID{nodeA.NodeID[:], nodeB.NodeID[:]} {
+		network.addNodeWithConfig(id, nodeConfig{
+			storage:             newTestStorageWithPreSimplexBlocks(t, preSimplexBlocks...),
+			lastNonSimplexBlock: lastNonSimplexBlock,
+		})
+	}
+
+	// Both nodes commit the zero block, then a couple of ordinary Simplex blocks on top of it.
+	network.sync()
+	network.acceptNewBlock()
+	network.acceptNewBlock()
+
+	for _, n := range network.nodesSnapshot() {
+		zeroBlock, _, err := n.storage.GetBlock(zeroBlockSeq)
+		require.NoError(t, err)
+		require.Equal(t, metadata.BlockTypeZero, zeroBlock.Type())
+		require.Nil(t, zeroBlock.InnerBlock)
+
+		md := zeroBlock.Metadata.SimplexProtocolMetadata
+		require.Equal(t, common.Digest(lastNonSimplexBlock.Digest()), md.Prev,
+			"zero block must point to the last non-Simplex block by its inner digest")
+		require.Equal(t, zeroBlockSeq, md.Seq)
+	}
 }
