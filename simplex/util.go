@@ -10,7 +10,6 @@ import (
 	"math/rand/v2"
 	"slices"
 	"sync"
-	"time"
 
 	"github.com/ava-labs/simplex/common"
 	"go.uber.org/zap"
@@ -203,74 +202,6 @@ func BatchSequences(seqs []uint64, numNodes uint64, maxSize uint64) [][]uint64 {
 
 	batchSize := min(seqsPerNode, maxSize)
 	return slices.Collect(slices.Chunk(seqs, int(batchSize)))
-}
-
-type NotarizationTime struct {
-	// config
-	getRound                       func() uint64
-	haveUnFinalizedNotarization    func() (uint64, bool)
-	rebroadcastFinalizationVotes   func()
-	checkInterval                  time.Duration
-	finalizeVoteRebroadcastTimeout time.Duration
-	// state
-	lastSampleTime          time.Time
-	latestRound             uint64
-	lastRebroadcastTime     time.Time
-	oldestNotFinalizedRound uint64
-}
-
-func NewNotarizationTime(
-	finalizeVoteRebroadcastTimeout time.Duration,
-	haveUnFinalizedNotarization func() (uint64, bool),
-	rebroadcastFinalizationVotes func(),
-	getRound func() uint64,
-) NotarizationTime {
-	return NotarizationTime{
-		finalizeVoteRebroadcastTimeout: finalizeVoteRebroadcastTimeout,
-		haveUnFinalizedNotarization:    haveUnFinalizedNotarization,
-		rebroadcastFinalizationVotes:   rebroadcastFinalizationVotes,
-		getRound:                       getRound,
-		checkInterval:                  finalizeVoteRebroadcastTimeout / 3,
-	}
-}
-
-func (nt *NotarizationTime) CheckForNotFinalizedNotarizedBlocks(now time.Time) {
-	// If we have recently checked, don't check again
-	if !nt.lastSampleTime.IsZero() && nt.lastSampleTime.Add(nt.checkInterval).After(now) {
-		return
-	}
-
-	nt.lastSampleTime = now
-
-	round := nt.getRound()
-
-	// As long as we make some progress, we don't check for a round not finalized.
-	if round > nt.latestRound {
-		nt.latestRound = round
-		return
-	}
-
-	// It is only if we didn't advance any round, that we check if we have made some progress in finalizing rounds.
-
-	oldestNotFinalizedRound, haveNotFinalizedRound := nt.haveUnFinalizedNotarization()
-	if !haveNotFinalizedRound {
-		nt.lastRebroadcastTime = time.Time{}
-		nt.oldestNotFinalizedRound = 0
-		return
-	}
-
-	lastRebroadcastTime := nt.lastRebroadcastTime
-	if lastRebroadcastTime.IsZero() {
-		nt.lastRebroadcastTime = now
-		nt.oldestNotFinalizedRound = oldestNotFinalizedRound
-		return
-	}
-
-	if lastRebroadcastTime.Add(nt.finalizeVoteRebroadcastTimeout).Before(now) &&
-		nt.oldestNotFinalizedRound == oldestNotFinalizedRound {
-		nt.rebroadcastFinalizationVotes()
-		nt.lastRebroadcastTime = now
-	}
 }
 
 type voteSigner interface {
