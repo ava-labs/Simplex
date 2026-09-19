@@ -30,8 +30,10 @@ type BlockDependencyManager struct {
 	scheduler Scheduler
 
 	dependencies []*TaskWithDependents
-	maxDeps      uint64
-	closed       atomic.Bool
+	// scheduledSeqs holds every seq with a task pending, queued or running.
+	scheduledSeqs map[uint64]struct{}
+	maxDeps       uint64
+	closed        atomic.Bool
 }
 
 type TaskWithDependents struct {
@@ -52,9 +54,10 @@ func (t *TaskWithDependents) String() string {
 
 func NewBlockVerificationScheduler(logger Logger, maxDeps uint64, scheduler Scheduler) *BlockDependencyManager {
 	b := &BlockDependencyManager{
-		logger:    logger,
-		maxDeps:   maxDeps,
-		scheduler: scheduler,
+		logger:        logger,
+		maxDeps:       maxDeps,
+		scheduler:     scheduler,
+		scheduledSeqs: make(map[uint64]struct{}),
 	}
 
 	b.logger.Debug("Created BlockVerificationScheduler", zap.Uint64("maxDeps", maxDeps))
@@ -121,17 +124,13 @@ func (bs *BlockDependencyManager) ExecuteEmptyRoundDependents(emptyRound uint64)
 	bs.dependencies = remainingDeps
 }
 
+// IsSequenceScheduled reports whether a task for seq is pending on dependencies, queued or running.
 func (bs *BlockDependencyManager) IsSequenceScheduled(seq uint64) bool {
 	bs.lock.Lock()
 	defer bs.lock.Unlock()
 
-	for _, dep := range bs.dependencies {
-		if dep.blockSeq == seq {
-			return true
-		}
-	}
-
-	return false
+	_, ok := bs.scheduledSeqs[seq]
+	return ok
 }
 
 func (bs *BlockDependencyManager) ScheduleTaskWithDependencies(task Task, blockSeq uint64, prev *Digest, emptyRounds []uint64) error {
@@ -144,6 +143,9 @@ func (bs *BlockDependencyManager) ScheduleTaskWithDependencies(task Task, blockS
 
 	wrappedTask := func() Digest {
 		id := task()
+		bs.lock.Lock()
+		delete(bs.scheduledSeqs, blockSeq)
+		bs.lock.Unlock()
 		bs.ExecuteBlockDependents(id)
 		return id
 	}
@@ -153,6 +155,8 @@ func (bs *BlockDependencyManager) ScheduleTaskWithDependencies(task Task, blockS
 		bs.logger.Warn("Too many blocks being verified to ingest another one", zap.Uint64("pendingBlocks", totalSize))
 		return fmt.Errorf("%w: %d pending verifications (max %d)", ErrTooManyPendingVerifications, totalSize, bs.maxDeps)
 	}
+
+	bs.scheduledSeqs[blockSeq] = struct{}{}
 
 	if prev == nil && len(emptyRounds) == 0 {
 		bs.logger.Debug("Scheduling block verification task with no dependencies", zap.Uint64("blockSeq", blockSeq))
@@ -185,6 +189,7 @@ func (bs *BlockDependencyManager) RemoveOldTasks(seq uint64) {
 	for _, taskWithDeps := range bs.dependencies {
 		if taskWithDeps.blockSeq <= seq {
 			bs.logger.Debug("Removing block verification task as its block seq is less than or equal to finalized seq", zap.Uint64("blockSeq", taskWithDeps.blockSeq), zap.Uint64("finalizedSeq", seq))
+			delete(bs.scheduledSeqs, taskWithDeps.blockSeq)
 			continue
 		}
 		remainingDeps = append(remainingDeps, taskWithDeps)
