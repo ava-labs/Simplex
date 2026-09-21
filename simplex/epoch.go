@@ -24,6 +24,7 @@ import (
 var (
 	ErrAlreadyStarted            = errors.New("epoch already started")
 	errNotarizationBlockMismatch = errors.New("notarization block header mismatches stored round block header")
+	errAlreadyTimedOutOnRound    = errors.New("already timed out on this round")
 )
 
 const (
@@ -70,7 +71,6 @@ type EpochConfig struct {
 	MaxRoundWindow             uint64
 	MaxReplicationResponseSize int
 	MaxRebroadcastWait         time.Duration
-	FinalizeRebroadcastTimeout time.Duration
 	QCDeserializer             common.QCDeserializer
 	Logger                     common.Logger
 	ID                         common.NodeID
@@ -244,7 +244,7 @@ func (e *Epoch) init() error {
 		e.futureMessages[string(node)] = make(map[uint64]*messagesForRound)
 	}
 	e.blockBuilder = &EmptyBlockBuilder{
-		ShouldBuildEmptyBlock: e.haveUnFinalizedButNotarizedRound,
+		ShouldBuildEmptyBlock: e.shouldBuildEmptyBlock,
 		Timeout:               e.MaxProposalWait,
 		BB:                    e.BlockBuilder,
 	}
@@ -259,9 +259,6 @@ func (e *Epoch) init() error {
 }
 
 func (e *Epoch) maybeAssignDefaultConfig() error {
-	if e.FinalizeRebroadcastTimeout == 0 {
-		e.FinalizeRebroadcastTimeout = DefaultFinalizeVoteRebroadcastTimeout
-	}
 	if e.MaxProposalWait == 0 {
 		e.MaxProposalWait = DefaultMaxProposalWaitTime
 	}
@@ -304,7 +301,7 @@ func (e *Epoch) Start() error {
 	return nil
 }
 
-func (e *Epoch) haveUnFinalizedButNotarizedRound(ctx context.Context) bool {
+func (e *Epoch) shouldBuildEmptyBlock(ctx context.Context) bool {
 	<-ctx.Done()
 
 	if errors.Is(context.Cause(ctx), common.ErrShouldBuildEmptyBlock) {
@@ -1432,7 +1429,7 @@ func (e *Epoch) rebroadcastPastFinalizeVotes() error {
 		if vote, exists := round.finalizeVotes[string(e.ID)]; exists {
 			finalizeVoteMessage = &common.Message{FinalizeVote: vote}
 		} else {
-			_, msg, err := e.constructFinalizeVoteMessage(round.notarization.Vote.BlockHeader)
+			_, msg, err := e.maybeConstructFinalizeVoteMessage(round.notarization.Vote.BlockHeader)
 			if err != nil {
 				return err
 			}
@@ -3116,7 +3113,7 @@ func (e *Epoch) finalizeVoteForReplicatedNotarization(r uint64) error {
 	}
 
 	md := round.notarization.Vote.BlockHeader
-	finalizeVote, finalizeVoteMsg, err := e.constructFinalizeVoteMessage(md)
+	finalizeVote, finalizeVoteMsg, err := e.maybeConstructFinalizeVoteMessage(md)
 	if err != nil {
 		return err
 	}
@@ -3141,7 +3138,7 @@ func (e *Epoch) doNotarized(r uint64) error {
 
 	md := block.BlockHeader()
 
-	finalizeVote, finalizeVoteMsg, err := e.constructFinalizeVoteMessage(md)
+	finalizeVote, finalizeVoteMsg, err := e.maybeConstructFinalizeVoteMessage(md)
 	if err != nil {
 		return err
 	}
@@ -3158,7 +3155,12 @@ func (e *Epoch) doNotarized(r uint64) error {
 	return errors.Join(err1, err2)
 }
 
-func (e *Epoch) constructFinalizeVoteMessage(md common.BlockHeader) (common.FinalizeVote, *common.Message, error) {
+func (e *Epoch) maybeConstructFinalizeVoteMessage(md common.BlockHeader) (common.FinalizeVote, *common.Message, error) {
+	if e.haveWeAlreadyTimedOutOnThisRound(md.Round) {
+		e.Logger.Error("Will not cast a finalize vote for a round we timed out on)", zap.Uint64("round", md.Round))
+		return common.FinalizeVote{}, nil, errAlreadyTimedOutOnRound
+	}
+
 	f := common.ToBeSignedFinalization{BlockHeader: md}
 	signature, err := f.Sign(e.Signer)
 	if err != nil {

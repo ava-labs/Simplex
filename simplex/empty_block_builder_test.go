@@ -17,7 +17,7 @@ import (
 )
 
 // blocksUntilDone mimics the production ShouldBuildEmptyBlock contract
-// (Epoch.haveUnFinalizedButNotarizedRound): it blocks until the given context is
+// (Epoch.shouldBuildEmptyBlock): it blocks until the given context is
 // cancelled and then reports whether the cancellation was because the empty-block
 // timeout elapsed.
 func blocksUntilDone(ctx context.Context) bool {
