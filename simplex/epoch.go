@@ -1401,45 +1401,10 @@ func (e *Epoch) persistFinalization(finalization common.Finalization) error {
 }
 
 func (e *Epoch) rebroadcastPastFinalizeVotes() error {
-	startRound := e.minRoundInRoundsMap()
-
-	for r := startRound; r <= e.round; r++ {
-		round, exists := e.rounds[r]
-		if !exists {
-			e.Logger.Debug("Round not found when rebroadcasting finalize votes", zap.Uint64("round", r))
-			continue
+	for r := e.minRoundInRoundsMap(); r <= e.round; r++ {
+		if err := e.finalizeVote(r); err != nil {
+			return err
 		}
-
-		// Already collected a finalization
-		if round.finalization != nil {
-			e.Logger.Debug("Round already finalized when rebroadcasting finalize votes", zap.Uint64("round", r))
-			continue
-		}
-
-		// Has notarized this round?
-		if round.notarization == nil {
-			e.Logger.Debug("Round not notarized when rebroadcasting finalize votes", zap.Uint64("round", r))
-			continue
-		}
-
-		if e.haveWeAlreadyTimedOutOnThisRound(r) {
-			e.Logger.Debug("Round already timed out when rebroadcasting finalize votes", zap.Uint64("round", r))
-			continue
-		}
-
-		var finalizeVoteMessage *common.Message
-		// Try to re-use finalization we created if possible, else create it.
-		if vote, exists := round.finalizeVotes[string(e.ID)]; exists {
-			finalizeVoteMessage = &common.Message{FinalizeVote: vote}
-		} else {
-			_, msg, err := e.constructFinalizeVoteMessage(round.notarization.Vote.BlockHeader)
-			if err != nil {
-				return err
-			}
-			finalizeVoteMessage = msg
-		}
-		e.Logger.Debug("Rebroadcasting finalize vote", zap.Uint64("round", r), zap.Uint64("seq", finalizeVoteMessage.FinalizeVote.Finalization.Seq))
-		e.broadcast(finalizeVoteMessage)
 	}
 
 	return nil
@@ -2404,7 +2369,7 @@ func (e *Epoch) createNotarizedBlockVerificationTask(block common.Block, notariz
 			return md.Digest
 		}
 
-		if err := e.finalizeVoteForReplicatedNotarization(md.Round); err != nil {
+		if err := e.finalizeVote(md.Round); err != nil {
 			e.Logger.Error("Failed to finalize vote for replicated notarization", zap.Uint64("round", md.Round), zap.Error(err))
 		}
 
@@ -3102,60 +3067,42 @@ func (e *Epoch) increaseRound() {
 	e.round++
 }
 
-// finalizeVoteForReplicatedNotarization casts our finalize vote for a round whose notarization we learned
-// of through replication instead of by collecting votes.
-func (e *Epoch) finalizeVoteForReplicatedNotarization(r uint64) error {
+// finalizeVote broadcasts our finalize vote for round r if it is notarized, not finalized,
+// and we did not vote empty on it. A vote we already cast is rebroadcast as is.
+func (e *Epoch) finalizeVote(r uint64) error {
 	round, exists := e.rounds[r]
 	if !exists || round.notarization == nil || round.finalization != nil {
 		return nil
 	}
 
 	if e.haveWeAlreadyTimedOutOnThisRound(r) {
-		e.Logger.Debug("Not finalize voting for a replicated notarization of a round we timed out on", zap.Uint64("round", r))
+		e.Logger.Debug("Not finalize voting on a round we timed out on", zap.Uint64("round", r))
+		return nil
+	}
+
+	if vote, voted := round.finalizeVotes[string(e.ID)]; voted {
+		e.Logger.Debug("Rebroadcasting finalize vote", zap.Uint64("round", r), zap.Uint64("seq", vote.Finalization.Seq))
+		e.broadcast(&common.Message{FinalizeVote: vote})
 		return nil
 	}
 
 	md := round.notarization.Vote.BlockHeader
-	finalizeVote, finalizeVoteMsg, err := e.constructFinalizeVoteMessage(md)
+	vote, msg, err := e.constructFinalizeVoteMessage(md)
 	if err != nil {
 		return err
 	}
-	e.broadcast(finalizeVoteMsg)
-
-	e.Logger.Debug("Broadcasting finalize vote for a replicated notarization",
-		zap.Uint64("round", md.Round),
-		zap.Uint64("seq", md.Seq),
-		zap.Stringer("digest", md.Digest))
-
-	return e.handleFinalizeVoteMessage(&finalizeVote, e.ID)
-}
-
-func (e *Epoch) doNotarized(r uint64) error {
-	if e.haveWeAlreadyTimedOutOnThisRound(r) {
-		e.Logger.Info("We have already timed out on this round, will not finalize it", zap.Uint64("round", r))
-		return e.startRound()
-	}
-
-	round := e.rounds[r]
-	block := round.block
-
-	md := block.BlockHeader()
-
-	finalizeVote, finalizeVoteMsg, err := e.constructFinalizeVoteMessage(md)
-	if err != nil {
-		return err
-	}
-	e.broadcast(finalizeVoteMsg)
+	e.broadcast(msg)
 
 	e.Logger.Debug("Broadcasting finalize vote",
 		zap.Uint64("round", md.Round),
 		zap.Uint64("seq", md.Seq),
 		zap.Stringer("digest", md.Digest))
 
-	err1 := e.startRound()
-	err2 := e.handleFinalizeVoteMessage(&finalizeVote, e.ID)
+	return e.handleFinalizeVoteMessage(&vote, e.ID)
+}
 
-	return errors.Join(err1, err2)
+func (e *Epoch) doNotarized(r uint64) error {
+	return errors.Join(e.finalizeVote(r), e.startRound())
 }
 
 func (e *Epoch) constructFinalizeVoteMessage(md common.BlockHeader) (common.FinalizeVote, *common.Message, error) {
