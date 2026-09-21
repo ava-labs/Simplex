@@ -23,3 +23,24 @@ func TestInMemWAL(t *testing.T) {
 	require.NoError(err)
 	require.Equal([][]byte{r1, r2}, readRecords)
 }
+
+// TestInMemWALCompact asserts that the in-memory log drops rejected records once the
+// compaction threshold is reached, and not before.
+func TestInMemWALCompact(t *testing.T) {
+	require := require.New(t)
+
+	wal := NewMemWAL(t)
+	require.NoError(wal.Append([]byte{1}))
+	require.NoError(wal.Append([]byte{2}))
+
+	require.NoError(wal.Compact(func([]byte) bool { return false }))
+	readRecords, err := wal.ReadAll()
+	require.NoError(err)
+	require.Len(readRecords, 2)
+
+	wal.CompactAt = 1
+	require.NoError(wal.Compact(func(record []byte) bool { return record[0] == 2 }))
+	readRecords, err = wal.ReadAll()
+	require.NoError(err)
+	require.Equal([][]byte{{2}}, readRecords)
+}

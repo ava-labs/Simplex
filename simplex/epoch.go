@@ -1555,6 +1555,7 @@ func (e *Epoch) indexFinalization(block common.VerifiedBlock, finalization commo
 		VerifiedBlock: block,
 		Finalization:  finalization,
 	}
+	e.compactWAL()
 
 	// If this is a sealing block, and is not the zero block, then we have sealed the epoch and should stop processing messages.
 	// In case it's the zero block, we do not not seal the epoch.
@@ -1575,6 +1576,26 @@ func (e *Epoch) indexFinalization(block common.VerifiedBlock, finalization commo
 	// Regardless of that, we can safely progress to the round succeeding the finalization.
 	e.progressRoundsDueToCommit(finalization.Finalization.Round + 1)
 	return nil
+}
+
+// compactWAL drops the WAL records a restart no longer needs: those at or below the round of
+// the last indexed block, less one blacklist orbit, since the blacklist reads timeouts and
+// redemptions that far back. Records that cannot be parsed are kept for replay to judge.
+func (e *Epoch) compactWAL() {
+	orbit := uint64(len(e.validatorNodeIDs))
+	tipRound := e.lastBlock.VerifiedBlock.BlockHeader().Round
+	if tipRound <= orbit {
+		return
+	}
+	cutoff := tipRound - orbit
+
+	err := e.WAL.Compact(func(record []byte) bool {
+		round, err := common.RecordRound(record)
+		return err != nil || round > cutoff
+	})
+	if err != nil {
+		e.Logger.Error("Failed to compact WAL", zap.Error(err), zap.Uint64("cutoff", cutoff))
+	}
 }
 
 func (e *Epoch) maybeAssembleEmptyNotarization() error {

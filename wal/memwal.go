@@ -14,6 +14,9 @@ import (
 type InMemWAL struct {
 	bb bytes.Buffer
 	t  testing.TB
+	// CompactAt is how many bytes may be appended before Compact rewrites the log.
+	CompactAt        int
+	uncompactedBytes int
 }
 
 func (wal *InMemWAL) Close() error {
@@ -22,7 +25,8 @@ func (wal *InMemWAL) Close() error {
 
 func NewMemWAL(t testing.TB) *InMemWAL {
 	return &InMemWAL{
-		t: t,
+		t:         t,
+		CompactAt: DefaultCompactionThreshold,
 	}
 }
 
@@ -30,7 +34,26 @@ func (wal *InMemWAL) Append(b []byte) error {
 	w := &wal.bb
 	err := writeRecord(w, b)
 	require.NoError(wal.t, err)
+	wal.uncompactedBytes += recordSizeLen + len(b) + recordChecksumLen
 	return err
+}
+
+func (wal *InMemWAL) Compact(keep func([]byte) bool) error {
+	if wal.uncompactedBytes < wal.CompactAt {
+		return nil
+	}
+	records, err := wal.ReadAll()
+	if err != nil {
+		return err
+	}
+	wal.bb.Reset()
+	for _, record := range records {
+		if keep(record) {
+			require.NoError(wal.t, writeRecord(&wal.bb, record))
+		}
+	}
+	wal.uncompactedBytes = 0
+	return nil
 }
 
 func (wal *InMemWAL) ReadAll() ([][]byte, error) {

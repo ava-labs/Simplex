@@ -42,10 +42,6 @@ func (tw *TestWAL) Clone() *TestWAL {
 	return wal
 }
 
-func (tw *TestWAL) Delete() error {
-	return nil
-}
-
 func (tw *TestWAL) Append(b []byte) error {
 	tw.lock.Lock()
 	defer tw.lock.Unlock()
@@ -60,6 +56,20 @@ func (tw *TestWAL) ReadAll() ([][]byte, error) {
 	defer tw.lock.Unlock()
 
 	return tw.WriteAheadLog.ReadAll()
+}
+
+func (tw *TestWAL) Compact(keep func([]byte) bool) error {
+	tw.lock.Lock()
+	defer tw.lock.Unlock()
+
+	err := tw.WriteAheadLog.Compact(keep)
+	tw.signal.Signal()
+	return err
+}
+
+// CompactAt sets how many bytes may be appended before Compact rewrites the log.
+func (tw *TestWAL) CompactAt(bytes int) {
+	tw.WriteAheadLog.(*wal.InMemWAL).CompactAt = bytes
 }
 
 func (tw *TestWAL) AssertWALSize(n int) {

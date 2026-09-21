@@ -174,61 +174,6 @@ func TestPartiallyWrittenRecord(t *testing.T) {
 	require.Equal(append(records, []byte{9, 9, 9}), readRecords)
 }
 
-func TestDelete(t *testing.T) {
-	require := require.New(t)
-
-	r := []byte{3, 4, 5}
-
-	dir, err := os.MkdirTemp("", t.Name())
-	require.NoError(err)
-
-	fileName := filepath.Join(dir, "simplex.wal")
-	wal := New(fileName)
-	require.NoError(err)
-
-	require.NoError(wal.Append(r))
-
-	require.NoError(wal.Delete())
-
-	_, err = os.Stat(fileName)
-	require.ErrorIs(err, os.ErrNotExist)
-}
-
-func TestDeleteWhenFileNil(t *testing.T) {
-	t.Run("never opened", func(t *testing.T) {
-		require := require.New(t)
-
-		fileName := filepath.Join(t.TempDir(), "simplex.wal")
-		require.NoError(os.WriteFile(fileName, nil, WalPermissions))
-
-		wal := New(fileName)
-
-		require.NotPanics(func() {
-			require.NoError(wal.Delete())
-		})
-
-		_, err := os.Stat(fileName)
-		require.ErrorIs(err, os.ErrNotExist)
-	})
-
-	t.Run("closed before delete", func(t *testing.T) {
-		require := require.New(t)
-
-		fileName := filepath.Join(t.TempDir(), "simplex.wal")
-		wal := New(fileName)
-
-		require.NoError(wal.Append([]byte{3, 4, 5}))
-		require.NoError(wal.Close()) // w.file is now nil
-
-		require.NotPanics(func() {
-			require.NoError(wal.Delete())
-		})
-
-		_, err := os.Stat(fileName)
-		require.ErrorIs(err, os.ErrNotExist)
-	})
-}
-
 func TestReadWriteAfterTruncate(t *testing.T) {
 	require := require.New(t)
 
@@ -247,4 +192,78 @@ func TestReadWriteAfterTruncate(t *testing.T) {
 		[][]byte{r},
 		readRecords,
 	)
+}
+
+// TestCompact asserts that Compact keeps only the accepted records, removes its temporary
+// file, and leaves a log that can still be appended to and read back.
+func TestCompact(t *testing.T) {
+	require := require.New(t)
+
+	wal := new(t)
+	defer func() {
+		require.NoError(wal.Close())
+	}()
+	wal.compactAt = 1
+
+	records := [][]byte{{1}, {2}, {3}, {4}}
+	for _, r := range records {
+		require.NoError(wal.Append(r))
+	}
+
+	require.NoError(wal.Compact(func(record []byte) bool {
+		return record[0]%2 == 0
+	}))
+
+	_, err := os.Stat(wal.fileName + ".tmp")
+	require.ErrorIs(err, os.ErrNotExist)
+
+	readRecords, err := wal.ReadAll()
+	require.NoError(err)
+	require.Equal([][]byte{{2}, {4}}, readRecords)
+
+	require.NoError(wal.Append([]byte{5}))
+	readRecords, err = wal.ReadAll()
+	require.NoError(err)
+	require.Equal([][]byte{{2}, {4}, {5}}, readRecords)
+}
+
+// TestCompactBelowThreshold asserts that Compact leaves the log alone until enough
+// bytes have been appended since the last compaction.
+func TestCompactBelowThreshold(t *testing.T) {
+	require := require.New(t)
+
+	wal := new(t)
+	defer func() {
+		require.NoError(wal.Close())
+	}()
+
+	require.NoError(wal.Append([]byte{1}))
+	require.NoError(wal.Compact(func([]byte) bool { return false }))
+
+	readRecords, err := wal.ReadAll()
+	require.NoError(err)
+	require.Equal([][]byte{{1}}, readRecords)
+}
+
+// TestCompactCountsExistingBytes asserts that a reopened log counts its existing size
+// toward the compaction threshold, so a log bloated before a crash is compacted.
+func TestCompactCountsExistingBytes(t *testing.T) {
+	require := require.New(t)
+
+	fileName := filepath.Join(t.TempDir(), "simplex.wal")
+	wal := New(fileName)
+	require.NoError(wal.Append([]byte{1}))
+	require.NoError(wal.Append([]byte{2}))
+	require.NoError(wal.Close())
+
+	reopened := New(fileName)
+	defer func() {
+		require.NoError(reopened.Close())
+	}()
+	reopened.compactAt = 1
+	require.NoError(reopened.Compact(func(record []byte) bool { return record[0] == 2 }))
+
+	readRecords, err := reopened.ReadAll()
+	require.NoError(err)
+	require.Equal([][]byte{{2}}, readRecords)
 }

@@ -80,9 +80,9 @@ func TestBlockRecord(t *testing.T) {
 	record, err := BlockRecord(bh, payload)
 	require.NoError(t, err)
 
-	retentionTerm, err := BlockRecordRetentionTerm(record)
+	recordRound, err := BlockRecordRound(record)
 	require.NoError(t, err)
-	require.Equal(t, uint64(666), retentionTerm)
+	require.Equal(t, uint64(666), recordRound)
 
 	md2, payload2, err := ParseBlockRecord(record)
 	require.NoError(t, err)
@@ -107,9 +107,9 @@ func FuzzBlockRecord(f *testing.F) {
 		}
 		record, err := BlockRecord(bh, payload)
 		require.NoError(t, err)
-		retentionTerm, err := BlockRecordRetentionTerm(record)
+		recordRound, err := BlockRecordRound(record)
 		require.NoError(t, err)
-		require.Equal(t, round, retentionTerm)
+		require.Equal(t, round, recordRound)
 
 		md2, payload2, err := ParseBlockRecord(record)
 		require.NoError(t, err)
@@ -142,9 +142,9 @@ func TestNotarizationRecord(t *testing.T) {
 	require.NoError(t, err)
 
 	record := NewQuorumRecord([]byte{1, 2, 3}, vote.Bytes(), NotarizationRecordType)
-	retentionTerm, err := toBeSignedVoteQuorumRecordRetentionTerm(record)
+	recordRound, err := toBeSignedVoteQuorumRecordRound(record)
 	require.NoError(t, err)
-	require.Equal(t, uint64(666), retentionTerm)
+	require.Equal(t, uint64(666), recordRound)
 
 	qc, vote2, err := ParseNotarizationRecord(record)
 	require.NoError(t, err)
@@ -171,9 +171,9 @@ func FuzzNotarizationRecord(f *testing.F) {
 		}
 
 		record := NewQuorumRecord([]byte{1, 2, 3}, vote.Bytes(), NotarizationRecordType)
-		retentionTerm, err := toBeSignedVoteQuorumRecordRetentionTerm(record)
+		recordRound, err := toBeSignedVoteQuorumRecordRound(record)
 		require.NoError(t, err)
-		require.Equal(t, round, retentionTerm)
+		require.Equal(t, round, recordRound)
 
 		qc, vote2, err := ParseNotarizationRecord(record)
 		require.NoError(t, err)
@@ -190,15 +190,15 @@ func TestEmptyVote(t *testing.T) {
 		},
 	})
 
-	retentionTerm, err := EmptyVoteRecordRetentionTerm(record)
+	recordRound, err := EmptyVoteRecordRound(record)
 	require.NoError(t, err)
-	require.Equal(t, uint64(666), retentionTerm)
+	require.Equal(t, uint64(666), recordRound)
 
-	_, err = EmptyVoteRecordRetentionTerm(record[2:])
+	_, err = EmptyVoteRecordRound(record[2:])
 	require.ErrorContains(t, err, "record too short to extract round")
 }
 
-func TestRetentionTerm(t *testing.T) {
+func TestRecordRound(t *testing.T) {
 	emptyVoteRecord := NewEmptyVoteRecord(ToBeSignedEmptyVote{
 		EmptyVoteMetadata{
 			Round: 669,
@@ -252,7 +252,7 @@ func TestRetentionTerm(t *testing.T) {
 	for _, tc := range []struct {
 		name          string
 		record        []byte
-		expectedTerm  uint64
+		expectedRound uint64
 		expectedError string
 	}{
 		{
@@ -266,37 +266,36 @@ func TestRetentionTerm(t *testing.T) {
 			expectedError: "unknown record type",
 		},
 		{
-			name:         "FinalizationRecord",
-			record:       finalizationRecord,
-			expectedTerm: 670,
+			name:          "FinalizationRecord",
+			record:        finalizationRecord,
+			expectedRound: 670,
 		},
 		{
-			name:         "EmptyVoteRecord",
-			record:       emptyVoteRecord,
-			expectedTerm: 669,
+			name:          "EmptyVoteRecord",
+			record:        emptyVoteRecord,
+			expectedRound: 669,
 		},
 		{
-			name:         "NotarizationRecord",
-			record:       notarizationRecord,
-			expectedTerm: 666,
+			name:          "NotarizationRecord",
+			record:        notarizationRecord,
+			expectedRound: 666,
 		},
 		{
-			name:         "EmptyNotarizationRecord",
-			record:       emptyNotarizationRecord,
-			expectedTerm: 667,
+			name:          "EmptyNotarizationRecord",
+			record:        emptyNotarizationRecord,
+			expectedRound: 667,
 		},
 		{
-			name:         "BlockRecord",
-			record:       blockRecord,
-			expectedTerm: 668,
+			name:          "BlockRecord",
+			record:        blockRecord,
+			expectedRound: 668,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			var rr WALRetentionReader
-			retentionTerm, err := rr.RetentionTerm(tc.record)
+			recordRound, err := RecordRound(tc.record)
 			if tc.expectedError == "" {
 				require.NoError(t, err)
-				require.Equal(t, tc.expectedTerm, retentionTerm)
+				require.Equal(t, tc.expectedRound, recordRound)
 			} else {
 				require.ErrorContains(t, err, tc.expectedError)
 			}

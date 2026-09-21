@@ -78,16 +78,16 @@ func TestParseBlockRecordErrors(t *testing.T) {
 	}
 }
 
-func TestBlockRecordRetentionTermErrors(t *testing.T) {
+func TestBlockRecordRoundErrors(t *testing.T) {
 	bh := BlockHeader{ProtocolMetadata: ProtocolMetadata{Version: 1, Round: 42, Seq: 2, Epoch: 3}}
 	valid, err := BlockRecord(bh, []byte{9})
 	require.NoError(t, err)
 
 	for _, tc := range []struct {
-		name         string
-		input        []byte
-		expectedTerm uint64
-		errContains  string
+		name          string
+		input         []byte
+		expectedRound uint64
+		errContains   string
 	}{
 		{"valid returns round", valid, 42, ""},
 		{"too short for metadata size", []byte{0, 0, 0}, 0, "too short to extract metadata size"},
@@ -97,10 +97,10 @@ func TestBlockRecordRetentionTermErrors(t *testing.T) {
 		{"invalid metadata bytes", sizePrefixedRecord(BlockRecordType, 1, 0x80), 0, "failed to deserialize block metadata"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			term, err := BlockRecordRetentionTerm(tc.input)
+			recordRound, err := BlockRecordRound(tc.input)
 			if tc.errContains == "" {
 				require.NoError(t, err)
-				require.Equal(t, tc.expectedTerm, term)
+				require.Equal(t, tc.expectedRound, recordRound)
 				return
 			}
 			require.ErrorContains(t, err, tc.errContains)
@@ -108,15 +108,15 @@ func TestBlockRecordRetentionTermErrors(t *testing.T) {
 	}
 }
 
-func TestNotarizationQuorumRecordRetentionTermErrors(t *testing.T) {
+func TestNotarizationQuorumRecordRoundErrors(t *testing.T) {
 	vote := ToBeSignedVote{BlockHeader{ProtocolMetadata: ProtocolMetadata{Version: 1, Round: 99, Seq: 2, Epoch: 3}}}
 	valid := NewQuorumRecord([]byte{1, 2, 3}, vote.Bytes(), NotarizationRecordType)
 
 	for _, tc := range []struct {
-		name         string
-		input        []byte
-		expectedTerm uint64
-		errContains  string
+		name          string
+		input         []byte
+		expectedRound uint64
+		errContains   string
 	}{
 		{"valid returns round", valid, 99, ""},
 		{"too short for vote size", []byte{0, 0, 0}, 0, "too short to extract vote size"},
@@ -126,10 +126,10 @@ func TestNotarizationQuorumRecordRetentionTermErrors(t *testing.T) {
 		{"invalid vote bytes", sizePrefixedRecord(NotarizationRecordType, 1, 0x80), 0, "failed to deserialize vote"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			term, err := toBeSignedVoteQuorumRecordRetentionTerm(tc.input)
+			recordRound, err := toBeSignedVoteQuorumRecordRound(tc.input)
 			if tc.errContains == "" {
 				require.NoError(t, err)
-				require.Equal(t, tc.expectedTerm, term)
+				require.Equal(t, tc.expectedRound, recordRound)
 				return
 			}
 			require.ErrorContains(t, err, tc.errContains)

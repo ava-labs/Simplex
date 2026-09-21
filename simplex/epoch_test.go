@@ -1198,6 +1198,48 @@ func TestEpochStartedTwice(t *testing.T) {
 	require.ErrorIs(t, e.Start(), ErrAlreadyStarted)
 }
 
+// TestWALCompactedOnIndex asserts that indexing a block compacts the WAL down to the records
+// of the last blacklist orbit before the indexed round, and that a restart over the compacted
+// WAL resumes at the same round.
+func TestWALCompactedOnIndex(t *testing.T) {
+	bb := testutil.NewTestBlockBuilder()
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
+	wal.CompactAt(1)
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	require.NoError(t, e.Start())
+
+	const rounds = 8
+	for range rounds {
+		notarizeAndFinalizeRound(t, e, bb)
+	}
+	require.Equal(t, uint64(rounds), e.Metadata().Round)
+
+	// The tip is round 7 and the orbit is 4 rounds, so rounds 0 to 3 are gone and 4 to 7 remain.
+	// The node leads round 8 and may already have written its proposal for it.
+	records, err := wal.ReadAll()
+	require.NoError(t, err)
+	remaining := make(map[uint64]bool)
+	for _, record := range records {
+		round, err := RecordRound(record)
+		require.NoError(t, err)
+		require.GreaterOrEqual(t, round, uint64(4), "record of round %d survived compaction", round)
+		remaining[round] = true
+	}
+	for round := uint64(4); round < rounds; round++ {
+		require.True(t, remaining[round], "record of round %d was compacted away", round)
+	}
+
+	e.Stop()
+	e, err = NewEpoch(conf)
+	require.NoError(t, err)
+	require.NoError(t, e.Start())
+	t.Cleanup(e.Stop)
+	require.Equal(t, uint64(rounds), e.Metadata().Round)
+}
+
 func advanceRoundFromEmpty(t *testing.T, e *Epoch) {
 	leader := LeaderForRound(e.Comm.Validators().NodeIDs(), e.Metadata().Round)
 	require.False(t, e.ID.Equals(leader), "epoch cannot be the leader for the empty round")

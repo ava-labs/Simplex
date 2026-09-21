@@ -256,7 +256,7 @@ func ParseEmptyVoteRecord(rawEmptyVote []byte) (ToBeSignedEmptyVote, error) {
 	return emptyVote, nil
 }
 
-func BlockRecordRetentionTerm(record []byte) (uint64, error) {
+func BlockRecordRound(record []byte) (uint64, error) {
 	initialSize := len(record)
 
 	var pos int
@@ -289,7 +289,7 @@ func BlockRecordRetentionTerm(record []byte) (uint64, error) {
 	return blockHeader.Round, nil
 }
 
-func toBeSignedVoteQuorumRecordRetentionTerm(record []byte) (uint64, error) {
+func toBeSignedVoteQuorumRecordRound(record []byte) (uint64, error) {
 	initialSize := len(record)
 
 	var pos int
@@ -325,7 +325,7 @@ func toBeSignedVoteQuorumRecordRetentionTerm(record []byte) (uint64, error) {
 	return vote.Round, nil
 }
 
-func emptyNotarizationQuorumRecordRetentionTerm(record []byte) (uint64, error) {
+func emptyNotarizationQuorumRecordRound(record []byte) (uint64, error) {
 	if len(record) < 23 {
 		return 0, fmt.Errorf("record too short to extract round, expected at least 23 bytes, got %d", len(record))
 	}
@@ -342,7 +342,7 @@ func emptyNotarizationQuorumRecordRetentionTerm(record []byte) (uint64, error) {
 	return round, nil
 }
 
-func EmptyVoteRecordRetentionTerm(record []byte) (uint64, error) {
+func EmptyVoteRecordRound(record []byte) (uint64, error) {
 	if len(record) < 19 {
 		return 0, fmt.Errorf("record too short to extract round, expected at least 23 bytes, got %d", len(record))
 	}
@@ -357,9 +357,8 @@ func EmptyVoteRecordRetentionTerm(record []byte) (uint64, error) {
 	return round, nil
 }
 
-type WALRetentionReader struct{}
-
-func (wrr *WALRetentionReader) RetentionTerm(entry []byte) (uint64, error) {
+// RecordRound returns the round a WAL record belongs to.
+func RecordRound(entry []byte) (uint64, error) {
 	if len(entry) < 2 {
 		return 0, fmt.Errorf("entry too short to extract record type, expected at least 2 bytes, got %d", len(entry))
 	}
@@ -367,14 +366,14 @@ func (wrr *WALRetentionReader) RetentionTerm(entry []byte) (uint64, error) {
 	recordType := binary.BigEndian.Uint16(entry[:2])
 	switch recordType {
 	case BlockRecordType:
-		return BlockRecordRetentionTerm(entry)
+		return BlockRecordRound(entry)
 	case NotarizationRecordType, FinalizationRecordType:
-		return toBeSignedVoteQuorumRecordRetentionTerm(entry)
+		return toBeSignedVoteQuorumRecordRound(entry)
 	case EmptyNotarizationRecordType:
-		return emptyNotarizationQuorumRecordRetentionTerm(entry)
+		return emptyNotarizationQuorumRecordRound(entry)
 	case EmptyVoteRecordType:
-		return EmptyVoteRecordRetentionTerm(entry)
+		return EmptyVoteRecordRound(entry)
 	default:
-		return 0, fmt.Errorf("unknown record type %d for retention term extraction", recordType)
+		return 0, fmt.Errorf("unknown record type %d for round extraction", recordType)
 	}
 }

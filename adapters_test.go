@@ -10,7 +10,6 @@ import (
 	"github.com/ava-labs/simplex/common"
 	metadata "github.com/ava-labs/simplex/msm"
 	"github.com/ava-labs/simplex/testutil"
-	"github.com/ava-labs/simplex/wal"
 
 	"github.com/stretchr/testify/require"
 )
@@ -163,7 +162,9 @@ func TestCachedStoragePopulatedByWal(t *testing.T) {
 	require.NoError(t, testWAL.Append(notarizationRecord))
 
 	chain := newNetwork(t, newTestPChain(validatorSet))
-	node := chain.addNodeWithConfig(nodeIDs[0], nodeConfig{wals: []wal.DeletableWAL{testWAL}})
+	wals := newWALStore(t)
+	wals.wals[firstEverEpoch] = testWAL
+	node := chain.addNodeWithConfig(nodeIDs[0], nodeConfig{wals: wals})
 
 	// The restored block is verified asynchronously and not indexed, so poll until
 	// a seq-only lookup serves it from the cache.

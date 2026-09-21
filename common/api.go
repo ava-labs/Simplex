@@ -99,6 +99,9 @@ type SignatureVerifier interface {
 type WriteAheadLog interface {
 	Append([]byte) error
 	ReadAll() ([][]byte, error)
+	// Compact drops the records keep rejects, once enough has been appended since the last
+	// compaction to make it worthwhile. Losing no kept record is guaranteed, dropping is not.
+	Compact(keep func(record []byte) bool) error
 	Close() error
 }
 

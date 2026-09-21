@@ -62,8 +62,6 @@ func TestEpochInvokesMSMWaitForPendingBlock(t *testing.T) {
 
 	vm := newBlockBuilderVM(storage, newPendingBlockSignal())
 	recorder := &emptyVoteRecorder{got: make(chan struct{}, 1)}
-	wc := &walCreator{t: t}
-
 	inst := NewInstance(Config{
 		LastNonSimplexInnerBlock: genesisBlock,
 		ParameterConfig:          paramConfig,
@@ -71,7 +69,7 @@ func TestEpochInvokesMSMWaitForPendingBlock(t *testing.T) {
 		Broadcaster:              recorder,
 		Sender:                   recorder,
 		CryptoOps:                &testCryptoOps{},
-		WalCreator:               wc.createWAL,
+		WALs:                     newWALStore(t),
 		Storage:                  storage,
 		Logger:                   testutil.MakeLogger(t, 1),
 		VM:                       vm,
@@ -355,6 +353,55 @@ func TestInstanceRestartsAfterZeroBlock(t *testing.T) {
 	require.Nil(t, zeroBlock.InnerBlock)
 
 	node.restart()
+
+	// The restarted node keeps the chain going.
+	network.acceptNewBlock()
+}
+
+// TestInstanceRestartDiscardsSealedEpochWAL asserts that a node restarting once the ledger has moved
+// to a new epoch discards the WAL of the sealed epoch instead of replaying it. A crash between indexing
+// the sealing block and the epoch transition leaves that WAL behind, holding Telock records at rounds
+// past the sealing round.
+func TestInstanceRestartDiscardsSealedEpochWAL(t *testing.T) {
+	validator := newNodeMapping(1)
+	joiningValidator := newNodeMapping(2)
+	pChain := newTestPChain([]metadata.NodeBLSMapping{validator})
+	network := newNetwork(t, pChain)
+	node := network.addNode(validator.NodeID[:]).sync()
+	network.addNode(joiningValidator.NodeID[:]).sync()
+
+	// initiate an epoch change
+	newValidatorSet := metadata.NodeBLSMappings{validator, joiningValidator}
+	pChain.setValidatorSetAt(10, newValidatorSet)
+	pChain.advanceHeight(10)
+	sealing := network.waitUntilSealingBlock(newValidatorSet.Nodes())
+	sealedEpoch := sealing.BlockHeader().Epoch
+	newEpoch := sealing.BlockHeader().Seq
+
+	// Stop before planting the record, so the running instance cannot discard it first.
+	node.stop()
+
+	// A Telock notarization of the sealed epoch, past the sealing round. Its QC is garbage,
+	// so replaying it would fail the restart rather than silently regress the epoch.
+	telock := common.ToBeSignedVote{BlockHeader: common.BlockHeader{ProtocolMetadata: common.ProtocolMetadata{
+		Epoch: sealedEpoch,
+		Round: sealing.BlockHeader().Round + 1,
+		Seq:   newEpoch + 1,
+	}}}
+	staleWAL := testutil.NewTestWAL(t)
+	require.NoError(t, staleWAL.Append(common.NewQuorumRecord([]byte{1, 2, 3}, telock.Bytes(), common.NotarizationRecordType)))
+	node.wals.lock.Lock()
+	node.wals.wals[sealedEpoch] = staleWAL
+	node.wals.lock.Unlock()
+
+	node = node.restart()
+
+	node.wals.lock.Lock()
+	require.Contains(t, node.wals.wals, newEpoch)
+	for epoch := range node.wals.wals {
+		require.Equal(t, newEpoch, epoch, "the WAL of epoch %d survived the restart", epoch)
+	}
+	node.wals.lock.Unlock()
 
 	// The restarted node keeps the chain going.
 	network.acceptNewBlock()

@@ -18,7 +18,6 @@ import (
 	"github.com/ava-labs/simplex/common"
 	metadata "github.com/ava-labs/simplex/msm"
 	"github.com/ava-labs/simplex/testutil"
-	"github.com/ava-labs/simplex/wal"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 )
@@ -64,7 +63,6 @@ var (
 var paramConfig = ParameterConfig{
 	MaxNetworkDelay: 200 * time.Millisecond,
 	MaxRoundWindow:  100,
-	WALMaxSizeBytes: 1024,
 }
 
 type testPlatformChain struct {
@@ -258,24 +256,44 @@ func (m *testStorage) GetBlock(seq uint64) (metadata.StateMachineBlock, *common.
 	return parsed.Clone(), &fin, nil
 }
 
-type walCreator struct {
+// walStore keeps a node's in-memory WALs, one per epoch.
+type walStore struct {
 	t *testing.T
 
 	lock sync.Mutex
-	wals []*testutil.TestWAL
+	wals map[uint64]*testutil.TestWAL
 }
 
-func (w *walCreator) createWAL() (wal.DeletableWAL, error) {
-	tw := testutil.NewTestWAL(w.t)
+func newWALStore(t *testing.T) *walStore {
+	return &walStore{t: t, wals: make(map[uint64]*testutil.TestWAL)}
+}
+
+func (w *walStore) Open(epoch uint64) (common.WriteAheadLog, error) {
 	w.lock.Lock()
-	w.wals = append(w.wals, tw)
-	w.lock.Unlock()
+	defer w.lock.Unlock()
+
+	tw, exists := w.wals[epoch]
+	if !exists {
+		tw = testutil.NewTestWAL(w.t)
+		w.wals[epoch] = tw
+	}
 	return tw, nil
 }
 
-// containsNotarization reports whether any WAL this creator handed out holds a
-// notarization for the given round.
-func (w *walCreator) containsNotarization(round uint64) bool {
+func (w *walStore) DiscardBefore(epoch uint64) error {
+	w.lock.Lock()
+	defer w.lock.Unlock()
+
+	for e := range w.wals {
+		if e < epoch {
+			delete(w.wals, e)
+		}
+	}
+	return nil
+}
+
+// containsNotarization reports whether any WAL in the store holds a notarization for the given round.
+func (w *walStore) containsNotarization(round uint64) bool {
 	w.lock.Lock()
 	defer w.lock.Unlock()
 
@@ -285,6 +303,18 @@ func (w *walCreator) containsNotarization(round uint64) bool {
 		}
 	}
 	return false
+}
+
+// clone copies every WAL, so a restarted node comes back up over the records its previous incarnation persisted.
+func (w *walStore) clone() *walStore {
+	w.lock.Lock()
+	defer w.lock.Unlock()
+
+	c := newWALStore(w.t)
+	for e, tw := range w.wals {
+		c.wals[e] = tw.Clone()
+	}
+	return c
 }
 
 // reparseBlock rebuilds an independent ParsedBlock from a verified block's wire bytes.
@@ -564,7 +594,7 @@ type node struct {
 	inst    *Instance
 	storage *testStorage
 	comm    *instanceComm
-	wals    *walCreator
+	wals    *walStore
 }
 
 // stop stops the instance, then drains the messages the node was sending.
@@ -580,23 +610,9 @@ func (n *node) stop() {
 func (n *node) restart() *node {
 	n.stop()
 
-	var records [][]byte
-	n.wals.lock.Lock()
-	for _, w := range n.wals.wals {
-		walRecords, err := w.ReadAll()
-		require.NoError(n.t, err)
-		records = append(records, walRecords...)
-	}
-	n.wals.lock.Unlock()
-
-	// Come back up over the same storage, restoring a WAL rebuilt from the exported records.
-	restoredWAL := testutil.NewTestWAL(n.t)
-	for _, record := range records {
-		require.NoError(n.t, restoredWAL.Append(record))
-	}
-
+	// Come back up over the same storage and the WALs the node persisted.
 	newNode := n.net.addNodeWithConfig(n.id, nodeConfig{
-		wals: []wal.DeletableWAL{restoredWAL}, storage: n.storage, existingNode: true,
+		wals: n.wals.clone(), storage: n.storage, existingNode: true,
 	})
 	return newNode
 }
@@ -661,7 +677,7 @@ type nodeConfig struct {
 	// storage the node starts from; defaults to a fresh storage holding only genesis.
 	storage *testStorage
 	// wals are pre-existing WALs the instance restores on start.
-	wals                []wal.DeletableWAL
+	wals                *walStore
 	lastNonSimplexBlock avalanchego.VMBlock
 	// existingNode indicates whether the node is being added to the network for the first time (false) or is a restart of an existing node (true).
 	existingNode bool
@@ -682,7 +698,10 @@ func (n *network) addNodeWithConfig(id common.NodeID, cfg nodeConfig) *node {
 	comm := newInstanceComm(n, id)
 
 	vm := newBlockBuilderVM(storage, n.pending)
-	wc := &walCreator{t: n.t}
+	wals := cfg.wals
+	if wals == nil {
+		wals = newWALStore(n.t)
+	}
 	var lastNonSimplex avalanchego.VMBlock = genesisBlock
 	if cfg.lastNonSimplexBlock != nil {
 		lastNonSimplex = cfg.lastNonSimplexBlock
@@ -695,11 +714,10 @@ func (n *network) addNodeWithConfig(id common.NodeID, cfg nodeConfig) *node {
 		Broadcaster:              comm,
 		Sender:                   comm,
 		CryptoOps:                &testCryptoOps{},
-		WalCreator:               wc.createWAL,
+		WALs:                     wals,
 		Storage:                  storage,
 		// the first byte of the node id labels the node's log records
 		Logger:         testutil.MakeLogger(n.t, int(id[0])),
-		WALs:           cfg.wals,
 		VM:             vm,
 		ICMETransition: noopICMTransition,
 		ID:             id,
@@ -713,7 +731,7 @@ func (n *network) addNodeWithConfig(id common.NodeID, cfg nodeConfig) *node {
 		comm:    comm,
 		vm:      vm,
 		inst:    instance,
-		wals:    wc,
+		wals:    wals,
 	}
 
 	n.lock.Lock()

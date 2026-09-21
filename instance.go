@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
 	"sync"
 	"time"
 
@@ -41,12 +40,11 @@ type Config struct {
 	Sender Sender
 	// CryptoOps is the interface to the cryptographic operations needed by the simplex instance.
 	CryptoOps CryptoOps
-	// WalCreator is the interface to create new write-ahead logs for the simplex instance.
-	WalCreator wal.Creator
+	// WALs holds the write-ahead logs of the simplex instance, one per epoch.
+	WALs wal.Store
 	// Storage is the interface to the block storage layer for the simplex instance.
 	Storage        Storage
 	Logger         common.Logger
-	WALs           []wal.DeletableWAL
 	VM             VM
 	ICMETransition metadata.ICMEpochTransition
 	ID             common.NodeID
@@ -67,7 +65,7 @@ type Instance struct {
 	started            bool
 	cs                 *CachedStorage
 	transitionListener *epochTransitionListener
-	wal                *wal.GarbageCollectedWAL
+	wal                common.WriteAheadLog
 	msm                *metadata.StateMachine
 	e                  *simplex.Epoch
 	nv                 *nonvalidator.NonValidator
@@ -118,7 +116,7 @@ func (i *Instance) Start(ctx context.Context) error {
 		return fmt.Errorf("error determining latest epoch and validator set: %w", err)
 	}
 
-	if err := i.startAtEpoch(nodes); err != nil {
+	if err := i.startAtEpoch(nodes, epochNum); err != nil {
 		return fmt.Errorf("error starting instance at epoch %d: %w", epochNum, err)
 	}
 
@@ -128,8 +126,8 @@ func (i *Instance) Start(ctx context.Context) error {
 	return nil
 }
 
-func (i *Instance) startValidator(validators common.Nodes) error {
-	epochConfig, err := i.createEpochConfig(validators)
+func (i *Instance) startValidator(validators common.Nodes, epochNum uint64) error {
+	epochConfig, err := i.createEpochConfig(validators, epochNum)
 	if err != nil {
 		return err
 	}
@@ -268,7 +266,7 @@ func (i *Instance) Stop() {
 		close(i.stopCh)
 	}
 
-	i.stopValidator(false)
+	i.stopValidator()
 	i.stopNonValidator()
 }
 
@@ -280,20 +278,18 @@ func (i *Instance) stopNonValidator() {
 	}
 }
 
-func (i *Instance) stopValidator(garbageCollectWAL bool) {
+func (i *Instance) stopValidator() {
 	if i.e != nil {
 		i.e.Stop()
-		// Wipe out the WALs from the config so we won't try to load them again
-		if garbageCollectWAL {
-			i.Config.WALs = nil
-			// On epoch change, garbage collect the WAL to remove all entries from previous epochs.
-			if err := i.wal.GarbageCollect(math.MaxUint64); err != nil {
-				i.Config.Logger.Error("Error garbage collecting epoch config on epoch change", zap.Error(err))
-			}
-		}
-
 		i.e = nil
 		i.epochOrNV = nil
+	}
+
+	if i.wal != nil {
+		if err := i.wal.Close(); err != nil {
+			i.Config.Logger.Error("Error closing the WAL", zap.Error(err))
+		}
+		i.wal = nil
 	}
 }
 
@@ -447,10 +443,10 @@ func (i *Instance) processEpochChange(epochChange epochChange) {
 	case runningNonValidator:
 		// Stop the non-validator before doing anything else, so that we don't process any more messages while we are changing epochs.
 		i.stopNonValidator()
-		err = i.startAtEpoch(epochChange.validators)
+		err = i.startAtEpoch(epochChange.validators, epochChange.epoch)
 	case runningValidator:
-		i.stopValidator(true)
-		err = i.startAtEpoch(epochChange.validators)
+		i.stopValidator()
+		err = i.startAtEpoch(epochChange.validators, epochChange.epoch)
 	default: // This should never happen, but we log it just in case.
 		i.lock.Unlock()
 		i.Config.Logger.Fatal("We are not running either a validator or non-validator")
@@ -464,19 +460,17 @@ func (i *Instance) processEpochChange(epochChange epochChange) {
 	}
 }
 
-func (i *Instance) createEpochConfig(validators common.Nodes) (*epochConfig, error) {
-	wal, err := wal.NewGarbageCollectedWAL(i.Config.WALs, i.Config.WalCreator, &common.WALRetentionReader{}, i.Config.ParameterConfig.WALMaxSizeBytes)
+func (i *Instance) createEpochConfig(validators common.Nodes, epoch uint64) (*epochConfig, error) {
+	// The logs of earlier epochs hold nothing this epoch may replay, and their rounds would
+	// leak into it. Only this epoch's log is ever opened, so a failed discard costs disk, not safety.
+	if err := i.Config.WALs.DiscardBefore(epoch); err != nil {
+		i.Config.Logger.Error("Error discarding the WALs of previous epochs", zap.Error(err))
+	}
+	epochWAL, err := i.Config.WALs.Open(epoch)
 	if err != nil {
-		return nil, fmt.Errorf("error creating garbage collected wal: %w", err)
+		return nil, fmt.Errorf("error opening the WAL of epoch %d: %w", epoch, err)
 	}
-	i.wal = wal
-
-	// We might have crashed right after a sealing block was persisted to storage,
-	// but before the WAL was garbage collected.
-	// In that case, we need to garbage collect the WAL to remove all entries from previous epochs.
-	if err := i.maybeGarbageCollectWAL(); err != nil {
-		return nil, err
-	}
+	i.wal = epochWAL
 
 	msm, err := metadata.NewStateMachine(&metadata.Config{
 		GetTime:                         time.Now,
@@ -543,7 +537,7 @@ func (i *Instance) createEpochConfig(validators common.Nodes) (*epochConfig, err
 		MaxRoundWindow:             i.Config.ParameterConfig.MaxRoundWindow,
 		ID:                         i.Config.ID,
 		RandomSource:               source, // Seed the random source from crypto/rand
-		WAL:                        wal,
+		WAL:                        epochWAL,
 		Logger:                     i.Config.Logger,
 		SignatureAggregatorCreator: i.Config.CryptoOps.CreateSignatureAggregator,
 		QCDeserializer:             i.Config.CryptoOps,
@@ -560,38 +554,10 @@ func (i *Instance) createEpochConfig(validators common.Nodes) (*epochConfig, err
 	}, nil
 }
 
-func (i *Instance) maybeGarbageCollectWAL() error {
-	lastNonSimplexHeight := i.Config.LastNonSimplexInnerBlock.Height()
-	numBlocks := i.Config.Storage.NumBlocks()
-
-	// Only fetch the last block if it is a simplex block
-	if lastNonSimplexHeight+1 == numBlocks {
-		return nil
-	}
-
-	lastBlock, _, err := LastBlock(i.Config.Storage)
-	if err != nil {
-		return fmt.Errorf("error retrieving last block: %w", err)
-	}
-
-	if lastBlock.Metadata.SimplexEpochInfo.BlockValidationDescriptor != nil {
-		i.Config.Logger.Info("Last block is a sealing block, garbage collecting all WALs preceding it to start a new epoch")
-		// We figure out the round number of the latest block and garbage collect all WALs preceding it.
-		// TODO: We need to test a scenario where an epoch change occurred and then a few notarizations have been persisted to WAL,
-		// but no block has been finalized. So the WAL contains entries from previous epochs as well as from the current epoch.
-		// TODO: We need to test a scenario where an epoch change occurred but the node has crashed after notarizing some Telocks.
-		md := lastBlock.Metadata.SimplexProtocolMetadata
-		if err := i.wal.GarbageCollect(md.Round); err != nil {
-			return fmt.Errorf("error garbage collecting WALs: %w", err)
-		}
-	}
-	return nil
-}
-
-// startAtEpoch starts either a validator or non-validator at `epoch“.
-func (i *Instance) startAtEpoch(validators common.Nodes) error {
+// startAtEpoch starts a validator for the given epoch if we are in its validator set, and a non-validator otherwise.
+func (i *Instance) startAtEpoch(validators common.Nodes, epoch uint64) error {
 	if validators.Contains(i.Config.ID) {
-		return i.startValidator(validators)
+		return i.startValidator(validators, epoch)
 	}
 
 	return i.startNonValidator()
