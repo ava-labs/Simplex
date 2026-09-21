@@ -2440,13 +2440,17 @@ func TestNotarizedNotFinalizedTipCausesEmptyBlockProposal(t *testing.T) {
 			name:            "round 0 finalized, round 1 only notarized, round 2 only notarized",
 			finalizedRounds: []bool{true, false, false},
 		},
+		{
+			name:            "round 0 finalized, round 1 only notarized, round 2 finalized",
+			finalizedRounds: []bool{true, false, true},
+		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			nodes := []NodeID{{1}, {2}, {3}, {4}}
 			// Pick the node's ID such that it will be the leader in the next round.
 			nodeID := nodes[len(testCase.finalizedRounds)]
 
-			bb := testutil.NewTestBlockBuilder()
+			bb := testutil.NewTestControlledBlockBuilder(t)
 			recordingComm := &recordingComm{
 				Communication:     testutil.NewNoopComm(nodes),
 				BroadcastMessages: make(chan *Message, 100),
@@ -2466,7 +2470,7 @@ func TestNotarizedNotFinalizedTipCausesEmptyBlockProposal(t *testing.T) {
 
 			for r, finalized := range testCase.finalizedRounds {
 				if finalized {
-					notarizeAndFinalizeRound(t, e, bb)
+					notarizeAndFinalizeRound(t, e, &bb.TestBlockBuilder)
 					continue
 				}
 				block := notarizeRoundNotFinalized(t, e, nodes, uint64(r))
@@ -2532,10 +2536,13 @@ func TestNotarizedNotFinalizedTipStuckLeaderCausesEmptyNotarization(t *testing.T
 			name:            "round 0 finalized, round 1 only notarized, round 2 only notarized",
 			finalizedRounds: []bool{true, false, false},
 		},
+		{
+			name:            "round 0 finalized, round 1 only notarized, round 2 finalized",
+			finalizedRounds: []bool{true, false, true},
+		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			nodes := []NodeID{{1}, {2}, {3}, {4}}
-
 			bb := testutil.NewTestBlockBuilder()
 			conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
 			conf.MaxProposalWait = 50 * time.Millisecond
@@ -3413,4 +3420,67 @@ func TestEpochLeaderRecordsTimeoutDespiteStaleBlacklistOnEpochChange(t *testing.
 	actual := block.Blacklist()
 	require.True(t, expected.Equals(&actual),
 		"the timeout of nodes[2] was not recorded: expected %s, got %s", expected.String(), actual.String())
+}
+
+// TestRebroadcastDoesNotFinalizeVoteOnTimedOutRound asserts that a node never casts a finalize vote for a
+// round it has cast an empty vote for. Doing both lets an empty notarization and a finalization form for
+// the same round, since the two quorums may then overlap only in nodes that voted both ways.
+func TestRebroadcastDoesNotFinalizeVoteOnTimedOutRound(t *testing.T) {
+	bb := testutil.NewTestBlockBuilder()
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	comm := &recordingComm{
+		Communication:     testutil.NewNoopComm(nodes),
+		BroadcastMessages: make(chan *Message, 1000),
+	}
+	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], comm, bb)
+	conf.ReplicationEnabled = true
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+
+	// Round 0: we lead, and the round is notarized and finalized normally.
+	notarizeAndFinalizeRound(t, e, bb)
+	require.Equal(t, uint64(1), e.Metadata().Round)
+
+	// Round 1: the leader never proposes, so we time out and cast an empty vote.
+	const timedOutRound = uint64(1)
+	bb.BlockShouldBeBuilt <- struct{}{}
+	now := conf.StartTime
+	testutil.WaitForBlockProposerTimeout(t, e, &now, timedOutRound)
+	require.True(t, wal.ContainsEmptyVote(timedOutRound))
+
+	// The other three nodes notarized a block for round 1 regardless, and we learn of it through
+	// replication. We store it so the round can still be finalized, but we must not vote to finalize it.
+	block := testutil.NewTestBlock(e.Metadata(), emptyBlacklist)
+	sigAggr := e.SignatureAggregatorCreator(e.Comm.Validators())
+	notarization, err := testutil.NewNotarization(e.Logger, sigAggr, block, nodes[1:])
+	require.NoError(t, err)
+	require.NoError(t, e.HandleMessage(&Message{ReplicationResponse: &ReplicationResponse{
+		Data: []QuorumRound{{Block: block, Notarization: &notarization}},
+	}}, nodes[1]))
+	wal.AssertNotarization(timedOutRound)
+	testutil.WaitToEnterRound(t, e, timedOutRound+1)
+
+	// Everything broadcast so far, including the empty vote, is not what this test is about.
+	for len(comm.BroadcastMessages) > 0 {
+		<-comm.BroadcastMessages
+	}
+
+	// Round 1 is now notarized but not finalized and the round no longer advances, so NotarizationTime
+	// rebroadcasts finalize votes. Drive its clock through several timeouts and make sure none of them is
+	// for the round we timed out on.
+	step := DefaultFinalizeVoteRebroadcastTimeout / 3
+	for range 15 {
+		now = now.Add(step)
+		e.AdvanceTime(now)
+		for len(comm.BroadcastMessages) > 0 {
+			msg := <-comm.BroadcastMessages
+			if msg.FinalizeVote != nil {
+				require.NotEqual(t, timedOutRound, msg.FinalizeVote.Finalization.Round,
+					"node cast a finalize vote for round %d after casting an empty vote for it", timedOutRound)
+			}
+		}
+	}
 }
