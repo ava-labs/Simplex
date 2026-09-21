@@ -187,12 +187,12 @@ func (n *NonValidator) HandleMessage(msg *common.Message, from common.NodeID) er
 	}
 
 	switch {
+	case msg.ReplicationResponse != nil:
+		return n.handleReplicationResponse(msg.ReplicationResponse, from)
 	case msg.BlockMessage != nil && msg.BlockMessage.Block != nil:
 		return n.handleBlock(msg.BlockMessage.Block, from)
 	case msg.Finalization != nil:
 		return n.handleFinalization(msg.Finalization, from)
-	case msg.ReplicationResponse != nil:
-		return n.handleReplicationResponse(msg.ReplicationResponse, from)
 	default:
 		n.Logger.Debug("Received unexpected message", zap.Any("Message", msg), zap.Stringer("from", from))
 		return nil
