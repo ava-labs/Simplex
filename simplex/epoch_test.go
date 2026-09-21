@@ -3276,3 +3276,141 @@ func TestEpochRepliesWithFinalizationForStaleFinalizeVote(t *testing.T) {
 	require.NotNil(t, reply.Finalization)
 	require.Equal(t, uint64(6), reply.Finalization.Finalization.Round)
 }
+
+// TestEpochFollowerIgnoresStaleBlacklistOnEpochChange checks that a follower does not skip a
+// leader because of the previous epoch's blacklist.
+//
+// The node starts a new epoch right after a sealing block of the previous epoch. That sealing
+// block blacklists the leader of the first round of the new epoch. The new epoch starts from
+// an empty blacklist, so the follower must wait for the leader's proposal and vote for it,
+// rather than declare the leader blacklisted and vote for an empty block right away.
+func TestEpochFollowerIgnoresStaleBlacklistOnEpochChange(t *testing.T) {
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	bb := testutil.NewTestBlockBuilder()
+
+	// The sealing block is at round 1, so the new epoch starts at round 2, led by nodes[2].
+	// The previous epoch blacklists that very node (f=1, so two accusations suffice).
+	staleBlacklist := NewBlacklist(uint16(len(nodes)))
+	staleBlacklist.SuspectedNodes = SuspectedNodes{{NodeIndex: 2, SuspectingCount: 2, OrbitSuspected: 1}}
+
+	epoch0Block := testutil.NewTestBlock(ProtocolMetadata{Epoch: 0, Round: 0, Seq: 0}, NewBlacklist(uint16(len(nodes))))
+	sealingBlock := testutil.NewTestBlock(ProtocolMetadata{Epoch: 0, Round: 1, Seq: 1, Prev: epoch0Block.Digest}, staleBlacklist)
+	sealingBlock.SealingInfo = &SealingBlockInfo{
+		ValidatorSet:         NodeIDs(nodes).EqualWeightedNodes(),
+		PrevSealingBlockHash: epoch0Block.Digest,
+	}
+
+	sigAggregator := &testutil.TestSignatureAggregator{N: len(nodes)}
+	epoch0Finalization, _ := testutil.NewFinalizationRecord(t, sigAggregator, epoch0Block, nodes)
+	sealingFinalization, _ := testutil.NewFinalizationRecord(t, sigAggregator, sealingBlock, nodes)
+
+	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
+	require.NoError(t, conf.Storage.Index(context.Background(), epoch0Block, epoch0Finalization))
+	require.NoError(t, conf.Storage.Index(context.Background(), sealingBlock, sealingFinalization))
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+
+	md := e.Metadata()
+	require.Equal(t, uint64(1), md.Epoch)
+	require.Equal(t, uint64(2), md.Round)
+	leader := nodes[2]
+	require.Equal(t, leader, LeaderForRound(nodes, md.Round))
+
+	// Tell the follower it is time for the leader to propose, which starts the proposal timeout,
+	// and let half of it pass. The leader is not late yet.
+	bb.BlockShouldBeBuilt <- struct{}{}
+	e.AdvanceTime(e.StartTime.Add(conf.MaxProposalWait / 2))
+
+	// The leader proposes the first block of the new epoch, with an empty blacklist.
+	block := testutil.NewTestBlock(md, NewBlacklist(uint16(len(nodes))))
+	vote, err := testutil.NewTestVote(block, leader)
+	require.NoError(t, err)
+	require.NoError(t, e.HandleMessage(&Message{
+		BlockMessage: &BlockMessage{Vote: *vote, Block: block},
+	}, leader))
+	wal.AssertBlockProposal(md.Round)
+
+	// A follower that waited for the leader has not voted for an empty block.
+	require.False(t, wal.ContainsEmptyVote(md.Round),
+		"the follower voted for an empty block in round %d without waiting for the leader, "+
+			"treating it as blacklisted based on the previous epoch's sealing block", md.Round)
+
+	// With the leader's vote and one more, the follower's own vote is what completes the quorum.
+	testutil.InjectTestVote(t, e, block, nodes[1])
+	wal.AssertNotarization(md.Round)
+}
+
+// TestEpochLeaderRecordsTimeoutDespiteStaleBlacklistOnEpochChange checks that a timeout in the
+// first round of a new epoch is recorded even if the previous epoch's sealing block blacklists
+// the leader of that round. The new epoch starts from an empty blacklist, so the node must
+// accuse the leader in the next block it builds.
+func TestEpochLeaderRecordsTimeoutDespiteStaleBlacklistOnEpochChange(t *testing.T) {
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	nodeCount := uint16(len(nodes))
+	bb := testutil.NewTestBlockBuilder()
+
+	// The sealing block is at round 1, so the new epoch starts at round 2, led by nodes[2].
+	// The previous epoch blacklists that very node.
+	staleBlacklist := NewBlacklist(nodeCount)
+	staleBlacklist.SuspectedNodes = SuspectedNodes{{NodeIndex: 2, SuspectingCount: 2, OrbitSuspected: 1}}
+
+	epoch0Block := testutil.NewTestBlock(ProtocolMetadata{Epoch: 0, Round: 0, Seq: 0}, NewBlacklist(nodeCount))
+	sealingBlock := testutil.NewTestBlock(ProtocolMetadata{Epoch: 0, Round: 1, Seq: 1, Prev: epoch0Block.Digest}, staleBlacklist)
+	sealingBlock.SealingInfo = &SealingBlockInfo{
+		ValidatorSet:         NodeIDs(nodes).EqualWeightedNodes(),
+		PrevSealingBlockHash: epoch0Block.Digest,
+	}
+
+	sigAggregator := &testutil.TestSignatureAggregator{N: len(nodes)}
+	epoch0Finalization, _ := testutil.NewFinalizationRecord(t, sigAggregator, epoch0Block, nodes)
+	sealingFinalization, _ := testutil.NewFinalizationRecord(t, sigAggregator, sealingBlock, nodes)
+
+	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
+	require.NoError(t, conf.Storage.Index(context.Background(), epoch0Block, epoch0Finalization))
+	require.NoError(t, conf.Storage.Index(context.Background(), sealingBlock, sealingFinalization))
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+
+	require.Equal(t, uint64(1), e.Metadata().Epoch)
+	require.Equal(t, uint64(2), e.Metadata().Round)
+
+	// Rounds 2 and 3 time out on their leaders, nodes[2] and nodes[3], before any block of the
+	// new epoch is finalized. Empty notarizations redeem nobody, so both timeouts stand.
+	for _, leader := range []NodeID{nodes[2], nodes[3]} {
+		round := e.Metadata().Round
+		require.Equal(t, leader, LeaderForRound(nodes, round))
+		emptyNotarization := testutil.NewEmptyNotarization(nodes, round)
+		emptyNotarization.Vote.Epoch = e.Metadata().Epoch
+		require.NoError(t, e.HandleMessage(&Message{
+			EmptyNotarization: emptyNotarization,
+		}, nodes[1]))
+		wal.AssertNotarization(round)
+	}
+
+	// Round 4: our node proposes. It observed both leaders time out in this epoch, so it must
+	// accuse both, regardless of what the previous epoch's sealing block said about index 2.
+	block, _ := notarizeAndFinalizeRound(t, e, bb)
+	round := block.BlockHeader().Round
+	require.Equal(t, nodes[0], LeaderForRound(nodes, round))
+
+	expected := Blacklist{
+		NodeCount: nodeCount,
+		SuspectedNodes: SuspectedNodes{
+			{NodeIndex: 2, SuspectingCount: 1, OrbitSuspected: Orbit(round, 2, nodeCount)},
+			{NodeIndex: 3, SuspectingCount: 1, OrbitSuspected: Orbit(round, 3, nodeCount)},
+		},
+		Updates: []BlacklistUpdate{
+			{Type: BlacklistOpType_NodeSuspected, NodeIndex: 2},
+			{Type: BlacklistOpType_NodeSuspected, NodeIndex: 3},
+		},
+	}
+	actual := block.Blacklist()
+	require.True(t, expected.Equals(&actual),
+		"the timeout of nodes[2] was not recorded: expected %s, got %s", expected.String(), actual.String())
+}
