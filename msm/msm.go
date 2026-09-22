@@ -258,7 +258,7 @@ func (sm *StateMachine) HandleApproval(approval *common.ValidatorSetApproval) {
 }
 
 // InitializeApprovalStore creates the approval store for approvals signed by the given validators.
-// It runs when a block carrying a next P-chain reference height is indexed.
+// It should be called when a block carrying a next P-chain reference height is indexed.
 func (sm *StateMachine) InitializeApprovalStore(validatorSet NodeBLSMappings) error {
 	sm.lock.Lock()
 	defer sm.lock.Unlock()

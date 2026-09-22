@@ -368,7 +368,6 @@ func (fn *fakeNode) tryFinalizeNextBlock() {
 	fn.sm.LatestPersistedHeight = md.Seq
 	fn.t.Logf("Finalized block at height %d with epoch %d", md.Seq, md.Epoch)
 
-	// Mirror the instance's index hook, which prepares the store for the next epoch's approvals.
 	if block.Type() == BlockTypeTransitioning {
 		validators, err := fn.sm.GetValidatorSet(block.Metadata.SimplexEpochInfo.NextPChainReferenceHeight)
 		require.NoError(fn.t, err)

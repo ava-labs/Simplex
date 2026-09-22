@@ -774,7 +774,6 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 
 			require.NoError(t, smVerify.VerifyBlock(context.Background(), block3))
 
-			// Indexing the transitioning block is what prepares the store for the next epoch's approvals.
 			require.NoError(t, sm.InitializeApprovalStore(validatorSet2))
 
 			// ----- Step 4: First collecting block (1/3 approvals, not enough to seal) -----
