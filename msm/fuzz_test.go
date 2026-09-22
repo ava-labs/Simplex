@@ -252,8 +252,7 @@ func buildEpochChain(tb testing.TB, logger common.Logger) ([]*StateMachineBlock,
 	block3 := build(3, 2, 1, block2)
 	addBlock(3, block3, nil)
 	// Indexing the transitioning block is what prepares the store for the next epoch's approvals.
-	_, err := sm.InitializeApprovalStore(validatorSet2)
-	require.NoError(tb, err)
+	require.NoError(tb, sm.InitializeApprovalStore(validatorSet2))
 
 	// The noopTestAuxInfoApp is always "ready" with an empty aux info history, and
 	// LastHistoryDigest returns the zero digest for an empty history. That zero value is the

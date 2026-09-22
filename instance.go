@@ -525,7 +525,7 @@ func (i *Instance) createEpochConfig(validators common.Nodes) (*epochConfig, err
 			if err != nil {
 				return err
 			}
-			if _, err := msm.InitializeApprovalStore(validators); err != nil {
+			if err := msm.InitializeApprovalStore(validators); err != nil {
 				return err
 			}
 			if err := i.transitionListener.handleTransitionBlock(block); err != nil {

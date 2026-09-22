@@ -372,8 +372,7 @@ func (fn *fakeNode) tryFinalizeNextBlock() {
 	if block.Type() == BlockTypeTransitioning {
 		validators, err := fn.sm.GetValidatorSet(block.Metadata.SimplexEpochInfo.NextPChainReferenceHeight)
 		require.NoError(fn.t, err)
-		_, err = fn.sm.InitializeApprovalStore(validators)
-		require.NoError(fn.t, err)
+		require.NoError(fn.t, fn.sm.InitializeApprovalStore(validators))
 	}
 
 	// If we just finalized a sealing block, trim trailing Telock blocks.

@@ -775,8 +775,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 			require.NoError(t, smVerify.VerifyBlock(context.Background(), block3))
 
 			// Indexing the transitioning block is what prepares the store for the next epoch's approvals.
-			_, err = sm.InitializeApprovalStore(validatorSet2)
-			require.NoError(t, err)
+			require.NoError(t, sm.InitializeApprovalStore(validatorSet2))
 
 			// ----- Step 4: First collecting block (1/3 approvals, not enough to seal) -----
 
@@ -1196,8 +1195,10 @@ func TestVerifyNextPChainRefHeightNormal(t *testing.T) {
 }
 
 // TestVerifyDoesNotInitializeApprovalStore asserts that verifying a proposal which opens an
-// epoch transition does not create the approval store: only initializing it for the indexed
-// block does, repeating the same set keeps it, and a different set is an error.
+// epoch transition does not create the approval store.
+// Approvals received before initialization should be dropped,
+// one received after is carried by the next block, and initializing
+// the store with a different validator set is an error.
 func TestVerifyDoesNotInitializeApprovalStore(t *testing.T) {
 	const simplexStartHeight, chainEndHeight = 5, 10
 	newPChainHeight := uint64(200)
@@ -1207,6 +1208,8 @@ func TestVerifyDoesNotInitializeApprovalStore(t *testing.T) {
 
 	builder, builderConfig := newStateMachine(t)
 	verifier, verifierConfig := newStateMachine(t)
+	// Approvals are only collected once the aux info history is sufficient, which this app always is.
+	verifier.AuxiliaryInfoApp = &noopTestAuxInfoApp{}
 
 	chain := makeChain(t, simplexStartHeight, chainEndHeight, currentSet)
 	for _, tc := range []*testConfig{builderConfig, verifierConfig} {
@@ -1235,8 +1238,20 @@ func TestVerifyDoesNotInitializeApprovalStore(t *testing.T) {
 	require.Equal(t, newPChainHeight, block.Metadata.SimplexEpochInfo.NextPChainReferenceHeight)
 
 	require.NoError(t, verifier.VerifyBlock(context.Background(), block))
+	verifierConfig.blockStore[md.Seq] = &outerBlock{block: *block}
 
-	// Approvals are dropped while there is no store, so this one only survives if verification created one.
+	// The collecting block the verifier builds next carries whatever approvals its store holds.
+	nextBlockApprovers := func() avalanchego.Bitmask {
+		next := md
+		next.Seq++
+		next.Round++
+		next.Prev = block.Digest()
+		verifierConfig.blockBuilder.Block = &testutil.InnerBlock{TS: blockTime, BlockHeight: block.InnerBlock.Height() + 1}
+		collecting, err := verifier.BuildBlock(context.Background(), next, common.Blacklist{NodeCount: 4})
+		require.NoError(t, err)
+		return avalanchego.BitmaskFromBytes(collecting.Metadata.SimplexEpochInfo.NextEpochApprovals.NodeIDs)
+	}
+
 	var auxInfoDigest [32]byte
 	approval := &common.ValidatorSetApproval{
 		NodeID:        [20]byte{3},
@@ -1244,23 +1259,26 @@ func TestVerifyDoesNotInitializeApprovalStore(t *testing.T) {
 		AuxInfoDigest: auxInfoDigest,
 		Signature:     signApproval(newPChainHeight, auxInfoDigest),
 	}
-	verifier.HandleApproval(approval)
-	store, err := verifier.InitializeApprovalStore(newSet)
-	require.NoError(t, err)
-	require.Empty(t, store.Approvals())
+	const node3Index = 1
 
-	// Indexing the block initialized the store, which now accepts approvals from the new set.
+	// Verification created no store, so this approval is dropped.
 	verifier.HandleApproval(approval)
-	require.Len(t, store.Approvals(), 1)
+	require.NoError(t, verifier.InitializeApprovalStore(newSet))
+	approvers := nextBlockApprovers()
+	require.Zero(t, approvers.Len())
+
+	// Indexing the block initialized the store, which now holds approvals from the new set.
+	verifier.HandleApproval(approval)
+	approvers = nextBlockApprovers()
+	require.True(t, approvers.Contains(node3Index))
 
 	// Every later collecting block indexes with the same set and keeps the store.
-	sameStore, err := verifier.InitializeApprovalStore(newSet)
-	require.NoError(t, err)
-	require.Same(t, store, sameStore)
+	require.NoError(t, verifier.InitializeApprovalStore(newSet))
+	approvers = nextBlockApprovers()
+	require.True(t, approvers.Contains(node3Index))
 
 	// A state machine lives for one epoch, which transitions at most once.
-	_, err = verifier.InitializeApprovalStore(currentSet)
-	require.ErrorIs(t, err, errApprovalStoreValidatorSetMismatch)
+	require.ErrorIs(t, verifier.InitializeApprovalStore(currentSet), errApprovalStoreValidatorSetMismatch)
 }
 
 func TestVerifyPChainHeight(t *testing.T) {

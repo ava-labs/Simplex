@@ -259,16 +259,16 @@ func (sm *StateMachine) HandleApproval(approval *common.ValidatorSetApproval) {
 
 // InitializeApprovalStore creates the approval store for approvals signed by the given validators.
 // It runs when a block carrying a next P-chain reference height is indexed.
-func (sm *StateMachine) InitializeApprovalStore(validatorSet NodeBLSMappings) (*ApprovalStore, error) {
+func (sm *StateMachine) InitializeApprovalStore(validatorSet NodeBLSMappings) error {
 	sm.lock.Lock()
 	defer sm.lock.Unlock()
 
 	if sm.approvalStore == nil {
 		sm.approvalStore = NewApprovalStore(sm.SignatureVerifier, validatorSet, sm.Logger)
 	} else if !validatorSet.Equal(sm.approvalStore.validators) {
-		return nil, errApprovalStoreValidatorSetMismatch
+		return errApprovalStoreValidatorSetMismatch
 	}
-	return sm.approvalStore, nil
+	return nil
 }
 
 // WaitForPendingBlock waits for either the VM to signal that a block is ready to be built,
