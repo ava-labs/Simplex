@@ -65,9 +65,9 @@ func TestFakeNodeEpochChangesDespiteEmptyMempool(t *testing.T) {
 			node.tryFinalizeNextBlock()
 		}
 		if flipCoin() {
-			node.sm.HandleApproval(&common.ValidatorSetApproval{NodeID: [20]byte{1}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1)
+			node.sm.HandleApproval(&common.ValidatorSetApproval{NodeID: [20]byte{1}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest})
 		} else {
-			node.sm.HandleApproval(&common.ValidatorSetApproval{NodeID: [20]byte{2}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1)
+			node.sm.HandleApproval(&common.ValidatorSetApproval{NodeID: [20]byte{2}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest})
 		}
 
 		if node.isLastBlockSealing() {
@@ -114,9 +114,9 @@ func TestFakeNode(t *testing.T) {
 	for node.Epoch() == epoch {
 		node.act()
 		if flipCoin() {
-			node.sm.HandleApproval(&common.ValidatorSetApproval{NodeID: [20]byte{1}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1)
+			node.sm.HandleApproval(&common.ValidatorSetApproval{NodeID: [20]byte{1}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest})
 		} else {
-			node.sm.HandleApproval(&common.ValidatorSetApproval{NodeID: [20]byte{2}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1)
+			node.sm.HandleApproval(&common.ValidatorSetApproval{NodeID: [20]byte{2}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest})
 		}
 	}
 
@@ -131,9 +131,9 @@ func TestFakeNode(t *testing.T) {
 	for node.Epoch() == epoch {
 		node.act()
 		if flipCoin() {
-			node.sm.HandleApproval(&common.ValidatorSetApproval{NodeID: [20]byte{2}, PChainHeight: 300, Signature: signApproval(300, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1)
+			node.sm.HandleApproval(&common.ValidatorSetApproval{NodeID: [20]byte{2}, PChainHeight: 300, Signature: signApproval(300, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest})
 		} else {
-			node.sm.HandleApproval(&common.ValidatorSetApproval{NodeID: [20]byte{3}, PChainHeight: 300, Signature: signApproval(300, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1)
+			node.sm.HandleApproval(&common.ValidatorSetApproval{NodeID: [20]byte{3}, PChainHeight: 300, Signature: signApproval(300, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest})
 		}
 	}
 
@@ -182,9 +182,9 @@ func TestFakeNodeEmptyMempool(t *testing.T) {
 	for node.lastFinalizedBlock().Metadata.SimplexEpochInfo.BlockValidationDescriptor == nil {
 		node.act()
 		if flipCoin() {
-			node.sm.HandleApproval(&common.ValidatorSetApproval{NodeID: [20]byte{1}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1)
+			node.sm.HandleApproval(&common.ValidatorSetApproval{NodeID: [20]byte{1}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest})
 		} else {
-			node.sm.HandleApproval(&common.ValidatorSetApproval{NodeID: [20]byte{2}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1)
+			node.sm.HandleApproval(&common.ValidatorSetApproval{NodeID: [20]byte{2}, PChainHeight: 200, Signature: signApproval(200, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest})
 		}
 	}
 
@@ -211,9 +211,9 @@ func TestFakeNodeEmptyMempool(t *testing.T) {
 	for node.Height() < 30 {
 		node.act()
 		if flipCoin() {
-			node.sm.HandleApproval(&common.ValidatorSetApproval{NodeID: [20]byte{2}, PChainHeight: 300, Signature: signApproval(300, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1)
+			node.sm.HandleApproval(&common.ValidatorSetApproval{NodeID: [20]byte{2}, PChainHeight: 300, Signature: signApproval(300, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest})
 		} else {
-			node.sm.HandleApproval(&common.ValidatorSetApproval{NodeID: [20]byte{3}, PChainHeight: 300, Signature: signApproval(300, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest}, 1)
+			node.sm.HandleApproval(&common.ValidatorSetApproval{NodeID: [20]byte{3}, PChainHeight: 300, Signature: signApproval(300, emptyAuxInfoDigest), AuxInfoDigest: emptyAuxInfoDigest})
 		}
 	}
 
@@ -368,6 +368,14 @@ func (fn *fakeNode) tryFinalizeNextBlock() {
 	fn.sm.LatestPersistedHeight = md.Seq
 	fn.t.Logf("Finalized block at height %d with epoch %d", md.Seq, md.Epoch)
 
+	// Mirror the instance's index hook, which prepares the store for the next epoch's approvals.
+	if block.Type() == BlockTypeTransitioning {
+		validators, err := fn.sm.GetValidatorSet(block.Metadata.SimplexEpochInfo.NextPChainReferenceHeight)
+		require.NoError(fn.t, err)
+		_, err = fn.sm.InitializeApprovalStore(validators)
+		require.NoError(fn.t, err)
+	}
+
 	// If we just finalized a sealing block, trim trailing Telock blocks.
 	if block.Metadata.SimplexEpochInfo.BlockValidationDescriptor != nil {
 		fn.blocks = fn.blocks[:nextIndex+1]
@@ -375,6 +383,11 @@ func (fn *fakeNode) tryFinalizeNextBlock() {
 		prevEpoch := fn.epoch
 		fn.epoch = md.Seq
 		fn.t.Logf("Epoch change from %d to %d", prevEpoch, fn.epoch)
+
+		// The instance starts every epoch with a fresh state machine.
+		sm, err := NewStateMachine(fn.sm.Config)
+		require.NoError(fn.t, err)
+		fn.sm = sm
 	}
 }
 

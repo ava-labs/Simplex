@@ -349,8 +349,7 @@ func (i *Instance) HandleMessage(msg *common.Message, from common.NodeID) error 
 					zap.Stringer("signer", common.NodeID(msg.EpochTransitionApproval.NodeID[:])))
 				return nil
 			}
-			// TODO: pass in time.Now() rather than uint64
-			i.msm.HandleApproval(msg.EpochTransitionApproval, uint64(time.Now().UnixMilli()))
+			i.msm.HandleApproval(msg.EpochTransitionApproval)
 			return nil
 		}
 		return i.e.HandleMessage(msg, from)
@@ -521,6 +520,14 @@ func (i *Instance) createEpochConfig(validators common.Nodes) (*epochConfig, err
 	instanceStorage := NewCallbackStorage(i.cs, msm, func(block *ParsedBlock) error {
 		switch {
 		case block.Type() == metadata.BlockTypeTransitioning:
+			// The store must exist before the listener records our own approval in it.
+			validators, err := i.Config.PlatformChain.GetValidatorSet(block.Metadata.SimplexEpochInfo.NextPChainReferenceHeight)
+			if err != nil {
+				return err
+			}
+			if _, err := msm.InitializeApprovalStore(validators); err != nil {
+				return err
+			}
 			if err := i.transitionListener.handleTransitionBlock(block); err != nil {
 				return err
 			}

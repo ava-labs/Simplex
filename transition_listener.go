@@ -4,8 +4,6 @@
 package simplex
 
 import (
-	"time"
-
 	"github.com/ava-labs/simplex/avalanchego"
 	"github.com/ava-labs/simplex/common"
 
@@ -35,7 +33,7 @@ type epochTransitionListener struct {
 	// handleApproval records our own broadcast approval in the local approval store.
 	// It is set for validators (whose MSM builds the next blocks and must include the
 	// approval) and nil for non-validators, which have no block builder to feed.
-	handleApproval func(approval *common.ValidatorSetApproval, timestamp uint64)
+	handleApproval func(approval *common.ValidatorSetApproval)
 
 	logger common.Logger
 }
@@ -48,7 +46,7 @@ func newEpochTransitionListener(
 	getBlock metadata.BlockRetriever,
 	signer common.Signer,
 	auxInfoApp metadata.AuxiliaryInfoGenVerifier,
-	handleApproval func(approval *common.ValidatorSetApproval, timestamp uint64),
+	handleApproval func(approval *common.ValidatorSetApproval),
 ) *epochTransitionListener {
 	return &epochTransitionListener{
 		sender:          sender,
@@ -151,8 +149,7 @@ func (a *epochTransitionListener) maybeSendApprovals(block *ParsedBlock, nextEpo
 	if a.handleApproval == nil {
 		return nil
 	}
-	timestamp := uint64(time.Now().UnixMilli())
 
-	a.handleApproval(&approval, timestamp)
+	a.handleApproval(&approval)
 	return nil
 }

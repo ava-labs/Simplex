@@ -304,9 +304,6 @@ func TestMSMNormalOp(t *testing.T) {
 		expectedPChainHeight        uint64
 		expectedNextPChainRefHeight uint64
 		expectedICMEpochInfo        ICMEpochInfo
-		// expectApprovalStore is whether building the block initialized the approval store,
-		// which only happens when the block starts an epoch transition.
-		expectApprovalStore bool
 	}{
 		{
 			name:                 "correct information",
@@ -399,7 +396,6 @@ func TestMSMNormalOp(t *testing.T) {
 			expectedPChainHeight:        newPChainHeight,
 			expectedNextPChainRefHeight: newPChainHeight,
 			expectedICMEpochInfo:        ICMEpochInfo{PChainEpochHeight: 100, EpochNumber: 1},
-			expectApprovalStore:         true,
 		},
 		{
 			// The validator set changed, but the block that opened the epoch is not finalized yet,
@@ -466,8 +462,6 @@ func TestMSMNormalOp(t *testing.T) {
 			block1, err := sm1.BuildBlock(context.Background(), md, blacklist)
 			require.NoError(t, err)
 			require.NotNil(t, block1)
-			require.Equal(t, testCase.expectApprovalStore, sm1.approvalStore != nil,
-				"the approval store is initialized exactly when the built block starts an epoch transition")
 
 			if testCase.mutateBlock != nil {
 				testCase.mutateBlock(block1)
@@ -780,6 +774,10 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 
 			require.NoError(t, smVerify.VerifyBlock(context.Background(), block3))
 
+			// Indexing the transitioning block is what prepares the store for the next epoch's approvals.
+			_, err = sm.InitializeApprovalStore(validatorSet2)
+			require.NoError(t, err)
+
 			// ----- Step 4: First collecting block (1/3 approvals, not enough to seal) -----
 
 			sig1 := signApproval(pChainHeight2, emptyAuxInfoDigest)
@@ -788,7 +786,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 				PChainHeight:  pChainHeight2,
 				AuxInfoDigest: emptyAuxInfoDigest,
 				Signature:     sig1,
-			}, 1)
+			})
 
 			// node1 is at index 0 in validatorSet2 → bitmask bit 0 → {1}
 			bitmask := []byte{1}
@@ -829,7 +827,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 				PChainHeight:  pChainHeight2,
 				AuxInfoDigest: emptyAuxInfoDigest,
 				Signature:     sig2,
-			}, 2)
+			})
 
 			// node2 is at index 1 → bitmask bits 0,1 → {3}
 			sig, err = aggr.AppendSignatures(sig, sig2)
@@ -870,7 +868,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 				PChainHeight:  pChainHeight2,
 				AuxInfoDigest: emptyAuxInfoDigest,
 				Signature:     sig3,
-			}, 3)
+			})
 
 			// node3 is at index 2 → bitmask bits 0,1,2 → {7}
 			sig6, err := aggr.AppendSignatures(sig, sig3)
@@ -1195,6 +1193,74 @@ func TestVerifyNextPChainRefHeightNormal(t *testing.T) {
 			require.ErrorIs(t, err, tt.err)
 		})
 	}
+}
+
+// TestVerifyDoesNotInitializeApprovalStore asserts that verifying a proposal which opens an
+// epoch transition does not create the approval store: only initializing it for the indexed
+// block does, repeating the same set keeps it, and a different set is an error.
+func TestVerifyDoesNotInitializeApprovalStore(t *testing.T) {
+	const simplexStartHeight, chainEndHeight = 5, 10
+	newPChainHeight := uint64(200)
+
+	currentSet := NodeBLSMappings{{BLSKey: []byte{1}, Weight: 1, NodeID: [20]byte{1}}, {BLSKey: []byte{2}, Weight: 1, NodeID: [20]byte{2}}}
+	newSet := NodeBLSMappings{{BLSKey: []byte{2}, Weight: 1, NodeID: [20]byte{2}}, {BLSKey: []byte{3}, Weight: 1, NodeID: [20]byte{3}}}
+
+	builder, builderConfig := newStateMachine(t)
+	verifier, verifierConfig := newStateMachine(t)
+
+	chain := makeChain(t, simplexStartHeight, chainEndHeight, currentSet)
+	for _, tc := range []*testConfig{builderConfig, verifierConfig} {
+		for i, block := range chain {
+			tc.blockStore[uint64(i)] = &outerBlock{block: block, finalization: &common.Finalization{}}
+		}
+		tc.validatorSetRetriever.resultMap = map[uint64]NodeBLSMappings{newPChainHeight: newSet}
+	}
+
+	lastBlock := chain[len(chain)-1]
+	blockTime := lastBlock.InnerBlock.Timestamp().Add(time.Second)
+	for _, sm := range []*StateMachine{builder, verifier} {
+		sm.GetTime = func() time.Time { return blockTime }
+		sm.GetPChainHeightForProposing = func() uint64 { return newPChainHeight }
+		sm.GetPChainHeightForVerifying = func() uint64 { return newPChainHeight }
+	}
+
+	md := lastBlock.Metadata.SimplexProtocolMetadata
+	md.Seq++
+	md.Round++
+	md.Prev = lastBlock.Digest()
+	builderConfig.blockBuilder.Block = &testutil.InnerBlock{TS: blockTime, BlockHeight: lastBlock.InnerBlock.Height()}
+
+	block, err := builder.BuildBlock(context.Background(), md, common.Blacklist{NodeCount: 4})
+	require.NoError(t, err)
+	require.Equal(t, newPChainHeight, block.Metadata.SimplexEpochInfo.NextPChainReferenceHeight)
+
+	require.NoError(t, verifier.VerifyBlock(context.Background(), block))
+
+	// Approvals are dropped while there is no store, so this one only survives if verification created one.
+	var auxInfoDigest [32]byte
+	approval := &common.ValidatorSetApproval{
+		NodeID:        [20]byte{3},
+		PChainHeight:  newPChainHeight,
+		AuxInfoDigest: auxInfoDigest,
+		Signature:     signApproval(newPChainHeight, auxInfoDigest),
+	}
+	verifier.HandleApproval(approval)
+	store, err := verifier.InitializeApprovalStore(newSet)
+	require.NoError(t, err)
+	require.Empty(t, store.Approvals())
+
+	// Indexing the block initialized the store, which now accepts approvals from the new set.
+	verifier.HandleApproval(approval)
+	require.Len(t, store.Approvals(), 1)
+
+	// Every later collecting block indexes with the same set and keeps the store.
+	sameStore, err := verifier.InitializeApprovalStore(newSet)
+	require.NoError(t, err)
+	require.Same(t, store, sameStore)
+
+	// A state machine lives for one epoch, which transitions at most once.
+	_, err = verifier.InitializeApprovalStore(currentSet)
+	require.ErrorIs(t, err, errApprovalStoreValidatorSetMismatch)
 }
 
 func TestVerifyPChainHeight(t *testing.T) {
