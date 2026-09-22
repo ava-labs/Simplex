@@ -133,6 +133,13 @@ func (t *TimeoutHandler[T]) RemoveTask(ID T) {
 	delete(t.tasks, ID)
 }
 
+func (t *TimeoutHandler[T]) Empty() bool {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+
+	return len(t.tasks) == 0
+}
+
 func (t *TimeoutHandler[T]) RemoveOldTasks(shouldRemove func(id T, _ struct{}) bool) {
 	t.lock.Lock()
 	defer t.lock.Unlock()

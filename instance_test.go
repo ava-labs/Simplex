@@ -24,7 +24,11 @@ func TestValidatorIndexes(t *testing.T) {
 
 	pChain := newTestPChain(genesisSet)
 	network := newNetwork(t, pChain)
-	network.addNode(validator.NodeID[:]).sync()
+	node := network.addNode(validator.NodeID[:]).sync()
+
+	isValidator, epochsReplicated := node.role()
+	require.True(t, epochsReplicated, "a node already at the latest validator set has no epochs to replicate")
+	require.True(t, isValidator)
 
 	network.acceptNewBlock()
 }
@@ -89,7 +93,8 @@ func TestEpochInvokesMSMWaitForPendingBlock(t *testing.T) {
 	}
 }
 
-// TestNonValidatorSyncs that a non-validator syncs the chain when added to the network.
+// TestNonValidatorSyncs asserts a node outside the validator set syncs the chain when added
+// to the network, and stays a non-validator once it has epochsReplicated.
 func TestNonValidatorSyncs(t *testing.T) {
 	validator := newNodeMapping(1)
 	genesisSet := []metadata.NodeBLSMapping{validator}
@@ -101,8 +106,14 @@ func TestNonValidatorSyncs(t *testing.T) {
 	network.acceptNewBlock()
 
 	nonValidator := newNodeMapping(2)
-	network.addNode(nonValidator.NodeID[:])
+	node := network.addNode(nonValidator.NodeID[:])
 	network.acceptNewBlock()
+	node.sync()
+
+	// ensure we replicated epochs and are not a validator
+	isValidator, epochsReplicated := node.role()
+	require.True(t, epochsReplicated)
+	require.False(t, isValidator)
 }
 
 // TestNonValidatorBecomesValidator tests that an upcoming validator becomes a validator
@@ -385,6 +396,19 @@ func TestNonValidatorSkipsMSMVerification(t *testing.T) {
 	parent, _, err := nonValidatorNode.storage.GetBlock(1)
 	require.NoError(t, err)
 
+	// The non-validator requires a  threshold of F(1)+1 responses for the first sealing block.
+	// Otherwise it will block non-replication messages.
+	sealing := &ParsedBlock{StateMachineBlock: parent.Clone()}
+	sealingFinalization, _ := testutil.NewFinalizationRecord(t, &testutil.TestSignatureAggregator{N: 1}, sealing, []common.NodeID{validator.NodeID[:]})
+	require.NoError(t, nonValidatorNode.inst.HandleMessage(&common.Message{
+		ReplicationResponse: &common.ReplicationResponse{
+			LatestSeq: &common.QuorumRound{Block: sealing, Finalization: &sealingFinalization},
+		},
+	}, validator.NodeID[:]))
+
+	_, epochsReplicated := nonValidatorNode.role()
+	require.True(t, epochsReplicated)
+
 	// A block whose only defect is its state machine transition: its timestamp precedes its
 	// parent's.
 	invalid := metadata.StateMachineBlock{
@@ -555,4 +579,53 @@ func TestValidatorSetsMetadataFromSnowman(t *testing.T) {
 	require.Equal(t, numNonSimplexBlocks, block.BlockHeader().Epoch)
 	require.Equal(t, uint64(1), block.BlockHeader().Round)
 	require.Equal(t, numNonSimplexBlocks, block.BlockHeader().Seq)
+}
+
+// TestValidatorReplicatesEpochsDuringTransition asserts a validator replicates epochs when
+// its latest epoch is mid-transition. i.e. the latest pchain validator set disagrees
+// with the validators latest index validator set.
+func TestValidatorReplicatesEpochsDuringTransition(t *testing.T) {
+	ourNodeMapping := newNodeMapping(1)
+	v2 := newNodeMapping(2)
+	v3 := newNodeMapping(3)
+	v4 := newNodeMapping(4)
+	futureValidator := newNodeMapping(5)
+	genesisValidatorSet := metadata.NodeBLSMappings{ourNodeMapping, v2, v3, v4}
+	futureValidatorSet := metadata.NodeBLSMappings{ourNodeMapping, v2, v3, v4, futureValidator}
+
+	// The P-chain moved on to a set that contains ourNode, but no sealing block for it has
+	// been indexed, so our indexed set and the latest set disagree.
+	pChain := newTestPChain(genesisValidatorSet)
+
+	network := newNetwork(t, pChain)
+	network.addNode(futureValidator.NodeID[:])
+	network.addNode(v2.NodeID[:])
+	network.addNode(v3.NodeID[:])
+	network.addNode(v4.NodeID[:])
+	network.sync()
+
+	// all validators are offline
+	network.setOffline(v4.NodeID[:])
+	network.setOffline(v3.NodeID[:])
+	network.setOffline(v2.NodeID[:])
+
+	// the future validator set is different than the current validator set ourNodeIsIn
+	pChain.setValidatorSetAt(10, futureValidatorSet)
+	pChain.advanceHeight(10)
+
+	// the node joins, but because the pchain validator set is different than our epoch we will sync as a non-validator
+	node := network.addNode(ourNodeMapping.NodeID[:])
+	isValidator, epochsReplicated := node.role()
+	require.False(t, epochsReplicated)
+	require.False(t, isValidator, "a node whose indexed set is not the latest must replicate epochs first") // even though we are a validator
+
+	// bring 2 node back online. The threshold for non-validators to complete epoch replication is 2 votes,
+	// but to make a quorum is 3. This means the pchain transition will not occur, however the node should now sync as a validator
+	network.setOnline(v2.NodeID[:])
+	network.setOnline(v3.NodeID[:])
+	node.sync()
+
+	// The only way for the epoch transition to finish is if ourNode becomes a validator
+	// and produces an approval & participates in the finalization.
+	network.waitUntilSealingBlock(futureValidatorSet.Nodes())
 }
