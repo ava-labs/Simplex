@@ -258,7 +258,10 @@ func (sm *StateMachine) HandleApproval(approval *common.ValidatorSetApproval, ti
 	approvalStore.HandleApproval(approval, timestamp)
 }
 
-func (sm *StateMachine) maybeInitializeApprovalStore(validatorSet NodeBLSMappings) *ApprovalStore {
+// MaybeInitializeApprovalStore prepares the approval store for approvals signed by the given validators.
+// It runs when a block carrying a next P-chain reference height is indexed, never during verification,
+// since replacing the store drops approvals from signers outside the new set and re-verifies the rest.
+func (sm *StateMachine) MaybeInitializeApprovalStore(validatorSet NodeBLSMappings) *ApprovalStore {
 	sm.lock.Lock()
 	defer sm.lock.Unlock()
 
@@ -594,7 +597,7 @@ func (sm *StateMachine) buildBlockOrTransitionEpoch(ctx context.Context, parentB
 		if isSealingBlockFinalized {
 			sm.Logger.Debug("Transitioning epoch after building block", zap.Uint64("newPChainRefHeight", decisionToBuildBlock.pChainHeight))
 			newSimplexEpochInfo.NextPChainReferenceHeight = decisionToBuildBlock.pChainHeight
-			sm.maybeInitializeApprovalStore(decisionToBuildBlock.validatorSet)
+			sm.MaybeInitializeApprovalStore(decisionToBuildBlock.validatorSet)
 		}
 	}
 
@@ -772,9 +775,6 @@ func (sm *StateMachine) verifyNextPChainRefHeightNormal(parentBlock *StateMachin
 			errValidatorSetUnchanged, next.NextPChainReferenceHeight, prev.PChainReferenceHeight)
 	}
 
-	// we should initialize the approval store for the new validator set.
-	sm.maybeInitializeApprovalStore(newValidatorSet)
-
 	return nil
 }
 
@@ -814,8 +814,6 @@ func (sm *StateMachine) verifyNextPChainRefHeightForNewEpoch(expectedEpochInfo S
 		return fmt.Errorf("%w: validator set at proposed next P-chain reference height %d matches new epoch's P-chain reference height %d",
 			errValidatorSetUnchanged, next.NextPChainReferenceHeight, expectedEpochInfo.PChainReferenceHeight)
 	}
-
-	sm.maybeInitializeApprovalStore(newValidatorSet)
 
 	return nil
 }
@@ -1082,8 +1080,6 @@ func (sm *StateMachine) verifyCollectingApprovalsBlock(ctx context.Context, pare
 		return err
 	}
 
-	sm.maybeInitializeApprovalStore(validators)
-
 	newApprovals := nextBlock.Metadata.SimplexEpochInfo.NextEpochApprovals
 
 	expectedAuxInfo, auxInfoDigest, isAuxInfoReady, err := sm.computeExpectedAuxInfoForApprovalCollection(parentBlock, nextBlock, prevBlockSeq, validators)
@@ -1246,7 +1242,7 @@ func (sm *StateMachine) computeNewApprovals(parentBlock *StateMachineBlock, vali
 
 	// We retrieve approvals that validators have sent us for the next epoch.
 	// These approvals are signed by validators of the next epoch.
-	approvalStore := sm.maybeInitializeApprovalStore(validators)
+	approvalStore := sm.MaybeInitializeApprovalStore(validators)
 	approvalsFromPeers := approvalStore.Approvals()
 	sm.Logger.Debug("Retrieved approvals from peers", zap.Int("numApprovals", len(approvalsFromPeers)))
 

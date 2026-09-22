@@ -1141,6 +1141,69 @@ func TestVerifyNextPChainRefHeightNormal(t *testing.T) {
 	}
 }
 
+// TestVerifyDoesNotReplaceApprovalStore asserts that verifying a proposal which opens an
+// epoch transition leaves the approval store untouched, and that indexing the block is what
+// replaces it, carrying over approvals from signers present in both validator sets.
+func TestVerifyDoesNotReplaceApprovalStore(t *testing.T) {
+	const (
+		prevPChainRefHeight = uint64(50)
+		nextPChainRefHeight = uint64(80)
+		sealingBlockSeq     = uint64(5)
+	)
+
+	setA := NodeBLSMappings{{BLSKey: []byte{1}, Weight: 1, NodeID: [20]byte{1}}, {BLSKey: []byte{2}, Weight: 1, NodeID: [20]byte{2}}}
+	setB := NodeBLSMappings{{BLSKey: []byte{2}, Weight: 1, NodeID: [20]byte{2}}, {BLSKey: []byte{3}, Weight: 1, NodeID: [20]byte{3}}}
+
+	sm, tc := newStateMachine(t)
+	tc.validatorSetRetriever.resultMap = map[uint64]NodeBLSMappings{
+		prevPChainRefHeight: setA,
+		nextPChainRefHeight: setB,
+	}
+	tc.blockStore[sealingBlockSeq] = &outerBlock{
+		block: StateMachineBlock{Metadata: StateMachineMetadata{
+			SimplexEpochInfo: SimplexEpochInfo{
+				BlockValidationDescriptor: &BlockValidationDescriptor{
+					AggregatedMembership: AggregatedMembership{Members: setA},
+				},
+				PrevSealingBlockHash: [32]byte{0xaa},
+			},
+		}},
+		finalization: &common.Finalization{},
+	}
+
+	store := sm.MaybeInitializeApprovalStore(setA)
+	var auxInfoDigest [32]byte
+	for _, nodeID := range []avalanchego.NodeID{{1}, {2}} {
+		sm.HandleApproval(&common.ValidatorSetApproval{
+			NodeID:        nodeID,
+			PChainHeight:  nextPChainRefHeight,
+			AuxInfoDigest: auxInfoDigest,
+			Signature:     signApproval(nextPChainRefHeight, auxInfoDigest),
+		}, 1)
+	}
+	require.Len(t, store.Approvals(), 2)
+
+	parent := &StateMachineBlock{Metadata: StateMachineMetadata{
+		SimplexProtocolMetadata: common.ProtocolMetadata{Epoch: sealingBlockSeq},
+		SimplexEpochInfo:        SimplexEpochInfo{PChainReferenceHeight: prevPChainRefHeight},
+	}}
+	next := SimplexEpochInfo{NextPChainReferenceHeight: nextPChainRefHeight}
+
+	require.NoError(t, sm.verifyNextPChainRefHeightNormal(parent, next))
+	require.Same(t, store, sm.approvalStore)
+
+	newEpochInfo := SimplexEpochInfo{PChainReferenceHeight: prevPChainRefHeight}
+	require.NoError(t, sm.verifyNextPChainRefHeightForNewEpoch(newEpochInfo, next, setA))
+	require.Same(t, store, sm.approvalStore)
+	require.Len(t, store.Approvals(), 2)
+
+	sm.MaybeInitializeApprovalStore(setB)
+	require.NotSame(t, store, sm.approvalStore)
+	approvals := sm.approvalStore.Approvals()
+	require.Len(t, approvals, 1)
+	require.Equal(t, avalanchego.NodeID{2}, approvals[0].NodeID)
+}
+
 func TestVerifyPChainHeight(t *testing.T) {
 	tests := []struct {
 		name     string

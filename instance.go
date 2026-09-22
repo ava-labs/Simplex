@@ -521,6 +521,12 @@ func (i *Instance) createEpochConfig(validators common.Nodes) (*epochConfig, err
 	instanceStorage := NewCallbackStorage(i.cs, msm, func(block *ParsedBlock) error {
 		switch {
 		case block.Type() == metadata.BlockTypeTransitioning:
+			// The store must exist before the listener records our own approval in it.
+			validators, err := i.Config.PlatformChain.GetValidatorSet(block.Metadata.SimplexEpochInfo.NextPChainReferenceHeight)
+			if err != nil {
+				return err
+			}
+			msm.MaybeInitializeApprovalStore(validators)
 			if err := i.transitionListener.handleTransitionBlock(block); err != nil {
 				return err
 			}
