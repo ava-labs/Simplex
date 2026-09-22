@@ -159,9 +159,8 @@ type AuxiliaryInfoGenVerifier interface {
 // StateMachine manages block building and verification across epoch transitions.
 type StateMachine struct {
 	*Config
-	lock                      sync.RWMutex
-	approvalStore             *ApprovalStore
-	approvalStoreValidatorSet NodeBLSMappings
+	lock          sync.RWMutex
+	approvalStore *ApprovalStore
 
 	auxInfoStore *auxInfoStore
 }
@@ -241,9 +240,7 @@ func (sm *StateMachine) HandleAuxiliaryInfo(info common.AuxiliaryInfo, from aval
 }
 
 // HandleApproval processes a validator set approval from a node.
-// timestamp is the time the approval was received, in milliseconds
-// elapsed since January 1, 1970 UTC.
-func (sm *StateMachine) HandleApproval(approval *common.ValidatorSetApproval, timestamp uint64) {
+func (sm *StateMachine) HandleApproval(approval *common.ValidatorSetApproval) {
 	sm.lock.Lock()
 	approvalStore := sm.approvalStore
 	sm.lock.Unlock()
@@ -255,25 +252,18 @@ func (sm *StateMachine) HandleApproval(approval *common.ValidatorSetApproval, ti
 		return
 	}
 
-	approvalStore.HandleApproval(approval, timestamp)
+	approvalStore.HandleApproval(approval)
 }
 
 // MaybeInitializeApprovalStore prepares the approval store for approvals signed by the given validators.
 // It runs when a block carrying a next P-chain reference height is indexed, never during verification,
-// since replacing the store drops approvals from signers outside the new set and re-verifies the rest.
+// since a store for a different validator set replaces the current one and its approvals.
 func (sm *StateMachine) MaybeInitializeApprovalStore(validatorSet NodeBLSMappings) *ApprovalStore {
 	sm.lock.Lock()
 	defer sm.lock.Unlock()
 
-	// If the approval store is not initialized or the validator set has changed, create a new approval store.
-	if sm.approvalStore == nil || !validatorSet.Equal(sm.approvalStoreValidatorSet) {
-		// We first save the old approval store to copy over any existing approvals to the new approval store.
-		oldApprovalStore := sm.approvalStore
+	if sm.approvalStore == nil || !validatorSet.Equal(sm.approvalStore.validators) {
 		sm.approvalStore = NewApprovalStore(sm.SignatureVerifier, validatorSet, sm.Logger)
-		sm.approvalStoreValidatorSet = validatorSet
-		if oldApprovalStore != nil {
-			oldApprovalStore.PutApprovals(sm.approvalStore)
-		}
 	}
 	return sm.approvalStore
 }
@@ -597,7 +587,6 @@ func (sm *StateMachine) buildBlockOrTransitionEpoch(ctx context.Context, parentB
 		if isSealingBlockFinalized {
 			sm.Logger.Debug("Transitioning epoch after building block", zap.Uint64("newPChainRefHeight", decisionToBuildBlock.pChainHeight))
 			newSimplexEpochInfo.NextPChainReferenceHeight = decisionToBuildBlock.pChainHeight
-			sm.MaybeInitializeApprovalStore(decisionToBuildBlock.validatorSet)
 		}
 	}
 
@@ -825,7 +814,7 @@ func (sm *StateMachine) createBlockBuildingDecider(currentValidatorSet NodeBLSMa
 		pChainListener:           sm.PChainProgressListener,
 		getPChainHeight:          sm.GetPChainHeightForProposing,
 		waitForPendingBlock:      sm.BlockBuilder.WaitForPendingBlock,
-		hasValidatorSetChanged: func(pChainHeight uint64) (bool, NodeBLSMappings, error) {
+		hasValidatorSetChanged: func(pChainHeight uint64) (bool, error) {
 			// The given pChainHeight was sampled by the caller of shouldTransitionEpoch().
 			// We compare between the current validator set, defined by the P-chain reference height in the parent block,
 			// and the new validator set defined by the given pChainHeight.
@@ -833,7 +822,7 @@ func (sm *StateMachine) createBlockBuildingDecider(currentValidatorSet NodeBLSMa
 
 			newValidatorSet, err := sm.GetValidatorSet(pChainHeight)
 			if err != nil {
-				return false, nil, err
+				return false, err
 			}
 
 			if !currentValidatorSet.Equal(newValidatorSet) {
@@ -841,9 +830,9 @@ func (sm *StateMachine) createBlockBuildingDecider(currentValidatorSet NodeBLSMa
 					zap.String("currentValidatorSet", fmt.Sprintf("%v", currentValidatorSet.Nodes())),
 					zap.String("newValidatorSet", fmt.Sprintf("%v", newValidatorSet.Nodes())),
 					zap.Uint64("newPChainHeight", pChainHeight))
-				return true, newValidatorSet, nil
+				return true, nil
 			}
-			return false, nil, nil
+			return false, nil
 		},
 	}
 	return blockBuildingDecider
@@ -1242,8 +1231,14 @@ func (sm *StateMachine) computeNewApprovals(parentBlock *StateMachineBlock, vali
 
 	// We retrieve approvals that validators have sent us for the next epoch.
 	// These approvals are signed by validators of the next epoch.
-	approvalStore := sm.MaybeInitializeApprovalStore(validators)
-	approvalsFromPeers := approvalStore.Approvals()
+	// The store is nil until a transitioning block is indexed, which may happen after we build on it.
+	sm.lock.RLock()
+	approvalStore := sm.approvalStore
+	sm.lock.RUnlock()
+	var approvalsFromPeers ValidatorSetApprovals
+	if approvalStore != nil {
+		approvalsFromPeers = approvalStore.Approvals()
+	}
 	sm.Logger.Debug("Retrieved approvals from peers", zap.Int("numApprovals", len(approvalsFromPeers)))
 
 	// Optimistically sign the epoch transition even if we have already did so in a previous round.

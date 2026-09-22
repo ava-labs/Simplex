@@ -349,8 +349,7 @@ func (i *Instance) HandleMessage(msg *common.Message, from common.NodeID) error 
 					zap.Stringer("signer", common.NodeID(msg.EpochTransitionApproval.NodeID[:])))
 				return nil
 			}
-			// TODO: pass in time.Now() rather than uint64
-			i.msm.HandleApproval(msg.EpochTransitionApproval, uint64(time.Now().UnixMilli()))
+			i.msm.HandleApproval(msg.EpochTransitionApproval)
 			return nil
 		}
 		return i.e.HandleMessage(msg, from)

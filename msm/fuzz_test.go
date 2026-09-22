@@ -251,6 +251,8 @@ func buildEpochChain(tb testing.TB, logger common.Logger) ([]*StateMachineBlock,
 	tc.blockBuilder.Block = nextInner(3)
 	block3 := build(3, 2, 1, block2)
 	addBlock(3, block3, nil)
+	// Indexing the transitioning block is what prepares the store for the next epoch's approvals.
+	sm.MaybeInitializeApprovalStore(validatorSet2)
 
 	// The noopTestAuxInfoApp is always "ready" with an empty aux info history, and
 	// LastHistoryDigest returns the zero digest for an empty history. That zero value is the
@@ -259,20 +261,20 @@ func buildEpochChain(tb testing.TB, logger common.Logger) ([]*StateMachineBlock,
 	var auxInfoDigest [32]byte
 
 	// block4 & block5: collecting-approvals blocks (1/3 then 2/3, not enough to seal).
-	sm.HandleApproval(&common.ValidatorSetApproval{NodeID: node1, PChainHeight: pChainHeight2, AuxInfoDigest: auxInfoDigest, Signature: signApproval(pChainHeight2, auxInfoDigest)}, 1)
+	sm.HandleApproval(&common.ValidatorSetApproval{NodeID: node1, PChainHeight: pChainHeight2, AuxInfoDigest: auxInfoDigest, Signature: signApproval(pChainHeight2, auxInfoDigest)})
 	currentTime = startTime.Add(time.Second + 4*time.Millisecond)
 	tc.blockBuilder.Block = nextInner(4)
 	block4 := build(4, 3, 1, block3)
 	addBlock(4, block4, nil)
 
-	sm.HandleApproval(&common.ValidatorSetApproval{NodeID: node2, PChainHeight: pChainHeight2, AuxInfoDigest: auxInfoDigest, Signature: signApproval(pChainHeight2, auxInfoDigest)}, 2)
+	sm.HandleApproval(&common.ValidatorSetApproval{NodeID: node2, PChainHeight: pChainHeight2, AuxInfoDigest: auxInfoDigest, Signature: signApproval(pChainHeight2, auxInfoDigest)})
 	currentTime = startTime.Add(time.Second + 5*time.Millisecond)
 	tc.blockBuilder.Block = nextInner(5)
 	block5 := build(5, 4, 1, block4)
 	addBlock(5, block5, nil)
 
 	// block6: the sealing block (3/3 approvals). Its successor is in stateBuildBlockEpochSealed.
-	sm.HandleApproval(&common.ValidatorSetApproval{NodeID: node3, PChainHeight: pChainHeight2, AuxInfoDigest: auxInfoDigest, Signature: signApproval(pChainHeight2, auxInfoDigest)}, 3)
+	sm.HandleApproval(&common.ValidatorSetApproval{NodeID: node3, PChainHeight: pChainHeight2, AuxInfoDigest: auxInfoDigest, Signature: signApproval(pChainHeight2, auxInfoDigest)})
 	currentTime = startTime.Add(time.Second + 6*time.Millisecond)
 	tc.blockBuilder.Block = nextInner(6)
 	block6 := build(6, 5, 1, block5)

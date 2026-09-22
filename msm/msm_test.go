@@ -245,9 +245,6 @@ func TestMSMNormalOp(t *testing.T) {
 		expectedPChainHeight        uint64
 		expectedNextPChainRefHeight uint64
 		expectedICMEpochInfo        ICMEpochInfo
-		// expectApprovalStore is whether building the block initialized the approval store,
-		// which only happens when the block starts an epoch transition.
-		expectApprovalStore bool
 	}{
 		{
 			name:                 "correct information",
@@ -340,7 +337,6 @@ func TestMSMNormalOp(t *testing.T) {
 			expectedPChainHeight:        newPChainHeight,
 			expectedNextPChainRefHeight: newPChainHeight,
 			expectedICMEpochInfo:        ICMEpochInfo{PChainEpochHeight: 100, EpochNumber: 1},
-			expectApprovalStore:         true,
 		},
 		{
 			// The validator set changed, but the block that opened the epoch is not finalized yet,
@@ -407,8 +403,6 @@ func TestMSMNormalOp(t *testing.T) {
 			block1, err := sm1.BuildBlock(context.Background(), md, blacklist)
 			require.NoError(t, err)
 			require.NotNil(t, block1)
-			require.Equal(t, testCase.expectApprovalStore, sm1.approvalStore != nil,
-				"the approval store is initialized exactly when the built block starts an epoch transition")
 
 			if testCase.mutateBlock != nil {
 				testCase.mutateBlock(block1)
@@ -724,6 +718,9 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 
 			require.NoError(t, smVerify.VerifyBlock(context.Background(), block3))
 
+			// Indexing the transitioning block is what prepares the store for the next epoch's approvals.
+			sm.MaybeInitializeApprovalStore(validatorSet2)
+
 			// ----- Step 4: First collecting block (1/3 approvals, not enough to seal) -----
 
 			sig1 := signApproval(pChainHeight2, emptyAuxInfoDigest)
@@ -732,7 +729,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 				PChainHeight:  pChainHeight2,
 				AuxInfoDigest: emptyAuxInfoDigest,
 				Signature:     sig1,
-			}, 1)
+			})
 
 			// node1 is at index 0 in validatorSet2 → bitmask bit 0 → {1}
 			bitmask := []byte{1}
@@ -773,7 +770,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 				PChainHeight:  pChainHeight2,
 				AuxInfoDigest: emptyAuxInfoDigest,
 				Signature:     sig2,
-			}, 2)
+			})
 
 			// node2 is at index 1 → bitmask bits 0,1 → {3}
 			sig, err = aggr.AppendSignatures(sig, sig2)
@@ -814,7 +811,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 				PChainHeight:  pChainHeight2,
 				AuxInfoDigest: emptyAuxInfoDigest,
 				Signature:     sig3,
-			}, 3)
+			})
 
 			// node3 is at index 2 → bitmask bits 0,1,2 → {7}
 			sig6, err := aggr.AppendSignatures(sig, sig3)
@@ -1142,8 +1139,8 @@ func TestVerifyNextPChainRefHeightNormal(t *testing.T) {
 }
 
 // TestVerifyDoesNotReplaceApprovalStore asserts that verifying a proposal which opens an
-// epoch transition leaves the approval store untouched, and that indexing the block is what
-// replaces it, carrying over approvals from signers present in both validator sets.
+// epoch transition leaves the approval store untouched, and that initializing it for the
+// indexed block's validator set is what replaces it.
 func TestVerifyDoesNotReplaceApprovalStore(t *testing.T) {
 	const (
 		prevPChainRefHeight = uint64(50)
@@ -1179,7 +1176,7 @@ func TestVerifyDoesNotReplaceApprovalStore(t *testing.T) {
 			PChainHeight:  nextPChainRefHeight,
 			AuxInfoDigest: auxInfoDigest,
 			Signature:     signApproval(nextPChainRefHeight, auxInfoDigest),
-		}, 1)
+		})
 	}
 	require.Len(t, store.Approvals(), 2)
 
@@ -1199,9 +1196,7 @@ func TestVerifyDoesNotReplaceApprovalStore(t *testing.T) {
 
 	sm.MaybeInitializeApprovalStore(setB)
 	require.NotSame(t, store, sm.approvalStore)
-	approvals := sm.approvalStore.Approvals()
-	require.Len(t, approvals, 1)
-	require.Equal(t, avalanchego.NodeID{2}, approvals[0].NodeID)
+	require.Empty(t, sm.approvalStore.Approvals())
 }
 
 func TestVerifyPChainHeight(t *testing.T) {
