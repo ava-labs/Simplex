@@ -1124,6 +1124,66 @@ func TestEpochResizesBlacklistOnEpochChange(t *testing.T) {
 	wal.AssertNotarization(2)
 }
 
+// TestEpochBlacklistCapBypassedByPendingSuspects shows that the blacklist can end up with more
+// than f blacklisted nodes. The cap of f is only enforced when a node is first added to the
+// suspected list; incrementing nodes that are already pending never re-checks it.
+// With 4 nodes (f=1), two leaders accuse nodes 0 and 1 in the same orbit, so both cross the
+// f+1 threshold and both are blacklisted. Node 0 (the node under test) then refuses to
+// propose in its own round.
+func TestEpochBlacklistCapBypassedByPendingSuspects(t *testing.T) {
+	bb := testutil.NewTestBlockBuilder()
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	f := (len(nodes) - 1) / 3
+
+	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+
+	// Rounds 0 and 1: ordinary blocks proposed by nodes 0 and 1.
+	notarizeAndFinalizeRound(t, e, bb)
+	block, _ := notarizeAndFinalizeRound(t, e, bb)
+
+	accuseNodes0And1 := []BlacklistUpdate{
+		{Type: BlacklistOpType_NodeSuspected, NodeIndex: 0},
+		{Type: BlacklistOpType_NodeSuspected, NodeIndex: 1},
+	}
+
+	// Round 2: node 2 proposes a block accusing nodes 0 and 1.
+	// Nothing is blacklisted yet, so both are added as pending with a single accusation each.
+	prevBlacklist := block.Blacklist()
+	blacklist := prevBlacklist.ApplyUpdates(accuseNodes0And1, e.Metadata().Round)
+	bb.BuildBlock(context.Background(), e.Metadata(), blacklist)
+	block, _ = notarizeAndFinalizeRound(t, e, bb)
+	require.Equal(t, nodes[2], LeaderForRound(nodes, block.BlockHeader().Round))
+
+	actual := block.Blacklist()
+	require.False(t, actual.IsNodeSuspected(0))
+	require.False(t, actual.IsNodeSuspected(1))
+	require.Len(t, actual.SuspectedNodes, 2)
+
+	// Round 3: node 3 accuses nodes 0 and 1 again, still within the same orbit.
+	// Each pending entry is incremented to f+1 without re-checking the cap.
+	prevBlacklist = block.Blacklist()
+	blacklist = prevBlacklist.ApplyUpdates(accuseNodes0And1, e.Metadata().Round)
+	bb.BuildBlock(context.Background(), e.Metadata(), blacklist)
+	block, _ = notarizeAndFinalizeRound(t, e, bb)
+	require.Equal(t, nodes[3], LeaderForRound(nodes, block.BlockHeader().Round))
+
+	actual = block.Blacklist()
+	blacklisted := 0
+	for i := range nodes {
+		if actual.IsNodeSuspected(uint16(i)) {
+			blacklisted++
+		}
+	}
+
+	require.LessOrEqual(t, blacklisted, f,
+		"at most f=%d nodes may be blacklisted, but %d are: %s", f, blacklisted, actual.String())
+}
+
 func TestEpochStartedTwice(t *testing.T) {
 	bb := testutil.NewTestBlockBuilder()
 
@@ -2380,13 +2440,17 @@ func TestNotarizedNotFinalizedTipCausesEmptyBlockProposal(t *testing.T) {
 			name:            "round 0 finalized, round 1 only notarized, round 2 only notarized",
 			finalizedRounds: []bool{true, false, false},
 		},
+		{
+			name:            "round 0 finalized, round 1 only notarized, round 2 finalized",
+			finalizedRounds: []bool{true, false, true},
+		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			nodes := []NodeID{{1}, {2}, {3}, {4}}
 			// Pick the node's ID such that it will be the leader in the next round.
 			nodeID := nodes[len(testCase.finalizedRounds)]
 
-			bb := testutil.NewTestBlockBuilder()
+			bb := testutil.NewTestControlledBlockBuilder(t)
 			recordingComm := &recordingComm{
 				Communication:     testutil.NewNoopComm(nodes),
 				BroadcastMessages: make(chan *Message, 100),
@@ -2406,7 +2470,7 @@ func TestNotarizedNotFinalizedTipCausesEmptyBlockProposal(t *testing.T) {
 
 			for r, finalized := range testCase.finalizedRounds {
 				if finalized {
-					notarizeAndFinalizeRound(t, e, bb)
+					notarizeAndFinalizeRound(t, e, &bb.TestBlockBuilder)
 					continue
 				}
 				block := notarizeRoundNotFinalized(t, e, nodes, uint64(r))
@@ -2472,10 +2536,13 @@ func TestNotarizedNotFinalizedTipStuckLeaderCausesEmptyNotarization(t *testing.T
 			name:            "round 0 finalized, round 1 only notarized, round 2 only notarized",
 			finalizedRounds: []bool{true, false, false},
 		},
+		{
+			name:            "round 0 finalized, round 1 only notarized, round 2 finalized",
+			finalizedRounds: []bool{true, false, true},
+		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			nodes := []NodeID{{1}, {2}, {3}, {4}}
-
 			bb := testutil.NewTestBlockBuilder()
 			conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
 			conf.MaxProposalWait = 50 * time.Millisecond
@@ -3186,5 +3253,234 @@ func TestEpochFinalizeVoteSentTwiceKeepsBufferedVote(t *testing.T) {
 				return storage.NumBlocks() > 0
 			}, 500*time.Millisecond, 50*time.Millisecond, "round finalized with an invalid vote")
 		})
+	}
+}
+
+// TestEpochRepliesWithFinalizationForStaleFinalizeVote asserts that a node which already indexed a
+// round answers a late finalize vote for that round with the latest finalization, even if the round has been pruned from memory.
+func TestEpochRepliesWithFinalizationForStaleFinalizeVote(t *testing.T) {
+	bb := testutil.NewTestBlockBuilder()
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	comm := &recordingComm{Communication: testutil.NewNoopComm(nodes), SentMessages: make(chan *Message, 100)}
+	conf, _, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], comm, bb)
+	conf.MaxRoundWindow = 5
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+
+	staleBlock, _ := notarizeAndFinalizeRound(t, e, bb)
+	for range 6 {
+		notarizeAndFinalizeRound(t, e, bb)
+	}
+	for len(comm.SentMessages) > 0 {
+		<-comm.SentMessages
+	}
+
+	testutil.InjectTestFinalizeVote(t, e, staleBlock, nodes[1])
+	reply := <-comm.SentMessages
+	require.NotNil(t, reply.Finalization)
+	require.Equal(t, uint64(6), reply.Finalization.Finalization.Round)
+}
+
+// TestEpochFollowerIgnoresStaleBlacklistOnEpochChange checks that a follower does not skip a
+// leader because of the previous epoch's blacklist.
+//
+// The node starts a new epoch right after a sealing block of the previous epoch. That sealing
+// block blacklists the leader of the first round of the new epoch. The new epoch starts from
+// an empty blacklist, so the follower must wait for the leader's proposal and vote for it,
+// rather than declare the leader blacklisted and vote for an empty block right away.
+func TestEpochFollowerIgnoresStaleBlacklistOnEpochChange(t *testing.T) {
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	bb := testutil.NewTestBlockBuilder()
+
+	// The sealing block is at round 1, so the new epoch starts at round 2, led by nodes[2].
+	// The previous epoch blacklists that very node (f=1, so two accusations suffice).
+	staleBlacklist := NewBlacklist(uint16(len(nodes)))
+	staleBlacklist.SuspectedNodes = SuspectedNodes{{NodeIndex: 2, SuspectingCount: 2, OrbitSuspected: 1}}
+
+	epoch0Block := testutil.NewTestBlock(ProtocolMetadata{Epoch: 0, Round: 0, Seq: 0}, NewBlacklist(uint16(len(nodes))))
+	sealingBlock := testutil.NewTestBlock(ProtocolMetadata{Epoch: 0, Round: 1, Seq: 1, Prev: epoch0Block.Digest}, staleBlacklist)
+	sealingBlock.SealingInfo = &SealingBlockInfo{
+		ValidatorSet:         NodeIDs(nodes).EqualWeightedNodes(),
+		PrevSealingBlockHash: epoch0Block.Digest,
+	}
+
+	sigAggregator := &testutil.TestSignatureAggregator{N: len(nodes)}
+	epoch0Finalization, _ := testutil.NewFinalizationRecord(t, sigAggregator, epoch0Block, nodes)
+	sealingFinalization, _ := testutil.NewFinalizationRecord(t, sigAggregator, sealingBlock, nodes)
+
+	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
+	require.NoError(t, conf.Storage.Index(context.Background(), epoch0Block, epoch0Finalization))
+	require.NoError(t, conf.Storage.Index(context.Background(), sealingBlock, sealingFinalization))
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+
+	md := e.Metadata()
+	require.Equal(t, uint64(1), md.Epoch)
+	require.Equal(t, uint64(2), md.Round)
+	leader := nodes[2]
+	require.Equal(t, leader, LeaderForRound(nodes, md.Round))
+
+	// Tell the follower it is time for the leader to propose, which starts the proposal timeout,
+	// and let half of it pass. The leader is not late yet.
+	bb.BlockShouldBeBuilt <- struct{}{}
+	e.AdvanceTime(e.StartTime.Add(conf.MaxProposalWait / 2))
+
+	// The leader proposes the first block of the new epoch, with an empty blacklist.
+	block := testutil.NewTestBlock(md, NewBlacklist(uint16(len(nodes))))
+	vote, err := testutil.NewTestVote(block, leader)
+	require.NoError(t, err)
+	require.NoError(t, e.HandleMessage(&Message{
+		BlockMessage: &BlockMessage{Vote: *vote, Block: block},
+	}, leader))
+	wal.AssertBlockProposal(md.Round)
+
+	// A follower that waited for the leader has not voted for an empty block.
+	require.False(t, wal.ContainsEmptyVote(md.Round),
+		"the follower voted for an empty block in round %d without waiting for the leader, "+
+			"treating it as blacklisted based on the previous epoch's sealing block", md.Round)
+
+	// With the leader's vote and one more, the follower's own vote is what completes the quorum.
+	testutil.InjectTestVote(t, e, block, nodes[1])
+	wal.AssertNotarization(md.Round)
+}
+
+// TestEpochLeaderRecordsTimeoutDespiteStaleBlacklistOnEpochChange checks that a timeout in the
+// first round of a new epoch is recorded even if the previous epoch's sealing block blacklists
+// the leader of that round. The new epoch starts from an empty blacklist, so the node must
+// accuse the leader in the next block it builds.
+func TestEpochLeaderRecordsTimeoutDespiteStaleBlacklistOnEpochChange(t *testing.T) {
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	nodeCount := uint16(len(nodes))
+	bb := testutil.NewTestBlockBuilder()
+
+	// The sealing block is at round 1, so the new epoch starts at round 2, led by nodes[2].
+	// The previous epoch blacklists that very node.
+	staleBlacklist := NewBlacklist(nodeCount)
+	staleBlacklist.SuspectedNodes = SuspectedNodes{{NodeIndex: 2, SuspectingCount: 2, OrbitSuspected: 1}}
+
+	epoch0Block := testutil.NewTestBlock(ProtocolMetadata{Epoch: 0, Round: 0, Seq: 0}, NewBlacklist(nodeCount))
+	sealingBlock := testutil.NewTestBlock(ProtocolMetadata{Epoch: 0, Round: 1, Seq: 1, Prev: epoch0Block.Digest}, staleBlacklist)
+	sealingBlock.SealingInfo = &SealingBlockInfo{
+		ValidatorSet:         NodeIDs(nodes).EqualWeightedNodes(),
+		PrevSealingBlockHash: epoch0Block.Digest,
+	}
+
+	sigAggregator := &testutil.TestSignatureAggregator{N: len(nodes)}
+	epoch0Finalization, _ := testutil.NewFinalizationRecord(t, sigAggregator, epoch0Block, nodes)
+	sealingFinalization, _ := testutil.NewFinalizationRecord(t, sigAggregator, sealingBlock, nodes)
+
+	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
+	require.NoError(t, conf.Storage.Index(context.Background(), epoch0Block, epoch0Finalization))
+	require.NoError(t, conf.Storage.Index(context.Background(), sealingBlock, sealingFinalization))
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+
+	require.Equal(t, uint64(1), e.Metadata().Epoch)
+	require.Equal(t, uint64(2), e.Metadata().Round)
+
+	// Rounds 2 and 3 time out on their leaders, nodes[2] and nodes[3], before any block of the
+	// new epoch is finalized. Empty notarizations redeem nobody, so both timeouts stand.
+	for _, leader := range []NodeID{nodes[2], nodes[3]} {
+		round := e.Metadata().Round
+		require.Equal(t, leader, LeaderForRound(nodes, round))
+		emptyNotarization := testutil.NewEmptyNotarization(nodes, round)
+		emptyNotarization.Vote.Epoch = e.Metadata().Epoch
+		require.NoError(t, e.HandleMessage(&Message{
+			EmptyNotarization: emptyNotarization,
+		}, nodes[1]))
+		wal.AssertNotarization(round)
+	}
+
+	// Round 4: our node proposes. It observed both leaders time out in this epoch, so it must
+	// accuse both, regardless of what the previous epoch's sealing block said about index 2.
+	block, _ := notarizeAndFinalizeRound(t, e, bb)
+	round := block.BlockHeader().Round
+	require.Equal(t, nodes[0], LeaderForRound(nodes, round))
+
+	expected := Blacklist{
+		NodeCount: nodeCount,
+		SuspectedNodes: SuspectedNodes{
+			{NodeIndex: 2, SuspectingCount: 1, OrbitSuspected: Orbit(round, 2, nodeCount)},
+			{NodeIndex: 3, SuspectingCount: 1, OrbitSuspected: Orbit(round, 3, nodeCount)},
+		},
+		Updates: []BlacklistUpdate{
+			{Type: BlacklistOpType_NodeSuspected, NodeIndex: 2},
+			{Type: BlacklistOpType_NodeSuspected, NodeIndex: 3},
+		},
+	}
+	actual := block.Blacklist()
+	require.True(t, expected.Equals(&actual),
+		"the timeout of nodes[2] was not recorded: expected %s, got %s", expected.String(), actual.String())
+}
+
+// TestRebroadcastDoesNotFinalizeVoteOnTimedOutRound asserts that a node never casts a finalize vote for a
+// round it has cast an empty vote for. Doing both lets an empty notarization and a finalization form for
+// the same round, since the two quorums may then overlap only in nodes that voted both ways.
+func TestRebroadcastDoesNotFinalizeVoteOnTimedOutRound(t *testing.T) {
+	bb := testutil.NewTestBlockBuilder()
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	comm := &recordingComm{
+		Communication:     testutil.NewNoopComm(nodes),
+		BroadcastMessages: make(chan *Message, 1000),
+	}
+	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[0], comm, bb)
+	conf.ReplicationEnabled = true
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+
+	// Round 0: we lead, and the round is notarized and finalized normally.
+	notarizeAndFinalizeRound(t, e, bb)
+	require.Equal(t, uint64(1), e.Metadata().Round)
+
+	// Round 1: the leader never proposes, so we time out and cast an empty vote.
+	const timedOutRound = uint64(1)
+	bb.BlockShouldBeBuilt <- struct{}{}
+	now := conf.StartTime
+	testutil.WaitForBlockProposerTimeout(t, e, &now, timedOutRound)
+	require.True(t, wal.ContainsEmptyVote(timedOutRound))
+
+	// The other three nodes notarized a block for round 1 regardless, and we learn of it through
+	// replication. We store it so the round can still be finalized, but we must not vote to finalize it.
+	block := testutil.NewTestBlock(e.Metadata(), emptyBlacklist)
+	sigAggr := e.SignatureAggregatorCreator(e.Comm.Validators())
+	notarization, err := testutil.NewNotarization(e.Logger, sigAggr, block, nodes[1:])
+	require.NoError(t, err)
+	require.NoError(t, e.HandleMessage(&Message{ReplicationResponse: &ReplicationResponse{
+		Data: []QuorumRound{{Block: block, Notarization: &notarization}},
+	}}, nodes[1]))
+	wal.AssertNotarization(timedOutRound)
+	testutil.WaitToEnterRound(t, e, timedOutRound+1)
+
+	// Everything broadcast so far, including the empty vote, is not what this test is about.
+	for len(comm.BroadcastMessages) > 0 {
+		<-comm.BroadcastMessages
+	}
+
+	// Round 1 is now notarized but not finalized and the round no longer advances, so NotarizationTime
+	// rebroadcasts finalize votes. Drive its clock through several timeouts and make sure none of them is
+	// for the round we timed out on.
+	step := DefaultFinalizeVoteRebroadcastTimeout / 3
+	for range 15 {
+		now = now.Add(step)
+		e.AdvanceTime(now)
+		for len(comm.BroadcastMessages) > 0 {
+			msg := <-comm.BroadcastMessages
+			if msg.FinalizeVote != nil {
+				require.NotEqual(t, timedOutRound, msg.FinalizeVote.Finalization.Round,
+					"node cast a finalize vote for round %d after casting an empty vote for it", timedOutRound)
+			}
+		}
 	}
 }

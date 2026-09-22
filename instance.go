@@ -343,6 +343,12 @@ func (i *Instance) HandleMessage(msg *common.Message, from common.NodeID) error 
 			}
 			i.msm.HandleAuxiliaryInfo(*msg.AuxiliaryInfo, avalanchego.NodeID(from))
 		case msg.EpochTransitionApproval != nil:
+			if !from.Equals(msg.EpochTransitionApproval.NodeID[:]) {
+				i.Config.Logger.Debug("Dropping approval not sent by its signer",
+					zap.Stringer("from", from),
+					zap.Stringer("signer", common.NodeID(msg.EpochTransitionApproval.NodeID[:])))
+				return nil
+			}
 			// TODO: pass in time.Now() rather than uint64
 			i.msm.HandleApproval(msg.EpochTransitionApproval, uint64(time.Now().UnixMilli()))
 			return nil
@@ -533,7 +539,6 @@ func (i *Instance) createEpochConfig(validators common.Nodes) (*epochConfig, err
 		// TODO: For simplicity, we use the same value for all timeouts. If needed we can expand the config.
 		MaxProposalWait:            i.Config.ParameterConfig.MaxNetworkDelay * 2, // 1 proposal + 1 vote
 		MaxRebroadcastWait:         i.Config.ParameterConfig.MaxNetworkDelay * 2,
-		FinalizeRebroadcastTimeout: i.Config.ParameterConfig.MaxNetworkDelay * 2,
 		MaxRoundWindow:             i.Config.ParameterConfig.MaxRoundWindow,
 		ID:                         i.Config.ID,
 		RandomSource:               source, // Seed the random source from crypto/rand

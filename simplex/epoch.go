@@ -24,6 +24,7 @@ import (
 var (
 	ErrAlreadyStarted            = errors.New("epoch already started")
 	errNotarizationBlockMismatch = errors.New("notarization block header mismatches stored round block header")
+	errAlreadyTimedOutOnRound    = errors.New("already timed out on this round")
 )
 
 const (
@@ -70,7 +71,6 @@ type EpochConfig struct {
 	MaxRoundWindow             uint64
 	MaxReplicationResponseSize int
 	MaxRebroadcastWait         time.Duration
-	FinalizeRebroadcastTimeout time.Duration
 	QCDeserializer             common.QCDeserializer
 	Logger                     common.Logger
 	ID                         common.NodeID
@@ -110,7 +110,6 @@ type Epoch struct {
 	validatorsToPKs                map[string][]byte
 	rounds                         map[uint64]*Round
 	emptyVotes                     map[uint64]*EmptyVoteSet
-	oldestNotFinalizedNotarization NotarizationTime
 	futureMessages                 messagesFromNode
 	round                          uint64 // The current round we notarize
 	monitor                        *Monitor
@@ -138,7 +137,6 @@ func (e *Epoch) AdvanceTime(t time.Time) {
 	e.monitor.AdvanceTime(t)
 	e.replicationState.AdvanceTime(t)
 	e.timeoutHandler.Tick(t)
-	e.oldestNotFinalizedNotarization.CheckForNotFinalizedNotarizedBlocks(t)
 }
 
 // HandleMessage notifies the engine about a reception of a message.
@@ -218,7 +216,6 @@ func (e *Epoch) init() error {
 	if err := e.maybeAssignDefaultConfig(); err != nil {
 		return err
 	}
-	e.initOldestNotFinalizedNotarization()
 	e.oneTimeVerifier = NewOneTimeVerifier(e.Logger)
 	scheduler := common.NewScheduler(e.Logger, DefaultProcessingBlocks)
 	e.blockVerificationScheduler = common.NewBlockVerificationScheduler(e.Logger, DefaultProcessingBlocks, scheduler)
@@ -247,7 +244,7 @@ func (e *Epoch) init() error {
 		e.futureMessages[string(node)] = make(map[uint64]*messagesForRound)
 	}
 	e.blockBuilder = &EmptyBlockBuilder{
-		ShouldBuildEmptyBlock: e.haveUnFinalizedButNotarizedSuffix,
+		ShouldBuildEmptyBlock: e.shouldBuildEmptyBlock,
 		Timeout:               e.MaxProposalWait,
 		BB:                    e.BlockBuilder,
 	}
@@ -261,32 +258,7 @@ func (e *Epoch) init() error {
 	return e.setMetadataFromStorage()
 }
 
-func (e *Epoch) initOldestNotFinalizedNotarization() {
-	rebroadcastFinalizationVotes := func() {
-		e.lock.Lock()
-		defer e.lock.Unlock()
-
-		if err := e.rebroadcastPastFinalizeVotes(); err != nil {
-			e.Logger.Error("Could not rebroadcast past finalization votes", zap.Error(err))
-		}
-	}
-	e.oldestNotFinalizedNotarization = NewNotarizationTime(
-		e.FinalizeRebroadcastTimeout,
-		e.haveNotFinalizedNotarizedRound,
-		rebroadcastFinalizationVotes, e.getRound)
-}
-
-func (e *Epoch) getRound() uint64 {
-	e.lock.Lock()
-	defer e.lock.Unlock()
-
-	return e.round
-}
-
 func (e *Epoch) maybeAssignDefaultConfig() error {
-	if e.FinalizeRebroadcastTimeout == 0 {
-		e.FinalizeRebroadcastTimeout = DefaultFinalizeVoteRebroadcastTimeout
-	}
 	if e.MaxProposalWait == 0 {
 		e.MaxProposalWait = DefaultMaxProposalWaitTime
 	}
@@ -329,15 +301,20 @@ func (e *Epoch) Start() error {
 	return nil
 }
 
-func (e *Epoch) haveUnFinalizedButNotarizedSuffix(ctx context.Context) bool {
+func (e *Epoch) shouldBuildEmptyBlock(ctx context.Context) bool {
 	<-ctx.Done()
 
 	if errors.Is(context.Cause(ctx), common.ErrShouldBuildEmptyBlock) {
 		e.lock.Lock()
 		defer e.lock.Unlock()
 
-		r := e.getHighestRound()
-		return r != nil && r.finalization == nil
+		for r, round := range e.rounds {
+			didNotTimeOutOnRound := !e.haveWeAlreadyTimedOutOnThisRound(r)
+			notarizedButNotFinalized := round.notarization != nil && round.finalization == nil
+			if didNotTimeOutOnRound && notarizedButNotFinalized {
+				return true
+			}
+		}
 	}
 
 	return false
@@ -934,6 +911,13 @@ func (e *Epoch) handleFinalizeVoteMessage(message *common.FinalizeVote, from com
 		return nil
 	}
 
+	if !exists && e.lastBlock != nil && e.lastBlock.Finalization.Finalization.Seq > vote.Seq {
+		// This is a finalization for a past round, the node that sent it to us is behind,
+		// so we send it the latest finalization to help it catch up and initiate the replication process
+		e.sendLatestFinalization(from)
+		return nil
+	}
+
 	// Finalization for a future round that is too far in the future
 	if !exists {
 		e.Logger.Debug("Received finalize vote for an unknown round", zap.Uint64("ourRound", e.round), zap.Uint64("round", vote.Round))
@@ -1435,12 +1419,17 @@ func (e *Epoch) rebroadcastPastFinalizeVotes() error {
 			continue
 		}
 
+		if e.haveWeAlreadyTimedOutOnThisRound(r) {
+			e.Logger.Debug("Round already timed out when rebroadcasting finalize votes", zap.Uint64("round", r))
+			continue
+		}
+
 		var finalizeVoteMessage *common.Message
 		// Try to re-use finalization we created if possible, else create it.
 		if vote, exists := round.finalizeVotes[string(e.ID)]; exists {
 			finalizeVoteMessage = &common.Message{FinalizeVote: vote}
 		} else {
-			_, msg, err := e.constructFinalizeVoteMessage(round.notarization.Vote.BlockHeader)
+			_, msg, err := e.maybeConstructFinalizeVoteMessage(round.notarization.Vote.BlockHeader)
 			if err != nil {
 				return err
 			}
@@ -1667,6 +1656,9 @@ func (e *Epoch) maybeMarkLeaderAsTimedOutForFutureBlacklisting(emptyNotarization
 			return fmt.Errorf("last block is nil")
 		}
 		blacklist = e.lastBlock.VerifiedBlock.Blacklist()
+		if e.lastBlock.Finalization.Finalization.Epoch < e.Epoch {
+			blacklist = common.NewBlacklist(uint16(len(e.validatorNodeIDs)))
+		}
 	}
 	round := emptyNotarization.Vote.Round
 	leaderIndex := round % uint64(len(e.validatorNodeIDs))
@@ -2409,6 +2401,10 @@ func (e *Epoch) createNotarizedBlockVerificationTask(block common.Block, notariz
 			return md.Digest
 		}
 
+		if err := e.finalizeVoteForReplicatedNotarization(md.Round); err != nil {
+			e.Logger.Error("Failed to finalize vote for replicated notarization", zap.Uint64("round", md.Round), zap.Error(err))
+		}
+
 		err = e.processReplicationState()
 		if err != nil {
 			e.haltedError = err
@@ -2964,6 +2960,9 @@ func (e *Epoch) retrieveLastPersistedBlacklist() (common.Blacklist, bool) {
 		}
 
 		blacklist = e.lastBlock.VerifiedBlock.Blacklist()
+		if e.lastBlock.Finalization.Finalization.Epoch < e.Epoch {
+			blacklist = common.NewBlacklist(uint16(len(e.validatorNodeIDs)))
+		}
 	}
 	return blacklist, true
 }
@@ -3100,6 +3099,34 @@ func (e *Epoch) increaseRound() {
 	e.round++
 }
 
+// finalizeVoteForReplicatedNotarization casts our finalize vote for a round whose notarization we learned
+// of through replication instead of by collecting votes.
+func (e *Epoch) finalizeVoteForReplicatedNotarization(r uint64) error {
+	round, exists := e.rounds[r]
+	if !exists || round.notarization == nil || round.finalization != nil {
+		return nil
+	}
+
+	if e.haveWeAlreadyTimedOutOnThisRound(r) {
+		e.Logger.Debug("Not finalize voting for a replicated notarization of a round we timed out on", zap.Uint64("round", r))
+		return nil
+	}
+
+	md := round.notarization.Vote.BlockHeader
+	finalizeVote, finalizeVoteMsg, err := e.maybeConstructFinalizeVoteMessage(md)
+	if err != nil {
+		return err
+	}
+	e.broadcast(finalizeVoteMsg)
+
+	e.Logger.Debug("Broadcasting finalize vote for a replicated notarization",
+		zap.Uint64("round", md.Round),
+		zap.Uint64("seq", md.Seq),
+		zap.Stringer("digest", md.Digest))
+
+	return e.handleFinalizeVoteMessage(&finalizeVote, e.ID)
+}
+
 func (e *Epoch) doNotarized(r uint64) error {
 	if e.haveWeAlreadyTimedOutOnThisRound(r) {
 		e.Logger.Info("We have already timed out on this round, will not finalize it", zap.Uint64("round", r))
@@ -3111,7 +3138,7 @@ func (e *Epoch) doNotarized(r uint64) error {
 
 	md := block.BlockHeader()
 
-	finalizeVote, finalizeVoteMsg, err := e.constructFinalizeVoteMessage(md)
+	finalizeVote, finalizeVoteMsg, err := e.maybeConstructFinalizeVoteMessage(md)
 	if err != nil {
 		return err
 	}
@@ -3128,7 +3155,12 @@ func (e *Epoch) doNotarized(r uint64) error {
 	return errors.Join(err1, err2)
 }
 
-func (e *Epoch) constructFinalizeVoteMessage(md common.BlockHeader) (common.FinalizeVote, *common.Message, error) {
+func (e *Epoch) maybeConstructFinalizeVoteMessage(md common.BlockHeader) (common.FinalizeVote, *common.Message, error) {
+	if e.haveWeAlreadyTimedOutOnThisRound(md.Round) {
+		e.Logger.Error("Will not cast a finalize vote for a round we timed out on)", zap.Uint64("round", md.Round))
+		return common.FinalizeVote{}, nil, errAlreadyTimedOutOnRound
+	}
+
 	f := common.ToBeSignedFinalization{BlockHeader: md}
 	signature, err := f.Sign(e.Signer)
 	if err != nil {
@@ -3449,28 +3481,6 @@ func (e *Epoch) locateQuorumRecordByRound(targetRound uint64) *common.VerifiedQu
 	}
 
 	return qr
-}
-
-func (e *Epoch) haveNotFinalizedNotarizedRound() (uint64, bool) {
-	e.lock.Lock()
-	defer e.lock.Unlock()
-
-	var minRoundNum uint64
-	var found bool
-	for _, round := range e.rounds {
-		if round.finalization != nil || round.notarization == nil {
-			continue
-		}
-
-		if !found {
-			minRoundNum = round.num
-			found = true
-		} else if round.num < minRoundNum {
-			minRoundNum = round.num
-		}
-	}
-
-	return minRoundNum, found
 }
 
 func (e *Epoch) handleBlockDigestRequest(req *common.BlockDigestRequest, from common.NodeID) error {
