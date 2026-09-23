@@ -484,7 +484,7 @@ func (i *Instance) createEpochConfig(validators common.Nodes) (*epochConfig, err
 		GetValidatorSet:                 i.Config.PlatformChain.GetValidatorSet,
 		SignatureVerifier:               i.Config.CryptoOps,
 		PChainProgressListener:          i.Config.PlatformChain,
-		LatestPersistedHeight:           i.Config.Storage.NumBlocks(),
+		LatestPersistedHeight:           i.Config.Storage.NumBlocks() - 1,
 		MaxBlockBuildingWaitTime:        i.Config.ParameterConfig.MaxNetworkDelay,
 		Logger:                          i.Config.Logger,
 		Signer:                          i.Config.CryptoOps,
