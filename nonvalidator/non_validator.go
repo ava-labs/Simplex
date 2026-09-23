@@ -17,16 +17,16 @@ import (
 )
 
 type finalizedSeq struct {
-	// blocks holds one block per leader that proposed for this sequence.
-	// Rounds that share a sequence can have different leaders, so several blocks may be stored.
-	blocks       map[string]common.Block
-	finalization *common.Finalization
+	// proposerIDToBlock holds one block per leader that proposed for this sequence.
+	// Rounds that share a sequence can have different leaders, so several proposerIDToBlock may be stored.
+	proposerIDToBlock map[string]common.Block
+	finalization      *common.Finalization
 }
 
 func (f *finalizedSeq) String() string {
 	seq := uint64(0)
 	digest := common.Digest{}
-	for _, block := range f.blocks {
+	for _, block := range f.proposerIDToBlock {
 		seq = block.BlockHeader().Seq
 	}
 	if f.finalization != nil {
@@ -34,7 +34,7 @@ func (f *finalizedSeq) String() string {
 		digest = f.finalization.Finalization.Digest
 	}
 
-	return fmt.Sprintf("FinalizedSeq {FinalizationDigest: %s, Seq: %d, NumBlocks %d, FinalizationExists %t}", digest, seq, len(f.blocks), f.finalization != nil)
+	return fmt.Sprintf("FinalizedSeq {FinalizationDigest: %s, Seq: %d, NumBlocks %d, FinalizationExists %t}", digest, seq, len(f.proposerIDToBlock), f.finalization != nil)
 }
 
 type Config struct {
@@ -200,13 +200,13 @@ func (n *NonValidator) handleBlock(block common.Block, from common.NodeID) error
 
 	incomplete, ok := n.incompleteSequences[bh.Seq]
 	if !ok {
-		incomplete = &finalizedSeq{blocks: make(map[string]common.Block)}
+		incomplete = &finalizedSeq{proposerIDToBlock: make(map[string]common.Block)}
 		n.incompleteSequences[bh.Seq] = incomplete
 	}
 
 	// Without a finalization we cannot tell which block is the right one, so keep one per node.
 	if incomplete.finalization == nil {
-		incomplete.blocks[string(from)] = block
+		incomplete.proposerIDToBlock[string(from)] = block
 		n.Logger.Debug("Stored incomplete sequence", zap.Stringer("Sequence", incomplete))
 		return nil
 	}
@@ -359,7 +359,7 @@ func (n *NonValidator) handleFinalization(finalization *common.Finalization, fro
 
 	incomplete, ok := n.incompleteSequences[bh.Seq]
 	if !ok {
-		incomplete = &finalizedSeq{blocks: make(map[string]common.Block)}
+		incomplete = &finalizedSeq{proposerIDToBlock: make(map[string]common.Block)}
 		n.incompleteSequences[bh.Seq] = incomplete
 	}
 
@@ -394,12 +394,13 @@ func (n *NonValidator) handleFinalization(finalization *common.Finalization, fro
 	}
 
 	incomplete.finalization = finalization
-	// Let the replicator know this sequence is finalized in case no stored block matches it.
+
+	// Let the replicator know this sequence is finalized.
 	n.sequenceReplicator.ReceivedFutureFinalization(finalization, n.nextSeqToCommit())
 
 	// Blocks arriving from now on are checked against the finalization directly, so the stored ones can be released.
-	blocks := incomplete.blocks
-	incomplete.blocks = nil
+	blocks := incomplete.proposerIDToBlock
+	incomplete.proposerIDToBlock = nil
 
 	for _, block := range blocks {
 		if block.BlockHeader().Digest == bh.Digest {
