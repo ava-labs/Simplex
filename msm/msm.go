@@ -232,8 +232,16 @@ func NewStateMachine(config *Config) (*StateMachine, error) {
 	if config.TimeSkewLimit == 0 {
 		config.TimeSkewLimit = maxSkew
 	}
+
 	sm := StateMachine{Config: config, auxInfoStore: newAuxInfoStore(config.AuxiliaryInfoApp, config.Logger)}
-	return &sm, nil
+
+	// Get the last block
+	lastBlock, _, err := config.GetBlock(config.LatestPersistedHeight, common.Digest{})
+	if err != nil {
+		return nil, err
+	}
+
+	return &sm, sm.maybeInitApprovalStore(lastBlock)
 }
 
 // HandleAuxiliaryMessage processes
@@ -257,15 +265,28 @@ func (sm *StateMachine) HandleApproval(approval *common.ValidatorSetApproval) {
 	approvalStore.HandleApproval(approval)
 }
 
-// InitializeApprovalStore creates the approval store for approvals signed by the given validators.
-// It should be called when a block carrying a next P-chain reference height is indexed.
-func (sm *StateMachine) InitializeApprovalStore(validatorSet NodeBLSMappings) error {
+// OnBlockIndex is called when `block` is indexed. If the block is a transition block, we check to
+// see if we need to initialize the approval store.
+func (sm *StateMachine) OnBlockIndex(block StateMachineBlock) error {
+	return sm.maybeInitApprovalStore(block)
+}
+
+func (sm *StateMachine) maybeInitApprovalStore(block StateMachineBlock) error {
+	if block.Type() != BlockTypeTransitioning {
+		return nil
+	}
+
+	validators, err := sm.GetValidatorSet(block.Metadata.SimplexEpochInfo.NextPChainReferenceHeight)
+	if err != nil {
+		return err
+	}
+
 	sm.lock.Lock()
 	defer sm.lock.Unlock()
 
 	if sm.approvalStore == nil {
-		sm.approvalStore = NewApprovalStore(sm.SignatureVerifier, validatorSet, sm.Logger)
-	} else if !validatorSet.Equal(sm.approvalStore.validators) {
+		sm.approvalStore = NewApprovalStore(sm.SignatureVerifier, validators, sm.Logger)
+	} else if !validators.Equal(sm.approvalStore.validators) {
 		return errApprovalStoreValidatorSetMismatch
 	}
 	return nil

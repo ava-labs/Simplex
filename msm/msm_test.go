@@ -774,7 +774,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 
 			require.NoError(t, smVerify.VerifyBlock(context.Background(), block3))
 
-			require.NoError(t, sm.InitializeApprovalStore(validatorSet2))
+			require.NoError(t, sm.OnBlockIndex(*block3))
 
 			// ----- Step 4: First collecting block (1/3 approvals, not enough to seal) -----
 
@@ -1262,7 +1262,7 @@ func TestVerifyDoesNotInitializeApprovalStore(t *testing.T) {
 
 	// Verification created no store, so this approval is dropped.
 	verifier.HandleApproval(approval)
-	require.NoError(t, verifier.InitializeApprovalStore(newSet))
+	require.NoError(t, verifier.OnBlockIndex(*block))
 	approvers := nextBlockApprovers()
 	require.Zero(t, approvers.Len())
 
@@ -1272,12 +1272,16 @@ func TestVerifyDoesNotInitializeApprovalStore(t *testing.T) {
 	require.True(t, approvers.Contains(node3Index))
 
 	// Every later collecting block indexes with the same set and keeps the store.
-	require.NoError(t, verifier.InitializeApprovalStore(newSet))
+	require.NoError(t, verifier.OnBlockIndex(*block))
 	approvers = nextBlockApprovers()
 	require.True(t, approvers.Contains(node3Index))
 
 	// A state machine lives for one epoch, which transitions at most once.
-	require.ErrorIs(t, verifier.InitializeApprovalStore(currentSet), errApprovalStoreValidatorSetMismatch)
+	otherPChainHeight := newPChainHeight + 1
+	verifierConfig.validatorSetRetriever.resultMap[otherPChainHeight] = currentSet
+	otherBlock := *block
+	otherBlock.Metadata.SimplexEpochInfo.NextPChainReferenceHeight = otherPChainHeight
+	require.ErrorIs(t, verifier.OnBlockIndex(otherBlock), errApprovalStoreValidatorSetMismatch)
 }
 
 func TestVerifyPChainHeight(t *testing.T) {

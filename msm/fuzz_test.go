@@ -251,7 +251,7 @@ func buildEpochChain(tb testing.TB, logger common.Logger) ([]*StateMachineBlock,
 	tc.blockBuilder.Block = nextInner(3)
 	block3 := build(3, 2, 1, block2)
 	addBlock(3, block3, nil)
-	require.NoError(tb, sm.InitializeApprovalStore(validatorSet2))
+	require.NoError(tb, sm.OnBlockIndex(*block3))
 
 	// The noopTestAuxInfoApp is always "ready" with an empty aux info history, and
 	// LastHistoryDigest returns the zero digest for an empty history. That zero value is the

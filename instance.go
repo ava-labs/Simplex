@@ -518,16 +518,11 @@ func (i *Instance) createEpochConfig(validators common.Nodes) (*epochConfig, err
 	// set the handle approval method so that the MSM can receive self approvals
 	i.transitionListener.handleApproval = msm.HandleApproval
 	instanceStorage := NewCallbackStorage(i.cs, msm, func(block *ParsedBlock) error {
+		if err := msm.OnBlockIndex(block.StateMachineBlock); err != nil {
+			return err
+		}
 		switch {
 		case block.Type() == metadata.BlockTypeTransitioning:
-			// The store must exist before the listener records our own approval in it.
-			validators, err := i.Config.PlatformChain.GetValidatorSet(block.Metadata.SimplexEpochInfo.NextPChainReferenceHeight)
-			if err != nil {
-				return err
-			}
-			if err := msm.InitializeApprovalStore(validators); err != nil {
-				return err
-			}
 			if err := i.transitionListener.handleTransitionBlock(block); err != nil {
 				return err
 			}
