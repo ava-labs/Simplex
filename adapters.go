@@ -4,6 +4,7 @@
 package simplex
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"sync"
@@ -131,34 +132,54 @@ func (cs *CachedStorage) RetrieveBlock(seq uint64, digest common.Digest) (metada
 }
 
 func (cs *CachedStorage) Retrieve(seq uint64, digest common.Digest) (common.VerifiedBlock, *common.Finalization, error) {
-	cs.lock.RLock()
-
-	item, exists := cs.cache[digest]
-	if exists {
-		cs.lock.RUnlock()
-		return item.ParsedBlock, nil, nil
-	}
-
-	for _, cb := range cs.cache {
-		if cb.BlockHeader().Seq == seq {
-			if cb.Digest() == digest || digest == (common.Digest{}) {
-				cs.lock.RUnlock()
-				return cb.ParsedBlock, nil, nil
-			}
+	// A finalized seq is always served from storage, so a same-seq cache entry can never shadow it.
+	if seq >= cs.Storage.NumBlocks() {
+		if cb, ok := cs.retrieveCached(seq, digest); ok {
+			return cb, nil, nil
 		}
 	}
-	cs.lock.RUnlock()
 
 	// We don't populate the cache here because we populate it externally.
 	block, finalization, err := cs.GetBlock(seq)
-	if digest != (common.Digest{}) && block.Digest() != digest {
-		return nil, nil, common.ErrBlockNotFound
+	if err != nil {
+		return nil, nil, err
 	}
-
-	return &ParsedBlock{
+	pb := &ParsedBlock{
 		StateMachineBlock: block,
 		msm:               cs.msm,
-	}, finalization, err
+	}
+	if digest != (common.Digest{}) && pb.Digest() != digest {
+		return nil, nil, common.ErrBlockNotFound
+	}
+	return pb, finalization, nil
+}
+
+// retrieveCached returns the cached block at seq matching digest. A zero digest
+// matches on seq alone, choosing the smallest digest so same-seq forks resolve
+// identically on every node.
+func (cs *CachedStorage) retrieveCached(seq uint64, digest common.Digest) (*ParsedBlock, bool) {
+	cs.lock.RLock()
+	defer cs.lock.RUnlock()
+
+	if digest != (common.Digest{}) {
+		cb, ok := cs.cache[digest]
+		if !ok || cb.BlockHeader().Seq != seq {
+			return nil, false
+		}
+		return cb.ParsedBlock, true
+	}
+
+	var found *ParsedBlock
+	var foundDigest common.Digest
+	for d, cb := range cs.cache {
+		if cb.BlockHeader().Seq != seq {
+			continue
+		}
+		if found == nil || bytes.Compare(d[:], foundDigest[:]) < 0 {
+			found, foundDigest = cb.ParsedBlock, d
+		}
+	}
+	return found, found != nil
 }
 
 func (cs *CachedStorage) Index(ctx context.Context, block common.VerifiedBlock, certificate common.Finalization) error {
@@ -185,6 +206,12 @@ func (cs *CachedStorage) Index(ctx context.Context, block common.VerifiedBlock, 
 func (cs *CachedStorage) insertBlock(block *ParsedBlock) {
 	cs.lock.Lock()
 	defer cs.lock.Unlock()
+
+	// Index writes storage before pruning under the lock, so a block whose seq is
+	// already indexed is either rejected here or pruned by that Index.
+	if block.BlockHeader().Seq < cs.Storage.NumBlocks() {
+		return
+	}
 
 	cs.cache[block.Digest()] = cachedBlock{
 		ParsedBlock: block,

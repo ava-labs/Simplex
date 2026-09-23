@@ -4,6 +4,8 @@
 package simplex
 
 import (
+	"bytes"
+	"errors"
 	"testing"
 	"time"
 
@@ -207,4 +209,76 @@ func TestCachedStoragePopulatedBySelfBuiltBlock(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, fin)
 	require.Same(t, vb, cached)
+}
+
+// TestCachedStorageRetrievePrefersFinalized asserts that a zero-digest Retrieve of a
+// finalized seq returns the stored block with its finalization, even when a stale
+// same-seq entry is still in the cache.
+func TestCachedStorageRetrievePrefersFinalized(t *testing.T) {
+	cs := NewCachedStorage(newTestStorage())
+	finalized := newTestParsedBlock(0, "finalized")
+	require.NoError(t, cs.Index(t.Context(), finalized, common.Finalization{}))
+
+	stale := newTestParsedBlock(0, "stale")
+	cs.cache[stale.Digest()] = cachedBlock{ParsedBlock: stale}
+
+	got, fin, err := cs.Retrieve(0, common.Digest{})
+	require.NoError(t, err)
+	require.Equal(t, finalized.BlockHeader().Digest, got.BlockHeader().Digest)
+	require.NotNil(t, fin)
+}
+
+// TestCachedStorageVerifyAfterIndexNotCached asserts that a verification completing
+// after its seq was indexed does not insert the block into the cache.
+func TestCachedStorageVerifyAfterIndexNotCached(t *testing.T) {
+	cs := NewCachedStorage(newTestStorage())
+	require.NoError(t, cs.Index(t.Context(), newTestParsedBlock(0, "finalized"), common.Finalization{}))
+
+	late := &cachedBlock{
+		ParsedBlock: newTestParsedBlock(0, "late"),
+		cache:       cs,
+	}
+	_, err := late.Verify(t.Context(), common.OnlyVMVerifyOpt)
+	require.NoError(t, err)
+	require.Empty(t, cs.cache)
+}
+
+// TestCachedStorageRetrieveForkDeterministic asserts that a zero-digest Retrieve with
+// two cached forks at one seq always returns the fork with the smallest digest.
+func TestCachedStorageRetrieveForkDeterministic(t *testing.T) {
+	cs := NewCachedStorage(newTestStorage())
+	a := newTestParsedBlock(1, "a")
+	b := newTestParsedBlock(1, "b")
+	cs.insertBlock(a)
+	cs.insertBlock(b)
+
+	want := common.Digest(a.Digest())
+	if bd := b.Digest(); bytes.Compare(bd[:], want[:]) < 0 {
+		want = common.Digest(bd)
+	}
+	for range 20 {
+		got, _, err := cs.Retrieve(1, common.Digest{})
+		require.NoError(t, err)
+		require.Equal(t, want, got.BlockHeader().Digest)
+	}
+}
+
+type failingStorage struct {
+	*testStorage
+	err error
+}
+
+func (f *failingStorage) GetBlock(uint64) (metadata.StateMachineBlock, *common.Finalization, error) {
+	return metadata.StateMachineBlock{}, nil, f.err
+}
+
+// TestCachedStorageRetrievePropagatesStorageError asserts that a GetBlock failure
+// surfaces as that error rather than ErrBlockNotFound, even under a non-zero digest.
+func TestCachedStorageRetrievePropagatesStorageError(t *testing.T) {
+	storageErr := errors.New("disk failure")
+	cs := NewCachedStorage(&failingStorage{testStorage: newTestStorage(), err: storageErr})
+
+	_, _, err := cs.Retrieve(0, common.Digest{1, 2, 3})
+	require.ErrorIs(t, err, storageErr)
+	require.NotErrorIs(t, err, common.ErrBlockNotFound)
 }
