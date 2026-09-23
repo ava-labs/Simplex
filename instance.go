@@ -91,6 +91,12 @@ func NewInstance(config Config) *Instance {
 		nil,
 	)
 
+	// Override the PlatformChain in the config with a ValidatorCache that wraps the original PlatformChain.
+	// This is done to avoid repeated calls to GetValidatorSet for the same height, which can be expensive.
+	config.PlatformChain = &ValidatorCache{
+		PlatformChain: config.PlatformChain,
+	}
+
 	return &Instance{
 		Config:             config,
 		stopCh:             make(chan struct{}),
