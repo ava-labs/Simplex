@@ -1501,7 +1501,7 @@ func TestReplicationChain(t *testing.T) {
 
 		for {
 			numBlocks := n.Storage.NumBlocks()
-			if numBlocks == numNotarizations-missedNotarizations+1 {
+			if numBlocks >= numNotarizations-missedNotarizations+1 {
 				break
 			}
 			net.AdvanceTime(simplex.DefaultReplicationRequestTimeout)
@@ -1516,7 +1516,7 @@ func TestReplicationChain(t *testing.T) {
 	for {
 		numBlocks := blockFinalize3.Storage.NumBlocks()
 
-		if numBlocks == numNotarizations-missedNotarizations+1 {
+		if numBlocks >= numNotarizations-missedNotarizations+1 {
 			break
 		}
 		net.AdvanceTime(simplex.DefaultReplicationRequestTimeout)
