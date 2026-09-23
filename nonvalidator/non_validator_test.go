@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1250,4 +1251,55 @@ func TestNonValidatorDropsQuorumRoundPastSequenceWindow(t *testing.T) {
 		time.Second, 50*time.Millisecond,
 		"indexed a block that was past the sequence window when it was received",
 	)
+}
+
+// TestNonValidatorIgnoresReplayedQuorumRoundWhileVerifying asserts that replaying the finalized
+// quorum round for nextSeqToCommit while its verification task is in flight does not schedule
+// duplicate tasks.
+func TestNonValidatorIgnoresReplayedQuorumRoundWhileVerifying(t *testing.T) {
+	tc := newSeededChain(t, testNodes, 2)
+	storage := tc.CloneUntil(2)
+
+	block, finalization, err := tc.Retrieve(2)
+	require.NoError(t, err)
+
+	// Hold the first verification so the replays arrive while its task is still running.
+	release := make(chan struct{})
+	var verifications atomic.Int32
+	tb := block.(*testutil.TestBlock)
+	tb.VerificationError = errors.New("verification failed")
+	tb.OnVerify = func() {
+		if verifications.Add(1) == 1 {
+			<-release
+		}
+	}
+
+	nv, err := NewNonValidator(
+		Config{
+			Storage:                    storage,
+			Comm:                       testutil.NewNoopComm(testNodes.NodeIDs()),
+			Logger:                     testutil.MakeLogger(t, 1),
+			SignatureAggregatorCreator: tc.signatureAggregatorCreator,
+			MaxSequenceWindow:          5,
+			ID:                         common.NodeID{16},
+			StartTime:                  time.Now(),
+		},
+	)
+	require.NoError(t, err)
+	nv.Start()
+	defer nv.Stop()
+
+	// Send many of the same responses that
+	for range 10 {
+		require.NoError(t, nv.HandleMessage(
+			&common.Message{ReplicationResponse: &common.ReplicationResponse{
+				Data: []common.QuorumRound{{Block: tb, Finalization: &finalization}},
+			}},
+			common.NodeID{42},
+		))
+	}
+	close(release)
+
+	require.Never(t, func() bool { return verifications.Load() > 1 }, time.Second, 10*time.Millisecond,
+		"a replayed quorum round scheduled a duplicate verification task")
 }
