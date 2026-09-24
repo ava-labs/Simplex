@@ -349,8 +349,7 @@ func (i *Instance) HandleMessage(msg *common.Message, from common.NodeID) error 
 					zap.Stringer("signer", common.NodeID(msg.EpochTransitionApproval.NodeID[:])))
 				return nil
 			}
-			// TODO: pass in time.Now() rather than uint64
-			i.msm.HandleApproval(msg.EpochTransitionApproval, uint64(time.Now().UnixMilli()))
+			i.msm.HandleApproval(msg.EpochTransitionApproval)
 			return nil
 		}
 		return i.e.HandleMessage(msg, from)
@@ -478,6 +477,11 @@ func (i *Instance) createEpochConfig(validators common.Nodes) (*epochConfig, err
 		return nil, err
 	}
 
+	numBlocks := i.Config.Storage.NumBlocks()
+	if numBlocks == 0 {
+		return nil, errors.New("no blocks indexed in storage")
+	}
+
 	msm, err := metadata.NewStateMachine(&metadata.Config{
 		GetTime:                         time.Now,
 		MyNodeID:                        i.Config.ID,
@@ -485,7 +489,7 @@ func (i *Instance) createEpochConfig(validators common.Nodes) (*epochConfig, err
 		GetValidatorSet:                 i.Config.PlatformChain.GetValidatorSet,
 		SignatureVerifier:               i.Config.CryptoOps,
 		PChainProgressListener:          i.Config.PlatformChain,
-		LatestPersistedHeight:           i.Config.Storage.NumBlocks(),
+		LatestPersistedHeight:           numBlocks - 1,
 		MaxBlockBuildingWaitTime:        i.Config.ParameterConfig.MaxNetworkDelay,
 		Logger:                          i.Config.Logger,
 		Signer:                          i.Config.CryptoOps,
@@ -519,6 +523,9 @@ func (i *Instance) createEpochConfig(validators common.Nodes) (*epochConfig, err
 	// set the handle approval method so that the MSM can receive self approvals
 	i.transitionListener.handleApproval = msm.HandleApproval
 	instanceStorage := NewCallbackStorage(i.cs, msm, func(block *ParsedBlock) error {
+		if err := msm.OnBlockIndex(block.StateMachineBlock); err != nil {
+			return err
+		}
 		switch {
 		case block.Type() == metadata.BlockTypeTransitioning:
 			if err := i.transitionListener.handleTransitionBlock(block); err != nil {
