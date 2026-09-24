@@ -77,7 +77,7 @@ func newListenerTestEnv(t *testing.T, nextEpochValidatorSet metadata.NodeBLSMapp
 		return metadata.StateMachineBlock{}, nil, nil
 	}
 
-	handleApproval := func(approval *common.ValidatorSetApproval, _ uint64) {
+	handleApproval := func(approval *common.ValidatorSetApproval) {
 		env.approvals = append(env.approvals, *approval)
 	}
 

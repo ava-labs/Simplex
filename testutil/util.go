@@ -21,18 +21,17 @@ func DefaultTestNodeEpochConfig(t *testing.T, nodeID common.NodeID, comm common.
 	storage := NewInMemStorage()
 	wal := NewTestWAL(t)
 	conf := simplex.EpochConfig{
-		MaxRoundWindow:             simplex.DefaultMaxRoundWindow,
-		MaxProposalWait:            simplex.DefaultMaxProposalWaitTime,
-		MaxRebroadcastWait:         simplex.DefaultEmptyVoteRebroadcastTimeout,
-		FinalizeRebroadcastTimeout: simplex.DefaultFinalizeVoteRebroadcastTimeout,
-		Comm:                       comm,
-		Logger:                     l,
-		ID:                         nodeID,
-		Signer:                     &TestSigner{},
-		WAL:                        wal,
-		Verifier:                   &TestVerifier{},
-		Storage:                    storage,
-		BlockBuilder:               bb,
+		MaxRoundWindow:     simplex.DefaultMaxRoundWindow,
+		MaxProposalWait:    simplex.DefaultMaxProposalWaitTime,
+		MaxRebroadcastWait: simplex.DefaultEmptyVoteRebroadcastTimeout,
+		Comm:               comm,
+		Logger:             l,
+		ID:                 nodeID,
+		Signer:             &TestSigner{},
+		WAL:                wal,
+		Verifier:           &TestVerifier{},
+		Storage:            storage,
+		BlockBuilder:       bb,
 		SignatureAggregatorCreator: func(weights []common.Node) common.SignatureAggregator {
 			return &TestSignatureAggregator{N: len(weights)}
 		},

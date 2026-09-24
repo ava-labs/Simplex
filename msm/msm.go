@@ -62,35 +62,37 @@ const (
 //	└───────────────────────────────────┘
 
 var (
-	errLastNonSimplexInnerBlockNil    = errors.New("failed constructing zero block: last non-Simplex inner block is nil")
-	errInvalidProtocolMetadataSeq     = errors.New("invalid ProtocolMetadata sequence number: should be > 0")
-	errInvalidProtocolMetadataEpoch   = errors.New("invalid ProtocolMetadata epoch number")
-	errUnknownState                   = errors.New("unknown state")
-	errBuiltGenesisInnerBlock         = errors.New("received a genesis block")
-	errZeroBlockParentNoInnerBlock    = errors.New("zero block's parent has no inner block")
-	errNilBlock                       = errors.New("block is nil")
-	errInvalidPChainHeight            = errors.New("invalid P-chain height")
-	errZeroBlockHasInnerBlock         = errors.New("zero block must not have an inner block")
-	errZeroBlockInnerDigestMismatch   = errors.New("zero block inner block digest does not match last non-Simplex inner block digest")
-	errZeroBlockTimestampMismatch     = errors.New("zero block timestamp does not match last non-Simplex inner block timestamp")
-	errPrevSealingBlockNotFinalized   = errors.New("previous sealing block is not finalized")
-	errBlockDigestMismatch            = errors.New("does not match proposed block digest")
-	errSealingBlockSeqUnset           = errors.New("cannot build epoch sealed block: sealing block sequence is 0 or undefined")
-	errEmptyNextEpochApprovals        = errors.New("next epoch approvals are empty")
-	errApprovalsBitmaskTooWide        = errors.New("approvals bitmask is wider than the validator set")
-	errPChainReferenceHeightMismatch  = errors.New("unexpected P-chain reference height")
-	errPChainReferenceHeightDecreased = errors.New("p-chain reference height is decreasing")
-	errValidatorSetUnchanged          = errors.New("validator set unchanged; next P-chain reference height should not have advanced")
-	errPChainHeightNotReached         = errors.New("haven't reached referenced P-chain height yet")
-	errPChainHeightTooBig             = errors.New("invalid P-chain height: greater than current")
-	errPChainHeightSmallerThanParent  = errors.New("invalid P-chain height: smaller than parent block's")
-	errSignerSetShrunk                = errors.New("some signers from parent block are missing from next epoch approvals of proposed block")
-	errNextEpochApprovalsShrunk       = errors.New("previous block has next epoch approvals but proposed block doesn't have next epoch approvals")
-	errTimestampTooBig                = errors.New("invalid timestamp: exceeds maximum int64 value")
-	errTimestampDecreasing            = errors.New("invalid timestamp: proposed timestamp is before parent block's timestamp")
-	errTimestampTooFarInFuture        = errors.New("invalid timestamp: proposed timestamp is too far in the future compared to current time")
-	errAuxInfoBlockRetrieval          = errors.New("failed to retrieve block while collecting auxiliary info")
-	errAuxInfoIllegalAppend           = errors.New("proposed auxiliary info is not a legal append to the history")
+	errLastNonSimplexInnerBlockNil       = errors.New("failed constructing zero block: last non-Simplex inner block is nil")
+	errInvalidProtocolMetadataSeq        = errors.New("invalid ProtocolMetadata sequence number: should be > 0")
+	errInvalidProtocolMetadataEpoch      = errors.New("invalid ProtocolMetadata epoch number")
+	errUnknownState                      = errors.New("unknown state")
+	errBuiltGenesisInnerBlock            = errors.New("received a genesis block")
+	errZeroBlockParentNoInnerBlock       = errors.New("zero block's parent has no inner block")
+	errNilBlock                          = errors.New("block is nil")
+	errInvalidPChainHeight               = errors.New("invalid P-chain height")
+	errZeroBlockHasInnerBlock            = errors.New("zero block must not have an inner block")
+	errZeroBlockPrevDigestMismatch       = errors.New("zero block previous digest does not match last non-Simplex block digest")
+	errZeroBlockSeqMismatch              = errors.New("zero block sequence does not succeed the last non-Simplex block sequence")
+	errZeroBlockTimestampMismatch        = errors.New("zero block timestamp does not match last non-Simplex inner block timestamp")
+	errPrevSealingBlockNotFinalized      = errors.New("previous sealing block is not finalized")
+	errBlockDigestMismatch               = errors.New("does not match proposed block digest")
+	errSealingBlockSeqUnset              = errors.New("cannot build epoch sealed block: sealing block sequence is 0 or undefined")
+	errEmptyNextEpochApprovals           = errors.New("next epoch approvals are empty")
+	errApprovalsBitmaskTooWide           = errors.New("approvals bitmask is wider than the validator set")
+	errPChainReferenceHeightMismatch     = errors.New("unexpected P-chain reference height")
+	errPChainReferenceHeightDecreased    = errors.New("p-chain reference height is decreasing")
+	errValidatorSetUnchanged             = errors.New("validator set unchanged; next P-chain reference height should not have advanced")
+	errApprovalStoreValidatorSetMismatch = errors.New("approval store already initialized for a different validator set")
+	errPChainHeightNotReached            = errors.New("haven't reached referenced P-chain height yet")
+	errPChainHeightTooBig                = errors.New("invalid P-chain height: greater than current")
+	errPChainHeightSmallerThanParent     = errors.New("invalid P-chain height: smaller than parent block's")
+	errSignerSetShrunk                   = errors.New("some signers from parent block are missing from next epoch approvals of proposed block")
+	errNextEpochApprovalsShrunk          = errors.New("previous block has next epoch approvals but proposed block doesn't have next epoch approvals")
+	errTimestampTooBig                   = errors.New("invalid timestamp: exceeds maximum int64 value")
+	errTimestampDecreasing               = errors.New("invalid timestamp: proposed timestamp is before parent block's timestamp")
+	errTimestampTooFarInFuture           = errors.New("invalid timestamp: proposed timestamp is too far in the future compared to current time")
+	errAuxInfoBlockRetrieval             = errors.New("failed to retrieve block while collecting auxiliary info")
+	errAuxInfoIllegalAppend              = errors.New("proposed auxiliary info is not a legal append to the history")
 
 	signatureContext = "MSM approval"
 )
@@ -159,9 +161,8 @@ type AuxiliaryInfoGenVerifier interface {
 // StateMachine manages block building and verification across epoch transitions.
 type StateMachine struct {
 	*Config
-	lock                      sync.RWMutex
-	approvalStore             *ApprovalStore
-	approvalStoreValidatorSet NodeBLSMappings
+	lock          sync.RWMutex
+	approvalStore *ApprovalStore
 
 	auxInfoStore *auxInfoStore
 }
@@ -231,8 +232,16 @@ func NewStateMachine(config *Config) (*StateMachine, error) {
 	if config.TimeSkewLimit == 0 {
 		config.TimeSkewLimit = maxSkew
 	}
+
 	sm := StateMachine{Config: config, auxInfoStore: newAuxInfoStore(config.AuxiliaryInfoApp, config.Logger)}
-	return &sm, nil
+
+	// Get the last block
+	lastBlock, _, err := config.GetBlock(config.LatestPersistedHeight, common.Digest{})
+	if err != nil {
+		return nil, err
+	}
+
+	return &sm, sm.maybeInitApprovalStore(lastBlock)
 }
 
 // HandleAuxiliaryMessage processes
@@ -241,9 +250,7 @@ func (sm *StateMachine) HandleAuxiliaryInfo(info common.AuxiliaryInfo, from aval
 }
 
 // HandleApproval processes a validator set approval from a node.
-// timestamp is the time the approval was received, in milliseconds
-// elapsed since January 1, 1970 UTC.
-func (sm *StateMachine) HandleApproval(approval *common.ValidatorSetApproval, timestamp uint64) {
+func (sm *StateMachine) HandleApproval(approval *common.ValidatorSetApproval) {
 	sm.lock.Lock()
 	approvalStore := sm.approvalStore
 	sm.lock.Unlock()
@@ -255,24 +262,34 @@ func (sm *StateMachine) HandleApproval(approval *common.ValidatorSetApproval, ti
 		return
 	}
 
-	approvalStore.HandleApproval(approval, timestamp)
+	approvalStore.HandleApproval(approval)
 }
 
-func (sm *StateMachine) maybeInitializeApprovalStore(validatorSet NodeBLSMappings) *ApprovalStore {
+// OnBlockIndex is called when `block` is indexed. If the block is a transition block, we check to
+// see if we need to initialize the approval store.
+func (sm *StateMachine) OnBlockIndex(block StateMachineBlock) error {
+	return sm.maybeInitApprovalStore(block)
+}
+
+func (sm *StateMachine) maybeInitApprovalStore(block StateMachineBlock) error {
+	if block.Type() != BlockTypeTransitioning {
+		return nil
+	}
+
+	validators, err := sm.GetValidatorSet(block.Metadata.SimplexEpochInfo.NextPChainReferenceHeight)
+	if err != nil {
+		return err
+	}
+
 	sm.lock.Lock()
 	defer sm.lock.Unlock()
 
-	// If the approval store is not initialized or the validator set has changed, create a new approval store.
-	if sm.approvalStore == nil || !validatorSet.Equal(sm.approvalStoreValidatorSet) {
-		// We first save the old approval store to copy over any existing approvals to the new approval store.
-		oldApprovalStore := sm.approvalStore
-		sm.approvalStore = NewApprovalStore(sm.SignatureVerifier, validatorSet, sm.Logger)
-		sm.approvalStoreValidatorSet = validatorSet
-		if oldApprovalStore != nil {
-			oldApprovalStore.PutApprovals(sm.approvalStore)
-		}
+	if sm.approvalStore == nil {
+		sm.approvalStore = NewApprovalStore(sm.SignatureVerifier, validators, sm.Logger)
+	} else if !validators.Equal(sm.approvalStore.validators) {
+		return errApprovalStoreValidatorSetMismatch
 	}
-	return sm.approvalStore
+	return nil
 }
 
 // WaitForPendingBlock waits for either the VM to signal that a block is ready to be built,
@@ -594,7 +611,6 @@ func (sm *StateMachine) buildBlockOrTransitionEpoch(ctx context.Context, parentB
 		if isSealingBlockFinalized {
 			sm.Logger.Debug("Transitioning epoch after building block", zap.Uint64("newPChainRefHeight", decisionToBuildBlock.pChainHeight))
 			newSimplexEpochInfo.NextPChainReferenceHeight = decisionToBuildBlock.pChainHeight
-			sm.maybeInitializeApprovalStore(decisionToBuildBlock.validatorSet)
 		}
 	}
 
@@ -772,9 +788,6 @@ func (sm *StateMachine) verifyNextPChainRefHeightNormal(parentBlock *StateMachin
 			errValidatorSetUnchanged, next.NextPChainReferenceHeight, prev.PChainReferenceHeight)
 	}
 
-	// we should initialize the approval store for the new validator set.
-	sm.maybeInitializeApprovalStore(newValidatorSet)
-
 	return nil
 }
 
@@ -815,8 +828,6 @@ func (sm *StateMachine) verifyNextPChainRefHeightForNewEpoch(expectedEpochInfo S
 			errValidatorSetUnchanged, next.NextPChainReferenceHeight, expectedEpochInfo.PChainReferenceHeight)
 	}
 
-	sm.maybeInitializeApprovalStore(newValidatorSet)
-
 	return nil
 }
 
@@ -827,7 +838,7 @@ func (sm *StateMachine) createBlockBuildingDecider(currentValidatorSet NodeBLSMa
 		pChainListener:           sm.PChainProgressListener,
 		getPChainHeight:          sm.GetPChainHeightForProposing,
 		waitForPendingBlock:      sm.BlockBuilder.WaitForPendingBlock,
-		hasValidatorSetChanged: func(pChainHeight uint64) (bool, NodeBLSMappings, error) {
+		hasValidatorSetChanged: func(pChainHeight uint64) (bool, error) {
 			// The given pChainHeight was sampled by the caller of shouldTransitionEpoch().
 			// We compare between the current validator set, defined by the P-chain reference height in the parent block,
 			// and the new validator set defined by the given pChainHeight.
@@ -835,7 +846,7 @@ func (sm *StateMachine) createBlockBuildingDecider(currentValidatorSet NodeBLSMa
 
 			newValidatorSet, err := sm.GetValidatorSet(pChainHeight)
 			if err != nil {
-				return false, nil, err
+				return false, err
 			}
 
 			if !currentValidatorSet.Equal(newValidatorSet) {
@@ -843,9 +854,9 @@ func (sm *StateMachine) createBlockBuildingDecider(currentValidatorSet NodeBLSMa
 					zap.String("currentValidatorSet", fmt.Sprintf("%v", currentValidatorSet.Nodes())),
 					zap.String("newValidatorSet", fmt.Sprintf("%v", newValidatorSet.Nodes())),
 					zap.Uint64("newPChainHeight", pChainHeight))
-				return true, newValidatorSet, nil
+				return true, nil
 			}
-			return false, nil, nil
+			return false, nil
 		},
 	}
 	return blockBuildingDecider
@@ -904,6 +915,11 @@ func (sm *StateMachine) buildBlockZero(parentBlock StateMachineBlock, simplexMet
 	// We do it because we need to carry over a minimum timestamp from the non-Simplex blocks.
 	timestamp := sm.LastNonSimplexInnerBlock.Timestamp().UnixMilli()
 	simplexEpochInfo := constructSimplexZeroBlockSimplexEpochInfo(pChainHeight, validatorSet, prevVMBlockSeq)
+
+	// The zero block builds on top of the last non-Simplex block, which is identified by its inner block's
+	// digest rather than by a Simplex block digest, and sits right above it in the sequence.
+	simplexMetadata.Prev = sm.LastNonSimplexInnerBlock.Digest()
+	simplexMetadata.Seq = sm.LastNonSimplexInnerBlock.Height() + 1
 
 	// The zero block carries over the parent's ICM epoch unchanged, just as it carries over the
 	// timestamp. If the parent is a genesis block that predates ICM, the carried-over epoch is empty,
@@ -984,8 +1000,13 @@ func (sm *StateMachine) verifyBlockZero(block *StateMachineBlock, prevBlock Stat
 	if block.InnerBlock != nil {
 		return errZeroBlockHasInnerBlock
 	}
-	if prevBlock.InnerBlock.Digest() != sm.LastNonSimplexInnerBlock.Digest() {
-		return errZeroBlockInnerDigestMismatch
+
+	// The zero block must build upon the last non-Simplex block
+	if block.Metadata.SimplexProtocolMetadata.Prev != sm.LastNonSimplexInnerBlock.Digest() {
+		return errZeroBlockPrevDigestMismatch
+	}
+	if block.Metadata.SimplexProtocolMetadata.Seq != sm.LastNonSimplexInnerBlock.Height()+1 {
+		return errZeroBlockSeqMismatch
 	}
 
 	// The timestamp must equal the last non-Simplex inner block's timestamp.
@@ -1081,8 +1102,6 @@ func (sm *StateMachine) verifyCollectingApprovalsBlock(ctx context.Context, pare
 	if err != nil {
 		return err
 	}
-
-	sm.maybeInitializeApprovalStore(validators)
 
 	newApprovals := nextBlock.Metadata.SimplexEpochInfo.NextEpochApprovals
 
@@ -1246,8 +1265,14 @@ func (sm *StateMachine) computeNewApprovals(parentBlock *StateMachineBlock, vali
 
 	// We retrieve approvals that validators have sent us for the next epoch.
 	// These approvals are signed by validators of the next epoch.
-	approvalStore := sm.maybeInitializeApprovalStore(validators)
-	approvalsFromPeers := approvalStore.Approvals()
+	// The store is nil until a transitioning block is indexed, which may happen after we build on it.
+	sm.lock.RLock()
+	approvalStore := sm.approvalStore
+	sm.lock.RUnlock()
+	var approvalsFromPeers ValidatorSetApprovals
+	if approvalStore != nil {
+		approvalsFromPeers = approvalStore.Approvals()
+	}
 	sm.Logger.Debug("Retrieved approvals from peers", zap.Int("numApprovals", len(approvalsFromPeers)))
 
 	// Optimistically sign the epoch transition even if we have already did so in a previous round.
