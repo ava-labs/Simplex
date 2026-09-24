@@ -38,7 +38,7 @@ func newTestParsedBlock(num uint64, payload string) *ParsedBlock {
 // and a verified but not yet indexed block at seq 5. A zero digest matches on
 // seq alone, a non-zero digest must match the block's digest exactly.
 func TestCachedStorageRetrieve(t *testing.T) {
-	cs := NewCachedStorage(newTestStorage())
+	cs := NewCachedStorage(newTestStorage(), 0)
 	indexedBlock := newTestParsedBlock(0, "indexed")
 	require.NoError(t, cs.Index(t.Context(), indexedBlock, common.Finalization{}))
 
@@ -56,7 +56,9 @@ func TestCachedStorageRetrieve(t *testing.T) {
 		seq       uint64
 		digest    common.Digest
 		wantBlock *ParsedBlock
-		wantErr   error
+		// legacy marks a block predating Simplex, which is identified by its inner block's digest.
+		legacy  bool
+		wantErr error
 	}{
 		{
 			name:      "cached block by seq with zero digest",
@@ -76,9 +78,11 @@ func TestCachedStorageRetrieve(t *testing.T) {
 			wantErr: common.ErrBlockNotFound,
 		},
 		{
+			// Seq 0 is at or below the last non-Simplex height, so it is served as a legacy block.
 			name:      "uncached seq falls through to storage",
 			seq:       0,
 			wantBlock: indexedBlock,
+			legacy:    true,
 		},
 		{
 			name:    "indexed block with mismatched digest",
@@ -101,7 +105,11 @@ func TestCachedStorageRetrieve(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			require.Equal(t, common.Digest(tt.wantBlock.Digest()), got.BlockHeader().Digest)
+			wantDigest := common.Digest(tt.wantBlock.Digest())
+			if tt.legacy {
+				wantDigest = common.Digest(tt.wantBlock.InnerBlock.Digest())
+			}
+			require.Equal(t, wantDigest, got.BlockHeader().Digest)
 			if tt.wantBlock == verifiedBlock {
 				require.Nil(t, fin)
 			}
@@ -113,7 +121,7 @@ func TestCachedStorageRetrieve(t *testing.T) {
 // a zero-digest Retrieve of that seq returns the finalized block with its
 // finalization, even when a verified fork at the same seq was cached.
 func TestCachedStorageIndexEvictsSameSeqFork(t *testing.T) {
-	cs := NewCachedStorage(newTestStorage())
+	cs := NewCachedStorage(newTestStorage(), 0)
 	require.NoError(t, cs.Index(t.Context(), newTestParsedBlock(0, "genesis"), common.Finalization{}))
 
 	equivocatedBlock := &cachedBlock{
@@ -181,7 +189,7 @@ func TestCachedStoragePopulatedByWal(t *testing.T) {
 // it is finalized and indexed.
 func TestCachedStoragePopulatedBySelfBuiltBlock(t *testing.T) {
 	storage := newTestStorageWithGenesis(t)
-	cs := NewCachedStorage(storage)
+	cs := NewCachedStorage(storage, 0)
 
 	msm, err := metadata.NewStateMachine(&metadata.Config{
 		Logger:                   testutil.MakeLogger(t, 1),
@@ -196,9 +204,8 @@ func TestCachedStoragePopulatedBySelfBuiltBlock(t *testing.T) {
 	vm := newBlockBuilderVM(storage, newPendingBlockSignal())
 	bw := newBlockBuilderWaiter(msm, cs, vm)
 
-	// Build a block on top of genesis
-	genesis := &ParsedBlock{StateMachineBlock: metadata.StateMachineBlock{InnerBlock: genesisBlock}}
-	md := common.ProtocolMetadata{Seq: 1, Prev: genesis.BlockHeader().Digest}
+	// Build a block on top of genesis, which as a block predating Simplex is identified by its inner digest.
+	md := common.ProtocolMetadata{Seq: 1, Prev: common.Digest(genesisBlock.Digest())}
 	vb, built := bw.BuildBlock(t.Context(), md, common.Blacklist{})
 	require.True(t, built)
 	require.Equal(t, md.Seq, vb.BlockHeader().Seq)
