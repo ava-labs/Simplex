@@ -477,6 +477,11 @@ func (i *Instance) createEpochConfig(validators common.Nodes) (*epochConfig, err
 		return nil, err
 	}
 
+	numBlocks := i.Config.Storage.NumBlocks()
+	if numBlocks == 0 {
+		return nil, errors.New("no blocks indexed in storage")
+	}
+
 	msm, err := metadata.NewStateMachine(&metadata.Config{
 		GetTime:                         time.Now,
 		MyNodeID:                        i.Config.ID,
@@ -484,7 +489,7 @@ func (i *Instance) createEpochConfig(validators common.Nodes) (*epochConfig, err
 		GetValidatorSet:                 i.Config.PlatformChain.GetValidatorSet,
 		SignatureVerifier:               i.Config.CryptoOps,
 		PChainProgressListener:          i.Config.PlatformChain,
-		LatestPersistedHeight:           i.Config.Storage.NumBlocks() - 1,
+		LatestPersistedHeight:           numBlocks - 1,
 		MaxBlockBuildingWaitTime:        i.Config.ParameterConfig.MaxNetworkDelay,
 		Logger:                          i.Config.Logger,
 		Signer:                          i.Config.CryptoOps,
