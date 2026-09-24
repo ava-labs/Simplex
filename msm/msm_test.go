@@ -1193,10 +1193,10 @@ func TestVerifyNextPChainRefHeightNormal(t *testing.T) {
 	}
 }
 
-// TestVerifyDoesNotInitializeApprovalStore asserts that verifying a proposal which opens an
+// TestVerifyDoesNotInitializeApprovalStore asserts that verifying a block that starts an
 // epoch transition does not create the approval store.
 // Approvals received before initialization should be dropped,
-// one received after is carried by the next block, and initializing
+// one received after should be included in the next block, and initializing
 // the store with a different validator set is an error.
 func TestVerifyDoesNotInitializeApprovalStore(t *testing.T) {
 	const simplexStartHeight, chainEndHeight = 5, 10
@@ -1205,49 +1205,43 @@ func TestVerifyDoesNotInitializeApprovalStore(t *testing.T) {
 	currentSet := NodeBLSMappings{{BLSKey: []byte{1}, Weight: 1, NodeID: [20]byte{1}}, {BLSKey: []byte{2}, Weight: 1, NodeID: [20]byte{2}}}
 	newSet := NodeBLSMappings{{BLSKey: []byte{2}, Weight: 1, NodeID: [20]byte{2}}, {BLSKey: []byte{3}, Weight: 1, NodeID: [20]byte{3}}}
 
-	builder, builderConfig := newStateMachine(t)
-	verifier, verifierConfig := newStateMachine(t)
-	// Approvals are only collected once the aux info history is sufficient, which this app always is.
-	verifier.AuxiliaryInfoApp = &noopTestAuxInfoApp{}
+	sm, tc := newStateMachine(t)
+	sm.AuxiliaryInfoApp = &noopTestAuxInfoApp{}
 
 	chain := makeChain(t, simplexStartHeight, chainEndHeight, currentSet)
-	for _, tc := range []*testConfig{builderConfig, verifierConfig} {
-		for i, block := range chain {
-			tc.blockStore[uint64(i)] = &outerBlock{block: block, finalization: &common.Finalization{}}
-		}
-		tc.validatorSetRetriever.resultMap = map[uint64]NodeBLSMappings{newPChainHeight: newSet}
+	for i, block := range chain {
+		tc.blockStore[uint64(i)] = &outerBlock{block: block, finalization: &common.Finalization{}}
 	}
+	tc.validatorSetRetriever.resultMap = map[uint64]NodeBLSMappings{newPChainHeight: newSet}
 
 	lastBlock := chain[len(chain)-1]
 	blockTime := lastBlock.InnerBlock.Timestamp().Add(time.Second)
-	for _, sm := range []*StateMachine{builder, verifier} {
-		sm.GetTime = func() time.Time { return blockTime }
-		sm.GetPChainHeightForProposing = func() uint64 { return newPChainHeight }
-		sm.GetPChainHeightForVerifying = func() uint64 { return newPChainHeight }
-	}
+	sm.GetTime = func() time.Time { return blockTime }
+	sm.GetPChainHeightForProposing = func() uint64 { return newPChainHeight }
+	sm.GetPChainHeightForVerifying = func() uint64 { return newPChainHeight }
 
 	md := lastBlock.Metadata.SimplexProtocolMetadata
 	md.Seq++
 	md.Round++
 	md.Prev = lastBlock.Digest()
-	builderConfig.blockBuilder.Block = &testutil.InnerBlock{TS: blockTime, BlockHeight: lastBlock.InnerBlock.Height()}
+	tc.blockBuilder.Block = &testutil.InnerBlock{TS: blockTime, BlockHeight: lastBlock.InnerBlock.Height()}
 
 	// Build a transition block
-	block, err := builder.BuildBlock(context.Background(), md, common.Blacklist{NodeCount: 4})
+	block, err := sm.BuildBlock(context.Background(), md, common.Blacklist{NodeCount: 4})
 	require.NoError(t, err)
 	require.Equal(t, newPChainHeight, block.Metadata.SimplexEpochInfo.NextPChainReferenceHeight)
 
-	require.NoError(t, verifier.VerifyBlock(context.Background(), block))
-	verifierConfig.blockStore[md.Seq] = &outerBlock{block: *block}
+	require.NoError(t, sm.VerifyBlock(context.Background(), block))
+	tc.blockStore[md.Seq] = &outerBlock{block: *block}
 
-	// nextBlockApprovals checks the approvals the verifier has processed by making it build the next block
+	// nextBlockApprovers checks the approvals the state machine has processed by building the next block
 	nextBlockApprovers := func() avalanchego.Bitmask {
 		next := md
 		next.Seq++
 		next.Round++
 		next.Prev = block.Digest()
-		verifierConfig.blockBuilder.Block = &testutil.InnerBlock{TS: blockTime, BlockHeight: block.InnerBlock.Height() + 1}
-		collecting, err := verifier.BuildBlock(context.Background(), next, common.Blacklist{NodeCount: 4})
+		tc.blockBuilder.Block = &testutil.InnerBlock{TS: blockTime, BlockHeight: block.InnerBlock.Height() + 1}
+		collecting, err := sm.BuildBlock(context.Background(), next, common.Blacklist{NodeCount: 4})
 		require.NoError(t, err)
 		return avalanchego.BitmaskFromBytes(collecting.Metadata.SimplexEpochInfo.NextEpochApprovals.NodeIDs)
 	}
@@ -1264,27 +1258,29 @@ func TestVerifyDoesNotInitializeApprovalStore(t *testing.T) {
 	// Send an approval for the block we verified above.
 	// Because we have only verified but not indexed the transition block, we should not
 	// process the approval
-	verifier.HandleApproval(approval)
+	sm.HandleApproval(approval)
 	approvers := nextBlockApprovers()
 	require.Zero(t, approvers.Len())
 
 	// Indexing the block initialized the store, which should allow approvals to be processed
-	require.NoError(t, verifier.OnBlockIndex(*block))
-	verifier.HandleApproval(approval)
+	require.NoError(t, sm.OnBlockIndex(*block))
+	sm.HandleApproval(approval)
 	approvers = nextBlockApprovers()
 	require.True(t, approvers.Contains(node3Index))
 
 	// Indexing another transition block should keep the store
-	require.NoError(t, verifier.OnBlockIndex(*block))
+	require.NoError(t, sm.OnBlockIndex(*block))
 	approvers = nextBlockApprovers()
 	require.True(t, approvers.Contains(node3Index))
 
 	// We index a block where the pchain height has a different validator set.
+	// This should cause an error since, a transition should always reference
+	// the same validator set.
 	otherPChainHeight := newPChainHeight + 1
-	verifierConfig.validatorSetRetriever.resultMap[otherPChainHeight] = currentSet
+	tc.validatorSetRetriever.resultMap[otherPChainHeight] = currentSet
 	otherBlock := *block
 	otherBlock.Metadata.SimplexEpochInfo.NextPChainReferenceHeight = otherPChainHeight
-	require.ErrorIs(t, verifier.OnBlockIndex(otherBlock), errApprovalStoreValidatorSetMismatch)
+	require.ErrorIs(t, sm.OnBlockIndex(otherBlock), errApprovalStoreValidatorSetMismatch)
 }
 
 func TestVerifyPChainHeight(t *testing.T) {
