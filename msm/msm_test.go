@@ -304,9 +304,6 @@ func TestMSMNormalOp(t *testing.T) {
 		expectedPChainHeight        uint64
 		expectedNextPChainRefHeight uint64
 		expectedICMEpochInfo        ICMEpochInfo
-		// expectApprovalStore is whether building the block initialized the approval store,
-		// which only happens when the block starts an epoch transition.
-		expectApprovalStore bool
 	}{
 		{
 			name:                 "correct information",
@@ -399,7 +396,6 @@ func TestMSMNormalOp(t *testing.T) {
 			expectedPChainHeight:        newPChainHeight,
 			expectedNextPChainRefHeight: newPChainHeight,
 			expectedICMEpochInfo:        ICMEpochInfo{PChainEpochHeight: 100, EpochNumber: 1},
-			expectApprovalStore:         true,
 		},
 		{
 			// The validator set changed, but the block that opened the epoch is not finalized yet,
@@ -466,8 +462,6 @@ func TestMSMNormalOp(t *testing.T) {
 			block1, err := sm1.BuildBlock(context.Background(), md, blacklist)
 			require.NoError(t, err)
 			require.NotNil(t, block1)
-			require.Equal(t, testCase.expectApprovalStore, sm1.approvalStore != nil,
-				"the approval store is initialized exactly when the built block starts an epoch transition")
 
 			if testCase.mutateBlock != nil {
 				testCase.mutateBlock(block1)
@@ -780,6 +774,8 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 
 			require.NoError(t, smVerify.VerifyBlock(context.Background(), block3))
 
+			require.NoError(t, sm.OnBlockIndex(*block3))
+
 			// ----- Step 4: First collecting block (1/3 approvals, not enough to seal) -----
 
 			sig1 := signApproval(pChainHeight2, emptyAuxInfoDigest)
@@ -788,7 +784,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 				PChainHeight:  pChainHeight2,
 				AuxInfoDigest: emptyAuxInfoDigest,
 				Signature:     sig1,
-			}, 1)
+			})
 
 			// node1 is at index 0 in validatorSet2 → bitmask bit 0 → {1}
 			bitmask := []byte{1}
@@ -829,7 +825,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 				PChainHeight:  pChainHeight2,
 				AuxInfoDigest: emptyAuxInfoDigest,
 				Signature:     sig2,
-			}, 2)
+			})
 
 			// node2 is at index 1 → bitmask bits 0,1 → {3}
 			sig, err = aggr.AppendSignatures(sig, sig2)
@@ -870,7 +866,7 @@ func TestMSMFullEpochLifecycle(t *testing.T) {
 				PChainHeight:  pChainHeight2,
 				AuxInfoDigest: emptyAuxInfoDigest,
 				Signature:     sig3,
-			}, 3)
+			})
 
 			// node3 is at index 2 → bitmask bits 0,1,2 → {7}
 			sig6, err := aggr.AppendSignatures(sig, sig3)
@@ -1195,6 +1191,107 @@ func TestVerifyNextPChainRefHeightNormal(t *testing.T) {
 			require.ErrorIs(t, err, tt.err)
 		})
 	}
+}
+
+// TestVerifyDoesNotInitializeApprovalStore asserts that verifying a block that starts an
+// epoch transition does not create the approval store.
+// Approvals received before initialization should be dropped,
+// one received after should be included in the next block, and initializing
+// the store with a different validator set is an error. Restarting on a transition
+// block initializes the store.
+func TestVerifyDoesNotInitializeApprovalStore(t *testing.T) {
+	const simplexStartHeight, chainEndHeight = 5, 10
+	newPChainHeight := uint64(200)
+
+	currentSet := NodeBLSMappings{{BLSKey: []byte{1}, Weight: 1, NodeID: [20]byte{1}}, {BLSKey: []byte{2}, Weight: 1, NodeID: [20]byte{2}}}
+	newSet := NodeBLSMappings{{BLSKey: []byte{2}, Weight: 1, NodeID: [20]byte{2}}, {BLSKey: []byte{3}, Weight: 1, NodeID: [20]byte{3}}}
+
+	sm, tc := newStateMachine(t)
+	sm.AuxiliaryInfoApp = &noopTestAuxInfoApp{}
+
+	chain := makeChain(t, simplexStartHeight, chainEndHeight, currentSet)
+	for i, block := range chain {
+		tc.blockStore[uint64(i)] = &outerBlock{block: block, finalization: &common.Finalization{}}
+	}
+	tc.validatorSetRetriever.resultMap = map[uint64]NodeBLSMappings{newPChainHeight: newSet}
+
+	lastBlock := chain[len(chain)-1]
+	blockTime := lastBlock.InnerBlock.Timestamp().Add(time.Second)
+	sm.GetTime = func() time.Time { return blockTime }
+	sm.GetPChainHeightForProposing = func() uint64 { return newPChainHeight }
+	sm.GetPChainHeightForVerifying = func() uint64 { return newPChainHeight }
+
+	md := lastBlock.Metadata.SimplexProtocolMetadata
+	md.Seq++
+	md.Round++
+	md.Prev = lastBlock.Digest()
+	tc.blockBuilder.Block = &testutil.InnerBlock{TS: blockTime, BlockHeight: lastBlock.InnerBlock.Height()}
+
+	// Build a transition block
+	block, err := sm.BuildBlock(context.Background(), md, common.Blacklist{NodeCount: 4})
+	require.NoError(t, err)
+	require.Equal(t, newPChainHeight, block.Metadata.SimplexEpochInfo.NextPChainReferenceHeight)
+
+	require.NoError(t, sm.VerifyBlock(context.Background(), block))
+	tc.blockStore[md.Seq] = &outerBlock{block: *block}
+
+	// nextBlockApprovers checks the approvals the state machine has processed by building the next block
+	nextBlockApprovers := func() avalanchego.Bitmask {
+		next := md
+		next.Seq++
+		next.Round++
+		next.Prev = block.Digest()
+		tc.blockBuilder.Block = &testutil.InnerBlock{TS: blockTime, BlockHeight: block.InnerBlock.Height() + 1}
+		collecting, err := sm.BuildBlock(context.Background(), next, common.Blacklist{NodeCount: 4})
+		require.NoError(t, err)
+		return avalanchego.BitmaskFromBytes(collecting.Metadata.SimplexEpochInfo.NextEpochApprovals.NodeIDs)
+	}
+
+	var auxInfoDigest [32]byte
+	approval := &common.ValidatorSetApproval{
+		NodeID:        [20]byte{3},
+		PChainHeight:  newPChainHeight,
+		AuxInfoDigest: auxInfoDigest,
+		Signature:     signApproval(newPChainHeight, auxInfoDigest),
+	}
+	const node3Index = 1
+
+	// Send an approval for the block we verified above.
+	// Because we have only verified but not indexed the transition block, we should not
+	// process the approval
+	sm.HandleApproval(approval)
+	approvers := nextBlockApprovers()
+	require.Zero(t, approvers.Len())
+
+	// Indexing the block initialized the store, which should allow approvals to be processed
+	require.NoError(t, sm.OnBlockIndex(*block))
+	sm.HandleApproval(approval)
+	approvers = nextBlockApprovers()
+	require.True(t, approvers.Contains(node3Index))
+
+	// Indexing another transition block should keep the store
+	require.NoError(t, sm.OnBlockIndex(*block))
+	approvers = nextBlockApprovers()
+	require.True(t, approvers.Contains(node3Index))
+
+	// We index a block where the pchain height has a different validator set.
+	// This should cause an error since, a transition should always reference
+	// the same validator set.
+	otherPChainHeight := newPChainHeight + 1
+	tc.validatorSetRetriever.resultMap[otherPChainHeight] = currentSet
+	otherBlock := *block
+	otherBlock.Metadata.SimplexEpochInfo.NextPChainReferenceHeight = otherPChainHeight
+	require.ErrorIs(t, sm.OnBlockIndex(otherBlock), errApprovalStoreValidatorSetMismatch)
+
+	// Restarting with the transition block as the latest persisted block should
+	// initialize the store, so approvals are processed without indexing
+	config := *sm.Config
+	config.LatestPersistedHeight = md.Seq
+	sm, err = NewStateMachine(&config)
+	require.NoError(t, err)
+	sm.HandleApproval(approval)
+	approvers = nextBlockApprovers()
+	require.True(t, approvers.Contains(node3Index))
 }
 
 func TestVerifyPChainHeight(t *testing.T) {
