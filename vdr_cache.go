@@ -14,23 +14,20 @@ import (
 // height do not reach the P-chain.
 type ValidatorCache struct {
 	PlatformChain
-	lock         sync.RWMutex
+	lock         sync.Mutex
 	cachedHeight uint64
 	cachedResult metadata.NodeBLSMappings
 }
 
 func (vc *ValidatorCache) GetValidatorSet(height uint64) (metadata.NodeBLSMappings, error) {
-	vc.lock.RLock()
+	vc.lock.Lock()
+	defer vc.lock.Unlock()
 	cachedHeight := vc.cachedHeight
 	cachedResult := vc.cachedResult
-	vc.lock.RUnlock()
 
 	if height == cachedHeight && len(cachedResult) != 0 {
 		return cachedResult.Clone(), nil
 	}
-
-	vc.lock.Lock()
-	defer vc.lock.Unlock()
 
 	// Check again in case another goroutine updated the cache while we were waiting for the lock.
 	if height == vc.cachedHeight && len(vc.cachedResult) != 0 {

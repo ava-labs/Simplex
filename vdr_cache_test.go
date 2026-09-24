@@ -99,9 +99,7 @@ func TestValidatorCacheConcurrentAccessReturnsRequestedHeight(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for g := 0; g < 8; g++ {
-		wg.Add(1)
-		go func(g int) {
-			defer wg.Done()
+		wg.Go(func() {
 			for i := 0; i < 2000; i++ {
 				height := uint64(1 + (g+i)%2)
 				set, err := vc.GetValidatorSet(height)
@@ -111,7 +109,7 @@ func TestValidatorCacheConcurrentAccessReturnsRequestedHeight(t *testing.T) {
 				assert.NoError(t, err)
 				assert.Equal(t, validatorSetForHeight(height), set)
 			}
-		}(g)
+		})
 	}
 	wg.Wait()
 }
