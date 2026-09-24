@@ -3623,7 +3623,7 @@ func (e *Epoch) maybeStoreQuorumRound(round *common.QuorumRound) {
 		var signers []common.NodeID
 		if round.EmptyNotarization != nil {
 			signers = round.EmptyNotarization.QC.Signers()
-		} else {
+		} else if round.Notarization != nil {
 			signers = round.Notarization.QC.Signers()
 		}
 		e.replicationState.ReceivedFutureRound(round.GetRound(), round.GetSequence(), e.round, signers)
