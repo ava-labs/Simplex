@@ -3619,7 +3619,9 @@ func (e *Epoch) maybeStoreQuorumRound(round *common.QuorumRound) {
 		return
 	}
 
-	if round.Finalization == nil && round.GetRound() > e.round+e.MaxRoundWindow {
+	// Store the next sequence to commit, even if it is passed MaxRoundWindow, since we may have a lot of empty notarizations
+	isNextSeqToCommit := round.GetSequence() == nextSeqToCommit
+	if round.Finalization == nil && round.GetRound() > e.round+e.MaxRoundWindow && !isNextSeqToCommit {
 		var signers []common.NodeID
 		if round.EmptyNotarization != nil {
 			signers = round.EmptyNotarization.QC.Signers()
