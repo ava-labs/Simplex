@@ -1232,6 +1232,7 @@ func TestVerifyDoesNotInitializeApprovalStore(t *testing.T) {
 	md.Prev = lastBlock.Digest()
 	builderConfig.blockBuilder.Block = &testutil.InnerBlock{TS: blockTime, BlockHeight: lastBlock.InnerBlock.Height()}
 
+	// Build a transition block
 	block, err := builder.BuildBlock(context.Background(), md, common.Blacklist{NodeCount: 4})
 	require.NoError(t, err)
 	require.Equal(t, newPChainHeight, block.Metadata.SimplexEpochInfo.NextPChainReferenceHeight)
@@ -1239,7 +1240,7 @@ func TestVerifyDoesNotInitializeApprovalStore(t *testing.T) {
 	require.NoError(t, verifier.VerifyBlock(context.Background(), block))
 	verifierConfig.blockStore[md.Seq] = &outerBlock{block: *block}
 
-	// The collecting block the verifier builds next carries whatever approvals its store holds.
+	// nextBlockApprovals checks the approvals the verifier has processed by making it build the next block
 	nextBlockApprovers := func() avalanchego.Bitmask {
 		next := md
 		next.Seq++
@@ -1260,23 +1261,25 @@ func TestVerifyDoesNotInitializeApprovalStore(t *testing.T) {
 	}
 	const node3Index = 1
 
-	// Verification created no store, so this approval is dropped.
+	// Send an approval for the block we verified above.
+	// Because we have only verified but not indexed the transition block, we should not
+	// process the approval
 	verifier.HandleApproval(approval)
-	require.NoError(t, verifier.OnBlockIndex(*block))
 	approvers := nextBlockApprovers()
 	require.Zero(t, approvers.Len())
 
-	// Indexing the block initialized the store, which now holds approvals from the new set.
+	// Indexing the block initialized the store, which should allow approvals to be processed
+	require.NoError(t, verifier.OnBlockIndex(*block))
 	verifier.HandleApproval(approval)
 	approvers = nextBlockApprovers()
 	require.True(t, approvers.Contains(node3Index))
 
-	// Every later collecting block indexes with the same set and keeps the store.
+	// Indexing another transition block should keep the store
 	require.NoError(t, verifier.OnBlockIndex(*block))
 	approvers = nextBlockApprovers()
 	require.True(t, approvers.Contains(node3Index))
 
-	// A state machine lives for one epoch, which transitions at most once.
+	// We index a block where the pchain height has a different validator set.
 	otherPChainHeight := newPChainHeight + 1
 	verifierConfig.validatorSetRetriever.resultMap[otherPChainHeight] = currentSet
 	otherBlock := *block
