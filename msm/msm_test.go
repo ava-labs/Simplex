@@ -1197,7 +1197,8 @@ func TestVerifyNextPChainRefHeightNormal(t *testing.T) {
 // epoch transition does not create the approval store.
 // Approvals received before initialization should be dropped,
 // one received after should be included in the next block, and initializing
-// the store with a different validator set is an error.
+// the store with a different validator set is an error. Restarting on a transition
+// block initializes the store.
 func TestVerifyDoesNotInitializeApprovalStore(t *testing.T) {
 	const simplexStartHeight, chainEndHeight = 5, 10
 	newPChainHeight := uint64(200)
@@ -1281,6 +1282,16 @@ func TestVerifyDoesNotInitializeApprovalStore(t *testing.T) {
 	otherBlock := *block
 	otherBlock.Metadata.SimplexEpochInfo.NextPChainReferenceHeight = otherPChainHeight
 	require.ErrorIs(t, sm.OnBlockIndex(otherBlock), errApprovalStoreValidatorSetMismatch)
+
+	// Restarting with the transition block as the latest persisted block should
+	// initialize the store, so approvals are processed without indexing
+	config := *sm.Config
+	config.LatestPersistedHeight = md.Seq
+	sm, err = NewStateMachine(&config)
+	require.NoError(t, err)
+	sm.HandleApproval(approval)
+	approvers = nextBlockApprovers()
+	require.True(t, approvers.Contains(node3Index))
 }
 
 func TestVerifyPChainHeight(t *testing.T) {
