@@ -67,6 +67,7 @@ func (s *CallbackStorage) Retrieve(seq uint64) (common.VerifiedBlock, common.Fin
 		return nil, common.Finalization{}, err
 	}
 	parsedBlock := &ParsedBlock{
+		legacyBlock:       seq <= s.lastNonSimplexHeight,
 		msm:               s.msm,
 		StateMachineBlock: block,
 	}
@@ -108,16 +109,20 @@ func (cb *cachedBlock) Verify(ctx context.Context, verifyOpts ...common.VerifyOp
 }
 
 type CachedStorage struct {
-	msm  *metadata.StateMachine
-	lock sync.RWMutex
+	// lastNonSimplexHeight is the height of the last block that is not a Simplex block.
+	// Blocks with height <= this are called legacy blocks.
+	lastNonSimplexHeight uint64
+	msm                  *metadata.StateMachine
+	lock                 sync.RWMutex
 	Storage
 	cache map[common.Digest]cachedBlock
 }
 
-func NewCachedStorage(storage Storage) *CachedStorage {
+func NewCachedStorage(storage Storage, lastNonSimplexHeight uint64) *CachedStorage {
 	return &CachedStorage{
-		Storage: storage,
-		cache:   make(map[common.Digest]cachedBlock),
+		lastNonSimplexHeight: lastNonSimplexHeight,
+		Storage:              storage,
+		cache:                make(map[common.Digest]cachedBlock),
 	}
 }
 
@@ -151,11 +156,25 @@ func (cs *CachedStorage) Retrieve(seq uint64, digest common.Digest) (common.Veri
 
 	// We don't populate the cache here because we populate it externally.
 	block, finalization, err := cs.GetBlock(seq)
-	if digest != (common.Digest{}) && block.Digest() != digest {
-		return nil, nil, common.ErrBlockNotFound
+	if err != nil {
+		return nil, nil, err
+	}
+
+	legacy := seq <= cs.lastNonSimplexHeight
+
+	if digest != (common.Digest{}) {
+		// A block predating Simplex is identified by its inner block's digest, not by a Simplex block digest.
+		blockDigest := block.Digest()
+		if legacy && block.InnerBlock != nil {
+			blockDigest = common.Digest(block.InnerBlock.Digest())
+		}
+		if blockDigest != digest {
+			return nil, nil, common.ErrBlockNotFound
+		}
 	}
 
 	return &ParsedBlock{
+		legacyBlock:       legacy,
 		StateMachineBlock: block,
 		msm:               cs.msm,
 	}, finalization, err
@@ -259,6 +278,7 @@ func (bw *blockBuilderWaiter) BuildBlock(ctx context.Context, metadata common.Pr
 	}
 
 	pb := &ParsedBlock{
+		legacyBlock:       metadata.Seq <= bw.cs.lastNonSimplexHeight,
 		StateMachineBlock: *block,
 		msm:               bw.msm,
 	}
@@ -289,8 +309,12 @@ func (bd *blockDeserializer) DeserializeBlock(ctx context.Context, bytes []byte)
 		innerBlock = block
 	}
 
+	seq := rawBlock.Metadata.SimplexProtocolMetadata.Seq
+	legacy := seq <= bd.cs.lastNonSimplexHeight
+
 	return &cachedBlock{
 		ParsedBlock: &ParsedBlock{
+			legacyBlock: legacy,
 			StateMachineBlock: metadata.StateMachineBlock{
 				InnerBlock: innerBlock,
 				Metadata:   rawBlock.Metadata,
