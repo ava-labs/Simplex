@@ -3518,22 +3518,7 @@ func (e *Epoch) handleReplicationResponse(resp *common.ReplicationResponse, from
 	}
 
 	e.Logger.Debug("Received replication response", zap.Stringer("from", from), zap.Int("num seqs", len(resp.Data)), zap.Stringer("latest round", resp.LatestRound), zap.Stringer("latest seq", resp.LatestSeq))
-	nextSeqToCommit := e.nextSeqToCommit()
-
 	for _, data := range resp.Data {
-		if data.Finalization != nil && data.GetSequence() > nextSeqToCommit+e.MaxRoundWindow {
-			e.Logger.Debug("Received quorum round for a seq that is too far ahead", zap.Uint64("seq", data.GetSequence()))
-			// we are too far behind, we should ignore this message
-			continue
-		}
-
-		// We may be really far behind, so we shouldn't process sequences unless they are the nextSequenceToCommit
-		if data.GetRound() > e.round+e.MaxRoundWindow && data.GetSequence() != nextSeqToCommit {
-			e.Logger.Debug("Received quorum round for a round that is too far ahead", zap.Uint64("round", data.GetRound()))
-			// we are too far behind, we should ignore this message
-			continue
-		}
-
 		if err := e.processQuorumRound(&data, from); err != nil {
 			e.Logger.Debug("Failed processing quorum round", zap.Error(err))
 		}
@@ -3621,8 +3606,33 @@ func (e *Epoch) processQuorumRound(round *common.QuorumRound, from common.NodeID
 		return fmt.Errorf("failed verifying latest round: %w", err)
 	}
 
-	e.replicationState.StoreQuorumRound(round)
+	e.maybeStoreQuorumRound(round)
 	return nil
+}
+
+// maybeStoreQuorumRound stores a verified quorum round in the replication state if it is within the round window.
+// Quorum rounds beyond the window notify replication, but are not stored to keep memory bounded.
+func (e *Epoch) maybeStoreQuorumRound(round *common.QuorumRound) {
+	nextSeqToCommit := e.nextSeqToCommit()
+	if round.Finalization != nil && round.GetSequence() > nextSeqToCommit+e.MaxRoundWindow {
+		e.replicationState.ReceivedFutureFinalization(round.Finalization, nextSeqToCommit)
+		return
+	}
+
+	// Store the next sequence to commit, even if it is passed MaxRoundWindow, since we may have a lot of empty notarizations
+	isNextSeqToCommit := round.GetSequence() == nextSeqToCommit
+	if round.Finalization == nil && round.GetRound() > e.round+e.MaxRoundWindow && !isNextSeqToCommit {
+		var signers []common.NodeID
+		if round.EmptyNotarization != nil {
+			signers = round.EmptyNotarization.QC.Signers()
+		} else if round.Notarization != nil {
+			signers = round.Notarization.QC.Signers()
+		}
+		e.replicationState.ReceivedFutureRound(round.GetRound(), round.GetSequence(), e.round, signers)
+		return
+	}
+
+	e.replicationState.StoreQuorumRound(round)
 }
 
 func (e *Epoch) processReplicationState() error {
