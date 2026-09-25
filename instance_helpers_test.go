@@ -240,9 +240,20 @@ func newTestStorage() *testStorage {
 }
 
 func newTestStorageWithGenesis(t *testing.T) *testStorage {
+	return newTestStorageWithPreSimplexBlocks(t, genesisBlock)
+}
+
+func newTestStorageWithPreSimplexBlocks(t *testing.T, blocks ...*testInnerBlock) *testStorage {
 	s := newTestStorage()
-	genesis := &ParsedBlock{StateMachineBlock: metadata.StateMachineBlock{InnerBlock: genesisBlock}}
-	require.NoError(t, s.Index(context.Background(), genesis, common.Finalization{}))
+	for _, inner := range blocks {
+		block := &ParsedBlock{StateMachineBlock: metadata.StateMachineBlock{
+			InnerBlock: inner,
+			Metadata: metadata.StateMachineMetadata{
+				SimplexProtocolMetadata: common.ProtocolMetadata{Seq: inner.Height()},
+			},
+		}}
+		require.NoError(t, s.Index(context.Background(), block, common.Finalization{}))
+	}
 	return s
 }
 

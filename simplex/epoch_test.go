@@ -3484,3 +3484,76 @@ func TestRebroadcastDoesNotFinalizeVoteOnTimedOutRound(t *testing.T) {
 		}
 	}
 }
+
+// TestReplicationLatestSeqBeyondWindowIsNotStored asserts a LatestSeq beyond the round window is not stored.
+func TestReplicationLatestSeqBeyondWindowIsNotStored(t *testing.T) {
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	conf, _, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[1], testutil.NewNoopComm(nodes), testutil.NewTestBlockBuilder())
+	conf.ReplicationEnabled = true
+	conf.MaxRoundWindow = 2
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+
+	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Validators())
+	md := e.Metadata()
+	var chain []QuorumRound
+	for seq := uint64(0); seq <= 3; seq++ {
+		md.Seq = seq
+		md.Round = seq
+		block := testutil.NewTestBlock(md, emptyBlacklist)
+		finalization, _ := testutil.NewFinalizationRecord(t, sigAggr, block, nodes)
+		chain = append(chain, QuorumRound{Block: block, Finalization: &finalization})
+		md.Prev = block.BlockHeader().Digest
+	}
+
+	// farAheadBlock is past the max round window, so it shouldn't be stored in replication state
+	farAheadBlock := testutil.NewTestBlock(chain[3].Block.BlockHeader().ProtocolMetadata, emptyBlacklist)
+	farAheadBlock.Data = []byte("far ahead")
+	farAheadBlock.ComputeDigest()
+	farAheadFinalization, _ := testutil.NewFinalizationRecord(t, sigAggr, farAheadBlock, nodes)
+	require.NoError(t, e.HandleMessage(&Message{ReplicationResponse: &ReplicationResponse{
+		LatestSeq: &QuorumRound{Block: farAheadBlock, Finalization: &farAheadFinalization},
+	}}, nodes[2]))
+
+	require.NoError(t, e.HandleMessage(&Message{ReplicationResponse: &ReplicationResponse{
+		Data: chain[:3],
+	}}, nodes[2]))
+	storage.WaitForBlockCommit(2)
+
+	require.NoError(t, e.HandleMessage(&Message{ReplicationResponse: &ReplicationResponse{
+		Data: chain[3:],
+	}}, nodes[2]))
+	committed := storage.WaitForBlockCommit(3)
+	// Ensure the farAheadBlock was not the one committed
+	require.Equal(t, chain[3].Block.BlockHeader().Digest, committed.BlockHeader().Digest)
+}
+
+// TestReplicationNextSeqNotarizationBeyondWindowIsStored asserts a notarization for the next sequence to commit
+// is stored even when its round is beyond the round window, so the round advances past the empty rounds to process it.
+func TestReplicationNextSeqNotarizationBeyondWindowIsStored(t *testing.T) {
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[3], testutil.NewNoopComm(nodes), testutil.NewTestBlockBuilder())
+	conf.ReplicationEnabled = true
+	conf.MaxRoundWindow = 1
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+
+	// Seq 0 is notarized in round 2, which is past our round 0 plus the window.
+	md := e.Metadata()
+	md.Round = 2
+	block := testutil.NewTestBlock(md, emptyBlacklist)
+	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Validators())
+	notarization, err := testutil.NewNotarization(e.Logger, sigAggr, block, nodes)
+	require.NoError(t, err)
+	require.NoError(t, e.HandleMessage(&Message{ReplicationResponse: &ReplicationResponse{
+		Data: []QuorumRound{{Block: block, Notarization: &notarization}},
+	}}, nodes[2]))
+
+	require.Equal(t, NotarizationRecordType, wal.AssertNotarization(2))
+}
