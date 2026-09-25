@@ -17,7 +17,7 @@ import (
 var ErrTooManyPendingVerifications = errors.New("too many blocks being verified to ingest another one")
 
 type Scheduler interface {
-	Schedule(task Task)
+	Schedule(task Task) bool
 	Size() int
 	Close()
 }
@@ -78,7 +78,9 @@ func (bs *BlockDependencyManager) ExecuteBlockDependents(prev Digest) {
 
 		if taskWithDeps.isReady() {
 			bs.logger.Debug("Scheduling block verification task as all dependencies are met", zap.Stringer("taskID", prev), zap.Uint64("Seq", taskWithDeps.blockSeq))
-			bs.scheduler.Schedule(taskWithDeps.Task)
+			if !bs.scheduler.Schedule(taskWithDeps.Task) {
+				delete(bs.scheduledSeqs, taskWithDeps.blockSeq)
+			}
 			continue
 		}
 
@@ -107,7 +109,9 @@ func (bs *BlockDependencyManager) ExecuteEmptyRoundDependents(emptyRound uint64)
 
 		if taskWithDeps.isReady() {
 			bs.logger.Debug("Scheduling block verification task as all dependencies are met", zap.Stringer("task", taskWithDeps))
-			bs.scheduler.Schedule(taskWithDeps.Task)
+			if !bs.scheduler.Schedule(taskWithDeps.Task) {
+				delete(bs.scheduledSeqs, taskWithDeps.blockSeq)
+			}
 			continue
 		}
 
@@ -160,7 +164,9 @@ func (bs *BlockDependencyManager) ScheduleTaskWithDependencies(task Task, blockS
 
 	if prev == nil && len(emptyRounds) == 0 {
 		bs.logger.Debug("Scheduling block verification task with no dependencies", zap.Uint64("blockSeq", blockSeq))
-		bs.scheduler.Schedule(wrappedTask)
+		if !bs.scheduler.Schedule(wrappedTask) {
+			delete(bs.scheduledSeqs, blockSeq)
+		}
 		return nil
 	}
 

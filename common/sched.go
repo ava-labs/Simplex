@@ -66,19 +66,22 @@ func (as *BasicScheduler) run() {
 	}
 }
 
-func (as *BasicScheduler) Schedule(task Task) {
+// Schedule queues the task and reports whether it was queued.
+func (as *BasicScheduler) Schedule(task Task) bool {
 	as.mu.Lock()
 	defer as.mu.Unlock()
 
 	if as.closed {
-		return
+		return false
 	}
 
 	as.logger.Debug("Scheduling new ready task", zap.Int("ready tasks", len(as.tasks)+1))
 	select {
 	case as.tasks <- task:
+		return true
 	default:
 		as.logger.Warn("Scheduler task queue is full; task was not scheduled")
+		return false
 	}
 }
 
