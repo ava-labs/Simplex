@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"math/rand/v2"
-	"slices"
 	"sync"
 	"time"
 
@@ -267,8 +266,8 @@ func (n *NonValidator) maybeTransitionToValidator(epoch uint64, validators commo
 }
 
 // initialEpochReplicationTask is the sealingBlockTimeouts task that continuously asks for sealing blocks until a
-// threshold of responses validates an epoch. We use Seq 1, since requests with Seq 0 are dropped.
-const initialEpochReplicationTask uint64 = 1
+// threshold of responses validates an epoch. Seq 0 is never a sealing block, so it cannot collide with a hash chain task.
+const initialEpochReplicationTask uint64 = 0
 
 // requestMissingSealingBlocks re-requests sealing blocks of the hash chain that timed out
 // from every validator. Runs on the timeout handler's goroutine.
@@ -280,15 +279,21 @@ func (n *NonValidator) requestMissingSealingBlocks(seqs []uint64) {
 		return
 	}
 
-	var latestFinalizedSeq uint64
-	if slices.Contains(seqs, initialEpochReplicationTask) {
-		latestFinalizedSeq = initialEpochReplicationTask
-	}
+	for _, seq := range seqs {
+		if seq == initialEpochReplicationTask {
+			// Any finalized seq gets a validator's latest, so votes for an epoch we already have still arrive.
+			n.Logger.Debug("Re-requesting the latest sealing block")
+			n.Comm.Broadcast(&common.Message{
+				ReplicationRequest: &common.ReplicationRequest{LatestFinalizedSeq: 1},
+			})
+			continue
+		}
 
-	n.Logger.Debug("Re-requesting sealing blocks", zap.Uint64s("Seqs", seqs))
-	n.Comm.Broadcast(&common.Message{
-		ReplicationRequest: &common.ReplicationRequest{Seqs: seqs, LatestFinalizedSeq: latestFinalizedSeq},
-	})
+		n.Logger.Debug("Re-requesting sealing block", zap.Uint64("Seq", seq))
+		n.Comm.Broadcast(&common.Message{
+			ReplicationRequest: &common.ReplicationRequest{Seqs: []uint64{seq}},
+		})
+	}
 }
 
 // handleBlock handles a block message. BlockMessages are sent when the leader proposes a block for its round.
