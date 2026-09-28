@@ -252,7 +252,7 @@ func (r *ReplicationState) ResendFinalizationRequest(seq uint64, signers []commo
 
 // ResendRoundRequest notifies the replication state that `round` should be re-requested.
 func (r *ReplicationState) ResendRoundRequest(round uint64, signers []common.NodeID) {
-	if !r.enabled {
+	if !r.enabled.Load() {
 		return
 	}
 
@@ -448,10 +448,10 @@ func (r *ReplicationState) Close() {
 	if !r.enabled.Load() {
 		return
 	}
+	r.enabled.Store(false)
 
 	r.digestTimeouts.Close()
 	r.emptyRoundTimeouts.Close()
 	r.roundRequestor.close()
 	r.finalizationRequestor.close()
-	r.enabled.Store(false)
 }
