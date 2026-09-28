@@ -389,7 +389,7 @@ func (i *Instance) HandleMessage(msg *common.Message, from common.NodeID) error 
 		return i.nv.HandleMessage(msg, from)
 	}
 
-	return errors.New("we are not running as a validator or not validator")
+	return errors.New("we are not running neither a validator or not validator")
 }
 
 func (i *Instance) wireReplicationResponse(msg *common.Message) error {

@@ -679,7 +679,7 @@ func (n *NonValidator) storeQuorumRound(qr *common.QuorumRound) {
 	seq := qr.Block.BlockHeader().Seq
 	nextSeqToCommit := n.nextSeqToCommit()
 
-	// Store sealing blocks regardless of MaxSequenceWindow, since .
+	// Store sealing blocks regardless of MaxSequenceWindow.
 	if qr.Block.SealingBlockInfo() != nil {
 		n.sequenceReplicator.StoreQuorumRound(qr)
 		return
