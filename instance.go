@@ -200,12 +200,12 @@ func (i *Instance) createNonValidatorConfig(epochsReplicated bool) (nonvalidator
 		return nonvalidator.Config{}, err
 	}
 
-	latestValidatorSet, err := getLatestPlatformChainValidatorSet(i.Config.PlatformChain)
-	if err != nil {
-		return nonvalidator.Config{}, err
+	// The validator set follows the P-chain tip while we replicate epochs.
+	comm := &communication{
+		validators:  i.latestValidatorSet,
+		Sender:      i.Config.Sender,
+		Broadcaster: i.Config.Broadcaster,
 	}
-
-	comm := newCommunication(i.Config.Sender, i.Config.Broadcaster, latestValidatorSet.Nodes())
 
 	// Plant an artificial MSM. A non-validator never verifies the state machine transition,
 	// it only verifies the inner block (see common.OnlyVMVerifyOpt), so this MSM is only
@@ -237,6 +237,15 @@ func (i *Instance) createNonValidatorConfig(epochsReplicated bool) (nonvalidator
 		EpochsReplicated:           epochsReplicated,
 	}
 	return config, nil
+}
+
+func (i *Instance) latestValidatorSet() common.Nodes {
+	validators, err := getLatestPlatformChainValidatorSet(i.Config.PlatformChain)
+	if err != nil {
+		i.Config.Logger.Error("Failed to retrieve the latest P-chain validator set", zap.Error(err))
+		return nil
+	}
+	return validators.Nodes()
 }
 
 func (i *Instance) notifyEpochChange(epoch uint64, validators common.Nodes) {
@@ -552,7 +561,11 @@ func (i *Instance) createEpochConfig(validators common.Nodes) (*epochConfig, err
 
 	blockBuilder := newBlockBuilderWaiter(msm, i.cs, i.Config.VM)
 
-	comm := newCommunication(i.Config.Sender, i.Config.Broadcaster, validators)
+	comm := &communication{
+		validators:  func() common.Nodes { return validators },
+		Sender:      i.Config.Sender,
+		Broadcaster: i.Config.Broadcaster,
+	}
 
 	// set the handle approval method so that the MSM can receive self approvals
 	i.transitionListener.handleApproval = msm.HandleApproval
