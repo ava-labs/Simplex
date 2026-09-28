@@ -182,7 +182,7 @@ func TestHandleMessages(t *testing.T) {
 				tc := newSeededChain(t, testNodes, 2)
 				b3 := tc.appendBlock()
 				junk := testutil.NewTestBlock(common.ProtocolMetadata{
-					Round: b3.Metadata.Round + 1,
+					Round: b3.Metadata.Round + uint64(len(testNodes)),
 					Seq:   b3.Metadata.Seq,
 					Epoch: b3.Metadata.Epoch,
 					Prev:  b3.Metadata.Prev,
@@ -202,7 +202,7 @@ func TestHandleMessages(t *testing.T) {
 				tc := newSeededChain(t, testNodes, 2)
 				b3 := tc.appendBlock()
 				junk := testutil.NewTestBlock(common.ProtocolMetadata{
-					Round: b3.Metadata.Round + 1,
+					Round: b3.Metadata.Round + uint64(len(testNodes)),
 					Seq:   b3.Metadata.Seq,
 					Epoch: b3.Metadata.Epoch,
 					Prev:  b3.Metadata.Prev,
@@ -222,7 +222,7 @@ func TestHandleMessages(t *testing.T) {
 				tc := newSeededChain(t, testNodes, 2)
 				b3 := tc.appendBlock()
 				junk := testutil.NewTestBlock(common.ProtocolMetadata{
-					Round: b3.Metadata.Round + 1,
+					Round: b3.Metadata.Round + uint64(len(testNodes)),
 					Seq:   b3.Metadata.Seq,
 					Epoch: b3.Metadata.Epoch,
 					Prev:  b3.Metadata.Prev,
@@ -231,10 +231,12 @@ func TestHandleMessages(t *testing.T) {
 				return tc, []*messageInfo{
 					blockMsg(t, b3, testNodes),
 					blockMsg(t, junk, testNodes),
+					// we only store the latest block received per sequence, so junk block overrides b3
+					// meaning the height should not advance.
 					finalizationMsg(t, b3, testNodes),
 				}
 			},
-			expectedHeight: 4,
+			expectedHeight: 3,
 		},
 		{
 			name: "real block then finalization then junk block",
@@ -242,7 +244,7 @@ func TestHandleMessages(t *testing.T) {
 				tc := newSeededChain(t, testNodes, 2)
 				b3 := tc.appendBlock()
 				junk := testutil.NewTestBlock(common.ProtocolMetadata{
-					Round: b3.Metadata.Round + 1,
+					Round: b3.Metadata.Round + uint64(len(testNodes)),
 					Seq:   b3.Metadata.Seq,
 					Epoch: b3.Metadata.Epoch,
 					Prev:  b3.Metadata.Prev,
@@ -262,7 +264,7 @@ func TestHandleMessages(t *testing.T) {
 				tc := newSeededChain(t, testNodes, 2)
 				b3 := tc.appendBlock()
 				junk := testutil.NewTestBlock(common.ProtocolMetadata{
-					Round: b3.Metadata.Round + 1,
+					Round: b3.Metadata.Round + uint64(len(testNodes)),
 					Seq:   b3.Metadata.Seq,
 					Epoch: b3.Metadata.Epoch,
 					Prev:  b3.Metadata.Prev,
@@ -282,7 +284,7 @@ func TestHandleMessages(t *testing.T) {
 				tc := newSeededChain(t, testNodes, 2)
 				b3 := tc.appendBlock()
 				junk := testutil.NewTestBlock(common.ProtocolMetadata{
-					Round: b3.Metadata.Round + 1,
+					Round: b3.Metadata.Round + uint64(len(testNodes)),
 					Seq:   b3.Metadata.Seq,
 					Epoch: b3.Metadata.Epoch,
 					Prev:  b3.Metadata.Prev,
