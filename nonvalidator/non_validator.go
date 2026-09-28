@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand/v2"
+	"slices"
 	"sync"
 	"time"
 
@@ -279,12 +280,15 @@ func (n *NonValidator) requestMissingSealingBlocks(seqs []uint64) {
 		return
 	}
 
-	for _, seq := range seqs {
-		n.Logger.Debug("Re-requesting a sealing block", zap.Uint64("Seq", seq))
-		n.Comm.Broadcast(&common.Message{
-			ReplicationRequest: &common.ReplicationRequest{Seqs: []uint64{seq}},
-		})
+	var latestFinalizedSeq uint64
+	if slices.Contains(seqs, initialEpochReplicationTask) {
+		latestFinalizedSeq = initialEpochReplicationTask
 	}
+
+	n.Logger.Debug("Re-requesting sealing blocks", zap.Uint64s("Seqs", seqs))
+	n.Comm.Broadcast(&common.Message{
+		ReplicationRequest: &common.ReplicationRequest{Seqs: seqs, LatestFinalizedSeq: latestFinalizedSeq},
+	})
 }
 
 // handleBlock handles a block message. BlockMessages are sent when the leader proposes a block for its round.
