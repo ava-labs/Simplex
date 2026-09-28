@@ -140,6 +140,28 @@ func TestCachedStorageIndexEvictsSameSeqFork(t *testing.T) {
 	require.NotNil(t, fin)
 }
 
+// TestCachedStorageLateVerify asserts that a fork whose
+// verification completes after its seq was indexed is not cached.
+func TestCachedStorageLateVerifyDoesNotShadowIndexed(t *testing.T) {
+	cs := NewCachedStorage(newTestStorage(), 0)
+	require.NoError(t, cs.Index(t.Context(), newTestParsedBlock(0, "genesis"), common.Finalization{}))
+
+	finalized := newTestParsedBlock(1, "finalized")
+	require.NoError(t, cs.Index(t.Context(), finalized, common.Finalization{}))
+
+	delayedVerificationBlock := &cachedBlock{
+		ParsedBlock: newTestParsedBlock(1, "fork"),
+		cache:       cs,
+	}
+	_, err := delayedVerificationBlock.Verify(t.Context(), common.OnlyVMVerifyOpt)
+	require.NoError(t, err)
+
+	retrievedBlock, fin, err := cs.Retrieve(1, common.Digest{})
+	require.NoError(t, err)
+	require.Equal(t, finalized.BlockHeader().Digest, retrievedBlock.BlockHeader().Digest)
+	require.NotNil(t, fin)
+}
+
 // TestCachedStoragePopulatedByWal asserts that a block restored from the WAL on
 // startup ends up in the instance's CachedStorage, retrievable by seq before it
 // is finalized and indexed.

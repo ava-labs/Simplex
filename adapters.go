@@ -181,13 +181,15 @@ func (cs *CachedStorage) Retrieve(seq uint64, digest common.Digest) (common.Veri
 }
 
 func (cs *CachedStorage) Index(ctx context.Context, block common.VerifiedBlock, certificate common.Finalization) error {
+	// Holding the lock across indexing and pruning prevents Retrieve from serving a cached block at an indexed seq.
+	cs.lock.Lock()
+	defer cs.lock.Unlock()
+
 	err := cs.Storage.Index(ctx, block, certificate)
 
 	if err == nil {
 		// We delete the block from the cache after it has been indexed because now that it is persisted,
 		// we can just lookup by sequence number instead of digest.
-		cs.lock.Lock()
-		defer cs.lock.Unlock()
 		delete(cs.cache, block.BlockHeader().Digest)
 
 		// We also delete all blocks that are older than the indexed block, including the finalized block because they are now finalized and persisted.
@@ -204,6 +206,11 @@ func (cs *CachedStorage) Index(ctx context.Context, block common.VerifiedBlock, 
 func (cs *CachedStorage) insertBlock(block *ParsedBlock) {
 	cs.lock.Lock()
 	defer cs.lock.Unlock()
+
+	// A verification that completes after its seq was indexed must not shadow the finalized block.
+	if block.BlockHeader().Seq < cs.Storage.NumBlocks() {
+		return
+	}
 
 	cs.cache[block.Digest()] = cachedBlock{
 		ParsedBlock: block,
