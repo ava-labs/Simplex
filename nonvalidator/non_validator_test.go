@@ -1468,6 +1468,53 @@ func TestNonValidator_EpochReplicationLatestKnownEpoch(t *testing.T) {
 	tc.WaitForBlockCommit(3)
 }
 
+// TestNonValidator_EpochThenSequenceReplication ensures a non validator replicates sealing blocks first,
+// followed by blocks in between. Epochs replicate backwards from the tip first, then sequences with the epochs are replicated.
+func TestNonValidator_EpochThenSequenceReplication(t *testing.T) {
+	tc := newSeededChain(t, testNodes, 1)
+	tc.indexEpochs(5, 10)
+	blockSeq11 := tc.appendBlock()
+	require.NoError(t, tc.Index(context.Background(), blockSeq11, tc.newFinalization(blockSeq11)))
+
+	myNodeID := common.NodeID{100}
+	msgQueue := &messageQueue{}
+	storage := tc.CloneUntil(2)
+	nv, err := NewNonValidator(
+		Config{
+			Storage:                    storage,
+			Comm:                       &routerComm{nodes: tc.nodes(), t: t, ID: myNodeID, messageQueue: msgQueue},
+			Logger:                     testutil.MakeLogger(t, 1),
+			SignatureAggregatorCreator: tc.signatureAggregatorCreator,
+			MaxSequenceWindow:          simplex.DefaultMaxRoundWindow,
+			ID:                         myNodeID,
+			StartTime:                  time.Now(),
+		},
+	)
+	require.NoError(t, err)
+	defer nv.Stop()
+
+	validators := tc.nodes().NodeIDs()
+	threshold := common.F(len(validators)) + 1
+
+	// a threshold of nodes send sealing block 10
+	for _, id := range validators[:threshold] {
+		require.NoError(t, nv.HandleMessage(sealingResponse(tc, 10), id))
+	}
+	// ensure we request sequence 5 first (it is the next sealing block in the backwards hash chain).
+	require.Equal(t, []uint64{5}, popRequestedSeqs(t, msgQueue))
+
+	// seq 5 points back to the indexed seq 1, finishing epoch replication
+	require.NoError(t, nv.HandleMessage(sealingResponse(tc, 5), validators[0]))
+	require.True(t, nv.HasReplicatedEpochs())
+	require.Equal(t, []uint64{2, 3, 4, 5, 6, 7, 8, 9, 10}, popRequestedSeqs(t, msgQueue))
+
+	// the sealing blocks are already stored, so only the rest are sent
+	for _, seq := range []uint64{2, 3, 4, 6, 7, 8, 9, 11} {
+		require.NoError(t, nv.HandleMessage(sealingResponse(tc, seq), validators[0]))
+	}
+	storage.WaitForBlockCommit(11)
+}
+
 func advanceUntil(nv *NonValidator, epochs *testEpochs, msgQueue *messageQueue, seq uint64) {
 	startTime := nv.StartTime
 	for {
