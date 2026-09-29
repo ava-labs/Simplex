@@ -164,6 +164,60 @@ func TestInstanceDropsMessagesBeforeStart(t *testing.T) {
 	require.NoError(t, instance.HandleMessage(msg, validator.NodeID[:]))
 }
 
+// TestNonValidatorThresholdFollowsPChainTip asserts a non-validator counts sealing block votes
+// against the validator set at the current P-chain tip. The tip grows while the node is offline,
+// raising the threshold to two, instead of the one that was required when the non-validator joined.
+func TestNonValidatorThresholdFollowsPChainTip(t *testing.T) {
+	v1 := newNodeMapping(1)
+	v2 := newNodeMapping(2)
+	v3 := newNodeMapping(3)
+	targetNode := newNodeMapping(42)
+
+	pChain := newTestPChain(metadata.NodeBLSMappings{v1})
+	network := newNetwork(t, pChain)
+	network.addNode(v1.NodeID[:])
+	network.addNode(v2.NodeID[:]).sync()
+	network.addNode(v3.NodeID[:]).sync()
+
+	// produce a few sealing blocks
+	twoValidators := metadata.NodeBLSMappings{v1, v2}
+	pChain.setValidatorSetAt(10, twoValidators)
+	pChain.advanceHeight(10)
+	network.waitUntilSealingBlock(twoValidators.Nodes())
+
+	threeValidators := metadata.NodeBLSMappings{v1, v2, v3}
+	pChain.setValidatorSetAt(20, threeValidators)
+	pChain.advanceHeight(20)
+	network.waitUntilSealingBlock(threeValidators.Nodes())
+
+	// only v1 answers the target node from here on
+	network.setOffline(v2.NodeID[:])
+	network.setOffline(v3.NodeID[:])
+
+	// our nonValidator joins when a threshold of votes for tip = 1
+	network.setOffline(targetNode.NodeID[:])
+	nonValidator := network.addNode(targetNode.NodeID[:])
+
+	// Now the threshold of votes for tip is F(5)+1 = 2.
+	fiveValidators := metadata.NodeBLSMappings{v1, v2, v3, newNodeMapping(4), newNodeMapping(5)}
+	pChain.setValidatorSetAt(30, fiveValidators)
+	pChain.advanceHeight(30)
+	network.setOnline(targetNode.NodeID[:])
+
+	// the next sealing block request goes out after simplex.DefaultReplicationRequestTimeout
+	require.Never(t, func() bool {
+		_, epochsReplicated := nonValidator.role()
+		return epochsReplicated
+	}, simplex.DefaultReplicationRequestTimeout+2*time.Second, 100*time.Millisecond)
+
+	// Now we have 2 validators online so we should reach a threshold and finish replication.
+	network.setOnline(v2.NodeID[:])
+	require.Eventually(t, func() bool {
+		_, epochsReplicated := nonValidator.role()
+		return epochsReplicated
+	}, 2*simplex.DefaultReplicationRequestTimeout, 100*time.Millisecond)
+}
+
 // TestValidator_ValidatorSetNotChanged tests that a P-chain height increase
 // that does not have a unique validator set, does not create a new epoch
 func TestValidator_ValidatorSetNotChanged(t *testing.T) {
