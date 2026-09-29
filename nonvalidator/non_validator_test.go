@@ -1469,7 +1469,7 @@ func TestNonValidator_EpochReplicationLatestKnownEpoch(t *testing.T) {
 }
 
 // TestNonValidator_EpochThenSequenceReplication ensures a non validator replicates sealing blocks first,
-// followed by blocks in between. Epochs replicate backwards from the tip first, then sequences with the epochs are replicated.
+// followed by blocks in between. Epochs replicate backwards from the tip first, then sequences within the epochs are replicated.
 func TestNonValidator_EpochThenSequenceReplication(t *testing.T) {
 	tc := newSeededChain(t, testNodes, 1)
 	tc.indexEpochs(5, 10)
