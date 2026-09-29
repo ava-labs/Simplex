@@ -683,4 +683,6 @@ func TestValidatorReplicatesEpochsDuringTransition(t *testing.T) {
 	// The only way for the epoch transition to finish is if ourNode becomes a validator
 	// and produces an approval & participates in the finalization.
 	network.waitUntilSealingBlock(futureValidatorSet.Nodes())
+	isValidator, _ = node.role()
+	require.True(t, isValidator)
 }

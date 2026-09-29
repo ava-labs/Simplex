@@ -167,10 +167,10 @@ func newEpochReplicator(logger common.Logger, validatorSetRetriever latestValida
 	}
 }
 
-// collectedSealingBlockInfo records a sealing block response for an unknown epoch
+// maybeObserveThresholdResponses records a sealing block response for an unknown epoch
 // and returns true once a threshold of matching responses has been collected for
 // that epoch. Nil sealingBlockInfo values are ignored and return false.
-func (e *epochDigestCounter) collectedSealingBlockInfo(sealingBlockInfo *common.SealingBlockInfo, bh common.BlockHeader, from common.NodeID) bool {
+func (e *epochDigestCounter) maybeObserveThresholdResponses(sealingBlockInfo *common.SealingBlockInfo, bh common.BlockHeader, from common.NodeID) bool {
 	if sealingBlockInfo == nil {
 		return false
 	}

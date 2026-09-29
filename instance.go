@@ -130,7 +130,7 @@ func (i *Instance) Start(ctx context.Context) error {
 }
 
 func (i *Instance) maybeReplicateEpochs() error {
-	i.Config.Logger.Debug("Checking if epoch replication is required")
+	i.Config.Logger.Debug("Checking if latest persisted validator set is up to date")
 	latestValidatorSet, err := getLatestPlatformChainValidatorSet(i.Config.PlatformChain)
 	if err != nil {
 		return err
@@ -143,15 +143,18 @@ func (i *Instance) maybeReplicateEpochs() error {
 
 	// We have indexed the latest validator set, therefore we can skip epoch replication and start as a validator.
 	// Note: this may not be the latest epoch, but a future PR will eventually notice we are behind and transition properly.
-	if latestIndexedEpochValidators.Equal(latestValidatorSet.Nodes()) && latestValidatorSet.Nodes().Contains(i.Config.ID) {
-		i.Config.Logger.Debug("Node skipping epoch replication because its latest epoch is up to date with the Platform Chain")
+	upToDate := latestIndexedEpochValidators.Equal(latestValidatorSet.Nodes())
+	inLatestSet := latestValidatorSet.Nodes().Contains(i.Config.ID)
+	if upToDate && inLatestSet {
+		i.Config.Logger.Debug("Skipping validator set replication, because the latest validator set is up to date with the Platform Chain")
 		return i.startValidator(latestIndexedEpochValidators)
 	}
 
 	// Start as non-validator if our last indexed validator set does not equal, the latest p-chain validator set
 	// Note: the epoch may be transitioning, so the latest p-chain validator set actually points to a future epoch.
 	// The non-validator should finish replicating epochs and convert our non-validator to a validator in this case.
-	i.Config.Logger.Debug("Node starting epoch replication as a non-validator")
+	i.Config.Logger.Info("Indexed validator set is behind the Platform Chain, starting as a non-validator",
+		zap.Bool("IndexedSetUpToDate", upToDate), zap.Bool("InLatestSet", inLatestSet))
 	return i.startNonValidator(false)
 }
 

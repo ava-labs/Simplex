@@ -1257,9 +1257,9 @@ func popRequestedSeqs(t *testing.T, msgQueue *messageQueue) []uint64 {
 	return seqs
 }
 
-// TestNonValidator_EpochReplicationWalksHashChain asserts a non-validator several epochs behind requests
-// sealing blocks one hop back at a time once a threshold reports the highest one, and finishes
-// epoch replication when the chain reaches an epoch it has indexed.
+// TestNonValidator_EpochReplicationWalksHashChain asserts that once a threshold of nodes reports the latest
+// sealing block, a non-validator requests each earlier sealing block that it points back to, and finishes
+// validator set replication when it reaches an epoch it has already indexed.
 func TestNonValidator_EpochReplicationWalksHashChain(t *testing.T) {
 	tc := newSeededChain(t, testNodes, 2)
 	tc.indexEpochs(5, 10, 20)
@@ -1298,7 +1298,7 @@ func TestNonValidator_EpochReplicationWalksHashChain(t *testing.T) {
 }
 
 // TestNonValidator_EpochReplicationIgnoresSealingBlockOffChain asserts that while following the hash chain
-// a sealing block further down it is dropped until the epoch pointing back to it has been validated.
+// a sealing block further down is not processed until the epoch pointing back to it has been validated.
 func TestNonValidator_EpochReplicationIgnoresSealingBlockOffChain(t *testing.T) {
 	tc := newSeededChain(t, testNodes, 2)
 	tc.indexEpochs(5, 10, 20)
@@ -1329,7 +1329,7 @@ func TestNonValidator_EpochReplicationIgnoresSealingBlockOffChain(t *testing.T) 
 	require.Empty(t, popRequestedSeqs(t, msgQueue))
 	require.False(t, nv.HasReplicatedEpochs())
 
-	// once seq 10 validates, seq 5 is still requested, so it was dropped, and is accepted on resend
+	// once seq 10 validates, seq 5 is still requested, meaning it was not processed before, and is accepted on resend
 	require.NoError(t, nv.HandleMessage(sealingResponse(tc, 10), tc.nodes().NodeIDs()[0]))
 	require.Equal(t, []uint64{5}, popRequestedSeqs(t, msgQueue))
 	require.NoError(t, nv.HandleMessage(sealingResponse(tc, 5), tc.nodes().NodeIDs()[0]))
@@ -1371,8 +1371,8 @@ func TestNonValidator_EpochReplicationRetriesSealingBlock(t *testing.T) {
 }
 
 // TestNonValidator_EpochReplicationRequestsSealingBlock asserts that a replication response carrying a
-// non-sealing block while replicating epochs triggers a request to its sender for the sealing block that
-// opened its epoch, whether that epoch is ours or unknown.
+// non-sealing block while replicating epochs, triggers a request for the sealing block that
+// opened its epoch.
 func TestNonValidator_EpochReplicationRequestsSealingBlock(t *testing.T) {
 	tc := newSeededChain(t, testNodes, 2)
 	myNodeID := common.NodeID{100}
@@ -1390,26 +1390,29 @@ func TestNonValidator_EpochReplicationRequestsSealingBlock(t *testing.T) {
 	require.NoError(t, err)
 	defer nv.Stop()
 
-	inOurEpoch := tc.appendBlock()
-	require.NoError(t, tc.Index(context.Background(), inOurEpoch, tc.newFinalization(inOurEpoch)))
-	sealing := tc.appendSealing(testNodes)
-	require.NoError(t, tc.Index(context.Background(), sealing, tc.newFinalization(sealing)))
-	inUnknownEpoch := tc.appendBlock()
-	require.NoError(t, tc.Index(context.Background(), inUnknownEpoch, tc.newFinalization(inUnknownEpoch)))
+	// seq 3, which is still in the first epoch.
+	epoch1Block := tc.appendBlock()
+	require.NoError(t, tc.Index(context.Background(), epoch1Block, tc.newFinalization(epoch1Block)))
+	// seq 4, the last block of epoch 1 and creates epoch 4
+	epoch4SealingBlock := tc.appendSealing(testNodes)
+	require.NoError(t, tc.Index(context.Background(), epoch4SealingBlock, tc.newFinalization(epoch4SealingBlock)))
+	// the validator does not know about epoch 4
+	blockInEpoch4 := tc.appendBlock()
+	require.NoError(t, tc.Index(context.Background(), blockInEpoch4, tc.newFinalization(blockInEpoch4)))
 	sender := testNodes.NodeIDs()[2]
 
 	for _, tt := range []struct {
-		seq        uint64
-		sealingSeq uint64
+		receivedSeq        uint64 // The sequence the non-validator receives
+		expectedRequestSeq uint64 // The expected sequence the non-validator requests after receiving
 	}{
-		{seq: inOurEpoch.BlockHeader().Seq, sealingSeq: 1},
-		{seq: inUnknownEpoch.BlockHeader().Seq, sealingSeq: sealing.BlockHeader().Seq},
+		{receivedSeq: epoch1Block.BlockHeader().Seq, expectedRequestSeq: 1},
+		{receivedSeq: blockInEpoch4.BlockHeader().Seq, expectedRequestSeq: epoch4SealingBlock.BlockHeader().Seq},
 	} {
-		require.NoError(t, nv.HandleMessage(sealingResponse(tc, tt.seq), sender))
+		require.NoError(t, nv.HandleMessage(sealingResponse(tc, tt.receivedSeq), sender))
 		msg, ok := msgQueue.popResponse()
 		require.True(t, ok)
 		require.NotNil(t, msg.msg.ReplicationRequest)
-		require.Equal(t, []uint64{tt.sealingSeq}, msg.msg.ReplicationRequest.Seqs)
+		require.Equal(t, []uint64{tt.expectedRequestSeq}, msg.msg.ReplicationRequest.Seqs)
 		require.Equal(t, sender, msg.to)
 	}
 

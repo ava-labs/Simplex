@@ -217,15 +217,15 @@ func (n *NonValidator) processEpochReplicationQuorumRound(qr *common.QuorumRound
 	case n.epochs.canValidate(block):
 		// The sealing block is in the backwards hash chain, try to validate it
 		if !n.isIndexed(bh.Seq) {
-			n.validateSealingBlock(qr, from)
+			n.processSealingBlock(qr, from)
 		}
-	case n.highestEpochCollector.collectedSealingBlockInfo(sealingInfo, bh, from):
+	case n.highestEpochCollector.maybeObserveThresholdResponses(sealingInfo, bh, from):
 		// The sealing block is from an unknown epoch and we have collected enough votes to validate it
 		n.Logger.Info("A threshold of validators reported a sealing block", zap.Uint64("Seq", bh.Seq), zap.Stringer("Info", sealingInfo))
 		n.sealingBlockTimeouts.RemoveTask(initialEpochReplicationTask)
 
 		if !n.isIndexed(bh.Seq) {
-			n.validateSealingBlock(qr, from)
+			n.processSealingBlock(qr, from)
 		}
 	default:
 		// The sealing block cannot be validated, or there is not enough votes for it.
@@ -238,11 +238,12 @@ func (n *NonValidator) processEpochReplicationQuorumRound(qr *common.QuorumRound
 	}
 }
 
-// validateSealingBlock validates the epoch a sealing block opens and stores its quorum round.
+// processSealingBlock validates the epoch a sealing block opens and stores its quorum round.
 // The finalization has not been verified yet. Storing tells the replicator a valid sequence exists
 // and its validity is checked when the round is processed.
-func (n *NonValidator) validateSealingBlock(qr *common.QuorumRound, from common.NodeID) {
-	n.maybeValidateNextEpoch(qr.Block, from)
+// It assumes block is already authenticated.
+func (n *NonValidator) processSealingBlock(qr *common.QuorumRound, from common.NodeID) {
+	n.maybeOpenEpochFromSealingBlock(qr.Block, from)
 	n.storeQuorumRound(qr)
 }
 
@@ -348,7 +349,7 @@ func (n *NonValidator) handleBlock(block common.Block, from common.NodeID) error
 		return nil
 	}
 
-	n.maybeValidateNextEpoch(block, from)
+	n.maybeOpenEpochFromSealingBlock(block, from)
 	return n.scheduleNewFinalizedBlockTask(block, incomplete.finalization)
 }
 
@@ -413,35 +414,36 @@ func (n *NonValidator) newFinalizedBlockTask(block common.Block, finalization *c
 	}
 }
 
-// maybeValidateNextEpoch validates the epoch block opens when block is a sealing block. While
-// replicating epochs it also requests the sealing block that opened block's own epoch, following the
+// maybeOpenEpochFromSealingBlock checks if block is a sealing block. If so, it tries to validate the epoch
+// the sealing block opens. It also requests the sealing block that opened block's own epoch, following the
 // hash chain back until every sealing block down to an epoch we have indexed is validated.
-func (n *NonValidator) maybeValidateNextEpoch(block common.Block, from common.NodeID) {
+// Block should already be authenticated.
+func (n *NonValidator) maybeOpenEpochFromSealingBlock(block common.Block, from common.NodeID) {
 	bh := block.BlockHeader()
-	nextEpoch := bh.Seq
+	epoch := bh.Seq
 	sealingInfo := block.SealingBlockInfo()
 	if sealingInfo == nil {
 		return
 	}
-	_, alreadyValidated := n.epochs[nextEpoch]
+	_, alreadyValidated := n.epochs[epoch]
 	if alreadyValidated {
-		n.Logger.Debug("Already validated.", zap.Uint64("Epoch", nextEpoch))
+		n.Logger.Debug("Already validated.", zap.Uint64("Epoch", epoch))
 		return
 	}
 
-	n.Logger.Info("We have a valid sealing block, messages for that epoch can be processed.", zap.Uint64("Epoch", nextEpoch))
-	n.epochs[nextEpoch] = newEpochMetadata(nextEpoch, sealingInfo, n.SignatureAggregatorCreator)
+	n.Logger.Info("We have a valid sealing block, messages for that epoch can be processed.", zap.Uint64("Epoch", epoch))
+	n.epochs[epoch] = newEpochMetadata(epoch, sealingInfo, n.SignatureAggregatorCreator)
 
 	if n.EpochsReplicated {
 		return
 	}
 
-	n.sealingBlockTimeouts.RemoveTask(nextEpoch)
+	n.sealingBlockTimeouts.RemoveTask(epoch)
 
-	// The first simplex block opens its own epoch, so there is no earlier sealing block.
 	prevSealingSeq := bh.Epoch
 	_, known := n.epochs[prevSealingSeq]
-	if prevSealingSeq == nextEpoch || n.isIndexed(prevSealingSeq) || known {
+	firstSimplexBlock := prevSealingSeq == epoch
+	if firstSimplexBlock || n.isIndexed(prevSealingSeq) || known {
 		return
 	}
 
@@ -542,7 +544,7 @@ func (n *NonValidator) handleFinalization(finalization *common.Finalization, fro
 
 	for _, block := range blocks {
 		if block.BlockHeader().Digest == bh.Digest {
-			n.maybeValidateNextEpoch(block, from)
+			n.maybeOpenEpochFromSealingBlock(block, from)
 			return n.scheduleNewFinalizedBlockTask(block, finalization)
 		}
 	}
@@ -651,7 +653,7 @@ func (n *NonValidator) processQuorumRound(qr *common.QuorumRound, from common.No
 	}
 
 	// This block could be a sealing block, validate the next epoch if so.
-	n.maybeValidateNextEpoch(block, from)
+	n.maybeOpenEpochFromSealingBlock(block, from)
 	n.storeQuorumRound(qr)
 	return nil
 }
@@ -722,13 +724,13 @@ func (n *NonValidator) handleQrFromUnknownEpoch(qr *common.QuorumRound, from com
 	// However, if it is a sealing block we may be able to validate the epoch if its part of the sealing block hash-chain.
 	if n.epochs.canValidate(block) {
 		n.Logger.Debug("We can validate an epoch block as we have validated the one after it.", zap.Stringer("Info", block.SealingBlockInfo()))
-		n.validateSealingBlock(qr, from)
+		n.processSealingBlock(qr, from)
 		return
 	}
 
-	if n.highestEpochCollector.collectedSealingBlockInfo(block.SealingBlockInfo(), bh, from) {
+	if n.highestEpochCollector.maybeObserveThresholdResponses(block.SealingBlockInfo(), bh, from) {
 		n.Logger.Debug("We can validate an epoch because we have received a threshold of messages of it.", zap.Stringer("Info", block.SealingBlockInfo()))
-		n.validateSealingBlock(qr, from)
+		n.processSealingBlock(qr, from)
 	}
 }
 
