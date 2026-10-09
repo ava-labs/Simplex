@@ -208,7 +208,7 @@ func (cs *CachedStorage) insertBlock(block *ParsedBlock) {
 	defer cs.lock.Unlock()
 
 	// A verification that completes after its seq was indexed must not shadow the finalized block.
-	if block.BlockHeader().Seq < cs.Storage.NumBlocks() {
+	if block.BlockHeader().Seq < cs.NumBlocks() {
 		return
 	}
 
