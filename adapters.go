@@ -181,7 +181,6 @@ func (cs *CachedStorage) Retrieve(seq uint64, digest common.Digest) (common.Veri
 }
 
 func (cs *CachedStorage) Index(ctx context.Context, block common.VerifiedBlock, certificate common.Finalization) error {
-	// Holding the lock across indexing and pruning prevents Retrieve from serving a cached block at an indexed seq.
 	cs.lock.Lock()
 	defer cs.lock.Unlock()
 
@@ -207,7 +206,8 @@ func (cs *CachedStorage) insertBlock(block *ParsedBlock) {
 	cs.lock.Lock()
 	defer cs.lock.Unlock()
 
-	// A verification that completes after its seq was indexed must not shadow the finalized block.
+	// inserting is async, so ensure the sequence we are inserting
+	// hasn't been indexed already
 	if block.BlockHeader().Seq < cs.NumBlocks() {
 		return
 	}

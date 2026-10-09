@@ -140,8 +140,8 @@ func TestCachedStorageIndexEvictsSameSeqFork(t *testing.T) {
 	require.NotNil(t, fin)
 }
 
-// TestCachedStorageLateVerify asserts that a fork whose
-// verification completes after its seq was indexed is not cached.
+// TestCachedStorageLateVerify asserts that a block whose verification
+// completes after its sibling(block with same sequence) was indexed is not cached.
 func TestCachedStorageLateVerifyDoesNotShadowIndexed(t *testing.T) {
 	cs := NewCachedStorage(newTestStorage(), 0)
 	require.NoError(t, cs.Index(t.Context(), newTestParsedBlock(0, "genesis"), common.Finalization{}))
@@ -150,7 +150,7 @@ func TestCachedStorageLateVerifyDoesNotShadowIndexed(t *testing.T) {
 	require.NoError(t, cs.Index(t.Context(), finalized, common.Finalization{}))
 
 	delayedVerificationBlock := &cachedBlock{
-		ParsedBlock: newTestParsedBlock(1, "fork"),
+		ParsedBlock: newTestParsedBlock(1, "delayed sibling"),
 		cache:       cs,
 	}
 	_, err := delayedVerificationBlock.Verify(t.Context(), common.OnlyVMVerifyOpt)
