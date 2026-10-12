@@ -86,7 +86,7 @@ func (f *FutureEpochListener) HandleMessage(msg *common.Message, from common.Nod
 			f.onSealingBlock(qr)
 		}
 	case msg.Finalization != nil:
-		highestEpoch = msg.Finalization.Finalization.BlockHeader.Epoch
+		highestEpoch = msg.Finalization.Finalization.Epoch
 	case msg.BlockMessage != nil && msg.BlockMessage.Block != nil:
 		highestEpoch = msg.BlockMessage.Block.BlockHeader().Epoch
 	}

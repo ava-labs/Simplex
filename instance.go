@@ -682,9 +682,6 @@ func (i *Instance) onHigherSealingBlock(sealingBlock *common.QuorumRound) {
 
 	// the sealing block's sequence is the epoch it starts
 	epoch := sealingBlock.Block.BlockHeader().Seq
-	if i.e.Epoch >= epoch {
-		return
-	}
 
 	sealingInfo := sealingBlock.Block.SealingBlockInfo()
 	i.notifyEpochChange(epoch, sealingInfo.ValidatorSet)
