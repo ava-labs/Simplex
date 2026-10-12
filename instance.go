@@ -379,7 +379,7 @@ func (i *Instance) HandleMessage(msg *common.Message, from common.NodeID) error 
 	}
 
 	if i.e != nil {
-		i.handleMessageForEpoch(msg, from)
+		return i.handleMessageForEpoch(msg, from)
 	}
 
 	if i.nv != nil {
@@ -503,6 +503,11 @@ func (i *Instance) processEpochChange(epochChange epochChange) {
 		// Stop the non-validator before doing anything else, so that we don't process any more messages while we are changing epochs.
 		i.stopNonValidator()
 		err = i.startAtEpoch(epochChange.validators)
+	case runningValidator && i.Config.Storage.NumBlocks() <= epochChange.epoch:
+		// The future epoch listener found a sealing block we have not indexed. A validator restarted
+		// from storage would still be in our epoch, so replicate up to it as a non-validator.
+		i.stopValidator(true)
+		err = i.startNonValidator(false)
 	case runningValidator:
 		i.stopValidator(true)
 		err = i.startAtEpoch(epochChange.validators)
@@ -670,16 +675,17 @@ type epochConfig struct {
 
 func (i *Instance) onHigherSealingBlock(sealingBlock *common.QuorumRound) {
 	// this should only be called if we are running a validator
-	if i.e != nil {
+	if i.e == nil {
 		i.Config.Logger.Warn("Our future epoch message listener triggered a higher epoch while not running a validator")
 		return
 	}
 
-	// create a test that hits this, it would hit i think if the last indexed was a sealing block since epoch will be different
-	if i.e.Epoch >= sealingBlock.GetEpoch() {
+	// the sealing block's sequence is the epoch it starts
+	epoch := sealingBlock.Block.BlockHeader().Seq
+	if i.e.Epoch >= epoch {
 		return
 	}
 
 	sealingInfo := sealingBlock.Block.SealingBlockInfo()
-	i.notifyEpochChange(sealingBlock.GetEpoch(), sealingInfo.ValidatorSet)
+	i.notifyEpochChange(epoch, sealingInfo.ValidatorSet)
 }

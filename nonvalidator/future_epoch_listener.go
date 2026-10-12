@@ -81,7 +81,8 @@ func (f *FutureEpochListener) HandleMessage(msg *common.Message, from common.Nod
 				zap.Stringer("From", from),
 			)
 
-			f.epoch = qr.GetEpoch()
+			// the sealing block's sequence is the epoch it starts
+			f.epoch = bh.Seq
 			f.onSealingBlock(qr)
 		}
 	case msg.Finalization != nil:
