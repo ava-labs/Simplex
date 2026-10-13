@@ -3557,3 +3557,48 @@ func TestReplicationNextSeqNotarizationBeyondWindowIsStored(t *testing.T) {
 
 	require.Equal(t, NotarizationRecordType, wal.AssertNotarization(2))
 }
+
+// TestFinalizeAfterNotarizingBeyondMaxRoundWindow asserts that blocks are finalized after the network
+// notarizes more consecutive rounds than MaxRoundWindow without finalizing any.
+func TestFinalizeAfterNotarizingBeyondMaxRoundWindow(t *testing.T) {
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	net := testutil.NewControlledNetwork(t, nodes)
+
+	var allowFinalizeVotes atomic.Bool
+	for _, node := range nodes {
+		comm := testutil.NewTestComm(node, net.BasicInMemoryNetwork, func(msg *Message, _, _ NodeID) bool {
+			return allowFinalizeVotes.Load() || (msg.FinalizeVote == nil && msg.Finalization == nil)
+		})
+		testutil.NewControlledSimplexNode(t, node, net, &testutil.TestNodeConfig{Comm: comm})
+	}
+
+	net.StartInstances()
+	defer net.StopInstances()
+
+	lastSeq := uint64(3 * DefaultMaxRoundWindow)
+	for seq := uint64(0); seq <= lastSeq; seq++ {
+		for _, n := range net.Instances {
+			testutil.WaitToEnterRound(t, n.E, seq)
+		}
+		net.TriggerLeaderBlockBuilder(seq)
+		for _, n := range net.Instances {
+			n.WAL.AssertNotarization(seq)
+		}
+	}
+	for _, n := range net.Instances {
+		require.Zero(t, n.Storage.NumBlocks())
+	}
+
+	allowFinalizeVotes.Store(true)
+	require.Eventually(t, func() bool {
+		for _, n := range net.Instances {
+			if n.Storage.NumBlocks() < lastSeq+1 {
+				for _, n := range net.Instances {
+					n.AdvanceTime(DefaultFinalizeVoteRebroadcastTimeout / 3)
+				}
+				return false
+			}
+		}
+		return true
+	}, 10*time.Second, 100*time.Millisecond)
+}
