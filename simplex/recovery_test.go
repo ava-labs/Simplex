@@ -921,7 +921,7 @@ func TestWalRecoverySetsRoundCorrectly(t *testing.T) {
 			name: "mixed types in reverse order",
 			setupRecords: func(t *testing.T, bb *testutil.TestBlockBuilder, conf EpochConfig) [][]byte {
 				// Create finalization for round 3
-				block3, ok := bb.BuildBlock(ctx, ProtocolMetadata{Round: 3, Epoch: 1, Seq: 3}, emptyBlacklist)
+				block3, ok := bb.BuildBlock(ctx, ProtocolMetadata{Round: 3, Epoch: 0, Seq: 3}, emptyBlacklist)
 				require.True(t, ok)
 				bBytes3 := block3.Bytes()
 				blockRecord3, err := BlockRecord(block3.BlockHeader(), bBytes3)
@@ -930,11 +930,10 @@ func TestWalRecoverySetsRoundCorrectly(t *testing.T) {
 
 				// Create empty notarization for round 2
 				emptyNotarization2 := testutil.NewEmptyNotarization(nodes[0:quorum], 2)
-				emptyNotarization2.Vote.Epoch = 1
 				emptyNotarizationRecord2 := NewEmptyNotarizationRecord(emptyNotarization2)
 
 				// Create notarization for round 1
-				block1, ok := bb.BuildBlock(ctx, ProtocolMetadata{Round: 1, Epoch: 1, Seq: 1}, emptyBlacklist)
+				block1, ok := bb.BuildBlock(ctx, ProtocolMetadata{Round: 1, Epoch: 0, Seq: 1}, emptyBlacklist)
 				require.True(t, ok)
 				bBytes1 := block1.Bytes()
 				blockRecord1, err := BlockRecord(block1.BlockHeader(), bBytes1)
@@ -950,7 +949,7 @@ func TestWalRecoverySetsRoundCorrectly(t *testing.T) {
 				}
 			},
 			expectedRound: 4, // finalization round 3 + 1
-			expectedEpoch: 1,
+			expectedEpoch: 0,
 		},
 		{
 			name: "large gap with highest in middle",

@@ -697,10 +697,10 @@ func (e *Epoch) setMetadataFromStorage() error {
 	return nil
 }
 
+// setMetadataFromRecords advances the round past the highest QC in records.
+// The epoch comes from storage, and records from other epochs are filtered out before this runs.
 func (e *Epoch) setMetadataFromRecords(records [][]byte) error {
-	// iterate through all records to find the highest round
 	highestRound := e.round
-	var highestEpoch uint64
 	found := false
 
 	for i := range records {
@@ -713,7 +713,6 @@ func (e *Epoch) setMetadataFromRecords(records [][]byte) error {
 			}
 			if notarization.Vote.Round >= highestRound {
 				highestRound = notarization.Vote.Round
-				highestEpoch = notarization.Vote.Epoch
 				found = true
 			}
 		case common.EmptyNotarizationRecordType:
@@ -723,7 +722,6 @@ func (e *Epoch) setMetadataFromRecords(records [][]byte) error {
 			}
 			if emptyNotarization.Vote.Round >= highestRound {
 				highestRound = emptyNotarization.Vote.Round
-				highestEpoch = emptyNotarization.Vote.Epoch
 				found = true
 			}
 		case common.FinalizationRecordType:
@@ -733,7 +731,6 @@ func (e *Epoch) setMetadataFromRecords(records [][]byte) error {
 			}
 			if finalization.Finalization.Round >= highestRound {
 				highestRound = finalization.Finalization.Round
-				highestEpoch = finalization.Finalization.Epoch
 				found = true
 			}
 		}
@@ -741,17 +738,59 @@ func (e *Epoch) setMetadataFromRecords(records [][]byte) error {
 
 	if found {
 		e.round = highestRound + 1
-		e.Epoch = highestEpoch
 	}
 
 	return nil
 }
 
+// recordEpoch returns the epoch a WAL record was written in.
+func (e *Epoch) recordEpoch(r []byte) (uint64, error) {
+	recordType := binary.BigEndian.Uint16(r)
+	switch recordType {
+	case common.BlockRecordType:
+		// Only the header is parsed, since a block from another epoch may not deserialize.
+		bh, _, err := common.ParseBlockRecord(r)
+		return bh.Epoch, err
+	case common.NotarizationRecordType:
+		notarization, err := common.NotarizationFromRecord(r, e.QCDeserializer)
+		return notarization.Vote.Epoch, err
+	case common.FinalizationRecordType:
+		finalization, err := common.FinalizationFromRecord(r, e.QCDeserializer)
+		return finalization.Finalization.Epoch, err
+	case common.EmptyNotarizationRecordType:
+		emptyNotarization, err := common.EmptyNotarizationFromRecord(r, e.QCDeserializer)
+		return emptyNotarization.Vote.Epoch, err
+	case common.EmptyVoteRecordType:
+		emptyVote, err := common.ParseEmptyVoteRecord(r)
+		return emptyVote.Epoch, err
+	default:
+		e.Logger.Error("undefined record type", zap.Uint16("type", recordType))
+		return 0, fmt.Errorf("undefined record type: %d", recordType)
+	}
+}
+
 // restoreFromWal initializes an epoch from the write ahead log.
 func (e *Epoch) restoreFromWal() error {
-	records, err := e.WAL.ReadAll()
+	allRecords, err := e.WAL.ReadAll()
 	if err != nil {
 		return err
+	}
+
+	// The WAL may hold records from a sealed epoch, if we crashed before it was garbage collected.
+	records := make([][]byte, 0, len(allRecords))
+	for _, r := range allRecords {
+		if len(r) < 2 {
+			return fmt.Errorf("malformed record")
+		}
+		epoch, err := e.recordEpoch(r)
+		if err != nil {
+			return err
+		}
+		if epoch != e.Epoch {
+			e.Logger.Info("Skipping WAL record from a different epoch", zap.Uint64("recordEpoch", epoch), zap.Uint64("epoch", e.Epoch))
+			continue
+		}
+		records = append(records, r)
 	}
 
 	if len(records) == 0 {
@@ -761,9 +800,6 @@ func (e *Epoch) restoreFromWal() error {
 	highestRoundRecord := &walRound{}
 
 	for _, r := range records {
-		if len(r) < 2 {
-			return fmt.Errorf("malformed record")
-		}
 		recordType := binary.BigEndian.Uint16(r)
 		switch recordType {
 		case common.BlockRecordType:

@@ -12,6 +12,7 @@ import (
 	metadata "github.com/ava-labs/simplex/msm"
 	"github.com/ava-labs/simplex/simplex"
 	"github.com/ava-labs/simplex/testutil"
+	"github.com/ava-labs/simplex/wal"
 	"github.com/stretchr/testify/require"
 )
 
@@ -739,4 +740,37 @@ func TestValidatorReplicatesEpochsDuringTransition(t *testing.T) {
 	network.waitUntilSealingBlock(futureValidatorSet.Nodes())
 	isValidator, _ = node.role()
 	require.True(t, isValidator)
+}
+
+// TestNonValidatorPromotionSkipsStaleWALRecords asserts that a non-validator promoted to validator ignores
+// records from an earlier epoch in the WAL it was started with. The non-validator path keeps Config.WALs, and
+// garbage collection by round keeps records at a high round, so replaying them regressed the new epoch.
+func TestNonValidatorPromotionSkipsStaleWALRecords(t *testing.T) {
+	validator := newNodeMapping(1)
+	pChain := newTestPChain([]metadata.NodeBLSMapping{validator})
+	network := newNetwork(t, pChain)
+	network.addNode(validator.NodeID[:]).sync()
+	network.acceptNewBlock()
+
+	upcomingValidator := newNodeMapping(2)
+	staleRecord := testutil.NewEmptyNotarization([]common.NodeID{validator.NodeID[:]}, 1000)
+	staleRecord.Vote.Epoch = firstEverEpoch
+	staleWAL := testutil.NewTestWAL(t)
+	require.NoError(t, staleWAL.Append(common.NewEmptyNotarizationRecord(staleRecord)))
+	node := network.addNodeWithConfig(upcomingValidator.NodeID[:], nodeConfig{wals: []wal.DeletableWAL{staleWAL}}).sync()
+
+	newValidatorSet := metadata.NodeBLSMappings{validator, upcomingValidator}
+	pChain.setValidatorSetAt(10, newValidatorSet)
+	pChain.advanceHeight(10)
+	sealingBlock := network.waitUntilSealingBlock(newValidatorSet.Nodes())
+	network.waitUntilValidatorsReady()
+
+	node.inst.lock.Lock()
+	md := node.inst.e.Metadata()
+	node.inst.lock.Unlock()
+	require.Equal(t, sealingBlock.BlockHeader().Seq, md.Epoch)
+	require.Less(t, md.Round, uint64(1000))
+
+	_, finalization := network.acceptNewBlock()
+	assertExpectedNodeIds(t, finalization.QC.Signers(), newValidatorSet.NodeIDs())
 }

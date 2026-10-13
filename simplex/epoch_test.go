@@ -3557,3 +3557,166 @@ func TestReplicationNextSeqNotarizationBeyondWindowIsStored(t *testing.T) {
 
 	require.Equal(t, NotarizationRecordType, wal.AssertNotarization(2))
 }
+
+// sealedEpochBlocks returns 8 finalized blocks of epoch 0 whose tip (seq 7) is a sealing block.
+// An epoch started over them runs epoch 7 from round 8.
+func sealedEpochBlocks(t *testing.T, nodes []NodeID) []VerifiedFinalizedBlock {
+	blocks := createBlocks(t, nodes, 8)
+	blocks[7].VerifiedBlock.(*testutil.TestBlock).SealingInfo = &SealingBlockInfo{
+		ValidatorSet:         NodeIDs(nodes).EqualWeightedNodes(),
+		PrevSealingBlockHash: blocks[0].VerifiedBlock.BlockHeader().Digest,
+	}
+	return blocks
+}
+
+// notarizedBlockRecords returns a block with md, and its block and notarization records.
+func notarizedBlockRecords(t *testing.T, nodes []NodeID, md ProtocolMetadata) (*testutil.TestBlock, [][]byte) {
+	block := testutil.NewTestBlock(md, emptyBlacklist)
+	blockRecord, err := BlockRecord(block.BlockHeader(), block.Bytes())
+	require.NoError(t, err)
+	notarizationRecord, err := testutil.NewNotarizationRecord(testutil.MakeLogger(t), &testutil.TestSignatureAggregator{N: len(nodes)}, block, nodes)
+	require.NoError(t, err)
+	return block, [][]byte{blockRecord, notarizationRecord}
+}
+
+// TestWalRecoverySkipsSealedEpochRecords asserts that WAL records from a sealed epoch are not replayed
+// into the next one. The WAL is garbage collected by round, so Telocks written after the sealing block
+// survive a crash, and replaying them regressed the epoch, skipped rounds and rebroadcast old QCs.
+func TestWalRecoverySkipsSealedEpochRecords(t *testing.T) {
+	ctx := context.Background()
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	blocks := sealedEpochBlocks(t, nodes)
+	sealingDigest := blocks[7].VerifiedBlock.BlockHeader().Digest
+
+	comm := &recordingComm{Communication: testutil.NewNoopComm(nodes), BroadcastMessages: make(chan *Message, 100)}
+	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], comm, testutil.NewTestBlockBuilder())
+	for _, block := range blocks {
+		require.NoError(t, storage.Index(ctx, block.VerifiedBlock, block.Finalization))
+	}
+
+	telock8, records := notarizedBlockRecords(t, nodes, ProtocolMetadata{Epoch: 0, Round: 8, Seq: 8, Prev: sealingDigest})
+	_, finalizationRecord := testutil.NewFinalizationRecord(t, &testutil.TestSignatureAggregator{N: len(nodes)}, telock8, nodes)
+	records = append(records, finalizationRecord)
+	_, telock9Records := notarizedBlockRecords(t, nodes, ProtocolMetadata{Epoch: 0, Round: 9, Seq: 9, Prev: telock8.BlockHeader().Digest})
+	records = append(records, telock9Records...)
+	records = append(records, NewEmptyNotarizationRecord(testutil.NewEmptyNotarization(nodes, 10)))
+	records = append(records, NewEmptyVoteRecord(ToBeSignedEmptyVote{EmptyVoteMetadata: EmptyVoteMetadata{Round: 11, Epoch: 0}}))
+	for _, record := range records {
+		require.NoError(t, wal.Append(record))
+	}
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+
+	md := e.Metadata()
+	require.Equal(t, uint64(7), md.Epoch)
+	require.Equal(t, uint64(8), md.Round)
+	require.Equal(t, uint64(8), md.Seq)
+	require.Equal(t, sealingDigest, md.Prev)
+	require.Equal(t, uint64(8), storage.NumBlocks())
+
+	for len(comm.BroadcastMessages) > 0 {
+		msg := <-comm.BroadcastMessages
+		if epoch, ok := msg.Epoch(); ok {
+			require.Equal(t, uint64(7), epoch, "broadcast a message from the sealed epoch")
+		}
+	}
+}
+
+// TestWalRecoveryKeepsCurrentEpochRecords asserts that records of the current epoch are replayed
+// when the WAL also holds a higher round Telock from the sealed epoch.
+func TestWalRecoveryKeepsCurrentEpochRecords(t *testing.T) {
+	ctx := context.Background()
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	blocks := sealedEpochBlocks(t, nodes)
+	sealingDigest := blocks[7].VerifiedBlock.BlockHeader().Digest
+
+	comm := &recordingComm{Communication: testutil.NewNoopComm(nodes), BroadcastMessages: make(chan *Message, 100)}
+	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], comm, testutil.NewTestBlockBuilder())
+	for _, block := range blocks {
+		require.NoError(t, storage.Index(ctx, block.VerifiedBlock, block.Finalization))
+	}
+
+	_, telockRecords := notarizedBlockRecords(t, nodes, ProtocolMetadata{Epoch: 0, Round: 9, Seq: 9, Prev: sealingDigest})
+	block, records := notarizedBlockRecords(t, nodes, ProtocolMetadata{Epoch: 7, Round: 8, Seq: 8, Prev: sealingDigest})
+	for _, record := range append(telockRecords, records...) {
+		require.NoError(t, wal.Append(record))
+	}
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+
+	md := e.Metadata()
+	require.Equal(t, uint64(7), md.Epoch)
+	require.Equal(t, uint64(9), md.Round)
+	require.Equal(t, uint64(9), md.Seq)
+	require.Equal(t, block.BlockHeader().Digest, md.Prev)
+
+	var finalizeVote *FinalizeVote
+	for len(comm.BroadcastMessages) > 0 {
+		if msg := <-comm.BroadcastMessages; msg.FinalizeVote != nil {
+			finalizeVote = msg.FinalizeVote
+		}
+	}
+	require.NotNil(t, finalizeVote)
+	require.Equal(t, block.BlockHeader().Digest, finalizeVote.Finalization.Digest)
+}
+
+// TestWalRecoverySkipsUndecodableSealedEpochBlock asserts that an epoch starts when the WAL holds a
+// sealed epoch block it cannot deserialize. Telocks may not decode as blocks of the new epoch, and
+// replaying one failed Start until the WAL was deleted.
+func TestWalRecoverySkipsUndecodableSealedEpochBlock(t *testing.T) {
+	ctx := context.Background()
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	blocks := sealedEpochBlocks(t, nodes)
+
+	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), testutil.NewTestBlockBuilder())
+	for _, block := range blocks {
+		require.NoError(t, storage.Index(ctx, block.VerifiedBlock, block.Finalization))
+	}
+
+	telock := testutil.NewTestBlock(ProtocolMetadata{Epoch: 0, Round: 8, Seq: 8, Prev: blocks[7].VerifiedBlock.BlockHeader().Digest}, emptyBlacklist)
+	record, err := BlockRecord(telock.BlockHeader(), []byte{0xff})
+	require.NoError(t, err)
+	require.NoError(t, wal.Append(record))
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+	require.Equal(t, uint64(7), e.Metadata().Epoch)
+	require.Equal(t, uint64(8), e.Metadata().Round)
+}
+
+// TestWalRecoveryQuorumWithSealedEpochRecords asserts that a network whose validators all restart with
+// the same notarized Telock in their WAL commits a block of the new epoch. Without filtering by epoch,
+// every validator regressed to the sealed epoch and they finalized the Telock among themselves.
+func TestWalRecoveryQuorumWithSealedEpochRecords(t *testing.T) {
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	blocks := sealedEpochBlocks(t, nodes)
+	sealingDigest := blocks[7].VerifiedBlock.BlockHeader().Digest
+	telock, records := notarizedBlockRecords(t, nodes, ProtocolMetadata{Epoch: 0, Round: 8, Seq: 8, Prev: sealingDigest})
+
+	net := testutil.NewControlledNetwork(t, nodes)
+	for _, node := range nodes {
+		wal := testutil.NewTestWAL(t)
+		for _, record := range records {
+			require.NoError(t, wal.Append(record))
+		}
+		testutil.NewControlledSimplexNode(t, node, net, &testutil.TestNodeConfig{InitialStorage: blocks, WAL: wal})
+	}
+
+	net.StartInstances()
+	defer net.StopInstances()
+
+	net.TriggerLeaderBlockBuilder(8)
+	for _, n := range net.Instances {
+		committed := n.Storage.WaitForBlockCommit(8)
+		require.Equal(t, uint64(7), committed.BlockHeader().Epoch)
+		require.NotEqual(t, telock.BlockHeader().Digest, committed.BlockHeader().Digest)
+	}
+}

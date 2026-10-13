@@ -630,9 +630,7 @@ func (i *Instance) maybeGarbageCollectWAL() error {
 	if lastBlock.Metadata.SimplexEpochInfo.BlockValidationDescriptor != nil {
 		i.Config.Logger.Info("Last block is a sealing block, garbage collecting all WALs preceding it to start a new epoch")
 		// We figure out the round number of the latest block and garbage collect all WALs preceding it.
-		// TODO: We need to test a scenario where an epoch change occurred and then a few notarizations have been persisted to WAL,
-		// but no block has been finalized. So the WAL contains entries from previous epochs as well as from the current epoch.
-		// TODO: We need to test a scenario where an epoch change occurred but the node has crashed after notarizing some Telocks.
+		// Files holding sealed epoch records at or above this round survive, and restoreFromWal skips those records.
 		md := lastBlock.Metadata.SimplexProtocolMetadata
 		if err := i.wal.GarbageCollect(md.Round); err != nil {
 			return fmt.Errorf("error garbage collecting WALs: %w", err)
