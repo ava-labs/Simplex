@@ -3603,27 +3603,11 @@ func TestFinalizeAfterNotarizingBeyondMaxRoundWindow(t *testing.T) {
 	}, 10*time.Second, 100*time.Millisecond)
 }
 
-// TestEpochAdvancesFromEmptyNotarizationWhileVerifying asserts that an empty notarization for a round whose
-// proposal is still being verified advances the epoch, and the late verification does not move it back.
+// TestEpochAdvancesFromEmptyNotarizationWhileVerifying asserts that a proposal whose round is empty notarized
+// while it is being verified finishes verifying, and the epoch goes on to commit the next block.
 func TestEpochAdvancesFromEmptyNotarizationWhileVerifying(t *testing.T) {
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
-	comm := &recordingComm{Communication: testutil.NewNoopComm(nodes), BroadcastMessages: make(chan *Message, 100)}
-	conf, _, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[3], comm, testutil.NewTestBlockBuilder())
-
-	waitForVote := func(round uint64) {
-		require.Eventually(t, func() bool {
-			for {
-				select {
-				case msg := <-comm.BroadcastMessages:
-					if msg.VoteMessage != nil && msg.VoteMessage.Vote.Round == round {
-						return true
-					}
-				default:
-					return false
-				}
-			}
-		}, 5*time.Second, 10*time.Millisecond, "the epoch should vote on the round %d proposal", round)
-	}
+	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[3], testutil.NewNoopComm(nodes), testutil.NewTestBlockBuilder())
 
 	e, err := NewEpoch(conf)
 	require.NoError(t, err)
@@ -3640,23 +3624,50 @@ func TestEpochAdvancesFromEmptyNotarizationWhileVerifying(t *testing.T) {
 	advanceRoundFromEmpty(t, e)
 	require.Equal(t, uint64(1), e.Metadata().Round)
 
-	// The late verification still votes for round 0
 	close(block0Verifying)
-
-	waitForVote(0)
+	wal.AssertBlockProposal(0)
 	require.Equal(t, uint64(1), e.Metadata().Round)
 	require.Equal(t, uint64(0), e.Metadata().Seq)
 
-	// The epoch still votes on and commits the round 1 proposal.
+	// The block built off the empty notarization is committed
 	block1 := testutil.NewTestBlock(e.Metadata(), emptyBlacklist)
 	vote, err = testutil.NewTestVote(block1, nodes[1])
 	require.NoError(t, err)
 	require.NoError(t, e.HandleMessage(&Message{BlockMessage: &BlockMessage{Block: block1, Vote: *vote}}, nodes[1]))
-	waitForVote(1)
+	wal.AssertBlockProposal(1)
 
-	// ensure we commit the block built off the empty notarization
 	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Validators())
 	finalization, _ := testutil.NewFinalizationRecord(t, sigAggr, block1, nodes[:Quorum(len(nodes))])
 	require.NoError(t, e.HandleMessage(&Message{Finalization: &finalization}, nodes[1]))
 	require.Equal(t, block1, storage.WaitForBlockCommit(0))
+}
+
+// TestEpochAdvancesFromNotarizationWhileVerifying asserts that a notarization received while the round's proposal
+// is being verified advances the epoch once, and the late vote on the proposal does not advance it again.
+func TestEpochAdvancesFromNotarizationWhileVerifying(t *testing.T) {
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[3], testutil.NewNoopComm(nodes), testutil.NewTestBlockBuilder())
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+
+	block0 := testutil.NewTestBlock(e.Metadata(), emptyBlacklist)
+	block0Verifying := make(chan struct{})
+	block0.VerificationDelay = block0Verifying
+	vote, err := testutil.NewTestVote(block0, nodes[0])
+	require.NoError(t, err)
+	require.NoError(t, e.HandleMessage(&Message{BlockMessage: &BlockMessage{Block: block0, Vote: *vote}}, nodes[0]))
+
+	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Validators())
+	notarization, err := testutil.NewNotarization(conf.Logger, sigAggr, block0, nodes[:Quorum(len(nodes))])
+	require.NoError(t, err)
+	require.NoError(t, e.HandleMessage(&Message{Notarization: &notarization}, nodes[1]))
+	require.Equal(t, uint64(0), e.Metadata().Round)
+
+	// Verification loads the notarization, advances the round, then votes on round 0 under the same lock
+	close(block0Verifying)
+	wal.AssertNotarization(0)
+	require.Equal(t, uint64(1), e.Metadata().Round)
 }
