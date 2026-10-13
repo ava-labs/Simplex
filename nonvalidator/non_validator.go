@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand/v2"
+	"slices"
 	"sync"
 	"time"
 
@@ -182,12 +183,14 @@ func (n *NonValidator) HandleMessage(msg *common.Message, from common.NodeID) er
 		return n.haltedError
 	}
 
-	if !n.EpochsReplicated && msg.ReplicationResponse == nil {
-		n.Logger.Debug("Dropping message received while replicating epochs, we only accept replication responses", zap.Any("Message", msg), zap.Stringer("From", from))
+	if !n.EpochsReplicated && msg.ReplicationResponse == nil && msg.ReplicationRequest == nil {
+		n.Logger.Debug("Dropping message received while replicating epochs, we only accept replication messages", zap.Any("Message", msg), zap.Stringer("From", from))
 		return nil
 	}
 
 	switch {
+	case msg.ReplicationRequest != nil:
+		return n.handleReplicationRequest(msg.ReplicationRequest, from)
 	case msg.ReplicationResponse != nil:
 		return n.handleReplicationResponse(msg.ReplicationResponse, from)
 	case msg.BlockMessage != nil && msg.BlockMessage.Block != nil:
@@ -584,6 +587,73 @@ func (n *NonValidator) handleReplicationResponse(resp *common.ReplicationRespons
 	}
 
 	return n.processReplicationState()
+}
+
+// handleReplicationRequest serves the requested sequences and our latest finalized sequence from storage.
+// Rounds are not served since we do not hold notarizations.
+func (n *NonValidator) handleReplicationRequest(req *common.ReplicationRequest, from common.NodeID) error {
+	n.Logger.Debug("Received replication request", zap.Stringer("from", from), zap.Uint64s("seqs", req.Seqs), zap.Uint64("latest seq", req.LatestFinalizedSeq))
+
+	seqs := slices.Clone(req.Seqs)
+	slices.Sort(seqs)
+	if len(seqs) > int(n.MaxSequenceWindow) {
+		seqs = seqs[:n.MaxSequenceWindow]
+	}
+
+	response := &common.VerifiedReplicationResponse{}
+	remainingBytes := simplex.DefaultMaxReplicationResponseSize
+
+	nextSeqToCommit := n.nextSeqToCommit()
+	if req.LatestFinalizedSeq > 0 && nextSeqToCommit > req.LatestFinalizedSeq {
+		latest, err := n.retrieveQuorumRound(nextSeqToCommit - 1)
+		if err != nil {
+			return err
+		}
+		size := latest.Size()
+		if size > remainingBytes {
+			n.Logger.Error("Latest finalized block exceeds the maximum replication response size", zap.Stringer("from", from), zap.Int("size", size))
+			return nil
+		}
+		response.LatestFinalizedSeq = latest
+		remainingBytes -= size
+	}
+
+	for _, seq := range seqs {
+		// seqs are sorted, so every following seq is not indexed either
+		if !n.isIndexed(seq) {
+			break
+		}
+		qr, err := n.retrieveQuorumRound(seq)
+		if err != nil {
+			return err
+		}
+		size := qr.Size()
+		if size > remainingBytes {
+			n.Logger.Debug("Replication response reached size limit", zap.Stringer("from", from), zap.Uint64("Stopped at Seq", seq))
+			break
+		}
+		remainingBytes -= size
+		response.Data = append(response.Data, *qr)
+	}
+
+	if len(response.Data) == 0 && response.LatestFinalizedSeq == nil {
+		n.Logger.Debug("No data found for replication request", zap.Stringer("from", from))
+		return nil
+	}
+
+	n.Comm.Send(&common.Message{VerifiedReplicationResponse: response}, from)
+	return nil
+}
+
+// retrieveQuorumRound retrieves an indexed seq from storage, halting if storage fails.
+func (n *NonValidator) retrieveQuorumRound(seq uint64) (*common.VerifiedQuorumRound, error) {
+	block, finalization, err := n.Storage.Retrieve(seq)
+	if err != nil {
+		n.Logger.Error("Failed retrieving block from storage", zap.Uint64("seq", seq), zap.Error(err))
+		n.haltedError = err
+		return nil, err
+	}
+	return &common.VerifiedQuorumRound{VerifiedBlock: block, Finalization: &finalization}, nil
 }
 
 func (n *NonValidator) processReplicationState() error {
