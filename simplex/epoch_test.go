@@ -3602,3 +3602,87 @@ func TestFinalizeAfterNotarizingBeyondMaxRoundWindow(t *testing.T) {
 		return true
 	}, 10*time.Second, 100*time.Millisecond)
 }
+
+// TestReplicationNoRoundRequestsBelowObservedFinalization asserts no round requests are sent
+// for rounds covered by a known finalization.
+func TestReplicationNoRoundRequestsBelowObservedFinalization(t *testing.T) {
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	sigAggr := &testutil.TestSignatureAggregator{N: len(nodes)}
+	comm := &recordingComm{Communication: testutil.NewNoopComm(nodes), SentMessages: make(chan *Message, 100)}
+	rng, err := NewRandomSource()
+	require.NoError(t, err)
+
+	replicationState := NewReplicationState(testutil.MakeLogger(t, 1), comm, nodes[0], 10, true, time.Now(), &sync.Mutex{}, rng)
+	defer replicationState.Close()
+
+	replicationState.ReceivedFutureRound(50, 40, 0, nodes)
+
+	block := testutil.NewTestBlock(ProtocolMetadata{Seq: 55, Round: 60}, emptyBlacklist)
+	finalization, _ := testutil.NewFinalizationRecord(t, sigAggr, block, nodes)
+	replicationState.ReceivedFutureFinalization(&finalization, 0)
+
+	for len(comm.SentMessages) > 0 {
+		<-comm.SentMessages
+	}
+
+	replicationState.MaybeAdvanceState(5, 5, 4)
+
+	for len(comm.SentMessages) > 0 {
+		msg := <-comm.SentMessages
+		require.Empty(t, msg.ReplicationRequest.Rounds, "requested rounds below the finalized round 60")
+	}
+}
+
+// TestEpochNoRoundRequestsBelowObservedFinalization asserts a node catching up by sequence does not
+// request rounds that a known finalization already covers, even after observing an earlier future notarization.
+func TestEpochNoRoundRequestsBelowObservedFinalization(t *testing.T) {
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	comm := &recordingComm{Communication: testutil.NewNoopComm(nodes), SentMessages: make(chan *Message, 100)}
+	conf, _, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[1], comm, testutil.NewTestBlockBuilder())
+	conf.ReplicationEnabled = true
+	conf.MaxRoundWindow = 10
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+
+	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Validators())
+
+	notarizedBlock := testutil.NewTestBlock(ProtocolMetadata{Round: 50, Seq: 40}, emptyBlacklist)
+	notarization, err := testutil.NewNotarization(conf.Logger, sigAggr, notarizedBlock, nodes)
+	require.NoError(t, err)
+	require.NoError(t, e.HandleMessage(&Message{Notarization: &notarization}, nodes[2]))
+
+	finalizedBlock := testutil.NewTestBlock(ProtocolMetadata{Round: 60, Seq: 55}, emptyBlacklist)
+	finalization, _ := testutil.NewFinalizationRecord(t, sigAggr, finalizedBlock, nodes)
+	require.NoError(t, e.HandleMessage(&Message{Finalization: &finalization}, nodes[2]))
+
+	md := e.Metadata()
+	var chain []QuorumRound
+	for seq := uint64(0); seq <= 5; seq++ {
+		md.Seq = seq
+		md.Round = seq
+		block := testutil.NewTestBlock(md, emptyBlacklist)
+		finalization, _ := testutil.NewFinalizationRecord(t, sigAggr, block, nodes)
+		chain = append(chain, QuorumRound{Block: block, Finalization: &finalization})
+		md.Prev = block.BlockHeader().Digest
+	}
+
+	for len(comm.SentMessages) > 0 {
+		<-comm.SentMessages
+	}
+
+	require.NoError(t, e.HandleMessage(&Message{ReplicationResponse: &ReplicationResponse{Data: chain}}, nodes[2]))
+	storage.WaitForBlockCommit(5)
+
+	// processes replication state under the epoch lock, so every request is sent once this returns
+	require.NoError(t, e.HandleMessage(&Message{ReplicationResponse: &ReplicationResponse{}}, nodes[2]))
+
+	for len(comm.SentMessages) > 0 {
+		msg := <-comm.SentMessages
+		if msg.ReplicationRequest != nil {
+			require.Empty(t, msg.ReplicationRequest.Rounds, "requested rounds below the finalized round 60")
+		}
+	}
+}

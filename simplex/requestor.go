@@ -277,6 +277,12 @@ func (r *requestor) removeOldTasks(targetSeqOrRound uint64) {
 		r.highestCommitted = &committed
 	}
 
+	// if we are replicating rounds, we should set the highest requested to targetSeqOrRound.
+	// otherwise, the round requestor sends extra requests for rounds that have sequences.
+	if !r.replicateSeqs && targetSeqOrRound > r.highestRequested {
+		r.highestRequested = targetSeqOrRound
+	}
+
 	r.timeoutHandler.RemoveOldTasks(func(seqOrRound uint64, _ struct{}) bool {
 		return seqOrRound <= targetSeqOrRound
 	})
