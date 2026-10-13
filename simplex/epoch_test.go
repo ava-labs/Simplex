@@ -3602,3 +3602,61 @@ func TestFinalizeAfterNotarizingBeyondMaxRoundWindow(t *testing.T) {
 		return true
 	}, 10*time.Second, 100*time.Millisecond)
 }
+
+// TestEpochAdvancesFromEmptyNotarizationWhileVerifying asserts that an empty notarization for a round whose
+// proposal is still being verified advances the epoch, and the late verification does not move it back.
+func TestEpochAdvancesFromEmptyNotarizationWhileVerifying(t *testing.T) {
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	comm := &recordingComm{Communication: testutil.NewNoopComm(nodes), BroadcastMessages: make(chan *Message, 100)}
+	conf, _, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[3], comm, testutil.NewTestBlockBuilder())
+
+	waitForVote := func(round uint64) {
+		require.Eventually(t, func() bool {
+			for {
+				select {
+				case msg := <-comm.BroadcastMessages:
+					if msg.VoteMessage != nil && msg.VoteMessage.Vote.Round == round {
+						return true
+					}
+				default:
+					return false
+				}
+			}
+		}, 5*time.Second, 10*time.Millisecond, "the epoch should vote on the round %d proposal", round)
+	}
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+
+	block0 := testutil.NewTestBlock(e.Metadata(), emptyBlacklist)
+	block0Verifying := make(chan struct{})
+	block0.VerificationDelay = block0Verifying
+	vote, err := testutil.NewTestVote(block0, nodes[0])
+	require.NoError(t, err)
+	require.NoError(t, e.HandleMessage(&Message{BlockMessage: &BlockMessage{Block: block0, Vote: *vote}}, nodes[0]))
+
+	advanceRoundFromEmpty(t, e)
+	require.Equal(t, uint64(1), e.Metadata().Round)
+
+	// The late verification still votes for round 0
+	close(block0Verifying)
+
+	waitForVote(0)
+	require.Equal(t, uint64(1), e.Metadata().Round)
+	require.Equal(t, uint64(0), e.Metadata().Seq)
+
+	// The epoch still votes on and commits the round 1 proposal.
+	block1 := testutil.NewTestBlock(e.Metadata(), emptyBlacklist)
+	vote, err = testutil.NewTestVote(block1, nodes[1])
+	require.NoError(t, err)
+	require.NoError(t, e.HandleMessage(&Message{BlockMessage: &BlockMessage{Block: block1, Vote: *vote}}, nodes[1]))
+	waitForVote(1)
+
+	// ensure we commit the block built off the empty notarization
+	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Validators())
+	finalization, _ := testutil.NewFinalizationRecord(t, sigAggr, block1, nodes[:Quorum(len(nodes))])
+	require.NoError(t, e.HandleMessage(&Message{Finalization: &finalization}, nodes[1]))
+	require.Equal(t, block1, storage.WaitForBlockCommit(0))
+}
