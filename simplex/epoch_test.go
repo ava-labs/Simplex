@@ -3604,7 +3604,7 @@ func TestFinalizeAfterNotarizingBeyondMaxRoundWindow(t *testing.T) {
 }
 
 // TestEpochAdvancesFromEmptyNotarizationWhileVerifying asserts that a proposal whose round is empty notarized
-// while it is being verified finishes verifying, and the epoch goes on to commit the next block.
+// while it is being verified finishes verifying and does not double increment the round.
 func TestEpochAdvancesFromEmptyNotarizationWhileVerifying(t *testing.T) {
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[3], testutil.NewNoopComm(nodes), testutil.NewTestBlockBuilder())
@@ -3643,7 +3643,7 @@ func TestEpochAdvancesFromEmptyNotarizationWhileVerifying(t *testing.T) {
 }
 
 // TestEpochAdvancesFromNotarizationWhileVerifying asserts that a notarization received while the round's proposal
-// is being verified advances the epoch once, and the late vote on the proposal does not advance it again.
+// is being verified advances the epoch once, and the vote on the proposal does not advance it again.
 func TestEpochAdvancesFromNotarizationWhileVerifying(t *testing.T) {
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[3], testutil.NewNoopComm(nodes), testutil.NewTestBlockBuilder())
