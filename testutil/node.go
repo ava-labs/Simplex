@@ -63,6 +63,10 @@ func (b *BasicNode) Start() {
 	require.NoError(b.t, b.E.Start())
 }
 
+func (b *BasicNode) CurrentTime() time.Time {
+	return time.UnixMilli(b.currentTime.Load())
+}
+
 func (b *BasicNode) AdvanceTime(duration time.Duration) {
 	now := time.UnixMilli(b.currentTime.Load()).Add(duration)
 	b.currentTime.Store(now.UnixMilli())
