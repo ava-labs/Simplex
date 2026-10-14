@@ -98,7 +98,7 @@ type SimplexEpochInfo struct {
 	// the hash of the sealing block of the previous epoch.
 	// This is used to be able to quickly fetch and verify the sealing blocks without having to retrieve the interleaving blocks,
 	// which allows to bootstrap the BLS keys of the validator set for each epoch before fully syncing the interleaving blocks.
-	PrevSealingBlockHash [32]byte `canoto:"fixed bytes,2"`
+	PrevSealingBlockHash common.Digest `canoto:"fixed bytes,2"`
 	// NextPChainReferenceHeight is the P-Chain height that the StateMachine uses as a reference for the next epoch.
 	// When the NextPChainReferenceHeight is > 0, it means the StateMachine is on its way to transition to a new epoch
 	// in which the validator set will be based on the given P-chain height.
@@ -165,7 +165,7 @@ func (sei *SimplexEpochInfo) Equal(other *SimplexEpochInfo) bool {
 		sei.PrevVMBlockSeq != other.PrevVMBlockSeq || sei.SealingBlockSeq != other.SealingBlockSeq {
 		return false
 	}
-	if !bytes.Equal(sei.PrevSealingBlockHash[:], other.PrevSealingBlockHash[:]) {
+	if sei.PrevSealingBlockHash != other.PrevSealingBlockHash {
 		return false
 	}
 	if sei.BlockValidationDescriptor != nil && !sei.BlockValidationDescriptor.Equals(other.BlockValidationDescriptor) {
