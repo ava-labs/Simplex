@@ -550,7 +550,7 @@ func (e *Epoch) loadFinalizationRecord(r []byte) error {
 	if err != nil {
 		return err
 	}
-	e.pruneToFinalizedChain(finalization)
+	e.pruneNonFinalizedChain(finalization)
 	e.Logger.Info("Finalization Recovered From WAL", zap.Uint64("Round", finalization.Finalization.Round))
 	return nil
 }
@@ -1343,7 +1343,7 @@ func (e *Epoch) persistFinalization(finalization common.Finalization) error {
 	e.blockVerificationScheduler.ExecuteBlockDependents(finalization.Finalization.Digest)
 	e.blockVerificationScheduler.RemoveOldTasks(finalization.Finalization.Seq)
 	e.replicationState.clearBlockDependencyTasks(finalization.Finalization.Digest, finalization.Finalization.Seq, true)
-	e.pruneToFinalizedChain(finalization)
+	e.pruneNonFinalizedChain(finalization)
 
 	if finalization.Finalization.Seq == nextSeqToCommit {
 		if err := e.indexFinalizations(finalization.Finalization.Round); err != nil {
@@ -3083,10 +3083,10 @@ func (e *Epoch) deleteRounds(round uint64) {
 	}
 }
 
-// pruneToFinalizedChain deletes the blocks and empty votes below the finalized round that are not
-// part of the finalized block's chain. Rounds strictly decrease along a chain, so a single descending
-// pass from the finalized block finds all of its ancestors.
-func (e *Epoch) pruneToFinalizedChain(finalization common.Finalization) {
+// pruneNonFinalizedChain deletes the blocks and empty votes below the finalized round that are not
+// part of the finalized block's chain. Ex. if we have blockchains b1 <- b3 <- b5, and b1 <- b2 <- b4,
+// a call to pruneNonFinalizedChain(finalization b5), will prune blocks b2 & b4 from the rounds map.
+func (e *Epoch) pruneNonFinalizedChain(finalization common.Finalization) {
 	prev := finalization.Finalization.Prev
 	minRound := e.minRoundInRoundsMap()
 	for r := finalization.Finalization.Round; r > minRound; r-- {
