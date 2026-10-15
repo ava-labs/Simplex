@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"hash/crc64"
 	"io"
+	"math"
 )
 
 const (
@@ -17,10 +18,17 @@ const (
 	recordChecksumLen = 8
 )
 
-var ErrInvalidCRC = errors.New("invalid CRC checksum")
+var (
+	ErrInvalidCRC      = errors.New("invalid CRC checksum")
+	ErrPayloadTooLarge = errors.New("payload too large for record length field")
+)
 
 // writeRecord writes a length-prefixed and check-summed record to the writer.
 func writeRecord(w io.Writer, payload []byte) error {
+	if uint64(len(payload)) > math.MaxUint32 {
+		return fmt.Errorf("%w: %d bytes", ErrPayloadTooLarge, len(payload))
+	}
+
 	checksumIndex := recordSizeLen + len(payload)
 	buff := make([]byte, checksumIndex+recordChecksumLen)
 	crc := crc64.New(crc64.MakeTable(crc64.ECMA))
