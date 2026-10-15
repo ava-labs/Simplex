@@ -63,17 +63,18 @@ type timeAdvancer interface {
 type Instance struct {
 	Config Config
 
-	lock               sync.Mutex
-	started            bool
-	cs                 *CachedStorage
-	transitionListener *epochTransitionListener
-	wal                *wal.GarbageCollectedWAL
-	msm                *metadata.StateMachine
-	e                  *simplex.Epoch
-	nv                 *nonvalidator.NonValidator
-	epochOrNV          timeAdvancer
-	epochChanges       chan epochChange
-	stopCh             chan struct{}
+	lock                       sync.Mutex
+	started                    bool
+	cs                         *CachedStorage
+	transitionListener         *epochTransitionListener
+	wal                        *wal.GarbageCollectedWAL
+	msm                        *metadata.StateMachine
+	e                          *simplex.Epoch
+	nv                         *nonvalidator.NonValidator
+	epochOrNV                  timeAdvancer
+	epochChanges               chan epochChange
+	stopCh                     chan struct{}
+	futureEpochMessageListener *nonvalidator.FutureEpochListener
 }
 
 func NewInstance(config Config) *Instance {
@@ -173,7 +174,13 @@ func (i *Instance) startValidator(validators common.Nodes) error {
 	i.epochOrNV = epoch
 	epochConfig.bbw.e = epoch
 
-	return epoch.Start()
+	if err := epoch.Start(); err != nil {
+		return err
+	}
+
+	// set the future epoch listener
+	i.futureEpochMessageListener = nonvalidator.NewFutureEpochListener(i.Config.Logger, i.Config.Sender, epoch.Epoch, i.latestValidatorSet, i.onHigherSealingBlock)
+	return nil
 }
 
 // startNonValidator runs a non-validator. epochsReplicated is true when we already hold the
@@ -372,29 +379,7 @@ func (i *Instance) HandleMessage(msg *common.Message, from common.NodeID) error 
 	}
 
 	if i.e != nil {
-		switch {
-		case msg.AuxiliaryInfo != nil:
-			if msg.AuxiliaryInfo.Epoch != i.e.Epoch {
-				i.Config.Logger.Debug(
-					"Received an auxiliary info from an old epoch",
-					zap.Uint64("Aux Info Epoch", msg.AuxiliaryInfo.Epoch),
-					zap.Uint64("Our Epoch", i.e.Epoch),
-					zap.Stringer("From", from))
-				return nil
-			}
-			i.msm.HandleAuxiliaryInfo(*msg.AuxiliaryInfo, avalanchego.NodeID(from))
-		case msg.EpochTransitionApproval != nil:
-			if !from.Equals(msg.EpochTransitionApproval.NodeID[:]) {
-				i.Config.Logger.Debug("Dropping approval not sent by its signer",
-					zap.Stringer("from", from),
-					zap.Stringer("signer", common.NodeID(msg.EpochTransitionApproval.NodeID[:])))
-				return nil
-			}
-			i.msm.HandleApproval(msg.EpochTransitionApproval)
-			return nil
-		}
-
-		return i.e.HandleMessage(msg, from)
+		return i.handleMessageForEpoch(msg, from)
 	}
 
 	if i.nv != nil {
@@ -402,6 +387,34 @@ func (i *Instance) HandleMessage(msg *common.Message, from common.NodeID) error 
 	}
 
 	return errors.New("we are not running neither a validator or not validator")
+}
+
+func (i *Instance) handleMessageForEpoch(msg *common.Message, from common.NodeID) error {
+	i.futureEpochMessageListener.HandleMessage(msg, from)
+
+	switch {
+	case msg.AuxiliaryInfo != nil:
+		if msg.AuxiliaryInfo.Epoch != i.e.Epoch {
+			i.Config.Logger.Debug(
+				"Received an auxiliary info from an old epoch",
+				zap.Uint64("Aux Info Epoch", msg.AuxiliaryInfo.Epoch),
+				zap.Uint64("Our Epoch", i.e.Epoch),
+				zap.Stringer("From", from))
+			return nil
+		}
+		i.msm.HandleAuxiliaryInfo(*msg.AuxiliaryInfo, avalanchego.NodeID(from))
+	case msg.EpochTransitionApproval != nil:
+		if !from.Equals(msg.EpochTransitionApproval.NodeID[:]) {
+			i.Config.Logger.Debug("Dropping approval not sent by its signer",
+				zap.Stringer("from", from),
+				zap.Stringer("signer", common.NodeID(msg.EpochTransitionApproval.NodeID[:])))
+			return nil
+		}
+		i.msm.HandleApproval(msg.EpochTransitionApproval)
+		return nil
+	}
+
+	return i.e.HandleMessage(msg, from)
 }
 
 func (i *Instance) wireReplicationResponse(msg *common.Message) error {
@@ -490,6 +503,11 @@ func (i *Instance) processEpochChange(epochChange epochChange) {
 		// Stop the non-validator before doing anything else, so that we don't process any more messages while we are changing epochs.
 		i.stopNonValidator()
 		err = i.startAtEpoch(epochChange.validators)
+	case runningValidator && i.Config.Storage.NumBlocks() <= epochChange.epoch:
+		// The future epoch listener found a sealing block we have not indexed. A validator restarted
+		// from storage would still be in our epoch, so replicate up to it as a non-validator.
+		i.stopValidator(true)
+		err = i.startNonValidator(false)
 	case runningValidator:
 		i.stopValidator(true)
 		err = i.startAtEpoch(epochChange.validators)
@@ -653,4 +671,18 @@ func (i *Instance) startAtEpoch(validators common.Nodes) error {
 type epochConfig struct {
 	simplex.EpochConfig
 	bbw *blockBuilderWaiter
+}
+
+func (i *Instance) onHigherSealingBlock(sealingBlock *common.QuorumRound) {
+	// this should only be called if we are running a validator
+	if i.e == nil {
+		i.Config.Logger.Warn("Our future epoch message listener triggered a higher epoch while not running a validator")
+		return
+	}
+
+	// the sealing block's sequence is the epoch it starts
+	epoch := sealingBlock.Block.BlockHeader().Seq
+
+	sealingInfo := sealingBlock.Block.SealingBlockInfo()
+	i.notifyEpochChange(epoch, sealingInfo.ValidatorSet)
 }
