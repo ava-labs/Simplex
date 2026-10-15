@@ -103,7 +103,7 @@ func (ri *LastRecordStoringWAL) LastRecord() []byte {
 	return ri.lastRecord
 }
 
-func (ri *LastRecordStoringWAL) Truncate(retentionTerm uint64) error {
+func (ri *LastRecordStoringWAL) Truncate(round uint64) error {
 	file, err := os.OpenFile(ri.recordIndexFilePath, os.O_CREATE|os.O_RDWR, WalPermissions)
 	if err != nil {
 		return fmt.Errorf("could not open last record file %s: %w", ri.recordIndexFilePath, err)
@@ -123,7 +123,7 @@ func (ri *LastRecordStoringWAL) Truncate(retentionTerm uint64) error {
 		return fmt.Errorf("could not close last record file %s: %w", ri.recordIndexFilePath, err)
 	}
 
-	return ri.TruncateableWAL.Truncate(retentionTerm)
+	return ri.TruncateableWAL.Truncate(round)
 }
 
 func (ri *LastRecordStoringWAL) Append(record []byte) error {

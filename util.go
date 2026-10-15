@@ -37,10 +37,10 @@ func LastBlock(storage Storage) (metadata.StateMachineBlock, uint64, error) {
 // contains non-Simplex blocks, the genesis validator set is returned. If the last
 // block is a sealing block, the set it seals in is returned. Otherwise, the set is
 // loaded from the sealing block of the last block's epoch.
-func getLastAcceptedValidatorSet(config *Config) (common.Nodes, error) {
+func getLastAcceptedValidatorSet(config *Config) (common.Nodes, uint64, error) {
 	lastBlock, numBlocks, err := LastBlock(config.Storage)
 	if err != nil {
-		return nil, fmt.Errorf("error retrieving last block: %w", err)
+		return nil, 0, fmt.Errorf("error retrieving last block: %w", err)
 	}
 
 	lastNonSimplexHeight := config.LastNonSimplexInnerBlock.Height()
@@ -70,17 +70,17 @@ func getLastAcceptedValidatorSet(config *Config) (common.Nodes, error) {
 		sealingBlockSeq := epochNum
 		sealingBlock, _, err := config.Storage.GetBlock(sealingBlockSeq)
 		if err != nil {
-			return nil, fmt.Errorf("error retrieving sealing block from storage: %w", err)
+			return nil, 0, fmt.Errorf("error retrieving sealing block from storage: %w", err)
 		}
 		if sealingBlock.Metadata.SimplexEpochInfo.BlockValidationDescriptor == nil {
-			return nil, fmt.Errorf("%w at seq %d", errNonSealingBlock, sealingBlockSeq)
+			return nil, 0, fmt.Errorf("%w at seq %d", errNonSealingBlock, sealingBlockSeq)
 		}
 		validatorSet = constructValidatorSetFromSealingBlock(sealingBlock.Metadata.SimplexEpochInfo.BlockValidationDescriptor)
 		nodes = validatorSetToNodes(validatorSet)
 		config.Logger.Debug("Determined epoch and validator set from sealing block in storage",
 			zap.Uint64("epoch", epochNum), zap.Uint64("sealingBlockSeq", sealingBlockSeq))
 	}
-	return nodes, nil
+	return nodes, epochNum, nil
 }
 
 func validatorSetToNodes(validatorSet metadata.NodeBLSMappings) common.Nodes {
