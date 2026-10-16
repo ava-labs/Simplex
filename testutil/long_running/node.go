@@ -5,6 +5,7 @@ package long_running
 
 import (
 	"testing"
+	"time"
 
 	"github.com/ava-labs/simplex/common"
 	"github.com/ava-labs/simplex/simplex"
@@ -21,10 +22,11 @@ type LongRunningNode struct {
 }
 
 type longRunningNodeConfig struct {
-	bb      *LongRunningBlockBuilder
-	wal     *testutil.TestWAL
-	storage *testutil.InMemStorage
-	logger  *testutil.TestLogger
+	bb        *LongRunningBlockBuilder
+	wal       *testutil.TestWAL
+	storage   *testutil.InMemStorage
+	logger    *testutil.TestLogger
+	startTime time.Time
 }
 
 func defaultLongRunningNodeConfig(t *testing.T, nodeID common.NodeID, basicNetwork *testutil.BasicInMemoryNetwork, options longRunningNodeConfig) (simplex.EpochConfig, *LongRunningBlockBuilder, *testutil.TestWAL, *testutil.InMemStorage) {
@@ -45,6 +47,9 @@ func defaultLongRunningNodeConfig(t *testing.T, nodeID common.NodeID, basicNetwo
 	if options.storage != nil {
 		epochConfig.Storage = options.storage
 		storage = options.storage
+	}
+	if !options.startTime.IsZero() {
+		epochConfig.StartTime = options.startTime
 	}
 	if options.logger != nil {
 		epochConfig.Logger = options.logger

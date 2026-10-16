@@ -85,10 +85,11 @@ func (n *LongRunningInMemoryNetwork) StartNodes(nodeIndexes ...uint64) {
 		clonedStorage := instance.Storage.Clone()
 
 		config := longRunningNodeConfig{
-			bb:      bb,
-			wal:     clonedWal,
-			storage: clonedStorage,
-			logger:  instance.logger,
+			bb:        bb,
+			wal:       clonedWal,
+			storage:   clonedStorage,
+			logger:    instance.logger,
+			startTime: instance.CurrentTime(),
 		}
 		newNode := NewLongRunningNode(n.t, nodeID, n.BasicInMemoryNetwork, config)
 

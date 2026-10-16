@@ -317,10 +317,11 @@ func (n *Network) startNode(idx int) {
 	mempool.Clear()
 
 	newNode := NewNode(n.t, nodeID, n.BasicInMemoryNetwork, n.config, randomNodeConfig{
-		mempool: mempool,
-		wal:     clonedWal,
-		storage: clonedStorage,
-		logger:  instance.logger,
+		mempool:   mempool,
+		wal:       clonedWal,
+		storage:   clonedStorage,
+		logger:    instance.logger,
+		startTime: instance.CurrentTime(),
 	})
 	n.nodes[idx] = newNode
 	n.ReplaceNode(newNode.BasicNode)
