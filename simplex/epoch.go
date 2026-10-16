@@ -754,6 +754,20 @@ func (e *Epoch) restoreFromWal() error {
 		return err
 	}
 
+	// Records of a sealed epoch survive in the WAL if we crashed before it was wiped.
+	reader := &common.WALReader{}
+	currentEpochRecords := records[:0]
+	for _, r := range records {
+		epoch, err := reader.Epoch(r)
+		if err != nil {
+			return err
+		}
+		if epoch >= e.Epoch {
+			currentEpochRecords = append(currentEpochRecords, r)
+		}
+	}
+	records = currentEpochRecords
+
 	if len(records) == 0 {
 		return e.startRound()
 	}

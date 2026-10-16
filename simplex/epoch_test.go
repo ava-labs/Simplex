@@ -3720,3 +3720,36 @@ func TestFailedVerificationDoesNotExecuteBlockDependents(t *testing.T) {
 		return wal.ContainsNotarization(0) && wal.ContainsNotarization(1)
 	}, 5*time.Second, 10*time.Millisecond, "block1 was not verified after its parent was verified")
 }
+
+// TestRestoreFromWALSkipsOlderEpochRecords asserts records of an older epoch left in the WAL
+// do not change the epoch, round, or parent derived from storage. restoreFromWal drops them before replay.
+func TestRestoreFromWALSkipsOlderEpochRecords(t *testing.T) {
+	ctx := context.Background()
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	quorum := Quorum(len(nodes))
+	sigAggr := &testutil.TestSignatureAggregator{N: len(nodes)}
+	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), testutil.NewTestBlockBuilder())
+
+	indexed := testutil.NewTestBlock(ProtocolMetadata{Epoch: 5, Seq: 0, Round: 0}, emptyBlacklist)
+	finalization, _ := testutil.NewFinalizationRecord(t, sigAggr, indexed, nodes[:quorum])
+	require.NoError(t, storage.Index(ctx, indexed, finalization))
+
+	stale := testutil.NewTestBlock(ProtocolMetadata{Epoch: 4, Seq: 1, Round: 3, Prev: indexed.BlockHeader().Digest}, emptyBlacklist)
+	blockRecord, err := BlockRecord(stale.BlockHeader(), stale.Bytes())
+	require.NoError(t, err)
+	notarizationRecord, err := testutil.NewNotarizationRecord(conf.Logger, sigAggr, stale, nodes[:quorum])
+	require.NoError(t, err)
+	require.NoError(t, wal.Append(blockRecord))
+	require.NoError(t, wal.Append(notarizationRecord))
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+
+	md := e.Metadata()
+	require.Equal(t, uint64(5), md.Epoch)
+	require.Equal(t, uint64(1), md.Round)
+	require.Equal(t, uint64(1), md.Seq)
+	require.Equal(t, indexed.BlockHeader().Digest, md.Prev)
+}

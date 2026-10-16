@@ -6,8 +6,6 @@ package wal_test
 import (
 	"crypto/rand"
 	"encoding/binary"
-	"errors"
-	"slices"
 	"testing"
 
 	"github.com/ava-labs/simplex/common"
@@ -16,26 +14,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// mockWALReader reads records laid out as 8 bytes of round followed by 8 bytes of epoch.
-// The garbage collection tests only ever read the round, so their records carry random
-// bytes past the round; makeEpochRecord builds records that carry both.
 type mockWALReader struct{}
 
 func (m *mockWALReader) Round(entry []byte) (uint64, error) {
-	if len(entry) < 8 {
-		return 0, errRecordTooShort
-	}
 	return binary.BigEndian.Uint64(entry[:8]), nil
 }
-
-func (m *mockWALReader) Epoch(entry []byte) (uint64, error) {
-	if len(entry) < 16 {
-		return 0, errRecordTooShort
-	}
-	return binary.BigEndian.Uint64(entry[8:16]), nil
-}
-
-var errRecordTooShort = errors.New("record too short")
 
 // makeRecord builds a payload of exactly `size` bytes whose first 8 bytes
 // encode the round (as read back by mockWALReader).
@@ -45,15 +28,6 @@ func makeRecord(t *testing.T, round uint64, size int) []byte {
 	binary.BigEndian.PutUint64(buff[:8], round)
 	_, err := rand.Read(buff[8:])
 	require.NoError(t, err)
-	return buff
-}
-
-// makeEpochRecord builds a 16 byte payload encoding the given round and epoch,
-// as read back by mockWALReader.
-func makeEpochRecord(round, epoch uint64) []byte {
-	buff := make([]byte, 16)
-	binary.BigEndian.PutUint64(buff[:8], round)
-	binary.BigEndian.PutUint64(buff[8:16], epoch)
 	return buff
 }
 
@@ -338,214 +312,4 @@ func TestGarbageCollectedWALAppendAfterRotationAndGC(t *testing.T) {
 	got, err = gcw.ReadAll()
 	require.NoError(t, err)
 	require.Equal(t, next, got)
-}
-
-// newEpochAwareWAL wraps a fresh garbage collected WAL that hides records of epochs below lowestEpoch.
-func newEpochAwareWAL(t *testing.T, lowestEpoch uint64) (*wal.EpochAwareWAL, *wal.GarbageCollectedWAL) {
-	creator, _ := countingCreator(t)
-	gcw, err := wal.NewGarbageCollectedWAL(nil, creator, &mockWALReader{}, 100)
-	require.NoError(t, err)
-
-	return &wal.EpochAwareWAL{
-		GarbageCollectableWAL: gcw,
-		Reader:                &mockWALReader{},
-		LowestEpoch:           lowestEpoch,
-	}, gcw
-}
-
-func TestEpochAwareWALFiltersOlderEpochs(t *testing.T) {
-	// Rounds are not unique across epochs: the records of epoch 4 at rounds 3 and 4 collide
-	// with the records of epoch 5 at the same rounds, so only the epoch can tell them apart.
-	oldEpochs := [][]byte{
-		makeEpochRecord(1, 3),
-		makeEpochRecord(2, 3),
-		makeEpochRecord(3, 4),
-		makeEpochRecord(4, 4),
-	}
-	currentEpoch := [][]byte{
-		makeEpochRecord(3, 5),
-		makeEpochRecord(4, 5),
-	}
-	newerEpoch := [][]byte{
-		makeEpochRecord(5, 6),
-	}
-
-	eaw, gcw := newEpochAwareWAL(t, 5)
-	for _, record := range slices.Concat(oldEpochs, currentEpoch, newerEpoch) {
-		require.NoError(t, eaw.Append(record))
-	}
-
-	// Reading through the wrapper hides the older epochs and preserves the append order of the rest.
-	got, err := eaw.ReadAll()
-	require.NoError(t, err)
-	require.Equal(t, slices.Concat(currentEpoch, newerEpoch), got)
-
-	// The wrapper only filters what is read; the underlying WAL still holds every record.
-	all, err := gcw.ReadAll()
-	require.NoError(t, err)
-	require.Equal(t, slices.Concat(oldEpochs, currentEpoch, newerEpoch), all)
-}
-
-func TestEpochAwareWALLowestEpochZeroKeepsEverything(t *testing.T) {
-	records := [][]byte{
-		makeEpochRecord(1, 0),
-		makeEpochRecord(2, 1),
-		makeEpochRecord(3, 7),
-	}
-
-	eaw, _ := newEpochAwareWAL(t, 0)
-	for _, record := range records {
-		require.NoError(t, eaw.Append(record))
-	}
-
-	got, err := eaw.ReadAll()
-	require.NoError(t, err)
-	require.Equal(t, records, got)
-}
-
-func TestEpochAwareWALReadAllEmpty(t *testing.T) {
-	eaw, _ := newEpochAwareWAL(t, 5)
-
-	got, err := eaw.ReadAll()
-	require.NoError(t, err)
-	require.Empty(t, got)
-
-	// A WAL holding only older epochs reads back as empty too.
-	require.NoError(t, eaw.Append(makeEpochRecord(1, 4)))
-	got, err = eaw.ReadAll()
-	require.NoError(t, err)
-	require.Empty(t, got)
-}
-
-func TestEpochAwareWALGarbageCollectsByRound(t *testing.T) {
-	// Garbage collection is keyed on rounds and filtering on epochs; the two compose.
-	eaw, _ := newEpochAwareWAL(t, 5)
-
-	// A tiny WAL size rotates upon every record, so garbage collection can drop records one by one.
-	eaw.GarbageCollectableWAL = func() *wal.GarbageCollectedWAL {
-		creator, _ := countingCreator(t)
-		gcw, err := wal.NewGarbageCollectedWAL(nil, creator, &mockWALReader{}, 16)
-		require.NoError(t, err)
-		return gcw
-	}()
-
-	records := [][]byte{
-		makeEpochRecord(1, 4),
-		makeEpochRecord(2, 5),
-		makeEpochRecord(3, 4),
-		makeEpochRecord(3, 5),
-		makeEpochRecord(4, 5),
-	}
-	for _, record := range records {
-		require.NoError(t, eaw.Append(record))
-	}
-
-	// Collecting below round 3 removes the records of rounds 1 and 2, whatever their epoch.
-	require.NoError(t, eaw.GarbageCollect(3))
-	got, err := eaw.ReadAll()
-	require.NoError(t, err)
-	require.Equal(t, [][]byte{makeEpochRecord(3, 5), makeEpochRecord(4, 5)}, got)
-
-	// The older epoch's record of round 3 was garbage collected too, it just was never visible.
-	all, err := eaw.GarbageCollectableWAL.ReadAll()
-	require.NoError(t, err)
-	require.Equal(t, records[2:], all)
-}
-
-func TestEpochAwareWALPropagatesReaderError(t *testing.T) {
-	eaw, _ := newEpochAwareWAL(t, 5)
-
-	// The record is long enough to carry a round, which Append needs, but not an epoch.
-	require.NoError(t, eaw.Append(makeRecord(t, 1, 8)))
-
-	_, err := eaw.ReadAll()
-	require.ErrorIs(t, err, errRecordTooShort)
-}
-
-// failingWAL fails every read with the given error.
-type failingWAL struct {
-	wal.GarbageCollectableWAL
-	err error
-}
-
-func (f *failingWAL) ReadAll() ([][]byte, error) {
-	return nil, f.err
-}
-
-func TestEpochAwareWALPropagatesReadAllError(t *testing.T) {
-	sentinel := errors.New("disk on fire")
-	eaw, gcw := newEpochAwareWAL(t, 5)
-	eaw.GarbageCollectableWAL = &failingWAL{GarbageCollectableWAL: gcw, err: sentinel}
-
-	_, err := eaw.ReadAll()
-	require.ErrorIs(t, err, sentinel)
-}
-
-func TestEpochAwareWALWithRealRecords(t *testing.T) {
-	// Exercises the wrapper with the real record encodings and reader, across every record type.
-	// Epoch 2 was sealed at round 5, but its Telocks kept it going at rounds 6 and 7 while the
-	// sealing block finalized. Epoch 3 starts at round 6, reusing those rounds.
-	const (
-		sealedEpoch = 2
-		newEpoch    = 3
-	)
-
-	nodes := []common.NodeID{{1}, {2}, {3}, {4}}
-	sigAggr := &testutil.TestSignatureAggregator{N: len(nodes)}
-
-	block := func(epoch, round uint64) *testutil.TestBlock {
-		return testutil.NewTestBlock(common.ProtocolMetadata{Epoch: epoch, Round: round, Seq: round}, common.Blacklist{})
-	}
-	blockRecord := func(epoch, round uint64) []byte {
-		b := block(epoch, round)
-		record, err := common.BlockRecord(b.BlockHeader(), b.Bytes())
-		require.NoError(t, err)
-		return record
-	}
-	notarizationRecord := func(epoch, round uint64) []byte {
-		record, err := testutil.NewNotarizationRecord(testutil.MakeLogger(t), sigAggr, block(epoch, round), nodes)
-		require.NoError(t, err)
-		return record
-	}
-	finalizationRecord := func(epoch, round uint64) []byte {
-		_, record := testutil.NewFinalizationRecord(t, sigAggr, block(epoch, round), nodes)
-		return record
-	}
-	emptyNotarizationRecord := func(epoch, round uint64) []byte {
-		en := testutil.NewEmptyNotarization(nodes, round)
-		en.Vote.Epoch = epoch
-		return common.NewEmptyNotarizationRecord(en)
-	}
-	emptyVoteRecord := func(epoch, round uint64) []byte {
-		return common.NewEmptyVoteRecord(common.ToBeSignedEmptyVote{
-			EmptyVoteMetadata: common.EmptyVoteMetadata{Epoch: epoch, Round: round},
-		})
-	}
-
-	sealedEpochRecords := [][]byte{
-		blockRecord(sealedEpoch, 5), notarizationRecord(sealedEpoch, 5), finalizationRecord(sealedEpoch, 5),
-		blockRecord(sealedEpoch, 6), notarizationRecord(sealedEpoch, 6),
-		emptyVoteRecord(sealedEpoch, 7), emptyNotarizationRecord(sealedEpoch, 7),
-	}
-	newEpochRecords := [][]byte{
-		emptyVoteRecord(newEpoch, 6), emptyNotarizationRecord(newEpoch, 6),
-		blockRecord(newEpoch, 7), notarizationRecord(newEpoch, 7), finalizationRecord(newEpoch, 7),
-	}
-
-	creator, _ := countingCreator(t)
-	gcw, err := wal.NewGarbageCollectedWAL(nil, creator, &common.WALReader{}, 512)
-	require.NoError(t, err)
-	eaw := &wal.EpochAwareWAL{
-		GarbageCollectableWAL: gcw,
-		Reader:                &common.WALReader{},
-		LowestEpoch:           newEpoch,
-	}
-
-	for _, record := range slices.Concat(sealedEpochRecords, newEpochRecords) {
-		require.NoError(t, eaw.Append(record))
-	}
-
-	got, err := eaw.ReadAll()
-	require.NoError(t, err)
-	require.Equal(t, newEpochRecords, got)
 }
