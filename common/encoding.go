@@ -290,24 +290,8 @@ func blockRecordHeader(record []byte) (BlockHeader, error) {
 	return blockHeader, nil
 }
 
-func BlockRecordRound(record []byte) (uint64, error) {
-	blockHeader, err := blockRecordHeader(record)
-	if err != nil {
-		return 0, err
-	}
-	return blockHeader.Round, nil
-}
-
-func BlockRecordEpoch(record []byte) (uint64, error) {
-	blockHeader, err := blockRecordHeader(record)
-	if err != nil {
-		return 0, err
-	}
-	return blockHeader.Epoch, nil
-}
-
-// toBeSignedVoteQuorumRecordVote extracts the vote of a notarization or finalization record without deserializing its QC.
-func toBeSignedVoteQuorumRecordVote(record []byte) (ToBeSignedVote, error) {
+// quorumRecordVote returns the vote bytes of a quorum record without deserializing its QC.
+func quorumRecordVote(record []byte) ([]byte, error) {
 	initialSize := len(record)
 
 	var pos int
@@ -318,135 +302,94 @@ func toBeSignedVoteQuorumRecordVote(record []byte) (ToBeSignedVote, error) {
 	pos += 4
 
 	if len(record) < pos {
-		return ToBeSignedVote{}, fmt.Errorf("record too short to extract vote size, expected at least %d bytes, got %d", pos, initialSize)
+		return nil, fmt.Errorf("record too short to extract vote size, expected at least %d bytes, got %d", pos, initialSize)
 	}
 
 	voteSize := binary.BigEndian.Uint32(record[2:6])
 
 	if voteSize > maxAllocationSize {
-		return ToBeSignedVote{}, fmt.Errorf("vote size too large: %d bytes", voteSize)
+		return nil, fmt.Errorf("vote size too large: %d bytes", voteSize)
 	}
 
 	record = record[pos:] // Move the slice to start after the vote size field
 
 	if len(record) < int(voteSize) {
-		return ToBeSignedVote{}, fmt.Errorf("record too short to extract vote, expected at least %d bytes, got %d", 6+int(voteSize), initialSize)
+		return nil, fmt.Errorf("record too short to extract vote, expected at least %d bytes, got %d", 6+int(voteSize), initialSize)
 	}
 
-	record = record[:voteSize] // Trim everything but the vote, we don't need anything else
+	return record[:voteSize], nil
+}
 
+// toBeSignedVoteQuorumRecordVote extracts the vote of a notarization or finalization record without deserializing its QC.
+func toBeSignedVoteQuorumRecordVote(record []byte) (ToBeSignedVote, error) {
+	voteBytes, err := quorumRecordVote(record)
+	if err != nil {
+		return ToBeSignedVote{}, err
+	}
 	var vote ToBeSignedVote
-	if err := vote.FromBytes(record); err != nil {
+	if err := vote.FromBytes(voteBytes); err != nil {
 		return ToBeSignedVote{}, fmt.Errorf("failed to deserialize vote: %w", err)
 	}
-
 	return vote, nil
 }
 
-func toBeSignedVoteQuorumRecordRound(record []byte) (uint64, error) {
-	vote, err := toBeSignedVoteQuorumRecordVote(record)
+// emptyNotarizationQuorumRecordVote extracts the empty vote of an empty notarization record without deserializing its QC.
+func emptyNotarizationQuorumRecordVote(record []byte) (ToBeSignedEmptyVote, error) {
+	voteBytes, err := quorumRecordVote(record)
 	if err != nil {
-		return 0, err
+		return ToBeSignedEmptyVote{}, err
 	}
-	return vote.Round, nil
+	var vote ToBeSignedEmptyVote
+	if err := vote.FromBytes(voteBytes); err != nil {
+		return ToBeSignedEmptyVote{}, fmt.Errorf("failed to deserialize empty vote: %w", err)
+	}
+	return vote, nil
 }
 
-func toBeSignedVoteQuorumRecordEpoch(record []byte) (uint64, error) {
-	vote, err := toBeSignedVoteQuorumRecordVote(record)
-	if err != nil {
-		return 0, err
-	}
-	return vote.Epoch, nil
-}
-
-// An empty notarization record lays out as: 2 bytes of record type, 4 bytes of vote size,
-// then the empty vote itself: 1 byte of version, 8 bytes of epoch and 8 bytes of round.
-const (
-	emptyNotarizationRecordEpochOffset = 2 + 4 + 1
-	emptyNotarizationRecordRoundOffset = emptyNotarizationRecordEpochOffset + 8
-	emptyNotarizationRecordMinLen      = emptyNotarizationRecordRoundOffset + 8
-)
-
-func emptyNotarizationQuorumRecordRound(record []byte) (uint64, error) {
-	if len(record) < emptyNotarizationRecordMinLen {
-		return 0, fmt.Errorf("record too short to extract round, expected at least %d bytes, got %d", emptyNotarizationRecordMinLen, len(record))
+// walRecordRoundAndEpoch returns the round and epoch of a WAL record without deserializing it in full.
+func walRecordRoundAndEpoch(entry []byte) (round uint64, epoch uint64, err error) {
+	if len(entry) < 2 {
+		return 0, 0, fmt.Errorf("entry too short to extract record type, expected at least 2 bytes, got %d", len(entry))
 	}
 
-	return binary.BigEndian.Uint64(record[emptyNotarizationRecordRoundOffset : emptyNotarizationRecordRoundOffset+8]), nil
-}
-
-func emptyNotarizationQuorumRecordEpoch(record []byte) (uint64, error) {
-	if len(record) < emptyNotarizationRecordMinLen {
-		return 0, fmt.Errorf("record too short to extract epoch, expected at least %d bytes, got %d", emptyNotarizationRecordMinLen, len(record))
+	recordType := binary.BigEndian.Uint16(entry[:2])
+	switch recordType {
+	case BlockRecordType:
+		blockHeader, err := blockRecordHeader(entry)
+		return blockHeader.Round, blockHeader.Epoch, err
+	case NotarizationRecordType, FinalizationRecordType:
+		vote, err := toBeSignedVoteQuorumRecordVote(entry)
+		return vote.Round, vote.Epoch, err
+	case EmptyNotarizationRecordType:
+		vote, err := emptyNotarizationQuorumRecordVote(entry)
+		return vote.Round, vote.Epoch, err
+	case EmptyVoteRecordType:
+		vote, err := ParseEmptyVoteRecord(entry)
+		return vote.Round, vote.Epoch, err
+	default:
+		return 0, 0, fmt.Errorf("unknown record type %d", recordType)
 	}
-
-	return binary.BigEndian.Uint64(record[emptyNotarizationRecordEpochOffset : emptyNotarizationRecordEpochOffset+8]), nil
-}
-
-// An empty vote record lays out as: 2 bytes of record type, then the empty vote itself:
-// 1 byte of version, 8 bytes of epoch and 8 bytes of round.
-const (
-	emptyVoteRecordEpochOffset = 2 + 1
-	emptyVoteRecordRoundOffset = emptyVoteRecordEpochOffset + 8
-	emptyVoteRecordMinLen      = emptyVoteRecordRoundOffset + 8
-)
-
-func EmptyVoteRecordRound(record []byte) (uint64, error) {
-	if len(record) < emptyVoteRecordMinLen {
-		return 0, fmt.Errorf("record too short to extract round, expected at least %d bytes, got %d", emptyVoteRecordMinLen, len(record))
-	}
-
-	return binary.BigEndian.Uint64(record[emptyVoteRecordRoundOffset : emptyVoteRecordRoundOffset+8]), nil
-}
-
-func EmptyVoteRecordEpoch(record []byte) (uint64, error) {
-	if len(record) < emptyVoteRecordMinLen {
-		return 0, fmt.Errorf("record too short to extract epoch, expected at least %d bytes, got %d", emptyVoteRecordMinLen, len(record))
-	}
-
-	return binary.BigEndian.Uint64(record[emptyVoteRecordEpochOffset : emptyVoteRecordEpochOffset+8]), nil
 }
 
 type WALReader struct{}
 
 // Round returns the round of the given WAL entry without deserializing it in full.
 func (wrr *WALReader) Round(entry []byte) (uint64, error) {
-	if len(entry) < 2 {
-		return 0, fmt.Errorf("entry too short to extract record type, expected at least 2 bytes, got %d", len(entry))
-	}
-
-	recordType := binary.BigEndian.Uint16(entry[:2])
-	switch recordType {
-	case BlockRecordType:
-		return BlockRecordRound(entry)
-	case NotarizationRecordType, FinalizationRecordType:
-		return toBeSignedVoteQuorumRecordRound(entry)
-	case EmptyNotarizationRecordType:
-		return emptyNotarizationQuorumRecordRound(entry)
-	case EmptyVoteRecordType:
-		return EmptyVoteRecordRound(entry)
-	default:
-		return 0, fmt.Errorf("unknown record type %d for round extraction", recordType)
-	}
+	round, _, err := walRecordRoundAndEpoch(entry)
+	return round, err
 }
 
-// Epoch returns the epoch of the given WAL entry without deserializing it in full.
-func (wrr *WALReader) Epoch(entry []byte) (uint64, error) {
-	if len(entry) < 2 {
-		return 0, fmt.Errorf("entry too short to extract record type, expected at least 2 bytes, got %d", len(entry))
+// RecordsFromEpoch returns the WAL records whose epoch is at least epoch, in their original order.
+func RecordsFromEpoch(records [][]byte, epoch uint64) ([][]byte, error) {
+	var filtered [][]byte
+	for _, record := range records {
+		_, recordEpoch, err := walRecordRoundAndEpoch(record)
+		if err != nil {
+			return nil, err
+		}
+		if recordEpoch >= epoch {
+			filtered = append(filtered, record)
+		}
 	}
-
-	recordType := binary.BigEndian.Uint16(entry[:2])
-	switch recordType {
-	case BlockRecordType:
-		return BlockRecordEpoch(entry)
-	case NotarizationRecordType, FinalizationRecordType:
-		return toBeSignedVoteQuorumRecordEpoch(entry)
-	case EmptyNotarizationRecordType:
-		return emptyNotarizationQuorumRecordEpoch(entry)
-	case EmptyVoteRecordType:
-		return EmptyVoteRecordEpoch(entry)
-	default:
-		return 0, fmt.Errorf("unknown record type %d for epoch extraction", recordType)
-	}
+	return filtered, nil
 }

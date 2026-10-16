@@ -754,6 +754,12 @@ func (e *Epoch) restoreFromWal() error {
 		return err
 	}
 
+	// Records of a sealed epoch survive in the WAL if we crashed before it was wiped.
+	records, err = common.RecordsFromEpoch(records, e.Epoch)
+	if err != nil {
+		return err
+	}
+
 	if len(records) == 0 {
 		return e.startRound()
 	}

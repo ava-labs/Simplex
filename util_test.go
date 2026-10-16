@@ -125,15 +125,12 @@ func TestGetLastAcceptedEpochAndValidatorSet(t *testing.T) {
 		name          string
 		blocks        []metadata.StateMachineBlock
 		expectedNodes common.Nodes
-		expectedEpoch uint64
 		expectedErr   error
 	}{
 		{
 			name:          "only non-Simplex blocks starts at first Simplex height with genesis set",
 			blocks:        []metadata.StateMachineBlock{nonSimplexBlock(0)},
 			expectedNodes: vdrSet.Nodes(),
-			// The first Simplex epoch is the sequence the first Simplex block will occupy.
-			expectedEpoch: 1,
 		},
 		{
 			name: "multiple non-Simplex blocks start at first Simplex height with genesis set",
@@ -143,7 +140,6 @@ func TestGetLastAcceptedEpochAndValidatorSet(t *testing.T) {
 				nonSimplexBlock(2),
 			},
 			expectedNodes: vdrSet.Nodes(),
-			expectedEpoch: 3,
 		},
 		{
 			name: "sealing block at tip starts next epoch with its descriptor set",
@@ -152,8 +148,6 @@ func TestGetLastAcceptedEpochAndValidatorSet(t *testing.T) {
 				sealingBlock(1, 2, vdrSet),
 			},
 			expectedNodes: vdrSet.Nodes(),
-			// The epoch a sealing block starts is numbered by the sealing block's sequence.
-			expectedEpoch: 2,
 		},
 		{
 			name: "non-sealing tip keeps its epoch, set loaded from sealing block at seq==epoch",
@@ -164,7 +158,6 @@ func TestGetLastAcceptedEpochAndValidatorSet(t *testing.T) {
 				simplexBlock(2, 3),
 			},
 			expectedNodes: vdrSet.Nodes(),
-			expectedEpoch: 2,
 		},
 		{
 			name:        "empty storage errors",
@@ -187,14 +180,13 @@ func TestGetLastAcceptedEpochAndValidatorSet(t *testing.T) {
 			storage := &stubStorage{blocks: tt.blocks}
 			config := epochTestConfig(t, storage, vdrSet)
 
-			nodes, epoch, err := getLastAcceptedValidatorSet(config)
+			nodes, err := getLastAcceptedValidatorSet(config)
 			if tt.expectedErr != nil {
 				require.ErrorIs(t, err, tt.expectedErr)
 				return
 			}
 			require.NoError(t, err)
 			require.Equal(t, tt.expectedNodes, nodes)
-			require.Equal(t, tt.expectedEpoch, epoch)
 		})
 	}
 }

@@ -17,11 +17,10 @@ const (
 // Creator creates a DeletableWAL. Returns an error upon failure.
 type Creator func() (DeletableWAL, error)
 
-// Reader reads the round and the epoch of a WAL payload.
+// Reader reads the round of a WAL payload.
 // Returns an error upon failure.
 type Reader interface {
 	Round([]byte) (uint64, error)
-	Epoch([]byte) (uint64, error)
 }
 
 // TruncateableWAL is a DeletableWAL that can be truncated to a given round.
@@ -37,13 +36,6 @@ type DeletableWAL interface {
 	// Delete deletes the WAL file and after it is called,
 	// it should no longer be used.
 	Delete() error
-}
-
-// GarbageCollectableWAL is a WriteAheadLog that can be garbage collected.
-// It may remove all entries below the given round.
-type GarbageCollectableWAL interface {
-	common.WriteAheadLog
-	GarbageCollect(round uint64) error
 }
 
 type garbageCollectedWAL struct {
@@ -206,30 +198,4 @@ func (gcw *GarbageCollectedWAL) Close() error {
 	}
 	gcw.wals = nil
 	return nil
-}
-
-// EpochAwareWAL is a GarbageCollectableWAL that ignores records with an epoch lower than its designated epoch.
-type EpochAwareWAL struct {
-	GarbageCollectableWAL
-	Reader      Reader
-	LowestEpoch uint64
-}
-
-func (eaw *EpochAwareWAL) ReadAll() ([][]byte, error) {
-	records, err := eaw.GarbageCollectableWAL.ReadAll()
-	if err != nil {
-		return nil, err
-	}
-
-	var filteredRecords [][]byte
-	for _, record := range records {
-		epoch, err := eaw.Reader.Epoch(record)
-		if err != nil {
-			return nil, err
-		}
-		if epoch >= eaw.LowestEpoch {
-			filteredRecords = append(filteredRecords, record)
-		}
-	}
-	return filteredRecords, nil
 }

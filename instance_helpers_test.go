@@ -279,9 +279,6 @@ type walCreator struct {
 
 	lock sync.Mutex
 	wals []*testutil.TestWAL
-	// deleted holds, in deletion order, the records of every WAL the instance deleted,
-	// so a test can see what the WAL held right before it was garbage collected.
-	deleted [][]byte
 }
 
 func (w *walCreator) createWAL() (wal.DeletableWAL, error) {
@@ -289,62 +286,7 @@ func (w *walCreator) createWAL() (wal.DeletableWAL, error) {
 	w.lock.Lock()
 	w.wals = append(w.wals, tw)
 	w.lock.Unlock()
-	return &deleteRecordingWAL{TestWAL: tw, creator: w}, nil
-}
-
-// deleteRecordingWAL saves the records of the WAL into its creator right before deleting them.
-type deleteRecordingWAL struct {
-	*testutil.TestWAL
-	creator *walCreator
-}
-
-func (d *deleteRecordingWAL) Delete() error {
-	records, err := d.ReadAll()
-	require.NoError(d.creator.t, err)
-
-	d.creator.lock.Lock()
-	d.creator.deleted = append(d.creator.deleted, records...)
-	d.creator.lock.Unlock()
-
-	return d.TestWAL.Delete()
-}
-
-// deletedRecords returns the records of every WAL the instance deleted so far, in deletion order.
-func (w *walCreator) deletedRecords() [][]byte {
-	w.lock.Lock()
-	defer w.lock.Unlock()
-	return append([][]byte(nil), w.deleted...)
-}
-
-// blocksInWAL parses every block record the live WALs of this creator hold, in append order.
-func (w *walCreator) blocksInWAL() []metadata.StateMachineBlock {
-	w.lock.Lock()
-	defer w.lock.Unlock()
-
-	var records [][]byte
-	for _, tw := range w.wals {
-		walRecords, err := tw.ReadAll()
-		require.NoError(w.t, err)
-		records = append(records, walRecords...)
-	}
-	return parseBlockRecords(w.t, records)
-}
-
-// parseBlockRecords returns the metadata of the blocks the block records among the given WAL
-// records carry, in order. Inner blocks are left out, as only the metadata tells a block's type.
-func parseBlockRecords(t *testing.T, records [][]byte) []metadata.StateMachineBlock {
-	var blocks []metadata.StateMachineBlock
-	for _, record := range records {
-		if binary.BigEndian.Uint16(record[:2]) != common.BlockRecordType {
-			continue
-		}
-		_, blockBytes, err := common.ParseBlockRecord(record)
-		require.NoError(t, err)
-		var rawBlock metadata.RawBlock
-		require.NoError(t, rawBlock.UnmarshalCanoto(blockBytes))
-		blocks = append(blocks, metadata.StateMachineBlock{Metadata: rawBlock.Metadata})
-	}
-	return blocks
+	return tw, nil
 }
 
 // containsNotarization reports whether any WAL this creator handed out holds a
@@ -448,12 +390,8 @@ func (i *instanceComm) stop() {
 	i.wg.Wait()
 }
 
-// enqueue adds a message to be sent, unless the network is holding messages of its kind back.
+// enqueue adds a message to be sent
 func (i *instanceComm) enqueue(m inflightMessage) {
-	if i.n.maybeHold(i, m) {
-		return
-	}
-
 	select {
 	case i.queue <- m:
 	default:
@@ -723,65 +661,12 @@ type network struct {
 	nodes []node
 	// offline nodes stay in the network but neither send nor receive messages.
 	offline map[string]struct{}
-
-	// hold, when set, picks the messages the network holds back instead of delivering;
-	// held keeps them, in send order, until releaseHeldMessages delivers them.
-	hold func(from common.NodeID, msg *common.Message) bool
-	held []heldMessage
-}
-
-// heldMessage is a message the network held back, along with the comm that was sending it.
-type heldMessage struct {
-	comm *instanceComm
-	msg  inflightMessage
 }
 
 func (n *network) nodesSnapshot() []node {
 	n.lock.Lock()
 	defer n.lock.Unlock()
 	return append([]node(nil), n.nodes...)
-}
-
-// holdMessages makes the network hold back every message the predicate selects, until
-// releaseHeldMessages is called. The predicate runs on the sender's goroutine.
-func (n *network) holdMessages(hold func(from common.NodeID, msg *common.Message) bool) {
-	n.lock.Lock()
-	defer n.lock.Unlock()
-	n.hold = hold
-}
-
-// maybeHold holds the message back if the network is holding messages of its kind, and reports whether it did.
-// The predicate runs without the network lock, so it may inspect the nodes.
-func (n *network) maybeHold(comm *instanceComm, m inflightMessage) bool {
-	n.lock.Lock()
-	hold := n.hold
-	n.lock.Unlock()
-
-	if hold == nil || !hold(m.from, m.msg) {
-		return false
-	}
-
-	n.lock.Lock()
-	defer n.lock.Unlock()
-	if n.hold == nil {
-		// Released in the meantime: deliver rather than strand the message.
-		return false
-	}
-	n.held = append(n.held, heldMessage{comm: comm, msg: m})
-	return true
-}
-
-// releaseHeldMessages stops holding messages back and delivers the ones held so far, in send order.
-func (n *network) releaseHeldMessages() {
-	n.lock.Lock()
-	held := n.held
-	n.held = nil
-	n.hold = nil
-	n.lock.Unlock()
-
-	for _, h := range held {
-		h.comm.enqueue(h.msg)
-	}
 }
 
 func (n *network) setOffline(id common.NodeID) {
