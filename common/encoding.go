@@ -450,3 +450,19 @@ func (wrr *WALReader) Epoch(entry []byte) (uint64, error) {
 		return 0, fmt.Errorf("unknown record type %d for epoch extraction", recordType)
 	}
 }
+
+// RecordsFromEpoch returns the WAL records whose epoch is at least epoch, in their original order.
+func RecordsFromEpoch(records [][]byte, epoch uint64) ([][]byte, error) {
+	reader := &WALReader{}
+	var filtered [][]byte
+	for _, record := range records {
+		recordEpoch, err := reader.Epoch(record)
+		if err != nil {
+			return nil, err
+		}
+		if recordEpoch >= epoch {
+			filtered = append(filtered, record)
+		}
+	}
+	return filtered, nil
+}

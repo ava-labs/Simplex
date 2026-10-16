@@ -483,3 +483,44 @@ func TestEpoch(t *testing.T) {
 		})
 	}
 }
+
+// TestRecordsFromEpoch asserts records of every type below the given epoch are dropped
+// and the rest are kept in order.
+func TestRecordsFromEpoch(t *testing.T) {
+	recordsOfEpoch := func(epoch uint64) [][]byte {
+		md := ProtocolMetadata{Version: 1, Round: 6, Seq: 3, Epoch: epoch}
+		blockRecord, err := BlockRecord(BlockHeader{ProtocolMetadata: md}, []byte{1, 2, 3})
+		require.NoError(t, err)
+		emptyVote := ToBeSignedEmptyVote{EmptyVoteMetadata: EmptyVoteMetadata{Round: 7, Epoch: epoch}}
+		vote := ToBeSignedVote{BlockHeader{ProtocolMetadata: md}}
+		finalization := ToBeSignedFinalization{BlockHeader{ProtocolMetadata: md}}
+		return [][]byte{
+			blockRecord,
+			NewQuorumRecord([]byte{1, 2, 3}, vote.Bytes(), NotarizationRecordType),
+			NewQuorumRecord([]byte{1, 2, 3}, finalization.Bytes(), FinalizationRecordType),
+			NewEmptyVoteRecord(emptyVote),
+			NewQuorumRecord([]byte{1, 2, 3}, emptyVote.Bytes(), EmptyNotarizationRecordType),
+		}
+	}
+
+	sealed, current := recordsOfEpoch(2), recordsOfEpoch(3)
+	var mixed [][]byte
+	for i := range sealed {
+		mixed = append(mixed, sealed[i], current[i])
+	}
+
+	got, err := RecordsFromEpoch(mixed, 3)
+	require.NoError(t, err)
+	require.Equal(t, current, got)
+
+	got, err = RecordsFromEpoch(mixed, 2)
+	require.NoError(t, err)
+	require.Equal(t, mixed, got)
+
+	got, err = RecordsFromEpoch(mixed, 4)
+	require.NoError(t, err)
+	require.Empty(t, got)
+
+	_, err = RecordsFromEpoch(append(current, []byte{1}), 3)
+	require.ErrorContains(t, err, "entry too short to extract record")
+}
