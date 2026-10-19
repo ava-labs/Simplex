@@ -3603,6 +3603,75 @@ func TestFinalizeAfterNotarizingBeyondMaxRoundWindow(t *testing.T) {
 	}, 10*time.Second, 100*time.Millisecond)
 }
 
+// TestEpochAdvancesFromEmptyNotarizationWhileVerifying asserts that a proposal whose round is empty notarized
+// while it is being verified finishes verifying and does not double increment the round.
+func TestEpochAdvancesFromEmptyNotarizationWhileVerifying(t *testing.T) {
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[3], testutil.NewNoopComm(nodes), testutil.NewTestBlockBuilder())
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+
+	block0 := testutil.NewTestBlock(e.Metadata(), emptyBlacklist)
+	block0Verifying := make(chan struct{})
+	block0.VerificationDelay = block0Verifying
+	vote, err := testutil.NewTestVote(block0, nodes[0])
+	require.NoError(t, err)
+	require.NoError(t, e.HandleMessage(&Message{BlockMessage: &BlockMessage{Block: block0, Vote: *vote}}, nodes[0]))
+
+	advanceRoundFromEmpty(t, e)
+	require.Equal(t, uint64(1), e.Metadata().Round)
+
+	close(block0Verifying)
+	wal.AssertBlockProposal(0)
+	require.Equal(t, uint64(1), e.Metadata().Round)
+	require.Equal(t, uint64(0), e.Metadata().Seq)
+
+	// The block built off the empty notarization is committed
+	block1 := testutil.NewTestBlock(e.Metadata(), emptyBlacklist)
+	vote, err = testutil.NewTestVote(block1, nodes[1])
+	require.NoError(t, err)
+	require.NoError(t, e.HandleMessage(&Message{BlockMessage: &BlockMessage{Block: block1, Vote: *vote}}, nodes[1]))
+	wal.AssertBlockProposal(1)
+
+	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Validators())
+	finalization, _ := testutil.NewFinalizationRecord(t, sigAggr, block1, nodes[:Quorum(len(nodes))])
+	require.NoError(t, e.HandleMessage(&Message{Finalization: &finalization}, nodes[1]))
+	require.Equal(t, block1, storage.WaitForBlockCommit(0))
+}
+
+// TestEpochAdvancesFromNotarizationWhileVerifying asserts that a notarization received while the round's proposal
+// is being verified advances the epoch once, and the vote on the proposal does not advance it again.
+func TestEpochAdvancesFromNotarizationWhileVerifying(t *testing.T) {
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[3], testutil.NewNoopComm(nodes), testutil.NewTestBlockBuilder())
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+
+	block0 := testutil.NewTestBlock(e.Metadata(), emptyBlacklist)
+	block0Verifying := make(chan struct{})
+	block0.VerificationDelay = block0Verifying
+	vote, err := testutil.NewTestVote(block0, nodes[0])
+	require.NoError(t, err)
+	require.NoError(t, e.HandleMessage(&Message{BlockMessage: &BlockMessage{Block: block0, Vote: *vote}}, nodes[0]))
+
+	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Validators())
+	notarization, err := testutil.NewNotarization(conf.Logger, sigAggr, block0, nodes[:Quorum(len(nodes))])
+	require.NoError(t, err)
+	require.NoError(t, e.HandleMessage(&Message{Notarization: &notarization}, nodes[1]))
+	require.Equal(t, uint64(0), e.Metadata().Round)
+
+	// Verification loads the notarization, advances the round, then votes on round 0 under the same lock
+	close(block0Verifying)
+	wal.AssertNotarization(0)
+	require.Equal(t, uint64(1), e.Metadata().Round)
+}
+
 // TestReplicatedFinalizationExecutesBlockDependents asserts that a replicated notarized block waiting on
 // an unnotarized parent is verified once the parent is finalized through replication.
 func TestReplicatedFinalizationExecutesBlockDependents(t *testing.T) {
