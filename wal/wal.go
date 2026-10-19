@@ -11,7 +11,7 @@ import (
 
 const (
 	WalFlags       = os.O_APPEND | os.O_CREATE | os.O_RDWR
-	WalPermissions = 0666
+	WalPermissions = 0600
 )
 
 type WriteAheadLog struct {
