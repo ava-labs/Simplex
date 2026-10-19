@@ -15,8 +15,6 @@ import (
 
 // StateMachineMetadata defines the metadata that the StateMachine uses to transition between epochs,
 // and maintain ICM epoch information.
-// TODO: change SimplexProtocolMetadata and SimplexBlacklist to be non-opaque types.
-// TODO: This requires to encode the protocol metadata and blacklist using canoto.
 type StateMachineMetadata struct {
 	// SimplexEpochInfo is the metadata that the StateMachine uses for its own epoching.
 	SimplexEpochInfo SimplexEpochInfo `canoto:"value,1"`
