@@ -710,6 +710,7 @@ func TestReplicationResendsNotarizedBlocksThatFailedVerification(t *testing.T) {
 		},
 	}, nodes[0]))
 
+	// the failed verification re-requests the round, otherwise this blocks forever
 	msg := <-sentMessages
 	require.Equal(t, []uint64{0}, msg.ReplicationRequest.Rounds)
 
@@ -720,6 +721,7 @@ func TestReplicationResendsNotarizedBlocksThatFailedVerification(t *testing.T) {
 	notarization, err = testutil.NewNotarization(conf.Logger, sigAggr, block, nodes[0:quorum])
 	require.NoError(t, err)
 
+	// answer the re-request with a valid block, once verified its notarization is written to the WAL
 	require.NoError(t, e.HandleMessage(&common.Message{
 		ReplicationResponse: &common.ReplicationResponse{
 			Data: []common.QuorumRound{{Block: block, Notarization: &notarization}},
