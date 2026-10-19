@@ -674,6 +674,61 @@ func TestReplicationResendsFinalizedBlocksThatFailedVerification(t *testing.T) {
 	require.Equal(t, block, storedBlock)
 }
 
+// TestReplicationResendsNotarizedBlocksThatFailedVerification ensures a replicated notarized block
+// that fails verification causes its round to be re-requested, and a valid block from the
+// next response is stored with its notarization.
+func TestReplicationResendsNotarizedBlocksThatFailedVerification(t *testing.T) {
+	bb := testutil.NewTestBlockBuilder()
+
+	nodes := []common.NodeID{{1}, {2}, {3}, {4}}
+	quorum := common.Quorum(len(nodes))
+	sentMessages := make(chan *common.Message, 100)
+
+	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[1], &recordingComm{
+		Communication: testutil.NewNoopComm(nodes),
+		SentMessages:  sentMessages,
+	}, bb)
+
+	conf.ReplicationEnabled = true
+
+	e, err := simplex.NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+
+	md := e.Metadata()
+	block := testutil.NewTestBlock(md, emptyBlacklist)
+	block.VerificationError = errors.New("block verification failed")
+
+	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Validators())
+	notarization, err := testutil.NewNotarization(conf.Logger, sigAggr, block, nodes[0:quorum])
+	require.NoError(t, err)
+
+	require.NoError(t, e.HandleMessage(&common.Message{
+		ReplicationResponse: &common.ReplicationResponse{
+			Data: []common.QuorumRound{{Block: block, Notarization: &notarization}},
+		},
+	}, nodes[0]))
+
+	msg := <-sentMessages
+	require.Equal(t, []uint64{0}, msg.ReplicationRequest.Rounds)
+
+	block = testutil.NewTestBlock(md, emptyBlacklist)
+	block.Data = append(block.Data, 0)
+	block.ComputeDigest()
+
+	notarization, err = testutil.NewNotarization(conf.Logger, sigAggr, block, nodes[0:quorum])
+	require.NoError(t, err)
+
+	require.NoError(t, e.HandleMessage(&common.Message{
+		ReplicationResponse: &common.ReplicationResponse{
+			Data: []common.QuorumRound{{Block: block, Notarization: &notarization}},
+		},
+	}, nodes[0]))
+
+	wal.AssertNotarization(0)
+}
+
 func TestReplicationResendSplitsRequests(t *testing.T) {
 	// ensures that when replication requests time out, the missing sequences
 	// are re-requested split across the nodes that signed the highest observed quorum, just like the initial requests are.
