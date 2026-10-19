@@ -594,6 +594,7 @@ func (i *Instance) createEpochConfig(validators common.Nodes) (*epochConfig, err
 		MaxProposalWait:            i.Config.ParameterConfig.MaxNetworkDelay * 2, // 1 proposal + 1 vote
 		MaxRebroadcastWait:         i.Config.ParameterConfig.MaxNetworkDelay * 2,
 		MaxRoundWindow:             i.Config.ParameterConfig.MaxRoundWindow,
+		MaxBlacklistedRounds:       i.Config.ParameterConfig.MaxBlacklistedRounds,
 		ID:                         i.Config.ID,
 		RandomSource:               source, // Seed the random source from crypto/rand
 		WAL:                        wal,

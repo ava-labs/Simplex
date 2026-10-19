@@ -740,3 +740,160 @@ func TestValidatorReplicatesEpochsDuringTransition(t *testing.T) {
 	isValidator, _ = node.role()
 	require.True(t, isValidator)
 }
+
+// TestInstanceBlacklistConfigurationRollsOverAcrossEpochs builds a chain across epochs that alternate between two and three
+// validators, whose configured max blacklisted rounds differ, and then inspects the chain to ensure that the max blacklisted
+// orbits rolls over from one epoch to the next, and that each block moves it by at most a single orbit towards the
+// configuration of the node that built it. Every epoch has at least two validators, so every block is verified by a
+// validator other than the one that built it.
+func TestInstanceBlacklistConfigurationRollsOverAcrossEpochs(t *testing.T) {
+	v1 := newNodeMapping(1)
+	v2 := newNodeMapping(2)
+	v3 := newNodeMapping(3)
+
+	// The first ever blacklist is taken from the configuration of its builder, so the validators of the first epoch agree on it.
+	// v3 is configured differently, and is a validator only in the second epoch.
+	maxBlacklistedRoundsByNode := map[string]uint16{
+		string(v1.NodeID[:]): 24, // 12 orbits of two validators, 8 orbits of three validators
+		string(v2.NodeID[:]): 24, // 12 orbits of two validators, 8 orbits of three validators
+		string(v3.NodeID[:]): 60, // 20 orbits of three validators
+	}
+	twoValidators := metadata.NodeBLSMappings{v1, v2}
+	threeValidators := metadata.NodeBLSMappings{v1, v2, v3}
+
+	pChain := newTestPChain(twoValidators)
+	network := newNetwork(t, pChain)
+	addNode := func(vdr metadata.NodeBLSMapping) *node {
+		return network.addNodeWithConfig(vdr.NodeID[:], nodeConfig{maxBlacklistedRounds: maxBlacklistedRoundsByNode[string(vdr.NodeID[:])]})
+	}
+
+	// The first epoch is run by v1 and v2.
+	node1 := addNode(v1)
+	addNode(v2)
+	network.sync()
+	for range 4 {
+		network.acceptNewBlock()
+	}
+
+	// v3 joins in the second epoch.
+	addNode(v3).sync()
+	pChain.setValidatorSetAt(10, threeValidators)
+	pChain.advanceHeight(10)
+	network.waitUntilSealingBlock(threeValidators.Nodes())
+	for range 9 {
+		network.acceptNewBlock()
+	}
+
+	// v3 leaves in the third epoch.
+	pChain.setValidatorSetAt(20, twoValidators)
+	pChain.advanceHeight(20)
+	network.waitUntilSealingBlock(twoValidators.Nodes())
+	for range 8 {
+		network.acceptNewBlock()
+	}
+
+	// Inspect the chain: every block moves the max blacklisted orbits of its parent, possibly from the previous epoch,
+	// by a single orbit towards the configuration of the node that built it. The first ever blacklist has v1's and v2's configuration.
+	// When the parent is from an epoch with a different number of validators, its max blacklisted orbits is first rescaled
+	// to the new number of validators.
+	validators := map[uint16]common.NodeIDs{2: twoValidators.NodeIDs(), 3: threeValidators.NodeIDs()}
+	orbits := uint16(12)
+	var epochSizes []uint16
+	for seq := uint64(1); seq < network.seq; seq++ {
+		block := node1.storage.WaitForBlockCommit(seq)
+		blacklist := block.Blacklist()
+		if len(epochSizes) == 0 || epochSizes[len(epochSizes)-1] != blacklist.NodeCount {
+			if len(epochSizes) > 0 {
+				orbits = common.RescaleMaxBlacklistedOrbits(orbits, epochSizes[len(epochSizes)-1], blacklist.NodeCount)
+			}
+			epochSizes = append(epochSizes, blacklist.NodeCount)
+		}
+
+		leader := simplex.LeaderForRound(validators[blacklist.NodeCount], block.BlockHeader().Round)
+		target := common.MaxBlacklistedOrbitsForRounds(blacklist.NodeCount, maxBlacklistedRoundsByNode[string(leader)])
+		switch {
+		case orbits < target:
+			orbits++
+		case orbits > target:
+			orbits--
+		}
+		require.Equal(t, orbits, blacklist.MaxBlacklistedOrbits, "block %d built by %s", seq, leader)
+	}
+
+	require.Equal(t, []uint16{2, 3, 2}, epochSizes)
+	// The last epoch is run by v1 and v2, so the chain ends up with their configuration.
+	require.Equal(t, uint16(12), orbits)
+}
+
+// TestInstanceMaxBlacklistedRoundsRollingRestart restarts the validators one after another with a higher max blacklisted rounds,
+// and then again with a lower one, while the chain keeps growing. It then inspects the chain to ensure that each block moves
+// the max blacklisted orbits by a single orbit towards the configuration of the node that built it at the time,
+// and that the chain ends up with the configuration all nodes were eventually restarted with.
+func TestInstanceMaxBlacklistedRoundsRollingRestart(t *testing.T) {
+	const (
+		initialRounds   = 20 // 5 orbits of 4 validators
+		increasedRounds = 32 // 8 orbits of 4 validators
+		decreasedRounds = 12 // 3 orbits of 4 validators
+	)
+
+	genesisSet := metadata.NodeBLSMappings{newNodeMapping(1), newNodeMapping(2), newNodeMapping(3), newNodeMapping(4)}
+	pChain := newTestPChain(genesisSet)
+	network := newNetwork(t, pChain)
+
+	// configured holds the max blacklisted rounds each node is currently configured with.
+	configured := make(map[string]uint16)
+	nodes := make([]*node, len(genesisSet))
+	for i, vdr := range genesisSet {
+		nodes[i] = network.addNodeWithConfig(vdr.NodeID[:], nodeConfig{maxBlacklistedRounds: initialRounds})
+		configured[string(vdr.NodeID[:])] = initialRounds
+	}
+	network.sync()
+
+	// targets holds the max blacklisted orbits each block's builder was configured with when it built the block.
+	// The first simplex block is built while the nodes sync, with the initial configuration.
+	nodeCount := uint16(len(genesisSet))
+	targets := map[uint64]uint16{1: common.MaxBlacklistedOrbitsForRounds(nodeCount, initialRounds)}
+	acceptNewBlocks := func(count int) {
+		for range count {
+			block, _ := network.acceptNewBlock()
+			leader := simplex.LeaderForRound(genesisSet.NodeIDs(), block.BlockHeader().Round)
+			targets[block.BlockHeader().Seq] = common.MaxBlacklistedOrbitsForRounds(nodeCount, configured[string(leader)])
+		}
+	}
+
+	acceptNewBlocks(4)
+	for _, maxBlacklistedRounds := range []uint16{increasedRounds, decreasedRounds} {
+		for i := range nodes {
+			nodes[i] = nodes[i].restartWithNodeConfig(nodeConfig{maxBlacklistedRounds: maxBlacklistedRounds})
+			configured[string(nodes[i].id)] = maxBlacklistedRounds
+			acceptNewBlocks(4)
+		}
+		acceptNewBlocks(8)
+	}
+
+	// Inspect the chain: every block moves the max blacklisted orbits of its parent by exactly a single orbit
+	// towards its target, or keeps it if it is already there.
+	// The first ever blacklist has no parent, it is taken from the initial configuration.
+	prevMaxOrbits := common.MaxBlacklistedOrbitsForRounds(nodeCount, initialRounds)
+	var highest uint16
+	for seq := uint64(1); seq < network.seq; seq++ {
+		block := nodes[0].storage.WaitForBlockCommit(seq)
+		blacklist := block.Blacklist()
+		actual := blacklist.MaxBlacklistedOrbits
+
+		switch target := targets[seq]; {
+		case prevMaxOrbits < target:
+			require.Equal(t, prevMaxOrbits+1, actual, "block %d", seq)
+		case prevMaxOrbits > target:
+			require.Equal(t, prevMaxOrbits-1, actual, "block %d", seq)
+		default:
+			require.Equal(t, prevMaxOrbits, actual, "block %d", seq)
+		}
+		prevMaxOrbits = actual
+		highest = max(highest, actual)
+	}
+
+	// The chain reached the increased configuration, and ended up with the decreased one.
+	require.Equal(t, common.MaxBlacklistedOrbitsForRounds(nodeCount, increasedRounds), highest)
+	require.Equal(t, common.MaxBlacklistedOrbitsForRounds(nodeCount, decreasedRounds), prevMaxOrbits)
+}

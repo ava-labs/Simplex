@@ -20,6 +20,10 @@ type ParameterConfig struct {
 	MaxNetworkDelay time.Duration
 	// MaxRoundWindow is the maximum number of rounds that can be stored in memory.
 	MaxRoundWindow uint64
+	// MaxBlacklistedRounds is the maximum number of rounds a node may remain blacklisted for.
+	// Changing it takes effect gradually, as each block may only move the value recorded in the chain by a single orbit.
+	// Zero selects the default.
+	MaxBlacklistedRounds uint16
 }
 
 // PlatformChain is an interface that abstracts the interaction with the P-chain.

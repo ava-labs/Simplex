@@ -26,9 +26,10 @@ import (
 
 var (
 	emptyBlacklist = Blacklist{
-		NodeCount:      4,
-		SuspectedNodes: SuspectedNodes{},
-		Updates:        []BlacklistUpdate{},
+		NodeCount:            4,
+		MaxBlacklistedOrbits: DefaultMaxBlacklistedRounds / 4,
+		SuspectedNodes:       SuspectedNodes{},
+		Updates:              []BlacklistUpdate{},
 	}
 )
 
@@ -82,9 +83,7 @@ func TestFinalizeSameSequence(t *testing.T) {
 		Seq:   1, // set next seq to 1 not 2
 		Prev:  initialBlock.VerifiedBlock.BlockHeader().Digest,
 	}
-	vb, ok := bb.BuildBlock(context.Background(), md, Blacklist{
-		NodeCount: uint16(len(e.Comm.Validators())),
-	})
+	vb, ok := bb.BuildBlock(context.Background(), md, NewBlacklist(uint16(len(e.Comm.Validators())), e.MaxBlacklistedRounds))
 	require.True(t, ok)
 
 	block := vb.(*testutil.TestBlock)
@@ -225,9 +224,7 @@ func testFinalizeSameSequenceGap(t *testing.T, nodes []NodeID, numEmptyNotarizat
 		Seq:   seqToDoubleFinalize,
 		Prev:  finalizeVoteSeqs[seqToDoubleFinalize-1].Finalization.Digest,
 	}
-	vb, ok := bb.BuildBlock(context.Background(), md, Blacklist{
-		NodeCount: uint16(len(e.Comm.Validators())),
-	})
+	vb, ok := bb.BuildBlock(context.Background(), md, NewBlacklist(uint16(len(e.Comm.Validators())), e.MaxBlacklistedRounds))
 	require.True(t, ok)
 
 	block := vb.(*testutil.TestBlock)
@@ -1069,8 +1066,8 @@ func TestEpochResizesBlacklistOnEpochChange(t *testing.T) {
 
 	// The epoch number is the sequence of the last indexed sealing block, so both nodes
 	// below start in epoch 1 while their last indexed block belongs to epoch 0.
-	epoch0Block := testutil.NewTestBlock(ProtocolMetadata{Epoch: 0, Round: 0, Seq: 0}, NewBlacklist(1))
-	sealingBlock := testutil.NewTestBlock(ProtocolMetadata{Epoch: 0, Round: 1, Seq: 1, Prev: epoch0Block.Digest}, NewBlacklist(1))
+	epoch0Block := testutil.NewTestBlock(ProtocolMetadata{Epoch: 0, Round: 0, Seq: 0}, NewBlacklist(1, DefaultMaxBlacklistedRounds))
+	sealingBlock := testutil.NewTestBlock(ProtocolMetadata{Epoch: 0, Round: 1, Seq: 1, Prev: epoch0Block.Digest}, NewBlacklist(1, DefaultMaxBlacklistedRounds))
 	sealingBlock.SealingInfo = &SealingBlockInfo{
 		ValidatorSet:         NodeIDs(nodes).EqualWeightedNodes(),
 		PrevSealingBlockHash: epoch0Block.Digest,
@@ -2146,9 +2143,7 @@ func advanceRound(t *testing.T, e *Epoch, bb *testutil.TestBlockBuilder, notariz
 	// only create blocks if we are not the node running the epoch
 	isEpochNode := leader.Equals(e.ID)
 	if !isEpochNode {
-		_, ok := bb.BuildBlock(context.Background(), md, Blacklist{
-			NodeCount: uint16(len(e.Comm.Validators())),
-		})
+		_, ok := bb.BuildBlock(context.Background(), md, NewBlacklist(uint16(len(e.Comm.Validators())), e.MaxBlacklistedRounds))
 		require.True(t, ok)
 	}
 
@@ -2592,7 +2587,7 @@ func notarizeRoundNotFinalized(t *testing.T, e *Epoch, nodes []NodeID, round uin
 
 	md := e.Metadata()
 	require.Equal(t, round, md.Round)
-	block := testutil.NewTestBlock(md, NewBlacklist(uint16(len(nodes))))
+	block := testutil.NewTestBlock(md, NewBlacklist(uint16(len(nodes)), DefaultMaxBlacklistedRounds))
 
 	vote, err := testutil.NewTestVote(block, leader)
 	require.NoError(t, err)
@@ -2619,7 +2614,7 @@ func notarizeRoundNotFinalized(t *testing.T, e *Epoch, nodes []NodeID, round uin
 // The genuine quorum round for the same block is then accepted.
 func TestEpochRejectsReplicatedQuorumRoundWithMismatchedHeader(t *testing.T) {
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
-	blacklist := Blacklist{NodeCount: uint16(len(nodes)), SuspectedNodes: SuspectedNodes{}, Updates: []BlacklistUpdate{}}
+	blacklist := NewBlacklist(uint16(len(nodes)), DefaultMaxBlacklistedRounds)
 
 	mutations := []struct {
 		name   string
@@ -3027,7 +3022,7 @@ func TestFutureProposalDispatchedOnceAfterReentrantCommit(t *testing.T) {
 	// The epoch node leads only round 9, so it never proposes any of the blocks used here.
 	epochNode := LeaderForRound(nodes, 9)
 	quorum := Quorum(len(nodes))
-	blacklist := Blacklist{NodeCount: uint16(len(nodes)), SuspectedNodes: SuspectedNodes{}, Updates: []BlacklistUpdate{}}
+	blacklist := NewBlacklist(uint16(len(nodes)), DefaultMaxBlacklistedRounds)
 
 	bb := testutil.NewTestBlockBuilder()
 	comm := &recordingComm{
@@ -3297,10 +3292,10 @@ func TestEpochFollowerIgnoresStaleBlacklistOnEpochChange(t *testing.T) {
 
 	// The sealing block is at round 1, so the new epoch starts at round 2, led by nodes[2].
 	// The previous epoch blacklists that very node (f=1, so two accusations suffice).
-	staleBlacklist := NewBlacklist(uint16(len(nodes)))
+	staleBlacklist := NewBlacklist(uint16(len(nodes)), DefaultMaxBlacklistedRounds)
 	staleBlacklist.SuspectedNodes = SuspectedNodes{{NodeIndex: 2, SuspectingCount: 2, OrbitSuspected: 1}}
 
-	epoch0Block := testutil.NewTestBlock(ProtocolMetadata{Epoch: 0, Round: 0, Seq: 0}, NewBlacklist(uint16(len(nodes))))
+	epoch0Block := testutil.NewTestBlock(ProtocolMetadata{Epoch: 0, Round: 0, Seq: 0}, NewBlacklist(uint16(len(nodes)), DefaultMaxBlacklistedRounds))
 	sealingBlock := testutil.NewTestBlock(ProtocolMetadata{Epoch: 0, Round: 1, Seq: 1, Prev: epoch0Block.Digest}, staleBlacklist)
 	sealingBlock.SealingInfo = &SealingBlockInfo{
 		ValidatorSet:         NodeIDs(nodes).EqualWeightedNodes(),
@@ -3332,7 +3327,7 @@ func TestEpochFollowerIgnoresStaleBlacklistOnEpochChange(t *testing.T) {
 	e.AdvanceTime(e.StartTime.Add(conf.MaxProposalWait / 2))
 
 	// The leader proposes the first block of the new epoch, with an empty blacklist.
-	block := testutil.NewTestBlock(md, NewBlacklist(uint16(len(nodes))))
+	block := testutil.NewTestBlock(md, NewBlacklist(uint16(len(nodes)), DefaultMaxBlacklistedRounds))
 	vote, err := testutil.NewTestVote(block, leader)
 	require.NoError(t, err)
 	require.NoError(t, e.HandleMessage(&Message{
@@ -3361,10 +3356,10 @@ func TestEpochLeaderRecordsTimeoutDespiteStaleBlacklistOnEpochChange(t *testing.
 
 	// The sealing block is at round 1, so the new epoch starts at round 2, led by nodes[2].
 	// The previous epoch blacklists that very node.
-	staleBlacklist := NewBlacklist(nodeCount)
+	staleBlacklist := NewBlacklist(nodeCount, DefaultMaxBlacklistedRounds)
 	staleBlacklist.SuspectedNodes = SuspectedNodes{{NodeIndex: 2, SuspectingCount: 2, OrbitSuspected: 1}}
 
-	epoch0Block := testutil.NewTestBlock(ProtocolMetadata{Epoch: 0, Round: 0, Seq: 0}, NewBlacklist(nodeCount))
+	epoch0Block := testutil.NewTestBlock(ProtocolMetadata{Epoch: 0, Round: 0, Seq: 0}, NewBlacklist(nodeCount, DefaultMaxBlacklistedRounds))
 	sealingBlock := testutil.NewTestBlock(ProtocolMetadata{Epoch: 0, Round: 1, Seq: 1, Prev: epoch0Block.Digest}, staleBlacklist)
 	sealingBlock.SealingInfo = &SealingBlockInfo{
 		ValidatorSet:         NodeIDs(nodes).EqualWeightedNodes(),
@@ -3407,7 +3402,8 @@ func TestEpochLeaderRecordsTimeoutDespiteStaleBlacklistOnEpochChange(t *testing.
 	require.Equal(t, nodes[0], LeaderForRound(nodes, round))
 
 	expected := Blacklist{
-		NodeCount: nodeCount,
+		NodeCount:            nodeCount,
+		MaxBlacklistedOrbits: DefaultMaxBlacklistedRounds / nodeCount,
 		SuspectedNodes: SuspectedNodes{
 			{NodeIndex: 2, SuspectingCount: 1, OrbitSuspected: Orbit(round, 2, nodeCount)},
 			{NodeIndex: 3, SuspectingCount: 1, OrbitSuspected: Orbit(round, 3, nodeCount)},

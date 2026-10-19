@@ -987,14 +987,15 @@ func TestEpochBlacklist(t *testing.T) {
 	// Make sure our node properly constructed the blacklist
 	actual := block.Blacklist()
 	expected := Blacklist{
-		NodeCount:      4,
-		SuspectedNodes: SuspectedNodes{{NodeIndex: 3, SuspectingCount: 1, OrbitSuspected: 1}},
-		Updates:        []BlacklistUpdate{{Type: BlacklistOpType_NodeSuspected, NodeIndex: 3}},
+		NodeCount:            4,
+		MaxBlacklistedOrbits: DefaultMaxBlacklistedRounds / 4,
+		SuspectedNodes:       SuspectedNodes{{NodeIndex: 3, SuspectingCount: 1, OrbitSuspected: 1}},
+		Updates:              []BlacklistUpdate{{Type: BlacklistOpType_NodeSuspected, NodeIndex: 3}},
 	}
 	require.True(t, expected.Equals(&actual))
 
 	// Compute next blacklist
-	blacklist := NewBlacklist(4)
+	blacklist := NewBlacklist(4, DefaultMaxBlacklistedRounds)
 	blacklist.Updates = []BlacklistUpdate{{Type: BlacklistOpType_NodeSuspected, NodeIndex: 3}}
 	blacklist.SuspectedNodes = []SuspectedNode{{NodeIndex: 3, SuspectingCount: 2, OrbitSuspected: 1}}
 
@@ -1086,7 +1087,8 @@ func TestEpochBlacklist(t *testing.T) {
 	block = bb.GetBuiltBlock()
 
 	expected = Blacklist{
-		NodeCount: 4,
+		NodeCount:            4,
+		MaxBlacklistedOrbits: DefaultMaxBlacklistedRounds / 4,
 		SuspectedNodes: SuspectedNodes{
 			{
 				NodeIndex:       3,
@@ -1108,17 +1110,16 @@ func TestEpochBlacklist(t *testing.T) {
 	// The next blacklist garbage collects node 3 from the blacklist.
 
 	blacklist = Blacklist{
-		NodeCount: 4,
-		Updates:   []BlacklistUpdate{{Type: BlacklistOpType_NodeRedeemed, NodeIndex: 3}},
+		NodeCount:            4,
+		MaxBlacklistedOrbits: DefaultMaxBlacklistedRounds / 4,
+		Updates:              []BlacklistUpdate{{Type: BlacklistOpType_NodeRedeemed, NodeIndex: 3}},
 	}
 
 	bb.BuildBlock(context.Background(), e.Metadata(), blacklist)
 	notarizeAndFinalizeRound(t, e, bb)
 
 	// Node 4 can now propose a block
-	blacklist = Blacklist{
-		NodeCount: 4,
-	}
+	blacklist = NewBlacklist(4, DefaultMaxBlacklistedRounds)
 
 	bb.BuildBlock(context.Background(), e.Metadata(), blacklist)
 	notarizeAndFinalizeRound(t, e, bb)
@@ -1305,7 +1306,7 @@ func TestNodeIsNotSuspectedAfterSigningALaterNotarization(t *testing.T) {
 	// notarizes the round, so the block stays in the rounds map without a notarization.
 	storeProposalAndEmptyNotarize := func(round uint64) *testutil.TestBlock {
 		leader := LeaderForRound(nodes, round)
-		built, ok := bb.BuildBlock(context.Background(), e.Metadata(), Blacklist{NodeCount: uint16(len(validators))})
+		built, ok := bb.BuildBlock(context.Background(), e.Metadata(), NewBlacklist(uint16(len(validators)), e.MaxBlacklistedRounds))
 		require.True(t, ok)
 
 		block := built.(*testutil.TestBlock)

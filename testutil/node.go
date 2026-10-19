@@ -214,6 +214,10 @@ func UpdateEpochConfig(epochConfig *simplex.EpochConfig, testConfig *TestNodeCon
 		epochConfig.MaxRoundWindow = testConfig.MaxRoundWindow
 	}
 
+	if testConfig.MaxBlacklistedRounds != 0 {
+		epochConfig.MaxBlacklistedRounds = testConfig.MaxBlacklistedRounds
+	}
+
 	if testConfig.Logger != nil {
 		epochConfig.Logger = testConfig.Logger
 	}
@@ -243,6 +247,7 @@ type TestNodeConfig struct {
 	SigAggregatorCreator common.SignatureAggregatorCreator
 	ReplicationEnabled   bool
 	BlockBuilder         *TestControlledBlockBuilder
+	MaxBlacklistedRounds uint16
 
 	// Long Running Tests
 	MaxRoundWindow uint64
