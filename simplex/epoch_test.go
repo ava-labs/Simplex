@@ -3722,13 +3722,19 @@ func TestFailedVerificationDoesNotExecuteBlockDependents(t *testing.T) {
 }
 
 // TestRestoreFromWALSkipsOlderEpochRecords asserts records of an older epoch left in the WAL
-// do not change the epoch, round, or parent derived from storage. restoreFromWal drops them before replay.
+// are never restored and blocks from previous epochs are never deserialized and verified, and the epoch,
+// round, and parent still come from storage.
 func TestRestoreFromWALSkipsOlderEpochRecords(t *testing.T) {
 	ctx := context.Background()
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	quorum := Quorum(len(nodes))
 	sigAggr := &testutil.TestSignatureAggregator{N: len(nodes)}
 	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), testutil.NewTestBlockBuilder())
+
+	// Verifications will get drained if a block gets verified
+	verifications := make(chan struct{}, 1)
+	verifications <- struct{}{}
+	conf.BlockDeserializer = &testutil.BlockDeserializer{DelayedVerification: verifications}
 
 	indexed := testutil.NewTestBlock(ProtocolMetadata{Epoch: 5, Seq: 0, Round: 0}, emptyBlacklist)
 	finalization, _ := testutil.NewFinalizationRecord(t, sigAggr, indexed, nodes[:quorum])
@@ -3746,6 +3752,8 @@ func TestRestoreFromWALSkipsOlderEpochRecords(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(e.Stop)
 	require.NoError(t, e.Start())
+	// The channel was not drained, so no wal records made us verify a block
+	require.Len(t, verifications, 1, "the old block was verified")
 
 	md := e.Metadata()
 	require.Equal(t, uint64(5), md.Epoch)
