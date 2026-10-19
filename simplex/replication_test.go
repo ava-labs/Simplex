@@ -743,20 +743,12 @@ func TestReplicationNodeDiverges(t *testing.T) {
 
 	// we disconnect lagging node first so that it doesn't send the notarized block to any other nodes
 	net.Disconnect(laggingNode.E.ID)
-
-	// block sending votes from round 0 to ensure all nodes will timeout
-	blockRoundZeroVotes := func(msg *common.Message, _, to common.NodeID) bool {
-		return msg.VoteMessage == nil || msg.VoteMessage.Vote.Round != 0
-	}
-
-	// the lagging node keeps its filter until it reconnects, since a broadcast
-	// already in flight could otherwise leak its notarization
-	for _, n := range net.Instances {
-		if n.E.ID.Equals(laggingNode.E.ID) {
-			continue
-		}
-		net.SetNodeMessageFilter(n.E.ID, blockRoundZeroVotes)
-	}
+	net.SetAllNodesMessageFilter(
+		// block sending votes from round 0 to ensure all nodes will timeout
+		func(msg *common.Message, _, to common.NodeID) bool {
+			return msg.VoteMessage == nil || msg.VoteMessage.Vote.Round != 0
+		},
+	)
 
 	// This function call ensures all nodes will timeout, and
 	// receive an empty notarization for round 0(except for lagging).
@@ -791,7 +783,6 @@ func TestReplicationNodeDiverges(t *testing.T) {
 		}
 	}
 
-	net.SetNodeMessageFilter(laggingNode.E.ID, blockRoundZeroVotes)
 	net.Connect(laggingNode.E.ID)
 
 	for _, n := range net.Instances {

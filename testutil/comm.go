@@ -167,10 +167,6 @@ func (c *TestComm) isMessagePermitted(msg *common.Message, destination common.No
 }
 
 func (c *TestComm) Broadcast(msg *common.Message) {
-	if c.net.IsDisconnected(c.from) {
-		return
-	}
-
 	c.maybeTranslateOutgoingToIncomingMessageTypes(msg)
 
 	for _, instance := range c.net.GetInstances() {
@@ -178,7 +174,7 @@ func (c *TestComm) Broadcast(msg *common.Message) {
 			continue
 		}
 		// Skip sending the message to yourself or disconnected nodeWeights
-		if bytes.Equal(c.from, instance.E.ID) || c.net.IsDisconnected(instance.E.ID) {
+		if bytes.Equal(c.from, instance.E.ID) || c.net.IsDisconnected(instance.E.ID) || c.net.IsDisconnected(c.from) {
 			continue
 		}
 
