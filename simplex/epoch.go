@@ -1939,7 +1939,6 @@ func (e *Epoch) handleBlockMessage(message *common.BlockMessage, from common.Nod
 
 	// If this is a message from a more advanced round,
 	// only store it if it is up to `maxRoundWindow` ahead.
-	// TODO: test this
 	if e.isWithinMaxRoundWindow(md.Round) {
 		e.Logger.Debug("Got block of a future round", zap.Uint64("round", md.Round), zap.Uint64("my round", e.round))
 		msgsForRound, exists := e.futureMessages[string(from)][md.Round]
@@ -2024,7 +2023,6 @@ func (e *Epoch) sendMissingRoundsRequest(to common.NodeID, missingRounds []uint6
 // blockDependencies returns the dependencies bh has before it can be verified.
 // It returns the digest of the previous block it depends on (or emptyDigest if none),
 // as well as a list of rounds for which it needs to verify empty notarizations.
-// TODO: we should request empty notarizations if we don't have them
 func (e *Epoch) blockDependencies(bh common.BlockHeader) (*common.Digest, []uint64) {
 	if bh.Seq == 0 {
 		// genesis block has no dependencies
