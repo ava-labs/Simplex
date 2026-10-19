@@ -2381,7 +2381,9 @@ func (e *Epoch) createNotarizedBlockVerificationTask(block common.Block, notariz
 		verifiedBlock, err := block.Verify(context.Background(), common.OnlyVMVerifyOpt)
 		if err != nil {
 			e.Logger.Debug("Failed verifying block", zap.Error(err))
-			// TODO: if we fail to verify the block, we should re-request it from the replication state
+			e.lock.Lock()
+			defer e.lock.Unlock()
+			e.replicationState.ResendRoundRequest(md.Round, notarization.QC.Signers())
 			return common.Digest{}
 		}
 
