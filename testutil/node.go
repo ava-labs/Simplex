@@ -194,9 +194,6 @@ func UpdateEpochConfig(epochConfig *simplex.EpochConfig, testConfig *TestNodeCon
 		}
 	}
 
-	// TODO: remove optional replication flag
-	epochConfig.ReplicationEnabled = testConfig.ReplicationEnabled
-
 	// custom communication
 	if testConfig.Comm != nil {
 		epochConfig.Comm = testConfig.Comm
