@@ -1774,3 +1774,49 @@ func TestNonValidatorIgnoresReplayedQuorumRoundWhileVerifying(t *testing.T) {
 	require.Never(t, func() bool { return verifications.Load() > 1 }, time.Second, 10*time.Millisecond,
 		"a replayed quorum round scheduled a duplicate verification task")
 }
+
+// TestNonValidatorServesReplicationRequest asserts a non-validator answers a replication request from storage.
+// Seqs it has not indexed are not sent and the latest finalized seq is its tip.
+func TestNonValidatorServesReplicationRequest(t *testing.T) {
+	tc := newSeededChain(t, testNodes, 5)
+	msgQueue := &messageQueue{}
+	nvID := common.NodeID{100}
+
+	nv, err := NewNonValidator(
+		Config{
+			Storage:                    tc,
+			Comm:                       &routerComm{t: t, nodes: testNodes, ID: nvID, messageQueue: msgQueue},
+			Logger:                     testutil.MakeLogger(t, 1),
+			SignatureAggregatorCreator: tc.signatureAggregatorCreator,
+			MaxSequenceWindow:          simplex.DefaultMaxRoundWindow,
+			ID:                         nvID,
+		},
+	)
+	require.NoError(t, err)
+	defer nv.Stop()
+
+	requester := testNodes[0].Id
+	req := &common.Message{ReplicationRequest: &common.ReplicationRequest{Seqs: []uint64{9, 3, 2}, LatestFinalizedSeq: 1}}
+	require.NoError(t, nv.HandleMessage(req, requester))
+
+	mi, ok := msgQueue.popResponse()
+	require.True(t, ok)
+	require.Equal(t, requester, mi.to)
+	resp := mi.msg.ReplicationResponse
+	require.NotNil(t, resp)
+
+	require.Len(t, resp.Data, 2)
+	for i, seq := range []uint64{2, 3} {
+		block, fin, err := tc.Retrieve(seq)
+		require.NoError(t, err)
+		require.Equal(t, block, resp.Data[i].Block)
+		require.Equal(t, fin, *resp.Data[i].Finalization)
+	}
+	require.Equal(t, uint64(5), resp.LatestSeq.Block.BlockHeader().Seq)
+
+	// nothing to serve for a seq past our tip
+	req = &common.Message{ReplicationRequest: &common.ReplicationRequest{Seqs: []uint64{6}, LatestFinalizedSeq: 6}}
+	require.NoError(t, nv.HandleMessage(req, requester))
+	_, ok = msgQueue.popResponse()
+	require.False(t, ok)
+}
