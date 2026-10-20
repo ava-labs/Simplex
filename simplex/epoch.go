@@ -2033,12 +2033,10 @@ func (e *Epoch) blockDependencies(bh common.BlockHeader) (*common.Digest, []uint
 
 	prevBlock, notarizationOrFinalization, found := e.locateBlock(bh.Seq-1, bh.Prev[:])
 	if !found {
-		// should never happen since we check this when we verify the proposal metadata
-		e.Logger.Info("Could not find predecessor block for proposal scheduling",
+		e.Logger.Info("Could not find predecessor block with notarization or finalization for proposal scheduling",
 			zap.Uint64("seq", bh.Seq-1),
 			zap.Stringer("prev", bh.Prev))
 
-		// TODO: if not found we need to not schedule right away and wait to get the round of the parent so we know the empty round deps
 		return &bh.Prev, nil
 	}
 
