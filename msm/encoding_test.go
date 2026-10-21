@@ -18,8 +18,8 @@ func TestSimplexEpochInfoIsZero(t *testing.T) {
 }
 
 func TestSimplexEpochInfoEqual(t *testing.T) {
-	hash1 := [32]byte{1, 2, 3}
-	hash2 := [32]byte{4, 5, 6}
+	hash1 := common.Digest{1, 2, 3}
+	hash2 := common.Digest{4, 5, 6}
 
 	tests := []struct {
 		name     string

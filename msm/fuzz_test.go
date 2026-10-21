@@ -217,7 +217,7 @@ func buildEpochChain(tb testing.TB, logger common.Logger) ([]*StateMachineBlock,
 		}
 	}
 	build := func(seq, round, epoch uint64, prev *StateMachineBlock) *StateMachineBlock {
-		var prevDigest [32]byte
+		var prevDigest common.Digest
 		if prev != nil {
 			prevDigest = prev.Digest()
 		} else {
@@ -257,7 +257,7 @@ func buildEpochChain(tb testing.TB, logger common.Logger) ([]*StateMachineBlock,
 	// LastHistoryDigest returns the zero digest for an empty history. That zero value is the
 	// candidate digest the builder signs over, so peer approvals must carry it to survive
 	// sanitizeApprovals' digest filter.
-	var auxInfoDigest [32]byte
+	var auxInfoDigest common.Digest
 
 	// block4 & block5: collecting-approvals blocks (1/3 then 2/3, not enough to seal).
 	sm.HandleApproval(&common.ValidatorSetApproval{NodeID: node1, PChainHeight: pChainHeight2, AuxInfoDigest: auxInfoDigest, Signature: signApproval(pChainHeight2, auxInfoDigest)})

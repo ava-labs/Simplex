@@ -786,7 +786,6 @@ func TestReplicationNodeDiverges(t *testing.T) {
 	net.Connect(laggingNode.E.ID)
 
 	for _, n := range net.Instances {
-		// TODO: remove when replication can be initiated with empty notarizations
 		if n.E.ID.Equals(laggingNode.E.ID) {
 			continue
 		}
