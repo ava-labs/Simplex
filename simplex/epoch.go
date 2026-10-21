@@ -2142,16 +2142,6 @@ func (e *Epoch) processNotarizedBlock(block common.Block, notarization *common.N
 
 	// don't create a block verification task if the block is already in the rounds map
 	if exists {
-		// We could have a block in the rounds map, as well as an empty notarization.
-		// its important to not create a conflicting notarization for that round.
-		emptyVote, exists := e.emptyVotes[md.Round]
-
-		if exists && emptyVote.emptyNotarization != nil {
-			e.Logger.Debug("Received notarized block for a round that has an empty notarization",
-				zap.Uint64("round", md.Round))
-			return nil
-		}
-
 		if round.notarization != nil || round.finalization != nil {
 			e.Logger.Debug("Round already notarized", zap.Uint64("round", md.Round))
 			return nil
@@ -2183,11 +2173,12 @@ func (e *Epoch) processNotarizedBlock(block common.Block, notarization *common.N
 
 	// Create a task that will verify the block in the future, after its predecessors have also been verified.
 	task := e.createNotarizedBlockVerificationTask(e.oneTimeVerifier.Wrap(block), *notarization)
-	blockDependency, missingRounds := e.blockDependencies(md)
 
-	e.replicationState.CreateDependencyTasks(blockDependency, md.Seq-1, missingRounds)
+	// Only fetch potential block dependencies and not empty notarizations for notarized quorum rounds
+	blockDependency, _ := e.blockDependencies(md)
 
-	err := e.blockVerificationScheduler.ScheduleTaskWithDependencies(task, md.Seq, blockDependency, missingRounds)
+	e.replicationState.CreateDependencyTasks(blockDependency, md.Seq-1, []uint64{})
+	err := e.blockVerificationScheduler.ScheduleTaskWithDependencies(task, md.Seq, blockDependency, []uint64{})
 	if errors.Is(err, common.ErrTooManyPendingVerifications) {
 		e.Logger.Debug("Verification queue is full, re-requesting notarized block", zap.Uint64("round", md.Round))
 		e.replicationState.ResendRoundRequest(md.Round, notarization.QC.Signers())
