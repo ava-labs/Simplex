@@ -403,7 +403,7 @@ func onlyAllowEmptyRoundMessages(msg *common.Message, _, _ common.NodeID) bool {
 }
 
 // TestSimplexMultiNodeBlacklistExpires tests that a node that goes offline is blacklisted, and that it is
-// removed from the blacklist by all nodes once it has been blacklisted for more than MaxBlacklistedOrbits,
+// removed from the blacklist by all nodes once it has been blacklisted for more than MaxBlacklistedRounds,
 // even though it is still offline and therefore never redeemed itself.
 func TestSimplexMultiNodeBlacklistExpires(t *testing.T) {
 	nodes := []common.NodeID{{1}, {2}, {3}, {4}}
@@ -477,7 +477,7 @@ func TestSimplexMultiNodeBlacklistExpires(t *testing.T) {
 
 	// Round 4: node 0 accuses the offline node of timing out in its orbit 1.
 	blacklist := buildBlock(4, 3)
-	require.Equal(t, uint16(1), blacklist.MaxBlacklistedOrbits())
+	require.Equal(t, uint16(len(nodes)), blacklist.MaxBlacklistedRounds())
 	require.False(t, blacklist.IsNodeSuspected(offlineNodeIndex))
 
 	// Round 5: node 1 accuses the offline node as well, which is then blacklisted with f+1 accusations in its orbit 1.

@@ -28,10 +28,8 @@ var (
 )
 
 const (
-	// DefaultMaxBlacklistedRounds is the default maximum number of blocks before a blacklisted node is redeemed.
-	// It is configured to be 3 * 4 * 5 * 7 * 11 because the Blacklist's MaxBlacklistedOrbits is computed as maxBlacklistedRounds/NodeCount,
-	// so this value is divisible by common validator counts.
-	DefaultMaxBlacklistedRounds           = 3 * 4 * 5 * 7 * 11
+	// DefaultMaxBlacklistedRounds is the default maximum number of rounds before a blacklisted node is redeemed.
+	DefaultMaxBlacklistedRounds           = 4620
 	DefaultMaxRoundWindow                 = 10
 	DefaultProcessingBlocks               = 500
 	DefaultMaxProposalWaitTime            = 5 * time.Second
