@@ -75,7 +75,7 @@ func TestApprovalStoreHandleApproval(t *testing.T) {
 			name:       "approval from unknown node is dropped",
 			validators: 3,
 			approvals: []common.ValidatorSetApproval{
-				{NodeID: makeNodeID(99), PChainHeight: 1, Signature: signApproval(1, [32]byte{})},
+				{NodeID: makeNodeID(99), PChainHeight: 1, Signature: signApproval(1, common.Digest{})},
 			},
 		},
 		{
@@ -83,14 +83,14 @@ func TestApprovalStoreHandleApproval(t *testing.T) {
 			validators: 3,
 			sigErr:     errors.New("bad sig"),
 			approvals: []common.ValidatorSetApproval{
-				{NodeID: makeNodeID(1), PChainHeight: 1, Signature: signApproval(1, [32]byte{})},
+				{NodeID: makeNodeID(1), PChainHeight: 1, Signature: signApproval(1, common.Digest{})},
 			},
 		},
 		{
 			name:       "valid approval is stored",
 			validators: 3,
 			approvals: []common.ValidatorSetApproval{
-				{NodeID: makeNodeID(1), PChainHeight: 7, Signature: signApproval(7, [32]byte{})},
+				{NodeID: makeNodeID(1), PChainHeight: 7, Signature: signApproval(7, common.Digest{})},
 			},
 			expected: []int{0},
 		},
@@ -98,8 +98,8 @@ func TestApprovalStoreHandleApproval(t *testing.T) {
 			name:       "duplicate approval is stored once",
 			validators: 3,
 			approvals: []common.ValidatorSetApproval{
-				{NodeID: makeNodeID(1), PChainHeight: 7, Signature: signApproval(7, [32]byte{})},
-				{NodeID: makeNodeID(1), PChainHeight: 7, Signature: signApproval(7, [32]byte{})},
+				{NodeID: makeNodeID(1), PChainHeight: 7, Signature: signApproval(7, common.Digest{})},
+				{NodeID: makeNodeID(1), PChainHeight: 7, Signature: signApproval(7, common.Digest{})},
 			},
 			expected: []int{1},
 		},
@@ -107,8 +107,8 @@ func TestApprovalStoreHandleApproval(t *testing.T) {
 			name:       "latest approval from a node replaces the earlier one",
 			validators: 3,
 			approvals: []common.ValidatorSetApproval{
-				{NodeID: makeNodeID(1), PChainHeight: 7, AuxInfoDigest: [32]byte{0xAA}, Signature: signApproval(7, [32]byte{0xAA})},
-				{NodeID: makeNodeID(1), PChainHeight: 8, AuxInfoDigest: [32]byte{0xBB}, Signature: signApproval(8, [32]byte{0xBB})},
+				{NodeID: makeNodeID(1), PChainHeight: 7, AuxInfoDigest: common.Digest{0xAA}, Signature: signApproval(7, common.Digest{0xAA})},
+				{NodeID: makeNodeID(1), PChainHeight: 8, AuxInfoDigest: common.Digest{0xBB}, Signature: signApproval(8, common.Digest{0xBB})},
 			},
 			expected: []int{1},
 		},
@@ -116,9 +116,9 @@ func TestApprovalStoreHandleApproval(t *testing.T) {
 			name:       "approvals from different nodes coexist",
 			validators: 3,
 			approvals: []common.ValidatorSetApproval{
-				{NodeID: makeNodeID(1), PChainHeight: 7, Signature: signApproval(7, [32]byte{})},
-				{NodeID: makeNodeID(2), PChainHeight: 7, Signature: signApproval(7, [32]byte{})},
-				{NodeID: makeNodeID(3), PChainHeight: 7, Signature: signApproval(7, [32]byte{})},
+				{NodeID: makeNodeID(1), PChainHeight: 7, Signature: signApproval(7, common.Digest{})},
+				{NodeID: makeNodeID(2), PChainHeight: 7, Signature: signApproval(7, common.Digest{})},
+				{NodeID: makeNodeID(3), PChainHeight: 7, Signature: signApproval(7, common.Digest{})},
 			},
 			expected: []int{0, 1, 2},
 		},

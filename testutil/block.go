@@ -18,7 +18,7 @@ type TestBlock struct {
 	Data              []byte
 	Metadata          common.ProtocolMetadata
 	blacklist         common.Blacklist
-	Digest            [32]byte
+	Digest            common.Digest
 	OnVerify          func()
 	VerificationDelay chan struct{}
 	VerificationError error
