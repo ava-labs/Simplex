@@ -6,12 +6,13 @@ package metadata
 import (
 	"testing"
 
+	"github.com/ava-labs/simplex/common"
 	"github.com/stretchr/testify/require"
 )
 
 func TestIdentifyBlockType(t *testing.T) {
 	bvd := &BlockValidationDescriptor{}
-	prevSealingBlockHash := [32]byte{1}
+	prevSealingBlockHash := common.Digest{1}
 
 	for _, tc := range []struct {
 		name     string

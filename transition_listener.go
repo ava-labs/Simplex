@@ -122,8 +122,7 @@ func (a *epochTransitionListener) sendToValidators(validators metadata.NodeBLSMa
 	}
 }
 
-// TODO: use common.Digest
-func (a *epochTransitionListener) maybeSendApprovals(block *ParsedBlock, nextEpochValidatorSet metadata.NodeBLSMappings, auxInfoDigest [32]byte) error {
+func (a *epochTransitionListener) maybeSendApprovals(block *ParsedBlock, nextEpochValidatorSet metadata.NodeBLSMappings, auxInfoDigest common.Digest) error {
 	nextEpochPChainReference := block.Metadata.SimplexEpochInfo.NextPChainReferenceHeight
 
 	sig, err := metadata.SignApproval(a.signer, nextEpochPChainReference, auxInfoDigest)

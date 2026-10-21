@@ -21,9 +21,9 @@ type AuxInfoHistory struct {
 	OldestVersionID common.VersionID // oldest version id in the histories data, or DefaultVersionID if no history
 }
 
-func (aih *AuxInfoHistory) LastHistoryDigest() [32]byte {
+func (aih *AuxInfoHistory) LastHistoryDigest() common.Digest {
 	if len(aih.Data) == 0 {
-		return [32]byte{}
+		return common.Digest{}
 	}
 	last := aih.Data[len(aih.Data)-1]
 	return sha256.Sum256(last)
@@ -69,7 +69,7 @@ func GetAuxiliaryHistory(block *StateMachineBlock, blockSeq uint64, getBlock Blo
 			break
 		}
 		currentSeq = batch.PrevAuxInfoSeq
-		prevBlock, _, err := getBlock(batch.PrevAuxInfoSeq, [32]byte{})
+		prevBlock, _, err := getBlock(batch.PrevAuxInfoSeq, common.Digest{})
 		if err != nil {
 			return AuxInfoHistory{}, fmt.Errorf("%w: at sequence %d: %w", errAuxInfoBlockRetrieval, batch.PrevAuxInfoSeq, err)
 		}
