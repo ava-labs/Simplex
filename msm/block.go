@@ -132,15 +132,3 @@ func (smb *StateMachineBlock) SealingBlockInfo() *common.SealingBlockInfo {
 		PrevSealingBlockHash: smb.Metadata.SimplexEpochInfo.PrevSealingBlockHash,
 	}
 }
-
-func (smb *StateMachineBlock) Bytes() []byte {
-	var innerBlockBytes []byte
-	if smb.InnerBlock != nil {
-		innerBlockBytes = smb.InnerBlock.Bytes()
-	}
-	rawBlock := &RawBlock{
-		Metadata:        smb.Metadata.Clone(),
-		InnerBlockBytes: innerBlockBytes,
-	}
-	return rawBlock.MarshalCanoto()
-}
