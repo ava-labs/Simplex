@@ -19,7 +19,7 @@ import (
 
 // emptyAuxInfoDigest is the candidate digest approvals commit to when the auxiliary info
 // history is empty: LastHistoryDigest returns the zero digest in that case.
-var emptyAuxInfoDigest [32]byte
+var emptyAuxInfoDigest common.Digest
 
 func TestFakeNodeEpochChangesDespiteEmptyMempool(t *testing.T) {
 	validatorSetRetriever := validatorSetRetriever{
@@ -433,7 +433,7 @@ func (fn *fakeNode) buildBlock() (avalanchego.VMBlock, *StateMachineBlock) {
 	return block.InnerBlock, block
 }
 
-func (fn *fakeNode) prepareMetadataAndPrevBlockDigest() (*common.ProtocolMetadata, [32]byte) {
+func (fn *fakeNode) prepareMetadataAndPrevBlockDigest() (*common.ProtocolMetadata, common.Digest) {
 	var lastMD *common.ProtocolMetadata
 	lastBlockDigest := genesisBlock.Digest()
 	if len(fn.blocks) > 0 {
@@ -486,7 +486,7 @@ func (fn *fakeNode) getParentBlock() StateMachineBlock {
 	}
 }
 
-func (fn *fakeNode) getLastVMBlockDigest() [32]byte {
+func (fn *fakeNode) getLastVMBlockDigest() common.Digest {
 	for i := len(fn.blocks) - 1; i >= 0; i-- {
 		if fn.blocks[i].block.InnerBlock != nil {
 			return fn.blocks[i].block.Digest()

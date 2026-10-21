@@ -373,7 +373,7 @@ func TestMSMNormalOp(t *testing.T) {
 		{
 			name: "non-empty PrevSealingBlockHash",
 			mutateBlock: func(block *StateMachineBlock) {
-				block.Metadata.SimplexEpochInfo.PrevSealingBlockHash = [32]byte{1, 2, 3}
+				block.Metadata.SimplexEpochInfo.PrevSealingBlockHash = common.Digest{1, 2, 3}
 			},
 			err: errBlockDigestMismatch,
 		},
@@ -1126,7 +1126,7 @@ func TestVerifyNextPChainRefHeightNormal(t *testing.T) {
 				BlockValidationDescriptor: &BlockValidationDescriptor{
 					AggregatedMembership: AggregatedMembership{Members: setA},
 				},
-				PrevSealingBlockHash: [32]byte{0xaa},
+				PrevSealingBlockHash: common.Digest{0xaa},
 			},
 		}}}
 		if finalized {
@@ -1247,7 +1247,7 @@ func TestVerifyDoesNotInitializeApprovalStore(t *testing.T) {
 		return avalanchego.BitmaskFromBytes(collecting.Metadata.SimplexEpochInfo.NextEpochApprovals.NodeIDs)
 	}
 
-	var auxInfoDigest [32]byte
+	var auxInfoDigest common.Digest
 	approval := &common.ValidatorSetApproval{
 		NodeID:        [20]byte{3},
 		PChainHeight:  newPChainHeight,
@@ -1480,18 +1480,18 @@ func TestSanitizeApprovals(t *testing.T) {
 			{NodeID: node1, PChainHeight: 200},
 		}
 		oldApproving := avalanchego.BitmaskFromBytes(nil)
-		result := sanitizeApprovals(approvals, 100, [32]byte{}, nodeID2Index, oldApproving, logger)
+		result := sanitizeApprovals(approvals, 100, common.Digest{}, nodeID2Index, oldApproving, logger)
 		require.Len(t, result, 1)
 		require.Equal(t, node0, result[0].NodeID)
 	})
 
 	t.Run("filters by aux info digest", func(t *testing.T) {
 		approvals := ValidatorSetApprovals{
-			{NodeID: node0, PChainHeight: 100, AuxInfoDigest: [32]byte{0xAA}},
-			{NodeID: node1, PChainHeight: 100, AuxInfoDigest: [32]byte{0xBB}},
+			{NodeID: node0, PChainHeight: 100, AuxInfoDigest: common.Digest{0xAA}},
+			{NodeID: node1, PChainHeight: 100, AuxInfoDigest: common.Digest{0xBB}},
 		}
 		oldApproving := avalanchego.BitmaskFromBytes(nil)
-		result := sanitizeApprovals(approvals, 100, [32]byte{0xAA}, nodeID2Index, oldApproving, logger)
+		result := sanitizeApprovals(approvals, 100, common.Digest{0xAA}, nodeID2Index, oldApproving, logger)
 		require.Len(t, result, 1)
 		require.Equal(t, node0, result[0].NodeID)
 	})
@@ -1502,7 +1502,7 @@ func TestSanitizeApprovals(t *testing.T) {
 			{NodeID: node1, PChainHeight: 100},
 		}
 		oldApproving := avalanchego.BitmaskFromBytes([]byte{1})
-		result := sanitizeApprovals(approvals, 100, [32]byte{}, nodeID2Index, oldApproving, logger)
+		result := sanitizeApprovals(approvals, 100, common.Digest{}, nodeID2Index, oldApproving, logger)
 		require.Len(t, result, 1)
 		require.Equal(t, node1, result[0].NodeID)
 	})
@@ -1513,7 +1513,7 @@ func TestSanitizeApprovals(t *testing.T) {
 			{NodeID: node2, PChainHeight: 100},
 		}
 		oldApproving := avalanchego.BitmaskFromBytes(nil)
-		result := sanitizeApprovals(approvals, 100, [32]byte{}, nodeID2Index, oldApproving, logger)
+		result := sanitizeApprovals(approvals, 100, common.Digest{}, nodeID2Index, oldApproving, logger)
 		require.Len(t, result, 1)
 		require.Equal(t, node2, result[0].NodeID)
 	})
@@ -1524,7 +1524,7 @@ func TestSanitizeApprovals(t *testing.T) {
 			{NodeID: node0, PChainHeight: 100},
 		}
 		oldApproving := avalanchego.BitmaskFromBytes(nil)
-		result := sanitizeApprovals(approvals, 100, [32]byte{}, nodeID2Index, oldApproving, logger)
+		result := sanitizeApprovals(approvals, 100, common.Digest{}, nodeID2Index, oldApproving, logger)
 		require.Len(t, result, 1)
 	})
 }
@@ -2229,7 +2229,7 @@ func TestMSMWaitForPendingBlock(t *testing.T) {
 		collecting = SimplexEpochInfo{PChainReferenceHeight: 100, NextPChainReferenceHeight: 200}
 		telock     = SimplexEpochInfo{PChainReferenceHeight: 100, NextPChainReferenceHeight: 200, SealingBlockSeq: 5}
 		sealing    = SimplexEpochInfo{PChainReferenceHeight: 100, NextPChainReferenceHeight: 200,
-			BlockValidationDescriptor: &BlockValidationDescriptor{AggregatedMembership: AggregatedMembership{Members: defaultSet}}, PrevSealingBlockHash: [32]byte{0xaa}}
+			BlockValidationDescriptor: &BlockValidationDescriptor{AggregatedMembership: AggregatedMembership{Members: defaultSet}}, PrevSealingBlockHash: common.Digest{0xaa}}
 	)
 
 	// Every parent below belongs to epoch 1.
@@ -2553,7 +2553,7 @@ func TestGetCurrentValidatorSet(t *testing.T) {
 			finalization: finalization,
 			block: StateMachineBlock{Metadata: StateMachineMetadata{
 				SimplexProtocolMetadata: common.ProtocolMetadata{Seq: seq},
-				SimplexEpochInfo:        SimplexEpochInfo{PrevSealingBlockHash: [32]byte{1}, BlockValidationDescriptor: bvd},
+				SimplexEpochInfo:        SimplexEpochInfo{PrevSealingBlockHash: common.Digest{1}, BlockValidationDescriptor: bvd},
 			}},
 		}
 	}
@@ -2634,7 +2634,7 @@ func TestGetCurrentValidatorSet(t *testing.T) {
 		{
 			name:        "sealing block as parent is rejected",
 			epoch:       1,
-			parent:      SimplexEpochInfo{PrevSealingBlockHash: [32]byte{1}, BlockValidationDescriptor: descriptor(validators)},
+			parent:      SimplexEpochInfo{PrevSealingBlockHash: common.Digest{1}, BlockValidationDescriptor: descriptor(validators)},
 			blocks:      blockStore{1: zeroBlock(descriptor(validators), finalized)},
 			expectedErr: "did not expect block 20 to be a sealing block or a Telock",
 		},

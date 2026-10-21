@@ -111,7 +111,7 @@ func (s *signer) Sign(digest []byte) (common.SignatureBytes, error) {
 // for an epoch-transition approval (assembleApprovalToBeSigned), using the shared test key. The
 // signatureVerifier above accepts it. Use this instead of placeholder signature bytes for any
 // approval fixture that is expected to pass signature verification.
-func signApproval(pChainHeight uint64, auxInfoDigest [32]byte) []byte {
+func signApproval(pChainHeight uint64, auxInfoDigest common.Digest) []byte {
 	toBeSigned, err := assembleApprovalToBeSigned(pChainHeight, auxInfoDigest)
 	if err != nil {
 		panic(fmt.Sprintf("failed to assemble approval payload: %v", err))
@@ -321,7 +321,7 @@ func makeNormalSimplexBlock(t *testing.T, index int, blocks []StateMachineBlock,
 				Prev:  parent.Digest(),
 			},
 			SimplexEpochInfo: SimplexEpochInfo{
-				PrevSealingBlockHash:  [32]byte{},
+				PrevSealingBlockHash:  common.Digest{},
 				PChainReferenceHeight: 100,
 				PrevVMBlockSeq:        computePrevVMBlockSeq(&parent, uint64(index-1)),
 			},

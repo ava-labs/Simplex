@@ -171,7 +171,7 @@ func TestTransitionSendsApproval(t *testing.T) {
 	approval := msg.EpochTransitionApproval
 	require.Equal(t, testNodeID, approval.NodeID)
 	require.Equal(t, nextPChainRef, approval.PChainHeight)
-	require.Equal(t, [32]byte{}, approval.AuxInfoDigest) // no auxiliary info was collected
+	require.Equal(t, common.Digest{}, approval.AuxInfoDigest) // no auxiliary info was collected
 	require.Equal(t, stubSignature, approval.Signature)
 
 	// a validator also records its own approval locally so its next block includes it
