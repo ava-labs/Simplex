@@ -180,6 +180,12 @@ func TestSimplexMultiNodeBlacklist(t *testing.T) {
 		testutil.WaitForBlockProposerTimeout(t, n.E, &n.E.StartTime, 3)
 	}
 
+	// Rounds 4 and 5 accuse the fourth node of timing out in round 3.
+	timedOut := map[uint16]uint64{3: 3}
+	emptyBlacklist := common.NewBlacklist(4, simplex.DefaultMaxBlacklistedRounds)
+	accused := emptyBlacklist.Next(4, timedOut, nil, simplex.DefaultMaxBlacklistedRounds)
+	blacklisted := accused.Next(5, timedOut, nil, simplex.DefaultMaxBlacklistedRounds)
+
 	// Build two more blocks, which should blacklist the fourth node.
 	// Ensure the fourth node is blacklisted by checking the blacklist on all nodes.
 
@@ -188,13 +194,7 @@ func TestSimplexMultiNodeBlacklist(t *testing.T) {
 	for _, n := range net.Instances[:3] {
 		block := n.Storage.WaitForBlockCommit(uint64(3))
 		blacklist := block.Blacklist()
-		expectedBlacklist := common.Blacklist{
-			NodeCount:            4,
-			MaxBlacklistedOrbits: simplex.DefaultMaxBlacklistedRounds / 4,
-			SuspectedNodes:       common.SuspectedNodes{{NodeIndex: 3, SuspectingCount: 1, OrbitSuspected: 1}},
-			Updates:              []common.BlacklistUpdate{{NodeIndex: 3, Type: common.BlacklistOpType_NodeSuspected}},
-		}
-		require.True(t, expectedBlacklist.Equals(&blacklist))
+		require.True(t, accused.Equals(&blacklist))
 	}
 
 	// Reconnect the fourth node but don't let it un-blacklist itself prematurely.
@@ -206,26 +206,14 @@ func TestSimplexMultiNodeBlacklist(t *testing.T) {
 	for _, n := range net.Instances[:3] {
 		block := n.Storage.WaitForBlockCommit(uint64(4))
 		blacklist := block.Blacklist()
-		expectedBlacklist := common.Blacklist{
-			NodeCount:            4,
-			MaxBlacklistedOrbits: simplex.DefaultMaxBlacklistedRounds / 4,
-			SuspectedNodes:       common.SuspectedNodes{{NodeIndex: 3, SuspectingCount: 2, OrbitSuspected: 1}},
-			Updates:              []common.BlacklistUpdate{{NodeIndex: 3, Type: common.BlacklistOpType_NodeSuspected}},
-		}
-		require.True(t, expectedBlacklist.Equals(&blacklist))
+		require.True(t, blacklisted.Equals(&blacklist))
 	}
 
 	// Wait for the node to replicate the missing blocks.
 	net.Instances[3].TriggerNewBlock()
 	block := net.Instances[3].Storage.WaitForBlockCommit(4)
 	blacklist := block.Blacklist()
-	expectedBlacklist := common.Blacklist{
-		NodeCount:            4,
-		MaxBlacklistedOrbits: simplex.DefaultMaxBlacklistedRounds / 4,
-		SuspectedNodes:       common.SuspectedNodes{{NodeIndex: 3, SuspectingCount: 2, OrbitSuspected: 1}},
-		Updates:              []common.BlacklistUpdate{{NodeIndex: 3, Type: common.BlacklistOpType_NodeSuspected}},
-	}
-	require.True(t, expectedBlacklist.Equals(&blacklist))
+	require.True(t, blacklisted.Equals(&blacklist))
 
 	// Make another block.
 	net.Instances[2].TriggerNewBlock()
@@ -489,13 +477,12 @@ func TestSimplexMultiNodeBlacklistExpires(t *testing.T) {
 
 	// Round 4: node 0 accuses the offline node of timing out in its orbit 1.
 	blacklist := buildBlock(4, 3)
-	require.Equal(t, uint16(1), blacklist.MaxBlacklistedOrbits)
-	require.Equal(t, common.SuspectedNodes{{NodeIndex: offlineNodeIndex, SuspectingCount: 1, OrbitSuspected: 1}}, blacklist.SuspectedNodes)
+	require.Equal(t, uint16(1), blacklist.MaxBlacklistedOrbits())
+	require.False(t, blacklist.IsNodeSuspected(offlineNodeIndex))
 
 	// Round 5: node 1 accuses the offline node as well, which is then blacklisted with f+1 accusations in its orbit 1.
 	blacklist = buildBlock(5, 4)
 	require.True(t, blacklist.IsNodeSuspected(offlineNodeIndex))
-	require.Equal(t, common.SuspectedNodes{{NodeIndex: offlineNodeIndex, SuspectingCount: 2, OrbitSuspected: 1}}, blacklist.SuspectedNodes)
 
 	// Round 6: node 2 carries over the blacklist.
 	blacklist = buildBlock(6, 5)
@@ -516,13 +503,13 @@ func TestSimplexMultiNodeBlacklistExpires(t *testing.T) {
 
 	// Round 12: node 0 builds a block, which garbage collects the offline node, although it never redeemed itself.
 	blacklist = buildBlock(12, 9)
-	require.False(t, blacklist.IsNodeSuspected(offlineNodeIndex))
-	require.Empty(t, blacklist.SuspectedNodes)
+	emptyBlacklist := common.NewBlacklist(uint16(len(nodes)), testEpochConfig.MaxBlacklistedRounds)
+	require.True(t, emptyBlacklist.Equals(&blacklist), "expected an empty blacklist, got %s", blacklist.String())
 
 	// Rounds 13 and 14: nodes 1 and 2 carry over the empty blacklist.
 	for round, seq := uint64(13), uint64(10); round <= 14; round, seq = round+1, seq+1 {
 		blacklist = buildBlock(round, seq)
-		require.Empty(t, blacklist.SuspectedNodes, "round %d", round)
+		require.True(t, emptyBlacklist.Equals(&blacklist), "round %d: expected an empty blacklist, got %s", round, blacklist.String())
 	}
 
 	// Round 15: the offline node's turn. It is no longer blacklisted, so the online nodes wait for its block

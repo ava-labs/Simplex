@@ -1664,9 +1664,7 @@ func (e *Epoch) maybeMarkLeaderAsTimedOutForFutureBlacklisting(emptyNotarization
 			return fmt.Errorf("last block is nil")
 		}
 		blacklist = e.lastBlock.VerifiedBlock.Blacklist()
-		if e.lastBlock.Finalization.Finalization.Epoch < e.Epoch {
-			blacklist = e.freshBlacklist(blacklist)
-		}
+		blacklist = blacklist.ForEpoch(e.lastBlock.Finalization.Finalization.Epoch, e.Epoch, uint16(len(e.validatorNodeIDs)), e.MaxBlacklistedRounds)
 	}
 	round := emptyNotarization.Vote.Round
 	leaderIndex := round % uint64(len(e.validatorNodeIDs))
@@ -2477,7 +2475,8 @@ func (e *Epoch) verifyProposalMetadataAndBlacklist(block common.Block) bool {
 	// Else, either it's not the first block, or we haven't committed the first block, and it is the first block.
 	// If it's the latter we have nothing else to do.
 	// If it's the former, we need to find the parent of the block and ensure it is correct.
-	prevBlacklist := common.NewBlacklist(uint16(len(e.validatorNodeIDs)), e.MaxBlacklistedRounds)
+	var prevBlacklist common.Blacklist
+	prevEpoch := e.Epoch
 	if bh.Seq > 0 {
 		prevBlock, _, found := e.locateBlock(bh.Seq-1, bh.Prev[:])
 		if !found {
@@ -2492,12 +2491,9 @@ func (e *Epoch) verifyProposalMetadataAndBlacklist(block common.Block) bool {
 		expectedPrevDigest = bh.Prev
 
 		prevBlacklist = prevBlock.Blacklist()
-
-		// If the previous block belongs to an earlier epoch, the blacklist should be empty.
-		if prevBlock.BlockHeader().Epoch < e.Epoch || prevBlacklist.IsEmpty() {
-			prevBlacklist = e.freshBlacklist(prevBlacklist)
-		}
+		prevEpoch = prevBlock.BlockHeader().Epoch
 	}
+	prevBlacklist = prevBlacklist.ForEpoch(prevEpoch, e.Epoch, uint16(len(e.validatorNodeIDs)), e.MaxBlacklistedRounds)
 
 	if err := prevBlacklist.VerifyProposedBlacklist(block.Blacklist(), e.round); err != nil {
 		e.Logger.Debug("Block contains an invalid blacklist", zap.Error(err))
@@ -2601,24 +2597,14 @@ func (e *Epoch) buildBlock() {
 		return
 	}
 
-	// Create the blacklist for the next round:
-
-	// 1) Reset the updates from the previous round.
-	prevBlacklist.Updates = nil
-	// 2) Compute the updates for the new round, according to what we have observed.
+	// Create the blacklist for the next round, according to what we have observed.
 	e.Logger.Debug("Computing blacklist updates",
 		zap.String("timedOutRounds", fmt.Sprintf("%v", e.timedOutRounds)),
 		zap.String("redeemedRounds", fmt.Sprintf("%v", e.redeemedRounds)))
-	updates := prevBlacklist.ComputeBlacklistUpdates(metadata.Round, uint16(len(e.validatorNodeIDs)), e.timedOutRounds, e.redeemedRounds)
-	// 3) Apply the updates to the blacklist.
-	nextBlacklist := prevBlacklist.ApplyUpdates(updates, metadata.Round)
-	// 4) Move the max blacklisted orbits by a single orbit towards our locally configured value.
-	targetOrbits := common.MaxBlacklistedOrbitsForRounds(uint16(len(e.validatorNodeIDs)), e.MaxBlacklistedRounds)
-	nextBlacklist.MaxBlacklistedOrbits = prevBlacklist.NextMaxBlacklistedOrbits(targetOrbits)
+	nextBlacklist := prevBlacklist.Next(metadata.Round, e.timedOutRounds, e.redeemedRounds, e.MaxBlacklistedRounds)
 
 	e.Logger.Debug("Blacklist updated",
 		zap.Uint64("round", metadata.Round),
-		zap.String("Update", common.BlacklistUpdatesAsString(updates)),
 		zap.Stringer("prev", &prevBlacklist), zap.Stringer("next", &nextBlacklist))
 
 	buildTheBlock := e.createBlockBuildingTask(metadata, nextBlacklist)
@@ -2639,6 +2625,7 @@ func (e *Epoch) buildBlock() {
 
 func (e *Epoch) retrieveBlacklistForBlockBuilding(metadata common.ProtocolMetadata) (common.Blacklist, bool) {
 	var blacklist common.Blacklist
+	prevEpoch := metadata.Epoch
 	if metadata.Seq > 0 {
 		prevBlock, _, ok := e.locateBlock(metadata.Seq-1, metadata.Prev[:])
 		if !ok {
@@ -2651,35 +2638,10 @@ func (e *Epoch) retrieveBlacklistForBlockBuilding(metadata common.ProtocolMetada
 		}
 
 		blacklist = prevBlock.Blacklist()
-
-		// If the previous block belongs to a previous epoch, we need to reset the blacklist to be empty.
-		if metadata.Epoch > prevBlock.BlockHeader().Epoch {
-			blacklist = e.freshBlacklist(blacklist)
-		}
+		prevEpoch = prevBlock.BlockHeader().Epoch
 	}
 
-	if blacklist.IsEmpty() {
-		blacklist = e.freshBlacklist(blacklist)
-	}
-
-	return blacklist, true
-}
-
-// freshBlacklist returns a blacklist without any suspected nodes for the current validator set.
-// The MaxBlacklistedOrbits is carried over from the given blacklist, so that it persists across epochs.
-// Since an orbit spans NodeCount rounds, it is rescaled to the current validator set size so that it keeps
-// representing the same number of rounds.
-// If the given blacklist has no MaxBlacklistedOrbits, it is derived from the local configuration.
-func (e *Epoch) freshBlacklist(prev common.Blacklist) common.Blacklist {
-	nodeCount := uint16(len(e.validatorNodeIDs))
-	if prev.MaxBlacklistedOrbits == 0 {
-		// If this is the first ever blacklist, we derive the MaxBlacklistedOrbits from the local configuration.
-		return common.NewBlacklist(nodeCount, e.MaxBlacklistedRounds)
-	}
-	return common.Blacklist{
-		NodeCount:            nodeCount,
-		MaxBlacklistedOrbits: common.RescaleMaxBlacklistedOrbits(prev.MaxBlacklistedOrbits, prev.NodeCount, nodeCount),
-	}
+	return blacklist.ForEpoch(prevEpoch, metadata.Epoch, uint16(len(e.validatorNodeIDs)), e.MaxBlacklistedRounds), true
 }
 
 func (e *Epoch) createBlockBuildingTask(metadata common.ProtocolMetadata, blacklist common.Blacklist) func() common.Digest {
@@ -2997,9 +2959,7 @@ func (e *Epoch) retrieveLastPersistedBlacklist() (common.Blacklist, bool) {
 		}
 
 		blacklist = e.lastBlock.VerifiedBlock.Blacklist()
-		if e.lastBlock.Finalization.Finalization.Epoch < e.Epoch {
-			blacklist = e.freshBlacklist(blacklist)
-		}
+		blacklist = blacklist.ForEpoch(e.lastBlock.Finalization.Finalization.Epoch, e.Epoch, uint16(len(e.validatorNodeIDs)), e.MaxBlacklistedRounds)
 	}
 	return blacklist, true
 }

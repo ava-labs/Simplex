@@ -802,22 +802,22 @@ func TestInstanceBlacklistConfigurationRollsOverAcrossEpochs(t *testing.T) {
 	for seq := uint64(1); seq < network.seq; seq++ {
 		block := node1.storage.WaitForBlockCommit(seq)
 		blacklist := block.Blacklist()
-		if len(epochSizes) == 0 || epochSizes[len(epochSizes)-1] != blacklist.NodeCount {
+		if len(epochSizes) == 0 || epochSizes[len(epochSizes)-1] != blacklist.NodeCount() {
 			if len(epochSizes) > 0 {
-				orbits = common.RescaleMaxBlacklistedOrbits(orbits, epochSizes[len(epochSizes)-1], blacklist.NodeCount)
+				orbits = orbits * epochSizes[len(epochSizes)-1] / blacklist.NodeCount()
 			}
-			epochSizes = append(epochSizes, blacklist.NodeCount)
+			epochSizes = append(epochSizes, blacklist.NodeCount())
 		}
 
-		leader := simplex.LeaderForRound(validators[blacklist.NodeCount], block.BlockHeader().Round)
-		target := common.MaxBlacklistedOrbitsForRounds(blacklist.NodeCount, maxBlacklistedRoundsByNode[string(leader)])
+		leader := simplex.LeaderForRound(validators[blacklist.NodeCount()], block.BlockHeader().Round)
+		target := maxBlacklistedRoundsByNode[string(leader)] / blacklist.NodeCount()
 		switch {
 		case orbits < target:
 			orbits++
 		case orbits > target:
 			orbits--
 		}
-		require.Equal(t, orbits, blacklist.MaxBlacklistedOrbits, "block %d built by %s", seq, leader)
+		require.Equal(t, orbits, blacklist.MaxBlacklistedOrbits(), "block %d built by %s", seq, leader)
 	}
 
 	require.Equal(t, []uint16{2, 3, 2}, epochSizes)
@@ -852,12 +852,12 @@ func TestInstanceMaxBlacklistedRoundsRollingRestart(t *testing.T) {
 	// targets holds the max blacklisted orbits each block's builder was configured with when it built the block.
 	// The first simplex block is built while the nodes sync, with the initial configuration.
 	nodeCount := uint16(len(genesisSet))
-	targets := map[uint64]uint16{1: common.MaxBlacklistedOrbitsForRounds(nodeCount, initialRounds)}
+	targets := map[uint64]uint16{1: initialRounds / nodeCount}
 	acceptNewBlocks := func(count int) {
 		for range count {
 			block, _ := network.acceptNewBlock()
 			leader := simplex.LeaderForRound(genesisSet.NodeIDs(), block.BlockHeader().Round)
-			targets[block.BlockHeader().Seq] = common.MaxBlacklistedOrbitsForRounds(nodeCount, configured[string(leader)])
+			targets[block.BlockHeader().Seq] = configured[string(leader)] / nodeCount
 		}
 	}
 
@@ -874,12 +874,12 @@ func TestInstanceMaxBlacklistedRoundsRollingRestart(t *testing.T) {
 	// Inspect the chain: every block moves the max blacklisted orbits of its parent by exactly a single orbit
 	// towards its target, or keeps it if it is already there.
 	// The first ever blacklist has no parent, it is taken from the initial configuration.
-	prevMaxOrbits := common.MaxBlacklistedOrbitsForRounds(nodeCount, initialRounds)
+	prevMaxOrbits := initialRounds / nodeCount
 	var highest uint16
 	for seq := uint64(1); seq < network.seq; seq++ {
 		block := nodes[0].storage.WaitForBlockCommit(seq)
 		blacklist := block.Blacklist()
-		actual := blacklist.MaxBlacklistedOrbits
+		actual := blacklist.MaxBlacklistedOrbits()
 
 		switch target := targets[seq]; {
 		case prevMaxOrbits < target:
@@ -894,6 +894,6 @@ func TestInstanceMaxBlacklistedRoundsRollingRestart(t *testing.T) {
 	}
 
 	// The chain reached the increased configuration, and ended up with the decreased one.
-	require.Equal(t, common.MaxBlacklistedOrbitsForRounds(nodeCount, increasedRounds), highest)
-	require.Equal(t, common.MaxBlacklistedOrbitsForRounds(nodeCount, decreasedRounds), prevMaxOrbits)
+	require.Equal(t, increasedRounds/nodeCount, highest)
+	require.Equal(t, decreasedRounds/nodeCount, prevMaxOrbits)
 }

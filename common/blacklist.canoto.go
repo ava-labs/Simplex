@@ -23,15 +23,15 @@ const (
 var _ = io.ErrUnexpectedEOF
 
 const (
-	canotoNumber_Blacklist__NodeCount            = 1
-	canotoNumber_Blacklist__MaxBlacklistedOrbits = 2
-	canotoNumber_Blacklist__SuspectedNodes       = 3
-	canotoNumber_Blacklist__Updates              = 4
+	canotoNumber_Blacklist__nodeCount            = 1
+	canotoNumber_Blacklist__maxBlacklistedOrbits = 2
+	canotoNumber_Blacklist__suspectedNodes       = 3
+	canotoNumber_Blacklist__updates              = 4
 
-	canotoTag_Blacklist__NodeCount            = "\x08" // canoto.Tag(canotoNumber_Blacklist__NodeCount, canoto.Varint)
-	canotoTag_Blacklist__MaxBlacklistedOrbits = "\x10" // canoto.Tag(canotoNumber_Blacklist__MaxBlacklistedOrbits, canoto.Varint)
-	canotoTag_Blacklist__SuspectedNodes       = "\x1a" // canoto.Tag(canotoNumber_Blacklist__SuspectedNodes, canoto.Len)
-	canotoTag_Blacklist__Updates              = "\x22" // canoto.Tag(canotoNumber_Blacklist__Updates, canoto.Len)
+	canotoTag_Blacklist__nodeCount            = "\x08" // canoto.Tag(canotoNumber_Blacklist__nodeCount, canoto.Varint)
+	canotoTag_Blacklist__maxBlacklistedOrbits = "\x10" // canoto.Tag(canotoNumber_Blacklist__maxBlacklistedOrbits, canoto.Varint)
+	canotoTag_Blacklist__suspectedNodes       = "\x1a" // canoto.Tag(canotoNumber_Blacklist__suspectedNodes, canoto.Len)
+	canotoTag_Blacklist__updates              = "\x22" // canoto.Tag(canotoNumber_Blacklist__updates, canoto.Len)
 )
 
 type canotoData_Blacklist struct {
@@ -46,21 +46,21 @@ func (*Blacklist) CanotoSpec(types ...reflect.Type) *canoto.Spec {
 		Name: "Blacklist",
 		Fields: []canoto.FieldType{
 			{
-				FieldNumber: canotoNumber_Blacklist__NodeCount,
-				Name:        "NodeCount",
+				FieldNumber: canotoNumber_Blacklist__nodeCount,
+				Name:        "nodeCount",
 				OneOf:       "",
-				TypeUint:    canoto.SizeOf(zero.NodeCount),
+				TypeUint:    canoto.SizeOf(zero.nodeCount),
 			},
 			{
-				FieldNumber: canotoNumber_Blacklist__MaxBlacklistedOrbits,
-				Name:        "MaxBlacklistedOrbits",
+				FieldNumber: canotoNumber_Blacklist__maxBlacklistedOrbits,
+				Name:        "maxBlacklistedOrbits",
 				OneOf:       "",
-				TypeUint:    canoto.SizeOf(zero.MaxBlacklistedOrbits),
+				TypeUint:    canoto.SizeOf(zero.maxBlacklistedOrbits),
 			},
 			canoto.FieldTypeFromField(
-				/*type inference:*/ (canoto.MakeEntryNilPointer(zero.SuspectedNodes)),
-				/*FieldNumber:   */ canotoNumber_Blacklist__SuspectedNodes,
-				/*Name:          */ "SuspectedNodes",
+				/*type inference:*/ (canoto.MakeEntryNilPointer(zero.suspectedNodes)),
+				/*FieldNumber:   */ canotoNumber_Blacklist__suspectedNodes,
+				/*Name:          */ "suspectedNodes",
 				/*FixedLength:   */ 0,
 				/*Repeated:      */ true,
 				/*OneOf:         */ "",
@@ -68,9 +68,9 @@ func (*Blacklist) CanotoSpec(types ...reflect.Type) *canoto.Spec {
 				/*types:         */ types,
 			),
 			canoto.FieldTypeFromField(
-				/*type inference:*/ (canoto.MakeEntryNilPointer(zero.Updates)),
-				/*FieldNumber:   */ canotoNumber_Blacklist__Updates,
-				/*Name:          */ "Updates",
+				/*type inference:*/ (canoto.MakeEntryNilPointer(zero.updates)),
+				/*FieldNumber:   */ canotoNumber_Blacklist__updates,
+				/*Name:          */ "updates",
 				/*FixedLength:   */ 0,
 				/*Repeated:      */ true,
 				/*OneOf:         */ "",
@@ -115,29 +115,29 @@ func (c *Blacklist) UnmarshalCanotoFrom(r canoto.Reader) error {
 		}
 
 		switch field {
-		case canotoNumber_Blacklist__NodeCount:
+		case canotoNumber_Blacklist__nodeCount:
 			if wireType != canoto.Varint {
 				return canoto.ErrUnexpectedWireType
 			}
 
-			if err := canoto.ReadUint(&r, &c.NodeCount); err != nil {
+			if err := canoto.ReadUint(&r, &c.nodeCount); err != nil {
 				return err
 			}
-			if canoto.IsZero(c.NodeCount) {
+			if canoto.IsZero(c.nodeCount) {
 				return canoto.ErrZeroValue
 			}
-		case canotoNumber_Blacklist__MaxBlacklistedOrbits:
+		case canotoNumber_Blacklist__maxBlacklistedOrbits:
 			if wireType != canoto.Varint {
 				return canoto.ErrUnexpectedWireType
 			}
 
-			if err := canoto.ReadUint(&r, &c.MaxBlacklistedOrbits); err != nil {
+			if err := canoto.ReadUint(&r, &c.maxBlacklistedOrbits); err != nil {
 				return err
 			}
-			if canoto.IsZero(c.MaxBlacklistedOrbits) {
+			if canoto.IsZero(c.maxBlacklistedOrbits) {
 				return canoto.ErrZeroValue
 			}
-		case canotoNumber_Blacklist__SuspectedNodes:
+		case canotoNumber_Blacklist__suspectedNodes:
 			if wireType != canoto.Len {
 				return canoto.ErrUnexpectedWireType
 			}
@@ -153,13 +153,13 @@ func (c *Blacklist) UnmarshalCanotoFrom(r canoto.Reader) error {
 			r.Unsafe = originalUnsafe
 
 			// Count the number of additional entries after the first entry.
-			countMinus1, err := canoto.CountBytes(r.B, canotoTag_Blacklist__SuspectedNodes)
+			countMinus1, err := canoto.CountBytes(r.B, canotoTag_Blacklist__suspectedNodes)
 			if err != nil {
 				return err
 			}
 
-			c.SuspectedNodes = canoto.MakeSlice(c.SuspectedNodes, countMinus1+1)
-			field := c.SuspectedNodes
+			c.suspectedNodes = canoto.MakeSlice(c.suspectedNodes, countMinus1+1)
+			field := c.suspectedNodes
 			additionalField := field[1:]
 			if len(msgBytes) != 0 {
 				remainingBytes := r.B
@@ -172,7 +172,7 @@ func (c *Blacklist) UnmarshalCanotoFrom(r canoto.Reader) error {
 
 			// Read the rest of the entries, stripping the tag each time.
 			for i := range additionalField {
-				r.B = r.B[len(canotoTag_Blacklist__SuspectedNodes):]
+				r.B = r.B[len(canotoTag_Blacklist__suspectedNodes):]
 				r.Unsafe = true
 				if err := canoto.ReadBytes(&r, &msgBytes); err != nil {
 					return err
@@ -189,7 +189,7 @@ func (c *Blacklist) UnmarshalCanotoFrom(r canoto.Reader) error {
 				}
 				r.B = remainingBytes
 			}
-		case canotoNumber_Blacklist__Updates:
+		case canotoNumber_Blacklist__updates:
 			if wireType != canoto.Len {
 				return canoto.ErrUnexpectedWireType
 			}
@@ -205,13 +205,13 @@ func (c *Blacklist) UnmarshalCanotoFrom(r canoto.Reader) error {
 			r.Unsafe = originalUnsafe
 
 			// Count the number of additional entries after the first entry.
-			countMinus1, err := canoto.CountBytes(r.B, canotoTag_Blacklist__Updates)
+			countMinus1, err := canoto.CountBytes(r.B, canotoTag_Blacklist__updates)
 			if err != nil {
 				return err
 			}
 
-			c.Updates = canoto.MakeSlice(c.Updates, countMinus1+1)
-			field := c.Updates
+			c.updates = canoto.MakeSlice(c.updates, countMinus1+1)
+			field := c.updates
 			additionalField := field[1:]
 			if len(msgBytes) != 0 {
 				remainingBytes := r.B
@@ -224,7 +224,7 @@ func (c *Blacklist) UnmarshalCanotoFrom(r canoto.Reader) error {
 
 			// Read the rest of the entries, stripping the tag each time.
 			for i := range additionalField {
-				r.B = r.B[len(canotoTag_Blacklist__Updates):]
+				r.B = r.B[len(canotoTag_Blacklist__updates):]
 				r.Unsafe = true
 				if err := canoto.ReadBytes(&r, &msgBytes); err != nil {
 					return err
@@ -259,7 +259,7 @@ func (c *Blacklist) UnmarshalCanotoFrom(r canoto.Reader) error {
 // 3. All custom fields are ValidCanoto.
 func (c *Blacklist) ValidCanoto() bool {
 	{
-		field := c.SuspectedNodes
+		field := c.suspectedNodes
 		for i := range field {
 			if !(&field[i]).ValidCanoto() {
 				return false
@@ -267,7 +267,7 @@ func (c *Blacklist) ValidCanoto() bool {
 		}
 	}
 	{
-		field := c.Updates
+		field := c.updates
 		for i := range field {
 			if !(&field[i]).ValidCanoto() {
 				return false
@@ -283,26 +283,26 @@ func (c *Blacklist) ValidCanoto() bool {
 // It is not safe to copy this struct concurrently.
 func (c *Blacklist) CalculateCanotoCache() {
 	var size uint64
-	if !canoto.IsZero(c.NodeCount) {
-		size += uint64(len(canotoTag_Blacklist__NodeCount)) + canoto.SizeUint(c.NodeCount)
+	if !canoto.IsZero(c.nodeCount) {
+		size += uint64(len(canotoTag_Blacklist__nodeCount)) + canoto.SizeUint(c.nodeCount)
 	}
-	if !canoto.IsZero(c.MaxBlacklistedOrbits) {
-		size += uint64(len(canotoTag_Blacklist__MaxBlacklistedOrbits)) + canoto.SizeUint(c.MaxBlacklistedOrbits)
+	if !canoto.IsZero(c.maxBlacklistedOrbits) {
+		size += uint64(len(canotoTag_Blacklist__maxBlacklistedOrbits)) + canoto.SizeUint(c.maxBlacklistedOrbits)
 	}
 	{
-		field := c.SuspectedNodes
+		field := c.suspectedNodes
 		for i := range field {
 			(&field[i]).CalculateCanotoCache()
 			fieldSize := (&field[i]).CachedCanotoSize()
-			size += uint64(len(canotoTag_Blacklist__SuspectedNodes)) + canoto.SizeUint(fieldSize) + fieldSize
+			size += uint64(len(canotoTag_Blacklist__suspectedNodes)) + canoto.SizeUint(fieldSize) + fieldSize
 		}
 	}
 	{
-		field := c.Updates
+		field := c.updates
 		for i := range field {
 			(&field[i]).CalculateCanotoCache()
 			fieldSize := (&field[i]).CachedCanotoSize()
-			size += uint64(len(canotoTag_Blacklist__Updates)) + canoto.SizeUint(fieldSize) + fieldSize
+			size += uint64(len(canotoTag_Blacklist__updates)) + canoto.SizeUint(fieldSize) + fieldSize
 		}
 	}
 	atomic.StoreUint64(&c.canotoData.size, size)
@@ -343,26 +343,26 @@ func (c *Blacklist) MarshalCanoto() []byte {
 //
 // It is not safe to copy this struct concurrently.
 func (c *Blacklist) MarshalCanotoInto(w canoto.Writer) canoto.Writer {
-	if !canoto.IsZero(c.NodeCount) {
-		canoto.Append(&w, canotoTag_Blacklist__NodeCount)
-		canoto.AppendUint(&w, c.NodeCount)
+	if !canoto.IsZero(c.nodeCount) {
+		canoto.Append(&w, canotoTag_Blacklist__nodeCount)
+		canoto.AppendUint(&w, c.nodeCount)
 	}
-	if !canoto.IsZero(c.MaxBlacklistedOrbits) {
-		canoto.Append(&w, canotoTag_Blacklist__MaxBlacklistedOrbits)
-		canoto.AppendUint(&w, c.MaxBlacklistedOrbits)
+	if !canoto.IsZero(c.maxBlacklistedOrbits) {
+		canoto.Append(&w, canotoTag_Blacklist__maxBlacklistedOrbits)
+		canoto.AppendUint(&w, c.maxBlacklistedOrbits)
 	}
 	{
-		field := c.SuspectedNodes
+		field := c.suspectedNodes
 		for i := range field {
-			canoto.Append(&w, canotoTag_Blacklist__SuspectedNodes)
+			canoto.Append(&w, canotoTag_Blacklist__suspectedNodes)
 			canoto.AppendUint(&w, (&field[i]).CachedCanotoSize())
 			w = (&field[i]).MarshalCanotoInto(w)
 		}
 	}
 	{
-		field := c.Updates
+		field := c.updates
 		for i := range field {
-			canoto.Append(&w, canotoTag_Blacklist__Updates)
+			canoto.Append(&w, canotoTag_Blacklist__updates)
 			canoto.AppendUint(&w, (&field[i]).CachedCanotoSize())
 			w = (&field[i]).MarshalCanotoInto(w)
 		}
@@ -371,31 +371,31 @@ func (c *Blacklist) MarshalCanotoInto(w canoto.Writer) canoto.Writer {
 }
 
 const (
-	canotoNumber_BlacklistUpdate__Type      = 1
-	canotoNumber_BlacklistUpdate__NodeIndex = 2
+	canotoNumber_blacklistUpdate__Type      = 1
+	canotoNumber_blacklistUpdate__NodeIndex = 2
 
-	canotoTag_BlacklistUpdate__Type      = "\x08" // canoto.Tag(canotoNumber_BlacklistUpdate__Type, canoto.Varint)
-	canotoTag_BlacklistUpdate__NodeIndex = "\x10" // canoto.Tag(canotoNumber_BlacklistUpdate__NodeIndex, canoto.Varint)
+	canotoTag_blacklistUpdate__Type      = "\x08" // canoto.Tag(canotoNumber_blacklistUpdate__Type, canoto.Varint)
+	canotoTag_blacklistUpdate__NodeIndex = "\x10" // canoto.Tag(canotoNumber_blacklistUpdate__NodeIndex, canoto.Varint)
 )
 
-type canotoData_BlacklistUpdate struct {
+type canotoData_blacklistUpdate struct {
 	size uint64
 }
 
 // CanotoSpec returns the specification of this canoto message.
-func (*BlacklistUpdate) CanotoSpec(...reflect.Type) *canoto.Spec {
-	var zero BlacklistUpdate
+func (*blacklistUpdate) CanotoSpec(...reflect.Type) *canoto.Spec {
+	var zero blacklistUpdate
 	s := &canoto.Spec{
-		Name: "BlacklistUpdate",
+		Name: "blacklistUpdate",
 		Fields: []canoto.FieldType{
 			{
-				FieldNumber: canotoNumber_BlacklistUpdate__Type,
+				FieldNumber: canotoNumber_blacklistUpdate__Type,
 				Name:        "Type",
 				OneOf:       "",
 				TypeUint:    canoto.SizeOf(zero.Type),
 			},
 			{
-				FieldNumber: canotoNumber_BlacklistUpdate__NodeIndex,
+				FieldNumber: canotoNumber_blacklistUpdate__NodeIndex,
 				Name:        "NodeIndex",
 				OneOf:       "",
 				TypeUint:    canoto.SizeOf(zero.NodeIndex),
@@ -409,7 +409,7 @@ func (*BlacklistUpdate) CanotoSpec(...reflect.Type) *canoto.Spec {
 // UnmarshalCanoto unmarshals a Canoto-encoded byte slice into the struct.
 //
 // During parsing, the canoto cache is saved.
-func (c *BlacklistUpdate) UnmarshalCanoto(bytes []byte) error {
+func (c *blacklistUpdate) UnmarshalCanoto(bytes []byte) error {
 	r := canoto.Reader{
 		B: bytes,
 	}
@@ -422,9 +422,9 @@ func (c *BlacklistUpdate) UnmarshalCanoto(bytes []byte) error {
 // During parsing, the canoto cache is saved.
 //
 // This function enables configuration of reader options.
-func (c *BlacklistUpdate) UnmarshalCanotoFrom(r canoto.Reader) error {
+func (c *blacklistUpdate) UnmarshalCanotoFrom(r canoto.Reader) error {
 	// Zero the struct before unmarshaling.
-	*c = BlacklistUpdate{}
+	*c = blacklistUpdate{}
 	atomic.StoreUint64(&c.canotoData.size, uint64(len(r.B)))
 
 	var minField uint32
@@ -438,7 +438,7 @@ func (c *BlacklistUpdate) UnmarshalCanotoFrom(r canoto.Reader) error {
 		}
 
 		switch field {
-		case canotoNumber_BlacklistUpdate__Type:
+		case canotoNumber_blacklistUpdate__Type:
 			if wireType != canoto.Varint {
 				return canoto.ErrUnexpectedWireType
 			}
@@ -449,7 +449,7 @@ func (c *BlacklistUpdate) UnmarshalCanotoFrom(r canoto.Reader) error {
 			if canoto.IsZero(c.Type) {
 				return canoto.ErrZeroValue
 			}
-		case canotoNumber_BlacklistUpdate__NodeIndex:
+		case canotoNumber_blacklistUpdate__NodeIndex:
 			if wireType != canoto.Varint {
 				return canoto.ErrUnexpectedWireType
 			}
@@ -476,7 +476,7 @@ func (c *BlacklistUpdate) UnmarshalCanotoFrom(r canoto.Reader) error {
 // 1. All OneOfs are specified at most once.
 // 2. All strings are valid utf-8.
 // 3. All custom fields are ValidCanoto.
-func (c *BlacklistUpdate) ValidCanoto() bool {
+func (c *blacklistUpdate) ValidCanoto() bool {
 	return true
 }
 
@@ -484,13 +484,13 @@ func (c *BlacklistUpdate) ValidCanoto() bool {
 // values in the struct.
 //
 // It is not safe to copy this struct concurrently.
-func (c *BlacklistUpdate) CalculateCanotoCache() {
+func (c *blacklistUpdate) CalculateCanotoCache() {
 	var size uint64
 	if !canoto.IsZero(c.Type) {
-		size += uint64(len(canotoTag_BlacklistUpdate__Type)) + canoto.SizeUint(c.Type)
+		size += uint64(len(canotoTag_blacklistUpdate__Type)) + canoto.SizeUint(c.Type)
 	}
 	if !canoto.IsZero(c.NodeIndex) {
-		size += uint64(len(canotoTag_BlacklistUpdate__NodeIndex)) + canoto.SizeUint(c.NodeIndex)
+		size += uint64(len(canotoTag_blacklistUpdate__NodeIndex)) + canoto.SizeUint(c.NodeIndex)
 	}
 	atomic.StoreUint64(&c.canotoData.size, size)
 }
@@ -502,7 +502,7 @@ func (c *BlacklistUpdate) CalculateCanotoCache() {
 //
 // If the struct has been modified since the last call to CalculateCanotoCache,
 // the returned size may be incorrect.
-func (c *BlacklistUpdate) CachedCanotoSize() uint64 {
+func (c *blacklistUpdate) CachedCanotoSize() uint64 {
 	return atomic.LoadUint64(&c.canotoData.size)
 }
 
@@ -511,7 +511,7 @@ func (c *BlacklistUpdate) CachedCanotoSize() uint64 {
 // It is assumed that this struct is ValidCanoto.
 //
 // It is not safe to copy this struct concurrently.
-func (c *BlacklistUpdate) MarshalCanoto() []byte {
+func (c *blacklistUpdate) MarshalCanoto() []byte {
 	c.CalculateCanotoCache()
 	w := canoto.Writer{
 		B: make([]byte, 0, c.CachedCanotoSize()),
@@ -529,68 +529,68 @@ func (c *BlacklistUpdate) MarshalCanoto() []byte {
 // It is assumed that this struct is ValidCanoto.
 //
 // It is not safe to copy this struct concurrently.
-func (c *BlacklistUpdate) MarshalCanotoInto(w canoto.Writer) canoto.Writer {
+func (c *blacklistUpdate) MarshalCanotoInto(w canoto.Writer) canoto.Writer {
 	if !canoto.IsZero(c.Type) {
-		canoto.Append(&w, canotoTag_BlacklistUpdate__Type)
+		canoto.Append(&w, canotoTag_blacklistUpdate__Type)
 		canoto.AppendUint(&w, c.Type)
 	}
 	if !canoto.IsZero(c.NodeIndex) {
-		canoto.Append(&w, canotoTag_BlacklistUpdate__NodeIndex)
+		canoto.Append(&w, canotoTag_blacklistUpdate__NodeIndex)
 		canoto.AppendUint(&w, c.NodeIndex)
 	}
 	return w
 }
 
 const (
-	canotoNumber_SuspectedNode__NodeIndex       = 1
-	canotoNumber_SuspectedNode__SuspectingCount = 2
-	canotoNumber_SuspectedNode__RedeemingCount  = 3
-	canotoNumber_SuspectedNode__OrbitSuspected  = 4
-	canotoNumber_SuspectedNode__OrbitToRedeem   = 5
+	canotoNumber_suspectedNode__NodeIndex       = 1
+	canotoNumber_suspectedNode__SuspectingCount = 2
+	canotoNumber_suspectedNode__RedeemingCount  = 3
+	canotoNumber_suspectedNode__OrbitSuspected  = 4
+	canotoNumber_suspectedNode__OrbitToRedeem   = 5
 
-	canotoTag_SuspectedNode__NodeIndex       = "\x08" // canoto.Tag(canotoNumber_SuspectedNode__NodeIndex, canoto.Varint)
-	canotoTag_SuspectedNode__SuspectingCount = "\x10" // canoto.Tag(canotoNumber_SuspectedNode__SuspectingCount, canoto.Varint)
-	canotoTag_SuspectedNode__RedeemingCount  = "\x18" // canoto.Tag(canotoNumber_SuspectedNode__RedeemingCount, canoto.Varint)
-	canotoTag_SuspectedNode__OrbitSuspected  = "\x20" // canoto.Tag(canotoNumber_SuspectedNode__OrbitSuspected, canoto.Varint)
-	canotoTag_SuspectedNode__OrbitToRedeem   = "\x28" // canoto.Tag(canotoNumber_SuspectedNode__OrbitToRedeem, canoto.Varint)
+	canotoTag_suspectedNode__NodeIndex       = "\x08" // canoto.Tag(canotoNumber_suspectedNode__NodeIndex, canoto.Varint)
+	canotoTag_suspectedNode__SuspectingCount = "\x10" // canoto.Tag(canotoNumber_suspectedNode__SuspectingCount, canoto.Varint)
+	canotoTag_suspectedNode__RedeemingCount  = "\x18" // canoto.Tag(canotoNumber_suspectedNode__RedeemingCount, canoto.Varint)
+	canotoTag_suspectedNode__OrbitSuspected  = "\x20" // canoto.Tag(canotoNumber_suspectedNode__OrbitSuspected, canoto.Varint)
+	canotoTag_suspectedNode__OrbitToRedeem   = "\x28" // canoto.Tag(canotoNumber_suspectedNode__OrbitToRedeem, canoto.Varint)
 )
 
-type canotoData_SuspectedNode struct {
+type canotoData_suspectedNode struct {
 	size uint64
 }
 
 // CanotoSpec returns the specification of this canoto message.
-func (*SuspectedNode) CanotoSpec(...reflect.Type) *canoto.Spec {
-	var zero SuspectedNode
+func (*suspectedNode) CanotoSpec(...reflect.Type) *canoto.Spec {
+	var zero suspectedNode
 	s := &canoto.Spec{
-		Name: "SuspectedNode",
+		Name: "suspectedNode",
 		Fields: []canoto.FieldType{
 			{
-				FieldNumber: canotoNumber_SuspectedNode__NodeIndex,
+				FieldNumber: canotoNumber_suspectedNode__NodeIndex,
 				Name:        "NodeIndex",
 				OneOf:       "",
 				TypeUint:    canoto.SizeOf(zero.NodeIndex),
 			},
 			{
-				FieldNumber: canotoNumber_SuspectedNode__SuspectingCount,
+				FieldNumber: canotoNumber_suspectedNode__SuspectingCount,
 				Name:        "SuspectingCount",
 				OneOf:       "",
 				TypeUint:    canoto.SizeOf(zero.SuspectingCount),
 			},
 			{
-				FieldNumber: canotoNumber_SuspectedNode__RedeemingCount,
+				FieldNumber: canotoNumber_suspectedNode__RedeemingCount,
 				Name:        "RedeemingCount",
 				OneOf:       "",
 				TypeUint:    canoto.SizeOf(zero.RedeemingCount),
 			},
 			{
-				FieldNumber: canotoNumber_SuspectedNode__OrbitSuspected,
+				FieldNumber: canotoNumber_suspectedNode__OrbitSuspected,
 				Name:        "OrbitSuspected",
 				OneOf:       "",
 				TypeUint:    canoto.SizeOf(zero.OrbitSuspected),
 			},
 			{
-				FieldNumber: canotoNumber_SuspectedNode__OrbitToRedeem,
+				FieldNumber: canotoNumber_suspectedNode__OrbitToRedeem,
 				Name:        "OrbitToRedeem",
 				OneOf:       "",
 				TypeUint:    canoto.SizeOf(zero.OrbitToRedeem),
@@ -604,7 +604,7 @@ func (*SuspectedNode) CanotoSpec(...reflect.Type) *canoto.Spec {
 // UnmarshalCanoto unmarshals a Canoto-encoded byte slice into the struct.
 //
 // During parsing, the canoto cache is saved.
-func (c *SuspectedNode) UnmarshalCanoto(bytes []byte) error {
+func (c *suspectedNode) UnmarshalCanoto(bytes []byte) error {
 	r := canoto.Reader{
 		B: bytes,
 	}
@@ -617,9 +617,9 @@ func (c *SuspectedNode) UnmarshalCanoto(bytes []byte) error {
 // During parsing, the canoto cache is saved.
 //
 // This function enables configuration of reader options.
-func (c *SuspectedNode) UnmarshalCanotoFrom(r canoto.Reader) error {
+func (c *suspectedNode) UnmarshalCanotoFrom(r canoto.Reader) error {
 	// Zero the struct before unmarshaling.
-	*c = SuspectedNode{}
+	*c = suspectedNode{}
 	atomic.StoreUint64(&c.canotoData.size, uint64(len(r.B)))
 
 	var minField uint32
@@ -633,7 +633,7 @@ func (c *SuspectedNode) UnmarshalCanotoFrom(r canoto.Reader) error {
 		}
 
 		switch field {
-		case canotoNumber_SuspectedNode__NodeIndex:
+		case canotoNumber_suspectedNode__NodeIndex:
 			if wireType != canoto.Varint {
 				return canoto.ErrUnexpectedWireType
 			}
@@ -644,7 +644,7 @@ func (c *SuspectedNode) UnmarshalCanotoFrom(r canoto.Reader) error {
 			if canoto.IsZero(c.NodeIndex) {
 				return canoto.ErrZeroValue
 			}
-		case canotoNumber_SuspectedNode__SuspectingCount:
+		case canotoNumber_suspectedNode__SuspectingCount:
 			if wireType != canoto.Varint {
 				return canoto.ErrUnexpectedWireType
 			}
@@ -655,7 +655,7 @@ func (c *SuspectedNode) UnmarshalCanotoFrom(r canoto.Reader) error {
 			if canoto.IsZero(c.SuspectingCount) {
 				return canoto.ErrZeroValue
 			}
-		case canotoNumber_SuspectedNode__RedeemingCount:
+		case canotoNumber_suspectedNode__RedeemingCount:
 			if wireType != canoto.Varint {
 				return canoto.ErrUnexpectedWireType
 			}
@@ -666,7 +666,7 @@ func (c *SuspectedNode) UnmarshalCanotoFrom(r canoto.Reader) error {
 			if canoto.IsZero(c.RedeemingCount) {
 				return canoto.ErrZeroValue
 			}
-		case canotoNumber_SuspectedNode__OrbitSuspected:
+		case canotoNumber_suspectedNode__OrbitSuspected:
 			if wireType != canoto.Varint {
 				return canoto.ErrUnexpectedWireType
 			}
@@ -677,7 +677,7 @@ func (c *SuspectedNode) UnmarshalCanotoFrom(r canoto.Reader) error {
 			if canoto.IsZero(c.OrbitSuspected) {
 				return canoto.ErrZeroValue
 			}
-		case canotoNumber_SuspectedNode__OrbitToRedeem:
+		case canotoNumber_suspectedNode__OrbitToRedeem:
 			if wireType != canoto.Varint {
 				return canoto.ErrUnexpectedWireType
 			}
@@ -704,7 +704,7 @@ func (c *SuspectedNode) UnmarshalCanotoFrom(r canoto.Reader) error {
 // 1. All OneOfs are specified at most once.
 // 2. All strings are valid utf-8.
 // 3. All custom fields are ValidCanoto.
-func (c *SuspectedNode) ValidCanoto() bool {
+func (c *suspectedNode) ValidCanoto() bool {
 	return true
 }
 
@@ -712,22 +712,22 @@ func (c *SuspectedNode) ValidCanoto() bool {
 // values in the struct.
 //
 // It is not safe to copy this struct concurrently.
-func (c *SuspectedNode) CalculateCanotoCache() {
+func (c *suspectedNode) CalculateCanotoCache() {
 	var size uint64
 	if !canoto.IsZero(c.NodeIndex) {
-		size += uint64(len(canotoTag_SuspectedNode__NodeIndex)) + canoto.SizeUint(c.NodeIndex)
+		size += uint64(len(canotoTag_suspectedNode__NodeIndex)) + canoto.SizeUint(c.NodeIndex)
 	}
 	if !canoto.IsZero(c.SuspectingCount) {
-		size += uint64(len(canotoTag_SuspectedNode__SuspectingCount)) + canoto.SizeUint(c.SuspectingCount)
+		size += uint64(len(canotoTag_suspectedNode__SuspectingCount)) + canoto.SizeUint(c.SuspectingCount)
 	}
 	if !canoto.IsZero(c.RedeemingCount) {
-		size += uint64(len(canotoTag_SuspectedNode__RedeemingCount)) + canoto.SizeUint(c.RedeemingCount)
+		size += uint64(len(canotoTag_suspectedNode__RedeemingCount)) + canoto.SizeUint(c.RedeemingCount)
 	}
 	if !canoto.IsZero(c.OrbitSuspected) {
-		size += uint64(len(canotoTag_SuspectedNode__OrbitSuspected)) + canoto.SizeUint(c.OrbitSuspected)
+		size += uint64(len(canotoTag_suspectedNode__OrbitSuspected)) + canoto.SizeUint(c.OrbitSuspected)
 	}
 	if !canoto.IsZero(c.OrbitToRedeem) {
-		size += uint64(len(canotoTag_SuspectedNode__OrbitToRedeem)) + canoto.SizeUint(c.OrbitToRedeem)
+		size += uint64(len(canotoTag_suspectedNode__OrbitToRedeem)) + canoto.SizeUint(c.OrbitToRedeem)
 	}
 	atomic.StoreUint64(&c.canotoData.size, size)
 }
@@ -739,7 +739,7 @@ func (c *SuspectedNode) CalculateCanotoCache() {
 //
 // If the struct has been modified since the last call to CalculateCanotoCache,
 // the returned size may be incorrect.
-func (c *SuspectedNode) CachedCanotoSize() uint64 {
+func (c *suspectedNode) CachedCanotoSize() uint64 {
 	return atomic.LoadUint64(&c.canotoData.size)
 }
 
@@ -748,7 +748,7 @@ func (c *SuspectedNode) CachedCanotoSize() uint64 {
 // It is assumed that this struct is ValidCanoto.
 //
 // It is not safe to copy this struct concurrently.
-func (c *SuspectedNode) MarshalCanoto() []byte {
+func (c *suspectedNode) MarshalCanoto() []byte {
 	c.CalculateCanotoCache()
 	w := canoto.Writer{
 		B: make([]byte, 0, c.CachedCanotoSize()),
@@ -766,25 +766,25 @@ func (c *SuspectedNode) MarshalCanoto() []byte {
 // It is assumed that this struct is ValidCanoto.
 //
 // It is not safe to copy this struct concurrently.
-func (c *SuspectedNode) MarshalCanotoInto(w canoto.Writer) canoto.Writer {
+func (c *suspectedNode) MarshalCanotoInto(w canoto.Writer) canoto.Writer {
 	if !canoto.IsZero(c.NodeIndex) {
-		canoto.Append(&w, canotoTag_SuspectedNode__NodeIndex)
+		canoto.Append(&w, canotoTag_suspectedNode__NodeIndex)
 		canoto.AppendUint(&w, c.NodeIndex)
 	}
 	if !canoto.IsZero(c.SuspectingCount) {
-		canoto.Append(&w, canotoTag_SuspectedNode__SuspectingCount)
+		canoto.Append(&w, canotoTag_suspectedNode__SuspectingCount)
 		canoto.AppendUint(&w, c.SuspectingCount)
 	}
 	if !canoto.IsZero(c.RedeemingCount) {
-		canoto.Append(&w, canotoTag_SuspectedNode__RedeemingCount)
+		canoto.Append(&w, canotoTag_suspectedNode__RedeemingCount)
 		canoto.AppendUint(&w, c.RedeemingCount)
 	}
 	if !canoto.IsZero(c.OrbitSuspected) {
-		canoto.Append(&w, canotoTag_SuspectedNode__OrbitSuspected)
+		canoto.Append(&w, canotoTag_suspectedNode__OrbitSuspected)
 		canoto.AppendUint(&w, c.OrbitSuspected)
 	}
 	if !canoto.IsZero(c.OrbitToRedeem) {
-		canoto.Append(&w, canotoTag_SuspectedNode__OrbitToRedeem)
+		canoto.Append(&w, canotoTag_suspectedNode__OrbitToRedeem)
 		canoto.AppendUint(&w, c.OrbitToRedeem)
 	}
 	return w

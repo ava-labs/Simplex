@@ -435,8 +435,7 @@ func TestMSMNormalOp(t *testing.T) {
 			md.Round++
 			md.Prev = lastBlock.Digest()
 
-			var blacklist common.Blacklist
-			blacklist.NodeCount = 4
+			blacklist := common.NewBlacklist(4, 4)
 
 			blockTime := lastBlock.InnerBlock.Timestamp().Add(time.Second)
 
@@ -1228,7 +1227,7 @@ func TestVerifyDoesNotInitializeApprovalStore(t *testing.T) {
 	tc.blockBuilder.Block = &testutil.InnerBlock{TS: blockTime, BlockHeight: lastBlock.InnerBlock.Height()}
 
 	// Build a transition block
-	block, err := sm.BuildBlock(context.Background(), md, common.Blacklist{NodeCount: 4})
+	block, err := sm.BuildBlock(context.Background(), md, common.NewBlacklist(4, 4))
 	require.NoError(t, err)
 	require.Equal(t, newPChainHeight, block.Metadata.SimplexEpochInfo.NextPChainReferenceHeight)
 
@@ -1242,7 +1241,7 @@ func TestVerifyDoesNotInitializeApprovalStore(t *testing.T) {
 		next.Round++
 		next.Prev = block.Digest()
 		tc.blockBuilder.Block = &testutil.InnerBlock{TS: blockTime, BlockHeight: block.InnerBlock.Height() + 1}
-		collecting, err := sm.BuildBlock(context.Background(), next, common.Blacklist{NodeCount: 4})
+		collecting, err := sm.BuildBlock(context.Background(), next, common.NewBlacklist(4, 4))
 		require.NoError(t, err)
 		return avalanchego.BitmaskFromBytes(collecting.Metadata.SimplexEpochInfo.NextEpochApprovals.NodeIDs)
 	}

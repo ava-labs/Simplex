@@ -984,20 +984,15 @@ func TestEpochBlacklist(t *testing.T) {
 	block, _ := notarizeAndFinalizeRound(t, e, bb)
 	require.Equal(t, nodes[0], LeaderForRound(nodes, block.BlockHeader().Round)) // our node will propose the empty block
 
-	// Make sure our node properly constructed the blacklist
+	// Make sure our node properly constructed the blacklist, accusing node 3 of timing out
+	timedOut := map[uint16]uint64{3: timedOutRound}
 	actual := block.Blacklist()
-	expected := Blacklist{
-		NodeCount:            4,
-		MaxBlacklistedOrbits: DefaultMaxBlacklistedRounds / 4,
-		SuspectedNodes:       SuspectedNodes{{NodeIndex: 3, SuspectingCount: 1, OrbitSuspected: 1}},
-		Updates:              []BlacklistUpdate{{Type: BlacklistOpType_NodeSuspected, NodeIndex: 3}},
-	}
+	expected := emptyBlacklist.Next(block.BlockHeader().Round, timedOut, nil, DefaultMaxBlacklistedRounds)
 	require.True(t, expected.Equals(&actual))
 
-	// Compute next blacklist
-	blacklist := NewBlacklist(4, DefaultMaxBlacklistedRounds)
-	blacklist.Updates = []BlacklistUpdate{{Type: BlacklistOpType_NodeSuspected, NodeIndex: 3}}
-	blacklist.SuspectedNodes = []SuspectedNode{{NodeIndex: 3, SuspectingCount: 2, OrbitSuspected: 1}}
+	// Compute next blacklist, in which node 2 accuses node 3 as well
+	blacklist := actual.Next(e.Metadata().Round, timedOut, nil, DefaultMaxBlacklistedRounds)
+	require.True(t, blacklist.IsNodeSuspected(3))
 
 	// Build the block and prime it to be proposed in the next round
 	bb.BuildBlock(context.Background(), e.Metadata(), blacklist)
@@ -1011,7 +1006,7 @@ func TestEpochBlacklist(t *testing.T) {
 
 	// Do it again but preserve the blacklist until we get to the round of the last node.
 	// This time, there are no updates to the blacklist, it just carries over.
-	blacklist.Updates = nil
+	blacklist = blacklist.Next(e.Metadata().Round, nil, nil, DefaultMaxBlacklistedRounds)
 	bb.BuildBlock(context.Background(), e.Metadata(), blacklist)
 	notarizeAndFinalizeRound(t, e, bb)
 
@@ -1055,12 +1050,12 @@ func TestEpochBlacklist(t *testing.T) {
 	wal.AssertNotarization(8)
 
 	// Now node 2 proposes a block.
-	blacklist.Updates = nil
+	blacklist = blacklist.Next(e.Metadata().Round, nil, nil, DefaultMaxBlacklistedRounds)
 	bb.BuildBlock(context.Background(), e.Metadata(), blacklist)
 	notarizeAndFinalizeRound(t, e, bb)
 
 	// Now node 3 proposes a block.
-	blacklist.Updates = nil
+	blacklist = blacklist.Next(e.Metadata().Round, nil, nil, DefaultMaxBlacklistedRounds)
 	bb.BuildBlock(context.Background(), e.Metadata(), blacklist)
 	notarizeAndFinalizeRound(t, e, bb)
 
@@ -1086,20 +1081,9 @@ func TestEpochBlacklist(t *testing.T) {
 
 	block = bb.GetBuiltBlock()
 
-	expected = Blacklist{
-		NodeCount:            4,
-		MaxBlacklistedOrbits: DefaultMaxBlacklistedRounds / 4,
-		SuspectedNodes: SuspectedNodes{
-			{
-				NodeIndex:       3,
-				SuspectingCount: 2,
-				OrbitSuspected:  1,
-				RedeemingCount:  1,
-				OrbitToRedeem:   Orbit(12, 3, 4),
-			},
-		},
-		Updates: []BlacklistUpdate{{Type: BlacklistOpType_NodeRedeemed, NodeIndex: 3}},
-	}
+	// Node 3 voted in round 8, which redeems it.
+	redeemed := map[uint16]uint64{3: 8}
+	expected = blacklist.Next(block.BlockHeader().Round, nil, redeemed, DefaultMaxBlacklistedRounds)
 	actual = block.Blacklist()
 	require.True(t, expected.Equals(&actual), "Node should vote to redeem the previously failed node")
 
@@ -1107,19 +1091,17 @@ func TestEpochBlacklist(t *testing.T) {
 	bb.SetBuiltBlock(block.(*testutil.TestBlock)) // Insert the block built by the block builder back into block builder so it will re-propose it
 	notarizeAndFinalizeRound(t, e, bb)
 
-	// The next blacklist garbage collects node 3 from the blacklist.
-
-	blacklist = Blacklist{
-		NodeCount:            4,
-		MaxBlacklistedOrbits: DefaultMaxBlacklistedRounds / 4,
-		Updates:              []BlacklistUpdate{{Type: BlacklistOpType_NodeRedeemed, NodeIndex: 3}},
-	}
+	// The next blacklist redeems node 3 with f+1 votes and removes it from the blacklist.
+	redeemed = map[uint16]uint64{3: e.Metadata().Round}
+	blacklist = actual.Next(e.Metadata().Round, nil, redeemed, DefaultMaxBlacklistedRounds)
+	require.False(t, blacklist.IsNodeSuspected(3))
 
 	bb.BuildBlock(context.Background(), e.Metadata(), blacklist)
 	notarizeAndFinalizeRound(t, e, bb)
 
 	// Node 4 can now propose a block
-	blacklist = NewBlacklist(4, DefaultMaxBlacklistedRounds)
+	blacklist = blacklist.Next(e.Metadata().Round, nil, nil, DefaultMaxBlacklistedRounds)
+	require.True(t, emptyBlacklist.Equals(&blacklist))
 
 	bb.BuildBlock(context.Background(), e.Metadata(), blacklist)
 	notarizeAndFinalizeRound(t, e, bb)
@@ -1369,11 +1351,13 @@ func TestNodeIsNotSuspectedAfterSigningALaterNotarization(t *testing.T) {
 		}
 	}, 5*time.Second, 10*time.Millisecond, "we never proposed a block for round 4")
 
-	for _, update := range proposal.Blacklist().Updates {
-		require.False(t, update.NodeIndex == suspectIndex && update.Type == BlacklistOpType_NodeSuspected,
-			"accused node %d of timing out in round 1, even though it signed the notarization for round 2",
-			suspectIndex)
-	}
+	// Only the leaders of rounds 2 and 3 are accused, and not nodes[suspectIndex] for timing out in round 1.
+	parentBlacklist := roundTwoBlock.Blacklist()
+	expected := parentBlacklist.Next(4, map[uint16]uint64{2: 2, 3: 3}, nil, DefaultMaxBlacklistedRounds)
+	actual := proposal.Blacklist()
+	require.True(t, expected.Equals(&actual),
+		"accused node %d of timing out in round 1, even though it signed the notarization for round 2: %s",
+		suspectIndex, actual.String())
 }
 
 // TestEmptyVoteNotDuplicatedAfterFailedVerification asserts that a round contributes at most one

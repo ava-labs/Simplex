@@ -25,12 +25,7 @@ import (
 )
 
 var (
-	emptyBlacklist = Blacklist{
-		NodeCount:            4,
-		MaxBlacklistedOrbits: DefaultMaxBlacklistedRounds / 4,
-		SuspectedNodes:       SuspectedNodes{},
-		Updates:              []BlacklistUpdate{},
-	}
+	emptyBlacklist = NewBlacklist(4, DefaultMaxBlacklistedRounds)
 )
 
 // TestFinalizeSameSequence tests that a node only verifies a block after it receives all the empty notarizations the block depends on.
@@ -1072,7 +1067,8 @@ func TestEpochResizesBlacklistOnEpochChange(t *testing.T) {
 		ValidatorSet:         NodeIDs(nodes).EqualWeightedNodes(),
 		PrevSealingBlockHash: epoch0Block.Digest,
 	}
-	require.Equal(t, uint16(1), sealingBlock.Blacklist().NodeCount,
+	sealingBlacklist := sealingBlock.Blacklist()
+	require.Equal(t, uint16(1), sealingBlacklist.NodeCount(),
 		"blacklist must contain exactly one node")
 
 	sigAggregator := &testutil.TestSignatureAggregator{N: len(nodes)}
@@ -1093,7 +1089,8 @@ func TestEpochResizesBlacklistOnEpochChange(t *testing.T) {
 	// parent (1), otherwise its blacklist is malformed and the block cannot be notarized.
 	bb.BlockShouldBeBuilt <- struct{}{}
 	block := bb.GetBuiltBlock()
-	require.Equal(t, uint16(2), block.Blacklist().NodeCount,
+	blacklist := block.Blacklist()
+	require.Equal(t, uint16(2), blacklist.NodeCount(),
 		"blacklist must be resized to the new epoch's validator count")
 	e.Stop()
 
@@ -1143,15 +1140,13 @@ func TestEpochBlacklistCapBypassedByPendingSuspects(t *testing.T) {
 	notarizeAndFinalizeRound(t, e, bb)
 	block, _ := notarizeAndFinalizeRound(t, e, bb)
 
-	accuseNodes0And1 := []BlacklistUpdate{
-		{Type: BlacklistOpType_NodeSuspected, NodeIndex: 0},
-		{Type: BlacklistOpType_NodeSuspected, NodeIndex: 1},
-	}
+	// Pretend nodes 0 and 1 timed out in round 2, so that leaders accuse them.
+	accuseNodes0And1 := map[uint16]uint64{0: 2, 1: 2}
 
 	// Round 2: node 2 proposes a block accusing nodes 0 and 1.
 	// Nothing is blacklisted yet, so both are added as pending with a single accusation each.
 	prevBlacklist := block.Blacklist()
-	blacklist := prevBlacklist.ApplyUpdates(accuseNodes0And1, e.Metadata().Round)
+	blacklist := prevBlacklist.Next(e.Metadata().Round, accuseNodes0And1, nil, DefaultMaxBlacklistedRounds)
 	bb.BuildBlock(context.Background(), e.Metadata(), blacklist)
 	block, _ = notarizeAndFinalizeRound(t, e, bb)
 	require.Equal(t, nodes[2], LeaderForRound(nodes, block.BlockHeader().Round))
@@ -1159,12 +1154,12 @@ func TestEpochBlacklistCapBypassedByPendingSuspects(t *testing.T) {
 	actual := block.Blacklist()
 	require.False(t, actual.IsNodeSuspected(0))
 	require.False(t, actual.IsNodeSuspected(1))
-	require.Len(t, actual.SuspectedNodes, 2)
+	require.True(t, blacklist.Equals(&actual))
 
 	// Round 3: node 3 accuses nodes 0 and 1 again, still within the same orbit.
 	// Each pending entry is incremented to f+1 without re-checking the cap.
 	prevBlacklist = block.Blacklist()
-	blacklist = prevBlacklist.ApplyUpdates(accuseNodes0And1, e.Metadata().Round)
+	blacklist = prevBlacklist.Next(e.Metadata().Round, accuseNodes0And1, nil, DefaultMaxBlacklistedRounds)
 	bb.BuildBlock(context.Background(), e.Metadata(), blacklist)
 	block, _ = notarizeAndFinalizeRound(t, e, bb)
 	require.Equal(t, nodes[3], LeaderForRound(nodes, block.BlockHeader().Round))
@@ -3293,7 +3288,10 @@ func TestEpochFollowerIgnoresStaleBlacklistOnEpochChange(t *testing.T) {
 	// The sealing block is at round 1, so the new epoch starts at round 2, led by nodes[2].
 	// The previous epoch blacklists that very node (f=1, so two accusations suffice).
 	staleBlacklist := NewBlacklist(uint16(len(nodes)), DefaultMaxBlacklistedRounds)
-	staleBlacklist.SuspectedNodes = SuspectedNodes{{NodeIndex: 2, SuspectingCount: 2, OrbitSuspected: 1}}
+	staleTimeout := map[uint16]uint64{2: 2}
+	staleBlacklist = staleBlacklist.Next(2, staleTimeout, nil, DefaultMaxBlacklistedRounds)
+	staleBlacklist = staleBlacklist.Next(3, staleTimeout, nil, DefaultMaxBlacklistedRounds)
+	require.True(t, staleBlacklist.IsNodeSuspected(2))
 
 	epoch0Block := testutil.NewTestBlock(ProtocolMetadata{Epoch: 0, Round: 0, Seq: 0}, NewBlacklist(uint16(len(nodes)), DefaultMaxBlacklistedRounds))
 	sealingBlock := testutil.NewTestBlock(ProtocolMetadata{Epoch: 0, Round: 1, Seq: 1, Prev: epoch0Block.Digest}, staleBlacklist)
@@ -3357,7 +3355,10 @@ func TestEpochLeaderRecordsTimeoutDespiteStaleBlacklistOnEpochChange(t *testing.
 	// The sealing block is at round 1, so the new epoch starts at round 2, led by nodes[2].
 	// The previous epoch blacklists that very node.
 	staleBlacklist := NewBlacklist(nodeCount, DefaultMaxBlacklistedRounds)
-	staleBlacklist.SuspectedNodes = SuspectedNodes{{NodeIndex: 2, SuspectingCount: 2, OrbitSuspected: 1}}
+	staleTimeout := map[uint16]uint64{2: 2}
+	staleBlacklist = staleBlacklist.Next(2, staleTimeout, nil, DefaultMaxBlacklistedRounds)
+	staleBlacklist = staleBlacklist.Next(3, staleTimeout, nil, DefaultMaxBlacklistedRounds)
+	require.True(t, staleBlacklist.IsNodeSuspected(2))
 
 	epoch0Block := testutil.NewTestBlock(ProtocolMetadata{Epoch: 0, Round: 0, Seq: 0}, NewBlacklist(nodeCount, DefaultMaxBlacklistedRounds))
 	sealingBlock := testutil.NewTestBlock(ProtocolMetadata{Epoch: 0, Round: 1, Seq: 1, Prev: epoch0Block.Digest}, staleBlacklist)
@@ -3401,18 +3402,7 @@ func TestEpochLeaderRecordsTimeoutDespiteStaleBlacklistOnEpochChange(t *testing.
 	round := block.BlockHeader().Round
 	require.Equal(t, nodes[0], LeaderForRound(nodes, round))
 
-	expected := Blacklist{
-		NodeCount:            nodeCount,
-		MaxBlacklistedOrbits: DefaultMaxBlacklistedRounds / nodeCount,
-		SuspectedNodes: SuspectedNodes{
-			{NodeIndex: 2, SuspectingCount: 1, OrbitSuspected: Orbit(round, 2, nodeCount)},
-			{NodeIndex: 3, SuspectingCount: 1, OrbitSuspected: Orbit(round, 3, nodeCount)},
-		},
-		Updates: []BlacklistUpdate{
-			{Type: BlacklistOpType_NodeSuspected, NodeIndex: 2},
-			{Type: BlacklistOpType_NodeSuspected, NodeIndex: 3},
-		},
-	}
+	expected := emptyBlacklist.Next(round, map[uint16]uint64{2: 2, 3: 3}, nil, DefaultMaxBlacklistedRounds)
 	actual := block.Blacklist()
 	require.True(t, expected.Equals(&actual),
 		"the timeout of nodes[2] was not recorded: expected %s, got %s", expected.String(), actual.String())

@@ -25,11 +25,8 @@ func TestParseBlockSizeMatchesBytes(t *testing.T) {
 					Epoch:   4,
 					Seq:     2,
 				},
-				SimplexBlacklist: common.Blacklist{
-					Updates:   common.BlacklistUpdates{{NodeIndex: 1, Type: 1}},
-					NodeCount: 2,
-				},
-				PChainHeight: 6,
+				SimplexBlacklist: common.NewBlacklist(2, 8),
+				PChainHeight:     6,
 			},
 			InnerBlock: &testInnerBlock{
 				Height_: 7,
@@ -53,11 +50,8 @@ func TestParseBlockSizeMatchesBytes(t *testing.T) {
 					Epoch:   4,
 					Seq:     2,
 				},
-				SimplexBlacklist: common.Blacklist{
-					Updates:   common.BlacklistUpdates{{NodeIndex: 1, Type: 1}},
-					NodeCount: 2,
-				},
-				PChainHeight: 6,
+				SimplexBlacklist: common.NewBlacklist(2, 8),
+				PChainHeight:     6,
 			},
 			InnerBlock: &testInnerBlock{
 				Height_: 9,
@@ -85,11 +79,8 @@ func TestParseBlockSizeMatchesBytes(t *testing.T) {
 					Epoch:   4,
 					Seq:     2,
 				},
-				SimplexBlacklist: common.Blacklist{
-					Updates:   common.BlacklistUpdates{{NodeIndex: 1, Type: 1}},
-					NodeCount: 2,
-				},
-				PChainHeight: 6,
+				SimplexBlacklist: common.NewBlacklist(2, 8),
+				PChainHeight:     6,
 			},
 			InnerBlock: &testInnerBlock{
 				Height_: 11,
