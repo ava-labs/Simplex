@@ -936,7 +936,6 @@ func TestNonValidator_ReplicationRequests(t *testing.T) {
 	for {
 		for msg, ok := msgQueue.popResponse(); ok; {
 			// drops 25% of messages
-			// TODO: we can handle a higher threshold once we implement https://github.com/ava-labs/Simplex/issues/425
 			if count%4 != 0 {
 				handleMessage(epochs, nv, msg)
 			}
