@@ -3789,3 +3789,40 @@ func TestFailedVerificationDoesNotExecuteBlockDependents(t *testing.T) {
 		return wal.ContainsNotarization(0) && wal.ContainsNotarization(1)
 	}, 5*time.Second, 10*time.Millisecond, "block1 was not verified after its parent was verified")
 }
+
+// TestReplicatedNotarizationForEmptyNotarizedRound asserts that a replicated notarization is persisted
+// for a round whose block is already in the rounds map and which is also empty notarized.
+func TestReplicatedNotarizationForEmptyNotarizedRound(t *testing.T) {
+	bb := testutil.NewTestBlockBuilder()
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[3], testutil.NewNoopComm(nodes), bb)
+	conf.ReplicationEnabled = true
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+
+	block0 := testutil.NewTestBlock(e.Metadata(), emptyBlacklist)
+	vote0, err := testutil.NewTestVote(block0, nodes[0])
+	require.NoError(t, err)
+	require.NoError(t, e.HandleMessage(&Message{BlockMessage: &BlockMessage{Block: block0, Vote: *vote0}}, nodes[0]))
+	wal.AssertBlockProposal(0)
+
+	// Round 0 times out and is empty notarized while we hold block0 without a notarization.
+	bb.BlockShouldBeBuilt <- struct{}{}
+	testutil.WaitForBlockProposerTimeout(t, e, &e.StartTime, 0)
+	require.NoError(t, e.HandleMessage(&Message{EmptyNotarization: testutil.NewEmptyNotarization(nodes, 0)}, nodes[1]))
+	testutil.WaitToEnterRound(t, e, 1)
+	require.False(t, wal.ContainsNotarization(0))
+
+	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Validators())
+	notarization0, err := testutil.NewNotarization(e.Logger, sigAggr, block0, nodes[0:3])
+	require.NoError(t, err)
+	require.NoError(t, e.HandleMessage(&Message{ReplicationResponse: &ReplicationResponse{
+		Data: []QuorumRound{{Block: block0, Notarization: &notarization0}},
+	}}, nodes[0]))
+
+	require.True(t, wal.ContainsNotarization(0))
+	require.Equal(t, uint64(1), e.Metadata().Round)
+}
