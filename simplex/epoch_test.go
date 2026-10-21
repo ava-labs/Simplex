@@ -1968,6 +1968,8 @@ func testEpochFinalizeVoteRebroadcastForTimedOutRound(t *testing.T, buildOnTimed
 	_, built := bb.BuildBlock(ctx, e.Metadata(), emptyBlacklist)
 	require.True(t, built)
 	block1 := bb.GetBuiltBlock()
+	require.Equal(t, block0.BlockHeader().Digest, block1.BlockHeader().Prev)
+	require.Equal(t, uint64(1), block1.BlockHeader().Seq)
 
 	vote1, err := testutil.NewTestVote(block1, nodes[1])
 	require.NoError(t, err)
@@ -1994,6 +1996,13 @@ func testEpochFinalizeVoteRebroadcastForTimedOutRound(t *testing.T, buildOnTimed
 	_, built = bb.BuildBlock(ctx, md2, emptyBlacklist)
 	require.True(t, built)
 	block2 := bb.GetBuiltBlock()
+	if buildOnTimedOutRound {
+		require.Equal(t, block1.BlockHeader().Digest, block2.BlockHeader().Prev)
+		require.Equal(t, uint64(2), block2.BlockHeader().Seq)
+	} else {
+		require.Equal(t, block0.BlockHeader().Digest, block2.BlockHeader().Prev)
+		require.Equal(t, uint64(1), block2.BlockHeader().Seq)
+	}
 
 	vote2, err := testutil.NewTestVote(block2, nodes[2])
 	require.NoError(t, err)
