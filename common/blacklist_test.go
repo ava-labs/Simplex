@@ -31,69 +31,69 @@ func TestBlacklistVerifyProposedBlacklist(t *testing.T) {
 			expectedErr: errBlacklistInvalidNodeCount,
 		},
 		{
-			name: "max blacklisted rounds increased by more than node count",
+			name: "max blacklisted orbits increased by more than one",
 			blacklist: Blacklist{
 				nodeCount:            4,
-				maxBlacklistedRounds: 40,
+				maxBlacklistedOrbits: 10,
 			},
 			nodeCount: 4,
 			proposedBlacklist: Blacklist{
 				nodeCount:            4,
-				maxBlacklistedRounds: 45,
+				maxBlacklistedOrbits: 12,
 			},
-			expectedErr: errBlacklistInvalidMaxBlacklistedRounds,
+			expectedErr: errBlacklistInvalidMaxBlacklistedOrbits,
 		},
 		{
-			name: "max blacklisted rounds decreased by more than node count",
+			name: "max blacklisted orbits decreased by more than one",
 			blacklist: Blacklist{
 				nodeCount:            4,
-				maxBlacklistedRounds: 40,
+				maxBlacklistedOrbits: 10,
 			},
 			nodeCount: 4,
 			proposedBlacklist: Blacklist{
 				nodeCount:            4,
-				maxBlacklistedRounds: 35,
+				maxBlacklistedOrbits: 8,
 			},
-			expectedErr: errBlacklistInvalidMaxBlacklistedRounds,
+			expectedErr: errBlacklistInvalidMaxBlacklistedOrbits,
 		},
 		{
-			name: "max blacklisted rounds decreased to zero",
+			name: "max blacklisted orbits decreased to zero",
 			blacklist: Blacklist{
 				nodeCount:            4,
-				maxBlacklistedRounds: 4,
+				maxBlacklistedOrbits: 1,
 			},
 			nodeCount: 4,
 			proposedBlacklist: Blacklist{
 				nodeCount:            4,
-				maxBlacklistedRounds: 0,
+				maxBlacklistedOrbits: 0,
 			},
-			expectedErr: errBlacklistInvalidMaxBlacklistedRounds,
+			expectedErr: errBlacklistInvalidMaxBlacklistedOrbits,
 		},
 		{
-			name: "max blacklisted rounds overflows",
+			name: "max blacklisted orbits overflows",
 			blacklist: Blacklist{
 				nodeCount:            4,
-				maxBlacklistedRounds: math.MaxUint16,
+				maxBlacklistedOrbits: math.MaxUint16,
 			},
 			nodeCount: 4,
 			proposedBlacklist: Blacklist{
 				nodeCount:            4,
-				maxBlacklistedRounds: 0,
+				maxBlacklistedOrbits: 0,
 			},
-			expectedErr: errBlacklistInvalidMaxBlacklistedRounds,
+			expectedErr: errBlacklistInvalidMaxBlacklistedOrbits,
 		},
 		{
 			name: "invalid blacklist update",
 			blacklist: Blacklist{
 				nodeCount:            4,
-				maxBlacklistedRounds: 4,
+				maxBlacklistedOrbits: 1,
 				suspectedNodes:       []suspectedNode{{NodeIndex: 3, SuspectingCount: 2, OrbitSuspected: 6, RedeemingCount: 0, OrbitToRedeem: 0}},
 			},
 			nodeCount: 4,
 			round:     29,
 			proposedBlacklist: Blacklist{
 				nodeCount:            4,
-				maxBlacklistedRounds: 4,
+				maxBlacklistedOrbits: 1,
 				suspectedNodes:       []suspectedNode{{NodeIndex: 3, SuspectingCount: 2, OrbitSuspected: 6, RedeemingCount: 0, OrbitToRedeem: 0}},
 				updates:              []blacklistUpdate{{Type: blacklistOpType_NodeSuspected, NodeIndex: 3}},
 			},
@@ -103,14 +103,14 @@ func TestBlacklistVerifyProposedBlacklist(t *testing.T) {
 			name: "node redeemed in the same orbit it was suspected in",
 			blacklist: Blacklist{
 				nodeCount:            4,
-				maxBlacklistedRounds: 4,
+				maxBlacklistedOrbits: 1,
 				suspectedNodes:       []suspectedNode{{NodeIndex: 3, SuspectingCount: 2, OrbitSuspected: 7, RedeemingCount: 0, OrbitToRedeem: 0}},
 			},
 			nodeCount: 4,
 			round:     29,
 			proposedBlacklist: Blacklist{
 				nodeCount:            4,
-				maxBlacklistedRounds: 4,
+				maxBlacklistedOrbits: 1,
 				suspectedNodes:       []suspectedNode{{NodeIndex: 3, SuspectingCount: 2, OrbitSuspected: 7, RedeemingCount: 1, OrbitToRedeem: 7}},
 				updates:              []blacklistUpdate{{Type: blacklistOpType_NodeRedeemed, NodeIndex: 3}},
 			},
@@ -120,14 +120,14 @@ func TestBlacklistVerifyProposedBlacklist(t *testing.T) {
 			name: "blacklist mismatch",
 			blacklist: Blacklist{
 				nodeCount:            4,
-				maxBlacklistedRounds: 4,
+				maxBlacklistedOrbits: 1,
 				suspectedNodes:       []suspectedNode{{NodeIndex: 3, SuspectingCount: 2, OrbitSuspected: 6, RedeemingCount: 0, OrbitToRedeem: 0}},
 			},
 			nodeCount: 4,
 			round:     29,
 			proposedBlacklist: Blacklist{
 				nodeCount:            4,
-				maxBlacklistedRounds: 4,
+				maxBlacklistedOrbits: 1,
 				suspectedNodes:       []suspectedNode{{NodeIndex: 3, SuspectingCount: 2, OrbitSuspected: 6, RedeemingCount: 0, OrbitToRedeem: 7}},
 				updates:              []blacklistUpdate{{Type: blacklistOpType_NodeRedeemed, NodeIndex: 3}},
 			},
@@ -137,14 +137,14 @@ func TestBlacklistVerifyProposedBlacklist(t *testing.T) {
 			name: "blacklist mismatch - too many blacklisted",
 			blacklist: Blacklist{
 				nodeCount:            4,
-				maxBlacklistedRounds: 4,
+				maxBlacklistedOrbits: 1,
 				suspectedNodes:       []suspectedNode{{NodeIndex: 3, SuspectingCount: 2}, {NodeIndex: 2, SuspectingCount: 2}},
 			},
 			nodeCount: 4,
 			round:     29,
 			proposedBlacklist: Blacklist{
 				nodeCount:            4,
-				maxBlacklistedRounds: 4,
+				maxBlacklistedOrbits: 1,
 				suspectedNodes:       []suspectedNode{{NodeIndex: 3, SuspectingCount: 2}, {NodeIndex: 2, SuspectingCount: 2}, {NodeIndex: 1, SuspectingCount: 1}},
 				updates:              []blacklistUpdate{{Type: blacklistOpType_NodeSuspected, NodeIndex: 1}},
 			},
@@ -285,7 +285,7 @@ func TestOrbit(t *testing.T) {
 func TestBlacklistFromBytes(t *testing.T) {
 	populated := Blacklist{
 		nodeCount:            4,
-		maxBlacklistedRounds: 7,
+		maxBlacklistedOrbits: 7,
 		suspectedNodes:       []suspectedNode{{NodeIndex: 3, SuspectingCount: 1, OrbitSuspected: 1}},
 		updates:              []blacklistUpdate{{NodeIndex: 3, Type: blacklistOpType_NodeSuspected}},
 	}
@@ -599,7 +599,7 @@ func TestAdvanceRound(t *testing.T) {
 		t.Run(fmt.Sprintf("round %d", round), func(t *testing.T) {
 			blacklist := Blacklist{
 				nodeCount:            uint16(len(nodes)),
-				maxBlacklistedRounds: 10 * uint16(len(nodes)),
+				maxBlacklistedOrbits: 10,
 				suspectedNodes:       suspectedNodesBefore,
 			}
 
@@ -729,7 +729,7 @@ func testBlacklistSimulateNetwork(t *testing.T, nodeCount int, rounds int) {
 
 	var blacklist Blacklist
 	blacklist.nodeCount = uint16(nodeCount)
-	blacklist.maxBlacklistedRounds = uint16(nodeCount)
+	blacklist.maxBlacklistedOrbits = 1
 
 	crashedNodes := make(map[uint16]struct{})
 
@@ -813,7 +813,7 @@ func simulateRound(t *testing.T, blrsi blacklistRoundSimulationInput) Blacklist 
 		// leader is crashed, nothing further that can be done.
 		newBlacklist := Blacklist{
 			nodeCount:            prevBlacklist.nodeCount,
-			maxBlacklistedRounds: prevBlacklist.maxBlacklistedRounds,
+			maxBlacklistedOrbits: prevBlacklist.maxBlacklistedOrbits,
 			suspectedNodes:       make([]suspectedNode, len(prevBlacklist.suspectedNodes)),
 			updates:              make([]blacklistUpdate, 0, len(prevBlacklist.updates)),
 		}
@@ -862,14 +862,14 @@ func TestBlacklistEquals(t *testing.T) {
 			},
 		},
 		{
-			name: "different max blacklisted rounds",
+			name: "different max blacklisted orbits",
 			bl1: Blacklist{
 				nodeCount:            4,
-				maxBlacklistedRounds: 4,
+				maxBlacklistedOrbits: 1,
 			},
 			bl2: Blacklist{
 				nodeCount:            4,
-				maxBlacklistedRounds: 2,
+				maxBlacklistedOrbits: 2,
 			},
 		},
 		{
@@ -941,41 +941,79 @@ func TestBlacklistEquals(t *testing.T) {
 	}
 }
 
-func TestNewBlacklistMaxBlacklistedRounds(t *testing.T) {
-	bl := NewBlacklist(4, 4620)
-	require.Equal(t, uint16(4), bl.nodeCount)
-	require.Equal(t, uint16(4620), bl.maxBlacklistedRounds)
-
-	bl = NewBlacklist(4, 0)
-	require.Equal(t, uint16(1), bl.maxBlacklistedRounds, "zero rounds should be raised to one")
+func TestNewBlacklistMaxBlacklistedOrbits(t *testing.T) {
+	for _, testCase := range []struct {
+		name                 string
+		nodeCount            uint16
+		maxBlacklistedRounds uint16
+		expectedOrbits       uint16
+	}{
+		{
+			name:                 "rounds are converted to whole orbits",
+			nodeCount:            4,
+			maxBlacklistedRounds: 4620,
+			expectedOrbits:       1155,
+		},
+		{
+			name:                 "rounds not divisible by node count are rounded down",
+			nodeCount:            7,
+			maxBlacklistedRounds: 20,
+			expectedOrbits:       2,
+		},
+		{
+			name:                 "fewer rounds than nodes yields a single orbit",
+			nodeCount:            10,
+			maxBlacklistedRounds: 3,
+			expectedOrbits:       1,
+		},
+		{
+			name:                 "zero rounds yields a single orbit",
+			nodeCount:            4,
+			maxBlacklistedRounds: 0,
+			expectedOrbits:       1,
+		},
+		{
+			name:                 "zero node count does not divide by zero",
+			nodeCount:            0,
+			maxBlacklistedRounds: 9,
+			expectedOrbits:       9,
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			bl := NewBlacklist(testCase.nodeCount, testCase.maxBlacklistedRounds)
+			require.Equal(t, testCase.nodeCount, bl.nodeCount)
+			require.Equal(t, testCase.expectedOrbits, bl.maxBlacklistedOrbits)
+		})
+	}
 }
 
-func TestBlacklistMaxBlacklistedRoundsIsPreserved(t *testing.T) {
+func TestBlacklistMaxBlacklistedOrbitsIsPreserved(t *testing.T) {
 	bl := NewBlacklist(4, 4620)
+	require.Equal(t, uint16(1155), bl.maxBlacklistedOrbits)
 
 	applied := bl.applyUpdates([]blacklistUpdate{{Type: blacklistOpType_NodeSuspected, NodeIndex: 1}}, 5)
-	require.Equal(t, bl.maxBlacklistedRounds, applied.maxBlacklistedRounds, "applyUpdates should carry over maxBlacklistedRounds")
+	require.Equal(t, bl.maxBlacklistedOrbits, applied.maxBlacklistedOrbits, "applyUpdates should carry over maxBlacklistedOrbits")
 
 	cloned := applied.Clone()
-	require.Equal(t, bl.maxBlacklistedRounds, cloned.maxBlacklistedRounds, "Clone should carry over maxBlacklistedRounds")
+	require.Equal(t, bl.maxBlacklistedOrbits, cloned.maxBlacklistedOrbits, "Clone should carry over maxBlacklistedOrbits")
 	require.True(t, applied.Equals(&cloned))
 
 	var decoded Blacklist
 	require.NoError(t, decoded.FromBytes(applied.Bytes()))
-	require.Equal(t, bl.maxBlacklistedRounds, decoded.maxBlacklistedRounds, "serialization should preserve maxBlacklistedRounds")
+	require.Equal(t, bl.maxBlacklistedOrbits, decoded.maxBlacklistedOrbits, "serialization should preserve maxBlacklistedOrbits")
 	require.True(t, applied.Equals(&decoded))
 }
 
-func TestBlacklistedNodeExpiresAfterMaxBlacklistedRounds(t *testing.T) {
+func TestBlacklistedNodeExpiresAfterMaxBlacklistedOrbits(t *testing.T) {
 	const (
 		nodeCount            = 4
-		maxBlacklistedRounds = 8 // 2 orbits
+		maxBlacklistedOrbits = 2
 		blacklistedNode      = 1
 		orbitSuspected       = 3
 	)
 
 	// With 4 nodes, node 1 is in orbit k during rounds 4(k-1)+1 ... 4k.
-	// Node 1 is blacklisted in orbit 3, and is allowed to remain blacklisted for 8 more rounds (orbits 4 and 5).
+	// Node 1 is blacklisted in orbit 3, and is allowed to remain blacklisted for 2 more orbits (4 and 5).
 	// It should be removed from the blacklist once orbit 6 is reached.
 	blacklisted := suspectedNode{NodeIndex: blacklistedNode, SuspectingCount: 2, OrbitSuspected: orbitSuspected}
 
@@ -1022,13 +1060,13 @@ func TestBlacklistedNodeExpiresAfterMaxBlacklistedRounds(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			bl := Blacklist{
 				nodeCount:            nodeCount,
-				maxBlacklistedRounds: maxBlacklistedRounds,
+				maxBlacklistedOrbits: maxBlacklistedOrbits,
 				suspectedNodes:       []suspectedNode{testCase.suspectedNode},
 			}
 			require.True(t, bl.IsNodeSuspected(blacklistedNode))
 
 			next := bl.applyUpdates(nil, testCase.round)
-			require.Equal(t, uint16(maxBlacklistedRounds), next.maxBlacklistedRounds)
+			require.Equal(t, uint16(maxBlacklistedOrbits), next.maxBlacklistedOrbits)
 
 			if testCase.expectExpired {
 				require.False(t, next.IsNodeSuspected(blacklistedNode))
@@ -1052,6 +1090,7 @@ func TestBlacklistedNodeExpiryEndToEnd(t *testing.T) {
 	)
 
 	bl := NewBlacklist(nodeCount, maxBlacklistedRounds)
+	require.Equal(t, uint16(2), bl.maxBlacklistedOrbits)
 
 	suspect := []blacklistUpdate{{Type: blacklistOpType_NodeSuspected, NodeIndex: blacklistedNode}}
 
@@ -1082,61 +1121,55 @@ func TestBlacklistedNodeExpiryEndToEnd(t *testing.T) {
 	require.Equal(t, []suspectedNode{{NodeIndex: blacklistedNode, SuspectingCount: 1, OrbitSuspected: 4}}, bl.suspectedNodes)
 }
 
-// TestBlacklistVerifyProposedBlacklistMaxBlacklistedRoundsStep checks that a child may move
-// maxBlacklistedRounds by up to nodeCount rounds in either direction, as long as it stays non-zero.
-func TestBlacklistVerifyProposedBlacklistMaxBlacklistedRoundsStep(t *testing.T) {
+func TestBlacklistVerifyProposedBlacklistMaxBlacklistedOrbitsStep(t *testing.T) {
 	for _, testCase := range []struct {
 		name     string
 		prev     uint16
 		proposed uint16
 	}{
-		{name: "unchanged", prev: 40, proposed: 40},
-		{name: "increased by node count", prev: 40, proposed: 44},
-		{name: "decreased by node count", prev: 40, proposed: 36},
-		{name: "decreased to the minimum", prev: 5, proposed: 1},
-		{name: "increased to the maximum", prev: math.MaxUint16 - 4, proposed: math.MaxUint16},
-		{name: "increased from zero", prev: 0, proposed: 4},
+		{name: "unchanged", prev: 10, proposed: 10},
+		{name: "increased by one", prev: 10, proposed: 11},
+		{name: "decreased by one", prev: 10, proposed: 9},
+		{name: "decreased to the minimum", prev: 2, proposed: 1},
+		{name: "increased to the maximum", prev: math.MaxUint16 - 1, proposed: math.MaxUint16},
+		{name: "increased from zero", prev: 0, proposed: 1},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			prev := Blacklist{nodeCount: 4, maxBlacklistedRounds: testCase.prev}
+			prev := Blacklist{nodeCount: 4, maxBlacklistedOrbits: testCase.prev}
 			proposed := prev.applyUpdates(nil, 5)
-			proposed.maxBlacklistedRounds = testCase.proposed
+			proposed.maxBlacklistedOrbits = testCase.proposed
 			require.NoError(t, prev.VerifyProposedBlacklist(proposed, 5))
 		})
 	}
 }
 
-// TestBlacklistNextMaxBlacklistedRounds checks that Next moves maxBlacklistedRounds by up to nodeCount
-// rounds towards the target, without overshooting it or dropping below one.
-func TestBlacklistNextMaxBlacklistedRounds(t *testing.T) {
+func TestBlacklistNextMaxBlacklistedOrbits(t *testing.T) {
 	for _, testCase := range []struct {
 		name     string
 		current  uint16
 		target   uint16
 		expected uint16
 	}{
-		{name: "equal to target", current: 40, target: 40, expected: 40},
-		{name: "below target", current: 40, target: 100, expected: 44},
-		{name: "above target", current: 40, target: 10, expected: 36},
-		{name: "does not overshoot target", current: 40, target: 42, expected: 42},
-		{name: "never goes below one", current: 3, target: 0, expected: 1},
+		{name: "equal to target", current: 10, target: 10, expected: 10},
+		{name: "below target", current: 10, target: 20, expected: 11},
+		{name: "above target", current: 10, target: 5, expected: 9},
+		{name: "never goes below one", current: 1, target: 0, expected: 1},
 		{name: "never overflows", current: math.MaxUint16, target: math.MaxUint16, expected: math.MaxUint16},
-		{name: "zero moves up to target", current: 0, target: 3, expected: 3},
+		{name: "zero moves up to target", current: 0, target: 3, expected: 1},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			bl := Blacklist{nodeCount: 4, maxBlacklistedRounds: testCase.current}
-			next := bl.Next(5, nil, nil, testCase.target)
-			require.Equal(t, testCase.expected, next.maxBlacklistedRounds)
+			bl := Blacklist{nodeCount: 4, maxBlacklistedOrbits: testCase.current}
+			require.Equal(t, testCase.expected, bl.nextMaxBlacklistedOrbits(testCase.target))
 		})
 	}
 }
 
 // TestBlacklistForEpoch checks that a parent's blacklist carries over within an epoch, and is otherwise
-// replaced by one without suspected nodes that keeps maxBlacklistedRounds, or takes it from the config if missing.
+// replaced by one without suspected nodes whose maxBlacklistedOrbits is rescaled, or taken from the config if missing.
 func TestBlacklistForEpoch(t *testing.T) {
 	parent := Blacklist{
 		nodeCount:            4,
-		maxBlacklistedRounds: 40,
+		maxBlacklistedOrbits: 10,
 		suspectedNodes:       []suspectedNode{{NodeIndex: 3, SuspectingCount: 2, OrbitSuspected: 1}},
 		updates:              []blacklistUpdate{{Type: blacklistOpType_NodeSuspected, NodeIndex: 3}},
 	}
@@ -1149,9 +1182,9 @@ func TestBlacklistForEpoch(t *testing.T) {
 		expected    Blacklist
 	}{
 		{name: "same epoch", parent: parent, parentEpoch: 1, nodeCount: 4, expected: parent},
-		{name: "earlier epoch", parent: parent, parentEpoch: 0, nodeCount: 8, expected: Blacklist{nodeCount: 8, maxBlacklistedRounds: 40}},
-		{name: "no parent", parentEpoch: 1, nodeCount: 4, expected: Blacklist{nodeCount: 4, maxBlacklistedRounds: 12}},
-		{name: "parent without max blacklisted rounds", parent: Blacklist{nodeCount: 4}, parentEpoch: 0, nodeCount: 4, expected: Blacklist{nodeCount: 4, maxBlacklistedRounds: 12}},
+		{name: "earlier epoch", parent: parent, parentEpoch: 0, nodeCount: 8, expected: Blacklist{nodeCount: 8, maxBlacklistedOrbits: 5}},
+		{name: "no parent", parentEpoch: 1, nodeCount: 4, expected: Blacklist{nodeCount: 4, maxBlacklistedOrbits: 3}},
+		{name: "parent without max blacklisted orbits", parent: Blacklist{nodeCount: 4}, parentEpoch: 0, nodeCount: 4, expected: Blacklist{nodeCount: 4, maxBlacklistedOrbits: 3}},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			actual := testCase.parent.ForEpoch(testCase.parentEpoch, 1, testCase.nodeCount, 12)
@@ -1160,14 +1193,37 @@ func TestBlacklistForEpoch(t *testing.T) {
 	}
 }
 
-func TestBlacklistMaxBlacklistedRoundsRollingUpgrade(t *testing.T) {
+func TestRescaleMaxBlacklistedOrbits(t *testing.T) {
+	for _, testCase := range []struct {
+		name          string
+		orbits        uint16
+		prevNodeCount uint16
+		nodeCount     uint16
+		expected      uint16
+	}{
+		{name: "same node count", orbits: 1155, prevNodeCount: 4, nodeCount: 4, expected: 1155},
+		{name: "node count grows", orbits: 1155, prevNodeCount: 4, nodeCount: 64, expected: 72},
+		{name: "node count shrinks", orbits: 72, prevNodeCount: 64, nodeCount: 4, expected: 1152},
+		{name: "rounds down", orbits: 10, prevNodeCount: 4, nodeCount: 7, expected: 5},
+		{name: "never goes below one", orbits: 1, prevNodeCount: 4, nodeCount: 100, expected: 1},
+		{name: "never overflows", orbits: math.MaxUint16, prevNodeCount: 100, nodeCount: 4, expected: math.MaxUint16},
+		{name: "unknown previous node count", orbits: 10, prevNodeCount: 0, nodeCount: 4, expected: 10},
+		{name: "zero node count", orbits: 10, prevNodeCount: 4, nodeCount: 0, expected: 10},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			require.Equal(t, testCase.expected, rescaleMaxBlacklistedOrbits(testCase.orbits, testCase.prevNodeCount, testCase.nodeCount))
+		})
+	}
+}
+
+func TestBlacklistMaxBlacklistedOrbitsRollingUpgrade(t *testing.T) {
 	// This test simulates a rolling upgrade where every node is reconfigured, one after another,
-	// from oldTarget to newTarget rounds. Each leader moves the value towards its own target,
+	// from oldTarget to newTarget orbits. Each leader moves the value towards its own target,
 	// and every block must be accepted by all nodes regardless of their configuration.
 	const (
 		nodeCount = 7
-		oldTarget = 5 * nodeCount
-		newTarget = 20 * nodeCount
+		oldTarget = 5
+		newTarget = 20
 	)
 
 	targets := make([]uint16, nodeCount)
@@ -1175,12 +1231,13 @@ func TestBlacklistMaxBlacklistedRoundsRollingUpgrade(t *testing.T) {
 		targets[i] = oldTarget
 	}
 
-	bl := Blacklist{nodeCount: nodeCount, maxBlacklistedRounds: oldTarget}
+	bl := Blacklist{nodeCount: nodeCount, maxBlacklistedOrbits: oldTarget}
 	round := uint64(0)
 
 	buildAndVerify := func() {
 		leader := round % nodeCount
-		next := bl.Next(round, nil, nil, targets[leader])
+		next := bl.applyUpdates(nil, round)
+		next.maxBlacklistedOrbits = bl.nextMaxBlacklistedOrbits(targets[leader])
 		require.NoError(t, bl.VerifyProposedBlacklist(next, round), "round %d", round)
 		bl = next
 		round++
@@ -1193,24 +1250,24 @@ func TestBlacklistMaxBlacklistedRoundsRollingUpgrade(t *testing.T) {
 		targets[upgraded-1] = newTarget
 		for range 3 * nodeCount {
 			buildAndVerify()
-			require.GreaterOrEqual(t, bl.maxBlacklistedRounds, uint16(oldTarget), "round %d", round)
-			require.LessOrEqual(t, bl.maxBlacklistedRounds, uint16(newTarget), "round %d", round)
+			require.GreaterOrEqual(t, bl.maxBlacklistedOrbits, uint16(oldTarget), "round %d", round)
+			require.LessOrEqual(t, bl.maxBlacklistedOrbits, uint16(newTarget), "round %d", round)
 			if upgraded <= nodeCount-upgraded {
-				require.LessOrEqual(t, bl.maxBlacklistedRounds, uint16(oldTarget+upgraded*nodeCount), "round %d", round)
+				require.LessOrEqual(t, bl.maxBlacklistedOrbits, uint16(oldTarget+upgraded), "round %d", round)
 			}
 		}
 	}
 
-	// Once all nodes are upgraded, the value moves by nodeCount rounds per block until it reaches the new target.
+	// Once all nodes are upgraded, the value moves by one orbit per block until it reaches the new target.
 	targets[nodeCount-1] = newTarget
-	for range (newTarget - oldTarget) / nodeCount {
+	for range newTarget - oldTarget {
 		buildAndVerify()
 	}
-	require.Equal(t, uint16(newTarget), bl.maxBlacklistedRounds)
+	require.Equal(t, uint16(newTarget), bl.maxBlacklistedOrbits)
 
 	// And it stays there.
 	for range 2 * nodeCount {
 		buildAndVerify()
-		require.Equal(t, uint16(newTarget), bl.maxBlacklistedRounds)
+		require.Equal(t, uint16(newTarget), bl.maxBlacklistedOrbits)
 	}
 }

@@ -4,8 +4,8 @@
 package common
 
 import (
-	"cmp"
 	"fmt"
+	"math"
 	"slices"
 	"strings"
 )
@@ -18,7 +18,7 @@ var (
 	errBlacklistNodeNotBlacklisted          = fmt.Errorf("node index not blacklisted, cannot be redeemed")
 	errBlacklistInvalidUpdateType           = fmt.Errorf("invalid blacklist update type")
 	errBlacklistInvalidNodeCount            = fmt.Errorf("block contains an invalid blacklist node count")
-	errBlacklistInvalidMaxBlacklistedRounds = fmt.Errorf("block contains an invalid max blacklisted rounds")
+	errBlacklistInvalidMaxBlacklistedOrbits = fmt.Errorf("block contains an invalid max blacklisted orbits")
 	errBlacklistInvalidUpdates              = fmt.Errorf("block contains invalid blacklist updates")
 	errBlacklistInvalidBlacklist            = fmt.Errorf("block contains an invalid blacklist")
 )
@@ -45,10 +45,10 @@ type Blacklist struct {
 	// nodeCount is the configuration of the blacklist.
 	nodeCount uint16 `canoto:"uint,1"`
 
-	// maxBlacklistedRounds is the maximum number of rounds a node can be blacklisted for.
-	// Each block builder may move it by at most nodeCount rounds relative to the parent block,
+	// maxBlacklistedOrbits is the maximum number of orbits a node can be blacklisted for.
+	// Each block builder may move it by at most one orbit relative to the parent block,
 	// towards the value in its local configuration, which allows it to be changed via a rolling upgrade.
-	maxBlacklistedRounds uint16 `canoto:"uint,2"`
+	maxBlacklistedOrbits uint16 `canoto:"uint,2"`
 
 	// State: Below are fields corresponding to state.
 	// They are optional fields and may not be present
@@ -68,33 +68,33 @@ type Blacklist struct {
 func NewBlacklist(nodeCount uint16, maxBlacklistedRounds uint16) Blacklist {
 	return Blacklist{
 		nodeCount:            nodeCount,
-		maxBlacklistedRounds: max(maxBlacklistedRounds, 1),
+		maxBlacklistedOrbits: maxBlacklistedOrbitsForRounds(nodeCount, maxBlacklistedRounds),
 	}
 }
 
 // ForEpoch returns the blacklist that a child of a block with this blacklist builds on and is verified against.
 // A parent from an earlier epoch, or without a blacklist, yields a blacklist without suspected nodes for nodeCount nodes.
-// The maxBlacklistedRounds carries over, or is taken from the given maxBlacklistedRounds if the parent has none.
+// The maxBlacklistedOrbits carries over and is rescaled to nodeCount, or is derived from maxBlacklistedRounds if the parent has none.
 func (bl *Blacklist) ForEpoch(parentEpoch, epoch uint64, nodeCount, maxBlacklistedRounds uint16) Blacklist {
 	if parentEpoch >= epoch && !bl.isEmpty() {
 		return *bl
 	}
-	return NewBlacklist(nodeCount, cmp.Or(bl.maxBlacklistedRounds, maxBlacklistedRounds))
+	if bl.maxBlacklistedOrbits == 0 {
+		return NewBlacklist(nodeCount, maxBlacklistedRounds)
+	}
+	return Blacklist{
+		nodeCount:            nodeCount,
+		maxBlacklistedOrbits: rescaleMaxBlacklistedOrbits(bl.maxBlacklistedOrbits, bl.nodeCount, nodeCount),
+	}
 }
 
 // Next returns the blacklist of a block proposed in the given round on top of this blacklist.
 // It accuses and redeems nodes according to the given rounds in which they timed out and were redeemed,
-// and moves maxBlacklistedRounds by at most nodeCount rounds towards the given maxBlacklistedRounds.
+// and moves maxBlacklistedOrbits by a single orbit towards maxBlacklistedRounds.
 func (bl *Blacklist) Next(round uint64, timedOut, redeemed map[uint16]uint64, maxBlacklistedRounds uint16) Blacklist {
 	updates := bl.computeBlacklistUpdates(round, timedOut, redeemed)
 	next := bl.applyUpdates(updates, round)
-
-	current, target := bl.maxBlacklistedRounds, max(maxBlacklistedRounds, 1)
-	if current < target {
-		next.maxBlacklistedRounds = current + min(target-current, bl.nodeCount)
-	} else {
-		next.maxBlacklistedRounds = current - min(current-target, bl.nodeCount)
-	}
+	next.maxBlacklistedOrbits = bl.nextMaxBlacklistedOrbits(maxBlacklistedOrbitsForRounds(bl.nodeCount, maxBlacklistedRounds))
 	return next
 }
 
@@ -102,8 +102,60 @@ func (bl *Blacklist) NodeCount() uint16 {
 	return bl.nodeCount
 }
 
-func (bl *Blacklist) MaxBlacklistedRounds() uint16 {
-	return bl.maxBlacklistedRounds
+func (bl *Blacklist) MaxBlacklistedOrbits() uint16 {
+	return bl.maxBlacklistedOrbits
+}
+
+// maxBlacklistedOrbitsForRounds converts the given amount of rounds into whole orbits of the given node count.
+// The result is at least one orbit.
+func maxBlacklistedOrbitsForRounds(nodeCount uint16, maxBlacklistedRounds uint16) uint16 {
+	denominator := nodeCount
+
+	// Protection against division by zero
+	if denominator == 0 {
+		denominator = 1
+	}
+
+	// If the node count is bigger than maxBlacklistedRounds,
+	// we return 1.
+	return max(maxBlacklistedRounds/denominator, 1)
+}
+
+// rescaleMaxBlacklistedOrbits converts the given amount of orbits of prevNodeCount into whole orbits of nodeCount,
+// such that it corresponds to (roughly) the same number of rounds.
+// The result is at least one orbit, and at most math.MaxUint16.
+func rescaleMaxBlacklistedOrbits(orbits uint16, prevNodeCount uint16, nodeCount uint16) uint16 {
+	// Protection against division by zero, and if we don't know the previous node count, we keep the orbits as is.
+	if nodeCount == 0 || prevNodeCount == 0 {
+		return max(orbits, 1)
+	}
+
+	rounds := uint64(orbits) * uint64(prevNodeCount)
+	rescaled := min(rounds/uint64(nodeCount), math.MaxUint16)
+	return max(uint16(rescaled), 1)
+}
+
+// nextMaxBlacklistedOrbits returns the maxBlacklistedOrbits that a block built on top of this blacklist should have.
+// It moves the current value by a single orbit towards the given target, or keeps it if it is already equal to the target.
+func (bl *Blacklist) nextMaxBlacklistedOrbits(target uint16) uint16 {
+	current := bl.maxBlacklistedOrbits
+	switch {
+	case current < target:
+		return current + 1
+	case current > target && current > 1:
+		return current - 1
+	default:
+		return current
+	}
+}
+
+// isValidMaxBlacklistedOrbitsTransition returns whether the maxBlacklistedOrbits can change from prev to next
+// between a block and its child. The value can change by at most one orbit, and it must be at least one orbit.
+func isValidMaxBlacklistedOrbitsTransition(prev, next uint16) bool {
+	if next == 0 {
+		return false
+	}
+	return next == prev || uint32(next) == uint32(prev)+1 || uint32(next)+1 == uint32(prev)
 }
 
 func (bl *Blacklist) String() string {
@@ -113,9 +165,9 @@ func (bl *Blacklist) String() string {
 	}
 
 	return fmt.Sprintf(
-		"Blacklist(nodeCount=%d, maxBlacklistedRounds=%d, suspectedNodes=[%s], updates=[%s])",
+		"Blacklist(nodeCount=%d, maxBlacklistedOrbits=%d, suspectedNodes=[%s], updates=[%s])",
 		bl.nodeCount,
-		bl.maxBlacklistedRounds,
+		bl.maxBlacklistedOrbits,
 		strings.Join(sn, ","),
 		blacklistUpdatesAsString(bl.updates), // helper receives array
 	)
@@ -133,7 +185,7 @@ func (bl *Blacklist) Equals(b2 *Blacklist) bool {
 	if bl.nodeCount != b2.nodeCount {
 		return false
 	}
-	if bl.maxBlacklistedRounds != b2.maxBlacklistedRounds {
+	if bl.maxBlacklistedOrbits != b2.maxBlacklistedOrbits {
 		return false
 	}
 	if len(bl.suspectedNodes) != len(b2.suspectedNodes) {
@@ -205,7 +257,7 @@ func (bl *Blacklist) isEmpty() bool {
 func (bl *Blacklist) applyUpdates(updates []blacklistUpdate, round uint64) Blacklist {
 	newBlacklist := Blacklist{
 		nodeCount:            bl.nodeCount,
-		maxBlacklistedRounds: bl.maxBlacklistedRounds,
+		maxBlacklistedOrbits: bl.maxBlacklistedOrbits,
 		suspectedNodes:       make([]suspectedNode, len(bl.suspectedNodes)),
 		updates:              make([]blacklistUpdate, len(updates)),
 	}
@@ -244,8 +296,8 @@ func (bl *Blacklist) garbageCollectSuspectedNodes(round uint64) []suspectedNode 
 			continue
 		}
 
-		if orbit > sn.OrbitSuspected && (orbit-sn.OrbitSuspected)*uint64(bl.nodeCount) > uint64(bl.maxBlacklistedRounds) {
-			// The node has been blacklisted for more than maxBlacklistedRounds, so we remove it from the suspected list.
+		if orbit > sn.OrbitSuspected && orbit-sn.OrbitSuspected > uint64(bl.maxBlacklistedOrbits) {
+			// The node has been blacklisted for too many orbits, so we remove it from the suspected list.
 			continue
 		}
 
@@ -396,7 +448,7 @@ func (bl *Blacklist) IsNodeSuspected(nodeIndex uint16) bool {
 func (bl *Blacklist) Clone() Blacklist {
 	clone := Blacklist{
 		nodeCount:            bl.nodeCount,
-		maxBlacklistedRounds: bl.maxBlacklistedRounds,
+		maxBlacklistedOrbits: bl.maxBlacklistedOrbits,
 	}
 	clone.suspectedNodes = make([]suspectedNode, 0, len(bl.suspectedNodes))
 	for i := range bl.suspectedNodes {
@@ -424,9 +476,8 @@ func (bl *Blacklist) VerifyProposedBlacklist(candidateBlacklist Blacklist, round
 	if candidateBlacklist.nodeCount != bl.nodeCount {
 		return fmt.Errorf("%s, expected %d, got %d", errBlacklistInvalidNodeCount, bl.nodeCount, candidateBlacklist.nodeCount)
 	}
-	prevRounds, nextRounds := bl.maxBlacklistedRounds, candidateBlacklist.maxBlacklistedRounds
-	if nextRounds == 0 || max(prevRounds, nextRounds)-min(prevRounds, nextRounds) > bl.nodeCount {
-		return fmt.Errorf("%s, expected a non-zero value within %d rounds of %d, got %d", errBlacklistInvalidMaxBlacklistedRounds, bl.nodeCount, prevRounds, nextRounds)
+	if !isValidMaxBlacklistedOrbitsTransition(bl.maxBlacklistedOrbits, candidateBlacklist.maxBlacklistedOrbits) {
+		return fmt.Errorf("%s, expected a non-zero value within one orbit of %d, got %d", errBlacklistInvalidMaxBlacklistedOrbits, bl.maxBlacklistedOrbits, candidateBlacklist.maxBlacklistedOrbits)
 	}
 	// 1) First thing we check that the updates even make sense.
 	if err := bl.verifyBlacklistUpdates(candidateBlacklist.updates); err != nil {
@@ -434,10 +485,10 @@ func (bl *Blacklist) VerifyProposedBlacklist(candidateBlacklist Blacklist, round
 	}
 	updates := candidateBlacklist.updates
 	// 2) We then proceed by applying the updates to the blacklist of the previous round.
-	// Garbage collection of expired suspected nodes uses the maxBlacklistedRounds of the previous round,
-	// and the new maxBlacklistedRounds only takes effect in the next round.
+	// Garbage collection of expired suspected nodes uses the maxBlacklistedOrbits of the previous round,
+	// and the new maxBlacklistedOrbits only takes effect in the next round.
 	expectedBlacklist := bl.applyUpdates(updates, round)
-	expectedBlacklist.maxBlacklistedRounds = candidateBlacklist.maxBlacklistedRounds
+	expectedBlacklist.maxBlacklistedOrbits = candidateBlacklist.maxBlacklistedOrbits
 
 	if !candidateBlacklist.Equals(&expectedBlacklist) {
 		return fmt.Errorf("%s, expected %s, got %s", errBlacklistInvalidBlacklist, expectedBlacklist.String(), candidateBlacklist.String())
