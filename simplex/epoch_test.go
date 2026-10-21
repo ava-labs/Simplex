@@ -1921,6 +1921,18 @@ func TestEpochRequestsEmptyRoundDependency(t *testing.T) {
 // TestEpochFinalizeVoteRebroadcastForTimedOutRound ensures that after finalizing a future sequence,
 // we rebroadcast a finalize vote for a round we timed out on only if its block is an ancestor of the
 // finalized block. Otherwise the vote could finalize a second block at the finalized sequence.
+//
+// fork:
+//
+//	block0 (r0,s0) <-- block1 (r1,s1)   timed out, notarized
+//	               \
+//	                -- block2 (r2,s1)   finalized
+//
+// ancestor:
+//
+//	block0 (r0,s0) <-- block1 (r1,s1) <-- block2 (r2,s2)
+//	                   timed out,         finalized
+//	                   notarized
 func TestEpochFinalizeVoteRebroadcastForTimedOutRound(t *testing.T) {
 	t.Run("fork", func(t *testing.T) {
 		testEpochFinalizeVoteRebroadcastForTimedOutRound(t, false)

@@ -550,7 +550,7 @@ func (e *Epoch) loadFinalizationRecord(r []byte) error {
 	if err != nil {
 		return err
 	}
-	e.pruneNonFinalizedChain(finalization)
+	e.pruneCompetingRounds(finalization)
 	e.Logger.Info("Finalization Recovered From WAL", zap.Uint64("Round", finalization.Finalization.Round))
 	return nil
 }
@@ -1343,7 +1343,7 @@ func (e *Epoch) persistFinalization(finalization common.Finalization) error {
 	e.blockVerificationScheduler.ExecuteBlockDependents(finalization.Finalization.Digest)
 	e.blockVerificationScheduler.RemoveOldTasks(finalization.Finalization.Seq)
 	e.replicationState.clearBlockDependencyTasks(finalization.Finalization.Digest, finalization.Finalization.Seq, true)
-	e.pruneNonFinalizedChain(finalization)
+	e.pruneCompetingRounds(finalization)
 
 	if finalization.Finalization.Seq == nextSeqToCommit {
 		if err := e.indexFinalizations(finalization.Finalization.Round); err != nil {
@@ -2228,7 +2228,7 @@ func (e *Epoch) createBlockVerificationTask(block common.Block, from common.Node
 		// A higher round was finalized while we were verifying, so this block can no longer be finalized.
 		if e.isBelowHighestFinalizedRound(md.Round) {
 			e.Logger.Debug("Dropping proposal for a round below a finalized round", zap.Uint64("round", md.Round))
-			return md.Digest
+			return common.Digest{}
 		}
 
 		if !e.storeProposal(verifiedBlock) {
@@ -2387,7 +2387,7 @@ func (e *Epoch) createNotarizedBlockVerificationTask(block common.Block, notariz
 		// A higher round was finalized while we were verifying, so this block can no longer be finalized.
 		if e.isBelowHighestFinalizedRound(md.Round) {
 			e.Logger.Debug("Dropping notarized block for a round below a finalized round", zap.Uint64("round", md.Round))
-			return md.Digest
+			return common.Digest{}
 		}
 
 		// we started verifying the block when we didn't have a notarization, however its
@@ -3085,10 +3085,10 @@ func (e *Epoch) deleteRounds(round uint64) {
 	}
 }
 
-// pruneNonFinalizedChain deletes the blocks and empty votes below the finalized round that are not
+// pruneCompetingRounds deletes the blocks and empty votes below the finalized round that are not
 // part of the finalized block's chain. Ex. if we have blockchains b1 <- b3 <- b5, and b1 <- b2 <- b4,
-// a call to pruneNonFinalizedChain(finalization b5), will prune blocks b2 & b4 from the rounds map.
-func (e *Epoch) pruneNonFinalizedChain(finalization common.Finalization) {
+// a call to pruneCompetingRounds(finalization b5), will prune blocks b2 & b4 from the rounds map.
+func (e *Epoch) pruneCompetingRounds(finalization common.Finalization) {
 	prev := finalization.Finalization.Prev
 	minRound := e.minRoundInRoundsMap()
 	for r := finalization.Finalization.Round; r > minRound; r-- {
@@ -3097,7 +3097,7 @@ func (e *Epoch) pruneNonFinalizedChain(finalization common.Finalization) {
 			continue
 		}
 
-		// don't delete this round, since the block is an ancestor of finalization
+		// don't delete this round, since the block is an ancestor of finalization in our chain
 		if header := round.block.BlockHeader(); header.Digest == prev {
 			prev = header.Prev
 			continue
