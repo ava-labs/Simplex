@@ -76,16 +76,6 @@ func (ei *ICMEpochInfo) Clone() ICMEpochInfo {
 	}
 }
 
-func (ei *ICMEpochInfo) Equal(other *ICMEpochInfo) bool {
-	if ei == nil {
-		return other == nil
-	}
-	if other == nil {
-		return false
-	}
-	return ei.EpochStartTime == other.EpochStartTime && ei.EpochNumber == other.EpochNumber && ei.PChainEpochHeight == other.PChainEpochHeight
-}
-
 // SimplexEpochInfo is metadata used by the StateMachine.
 type SimplexEpochInfo struct {
 	// PChainReferenceHeight is the P-Chain height that the StateMachine uses as a reference for the current epoch.

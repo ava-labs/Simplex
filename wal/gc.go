@@ -23,13 +23,6 @@ type Reader interface {
 	RetentionTerm([]byte) (uint64, error)
 }
 
-// TruncateableWAL is a DeletableWAL that can be recentlyTruncated to a given retention term.
-// It removes all entries below the given retention term.
-type TruncateableWAL interface {
-	DeletableWAL
-	Truncate(retentionTerm uint64) error
-}
-
 // DeletableWAL is a WAL that can be deleted.
 type DeletableWAL interface {
 	common.WriteAheadLog
