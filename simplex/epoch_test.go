@@ -1918,31 +1918,14 @@ func TestEpochRequestsEmptyRoundDependency(t *testing.T) {
 	require.Equal(t, uint64(3), e.Metadata().Round)
 }
 
-// TestEpochFinalizeVoteRebroadcastForTimedOutRound ensures that after finalizing a future sequence,
-// we rebroadcast a finalize vote for a round we timed out on only if its block is an ancestor of the
+// TestEpochFinalizeVoteRebroadcastSkipsTimedOutFork ensures that after finalizing a future sequence,
+// we do not rebroadcast a finalize vote for a timed out round whose block is not an ancestor of the
 // finalized block. Otherwise the vote could finalize a second block at the finalized sequence.
-//
-// fork:
 //
 //	block0 (r0,s0) <-- block1 (r1,s1)   timed out, notarized
 //	               \
 //	                -- block2 (r2,s1)   finalized
-//
-// ancestor:
-//
-//	block0 (r0,s0) <-- block1 (r1,s1) <-- block2 (r2,s2)
-//	                   timed out,         finalized
-//	                   notarized
-func TestEpochFinalizeVoteRebroadcastForTimedOutRound(t *testing.T) {
-	t.Run("fork", func(t *testing.T) {
-		testEpochFinalizeVoteRebroadcastForTimedOutRound(t, false)
-	})
-	t.Run("ancestor", func(t *testing.T) {
-		testEpochFinalizeVoteRebroadcastForTimedOutRound(t, true)
-	})
-}
-
-func testEpochFinalizeVoteRebroadcastForTimedOutRound(t *testing.T, buildOnTimedOutRound bool) {
+func TestEpochFinalizeVoteRebroadcastSkipsTimedOutFork(t *testing.T) {
 	bb := testutil.NewTestBlockBuilder()
 	nodes := []NodeID{{1}, {2}, {3}, {4}}
 	ctx := context.Background()
@@ -1986,23 +1969,16 @@ func testEpochFinalizeVoteRebroadcastForTimedOutRound(t *testing.T, buildOnTimed
 	require.Equal(t, NotarizationRecordType, wal.AssertNotarization(1))
 	testutil.WaitToEnterRound(t, e, 2)
 
-	// block2 either extends block1, or builds off block0
+	// block2 builds off block0, skipping round 1
 	md2 := e.Metadata()
-	if !buildOnTimedOutRound {
-		md2.Seq = 1
-		md2.Prev = block0.BlockHeader().Digest
-	}
+	md2.Seq = 1
+	md2.Prev = block0.BlockHeader().Digest
 
 	_, built = bb.BuildBlock(ctx, md2, emptyBlacklist)
 	require.True(t, built)
 	block2 := bb.GetBuiltBlock()
-	if buildOnTimedOutRound {
-		require.Equal(t, block1.BlockHeader().Digest, block2.BlockHeader().Prev)
-		require.Equal(t, uint64(2), block2.BlockHeader().Seq)
-	} else {
-		require.Equal(t, block0.BlockHeader().Digest, block2.BlockHeader().Prev)
-		require.Equal(t, uint64(1), block2.BlockHeader().Seq)
-	}
+	require.Equal(t, block0.BlockHeader().Digest, block2.BlockHeader().Prev)
+	require.Equal(t, uint64(1), block2.BlockHeader().Seq)
 
 	vote2, err := testutil.NewTestVote(block2, nodes[2])
 	require.NoError(t, err)
@@ -2014,23 +1990,21 @@ func testEpochFinalizeVoteRebroadcastForTimedOutRound(t *testing.T, buildOnTimed
 	}, nodes[2]))
 
 	// block2 skips round 1, so we need to send an empty notarization before block2 can be verified
-	if !buildOnTimedOutRound {
-		for msg := range sentMessages {
-			if msg.ReplicationRequest != nil {
-				require.Equal(t, uint64(1), msg.ReplicationRequest.Rounds[0])
-				break
-			}
+	for msg := range sentMessages {
+		if msg.ReplicationRequest != nil {
+			require.Equal(t, uint64(1), msg.ReplicationRequest.Rounds[0])
+			break
 		}
+	}
 
-		require.NoError(t, e.HandleMessage(&Message{
-			ReplicationResponse: &ReplicationResponse{
-				Data: []QuorumRound{{EmptyNotarization: testutil.NewEmptyNotarization(nodes, 1)}},
-			},
-		}, nodes[2]))
+	require.NoError(t, e.HandleMessage(&Message{
+		ReplicationResponse: &ReplicationResponse{
+			Data: []QuorumRound{{EmptyNotarization: testutil.NewEmptyNotarization(nodes, 1)}},
+		},
+	}, nodes[2]))
 
-		for !wal.ContainsEmptyNotarization(1) {
-			time.Sleep(20 * time.Millisecond)
-		}
+	for !wal.ContainsEmptyNotarization(1) {
+		time.Sleep(20 * time.Millisecond)
 	}
 
 	testutil.InjectTestVote(t, e, block2, nodes[0])
@@ -2051,9 +2025,96 @@ func testEpochFinalizeVoteRebroadcastForTimedOutRound(t *testing.T, buildOnTimed
 		}
 	}
 
-	// If block2 skips round 1, we must not finalize vote block1, since both blocks would be finalized at seq 1.
-	// If block2 builds on block1, we must finalize vote block1, since block2 cannot be committed until block1 is.
-	require.Equal(t, buildOnTimedOutRound, sentFinalizeVoteForBlock1)
+	// block1 and block2 are both at seq 1, so we must not finalize vote block1
+	require.False(t, sentFinalizeVoteForBlock1)
+}
+
+// TestEpochFinalizeVoteRebroadcastForTimedOutAncestor ensures that after finalizing a future sequence,
+// we rebroadcast a finalize vote for a timed out round whose block is an ancestor of the finalized block,
+// since the finalized block cannot be committed until its ancestor is.
+//
+//	block0 (r0,s0) <-- block1 (r1,s1) <-- block2 (r2,s2)
+//	                   timed out,         finalized
+//	                   notarized
+func TestEpochFinalizeVoteRebroadcastForTimedOutAncestor(t *testing.T) {
+	bb := testutil.NewTestBlockBuilder()
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	ctx := context.Background()
+	broadcastMessages := make(chan *Message, 100)
+	comm := &recordingComm{Communication: testutil.NewNoopComm(nodes), BroadcastMessages: broadcastMessages}
+	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[3], comm, bb)
+	conf.ReplicationEnabled = true
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+
+	require.NoError(t, e.Start())
+
+	// round 0 is notarized but not finalized, so seq 0 is never committed
+	block0, _ := advanceRoundFromNotarization(t, e, bb)
+	testutil.WaitToEnterRound(t, e, 1)
+
+	// we time out on round 1, then learn that block1 was notarized anyway
+	bb.BlockShouldBeBuilt <- struct{}{}
+	testutil.WaitForBlockProposerTimeout(t, e, &e.StartTime, 1)
+
+	_, built := bb.BuildBlock(ctx, e.Metadata(), emptyBlacklist)
+	require.True(t, built)
+	block1 := bb.GetBuiltBlock()
+	require.Equal(t, block0.BlockHeader().Digest, block1.BlockHeader().Prev)
+	require.Equal(t, uint64(1), block1.BlockHeader().Seq)
+
+	vote1, err := testutil.NewTestVote(block1, nodes[1])
+	require.NoError(t, err)
+	require.NoError(t, e.HandleMessage(&Message{
+		BlockMessage: &BlockMessage{
+			Block: block1,
+			Vote:  *vote1,
+		},
+	}, nodes[1]))
+	notarization1, err := testutil.NewNotarization(e.Logger, e.SignatureAggregatorCreator(e.Comm.Validators()), block1, nodes[0:3])
+	require.NoError(t, err)
+	testutil.InjectTestNotarization(t, e, notarization1, nodes[1])
+
+	require.Equal(t, NotarizationRecordType, wal.AssertNotarization(1))
+	testutil.WaitToEnterRound(t, e, 2)
+
+	// block2 extends block1
+	_, built = bb.BuildBlock(ctx, e.Metadata(), emptyBlacklist)
+	require.True(t, built)
+	block2 := bb.GetBuiltBlock()
+	require.Equal(t, block1.BlockHeader().Digest, block2.BlockHeader().Prev)
+	require.Equal(t, uint64(2), block2.BlockHeader().Seq)
+
+	vote2, err := testutil.NewTestVote(block2, nodes[2])
+	require.NoError(t, err)
+	require.NoError(t, e.HandleMessage(&Message{
+		BlockMessage: &BlockMessage{
+			Block: block2,
+			Vote:  *vote2,
+		},
+	}, nodes[2]))
+
+	testutil.InjectTestVote(t, e, block2, nodes[0])
+	testutil.InjectTestVote(t, e, block2, nodes[1])
+	wal.AssertNotarization(2)
+
+	// finalizing block2 is a future sequence since seq 0 is not committed
+	testutil.InjectTestFinalizeVote(t, e, block2, nodes[0])
+	testutil.InjectTestFinalizeVote(t, e, block2, nodes[1])
+
+	var sentFinalizeVoteForBlock1 bool
+	for msg := range broadcastMessages {
+		if msg.FinalizeVote != nil && msg.FinalizeVote.Finalization.Round == 1 {
+			sentFinalizeVoteForBlock1 = true
+		}
+		if msg.Finalization != nil && msg.Finalization.Finalization.Round == 2 {
+			break
+		}
+	}
+
+	// block2 cannot be committed until block1 is, so we must finalize vote block1
+	require.True(t, sentFinalizeVoteForBlock1)
 }
 
 // TestEpochFinalizeVoteRebroadcastFollowsFinalizedChain ensures we rebroadcast & create
