@@ -823,3 +823,181 @@ func TestValidatorReplicatesEpochsDuringTransition(t *testing.T) {
 	isValidator, _ = node.role()
 	require.True(t, isValidator)
 }
+
+// requireValidatorAtEpoch waits until n runs a validator at epoch.
+func requireValidatorAtEpoch(t *testing.T, n *node, epoch uint64) {
+	require.Eventually(t, func() bool {
+		n.inst.lock.Lock()
+		defer n.inst.lock.Unlock()
+		return n.inst.e != nil && n.inst.e.Epoch == epoch
+	}, 10*time.Second, 10*time.Millisecond)
+}
+
+// sealingBlockResponse returns a replication response holding the finalized block at seq in storage.
+func sealingBlockResponse(t *testing.T, storage *testStorage, seq uint64) *common.Message {
+	block, finalization, err := storage.Retrieve(seq)
+	require.NoError(t, err)
+	require.NotNil(t, block.SealingBlockInfo())
+	qr := verifiedQuorumRoundToQuorumRound(t, common.VerifiedQuorumRound{VerifiedBlock: block, Finalization: &finalization})
+	return &common.Message{ReplicationResponse: &common.ReplicationResponse{Data: []common.QuorumRound{qr}}}
+}
+
+// TestValidatorCatchesUpToNextEpoch asserts an offline validator that missed a sealing block
+// rejoins the new epoch. The epoch only rejoins the network when a messages for the new epoch
+// are being sent.
+func TestValidatorCatchesUpToNextEpoch(t *testing.T) {
+	v1 := newNodeMapping(1)
+	v2 := newNodeMapping(2)
+	v3 := newNodeMapping(3)
+	v4 := newNodeMapping(4)
+	offline := newNodeMapping(5)
+
+	pChain := newTestPChain(metadata.NodeBLSMappings{v1, v2, v3, v4, offline})
+	network := newNetwork(t, pChain)
+	network.addNode(v1.NodeID[:])
+	network.addNode(v2.NodeID[:])
+	network.addNode(v3.NodeID[:])
+	network.addNode(v4.NodeID[:])
+	node := network.addNode(offline.NodeID[:])
+	network.sync()
+
+	network.setOffline(offline.NodeID[:])
+
+	// advance the p-chain to create a new epoch
+	newValidatorSet := metadata.NodeBLSMappings{v1, v2, v3, offline}
+	pChain.setValidatorSetAt(10, newValidatorSet)
+	pChain.advanceHeight(10)
+	sealing := network.waitUntilSealingBlock(newValidatorSet.Nodes())
+
+	network.setOnline(offline.NodeID[:])
+
+	// The node is now-online, and it should receive a threshold of finalizations for the next epoch
+	// when the other nodes accept the new block
+	network.acceptNewBlock()
+	requireValidatorAtEpoch(t, node, sealing.BlockHeader().Seq)
+}
+
+// TestValidatorCatchesUpFromSealingBlock asserts a validator whose last indexed block was a
+// sealing block catches up to the next epoch when offline.
+func TestValidatorCatchesUpFromSealingBlock(t *testing.T) {
+	v1 := newNodeMapping(1)
+	v2 := newNodeMapping(2)
+	v3 := newNodeMapping(3)
+	v4 := newNodeMapping(4)
+	offline := newNodeMapping(5)
+
+	pChain := newTestPChain(metadata.NodeBLSMappings{v1, v2, v3, v4, offline})
+	network := newNetwork(t, pChain)
+	network.addNode(v1.NodeID[:])
+	network.addNode(v2.NodeID[:])
+	network.addNode(v3.NodeID[:])
+	network.addNode(v4.NodeID[:])
+	node := network.addNode(offline.NodeID[:])
+	network.sync()
+
+	firstSet := metadata.NodeBLSMappings{v1, v2, v3, offline}
+	pChain.setValidatorSetAt(10, firstSet)
+	pChain.advanceHeight(10)
+	firstSealing := network.waitUntilSealingBlock(firstSet.Nodes())
+
+	// go offline with the sealing block as our last indexed block
+	requireValidatorAtEpoch(t, node, firstSealing.BlockHeader().Seq)
+	network.setOffline(offline.NodeID[:])
+	require.Equal(t, firstSealing.BlockHeader().Seq, node.storage.NumBlocks()-1)
+
+	secondSet := metadata.NodeBLSMappings{v1, v2, v3, v4, offline}
+	pChain.setValidatorSetAt(20, secondSet)
+	pChain.advanceHeight(20)
+	secondSealing := network.waitUntilSealingBlock(secondSet.Nodes())
+
+	network.setOnline(offline.NodeID[:])
+	network.acceptNewBlock()
+	requireValidatorAtEpoch(t, node, secondSealing.BlockHeader().Seq)
+}
+
+// TestValidatorCatchesUpFromIntermediateEpoch asserts an offline validator gets a threshold of sealing blocks
+// for an intermediate epoch(one that is ahead of ours, but not the latest).
+func TestValidatorCatchesUpFromIntermediateEpoch(t *testing.T) {
+	v1 := newNodeMapping(1)
+	v2 := newNodeMapping(2)
+	v3 := newNodeMapping(3)
+	v4 := newNodeMapping(4)
+	offline := newNodeMapping(5)
+
+	pChain := newTestPChain(metadata.NodeBLSMappings{v1, v2, v3, v4, offline})
+	network := newNetwork(t, pChain)
+	node1 := network.addNode(v1.NodeID[:])
+	network.addNode(v2.NodeID[:])
+	network.addNode(v3.NodeID[:])
+	network.addNode(v4.NodeID[:])
+	node := network.addNode(offline.NodeID[:])
+	network.sync()
+
+	network.setOffline(offline.NodeID[:])
+
+	// add some intermediate blocks in the epoch
+	network.acceptNewBlock()
+
+	firstSet := metadata.NodeBLSMappings{v1, v2, v3, offline}
+	pChain.setValidatorSetAt(10, firstSet)
+	pChain.advanceHeight(10)
+	firstSealing := network.waitUntilSealingBlock(firstSet.Nodes())
+
+	// add some intermediate blocks in the epoch
+	network.acceptNewBlock()
+
+	secondSet := metadata.NodeBLSMappings{v1, v2, v3, v4, offline}
+	pChain.setValidatorSetAt(20, secondSet)
+	pChain.advanceHeight(20)
+	secondSealing := network.waitUntilSealingBlock(secondSet.Nodes())
+
+	// add some intermediate blocks in the epoch
+	network.acceptNewBlock()
+
+	// a threshold of validators report the first sealing block directly to the offline node
+	for _, from := range []common.NodeID{v1.NodeID[:], v2.NodeID[:]} {
+		require.NoError(t, node.inst.HandleMessage(sealingBlockResponse(t, node1.storage, firstSealing.BlockHeader().Seq), from))
+	}
+
+	// because the new epoch is at a height greater than what our offline node has indexed, it should
+	// start as a non-validator
+	require.Eventually(t, func() bool {
+		isValidator, _ := node.role()
+		return !isValidator
+	}, 10*time.Second, 10*time.Millisecond)
+
+	network.setOnline(offline.NodeID[:])
+	network.acceptNewBlock()
+	requireValidatorAtEpoch(t, node, secondSealing.BlockHeader().Seq)
+}
+
+// TestValidatorRemovedWhileOffline asserts an offline validator removed from the validator set
+// keeps indexing as a non-validator once it learns of the sealing block.
+func TestValidatorRemovedWhileOffline(t *testing.T) {
+	v1 := newNodeMapping(1)
+	v2 := newNodeMapping(2)
+	v3 := newNodeMapping(3)
+	v4 := newNodeMapping(4)
+	offline := newNodeMapping(5)
+
+	pChain := newTestPChain(metadata.NodeBLSMappings{v1, v2, v3, v4, offline})
+	network := newNetwork(t, pChain)
+	network.addNode(v1.NodeID[:])
+	network.addNode(v2.NodeID[:])
+	network.addNode(v3.NodeID[:])
+	network.addNode(v4.NodeID[:])
+	node := network.addNode(offline.NodeID[:])
+	network.sync()
+
+	network.setOffline(offline.NodeID[:])
+
+	newValidatorSet := metadata.NodeBLSMappings{v1, v2, v3, v4}
+	pChain.setValidatorSetAt(10, newValidatorSet)
+	pChain.advanceHeight(10)
+	network.waitUntilSealingBlock(newValidatorSet.Nodes())
+
+	network.setOnline(offline.NodeID[:])
+	network.acceptNewBlock()
+	isValidator, _ := node.role()
+	require.False(t, isValidator)
+}
