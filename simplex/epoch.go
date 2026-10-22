@@ -550,6 +550,7 @@ func (e *Epoch) loadFinalizationRecord(r []byte) error {
 	if err != nil {
 		return err
 	}
+	e.pruneCompetingRounds(finalization)
 	e.Logger.Info("Finalization Recovered From WAL", zap.Uint64("Round", finalization.Finalization.Round))
 	return nil
 }
@@ -1348,7 +1349,7 @@ func (e *Epoch) persistFinalization(finalization common.Finalization) error {
 	e.blockVerificationScheduler.ExecuteBlockDependents(finalization.Finalization.Digest)
 	e.blockVerificationScheduler.RemoveOldTasks(finalization.Finalization.Seq)
 	e.replicationState.clearBlockDependencyTasks(finalization.Finalization.Digest, finalization.Finalization.Seq, true)
-	e.deleteOldEmptyVotes(finalization.Finalization.Round)
+	e.pruneCompetingRounds(finalization)
 
 	if finalization.Finalization.Seq == nextSeqToCommit {
 		if err := e.indexFinalizations(finalization.Finalization.Round); err != nil {
@@ -1778,7 +1779,7 @@ func (e *Epoch) handleEmptyNotarizationMessage(emptyNotarization *common.EmptyNo
 
 	e.Logger.Verbo("Received empty notarization message", zap.Uint64("round", vote.Round))
 
-	if e.isVoteForFinalizedRound(vote.Round) {
+	if e.isBelowHighestFinalizedRound(vote.Round) {
 		e.Logger.Debug("Received an empty notarization for a too low round",
 			zap.Uint64("round", vote.Round), zap.Uint64("our round", e.round))
 
@@ -1814,7 +1815,7 @@ func (e *Epoch) handleEmptyNotarizationMessage(emptyNotarization *common.EmptyNo
 }
 
 // we do not care to process votes for rounds where we have finalized
-func (e *Epoch) isVoteForFinalizedRound(round uint64) bool {
+func (e *Epoch) isBelowHighestFinalizedRound(round uint64) bool {
 	max := uint64(0)
 
 	for _, round := range e.rounds {
@@ -1840,7 +1841,7 @@ func (e *Epoch) handleNotarizationMessage(message *common.Notarization, from com
 	e.Logger.Verbo("Received notarization message",
 		zap.Stringer("from", from), zap.Uint64("round", vote.Round))
 
-	if e.isVoteForFinalizedRound(vote.Round) {
+	if e.isBelowHighestFinalizedRound(vote.Round) {
 		return nil
 	}
 
@@ -2230,6 +2231,12 @@ func (e *Epoch) createBlockVerificationTask(block common.Block, from common.Node
 			return common.Digest{}
 		}
 
+		// A higher round was finalized while we were verifying, so this block can no longer be finalized.
+		if e.isBelowHighestFinalizedRound(md.Round) {
+			e.Logger.Debug("Dropping proposal for a round below a finalized round", zap.Uint64("round", md.Round))
+			return common.Digest{}
+		}
+
 		if !e.storeProposal(verifiedBlock) {
 			e.Logger.Debug("Unable to store proposed block for the round", zap.Stringer("NodeID", from), zap.Uint64("round", md.Round))
 			return common.Digest{}
@@ -2382,6 +2389,12 @@ func (e *Epoch) createNotarizedBlockVerificationTask(block common.Block, notariz
 
 		e.lock.Lock()
 		defer e.lock.Unlock()
+
+		// A higher round was finalized while we were verifying, so this block can no longer be finalized.
+		if e.isBelowHighestFinalizedRound(md.Round) {
+			e.Logger.Debug("Dropping notarized block for a round below a finalized round", zap.Uint64("round", md.Round))
+			return common.Digest{}
+		}
 
 		// we started verifying the block when we didn't have a notarization, however its
 		// possible we received a notarization or empty notarization for this block in the meantime.
@@ -3078,9 +3091,30 @@ func (e *Epoch) deleteRounds(round uint64) {
 	}
 }
 
-func (e *Epoch) deleteOldEmptyVotes(finalizedRound uint64) {
+// pruneCompetingRounds deletes the blocks and empty votes below the finalized round that are not
+// part of the finalized block's chain. Ex. if we have blockchains b1 <- b3 <- b5, and b1 <- b2 <- b4,
+// a call to pruneCompetingRounds(finalization b5), will prune blocks b2 & b4 from the rounds map.
+func (e *Epoch) pruneCompetingRounds(finalization common.Finalization) {
+	prev := finalization.Finalization.Prev
+	minRound := e.minRoundInRoundsMap()
+	for r := finalization.Finalization.Round; r > minRound; r-- {
+		round, exists := e.rounds[r-1]
+		if !exists {
+			continue
+		}
+
+		// don't delete this round, since the block is an ancestor of finalization in our chain
+		if header := round.block.BlockHeader(); header.Digest == prev {
+			prev = header.Prev
+			continue
+		}
+
+		e.Logger.Debug("Pruning block not on the finalized chain", zap.Uint64("round", r-1), zap.Uint64("finalized round", finalization.Finalization.Round))
+		delete(e.rounds, r-1)
+	}
+
 	for r := range e.emptyVotes {
-		if r < finalizedRound {
+		if r < finalization.Finalization.Round {
 			delete(e.emptyVotes, r)
 		}
 	}
@@ -3602,7 +3636,7 @@ func (e *Epoch) processQuorumRound(round *common.QuorumRound, from common.NodeID
 		return nil
 	}
 
-	if round.Finalization == nil && e.isVoteForFinalizedRound(round.GetRound()) {
+	if round.Finalization == nil && e.isBelowHighestFinalizedRound(round.GetRound()) {
 		return fmt.Errorf("received a quorum round for a round that has been finalized. round: %d; seq: %d", round.GetRound(), round.GetSequence())
 	}
 
