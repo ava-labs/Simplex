@@ -195,10 +195,16 @@ func (e *epochDigestCounter) maybeObserveThresholdResponses(sealingBlockInfo *co
 
 	// check if we have a threshold of responses
 	count := 0
-	for _, other := range e.sealingBlockResponses {
+	for from, other := range e.sealingBlockResponses {
 		if other != response {
 			continue
 		}
+
+		if !validators.Contains(common.NodeID(from)) {
+			delete(e.sealingBlockResponses, from)
+			continue
+		}
+
 		count++
 		if count >= threshold {
 			e.logger.Info("We received enough messages to validate a higher epoch", zap.Stringer("EpochInfo", sealingBlockInfo), zap.Int("Threshold", threshold), zap.Int("Responses", count))

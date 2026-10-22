@@ -524,7 +524,7 @@ func (i *Instance) processEpochChange(epochChange epochChange) {
 	case runningValidator && i.Config.Storage.NumBlocks() <= epochChange.epoch:
 		// The future epoch listener found a sealing block we have not indexed. A validator restarted
 		// from storage would still be in our epoch, so replicate up to it as a non-validator.
-		i.stopValidator(true)
+		i.stopValidator()
 		err = i.startNonValidator(false)
 	case runningValidator:
 		i.stopValidator()

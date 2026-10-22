@@ -312,3 +312,22 @@ func TestCollectedSealingBlockInfoOneResponsePerValidator(t *testing.T) {
 	require.False(t, e.maybeObserveThresholdResponses(info, seq5, validators[1].Id))
 	require.True(t, e.maybeObserveThresholdResponses(info, seq6, validators[1].Id))
 }
+
+// TestCollectedSealingBlockInfoIgnoresRemovedValidators asserts a stored response from a node
+// that left the latest validator set no longer counts toward the threshold.
+func TestCollectedSealingBlockInfoIgnoresRemovedValidators(t *testing.T) {
+	qr := newSealingQuorumRound(1, 4)
+	info := qr.Block.SealingBlockInfo()
+	validators := info.ValidatorSet
+	latest := validators
+	e := newEpochReplicator(testutil.MakeLogger(t, 1), func() common.Nodes {
+		return latest
+	})
+
+	bh := qr.Block.BlockHeader()
+	require.False(t, e.maybeObserveThresholdResponses(info, bh, validators[0].Id))
+
+	// replace validators[0] so its old vote shouldn't make us reach a threshold of 2
+	latest = append(common.Nodes{{Id: common.NodeID{5}, Weight: 1}}, validators[1:]...)
+	require.False(t, e.maybeObserveThresholdResponses(info, bh, validators[1].Id))
+}
