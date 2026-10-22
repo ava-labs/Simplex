@@ -17,10 +17,10 @@ const (
 // Creator creates a DeletableWAL. Returns an error upon failure.
 type Creator func() (DeletableWAL, error)
 
-// Reader reads the retention term of a WAL payload.
+// Reader reads the round of a WAL payload.
 // Returns an error upon failure.
 type Reader interface {
-	RetentionTerm([]byte) (uint64, error)
+	Round([]byte) (uint64, error)
 }
 
 // DeletableWAL is a WAL that can be deleted.
@@ -32,8 +32,8 @@ type DeletableWAL interface {
 }
 
 type garbageCollectedWAL struct {
-	retentionTerm uint64
-	size          int
+	round uint64
+	size  int
 	DeletableWAL
 }
 
@@ -46,7 +46,7 @@ type GarbageCollectedWAL struct {
 
 // NewGarbageCollectedWAL creates a new GarbageCollectedWAL.
 // It takes in a list of existing WALs to load, a Creator to create new WALs,
-// a Reader to read the retention term of entries, and a maximum WAL size.
+// a Reader to read the round of entries, and a maximum WAL size.
 // A new WAL is created when the given maximum WAL size of a WAL is reached.
 func NewGarbageCollectedWAL(WALs []DeletableWAL, creator Creator, reader Reader, maxWALSize int) (*GarbageCollectedWAL, error) {
 	wals := make([]garbageCollectedWAL, 0, len(WALs))
@@ -76,32 +76,32 @@ func loadGarbageCollectedWAL(wal DeletableWAL, reader Reader) (garbageCollectedW
 		return garbageCollectedWAL{}, fmt.Errorf("error reading entries from WAL: %v", err)
 	}
 
-	var highestRetentionTerm uint64
+	var highestRound uint64
 	var size int
 
 	for _, entry := range entries {
 		size += len(entry)
-		rt, err := reader.RetentionTerm(entry)
+		round, err := reader.Round(entry)
 		if err != nil {
 			data := base64.StdEncoding.EncodeToString(entry)
-			return garbageCollectedWAL{}, fmt.Errorf("error reading retention term of entry %s: %v", data, err)
+			return garbageCollectedWAL{}, fmt.Errorf("error reading round of entry %s: %v", data, err)
 		}
-		if rt > highestRetentionTerm {
-			highestRetentionTerm = rt
+		if round > highestRound {
+			highestRound = round
 		}
 	}
 	return garbageCollectedWAL{
-		retentionTerm: highestRetentionTerm,
-		DeletableWAL:  wal,
-		size:          size,
+		round:        highestRound,
+		DeletableWAL: wal,
+		size:         size,
 	}, nil
 }
 
 func (gcw *GarbageCollectedWAL) Append(payload []byte) error {
-	rt, err := gcw.reader.RetentionTerm(payload)
+	round, err := gcw.reader.Round(payload)
 	if err != nil {
 		data := base64.StdEncoding.EncodeToString(payload)
-		return fmt.Errorf("error reading retention term of entry %s: %v", data, err)
+		return fmt.Errorf("error reading round of entry %s: %v", data, err)
 	}
 
 	if gcw.shouldWeCreateNewWAL(payload) {
@@ -116,9 +116,9 @@ func (gcw *GarbageCollectedWAL) Append(payload []byte) error {
 			return fmt.Errorf("error creating new WAL: %v", err)
 		}
 		gcw.wals = append(gcw.wals, garbageCollectedWAL{
-			DeletableWAL:  newWAL,
-			retentionTerm: rt,
-			size:          len(payload),
+			DeletableWAL: newWAL,
+			round:        round,
+			size:         len(payload),
 		})
 	} else {
 		// We're still using the last WAL, so we need to update its size
@@ -126,8 +126,8 @@ func (gcw *GarbageCollectedWAL) Append(payload []byte) error {
 	}
 
 	last := len(gcw.wals) - 1
-	if rt > gcw.wals[last].retentionTerm {
-		gcw.wals[last].retentionTerm = rt
+	if round > gcw.wals[last].round {
+		gcw.wals[last].round = round
 	}
 
 	return gcw.wals[last].Append(payload)
@@ -163,12 +163,12 @@ func (gcw *GarbageCollectedWAL) ReadAll() ([][]byte, error) {
 	return allEntries, nil
 }
 
-func (gcw *GarbageCollectedWAL) GarbageCollect(retentionTerm uint64) error {
+func (gcw *GarbageCollectedWAL) GarbageCollect(round uint64) error {
 	newWALs := make([]garbageCollectedWAL, 0, len(gcw.wals))
 
 	for i, wal := range gcw.wals {
-		if wal.retentionTerm < retentionTerm {
-			// This WAL is below the retention term, we can delete it
+		if wal.round < round {
+			// This WAL is below the round, we can delete it
 			if err := wal.Delete(); err != nil {
 				return fmt.Errorf("error deleting WAL %d: %v", i, err)
 			}

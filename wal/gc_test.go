@@ -16,16 +16,16 @@ import (
 
 type mockWALReader struct{}
 
-func (m *mockWALReader) RetentionTerm(entry []byte) (uint64, error) {
+func (m *mockWALReader) Round(entry []byte) (uint64, error) {
 	return binary.BigEndian.Uint64(entry[:8]), nil
 }
 
 // makeRecord builds a payload of exactly `size` bytes whose first 8 bytes
-// encode the retention term (as read back by mockWALReader).
-func makeRecord(t *testing.T, retentionTerm uint64, size int) []byte {
+// encode the round (as read back by mockWALReader).
+func makeRecord(t *testing.T, round uint64, size int) []byte {
 	require.GreaterOrEqual(t, size, 8)
 	buff := make([]byte, size)
-	binary.BigEndian.PutUint64(buff[:8], retentionTerm)
+	binary.BigEndian.PutUint64(buff[:8], round)
 	_, err := rand.Read(buff[8:])
 	require.NoError(t, err)
 	return buff
@@ -165,7 +165,7 @@ func TestGarbageCollectedWALRotatesOnOversizedPayload(t *testing.T) {
 }
 
 func TestGarbageCollectedWALGarbageCollectsRotatedWALs(t *testing.T) {
-	// Verifies a WAL is removed only once its highest retention term drops below the cutoff.
+	// Verifies a WAL is removed only once its highest round drops below the cutoff.
 	const (
 		maxWALSize = 100
 		recordSize = 40
@@ -177,7 +177,7 @@ func TestGarbageCollectedWALGarbageCollectsRotatedWALs(t *testing.T) {
 	gcw, err := wal.NewGarbageCollectedWAL(nil, creator, &mockWALReader{}, maxWALSize)
 	require.NoError(t, err)
 
-	// Retention terms 0..5, two per WAL:
+	// Rounds 0..5, two per WAL:
 	//   WAL0 -> {0,1} (max 1), WAL1 -> {2,3} (max 3), WAL2 -> {4,5} (max 5)
 	records := make([][]byte, numRecords)
 	for rt := 0; rt < numRecords; rt++ {
@@ -186,7 +186,7 @@ func TestGarbageCollectedWALGarbageCollectsRotatedWALs(t *testing.T) {
 	}
 	require.Equal(t, 3, *newWALCount) // 6 records, two per WAL -> 3 WALs.
 
-	// Does not drop any WALs because the cutoff is below the max retention term of WAL0.
+	// Does not drop any WALs because the cutoff is below the max round of WAL0.
 	require.NoError(t, gcw.GarbageCollect(1))
 	got, err := gcw.ReadAll()
 	require.NoError(t, err)
@@ -198,7 +198,7 @@ func TestGarbageCollectedWALGarbageCollectsRotatedWALs(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, records[2:], got)
 
-	// Does not drop WAL1 because the cutoff is equal to the max retention term of WAL1.
+	// Does not drop WAL1 because the cutoff is equal to the max round of WAL1.
 	require.NoError(t, gcw.GarbageCollect(3))
 	got, err = gcw.ReadAll()
 	require.NoError(t, err)
@@ -245,7 +245,7 @@ func TestGarbageCollectedWALAppendOutOfOrder(t *testing.T) {
 	}
 
 	// We create a block record for 4 and a finalization record for 3 out of order.
-	// The WALRetentionReader must be able to read the retention term from every
+	// The WALReader must be able to read the round from every
 	// record type, or GarbageCollectedWAL.Append will fail on the finalization.
 	records := [][]byte{
 		blockRecord(1), notarizationRecord(1),
@@ -258,7 +258,7 @@ func TestGarbageCollectedWALAppendOutOfOrder(t *testing.T) {
 	// A small maxWALSize forces the stream across several WAL segments so ReadAll must stitch every segment back together.
 	creator, newWALCount := countingCreator(t)
 	walSize := 512
-	gcw, err := wal.NewGarbageCollectedWAL(nil, creator, &common.WALRetentionReader{}, walSize)
+	gcw, err := wal.NewGarbageCollectedWAL(nil, creator, &common.WALReader{}, walSize)
 	require.NoError(t, err)
 
 	var sum int

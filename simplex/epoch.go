@@ -755,6 +755,12 @@ func (e *Epoch) restoreFromWal() error {
 		return err
 	}
 
+	// Keep records only from the current epoch.
+	records, err = common.RecordsFromEpoch(records, e.Epoch)
+	if err != nil {
+		return err
+	}
+
 	if len(records) == 0 {
 		return e.startRound()
 	}
