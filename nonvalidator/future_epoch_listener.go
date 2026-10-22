@@ -84,6 +84,7 @@ func (f *FutureEpochListener) HandleMessage(msg *common.Message, from common.Nod
 			// the sealing block's sequence is the epoch it starts
 			f.epoch = bh.Seq
 			f.onSealingBlock(qr)
+			return
 		}
 	case msg.Finalization != nil:
 		highestEpoch = msg.Finalization.Finalization.Epoch

@@ -507,6 +507,12 @@ func (i *Instance) processEpochChange(epochChange epochChange) {
 		return
 	}
 
+	// Ensure the epoch is higher before transitioning
+	if i.e != nil && i.e.Epoch >= epochChange.epoch {
+		defer i.lock.Unlock()
+		return
+	}
+
 	var err error
 
 	runningNonValidator := i.nv != nil
@@ -691,7 +697,7 @@ type epochConfig struct {
 func (i *Instance) onHigherSealingBlock(sealingBlock *common.QuorumRound) {
 	// this should only be called if we are running a validator
 	if i.e == nil {
-		i.Config.Logger.Warn("Our future epoch message listener triggered a higher epoch while not running a validator")
+		i.Config.Logger.Info("Our future epoch message listener triggered a higher epoch while not running a validator", zap.Stringer("Sealing Block", sealingBlock))
 		return
 	}
 
