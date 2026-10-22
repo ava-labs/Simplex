@@ -232,13 +232,24 @@ func (bl *Blacklist) setNodeSuspected(orbit uint64, nodeIndex uint16) {
 	// If the total number of suspected nodes is >= f, we cannot suspect any more nodes.
 	// Otherwise, we add the node to the suspected list with a count of 1.
 
+	// Count how many total nodes are suspected.
 	for i := range bl.SuspectedNodes {
 		sn := &bl.SuspectedNodes[i]
 
-		// Count how many total nodes are suspected.
 		if sn.SuspectingCount >= threshold {
 			suspectedCount++
 		}
+	}
+
+	f := (bl.NodeCount - 1) / 3
+
+	if suspectedCount >= f {
+		// We already have f or more nodes suspected, abort because we cannot suspect any more nodes.
+		return
+	}
+
+	for i := range bl.SuspectedNodes {
+		sn := &bl.SuspectedNodes[i]
 		// Only increment the count if the orbit is the same.
 		if sn.NodeIndex == nodeIndex {
 			if sn.OrbitSuspected == orbit {
@@ -249,13 +260,6 @@ func (bl *Blacklist) setNodeSuspected(orbit uint64, nodeIndex uint16) {
 			// Else, the orbit is different, so just return early.
 			return
 		}
-	}
-
-	f := (bl.NodeCount - 1) / 3
-
-	if suspectedCount >= f {
-		// We already have f or more nodes suspected, abort because we cannot suspect any more nodes.
-		return
 	}
 
 	// If we reached here, the node isn't in the suspected list, and it is small enough, so add it instead.

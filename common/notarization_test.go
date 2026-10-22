@@ -143,9 +143,9 @@ func TestNewFinalization(t *testing.T) {
 		{
 			name: "finalizations with different digests",
 			finalizeVotes: []*common.FinalizeVote{
-				NewTestFinalizeVote(t, &TestBlock{Digest: [32]byte{1}}, []byte{1}),
-				NewTestFinalizeVote(t, &TestBlock{Digest: [32]byte{2}}, []byte{2}),
-				NewTestFinalizeVote(t, &TestBlock{Digest: [32]byte{3}}, []byte{3}),
+				NewTestFinalizeVote(t, &TestBlock{Digest: common.Digest{1}}, []byte{1}),
+				NewTestFinalizeVote(t, &TestBlock{Digest: common.Digest{2}}, []byte{2}),
+				NewTestFinalizeVote(t, &TestBlock{Digest: common.Digest{3}}, []byte{3}),
 			},
 			signatureAggregator: &TestSignatureAggregator{N: 4},
 			expectError:         common.ErrorInvalidFinalizationDigest,

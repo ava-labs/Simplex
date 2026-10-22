@@ -6,6 +6,7 @@ package simplex
 import (
 	"math/rand/v2"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ava-labs/simplex/common"
@@ -30,7 +31,7 @@ type finalizedQuorumRound struct {
 }
 
 type ReplicationState struct {
-	enabled  bool
+	enabled  atomic.Bool
 	logger   common.Logger
 	myNodeID common.NodeID
 	rand     *rand.Rand // Random number generator
@@ -63,14 +64,12 @@ type ReplicationState struct {
 func NewReplicationState(logger common.Logger, comm Sender, myNodeID common.NodeID, maxRoundWindow uint64, enabled bool, start time.Time, lock *sync.Mutex, rng *rand.Rand) *ReplicationState {
 	if !enabled {
 		return &ReplicationState{
-			enabled: enabled,
-			logger:  logger,
-			rand:    rng,
+			logger: logger,
+			rand:   rng,
 		}
 	}
 
 	r := &ReplicationState{
-		enabled:  enabled,
 		myNodeID: myNodeID,
 		logger:   logger,
 		rand:     rng,
@@ -86,6 +85,7 @@ func NewReplicationState(logger common.Logger, comm Sender, myNodeID common.Node
 		sender:    comm,
 		epochLock: lock,
 	}
+	r.enabled.Store(true)
 
 	r.digestTimeouts = common.NewTimeoutHandler(logger, "digest", start, DefaultReplicationRequestTimeout, r.requestDigests)
 	r.emptyRoundTimeouts = common.NewTimeoutHandler(logger, "empty round replication", start, DefaultReplicationRequestTimeout, r.requestEmptyRounds)
@@ -94,7 +94,7 @@ func NewReplicationState(logger common.Logger, comm Sender, myNodeID common.Node
 }
 
 func (r *ReplicationState) AdvanceTime(now time.Time) {
-	if !r.enabled {
+	if !r.enabled.Load() {
 		return
 	}
 
@@ -117,6 +117,18 @@ func (r *ReplicationState) deleteOldRounds(finalizedRound uint64) {
 	r.emptyRoundTimeouts.RemoveOldTasks(func(r uint64, _ struct{}) bool {
 		return r <= finalizedRound
 	})
+}
+
+// deleteOldSeqs cleans up sequences that have already been committed.
+// Committing a sequence only deletes its exact entry, so sequences superseded by
+// a different block digest would otherwise never be released.
+func (r *ReplicationState) deleteOldSeqs(nextSequenceToCommit uint64) {
+	for seq := range r.seqs {
+		if seq < nextSequenceToCommit {
+			r.logger.Debug("Replication State Deleting Old Sequence", zap.Uint64("seq", seq))
+			delete(r.seqs, seq)
+		}
+	}
 }
 
 // storeSequence stores a block and finalization into the replication state
@@ -161,7 +173,7 @@ func (r *ReplicationState) storeRound(qr *common.QuorumRound) {
 
 // StoreQuorumRound stores the quorum round into the replication state.
 func (r *ReplicationState) StoreQuorumRound(round *common.QuorumRound) {
-	if !r.enabled {
+	if !r.enabled.Load() {
 		return
 	}
 
@@ -193,7 +205,7 @@ func (r *ReplicationState) StoreQuorumRound(round *common.QuorumRound) {
 
 // receivedFutureFinalization notifies the replication state a finalization was created in a future round.
 func (r *ReplicationState) ReceivedFutureFinalization(finalization *common.Finalization, nextSeqToCommit uint64) {
-	if !r.enabled {
+	if !r.enabled.Load() {
 		return
 	}
 
@@ -209,7 +221,7 @@ func (r *ReplicationState) ReceivedFutureFinalization(finalization *common.Final
 
 // receivedFutureRound notifies the replication state of a future round.
 func (r *ReplicationState) ReceivedFutureRound(round, seq, currentRound uint64, signers []common.NodeID) {
-	if !r.enabled {
+	if !r.enabled.Load() {
 		return
 	}
 
@@ -224,7 +236,7 @@ func (r *ReplicationState) ReceivedFutureRound(round, seq, currentRound uint64, 
 
 // ResendFinalizationRequest notifies the replication state that `seq` should be re-requested.
 func (r *ReplicationState) ResendFinalizationRequest(seq uint64, signers []common.NodeID) {
-	if !r.enabled {
+	if !r.enabled.Load() {
 		return
 	}
 
@@ -236,6 +248,20 @@ func (r *ReplicationState) ResendFinalizationRequest(seq uint64, signers []commo
 	// so that we can try to get a new block & finalization
 	r.DeleteSeq(seq)
 	r.finalizationRequestor.sendRequestToNode([]uint64{seq}, signers[index])
+}
+
+// ResendRoundRequest notifies the replication state that `round` should be re-requested.
+func (r *ReplicationState) ResendRoundRequest(round uint64, signers []common.NodeID) {
+	if !r.enabled.Load() {
+		return
+	}
+
+	signers = common.NodeIDs(signers).Remove(r.myNodeID)
+	numSigners := int64(len(signers))
+	index := r.rand.Int64N(numSigners)
+
+	r.DeleteRound(round)
+	r.roundRequestor.sendRequestToNode([]uint64{round}, signers[index])
 }
 
 // CreateDependencyTasks creates tasks to refetch the given parent digest and empty rounds. If there are no
@@ -253,7 +279,7 @@ func (r *ReplicationState) CreateDependencyTasks(parent *common.Digest, parentSe
 }
 
 func (r *ReplicationState) clearBlockDependencyTasks(digest common.Digest, seq uint64, finalizationPersisted bool) {
-	if !r.enabled {
+	if !r.enabled.Load() {
 		return
 	}
 
@@ -275,7 +301,7 @@ func (r *ReplicationState) clearBlockDependencyTasks(digest common.Digest, seq u
 // MaybeAdvanceState attempts to collect future sequences if
 // there are more to be collected and the round has caught up for us to send the request.
 func (r *ReplicationState) MaybeAdvanceState(nextSequenceToCommit uint64, currentRound uint64, lastCommittedRound uint64) {
-	if !r.enabled {
+	if !r.enabled.Load() {
 		return
 	}
 
@@ -286,6 +312,8 @@ func (r *ReplicationState) MaybeAdvanceState(nextSequenceToCommit uint64, curren
 	if nextSequenceToCommit > 0 {
 		r.finalizationRequestor.removeOldTasks(nextSequenceToCommit - 1)
 	}
+
+	r.deleteOldSeqs(nextSequenceToCommit)
 
 	// update the requestors in case they need to send more requests
 	r.finalizationRequestor.updateState(nextSequenceToCommit)
@@ -398,7 +426,7 @@ func (r *ReplicationState) requestEmptyRounds(emptyRounds []uint64) {
 }
 
 func (r *ReplicationState) DeleteRound(round uint64) {
-	if !r.enabled {
+	if !r.enabled.Load() {
 		return
 	}
 
@@ -409,7 +437,7 @@ func (r *ReplicationState) DeleteRound(round uint64) {
 }
 
 func (r *ReplicationState) DeleteSeq(seq uint64) {
-	if !r.enabled {
+	if !r.enabled.Load() {
 		return
 	}
 
@@ -417,9 +445,10 @@ func (r *ReplicationState) DeleteSeq(seq uint64) {
 }
 
 func (r *ReplicationState) Close() {
-	if !r.enabled {
+	if !r.enabled.Load() {
 		return
 	}
+	r.enabled.Store(false)
 
 	r.digestTimeouts.Close()
 	r.emptyRoundTimeouts.Close()

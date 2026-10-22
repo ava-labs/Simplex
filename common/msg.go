@@ -51,6 +51,29 @@ func (m *Message) IsReplicationMessage() bool {
 	}
 }
 
+// Epoch returns the epoch a consensus message declares and true. Messages that are
+// handled across epochs (replication and requests) return (0, false).
+func (m *Message) Epoch() (uint64, bool) {
+	switch {
+	case m.BlockMessage != nil:
+		return m.BlockMessage.Vote.Vote.Epoch, true
+	case m.VoteMessage != nil:
+		return m.VoteMessage.Vote.Epoch, true
+	case m.EmptyVoteMessage != nil:
+		return m.EmptyVoteMessage.Vote.Epoch, true
+	case m.Notarization != nil:
+		return m.Notarization.Vote.Epoch, true
+	case m.EmptyNotarization != nil:
+		return m.EmptyNotarization.Vote.Epoch, true
+	case m.FinalizeVote != nil:
+		return m.FinalizeVote.Finalization.Epoch, true
+	case m.Finalization != nil:
+		return m.Finalization.Finalization.Epoch, true
+	default:
+		return 0, false
+	}
+}
+
 type EmptyVoteMetadata struct {
 	Round uint64
 	Epoch uint64
@@ -88,14 +111,14 @@ func (v *ToBeSignedEmptyVote) Size() int {
 	return emptyVoteLen
 }
 
-func (v *ToBeSignedEmptyVote) Sign(signer Signer) ([]byte, error) {
+func (v *ToBeSignedEmptyVote) Sign(signer Signer) (SignatureBytes, error) {
 	context := "ToBeSignedEmptyVote"
 	msg := v.Bytes()
 
 	return signContext(signer, msg, context)
 }
 
-func (v *ToBeSignedEmptyVote) Verify(signature []byte, verifier SignatureVerifier, pk []byte) error {
+func (v *ToBeSignedEmptyVote) Verify(signature SignatureBytes, verifier SignatureVerifier, pk PublicKeyBytes) error {
 	context := "ToBeSignedEmptyVote"
 	msg := v.Bytes()
 
@@ -106,14 +129,14 @@ type ToBeSignedVote struct {
 	BlockHeader
 }
 
-func (v *ToBeSignedVote) Sign(signer Signer) ([]byte, error) {
+func (v *ToBeSignedVote) Sign(signer Signer) (SignatureBytes, error) {
 	context := "ToBeSignedVote"
 	msg := v.Bytes()
 
 	return signContext(signer, msg, context)
 }
 
-func (v *ToBeSignedVote) Verify(signature []byte, verifier SignatureVerifier, pk []byte) error {
+func (v *ToBeSignedVote) Verify(signature SignatureBytes, verifier SignatureVerifier, pk PublicKeyBytes) error {
 	context := "ToBeSignedVote"
 	msg := v.Bytes()
 
@@ -124,21 +147,21 @@ type ToBeSignedFinalization struct {
 	BlockHeader
 }
 
-func (f *ToBeSignedFinalization) Sign(signer Signer) ([]byte, error) {
+func (f *ToBeSignedFinalization) Sign(signer Signer) (SignatureBytes, error) {
 	context := "ToBeSignedFinalization"
 	msg := f.Bytes()
 
 	return signContext(signer, msg, context)
 }
 
-func (f *ToBeSignedFinalization) Verify(signature []byte, verifier SignatureVerifier, pk []byte) error {
+func (f *ToBeSignedFinalization) Verify(signature SignatureBytes, verifier SignatureVerifier, pk PublicKeyBytes) error {
 	context := "ToBeSignedFinalization"
 	msg := f.Bytes()
 
 	return verifyContext(signature, verifier, msg, context, pk)
 }
 
-func signContext(signer Signer, msg []byte, context string) ([]byte, error) {
+func signContext(signer Signer, msg []byte, context string) (SignatureBytes, error) {
 	sm := SignedMessage{Payload: msg, Context: context}
 	toBeSigned, err := asn1.Marshal(sm)
 	if err != nil {
@@ -147,7 +170,7 @@ func signContext(signer Signer, msg []byte, context string) ([]byte, error) {
 	return signer.Sign(toBeSigned)
 }
 
-func verifyContext(signature []byte, verifier SignatureVerifier, msg []byte, context string, pk []byte) error {
+func verifyContext(signature SignatureBytes, verifier SignatureVerifier, msg []byte, context string, pk PublicKeyBytes) error {
 	sm := SignedMessage{Payload: msg, Context: context}
 	toBeSigned, err := asn1.Marshal(sm)
 	if err != nil {
@@ -209,7 +232,13 @@ func (f *Finalization) Verify(nodes Nodes) error {
 }
 
 func (f *Finalization) Size() int {
-	return f.Finalization.Size() + f.QC.Size()
+	size := f.Finalization.Size()
+	// genesis block has an empty finalization and no QC
+	if f.QC != nil {
+		size += f.QC.Size()
+	}
+
+	return size
 }
 
 // Notarization represents a block that has reached a quorum of votes.
@@ -319,6 +348,18 @@ func (q *QuorumRound) IsWellFormed() error {
 	return nil
 }
 
+func (q *QuorumRound) GetEpoch() uint64 {
+	if q.EmptyNotarization != nil {
+		return q.EmptyNotarization.Vote.Epoch
+	}
+
+	if q.Block != nil {
+		return q.Block.BlockHeader().Epoch
+	}
+
+	return 0
+}
+
 func (q *QuorumRound) GetRound() uint64 {
 	if q.EmptyNotarization != nil {
 		return q.EmptyNotarization.Vote.Round
@@ -349,22 +390,30 @@ func (q *QuorumRound) VerifyQCConsistentWithBlock() error {
 	}
 
 	// if an empty notarization is included, ensure the round is equal to the block round
-	if q.EmptyNotarization != nil && q.EmptyNotarization.Vote.Round != q.Block.BlockHeader().Round {
+	header := q.Block.BlockHeader()
+
+	if q.EmptyNotarization != nil && q.EmptyNotarization.Vote.Round != header.Round {
 		return fmt.Errorf("empty round does not match block round")
 	}
 
 	// ensure the finalization or notarization we get relates to the block
-	blockDigest := q.Block.BlockHeader().Digest
+	blockDigest := header.Digest
 
 	if q.Finalization != nil {
 		if !bytes.Equal(blockDigest[:], q.Finalization.Finalization.Digest[:]) {
-			return fmt.Errorf("finalization does not match the block")
+			return fmt.Errorf("finalization does not match the block digest")
+		}
+		if !q.Finalization.Finalization.Equals(&header) {
+			return fmt.Errorf("finalization does not match the block header")
 		}
 	}
 
 	if q.Notarization != nil {
 		if !bytes.Equal(blockDigest[:], q.Notarization.Vote.Digest[:]) {
-			return fmt.Errorf("notarization does not match the block")
+			return fmt.Errorf("notarization does not match the block digest")
+		}
+		if !q.Notarization.Vote.Equals(&header) {
+			return fmt.Errorf("notarization does not match the block header")
 		}
 	}
 
@@ -467,7 +516,7 @@ func (ai *AuxiliaryInfo) Clone() AuxiliaryInfo {
 // ValidatorSetApproval is an approval from a validator
 type ValidatorSetApproval struct {
 	NodeID        avalanchego.NodeID
-	AuxInfoDigest [32]byte
+	AuxInfoDigest Digest
 	PChainHeight  uint64
-	Signature     []byte
+	Signature     SignatureBytes
 }

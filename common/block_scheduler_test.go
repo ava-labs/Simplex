@@ -223,6 +223,51 @@ func TestBlockVerificationScheduler(t *testing.T) {
 		waitReceive(t, done2)
 	})
 
+	t.Run("IsSequenceScheduled covers queued and running tasks", func(t *testing.T) {
+		scheduler := NewScheduler(noopLogger{}, defaultMaxDeps)
+		bvs := NewBlockVerificationScheduler(noopLogger{}, defaultMaxDeps, scheduler)
+		defer bvs.Close()
+
+		started := make(chan struct{}, 1)
+		release := make(chan struct{})
+		task := func() Digest {
+			started <- struct{}{}
+			<-release
+			return makeDigest(t)
+		}
+
+		require.False(t, bvs.IsSequenceScheduled(3))
+		require.NoError(t, bvs.ScheduleTaskWithDependencies(task, 3, nil, nil))
+
+		// Running with no dependencies still counts as scheduled.
+		waitReceive(t, started)
+		require.True(t, bvs.IsSequenceScheduled(3))
+
+		close(release)
+		require.Eventually(t, func() bool { return !bvs.IsSequenceScheduled(3) }, defaultWaitDuration, 10*time.Millisecond)
+	})
+
+	// If the scheduler drops the task, IsSequenceScheduled should return false.
+	t.Run("IsSequenceScheduled is false for dropped tasks", func(t *testing.T) {
+		scheduler := NewScheduler(noopLogger{}, defaultMaxDeps)
+		bvs := NewBlockVerificationScheduler(noopLogger{}, defaultMaxDeps, scheduler)
+		defer bvs.Close()
+
+		task := func() Digest { return makeDigest(t) }
+
+		require.NoError(t, bvs.ScheduleTaskWithDependencies(task, 4, nil, []uint64{1}))
+		require.True(t, bvs.IsSequenceScheduled(4))
+
+		// Closing the underlying scheduler will make sure other tasks get dropped.
+		scheduler.Close()
+
+		require.NoError(t, bvs.ScheduleTaskWithDependencies(task, 3, nil, nil))
+		require.False(t, bvs.IsSequenceScheduled(3))
+
+		bvs.ExecuteEmptyRoundDependents(1)
+		require.False(t, bvs.IsSequenceScheduled(4))
+	})
+
 	t.Run("RemoveOldTasks removes tasks with blockSeq <= finalized seq", func(t *testing.T) {
 		scheduler := NewScheduler(noopLogger{}, defaultMaxDeps)
 		bvs := NewBlockVerificationScheduler(noopLogger{}, defaultMaxDeps, scheduler)
@@ -257,6 +302,8 @@ func TestBlockVerificationScheduler(t *testing.T) {
 
 		// Finalize up to seq=6 — this should remove the old task (seq=5) but keep the new one (seq=8).
 		bvs.RemoveOldTasks(6)
+		require.False(t, bvs.IsSequenceScheduled(oldSeq))
+		require.True(t, bvs.IsSequenceScheduled(newSeq))
 
 		// Now resolve the dependency round. Only the "new" task should execute.
 		bvs.ExecuteEmptyRoundDependents(depRound)

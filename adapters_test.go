@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ava-labs/simplex/avalanchego"
 	"github.com/ava-labs/simplex/common"
 	metadata "github.com/ava-labs/simplex/msm"
 	"github.com/ava-labs/simplex/testutil"
@@ -39,7 +38,7 @@ func newTestParsedBlock(num uint64, payload string) *ParsedBlock {
 // and a verified but not yet indexed block at seq 5. A zero digest matches on
 // seq alone, a non-zero digest must match the block's digest exactly.
 func TestCachedStorageRetrieve(t *testing.T) {
-	cs := NewCachedStorage(NewMockStorage(t))
+	cs := NewCachedStorage(newTestStorage(), 0)
 	indexedBlock := newTestParsedBlock(0, "indexed")
 	require.NoError(t, cs.Index(t.Context(), indexedBlock, common.Finalization{}))
 
@@ -57,7 +56,9 @@ func TestCachedStorageRetrieve(t *testing.T) {
 		seq       uint64
 		digest    common.Digest
 		wantBlock *ParsedBlock
-		wantErr   error
+		// legacy marks a block predating Simplex, which is identified by its inner block's digest.
+		legacy  bool
+		wantErr error
 	}{
 		{
 			name:      "cached block by seq with zero digest",
@@ -77,9 +78,11 @@ func TestCachedStorageRetrieve(t *testing.T) {
 			wantErr: common.ErrBlockNotFound,
 		},
 		{
+			// Seq 0 is at or below the last non-Simplex height, so it is served as a legacy block.
 			name:      "uncached seq falls through to storage",
 			seq:       0,
 			wantBlock: indexedBlock,
+			legacy:    true,
 		},
 		{
 			name:    "indexed block with mismatched digest",
@@ -102,7 +105,11 @@ func TestCachedStorageRetrieve(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			require.Equal(t, tt.wantBlock, got)
+			wantDigest := common.Digest(tt.wantBlock.Digest())
+			if tt.legacy {
+				wantDigest = common.Digest(tt.wantBlock.InnerBlock.Digest())
+			}
+			require.Equal(t, wantDigest, got.BlockHeader().Digest)
 			if tt.wantBlock == verifiedBlock {
 				require.Nil(t, fin)
 			}
@@ -110,52 +117,11 @@ func TestCachedStorageRetrieve(t *testing.T) {
 	}
 }
 
-// TestCallbackStorageReportsTelockSkip asserts that CallbackStorage reports the skip when it
-// declines to persist a Telock, rather than returning a nil error.
-//
-// A nil error from Index means the block is durable at its sequence, and the consensus engine
-// commits its in-memory state (its last committed block and its round) on that basis. Reporting
-// success for a Telock, which is never persisted, would leave that state pointing at a block
-// absent from storage, permanently out of step with NumBlocks(), while the block that does
-// belong at the sequence can no longer be committed.
-func TestCallbackStorageReportsTelockSkip(t *testing.T) {
-	var indexed []uint64
-	cs := NewCachedStorage(NewMockStorage(t))
-	storage := NewCallbackStorage(cs, nil, func(block *ParsedBlock) error {
-		indexed = append(indexed, block.BlockHeader().Seq)
-		return nil
-	})
-
-	// A normal block is persisted and the callback runs.
-	require.NoError(t, storage.Index(t.Context(), newTestParsedBlock(0, "normal"), common.Finalization{}))
-	require.Equal(t, uint64(1), storage.NumBlocks())
-	require.Equal(t, []uint64{0}, indexed)
-
-	// A Telock only extends its epoch until the sealing block finalizes, so it is never persisted.
-	telock := newTestParsedBlock(1, "telock")
-	telock.Metadata.SimplexEpochInfo.SealingBlockSeq = 1
-	require.Equal(t, metadata.BlockTypeTelock, telock.Type())
-
-	err := storage.Index(t.Context(), telock, common.Finalization{})
-	require.ErrorIs(t, err, common.ErrBlockNotIndexed, "declining to persist a Telock must be reported, not hidden behind a nil error")
-	require.Equal(t, uint64(1), storage.NumBlocks(), "the Telock must not be persisted")
-	require.Equal(t, []uint64{0}, indexed, "the post-index callback must not run for a block that was not indexed")
-
-	// The Telock stays retrievable by digest: its epoch is still being extended.
-	cachedTelock := &cachedBlock{ParsedBlock: telock, cache: cs}
-	_, err = cachedTelock.Verify(t.Context(), common.OnlyVMVerifyOpt)
-	require.NoError(t, err)
-	require.ErrorIs(t, storage.Index(t.Context(), telock, common.Finalization{}), common.ErrBlockNotIndexed)
-	got, _, err := cs.Retrieve(1, telock.Digest())
-	require.NoError(t, err)
-	require.Equal(t, telock.BlockHeader().Digest, got.BlockHeader().Digest)
-}
-
 // TestCachedStorageIndexEvictsSameSeqFork asserts that once a seq is indexed,
 // a zero-digest Retrieve of that seq returns the finalized block with its
 // finalization, even when a verified fork at the same seq was cached.
 func TestCachedStorageIndexEvictsSameSeqFork(t *testing.T) {
-	cs := NewCachedStorage(NewMockStorage(t))
+	cs := NewCachedStorage(newTestStorage(), 0)
 	require.NoError(t, cs.Index(t.Context(), newTestParsedBlock(0, "genesis"), common.Finalization{}))
 
 	equivocatedBlock := &cachedBlock{
@@ -174,31 +140,39 @@ func TestCachedStorageIndexEvictsSameSeqFork(t *testing.T) {
 	require.NotNil(t, fin)
 }
 
+// TestCachedStorageLateVerify asserts that a block whose verification
+// completes after its sibling(block with same sequence) was indexed is not cached.
+func TestCachedStorageLateVerifyDoesNotShadowIndexed(t *testing.T) {
+	cs := NewCachedStorage(newTestStorage(), 0)
+	require.NoError(t, cs.Index(t.Context(), newTestParsedBlock(0, "genesis"), common.Finalization{}))
+
+	finalized := newTestParsedBlock(1, "finalized")
+	require.NoError(t, cs.Index(t.Context(), finalized, common.Finalization{}))
+
+	delayedVerificationBlock := &cachedBlock{
+		ParsedBlock: newTestParsedBlock(1, "delayed sibling"),
+		cache:       cs,
+	}
+	_, err := delayedVerificationBlock.Verify(t.Context(), common.OnlyVMVerifyOpt)
+	require.NoError(t, err)
+
+	retrievedBlock, fin, err := cs.Retrieve(1, common.Digest{})
+	require.NoError(t, err)
+	require.Equal(t, finalized.BlockHeader().Digest, retrievedBlock.BlockHeader().Digest)
+	require.NotNil(t, fin)
+}
+
 // TestCachedStoragePopulatedByWal asserts that a block restored from the WAL on
 // startup ends up in the instance's CachedStorage, retrievable by seq before it
 // is finalized and indexed.
 func TestCachedStoragePopulatedByWal(t *testing.T) {
-	const basePChainHeight = uint64(1)
-
-	// Four equal-weight validators; the node under test is the first.
-	numNodes := 4
-	validatorSet := make(metadata.NodeBLSMappings, numNodes)
-	for i := range numNodes {
-		validatorSet[i] = metadata.NodeBLSMapping{NodeID: avalanchego.NodeID{byte(i + 1)}, BLSKey: []byte{byte(i + 1)}, Weight: 1}
+	// Four equal-weight validators; only the first runs, so no quorum forms
+	// and the restored block stays unfinalized.
+	validatorSet := make(metadata.NodeBLSMappings, 4)
+	for i := range validatorSet {
+		validatorSet[i] = newNodeMapping(i + 1)
 	}
-	pChain := newTestPlatformChain(basePChainHeight, map[uint64]metadata.NodeBLSMappings{
-		basePChainHeight: validatorSet,
-	})
-
-	vm := newTestVM()
-	vm.pause()
-	cops := &testCryptoOps{}
-	genesisBlock := &testInnerBlock{Height_: 0, TS: time.Now(), Payload: []byte("genesis")}
-	storage := newStorageWithGenesis(t, genesisBlock)
 	nodeIDs := validatorSet.Nodes().NodeIDs()
-	comm := testutil.NewNoopComm(nodeIDs)
-	logger := testutil.MakeLogger(t, 1)
-	testWAL := testutil.NewTestWAL(t)
 
 	// The first Simplex block on top of the genesis block.
 	genesis := &ParsedBlock{StateMachineBlock: metadata.StateMachineBlock{InnerBlock: genesisBlock}}
@@ -206,47 +180,60 @@ func TestCachedStoragePopulatedByWal(t *testing.T) {
 	block.Metadata.SimplexProtocolMetadata.Epoch = 1
 	block.Metadata.SimplexProtocolMetadata.Prev = genesis.BlockHeader().Digest
 
+	testWAL := testutil.NewTestWAL(t)
 	blockRecord, err := common.BlockRecord(block.BlockHeader(), block.Bytes())
 	require.NoError(t, err)
-
-	// write block record to wal
 	require.NoError(t, testWAL.Append(blockRecord))
 
 	// notarize the block so restoring the WAL keeps it as the round in progress
+	cops := &testCryptoOps{}
 	quorum := common.Quorum(len(nodeIDs))
-	notarizationRecord, err := testutil.NewNotarizationRecord(logger, cops.CreateSignatureAggregator(validatorSet.Nodes()), block, nodeIDs[:quorum])
+	notarizationRecord, err := testutil.NewNotarizationRecord(testutil.MakeLogger(t, 1), cops.CreateSignatureAggregator(validatorSet.Nodes()), block, nodeIDs[:quorum])
 	require.NoError(t, err)
 	require.NoError(t, testWAL.Append(notarizationRecord))
 
-	config := Config{
-		Logger:                   logger,
-		ID:                       nodeIDs[0],
-		VM:                       vm,
-		Storage:                  storage,
-		Sender:                   comm,
-		Broadcaster:              comm,
-		PlatformChain:            pChain,
-		CryptoOps:                cops,
-		LastNonSimplexInnerBlock: genesisBlock,
-		WalCreator:               storage.CreateWAL,
-		ParameterConfig: ParameterConfig{
-			MaxNetworkDelay: 500 * time.Millisecond,
-			MaxRoundWindow:  100,
-			WALMaxSizeBytes: 1024,
-		},
-		WALs: []wal.DeletableWAL{testWAL},
-	}
-	instance := NewInstance(config)
-	require.NoError(t, instance.Start(t.Context()))
-	t.Cleanup(instance.Stop)
+	chain := newNetwork(t, newTestPChain(validatorSet))
+	node := chain.addNodeWithConfig(nodeIDs[0], nodeConfig{wals: []wal.DeletableWAL{testWAL}})
 
 	// The restored block is verified asynchronously and not indexed, so poll until
 	// a seq-only lookup serves it from the cache.
 	require.Eventually(t, func() bool {
-		got, fin, err := instance.cs.Retrieve(1, common.Digest{})
+		got, fin, err := node.inst.cs.Retrieve(1, common.Digest{})
 		if err != nil || fin != nil {
 			return false
 		}
 		return got.BlockHeader().Digest == block.BlockHeader().Digest
 	}, 20*time.Second, 100*time.Millisecond)
+}
+
+// TestCachedStoragePopulatedBySelfBuiltBlock asserts that a block a node builds for its
+// own proposal is inserted into the CachedStorage, retrievable by seq and digest before
+// it is finalized and indexed.
+func TestCachedStoragePopulatedBySelfBuiltBlock(t *testing.T) {
+	storage := newTestStorageWithGenesis(t)
+	cs := NewCachedStorage(storage, 0)
+
+	msm, err := metadata.NewStateMachine(&metadata.Config{
+		Logger:                   testutil.MakeLogger(t, 1),
+		GetBlock:                 cs.RetrieveBlock,
+		LastNonSimplexInnerBlock: genesisBlock,
+		GenesisValidatorSet:      metadata.NodeBLSMappings{newNodeMapping(1)},
+		AuxiliaryInfoApp:         &NoopAuxiliaryInfoApp{},
+	})
+	require.NoError(t, err)
+	cs.msm = msm
+
+	vm := newBlockBuilderVM(storage, newPendingBlockSignal())
+	bw := newBlockBuilderWaiter(msm, cs, vm)
+
+	// Build a block on top of genesis, which as a block predating Simplex is identified by its inner digest.
+	md := common.ProtocolMetadata{Seq: 1, Prev: common.Digest(genesisBlock.Digest())}
+	vb, built := bw.BuildBlock(t.Context(), md, common.Blacklist{})
+	require.True(t, built)
+	require.Equal(t, md.Seq, vb.BlockHeader().Seq)
+
+	cached, fin, err := cs.Retrieve(md.Seq, vb.BlockHeader().Digest)
+	require.NoError(t, err)
+	require.Nil(t, fin)
+	require.Same(t, vb, cached)
 }

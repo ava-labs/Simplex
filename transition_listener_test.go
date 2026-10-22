@@ -16,7 +16,7 @@ import (
 
 var (
 	testNodeID    = avalanchego.NodeID{1}
-	stubSignature = []byte("signature")
+	stubSignature = common.SignatureBytes("signature")
 )
 
 type recordingSender struct {
@@ -33,7 +33,7 @@ type stubSigner struct {
 	sig []byte
 }
 
-func (s stubSigner) Sign([]byte) ([]byte, error) {
+func (s stubSigner) Sign([]byte) (common.SignatureBytes, error) {
 	return s.sig, nil
 }
 
@@ -77,7 +77,7 @@ func newListenerTestEnv(t *testing.T, nextEpochValidatorSet metadata.NodeBLSMapp
 		return metadata.StateMachineBlock{}, nil, nil
 	}
 
-	handleApproval := func(approval *common.ValidatorSetApproval, _ uint64) {
+	handleApproval := func(approval *common.ValidatorSetApproval) {
 		env.approvals = append(env.approvals, *approval)
 	}
 
@@ -171,8 +171,8 @@ func TestTransitionSendsApproval(t *testing.T) {
 	approval := msg.EpochTransitionApproval
 	require.Equal(t, testNodeID, approval.NodeID)
 	require.Equal(t, nextPChainRef, approval.PChainHeight)
-	require.Equal(t, [32]byte{}, approval.AuxInfoDigest) // no auxiliary info was collected
-	require.Equal(t, []byte("signature"), approval.Signature)
+	require.Equal(t, common.Digest{}, approval.AuxInfoDigest) // no auxiliary info was collected
+	require.Equal(t, stubSignature, approval.Signature)
 
 	// a validator also records its own approval locally so its next block includes it
 	require.Equal(t, []common.ValidatorSetApproval{*approval}, env.approvals)

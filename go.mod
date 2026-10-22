@@ -2,6 +2,8 @@ module github.com/ava-labs/simplex
 
 go 1.25.0
 
+toolchain go1.26.10
+
 require (
 	github.com/StephenButtolph/canoto v0.19.0
 	github.com/stretchr/testify v1.10.0

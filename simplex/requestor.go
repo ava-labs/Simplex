@@ -147,7 +147,7 @@ func (r *requestor) observedSignedQuorum(observed *signedQuorum, currentSeqOrRou
 	}
 
 	// if this is the highest observed sequence, update our state
-	if r.highestObserved == nil || observedSeqOrRound > r.highestObserved.seq {
+	if r.highestObserved == nil || observedSeqOrRound > r.getSeqOrRound(r.highestObserved) {
 		r.highestObserved = observed
 	}
 

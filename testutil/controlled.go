@@ -4,6 +4,7 @@ package testutil
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -214,6 +215,9 @@ func (t *TestControlledBlockBuilder) BuildBlock(ctx context.Context, metadata co
 	select {
 	case <-t.control:
 	case <-ctx.Done():
+		if errors.Is(context.Cause(ctx), common.ErrShouldBuildEmptyBlock) {
+			return NewTestBlock(metadata, blacklist), true
+		}
 		return nil, false
 	}
 	return t.TestBlockBuilder.BuildBlock(ctx, metadata, blacklist)

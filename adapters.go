@@ -7,38 +7,21 @@ import (
 	"context"
 	"fmt"
 	"sync"
-	"sync/atomic"
 
+	"github.com/ava-labs/simplex/avalanchego"
 	"github.com/ava-labs/simplex/common"
 	metadata "github.com/ava-labs/simplex/msm"
 	"github.com/ava-labs/simplex/simplex"
 )
 
-type Communication struct {
-	nodes atomic.Value // common.Nodes
+type communication struct {
+	validators func() common.Nodes
 	Sender
 	Broadcaster
 }
 
-func newCommunication(sender Sender, broadcaster Broadcaster, validators common.Nodes) *Communication {
-	c := &Communication{
-		Sender:      sender,
-		Broadcaster: broadcaster,
-	}
-	c.SetValidators(validators)
-	return c
-}
-
-func (c *Communication) SetValidators(nodes common.Nodes) {
-	c.nodes.Store(nodes)
-}
-
-func (c *Communication) Validators() common.Nodes {
-	nodes, ok := c.nodes.Load().(common.Nodes)
-	if !ok {
-		return nil
-	}
-	return nodes
+func (c *communication) Validators() common.Nodes {
+	return c.validators()
 }
 
 // CallbackStorage is a wrapper around Storage that skips indexing Telocks
@@ -66,6 +49,7 @@ func (s *CallbackStorage) Retrieve(seq uint64) (common.VerifiedBlock, common.Fin
 		return nil, common.Finalization{}, err
 	}
 	parsedBlock := &ParsedBlock{
+		legacyBlock:       seq <= s.lastNonSimplexHeight,
 		msm:               s.msm,
 		StateMachineBlock: block,
 	}
@@ -79,15 +63,8 @@ func (s *CallbackStorage) Index(ctx context.Context, block common.VerifiedBlock,
 	}
 
 	// A Telock only extends time until the epoch transition finalizes, so we never index it.
-	// Report the skip instead of a nil error: a nil error means the block is durable at its
-	// sequence, and the consensus engine advances its commit state (lastBlock, round) on it.
-	// Returning nil here would leave that state pointing at a block that is not, and never
-	// will be, in storage, permanently desynchronizing it from NumBlocks().
-	// The block is deliberately left in the CachedStorage cache, since a Telock must remain
-	// retrievable by digest for as long as its epoch is being extended.
 	if pb.Type() == metadata.BlockTypeTelock {
-		return fmt.Errorf("%w: Telocks are never persisted (seq %d, round %d)",
-			common.ErrBlockNotIndexed, block.BlockHeader().Seq, block.BlockHeader().Round)
+		return nil
 	}
 
 	if err := s.CachedStorage.Index(ctx, block, certificate); err != nil {
@@ -114,16 +91,20 @@ func (cb *cachedBlock) Verify(ctx context.Context, verifyOpts ...common.VerifyOp
 }
 
 type CachedStorage struct {
-	msm  *metadata.StateMachine
-	lock sync.RWMutex
+	// lastNonSimplexHeight is the height of the last block that is not a Simplex block.
+	// Blocks with height <= this are called legacy blocks.
+	lastNonSimplexHeight uint64
+	msm                  *metadata.StateMachine
+	lock                 sync.RWMutex
 	Storage
 	cache map[common.Digest]cachedBlock
 }
 
-func NewCachedStorage(storage Storage) *CachedStorage {
+func NewCachedStorage(storage Storage, lastNonSimplexHeight uint64) *CachedStorage {
 	return &CachedStorage{
-		Storage: storage,
-		cache:   make(map[common.Digest]cachedBlock),
+		lastNonSimplexHeight: lastNonSimplexHeight,
+		Storage:              storage,
+		cache:                make(map[common.Digest]cachedBlock),
 	}
 }
 
@@ -157,24 +138,39 @@ func (cs *CachedStorage) Retrieve(seq uint64, digest common.Digest) (common.Veri
 
 	// We don't populate the cache here because we populate it externally.
 	block, finalization, err := cs.GetBlock(seq)
-	if digest != (common.Digest{}) && block.Digest() != digest {
-		return nil, nil, common.ErrBlockNotFound
+	if err != nil {
+		return nil, nil, err
+	}
+
+	legacy := seq <= cs.lastNonSimplexHeight
+
+	if digest != (common.Digest{}) {
+		// A block predating Simplex is identified by its inner block's digest, not by a Simplex block digest.
+		blockDigest := block.Digest()
+		if legacy && block.InnerBlock != nil {
+			blockDigest = common.Digest(block.InnerBlock.Digest())
+		}
+		if blockDigest != digest {
+			return nil, nil, common.ErrBlockNotFound
+		}
 	}
 
 	return &ParsedBlock{
+		legacyBlock:       legacy,
 		StateMachineBlock: block,
 		msm:               cs.msm,
 	}, finalization, err
 }
 
 func (cs *CachedStorage) Index(ctx context.Context, block common.VerifiedBlock, certificate common.Finalization) error {
+	cs.lock.Lock()
+	defer cs.lock.Unlock()
+
 	err := cs.Storage.Index(ctx, block, certificate)
 
 	if err == nil {
 		// We delete the block from the cache after it has been indexed because now that it is persisted,
 		// we can just lookup by sequence number instead of digest.
-		cs.lock.Lock()
-		defer cs.lock.Unlock()
 		delete(cs.cache, block.BlockHeader().Digest)
 
 		// We also delete all blocks that are older than the indexed block, including the finalized block because they are now finalized and persisted.
@@ -191,6 +187,12 @@ func (cs *CachedStorage) Index(ctx context.Context, block common.VerifiedBlock, 
 func (cs *CachedStorage) insertBlock(block *ParsedBlock) {
 	cs.lock.Lock()
 	defer cs.lock.Unlock()
+
+	// inserting is async, so ensure the sequence we are inserting
+	// hasn't been indexed already
+	if block.BlockHeader().Seq < cs.NumBlocks() {
+		return
+	}
 
 	cs.cache[block.Digest()] = cachedBlock{
 		ParsedBlock: block,
@@ -218,15 +220,24 @@ func (n *NoopAuxiliaryInfoApp) DefaultVersionID() common.VersionID {
 	return 0
 }
 
-type BlockBuilderWaiter struct {
+type blockBuilderWaiter struct {
 	lock   sync.Mutex
 	cancel context.CancelFunc
 	msm    *metadata.StateMachine
+	cs     *CachedStorage
 	e      *simplex.Epoch
 	vm     VM
 }
 
-func (bw *BlockBuilderWaiter) stop() {
+func newBlockBuilderWaiter(msm *metadata.StateMachine, cs *CachedStorage, vm VM) *blockBuilderWaiter {
+	return &blockBuilderWaiter{
+		msm: msm,
+		cs:  cs,
+		vm:  vm,
+	}
+}
+
+func (bw *blockBuilderWaiter) stop() {
 	bw.lock.Lock()
 	defer bw.lock.Unlock()
 	if bw.cancel != nil {
@@ -235,7 +246,7 @@ func (bw *BlockBuilderWaiter) stop() {
 	}
 }
 
-func (bw *BlockBuilderWaiter) WaitForPendingBlock(ctx context.Context) {
+func (bw *blockBuilderWaiter) WaitForPendingBlock(ctx context.Context) {
 	bw.lock.Lock()
 	if bw.cancel != nil {
 		bw.cancel()
@@ -249,18 +260,22 @@ func (bw *BlockBuilderWaiter) WaitForPendingBlock(ctx context.Context) {
 	bw.msm.WaitForPendingBlock(ctx, md)
 }
 
-func (bw *BlockBuilderWaiter) BuildBlock(ctx context.Context, metadata common.ProtocolMetadata, blacklist common.Blacklist) (common.VerifiedBlock, bool) {
+func (bw *blockBuilderWaiter) BuildBlock(ctx context.Context, metadata common.ProtocolMetadata, blacklist common.Blacklist) (common.VerifiedBlock, bool) {
 	block, err := bw.msm.BuildBlock(ctx, metadata, blacklist)
 	if err != nil {
 		return nil, false
 	}
 
-	pb := ParsedBlock{
+	pb := &ParsedBlock{
+		legacyBlock:       metadata.Seq <= bw.cs.lastNonSimplexHeight,
 		StateMachineBlock: *block,
 		msm:               bw.msm,
 	}
 
-	return &pb, true
+	// Ensure the builders block is in the cache after verification
+	bw.cs.insertBlock(pb)
+
+	return pb, true
 }
 
 type blockDeserializer struct {
@@ -274,14 +289,23 @@ func (bd *blockDeserializer) DeserializeBlock(ctx context.Context, bytes []byte)
 		return nil, err
 	}
 
-	block, err := bd.vm.ParseBlock(ctx, rawBlock.InnerBlockBytes)
-	if err != nil {
-		return nil, err
+	var innerBlock avalanchego.VMBlock
+	if len(rawBlock.InnerBlockBytes) > 0 {
+		block, err := bd.vm.ParseBlock(ctx, rawBlock.InnerBlockBytes)
+		if err != nil {
+			return nil, err
+		}
+		innerBlock = block
 	}
+
+	seq := rawBlock.Metadata.SimplexProtocolMetadata.Seq
+	legacy := seq <= bd.cs.lastNonSimplexHeight
+
 	return &cachedBlock{
 		ParsedBlock: &ParsedBlock{
+			legacyBlock: legacy,
 			StateMachineBlock: metadata.StateMachineBlock{
-				InnerBlock: block,
+				InnerBlock: innerBlock,
 				Metadata:   rawBlock.Metadata,
 			},
 			msm: bd.cs.msm,

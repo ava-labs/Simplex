@@ -4,68 +4,12 @@
 package avalanchego
 
 import (
-	"math"
 	"math/big"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 )
-
-func TestSafeAdd(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		a, b uint64
-		sum  uint64
-		err  error
-	}{
-		{
-			name: "zero plus zero",
-			a:    0, b: 0,
-			sum: 0,
-		},
-		{
-			name: "normal addition",
-			a:    10, b: 20,
-			sum: 30,
-		},
-		{
-			name: "max uint64 plus zero",
-			a:    math.MaxUint64, b: 0,
-			sum: math.MaxUint64,
-		},
-		{
-			name: "zero plus max uint64",
-			a:    0, b: math.MaxUint64,
-			sum: math.MaxUint64,
-		},
-		{
-			name: "overflow by one",
-			a:    math.MaxUint64, b: 1,
-			err: errOverflow,
-		},
-		{
-			name: "overflow both large",
-			a:    math.MaxUint64 - 5, b: 10,
-			err: errOverflow,
-		},
-		{
-			name: "max uint64 boundary no overflow",
-			a:    math.MaxUint64 - 5, b: 5,
-			sum: math.MaxUint64,
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			result, err := safeAdd(tc.a, tc.b)
-			if tc.err != nil {
-				require.ErrorIs(t, err, tc.err)
-			} else {
-				require.NoError(t, err)
-				require.Equal(t, tc.sum, result)
-			}
-		})
-	}
-}
 
 func TestBitmask(t *testing.T) {
 	t.Run("empty bitmask", func(t *testing.T) {

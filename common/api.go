@@ -6,6 +6,7 @@ package common
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 
@@ -36,11 +37,23 @@ type Logger interface {
 	Verbo(msg string, fields ...zap.Field)
 }
 
+var (
+	// ErrShouldBuildEmptyBlock is returned when a block needs to be built even though the VM has no transactions to include in the block.
+	// This is used to advance the chain when the tip is notarized but not finalized.
+	ErrShouldBuildEmptyBlock = errors.New("should build empty block")
+
+	// ErrBlockNotFound is returned when a block cannot be found in storage.
+	ErrBlockNotFound = fmt.Errorf("block not found")
+)
+
 type BlockBuilder interface {
 	// BuildBlock blocks until some transactions are available to be batched into a block,
-	// in which case a block and true are returned.
-	// When the given context is cancelled by the caller, returns false.
-	// The given metadata and blacklist are encoded into the built block.
+	// and the given metadata and blacklist are encoded into the built block.
+	// Returns a block and true unless the given context is cancelled by the caller.
+	// When the given context is cancelled by the caller:
+	// returns an empty block and true, if the context was cancelled with ErrShouldBuildEmptyBlock
+	// returns nil, false otherwise.
+	// The returned boolean indicates whether the block is nil or not.
 	BuildBlock(ctx context.Context, metadata ProtocolMetadata, blacklist Blacklist) (VerifiedBlock, bool)
 
 	// WaitForPendingBlock returns when either the given context is cancelled,
@@ -48,25 +61,11 @@ type BlockBuilder interface {
 	WaitForPendingBlock(ctx context.Context)
 }
 
-var ErrBlockNotFound = fmt.Errorf("block not found")
-
-// ErrBlockNotIndexed is returned by Storage.Index when the implementation deliberately
-// declined to persist the block. It is not a failure, but it is also not a commit:
-// the block is not durable and NumBlocks() has not advanced, so the caller must not
-// treat it as committed.
-var ErrBlockNotIndexed = fmt.Errorf("block was not indexed")
-
 type Storage interface {
 	NumBlocks() uint64
 	// Retrieve returns the block and finalization at [seq].
 	// If [seq] the block cannot be found, returns ErrBlockNotFound.
 	Retrieve(seq uint64) (VerifiedBlock, Finalization, error)
-	// Index durably persists [block] and [certificate].
-	// A nil error means the block is stored at its sequence, hence NumBlocks() has advanced
-	// past it by the time Index returns; callers rely on NumBlocks() reflecting Index
-	// synchronously to know which sequence to commit next.
-	// An implementation that intentionally does not persist a block must return
-	// ErrBlockNotIndexed, never nil, otherwise the caller would wrongly consider it committed.
 	Index(ctx context.Context, block VerifiedBlock, certificate Finalization) error
 }
 
@@ -83,11 +82,18 @@ type Communication interface {
 }
 
 type Signer interface {
-	Sign(message []byte) ([]byte, error)
+	Sign(message []byte) (SignatureBytes, error)
 }
 
+// SignatureBytes is the byte representation of a signature, or of an aggregate of signatures.
+type SignatureBytes []byte
+
+// PublicKeyBytes is the byte representation of a public key, or of an aggregate of public keys.
+type PublicKeyBytes []byte
+
+// SignatureVerifier verifies that signature is a valid signature over message by the holder of publicKey.
 type SignatureVerifier interface {
-	VerifySignature(message []byte, signature []byte, publicKey []byte) error
+	VerifySignature(message []byte, signature SignatureBytes, publicKey PublicKeyBytes) error
 }
 
 type WriteAheadLog interface {
@@ -151,7 +157,7 @@ type Signature struct {
 	// Signer is the NodeID of the creator of the signature.
 	Signer NodeID
 	// Value is the byte representation of the signature.
-	Value []byte
+	Value SignatureBytes
 }
 
 // QCDeserializer deserializes QuorumCertificates according to formatting
@@ -168,7 +174,7 @@ type SignatureAggregator interface {
 
 	// AppendSignatures appends signatures to an existing signature.
 	// If the existing signature is empty, it just aggregates the given signatures.
-	AppendSignatures([]byte, ...[]byte) ([]byte, error)
+	AppendSignatures(SignatureBytes, ...SignatureBytes) (SignatureBytes, error)
 
 	// IsQuorum returns true if the given signers constitute a quorum.
 	// In the case of PoA, this means at least a quorum of the nodes are given.
@@ -197,11 +203,36 @@ func (nws Nodes) Contains(nodeID NodeID) bool {
 	return false
 }
 
+// Equal returns whether both hold the same nodes, ignoring order.
+func (nws Nodes) Equal(other Nodes) bool {
+	if len(nws) != len(other) {
+		return false
+	}
+
+	nwsClone := slices.Clone(nws)
+	otherClone := slices.Clone(other)
+	SortNodes(nwsClone)
+	SortNodes(otherClone)
+
+	for i := range nwsClone {
+		if !bytes.Equal(nwsClone[i].Id, otherClone[i].Id) {
+			return false
+		}
+		if !bytes.Equal(nwsClone[i].PK, otherClone[i].PK) {
+			return false
+		}
+		if nwsClone[i].Weight != otherClone[i].Weight {
+			return false
+		}
+	}
+	return true
+}
+
 // Node is a struct that pairs a node ID with its weight and public key.
 type Node struct {
 	Id     NodeID
 	Weight uint64
-	PK     []byte
+	PK     PublicKeyBytes
 }
 
 // SortNodes sorts the nodes in place by their byte representations.

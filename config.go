@@ -12,6 +12,9 @@ import (
 	metadata "github.com/ava-labs/simplex/msm"
 )
 
+// DefaultWALGCInterval is the WALGCInterval used when none is configured.
+const DefaultWALGCInterval uint64 = 10_000
+
 type ParameterConfig struct {
 	// WALMaxSizeBytes is the maximum size, in bytes, that a write-ahead log may reach
 	// before it is closed and a new one is started. Zero selects the default.
@@ -20,6 +23,9 @@ type ParameterConfig struct {
 	MaxNetworkDelay time.Duration
 	// MaxRoundWindow is the maximum number of rounds that can be stored in memory.
 	MaxRoundWindow uint64
+	// WALGCInterval is the number of indexed blocks between WAL garbage collections.
+	// Defaults to DefaultWALGCInterval.
+	WALGCInterval uint64
 }
 
 // PlatformChain is an interface that abstracts the interaction with the P-chain.
@@ -73,9 +79,14 @@ type Storage interface {
 }
 
 type CryptoOps interface {
-	Sign(message []byte) ([]byte, error)
-	AggregateKeys(keys ...[]byte) ([]byte, error)
-	VerifySignature(message []byte, signature []byte, publicKey []byte) error
+	// Sign signs the given message.
+	Sign(message []byte) (common.SignatureBytes, error)
+	// AggregateKeys combines the given public keys into a single aggregated public key.
+	AggregateKeys(keys ...common.PublicKeyBytes) (common.PublicKeyBytes, error)
+	// VerifySignature verifies that signature is a valid signature over message by the holder of publicKey.
+	VerifySignature(message []byte, signature common.SignatureBytes, publicKey common.PublicKeyBytes) error
+	// CreateSignatureAggregator creates a new signature aggregator for the given nodes.
 	CreateSignatureAggregator([]common.Node) common.SignatureAggregator
+	// DeserializeQuorumCertificate deserializes the given bytes into a QuorumCertificate.
 	DeserializeQuorumCertificate(bytes []byte) (common.QuorumCertificate, error)
 }

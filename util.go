@@ -32,20 +32,20 @@ func LastBlock(storage Storage) (metadata.StateMachineBlock, uint64, error) {
 	return lastBlock, numBlocks, nil
 }
 
-// getLastAcceptedEpochAndValidatorSet determines the epoch the instance should start at based on
-// the last block in storage. If the ledger only contains non-Simplex blocks, the
-// epoch is the first Simplex height. If the last block is a sealing block, the
-// epoch it seals has ended, so the next epoch is returned. Otherwise, the epoch
-// of the last block is returned.
-func getLastAcceptedEpochAndValidatorSet(config *Config) (common.Nodes, uint64, error) {
+// getLastAcceptedValidatorSet returns the validator set of the epoch the
+// instance should start at, based on the last block in storage. If the ledger only
+// contains non-Simplex blocks, the genesis validator set is returned. If the last
+// block is a sealing block, the set it seals in is returned. Otherwise, the set is
+// loaded from the sealing block of the last block's epoch.
+func getLastAcceptedValidatorSet(config *Config) (common.Nodes, error) {
 	lastBlock, numBlocks, err := LastBlock(config.Storage)
 	if err != nil {
-		return nil, 0, fmt.Errorf("error retrieving last block: %w", err)
+		return nil, fmt.Errorf("error retrieving last block: %w", err)
 	}
 
 	lastNonSimplexHeight := config.LastNonSimplexInnerBlock.Height()
-	parsedLastBlock := ParsedBlock{StateMachineBlock: lastBlock}
-	epochNum := parsedLastBlock.BlockHeader().Epoch
+	epochNum := lastBlock.Metadata.SimplexProtocolMetadata.Epoch
+	seq := lastBlock.Metadata.SimplexProtocolMetadata.Seq
 	genesisValidatorSet := config.PlatformChain.GenesisValidatorSet()
 
 	var validatorSet metadata.NodeBLSMappings
@@ -60,27 +60,27 @@ func getLastAcceptedEpochAndValidatorSet(config *Config) (common.Nodes, uint64, 
 			zap.Uint64("epoch", epochNum))
 	// If the last block persisted is a sealing block, then we are in the next epoch.
 	case lastBlock.SealingBlockInfo() != nil:
-		epochNum = parsedLastBlock.BlockHeader().Seq
+		epochNum = seq
 		nodes = lastBlock.SealingBlockInfo().ValidatorSet
 		config.Logger.Debug("Determined epoch and validator set from sealing block at tip",
 			zap.Uint64("epoch", epochNum))
 	// Else, we have at least one Simplex block in the ledger, and it's not a sealing block.
 	default:
 		// Therefore, the sequence of the sealing block is the epoch number.
-		sealingBlockSeq := parsedLastBlock.BlockHeader().Epoch
+		sealingBlockSeq := epochNum
 		sealingBlock, _, err := config.Storage.GetBlock(sealingBlockSeq)
 		if err != nil {
-			return nil, 0, fmt.Errorf("error retrieving sealing block from storage: %w", err)
+			return nil, fmt.Errorf("error retrieving sealing block from storage: %w", err)
 		}
 		if sealingBlock.Metadata.SimplexEpochInfo.BlockValidationDescriptor == nil {
-			return nil, 0, fmt.Errorf("%w at seq %d", errNonSealingBlock, sealingBlockSeq)
+			return nil, fmt.Errorf("%w at seq %d", errNonSealingBlock, sealingBlockSeq)
 		}
-		validatorSet = constructValidatorSetFromSealingBlock(&ParsedBlock{StateMachineBlock: sealingBlock})
+		validatorSet = constructValidatorSetFromSealingBlock(sealingBlock.Metadata.SimplexEpochInfo.BlockValidationDescriptor)
 		nodes = validatorSetToNodes(validatorSet)
 		config.Logger.Debug("Determined epoch and validator set from sealing block in storage",
 			zap.Uint64("epoch", epochNum), zap.Uint64("sealingBlockSeq", sealingBlockSeq))
 	}
-	return nodes, epochNum, nil
+	return nodes, nil
 }
 
 func validatorSetToNodes(validatorSet metadata.NodeBLSMappings) common.Nodes {
@@ -96,9 +96,9 @@ func validatorSetToNodes(validatorSet metadata.NodeBLSMappings) common.Nodes {
 	return nodes
 }
 
-func constructValidatorSetFromSealingBlock(lastBlock *ParsedBlock) metadata.NodeBLSMappings {
+func constructValidatorSetFromSealingBlock(bvd *metadata.BlockValidationDescriptor) metadata.NodeBLSMappings {
 	var validatorSet metadata.NodeBLSMappings
-	vdrs := lastBlock.Metadata.SimplexEpochInfo.BlockValidationDescriptor.AggregatedMembership.Members
+	vdrs := bvd.AggregatedMembership.Members
 	for i := range vdrs {
 		vdr := &vdrs[i]
 		validatorSet = append(validatorSet, metadata.NodeBLSMapping{
@@ -108,4 +108,10 @@ func constructValidatorSetFromSealingBlock(lastBlock *ParsedBlock) metadata.Node
 		})
 	}
 	return validatorSet
+}
+
+func getLatestPlatformChainValidatorSet(platformChain PlatformChain) (metadata.NodeBLSMappings, error) {
+	height := platformChain.GetCurrentHeight()
+	mappings, err := platformChain.GetValidatorSet(height)
+	return mappings, err
 }

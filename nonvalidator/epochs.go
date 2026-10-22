@@ -111,6 +111,9 @@ func (e epochs) removeOldEpochs(minEpochToKeep uint64) {
 	}
 }
 
+// canValidate returns true if `block` is valid sealing block in the chain.
+// block is valid if it's a sealing block that isn't in `e`
+// and for which there exists a sealing block in e that has a backwards hash pointer to block.
 func (e epochs) canValidate(block common.Block) bool {
 	if block.SealingBlockInfo() == nil {
 		return false
@@ -135,9 +138,7 @@ func (e epochs) canValidate(block common.Block) bool {
 
 // latestValidatorSetRetriever is an allows the epoch replicator to get the latest validator set.
 // This is used to calculate the threshold of votes needed to validate an epoch.
-type latestValidatorSetRetriever interface {
-	Validators() common.Nodes
-}
+type latestValidatorSetRetriever func() common.Nodes
 
 // epochDigestCounter counts sealing block responses from validators for each epoch.
 // It uses latestValidatorSetRetriever to determine when the required response threshold
@@ -145,32 +146,36 @@ type latestValidatorSetRetriever interface {
 type epochDigestCounter struct {
 	logger common.Logger
 
-	// sealingBlockResponses stores sealing blocks that have been received by our non-validator.
-	// It maps the epoch they are creating, to the NodeIds that have sent them to us(and which digest they sent).
+	// sealingBlockResponses stores the latest sealing block each validator has sent us keyed by NodeID.
 	// Once we have collected f+1 messages for a finalization, the sealing block for that epoch is validated.
-	sealingBlockResponses map[uint64]map[string]common.Digest
+	sealingBlockResponses map[string]sealingBlockResponse
 
 	// latestValidatorSetRetriever is used to calculate the threshold of votes needed to validate an epoch
 	latestValidatorSetRetriever latestValidatorSetRetriever
 }
 
+type sealingBlockResponse struct {
+	epoch  uint64
+	digest common.Digest
+}
+
 func newEpochReplicator(logger common.Logger, validatorSetRetriever latestValidatorSetRetriever) *epochDigestCounter {
 	return &epochDigestCounter{
-		sealingBlockResponses:       make(map[uint64]map[string]common.Digest),
+		sealingBlockResponses:       make(map[string]sealingBlockResponse),
 		logger:                      logger,
 		latestValidatorSetRetriever: validatorSetRetriever,
 	}
 }
 
-// collectedSealingBlockInfo records a sealing block response for an unknown epoch
+// maybeObserveThresholdResponses records a sealing block response for an unknown epoch
 // and returns true once a threshold of matching responses has been collected for
 // that epoch. Nil sealingBlockInfo values are ignored and return false.
-func (e *epochDigestCounter) collectedSealingBlockInfo(sealingBlockInfo *common.SealingBlockInfo, bh common.BlockHeader, from common.NodeID) bool {
+func (e *epochDigestCounter) maybeObserveThresholdResponses(sealingBlockInfo *common.SealingBlockInfo, bh common.BlockHeader, from common.NodeID) bool {
 	if sealingBlockInfo == nil {
 		return false
 	}
 
-	validators := e.latestValidatorSetRetriever.Validators()
+	validators := e.latestValidatorSetRetriever()
 
 	if !validators.Contains(from) {
 		e.logger.Debug("Received a quorum round from a node that is not a validator", zap.Stringer("from", from))
@@ -179,25 +184,24 @@ func (e *epochDigestCounter) collectedSealingBlockInfo(sealingBlockInfo *common.
 
 	e.logger.Debug("Collected a sealing block", zap.Stringer("QR", sealingBlockInfo), zap.Stringer("From", from))
 
-	threshold := common.F(len(e.latestValidatorSetRetriever.Validators())) + 1
-	newEpoch := bh.Seq
-	epochResponses, ok := e.sealingBlockResponses[newEpoch]
-	digest := bh.Digest
-	if !ok {
-		epochResponses = make(map[string]common.Digest)
-		e.sealingBlockResponses[newEpoch] = epochResponses
+	threshold := common.F(len(validators)) + 1
+	// the sequence number is the epoch the sealing block creates
+	response := sealingBlockResponse{epoch: bh.Seq, digest: bh.Digest}
+	if stored, ok := e.sealingBlockResponses[string(from)]; ok && stored.epoch > response.epoch {
+		e.logger.Debug("Ignoring sealing block for a lower epoch than already collected from this node", zap.Stringer("From", from), zap.Uint64("Stored Epoch", stored.epoch), zap.Uint64("Epoch", response.epoch))
+		return false
 	}
-	epochResponses[string(from)] = digest
+	e.sealingBlockResponses[string(from)] = response
 
 	// check if we have a threshold of responses
-	counts := make(map[common.Digest]uint64)
-	for _, digest := range epochResponses {
-		count := counts[digest]
+	count := 0
+	for _, other := range e.sealingBlockResponses {
+		if other != response {
+			continue
+		}
 		count++
-		counts[digest] = count
-
-		if counts[digest] >= uint64(threshold) {
-			e.logger.Info("We received enough messages to validate a higher epoch", zap.Stringer("EpochInfo", sealingBlockInfo), zap.Int("Threshold", threshold), zap.Uint64("Responses", counts[digest]))
+		if count >= threshold {
+			e.logger.Info("We received enough messages to validate a higher epoch", zap.Stringer("EpochInfo", sealingBlockInfo), zap.Int("Threshold", threshold), zap.Int("Responses", count))
 			return true
 		}
 	}
@@ -205,10 +209,11 @@ func (e *epochDigestCounter) collectedSealingBlockInfo(sealingBlockInfo *common.
 	return false
 }
 
+// removeOldEpochs deletes all responses for epochs strictly less than minEpochToKeep.
 func (e *epochDigestCounter) removeOldEpochs(minEpochToKeep uint64) {
-	for epoch := range e.sealingBlockResponses {
-		if epoch < minEpochToKeep {
-			delete(e.sealingBlockResponses, epoch)
+	for from, response := range e.sealingBlockResponses {
+		if response.epoch < minEpochToKeep {
+			delete(e.sealingBlockResponses, from)
 		}
 	}
 }

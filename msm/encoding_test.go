@@ -14,13 +14,12 @@ import (
 
 func TestSimplexEpochInfoIsZero(t *testing.T) {
 	require.True(t, (&SimplexEpochInfo{}).IsZero())
-	require.False(t, (&SimplexEpochInfo{EpochNumber: 1}).IsZero())
 	require.False(t, (&SimplexEpochInfo{PChainReferenceHeight: 1}).IsZero())
 }
 
 func TestSimplexEpochInfoEqual(t *testing.T) {
-	hash1 := [32]byte{1, 2, 3}
-	hash2 := [32]byte{4, 5, 6}
+	hash1 := common.Digest{1, 2, 3}
+	hash2 := common.Digest{4, 5, 6}
 
 	tests := []struct {
 		name     string
@@ -56,7 +55,6 @@ func TestSimplexEpochInfoEqual(t *testing.T) {
 			name: "equal with all fields",
 			a: &SimplexEpochInfo{
 				PChainReferenceHeight:     10,
-				EpochNumber:               2,
 				PrevSealingBlockHash:      hash1,
 				NextPChainReferenceHeight: 20,
 				PrevVMBlockSeq:            5,
@@ -64,7 +62,6 @@ func TestSimplexEpochInfoEqual(t *testing.T) {
 			},
 			b: &SimplexEpochInfo{
 				PChainReferenceHeight:     10,
-				EpochNumber:               2,
 				PrevSealingBlockHash:      hash1,
 				NextPChainReferenceHeight: 20,
 				PrevVMBlockSeq:            5,
@@ -76,12 +73,6 @@ func TestSimplexEpochInfoEqual(t *testing.T) {
 			name:     "different PChainReferenceHeight",
 			a:        &SimplexEpochInfo{PChainReferenceHeight: 1},
 			b:        &SimplexEpochInfo{PChainReferenceHeight: 2},
-			expected: false,
-		},
-		{
-			name:     "different EpochNumber",
-			a:        &SimplexEpochInfo{EpochNumber: 1},
-			b:        &SimplexEpochInfo{EpochNumber: 2},
 			expected: false,
 		},
 		{

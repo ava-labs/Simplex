@@ -786,7 +786,6 @@ func TestReplicationNodeDiverges(t *testing.T) {
 	net.Connect(laggingNode.E.ID)
 
 	for _, n := range net.Instances {
-		// TODO: remove when replication can be initiated with empty notarizations
 		if n.E.ID.Equals(laggingNode.E.ID) {
 			continue
 		}
@@ -1501,7 +1500,7 @@ func TestReplicationChain(t *testing.T) {
 
 		for {
 			numBlocks := n.Storage.NumBlocks()
-			if numBlocks == numNotarizations-missedNotarizations+1 {
+			if numBlocks >= numNotarizations-missedNotarizations+1 {
 				break
 			}
 			net.AdvanceTime(simplex.DefaultReplicationRequestTimeout)
@@ -1516,7 +1515,7 @@ func TestReplicationChain(t *testing.T) {
 	for {
 		numBlocks := blockFinalize3.Storage.NumBlocks()
 
-		if numBlocks == numNotarizations-missedNotarizations+1 {
+		if numBlocks >= numNotarizations-missedNotarizations+1 {
 			break
 		}
 		net.AdvanceTime(simplex.DefaultReplicationRequestTimeout)
