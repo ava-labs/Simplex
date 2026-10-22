@@ -3896,16 +3896,12 @@ func (s *telockSkippingStorage) Index(ctx context.Context, block VerifiedBlock, 
 	return s.InMemStorage.Index(ctx, block, finalization)
 }
 
-// TestEpochTelockPhantomCommitAfterSealingBlock ensures that a Telock "committed" right after
-// its sealing block, but never stored, leaves the sealed epoch's metadata and storage unchanged
-// when the Telock's finalization is received again via a finalization message and replication.
-func TestEpochTelockPhantomCommitAfterSealingBlock(t *testing.T) {
-	bb := testutil.NewTestBlockBuilder()
-	// Five nodes, so the epoch node does not lead round 3 and never builds a block.
-	nodes := []NodeID{{1}, {2}, {3}, {4}, {5}}
-	blacklist := Blacklist{NodeCount: 5, SuspectedNodes: SuspectedNodes{}, Updates: []BlacklistUpdate{}}
-	signers := nodes[:Quorum(len(nodes))]
-	conf, wal, mem := testutil.DefaultTestNodeEpochConfig(t, nodes[4], testutil.NewNoopComm(nodes), bb)
+// TestSealedEpochUnchangedByUnstoredTelock ensures that a Telock "committed" after its
+// sealing block, but never stored, does not change the epoch's metadata or storage when its
+// finalization is received again via a finalization message or replication.
+func TestSealedEpochUnchangedByUnstoredTelock(t *testing.T) {
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	conf, wal, mem := testutil.DefaultTestNodeEpochConfig(t, nodes[3], testutil.NewNoopComm(nodes), testutil.NewTestBlockBuilder())
 	conf.ReplicationEnabled = true
 	storage := &telockSkippingStorage{InMemStorage: mem}
 	conf.Storage = storage
@@ -3914,56 +3910,47 @@ func TestEpochTelockPhantomCommitAfterSealingBlock(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(e.Stop)
 	require.NoError(t, e.Start())
-
 	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Validators())
-	propose := func(block *testutil.TestBlock, from NodeID) {
-		vote, err := testutil.NewTestVote(block, from)
-		require.NoError(t, err)
-		require.NoError(t, e.HandleMessage(&Message{BlockMessage: &BlockMessage{Block: block, Vote: *vote}}, from))
-		wal.AssertBlockProposal(block.BlockHeader().Round)
-	}
 
-	block0 := testutil.NewTestBlock(e.Metadata(), blacklist)
-	propose(block0, nodes[0])
-	finalization0, _ := testutil.NewFinalizationRecord(t, sigAggr, block0, signers)
-	testutil.InjectTestFinalization(t, e, &finalization0, nodes[0])
+	// The first block indexed is a sealing block
+	sealing := testutil.NewTestBlock(e.Metadata(), emptyBlacklist)
+	sealing.SealingInfo = &SealingBlockInfo{PrevSealingBlockHash: Digest{1}}
+	vote, err := testutil.NewTestVote(sealing, nodes[0])
+	require.NoError(t, err)
+	require.NoError(t, e.HandleMessage(&Message{BlockMessage: &BlockMessage{Block: sealing, Vote: *vote}}, nodes[0]))
+	wal.AssertBlockProposal(0)
+	notarization, err := testutil.NewNotarization(e.Logger, sigAggr, sealing, nodes[:3])
+	require.NoError(t, err)
+	testutil.InjectTestNotarization(t, e, notarization, nodes[0])
+
+	// Create a telock and send it
+	telock := testutil.NewTestBlock(e.Metadata(), emptyBlacklist)
+	storage.telock = telock.Digest
+	vote, err = testutil.NewTestVote(telock, nodes[1])
+	require.NoError(t, err)
+	require.NoError(t, e.HandleMessage(&Message{BlockMessage: &BlockMessage{Block: telock, Vote: *vote}}, nodes[1]))
+	wal.AssertBlockProposal(1)
+	telockFinalization, _ := testutil.NewFinalizationRecord(t, sigAggr, telock, nodes[:3])
+	testutil.InjectTestFinalization(t, e, &telockFinalization, nodes[1])
+
+	// Finalizing the sealing block commits it and but doesn't actually index the Telock in storage.
+	sealingFinalization, _ := testutil.NewFinalizationRecord(t, sigAggr, sealing, nodes[:3])
+	testutil.InjectTestFinalization(t, e, &sealingFinalization, nodes[0])
 	storage.WaitForBlockCommit(0)
 
-	// The sealing block is only notarized, so the Telock is built on top of it.
-	sealing := testutil.NewTestBlock(e.Metadata(), blacklist)
-	sealing.SealingInfo = &SealingBlockInfo{
-		ValidatorSet:         NodeIDs(nodes).EqualWeightedNodes(),
-		PrevSealingBlockHash: block0.Digest,
-	}
-	propose(sealing, nodes[1])
-	sealingNotarization, err := testutil.NewNotarization(e.Logger, sigAggr, sealing, signers)
-	require.NoError(t, err)
-	testutil.InjectTestNotarization(t, e, sealingNotarization, nodes[1])
-	testutil.WaitToEnterRound(t, e, 2)
-
-	telock := testutil.NewTestBlock(e.Metadata(), blacklist)
-	storage.telock = telock.Digest
-	propose(telock, nodes[2])
-	telockFinalization, _ := testutil.NewFinalizationRecord(t, sigAggr, telock, signers)
-	testutil.InjectTestFinalization(t, e, &telockFinalization, nodes[2])
-
-	// Finalizing the sealing block commits it and then phantom commits the Telock.
-	sealingFinalization, _ := testutil.NewFinalizationRecord(t, sigAggr, sealing, signers)
-	testutil.InjectTestFinalization(t, e, &sealingFinalization, nodes[1])
-	storage.WaitForBlockCommit(1)
-	testutil.WaitToEnterRound(t, e, 3)
-
-	expected := ProtocolMetadata{Round: 3, Seq: 3, Prev: telock.Digest}
+	expected := ProtocolMetadata{Round: 2, Seq: 2, Prev: telock.Digest}
 	require.Equal(t, expected, e.Metadata())
-	require.Equal(t, uint64(2), storage.NumBlocks())
+	require.Equal(t, uint64(1), storage.NumBlocks())
 	require.Equal(t, uint32(1), storage.telockCalls.Load())
 
-	testutil.InjectTestFinalization(t, e, &telockFinalization, nodes[0])
+	// Receiving the same telock via replication tries to index in storage, but doesn't
+	// increment the epoch metadata
+	testutil.InjectTestFinalization(t, e, &telockFinalization, nodes[2])
 	require.NoError(t, e.HandleMessage(&Message{ReplicationResponse: &ReplicationResponse{
 		Data: []QuorumRound{{Block: telock, Finalization: &telockFinalization}},
-	}}, nodes[0]))
+	}}, nodes[2]))
+	require.Eventually(t, func() bool { return storage.telockCalls.Load() == 2 }, 5*time.Second, 10*time.Millisecond)
 
-	require.Never(t, func() bool {
-		return e.Metadata() != expected || storage.NumBlocks() != 2
-	}, 500*time.Millisecond, 50*time.Millisecond)
+	require.Equal(t, expected, e.Metadata())
+	require.Equal(t, uint64(1), storage.NumBlocks())
 }
