@@ -3790,6 +3790,60 @@ func TestFailedVerificationDoesNotExecuteBlockDependents(t *testing.T) {
 	}, 5*time.Second, 10*time.Millisecond, "block1 was not verified after its parent was verified")
 }
 
+// TestRestoreFromWALSkipsOlderEpochRecords asserts that when the WAL has records of an older
+// epoch with records of the current one, only the current epoch's records are restored.
+// Epoch 0 is sealed at seq 5, and before the sealing block was finalized it notarized a block
+// at round 6. Epoch 5 also notarized its first block at round 6. Only the latter is verified.
+func TestRestoreFromWALSkipsOlderEpochRecords(t *testing.T) {
+	ctx := context.Background()
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	quorum := Quorum(len(nodes))
+	sigAggr := &testutil.TestSignatureAggregator{N: len(nodes)}
+	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), testutil.NewTestBlockBuilder())
+
+	// Each verified block drains one token, so only the current epoch's block should drain one.
+	verifications := make(chan struct{}, 2)
+	verifications <- struct{}{}
+	verifications <- struct{}{}
+	conf.BlockDeserializer = &testutil.BlockDeserializer{DelayedVerification: verifications}
+
+	blocks := createBlocks(t, nodes, 6)
+	sealingBlock := blocks[5].VerifiedBlock.(*testutil.TestBlock)
+	sealingBlock.SealingInfo = &SealingBlockInfo{
+		ValidatorSet:         NodeIDs(nodes).EqualWeightedNodes(),
+		PrevSealingBlockHash: blocks[0].VerifiedBlock.BlockHeader().Digest,
+	}
+	for _, block := range blocks {
+		require.NoError(t, storage.Index(ctx, block.VerifiedBlock, block.Finalization))
+	}
+
+	sealingDigest := sealingBlock.BlockHeader().Digest
+
+	// maybe this stale block was a telock that got written to the wal
+	stale := testutil.NewTestBlock(ProtocolMetadata{Epoch: 0, Seq: 6, Round: 6, Prev: sealingDigest}, emptyBlacklist)
+	current := testutil.NewTestBlock(ProtocolMetadata{Epoch: 5, Seq: 6, Round: 6, Prev: sealingDigest}, emptyBlacklist)
+	for _, block := range []*testutil.TestBlock{stale, current} {
+		blockRecord, err := BlockRecord(block.BlockHeader(), block.Bytes())
+		require.NoError(t, err)
+		notarizationRecord, err := testutil.NewNotarizationRecord(conf.Logger, sigAggr, block, nodes[:quorum])
+		require.NoError(t, err)
+		require.NoError(t, wal.Append(blockRecord))
+		require.NoError(t, wal.Append(notarizationRecord))
+	}
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+	require.Len(t, verifications, 1, "expected only the current epoch's block to be verified")
+
+	md := e.Metadata()
+	require.Equal(t, uint64(5), md.Epoch)
+	require.Equal(t, uint64(7), md.Round)
+	require.Equal(t, uint64(7), md.Seq)
+	require.Equal(t, current.BlockHeader().Digest, md.Prev)
+}
+
 // TestReplicatedNotarizationForEmptyNotarizedRound asserts that a replicated notarization is persisted
 // for a round whose block is already in the rounds map and which is also empty notarized.
 func TestReplicatedNotarizationForEmptyNotarizedRound(t *testing.T) {

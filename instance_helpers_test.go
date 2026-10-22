@@ -61,10 +61,15 @@ var (
 	genesisBlock               = &testInnerBlock{Height_: genesisPChainHeight, TS: time.Now(), Payload: []byte("genesis")}
 )
 
+// walGCInterval is the number of sequences after which instances under test garbage
+// collect their WAL.
+const walGCInterval = 10
+
 var paramConfig = ParameterConfig{
 	MaxNetworkDelay: 200 * time.Millisecond,
 	MaxRoundWindow:  100,
 	WALMaxSizeBytes: 1024,
+	WALGCInterval:   walGCInterval,
 }
 
 type testPlatformChain struct {
@@ -596,17 +601,23 @@ func (n *node) stop() {
 	n.stopped = true
 }
 
+// walRecords returns the records of every WAL file the node currently holds.
+func (n *node) walRecords() [][]byte {
+	n.wals.lock.Lock()
+	defer n.wals.lock.Unlock()
+	var records [][]byte
+	for _, w := range n.wals.wals {
+		entries, err := w.ReadAll()
+		require.NoError(n.t, err)
+		records = append(records, entries...)
+	}
+	return records
+}
+
 func (n *node) restart() *node {
 	n.stop()
 
-	var records [][]byte
-	n.wals.lock.Lock()
-	for _, w := range n.wals.wals {
-		walRecords, err := w.ReadAll()
-		require.NoError(n.t, err)
-		records = append(records, walRecords...)
-	}
-	n.wals.lock.Unlock()
+	records := n.walRecords()
 
 	// Come back up over the same storage, restoring a WAL rebuilt from the exported records.
 	restoredWAL := testutil.NewTestWAL(n.t)
@@ -710,6 +721,8 @@ type nodeConfig struct {
 	lastNonSimplexBlock avalanchego.VMBlock
 	// existingNode indicates whether the node is being added to the network for the first time (false) or is a restart of an existing node (true).
 	existingNode bool
+	// params overrides the shared paramConfig the instance is configured with, when non-nil.
+	params *ParameterConfig
 }
 
 // addNode creates and starts a node in the network.
@@ -732,10 +745,14 @@ func (n *network) addNodeWithConfig(id common.NodeID, cfg nodeConfig) *node {
 	if cfg.lastNonSimplexBlock != nil {
 		lastNonSimplex = cfg.lastNonSimplexBlock
 	}
+	params := paramConfig
+	if cfg.params != nil {
+		params = *cfg.params
+	}
 
 	instance := NewInstance(Config{
 		LastNonSimplexInnerBlock: lastNonSimplex,
-		ParameterConfig:          paramConfig,
+		ParameterConfig:          params,
 		PlatformChain:            n.pChain,
 		Broadcaster:              comm,
 		Sender:                   comm,
