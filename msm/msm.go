@@ -633,7 +633,7 @@ func (sm *StateMachine) buildBlockOrTransitionEpoch(ctx context.Context, parentB
 }
 
 func (sm *StateMachine) isFinalized(blockSeq uint64) (bool, error) {
-	_, finalization, err := sm.GetBlock(blockSeq, [32]byte{})
+	_, finalization, err := sm.GetBlock(blockSeq, common.Digest{})
 	if err != nil {
 		return false, fmt.Errorf("failed to retrieve block (%d): %w", blockSeq, err)
 	}
@@ -745,7 +745,7 @@ func (sm *StateMachine) verifyNextPChainRefHeightNormal(parentBlock *StateMachin
 	// we need to ensure that we have finalized the sealing block of the previous epoch.
 	if next.NextPChainReferenceHeight > 0 {
 		sealingBlockSeq := prevMD.SimplexProtocolMetadata.Epoch
-		_, finalization, err := sm.GetBlock(sealingBlockSeq, [32]byte{})
+		_, finalization, err := sm.GetBlock(sealingBlockSeq, common.Digest{})
 		if err != nil {
 			return fmt.Errorf("failed to retrieve sealing block for previous epoch (%d): %w", sealingBlockSeq, err)
 		}
@@ -1164,7 +1164,7 @@ func (sm *StateMachine) verifyCollectingApprovalsBlock(ctx context.Context, pare
 	return verifyAgainstExpected(ctx, nextBlock.InnerBlock, newSimplexEpochInfo, parentEpoch, nextBlock.Metadata.PChainHeight, nextBlock, timestamp, icmEpochInfo, expectedAuxInfo)
 }
 
-func (sm *StateMachine) verifyNextEpochApprovalsSignature(prevMD StateMachineMetadata, nextMD StateMachineMetadata, validators NodeBLSMappings, auxInfoDigest [32]byte) error {
+func (sm *StateMachine) verifyNextEpochApprovalsSignature(prevMD StateMachineMetadata, nextMD StateMachineMetadata, validators NodeBLSMappings, auxInfoDigest common.Digest) error {
 	prev := prevMD.SimplexEpochInfo
 	next := nextMD.SimplexEpochInfo
 
@@ -1192,7 +1192,7 @@ func (sm *StateMachine) verifyNextEpochApprovalsSignature(prevMD StateMachineMet
 
 // assembleApprovalToBeSigned assembles the payload that is signed when approving an epoch transition.
 // It consists of the P-chain reference height and the aux info digest (zeroed if not applicable).
-func assembleApprovalToBeSigned(pChainHeight uint64, auxInfoDigest [32]byte) ([]byte, error) {
+func assembleApprovalToBeSigned(pChainHeight uint64, auxInfoDigest common.Digest) ([]byte, error) {
 	payloadToSignBuff := make([]byte, 8+32) // 8 bytes for the P-chain height and 32 bytes for the aux info digest if applicable.
 	binary.BigEndian.PutUint64(payloadToSignBuff[:8], pChainHeight)
 	copy(payloadToSignBuff[8:], auxInfoDigest[:])
@@ -1201,7 +1201,7 @@ func assembleApprovalToBeSigned(pChainHeight uint64, auxInfoDigest [32]byte) ([]
 	return asn1.Marshal(signedMsg)
 }
 
-func SignApproval(signer common.Signer, nextPChainReferenceHeight uint64, auxInfoDigest [32]byte) ([]byte, error) {
+func SignApproval(signer common.Signer, nextPChainReferenceHeight uint64, auxInfoDigest common.Digest) ([]byte, error) {
 	toBeSigned, err := assembleApprovalToBeSigned(nextPChainReferenceHeight, auxInfoDigest)
 	if err != nil {
 		return nil, err
@@ -1259,7 +1259,7 @@ func computeSimplexEpochInfoForCollectingApprovalsBlock(parentBlock *StateMachin
 	return newSimplexEpochInfo
 }
 
-func (sm *StateMachine) computeNewApprovals(parentBlock *StateMachineBlock, validators NodeBLSMappings, auxInfoDigest [32]byte) (*approvals, error) {
+func (sm *StateMachine) computeNewApprovals(parentBlock *StateMachineBlock, validators NodeBLSMappings, auxInfoDigest common.Digest) (*approvals, error) {
 	prevBlockNextPChainReferenceHeight := parentBlock.Metadata.SimplexEpochInfo.NextPChainReferenceHeight
 	sigAggr := sm.SignatureAggregatorCreator(validators.Nodes())
 
@@ -1359,7 +1359,7 @@ func (sm *StateMachine) computeSimplexEpochInfoForSealingBlock(simplexEpochInfo 
 	}
 	simplexEpochInfo.BlockValidationDescriptor.AggregatedMembership.Members = validators
 
-	prevSealingBlock, finalization, err := sm.GetBlock(epoch, [32]byte{})
+	prevSealingBlock, finalization, err := sm.GetBlock(epoch, common.Digest{})
 	if err != nil {
 		sm.Logger.Error("Error retrieving previous sealing block", zap.Uint64("seq", epoch), zap.Error(err))
 		return SimplexEpochInfo{}, fmt.Errorf("failed to retrieve previous sealing InnerBlock at epoch %d: %w", epoch, err)
@@ -1383,7 +1383,7 @@ func getCurrentValidatorSet(parentBlock *StateMachineBlock, getBlock BlockRetrie
 			parentBlock.Metadata.SimplexProtocolMetadata.Seq)
 	}
 	epoch := parentBlock.Metadata.SimplexProtocolMetadata.Epoch
-	block, finalization, err := getBlock(epoch, [32]byte{}) // The sealing block of the current epoch should be finalized.
+	block, finalization, err := getBlock(epoch, common.Digest{}) // The sealing block of the current epoch should be finalized.
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve sealing block %d: %w", epoch, err)
 	}
@@ -1442,7 +1442,7 @@ func (sm *StateMachine) areWeReadyToTransitionEpoch(parentBlock *StateMachineBlo
 		return false, 0, StateMachineBlock{}, errSealingBlockSeqUnset
 	}
 
-	sealingBlock, finalization, err := sm.GetBlock(sealingBlockSeq, [32]byte{})
+	sealingBlock, finalization, err := sm.GetBlock(sealingBlockSeq, common.Digest{})
 	if err != nil {
 		return false, 0, StateMachineBlock{}, fmt.Errorf("failed to retrieve sealing block at sequence %d: %w", sealingBlockSeq, err)
 	}
@@ -1553,19 +1553,19 @@ func (sm *StateMachine) verifyBlockEpochSealed(ctx context.Context, parentBlock 
 
 // computeExpectedAuxInfoForApprovalCollection computes the expected AuxiliaryInfo that should be included in the proposed block
 // for approval collection, and returns the auxiliary info digest, and whether the auxiliary info history is ready for epoch transition.
-func (sm *StateMachine) computeExpectedAuxInfoForApprovalCollection(parentBlock *StateMachineBlock, nextBlock *StateMachineBlock, prevBlockSeq uint64, validators NodeBLSMappings) (*AuxiliaryInfoBatch, [32]byte, bool, error) {
+func (sm *StateMachine) computeExpectedAuxInfoForApprovalCollection(parentBlock *StateMachineBlock, nextBlock *StateMachineBlock, prevBlockSeq uint64, validators NodeBLSMappings) (*AuxiliaryInfoBatch, common.Digest, bool, error) {
 	nextMD := nextBlock.Metadata
 	prevMD := parentBlock.Metadata
 
 	auxInfoHistory, err := GetAuxiliaryHistory(parentBlock, prevBlockSeq, sm.GetBlock, sm.AuxiliaryInfoApp.DefaultVersionID())
 	if err != nil {
-		return nil, [32]byte{}, false, err
+		return nil, common.Digest{}, false, err
 	}
 
 	if len(auxInfoHistory.Data) > 0 && nextMD.AuxiliaryInfoBatch == nil {
 		// If we have auxiliary info history but the proposed block doesn't include any auxiliary info,
 		// it means the block builder has dropped the auxiliary info, which is not allowed.
-		return nil, [32]byte{}, false, fmt.Errorf("expected auxiliary info for application %d with history length %d, but got nil", auxInfoHistory.OldestVersionID, len(auxInfoHistory.Data))
+		return nil, common.Digest{}, false, fmt.Errorf("expected auxiliary info for application %d with history length %d, but got nil", auxInfoHistory.OldestVersionID, len(auxInfoHistory.Data))
 	}
 
 	// Else, either len(auxInfoHistory) == 0,
@@ -1591,10 +1591,10 @@ func (sm *StateMachine) computeExpectedAuxInfoForApprovalCollection(parentBlock 
 	legalHistory := auxInfoHistory.Data
 	for _, info := range proposedAuxInfos {
 		if auxInfoHistory.OldestVersionID != info.Version {
-			return nil, [32]byte{}, false, fmt.Errorf("proposed auxiliary info does not have the proper version %d", auxInfoHistory.OldestVersionID)
+			return nil, common.Digest{}, false, fmt.Errorf("proposed auxiliary info does not have the proper version %d", auxInfoHistory.OldestVersionID)
 		}
 		if err := sm.AuxiliaryInfoApp.IsLegalAppend(auxInfoHistory.OldestVersionID, validators, legalHistory, info.Data); err != nil {
-			return nil, [32]byte{}, false, fmt.Errorf("%w for application %d: %w", errAuxInfoIllegalAppend, auxInfoHistory.OldestVersionID, err)
+			return nil, common.Digest{}, false, fmt.Errorf("%w for application %d: %w", errAuxInfoIllegalAppend, auxInfoHistory.OldestVersionID, err)
 		}
 
 		legalHistory = append(legalHistory, info.Data)
@@ -1604,10 +1604,10 @@ func (sm *StateMachine) computeExpectedAuxInfoForApprovalCollection(parentBlock 
 	// the builder, which checks sufficiency before collecting new info.
 	auxInfoReady, err := sm.AuxiliaryInfoApp.IsSufficient(auxInfoHistory.OldestVersionID, validators, auxInfoHistory.Data)
 	if err != nil {
-		return nil, [32]byte{}, false, fmt.Errorf("failed to check if auxiliary info history is final for application %d: %w", auxInfoHistory.OldestVersionID, err)
+		return nil, common.Digest{}, false, fmt.Errorf("failed to check if auxiliary info history is final for application %d: %w", auxInfoHistory.OldestVersionID, err)
 	}
 
-	var digest [32]byte
+	var digest common.Digest
 	if auxInfoReady {
 		digest = auxInfoHistory.LastHistoryDigest()
 	}
@@ -1653,8 +1653,8 @@ func constructSimplexZeroBlockSimplexEpochInfo(pChainHeight uint64, newValidator
 		},
 		NextEpochApprovals:        nil, // We don't need to collect approvals to seal the first ever epoch.
 		PrevVMBlockSeq:            prevVMBlockSeq,
-		SealingBlockSeq:           0,          // We don't have a sealing block in the zero block.
-		PrevSealingBlockHash:      [32]byte{}, // The zero block has no previous sealing block.
+		SealingBlockSeq:           0,               // We don't have a sealing block in the zero block.
+		PrevSealingBlockHash:      common.Digest{}, // The zero block has no previous sealing block.
 		NextPChainReferenceHeight: 0,
 	}
 	return newSimplexEpochInfo
@@ -1664,7 +1664,7 @@ func computeNewApprovals(
 	prevNextEpochApprovals *NextEpochApprovals,
 	approvalsFromPeers ValidatorSetApprovals,
 	pChainHeight uint64,
-	auxInfoDigest [32]byte,
+	auxInfoDigest common.Digest,
 	sigAggr common.SignatureAggregator,
 	validators NodeBLSMappings,
 	logger common.Logger,
@@ -1756,13 +1756,13 @@ func computeNewApproverSignaturesAndSigners(
 
 // sanitizeApprovals filters out approvals that are not valid by checking if they agree with our candidate auxiliary info digest and P-Chain height,
 // and if they are from the validator set and haven't already been approved.
-func sanitizeApprovals(approvals ValidatorSetApprovals, pChainHeight uint64, auxInfoDigest [32]byte, nodeID2ValidatorIndex map[avalanchego.NodeID]int, oldApprovingNodes avalanchego.Bitmask, logger common.Logger) ValidatorSetApprovals {
+func sanitizeApprovals(approvals ValidatorSetApprovals, pChainHeight uint64, auxInfoDigest common.Digest, nodeID2ValidatorIndex map[avalanchego.NodeID]int, oldApprovingNodes avalanchego.Bitmask, logger common.Logger) ValidatorSetApprovals {
 	filter1 := approvalsThatAgreeWithPChainHeightAndAuxInfoDigest(pChainHeight, auxInfoDigest)
 	filter2 := approvalsThatAreInValidatorSetAndHaveNotAlreadyApproved(oldApprovingNodes.Clone(), nodeID2ValidatorIndex)
 	return approvals.Filter(filter1, logger).Filter(filter2, logger).UniqueByNodeID()
 }
 
-func approvalsThatAgreeWithPChainHeightAndAuxInfoDigest(pChainHeight uint64, auxInfoDigest [32]byte) func(approval common.ValidatorSetApproval, logger common.Logger) bool {
+func approvalsThatAgreeWithPChainHeightAndAuxInfoDigest(pChainHeight uint64, auxInfoDigest common.Digest) func(approval common.ValidatorSetApproval, logger common.Logger) bool {
 	return func(approval common.ValidatorSetApproval, logger common.Logger) bool {
 		// Pick only approvals that agree with our P-Chain height
 		ok := approval.PChainHeight == pChainHeight && approval.AuxInfoDigest == auxInfoDigest
@@ -1771,7 +1771,7 @@ func approvalsThatAgreeWithPChainHeightAndAuxInfoDigest(pChainHeight uint64, aux
 				zap.String("nodeID", fmt.Sprintf("%x", approval.NodeID)),
 				zap.Uint64("approvalPChainHeight", approval.PChainHeight),
 				zap.Uint64("expectedPChainHeight", pChainHeight),
-				zap.String("approvalAuxInfoSeqDigest", fmt.Sprintf("%x", approval.AuxInfoDigest)))
+				zap.Stringer("approvalAuxInfoSeqDigest", approval.AuxInfoDigest))
 		}
 		return ok
 	}

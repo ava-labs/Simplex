@@ -41,7 +41,7 @@ func (smb *StateMachineBlock) Clone() StateMachineBlock {
 }
 
 // Digest returns the SHA-256 hash of the combined inner block digest and metadata digest.
-func (smb *StateMachineBlock) Digest() [32]byte {
+func (smb *StateMachineBlock) Digest() common.Digest {
 	var blockDigest [32]byte
 	if smb.InnerBlock != nil {
 		blockDigest = smb.InnerBlock.Digest()
@@ -81,7 +81,7 @@ func (bt BlockType) String() string {
 	}
 }
 
-var emptyHash [32]byte
+var emptyHash common.Digest
 
 func (smb *StateMachineBlock) Type() BlockType {
 	sei := smb.Metadata.SimplexEpochInfo
@@ -131,16 +131,4 @@ func (smb *StateMachineBlock) SealingBlockInfo() *common.SealingBlockInfo {
 		ValidatorSet:         nodes,
 		PrevSealingBlockHash: smb.Metadata.SimplexEpochInfo.PrevSealingBlockHash,
 	}
-}
-
-func (smb *StateMachineBlock) Bytes() []byte {
-	var innerBlockBytes []byte
-	if smb.InnerBlock != nil {
-		innerBlockBytes = smb.InnerBlock.Bytes()
-	}
-	rawBlock := &RawBlock{
-		Metadata:        smb.Metadata.Clone(),
-		InnerBlockBytes: innerBlockBytes,
-	}
-	return rawBlock.MarshalCanoto()
 }

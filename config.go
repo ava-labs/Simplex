@@ -12,6 +12,9 @@ import (
 	metadata "github.com/ava-labs/simplex/msm"
 )
 
+// DefaultWALGCInterval is the WALGCInterval used when none is configured.
+const DefaultWALGCInterval uint64 = 10_000
+
 type ParameterConfig struct {
 	// WALMaxSizeBytes is the maximum size, in bytes, that a write-ahead log may reach
 	// before it is closed and a new one is started. Zero selects the default.
@@ -20,6 +23,9 @@ type ParameterConfig struct {
 	MaxNetworkDelay time.Duration
 	// MaxRoundWindow is the maximum number of rounds that can be stored in memory.
 	MaxRoundWindow uint64
+	// WALGCInterval is the number of indexed blocks between WAL garbage collections.
+	// Defaults to DefaultWALGCInterval.
+	WALGCInterval uint64
 }
 
 // PlatformChain is an interface that abstracts the interaction with the P-chain.

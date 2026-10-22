@@ -15,8 +15,6 @@ import (
 
 // StateMachineMetadata defines the metadata that the StateMachine uses to transition between epochs,
 // and maintain ICM epoch information.
-// TODO: change SimplexProtocolMetadata and SimplexBlacklist to be non-opaque types.
-// TODO: This requires to encode the protocol metadata and blacklist using canoto.
 type StateMachineMetadata struct {
 	// SimplexEpochInfo is the metadata that the StateMachine uses for its own epoching.
 	SimplexEpochInfo SimplexEpochInfo `canoto:"value,1"`
@@ -78,16 +76,6 @@ func (ei *ICMEpochInfo) Clone() ICMEpochInfo {
 	}
 }
 
-func (ei *ICMEpochInfo) Equal(other *ICMEpochInfo) bool {
-	if ei == nil {
-		return other == nil
-	}
-	if other == nil {
-		return false
-	}
-	return ei.EpochStartTime == other.EpochStartTime && ei.EpochNumber == other.EpochNumber && ei.PChainEpochHeight == other.PChainEpochHeight
-}
-
 // SimplexEpochInfo is metadata used by the StateMachine.
 type SimplexEpochInfo struct {
 	// PChainReferenceHeight is the P-Chain height that the StateMachine uses as a reference for the current epoch.
@@ -98,7 +86,7 @@ type SimplexEpochInfo struct {
 	// the hash of the sealing block of the previous epoch.
 	// This is used to be able to quickly fetch and verify the sealing blocks without having to retrieve the interleaving blocks,
 	// which allows to bootstrap the BLS keys of the validator set for each epoch before fully syncing the interleaving blocks.
-	PrevSealingBlockHash [32]byte `canoto:"fixed bytes,2"`
+	PrevSealingBlockHash common.Digest `canoto:"fixed bytes,2"`
 	// NextPChainReferenceHeight is the P-Chain height that the StateMachine uses as a reference for the next epoch.
 	// When the NextPChainReferenceHeight is > 0, it means the StateMachine is on its way to transition to a new epoch
 	// in which the validator set will be based on the given P-chain height.
@@ -165,7 +153,7 @@ func (sei *SimplexEpochInfo) Equal(other *SimplexEpochInfo) bool {
 		sei.PrevVMBlockSeq != other.PrevVMBlockSeq || sei.SealingBlockSeq != other.SealingBlockSeq {
 		return false
 	}
-	if !bytes.Equal(sei.PrevSealingBlockHash[:], other.PrevSealingBlockHash[:]) {
+	if sei.PrevSealingBlockHash != other.PrevSealingBlockHash {
 		return false
 	}
 	if sei.BlockValidationDescriptor != nil && !sei.BlockValidationDescriptor.Equals(other.BlockValidationDescriptor) {

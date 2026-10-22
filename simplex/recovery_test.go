@@ -441,6 +441,7 @@ func TestRecoverFromMultipleNotarizations(t *testing.T) {
 
 	protocolMetadata.Round = 1
 	protocolMetadata.Seq = 1
+	protocolMetadata.Prev = firstBlock.BlockHeader().Digest
 	secondBlock, ok := bb.BuildBlock(ctx, protocolMetadata, emptyBlacklist)
 	require.True(t, ok)
 	sBytes := secondBlock.Bytes()

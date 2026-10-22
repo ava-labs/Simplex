@@ -29,6 +29,16 @@ func TestWriteRecord(t *testing.T) {
 	)
 }
 
+// TestWriteRecordRejectsOversizedPayload ensures a payload whose length does not fit in the
+// 32 bit length field is rejected before anything is written.
+func TestWriteRecordRejectsOversizedPayload(t *testing.T) {
+	payload := make([]byte, math.MaxUint32+1)
+
+	var buff bytes.Buffer
+	require.ErrorIs(t, writeRecord(&buff, payload), ErrPayloadTooLarge)
+	require.Zero(t, buff.Len())
+}
+
 func TestReadRecord(t *testing.T) {
 	require := require.New(t)
 

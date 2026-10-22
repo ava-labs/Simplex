@@ -426,6 +426,89 @@ func TestInstanceRestartsAfterZeroBlock(t *testing.T) {
 	network.acceptNewBlock()
 }
 
+// TestInstanceGarbageCollectsWAL asserts a validator garbage collects its WAL every
+// walGCInterval blocks, so the WAL never holds more than about walGCInterval rounds of records.
+func TestInstanceGarbageCollectsWAL(t *testing.T) {
+	validator := newNodeMapping(1)
+	pChain := newTestPChain([]metadata.NodeBLSMapping{validator})
+	network := newNetwork(t, pChain)
+
+	// We make the WAL size tiny, so we make more WAL files
+	params := paramConfig
+	params.WALMaxSizeBytes = 10
+	node := network.addNodeWithConfig(validator.NodeID[:], nodeConfig{params: &params}).sync()
+
+	for range 100 {
+		network.acceptNewBlock()
+
+		// Each round writes two records, and the garbage collection a block triggers
+		// may not have run yet when its commit is reported.
+		records := node.walRecords()
+		require.NotEmpty(t, records)
+		require.LessOrEqual(t, len(records), 2*(walGCInterval+1))
+	}
+}
+
+// TestInstanceClearsWALAfterSealingBlock asserts that once a sealing block is indexed,
+// the WAL holds no records of the sealed epoch, only those of the epoch that follows it.
+func TestInstanceClearsWALAfterSealingBlock(t *testing.T) {
+	validatorMapping := newNodeMapping(1)
+	leavingValidatorMapping := newNodeMapping(2)
+
+	pChain := newTestPChain([]metadata.NodeBLSMapping{validatorMapping, leavingValidatorMapping})
+	network := newNetwork(t, pChain)
+
+	node := network.addNode(validatorMapping.NodeID[:])
+	network.addNode(leavingValidatorMapping.NodeID[:]).sync()
+
+	network.acceptNewBlock()
+	require.NotEmpty(t, node.walRecords())
+
+	newValidatorSet := metadata.NodeBLSMappings{validatorMapping}
+	pChain.setValidatorSetAt(10, newValidatorSet)
+	pChain.advanceHeight(10)
+
+	sealing := network.waitUntilSealingBlock(newValidatorSet.Nodes())
+	network.acceptNewBlock()
+
+	// The epoch that follows the sealing block is numbered by the sealing block's sequence.
+	records := node.walRecords()
+	require.NotEmpty(t, records)
+	fromNewEpoch, err := common.RecordsFromEpoch(records, sealing.BlockHeader().Seq)
+	require.NoError(t, err)
+	require.Equal(t, records, fromNewEpoch, "WAL holds records of the sealed epoch")
+}
+
+// TestInstanceEmptiesWALOfLeavingValidator asserts a validator that leaves the validator set
+// empties its WAL upon indexing the sealing block, and as a non-validator writes no new records.
+func TestInstanceEmptiesWALOfLeavingValidator(t *testing.T) {
+	validatorMapping := newNodeMapping(1)
+	leavingValidatorMapping := newNodeMapping(2)
+
+	pChain := newTestPChain([]metadata.NodeBLSMapping{validatorMapping, leavingValidatorMapping})
+	network := newNetwork(t, pChain)
+
+	network.addNode(validatorMapping.NodeID[:])
+	leavingNode := network.addNode(leavingValidatorMapping.NodeID[:]).sync()
+
+	network.acceptNewBlock()
+	require.NotEmpty(t, leavingNode.walRecords())
+
+	newValidatorSet := metadata.NodeBLSMappings{validatorMapping}
+	pChain.setValidatorSetAt(10, newValidatorSet)
+	pChain.advanceHeight(10)
+
+	network.waitUntilSealingBlock(newValidatorSet.Nodes())
+
+	// The garbage collection may not have run yet when the sealing block's commit is reported.
+	require.Eventually(t, func() bool {
+		return len(leavingNode.walRecords()) == 0
+	}, 5*time.Second, 10*time.Millisecond)
+
+	network.acceptNewBlock()
+	require.Empty(t, leavingNode.walRecords())
+}
+
 func TestInstanceDoubleStartFails(t *testing.T) {
 	validator := newNodeMapping(1)
 	genesisSet := []metadata.NodeBLSMapping{validator}

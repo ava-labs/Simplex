@@ -516,7 +516,7 @@ func (ai *AuxiliaryInfo) Clone() AuxiliaryInfo {
 // ValidatorSetApproval is an approval from a validator
 type ValidatorSetApproval struct {
 	NodeID        avalanchego.NodeID
-	AuxInfoDigest [32]byte
+	AuxInfoDigest Digest
 	PChainHeight  uint64
 	Signature     SignatureBytes
 }

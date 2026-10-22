@@ -550,6 +550,7 @@ func (e *Epoch) loadFinalizationRecord(r []byte) error {
 	if err != nil {
 		return err
 	}
+	e.pruneCompetingRounds(finalization)
 	e.Logger.Info("Finalization Recovered From WAL", zap.Uint64("Round", finalization.Finalization.Round))
 	return nil
 }
@@ -750,6 +751,12 @@ func (e *Epoch) setMetadataFromRecords(records [][]byte) error {
 // restoreFromWal initializes an epoch from the write ahead log.
 func (e *Epoch) restoreFromWal() error {
 	records, err := e.WAL.ReadAll()
+	if err != nil {
+		return err
+	}
+
+	// Keep records only from the current epoch.
+	records, err = common.RecordsFromEpoch(records, e.Epoch)
 	if err != nil {
 		return err
 	}
@@ -1342,7 +1349,7 @@ func (e *Epoch) persistFinalization(finalization common.Finalization) error {
 	e.blockVerificationScheduler.ExecuteBlockDependents(finalization.Finalization.Digest)
 	e.blockVerificationScheduler.RemoveOldTasks(finalization.Finalization.Seq)
 	e.replicationState.clearBlockDependencyTasks(finalization.Finalization.Digest, finalization.Finalization.Seq, true)
-	e.deleteOldEmptyVotes(finalization.Finalization.Round)
+	e.pruneCompetingRounds(finalization)
 
 	if finalization.Finalization.Seq == nextSeqToCommit {
 		if err := e.indexFinalizations(finalization.Finalization.Round); err != nil {
@@ -1772,7 +1779,7 @@ func (e *Epoch) handleEmptyNotarizationMessage(emptyNotarization *common.EmptyNo
 
 	e.Logger.Verbo("Received empty notarization message", zap.Uint64("round", vote.Round))
 
-	if e.isVoteForFinalizedRound(vote.Round) {
+	if e.isBelowHighestFinalizedRound(vote.Round) {
 		e.Logger.Debug("Received an empty notarization for a too low round",
 			zap.Uint64("round", vote.Round), zap.Uint64("our round", e.round))
 
@@ -1808,7 +1815,7 @@ func (e *Epoch) handleEmptyNotarizationMessage(emptyNotarization *common.EmptyNo
 }
 
 // we do not care to process votes for rounds where we have finalized
-func (e *Epoch) isVoteForFinalizedRound(round uint64) bool {
+func (e *Epoch) isBelowHighestFinalizedRound(round uint64) bool {
 	max := uint64(0)
 
 	for _, round := range e.rounds {
@@ -1834,7 +1841,7 @@ func (e *Epoch) handleNotarizationMessage(message *common.Notarization, from com
 	e.Logger.Verbo("Received notarization message",
 		zap.Stringer("from", from), zap.Uint64("round", vote.Round))
 
-	if e.isVoteForFinalizedRound(vote.Round) {
+	if e.isBelowHighestFinalizedRound(vote.Round) {
 		return nil
 	}
 
@@ -1939,7 +1946,6 @@ func (e *Epoch) handleBlockMessage(message *common.BlockMessage, from common.Nod
 
 	// If this is a message from a more advanced round,
 	// only store it if it is up to `maxRoundWindow` ahead.
-	// TODO: test this
 	if e.isWithinMaxRoundWindow(md.Round) {
 		e.Logger.Debug("Got block of a future round", zap.Uint64("round", md.Round), zap.Uint64("my round", e.round))
 		msgsForRound, exists := e.futureMessages[string(from)][md.Round]
@@ -2024,7 +2030,6 @@ func (e *Epoch) sendMissingRoundsRequest(to common.NodeID, missingRounds []uint6
 // blockDependencies returns the dependencies bh has before it can be verified.
 // It returns the digest of the previous block it depends on (or emptyDigest if none),
 // as well as a list of rounds for which it needs to verify empty notarizations.
-// TODO: we should request empty notarizations if we don't have them
 func (e *Epoch) blockDependencies(bh common.BlockHeader) (*common.Digest, []uint64) {
 	if bh.Seq == 0 {
 		// genesis block has no dependencies
@@ -2035,12 +2040,10 @@ func (e *Epoch) blockDependencies(bh common.BlockHeader) (*common.Digest, []uint
 
 	prevBlock, notarizationOrFinalization, found := e.locateBlock(bh.Seq-1, bh.Prev[:])
 	if !found {
-		// should never happen since we check this when we verify the proposal metadata
-		e.Logger.Info("Could not find predecessor block for proposal scheduling",
+		e.Logger.Info("Could not find predecessor block with notarization or finalization for proposal scheduling",
 			zap.Uint64("seq", bh.Seq-1),
 			zap.Stringer("prev", bh.Prev))
 
-		// TODO: if not found we need to not schedule right away and wait to get the round of the parent so we know the empty round deps
 		return &bh.Prev, nil
 	}
 
@@ -2099,6 +2102,8 @@ func (e *Epoch) processFinalizedBlock(block common.Block, finalization *common.F
 			return err
 		}
 
+		e.blockVerificationScheduler.ExecuteBlockDependents(finalization.Finalization.Digest)
+
 		// Start the round if the epoch has advanced a round & is beyond our replication state
 		if e.round > prevEpochRound && e.round > e.replicationState.GetHighestRound() {
 			if err := e.startRound(); err != nil {
@@ -2144,16 +2149,6 @@ func (e *Epoch) processNotarizedBlock(block common.Block, notarization *common.N
 
 	// don't create a block verification task if the block is already in the rounds map
 	if exists {
-		// We could have a block in the rounds map, as well as an empty notarization.
-		// its important to not create a conflicting notarization for that round.
-		emptyVote, exists := e.emptyVotes[md.Round]
-
-		if exists && emptyVote.emptyNotarization != nil {
-			e.Logger.Debug("Received notarized block for a round that has an empty notarization",
-				zap.Uint64("round", md.Round))
-			return nil
-		}
-
 		if round.notarization != nil || round.finalization != nil {
 			e.Logger.Debug("Round already notarized", zap.Uint64("round", md.Round))
 			return nil
@@ -2185,11 +2180,12 @@ func (e *Epoch) processNotarizedBlock(block common.Block, notarization *common.N
 
 	// Create a task that will verify the block in the future, after its predecessors have also been verified.
 	task := e.createNotarizedBlockVerificationTask(e.oneTimeVerifier.Wrap(block), *notarization)
-	blockDependency, missingRounds := e.blockDependencies(md)
 
-	e.replicationState.CreateDependencyTasks(blockDependency, md.Seq-1, missingRounds)
+	// Only fetch potential block dependencies and not empty notarizations for notarized quorum rounds
+	blockDependency, _ := e.blockDependencies(md)
 
-	err := e.blockVerificationScheduler.ScheduleTaskWithDependencies(task, md.Seq, blockDependency, missingRounds)
+	e.replicationState.CreateDependencyTasks(blockDependency, md.Seq-1, []uint64{})
+	err := e.blockVerificationScheduler.ScheduleTaskWithDependencies(task, md.Seq, blockDependency, []uint64{})
 	if errors.Is(err, common.ErrTooManyPendingVerifications) {
 		e.Logger.Debug("Verification queue is full, re-requesting notarized block", zap.Uint64("round", md.Round))
 		e.replicationState.ResendRoundRequest(md.Round, notarization.QC.Signers())
@@ -2199,6 +2195,9 @@ func (e *Epoch) processNotarizedBlock(block common.Block, notarization *common.N
 	return err
 }
 
+// createBlockVerificationTask returns a task that verifies a proposed block and stores it in the rounds map.
+// The task returns the block's digest only if the block is stored, so that blocks depending on it are verified.
+// Otherwise it returns the zero digest, which executes no dependents.
 func (e *Epoch) createBlockVerificationTask(block common.Block, from common.NodeID, vote common.Vote) func() common.Digest {
 	return func() common.Digest {
 		md := block.BlockHeader()
@@ -2212,7 +2211,7 @@ func (e *Epoch) createBlockVerificationTask(block common.Block, from common.Node
 
 		if e.isEpochSealed() {
 			e.Logger.Debug("Aborting block verification because the epoch is sealed", zap.Uint64("seq", md.Seq))
-			return md.Digest
+			return common.Digest{}
 		}
 		verifiedBlock, err := block.Verify(context.Background())
 
@@ -2229,12 +2228,18 @@ func (e *Epoch) createBlockVerificationTask(block common.Block, from common.Node
 				zap.Stringer("leader", leader),
 				zap.Error(err))
 			e.triggerEmptyBlockNotarization(md.Round)
-			return md.Digest
+			return common.Digest{}
+		}
+
+		// A higher round was finalized while we were verifying, so this block can no longer be finalized.
+		if e.isBelowHighestFinalizedRound(md.Round) {
+			e.Logger.Debug("Dropping proposal for a round below a finalized round", zap.Uint64("round", md.Round))
+			return common.Digest{}
 		}
 
 		if !e.storeProposal(verifiedBlock) {
 			e.Logger.Debug("Unable to store proposed block for the round", zap.Stringer("NodeID", from), zap.Uint64("round", md.Round))
-			return md.Digest
+			return common.Digest{}
 		}
 
 		// We might have received votes and finalizations from future rounds before we received this block.
@@ -2262,7 +2267,7 @@ func (e *Epoch) createBlockVerificationTask(block common.Block, from common.Node
 		if !exists {
 			// This shouldn't happen, but in case it does, return an error
 			e.Logger.Error("programming error: round not found", zap.Uint64("round", md.Round))
-			return md.Digest
+			return common.Digest{}
 		}
 		round.votes[string(vote.Signature.Signer)] = &vote
 
@@ -2274,6 +2279,9 @@ func (e *Epoch) createBlockVerificationTask(block common.Block, from common.Node
 	}
 }
 
+// createFinalizedBlockVerificationTask returns a task that verifies a replicated finalized block and indexes it.
+// The task returns the block's digest only if the block is stored, so that blocks depending on it are verified.
+// Otherwise it returns the zero digest, which executes no dependents.
 func (e *Epoch) createFinalizedBlockVerificationTask(block common.Block, finalization *common.Finalization) func() common.Digest {
 	return func() common.Digest {
 		md := block.BlockHeader()
@@ -2286,7 +2294,7 @@ func (e *Epoch) createFinalizedBlockVerificationTask(block common.Block, finaliz
 
 		if e.isEpochSealed() {
 			e.Logger.Debug("Aborting block verification because the epoch is sealed", zap.Uint64("seq", md.Seq))
-			return md.Digest
+			return common.Digest{}
 		}
 
 		verifiedBlock, err := block.Verify(context.Background(), common.OnlyVMVerifyOpt)
@@ -2296,7 +2304,7 @@ func (e *Epoch) createFinalizedBlockVerificationTask(block common.Block, finaliz
 			e.lock.Lock()
 			defer e.lock.Unlock()
 			e.replicationState.ResendFinalizationRequest(md.Seq, finalization.QC.Signers())
-			return md.Digest
+			return common.Digest{}
 		}
 
 		e.lock.Lock()
@@ -2310,14 +2318,15 @@ func (e *Epoch) createFinalizedBlockVerificationTask(block common.Block, finaliz
 		if e.Storage.NumBlocks() != md.Seq {
 			e.Logger.Debug("Received finalized block that is not the next sequence to commit",
 				zap.Uint64("seq", md.Seq), zap.Uint64("height", e.nextSeqToCommit()))
-			return md.Digest
+			return common.Digest{}
 		}
 
 		// Store the verified block in rounds map so subsequent blocks can find it as a dependency
 		roundEntry := NewRound(verifiedBlock)
 		e.rounds[md.Round] = roundEntry
 		if err := e.storeFinalization(finalization); err != nil {
-			return md.Digest
+			// storeFinalization removes the round on a block header mismatch, so the block is not available.
+			return common.Digest{}
 		}
 		e.Logger.Debug("Stored finalized replicated block in rounds map",
 			zap.Uint64("round", md.Round),
@@ -2350,6 +2359,9 @@ func (e *Epoch) createFinalizedBlockVerificationTask(block common.Block, finaliz
 	}
 }
 
+// createNotarizedBlockVerificationTask returns a task that verifies a replicated notarized block and stores it
+// along with its notarization. The task returns the block's digest only if the block is stored, so that blocks
+// depending on it are verified. Otherwise it returns the zero digest, which executes no dependents.
 func (e *Epoch) createNotarizedBlockVerificationTask(block common.Block, notarization common.Notarization) func() common.Digest {
 	return func() common.Digest {
 		md := block.BlockHeader()
@@ -2363,18 +2375,26 @@ func (e *Epoch) createNotarizedBlockVerificationTask(block common.Block, notariz
 
 		if e.isEpochSealed() {
 			e.Logger.Debug("Aborting block verification because the epoch is sealed", zap.Uint64("seq", md.Seq))
-			return md.Digest
+			return common.Digest{}
 		}
 
 		verifiedBlock, err := block.Verify(context.Background(), common.OnlyVMVerifyOpt)
 		if err != nil {
 			e.Logger.Debug("Failed verifying block", zap.Error(err))
-			// TODO: if we fail to verify the block, we should re-request it from the replication state
-			return md.Digest
+			e.lock.Lock()
+			defer e.lock.Unlock()
+			e.replicationState.ResendRoundRequest(md.Round, notarization.QC.Signers())
+			return common.Digest{}
 		}
 
 		e.lock.Lock()
 		defer e.lock.Unlock()
+
+		// A higher round was finalized while we were verifying, so this block can no longer be finalized.
+		if e.isBelowHighestFinalizedRound(md.Round) {
+			e.Logger.Debug("Dropping notarized block for a round below a finalized round", zap.Uint64("round", md.Round))
+			return common.Digest{}
+		}
 
 		// we started verifying the block when we didn't have a notarization, however its
 		// possible we received a notarization or empty notarization for this block in the meantime.
@@ -2382,17 +2402,18 @@ func (e *Epoch) createNotarizedBlockVerificationTask(block common.Block, notariz
 		if ok && round.notarization != nil {
 			e.Logger.Debug("Verifying notarized block that already has a notarization for the round",
 				zap.Uint64("round", md.Round))
-			return md.Digest
+			return common.Digest{}
 		}
 
 		// store the block in rounds
 		if !e.storeProposal(verifiedBlock) {
 			e.Logger.Debug("Unable to store proposed block for the round", zap.Uint64("round", md.Round))
-			return md.Digest
+			return common.Digest{}
 		}
 
 		if err := e.storeNotarization(&notarization); err != nil {
-			return md.Digest
+			// storeNotarization removes the round on a block header mismatch, so the block is not available.
+			return common.Digest{}
 		}
 
 		if err := e.persistNotarization(notarization); err != nil {
@@ -3070,9 +3091,30 @@ func (e *Epoch) deleteRounds(round uint64) {
 	}
 }
 
-func (e *Epoch) deleteOldEmptyVotes(finalizedRound uint64) {
+// pruneCompetingRounds deletes the blocks and empty votes below the finalized round that are not
+// part of the finalized block's chain. Ex. if we have blockchains b1 <- b3 <- b5, and b1 <- b2 <- b4,
+// a call to pruneCompetingRounds(finalization b5), will prune blocks b2 & b4 from the rounds map.
+func (e *Epoch) pruneCompetingRounds(finalization common.Finalization) {
+	prev := finalization.Finalization.Prev
+	minRound := e.minRoundInRoundsMap()
+	for r := finalization.Finalization.Round; r > minRound; r-- {
+		round, exists := e.rounds[r-1]
+		if !exists {
+			continue
+		}
+
+		// don't delete this round, since the block is an ancestor of finalization in our chain
+		if header := round.block.BlockHeader(); header.Digest == prev {
+			prev = header.Prev
+			continue
+		}
+
+		e.Logger.Debug("Pruning block not on the finalized chain", zap.Uint64("round", r-1), zap.Uint64("finalized round", finalization.Finalization.Round))
+		delete(e.rounds, r-1)
+	}
+
 	for r := range e.emptyVotes {
-		if r < finalizedRound {
+		if r < finalization.Finalization.Round {
 			delete(e.emptyVotes, r)
 		}
 	}
@@ -3594,7 +3636,7 @@ func (e *Epoch) processQuorumRound(round *common.QuorumRound, from common.NodeID
 		return nil
 	}
 
-	if round.Finalization == nil && e.isVoteForFinalizedRound(round.GetRound()) {
+	if round.Finalization == nil && e.isBelowHighestFinalizedRound(round.GetRound()) {
 		return fmt.Errorf("received a quorum round for a round that has been finalized. round: %d; seq: %d", round.GetRound(), round.GetSequence())
 	}
 

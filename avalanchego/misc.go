@@ -5,9 +5,6 @@ package avalanchego
 
 import (
 	"context"
-	"errors"
-	"fmt"
-	"math"
 	"math/big"
 	"math/bits"
 	"time"
@@ -17,8 +14,6 @@ import (
 // but are not imported here to prevent us from importing the entire Avalanchego codebase.
 // Once we incorporate Simplex into Avalanchego, we can remove this file and import the relevant code from Avalanchego instead.
 
-var errOverflow = errors.New("overflow")
-
 const (
 	MiB = 1024 * 1024
 
@@ -26,13 +21,6 @@ const (
 
 	MaxContainersLen = int(4 * DefaultMaxMessageSize / 5)
 )
-
-func safeAdd(a, b uint64) (uint64, error) {
-	if a > math.MaxUint64-b {
-		return 0, fmt.Errorf("%w: %d + %d > maxuint64", errOverflow, a, b)
-	}
-	return a + b, nil
-}
 
 type NodeID [20]byte
 
