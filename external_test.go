@@ -10,10 +10,15 @@ import (
 
 	"github.com/ava-labs/simplex/common"
 	metadata "github.com/ava-labs/simplex/msm"
+	"github.com/ava-labs/simplex/simplex"
 	"github.com/stretchr/testify/require"
 )
 
 func TestParseBlockSizeMatchesBytes(t *testing.T) {
+	blacklistWithUpdate := func() common.Blacklist {
+		blacklist := common.NewBlacklist(2, simplex.DefaultMaxBlacklistedRounds)
+		return blacklist.Next(1, simplex.DefaultMaxBlacklistedRounds, map[uint16]uint64{1: 1}, nil)
+	}
 	// Case 1: Bytes() first, Size() second, size returns the cached length.
 	pb := &ParsedBlock{
 		StateMachineBlock: metadata.StateMachineBlock{
@@ -25,11 +30,8 @@ func TestParseBlockSizeMatchesBytes(t *testing.T) {
 					Epoch:   4,
 					Seq:     2,
 				},
-				SimplexBlacklist: common.Blacklist{
-					Updates:   common.BlacklistUpdates{{NodeIndex: 1, Type: 1}},
-					NodeCount: 2,
-				},
-				PChainHeight: 6,
+				SimplexBlacklist: blacklistWithUpdate(),
+				PChainHeight:     6,
 			},
 			InnerBlock: &testInnerBlock{
 				Height_: 7,
@@ -53,11 +55,8 @@ func TestParseBlockSizeMatchesBytes(t *testing.T) {
 					Epoch:   4,
 					Seq:     2,
 				},
-				SimplexBlacklist: common.Blacklist{
-					Updates:   common.BlacklistUpdates{{NodeIndex: 1, Type: 1}},
-					NodeCount: 2,
-				},
-				PChainHeight: 6,
+				SimplexBlacklist: blacklistWithUpdate(),
+				PChainHeight:     6,
 			},
 			InnerBlock: &testInnerBlock{
 				Height_: 9,
@@ -85,11 +84,8 @@ func TestParseBlockSizeMatchesBytes(t *testing.T) {
 					Epoch:   4,
 					Seq:     2,
 				},
-				SimplexBlacklist: common.Blacklist{
-					Updates:   common.BlacklistUpdates{{NodeIndex: 1, Type: 1}},
-					NodeCount: 2,
-				},
-				PChainHeight: 6,
+				SimplexBlacklist: blacklistWithUpdate(),
+				PChainHeight:     6,
 			},
 			InnerBlock: &testInnerBlock{
 				Height_: 11,

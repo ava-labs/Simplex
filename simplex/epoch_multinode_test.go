@@ -4,6 +4,7 @@
 package simplex_test
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -182,18 +183,17 @@ func TestSimplexMultiNodeBlacklist(t *testing.T) {
 
 	// Build two more blocks, which should blacklist the fourth node.
 	// Ensure the fourth node is blacklisted by checking the blacklist on all nodes.
+	timedOut := map[uint16]uint64{3: 3}
+	emptyBlacklist := common.NewBlacklist(4, simplex.DefaultMaxBlacklistedRounds)
+	accused := emptyBlacklist.Next(4, simplex.DefaultMaxBlacklistedRounds, timedOut, nil)
+	blacklisted := accused.Next(5, simplex.DefaultMaxBlacklistedRounds, timedOut, nil)
 
 	// Build a block, ensure the blacklist contains the fourth node as a suspect.
 	net.TriggerLeaderBlockBuilder(uint64(4))
 	for _, n := range net.Instances[:3] {
 		block := n.Storage.WaitForBlockCommit(uint64(3))
 		blacklist := block.Blacklist()
-		expectedBlacklist := common.Blacklist{
-			NodeCount:      4,
-			SuspectedNodes: common.SuspectedNodes{{NodeIndex: 3, SuspectingCount: 1, OrbitSuspected: 1}},
-			Updates:        []common.BlacklistUpdate{{NodeIndex: 3, Type: common.BlacklistOpType_NodeSuspected}},
-		}
-		require.True(t, expectedBlacklist.Equals(&blacklist))
+		require.True(t, accused.Equals(&blacklist))
 	}
 
 	// Reconnect the fourth node but don't let it un-blacklist itself prematurely.
@@ -205,24 +205,14 @@ func TestSimplexMultiNodeBlacklist(t *testing.T) {
 	for _, n := range net.Instances[:3] {
 		block := n.Storage.WaitForBlockCommit(uint64(4))
 		blacklist := block.Blacklist()
-		expectedBlacklist := common.Blacklist{
-			NodeCount:      4,
-			SuspectedNodes: common.SuspectedNodes{{NodeIndex: 3, SuspectingCount: 2, OrbitSuspected: 1}},
-			Updates:        []common.BlacklistUpdate{{NodeIndex: 3, Type: common.BlacklistOpType_NodeSuspected}},
-		}
-		require.True(t, expectedBlacklist.Equals(&blacklist))
+		require.True(t, blacklisted.Equals(&blacklist))
 	}
 
 	// Wait for the node to replicate the missing blocks.
 	net.Instances[3].TriggerNewBlock()
 	block := net.Instances[3].Storage.WaitForBlockCommit(4)
 	blacklist := block.Blacklist()
-	expectedBlacklist := common.Blacklist{
-		NodeCount:      4,
-		SuspectedNodes: common.SuspectedNodes{{NodeIndex: 3, SuspectingCount: 2, OrbitSuspected: 1}},
-		Updates:        []common.BlacklistUpdate{{NodeIndex: 3, Type: common.BlacklistOpType_NodeSuspected}},
-	}
-	require.True(t, expectedBlacklist.Equals(&blacklist))
+	require.True(t, blacklisted.Equals(&blacklist))
 
 	// Make another block.
 	net.Instances[2].TriggerNewBlock()
@@ -409,4 +399,148 @@ func onlyAllowEmptyRoundMessages(msg *common.Message, _, _ common.NodeID) bool {
 		return true
 	}
 	return false
+}
+
+// TestSimplexMultiNodeBlacklistExpires tests that a node that goes offline is blacklisted, and that it is
+// removed from the blacklist by all nodes once it has been blacklisted for more than MaxBlacklistedOrbits,
+// even though it is still offline and therefore never redeemed itself.
+func TestSimplexMultiNodeBlacklistExpires(t *testing.T) {
+	nodes := []common.NodeID{{1}, {2}, {3}, {4}}
+	net := testutil.NewControlledNetwork(t, nodes)
+
+	// A node may remain blacklisted for a single orbit.
+	const maxBlacklistedRounds = 4
+
+	// The chain starts from GenesisMaxBlacklistedRounds, and only moves towards the local configuration
+	// by a single orbit per block, so the nodes start from a finalized block of round 0 whose blacklist
+	// already has the configured max blacklisted orbits.
+	genesis, ok := testutil.NewTestBlockBuilder().BuildBlock(context.Background(), common.ProtocolMetadata{},
+		common.NewBlacklist(uint16(len(nodes)), maxBlacklistedRounds))
+	require.True(t, ok)
+	genesisFinalization, _ := testutil.NewFinalizationRecord(t, &testutil.TestSignatureAggregator{N: len(nodes)}, genesis, nodes)
+
+	testEpochConfig := &testutil.TestNodeConfig{
+		ReplicationEnabled:   true,
+		MaxBlacklistedRounds: maxBlacklistedRounds,
+		InitialStorage:       []common.VerifiedFinalizedBlock{{VerifiedBlock: genesis, Finalization: genesisFinalization}},
+	}
+	for _, node := range nodes {
+		testutil.NewControlledSimplexNode(t, node, net, testEpochConfig)
+	}
+
+	net.StartInstances()
+	defer net.StopInstances()
+
+	const offlineNodeIndex = 3
+	onlineNodes := net.Instances[:offlineNodeIndex]
+
+	// buildBlock lets the leader of the given round build the block with the given sequence,
+	// waits for the online nodes to commit it, and returns its blacklist.
+	buildBlock := func(round, seq uint64) common.Blacklist {
+		net.TriggerLeaderBlockBuilder(round)
+		var blacklist common.Blacklist
+		for _, n := range onlineNodes {
+			block := n.Storage.WaitForBlockCommit(seq)
+			require.Equal(t, round, block.BlockHeader().Round)
+			blacklist = block.Blacklist()
+		}
+		return blacklist
+	}
+
+	// timeoutOnOfflineLeader lets the online nodes time out on the offline leader of the given round.
+	timeoutOnOfflineLeader := func(round uint64) {
+		require.Equal(t, nodes[offlineNodeIndex], simplex.LeaderForRound(nodes, round))
+		for _, n := range onlineNodes {
+			testutil.WaitToEnterRound(t, n.E, round)
+			n.BlockShouldBeBuilt()
+		}
+		for _, n := range onlineNodes {
+			testutil.WaitForBlockProposerTimeout(t, n.E, &n.E.StartTime, round)
+		}
+	}
+
+	// skipBlacklistedLeader asserts that the online nodes do not wait for the blacklisted leader
+	// of the given round to propose a block. Time is not advanced, so the round can only be
+	// empty notarized if the nodes immediately vote for an empty block.
+	skipBlacklistedLeader := func(round uint64) {
+		require.Equal(t, nodes[offlineNodeIndex], simplex.LeaderForRound(nodes, round))
+		for _, n := range onlineNodes {
+			testutil.WaitToEnterRound(t, n.E, round)
+			n.BlockShouldBeBuilt()
+		}
+		for _, n := range onlineNodes {
+			require.Eventually(t, func() bool {
+				return n.WAL.ContainsEmptyVote(round) || n.WAL.ContainsEmptyNotarization(round)
+			}, time.Minute, 10*time.Millisecond, "node %s waited for the blacklisted leader of round %d", n.E.ID, round)
+		}
+	}
+
+	// Rounds 1-2: ordinary blocks proposed by nodes 1 and 2, on top of the finalized block of round 0.
+	for seq := uint64(1); seq < 3; seq++ {
+		buildBlock(seq, seq)
+	}
+
+	// The last node goes offlineNodeIndex for the rest of the test.
+	net.Disconnect(nodes[offlineNodeIndex])
+
+	// Round 3: the online nodes time out on the offlineNodeIndex node.
+	timeoutOnOfflineLeader(3)
+
+	// The blacklists the online nodes are expected to build, as the offline node timed out in round 3.
+	emptyBlacklist := common.NewBlacklist(uint16(len(nodes)), testEpochConfig.MaxBlacklistedRounds)
+	timedOut := map[uint16]uint64{offlineNodeIndex: 3}
+	accused := emptyBlacklist.Next(4, testEpochConfig.MaxBlacklistedRounds, timedOut, nil)
+	blacklisted := accused.Next(5, testEpochConfig.MaxBlacklistedRounds, timedOut, nil)
+
+	// Round 4: node 0 accuses the offline node of timing out in its orbit 1.
+	blacklist := buildBlock(4, 3)
+	require.Equal(t, uint16(1), blacklist.MaxBlacklistedOrbits())
+	require.False(t, blacklist.IsNodeSuspected(offlineNodeIndex))
+	require.True(t, accused.Equals(&blacklist), "expected %s, got %s", accused.String(), blacklist.String())
+
+	// Round 5: node 1 accuses the offline node as well, which is then blacklisted with f+1 accusations in its orbit 1.
+	blacklist = buildBlock(5, 4)
+	require.True(t, blacklist.IsNodeSuspected(offlineNodeIndex))
+	require.True(t, blacklisted.Equals(&blacklist), "expected %s, got %s", blacklisted.String(), blacklist.String())
+
+	// Round 6: node 2 carries over the blacklist.
+	blacklist = buildBlock(6, 5)
+	require.True(t, blacklist.IsNodeSuspected(offlineNodeIndex))
+
+	// Round 7: the offline node's turn, in its orbit 2. It is blacklisted, so it is skipped.
+	// It has now been blacklisted for a single orbit, but the blacklist is only garbage collected
+	// when a block is built, so it is still skipped in this round.
+	skipBlacklistedLeader(7)
+
+	// Round 8: node 0 builds a block, which garbage collects the offline node, although it never redeemed itself.
+	blacklist = buildBlock(8, 6)
+	require.False(t, blacklist.IsNodeSuspected(offlineNodeIndex))
+	require.True(t, emptyBlacklist.Equals(&blacklist), "expected an empty blacklist, got %s", blacklist.String())
+
+	// Rounds 9 and 10: nodes 1 and 2 carry over the empty blacklist.
+	for round, seq := uint64(9), uint64(7); round <= 10; round, seq = round+1, seq+1 {
+		blacklist = buildBlock(round, seq)
+		require.True(t, emptyBlacklist.Equals(&blacklist), "round %d: expected an empty blacklist, got %s", round, blacklist.String())
+	}
+
+	// Round 11: the offline node's turn. It is no longer blacklisted, so the online nodes wait for its block
+	// rather than skip it, and only vote for an empty block once they time out on it.
+	for _, n := range onlineNodes {
+		testutil.WaitToEnterRound(t, n.E, 11)
+		n.BlockShouldBeBuilt()
+	}
+
+	// Since we don't advance the time, the online nodes should not vote for an empty block just yet.
+	// This ensures that the offline node is no longer blacklisted, and that the online nodes are waiting for it to propose a block.
+	require.Never(t, func() bool {
+		for _, n := range onlineNodes {
+			if n.WAL.ContainsEmptyVote(11) {
+				return true
+			}
+		}
+		return false
+	}, 500*time.Millisecond, 10*time.Millisecond, "the online nodes skipped the offlineNodeIndex node although it is no longer blacklisted")
+
+	// Now we can timeout on the offline node and finish the test.
+	timeoutOnOfflineLeader(11)
 }

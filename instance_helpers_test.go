@@ -72,6 +72,13 @@ var paramConfig = ParameterConfig{
 	WALGCInterval:   walGCInterval,
 }
 
+// paramsWithMaxBlacklistedRounds returns the shared paramConfig with the given max blacklisted rounds.
+func paramsWithMaxBlacklistedRounds(rounds uint16) *ParameterConfig {
+	params := paramConfig
+	params.MaxBlacklistedRounds = rounds
+	return &params
+}
+
 type testPlatformChain struct {
 	genesisHeight uint64 // genesis height is the height of the pchain the genesis validator set lives
 
@@ -614,7 +621,19 @@ func (n *node) walRecords() [][]byte {
 	return records
 }
 
+// restart restarts the node with the configuration its instance was started with.
 func (n *node) restart() *node {
+	params := n.inst.Config.ParameterConfig
+	return n.restartWithNodeConfig(nodeConfig{
+		params:              &params,
+		lastNonSimplexBlock: n.inst.Config.LastNonSimplexInnerBlock,
+	})
+}
+
+// restartWithNodeConfig restarts the node like restart, but with the given config.
+// The node always comes back up over its own storage and WAL, so the storage, wals and existingNode
+// fields of the given config are ignored.
+func (n *node) restartWithNodeConfig(cfg nodeConfig) *node {
 	n.stop()
 
 	records := n.walRecords()
@@ -625,10 +644,10 @@ func (n *node) restart() *node {
 		require.NoError(n.t, restoredWAL.Append(record))
 	}
 
-	newNode := n.net.addNodeWithConfig(n.id, nodeConfig{
-		wals: []wal.DeletableWAL{restoredWAL}, storage: n.storage, existingNode: true,
-	})
-	return newNode
+	cfg.wals = []wal.DeletableWAL{restoredWAL}
+	cfg.storage = n.storage
+	cfg.existingNode = true
+	return n.net.addNodeWithConfig(n.id, cfg)
 }
 
 // role reports whether the instance currently runs a validator epoch rather than a

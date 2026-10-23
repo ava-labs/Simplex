@@ -28,6 +28,9 @@ var (
 )
 
 const (
+	// DefaultMaxBlacklistedRounds is the default maximum number of blocks before a blacklisted node is redeemed.
+	// It equals the value the chain starts with, so nodes using the default do not move it.
+	DefaultMaxBlacklistedRounds           = common.GenesisMaxBlacklistedRounds
 	DefaultMaxRoundWindow                 = 10
 	DefaultProcessingBlocks               = 500
 	DefaultMaxProposalWaitTime            = 5 * time.Second
@@ -67,6 +70,7 @@ func NewRound(block common.VerifiedBlock) *Round {
 }
 
 type EpochConfig struct {
+	MaxBlacklistedRounds       uint16
 	MaxProposalWait            time.Duration
 	MaxRoundWindow             uint64
 	MaxReplicationResponseSize int
@@ -259,6 +263,9 @@ func (e *Epoch) init() error {
 }
 
 func (e *Epoch) maybeAssignDefaultConfig() error {
+	if e.MaxBlacklistedRounds == 0 {
+		e.MaxBlacklistedRounds = DefaultMaxBlacklistedRounds
+	}
 	if e.MaxProposalWait == 0 {
 		e.MaxProposalWait = DefaultMaxProposalWaitTime
 	}
@@ -1664,7 +1671,7 @@ func (e *Epoch) maybeMarkLeaderAsTimedOutForFutureBlacklisting(emptyNotarization
 		}
 		blacklist = e.lastBlock.VerifiedBlock.Blacklist()
 		if e.lastBlock.Finalization.Finalization.Epoch < e.Epoch {
-			blacklist = common.NewBlacklist(uint16(len(e.validatorNodeIDs)))
+			blacklist = blacklist.Stateless(uint16(len(e.validators)))
 		}
 	}
 	round := emptyNotarization.Vote.Round
@@ -2477,7 +2484,7 @@ func (e *Epoch) verifyProposalMetadataAndBlacklist(block common.Block) bool {
 	// Else, either it's not the first block, or we haven't committed the first block, and it is the first block.
 	// If it's the latter we have nothing else to do.
 	// If it's the former, we need to find the parent of the block and ensure it is correct.
-	prevBlacklist := common.NewBlacklist(uint16(len(e.validatorNodeIDs)))
+	prevBlacklist := common.NewBlacklist(uint16(len(e.validatorNodeIDs)), common.GenesisMaxBlacklistedRounds)
 	if bh.Seq > 0 {
 		prevBlock, _, found := e.locateBlock(bh.Seq-1, bh.Prev[:])
 		if !found {
@@ -2488,18 +2495,14 @@ func (e *Epoch) verifyProposalMetadataAndBlacklist(block common.Block) bool {
 			return false
 		}
 
-		expectedSeq = bh.Seq
-		expectedPrevDigest = bh.Prev
+		expectedSeq = prevBlock.BlockHeader().Seq + 1
+		expectedPrevDigest = prevBlock.BlockHeader().Digest
 
 		prevBlacklist = prevBlock.Blacklist()
 
 		// If the previous block belongs to an earlier epoch, the blacklist should be empty.
-		if prevBlock.BlockHeader().Epoch < e.Epoch {
-			prevBlacklist = common.NewBlacklist(uint16(len(e.validatorNodeIDs)))
-		}
-
-		if prevBlacklist.IsEmpty() {
-			prevBlacklist = common.NewBlacklist(uint16(len(e.validatorNodeIDs)))
+		if prevBlock.BlockHeader().Epoch < e.Epoch || prevBlacklist.IsEmpty() {
+			prevBlacklist = prevBlacklist.Stateless(uint16(len(e.validators)))
 		}
 	}
 
@@ -2606,20 +2609,11 @@ func (e *Epoch) buildBlock() {
 	}
 
 	// Create the blacklist for the next round:
-
-	// 1) Reset the updates from the previous round.
-	prevBlacklist.Updates = nil
-	// 2) Compute the updates for the new round, according to what we have observed.
-	e.Logger.Debug("Computing blacklist updates",
-		zap.String("timedOutRounds", fmt.Sprintf("%v", e.timedOutRounds)),
-		zap.String("redeemedRounds", fmt.Sprintf("%v", e.redeemedRounds)))
-	updates := prevBlacklist.ComputeBlacklistUpdates(metadata.Round, uint16(len(e.validatorNodeIDs)), e.timedOutRounds, e.redeemedRounds)
-	// 3) Apply the updates to the blacklist.
-	nextBlacklist := prevBlacklist.ApplyUpdates(updates, metadata.Round)
+	nextBlacklist := prevBlacklist.Next(metadata.Round, e.MaxBlacklistedRounds, e.timedOutRounds, e.redeemedRounds)
 
 	e.Logger.Debug("Blacklist updated",
 		zap.Uint64("round", metadata.Round),
-		zap.String("Update", common.BlacklistUpdatesAsString(updates)),
+		zap.Stringer("blacklist", &nextBlacklist),
 		zap.Stringer("prev", &prevBlacklist), zap.Stringer("next", &nextBlacklist))
 
 	buildTheBlock := e.createBlockBuildingTask(metadata, nextBlacklist)
@@ -2655,12 +2649,12 @@ func (e *Epoch) retrieveBlacklistForBlockBuilding(metadata common.ProtocolMetada
 
 		// If the previous block belongs to a previous epoch, we need to reset the blacklist to be empty.
 		if metadata.Epoch > prevBlock.BlockHeader().Epoch {
-			blacklist = common.NewBlacklist(uint16(len(e.validatorNodeIDs)))
+			blacklist = blacklist.Stateless(uint16(len(e.validators)))
 		}
 	}
 
 	if blacklist.IsEmpty() {
-		blacklist = common.NewBlacklist(uint16(len(e.validatorNodeIDs)))
+		blacklist = blacklist.Stateless(uint16(len(e.validators)))
 	}
 
 	return blacklist, true
@@ -2982,7 +2976,7 @@ func (e *Epoch) retrieveLastPersistedBlacklist() (common.Blacklist, bool) {
 
 		blacklist = e.lastBlock.VerifiedBlock.Blacklist()
 		if e.lastBlock.Finalization.Finalization.Epoch < e.Epoch {
-			blacklist = common.NewBlacklist(uint16(len(e.validatorNodeIDs)))
+			blacklist = blacklist.Stateless(uint16(len(e.validators)))
 		}
 	}
 	return blacklist, true

@@ -8,15 +8,12 @@ import (
 	"testing"
 
 	"github.com/ava-labs/simplex/common"
+	"github.com/ava-labs/simplex/simplex"
 	"github.com/ava-labs/simplex/testutil"
 	"github.com/stretchr/testify/require"
 )
 
-var emptyBlacklist = common.Blacklist{
-	NodeCount:      4,
-	SuspectedNodes: common.SuspectedNodes{},
-	Updates:        []common.BlacklistUpdate{},
-}
+var emptyBlacklist = common.NewBlacklist(4, simplex.DefaultMaxBlacklistedRounds)
 
 func TestMempoolVerifiesTx(t *testing.T) {
 	logger := testutil.MakeLogger(t, 1)
