@@ -842,7 +842,7 @@ func (n *network) sync() {
 	require.Equal(n.t, tip, block.BlockHeader().Seq)
 }
 
-// acceptNewBlock blocks until every node has accepted a newly indexed block.
+// acceptNewBlock blocks until every online node has accepted a newly indexed block.
 func (n *network) acceptNewBlock() (common.VerifiedBlock, common.Finalization) {
 	// no nodes have indexed this sequence yet
 	for _, node := range n.nodes {
@@ -858,6 +858,9 @@ func (n *network) acceptNewBlock() (common.VerifiedBlock, common.Finalization) {
 	var block common.VerifiedBlock
 	var finalization common.Finalization
 	for _, node := range n.nodes {
+		if n.isOffline(node.id) {
+			continue
+		}
 		committedBlock := node.storage.WaitForBlockCommit(n.seq)
 		if block == nil {
 			_, fin, err := node.storage.Retrieve(n.seq)
