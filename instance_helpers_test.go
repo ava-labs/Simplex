@@ -596,8 +596,6 @@ type node struct {
 	storage *testStorage
 	comm    *instanceComm
 	wals    *walCreator
-	// config is the config the node was created with.
-	config nodeConfig
 }
 
 // stop stops the instance, then drains the messages the node was sending.
@@ -623,8 +621,13 @@ func (n *node) walRecords() [][]byte {
 	return records
 }
 
+// restart restarts the node with the configuration its instance was started with.
 func (n *node) restart() *node {
-	return n.restartWithNodeConfig(n.config)
+	params := n.inst.Config.ParameterConfig
+	return n.restartWithNodeConfig(nodeConfig{
+		params:              &params,
+		lastNonSimplexBlock: n.inst.Config.LastNonSimplexInnerBlock,
+	})
 }
 
 // restartWithNodeConfig restarts the node like restart, but with the given config.
@@ -792,7 +795,6 @@ func (n *network) addNodeWithConfig(id common.NodeID, cfg nodeConfig) *node {
 		vm:      vm,
 		inst:    instance,
 		wals:    wc,
-		config:  cfg,
 	}
 
 	n.lock.Lock()
