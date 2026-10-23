@@ -2230,8 +2230,11 @@ func TestEpochPruneRestoredForkFromWal(t *testing.T) {
 	block3, _ := advanceRoundFromNotarization(t, e, bb)
 	require.Equal(t, block2.BlockHeader().Digest, block3.BlockHeader().Prev)
 
-	for len(broadcastMessages) > 0 {
-		<-broadcastMessages
+	// wait for our own finalize vote for block3 so it is not counted below
+	for msg := range broadcastMessages {
+		if msg.FinalizeVote != nil && msg.FinalizeVote.Finalization.Round == 3 {
+			break
+		}
 	}
 
 	testutil.InjectTestFinalizeVote(t, e, block3, nodes[1])
