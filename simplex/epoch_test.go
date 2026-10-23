@@ -2582,6 +2582,10 @@ func advanceRound(t *testing.T, e *Epoch, bb *testutil.TestBlockBuilder, notariz
 		require.NoError(t, err)
 	}
 
+	// Wait for the round to be stored in the WAL.
+	// This ensures that the block proposal is persisted before we proceed to notarization or finalization.
+	e.WAL.(*testutil.TestWAL).AssertBlockProposal(block.Metadata.Round)
+
 	var notarization *Notarization
 	if notarize {
 		// start at one since our node has already voted

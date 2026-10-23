@@ -480,7 +480,8 @@ func TestInstanceClearsWALAfterSealingBlock(t *testing.T) {
 }
 
 // TestInstanceEmptiesWALOfLeavingValidator asserts a validator that leaves the validator set
-// empties its WAL upon indexing the sealing block, and as a non-validator writes no new records.
+// empties its WAL upon indexing the sealing block, except for a Telock it may propose before it is stopped,
+// and as a non-validator writes no new records.
 func TestInstanceEmptiesWALOfLeavingValidator(t *testing.T) {
 	validatorMapping := newNodeMapping(1)
 	leavingValidatorMapping := newNodeMapping(2)
@@ -500,13 +501,36 @@ func TestInstanceEmptiesWALOfLeavingValidator(t *testing.T) {
 
 	network.waitUntilSealingBlock(newValidatorSet.Nodes())
 
+	// isTelock reports whether the given WAL record is a block record of a Telock.
+	isTelock := func(record []byte) bool {
+		_, blockBytes, err := common.ParseBlockRecord(record)
+		if err != nil {
+			return false
+		}
+		var rawBlock metadata.RawBlock
+		if err := rawBlock.UnmarshalCanoto(blockBytes); err != nil {
+			return false
+		}
+		block := metadata.StateMachineBlock{Metadata: rawBlock.Metadata}
+		return block.Type() == metadata.BlockTypeTelock
+	}
+
 	// The garbage collection may not have run yet when the sealing block's commit is reported.
+	// The epoch may propose a Telock for the round after the sealing block before it is stopped,
+	// and its record is written after the garbage collection, so only Telocks may remain.
 	require.Eventually(t, func() bool {
-		return len(leavingNode.walRecords()) == 0
+		for _, record := range leavingNode.walRecords() {
+			if !isTelock(record) {
+				return false
+			}
+		}
+		return true
 	}, 5*time.Second, 10*time.Millisecond)
 
+	// A non-validator must not add to the WAL.
+	remaining := leavingNode.walRecords()
 	network.acceptNewBlock()
-	require.Empty(t, leavingNode.walRecords())
+	require.Equal(t, remaining, leavingNode.walRecords())
 }
 
 func TestInstanceDoubleStartFails(t *testing.T) {
