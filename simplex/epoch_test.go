@@ -4295,3 +4295,27 @@ func TestReplicatedNotarizationForEmptyNotarizedRound(t *testing.T) {
 	require.True(t, wal.ContainsNotarization(0))
 	require.Equal(t, uint64(1), e.Metadata().Round)
 }
+
+// TestEpochFutureEmptyVotesAssembleOnRoundStart asserts that empty votes received for a future round
+// are kept and assembled into an empty notarization once the epoch reaches that round.
+func TestEpochFutureEmptyVotesAssembleOnRoundStart(t *testing.T) {
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[3], testutil.NewNoopComm(nodes), testutil.NewTestBlockBuilder())
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+
+	md := EmptyVoteMetadata{Round: 1, Epoch: e.Metadata().Epoch}
+	for _, node := range nodes[:Quorum(len(nodes))] {
+		require.NoError(t, e.HandleMessage(&Message{EmptyVoteMessage: createEmptyVote(md, node)}, node))
+	}
+	require.Equal(t, uint64(0), e.Metadata().Round)
+
+	advanceRoundFromEmpty(t, e)
+
+	emptyRecord := wal.AssertNotarization(1)
+	require.Equal(t, EmptyNotarizationRecordType, emptyRecord)
+	require.Equal(t, uint64(2), e.Metadata().Round)
+}

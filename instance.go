@@ -640,7 +640,7 @@ func (i *Instance) createEpochConfig(validators common.Nodes) (*epochConfig, err
 	ec := simplex.EpochConfig{
 		ReplicationEnabled: true,
 		StartTime:          time.Now(),
-		// TODO: For simplicity, we use the same value for all timeouts. If needed we can expand the config.
+		// For simplicity, we use the same value for all timeouts. If needed we can expand the config.
 		MaxProposalWait:            i.Config.ParameterConfig.MaxNetworkDelay * 2, // 1 proposal + 1 vote
 		MaxRebroadcastWait:         i.Config.ParameterConfig.MaxNetworkDelay * 2,
 		MaxRoundWindow:             i.Config.ParameterConfig.MaxRoundWindow,
