@@ -1015,17 +1015,11 @@ func (e *Epoch) handleEmptyVoteMessage(message *common.EmptyVote, from common.No
 		return nil
 	}
 
-	// TODO: This empty vote may correspond to a future round, so... let future me implement it!
-	if e.round < vote.Round { //TODO: only handle it if it's within the max round window (&& vote.Round-e.round < e.maxRoundWindow)
-		e.Logger.Debug("Got empty vote from a future round",
+	if e.round < vote.Round && !e.isWithinMaxRoundWindow(vote.Round) {
+		e.Logger.Debug("Got empty vote from a round too far in the future",
 			zap.Uint64("round", vote.Round), zap.Uint64("my round", e.round), zap.Stringer("from", from))
-		//TODO: e.storeFutureEmptyVote(message, from, vote.Round)
 		return nil
 	}
-
-	// Else, this is an empty vote for current round
-	e.Logger.Debug("Received an empty vote for the current round",
-		zap.Uint64("round", vote.Round), zap.Stringer("from", from))
 
 	signature := message.Signature
 
@@ -1045,6 +1039,16 @@ func (e *Epoch) handleEmptyVoteMessage(message *common.EmptyVote, from common.No
 	emptyVotes := e.getOrCreateEmptyVoteSetForRound(round)
 
 	emptyVotes.votes[string(from)] = message
+
+	// Future empty votes are replayed by maybeLoadFutureMessages once we reach their round.
+	if e.round < round {
+		e.Logger.Debug("Stored empty vote from a future round",
+			zap.Uint64("round", round), zap.Uint64("my round", e.round), zap.Stringer("from", from))
+		return nil
+	}
+
+	e.Logger.Debug("Received an empty vote for the current round",
+		zap.Uint64("round", round), zap.Stringer("from", from))
 
 	return e.maybeAssembleEmptyNotarization()
 }
