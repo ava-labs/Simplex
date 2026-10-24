@@ -6,6 +6,7 @@ package random_network
 import (
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/ava-labs/simplex/common"
 	"github.com/ava-labs/simplex/simplex"
@@ -14,10 +15,11 @@ import (
 )
 
 type randomNodeConfig struct {
-	mempool *Mempool
-	storage *Storage
-	wal     *testutil.TestWAL
-	logger  *testutil.TestLogger
+	mempool   *Mempool
+	storage   *Storage
+	wal       *testutil.TestWAL
+	logger    *testutil.TestLogger
+	startTime time.Time
 }
 
 type Node struct {
@@ -52,6 +54,9 @@ func NewNode(t *testing.T, nodeID common.NodeID, net *testutil.BasicInMemoryNetw
 	epochConfig.Logger = l
 	epochConfig.MaxRoundWindow = 100
 	epochConfig.ReplicationEnabled = true
+	if !nodeConfig.startTime.IsZero() {
+		epochConfig.StartTime = nodeConfig.startTime
+	}
 
 	// storage
 	var storage *Storage
