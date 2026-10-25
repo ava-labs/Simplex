@@ -26,6 +26,10 @@ type ParameterConfig struct {
 	// WALGCInterval is the number of indexed blocks between WAL garbage collections.
 	// Defaults to DefaultWALGCInterval.
 	WALGCInterval uint64
+	// MaxBlacklistedRounds is the maximum number of rounds a node may remain blacklisted for.
+	// Changing it takes effect gradually, as each block may only move the value recorded in the chain by a single orbit.
+	// Defaults to DefaultMaxBlacklistedRounds
+	MaxBlacklistedRounds uint16
 }
 
 // PlatformChain is an interface that abstracts the interaction with the P-chain.

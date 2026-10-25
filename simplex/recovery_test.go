@@ -354,7 +354,6 @@ func TestWalWritesFinalization(t *testing.T) {
 	// send and notarize a second block
 	require.Equal(t, uint64(1), e.Metadata().Round)
 	md := e.Metadata()
-	md.Seq++
 	md.Prev = firstBlock.BlockHeader().Digest
 	_, ok := bb.BuildBlock(context.Background(), md, emptyBlacklist)
 	require.True(t, ok)

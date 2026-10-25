@@ -244,7 +244,7 @@ func setupSealingBlockTest(t *testing.T, epochLeaderRound uint64, markSealing bo
 	epochNode := LeaderForRound(nodes, epochLeaderRound)
 
 	quorum := Quorum(len(nodes))
-	blacklist := Blacklist{NodeCount: uint16(len(nodes)), SuspectedNodes: SuspectedNodes{}, Updates: []BlacklistUpdate{}}
+	blacklist := NewBlacklist(uint16(len(nodes)), DefaultMaxBlacklistedRounds)
 
 	bb := testutil.NewTestBlockBuilder()
 	comm := &recordingComm{
