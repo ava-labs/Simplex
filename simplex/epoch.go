@@ -2546,7 +2546,6 @@ func (e *Epoch) verifyProposalMetadataAndBlacklist(block common.Block) bool {
 // Otherwise, returns false.
 func (e *Epoch) locateBlock(seq uint64, digest []byte) (common.VerifiedBlock, *notarizationOrFinalization, bool) {
 	// TODO index rounds by digest too to make it quicker
-	// TODO: optimize this by building an index from digest to round
 	for _, round := range e.rounds {
 		dig := round.block.BlockHeader().Digest
 		if bytes.Equal(dig[:], digest) {
