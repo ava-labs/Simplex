@@ -226,3 +226,28 @@ func TestFutureEpochListenerThreshold(t *testing.T) {
 		})
 	}
 }
+
+// TestFutureEpochListenerMultipleResponses asserts a threshold can be reached partway through
+// a response carrying many quorum rounds. Each validator's later sealing block replaces its earlier one,
+// so only the highest sealing block reaches f+1 and triggers.
+func TestFutureEpochListenerMultipleResponses(t *testing.T) {
+	l := newTestFutureEpochListener(t)
+
+	msg := replicationResponse(
+		finalizedQR(15, 10, false),
+		finalizedQR(20, 10, true), // sealing block for epoch 10
+		finalizedQR(25, 20, false),
+		finalizedQR(30, 20, true), // sealing block for epoch 20
+		finalizedQR(35, 30, false),
+	)
+
+	l.HandleMessage(msg, listenerValidators[0].Id)
+	require.Empty(t, l.triggered)
+
+	l.HandleMessage(msg, listenerValidators[1].Id)
+	require.Len(t, l.triggered, 1)
+
+	// Only epoch 20's sealing block reaches threshold. Each validator's vote for epoch 10's
+	// sealing block was replaced by the higher one later in the same response.
+	require.Equal(t, uint64(30), l.triggered[0].Block.BlockHeader().Seq)
+}

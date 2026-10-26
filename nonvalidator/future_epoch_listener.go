@@ -74,7 +74,6 @@ func (f *FutureEpochListener) HandleMessage(msg *common.Message, from common.Nod
 				continue
 			}
 
-			// TODO: add a test where we get sent many quorum rounds that cause a threshold.
 			f.logger.Info("Received a threshold of sealing blocks for an epoch after ours",
 				zap.Uint64("Our Epoch", f.epoch),
 				zap.Uint64("Sealed Epoch", bh.Seq),
