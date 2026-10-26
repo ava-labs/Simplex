@@ -18,6 +18,7 @@ import (
 
 	"github.com/ava-labs/simplex/avalanchego"
 	"github.com/ava-labs/simplex/common"
+	"github.com/ava-labs/simplex/stats"
 	"go.uber.org/zap"
 )
 
@@ -148,6 +149,8 @@ func (e *Epoch) HandleMessage(msg *common.Message, from common.NodeID) error {
 	e.lock.Lock()
 	defer e.lock.Unlock()
 
+	defer e.computeStats()
+
 	select {
 	case <-e.finishCtx.Done():
 		return nil
@@ -260,6 +263,20 @@ func (e *Epoch) init() error {
 	e.Logger.Info("Starting Simplex Epoch", zap.String("ID", e.ID.String()), zap.Stringer("nodes", e.validatorNodeIDs))
 
 	return e.setMetadataFromStorage()
+}
+
+func (e *Epoch) computeStats() {
+	var vc stats.ValidatorCounters
+	if e.lastBlock != nil && e.lastBlock.VerifiedBlock != nil {
+		vc.LastAcceptedBlockSeq = e.lastBlock.VerifiedBlock.BlockHeader().Seq
+	}
+	vc.RoundNum = e.round
+	vc.EmptyVoteCount = len(e.emptyVotes)
+	vc.FutureMessageCount = e.futureMessages.Size()
+	if e.ReplicationEnabled {
+		vc.ReplicatedSeqs = len(e.replicationState.seqs)
+		vc.ReplicatedRounds = len(e.replicationState.rounds)
+	}
 }
 
 func (e *Epoch) maybeAssignDefaultConfig() error {
@@ -3832,6 +3849,16 @@ func LeaderForRound(nodes []common.NodeID, r uint64) common.NodeID {
 // messagesFromNode maps nodeIds to the messages it sent in a given round.
 type messagesFromNode map[string]map[uint64]*messagesForRound
 
+func (m messagesFromNode) Size() int {
+	var c int
+	for _, msgs := range m {
+		for _, roundMsgs := range msgs {
+			c += roundMsgs.Size()
+		}
+	}
+	return c
+}
+
 type messagesForRound struct {
 	proposalBeingProcessed bool
 	proposal               *common.BlockMessage
@@ -3839,6 +3866,26 @@ type messagesForRound struct {
 	finalizeVote           *common.FinalizeVote
 	finalization           *common.Finalization
 	notarization           *common.Notarization
+}
+
+func (m *messagesForRound) Size() int {
+	var c int
+	if m.proposal != nil {
+		c++
+	}
+	if m.vote != nil {
+		c++
+	}
+	if m.finalizeVote != nil {
+		c++
+	}
+	if m.finalization != nil {
+		c++
+	}
+	if m.notarization != nil {
+		c++
+	}
+	return c
 }
 
 type notarizationOrFinalization struct {
