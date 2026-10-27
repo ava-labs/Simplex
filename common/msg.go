@@ -288,9 +288,10 @@ type SignedMessage struct {
 type QuorumCertificate interface {
 	// Signers returns who participated in creating this QuorumCertificate.
 	Signers() []NodeID
-	// Verify checks whether the nodes participated in creating this QuorumCertificate,
-	// signed the given message.
-	Verify(msg []byte, nodes Nodes) error
+	// Verify checks that msg was signed by all of Signers().
+	// eligibleSigners is passed in because the validators of the QC's epoch may not be known at deserialization.
+	// Returns an error if any signer is not in eligibleSigners or the signature is invalid.
+	Verify(msg []byte, eligibleSigners Nodes) error
 	// Bytes returns a raw representation of the given QuorumCertificate.
 	Bytes() []byte
 	// Size returns the number of bytes

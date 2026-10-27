@@ -839,7 +839,7 @@ func (e *Epoch) handleFinalizationMessage(message *common.Finalization, from com
 		return nil
 	}
 
-	if err := VerifyQC(message.QC, e.signatureAggregator.IsQuorum, e.validatorsToPKs, message, e.validators); err != nil {
+	if err := VerifyQC(message.QC, e.signatureAggregator.IsQuorum, message, e.validators); err != nil {
 		e.Logger.Debug(fmt.Sprintf("Finalization %s", err),
 			zap.Int("round", int(message.Finalization.Round)),
 			zap.Stringer("NodeID", from))
@@ -1787,7 +1787,7 @@ func (e *Epoch) handleEmptyNotarizationMessage(emptyNotarization *common.EmptyNo
 	}
 
 	// Otherwise, this round is not notarized or finalized yet, so verify the empty notarization and store it.
-	if err := VerifyQC(emptyNotarization.QC, e.signatureAggregator.IsQuorum, e.validatorsToPKs, emptyNotarization, e.validators); err != nil {
+	if err := VerifyQC(emptyNotarization.QC, e.signatureAggregator.IsQuorum, emptyNotarization, e.validators); err != nil {
 		e.Logger.Debug(fmt.Sprintf("Empty notarization %s", err),
 			zap.Stringer("NodeID", from))
 		return nil
@@ -1845,7 +1845,7 @@ func (e *Epoch) handleNotarizationMessage(message *common.Notarization, from com
 		return nil
 	}
 
-	if err := VerifyQC(message.QC, e.signatureAggregator.IsQuorum, e.validatorsToPKs, message, e.validators); err != nil {
+	if err := VerifyQC(message.QC, e.signatureAggregator.IsQuorum, message, e.validators); err != nil {
 		e.Logger.Debug(fmt.Sprintf("Notarization %s", err),
 			zap.Stringer("NodeID", from))
 		return nil
@@ -3584,19 +3584,19 @@ func (e *Epoch) verifyQuorumRound(q common.QuorumRound) error {
 
 	if q.Finalization != nil {
 		// extra check needed if we have a finalized block
-		if err := VerifyQC(q.Finalization.QC, e.signatureAggregator.IsQuorum, e.validatorsToPKs, q.Finalization, e.validators); err != nil {
+		if err := VerifyQC(q.Finalization.QC, e.signatureAggregator.IsQuorum, q.Finalization, e.validators); err != nil {
 			return fmt.Errorf("invalid finalization: %w", err)
 		}
 	}
 
 	if q.Notarization != nil {
-		if err := VerifyQC(q.Notarization.QC, e.signatureAggregator.IsQuorum, e.validatorsToPKs, q.Notarization, e.validators); err != nil {
+		if err := VerifyQC(q.Notarization.QC, e.signatureAggregator.IsQuorum, q.Notarization, e.validators); err != nil {
 			return fmt.Errorf("invalid notarization: %w", err)
 		}
 	}
 
 	if q.EmptyNotarization != nil {
-		if err := VerifyQC(q.EmptyNotarization.QC, e.signatureAggregator.IsQuorum, e.validatorsToPKs, q.EmptyNotarization, e.validators); err != nil {
+		if err := VerifyQC(q.EmptyNotarization.QC, e.signatureAggregator.IsQuorum, q.EmptyNotarization, e.validators); err != nil {
 			return fmt.Errorf("invalid empty notarization QC: %w", err)
 		}
 	}

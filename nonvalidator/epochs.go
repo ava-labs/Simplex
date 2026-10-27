@@ -19,7 +19,6 @@ var (
 
 type epochMetadata struct {
 	nodes                common.Nodes
-	eligibleSigners      map[string][]byte
 	epoch                uint64
 	signatureAggregator  common.SignatureAggregator
 	prevSealingBlockHash common.Digest
@@ -37,14 +36,8 @@ func newEpochMetadata(epoch uint64, sealingMetadata *common.SealingBlockInfo, si
 	nodes := slices.Clone(sealingMetadata.ValidatorSet)
 	common.SortNodes(nodes)
 
-	lookup := make(map[string][]byte, len(nodes))
-	for _, node := range nodes {
-		lookup[string(node.Id)] = []byte{}
-	}
-
 	return &epochMetadata{
 		nodes:                nodes,
-		eligibleSigners:      lookup,
 		epoch:                epoch,
 		signatureAggregator:  sigCreator(nodes),
 		prevSealingBlockHash: sealingMetadata.PrevSealingBlockHash,

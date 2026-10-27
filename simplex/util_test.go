@@ -144,10 +144,10 @@ func TestVerifyQC(t *testing.T) {
 				return len(signers) >= tt.quorumSize
 			}
 			if tt.msgInvalid {
-				err := VerifyQC(tt.finalization.QC, isQuorum, validatorsToPks, &unverifiableQC{}, nodes)
+				err := VerifyQC(tt.finalization.QC, isQuorum, &unverifiableQC{}, nodes)
 				require.EqualError(t, err, tt.expectedErr.Error())
 			} else {
-				err := VerifyQC(tt.finalization.QC, isQuorum, validatorsToPks, &tt.finalization, nodes)
+				err := VerifyQC(tt.finalization.QC, isQuorum, &tt.finalization, nodes)
 				if tt.expectedErr != nil {
 					require.EqualError(t, err, tt.expectedErr.Error())
 				} else {
