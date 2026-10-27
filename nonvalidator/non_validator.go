@@ -91,6 +91,8 @@ type NonValidator struct {
 	// epochs contain a map of all epochs that have their validator set verified.
 	epochs epochs
 
+	latestEpochCommitted uint64
+
 	verifier *common.BlockDependencyManager
 
 	// sealingBlockTimeouts re-requests the sealing blocks between the highest validated epoch and
@@ -114,6 +116,16 @@ func NewNonValidator(config Config) (*NonValidator, error) {
 		}
 	}
 
+	var latestEpoch uint64
+	if config.Storage.NumBlocks() > 0 {
+		lastSeq := config.Storage.NumBlocks() - 1
+		_, f, err := config.Storage.Retrieve(lastSeq)
+		if err != nil {
+			return nil, err
+		}
+		latestEpoch = f.Finalization.Epoch
+	}
+
 	ctx, cancelFunc := context.WithCancel(context.Background())
 	scheduler := common.NewScheduler(config.Logger, simplex.DefaultProcessingBlocks)
 
@@ -134,7 +146,7 @@ func NewNonValidator(config Config) (*NonValidator, error) {
 		sequenceReplicator:    replicator,
 	}
 	nv.sealingBlockTimeouts = common.NewTimeoutHandler(config.Logger, "sealing block replication", config.StartTime, simplex.DefaultReplicationRequestTimeout, nv.requestMissingSealingBlocks)
-
+	nv.latestEpochCommitted = latestEpoch
 	return nv, nil
 }
 
@@ -396,6 +408,14 @@ func (n *NonValidator) newFinalizedBlockTask(block common.Block, finalization *c
 			n.Logger.Info("Failed indexing a block and finalization", zap.Uint64("Block Seq", md.Seq), zap.Stringer("Block Digest", md.Digest), zap.Error(err))
 			return md.Digest
 		}
+
+		prevEpoch := n.latestEpochCommitted
+		if md.Epoch > prevEpoch {
+			n.sequenceReplicator.Purge(func(block common.Block) bool {
+				return block.BlockHeader().Epoch < md.Epoch
+			})
+		}
+		n.latestEpochCommitted = md.Epoch
 
 		// Indexing a sealing block may make us a validator of the epoch it opens.
 		if block.SealingBlockInfo() != nil {
