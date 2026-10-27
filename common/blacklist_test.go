@@ -1135,6 +1135,22 @@ func TestBlacklistVerifyProposedBlacklistMaxBlacklistedOrbitsStep(t *testing.T) 
 	}
 }
 
+// A candidate padded with a huge number of suspected nodes must be rejected as early as possible.
+func TestVerifyProposedBlacklistHugeSuspectedNodesCost(t *testing.T) {
+	prev := NewBlacklist(4, 10)
+	candidate := prev.Next(5, 10, nil, nil)
+	candidate.suspectedNodes = make(suspectedNodes, 1_000_000)
+
+	// Round-trip through bytes, as the candidate would arrive over the wire.
+	var decoded Blacklist
+	require.NoError(t, decoded.FromBytes(candidate.Bytes()))
+	require.Len(t, decoded.suspectedNodes, 1_000_000)
+
+	err := prev.VerifyProposedBlacklist(decoded, 5)
+	require.ErrorIs(t, err, errBlacklistTooManySuspectedNodes)
+	require.Less(t, len(err.Error()), 200)
+}
+
 func TestBlacklistNextMaxBlacklistedOrbits(t *testing.T) {
 	for _, testCase := range []struct {
 		name     string
