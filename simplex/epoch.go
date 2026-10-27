@@ -1780,6 +1780,9 @@ func (e *Epoch) persistAndBroadcastNotarization(notarization common.Notarization
 	advancedRound := notarization.Vote.Round == e.round
 	err := e.persistNotarization(notarization)
 	if err != nil {
+		// The notarization is already stored in memory but not on disk, so we must not keep running:
+		// we might otherwise sign both a finalize vote and an empty vote for this round.
+		e.haltedError = err
 		return err
 	}
 
@@ -2801,6 +2804,10 @@ func (e *Epoch) metadata() common.ProtocolMetadata {
 }
 
 func (e *Epoch) triggerEmptyBlockNotarization(round uint64) {
+	if e.haltedError != nil {
+		e.Logger.Debug("Not triggering empty block notarization because the epoch is halted", zap.Error(e.haltedError))
+		return
+	}
 	if e.round > round {
 		e.Logger.Debug("Not triggering empty block notarization because we advanced to a higher round",
 			zap.Uint64("round", round), zap.Uint64("currentRound", e.round))
@@ -3099,6 +3106,9 @@ func (e *Epoch) doProposed(block common.VerifiedBlock) error {
 }
 
 func (e *Epoch) voteOnBlock(block common.VerifiedBlock) (common.Vote, error) {
+	if e.haltedError != nil {
+		return common.Vote{}, e.haltedError
+	}
 	vote := common.ToBeSignedVote{BlockHeader: block.BlockHeader()}
 	sig, err := vote.Sign(e.Signer)
 	if err != nil {
@@ -3240,6 +3250,9 @@ func (e *Epoch) doNotarized(r uint64, advancedRound bool) error {
 }
 
 func (e *Epoch) maybeConstructFinalizeVoteMessage(md common.BlockHeader) (common.FinalizeVote, *common.Message, error) {
+	if e.haltedError != nil {
+		return common.FinalizeVote{}, nil, e.haltedError
+	}
 	if e.haveWeAlreadyTimedOutOnThisRound(md.Round) {
 		e.Logger.Error("Will not cast a finalize vote for a round we timed out on)", zap.Uint64("round", md.Round))
 		return common.FinalizeVote{}, nil, errAlreadyTimedOutOnRound
