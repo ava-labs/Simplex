@@ -582,12 +582,24 @@ func (sm *StateMachine) buildBlockOrTransitionEpoch(ctx context.Context, parentB
 	}
 
 	blockBuildingDecider := sm.createBlockBuildingDecider(currentValidatorSet)
+	// Overwrite the GetPChainHeight function to ensure that we always propose a block with a P-chain height
+	// that is at least as high as the parent block's P-chain height.
+	blockBuildingDecider.getPChainHeight = func() uint64 {
+		h := sm.GetPChainHeightForProposing()
+		if parentBlock.Metadata.PChainHeight > h {
+			h = parentBlock.Metadata.PChainHeight
+		}
+		return h
+	}
 	decisionToBuildBlock, err := blockBuildingDecider.shouldBuildBlock(ctx)
 	if err != nil {
 		if errors.Is(context.Cause(ctx), common.ErrShouldBuildEmptyBlock) {
 			now := sm.GetTime()
 			icmEpochInfo := computeICMEpochInfo(parentBlock, sm.ComputeICMEpoch, now)
 			pChainHeight := sm.GetPChainHeightForProposing()
+			if parentBlock.Metadata.PChainHeight > pChainHeight {
+				pChainHeight = parentBlock.Metadata.PChainHeight
+			}
 			return wrapBlock(nil, newSimplexEpochInfo, pChainHeight, simplexMetadata, simplexBlacklist, now, parentBlock.Metadata.Timestamp, icmEpochInfo, nil), nil
 		}
 		return nil, err
