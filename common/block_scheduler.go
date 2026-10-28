@@ -31,15 +31,21 @@ type BlockDependencyManager struct {
 
 	dependencies []*TaskWithDependents
 	// scheduledSeqs holds every seq with a task pending, queued or running.
-	scheduledSeqs map[uint64]struct{}
+	scheduledSeqs map[seqEpoch]struct{}
 	maxDeps       uint64
 	closed        atomic.Bool
+}
+
+type seqEpoch struct {
+	seq   uint64
+	epoch uint64
 }
 
 type TaskWithDependents struct {
 	Task Task
 
 	blockSeq    uint64 // the seq of the block being verified
+	epoch       uint64 // the epoch of the block being verified
 	prevBlock   *Digest
 	emptyRounds map[uint64]struct{}
 }
@@ -57,7 +63,7 @@ func NewBlockVerificationScheduler(logger Logger, maxDeps uint64, scheduler Sche
 		logger:        logger,
 		maxDeps:       maxDeps,
 		scheduler:     scheduler,
-		scheduledSeqs: make(map[uint64]struct{}),
+		scheduledSeqs: make(map[seqEpoch]struct{}),
 	}
 
 	b.logger.Debug("Created BlockVerificationScheduler", zap.Uint64("maxDeps", maxDeps))
@@ -79,7 +85,7 @@ func (bs *BlockDependencyManager) ExecuteBlockDependents(prev Digest) {
 		if taskWithDeps.isReady() {
 			bs.logger.Debug("Scheduling block verification task as all dependencies are met", zap.Stringer("taskID", prev), zap.Uint64("Seq", taskWithDeps.blockSeq))
 			if !bs.scheduler.Schedule(taskWithDeps.Task) {
-				delete(bs.scheduledSeqs, taskWithDeps.blockSeq)
+				delete(bs.scheduledSeqs, seqEpoch{seq: taskWithDeps.blockSeq, epoch: taskWithDeps.epoch})
 			}
 			continue
 		}
@@ -110,7 +116,7 @@ func (bs *BlockDependencyManager) ExecuteEmptyRoundDependents(emptyRound uint64)
 		if taskWithDeps.isReady() {
 			bs.logger.Debug("Scheduling block verification task as all dependencies are met", zap.Stringer("task", taskWithDeps))
 			if !bs.scheduler.Schedule(taskWithDeps.Task) {
-				delete(bs.scheduledSeqs, taskWithDeps.blockSeq)
+				delete(bs.scheduledSeqs, seqEpoch{seq: taskWithDeps.blockSeq, epoch: taskWithDeps.epoch})
 			}
 			continue
 		}
@@ -129,15 +135,15 @@ func (bs *BlockDependencyManager) ExecuteEmptyRoundDependents(emptyRound uint64)
 }
 
 // IsSequenceScheduled reports whether a task for seq is pending on dependencies, queued or running.
-func (bs *BlockDependencyManager) IsSequenceScheduled(seq uint64) bool {
+func (bs *BlockDependencyManager) IsSequenceScheduled(seq, epoch uint64) bool {
 	bs.lock.Lock()
 	defer bs.lock.Unlock()
 
-	_, ok := bs.scheduledSeqs[seq]
+	_, ok := bs.scheduledSeqs[seqEpoch{seq: seq, epoch: epoch}]
 	return ok
 }
 
-func (bs *BlockDependencyManager) ScheduleTaskWithDependencies(task Task, blockSeq uint64, prev *Digest, emptyRounds []uint64) error {
+func (bs *BlockDependencyManager) ScheduleTaskWithDependencies(task Task, blockSeq uint64, epoch uint64, prev *Digest, emptyRounds []uint64) error {
 	bs.lock.Lock()
 	defer bs.lock.Unlock()
 
@@ -145,10 +151,12 @@ func (bs *BlockDependencyManager) ScheduleTaskWithDependencies(task Task, blockS
 		return nil
 	}
 
+	key := seqEpoch{seq: blockSeq, epoch: epoch}
+
 	wrappedTask := func() Digest {
 		id := task()
 		bs.lock.Lock()
-		delete(bs.scheduledSeqs, blockSeq)
+		delete(bs.scheduledSeqs, key)
 		bs.lock.Unlock()
 		bs.ExecuteBlockDependents(id)
 		return id
@@ -160,12 +168,12 @@ func (bs *BlockDependencyManager) ScheduleTaskWithDependencies(task Task, blockS
 		return fmt.Errorf("%w: %d pending verifications (max %d)", ErrTooManyPendingVerifications, totalSize, bs.maxDeps)
 	}
 
-	bs.scheduledSeqs[blockSeq] = struct{}{}
+	bs.scheduledSeqs[key] = struct{}{}
 
 	if prev == nil && len(emptyRounds) == 0 {
 		bs.logger.Debug("Scheduling block verification task with no dependencies", zap.Uint64("blockSeq", blockSeq))
 		if !bs.scheduler.Schedule(wrappedTask) {
-			delete(bs.scheduledSeqs, blockSeq)
+			delete(bs.scheduledSeqs, key)
 		}
 		return nil
 	}
@@ -181,6 +189,7 @@ func (bs *BlockDependencyManager) ScheduleTaskWithDependencies(task Task, blockS
 		prevBlock:   prev,
 		emptyRounds: emptyRoundsSet,
 		blockSeq:    blockSeq,
+		epoch:       epoch,
 	})
 
 	return nil
@@ -195,7 +204,8 @@ func (bs *BlockDependencyManager) RemoveOldTasks(seq uint64) {
 	for _, taskWithDeps := range bs.dependencies {
 		if taskWithDeps.blockSeq <= seq {
 			bs.logger.Debug("Removing block verification task as its block seq is less than or equal to finalized seq", zap.Uint64("blockSeq", taskWithDeps.blockSeq), zap.Uint64("finalizedSeq", seq))
-			delete(bs.scheduledSeqs, taskWithDeps.blockSeq)
+			key := seqEpoch{seq: taskWithDeps.blockSeq, epoch: taskWithDeps.epoch}
+			delete(bs.scheduledSeqs, key)
 			continue
 		}
 		remainingDeps = append(remainingDeps, taskWithDeps)

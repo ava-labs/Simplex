@@ -30,7 +30,7 @@ func TestBlockVerificationScheduler(t *testing.T) {
 			return makeDigest(t)
 		}
 
-		require.NoError(t, bvs.ScheduleTaskWithDependencies(task, 0, nil, nil))
+		require.NoError(t, bvs.ScheduleTaskWithDependencies(task, 0, 0, nil, nil))
 		wg.Wait()
 	})
 
@@ -47,7 +47,7 @@ func TestBlockVerificationScheduler(t *testing.T) {
 			return makeDigest(t)
 		}
 
-		require.NoError(t, bvs.ScheduleTaskWithDependencies(task, 0, &prev, nil))
+		require.NoError(t, bvs.ScheduleTaskWithDependencies(task, 0, 0, &prev, nil))
 
 		// Should not run until we satisfy the dependency.
 		waitNoReceive(t, done)
@@ -67,7 +67,7 @@ func TestBlockVerificationScheduler(t *testing.T) {
 			return makeDigest(t)
 		}
 
-		require.NoError(t, bvs.ScheduleTaskWithDependencies(task, 0, nil, []uint64{11, 22}))
+		require.NoError(t, bvs.ScheduleTaskWithDependencies(task, 0, 0, nil, []uint64{11, 22}))
 
 		// Removing one is not enough.
 		bvs.ExecuteEmptyRoundDependents(11)
@@ -90,7 +90,7 @@ func TestBlockVerificationScheduler(t *testing.T) {
 			return makeDigest(t)
 		}
 
-		require.NoError(t, bvs.ScheduleTaskWithDependencies(task, 0, &prev, []uint64{1, 2, 3}))
+		require.NoError(t, bvs.ScheduleTaskWithDependencies(task, 0, 0, &prev, []uint64{1, 2, 3}))
 
 		// Satisfy rounds first — still blocked by prevBlock.
 		bvs.ExecuteEmptyRoundDependents(1)
@@ -115,7 +115,7 @@ func TestBlockVerificationScheduler(t *testing.T) {
 			return makeDigest(t)
 		}
 
-		require.NoError(t, bvs.ScheduleTaskWithDependencies(task, 0, &prev, []uint64{1, 2, 3}))
+		require.NoError(t, bvs.ScheduleTaskWithDependencies(task, 0, 0, &prev, []uint64{1, 2, 3}))
 
 		// first satisfy prev block dep
 		bvs.ExecuteBlockDependents(prev)
@@ -149,12 +149,12 @@ func TestBlockVerificationScheduler(t *testing.T) {
 		}
 
 		// Schedule B with dependency; it should not run yet.
-		require.NoError(t, bvs.ScheduleTaskWithDependencies(taskB, 0, &Aout, nil))
+		require.NoError(t, bvs.ScheduleTaskWithDependencies(taskB, 0, 0, &Aout, nil))
 		waitNoReceive(t, bRan)
 
 		// Schedule A with no dependencies; when it finishes, the scheduler's
 		// onTaskFinished should call ExecuteBlockDependents(Aout), unblocking B.
-		require.NoError(t, bvs.ScheduleTaskWithDependencies(taskA, 0, nil, nil))
+		require.NoError(t, bvs.ScheduleTaskWithDependencies(taskA, 0, 0, nil, nil))
 
 		waitReceive(t, aRan)
 		waitReceive(t, bRan)
@@ -173,12 +173,12 @@ func TestBlockVerificationScheduler(t *testing.T) {
 		// First: add one task with a dependency (it will sit in ds.dependencies)
 		require.NoError(t, bvs.ScheduleTaskWithDependencies(func() Digest {
 			return makeDigest(t)
-		}, 0, &prev, nil))
+		}, 0, 0, &prev, nil))
 
 		// Second: trying to add another should exceed the limit.
 		err := bvs.ScheduleTaskWithDependencies(func() Digest {
 			return makeDigest(t)
-		}, 0, &prev, nil)
+		}, 0, 0, &prev, nil)
 
 		require.ErrorIs(t, err, ErrTooManyPendingVerifications)
 	})
@@ -203,8 +203,8 @@ func TestBlockVerificationScheduler(t *testing.T) {
 			return makeDigest(t)
 		}
 
-		require.NoError(t, bvs.ScheduleTaskWithDependencies(task1, 0, &prev1, []uint64{7}))
-		require.NoError(t, bvs.ScheduleTaskWithDependencies(task2, 0, &prev2, []uint64{8}))
+		require.NoError(t, bvs.ScheduleTaskWithDependencies(task1, 0, 0, &prev1, []uint64{7}))
+		require.NoError(t, bvs.ScheduleTaskWithDependencies(task2, 0, 0, &prev2, []uint64{8}))
 
 		// Resolve only part of task1's deps; neither should run.
 		bvs.ExecuteEmptyRoundDependents(7)
@@ -236,15 +236,15 @@ func TestBlockVerificationScheduler(t *testing.T) {
 			return makeDigest(t)
 		}
 
-		require.False(t, bvs.IsSequenceScheduled(3))
-		require.NoError(t, bvs.ScheduleTaskWithDependencies(task, 3, nil, nil))
+		require.False(t, bvs.IsSequenceScheduled(3, 0))
+		require.NoError(t, bvs.ScheduleTaskWithDependencies(task, 3, 0, nil, nil))
 
 		// Running with no dependencies still counts as scheduled.
 		waitReceive(t, started)
-		require.True(t, bvs.IsSequenceScheduled(3))
+		require.True(t, bvs.IsSequenceScheduled(3, 0))
 
 		close(release)
-		require.Eventually(t, func() bool { return !bvs.IsSequenceScheduled(3) }, defaultWaitDuration, 10*time.Millisecond)
+		require.Eventually(t, func() bool { return !bvs.IsSequenceScheduled(3, 0) }, defaultWaitDuration, 10*time.Millisecond)
 	})
 
 	// If the scheduler drops the task, IsSequenceScheduled should return false.
@@ -255,17 +255,17 @@ func TestBlockVerificationScheduler(t *testing.T) {
 
 		task := func() Digest { return makeDigest(t) }
 
-		require.NoError(t, bvs.ScheduleTaskWithDependencies(task, 4, nil, []uint64{1}))
-		require.True(t, bvs.IsSequenceScheduled(4))
+		require.NoError(t, bvs.ScheduleTaskWithDependencies(task, 4, 0, nil, []uint64{1}))
+		require.True(t, bvs.IsSequenceScheduled(4, 0))
 
 		// Closing the underlying scheduler will make sure other tasks get dropped.
 		scheduler.Close()
 
-		require.NoError(t, bvs.ScheduleTaskWithDependencies(task, 3, nil, nil))
-		require.False(t, bvs.IsSequenceScheduled(3))
+		require.NoError(t, bvs.ScheduleTaskWithDependencies(task, 3, 0, nil, nil))
+		require.False(t, bvs.IsSequenceScheduled(3, 0))
 
 		bvs.ExecuteEmptyRoundDependents(1)
-		require.False(t, bvs.IsSequenceScheduled(4))
+		require.False(t, bvs.IsSequenceScheduled(4, 0))
 	})
 
 	t.Run("RemoveOldTasks removes tasks with blockSeq <= finalized seq", func(t *testing.T) {
@@ -293,8 +293,8 @@ func TestBlockVerificationScheduler(t *testing.T) {
 		const oldSeq uint64 = 5
 		const newSeq uint64 = 8
 
-		require.NoError(t, bvs.ScheduleTaskWithDependencies(taskOld, oldSeq, nil, []uint64{depRound}))
-		require.NoError(t, bvs.ScheduleTaskWithDependencies(taskNew, newSeq, nil, []uint64{depRound}))
+		require.NoError(t, bvs.ScheduleTaskWithDependencies(taskOld, oldSeq, 0, nil, []uint64{depRound}))
+		require.NoError(t, bvs.ScheduleTaskWithDependencies(taskNew, newSeq, 0, nil, []uint64{depRound}))
 
 		// Nothing should run yet.
 		waitNoReceive(t, oldRan)
@@ -302,8 +302,8 @@ func TestBlockVerificationScheduler(t *testing.T) {
 
 		// Finalize up to seq=6 — this should remove the old task (seq=5) but keep the new one (seq=8).
 		bvs.RemoveOldTasks(6)
-		require.False(t, bvs.IsSequenceScheduled(oldSeq))
-		require.True(t, bvs.IsSequenceScheduled(newSeq))
+		require.False(t, bvs.IsSequenceScheduled(oldSeq, 0))
+		require.True(t, bvs.IsSequenceScheduled(newSeq, 0))
 
 		// Now resolve the dependency round. Only the "new" task should execute.
 		bvs.ExecuteEmptyRoundDependents(depRound)
