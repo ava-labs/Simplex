@@ -15,10 +15,6 @@ import (
 	"go.uber.org/zap"
 )
 
-type verifiableMessage interface {
-	Verify(nodes common.Nodes) error
-}
-
 // RetrieveLastIndexFromStorage retrieves the latest block and finalization from storage.
 // Returns an error if it cannot be retrieved but the storage has some block.
 // Returns (nil, nil) if the storage is empty.
