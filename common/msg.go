@@ -247,9 +247,9 @@ type Notarization struct {
 	QC   QuorumCertificate
 }
 
-func (n *Notarization) Verify(nodes Nodes) error {
+func (n *Notarization) Verify(eligibleSigners Nodes) error {
 	context := "ToBeSignedVote"
-	return verifyContextQC(n.QC, n.Vote.Bytes(), context, nodes)
+	return verifyContextQC(n.QC, n.Vote.Bytes(), context, eligibleSigners)
 }
 
 func (n *Notarization) Size() int {
@@ -271,9 +271,9 @@ type EmptyNotarization struct {
 	QC   QuorumCertificate
 }
 
-func (en *EmptyNotarization) Verify(nodes Nodes) error {
+func (en *EmptyNotarization) Verify(eligibleSigners Nodes) error {
 	context := "ToBeSignedEmptyVote"
-	return verifyContextQC(en.QC, en.Vote.Bytes(), context, nodes)
+	return verifyContextQC(en.QC, en.Vote.Bytes(), context, eligibleSigners)
 }
 func (en *EmptyNotarization) Size() int {
 	return en.Vote.Size() + en.QC.Size()

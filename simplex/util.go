@@ -37,19 +37,6 @@ func RetrieveLastIndexFromStorage(s common.Storage) (*common.VerifiedFinalizedBl
 	}, nil
 }
 
-func VerifyQC(qc common.QuorumCertificate, isQuorum func(signers []common.NodeID) bool, messageToVerify verifiableMessage, nodes common.Nodes) error {
-	if qc == nil {
-		return fmt.Errorf("nil QuorumCertificate")
-	}
-
-	// Check enough signers signed the QuorumCertificate
-	if !isQuorum(qc.Signers()) {
-		return fmt.Errorf("quorum certificate signed by insufficient (%d) nodes", len(qc.Signers()))
-	}
-
-	return messageToVerify.Verify(nodes)
-}
-
 // GetLatestVerifiedQuorumRound returns the latest verified quorum round given
 // a round and empty notarization. If both are nil, it returns nil.
 func GetLatestVerifiedQuorumRound(round *Round, emptyNotarization *common.EmptyNotarization) *common.VerifiedQuorumRound {
