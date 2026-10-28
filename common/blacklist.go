@@ -483,8 +483,6 @@ func (bl *Blacklist) VerifyProposedBlacklist(candidateBlacklist Blacklist, round
 	if candidateBlacklist.nodeCount != bl.nodeCount {
 		return fmt.Errorf("%s, expected %d, got %d", errBlacklistInvalidNodeCount, bl.nodeCount, candidateBlacklist.nodeCount)
 	}
-	// Each suspected node has a distinct node index, so a valid blacklist never has more than the amount of nodes in the network.
-	// Reject oversized candidates before doing any work proportional to their size.
 	if len(candidateBlacklist.suspectedNodes) > int(bl.nodeCount) {
 		return fmt.Errorf("%w: %d, only %d nodes exist", errBlacklistTooManySuspectedNodes, len(candidateBlacklist.suspectedNodes), bl.nodeCount)
 	}

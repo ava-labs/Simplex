@@ -1135,7 +1135,6 @@ func TestBlacklistVerifyProposedBlacklistMaxBlacklistedOrbitsStep(t *testing.T) 
 	}
 }
 
-// A candidate padded with a huge number of suspected nodes must be rejected as early as possible.
 func TestVerifyProposedBlacklistHugeSuspectedNodesCost(t *testing.T) {
 	prev := NewBlacklist(4, 10)
 	candidate := prev.Next(5, 10, nil, nil)
