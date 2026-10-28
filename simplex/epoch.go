@@ -2489,6 +2489,9 @@ func (e *Epoch) verifyProposalMetadataAndBlacklist(block common.Block) bool {
 	// If it's the latter we have nothing else to do.
 	// If it's the former, we need to find the parent of the block and ensure it is correct.
 	prevBlacklist := common.NewBlacklist(uint16(len(e.validatorNodeIDs)), common.GenesisMaxBlacklistedRounds)
+	if bh.Seq < e.nextSeqToCommit() {
+		return false
+	}
 	if bh.Seq > 0 {
 		prevBlock, _, found := e.locateBlock(bh.Seq-1, bh.Prev[:])
 		if !found {

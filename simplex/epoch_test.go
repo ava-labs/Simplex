@@ -4382,3 +4382,59 @@ func TestEpochFutureEmptyVotesAssembleOnRoundStart(t *testing.T) {
 	require.Equal(t, EmptyNotarizationRecordType, emptyRecord)
 	require.Equal(t, uint64(2), e.Metadata().Round)
 }
+
+func TestProposalOnAncientParentIsRejected(t *testing.T) {
+	const finalizedRounds = 40
+
+	bb := testutil.NewTestBlockBuilder()
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	comm := &recordingComm{
+		Communication: testutil.NewNoopComm(nodes),
+		SentMessages:  make(chan *Message, 100),
+	}
+	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], comm, bb)
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+
+	for range finalizedRounds {
+		notarizeAndFinalizeRound(t, e, bb)
+	}
+	// The proposal must come from the leader of the current round, which must not be us.
+	// so we advance the round until we are not the leader, then propose on top of block 0.
+	for LeaderForRound(nodes, e.Metadata().Round).Equals(e.ID) {
+		notarizeAndFinalizeRound(t, e, bb)
+	}
+
+	block0, _, err := storage.Retrieve(0)
+	require.NoError(t, err)
+
+	walRecords, err := wal.ReadAll()
+	require.NoError(t, err)
+
+	walSizeBeforeWrongProposal := len(walRecords)
+
+	round := e.Metadata().Round
+	leader := LeaderForRound(nodes, round)
+	ancientProposal := testutil.NewTestBlock(ProtocolMetadata{
+		Round: round,
+		Seq:   1,
+		Epoch: e.Epoch,
+		Prev:  block0.BlockHeader().Digest,
+	}, block0.Blacklist())
+	vote, err := testutil.NewTestVote(ancientProposal, leader)
+	require.NoError(t, err)
+
+	// Discard what was sent while the chain advanced.
+	for len(comm.SentMessages) > 0 {
+		<-comm.SentMessages
+	}
+
+	require.NoError(t, e.HandleMessage(&Message{
+		BlockMessage: &BlockMessage{Vote: *vote, Block: ancientProposal},
+	}, leader))
+
+	wal.AssertWALSize(walSizeBeforeWrongProposal) // The proposal is rejected, so nothing is written to the WAL.
+}
