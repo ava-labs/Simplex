@@ -615,7 +615,7 @@ func (e *Epoch) resumeFromWal(highestRoundRecord *walRound) error {
 			return e.startRound()
 		}
 
-		return e.doNotarized(notarization.Vote.Round)
+		return e.doNotarized(notarization.Vote.Round, true)
 	}
 
 	if highestRoundRecord.emptyNotarization != nil {
@@ -1769,6 +1769,7 @@ func (e *Epoch) persistNotarization(notarization common.Notarization) error {
 }
 
 func (e *Epoch) persistAndBroadcastNotarization(notarization common.Notarization) error {
+	advancedRound := notarization.Vote.Round == e.round
 	err := e.persistNotarization(notarization)
 	if err != nil {
 		return err
@@ -1782,7 +1783,7 @@ func (e *Epoch) persistAndBroadcastNotarization(notarization common.Notarization
 		zap.Uint64("seq", notarization.Vote.Seq),
 		zap.Stringer("digest", notarization.Vote.Digest))
 
-	return e.doNotarized(notarization.Vote.Round)
+	return e.doNotarized(notarization.Vote.Round, advancedRound)
 }
 
 func (e *Epoch) handleEmptyNotarizationMessage(emptyNotarization *common.EmptyNotarization, from common.NodeID) error {
@@ -3168,10 +3169,13 @@ func (e *Epoch) finalizeVoteForReplicatedNotarization(r uint64) error {
 	return e.handleFinalizeVoteMessage(&finalizeVote, e.ID)
 }
 
-func (e *Epoch) doNotarized(r uint64) error {
+func (e *Epoch) doNotarized(r uint64, advancedRound bool) error {
 	if e.haveWeAlreadyTimedOutOnThisRound(r) {
 		e.Logger.Info("We have already timed out on this round, will not finalize it", zap.Uint64("round", r))
-		return e.startRound()
+		if advancedRound {
+			return e.startRound()
+		}
+		return nil
 	}
 
 	round := e.rounds[r]
@@ -3190,10 +3194,11 @@ func (e *Epoch) doNotarized(r uint64) error {
 		zap.Uint64("seq", md.Seq),
 		zap.Stringer("digest", md.Digest))
 
-	err1 := e.startRound()
-	err2 := e.handleFinalizeVoteMessage(&finalizeVote, e.ID)
-
-	return errors.Join(err1, err2)
+	var advancedRoundErr error
+	if advancedRound {
+		advancedRoundErr = e.startRound()
+	}
+	return errors.Join(advancedRoundErr, e.handleFinalizeVoteMessage(&finalizeVote, e.ID))
 }
 
 func (e *Epoch) maybeConstructFinalizeVoteMessage(md common.BlockHeader) (common.FinalizeVote, *common.Message, error) {
