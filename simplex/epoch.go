@@ -2424,6 +2424,19 @@ func (e *Epoch) createNotarizedBlockVerificationTask(block common.Block, notariz
 			return common.Digest{}
 		}
 
+		if ok && round.finalization != nil {
+			e.Logger.Debug("Verifying notarized block that already has a finalization for the round",
+				zap.Uint64("round", md.Round))
+			return common.Digest{}
+		}
+
+		if ok && round.notarization == nil && round.finalization == nil && round.block != nil {
+			// The round already has a block in the rounds map, but it's not notarized or finalized.
+			// We have the block and its notarization, so just delete the round before we proceed with
+			// storing the new block and notarization.
+			delete(e.rounds, md.Round)
+		}
+
 		// store the block in rounds
 		if !e.storeProposal(verifiedBlock) {
 			e.Logger.Debug("Unable to store proposed block for the round", zap.Uint64("round", md.Round))
