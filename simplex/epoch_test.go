@@ -4502,3 +4502,123 @@ func TestProposalOnAncientParentIsRejected(t *testing.T) {
 
 	wal.AssertWALSize(walSizeBeforeWrongProposal) // The proposal is rejected, so nothing is written to the WAL.
 }
+
+func TestNoSecondVoteAfterConflictingCertificate(t *testing.T) {
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	signers := []NodeID{nodes[0], nodes[2], nodes[3]}
+
+	for _, tc := range []struct {
+		name string
+		// certificate builds the message that certifies block B.
+		certificate func(t *testing.T, e *Epoch, sigAggr SignatureAggregator, blockB *testutil.TestBlock) *Message
+	}{
+		{
+			name: "Notarization",
+			certificate: func(t *testing.T, e *Epoch, sigAggr SignatureAggregator, blockB *testutil.TestBlock) *Message {
+				notarization, err := testutil.NewNotarization(e.Logger, sigAggr, blockB, signers)
+				require.NoError(t, err)
+				return &Message{Notarization: &notarization}
+			},
+		},
+		{
+			name: "Finalization",
+			certificate: func(t *testing.T, e *Epoch, sigAggr SignatureAggregator, blockB *testutil.TestBlock) *Message {
+				finalization, _ := testutil.NewFinalizationRecord(t, sigAggr, blockB, signers)
+				return &Message{Finalization: &finalization}
+			},
+		},
+		{
+			name: "Replicated notarization",
+			certificate: func(t *testing.T, e *Epoch, sigAggr SignatureAggregator, blockB *testutil.TestBlock) *Message {
+				notarization, err := testutil.NewNotarization(e.Logger, sigAggr, blockB, signers)
+				require.NoError(t, err)
+				return &Message{ReplicationResponse: &ReplicationResponse{
+					Data: []QuorumRound{{Block: blockB, Notarization: &notarization}},
+				}}
+			},
+		},
+		{
+			name: "Replicated finalization",
+			certificate: func(t *testing.T, e *Epoch, sigAggr SignatureAggregator, blockB *testutil.TestBlock) *Message {
+				finalization, _ := testutil.NewFinalizationRecord(t, sigAggr, blockB, signers)
+				return &Message{ReplicationResponse: &ReplicationResponse{
+					Data: []QuorumRound{{Block: blockB, Finalization: &finalization}},
+				}}
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			bb := testutil.NewTestBlockBuilder()
+			recordingComm := &recordingComm{
+				Communication:     testutil.NewNoopComm(nodes),
+				BroadcastMessages: make(chan *Message, 100),
+			}
+			conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[1], recordingComm, bb)
+			conf.ReplicationEnabled = true
+
+			e, err := NewEpoch(conf)
+			require.NoError(t, err)
+			t.Cleanup(e.Stop)
+			require.NoError(t, e.Start())
+
+			leader := LeaderForRound(nodes, 0)
+			newBlock := func(data string) *testutil.TestBlock {
+				block := testutil.NewTestBlock(e.Metadata(), emptyBlacklist)
+				block.Data = []byte(data)
+				block.ComputeDigest()
+				return block
+			}
+			sendProposal := func(block *testutil.TestBlock) {
+				vote, err := testutil.NewTestVote(block, leader)
+				require.NoError(t, err)
+				require.NoError(t, e.HandleMessage(&Message{
+					BlockMessage: &BlockMessage{Vote: *vote, Block: block},
+				}, leader))
+			}
+
+			// The node votes for block A.
+			blockA := newBlock("A")
+			sendProposal(blockA)
+			wal.AssertBlockProposal(0)
+			waitForVote(t, recordingComm.BroadcastMessages, blockA.BlockHeader().Digest)
+
+			// The leader sends block C for the same round, and its verification is held open.
+			// Verification tasks run one at a time, so C is verified before block B can be,
+			// even on the replication paths, which schedule the verification of B.
+			blockC := newBlock("C")
+			blockC.VerificationDelay = make(chan struct{})
+			sendProposal(blockC)
+
+			// The certificate for block B reaches the node, which deletes round 0.
+			blockB := newBlock("B")
+			sigAggr := e.SignatureAggregatorCreator(conf.Comm.Validators())
+			require.NoError(t, e.HandleMessage(tc.certificate(t, e, sigAggr, blockB), nodes[2]))
+
+			// Block C finishes verification, and the node must not vote for it.
+			close(blockC.VerificationDelay)
+			require.Never(t, func() bool {
+				select {
+				case msg := <-recordingComm.BroadcastMessages:
+					return msg.VoteMessage != nil && msg.VoteMessage.Vote.Digest == blockC.BlockHeader().Digest
+				default:
+					return false
+				}
+			}, time.Second, 10*time.Millisecond, "the node voted for block C in round 0 after voting for block A")
+		})
+	}
+}
+
+// waitForVote waits until the node broadcasts a vote for the block with the given digest.
+func waitForVote(t *testing.T, broadcast chan *Message, digest Digest) {
+	timeout := time.After(30 * time.Second)
+	for {
+		select {
+		case msg := <-broadcast:
+			if msg.VoteMessage != nil && msg.VoteMessage.Vote.Digest == digest {
+				return
+			}
+		case <-timeout:
+			require.FailNow(t, "timed out waiting for a vote", "digest %s", digest)
+		}
+	}
+}
