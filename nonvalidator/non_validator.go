@@ -409,6 +409,8 @@ func (n *NonValidator) newFinalizedBlockTask(block common.Block, finalization *c
 			return md.Digest
 		}
 
+		n.verifier.RemoveOldTasks(md.Seq)
+
 		prevEpoch := n.latestEpochCommitted
 		if md.Epoch > prevEpoch {
 			n.sequenceReplicator.Purge(func(block common.Block) bool {

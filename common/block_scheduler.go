@@ -30,7 +30,7 @@ type BlockDependencyManager struct {
 	scheduler Scheduler
 
 	dependencies []*TaskWithDependents
-	// scheduledSeqs holds every seq with a task pending, queued or running.
+	// scheduledSeqs holds every sequence and epoch pair with a task pending, queued or running.
 	scheduledSeqs map[seqEpoch]struct{}
 	maxDeps       uint64
 	closed        atomic.Bool
