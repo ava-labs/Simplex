@@ -371,7 +371,7 @@ func (e *Epoch) loadBlockRecord(block common.Block) error {
 
 	// Record the block digest for this round if this is the first block we've received for this round.
 	r := block.BlockHeader().Round
-	if _, exists := e.blockDigestsVotedFor[r]; ! exists {
+	if _, exists := e.blockDigestsVotedFor[r]; !exists {
 		e.blockDigestsVotedFor[r] = block.BlockHeader().Digest
 	}
 	return nil
