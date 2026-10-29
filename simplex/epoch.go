@@ -114,6 +114,7 @@ type Epoch struct {
 	validatorsToPKs                map[string][]byte
 	rounds                         map[uint64]*Round
 	emptyVotes                     map[uint64]*EmptyVoteSet
+	blockDigestsVotedFor           map[uint64]common.Digest
 	futureMessages                 messagesFromNode
 	round                          uint64 // The current round we notarize
 	monitor                        *Monitor
@@ -240,6 +241,7 @@ func (e *Epoch) init() error {
 	e.replicationState = NewReplicationState(e.Logger, e.Comm, e.ID, e.MaxRoundWindow, e.ReplicationEnabled, e.StartTime, &e.lock, e.RandomSource)
 	e.timeoutHandler = common.NewTimeoutHandler(e.Logger, "emptyVoteRebroadcast", e.StartTime, e.MaxRebroadcastWait, e.emptyVoteTimeoutTaskRunner)
 	e.signatureAggregator = e.SignatureAggregatorCreator(e.validators)
+	e.blockDigestsVotedFor = make(map[uint64]common.Digest)
 	e.validatorsToPKs = make(map[string][]byte, len(e.validatorNodeIDs))
 	for _, node := range e.validators {
 		e.validatorsToPKs[string(node.Id)] = node.PK
@@ -366,6 +368,12 @@ func (e *Epoch) loadBlockRecord(block common.Block) error {
 
 	e.rounds[block.BlockHeader().Round] = NewRound(verifiedBlock)
 	e.Logger.Info("Block Proposal Recovered From WAL", zap.Uint64("Round", block.BlockHeader().Round))
+
+	// Record the block digest for this round if this is the first block we've received for this round.
+	r := block.BlockHeader().Round
+	if _, exists := e.blockDigestsVotedFor[r]; !exists {
+		e.blockDigestsVotedFor[r] = block.BlockHeader().Digest
+	}
 	return nil
 }
 
@@ -2090,7 +2098,6 @@ func (e *Epoch) processFinalizedBlock(block common.Block, finalization *common.F
 		if !bytes.Equal(roundDigest[:], seqDigest[:]) {
 			e.Logger.Debug("Received finalized block that is different from the one we have in the rounds map",
 				zap.Stringer("roundDigest", roundDigest), zap.Stringer("seqDigest", seqDigest))
-
 			delete(e.rounds, round.num)
 			return e.processFinalizedBlock(block, finalization)
 		}
@@ -3043,10 +3050,23 @@ func (e *Epoch) startRound() error {
 }
 
 func (e *Epoch) doProposed(block common.VerifiedBlock) error {
+	r := block.BlockHeader().Round
+	d := block.BlockHeader().Digest
+
+	if digestAlreadyVotedOn, exists := e.blockDigestsVotedFor[r]; exists && digestAlreadyVotedOn != d {
+		e.Logger.Debug("Not voting on block because we already voted on a different block for this round",
+			zap.Uint64("round", r),
+			zap.Stringer("already voted on digest", digestAlreadyVotedOn),
+			zap.Stringer("new block digest", d))
+		return nil
+	}
+
 	vote, err := e.voteOnBlock(block)
 	if err != nil {
 		return err
 	}
+
+	e.blockDigestsVotedFor[r] = d
 
 	md := block.BlockHeader()
 
@@ -3084,6 +3104,11 @@ func (e *Epoch) voteOnBlock(block common.VerifiedBlock) (common.Vote, error) {
 
 // deletesRounds deletes all the rounds before [round] in the rounds map.
 func (e *Epoch) deleteRounds(round uint64) {
+	for r := range e.blockDigestsVotedFor {
+		if r < round {
+			delete(e.blockDigestsVotedFor, r)
+		}
+	}
 	for i, r := range e.rounds {
 		if r.num+e.MaxRoundWindow < round {
 			delete(e.rounds, i)
