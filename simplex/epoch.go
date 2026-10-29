@@ -368,6 +368,12 @@ func (e *Epoch) loadBlockRecord(block common.Block) error {
 
 	e.rounds[block.BlockHeader().Round] = NewRound(verifiedBlock)
 	e.Logger.Info("Block Proposal Recovered From WAL", zap.Uint64("Round", block.BlockHeader().Round))
+
+	// Record the block digest for this round if this is the first block we've received for this round.
+	r := block.BlockHeader().Round
+	if _, exists := e.blockDigestsVotedFor[r]; ! exists {
+		e.blockDigestsVotedFor[r] = block.BlockHeader().Digest
+	}
 	return nil
 }
 
