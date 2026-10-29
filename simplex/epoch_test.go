@@ -4296,7 +4296,6 @@ func TestReplicatedNotarizationForEmptyNotarizedRound(t *testing.T) {
 	require.Equal(t, uint64(1), e.Metadata().Round)
 }
 
-
 // TestEpochRejectsTelockReplicatedWithEmptyNotarization reproduces https://github.com/ava-labs/Simplex/issues/663.
 // After the sealing block of the previous epoch is committed, a validator replicates a quorum round that pairs
 // the previous epoch's first Telock and its notarization with an empty notarization of the current epoch for the same round.
@@ -4364,7 +4363,6 @@ func TestEpochRejectsTelockReplicatedWithEmptyNotarization(t *testing.T) {
 		"the block of round %d was finalized at seq %d on top of the Telock of epoch 0, and the node never committed seq %d",
 		block.BlockHeader().Round, block.BlockHeader().Seq, md.Seq)
 }
-
 
 // TestLateNotarizationForPastRoundHaltsLeader tests as scenario where the node holds the block of round 0 without a notarization,
 // round 0 is empty notarized, and the node proposes as the leader of round 1.

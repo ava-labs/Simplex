@@ -345,6 +345,24 @@ func (q *QuorumRound) IsWellFormed() error {
 		return fmt.Errorf("malformed QuorumRound, notarization but no block")
 	}
 
+	epochs := make(map[uint64]struct{})
+
+	if q.Finalization != nil {
+		epochs[q.Finalization.Finalization.Epoch] = struct{}{}
+	}
+
+	if q.Notarization != nil {
+		epochs[q.Notarization.Vote.Epoch] = struct{}{}
+	}
+
+	if q.EmptyNotarization != nil {
+		epochs[q.EmptyNotarization.Vote.Epoch] = struct{}{}
+	}
+
+	if len(epochs) > 1 {
+		return fmt.Errorf("malformed QuorumRound, inconsistent epochs")
+	}
+
 	return nil
 }
 
@@ -387,24 +405,6 @@ func (q *QuorumRound) VerifyQCConsistentWithBlock() error {
 
 	if q.Block == nil {
 		return nil
-	}
-
-	epochs := make(map[uint64]struct{})
-
-	if q.Finalization != nil {
-		epochs[q.Finalization.Finalization.Epoch] = struct{}{}
-	}
-
-	if q.Notarization != nil {
-		epochs[q.Notarization.Vote.Epoch] = struct{}{}
-	}
-
-	if q.EmptyNotarization != nil {
-		epochs[q.EmptyNotarization.Vote.Epoch] = struct{}{}
-	}
-
-	if len(epochs) > 1 {
-		return fmt.Errorf("inconsistent epochs in QuorumRound")
 	}
 
 	// if an empty notarization is included, ensure the round is equal to the block round

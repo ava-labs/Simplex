@@ -194,6 +194,33 @@ func TestQuorumRoundMalformed(t *testing.T) {
 			expectedErr: false,
 		},
 		{
+			name: "block and notarization and finalization of different epochs",
+			qr: common.QuorumRound{
+				Block:        &testutil.TestBlock{},
+				Notarization: &common.Notarization{Vote: common.ToBeSignedVote{BlockHeader: common.BlockHeader{ProtocolMetadata: common.ProtocolMetadata{Epoch: 1}}}},
+				Finalization: &common.Finalization{Finalization: common.ToBeSignedFinalization{BlockHeader: common.BlockHeader{ProtocolMetadata: common.ProtocolMetadata{Epoch: 2}}}},
+			},
+			expectedErr: true,
+		},
+		{
+			name: "block and notarization and empty notarization of different epochs",
+			qr: common.QuorumRound{
+				Block:             &testutil.TestBlock{},
+				Notarization:      &common.Notarization{Vote: common.ToBeSignedVote{BlockHeader: common.BlockHeader{ProtocolMetadata: common.ProtocolMetadata{Epoch: 1}}}},
+				EmptyNotarization: &common.EmptyNotarization{Vote: common.ToBeSignedEmptyVote{EmptyVoteMetadata: common.EmptyVoteMetadata{Epoch: 2}}},
+			},
+			expectedErr: true,
+		},
+		{
+			name: "block and finalization and empty notarization of different epochs",
+			qr: common.QuorumRound{
+				Block:             &testutil.TestBlock{},
+				Finalization:      &common.Finalization{Finalization: common.ToBeSignedFinalization{BlockHeader: common.BlockHeader{ProtocolMetadata: common.ProtocolMetadata{Epoch: 1}}}},
+				EmptyNotarization: &common.EmptyNotarization{Vote: common.ToBeSignedEmptyVote{EmptyVoteMetadata: common.EmptyVoteMetadata{Epoch: 2}}},
+			},
+			expectedErr: true,
+		},
+		{
 			name: "empty notarization and finalization, no block",
 			qr: common.QuorumRound{
 				EmptyNotarization: &common.EmptyNotarization{},
@@ -373,21 +400,6 @@ func TestVerifyQCConsistentWithBlock(t *testing.T) {
 		{
 			name: "finalization and empty notarization of the block's round",
 			qr:   common.QuorumRound{Block: block, Finalization: finalization(bh), EmptyNotarization: emptyNotarization(bh.Round, bh.Epoch)},
-		},
-		{
-			name:        "notarization and empty notarization of a later epoch",
-			qr:          common.QuorumRound{Block: block, Notarization: notarization(bh), EmptyNotarization: emptyNotarization(bh.Round, bh.Epoch+1)},
-			expectedErr: true,
-		},
-		{
-			name:        "finalization and empty notarization of a later epoch",
-			qr:          common.QuorumRound{Block: block, Finalization: finalization(bh), EmptyNotarization: emptyNotarization(bh.Round, bh.Epoch+1)},
-			expectedErr: true,
-		},
-		{
-			name:        "notarization and empty notarization of an earlier epoch",
-			qr:          common.QuorumRound{Block: block, Notarization: notarization(bh), EmptyNotarization: emptyNotarization(bh.Round, bh.Epoch-1)},
-			expectedErr: true,
 		},
 	}
 
