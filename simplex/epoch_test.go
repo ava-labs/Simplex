@@ -4296,6 +4296,70 @@ func TestReplicatedNotarizationForEmptyNotarizedRound(t *testing.T) {
 	require.Equal(t, uint64(1), e.Metadata().Round)
 }
 
+// TestLateNotarizationForPastRoundHaltsLeader tests as scenario where the node holds the block of round 0 without a notarization,
+// round 0 is empty notarized, and the node proposes as the leader of round 1.
+// A late notarization for round 0 then makes doNotarized restart round 1,
+// so the node builds a second block for it, fails to store it, and halts.
+func TestLateNotarizationForPastRoundHaltsLeader(t *testing.T) {
+	bb := testutil.NewTestBlockBuilder()
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	recordingComm := &recordingComm{
+		Communication:     testutil.NewNoopComm(nodes),
+		BroadcastMessages: make(chan *Message, 100),
+	}
+	// nodes[1] is the leader of round 1.
+	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[1], recordingComm, bb)
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+
+	block0 := testutil.NewTestBlock(e.Metadata(), emptyBlacklist)
+	vote0, err := testutil.NewTestVote(block0, nodes[0])
+	require.NoError(t, err)
+	require.NoError(t, e.HandleMessage(&Message{BlockMessage: &BlockMessage{Block: block0, Vote: *vote0}}, nodes[0]))
+	wal.AssertBlockProposal(0)
+
+	// Round 0 times out and is empty notarized while we hold block0 without a notarization.
+	bb.BlockShouldBeBuilt <- struct{}{}
+	testutil.WaitForBlockProposerTimeout(t, e, &e.StartTime, 0)
+	require.NoError(t, e.HandleMessage(&Message{EmptyNotarization: testutil.NewEmptyNotarization(nodes, 0)}, nodes[2]))
+	testutil.WaitToEnterRound(t, e, 1)
+
+	// We lead round 1 and propose a block for it.
+	wal.AssertBlockProposal(1)
+	waitForProposal(t, recordingComm.BroadcastMessages, 1)
+
+	// A validator sends a notarization for round 0 that it assembled from the votes it received.
+	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Validators())
+	notarization0, err := testutil.NewNotarization(e.Logger, sigAggr, block0, nodes[0:3])
+	require.NoError(t, err)
+	lateNotarization := &Message{Notarization: &notarization0}
+	require.NoError(t, e.HandleMessage(lateNotarization, nodes[2]))
+	require.True(t, wal.ContainsNotarization(0))
+
+	// The node must keep processing messages.
+	require.Never(t, func() bool {
+		return e.HandleMessage(lateNotarization, nodes[2]) != nil
+	}, time.Second, 10*time.Millisecond, "the late notarization for round 0 halted the leader of round 1")
+}
+
+// waitForProposal waits until a block proposal for the given round is broadcast.
+func waitForProposal(t *testing.T, broadcast chan *Message, round uint64) {
+	timeout := time.After(30 * time.Second)
+	for {
+		select {
+		case msg := <-broadcast:
+			if msg.VerifiedBlockMessage != nil && msg.VerifiedBlockMessage.VerifiedBlock.BlockHeader().Round == round {
+				return
+			}
+		case <-timeout:
+			require.FailNow(t, "timed out waiting for a block proposal", "round %d", round)
+		}
+	}
+}
+
 // TestEpochRejectsProposalWithWrongSeq asserts that a proposal is rejected when
 // its Seq is not one after the parent.
 func TestEpochRejectsProposalWithWrongSeq(t *testing.T) {
@@ -4381,4 +4445,60 @@ func TestEpochFutureEmptyVotesAssembleOnRoundStart(t *testing.T) {
 	emptyRecord := wal.AssertNotarization(1)
 	require.Equal(t, EmptyNotarizationRecordType, emptyRecord)
 	require.Equal(t, uint64(2), e.Metadata().Round)
+}
+
+func TestProposalOnAncientParentIsRejected(t *testing.T) {
+	const finalizedRounds = 40
+
+	bb := testutil.NewTestBlockBuilder()
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	comm := &recordingComm{
+		Communication: testutil.NewNoopComm(nodes),
+		SentMessages:  make(chan *Message, 100),
+	}
+	conf, wal, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], comm, bb)
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+
+	for range finalizedRounds {
+		notarizeAndFinalizeRound(t, e, bb)
+	}
+	// The proposal must come from the leader of the current round, which must not be us.
+	// so we advance the round until we are not the leader, then propose on top of block 0.
+	for LeaderForRound(nodes, e.Metadata().Round).Equals(e.ID) {
+		notarizeAndFinalizeRound(t, e, bb)
+	}
+
+	block0, _, err := storage.Retrieve(0)
+	require.NoError(t, err)
+
+	walRecords, err := wal.ReadAll()
+	require.NoError(t, err)
+
+	walSizeBeforeWrongProposal := len(walRecords)
+
+	round := e.Metadata().Round
+	leader := LeaderForRound(nodes, round)
+	ancientProposal := testutil.NewTestBlock(ProtocolMetadata{
+		Round: round,
+		Seq:   1,
+		Epoch: e.Epoch,
+		Prev:  block0.BlockHeader().Digest,
+	}, block0.Blacklist())
+	vote, err := testutil.NewTestVote(ancientProposal, leader)
+	require.NoError(t, err)
+
+	// Discard what was sent while the chain advanced.
+	for len(comm.SentMessages) > 0 {
+		<-comm.SentMessages
+	}
+
+	require.NoError(t, e.HandleMessage(&Message{
+		BlockMessage: &BlockMessage{Vote: *vote, Block: ancientProposal},
+	}, leader))
+
+	wal.AssertWALSize(walSizeBeforeWrongProposal) // The proposal is rejected, so nothing is written to the WAL.
 }
