@@ -1296,3 +1296,97 @@ func TestNonValidatorSurvivesStaleTelockQuorumRound(t *testing.T) {
 		return nonValidator.storage.NumBlocks() > sealingHeader.Seq+2
 	}, 10*time.Second, 10*time.Millisecond, "non-validator never indexed the new epoch's block at k+2")
 }
+
+// A non-validator receives a replayed Telock T2 at seq k+2, built on top of Telock T1 at seq k+1.
+// The new epoch has already indexed a block that competes with T1, and as a result T2 cannot be executed, because it depends on T1,
+// but also the block in the new epoch that competes with its index with T2 cannot be scheduled because the sequence
+// has already been scheduled.
+func TestNonValidatorStallsOnStaleTelockDependency(t *testing.T) {
+	v1 := newNodeMapping(1)
+	v2 := newNodeMapping(2)
+	v3 := newNodeMapping(3)
+	v4 := newNodeMapping(4)
+	nonValidatorMapping := newNodeMapping(42)
+
+	oldValidatorSet := metadata.NodeBLSMappings{v1, v2, v3, v4}
+	pChain := newTestPChain(oldValidatorSet)
+	network := newNetwork(t, pChain)
+	node1 := network.addNode(v1.NodeID[:])
+	node2 := network.addNode(v2.NodeID[:])
+	node3 := network.addNode(v3.NodeID[:])
+	network.addNode(v4.NodeID[:])
+	network.sync()
+
+	nonValidator := network.addNode(nonValidatorMapping.NodeID[:]).sync()
+
+	// The non-validator is not part of the new epoch either, so it keeps running as a non-validator.
+	newValidatorSet := metadata.NodeBLSMappings{v1, v2, v3}
+	pChain.setValidatorSetAt(10, newValidatorSet)
+	pChain.advanceHeight(10)
+	sealing := network.waitUntilSealingBlock(newValidatorSet.Nodes())
+	sealingSeq := sealing.BlockHeader().Seq
+	oldEpoch := sealing.BlockHeader().Epoch
+	nonValidator.storage.WaitForBlockCommit(sealingSeq)
+
+	isValidator, epochsReplicated := nonValidator.role()
+	require.True(t, epochsReplicated)
+	require.False(t, isValidator)
+
+	sealingBlock, _, err := node1.storage.GetBlock(sealingSeq)
+	require.NoError(t, err)
+
+	// telock() builds the Telock of the old epoch at seq, like the MSM does while the sealing block is not yet finalized.
+	telock := func(seq, round uint64, prev common.Digest) *ParsedBlock {
+		md := sealingBlock.Metadata.Clone()
+		md.SimplexProtocolMetadata.Seq = seq
+		md.SimplexProtocolMetadata.Round = round
+		md.SimplexProtocolMetadata.Prev = prev
+		md.SimplexEpochInfo = metadata.SimplexEpochInfo{
+			PChainReferenceHeight:     sealingBlock.Metadata.SimplexEpochInfo.PChainReferenceHeight,
+			NextPChainReferenceHeight: sealingBlock.Metadata.SimplexEpochInfo.NextPChainReferenceHeight,
+			SealingBlockSeq:           sealingSeq,
+			PrevVMBlockSeq:            sealingSeq,
+		}
+		return &ParsedBlock{StateMachineBlock: metadata.StateMachineBlock{Metadata: md}}
+	}
+
+	sealingRound := sealing.BlockHeader().Round
+	t1 := telock(sealingSeq+1, sealingRound+1, sealing.BlockHeader().Digest)
+	t2 := telock(sealingSeq+2, sealingRound+2, t1.BlockHeader().Digest)
+
+	// A quorum of the old epoch finalized T2.
+	var qc testutil.TestQC
+	for _, id := range oldValidatorSet.NodeIDs() {
+		qc = append(qc, common.Signature{Signer: id})
+	}
+	t2Finalization := common.Finalization{
+		Finalization: common.ToBeSignedFinalization{BlockHeader: t2.BlockHeader()},
+		QC:           qc,
+	}
+
+	// The leader of T2's round replays T2's finalization and block.
+	t2Leader := simplex.LeaderForRound(oldValidatorSet.NodeIDs(), t2.BlockHeader().Round)
+	require.NoError(t, nonValidator.inst.HandleMessage(&common.Message{Finalization: &t2Finalization}, t2Leader))
+	vote, err := testutil.NewTestVote(t2, t2Leader)
+	require.NoError(t, err)
+	require.NoError(t, nonValidator.inst.HandleMessage(&common.Message{
+		BlockMessage: &common.BlockMessage{Vote: *vote, Block: t2},
+	}, t2Leader))
+
+	// The new epoch builds two blocks with sequences k+1 and k+2. Only wait for the validators to commit them,
+	// so a stalled non-validator fails the assertion below instead of hanging the test.
+	for range 2 {
+		network.waitUntilValidatorsReady()
+		network.pending.addPendingBlock()
+		for _, validator := range []*node{node1, node2, node3} {
+			validator.storage.WaitForBlockCommit(network.seq)
+		}
+		network.seq++
+	}
+
+	require.Eventually(t, func() bool {
+		return nonValidator.storage.NumBlocks() > sealingSeq+2
+	}, 10*time.Second, 10*time.Millisecond,
+		"non-validator never indexed seq %d of epoch %d after a replay of the Telock of epoch %d at that seq",
+		sealingSeq+2, sealingSeq, oldEpoch)
+}

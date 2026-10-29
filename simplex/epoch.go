@@ -2006,7 +2006,7 @@ func (e *Epoch) handleBlockMessage(message *common.BlockMessage, from common.Nod
 		e.sendMissingRoundsRequest(from, missingRounds)
 	}
 
-	if err := e.blockVerificationScheduler.ScheduleTaskWithDependencies(task, md.Seq, prevBlockDependency, missingRounds); err != nil {
+	if err := e.blockVerificationScheduler.ScheduleTaskWithDependencies(task, md.Seq, md.Epoch, prevBlockDependency, missingRounds); err != nil {
 		return nil
 	}
 
@@ -2147,7 +2147,7 @@ func (e *Epoch) processFinalizedBlock(block common.Block, finalization *common.F
 
 	// Create a task that will verify the block in the future, after its predecessors have also been verified.
 	task := e.createFinalizedBlockVerificationTask(e.oneTimeVerifier.Wrap(block), finalization)
-	err := e.blockVerificationScheduler.ScheduleTaskWithDependencies(task, block.BlockHeader().Seq, blockDependency, []uint64{})
+	err := e.blockVerificationScheduler.ScheduleTaskWithDependencies(task, block.BlockHeader().Seq, block.BlockHeader().Epoch, blockDependency, []uint64{})
 	if errors.Is(err, common.ErrTooManyPendingVerifications) {
 		// A full scheduler shouldn't fatal
 		e.Logger.Debug("Dropping finalized block, too many pending verifications",
@@ -2204,7 +2204,7 @@ func (e *Epoch) processNotarizedBlock(block common.Block, notarization *common.N
 	blockDependency, _ := e.blockDependencies(md)
 
 	e.replicationState.CreateDependencyTasks(blockDependency, md.Seq-1, []uint64{})
-	err := e.blockVerificationScheduler.ScheduleTaskWithDependencies(task, md.Seq, blockDependency, []uint64{})
+	err := e.blockVerificationScheduler.ScheduleTaskWithDependencies(task, md.Seq, md.Epoch, blockDependency, []uint64{})
 	if errors.Is(err, common.ErrTooManyPendingVerifications) {
 		e.Logger.Debug("Verification queue is full, re-requesting notarized block", zap.Uint64("round", md.Round))
 		e.replicationState.ResendRoundRequest(md.Round, notarization.QC.Signers())

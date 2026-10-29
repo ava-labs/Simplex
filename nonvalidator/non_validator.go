@@ -409,6 +409,8 @@ func (n *NonValidator) newFinalizedBlockTask(block common.Block, finalization *c
 			return md.Digest
 		}
 
+		n.verifier.RemoveOldTasks(md.Seq)
+
 		prevEpoch := n.latestEpochCommitted
 		if md.Epoch > prevEpoch {
 			n.sequenceReplicator.Purge(func(block common.Block) bool {
@@ -578,7 +580,7 @@ func (n *NonValidator) handleFinalization(finalization *common.Finalization, fro
 
 func (n *NonValidator) scheduleNewFinalizedBlockTask(block common.Block, finalization *common.Finalization) error {
 	bh := finalization.Finalization.BlockHeader
-	if n.verifier.IsSequenceScheduled(bh.Seq) {
+	if n.verifier.IsSequenceScheduled(bh.Seq, bh.Epoch) {
 		// Avoid scheduling more than one task.
 		// If verification during the task fails, we will try and reschedule.
 		return nil
@@ -590,7 +592,7 @@ func (n *NonValidator) scheduleNewFinalizedBlockTask(block common.Block, finaliz
 	if bh.Seq > 0 && !n.isIndexed(bh.Seq-1) {
 		prev = &bh.Prev
 	}
-	return n.verifier.ScheduleTaskWithDependencies(finalizedBlockTask, bh.Seq, prev, []uint64{})
+	return n.verifier.ScheduleTaskWithDependencies(finalizedBlockTask, bh.Seq, bh.Epoch, prev, []uint64{})
 }
 
 func (n *NonValidator) handleReplicationResponse(resp *common.ReplicationResponse, from common.NodeID) error {
