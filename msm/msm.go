@@ -852,7 +852,7 @@ func (sm *StateMachine) createBlockBuildingDecider(currentValidatorSet NodeBLSMa
 			}
 			return h
 		},
-		waitForPendingBlock:      sm.BlockBuilder.WaitForPendingBlock,
+		waitForPendingBlock: sm.BlockBuilder.WaitForPendingBlock,
 		hasValidatorSetChanged: func(pChainHeight uint64) (bool, error) {
 			// The given pChainHeight was sampled by the caller of shouldTransitionEpoch().
 			// We compare between the current validator set, defined by the P-chain reference height in the parent block,
