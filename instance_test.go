@@ -218,7 +218,6 @@ func TestNonValidatorThresholdFollowsPChainTip(t *testing.T) {
 	}, 2*simplex.DefaultReplicationRequestTimeout, 100*time.Millisecond)
 }
 
-
 func TestHonestLeaderBuildsOnFutureDatedParent(t *testing.T) {
 	// Four validators, of which the Byzantine one is never instantiated: the honest three are a
 	// quorum on their own. It has the largest ID, so it sorts last.
@@ -303,7 +302,6 @@ func TestHonestLeaderBuildsOnFutureDatedParent(t *testing.T) {
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, child.Metadata.Timestamp, futureDated.Metadata.Timestamp)
 }
-
 
 // TestValidator_ValidatorSetNotChanged tests that a P-chain height increase
 // that does not have a unique validator set, does not create a new epoch
