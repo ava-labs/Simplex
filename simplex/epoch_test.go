@@ -4423,6 +4423,69 @@ func TestEpochRejectsProposalWithWrongSeq(t *testing.T) {
 	}
 }
 
+// TestEpochKeepsReplicatedNotarizedBlockWhenLeaderRefillsRound checks a scenario where the leader of round 0 sends
+// the node block A, while the rest of the validators notarize block B.
+// The leader then sends block C for round 0, and its verification is executed.
+// The notarization of B is replicated to the node, which deletes A and schedules the verification of B.
+// Verification tasks run one at a time, so C is stored first, and B finds the round already filled.
+// The node must still store the notarization of B and advance to round 1.
+func TestEpochKeepsReplicatedNotarizedBlockWhenLeaderRefillsRound(t *testing.T) {
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	bb := testutil.NewTestBlockBuilder()
+	conf, wal, _ := testutil.DefaultTestNodeEpochConfig(t, nodes[1], testutil.NewNoopComm(nodes), bb)
+	conf.ReplicationEnabled = true
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+
+	leader := LeaderForRound(nodes, 0)
+	require.False(t, leader.Equals(e.ID))
+
+	newBlock := func(data string) *testutil.TestBlock {
+		block := testutil.NewTestBlock(e.Metadata(), emptyBlacklist)
+		block.Data = []byte(data)
+		block.ComputeDigest()
+		return block
+	}
+	sendProposal := func(block *testutil.TestBlock) {
+		vote, err := testutil.NewTestVote(block, leader)
+		require.NoError(t, err)
+		require.NoError(t, e.HandleMessage(&Message{
+			BlockMessage: &BlockMessage{Vote: *vote, Block: block},
+		}, leader))
+	}
+
+	// The node stores block A, the leader's proposal to it.
+	blockA := newBlock("A")
+	sendProposal(blockA)
+	wal.AssertBlockProposal(0)
+
+	// The leader sends block C for the same round, and its verification is held open.
+	blockC := newBlock("C")
+	blockC.VerificationDelay = make(chan struct{})
+	sendProposal(blockC)
+
+	// The notarization of block B, which every other validator voted for, is replicated to the node.
+	// The node deletes A and schedules the verification of B, behind that of C.
+	blockB := newBlock("B")
+	sigAggr := e.SignatureAggregatorCreator(conf.Comm.Validators())
+	notarization, err := testutil.NewNotarization(e.Logger, sigAggr, blockB, []NodeID{nodes[0], nodes[2], nodes[3]})
+	require.NoError(t, err)
+	require.NoError(t, e.HandleMessage(&Message{ReplicationResponse: &ReplicationResponse{
+		Data: []QuorumRound{{Block: blockB, Notarization: &notarization}},
+	}}, nodes[2]))
+
+	// C is verified and stored in round 0 before B is verified.
+	close(blockC.VerificationDelay)
+
+	require.Eventually(t, func() bool {
+		return e.Metadata().Round == 1
+	}, 5*time.Second, 10*time.Millisecond, "the node dropped the notarized block B of round 0 and is stuck in round %d", e.Metadata().Round)
+	require.True(t, wal.ContainsNotarization(0))
+}
+
 // TestEpochFutureEmptyVotesAssembleOnRoundStart asserts that empty votes received for a future round
 // are kept and assembled into an empty notarization once the epoch reaches that round.
 func TestEpochFutureEmptyVotesAssembleOnRoundStart(t *testing.T) {
