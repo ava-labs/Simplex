@@ -1378,6 +1378,7 @@ func (e *Epoch) persistFinalization(finalization common.Finalization) error {
 	} else {
 		finalizationRecord := common.NewQuorumRecord(finalization.QC.Bytes(), finalization.Finalization.Bytes(), common.FinalizationRecordType)
 		if err := e.WAL.Append(finalizationRecord); err != nil {
+			e.haltedError = err
 			e.Logger.Error("Failed to append finalization record to WAL", zap.Error(err))
 			return err
 		}
@@ -1640,6 +1641,7 @@ func (e *Epoch) persistEmptyNotarization(emptyVotes *EmptyVoteSet, shouldBroadca
 	emptyNotarization := emptyVotes.emptyNotarization
 	emptyNotarizationRecord := common.NewEmptyNotarizationRecord(emptyNotarization)
 	if err := e.WAL.Append(emptyNotarizationRecord); err != nil {
+		e.haltedError = err
 		e.Logger.Error("Failed to append empty notarization record to WAL", zap.Error(err))
 		return err
 	}
@@ -1735,6 +1737,7 @@ func (e *Epoch) writeNotarizationToWal(notarization common.Notarization) error {
 	notarizationRecord := common.NewQuorumRecord(notarization.QC.Bytes(), notarization.Vote.Bytes(), common.NotarizationRecordType)
 
 	if err := e.WAL.Append(notarizationRecord); err != nil {
+		e.haltedError = err
 		e.Logger.Error("Failed to append notarization record to WAL", zap.Error(err))
 		return err
 	}
@@ -1780,9 +1783,6 @@ func (e *Epoch) persistAndBroadcastNotarization(notarization common.Notarization
 	advancedRound := notarization.Vote.Round == e.round
 	err := e.persistNotarization(notarization)
 	if err != nil {
-		// The notarization is already stored in memory but not on disk, so we must not keep running:
-		// we might otherwise sign both a finalize vote and an empty vote for this round.
-		e.haltedError = err
 		return err
 	}
 
@@ -2834,6 +2834,7 @@ func (e *Epoch) triggerEmptyBlockNotarization(round uint64) {
 
 	emptyVoteRecord := common.NewEmptyVoteRecord(emptyVote)
 	if err := e.WAL.Append(emptyVoteRecord); err != nil {
+		e.haltedError = err
 		e.Logger.Error("Failed appending empty vote", zap.Error(err))
 		return
 	}
