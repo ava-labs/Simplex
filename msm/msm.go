@@ -397,7 +397,7 @@ func (sm *StateMachine) WaitForPendingBlock(ctx context.Context, currentRoundMet
 		}
 	}
 
-	blockBuildingDecider := sm.createBlockBuildingDecider(currentValidatorSet)
+	blockBuildingDecider := sm.createBlockBuildingDecider(currentValidatorSet, 0)
 	_, err = blockBuildingDecider.shouldBuildBlock(ctx)
 	if err != nil {
 		sm.Logger.Debug(
@@ -581,16 +581,7 @@ func (sm *StateMachine) buildBlockOrTransitionEpoch(ctx context.Context, parentB
 		currentValidatorSet = bvd.AggregatedMembership.Members
 	}
 
-	blockBuildingDecider := sm.createBlockBuildingDecider(currentValidatorSet)
-	// Overwrite the GetPChainHeight function to ensure that we always propose a block with a P-chain height
-	// that is at least as high as the parent block's P-chain height.
-	blockBuildingDecider.getPChainHeight = func() uint64 {
-		h := sm.GetPChainHeightForProposing()
-		if parentBlock.Metadata.PChainHeight > h {
-			h = parentBlock.Metadata.PChainHeight
-		}
-		return h
-	}
+	blockBuildingDecider := sm.createBlockBuildingDecider(currentValidatorSet, parentBlock.Metadata.PChainHeight)
 	decisionToBuildBlock, err := blockBuildingDecider.shouldBuildBlock(ctx)
 	if err != nil {
 		if errors.Is(context.Cause(ctx), common.ErrShouldBuildEmptyBlock) {
@@ -848,12 +839,19 @@ func (sm *StateMachine) verifyNextPChainRefHeightForNewEpoch(expectedEpochInfo S
 	return nil
 }
 
-func (sm *StateMachine) createBlockBuildingDecider(currentValidatorSet NodeBLSMappings) blockBuildingDecider {
+func (sm *StateMachine) createBlockBuildingDecider(currentValidatorSet NodeBLSMappings, parentPChainHeight uint64) blockBuildingDecider {
 	blockBuildingDecider := blockBuildingDecider{
 		logger:                   sm.Logger,
 		maxBlockBuildingWaitTime: sm.MaxBlockBuildingWaitTime,
 		pChainListener:           sm.PChainProgressListener,
-		getPChainHeight:          sm.GetPChainHeightForProposing,
+		getPChainHeight: func() uint64 {
+			// We want to make sure the P-chain height we propose is at least as high as the parent block's P-chain height
+			h := sm.GetPChainHeightForProposing()
+			if parentPChainHeight > 0 && parentPChainHeight > h {
+				h = parentPChainHeight
+			}
+			return h
+		},
 		waitForPendingBlock:      sm.BlockBuilder.WaitForPendingBlock,
 		hasValidatorSetChanged: func(pChainHeight uint64) (bool, error) {
 			// The given pChainHeight was sampled by the caller of shouldTransitionEpoch().

@@ -1410,20 +1410,17 @@ func TestHonestLeaderBuildsOnFutureDatedParent(t *testing.T) {
 	byzantineID := common.NodeID(byzantine.NodeID[:])
 
 	// Accept honest blocks until the Byzantine validator leads the round after the tip.
-	parent, _, err := nodes[0].storage.GetBlock(network.seq - 1)
-	require.NoError(t, err)
-	for !simplex.LeaderForRound(validatorIDs, parent.Metadata.SimplexProtocolMetadata.Round+1).Equals(byzantineID) {
-		network.acceptNewBlock()
-		parent, _, err = nodes[0].storage.GetBlock(network.seq - 1)
-		require.NoError(t, err)
+	var parent metadata.StateMachineBlock
+	for {
+		blk, _ := network.acceptNewBlock()
+		parent = blk.(*ParsedBlock).StateMachineBlock
+		if simplex.LeaderForRound(validatorIDs, parent.Metadata.SimplexProtocolMetadata.Round+1).Equals(byzantineID) {
+			break
+		}
 	}
 
 	// The Byzantine leader proposes a block that is valid in every respect, but stamped 5 seconds
 	// ahead of the honest validators' clocks, which is within the default time skew limit.
-	prevVMBlockSeq := parent.Metadata.SimplexProtocolMetadata.Seq
-	if parent.InnerBlock == nil {
-		prevVMBlockSeq = parent.Metadata.SimplexEpochInfo.PrevVMBlockSeq
-	}
 	futureTime := time.Now().Add(5 * time.Second)
 	futureDated := metadata.StateMachineBlock{
 		InnerBlock: &testInnerBlock{Height_: network.seq, TS: futureTime, Payload: []byte("future-dated")},
@@ -1433,12 +1430,12 @@ func TestHonestLeaderBuildsOnFutureDatedParent(t *testing.T) {
 				Epoch: parent.Metadata.SimplexProtocolMetadata.Epoch,
 				Round: parent.Metadata.SimplexProtocolMetadata.Round + 1,
 				Seq:   network.seq,
-				Prev:  common.Digest(parent.Digest()),
+				Prev:  parent.Digest(),
 			},
 			SimplexBlacklist: parent.Metadata.SimplexBlacklist,
 			SimplexEpochInfo: metadata.SimplexEpochInfo{
 				PChainReferenceHeight: parent.Metadata.SimplexEpochInfo.PChainReferenceHeight,
-				PrevVMBlockSeq:        prevVMBlockSeq,
+				PrevVMBlockSeq:        parent.Metadata.SimplexProtocolMetadata.Seq,
 			},
 			PChainHeight: parent.Metadata.PChainHeight,
 		},
@@ -1456,12 +1453,12 @@ func TestHonestLeaderBuildsOnFutureDatedParent(t *testing.T) {
 		}, byzantineID))
 	}
 
-	// The honest validators accept the future-dated block.
-	for _, n := range nodes {
-		committed := n.storage.WaitForBlockCommit(network.seq)
-		require.Equal(t, futureDated.Digest(), committed.(*ParsedBlock).Digest())
-	}
 	network.seq++
+
+	network.sync()
+	committed, _, err := nodes[0].storage.GetBlock(network.seq - 1)
+	require.NoError(t, err)
+	require.Equal(t, futureDated.Digest(), committed.Digest())
 
 	// The next round is led by an honest validator. Its block should be accepted well before
 	// the honest validators' clocks reach the parent's timestamp.
