@@ -4296,6 +4296,74 @@ func TestReplicatedNotarizationForEmptyNotarizedRound(t *testing.T) {
 	require.Equal(t, uint64(1), e.Metadata().Round)
 }
 
+// TestEpochRejectsTelockReplicatedWithEmptyNotarization reproduces https://github.com/ava-labs/Simplex/issues/663.
+// After the sealing block of the previous epoch is committed, a validator replicates a quorum round that pairs
+// the previous epoch's first Telock and its notarization with an empty notarization of the current epoch for the same round.
+// The quorum round is taken to be of the current epoch, so the node makes the Telock its chain tip and builds the
+// next block on it. Telocks are never committed, so the block built on the Telock is finalized but never committed,
+// and the node halts.
+func TestEpochRejectsTelockReplicatedWithEmptyNotarization(t *testing.T) {
+	nodes := []NodeID{{1}, {2}, {3}, {4}}
+	quorum := Quorum(len(nodes))
+	blacklist := NewBlacklist(uint16(len(nodes)), DefaultMaxBlacklistedRounds)
+
+	// The previous epoch ends with the sealing block at seq 1, so the node starts in epoch 1 at round 2.
+	epoch0Block := testutil.NewTestBlock(ProtocolMetadata{Epoch: 0, Round: 0, Seq: 0}, blacklist)
+	sealingBlock := testutil.NewTestBlock(ProtocolMetadata{Epoch: 0, Round: 1, Seq: 1, Prev: epoch0Block.Digest}, blacklist)
+	sealingBlock.SealingInfo = &SealingBlockInfo{
+		ValidatorSet:         NodeIDs(nodes).EqualWeightedNodes(),
+		PrevSealingBlockHash: epoch0Block.Digest,
+	}
+
+	sigAggr := &testutil.TestSignatureAggregator{N: len(nodes)}
+	epoch0Finalization, _ := testutil.NewFinalizationRecord(t, sigAggr, epoch0Block, nodes)
+	sealingFinalization, _ := testutil.NewFinalizationRecord(t, sigAggr, sealingBlock, nodes)
+
+	bb := testutil.NewTestBlockBuilder()
+	conf, _, storage := testutil.DefaultTestNodeEpochConfig(t, nodes[0], testutil.NewNoopComm(nodes), bb)
+	conf.ReplicationEnabled = true
+	require.NoError(t, conf.Storage.Index(context.Background(), epoch0Block, epoch0Finalization))
+	require.NoError(t, conf.Storage.Index(context.Background(), sealingBlock, sealingFinalization))
+
+	e, err := NewEpoch(conf)
+	require.NoError(t, err)
+	t.Cleanup(e.Stop)
+	require.NoError(t, e.Start())
+
+	md := e.Metadata()
+	require.Equal(t, uint64(1), md.Epoch)
+	require.Equal(t, uint64(2), md.Round)
+	require.Equal(t, uint64(2), md.Seq)
+
+	// The first Telock of the previous epoch follows the sealing block, notarized in the previous epoch.
+	telock := testutil.NewTestBlock(ProtocolMetadata{Epoch: 0, Round: md.Round, Seq: md.Seq, Prev: sealingBlock.Digest}, blacklist)
+	telockNotarization, err := testutil.NewNotarization(e.Logger, sigAggr, telock, nodes[:quorum])
+	require.NoError(t, err)
+
+	// The first round of our epoch is empty notarized.
+	emptyNotarization := testutil.NewEmptyNotarization(nodes[:quorum], md.Round)
+	emptyNotarization.Vote.Epoch = md.Epoch
+
+	require.NoError(t, e.HandleMessage(&Message{ReplicationResponse: &ReplicationResponse{
+		Data: []QuorumRound{{Block: telock, Notarization: &telockNotarization, EmptyNotarization: emptyNotarization}},
+	}}, nodes[2]))
+
+	// The replicated block is verified asynchronously. Give the node time to make the Telock its chain tip,
+	// which it does within milliseconds if it accepts the quorum round, and proceed either way.
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) && e.Metadata().Prev != telock.Digest {
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// The next round is notarized and finalized, and its block must be committed after the sealing block.
+	block, _ := notarizeAndFinalizeRound(t, e, bb)
+	require.Eventually(t, func() bool {
+		return storage.NumBlocks() > md.Seq
+	}, 5*time.Second, 10*time.Millisecond,
+		"the block of round %d was finalized at seq %d on top of the Telock of epoch 0, and the node never committed seq %d",
+		block.BlockHeader().Round, block.BlockHeader().Seq, md.Seq)
+}
+
 // TestLateNotarizationForPastRoundHaltsLeader tests as scenario where the node holds the block of round 0 without a notarization,
 // round 0 is empty notarized, and the node proposes as the leader of round 1.
 // A late notarization for round 0 then makes doNotarized restart round 1,
