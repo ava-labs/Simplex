@@ -6,7 +6,6 @@ package nonvalidator
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"slices"
 
 	"github.com/ava-labs/simplex/common"
@@ -154,6 +153,7 @@ type epochDigestCounter struct {
 	// latestValidatorSetRetriever is used to calculate the threshold of votes needed to validate an epoch
 	latestValidatorSetRetriever LatestValidatorSetRetriever
 
+	// signatureAggregatorCreator is used to create a signature aggregator to determine if we have a threshold of votes for an epoch
 	signatureAggregatorCreator common.SignatureAggregatorCreator
 }
 
@@ -186,8 +186,6 @@ func (e *epochDigestCounter) maybeObserveThresholdResponses(sealingBlockInfo *co
 		return false
 	}
 
-	signatureAggregator := e.signatureAggregatorCreator(validators)
-
 	e.logger.Debug("Collected a sealing block", zap.Stringer("QR", sealingBlockInfo), zap.Stringer("From", from))
 
 	// the sequence number is the epoch the sealing block creates
@@ -199,11 +197,14 @@ func (e *epochDigestCounter) maybeObserveThresholdResponses(sealingBlockInfo *co
 	e.sealingBlockResponses[string(from)] = response
 
 	// check if we have a threshold of responses
-	var nodes []common.NodeID
+	var nodes common.NodeIDs
 	nodesByID := make(map[string]common.Node)
 	for _, node := range validators {
 		nodesByID[string(node.Id)] = node
 	}
+
+	signatureAggregator := e.signatureAggregatorCreator(validators)
+
 	for from, other := range e.sealingBlockResponses {
 		if other != response {
 			continue
@@ -216,13 +217,14 @@ func (e *epochDigestCounter) maybeObserveThresholdResponses(sealingBlockInfo *co
 		}
 
 		nodes = append(nodes, node.Id)
+	}
 
-		if signatureAggregator.AboveByzantineThreshold(nodes) {
-			e.logger.Info("We received enough messages to validate a higher epoch",
-				zap.Stringer("EpochInfo", sealingBlockInfo),
-				zap.String("nodes", fmt.Sprintf("%v", nodes)))
-			return true
-		}
+	if signatureAggregator.AboveByzantineThreshold(nodes) {
+		e.logger.Info("We received enough messages to validate a higher epoch",
+			zap.Stringer("EpochInfo", sealingBlockInfo),
+			zap.Stringer("nodes", nodes),
+		)
+		return true
 	}
 
 	return false

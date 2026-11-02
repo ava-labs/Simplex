@@ -359,8 +359,7 @@ func TestCollectedSealingBlockInfoWeightedByStake(t *testing.T) {
 		reports    []report
 	}{
 		{
-			name: "F+1 low-stake reporters are not enough",
-			// F(7)+1 = 3 reporters, holding 3 of 403
+			name:       "F+1 low-stake reporters are not enough",
 			validators: weightedNodes(100, 100, 100, 100, 1, 1, 1),
 			reports: []report{
 				{from: 5, header: sealingBlock},

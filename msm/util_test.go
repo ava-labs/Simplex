@@ -195,7 +195,7 @@ func (sv *signatureAggregator) AboveByzantineThreshold(signers []common.NodeID) 
 	for _, signer := range signers {
 		sum += sv.weightByNodeID[string(signer)]
 	}
-	return sum*3 > sv.totalWeight
+	return sum >= (sv.totalWeight/3)+1
 }
 
 func newSignatureAggregatorCreator() common.SignatureAggregatorCreator {
