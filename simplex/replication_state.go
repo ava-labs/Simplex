@@ -320,6 +320,15 @@ func (r *ReplicationState) MaybeAdvanceState(nextSequenceToCommit uint64, curren
 	r.roundRequestor.updateState(currentRound)
 }
 
+func (r *ReplicationState) Purge(shouldDelete func(block common.Block) bool) {
+	for seq, blockWithFinalization := range r.seqs {
+		if shouldDelete(blockWithFinalization.block) {
+			r.logger.Debug("Replication State Purging Sequence", zap.Uint64("seq", seq))
+			delete(r.seqs, seq)
+		}
+	}
+}
+
 func (r *ReplicationState) GetFinalizedBlockForSequence(seq uint64) (common.Block, *common.Finalization, bool) {
 	blockWithFinalization, exists := r.seqs[seq]
 	if !exists {

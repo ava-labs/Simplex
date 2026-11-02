@@ -12,6 +12,7 @@ import (
 
 var (
 	errBlacklistTooManyUpdates              = fmt.Errorf("too many blacklist updates")
+	errBlacklistTooManySuspectedNodes       = fmt.Errorf("too many suspected nodes in blacklist")
 	errBlacklistInvalidNodeIndex            = fmt.Errorf("invalid node index in blacklist update")
 	errBlacklistNodeIndexAlreadyUpdated     = fmt.Errorf("node index already updated")
 	errBlacklistNodeAlreadyBlacklisted      = fmt.Errorf("node index already blacklisted")
@@ -481,6 +482,9 @@ func (bl *Blacklist) FromBytes(buff []byte) error {
 func (bl *Blacklist) VerifyProposedBlacklist(candidateBlacklist Blacklist, round uint64) error {
 	if candidateBlacklist.nodeCount != bl.nodeCount {
 		return fmt.Errorf("%s, expected %d, got %d", errBlacklistInvalidNodeCount, bl.nodeCount, candidateBlacklist.nodeCount)
+	}
+	if len(candidateBlacklist.suspectedNodes) > int(bl.nodeCount) {
+		return fmt.Errorf("%w: %d, only %d nodes exist", errBlacklistTooManySuspectedNodes, len(candidateBlacklist.suspectedNodes), bl.nodeCount)
 	}
 	if !isValidMaxBlacklistedOrbitsTransition(bl.maxBlacklistedOrbits, candidateBlacklist.maxBlacklistedOrbits) {
 		return fmt.Errorf("%s, expected a non-zero value within one orbit of %d, got %d", errBlacklistInvalidMaxBlacklistedOrbits, bl.maxBlacklistedOrbits, candidateBlacklist.maxBlacklistedOrbits)

@@ -114,6 +114,7 @@ type Epoch struct {
 	validatorsToPKs                map[string][]byte
 	rounds                         map[uint64]*Round
 	emptyVotes                     map[uint64]*EmptyVoteSet
+	blockDigestsVotedFor           map[uint64]common.Digest
 	futureMessages                 messagesFromNode
 	round                          uint64 // The current round we notarize
 	monitor                        *Monitor
@@ -240,6 +241,7 @@ func (e *Epoch) init() error {
 	e.replicationState = NewReplicationState(e.Logger, e.Comm, e.ID, e.MaxRoundWindow, e.ReplicationEnabled, e.StartTime, &e.lock, e.RandomSource)
 	e.timeoutHandler = common.NewTimeoutHandler(e.Logger, "emptyVoteRebroadcast", e.StartTime, e.MaxRebroadcastWait, e.emptyVoteTimeoutTaskRunner)
 	e.signatureAggregator = e.SignatureAggregatorCreator(e.validators)
+	e.blockDigestsVotedFor = make(map[uint64]common.Digest)
 	e.validatorsToPKs = make(map[string][]byte, len(e.validatorNodeIDs))
 	for _, node := range e.validators {
 		e.validatorsToPKs[string(node.Id)] = node.PK
@@ -366,6 +368,12 @@ func (e *Epoch) loadBlockRecord(block common.Block) error {
 
 	e.rounds[block.BlockHeader().Round] = NewRound(verifiedBlock)
 	e.Logger.Info("Block Proposal Recovered From WAL", zap.Uint64("Round", block.BlockHeader().Round))
+
+	// Record the block digest for this round if this is the first block we've received for this round.
+	r := block.BlockHeader().Round
+	if _, exists := e.blockDigestsVotedFor[r]; !exists {
+		e.blockDigestsVotedFor[r] = block.BlockHeader().Digest
+	}
 	return nil
 }
 
@@ -615,7 +623,7 @@ func (e *Epoch) resumeFromWal(highestRoundRecord *walRound) error {
 			return e.startRound()
 		}
 
-		return e.doNotarized(notarization.Vote.Round)
+		return e.doNotarized(notarization.Vote.Round, true)
 	}
 
 	if highestRoundRecord.emptyNotarization != nil {
@@ -1769,6 +1777,7 @@ func (e *Epoch) persistNotarization(notarization common.Notarization) error {
 }
 
 func (e *Epoch) persistAndBroadcastNotarization(notarization common.Notarization) error {
+	advancedRound := notarization.Vote.Round == e.round
 	err := e.persistNotarization(notarization)
 	if err != nil {
 		return err
@@ -1782,7 +1791,7 @@ func (e *Epoch) persistAndBroadcastNotarization(notarization common.Notarization
 		zap.Uint64("seq", notarization.Vote.Seq),
 		zap.Stringer("digest", notarization.Vote.Digest))
 
-	return e.doNotarized(notarization.Vote.Round)
+	return e.doNotarized(notarization.Vote.Round, advancedRound)
 }
 
 func (e *Epoch) handleEmptyNotarizationMessage(emptyNotarization *common.EmptyNotarization, from common.NodeID) error {
@@ -1997,7 +2006,7 @@ func (e *Epoch) handleBlockMessage(message *common.BlockMessage, from common.Nod
 		e.sendMissingRoundsRequest(from, missingRounds)
 	}
 
-	if err := e.blockVerificationScheduler.ScheduleTaskWithDependencies(task, md.Seq, prevBlockDependency, missingRounds); err != nil {
+	if err := e.blockVerificationScheduler.ScheduleTaskWithDependencies(task, md.Seq, md.Epoch, prevBlockDependency, missingRounds); err != nil {
 		return nil
 	}
 
@@ -2089,7 +2098,6 @@ func (e *Epoch) processFinalizedBlock(block common.Block, finalization *common.F
 		if !bytes.Equal(roundDigest[:], seqDigest[:]) {
 			e.Logger.Debug("Received finalized block that is different from the one we have in the rounds map",
 				zap.Stringer("roundDigest", roundDigest), zap.Stringer("seqDigest", seqDigest))
-
 			delete(e.rounds, round.num)
 			return e.processFinalizedBlock(block, finalization)
 		}
@@ -2139,7 +2147,7 @@ func (e *Epoch) processFinalizedBlock(block common.Block, finalization *common.F
 
 	// Create a task that will verify the block in the future, after its predecessors have also been verified.
 	task := e.createFinalizedBlockVerificationTask(e.oneTimeVerifier.Wrap(block), finalization)
-	err := e.blockVerificationScheduler.ScheduleTaskWithDependencies(task, block.BlockHeader().Seq, blockDependency, []uint64{})
+	err := e.blockVerificationScheduler.ScheduleTaskWithDependencies(task, block.BlockHeader().Seq, block.BlockHeader().Epoch, blockDependency, []uint64{})
 	if errors.Is(err, common.ErrTooManyPendingVerifications) {
 		// A full scheduler shouldn't fatal
 		e.Logger.Debug("Dropping finalized block, too many pending verifications",
@@ -2196,7 +2204,7 @@ func (e *Epoch) processNotarizedBlock(block common.Block, notarization *common.N
 	blockDependency, _ := e.blockDependencies(md)
 
 	e.replicationState.CreateDependencyTasks(blockDependency, md.Seq-1, []uint64{})
-	err := e.blockVerificationScheduler.ScheduleTaskWithDependencies(task, md.Seq, blockDependency, []uint64{})
+	err := e.blockVerificationScheduler.ScheduleTaskWithDependencies(task, md.Seq, md.Epoch, blockDependency, []uint64{})
 	if errors.Is(err, common.ErrTooManyPendingVerifications) {
 		e.Logger.Debug("Verification queue is full, re-requesting notarized block", zap.Uint64("round", md.Round))
 		e.replicationState.ResendRoundRequest(md.Round, notarization.QC.Signers())
@@ -2416,6 +2424,19 @@ func (e *Epoch) createNotarizedBlockVerificationTask(block common.Block, notariz
 			return common.Digest{}
 		}
 
+		if ok && round.finalization != nil {
+			e.Logger.Debug("Verifying notarized block that already has a finalization for the round",
+				zap.Uint64("round", md.Round))
+			return common.Digest{}
+		}
+
+		if ok && round.notarization == nil && round.finalization == nil && round.block != nil {
+			// The round already has a block in the rounds map, but it's not notarized or finalized.
+			// We have the block and its notarization, so just delete the round before we proceed with
+			// storing the new block and notarization.
+			delete(e.rounds, md.Round)
+		}
+
 		// store the block in rounds
 		if !e.storeProposal(verifiedBlock) {
 			e.Logger.Debug("Unable to store proposed block for the round", zap.Uint64("round", md.Round))
@@ -2489,6 +2510,9 @@ func (e *Epoch) verifyProposalMetadataAndBlacklist(block common.Block) bool {
 	// If it's the latter we have nothing else to do.
 	// If it's the former, we need to find the parent of the block and ensure it is correct.
 	prevBlacklist := common.NewBlacklist(uint16(len(e.validatorNodeIDs)), common.GenesisMaxBlacklistedRounds)
+	if bh.Seq < e.nextSeqToCommit() {
+		return false
+	}
 	if bh.Seq > 0 {
 		prevBlock, _, found := e.locateBlock(bh.Seq-1, bh.Prev[:])
 		if !found {
@@ -3039,10 +3063,23 @@ func (e *Epoch) startRound() error {
 }
 
 func (e *Epoch) doProposed(block common.VerifiedBlock) error {
+	r := block.BlockHeader().Round
+	d := block.BlockHeader().Digest
+
+	if digestAlreadyVotedOn, exists := e.blockDigestsVotedFor[r]; exists && digestAlreadyVotedOn != d {
+		e.Logger.Debug("Not voting on block because we already voted on a different block for this round",
+			zap.Uint64("round", r),
+			zap.Stringer("already voted on digest", digestAlreadyVotedOn),
+			zap.Stringer("new block digest", d))
+		return nil
+	}
+
 	vote, err := e.voteOnBlock(block)
 	if err != nil {
 		return err
 	}
+
+	e.blockDigestsVotedFor[r] = d
 
 	md := block.BlockHeader()
 
@@ -3080,6 +3117,11 @@ func (e *Epoch) voteOnBlock(block common.VerifiedBlock) (common.Vote, error) {
 
 // deletesRounds deletes all the rounds before [round] in the rounds map.
 func (e *Epoch) deleteRounds(round uint64) {
+	for r := range e.blockDigestsVotedFor {
+		if r < round {
+			delete(e.blockDigestsVotedFor, r)
+		}
+	}
 	for i, r := range e.rounds {
 		if r.num+e.MaxRoundWindow < round {
 			delete(e.rounds, i)
@@ -3165,10 +3207,13 @@ func (e *Epoch) finalizeVoteForReplicatedNotarization(r uint64) error {
 	return e.handleFinalizeVoteMessage(&finalizeVote, e.ID)
 }
 
-func (e *Epoch) doNotarized(r uint64) error {
+func (e *Epoch) doNotarized(r uint64, advancedRound bool) error {
 	if e.haveWeAlreadyTimedOutOnThisRound(r) {
 		e.Logger.Info("We have already timed out on this round, will not finalize it", zap.Uint64("round", r))
-		return e.startRound()
+		if advancedRound {
+			return e.startRound()
+		}
+		return nil
 	}
 
 	round := e.rounds[r]
@@ -3187,10 +3232,11 @@ func (e *Epoch) doNotarized(r uint64) error {
 		zap.Uint64("seq", md.Seq),
 		zap.Stringer("digest", md.Digest))
 
-	err1 := e.startRound()
-	err2 := e.handleFinalizeVoteMessage(&finalizeVote, e.ID)
-
-	return errors.Join(err1, err2)
+	var advancedRoundErr error
+	if advancedRound {
+		advancedRoundErr = e.startRound()
+	}
+	return errors.Join(advancedRoundErr, e.handleFinalizeVoteMessage(&finalizeVote, e.ID))
 }
 
 func (e *Epoch) maybeConstructFinalizeVoteMessage(md common.BlockHeader) (common.FinalizeVote, *common.Message, error) {
