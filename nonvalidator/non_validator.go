@@ -91,6 +91,8 @@ type NonValidator struct {
 	// epochs contain a map of all epochs that have their validator set verified.
 	epochs epochs
 
+	latestEpochCommitted uint64
+
 	verifier *common.BlockDependencyManager
 
 	// sealingBlockTimeouts re-requests the sealing blocks between the highest validated epoch and
@@ -114,6 +116,16 @@ func NewNonValidator(config Config) (*NonValidator, error) {
 		}
 	}
 
+	var latestEpoch uint64
+	if config.Storage.NumBlocks() > 0 {
+		lastSeq := config.Storage.NumBlocks() - 1
+		_, f, err := config.Storage.Retrieve(lastSeq)
+		if err != nil {
+			return nil, err
+		}
+		latestEpoch = f.Finalization.Epoch
+	}
+
 	ctx, cancelFunc := context.WithCancel(context.Background())
 	scheduler := common.NewScheduler(config.Logger, simplex.DefaultProcessingBlocks)
 
@@ -134,7 +146,7 @@ func NewNonValidator(config Config) (*NonValidator, error) {
 		sequenceReplicator:    replicator,
 	}
 	nv.sealingBlockTimeouts = common.NewTimeoutHandler(config.Logger, "sealing block replication", config.StartTime, simplex.DefaultReplicationRequestTimeout, nv.requestMissingSealingBlocks)
-
+	nv.latestEpochCommitted = latestEpoch
 	return nv, nil
 }
 
@@ -244,10 +256,12 @@ func (n *NonValidator) processEpochReplicationQuorumRound(qr *common.QuorumRound
 // processSealingBlock validates the epoch a sealing block opens and stores its quorum round.
 // The finalization has not been verified yet. Storing tells the replicator a valid sequence exists
 // and its validity is checked when the round is processed.
+// Since the QC is unverified, its signers may be forged, so the sequences up to the sealing block
+// are requested from the validators instead.
 // It assumes block is already authenticated.
 func (n *NonValidator) processSealingBlock(qr *common.QuorumRound, from common.NodeID) {
 	n.maybeOpenEpochFromSealingBlock(qr.Block, from)
-	n.storeQuorumRound(qr)
+	n.sequenceReplicator.StoreFinalizedQuorumRoundWithSigners(qr, n.Comm.Validators().NodeIDs())
 }
 
 // finishEpochReplication marks epoch replication done. Every epoch from our tip to the highest one a
@@ -396,6 +410,16 @@ func (n *NonValidator) newFinalizedBlockTask(block common.Block, finalization *c
 			n.Logger.Info("Failed indexing a block and finalization", zap.Uint64("Block Seq", md.Seq), zap.Stringer("Block Digest", md.Digest), zap.Error(err))
 			return md.Digest
 		}
+
+		n.verifier.RemoveOldTasks(md.Seq)
+
+		prevEpoch := n.latestEpochCommitted
+		if md.Epoch > prevEpoch {
+			n.sequenceReplicator.Purge(func(block common.Block) bool {
+				return block.BlockHeader().Epoch < md.Epoch
+			})
+		}
+		n.latestEpochCommitted = md.Epoch
 
 		// Indexing a sealing block may make us a validator of the epoch it opens.
 		if block.SealingBlockInfo() != nil {
@@ -558,7 +582,7 @@ func (n *NonValidator) handleFinalization(finalization *common.Finalization, fro
 
 func (n *NonValidator) scheduleNewFinalizedBlockTask(block common.Block, finalization *common.Finalization) error {
 	bh := finalization.Finalization.BlockHeader
-	if n.verifier.IsSequenceScheduled(bh.Seq) {
+	if n.verifier.IsSequenceScheduled(bh.Seq, bh.Epoch) {
 		// Avoid scheduling more than one task.
 		// If verification during the task fails, we will try and reschedule.
 		return nil
@@ -570,7 +594,7 @@ func (n *NonValidator) scheduleNewFinalizedBlockTask(block common.Block, finaliz
 	if bh.Seq > 0 && !n.isIndexed(bh.Seq-1) {
 		prev = &bh.Prev
 	}
-	return n.verifier.ScheduleTaskWithDependencies(finalizedBlockTask, bh.Seq, prev, []uint64{})
+	return n.verifier.ScheduleTaskWithDependencies(finalizedBlockTask, bh.Seq, bh.Epoch, prev, []uint64{})
 }
 
 func (n *NonValidator) handleReplicationResponse(resp *common.ReplicationResponse, from common.NodeID) error {

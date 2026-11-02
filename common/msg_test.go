@@ -194,6 +194,33 @@ func TestQuorumRoundMalformed(t *testing.T) {
 			expectedErr: false,
 		},
 		{
+			name: "block and notarization and finalization of different epochs",
+			qr: common.QuorumRound{
+				Block:        &testutil.TestBlock{},
+				Notarization: &common.Notarization{Vote: common.ToBeSignedVote{BlockHeader: common.BlockHeader{ProtocolMetadata: common.ProtocolMetadata{Epoch: 1}}}},
+				Finalization: &common.Finalization{Finalization: common.ToBeSignedFinalization{BlockHeader: common.BlockHeader{ProtocolMetadata: common.ProtocolMetadata{Epoch: 2}}}},
+			},
+			expectedErr: true,
+		},
+		{
+			name: "block and notarization and empty notarization of different epochs",
+			qr: common.QuorumRound{
+				Block:             &testutil.TestBlock{},
+				Notarization:      &common.Notarization{Vote: common.ToBeSignedVote{BlockHeader: common.BlockHeader{ProtocolMetadata: common.ProtocolMetadata{Epoch: 1}}}},
+				EmptyNotarization: &common.EmptyNotarization{Vote: common.ToBeSignedEmptyVote{EmptyVoteMetadata: common.EmptyVoteMetadata{Epoch: 2}}},
+			},
+			expectedErr: true,
+		},
+		{
+			name: "block and finalization and empty notarization of different epochs",
+			qr: common.QuorumRound{
+				Block:             &testutil.TestBlock{},
+				Finalization:      &common.Finalization{Finalization: common.ToBeSignedFinalization{BlockHeader: common.BlockHeader{ProtocolMetadata: common.ProtocolMetadata{Epoch: 1}}}},
+				EmptyNotarization: &common.EmptyNotarization{Vote: common.ToBeSignedEmptyVote{EmptyVoteMetadata: common.EmptyVoteMetadata{Epoch: 2}}},
+			},
+			expectedErr: true,
+		},
+		{
 			name: "empty notarization and finalization, no block",
 			qr: common.QuorumRound{
 				EmptyNotarization: &common.EmptyNotarization{},
@@ -284,8 +311,8 @@ func TestVerifyQCConsistentWithBlock(t *testing.T) {
 	notarization := func(bh common.BlockHeader) *common.Notarization {
 		return &common.Notarization{Vote: common.ToBeSignedVote{BlockHeader: bh}}
 	}
-	emptyNotarization := func(round uint64) *common.EmptyNotarization {
-		return &common.EmptyNotarization{Vote: common.ToBeSignedEmptyVote{EmptyVoteMetadata: common.EmptyVoteMetadata{Round: round, Epoch: bh.Epoch}}}
+	emptyNotarization := func(round, epoch uint64) *common.EmptyNotarization {
+		return &common.EmptyNotarization{Vote: common.ToBeSignedEmptyVote{EmptyVoteMetadata: common.EmptyVoteMetadata{Round: round, Epoch: epoch}}}
 	}
 	// mutateHeader returns the block's header with one field changed, so the digest still matches the block.
 	mutateHeader := func(mutate func(*common.BlockHeader)) common.BlockHeader {
@@ -309,11 +336,11 @@ func TestVerifyQCConsistentWithBlock(t *testing.T) {
 		},
 		{
 			name: "notarization and empty notarization of the block's round",
-			qr:   common.QuorumRound{Block: block, Notarization: notarization(bh), EmptyNotarization: emptyNotarization(bh.Round)},
+			qr:   common.QuorumRound{Block: block, Notarization: notarization(bh), EmptyNotarization: emptyNotarization(bh.Round, bh.Epoch)},
 		},
 		{
 			name: "empty notarization without block",
-			qr:   common.QuorumRound{EmptyNotarization: emptyNotarization(bh.Round)},
+			qr:   common.QuorumRound{EmptyNotarization: emptyNotarization(bh.Round, bh.Epoch)},
 		},
 		{
 			name:        "malformed: finalization without block",
@@ -367,8 +394,12 @@ func TestVerifyQCConsistentWithBlock(t *testing.T) {
 		},
 		{
 			name:        "empty notarization round mismatch",
-			qr:          common.QuorumRound{Block: block, Notarization: notarization(bh), EmptyNotarization: emptyNotarization(bh.Round + 1)},
+			qr:          common.QuorumRound{Block: block, Notarization: notarization(bh), EmptyNotarization: emptyNotarization(bh.Round+1, bh.Epoch)},
 			expectedErr: true,
+		},
+		{
+			name: "finalization and empty notarization of the block's round",
+			qr:   common.QuorumRound{Block: block, Finalization: finalization(bh), EmptyNotarization: emptyNotarization(bh.Round, bh.Epoch)},
 		},
 	}
 
