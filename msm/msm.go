@@ -587,11 +587,7 @@ func (sm *StateMachine) buildBlockOrTransitionEpoch(ctx context.Context, parentB
 		if errors.Is(context.Cause(ctx), common.ErrShouldBuildEmptyBlock) {
 			now := sm.GetTime()
 			icmEpochInfo := computeICMEpochInfo(parentBlock, sm.ComputeICMEpoch, now)
-			pChainHeight := sm.GetPChainHeightForProposing()
-			if parentBlock.Metadata.PChainHeight > pChainHeight {
-				pChainHeight = parentBlock.Metadata.PChainHeight
-			}
-			return wrapBlock(nil, newSimplexEpochInfo, pChainHeight, simplexMetadata, simplexBlacklist, now, parentBlock.Metadata.Timestamp, icmEpochInfo, nil), nil
+			return wrapBlock(nil, newSimplexEpochInfo, blockBuildingDecider.getPChainHeight(), simplexMetadata, simplexBlacklist, now, parentBlock.Metadata.Timestamp, icmEpochInfo, nil), nil
 		}
 		return nil, err
 	}
