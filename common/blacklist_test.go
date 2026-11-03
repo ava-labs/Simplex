@@ -1350,16 +1350,16 @@ func TestBlacklistComputeThreshold(t *testing.T) {
 		totalWeight uint64
 		expected    uint64
 	}{
-		{totalWeight: 0, expected: 0},
-		{totalWeight: 1, expected: 1},
-		{totalWeight: 2, expected: 1},
-		{totalWeight: 3, expected: 1},
-		{totalWeight: 4, expected: 2},
-		{totalWeight: 6, expected: 2},
-		{totalWeight: 7, expected: 3},
-		{totalWeight: 10, expected: 4},
-		{totalWeight: 13, expected: 5},
-		{totalWeight: 100, expected: 34},
+		{totalWeight: 0, expected: uint64(F(0))},
+		{totalWeight: 1, expected: uint64(F(1)) + 1},
+		{totalWeight: 2, expected: uint64(F(2)) + 1},
+		{totalWeight: 3, expected: uint64(F(3)) + 1},
+		{totalWeight: 4, expected: uint64(F(4)) + 1},
+		{totalWeight: 6, expected: uint64(F(6)) + 1},
+		{totalWeight: 7, expected: uint64(F(7)) + 1},
+		{totalWeight: 10, expected: uint64(F(10)) + 1},
+		{totalWeight: 13, expected: uint64(F(13)) + 1},
+		{totalWeight: 100, expected: uint64(F(100)) + 1},
 		{totalWeight: math.MaxUint64, expected: math.MaxUint64 / 3},
 	} {
 		t.Run(fmt.Sprintf("%d", testCase.totalWeight), func(t *testing.T) {
@@ -1372,9 +1372,8 @@ func TestBlacklistComputeThreshold(t *testing.T) {
 func TestBlacklistEqualWeightsThresholdMatchesNodeCount(t *testing.T) {
 	// With equal weights, the weighted threshold must be f+1 nodes, as it was when counting nodes.
 	for nodeCount := uint16(1); nodeCount <= 100; nodeCount++ {
-		f := (nodeCount - 1) / 3
 		bl := Blacklist{nodeCount: nodeCount, totalWeight: uint64(nodeCount)}
-		require.Equal(t, uint64(f+1), bl.computeThreshold(), "nodeCount %d", nodeCount)
+		require.Equal(t, uint64(F(int(nodeCount))+1), bl.computeThreshold(), "nodeCount %d", nodeCount)
 	}
 }
 
