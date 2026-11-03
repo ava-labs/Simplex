@@ -2539,7 +2539,7 @@ func (e *Epoch) verifyProposalMetadataAndBlacklist(block common.Block) bool {
 		}
 	}
 
-	if err := prevBlacklist.VerifyProposedBlacklist(uint16(len(e.validators)), block.Blacklist(), e.round, e.validators.Weights()); err != nil {
+	if err := prevBlacklist.VerifyProposedBlacklist(e.validators, block.Blacklist(), e.round); err != nil {
 		e.Logger.Debug("Block contains an invalid blacklist", zap.Error(err))
 		return false
 	}
@@ -2640,7 +2640,7 @@ func (e *Epoch) buildBlock() {
 	}
 
 	// Create the blacklist for the next round:
-	nextBlacklist := prevBlacklist.Next(uint16(len(e.validators)), metadata.Round, e.MaxBlacklistedRounds, e.validators.Weights(), e.timedOutRounds, e.redeemedRounds)
+	nextBlacklist := prevBlacklist.Next(e.validators, metadata.Round, e.MaxBlacklistedRounds, e.timedOutRounds, e.redeemedRounds)
 
 	e.Logger.Debug("Blacklist updated",
 		zap.Uint64("round", metadata.Round),

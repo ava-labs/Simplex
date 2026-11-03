@@ -18,7 +18,12 @@ import (
 func TestParseBlockSizeMatchesBytes(t *testing.T) {
 	blacklistWithUpdate := func() common.Blacklist {
 		blacklist := common.NewBlacklist(simplex.DefaultMaxBlacklistedRounds)
-		return blacklist.Next(2, 1, simplex.DefaultMaxBlacklistedRounds, testutil.EqualWeights(2), map[uint16]uint64{1: 1}, nil)
+		weights := testutil.EqualWeights(2)
+		nodes := make(common.Nodes, len(weights))
+		for i, w := range weights {
+			nodes[i] = common.Node{Weight: w}
+		}
+		return blacklist.Next(nodes, 1, simplex.DefaultMaxBlacklistedRounds, map[uint16]uint64{1: 1}, nil)
 	}
 	// Case 1: Bytes() first, Size() second, size returns the cached length.
 	pb := &ParsedBlock{

@@ -139,7 +139,7 @@ func TestBlacklistVerifyProposedBlacklist(t *testing.T) {
 		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			err := testCase.blacklist.VerifyProposedBlacklist(testCase.nodeCount, testCase.proposedBlacklist, testCase.round, equalWeights(testCase.nodeCount))
+			err := testCase.blacklist.VerifyProposedBlacklist(nodesWithWeights(equalWeights(testCase.nodeCount)), testCase.proposedBlacklist, testCase.round)
 			require.ErrorContains(t, err, testCase.expectedErr.Error())
 		})
 	}
@@ -318,10 +318,10 @@ func TestBlacklistSimpleFlow(t *testing.T) {
 	var bl Blacklist
 	require.False(t, bl.IsNodeSuspected(2, nodeCount))
 
-	bl.setNodeSuspected(1, 2, 1, weights)
+	bl.setNodeSuspected(1, 2, 1, weights, nodeCount)
 	require.False(t, bl.IsNodeSuspected(2, nodeCount))
 
-	bl.setNodeSuspected(1, 2, 1, weights)
+	bl.setNodeSuspected(1, 2, 1, weights, nodeCount)
 	require.True(t, bl.IsNodeSuspected(2, nodeCount))
 
 	bl.suspectedNodes = bl.garbageCollectSuspectedNodes(nodeCount, 5, nodeCount)
@@ -355,17 +355,17 @@ func TestBlacklistCapAppliesToPendingSuspects(t *testing.T) {
 		var bl Blacklist
 
 		// One accusation each: both nodes are pending, neither is blacklisted.
-		bl.setNodeSuspected(1, 2, 1, weights)
-		bl.setNodeSuspected(1, 3, 1, weights)
+		bl.setNodeSuspected(1, 2, 1, weights, nodeCount)
+		bl.setNodeSuspected(1, 3, 1, weights, nodeCount)
 		require.Len(t, bl.suspectedNodes, 2)
 		require.Zero(t, countBlacklisted(bl))
 
 		// A second accusation blacklists node 2 and fills the cap.
-		bl.setNodeSuspected(1, 2, 1, weights)
+		bl.setNodeSuspected(1, 2, 1, weights, nodeCount)
 		require.True(t, bl.IsNodeSuspected(2, nodeCount))
 
 		// A second accusation of the pending node 3 must not blacklist it: f nodes are already blacklisted.
-		bl.setNodeSuspected(1, 3, 1, weights)
+		bl.setNodeSuspected(1, 3, 1, weights, nodeCount)
 		require.False(t, bl.IsNodeSuspected(3, nodeCount))
 		require.LessOrEqual(t, countBlacklisted(bl), f, "%s", bl.String())
 	})
@@ -379,11 +379,11 @@ func TestBlacklistCapAppliesToPendingSuspects(t *testing.T) {
 		}
 
 		var bl Blacklist
-		bl = bl.Next(nodeCount, firstRound, 0, weights, map[uint16]uint64{0: firstRound, 1: firstRound}, nil)
+		bl = bl.Next(nodesWithWeights(weights), firstRound, 0, map[uint16]uint64{0: firstRound, 1: firstRound}, nil)
 		require.Len(t, bl.suspectedNodes, 2)
 		require.Zero(t, countBlacklisted(bl))
 
-		bl = bl.Next(nodeCount, secondRound, 0, weights, map[uint16]uint64{0: secondRound, 1: secondRound}, nil)
+		bl = bl.Next(nodesWithWeights(weights), secondRound, 0, map[uint16]uint64{0: secondRound, 1: secondRound}, nil)
 		require.LessOrEqual(t, countBlacklisted(bl), f, "%s", bl.String())
 	})
 }
@@ -494,7 +494,7 @@ func TestComputeBlacklistUpdates(t *testing.T) {
 				suspectedNodes: testCase.suspectedNodes,
 			}
 
-			next := blacklist.Next(4, testCase.round, 0, equalWeights(4), testCase.timedOut, testCase.redeemed)
+			next := blacklist.Next(nodesWithWeights(equalWeights(4)), testCase.round, 0, testCase.timedOut, testCase.redeemed)
 			require.Equal(t, testCase.expectedUpdates, next.updates)
 		})
 	}
@@ -676,13 +676,13 @@ func TestBlacklistMultipleAttemptsOverSeveralOrbits(t *testing.T) {
 
 	var blacklist Blacklist
 
-	blacklist = blacklist.Next(nodeCount, 4, 0, weights, map[uint16]uint64{3: 4}, nil)
+	blacklist = blacklist.Next(nodesWithWeights(weights), 4, 0, map[uint16]uint64{3: 4}, nil)
 	require.False(t, blacklist.IsNodeSuspected(3, nodeCount))
 
-	blacklist = blacklist.Next(nodeCount, 7, 0, weights, map[uint16]uint64{3: 7}, nil)
+	blacklist = blacklist.Next(nodesWithWeights(weights), 7, 0, map[uint16]uint64{3: 7}, nil)
 	require.False(t, blacklist.IsNodeSuspected(3, nodeCount))
 
-	blacklist = blacklist.Next(nodeCount, 8, 0, weights, map[uint16]uint64{3: 8}, nil)
+	blacklist = blacklist.Next(nodesWithWeights(weights), 8, 0, map[uint16]uint64{3: 8}, nil)
 	require.True(t, blacklist.IsNodeSuspected(3, nodeCount))
 }
 
@@ -816,9 +816,9 @@ func simulateRound(t *testing.T, blrsi blacklistRoundSimulationInput) Blacklist 
 	}
 
 	// The blacklist starts with a single orbit's worth of max blacklisted rounds, which is the floor it stays at for a target of zero.
-	newBlacklist := prevBlacklist.Next(uint16(nodeCount), round, 0, weights, timedOut, redeemed)
+	newBlacklist := prevBlacklist.Next(nodesWithWeights(weights), round, 0, timedOut, redeemed)
 
-	err := prevBlacklist.VerifyProposedBlacklist(uint16(nodeCount), newBlacklist, round, weights)
+	err := prevBlacklist.VerifyProposedBlacklist(nodesWithWeights(weights), newBlacklist, round)
 	require.NoError(t, err, "round %d", round)
 
 	// The blacklisted nodes must never hold a threshold of the total weight.
@@ -947,7 +947,7 @@ func TestBlacklistMaxBlacklistedRoundsIsPreserved(t *testing.T) {
 	bl := NewBlacklist(4620)
 	require.Equal(t, uint16(4620), bl.maxBlacklistedRounds)
 
-	applied := bl.Next(4, 5, 4620, equalWeights(4), map[uint16]uint64{1: 5}, nil)
+	applied := bl.Next(nodesWithWeights(equalWeights(4)), 5, 4620, map[uint16]uint64{1: 5}, nil)
 	require.Equal(t, bl.maxBlacklistedRounds, applied.maxBlacklistedRounds, "Next should carry over maxBlacklistedRounds when it is already at the target")
 
 	cloned := applied.Clone()
@@ -1016,7 +1016,7 @@ func TestBlacklistedNodeExpiresAfterMaxBlacklistedOrbits(t *testing.T) {
 			}
 			require.True(t, bl.IsNodeSuspected(blacklistedNode, nodeCount))
 
-			next := bl.Next(nodeCount, testCase.round, maxBlacklistedRounds, equalWeights(nodeCount), nil, nil)
+			next := bl.Next(nodesWithWeights(equalWeights(nodeCount)), testCase.round, maxBlacklistedRounds, nil, nil)
 			require.Equal(t, uint16(maxBlacklistedRounds), next.maxBlacklistedRounds)
 
 			if testCase.expectExpired {
@@ -1050,19 +1050,19 @@ func TestBlacklistedNodeExpiryEndToEnd(t *testing.T) {
 	}
 
 	// Round 2 and 3 are in orbit 1 for node 1. Two accusations blacklist it (f+1 = 2).
-	bl = bl.Next(nodeCount, 2, maxBlacklistedRounds, weights, suspect(2), nil)
+	bl = bl.Next(nodesWithWeights(weights), 2, maxBlacklistedRounds, suspect(2), nil)
 	require.False(t, bl.IsNodeSuspected(blacklistedNode, nodeCount))
-	bl = bl.Next(nodeCount, 3, maxBlacklistedRounds, weights, suspect(3), nil)
+	bl = bl.Next(nodesWithWeights(weights), 3, maxBlacklistedRounds, suspect(3), nil)
 	require.True(t, bl.IsNodeSuspected(blacklistedNode, nodeCount))
 
 	// Round 4 is still orbit 1 for node 1, and orbit 2 spans rounds 5-8: still blacklisted.
 	for round := uint64(4); round <= 8; round++ {
-		bl = bl.Next(nodeCount, round, maxBlacklistedRounds, weights, nil, nil)
+		bl = bl.Next(nodesWithWeights(weights), round, maxBlacklistedRounds, nil, nil)
 		require.True(t, bl.IsNodeSuspected(blacklistedNode, nodeCount), "round %d", round)
 	}
 
 	// orbit 3 (round 9): expired.
-	bl = bl.Next(nodeCount, 9, maxBlacklistedRounds, weights, nil, nil)
+	bl = bl.Next(nodesWithWeights(weights), 9, maxBlacklistedRounds, nil, nil)
 	require.False(t, bl.IsNodeSuspected(blacklistedNode, nodeCount))
 	require.Empty(t, bl.suspectedNodes)
 
@@ -1071,7 +1071,7 @@ func TestBlacklistedNodeExpiryEndToEnd(t *testing.T) {
 	require.ErrorContains(t, bl.verifyBlacklistUpdates(nodeCount, redeem, nodeCount), errBlacklistNodeNotBlacklisted.Error())
 
 	// An expired node can be suspected again from scratch.
-	bl = bl.Next(nodeCount, 10, maxBlacklistedRounds, weights, suspect(10), nil)
+	bl = bl.Next(nodesWithWeights(weights), 10, maxBlacklistedRounds, suspect(10), nil)
 	require.False(t, bl.IsNodeSuspected(blacklistedNode, nodeCount))
 	require.Equal(t, suspectedNodes{{NodeIndex: blacklistedNode, SuspectingWeight: 1, OrbitSuspected: 3}}, bl.suspectedNodes)
 }
@@ -1097,16 +1097,16 @@ func TestBlacklistVerifyProposedBlacklistMaxBlacklistedRoundsStep(t *testing.T) 
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			prev := Blacklist{maxBlacklistedRounds: testCase.prev}
-			proposed := prev.Next(nodeCount, 5, 0, weights, nil, nil)
+			proposed := prev.Next(nodesWithWeights(weights), 5, 0, nil, nil)
 			proposed.maxBlacklistedRounds = testCase.proposed
-			require.NoError(t, prev.VerifyProposedBlacklist(nodeCount, proposed, 5, weights))
+			require.NoError(t, prev.VerifyProposedBlacklist(nodesWithWeights(weights), proposed, 5))
 		})
 	}
 }
 
 func TestVerifyProposedBlacklistHugeSuspectedNodesCost(t *testing.T) {
 	prev := NewBlacklist(10)
-	candidate := prev.Next(4, 5, 10, equalWeights(4), nil, nil)
+	candidate := prev.Next(nodesWithWeights(equalWeights(4)), 5, 10, nil, nil)
 	candidate.suspectedNodes = make(suspectedNodes, 1_000_000)
 
 	// Round-trip through bytes, as the candidate would arrive over the wire.
@@ -1114,7 +1114,7 @@ func TestVerifyProposedBlacklistHugeSuspectedNodesCost(t *testing.T) {
 	require.NoError(t, decoded.FromBytes(candidate.Bytes()))
 	require.Len(t, decoded.suspectedNodes, 1_000_000)
 
-	err := prev.VerifyProposedBlacklist(4, decoded, 5, equalWeights(4))
+	err := prev.VerifyProposedBlacklist(nodesWithWeights(equalWeights(4)), decoded, 5)
 	require.ErrorIs(t, err, errBlacklistTooManySuspectedNodes)
 	require.Less(t, len(err.Error()), 200)
 }
@@ -1145,7 +1145,7 @@ func TestBlacklistNextMaxBlacklistedRounds(t *testing.T) {
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			bl := Blacklist{maxBlacklistedRounds: testCase.current}
-			next := bl.Next(nodeCount, 5, testCase.target, equalWeights(nodeCount), nil, nil)
+			next := bl.Next(nodesWithWeights(equalWeights(nodeCount)), 5, testCase.target, nil, nil)
 			require.Equal(t, testCase.expected, next.maxBlacklistedRounds)
 			require.True(t, isValidMaxBlacklistedRoundsTransition(testCase.current, next.maxBlacklistedRounds, nodeCount))
 		})
@@ -1199,8 +1199,8 @@ func TestBlacklistMaxBlacklistedRoundsRollingUpgrade(t *testing.T) {
 	buildAndVerify := func() {
 		leader := round % nodeCount
 		// The leader's target orbits correspond to that many orbits' worth of rounds.
-		next := bl.Next(nodeCount, round, targets[leader]*nodeCount, weights, nil, nil)
-		require.NoError(t, bl.VerifyProposedBlacklist(nodeCount, next, round, weights), "round %d", round)
+		next := bl.Next(nodesWithWeights(weights), round, targets[leader]*nodeCount, nil, nil)
+		require.NoError(t, bl.VerifyProposedBlacklist(nodesWithWeights(weights), next, round), "round %d", round)
 		bl = next
 		round++
 	}
@@ -1243,6 +1243,16 @@ func equalWeights(nodeCount uint16) []uint64 {
 	return weights
 }
 
+// nodesWithWeights returns Nodes with the given weights, one node per weight, for use with
+// functions that take Nodes instead of a node count and a weights slice.
+func nodesWithWeights(weights []uint64) Nodes {
+	nodes := make(Nodes, len(weights))
+	for i, w := range weights {
+		nodes[i] = Node{Weight: w}
+	}
+	return nodes
+}
+
 func TestBlacklistEqualWeightsThresholdMatchesNodeCount(t *testing.T) {
 	// With equal weights, the weighted threshold must be f+1 nodes, as it was when counting nodes.
 	for nodeCount := uint16(1); nodeCount <= 100; nodeCount++ {
@@ -1279,11 +1289,11 @@ func TestBlacklistSuspectingWeightIsTheLeaderWeight(t *testing.T) {
 			bl := NewBlacklist(GenesisMaxBlacklistedRounds)
 			require.Equal(t, uint64(1), orbit(testCase.round, suspectedNode, 4))
 
-			next := bl.Next(4, testCase.round, GenesisMaxBlacklistedRounds, weights, map[uint16]uint64{suspectedNode: testCase.round}, nil)
+			next := bl.Next(nodesWithWeights(weights), testCase.round, GenesisMaxBlacklistedRounds, map[uint16]uint64{suspectedNode: testCase.round}, nil)
 			require.Equal(t, suspectedNodes{{NodeIndex: suspectedNode, SuspectingWeight: testCase.expectedSuspectingWeight, OrbitSuspected: 1}}, next.suspectedNodes)
 			require.Equal(t, testCase.expectBlacklisted, next.IsNodeSuspected(suspectedNode, totalWeight))
 
-			require.NoError(t, bl.VerifyProposedBlacklist(4, next, testCase.round, weights))
+			require.NoError(t, bl.VerifyProposedBlacklist(nodesWithWeights(weights), next, testCase.round))
 		})
 	}
 }
@@ -1300,8 +1310,8 @@ func TestBlacklistLightLeadersAccumulateSuspectingWeight(t *testing.T) {
 	// Node 1 (weight 1) accuses, then node 2 (weight 1) accuses, then node 3 (weight 1) accuses.
 	for i, round := range []uint64{7, 8, 9} {
 		require.Equal(t, uint64(1), orbit(round, suspectedNode, 6))
-		next := bl.Next(6, round, GenesisMaxBlacklistedRounds, weights, map[uint16]uint64{suspectedNode: round}, nil)
-		require.NoError(t, bl.VerifyProposedBlacklist(6, next, round, weights))
+		next := bl.Next(nodesWithWeights(weights), round, GenesisMaxBlacklistedRounds, map[uint16]uint64{suspectedNode: round}, nil)
+		require.NoError(t, bl.VerifyProposedBlacklist(nodesWithWeights(weights), next, round))
 		bl = next
 		require.Equal(t, uint64(i+1), bl.suspectedNodes[0].SuspectingWeight)
 		require.Equal(t, i == 2, bl.IsNodeSuspected(suspectedNode, totalWeight), "round %d", round)
@@ -1319,8 +1329,8 @@ func TestBlacklistRedeemingWeightIsTheLeaderWeight(t *testing.T) {
 
 	redeem := func(round uint64) {
 		require.Equal(t, uint64(2), orbit(round, blacklistedNode, 4))
-		next := bl.Next(4, round, GenesisMaxBlacklistedRounds, weights, nil, map[uint16]uint64{blacklistedNode: round})
-		require.NoError(t, bl.VerifyProposedBlacklist(4, next, round, weights))
+		next := bl.Next(nodesWithWeights(weights), round, GenesisMaxBlacklistedRounds, nil, map[uint16]uint64{blacklistedNode: round})
+		require.NoError(t, bl.VerifyProposedBlacklist(nodesWithWeights(weights), next, round))
 		bl = next
 	}
 
@@ -1340,11 +1350,11 @@ func TestBlacklistVerifyProposedBlacklistUsesWeights(t *testing.T) {
 	weights := []uint64{10, 1, 1, 1}
 	bl := NewBlacklist(GenesisMaxBlacklistedRounds)
 
-	next := bl.Next(4, 4, GenesisMaxBlacklistedRounds, weights, map[uint16]uint64{2: 4}, nil)
-	require.NoError(t, bl.VerifyProposedBlacklist(4, next, 4, weights))
+	next := bl.Next(nodesWithWeights(weights), 4, GenesisMaxBlacklistedRounds, map[uint16]uint64{2: 4}, nil)
+	require.NoError(t, bl.VerifyProposedBlacklist(nodesWithWeights(weights), next, 4))
 
 	otherWeights := []uint64{1, 10, 1, 1}
-	err := bl.VerifyProposedBlacklist(4, next, 4, otherWeights)
+	err := bl.VerifyProposedBlacklist(nodesWithWeights(otherWeights), next, 4)
 	require.ErrorContains(t, err, errBlacklistInvalidBlacklist.Error())
 }
 
@@ -1359,23 +1369,24 @@ func TestBlacklistCapIsWeightBased(t *testing.T) {
 			{NodeIndex: 0, SuspectingWeight: threshold, OrbitSuspected: 1},
 			{NodeIndex: 1, SuspectingWeight: threshold, OrbitSuspected: 1},
 		}
-		bl.setNodeSuspected(1, 2, weights[9], weights)
+		bl.setNodeSuspected(1, 2, weights[9], weights, nodeCount)
 		require.Len(t, bl.suspectedNodes, 3, "a third node can still be accused")
 		bl.suspectedNodes[2].SuspectingWeight = threshold
 
-		bl.setNodeSuspected(1, 3, weights[9], weights)
+		bl.setNodeSuspected(1, 3, weights[9], weights, nodeCount)
 		require.Len(t, bl.suspectedNodes, 3, "f=3 nodes are blacklisted, a fourth cannot be accused")
 	})
 
 	t.Run("a heavy node cannot be blacklisted", func(t *testing.T) {
 		// Node 0 holds half of the weight, more than the threshold of 4 out of 10.
 		weights := []uint64{5, 1, 1, 1, 1, 1}
+		totalWeight := uint64s(weights).Sum()
 		bl := Blacklist{maxBlacklistedRounds: 6}
 
-		bl.setNodeSuspected(1, 0, weights[1], weights)
+		bl.setNodeSuspected(1, 0, weights[1], weights, totalWeight)
 		require.Empty(t, bl.suspectedNodes)
 
-		bl.setNodeSuspected(1, 2, weights[1], weights)
+		bl.setNodeSuspected(1, 2, weights[1], weights, totalWeight)
 		require.Len(t, bl.suspectedNodes, 1, "a light node can still be accused")
 	})
 
@@ -1389,15 +1400,15 @@ func TestBlacklistCapIsWeightBased(t *testing.T) {
 		require.Len(t, bl.suspectedNodes, 1)
 
 		// Blacklisting node 0 (weight 3) would put a threshold of the weight on the blacklist.
-		bl.setNodeSuspected(1, 0, weights[3], weights)
+		bl.setNodeSuspected(1, 0, weights[3], weights, totalWeight)
 		require.Len(t, bl.suspectedNodes, 1)
 		require.False(t, bl.IsNodeSuspected(0, totalWeight))
 
 		// Node 2 (weight 1) can still be accused.
-		bl.setNodeSuspected(1, 2, weights[3], weights)
-		bl.setNodeSuspected(1, 2, weights[4], weights)
-		bl.setNodeSuspected(1, 2, weights[5], weights)
-		bl.setNodeSuspected(1, 2, weights[6], weights)
+		bl.setNodeSuspected(1, 2, weights[3], weights, totalWeight)
+		bl.setNodeSuspected(1, 2, weights[4], weights, totalWeight)
+		bl.setNodeSuspected(1, 2, weights[5], weights, totalWeight)
+		bl.setNodeSuspected(1, 2, weights[6], weights, totalWeight)
 		require.Equal(t, suspectedNodes{
 			{NodeIndex: 1, SuspectingWeight: 4, OrbitSuspected: 1},
 			{NodeIndex: 2, SuspectingWeight: 4, OrbitSuspected: 1},
@@ -1504,7 +1515,7 @@ func TestBlacklistIgnoresMismatchingWeights(t *testing.T) {
 				maxBlacklistedRounds: 10 * nodeCount,
 				suspectedNodes:       testCase.suspectedNodes,
 			}
-			next := bl.applyUpdates(nodeCount, testCase.updates, testCase.round, testCase.weights)
+			next := bl.applyUpdates(nodeCount, testCase.updates, testCase.round, testCase.weights, uint64s(testCase.weights).Sum())
 			require.Equal(t, testCase.expectedSuspectedNodes, next.suspectedNodes)
 		})
 	}
