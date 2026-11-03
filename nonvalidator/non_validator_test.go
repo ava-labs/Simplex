@@ -1939,14 +1939,11 @@ func TestNonValidatorRejectsEpochForgedByLowStakeValidators(t *testing.T) {
 		PrevSealingBlockHash: tc.sealingBlockHash,
 	})
 
-	attackersFinalization := func(block common.VerifiedBlock) *common.Finalization {
-		finalization, _ := testutil.NewFinalizationRecord(t, weightedSignatureAggregatorCreator(attackers), block, attackers.NodeIDs())
-		return &finalization
-	}
 	rr := func(block common.Block) *common.Message {
 		vb, err := block.Verify(t.Context())
 		require.NoError(t, err)
-		return replicationResponse(common.QuorumRound{Block: block, Finalization: attackersFinalization(vb)})
+		finalization, _ := testutil.NewFinalizationRecord(t, weightedSignatureAggregatorCreator(attackers), vb, attackers.NodeIDs())
+		return replicationResponse(common.QuorumRound{Block: block, Finalization: &finalization})
 	}
 
 	// Every attacker reports the forged sealing block, then one of them sends the block at the next sequence.
