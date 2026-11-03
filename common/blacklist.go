@@ -290,11 +290,20 @@ func (bl *Blacklist) applyUpdates(updates []BlacklistUpdate, round uint64, weigh
 	for i := range updates {
 		update := &updates[i]
 		orbit := orbit(round, update.NodeIndex, bl.nodeCount)
+
+		// Sanity check in case we get a too high node index.
+		// This shouldn't happen, but if it does, we should just ignore it.
+		if update.NodeIndex >= bl.nodeCount || len(weights) != int(bl.nodeCount) {
+			continue
+		}
+
+		suspectingOrRedeemingNodeWeight := weights[round%uint64(bl.nodeCount)]
+
 		switch update.Type {
 		case BlacklistOpType_NodeSuspected:
-			newBlacklist.setNodeSuspected(round, orbit, update.NodeIndex, weights)
+			newBlacklist.setNodeSuspected(orbit, update.NodeIndex, suspectingOrRedeemingNodeWeight, weights)
 		case BlacklistOpType_NodeRedeemed:
-			newBlacklist.setNodeRedeemed(round, orbit, update.NodeIndex, weights)
+			newBlacklist.setNodeRedeemed(orbit, update.NodeIndex, suspectingOrRedeemingNodeWeight)
 		}
 	}
 
@@ -337,19 +346,11 @@ func (bl *Blacklist) garbageCollectSuspectedNodes(round uint64) suspectedNodes {
 	return newSuspectedNodes
 }
 
-func (bl *Blacklist) setNodeSuspected(round, orbit uint64, nodeIndex uint16, weights []uint64) {
+func (bl *Blacklist) setNodeSuspected(orbit uint64, nodeIndex uint16, suspectingOrRedeemingNodeWeight uint64, weights []uint64) {
 	// An orbit of 0 is a no-op
 	if orbit == 0 {
 		return
 	}
-
-	// Sanity check in case we get a too high node index.
-	// This shouldn't happen, but if it does, we should just ignore it.
-	if nodeIndex >= bl.nodeCount || len(weights) != int(bl.nodeCount) {
-		return
-	}
-
-	suspectingNodeWeight := weights[round%uint64(bl.nodeCount)]
 
 	// First, look to see if the node is already suspected.
 	// If it is, then we shouldn't further increment its count.
@@ -387,7 +388,7 @@ func (bl *Blacklist) setNodeSuspected(round, orbit uint64, nodeIndex uint16, wei
 		if sn.NodeIndex == nodeIndex {
 			if sn.OrbitSuspected == orbit {
 				// The node is already there, so increment its suspecting weight.
-				sn.SuspectingWeight += suspectingNodeWeight
+				sn.SuspectingWeight += suspectingOrRedeemingNodeWeight
 				return
 			}
 			// Else, the orbit is different, so just return early.
@@ -398,26 +399,18 @@ func (bl *Blacklist) setNodeSuspected(round, orbit uint64, nodeIndex uint16, wei
 	// If we reached here, the node isn't in the suspected list, and it is small enough, so add it instead.
 	bl.suspectedNodes = append(bl.suspectedNodes, SuspectedNode{
 		NodeIndex:        nodeIndex,
-		SuspectingWeight: suspectingNodeWeight,
+		SuspectingWeight: suspectingOrRedeemingNodeWeight,
 		OrbitSuspected:   orbit,
 	})
 }
 
-func (bl *Blacklist) setNodeRedeemed(round, orbit uint64, nodeIndex uint16, weights []uint64) {
+func (bl *Blacklist) setNodeRedeemed(orbit uint64, nodeIndex uint16, suspectingOrRedeemingNodeWeight uint64) {
 	// An orbit of 0 is a no-op because a node cannot be suspected in orbit 0.
 	if orbit == 0 {
 		return
 	}
 
 	threshold := bl.computeThreshold()
-
-	// Sanity check in case we get a too high node index.
-	// This shouldn't happen, but if it does, we should just ignore it.
-	if nodeIndex >= bl.nodeCount || len(weights) != int(bl.nodeCount) {
-		return
-	}
-
-	redeemingNodeWeight := weights[round%uint64(bl.nodeCount)]
 
 	// First, look to see if the node is not suspected.
 	// If it is not, then we shouldn't try to redeem it.
@@ -439,7 +432,7 @@ func (bl *Blacklist) setNodeRedeemed(round, orbit uint64, nodeIndex uint16, weig
 				sn.OrbitToRedeem = orbit
 			}
 			if sn.OrbitToRedeem == orbit {
-				sn.RedeemingWeight += redeemingNodeWeight
+				sn.RedeemingWeight += suspectingOrRedeemingNodeWeight
 			}
 			// If we have found a threshold of redeeming nodes, then we need to remove the node
 			// from the suspected list.

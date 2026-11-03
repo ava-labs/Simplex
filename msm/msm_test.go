@@ -527,7 +527,7 @@ func TestByzantinePChainHeightStallsHonestBuilders(t *testing.T) {
 	honestBuilder.GetTime = fixedTime
 	verifier.GetTime = fixedTime
 
-	blacklist := common.NewBlacklist(4, simplex.DefaultMaxBlacklistedRounds)
+	blacklist := common.NewBlacklist(4, simplex.DefaultMaxBlacklistedRounds, simplex.DefaultMaxBlacklistedRounds)
 
 	md := lastBlock.Metadata.SimplexProtocolMetadata
 	md.Seq++
