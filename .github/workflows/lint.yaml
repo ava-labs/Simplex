@@ -4,18 +4,20 @@ on:
   pull_request:
     branches: [main]
 
-permissions:
-  contents: read
-  pull-requests: read
+permissions: {}
 
 jobs:
   format:
+    permissions:
+      contents: read
     name: Check Go Formatting
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
 
       - name: Set up Go
         uses: actions/setup-go@7b8cf10d4e4a01d4992d18a89f4d7dc5a3e6d6f4 # v4
